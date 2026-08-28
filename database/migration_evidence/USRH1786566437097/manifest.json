@@ -1,0 +1,132 @@
+{
+  "hu": "USRH1786566437097",
+  "ca": "CA-24",
+  "description": "Evidencia anexa versionada de la migración de assists. No es tabla del producto (§9.8).",
+  "steps": [
+    {
+      "step": "pre-m1",
+      "captured_at": "2026-08-21T23:09:57.663+00:00",
+      "duration_ms": 288,
+      "environment": {
+        "mysql_version": "9.4.0",
+        "database_name": "sae_pruebas",
+        "tz_sesion": "SYSTEM"
+      },
+      "counts": {
+        "filas_totales": 53,
+        "conjunto_a_duplicados_llave_null": 51,
+        "conjunto_b_sin_empresa": 0,
+        "conjunto_b_empleado_no_encontrado": 0,
+        "business_unit_id_null": 0,
+        "assist_natural_key_null": 51,
+        "por_via": {
+          "j3": 0,
+          "j2": 53,
+          "j1": 0,
+          "sin_resolver": 0,
+          "conflicto_j3_vs_j1": 0,
+          "conflicto_j2_vs_j1": 0
+        }
+      },
+      "artifacts": {
+        "conjunto_a_json": "database/migration_evidence/USRH1786566437097/conjunto-a-pre-m1-20260821-230957.json",
+        "conjunto_b_csv": "database/migration_evidence/USRH1786566437097/conjunto-b-pre-m1-20260821-230957.csv",
+        "cuarentena_csv": "database/migration_evidence/USRH1786566437097/cuarentena-pre-m1-20260821-230957.csv"
+      }
+    },
+    {
+      "step": "post-m1",
+      "captured_at": "2026-08-21T23:12:26.799+00:00",
+      "duration_ms": 286,
+      "environment": {
+        "mysql_version": "9.4.0",
+        "database_name": "sae_pruebas",
+        "tz_sesion": "SYSTEM"
+      },
+      "counts": {
+        "filas_totales": 53,
+        "conjunto_a_duplicados_llave_null": 51,
+        "conjunto_b_sin_empresa": 0,
+        "conjunto_b_empleado_no_encontrado": 0,
+        "business_unit_id_null": 0,
+        "assist_natural_key_null": 51,
+        "por_via": {
+          "j3": 0,
+          "j2": 53,
+          "j1": 0,
+          "sin_resolver": 0,
+          "conflicto_j3_vs_j1": 0,
+          "conflicto_j2_vs_j1": 0
+        }
+      },
+      "artifacts": {
+        "conjunto_a_json": "database/migration_evidence/USRH1786566437097/conjunto-a-post-m1-20260821-231226.json",
+        "conjunto_b_csv": "database/migration_evidence/USRH1786566437097/conjunto-b-post-m1-20260821-231226.csv",
+        "cuarentena_csv": "database/migration_evidence/USRH1786566437097/cuarentena-post-m1-20260821-231226.csv"
+      }
+    },
+    {
+      "step": "post-m2",
+      "captured_at": "2026-08-21T23:12:29.784+00:00",
+      "duration_ms": 281,
+      "environment": {
+        "mysql_version": "9.4.0",
+        "database_name": "sae_pruebas",
+        "tz_sesion": "SYSTEM"
+      },
+      "counts": {
+        "filas_totales": 53,
+        "conjunto_a_duplicados_llave_null": 51,
+        "conjunto_b_sin_empresa": 0,
+        "conjunto_b_empleado_no_encontrado": 0,
+        "business_unit_id_null": 0,
+        "assist_natural_key_null": 51,
+        "por_via": {
+          "j3": 0,
+          "j2": 53,
+          "j1": 0,
+          "sin_resolver": 0,
+          "conflicto_j3_vs_j1": 0,
+          "conflicto_j2_vs_j1": 0
+        }
+      },
+      "artifacts": {
+        "conjunto_a_json": "database/migration_evidence/USRH1786566437097/conjunto-a-post-m2-20260821-231229.json",
+        "conjunto_b_csv": "database/migration_evidence/USRH1786566437097/conjunto-b-post-m2-20260821-231229.csv",
+        "cuarentena_csv": "database/migration_evidence/USRH1786566437097/cuarentena-post-m2-20260821-231229.csv"
+      }
+    },
+    {
+      "step": "post-backfill",
+      "captured_at": "2026-08-21T23:17:29.226+00:00",
+      "duration_ms": 285,
+      "environment": {
+        "mysql_version": "9.4.0",
+        "database_name": "sae_pruebas",
+        "tz_sesion": "SYSTEM"
+      },
+      "counts": {
+        "filas_totales": 53,
+        "conjunto_a_duplicados_llave_null": 0,
+        "conjunto_b_sin_empresa": 0,
+        "conjunto_b_empleado_no_encontrado": 0,
+        "business_unit_id_null": 0,
+        "assist_natural_key_null": 0,
+        "por_via": {
+          "j3": 0,
+          "j2": 53,
+          "j1": 0,
+          "sin_resolver": 0,
+          "conflicto_j3_vs_j1": 0,
+          "conflicto_j2_vs_j1": 0
+        }
+      },
+      "artifacts": {
+        "conjunto_a_json": "database/migration_evidence/USRH1786566437097/conjunto-a-post-backfill-20260821-231729.json",
+        "conjunto_b_csv": "database/migration_evidence/USRH1786566437097/conjunto-b-post-backfill-20260821-231729.csv",
+        "cuarentena_csv": "database/migration_evidence/USRH1786566437097/cuarentena-post-backfill-20260821-231729.csv"
+      }
+    }
+  ],
+  "manual_resolutions_count": 0
+}

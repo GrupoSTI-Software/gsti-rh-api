@@ -6,6 +6,10 @@ import PageSync from '#models/assist_page_sync'
 import ResponseApiAssistsDto from '#dtos/response_api_assists_dto'
 import PaginationDto from '#dtos/pagination_api_dto'
 import Assist from '#models/assist'
+import { ASSIST_ORIGIN } from '#constants/assist_origin'
+import DataAssistsDto from '#dtos/data_assists_dto'
+import { ASSIST_NATURAL_KEY_INDEX } from '#utils/assist_natural_key'
+import db from '@adonisjs/lucid/services/db'
 import env from '#start/env'
 import logger from '@adonisjs/core/services/logger'
 import Employee from '#models/employee'
@@ -419,7 +423,7 @@ export default class SyncAssistsService {
       filters.page,
       filters.limit
     )
-    const assists = await this.saveAssistDataEmployee(response)
+    const assists = await this.saveAssistDataEmployee(response, filters.empCode)
     const assistService = new AssistsService(this.i18n as I18n)
     for await (const assist of assists) {
       const logAssist = await assistService.createActionLog(filters.rawHeaders, 'store')
@@ -545,76 +549,182 @@ export default class SyncAssistsService {
   }
 
   async updateLocalData(externalData: ResponseApiAssistsDto) {
+    const buCache = await this.buildSyncBusinessUnitCache(externalData.data)
+    const counters = { duplicates: 0, skippedNoTenant: 0 }
+
     for await (const item of externalData.data) {
-      const existingAssist = await Assist.findBy('assist_sync_id', item.id)
+      const businessUnitId = this.resolveSyncBusinessUnitId(item, buCache)
+      await this.persistBioTimeAssistItem(item, businessUnitId, counters)
+    }
 
-      if (existingAssist) {
-        await existingAssist
-          .merge({
-            assistEmpCode: item.emp_code,
-            assistTerminalSn: item.terminal_sn,
-            assistTerminalAlias: item.terminal_alias,
-            assistAreaAlias: item.area_alias,
-            assistLongitude: item.longitude,
-            assistLatitude: item.latitude,
-            assistUploadTime: DateTime.fromISO(item.upload_time.toString()),
-            assistEmpId: item.emp_id,
-            assistTerminalId: item.terminal_id,
-            assistPunchTime: DateTime.fromISO(item.punch_time_local.toString()),
-            assistPunchTimeUtc: DateTime.fromISO(item.punch_time.toString()),
-            assistPunchTimeOrigin: DateTime.fromISO(item.punch_time_origin_real.toString()),
-          })
-          .save()
-
-      } else {
-        const newAssist = new Assist()
-        newAssist.assistEmpCode = item.emp_code
-        newAssist.assistTerminalSn = item.terminal_sn
-        newAssist.assistTerminalAlias = item.terminal_alias
-        newAssist.assistAreaAlias = item.area_alias
-        newAssist.assistLongitude = item.longitude
-        newAssist.assistLatitude = item.latitude
-        newAssist.assistUploadTime = DateTime.fromISO(item.upload_time.toString())
-        newAssist.assistEmpId = item.emp_id
-        newAssist.assistTerminalId = item.terminal_id
-        newAssist.assistPunchTime = DateTime.fromISO(item.punch_time_local.toString())
-        newAssist.assistPunchTimeUtc = DateTime.fromISO(item.punch_time.toString())
-        newAssist.assistPunchTimeOrigin = DateTime.fromISO(item.punch_time_origin_real.toString())
-        newAssist.assistSyncId = item.id
-        await newAssist.save()
-
-      }
+    if (counters.duplicates > 0 || counters.skippedNoTenant > 0) {
+      logger.info(
+        `Sync BioTime updateLocalData: ${counters.duplicates} duplicadas por llave natural, ${counters.skippedNoTenant} sin tenant resoluble`
+      )
     }
   }
 
-  async saveAssistDataEmployee(externalData: ResponseApiAssistsDto) {
+  async saveAssistDataEmployee(externalData: ResponseApiAssistsDto, empCode?: string) {
     const assists = [] as Array<Assist>
+    let businessUnitId: number | null = null
+
+    if (empCode) {
+      const employee = await Employee.query()
+        .whereNull('employee_deleted_at')
+        .where('employee_code', empCode)
+        .whereNotNull('business_unit_id')
+        .first()
+      businessUnitId = employee?.businessUnitId ?? null
+    }
+
+    const buCache =
+      businessUnitId === null ? await this.buildSyncBusinessUnitCache(externalData.data) : null
+    const counters = { duplicates: 0, skippedNoTenant: 0 }
 
     for await (const item of externalData.data) {
+      const resolvedBu =
+        businessUnitId ?? this.resolveSyncBusinessUnitId(item, buCache ?? new Map())
+
       const existingAssist = await Assist.findBy('assist_sync_id', item.id)
+      if (existingAssist) continue
 
-      if (!existingAssist) {
-        const newAssist = new Assist()
-        newAssist.assistEmpCode = item.emp_code
-        newAssist.assistTerminalSn = item.terminal_sn
-        newAssist.assistTerminalAlias = item.terminal_alias
-        newAssist.assistAreaAlias = item.area_alias
-        newAssist.assistLongitude = item.longitude
-        newAssist.assistLatitude = item.latitude
-        newAssist.assistUploadTime = DateTime.fromISO(item.upload_time.toString())
-        newAssist.assistEmpId = item.emp_id
-        newAssist.assistTerminalId = item.terminal_id
-        newAssist.assistPunchTime = DateTime.fromISO(item.punch_time_local.toString())
-        newAssist.assistPunchTimeUtc = DateTime.fromISO(item.punch_time.toString())
-        newAssist.assistPunchTimeOrigin = DateTime.fromISO(item.punch_time_origin_real.toString())
-        newAssist.assistSyncId = item.id
-        await newAssist.save()
+      const saved = await this.persistBioTimeAssistItem(item, resolvedBu, counters)
+      if (saved) assists.push(saved)
+    }
 
-        assists.push(newAssist)
-      }
+    if (counters.duplicates > 0 || counters.skippedNoTenant > 0) {
+      logger.info(
+        `Sync BioTime saveAssistDataEmployee: ${counters.duplicates} duplicadas por llave natural, ${counters.skippedNoTenant} sin tenant resoluble`
+      )
     }
 
     return assists
+  }
+
+  /** Caché por lote: código de empleado y `sync:{emp_id}` → business_unit_id inequívoco. */
+  private async buildSyncBusinessUnitCache(items: DataAssistsDto[]): Promise<Map<string, number>> {
+    const cache = new Map<string, number>()
+    if (items.length === 0) return cache
+
+    const codes = [...new Set(items.map((item) => item.emp_code).filter(Boolean))]
+    if (codes.length > 0) {
+      const rows = await db
+        .from('employees')
+        .whereIn('employee_code', codes)
+        .whereNotNull('business_unit_id')
+        .select('employee_code', 'business_unit_id')
+
+      const byCode = new Map<string, Set<number>>()
+      for (const row of rows) {
+        const code = String(row.employee_code)
+        const bu = Number(row.business_unit_id)
+        if (!byCode.has(code)) byCode.set(code, new Set())
+        byCode.get(code)!.add(bu)
+      }
+      for (const [code, units] of byCode) {
+        if (units.size === 1) cache.set(code, [...units][0])
+      }
+    }
+
+    const syncIds = [...new Set(items.map((item) => Number(item.emp_id)).filter((id) => id > 0))]
+    if (syncIds.length > 0) {
+      const rows = await db
+        .from('employees')
+        .whereIn(
+          'employee_sync_id',
+          syncIds.map(String)
+        )
+        .whereNotNull('business_unit_id')
+        .select('employee_sync_id', 'business_unit_id')
+
+      const bySync = new Map<number, Set<number>>()
+      for (const row of rows) {
+        const sid = Number(row.employee_sync_id)
+        const bu = Number(row.business_unit_id)
+        if (!bySync.has(sid)) bySync.set(sid, new Set())
+        bySync.get(sid)!.add(bu)
+      }
+      for (const [sid, units] of bySync) {
+        if (units.size === 1) cache.set(`sync:${sid}`, [...units][0])
+      }
+    }
+
+    return cache
+  }
+
+  private resolveSyncBusinessUnitId(
+    item: DataAssistsDto,
+    cache: Map<string, number>
+  ): number | null {
+    if (item.emp_code && cache.has(item.emp_code)) {
+      return cache.get(item.emp_code)!
+    }
+    const syncKey = `sync:${item.emp_id}`
+    if (cache.has(syncKey)) {
+      return cache.get(syncKey)!
+    }
+    return null
+  }
+
+  private isNaturalKeyDuplicate(error: unknown): boolean {
+    // Regla 16 / CA-23: duplicado sobre fila inactiva es comportamiento esperado.
+    if (typeof error !== 'object' || error === null || !('code' in error)) return false
+    const dbError = error as { code?: string; sqlMessage?: string }
+    return (
+      dbError.code === 'ER_DUP_ENTRY' &&
+      dbError.sqlMessage?.includes(ASSIST_NATURAL_KEY_INDEX) === true
+    )
+  }
+
+  private applyBioTimeFields(assist: Assist, item: DataAssistsDto) {
+    assist.assistEmpCode = item.emp_code
+    assist.assistTerminalSn = item.terminal_sn
+    assist.assistTerminalAlias = item.terminal_alias
+    assist.assistAreaAlias = item.area_alias
+    assist.assistLongitude = item.longitude
+    assist.assistLatitude = item.latitude
+    assist.assistUploadTime = DateTime.fromISO(item.upload_time.toString())
+    assist.assistEmpId = item.emp_id
+    assist.assistTerminalId = item.terminal_id
+    assist.assistPunchTime = DateTime.fromISO(item.punch_time_local.toString())
+    assist.assistPunchTimeUtc = DateTime.fromISO(item.punch_time.toString())
+    assist.assistPunchTimeOrigin = DateTime.fromISO(item.punch_time_origin_real.toString())
+  }
+
+  private async persistBioTimeAssistItem(
+    item: DataAssistsDto,
+    businessUnitId: number | null,
+    counters: { duplicates: number; skippedNoTenant: number }
+  ): Promise<Assist | null> {
+    if (!businessUnitId) {
+      counters.skippedNoTenant++
+      return null
+    }
+
+    const existingAssist = await Assist.findBy('assist_sync_id', item.id)
+
+    try {
+      if (existingAssist) {
+        this.applyBioTimeFields(existingAssist, item)
+        existingAssist.businessUnitId = businessUnitId
+        await existingAssist.save()
+        return existingAssist
+      }
+
+      const newAssist = new Assist()
+      this.applyBioTimeFields(newAssist, item)
+      newAssist.assistSyncId = item.id
+      newAssist.assistOrigin = ASSIST_ORIGIN.SYNC
+      newAssist.businessUnitId = businessUnitId
+      await newAssist.save()
+      return newAssist
+    } catch (error) {
+      if (this.isNaturalKeyDuplicate(error)) {
+        counters.duplicates++
+        return null
+      }
+      throw error
+    }
   }
 
   async setDateCalendar(filters: SyncAssistsServiceIndexInterface) {

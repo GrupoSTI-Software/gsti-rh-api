@@ -41,7 +41,9 @@ export function toCalendarIsoDate(value: unknown): string | null {
     return value.toISODate()
   }
   if (value instanceof Date) {
-    return DateTime.fromJSDate(value).toISODate()
+    // Los `Date` crudos del driver MySQL llegan anclados a UTC (la conexión
+    // está fijada a UTC): leerlos en zona local correría el día civil.
+    return DateTime.fromJSDate(value, { zone: 'utc' }).toISODate()
   }
   const raw = String(value)
   const datePart = raw.slice(0, 10)

@@ -34,11 +34,16 @@ export default class PasswordRecoveryMail extends BaseMail {
       tradeName: branding.tradeName,
     })
     const preheader = i18n.formatMessage('auth.password_recovery.preheader')
-    const greeting = i18n.formatMessage('auth.password_recovery.greeting', { firstName })
+    // El saludo va partido a propósito: el diseño resalta solo el nombre, y
+    // `firstName` se imprime desde la vista con `{{ }}` para que Edge lo escape.
+    const greetingLead = i18n.formatMessage('auth.password_recovery.greeting_lead')
     const intro = i18n.formatMessage('auth.password_recovery.intro')
     const cta = i18n.formatMessage('auth.password_recovery.cta')
     const ctaCaption = i18n.formatMessage('auth.password_recovery.cta_caption')
     const codeLabel = i18n.formatMessage('auth.password_recovery.code_label')
+    // `validity` trae `<strong>` alrededor de los minutos para respetar el diseño;
+    // la vista la imprime sin escapar. El único dato interpolado es el entero de
+    // vigencia que define el propio servidor, nunca entrada del usuario.
     const validity = i18n.formatMessage('auth.password_recovery.validity', {
       minutes: validityMinutes,
     })
@@ -59,7 +64,8 @@ export default class PasswordRecoveryMail extends BaseMail {
         pinCode,
         subject,
         preheader,
-        greeting,
+        greetingLead,
+        firstName,
         intro,
         cta,
         ctaCaption,

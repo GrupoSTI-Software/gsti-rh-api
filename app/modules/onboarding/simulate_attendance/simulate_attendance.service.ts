@@ -71,7 +71,7 @@ export default class SimulateAttendanceService {
     const checkOutBiometricUtc = this.toBiometricUtc(checkOutLocal, utcOffsetHours)
 
     // Idempotente: evita duplicar checadas si se re-ejecuta el paso.
-    await this.deletePreviousSimulatedAssists(employeeCode, date, utcOffsetHours, trx)
+    await this.deletePreviousSimulatedAssists(employeeCode, employee.businessUnitId, date, utcOffsetHours, trx)
 
     const assistIds: number[] = []
     for (const punch of [
@@ -80,6 +80,7 @@ export default class SimulateAttendanceService {
     ]) {
       const assist = await Assist.create(
         {
+          businessUnitId: employee.businessUnitId,
           assistEmpCode: employeeCode,
           assistTerminalSn: '',
           assistTerminalAlias: '',
@@ -164,18 +165,26 @@ export default class SimulateAttendanceService {
    */
   private async deletePreviousSimulatedAssists(
     employeeCode: string,
+    businessUnitId: number | null,
     dayIso: string,
     utcOffsetHours: number,
     trx?: TransactionClientContract
   ): Promise<void> {
+    if (!businessUnitId) {
+      return
+    }
+
     const dayStart = DateTime.fromISO(`${dayIso}T00:00:00`, { zone: 'UTC' }).minus({ hours: 1 })
     const dayEnd = DateTime.fromISO(`${dayIso}T23:59:59`, { zone: 'UTC' })
       .plus({ hours: utcOffsetHours + 1 })
       .plus({ days: 1 })
 
-    await Assist.query({ client: trx })
+    const deleteQuery = Assist.query({ client: trx })
+      .where('business_unit_id', businessUnitId)
       .where('assist_emp_code', employeeCode)
       .where('assist_area_alias', SIMULATED_AREA_ALIAS)
+
+    await deleteQuery
       .where('assist_punch_time_utc', '>=', dayStart.toSQL({ includeOffset: false })!)
       .where('assist_punch_time_utc', '<=', dayEnd.toSQL({ includeOffset: false })!)
       .delete()

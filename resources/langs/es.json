@@ -507,6 +507,18 @@
   "aircraft": "Aeronave",
   "unknown_error": "Error desconocido",
   "the_assist_was_inactivate_successfully": "La asistencia fue desactivada exitosamente",
+  "assist_register_val_employee_id_title": "Datos inválidos",
+  "assist_register_val_employee_id_message": "El identificador del colaborador es inválido.",
+  "assist_employee_terminated_title": "Colaborador dado de baja",
+  "assist_employee_terminated_message": "No se puede registrar asistencia de un colaborador dado de baja.",
+  "assist_write_forbidden_title": "Sin autorización para registrar asistencia ajena",
+  "assist_write_forbidden_message": "No tienes autorización para registrar la asistencia de otra persona.",
+  "assist_sync_forbidden_title": "Sin autorización para sincronizar asistencia",
+  "assist_sync_forbidden_message": "No tienes autorización para sincronizar la asistencia desde el equipo biométrico.",
+  "assist_tenant_unresolved_title": "Empresa no resuelta",
+  "assist_tenant_unresolved_message": "La checada no trae empresa y no hay una unidad activa en el alcance.",
+  "assist_duplicate_natural_key_title": "Checada duplicada",
+  "assist_duplicate_natural_key_message": "Ya existe una checada con la misma empresa, código, instante y terminal.",
   "the_date_not_is_pay_thursday": "La fecha no corresponde a un jueves de pago",
   "assistance_report": "Reporte de asistencias",
   "incident_summary": "Resumen de incidencias",
@@ -830,6 +842,51 @@
   "employee_offboarding_concept_active_updated_message": "Estado del concepto actualizado correctamente",
   "employee_offboarding_in_use_title": "Concepto en uso",
   "employee_offboarding_in_use_message": "El concepto ya se usó en alguna salida registrada: desactívalo en lugar de eliminarlo",
+  "employee_offboarding_case_title": "Expediente de salida",
+  "employee_offboarding_case_opened_message": "El expediente de salida fue abierto correctamente",
+  "employee_offboarding_case_found_message": "Expediente de salida encontrado correctamente",
+  "employee_offboarding_case_employee_not_found_title": "Colaborador no encontrado",
+  "employee_offboarding_case_employee_not_found_message": "El colaborador no existe o no pertenece a tu alcance",
+  "employee_offboarding_case_not_found_title": "Expediente no encontrado",
+  "employee_offboarding_case_not_found_message": "El colaborador no tiene un expediente de salida abierto",
+  "employee_offboarding_case_already_open_title": "Expediente de salida ya abierto",
+  "employee_offboarding_case_already_open_message": "El colaborador ya tiene un expediente de salida abierto",
+  "employee_offboarding_cases_listed_message": "Salidas obtenidas correctamente",
+  "employee_offboarding_case_closed_message": "La salida fue dada por terminada correctamente",
+  "employee_offboarding_case_reopened_message": "El expediente fue reabierto correctamente",
+  "employee_offboarding_case_already_closed_title": "Expediente ya terminado",
+  "employee_offboarding_case_already_closed_message": "El expediente de salida ya estaba dado por terminado",
+  "employee_offboarding_case_not_closed_title": "Expediente no cerrado",
+  "employee_offboarding_case_not_closed_message": "El expediente de salida sigue abierto; no hay nada que reabrir",
+  "employee_offboarding_case_closed_read_only_title": "Expediente de salida cerrado",
+  "employee_offboarding_case_closed_read_only_message": "El expediente de salida est\u00e1 cerrado. Vuelve a abrirlo para seguir registrando avance.",
+  "employee_offboarding_item_updated_message": "Pendiente actualizado correctamente",
+  "employee_offboarding_item_completed_message": "Pendiente marcado como cumplido",
+  "employee_offboarding_item_reverted_message": "Pendiente regresado a pendiente",
+  "employee_offboarding_item_not_found_title": "Pendiente no encontrado",
+  "employee_offboarding_item_not_found_message": "El pendiente no existe o no pertenece a tu alcance",
+  "employee_offboarding_item_already_completed_title": "El pendiente ya está cumplido",
+  "employee_offboarding_item_already_completed_message": "El pendiente ya fue marcado como cumplido; para modificarlo, primero regrésalo a pendiente",
+  "employee_offboarding_item_not_completed_title": "El pendiente no está cumplido",
+  "employee_offboarding_item_not_completed_message": "El pendiente sigue pendiente; no hay cumplimiento que revertir",
+  "employee_offboarding_item_amount_not_allowed_title": "Importe no aplicable",
+  "employee_offboarding_item_amount_not_allowed_message": "El concepto de este pendiente no admite importe",
+  "employee_offboarding_evidences_listed_message": "Evidencias del pendiente obtenidas correctamente",
+  "employee_offboarding_evidences_uploaded_message": "Evidencias adjuntadas correctamente",
+  "employee_offboarding_evidence_download_link_message": "Enlace de descarga generado correctamente",
+  "employee_offboarding_evidence_deleted_message": "Evidencia quitada correctamente",
+  "employee_offboarding_evidence_invalid_type_title": "Archivo no permitido",
+  "employee_offboarding_evidence_invalid_type_message": "El archivo {fileName} no es PDF, JPG ni PNG",
+  "employee_offboarding_evidence_too_large_title": "Archivo demasiado grande",
+  "employee_offboarding_evidence_too_large_message": "El archivo {fileName} excede el tama\u00f1o m\u00e1ximo de 10 MB",
+  "employee_offboarding_evidence_batch_invalid_title": "Env\u00edo inv\u00e1lido",
+  "employee_offboarding_evidence_batch_invalid_message": "El env\u00edo debe traer entre 1 y {max} archivos",
+  "employee_offboarding_evidence_not_found_title": "Evidencia no encontrada",
+  "employee_offboarding_evidence_not_found_message": "La evidencia no existe o no pertenece al pendiente indicado",
+  "employee_offboarding_evidence_upload_failed_title": "Error al subir la evidencia",
+  "employee_offboarding_evidence_upload_failed_message": "Error al subir el archivo al almacenamiento",
+  "employee_offboarding_evidence_download_failed_title": "Error al generar el enlace",
+  "employee_offboarding_evidence_download_failed_message": "No se pudo generar el enlace de descarga",
   "employee_offboarding_forbidden_title": "Sin permiso",
   "employee_offboarding_forbidden_message": "No tienes permiso sobre el módulo de salidas de personal",
   "employee_offboarding_unexpected_title": "Error inesperado",
@@ -1156,10 +1213,10 @@
       "otp": {
         "subject": "Tu código de verificación es {pinCode}",
         "preheader": "Usa este código para confirmar tu correo y continuar con tu registro.",
-        "greeting": "Hola, {firstName}",
+        "greeting_lead": "Hola,",
         "intro": "Gracias por iniciar tu registro en {tradeName}. Para confirmar que este correo te pertenece, ingresa el siguiente código en la pantalla de verificación:",
         "code_label": "Tu código de verificación",
-        "validity": "Este código es válido por {minutes} minutos. Si caduca, podrás solicitar uno nuevo desde la misma pantalla.",
+        "validity": "Este código es válido por <strong>{minutes} minutos</strong>. Si caduca, podrás solicitar uno nuevo desde la misma pantalla.",
         "ignore_notice": "Si no iniciaste el registro, ignora este correo. No realices ninguna acción adicional ni reenvíes el código a otras personas.",
         "footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
       },
@@ -1167,8 +1224,11 @@
         "subject": "¡Bienvenido a {tradeName}, {firstName}!",
         "preheader": "Tu cuenta y tu empresa quedaron listas. Te dejamos el acceso al sistema.",
         "greeting": "¡Hola, {firstName}!",
-        "intro": "Tu cuenta en {tradeName} y tu empresa {businessUnitName} quedaron listas. Ya puedes iniciar sesión y comenzar a configurar tu operación.",
-        "cta": "Ir al sistema",
+        "intro": "Tu cuenta en {tradeName} está lista. Ya puedes iniciar sesión.",
+        "magic_link_note": "Recuerda que tu contraseña la creaste al momento de tu registro, pero también podrás acceder al sistema con nuestro botón de Link Mágico, el cual verifica tu identidad sin necesidad de tu clave.",
+        "cta": "Acceder a mi cuenta {tradeName}",
+        "email_label": "Tu correo de acceso",
+        "company_label": "Empresa",
         "tips_title": "¿Qué sigue?",
         "tip_one": "Completa los datos de tu perfil para personalizar tu experiencia.",
         "tip_two": "Invita a tu equipo y define los roles que tendrá cada persona.",
@@ -1183,8 +1243,14 @@
       "greeting": "Hola, {firstName}",
       "intro": "Solicitaste acceder a {tradeName} mediante enlace mágico. Haz clic en el botón para iniciar sesión sin contraseña:",
       "cta": "Acceder al sistema",
-      "validity": "Este enlace es válido por {minutes} minutos y solo puede usarse una vez. Si expira, solicita uno nuevo desde la pantalla de inicio de sesión.",
+      "info_title": "¿Qué es un enlace mágico?",
+      "info_body": "Es una forma de iniciar sesión sin escribir contraseña. El enlace contiene una clave única generada solo para ti al momento de tu solicitud: cuando lo abres, {tradeName} reconoce esa clave y abre tu sesión en el navegador donde hiciste clic.",
+      "info_bullet_single_use": "Solo funciona una vez y caduca en pocos minutos.",
+      "info_bullet_no_password": "No pide ni transmite tu contraseña.",
+      "info_bullet_no_data_request": "Nunca te pediremos datos por correo. Este mensaje solo contiene tu enlace de acceso.",
+      "validity": "Este enlace es válido por <strong>{minutes} minutos</strong> y solo puede usarse una vez. Si expira, solicita uno nuevo desde la pantalla de inicio de sesión.",
       "ignore_notice": "Si no solicitaste este acceso, ignora este correo. Tu cuenta permanece segura.",
+      "fallback_url_label": "Si el botón no abre, copia y pega esta URL en tu navegador:",
       "footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
     },
     "user_invitation": {
@@ -1198,17 +1264,31 @@
       "fallback_url": "Si el botón no abre, copia y pega esta URL en tu navegador:",
       "app_notice": "Descarga la app del empleado en tu dispositivo móvil. Accede con el correo con el que fuiste registrado y la contraseña que elijas en el enlace.",
       "backoffice_notice": "También puedes acceder al backoffice web desde tu navegador con el mismo correo y la contraseña que elijas en el enlace.",
-      "footer": "© {tradeName} · Mensaje automático, no respondas a esta dirección."
+      "footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
+    },
+    "password_changed": {
+      "subject": "Tu contraseña de {tradeName} se actualizó",
+      "preheader": "La contraseña de tu cuenta se cambió correctamente. Si no fuiste tú, actúa de inmediato.",
+      "title": "Contraseña actualizada",
+      "greeting_lead": "Hola,",
+      "intro": "La contraseña de tu cuenta se cambió correctamente. Ya puedes iniciar sesión con ella; la contraseña anterior dejó de funcionar y cualquier enlace de restablecimiento que hayas solicitado quedó invalidado.",
+      "cta": "Iniciar sesión",
+      "cta_caption": "Te llevará a la página de inicio de sesión de {tradeName}.",
+      "alert_title": "¿No fuiste tú?",
+      "alert_body": "Si no realizaste este cambio, alguien más pudo haber accedido a tu cuenta. Restablece la contraseña de inmediato desde la pantalla de inicio de sesión y avisa a tu administrador o escríbenos a {supportLink}.",
+      "security_notice": "Para proteger tu cuenta, no reenvíes este mensaje a nadie y no compartas tu contraseña. {tradeName} nunca te la pedirá por correo ni por teléfono.",
+      "fallback_url": "Si el botón no abre, copia y pega esta URL en tu navegador:",
+      "footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
     },
     "password_recovery": {
       "subject": "Restablece tu contraseña en {tradeName}",
       "preheader": "Recibimos una solicitud para restablecer tu contraseña. Usa el enlace y el código de verificación.",
-      "greeting": "Hola, {firstName}",
+      "greeting_lead": "Hola,",
       "intro": "Recibimos una solicitud para restablecer la contraseña de tu cuenta. Abre el enlace y luego ingresa el código de verificación en la página para crear una nueva contraseña.",
       "cta": "Restablecer contraseña",
       "cta_caption": "Te llevará a una página segura donde primero deberás validar el código.",
       "code_label": "Código de verificación",
-      "validity": "El enlace y el código vencen en {minutes} minutos. No los compartas con nadie.",
+      "validity": "El enlace y el código vencen en <strong>{minutes} minutos</strong>. No los compartas con nadie.",
       "ignore_notice": "Si tú no solicitaste este cambio, ignora este correo. Tu contraseña actual sigue activa y tu cuenta protegida.",
       "fallback_url": "Si el botón no abre, copia y pega esta URL en tu navegador:",
       "footer": "© {tradeName} · Mensaje automático, no respondas a esta dirección."
@@ -1417,28 +1497,62 @@
         "description": "Cuestionario para identificar los factores de riesgo psicosocial en los centros de trabajo (16 a 50 trabajadores).",
         "applies_to": "Centros de trabajo que tengan entre 16 y 50 trabajadores.",
         "sections": {
-          "cat_i": { "title": "Ambiente de trabajo" },
-          "cat_ii": { "title": "Factores propios de la actividad" },
-          "cat_iii": { "title": "Organización del tiempo de trabajo" },
-          "cat_iv": { "title": "Liderazgo y relaciones en el trabajo" }
+          "cat_i": {
+            "title": "Ambiente de trabajo"
+          },
+          "cat_ii": {
+            "title": "Factores propios de la actividad"
+          },
+          "cat_iii": {
+            "title": "Organización del tiempo de trabajo"
+          },
+          "cat_iv": {
+            "title": "Liderazgo y relaciones en el trabajo"
+          }
         },
         "questions": {
-          "p01": { "text": "Mi trabajo me exige hacer mucho esfuerzo físico" },
-          "p02": { "text": "Me preocupa sufrir un accidente en mi trabajo" },
-          "p03": { "text": "Considero que las actividades que realizo son peligrosas" },
+          "p01": {
+            "text": "Mi trabajo me exige hacer mucho esfuerzo físico"
+          },
+          "p02": {
+            "text": "Me preocupa sufrir un accidente en mi trabajo"
+          },
+          "p03": {
+            "text": "Considero que las actividades que realizo son peligrosas"
+          },
           "p04": {
             "text": "Por la cantidad de trabajo que tengo debo quedarme tiempo adicional a mi turno"
           },
-          "p05": { "text": "Por la cantidad de trabajo que tengo debo trabajar sin parar" },
-          "p06": { "text": "Considero que es necesario mantener un ritmo de trabajo acelerado" },
-          "p07": { "text": "Mi trabajo exige que esté muy concentrado" },
-          "p08": { "text": "Mi trabajo requiere que memorice mucha información" },
-          "p09": { "text": "Mi trabajo exige que atienda varios asuntos al mismo tiempo" },
-          "p10": { "text": "En mi trabajo soy responsable de cosas de mucho valor" },
-          "p11": { "text": "Respondo ante mi jefe por los resultados de toda mi área de trabajo" },
-          "p12": { "text": "En mi trabajo me dan órdenes contradictorias" },
-          "p13": { "text": "Considero que en mi trabajo me piden hacer cosas innecesarias" },
-          "p14": { "text": "Trabajo horas extras más de tres veces a la semana" },
+          "p05": {
+            "text": "Por la cantidad de trabajo que tengo debo trabajar sin parar"
+          },
+          "p06": {
+            "text": "Considero que es necesario mantener un ritmo de trabajo acelerado"
+          },
+          "p07": {
+            "text": "Mi trabajo exige que esté muy concentrado"
+          },
+          "p08": {
+            "text": "Mi trabajo requiere que memorice mucha información"
+          },
+          "p09": {
+            "text": "Mi trabajo exige que atienda varios asuntos al mismo tiempo"
+          },
+          "p10": {
+            "text": "En mi trabajo soy responsable de cosas de mucho valor"
+          },
+          "p11": {
+            "text": "Respondo ante mi jefe por los resultados de toda mi área de trabajo"
+          },
+          "p12": {
+            "text": "En mi trabajo me dan órdenes contradictorias"
+          },
+          "p13": {
+            "text": "Considero que en mi trabajo me piden hacer cosas innecesarias"
+          },
+          "p14": {
+            "text": "Trabajo horas extras más de tres veces a la semana"
+          },
           "p15": {
             "text": "Mi trabajo me exige laborar en días de descanso, festivos o fines de semana"
           },
@@ -1448,29 +1562,57 @@
           "p17": {
             "text": "Pienso en las actividades familiares o personales cuando estoy en mi trabajo"
           },
-          "p18": { "text": "Mi trabajo permite que desarrolle nuevas habilidades" },
-          "p19": { "text": "En mi trabajo puedo aspirar a un mejor puesto" },
-          "p20": { "text": "Durante mi jornada de trabajo puedo tomar pausas cuando las necesito" },
+          "p18": {
+            "text": "Mi trabajo permite que desarrolle nuevas habilidades"
+          },
+          "p19": {
+            "text": "En mi trabajo puedo aspirar a un mejor puesto"
+          },
+          "p20": {
+            "text": "Durante mi jornada de trabajo puedo tomar pausas cuando las necesito"
+          },
           "p21": {
             "text": "Puedo decidir la velocidad a la que realizo mis actividades en mi trabajo"
           },
-          "p22": { "text": "Puedo cambiar el orden de las actividades que realizo en mi trabajo" },
-          "p23": { "text": "Me informan con claridad cuáles son mis funciones" },
-          "p24": { "text": "Me explican claramente los resultados que debo obtener en mi trabajo" },
-          "p25": { "text": "Me informan con quién puedo resolver problemas o asuntos de trabajo" },
-          "p26": { "text": "Me permiten asistir a capacitaciones relacionadas con mi trabajo" },
-          "p27": { "text": "Recibo capacitación útil para hacer mi trabajo" },
-          "p28": { "text": "Mi jefe tiene en cuenta mis puntos de vista y opiniones" },
+          "p22": {
+            "text": "Puedo cambiar el orden de las actividades que realizo en mi trabajo"
+          },
+          "p23": {
+            "text": "Me informan con claridad cuáles son mis funciones"
+          },
+          "p24": {
+            "text": "Me explican claramente los resultados que debo obtener en mi trabajo"
+          },
+          "p25": {
+            "text": "Me informan con quién puedo resolver problemas o asuntos de trabajo"
+          },
+          "p26": {
+            "text": "Me permiten asistir a capacitaciones relacionadas con mi trabajo"
+          },
+          "p27": {
+            "text": "Recibo capacitación útil para hacer mi trabajo"
+          },
+          "p28": {
+            "text": "Mi jefe tiene en cuenta mis puntos de vista y opiniones"
+          },
           "p29": {
             "text": "Mi jefe ayuda a solucionar los problemas que se presentan en el trabajo"
           },
-          "p30": { "text": "Puedo confiar en mis compañeros de trabajo" },
+          "p30": {
+            "text": "Puedo confiar en mis compañeros de trabajo"
+          },
           "p31": {
             "text": "Cuando tenemos que realizar trabajo de equipo los compañeros colaboran"
           },
-          "p32": { "text": "Mis compañeros de trabajo me ayudan cuando tengo dificultades" },
-          "p33": { "text": "En mi trabajo puedo expresarme libremente sin interrupciones" },
-          "p34": { "text": "Recibo críticas constantes a mi persona y/o trabajo" },
+          "p32": {
+            "text": "Mis compañeros de trabajo me ayudan cuando tengo dificultades"
+          },
+          "p33": {
+            "text": "En mi trabajo puedo expresarme libremente sin interrupciones"
+          },
+          "p34": {
+            "text": "Recibo críticas constantes a mi persona y/o trabajo"
+          },
           "p35": {
             "text": "Recibo burlas, calumnias, difamaciones, humillaciones o ridiculizaciones"
           },
@@ -1480,21 +1622,33 @@
           "p37": {
             "text": "Se manipulan las situaciones de trabajo para hacerme parecer un mal trabajador"
           },
-          "p38": { "text": "Se ignoran mis éxitos laborales y se atribuyen a otros trabajadores" },
+          "p38": {
+            "text": "Se ignoran mis éxitos laborales y se atribuyen a otros trabajadores"
+          },
           "p39": {
             "text": "Me bloquean o impiden las oportunidades que tengo para obtener ascenso o mejora en mi trabajo"
           },
-          "p40": { "text": "He presenciado actos de violencia en mi centro de trabajo" },
-          "p41": { "text": "Atiendo clientes o usuarios muy enojados" },
+          "p40": {
+            "text": "He presenciado actos de violencia en mi centro de trabajo"
+          },
+          "p41": {
+            "text": "Atiendo clientes o usuarios muy enojados"
+          },
           "p42": {
             "text": "Mi trabajo me exige atender personas muy necesitadas de ayuda o enfermas"
           },
           "p43": {
             "text": "Para hacer mi trabajo debo demostrar sentimientos distintos a los míos"
           },
-          "p44": { "text": "Comunican tarde los asuntos de trabajo" },
-          "p45": { "text": "Dificultan el logro de los resultados del trabajo" },
-          "p46": { "text": "Ignoran las sugerencias para mejorar su trabajo" }
+          "p44": {
+            "text": "Comunican tarde los asuntos de trabajo"
+          },
+          "p45": {
+            "text": "Dificultan el logro de los resultados del trabajo"
+          },
+          "p46": {
+            "text": "Ignoran las sugerencias para mejorar su trabajo"
+          }
         }
       },
       "guia_iii_nom035_2018": {
@@ -1502,67 +1656,137 @@
         "description": "Cuestionario para identificar los factores de riesgo psicosocial y evaluar el entorno organizacional en los centros de trabajo (más de 50 trabajadores).",
         "applies_to": "Centros de trabajo que tengan más de 50 trabajadores.",
         "sections": {
-          "cat_i": { "title": "Ambiente de trabajo" },
-          "cat_ii": { "title": "Factores propios de la actividad" },
-          "cat_iii": { "title": "Organización del tiempo de trabajo" },
-          "cat_iv": { "title": "Liderazgo y relaciones en el trabajo" },
-          "cat_v": { "title": "Entorno organizacional" }
+          "cat_i": {
+            "title": "Ambiente de trabajo"
+          },
+          "cat_ii": {
+            "title": "Factores propios de la actividad"
+          },
+          "cat_iii": {
+            "title": "Organización del tiempo de trabajo"
+          },
+          "cat_iv": {
+            "title": "Liderazgo y relaciones en el trabajo"
+          },
+          "cat_v": {
+            "title": "Entorno organizacional"
+          }
         },
         "questions": {
           "p01": {
             "text": "El espacio donde trabajo me permite realizar mis actividades de manera segura e higiénica"
           },
-          "p02": { "text": "Mi trabajo me exige hacer mucho esfuerzo físico" },
-          "p03": { "text": "Me preocupa sufrir un accidente en mi trabajo" },
+          "p02": {
+            "text": "Mi trabajo me exige hacer mucho esfuerzo físico"
+          },
+          "p03": {
+            "text": "Me preocupa sufrir un accidente en mi trabajo"
+          },
           "p04": {
             "text": "Considero que en mi trabajo se aplican las normas de seguridad y salud en el trabajo"
           },
-          "p05": { "text": "Considero que las actividades que realizo son peligrosas" },
+          "p05": {
+            "text": "Considero que las actividades que realizo son peligrosas"
+          },
           "p06": {
             "text": "Por la cantidad de trabajo que tengo debo quedarme tiempo adicional a mi turno"
           },
-          "p07": { "text": "Por la cantidad de trabajo que tengo debo trabajar sin parar" },
-          "p08": { "text": "Considero que es necesario mantener un ritmo de trabajo acelerado" },
-          "p09": { "text": "Mi trabajo exige que esté muy concentrado" },
-          "p10": { "text": "Mi trabajo requiere que memorice mucha información" },
-          "p11": { "text": "En mi trabajo tengo que tomar decisiones difíciles muy rápido" },
-          "p12": { "text": "Mi trabajo exige que atienda varios asuntos al mismo tiempo" },
-          "p13": { "text": "En mi trabajo soy responsable de cosas de mucho valor" },
-          "p14": { "text": "Respondo ante mi jefe por los resultados de toda mi área de trabajo" },
-          "p15": { "text": "En el trabajo me dan órdenes contradictorias" },
-          "p16": { "text": "Considero que en mi trabajo me piden hacer cosas innecesarias" },
-          "p17": { "text": "Trabajo horas extras más de tres veces a la semana" },
+          "p07": {
+            "text": "Por la cantidad de trabajo que tengo debo trabajar sin parar"
+          },
+          "p08": {
+            "text": "Considero que es necesario mantener un ritmo de trabajo acelerado"
+          },
+          "p09": {
+            "text": "Mi trabajo exige que esté muy concentrado"
+          },
+          "p10": {
+            "text": "Mi trabajo requiere que memorice mucha información"
+          },
+          "p11": {
+            "text": "En mi trabajo tengo que tomar decisiones difíciles muy rápido"
+          },
+          "p12": {
+            "text": "Mi trabajo exige que atienda varios asuntos al mismo tiempo"
+          },
+          "p13": {
+            "text": "En mi trabajo soy responsable de cosas de mucho valor"
+          },
+          "p14": {
+            "text": "Respondo ante mi jefe por los resultados de toda mi área de trabajo"
+          },
+          "p15": {
+            "text": "En el trabajo me dan órdenes contradictorias"
+          },
+          "p16": {
+            "text": "Considero que en mi trabajo me piden hacer cosas innecesarias"
+          },
+          "p17": {
+            "text": "Trabajo horas extras más de tres veces a la semana"
+          },
           "p18": {
             "text": "Mi trabajo me exige laborar en días de descanso, festivos o fines de semana"
           },
           "p19": {
             "text": "Considero que el tiempo en el trabajo es mucho y perjudica mis actividades familiares o personales"
           },
-          "p20": { "text": "Debo atender asuntos de trabajo cuando estoy en casa" },
+          "p20": {
+            "text": "Debo atender asuntos de trabajo cuando estoy en casa"
+          },
           "p21": {
             "text": "Pienso en las actividades familiares o personales cuando estoy en mi trabajo"
           },
-          "p22": { "text": "Pienso que mis responsabilidades familiares afectan mi trabajo" },
-          "p23": { "text": "Mi trabajo permite que desarrolle nuevas habilidades" },
-          "p24": { "text": "En mi trabajo puedo aspirar a un mejor puesto" },
-          "p25": { "text": "Durante mi jornada de trabajo puedo tomar pausas cuando las necesito" },
-          "p26": { "text": "Puedo decidir cuánto trabajo realizo durante la jornada laboral" },
+          "p22": {
+            "text": "Pienso que mis responsabilidades familiares afectan mi trabajo"
+          },
+          "p23": {
+            "text": "Mi trabajo permite que desarrolle nuevas habilidades"
+          },
+          "p24": {
+            "text": "En mi trabajo puedo aspirar a un mejor puesto"
+          },
+          "p25": {
+            "text": "Durante mi jornada de trabajo puedo tomar pausas cuando las necesito"
+          },
+          "p26": {
+            "text": "Puedo decidir cuánto trabajo realizo durante la jornada laboral"
+          },
           "p27": {
             "text": "Puedo decidir la velocidad a la que realizo mis actividades en mi trabajo"
           },
-          "p28": { "text": "Puedo cambiar el orden de las actividades que realizo en mi trabajo" },
-          "p29": { "text": "Los cambios que se presentan en mi trabajo dificultan mi labor" },
+          "p28": {
+            "text": "Puedo cambiar el orden de las actividades que realizo en mi trabajo"
+          },
+          "p29": {
+            "text": "Los cambios que se presentan en mi trabajo dificultan mi labor"
+          },
           "p30": {
             "text": "Cuando se presentan cambios en mi trabajo se tienen en cuenta mis ideas o aportaciones"
           },
-          "p31": { "text": "Me informan con claridad cuáles son mis funciones" },
-          "p32": { "text": "Me explican claramente los resultados que debo obtener en mi trabajo" },
-          "p33": { "text": "Me explican claramente los objetivos de mi trabajo" },
-          "p34": { "text": "Me informan con quién puedo resolver problemas o asuntos de trabajo" },
-          "p35": { "text": "Me permiten asistir a capacitaciones relacionadas con mi trabajo" },
-          "p36": { "text": "Recibo capacitación útil para hacer mi trabajo" },
-          "p37": { "text": "Mi jefe ayuda a organizar mejor el trabajo" },
-          "p38": { "text": "Mi jefe tiene en cuenta mis puntos de vista y opiniones" },
+          "p31": {
+            "text": "Me informan con claridad cuáles son mis funciones"
+          },
+          "p32": {
+            "text": "Me explican claramente los resultados que debo obtener en mi trabajo"
+          },
+          "p33": {
+            "text": "Me explican claramente los objetivos de mi trabajo"
+          },
+          "p34": {
+            "text": "Me informan con quién puedo resolver problemas o asuntos de trabajo"
+          },
+          "p35": {
+            "text": "Me permiten asistir a capacitaciones relacionadas con mi trabajo"
+          },
+          "p36": {
+            "text": "Recibo capacitación útil para hacer mi trabajo"
+          },
+          "p37": {
+            "text": "Mi jefe ayuda a organizar mejor el trabajo"
+          },
+          "p38": {
+            "text": "Mi jefe tiene en cuenta mis puntos de vista y opiniones"
+          },
           "p39": {
             "text": "Mi jefe me comunica a tiempo la información relacionada con el trabajo"
           },
@@ -1572,31 +1796,57 @@
           "p41": {
             "text": "Mi jefe ayuda a solucionar los problemas que se presentan en el trabajo"
           },
-          "p42": { "text": "Puedo confiar en mis compañeros de trabajo" },
+          "p42": {
+            "text": "Puedo confiar en mis compañeros de trabajo"
+          },
           "p43": {
             "text": "Entre compañeros solucionamos los problemas de trabajo de forma respetuosa"
           },
-          "p44": { "text": "En mi trabajo me hacen sentir parte del grupo" },
+          "p44": {
+            "text": "En mi trabajo me hacen sentir parte del grupo"
+          },
           "p45": {
             "text": "Cuando tenemos que realizar trabajo de equipo los compañeros colaboran"
           },
-          "p46": { "text": "Mis compañeros de trabajo me ayudan cuando tengo dificultades" },
-          "p47": { "text": "Me informan sobre lo que hago bien en mi trabajo" },
+          "p46": {
+            "text": "Mis compañeros de trabajo me ayudan cuando tengo dificultades"
+          },
+          "p47": {
+            "text": "Me informan sobre lo que hago bien en mi trabajo"
+          },
           "p48": {
             "text": "La forma como evalúan mi trabajo en mi centro de trabajo me ayuda a mejorar mi desempeño"
           },
-          "p49": { "text": "En mi centro de trabajo me pagan a tiempo mi salario" },
-          "p50": { "text": "El pago que recibo es el que merezco por el trabajo que realizo" },
+          "p49": {
+            "text": "En mi centro de trabajo me pagan a tiempo mi salario"
+          },
+          "p50": {
+            "text": "El pago que recibo es el que merezco por el trabajo que realizo"
+          },
           "p51": {
             "text": "Si obtengo los resultados esperados en mi trabajo me recompensan o reconocen"
           },
-          "p52": { "text": "Las personas que hacen bien el trabajo pueden crecer laboralmente" },
-          "p53": { "text": "Considero que mi trabajo es estable" },
-          "p54": { "text": "En mi trabajo existe continua rotación de personal" },
-          "p55": { "text": "Siento orgullo de laborar en este centro de trabajo" },
-          "p56": { "text": "Me siento comprometido con mi trabajo" },
-          "p57": { "text": "En mi trabajo puedo expresarme libremente sin interrupciones" },
-          "p58": { "text": "Recibo críticas constantes a mi persona y/o trabajo" },
+          "p52": {
+            "text": "Las personas que hacen bien el trabajo pueden crecer laboralmente"
+          },
+          "p53": {
+            "text": "Considero que mi trabajo es estable"
+          },
+          "p54": {
+            "text": "En mi trabajo existe continua rotación de personal"
+          },
+          "p55": {
+            "text": "Siento orgullo de laborar en este centro de trabajo"
+          },
+          "p56": {
+            "text": "Me siento comprometido con mi trabajo"
+          },
+          "p57": {
+            "text": "En mi trabajo puedo expresarme libremente sin interrupciones"
+          },
+          "p58": {
+            "text": "Recibo críticas constantes a mi persona y/o trabajo"
+          },
           "p59": {
             "text": "Recibo burlas, calumnias, difamaciones, humillaciones o ridiculizaciones"
           },
@@ -1606,23 +1856,39 @@
           "p61": {
             "text": "Se manipulan las situaciones de trabajo para hacerme parecer un mal trabajador"
           },
-          "p62": { "text": "Se ignoran mis éxitos laborales y se atribuyen a otros trabajadores" },
+          "p62": {
+            "text": "Se ignoran mis éxitos laborales y se atribuyen a otros trabajadores"
+          },
           "p63": {
             "text": "Me bloquean o impiden las oportunidades que tengo para obtener ascenso o mejora en mi trabajo"
           },
-          "p64": { "text": "He presenciado actos de violencia en mi centro de trabajo" },
-          "p65": { "text": "Atiendo clientes o usuarios muy enojados" },
+          "p64": {
+            "text": "He presenciado actos de violencia en mi centro de trabajo"
+          },
+          "p65": {
+            "text": "Atiendo clientes o usuarios muy enojados"
+          },
           "p66": {
             "text": "Mi trabajo me exige atender personas muy necesitadas de ayuda o enfermas"
           },
           "p67": {
             "text": "Para hacer mi trabajo debo demostrar sentimientos distintos a los míos"
           },
-          "p68": { "text": "Mi trabajo me exige atender situaciones de violencia" },
-          "p69": { "text": "Comunican tarde los asuntos de trabajo" },
-          "p70": { "text": "Dificultan el logro de los resultados del trabajo" },
-          "p71": { "text": "Cooperan poco cuando se necesita" },
-          "p72": { "text": "Ignoran las sugerencias para mejorar su trabajo" }
+          "p68": {
+            "text": "Mi trabajo me exige atender situaciones de violencia"
+          },
+          "p69": {
+            "text": "Comunican tarde los asuntos de trabajo"
+          },
+          "p70": {
+            "text": "Dificultan el logro de los resultados del trabajo"
+          },
+          "p71": {
+            "text": "Cooperan poco cuando se necesita"
+          },
+          "p72": {
+            "text": "Ignoran las sugerencias para mejorar su trabajo"
+          }
         }
       }
     },
@@ -2636,5 +2902,22 @@
   "sensitive_data_write_category_salud": "datos de salud",
   "sensitive_data_write_category_biometrico": "datos biométricos",
   "sensitive_data_write_import_forbidden_title": "El archivo contiene datos sensibles que no puedes modificar",
-  "sensitive_data_write_import_forbidden_detail": "El archivo incluye columnas de {category} y no tienes permiso para modificarlos. No se procesó ningún registro."
+  "sensitive_data_write_import_forbidden_detail": "El archivo incluye columnas de {category} y no tienes permiso para modificarlos. No se procesó ningún registro.",
+  "access_point_employee_title": "Punto de acceso del colaborador",
+  "access_point_employee_assigned_message": "El punto de acceso fue asignado al colaborador",
+  "access_point_employee_removed_message": "El punto de acceso fue retirado del colaborador",
+  "access_point_employee_val_input_title": "Datos inválidos",
+  "access_point_employee_val_input_message": "Los identificadores del punto de acceso y del colaborador deben ser numéricos",
+  "access_point_employee_forbidden_title": "Sin permiso",
+  "access_point_employee_forbidden_message": "No tienes permiso para modificar los biométricos del colaborador",
+  "access_point_employee_access_point_not_found_title": "Punto de acceso no encontrado",
+  "access_point_employee_access_point_not_found_message": "El punto de acceso no existe o está fuera de tu alcance",
+  "access_point_employee_employee_not_found_title": "Colaborador no encontrado",
+  "access_point_employee_employee_not_found_message": "El colaborador no existe o está fuera de tu alcance",
+  "access_point_employee_already_assigned_title": "Asignación duplicada",
+  "access_point_employee_already_assigned_message": "El colaborador ya está asignado a ese punto de acceso",
+  "access_point_employee_assignment_not_found_title": "Asignación no encontrada",
+  "access_point_employee_assignment_not_found_message": "El colaborador no está asignado a ese punto de acceso",
+  "access_point_employee_internal_title": "Error inesperado",
+  "access_point_employee_internal_message": "No se pudo completar la operación sobre el punto de acceso"
 }

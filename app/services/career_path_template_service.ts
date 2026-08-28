@@ -20,7 +20,7 @@ export default class CareerPathTemplateService {
       .if(filters.targetPositionId, (query) => {
         query.where('target_position_id', filters.targetPositionId)
       })
-      .preload('company')
+      .preload('businessUnit')
       .preload('originPosition')
       .preload('targetPosition')
       .orderBy('career_path_template_id', 'desc')
@@ -31,7 +31,7 @@ export default class CareerPathTemplateService {
     const newCareerPathTemplate = new CareerPathTemplate()
     // La empresa llega ya estampada desde el contexto de la request
     // (controller.store ← ctx.businessUnitScope), nunca del payload.
-    newCareerPathTemplate.companyId = careerPathTemplate.companyId
+    newCareerPathTemplate.businessUnitId = careerPathTemplate.businessUnitId
     newCareerPathTemplate.originPositionId = careerPathTemplate.originPositionId
     newCareerPathTemplate.targetPositionId = careerPathTemplate.targetPositionId
     newCareerPathTemplate.createdBy = careerPathTemplate.createdBy
@@ -67,10 +67,10 @@ export default class CareerPathTemplateService {
   async verifyInfoExist(careerPathTemplate: CareerPathTemplate) {
     const existCompany = await BusinessUnit.query()
       .whereNull('business_unit_deleted_at')
-      .where('business_unit_id', careerPathTemplate.companyId)
+      .where('business_unit_id', careerPathTemplate.businessUnitId)
       .first()
 
-    if (!existCompany && careerPathTemplate.companyId) {
+    if (!existCompany && careerPathTemplate.businessUnitId) {
       const entity = this.t('company')
       return {
         status: 400,
@@ -137,7 +137,7 @@ export default class CareerPathTemplateService {
       .if(careerPathTemplate.careerPathTemplateId > 0, (query) => {
         query.whereNot('career_path_template_id', careerPathTemplate.careerPathTemplateId)
       })
-      .where('company_id', careerPathTemplate.companyId)
+      .where('business_unit_id', careerPathTemplate.businessUnitId)
       .where('origin_position_id', careerPathTemplate.originPositionId)
       .where('target_position_id', careerPathTemplate.targetPositionId)
       .first()

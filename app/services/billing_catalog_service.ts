@@ -5,7 +5,9 @@ import BillingPlanPrice from '#models/billing_plan_price'
 import BillingVolumeTier from '#models/billing_volume_tier'
 import { BILLING_CATALOG_ERROR_CODES } from '../constants/billing_catalog_error_codes.js'
 import { BillingCatalogServiceError } from '../exceptions/billing_catalog_service_error.js'
-import { toBusinessDateString } from '../utils/business_date.js'
+import { toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
+
+const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
 
 // ---------------------------------------------------------------------------
 // Tipos de entrada
@@ -165,6 +167,19 @@ export default class BillingCatalogService {
    * Requisitos para publicar:
    *  - Al menos un precio con effective_from ≤ hoy.
    *  - Al menos un tramo activo.
+   *
+   * Cuando el plan es una copia (billingPlanParentId no nulo), la publicación
+   * ejecuta además el relevo del plan padre dentro de la misma transacción:
+   *  1. Desmarca y desactiva al padre en una sola sentencia.
+   *  2. Descarta en borrador las copias hermanas del mismo padre.
+   *  3. Publica el clon; si el padre era el plan público de la landing,
+   *     el clon hereda la marca en ese mismo paso.
+   *
+   * El orden desmarcar → marcar es obligatorio: el índice único
+   * `billing_plans_public_unique` se valida por sentencia y no al commit.
+   * Invertirlo produce `ER_DUP_ENTRY`, que se traduce a `409
+   * PLT.CAT.PUBLIC_PLAN_CONFLICT` en lugar de dejar pasar el mensaje crudo
+   * de MySQL. (USRH1787619255298 · USRH1787619255300)
    */
   async publishPlan(planId: number): Promise<BillingPlan> {
     const plan = await this.getPlan(planId)
@@ -209,32 +224,53 @@ export default class BillingCatalogService {
       )
     }
 
-    await db.transaction(async (trx) => {
-      // Si el plan es un clon, publicarlo desactiva atómicamente al plan origen.
-      // Sus suscripciones e historial quedan intactos: solo deja de ser vendible.
-      // Además se descartan las demás copias en borrador del mismo padre, para
-      // garantizar una sola oferta viva por linaje aun con datos previos a las
-      // restricciones de clonePlan (copias sin linaje, copias hermanas antiguas).
-      if (plan.billingPlanParentId) {
-        await BillingPlan.query({ client: trx })
-          .where('billing_plan_id', plan.billingPlanParentId)
-          .update({ billing_plan_active: 0 })
+    try {
+      await db.transaction(async (trx) => {
+        // Si el plan es un clon, publicarlo desactiva atómicamente al plan origen.
+        // Sus suscripciones e historial quedan intactos: solo deja de ser vendible.
+        // Además se descartan las demás copias en borrador del mismo padre, para
+        // garantizar una sola oferta viva por linaje aun con datos previos a las
+        // restricciones de clonePlan (copias sin linaje, copias hermanas antiguas).
+        if (plan.billingPlanParentId) {
+          // Leer el estado del padre dentro de la trx para detectar si era el
+          // plan público. Lectura previa explícita sobre el mismo cliente
+          // transaccional; el UPDATE que sigue toma el lock exclusivo de la fila.
+          const parent = await BillingPlan.query({ client: trx })
+            .where('billing_plan_id', plan.billingPlanParentId)
+            .first()
+          const parentWasPublic = parent?.billingPlanIsPublic === 1
 
-        const siblingDrafts = await BillingPlan.query({ client: trx })
-          .where('billing_plan_parent_id', plan.billingPlanParentId)
-          .whereNull('billing_plan_published_at')
-          .whereNot('billing_plan_id', planId)
+          // Paso 1 (USRH1787619255300): desmarcar y desactivar al padre en una
+          // sola sentencia. Este UPDATE precede siempre al save() del clon, lo
+          // que garantiza el orden desmarcar→marcar que exige el índice único.
+          await BillingPlan.query({ client: trx })
+            .where('billing_plan_id', plan.billingPlanParentId)
+            .update({ billing_plan_active: 0, billing_plan_is_public: 0 })
 
-        for (const sibling of siblingDrafts) {
-          sibling.useTransaction(trx)
-          await (sibling as unknown as { delete(): Promise<void> }).delete()
+          const siblingDrafts = await BillingPlan.query({ client: trx })
+            .where('billing_plan_parent_id', plan.billingPlanParentId)
+            .whereNull('billing_plan_published_at')
+            .whereNot('billing_plan_id', planId)
+
+          for (const sibling of siblingDrafts) {
+            sibling.useTransaction(trx)
+            await (sibling as unknown as { delete(): Promise<void> }).delete()
+          }
+
+          // Paso 2 (USRH1787619255300): si el padre era el plan público, la
+          // marca viaja al clon en el mismo save() que lo publica.
+          if (parentWasPublic) {
+            plan.billingPlanIsPublic = 1
+          }
         }
-      }
 
-      plan.billingPlanPublishedAt = DateTime.utc()
-      plan.useTransaction(trx)
-      await plan.save()
-    })
+        plan.billingPlanPublishedAt = DateTime.utc()
+        plan.useTransaction(trx)
+        await plan.save()
+      })
+    } catch (error) {
+      this.rethrowPublicPlanConflict(error)
+    }
 
     return plan
   }
@@ -268,8 +304,12 @@ export default class BillingCatalogService {
       )
     }
 
-    plan.billingPlanActive = 0
-    await plan.save()
+    await db.transaction(async (trx) => {
+      plan.billingPlanActive = 0
+      plan.billingPlanIsPublic = 0
+      plan.useTransaction(trx)
+      await plan.save()
+    })
     return plan
   }
 
@@ -713,6 +753,135 @@ export default class BillingCatalogService {
       effectiveFrom: currentPrice.billingPlanPriceEffectiveFrom,
       resolvedAt: refDate,
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Plan público de la landing (USRH1787619255298)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Señala un plan como el plan público de la landing.
+   *
+   * Primero desmarca al anterior (si lo hay) y después marca al nuevo, ambos
+   * dentro de la misma transacción. El orden importa: el UNIQUE de MySQL se
+   * valida por sentencia, no al commit; invertirlo causa ER_DUP_ENTRY.
+   */
+  async markPlanAsPublic(planId: number): Promise<BillingPlan> {
+    const plan = await this.getPlan(planId)
+
+    if (plan.billingPlanIsPublic === 1) {
+      throw new BillingCatalogServiceError(
+        `Plan ${planId} ya es el plan público`,
+        BILLING_CATALOG_ERROR_CODES.PLAN_ALREADY_PUBLIC,
+        422,
+        'PLT.CAT.PLAN_ALREADY_PUBLIC',
+        'Este plan ya es el plan público del sitio.'
+      )
+    }
+
+    this.assertSellableForPublic(plan)
+
+    try {
+      await db.transaction(async (trx) => {
+        await BillingPlan.query({ client: trx })
+          .where('billing_plan_is_public', 1)
+          .update({ billing_plan_is_public: 0 })
+
+        plan.billingPlanIsPublic = 1
+        plan.useTransaction(trx)
+        await plan.save()
+      })
+    } catch (error) {
+      this.rethrowPublicPlanConflict(error)
+    }
+
+    return plan
+  }
+
+  /**
+   * Quita la señal de plan público. Deja el catálogo sin plan público;
+   * no promueve otro automáticamente.
+   */
+  async unmarkPlanAsPublic(planId: number): Promise<BillingPlan> {
+    const plan = await this.getPlan(planId)
+
+    if (plan.billingPlanIsPublic !== 1) {
+      throw new BillingCatalogServiceError(
+        `Plan ${planId} no es el plan público`,
+        BILLING_CATALOG_ERROR_CODES.PLAN_NOT_PUBLIC,
+        422,
+        'PLT.CAT.PLAN_NOT_PUBLIC',
+        'Este plan no es el plan público del sitio.'
+      )
+    }
+
+    plan.billingPlanIsPublic = 0
+    await plan.save()
+    return plan
+  }
+
+  /**
+   * Verifica que el plan cumple los cuatro criterios de vendibilidad
+   * necesarios para poder señalarlo como público:
+   *   1. Publicado (`billingPlanPublishedAt` NOT NULL).
+   *   2. Activo (`billingPlanActive === 1`).
+   *   3. No borrado (garantizado por `getPlan` vía SoftDeletes → 404).
+   *   4. Tiene un precio con vigencia igual o anterior a hoy.
+   *
+   * Replica el criterio de `billing_tenant_service.ts:429-452` sin cruzar
+   * servicios. `getPlan` ya precarga `prices` ordenados por `effective_from asc`.
+   */
+  private assertSellableForPublic(plan: BillingPlan): void {
+    if (!plan.isPublished) {
+      throw new BillingCatalogServiceError(
+        `Plan ${plan.billingPlanId} no está publicado`,
+        BILLING_CATALOG_ERROR_CODES.PLAN_PUBLIC_REQUIRES_SELLABLE,
+        422,
+        'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE',
+        'Solo se puede destacar en el sitio un plan publicado, vigente y con precio activo.'
+      )
+    }
+    if (plan.billingPlanActive !== 1) {
+      throw new BillingCatalogServiceError(
+        `Plan ${plan.billingPlanId} está retirado`,
+        BILLING_CATALOG_ERROR_CODES.PLAN_PUBLIC_REQUIRES_SELLABLE,
+        422,
+        'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE',
+        'Solo se puede destacar en el sitio un plan publicado, vigente y con precio activo.'
+      )
+    }
+    const today = toBusinessDateString()
+    const hasCurrentPrice = plan.prices.some((p) => {
+      const effectiveFrom = toCalendarIsoDate(p.billingPlanPriceEffectiveFrom)
+      return effectiveFrom !== null && effectiveFrom <= today
+    })
+    if (!hasCurrentPrice) {
+      throw new BillingCatalogServiceError(
+        `Plan ${plan.billingPlanId} no tiene precio vigente`,
+        BILLING_CATALOG_ERROR_CODES.PLAN_PUBLIC_REQUIRES_SELLABLE,
+        422,
+        'PLT.CAT.PLAN_PUBLIC_REQUIRES_SELLABLE',
+        'Solo se puede destacar en el sitio un plan publicado, vigente y con precio activo.'
+      )
+    }
+  }
+
+  /**
+   * Traduce `ER_DUP_ENTRY` sobre `billing_plans_public_unique` a un error
+   * de dominio 409. Cualquier otro error se re-lanza sin modificar.
+   */
+  private rethrowPublicPlanConflict(error: unknown): never {
+    const { code, sqlMessage } = error as { code?: string; sqlMessage?: string }
+    if (code === ER_DUP_ENTRY && sqlMessage?.includes('billing_plans_public_unique')) {
+      throw new BillingCatalogServiceError(
+        'Carrera detectada al marcar el plan público',
+        BILLING_CATALOG_ERROR_CODES.PUBLIC_PLAN_CONFLICT,
+        409,
+        'PLT.CAT.PUBLIC_PLAN_CONFLICT',
+        'El plan público del sitio cambió mientras procesábamos la solicitud. Vuelve a intentarlo.'
+      )
+    }
+    throw error
   }
 }
 
