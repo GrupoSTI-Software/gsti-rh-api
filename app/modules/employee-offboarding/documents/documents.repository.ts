@@ -29,7 +29,7 @@ export interface EmployeeOffboardingDocumentCreateData {
  * (USRH1787433503686). El adaptador MySQL es el ÚNICO que toca Lucid. El
  * aislamiento va en dos saltos: expediente por su `business_unit_id`
  * snapshoteado EXPLÍCITO, documento acotado por el expediente. Puerto
- * propio a propósito: nada se importa de `offboardings.repository*`.
+ * propio a propósito: nada se importa del repositorio del slice `offboardings/`.
  *
  * Huecos reservados a la hermana H2 (re-emisión): `lockOffboardingRow` y
  * `markCurrentAsSuperseded`. No se declaran hasta que exista quien los use.

@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import PDFDocument from 'pdfkit'
 import logger from '@adonisjs/core/services/logger'
 import { getBusinessTimeZone } from '#utils/business_date'
+import { MISSING_FIELD_ORDER } from './documents.constants.js'
 
 /**
  * Paleta de marca Valanserh (misma que los demás PDF del repo).
@@ -151,6 +152,41 @@ export function sanitizeRenderText(value: string): string {
     .replace(BIDI_CONTROLS, '')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+/** Datos que bloquean la emisión (USRH1787433503689, regla 1). */
+export type MissingSeparationLetterField =
+  | 'legalName'
+  | 'employeeName'
+  | 'position'
+  | 'hireDate'
+  | 'separationDate'
+
+/** Valores YA RESUELTOS (saneados y normalizados) que entran a la guarda. */
+export interface SeparationLetterCompletenessInput {
+  legalName: string
+  employeeName: string
+  position: string
+  hireDate: string | null
+  separationDate: string | null
+}
+
+/**
+ * Guarda de completitud PURA: recibe valores ya resueltos, no consulta, no
+ * traduce y no lanza. Devuelve los campos faltantes en el orden de
+ * `MISSING_FIELD_ORDER` (regla 8); quien lanza es el servicio. El
+ * departamento no bloquea (regla 4).
+ */
+export function collectMissingSeparationLetterFields(
+  data: SeparationLetterCompletenessInput
+): MissingSeparationLetterField[] {
+  const missing = new Set<MissingSeparationLetterField>()
+  if (data.legalName.trim().length === 0) missing.add('legalName')
+  if (data.employeeName.trim().length === 0) missing.add('employeeName')
+  if (data.position.trim().length === 0) missing.add('position')
+  if (!data.hireDate) missing.add('hireDate')
+  if (!data.separationDate) missing.add('separationDate')
+  return MISSING_FIELD_ORDER.filter((field) => missing.has(field))
 }
 
 /** Datos YA RESUELTOS y saneados para el render; el servicio nunca consulta. */

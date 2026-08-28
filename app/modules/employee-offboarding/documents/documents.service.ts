@@ -21,14 +21,17 @@ import {
   DOCUMENT_POSITION_NAME_MAX_LENGTH,
   DOCUMENT_SIGNED_URL_EXPIRES_SECONDS,
   DOCUMENTS_S3_FOLDER,
+  MISSING_FIELD_LABEL_KEY,
   REFERENCE_DATE_SOURCE,
   type EmployeeOffboardingDocumentType,
 } from './documents.constants.js'
 import DocumentsRepositoryMysql from './documents.repository.mysql.js'
 import type { DocumentsRepository } from './documents.repository.js'
 import SeparationLetterPdfService, {
+  collectMissingSeparationLetterFields,
   computeSeniority,
   sanitizeRenderText,
+  type MissingSeparationLetterField,
 } from './separation_letter_pdf.service.js'
 import { toDocumentDto, type EmployeeOffboardingDocumentDto } from './dto/documents.dto.js'
 
@@ -50,6 +53,7 @@ export type EmployeeOffboardingDocumentAction = 'read' | 'create'
  */
 export default class DocumentsService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
+  private readonly locale: string
   private readonly repository: DocumentsRepository
   private readonly pdfService: SeparationLetterPdfService
 
@@ -59,6 +63,7 @@ export default class DocumentsService {
     pdfService: SeparationLetterPdfService = new SeparationLetterPdfService()
   ) {
     this.t = i18n.formatMessage.bind(i18n)
+    this.locale = i18n.locale
     this.repository = repository
     this.pdfService = pdfService
   }
@@ -143,22 +148,34 @@ export default class DocumentsService {
       DOCUMENT_DEPARTMENT_NAME_MAX_LENGTH
     )
     const hireDateIso = toCalendarIsoDate(employee.employeeHireDate)
-    // Regla 5 (H1a): solo la fecha real de baja; la cascada es de H1b
-    const referenceDateIso = toCalendarIsoDate(employee.employeeTerminatedDate)
+    // Regla 5 — cascada (molde literal del DTO del expediente): la fecha real
+    // de baja y, si no existe (bajas de piloto/sobrecargo), la de apertura del
+    // expediente. Se recuerda de cuál salió (regla 6). `??`, nunca `||`.
+    const terminatedDateIso = toCalendarIsoDate(employee.employeeTerminatedDate)
+    const referenceDateIso =
+      terminatedDateIso ?? toCalendarIsoDate(offboarding.employeeOffboardingPlannedDate)
+    const referenceDateSource = terminatedDateIso
+      ? REFERENCE_DATE_SOURCE.TERMINATED
+      : REFERENCE_DATE_SOURCE.PLANNED
 
-    // Regla 6 — guarda GENERAL en un punto único (H1b la sustituye por la
-    // función pura que enumera campo por campo). El departamento no bloquea.
-    const seniorityDays =
-      hireDateIso && referenceDateIso ? daysBetweenBusinessDates(hireDateIso, referenceDateIso) : -1
-    if (
-      legalName.length === 0 ||
-      employeeName.length === 0 ||
-      positionName.length === 0 ||
-      !hireDateIso ||
-      !referenceDateIso ||
-      seniorityDays < 0
-    ) {
-      throw this.incompleteError()
+    // Regla 1 — guarda PURA en un punto único, antes de gastar CPU o red:
+    // el 422 enumera cada dato con su pestaña destino (regla 2).
+    const missing = collectMissingSeparationLetterFields({
+      legalName,
+      employeeName,
+      position: positionName,
+      hireDate: hireDateIso,
+      separationDate: referenceDateIso,
+    })
+    if (missing.length > 0 || !hireDateIso || !referenceDateIso) {
+      throw this.incompleteError(missing)
+    }
+
+    // Regla 7 — coherencia DESPUÉS de la guarda: sin las dos fechas no hay
+    // nada que comparar y el usuario recibiría el error equivocado.
+    const seniorityDays = daysBetweenBusinessDates(hireDateIso, referenceDateIso)
+    if (seniorityDays < 0) {
+      throw this.dateRangeInvalidError()
     }
 
     const issuedAt = todayInBusinessZone()
@@ -203,7 +220,7 @@ export default class DocumentsService {
       employeeOffboardingDocumentLegalName: legalName,
       employeeOffboardingDocumentHireDate: hireDateIso,
       employeeOffboardingDocumentReferenceDate: referenceDateIso,
-      employeeOffboardingDocumentReferenceDateSource: REFERENCE_DATE_SOURCE.TERMINATED,
+      employeeOffboardingDocumentReferenceDateSource: referenceDateSource,
       employeeOffboardingDocumentSeniorityDays: seniorityDays,
       employeeOffboardingDocumentContentHash: contentHash,
       employeeOffboardingDocumentGeneratedByUserId: generatedByUserId,
@@ -347,13 +364,32 @@ export default class DocumentsService {
     })
   }
 
-  private incompleteError() {
+  /**
+   * Detalle compuesto en el idioma de la petición con las etiquetas del
+   * catálogo (nunca valores de la ficha): "a, b y c" por `Intl.ListFormat`,
+   * que resuelve la conjunción por locale sin una clave i18n extra.
+   */
+  private incompleteError(missing: MissingSeparationLetterField[]) {
+    const labels = missing.map((field) => this.t(MISSING_FIELD_LABEL_KEY[field]))
+    const fields = new Intl.ListFormat(this.locale, { style: 'long', type: 'conjunction' }).format(
+      labels
+    )
     return new EmployeeOffboardingServiceError({
       key: 'constancia-incompleta',
       errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_INCOMPLETE,
       httpStatus: 422,
       title: this.t('employee_offboarding_document_issue_error_title'),
-      detail: this.t('employee_offboarding_document_incomplete_detail'),
+      detail: this.t('employee_offboarding_document_incomplete_detail', { fields }),
+    })
+  }
+
+  private dateRangeInvalidError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'fechas-de-la-constancia-incoherentes',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_DATE_RANGE_INVALID,
+      httpStatus: 422,
+      title: this.t('employee_offboarding_document_issue_error_title'),
+      detail: this.t('employee_offboarding_document_date_range_detail'),
     })
   }
 

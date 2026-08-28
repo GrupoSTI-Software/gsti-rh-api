@@ -1,3 +1,5 @@
+import type { MissingSeparationLetterField } from './separation_letter_pdf.service.js'
+
 /**
  * Constantes de los documentos del expediente de salida (USRH1787433503686).
  * Conjuntos cerrados del slice: `varchar` en BD, literal aquí.
@@ -34,3 +36,29 @@ export const DOCUMENT_EMPLOYEE_NAME_MAX_LENGTH = 255
 export const DOCUMENT_POSITION_NAME_MAX_LENGTH = 100
 export const DOCUMENT_DEPARTMENT_NAME_MAX_LENGTH = 100
 export const DOCUMENT_LEGAL_NAME_MAX_LENGTH = 250
+
+/**
+ * Orden ESTABLE de enumeración de los datos faltantes (USRH1787433503689,
+ * regla 8): empresa primero, luego colaborador. Lo fija esta lista, nunca el
+ * orden de los `if` de la guarda.
+ */
+export const MISSING_FIELD_ORDER: readonly MissingSeparationLetterField[] = [
+  'legalName',
+  'employeeName',
+  'position',
+  'hireDate',
+  'separationDate',
+]
+
+/**
+ * Campo faltante → clave i18n de su etiqueta con la pestaña destino de
+ * captura. `Record` cerrado sobre la unión: un campo nuevo sin mapear no
+ * compila.
+ */
+export const MISSING_FIELD_LABEL_KEY: Readonly<Record<MissingSeparationLetterField, string>> = {
+  legalName: 'employee_offboarding_document_field_legal_name',
+  employeeName: 'employee_offboarding_document_field_employee_name',
+  position: 'employee_offboarding_document_field_position',
+  hireDate: 'employee_offboarding_document_field_hire_date',
+  separationDate: 'employee_offboarding_document_field_separation_date',
+}

@@ -32,6 +32,7 @@ export type EmployeeOffboardingErrorKey =
   | 'constancia-no-generada'
   | 'constancia-no-almacenada'
   | 'constancia-descarga-fallida'
+  | 'fechas-de-la-constancia-incoherentes'
   | 'error-interno'
   | 'sin-permiso'
   | 'datos-invalidos'

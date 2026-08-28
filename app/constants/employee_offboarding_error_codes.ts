@@ -95,6 +95,8 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   DOC_DOWNLOAD_FAILED: 'OFFB.DOC.DOWNLOAD_FAILED',
   /** Error no clasificado del slice de documentos — 500. */
   DOC_UNEXPECTED: 'OFFB.DOC.UNEXPECTED',
+  /** Fecha de separación anterior a la de ingreso (regla 7, USRH1787433503689) — 422. */
+  DOC_DATE_RANGE_INVALID: 'OFFB.DOC.DATE_RANGE_INVALID',
 } as const
 
 export type EmployeeOffboardingErrorCode =
