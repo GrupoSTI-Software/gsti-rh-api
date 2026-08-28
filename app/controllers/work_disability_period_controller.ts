@@ -1,12 +1,13 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { inject } from '@adonisjs/core'
 import WorkDisabilityPeriod from '#models/work_disability_period'
 import WorkDisabilityPeriodService from '#services/work_disability_period_service'
 import UploadService from '#services/upload_service'
 import { createWorkDisabilityPeriodValidator } from '#validators/work_disability_period'
 import { WorkDisabilityPeriodAddShiftExceptionInterface } from '../interfaces/work_disability_period_add_shift_exception_interface.js'
-import path from 'node:path'
-import Env from '#start/env'
 import { WORK_DISABILITY_ERROR_CODES } from '#constants/work_disability_error_codes'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS } from '#constants/employees_download_permission_declarations'
 
 /** 404 uniforme (no revela "no existe" vs "no es tuyo") — USRH1784259058498. */
 function workDisabilityPeriodNotFoundResponse(response: HttpContext['response']) {
@@ -187,7 +188,7 @@ export default class WorkDisabilityPeriodController {
 
       const validationOptions = {
         types: ['image', 'document', 'text', 'application', 'archive'],
-        size: '',
+        size: '10mb',
       }
       const workDisabilityPeriodFile = request.file('workDisabilityPeriodFile', validationOptions)
       if (workDisabilityPeriodFile) {
@@ -199,6 +200,17 @@ export default class WorkDisabilityPeriodController {
             type: 'warning',
             title: 'Please upload a valid file',
             message: 'Only PDF or image files are allowed',
+            code: WORK_DISABILITY_ERROR_CODES.INVALID_FILE,
+          }
+        }
+        if (!workDisabilityPeriodFile.isValid) {
+          response.status(400)
+          return {
+            status: 400,
+            type: 'warning',
+            title: 'Please upload a valid file',
+            message: workDisabilityPeriodFile.errors[0]?.message || 'Invalid file',
+            code: WORK_DISABILITY_ERROR_CODES.FILE_TOO_LARGE,
           }
         }
         const fileName = `${new Date().getTime()}_${workDisabilityPeriodFile.clientName}`
@@ -206,7 +218,8 @@ export default class WorkDisabilityPeriodController {
         const fileUrl = await uploadService.fileUpload(
           workDisabilityPeriodFile,
           'work-disability-files',
-          fileName
+          fileName,
+          'private'
         )
         workDisabilityPeriod.workDisabilityPeriodFile = fileUrl
       }
@@ -446,7 +459,7 @@ export default class WorkDisabilityPeriodController {
 
       const validationOptions = {
         types: ['image', 'document', 'text', 'application', 'archive'],
-        size: '',
+        size: '10mb',
       }
       const workDisabilityPeriodFile = request.file('workDisabilityPeriodFile', validationOptions)
       if (workDisabilityPeriodFile) {
@@ -458,6 +471,17 @@ export default class WorkDisabilityPeriodController {
             type: 'warning',
             title: 'Please upload a valid file',
             message: 'Only PDF or image files are allowed',
+            code: WORK_DISABILITY_ERROR_CODES.INVALID_FILE,
+          }
+        }
+        if (!workDisabilityPeriodFile.isValid) {
+          response.status(400)
+          return {
+            status: 400,
+            type: 'warning',
+            title: 'Please upload a valid file',
+            message: workDisabilityPeriodFile.errors[0]?.message || 'Invalid file',
+            code: WORK_DISABILITY_ERROR_CODES.FILE_TOO_LARGE,
           }
         }
         const fileName = `${new Date().getTime()}_${workDisabilityPeriodFile.clientName}`
@@ -465,14 +489,11 @@ export default class WorkDisabilityPeriodController {
         const fileUrl = await uploadService.fileUpload(
           workDisabilityPeriodFile,
           'work-disability-files',
-          fileName
+          fileName,
+          'private'
         )
         if (currentWorkDisabilityPeriod.workDisabilityPeriodFile) {
-          const fileNameWithExt = decodeURIComponent(
-            path.basename(currentWorkDisabilityPeriod.workDisabilityPeriodFile)
-          )
-          const fileKey = `${Env.get('AWS_ROOT_PATH')}/work-disability-files/${fileNameWithExt}`
-          await uploadService.deleteFile(fileKey)
+          await uploadService.deleteFile(currentWorkDisabilityPeriod.workDisabilityPeriodFile)
         }
         workDisabilityPeriod.workDisabilityPeriodFile = fileUrl
       }
@@ -805,6 +826,143 @@ export default class WorkDisabilityPeriodController {
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
         error: error.message,
+      }
+    }
+  }
+  /**
+   * @swagger
+   * /api/work-disability-periods/{workDisabilityPeriodId}/download:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Work Disability Periods
+   *     summary: download work disability period file (stream autenticado, USRH1787434050259)
+   *     produces:
+   *       - application/octet-stream
+   *     parameters:
+   *       - in: path
+   *         name: workDisabilityPeriodId
+   *         required: true
+   *         schema:
+   *           type: number
+   *         description: Work disability period id
+   *     responses:
+   *       200:
+   *         description: Stream binario del documento
+   *         headers:
+   *           Content-Type:
+   *             schema:
+   *               type: string
+   *           Content-Disposition:
+   *             schema:
+   *               type: string
+   *           Cache-Control:
+   *             schema:
+   *               type: string
+   *               example: private, no-store
+   *       400:
+   *         description: ID inválido
+   *       401:
+   *         description: Sin token de autenticación válido
+   *       403:
+   *         description: Sin permiso 'download-work-disability-file' (key PERM.DENIED / PERM.UNRESOLVED)
+   *       404:
+   *         description: Periodo de incapacidad no encontrado, fuera de tu alcance, o el X-Business-Unit-Id header es inválido (key BU.NOT.001)
+   *       500:
+   *         description: Error inesperado al descargar el archivo
+   */
+  @inject()
+  async download(ctx: HttpContext, uploadService: UploadService) {
+    const { request, response, logger } = ctx
+    try {
+      const canDownload = await ensureSecondaryPermission(
+        ctx,
+        EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.downloadWorkDisabilityFile
+      )
+      if (!canDownload) return
+
+      const rawId = request.param('workDisabilityPeriodId')
+      const workDisabilityPeriodId = Number(rawId)
+
+      if (!Number.isInteger(workDisabilityPeriodId) || workDisabilityPeriodId <= 0) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Error de validación',
+          message: 'El ID del periodo de incapacidad es inválido',
+          data: { workDisabilityPeriodId: rawId },
+        }
+      }
+
+      // El propio modelo compone withBusinessUnitScope(): el filtro por tenant
+      // se aplica automáticamente, no se necesita whereHas contra el empleado.
+      const period = await WorkDisabilityPeriod.query()
+        .where('work_disability_period_id', workDisabilityPeriodId)
+        .whereNull('work_disability_period_deleted_at')
+        .first()
+
+      if (!period) {
+        return workDisabilityPeriodNotFoundResponse(response)
+      }
+
+      if (!period.workDisabilityPeriodFile) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Archivo no encontrado',
+          message: 'El periodo de incapacidad no tiene un archivo asociado',
+          data: null,
+        }
+      }
+
+      const object = await uploadService.streamStoredFile(period.workDisabilityPeriodFile)
+
+      if (!object) {
+        logger.warn(
+          { workDisabilityPeriodId, path: period.workDisabilityPeriodFile },
+          'Documento de incapacidad registrado en BD pero no encontrado en almacenamiento'
+        )
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Archivo no encontrado',
+          message: 'El archivo del periodo de incapacidad no fue encontrado en el almacenamiento',
+          data: null,
+        }
+      }
+
+      const rawFileName = `incapacidad-${period.workDisabilityPeriodTicketFolio || workDisabilityPeriodId}`
+      const safeName = rawFileName.replace(/[^\w.\- ]/g, '_')
+      const isSvg = (object.contentType || '').toLowerCase().includes('svg')
+      const disposition = isSvg ? 'attachment' : 'inline'
+
+      response.header('Content-Type', object.contentType || 'application/octet-stream')
+      response.header('Content-Disposition', `${disposition}; filename="${safeName}"`)
+      response.header('Cache-Control', 'private, no-store')
+      if (object.contentLength !== undefined) {
+        response.header('Content-Length', String(object.contentLength))
+      }
+      if (object.etag) {
+        response.header('ETag', object.etag)
+      }
+      if (object.lastModified) {
+        response.header('Last-Modified', object.lastModified.toUTCString())
+      }
+
+      response.status(200)
+      return response.stream(object.stream)
+    } catch (error: any) {
+      logger.error(
+        { err: error, workDisabilityPeriodId: request.param('workDisabilityPeriodId') },
+        'Error inesperado al descargar documento de incapacidad del almacenamiento'
+      )
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Error del servidor',
+        message: 'Ocurrió un error inesperado al obtener el archivo del periodo de incapacidad',
+        error: error?.message,
       }
     }
   }
