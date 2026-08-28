@@ -60,12 +60,28 @@ export const createDeviceValidator = vine.compile(
 )
 
 /**
- * Query params para `GET /api/platform/devices/units`.
- * `page` y `limit` están desde el día uno para no romper el contrato cuando
- * llegue el tablero (1874), aunque la UI de esta rebanada no los use.
+ * Query params para `GET /api/platform/devices/units` (tablero — 1874).
+ *
+ * Filtros:
+ *   - `search`: coincidencia parcial sobre el número de serie (LIKE).
+ *   - `modelId`: filtra por modelo del catálogo.
+ *   - `status`: `disponible | asignada | retirada` — fuera de catálogo → 422.
+ *   - `origin`: `propia | del_cliente` — fuera de catálogo → 422.
+ *   - `tenantPublicId`: UUID de la empresa que tiene el aparato (colocación vigente).
+ *     Mientras no exista `platform_device_assignments` (ticket 1876) devuelve
+ *     siempre array vacío sin error — degradación documentada en §11 del spec.
+ *
+ * Paginación:
+ *   - `page`: ≥ 1, default 1.
+ *   - `limit`: 1–100, default 20.
  */
 export const listDevicesValidator = vine.compile(
   vine.object({
+    search: vine.string().trim().maxLength(100).optional(),
+    modelId: vine.number().positive().withoutDecimals().optional(),
+    status: vine.enum(['disponible', 'asignada', 'retirada'] as const).optional(),
+    origin: vine.enum(['propia', 'del_cliente'] as const).optional(),
+    tenantPublicId: vine.string().trim().uuid().optional(),
     page: vine.number().positive().withoutDecimals().optional(),
     limit: vine.number().positive().withoutDecimals().max(100).optional(),
   })
