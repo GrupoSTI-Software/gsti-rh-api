@@ -8,11 +8,11 @@ import {
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
-  test('declara exactamente 119 operaciones con module employees y bypass standard', ({
+  test('declara exactamente 116 operaciones con module employees y bypass standard', ({
     assert,
   }) => {
     const keys = Object.keys(EMPLOYEES_READ_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 119)
+    assert.equal(keys.length, 116)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
     for (const key of keys) {
