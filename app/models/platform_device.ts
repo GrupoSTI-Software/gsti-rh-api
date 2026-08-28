@@ -1,9 +1,10 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import PlatformDeviceModel from './platform_device_model.js'
+import PlatformDeviceAssignment from './platform_device_assignment.js'
 
 /** Indica si el aparato fue comprado por GSTI o pertenece al cliente. */
 export type PlatformDeviceOrigin = 'propia' | 'del_cliente'
@@ -66,4 +67,10 @@ export default class PlatformDevice extends compose(BaseModel, SoftDeletes) {
     localKey: 'platformDeviceModelId',
   })
   declare deviceModel: BelongsTo<typeof PlatformDeviceModel>
+
+  @hasMany(() => PlatformDeviceAssignment, {
+    foreignKey: 'platformDeviceId',
+    localKey: 'platformDeviceId',
+  })
+  declare assignments: HasMany<typeof PlatformDeviceAssignment>
 }
