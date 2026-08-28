@@ -2,6 +2,10 @@ import { test } from '@japa/runner'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
+function compact(source: string): string {
+  return source.replace(/\s+/g, '')
+}
+
 test.group('address_routes — PermissionGate Domicilio', () => {
   test('alta y edición de contenido declaran permissionGate', async ({ assert }) => {
     const content = await readFile(join(process.cwd(), 'start/routes/address_routes.ts'), 'utf8')
@@ -132,8 +136,22 @@ test.group('person_controller — PermissionGate condicional colaborador', () =>
     assert.include(content, 'EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION')
     assert.include(content, 'personIsCollaborator')
     assert.include(content, 'ensureSecondaryPermission')
-    // No debe declarar gate incondicional en la ruta de persons
+    // GET / (listado) sí exige gate declarativo; POST/PUT/DELETE evalúan el
+    // permiso de forma condicional/por vínculo dentro del controlador, no en la ruta.
     const routes = await readFile(join(process.cwd(), 'start/routes/person_routes.ts'), 'utf8')
-    assert.notInclude(routes, 'permissionGate')
+    const compacted = compact(routes)
+    assert.include(compacted, 'permissionGate(EMPLOYEES_PERSON_COLLABORATOR_READ_PERMISSION)')
+    const matches =
+      compacted.match(/permissionGate\([\w.]+\)/g) ?? []
+    assert.equal(matches.length, 1, 'solo GET / debe declarar permissionGate en person_routes')
+    assert.notMatch(compacted, /post\('\/','#controllers\/person_controller\.store'\)[\s\S]{0,220}permissionGate/)
+    assert.notMatch(
+      compacted,
+      /put\('\/:personId','#controllers\/person_controller\.update'\)[\s\S]{0,220}permissionGate/
+    )
+    assert.notMatch(
+      compacted,
+      /delete\('\/:personId','#controllers\/person_controller\.delete'\)[\s\S]{0,220}permissionGate/
+    )
   })
 })

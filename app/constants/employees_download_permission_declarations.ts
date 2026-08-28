@@ -30,6 +30,7 @@ export const EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS = {
   getSuppliesExcel: employeesStandard('download-supplies-report'),
   downloadProceedingFile: employeesStandard('download-proceeding-files'),
   downloadEmployeeContract: employeesStandard('download-employee-contract'),
+  downloadWorkDisabilityFile: employeesStandard('download-work-disability-file'),
 } as const satisfies Record<string, PermissionGateOptions>
 
 /** Lectura de la pestaña de expediente exigida además de descargar el adjunto. */

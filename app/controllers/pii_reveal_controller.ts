@@ -1,7 +1,17 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import type { LegalCategory } from '#constants/sensitive_fields'
 import { SENSITIVE_DATA_READ_ERROR_CODES } from '#constants/sensitive_data_read_error_codes'
 import PiiRevealService from '#services/pii_reveal_service'
 import SensitiveFieldsCatalogService from '#services/sensitive_fields_catalog_service'
+import { SensitiveAccessContext } from '#utils/sensitive_access_context'
+
+const SENSITIVE_CATEGORY_LABELS: Record<LegalCategory, string> = {
+  identificacion: 'datos de identificación',
+  contacto: 'datos de contacto',
+  financiero: 'datos financieros',
+  salud: 'datos de salud',
+  biometrico: 'datos biométricos',
+}
 
 /**
  * Controlador de reveal de datos personales sensibles.
@@ -98,6 +108,28 @@ export default class PiiRevealController {
    *                   type: string
    *                 data:
    *                   type: object
+   *       '403':
+   *         description: |
+   *           Sin permiso de la categoría legal del par modelo/columna
+   *           (`EMP.SENS.READ.FORBIDDEN`). Envelope `{title,detail,key,code}`.
+   *           No se escribe asiento en `pii_access_logs`.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: Sin permiso para revelar datos sensibles
+   *                 detail:
+   *                   type: string
+   *                   example: No tienes permiso para consultar datos financieros.
+   *                 key:
+   *                   type: string
+   *                   example: sin-permiso-para-revelar-datos-sensibles
+   *                 code:
+   *                   type: string
+   *                   example: EMP.SENS.READ.FORBIDDEN
    *       default:
    *         description: Unexpected error
    *         content:
@@ -155,6 +187,20 @@ export default class PiiRevealController {
             'Este dato sensible se consulta con el permiso de su categoría; no está disponible en el revelado individual.',
           key: 'el-dato-no-se-puede-revelar-por-esta-via',
           code: SENSITIVE_DATA_READ_ERROR_CODES.NOT_REVEALABLE,
+        }
+      }
+
+      const category = catalog.categoryOf(model, column)
+      if (!category || !SensitiveAccessContext.canRead(category)) {
+        response.status(403)
+        const categoryLabel = category
+          ? SENSITIVE_CATEGORY_LABELS[category]
+          : 'este dato sensible'
+        return {
+          title: 'Sin permiso para revelar datos sensibles',
+          detail: `No tienes permiso para consultar ${categoryLabel}.`,
+          key: 'sin-permiso-para-revelar-datos-sensibles',
+          code: SENSITIVE_DATA_READ_ERROR_CODES.FORBIDDEN,
         }
       }
 

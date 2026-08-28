@@ -1,5 +1,7 @@
 import { SYSTEM_MODULES_CATALOG } from '#constants/system_modules_catalog'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
+import { POSITIONS_PERMISSION_CATALOG } from '#constants/positions_permission_catalog'
+import { ATTENDANCE_MONITOR_PERMISSION_CATALOG } from '#constants/attendance_monitor_permission_catalog'
 import { SystemPermissionCatalogError } from '#exceptions/system_permission_catalog_error'
 import type {
   ActionCatalogEntry,
@@ -11,6 +13,13 @@ export { SYSTEM_MODULES_CATALOG } from '#constants/system_modules_catalog'
 export type { ModuleSlug } from '#constants/system_modules_catalog'
 export { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 export type { EmployeesSection, EmployeeActionSlug } from '#constants/employees_permission_catalog'
+export { POSITIONS_PERMISSION_CATALOG } from '#constants/positions_permission_catalog'
+export type { PositionsSection, PositionActionSlug } from '#constants/positions_permission_catalog'
+export { ATTENDANCE_MONITOR_PERMISSION_CATALOG } from '#constants/attendance_monitor_permission_catalog'
+export type {
+  AttendanceMonitorSection,
+  AttendanceMonitorActionSlug,
+} from '#constants/attendance_monitor_permission_catalog'
 
 /**
  * Índice maestro único (USRH1785766406720): agrega el catálogo de módulos y
@@ -32,6 +41,8 @@ export const SYSTEM_PERMISSION_CATALOG: SystemPermissionCatalog = {
   modules: SYSTEM_MODULES_CATALOG,
   actionsByModule: {
     employees: EMPLOYEES_PERMISSION_CATALOG,
+    positions: POSITIONS_PERMISSION_CATALOG,
+    'employees-attendance-monitor': ATTENDANCE_MONITOR_PERMISSION_CATALOG,
   },
 }
 
@@ -232,6 +243,23 @@ export const KNOWN_DUPLICATE_IDS: KnownDuplicateIdFinding[] = [
         moduleId: 48,
         moduleSlug: 'reform-simulation',
         seederFile: '0051_reform_simulation_module_seeder.ts',
+      },
+    ],
+  },
+  {
+    kind: 'permission',
+    id: 206,
+    claimedBy: [
+      {
+        slug: 'see-payroll',
+        moduleId: 7,
+        seederFile: '0018_system_permission_seeder.ts',
+      },
+      {
+        slug: 'read',
+        moduleId: 51,
+        moduleSlug: 'employee-offboardings',
+        seederFile: '0055_employee_offboardings_module_seeder.ts',
       },
     ],
   },
