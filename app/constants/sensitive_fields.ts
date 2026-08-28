@@ -77,7 +77,7 @@ export interface SensitiveField {
 }
 
 /**
- * Catálogo maestro de campos personales sensibles de Valanserh (28 columnas).
+ * Catálogo maestro de campos personales sensibles de Valanserh (32 columnas).
  *
  * Exclusiones justificadas (no se incluyen porque no son datos sensibles de la persona):
  *   - `workDisabilityPeriodFile`           — ruta S3, no dato clínico.
@@ -205,4 +205,11 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // ciphertext crudo. Ancla: app/models/user_consent.ts
   { model: 'UserConsent', column: 'userConsentIp', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
   { model: 'UserConsent', column: 'userConsentUserAgent', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
+
+  // ─── PositionSalaryRangeAudit: financiero (YA CIFRADO, faltaba serialize) ──
+  // Espejo auditado del rango. Ancla: app/models/position_salary_range_audit.ts
+  { model: 'PositionSalaryRangeAudit', column: 'oldMinSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+  { model: 'PositionSalaryRangeAudit', column: 'oldMaxSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+  { model: 'PositionSalaryRangeAudit', column: 'newMinSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+  { model: 'PositionSalaryRangeAudit', column: 'newMaxSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
 ] as const

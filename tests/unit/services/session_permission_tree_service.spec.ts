@@ -281,7 +281,10 @@ test.group('SessionPermissionTreeService', (group) => {
       SYSTEM_MODULES_CATALOG.map((moduleEntry) => moduleEntry.slug)
     )
 
-    const nonEnumeratedModules = tree.modules.filter((moduleNode) => moduleNode.slug !== 'employees')
+    const enumeratedModuleSlugs = ['employees', 'positions', 'employees-attendance-monitor']
+    const nonEnumeratedModules = tree.modules.filter(
+      (moduleNode) => !enumeratedModuleSlugs.includes(moduleNode.slug)
+    )
     assert.isTrue(nonEnumeratedModules.every((moduleNode) => moduleNode.sections.length === 0))
   })
 

@@ -19,7 +19,7 @@ export default class PlatformDeviceModelController {
 
   /**
    * @swagger
-   * /api/platform/device-models:
+   * /api/platform/devices/models:
    *   get:
    *     tags:
    *       - Platform Device Models
@@ -64,7 +64,7 @@ export default class PlatformDeviceModelController {
 
   /**
    * @swagger
-   * /api/platform/device-models/{deviceModelId}:
+   * /api/platform/devices/models/{deviceModelId}:
    *   get:
    *     tags:
    *       - Platform Device Models
@@ -100,7 +100,7 @@ export default class PlatformDeviceModelController {
 
   /**
    * @swagger
-   * /api/platform/device-models:
+   * /api/platform/devices/models:
    *   post:
    *     tags:
    *       - Platform Device Models
@@ -178,7 +178,7 @@ export default class PlatformDeviceModelController {
 
   /**
    * @swagger
-   * /api/platform/device-models/{deviceModelId}:
+   * /api/platform/devices/models/{deviceModelId}:
    *   patch:
    *     tags:
    *       - Platform Device Models
@@ -229,7 +229,7 @@ export default class PlatformDeviceModelController {
 
   /**
    * @swagger
-   * /api/platform/device-models/{deviceModelId}/status:
+   * /api/platform/devices/models/{deviceModelId}/status:
    *   put:
    *     tags:
    *       - Platform Device Models
@@ -287,7 +287,7 @@ export default class PlatformDeviceModelController {
 
   /**
    * @swagger
-   * /api/platform/device-models/{deviceModelId}:
+   * /api/platform/devices/models/{deviceModelId}:
    *   delete:
    *     tags:
    *       - Platform Device Models
