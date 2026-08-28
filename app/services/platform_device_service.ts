@@ -384,8 +384,8 @@ export default class PlatformDeviceService {
 
     // 3) Coherencia origen/costo → 422 COST_NOT_ALLOWED_FOR_ORIGIN
     if (input.platformDeviceOrigin === 'del_cliente') {
-      const hasCost = input.platformDeviceAcquisitionCostCents != null
-      const hasDate = input.platformDeviceAcquisitionDate != null
+      const hasCost = input.platformDeviceAcquisitionCostCents !== null && input.platformDeviceAcquisitionCostCents !== undefined
+      const hasDate = input.platformDeviceAcquisitionDate !== null && input.platformDeviceAcquisitionDate !== undefined
 
       if (hasCost || hasDate) {
         throw new PlatformDeviceServiceError(
@@ -412,7 +412,7 @@ export default class PlatformDeviceService {
         PLATFORM_DEVICE_ERROR_CODES.DEVICE_SERIAL_TAKEN,
         422,
         PLATFORM_DEVICE_ERROR_CODES.DEVICE_SERIAL_TAKEN,
-        `Ya existe una unidad registrada con ese número de serie.`
+        'Ya existe una unidad registrada con ese número de serie.'
       )
     }
 
@@ -441,7 +441,7 @@ export default class PlatformDeviceService {
           PLATFORM_DEVICE_ERROR_CODES.DEVICE_SERIAL_TAKEN,
           422,
           PLATFORM_DEVICE_ERROR_CODES.DEVICE_SERIAL_TAKEN,
-          `Ya existe una unidad registrada con ese número de serie.`
+          'Ya existe una unidad registrada con ese número de serie.'
         )
       }
       throw error
