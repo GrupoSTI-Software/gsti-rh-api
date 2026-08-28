@@ -170,7 +170,7 @@ test.group('business_unit_slug_unique — CA-2: slug libre tras soft-delete', (g
     createdIds.push(second.businessUnitId)
 
     assert.equal(second.businessUnitSlug, slug)
-    assert.isNull(second.deletedAt)
+    assert.notOk(second.deletedAt, 'la empresa nueva no debe estar borrada')
   })
 
   test('no se puede crear una segunda empresa activa mientras la primera sigue activa', async ({

@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
 import { secureRandomInt } from '#helpers/csprng_string'
 import { BUSINESS_UNIT_SLUG_MAX_ATTEMPTS } from '../constants/business_unit.js'
+import { BUSINESS_UNIT_SIGNUP_ERROR_CODES } from '../constants/business_unit_signup_error_codes.js'
 import logger from '@adonisjs/core/services/logger'
 import { I18n } from '@adonisjs/i18n'
 import db from '@adonisjs/lucid/services/db'
@@ -442,7 +443,7 @@ export default class SignupDraftService {
             message: 'No fue posible completar el registro.',
             detail: 'No fue posible asignar el identificador de la empresa.',
             key: 'no-fue-posible-asignar-el-identificador-de-la-empresa',
-            code: 'TNT.BU.SLUG_CONFLICT',
+            code: BUSINESS_UNIT_SIGNUP_ERROR_CODES.SLUG_CONFLICT,
             data: {},
           }
         }

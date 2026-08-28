@@ -54,3 +54,13 @@ export const BUSINESS_UNIT_SLUG_UNIQUE_INDEX = 'business_units_slug_active_uniqu
  * estuviera saturado por cualquier causa imprevista.
  */
 export const BUSINESS_UNIT_SLUG_MAX_ATTEMPTS = 3
+
+/**
+ * Tope de empresas vivas por usuario.
+ *
+ * Es un freno de seguridad, no un límite comercial: 20 es holgado para
+ * cualquier corporativo real y suficiente para frenar la creación de
+ * empresas de prueba gratis en cadena. Decisión cerrada de Wilvardo
+ * el 2026-08-28 — no cambiar sin escalar.
+ */
+export const MAX_LIVE_BUSINESS_UNITS_PER_USER = 20
