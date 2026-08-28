@@ -73,17 +73,21 @@ export default class extends BaseSchema {
   async down() {
     this.defer(async (db) => {
       await db.rawQuery(
-        `UPDATE \`role_system_permissions\`
-         SET \`role_system_permission_deleted_at\` = NULL
-         WHERE \`role_system_permission_deleted_at\` = ?`,
-        [RETIRED_AT]
+        `UPDATE \`role_system_permissions\` AS \`rsp\`
+         INNER JOIN \`system_permissions\` AS \`sp\`
+           ON \`rsp\`.\`system_permission_id\` = \`sp\`.\`system_permission_id\`
+         SET \`rsp\`.\`role_system_permission_deleted_at\` = NULL
+         WHERE \`rsp\`.\`role_system_permission_deleted_at\` = ?
+           AND \`sp\`.\`system_permission_slug\` IN (${SLUG_PLACEHOLDERS})`,
+        [RETIRED_AT, ...RETIRED_SLUGS]
       )
 
       await db.rawQuery(
         `UPDATE \`system_permissions\`
          SET \`system_permission_deleted_at\` = NULL
-         WHERE \`system_permission_deleted_at\` = ?`,
-        [RETIRED_AT]
+         WHERE \`system_permission_deleted_at\` = ?
+           AND \`system_permission_slug\` IN (${SLUG_PLACEHOLDERS})`,
+        [RETIRED_AT, ...RETIRED_SLUGS]
       )
     })
   }

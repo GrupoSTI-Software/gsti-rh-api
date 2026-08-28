@@ -62,18 +62,12 @@ type WritableTabSection = Exclude<
   'consentimiento' | 'responsable' | 'asignados'
 >
 
-function tabWrite(section: WritableTabSection): EmployeeActionSlug[] {
-  return [
-    `tab-${section}-read` as EmployeeActionSlug,
-    `tab-${section}-write` as EmployeeActionSlug,
-  ]
+function tabWrite(section: WritableTabSection) {
+  return [`tab-${section}-read`, `tab-${section}-write`] as const satisfies readonly EmployeeActionSlug[]
 }
 
-function tabFull(section: WritableTabSection): EmployeeActionSlug[] {
-  return [
-    ...tabWrite(section),
-    `tab-${section}-delete` as EmployeeActionSlug,
-  ]
+function tabFull(section: WritableTabSection) {
+  return [...tabWrite(section), `tab-${section}-delete`] as const satisfies readonly EmployeeActionSlug[]
 }
 
 // --- hr-admin: perfil completo del módulo (incluye salud delicada; turnos e incapacidades) ---

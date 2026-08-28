@@ -81,19 +81,6 @@ type TabSection = Exclude<
 >
 
 /**
- * Entradas `tab-<section>-read|write` comunes a toda pestaña. No se exporta:
- * es un detalle de armado de este catálogo, no una utilidad reusable por
- * otros módulos.
- *
- * Genérica en `S` (en vez de anotar el retorno como
- * `ActionCatalogEntry<EmployeesSection>[]`) a propósito: anotar el retorno
- * ensancha cada `slug` a `string`, y como `EMPLOYEES_PERMISSION_CATALOG` se
- * arma intercalando llamadas a este helper con literales sueltos, ese
- * ensanchamiento se filtraba a `EmployeeActionSlug` completo. Al inferir `S`
- * desde el argumento y usar `as const` en cada entrada y en el arreglo que
- * devuelve, TypeScript conserva el slug literal de cada pestaña.
- */
-/**
  * Entrada `tab-<section>-read`, común a toda pestaña. Extraída de
  * `tabReadWrite` (USRH1787433076993) porque tres pestañas ahora declaran solo
  * la consulta y necesitan construirla sin arrastrar la de escritura.
@@ -113,6 +100,19 @@ function tabReadEntry<S extends TabSection>(section: S, label: string) {
   } as const
 }
 
+/**
+ * Entradas `tab-<section>-read|write` comunes a toda pestaña. No se exporta:
+ * es un detalle de armado de este catálogo, no una utilidad reusable por
+ * otros módulos.
+ *
+ * Genérica en `S` (en vez de anotar el retorno como
+ * `ActionCatalogEntry<EmployeesSection>[]`) a propósito: anotar el retorno
+ * ensancha cada `slug` a `string`, y como `EMPLOYEES_PERMISSION_CATALOG` se
+ * arma intercalando llamadas a este helper con literales sueltos, ese
+ * ensanchamiento se filtraba a `EmployeeActionSlug` completo. Al inferir `S`
+ * desde el argumento y usar `as const` en cada entrada y en el arreglo que
+ * devuelve, TypeScript conserva el slug literal de cada pestaña.
+ */
 function tabReadWrite<S extends TabSection>(section: S, label: string, writeLegacySlug?: string) {
   const read = tabReadEntry(section, label)
   const write = {
