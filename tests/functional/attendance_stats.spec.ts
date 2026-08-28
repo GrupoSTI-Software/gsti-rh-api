@@ -109,6 +109,13 @@ test.group('AttendanceStats - validation & auth', () => {
 
     response.assertStatus(200)
     assert.isArray(response.body().data)
+    const deptRows = response.body().data
+    if (deptRows.length > 0) {
+      // `employeesQty` cuenta empleados con al menos un día evaluable, igual
+      // que el overview: por eso nunca excede el total de filas del período.
+      assert.equal(typeof deptRows[0].statistics.employeesQty, 'number')
+      assert.isAtLeast(deptRows[0].statistics.employeesQty, 0)
+    }
   })
 
   test('200 by-employee devuelve array y respeta employeeIds', async ({ client, assert }) => {

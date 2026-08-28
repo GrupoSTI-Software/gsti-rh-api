@@ -47,9 +47,9 @@ export interface AttendanceStatistics extends CleanCounters, InformationalCounte
 }
 
 /**
- * Estadísticas del overview. Extiende AttendanceStatistics con el conteo de
- * empleados evaluados — exclusivo de este endpoint. by-department y by-employee
- * conservan AttendanceStatistics sin este campo.
+ * Estadísticas con conteo de empleados evaluados. Las usan `overview` y
+ * `by-department`; `by-employee` conserva `AttendanceStatistics` sin este
+ * campo, porque ahí cada fila ya ES un empleado.
  */
 export interface OverviewStatistics extends AttendanceStatistics {
   /**
@@ -97,7 +97,12 @@ export interface DepartmentInfo {
 
 export interface DepartmentRow {
   department: DepartmentInfo
-  statistics: AttendanceStatistics
+  /**
+   * Incluye `employeesQty` con el mismo criterio que el overview (empleados
+   * con al menos un día evaluable en el período), para que la suma por
+   * departamento sea comparable con el total de la pantalla.
+   */
+  statistics: OverviewStatistics
 }
 
 /** Referencia mínima a una entidad relacionada del empleado (id + nombre). */
