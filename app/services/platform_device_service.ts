@@ -130,9 +130,12 @@ export default class PlatformDeviceService {
       platformDeviceActive: device.platformDeviceActive === 1,
       platformDeviceAcquisitionCostCents: device.platformDeviceAcquisitionCostCents,
       platformDeviceAcquisitionDate: device.platformDeviceAcquisitionDate,
-      // platform_device_assignments aún no existe (ticket 1876).
-      // Se entrega null como degradación documentada en §11 del spec 1874.
-      assignedTenant: null,
+      assignedTenant: device.assignments?.[0]?.businessUnit
+        ? {
+            publicId: device.assignments[0].businessUnit.businessUnitPublicId,
+            name: device.assignments[0].businessUnit.businessUnitName,
+          }
+        : null,
       model: {
         platformDeviceModelId: model.platformDeviceModelId,
         platformDeviceModelBrand: model.platformDeviceModelBrand,
@@ -300,6 +303,11 @@ export default class PlatformDeviceService {
 
     const devices = await buildQuery()
       .preload('deviceModel')
+      .preload('assignments', (q) => {
+        q.whereNull('platform_device_assignment_released_at')
+          .whereNull('platform_device_assignment_deleted_at')
+          .preload('businessUnit')
+      })
       .orderBy('platform_device_created_at', 'desc')
       .offset((page - 1) * limit)
       .limit(limit)
@@ -338,6 +346,11 @@ export default class PlatformDeviceService {
       .where('platform_device_id', deviceId)
       .whereNull('platform_device_deleted_at')
       .preload('deviceModel')
+      .preload('assignments', (q) => {
+        q.whereNull('platform_device_assignment_released_at')
+          .whereNull('platform_device_assignment_deleted_at')
+          .preload('businessUnit')
+      })
       .first()
 
     if (!device) {
