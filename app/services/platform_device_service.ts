@@ -37,6 +37,8 @@ export interface DeviceRecord {
   platformDeviceSerialNumber: string
   platformDeviceOrigin: PlatformDeviceOrigin
   platformDeviceStockStatus: PlatformDeviceStockStatus
+  /** true = en circulación; false = apartado por operador (toggle HU 1877) */
+  platformDeviceActive: boolean
   platformDeviceAcquisitionCostCents: number | null
   platformDeviceAcquisitionDate: string | null
   assignedTenant: AssignedTenant | null
@@ -125,6 +127,7 @@ export default class PlatformDeviceService {
       platformDeviceSerialNumber: device.platformDeviceSerialNumber,
       platformDeviceOrigin: device.platformDeviceOrigin,
       platformDeviceStockStatus: device.platformDeviceStockStatus,
+      platformDeviceActive: device.platformDeviceActive === 1,
       platformDeviceAcquisitionCostCents: device.platformDeviceAcquisitionCostCents,
       platformDeviceAcquisitionDate: device.platformDeviceAcquisitionDate,
       // platform_device_assignments aún no existe (ticket 1876).
