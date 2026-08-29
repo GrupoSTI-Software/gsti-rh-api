@@ -49,10 +49,15 @@ export default class extends BaseSchema {
       table.date('platform_device_assignment_released_at').nullable()
 
       // Trazabilidad de quién registró la entrega
+      // FK nombrada explícitamente porque el nombre auto-generado supera los 64
+      // caracteres que acepta MySQL (ER_TOO_LONG_IDENT).
       table
         .integer('platform_device_assignment_created_by_user_id')
         .unsigned()
         .nullable()
+
+      table
+        .foreign('platform_device_assignment_created_by_user_id', 'pda_created_by_user_fk')
         .references('user_id')
         .inTable('users')
         .onDelete('SET NULL')
