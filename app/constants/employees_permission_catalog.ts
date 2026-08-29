@@ -623,6 +623,13 @@ const CATALOG_ENTRIES = [
     section: 'descargas',
     exceptionProfile: 'standard',
   },
+  {
+    slug: 'download-work-disability-file',
+    displayName: 'Descargar documento de incapacidad o comprobante de gasto',
+    kind: 'read',
+    section: 'descargas',
+    exceptionProfile: 'standard',
+  },
 
   // --- E) Datos sensibles (nuevas) ---
   {

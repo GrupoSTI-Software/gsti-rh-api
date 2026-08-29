@@ -10,6 +10,8 @@ import { middleware } from '../kernel.js'
  * ─── Pagos ────────────────────────────────────────────────────────────────
  *   GET    /api/platform/billing/subscriptions/:subscriptionId/payments
  *          → histórico paginado, orden paid_at DESC
+ *   GET    /api/platform/billing/subscriptions/:subscriptionId/payments/:paymentId
+ *          → detalle financiero de un pago, acotado a su suscripción (USRH1785962095098)
  *   GET    /api/platform/billing/payments/:paymentId/download
  *          → enlace temporal firmado para descargar el comprobante
  *   POST   /api/platform/billing/subscriptions/:subscriptionId/payments
@@ -20,6 +22,10 @@ router
     router.get(
       '/subscriptions/:subscriptionId/payments',
       '#controllers/billing_payment_controller.index'
+    )
+    router.get(
+      '/subscriptions/:subscriptionId/payments/:paymentId',
+      '#controllers/billing_payment_controller.show'
     )
     router.get(
       '/payments/:paymentId/download',

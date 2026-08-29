@@ -1,6 +1,7 @@
 import logger from '@adonisjs/core/services/logger'
 import mail from '@adonisjs/mail/services/main'
 import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import Complaint from '#models/complaint'
 import ComplaintNotificationLog from '#models/complaint_notification_log'
 import SystemSetting from '#models/system_setting'
@@ -61,7 +62,7 @@ export default class ComplaintNotificationService {
       const pendingNewCount = await this.countNewPendingComplaints([complaint.businessUnitId])
       const branding = await this.resolveBrandingForBusinessUnit(complaint.businessUnitId)
       const boardUrl = this.buildBoardUrl()
-      const from = env.get('SMTP_FROM_ADDRESS', env.get('SMTP_USERNAME', 'no-reply@valanserh.local'))
+      const from = resolveMailSender()
 
       const sentTo: string[] = []
       const isDevelopment = env.get('NODE_ENV') !== 'production'

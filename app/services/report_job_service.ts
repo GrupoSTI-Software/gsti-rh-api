@@ -192,7 +192,7 @@ export default class ReportJobService {
         if (!employee) {
           throw new Error('Empleado no encontrado al generar el reporte')
         }
-        if (allowedIds.length > 0 && !allowedIds.includes(employee.businessUnitId)) {
+        if (!allowedIds.includes(employee.businessUnitId)) {
           throw new Error('Empleado no encontrado al generar el reporte')
         }
         buffer = await assistsService.generateIncidentSummaryPayrollEmployeeBuffer(
@@ -218,7 +218,7 @@ export default class ReportJobService {
         if (!employee) {
           throw new Error('Empleado no encontrado al generar el reporte')
         }
-        if (allowedIds.length > 0 && !allowedIds.includes(employee.businessUnitId)) {
+        if (!allowedIds.includes(employee.businessUnitId)) {
           throw new Error('Empleado no encontrado al generar el reporte')
         }
         buffer = await assistsService.generateIncidentSummaryEmployeeBuffer(
@@ -256,7 +256,7 @@ export default class ReportJobService {
         if (!employee) {
           throw new Error('Empleado no encontrado al generar el reporte')
         }
-        if (allowedIds.length > 0 && !allowedIds.includes(employee.businessUnitId)) {
+        if (!allowedIds.includes(employee.businessUnitId)) {
           throw new Error('Empleado no encontrado al generar el reporte')
         }
         buffer = await assistsService.generateAssistanceEmployeeBuffer(
@@ -347,9 +347,9 @@ export default class ReportJobService {
    */
   private async saveToLocalDisk(jobId: string, fileBuffer: Buffer): Promise<string> {
     const dir = path.join(process.cwd(), 'storage', 'reports', jobId)
-    fs.mkdirSync(dir, { recursive: true })
+    await fs.promises.mkdir(dir, { recursive: true })
     const filePath = path.join(dir, REPORT_FILE_NAME)
-    fs.writeFileSync(filePath, fileBuffer)
+    await fs.promises.writeFile(filePath, Uint8Array.from(fileBuffer))
     return `${LOCAL_KEY_PREFIX}${filePath}`
   }
 
@@ -399,6 +399,9 @@ export default class ReportJobService {
   /**
    * Recupera jobs que quedaron en estado `processing` por un reinicio del servidor
    * y los vuelve a encolar. Llamado por el comando de scheduler.
+   *
+   * Deuda conocida (USRH1786566437097, §15.4): el re-despacho no envuelve
+   * `processJob` en `TenantContext.run` — queda fuera de alcance de esta HU.
    */
   async recoverStuckJobs(): Promise<number> {
     const stuckThreshold = DateTime.now().minus({ minutes: 30 })
