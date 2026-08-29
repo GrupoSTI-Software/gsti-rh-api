@@ -26,6 +26,10 @@ export const PLATFORM_DEVICE_ERROR_CODES = {
   ASSIGN_TENANT_NOT_ENABLED: 'PLT.DEV.ASSIGN_TENANT_NOT_ENABLED',
   /** Empresa (tenant) no encontrada o sin alta en el sistema */
   TENANT_NOT_FOUND: 'PLT.DEV.TENANT_NOT_FOUND',
+  /** No se puede desactivar ni retirar una unidad con entrega abierta (RN7 del spec 1877) */
+  LIFECYCLE_HAS_OPEN_ASSIGNMENT: 'PLT.DEV.LIFECYCLE_HAS_OPEN_ASSIGNMENT',
+  /** La unidad ya fue retirada; el retiro es irreversible (RN4 del spec 1877) */
+  LIFECYCLE_ALREADY_RETIRED: 'PLT.DEV.LIFECYCLE_ALREADY_RETIRED',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.DEV.SYS_UNHANDLED',
 } as const

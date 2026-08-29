@@ -18,6 +18,18 @@ export type PlatformDeviceOrigin = 'propia' | 'del_cliente'
 export type PlatformDeviceStockStatus = 'disponible' | 'asignada' | 'retirada'
 
 /**
+ * Motivo del retiro definitivo de un aparato (USRH1787189981877 · C-4 del set).
+ * `del_cliente` está reservado para retiro automático al devolver un aparato
+ * de origen del_cliente; los 4 motivos visibles al operador son los demás.
+ */
+export type PlatformDeviceRetireReason =
+  | 'danado'
+  | 'obsoleto'
+  | 'vendido'
+  | 'extraviado'
+  | 'del_cliente'
+
+/**
  * Unidad concreta del inventario biométrico de GSTI (USRH1787189981873).
  * Cada fila es un aparato físico identificado por su número de serie.
  * Catálogo global — sin `business_unit_id` ni mixin de scope de tenant.
@@ -40,6 +52,17 @@ export default class PlatformDevice extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare platformDeviceStockStatus: PlatformDeviceStockStatus
+
+  /**
+   * Motivo por el que el aparato fue retirado del inventario. NULL = no retirado.
+   * Una vez establecido no se revierte (el retiro es definitivo, RN4 del spec 1877).
+   */
+  @column()
+  declare platformDeviceRetireReason: PlatformDeviceRetireReason | null
+
+  /** Fecha en que se ejecutó el retiro (YYYY-MM-DD). NULL = no retirado. */
+  @column()
+  declare platformDeviceRetiredAt: string | null
 
   /** Costo de adquisición en centavos MXN. Nulo para aparatos del cliente. */
   @column()

@@ -1,8 +1,12 @@
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import { DateTime } from 'luxon'
 import PlatformDevice, {
   type PlatformDeviceOrigin,
+  type PlatformDeviceRetireReason,
   type PlatformDeviceStockStatus,
 } from '#models/platform_device'
+import PlatformDeviceAssignment from '#models/platform_device_assignment'
 import PlatformDeviceModel from '#models/platform_device_model'
 import { PLATFORM_DEVICE_ERROR_CODES } from '../constants/platform_device_error_codes.js'
 import { PlatformDeviceServiceError } from '../exceptions/platform_device_service_error.js'
@@ -446,6 +450,163 @@ export default class PlatformDeviceService {
         )
       }
       throw error
+    }
+  }
+
+  // ─── Ciclo de vida (USRH1787189981877) ────────────────────────────────────
+
+  /**
+   * Aparta (active=false) o devuelve a circulación (active=true) un aparato.
+   * Un aparato retirado no se puede reactivar (CA-7).
+   * Un aparato con entrega abierta no se puede apartar (CA-6).
+   *
+   * @throws PlatformDeviceServiceError 404 — aparato no encontrado.
+   * @throws PlatformDeviceServiceError 422 LIFECYCLE_HAS_OPEN_ASSIGNMENT — entrega abierta.
+   * @throws PlatformDeviceServiceError 422 LIFECYCLE_ALREADY_RETIRED — ya retirado.
+   */
+  async setDeviceActive(
+    deviceId: number,
+    active: boolean
+  ): Promise<{ deviceId: number; serialNumber: string; active: boolean }> {
+    return db.transaction(async (trx) => {
+      const device = await PlatformDevice.query({ client: trx })
+        .where('platform_device_id', deviceId)
+        .whereNull('platform_device_deleted_at')
+        .forUpdate()
+        .first()
+
+      if (!device) {
+        throw new PlatformDeviceServiceError(
+          `Aparato ${deviceId} no encontrado`,
+          PLATFORM_DEVICE_ERROR_CODES.DEVICE_NOT_FOUND,
+          404,
+          PLATFORM_DEVICE_ERROR_CODES.DEVICE_NOT_FOUND,
+          'El aparato del inventario no existe o fue dado de baja.'
+        )
+      }
+
+      if (device.platformDeviceStockStatus === 'retirada') {
+        throw new PlatformDeviceServiceError(
+          `Aparato ${deviceId} ya está retirado`,
+          PLATFORM_DEVICE_ERROR_CODES.LIFECYCLE_ALREADY_RETIRED,
+          422,
+          PLATFORM_DEVICE_ERROR_CODES.LIFECYCLE_ALREADY_RETIRED,
+          'El aparato ya fue retirado definitivamente y no puede volver a circulación ni ser apartado de nuevo.'
+        )
+      }
+
+      // Solo bloquear apartar (active=false); reactivar no requiere el guard.
+      if (!active) {
+        await this.assertNoOpenAssignment(deviceId, trx)
+      }
+
+      device.useTransaction(trx)
+      device.platformDeviceActive = active ? 1 : 0
+      await device.save()
+
+      return {
+        deviceId: device.platformDeviceId,
+        serialNumber: device.platformDeviceSerialNumber,
+        active: device.platformDeviceActive === 1,
+      }
+    })
+  }
+
+  /**
+   * Retira definitivamente un aparato del inventario con motivo obligatorio.
+   * El retiro es irreversible (RN4). No borra el registro ni libera el serial.
+   *
+   * @throws PlatformDeviceServiceError 404 — aparato no encontrado.
+   * @throws PlatformDeviceServiceError 422 LIFECYCLE_HAS_OPEN_ASSIGNMENT — entrega abierta.
+   * @throws PlatformDeviceServiceError 422 LIFECYCLE_ALREADY_RETIRED — ya retirado.
+   */
+  async retireDevice(
+    deviceId: number,
+    reason: PlatformDeviceRetireReason,
+    retiredAt?: Date
+  ): Promise<{
+    deviceId: number
+    serialNumber: string
+    status: string
+    retireReason: string
+    retiredAt: string
+  }> {
+    return db.transaction(async (trx) => {
+      const device = await PlatformDevice.query({ client: trx })
+        .where('platform_device_id', deviceId)
+        .whereNull('platform_device_deleted_at')
+        .forUpdate()
+        .first()
+
+      if (!device) {
+        throw new PlatformDeviceServiceError(
+          `Aparato ${deviceId} no encontrado`,
+          PLATFORM_DEVICE_ERROR_CODES.DEVICE_NOT_FOUND,
+          404,
+          PLATFORM_DEVICE_ERROR_CODES.DEVICE_NOT_FOUND,
+          'El aparato del inventario no existe o fue dado de baja.'
+        )
+      }
+
+      if (device.platformDeviceStockStatus === 'retirada') {
+        throw new PlatformDeviceServiceError(
+          `Aparato ${deviceId} ya está retirado`,
+          PLATFORM_DEVICE_ERROR_CODES.LIFECYCLE_ALREADY_RETIRED,
+          422,
+          PLATFORM_DEVICE_ERROR_CODES.LIFECYCLE_ALREADY_RETIRED,
+          'El aparato ya fue retirado definitivamente. El retiro es irreversible.'
+        )
+      }
+
+      await this.assertNoOpenAssignment(deviceId, trx)
+
+      const retiredAtStr = retiredAt
+        ? DateTime.fromJSDate(retiredAt).toISODate()!
+        : DateTime.now().toISODate()!
+
+      device.useTransaction(trx)
+      device.platformDeviceStockStatus = 'retirada'
+      device.platformDeviceRetireReason = reason
+      device.platformDeviceRetiredAt = retiredAtStr
+      await device.save()
+
+      return {
+        deviceId: device.platformDeviceId,
+        serialNumber: device.platformDeviceSerialNumber,
+        status: 'retirada',
+        retireReason: reason,
+        retiredAt: retiredAtStr,
+      }
+    })
+  }
+
+  /**
+   * Guarda común: rechaza la operación si el aparato tiene una entrega
+   * abierta en `platform_device_assignments` (RN7 del spec 1877).
+   *
+   * El `forUpdate` ya está tomado sobre `platform_devices` antes de llamar
+   * aquí, por lo que no hay carrera entre la consulta y la mutación.
+   */
+  private async assertNoOpenAssignment(
+    deviceId: number,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    const openAssignment = await PlatformDeviceAssignment.query({ client: trx })
+      .where('platform_device_id', deviceId)
+      .whereNull('platform_device_assignment_released_at')
+      .whereNull('platform_device_assignment_deleted_at')
+      .preload('businessUnit')
+      .first()
+
+    if (openAssignment) {
+      const tenantName = openAssignment.businessUnit?.businessUnitName ?? 'un tenant'
+      throw new PlatformDeviceServiceError(
+        `Aparato ${deviceId} tiene entrega abierta con ${tenantName}`,
+        PLATFORM_DEVICE_ERROR_CODES.LIFECYCLE_HAS_OPEN_ASSIGNMENT,
+        422,
+        PLATFORM_DEVICE_ERROR_CODES.LIFECYCLE_HAS_OPEN_ASSIGNMENT,
+        `La unidad está asignada a «${tenantName}». Debe desasignarse antes de retirarla o apartarla.`
+      )
     }
   }
 }
