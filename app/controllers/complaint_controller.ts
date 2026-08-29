@@ -23,8 +23,17 @@ import { parseComplaintReportDateRange } from '../helpers/complaint_report_date_
 
 /** 5 fallos / 15 min por folio — regla 2 (USRH1783115930049). */
 const CONSULT_STATUS_FOLIO_LIMIT = { requests: 5, duration: '15 minutes' } as const
-/** 20 fallos / 15 min por IP de origen — regla 2 (USRH1783115930049). */
-const CONSULT_STATUS_IP_LIMIT = { requests: 20, duration: '15 minutes' } as const
+/**
+ * 40 fallos / 5 min por IP de origen — regla 2 (USRH1783115930049), aflojado
+ * por NAT: en un centro de trabajo todos los teléfonos salen con la misma IP
+ * pública, así que un umbral bajo bloquea a quien no falló. El techo se
+ * conserva contra el escaneo masivo, pero la ventana corta acota el daño
+ * colateral a 5 minutos en vez de 15. El candado que de verdad frena la fuerza
+ * bruta es el de folio, que no depende del origen; y enumerar folios no aporta
+ * nada porque el 404 es genérico (no distingue folio inexistente de clave
+ * equivocada).
+ */
+const CONSULT_STATUS_IP_LIMIT = { requests: 40, duration: '5 minutes' } as const
 
 /**
  * Controlador del buzón de quejas confidencial (NOM-035 8.1.b).
