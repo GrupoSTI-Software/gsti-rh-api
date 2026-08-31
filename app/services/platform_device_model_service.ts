@@ -1,3 +1,4 @@
+import env from '#start/env'
 import PlatformDeviceModel, {
   type PlatformDeviceModelStatus,
 } from '#models/platform_device_model'
@@ -10,9 +11,9 @@ export interface DeviceModelRecord {
   brand: string
   name: string
   slug: string
-  /** URL relativa de la foto de referencia. Resuelta como `/devices/<slug>.svg`.
-   *  Mientras no exista el archivo real del modelo, el frontend puede mostrar
-   *  `/devices/default.svg` como imagen neutra de reemplazo. */
+  /** URL de la foto de referencia, servida desde el Space como WebP. Mientras
+   *  no exista el archivo real del modelo, el frontend puede mostrar
+   *  `default.webp` como imagen neutra de reemplazo. */
   photoUrl: string
   status: PlatformDeviceModelStatus
   active: boolean
@@ -64,12 +65,18 @@ export default class PlatformDeviceModelService {
 
   /**
    * Resuelve la URL de la foto de referencia del modelo.
-   * La foto vive en `public/devices/<slug>.svg`. Mientras el archivo real
-   * del modelo no esté disponible, el frontend debe mostrar el placeholder
-   * `default.svg` para evitar imágenes rotas.
+   *
+   * La imagen vive en el Space como `<slug>.webp`, no en el disco del API: el
+   * servidor de estaticos esta apagado a proposito (`config/static.ts`).
+   * Mientras el archivo real del modelo no exista, el frontend debe mostrar
+   * `default.webp` para evitar imagenes rotas.
+   *
+   * `DEVICE_ASSETS_BASE_URL` permite apuntar al CDN del Space. Sin ella se
+   * devuelve la ruta relativa, que el frontend resuelve contra su propio host.
    */
   private resolvePhotoUrl(slug: string): string {
-    return `/devices/${slug}.svg`
+    const baseUrl = env.get('DEVICE_ASSETS_BASE_URL')?.replace(/\/+$/, '')
+    return baseUrl ? `${baseUrl}/${slug}.webp` : `/devices/${slug}.webp`
   }
 
   /** Serializa un modelo a la forma pública. */

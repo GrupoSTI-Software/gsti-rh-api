@@ -105,6 +105,13 @@ export default class UploadService {
   private APP_NAME = `${Env.get('AWS_ROOT_PATH')}/`
 
   /**
+   * El intake se recibe por constructor para poder fakearlo en tests. El valor
+   * por defecto conserva `new UploadService()` sin argumentos, que es como lo
+   * construyen los consumidores existentes.
+   */
+  constructor(private readonly fileIntake: FileIntakeService = new FileIntakeService()) {}
+
+  /**
    * Sube un archivo multipart al bucket.
    *
    * TODO archivo pasa obligatoriamente por `FileIntakeService` antes de tocar
@@ -136,7 +143,7 @@ export default class UploadService {
       return 'file_not_found'
     }
 
-    const intake = await new FileIntakeService().accept(
+    const intake = await this.fileIntake.accept(
       file as Parameters<FileIntakeService['accept']>[0],
       profileName
     )

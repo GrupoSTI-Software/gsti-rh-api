@@ -141,6 +141,12 @@ export default await Env.create(new URL('../', import.meta.url), {
   AWS_ROOT_PATH: Env.schema.string(),
   AWS_ROOT_NAME: Env.schema.string.optional(),
   AWS_URL: Env.schema.string.optional(),
+  /**
+   * URL base (CDN del Space) de las imagenes de referencia de los modelos de
+   * dispositivo. Sin ella se devuelve la ruta relativa `/devices/<slug>.webp`,
+   * que el frontend resuelve contra su propio host.
+   */
+  DEVICE_ASSETS_BASE_URL: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
   | Variables for configuring api host synchronization
