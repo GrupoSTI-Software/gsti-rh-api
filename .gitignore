@@ -33,5 +33,6 @@ docs/swagger.json
 # CLAUDE
 .gsti-kg/
 
-# Archivos temporales generados en desarrollo (reportes Excel en disco local)
-storage/reports/
+# Artefactos generados en tiempo de ejecucion: reportes en disco, evidencias de
+# backfill y cualquier volcado de datos. Nada de `storage/` se versiona.
+storage/
