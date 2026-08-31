@@ -4,17 +4,14 @@ import ComplaintAttachment from '#models/complaint_attachment'
 import Employee from '#models/employee'
 import User from '#models/user'
 import UploadService from '#services/upload_service'
-import ComplaintFileSanitizerService from '#services/complaint_file_sanitizer_service'
+import FileIntakeService from '#services/file_intake_service'
 import { COMPLAINT_ERROR_CODES } from '#constants/complaint_error_codes'
 import {
-  COMPLAINT_ATTACHMENT_MAX_BYTES,
   COMPLAINT_ATTACHMENT_S3_FOLDER,
   COMPLAINT_ATTACHMENT_SIGNED_URL_EXPIRES_SECONDS,
 } from '#constants/complaint_attachment'
-import {
-  buildComplaintAttachmentStorageFileName,
-  isComplaintAttachmentClientFileAllowed,
-} from '../helpers/complaint_attachment_file.js'
+import { FILE_INTAKE_ERROR_CODES } from '#constants/file_intake_error_codes'
+import { FileIntakeError } from '#exceptions/file_intake_error'
 import { ComplaintServiceError } from '#exceptions/complaint_service_error'
 import type {
   ComplaintAttachmentDownloadResult,
@@ -26,7 +23,7 @@ import type {
  * persistir y aísla almacenamiento por tenant (business unit).
  */
 export default class ComplaintAttachmentService {
-  private readonly sanitizer = new ComplaintFileSanitizerService()
+  private readonly fileIntake = new FileIntakeService()
 
   /**
    * Sube un adjunto sanitizado a una queja identificada por folio (empleado autenticado).
@@ -96,32 +93,15 @@ export default class ComplaintAttachmentService {
   }
 
   private async uploadForComplaint(complaint: Complaint, file: any): Promise<ComplaintAttachmentRow> {
-    this.assertFilePresent(file)
-    this.assertClientFileExtensionAllowed(file)
+    const intake = await this.acceptAttachment(file)
 
-    if (typeof file.size === 'number' && file.size > COMPLAINT_ATTACHMENT_MAX_BYTES) {
-      throw this.invalidFileError('complaint_attachment_file_too_large')
-    }
-
-    let sanitized
-    try {
-      sanitized = await this.sanitizer.sanitizeFromPath(file.tmpPath)
-    } catch {
-      throw this.invalidFileError('complaint_attachment_file_type_invalid')
-    }
-
-    if (sanitized.fileSize > COMPLAINT_ATTACHMENT_MAX_BYTES) {
-      throw this.invalidFileError('complaint_attachment_file_too_large')
-    }
-
-    const storageFileName = buildComplaintAttachmentStorageFileName(sanitized.mimeType)
-    const s3RelativeKey = `${COMPLAINT_ATTACHMENT_S3_FOLDER}/${complaint.businessUnitId}/${complaint.complaintId}/${storageFileName}`
+    const s3RelativeKey = `${COMPLAINT_ATTACHMENT_S3_FOLDER}/${complaint.businessUnitId}/${complaint.complaintId}/${intake.storageFileName}`
 
     const uploadService = new UploadService()
     const s3Key = await uploadService.uploadPrivateBuffer(
       s3RelativeKey,
-      sanitized.buffer,
-      sanitized.mimeType
+      intake.buffer,
+      intake.mimeType
     )
 
     if (!s3Key) {
@@ -135,10 +115,10 @@ export default class ComplaintAttachmentService {
 
     const record = await ComplaintAttachment.create({
       complaintId: complaint.complaintId,
-      complaintAttachmentFileName: storageFileName,
+      complaintAttachmentFileName: intake.storageFileName,
       complaintAttachmentFilePath: s3Key,
-      complaintAttachmentMimeType: sanitized.mimeType,
-      complaintAttachmentFileSize: sanitized.fileSize,
+      complaintAttachmentMimeType: intake.mimeType,
+      complaintAttachmentFileSize: intake.fileSize,
       complaintAttachmentSanitized: true,
     })
 
@@ -239,15 +219,18 @@ export default class ComplaintAttachmentService {
     return attachment
   }
 
-  private assertFilePresent(file: any) {
-    if (!file || !file.tmpPath) {
-      throw this.invalidFileError('complaint_attachment_file_missing')
-    }
-  }
-
-  private assertClientFileExtensionAllowed(file: any) {
-    if (!isComplaintAttachmentClientFileAllowed(file.clientName, file.extname)) {
-      throw this.invalidFileError('complaint_attachment_extension_blocked')
+  /**
+   * Delega la validacion y sanitizacion al servicio transversal y traduce su
+   * rechazo al contrato de error del buzon, que el frontend ya consume.
+   */
+  private async acceptAttachment(file: unknown) {
+    try {
+      return await this.fileIntake.accept(
+        file as Parameters<FileIntakeService['accept']>[0],
+        'complaint-attachment'
+      )
+    } catch (error) {
+      throw this.invalidFileError(resolveComplaintAttachmentMessageKey(error))
     }
   }
 
@@ -295,5 +278,27 @@ export default class ComplaintAttachmentService {
     if (value === null || value === undefined) return null
     if (DateTime.isDateTime(value)) return (value as DateTime).toISO()
     return null
+  }
+}
+
+/**
+ * Mapea el rechazo del intake a la clave i18n que el buzon ya usaba, para que
+ * el contrato de error del modulo no cambie con la unificacion.
+ */
+function resolveComplaintAttachmentMessageKey(error: unknown): string {
+  if (!(error instanceof FileIntakeError)) {
+    return 'complaint_attachment_file_type_invalid'
+  }
+
+  switch (error.errorCode) {
+    case FILE_INTAKE_ERROR_CODES.FILE_MISSING:
+      return 'complaint_attachment_file_missing'
+    case FILE_INTAKE_ERROR_CODES.EXTENSION_BLOCKED:
+    case FILE_INTAKE_ERROR_CODES.EXTENSION_NOT_ALLOWED:
+      return 'complaint_attachment_extension_blocked'
+    case FILE_INTAKE_ERROR_CODES.FILE_TOO_LARGE:
+      return 'complaint_attachment_file_too_large'
+    default:
+      return 'complaint_attachment_file_type_invalid'
   }
 }
