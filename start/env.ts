@@ -37,6 +37,14 @@ export default await Env.create(new URL('../', import.meta.url), {
   WORK_JOURNAL_HMAC_SECRET: Env.schema.string.optional(),
   HOST: Env.schema.string({ format: 'host' }),
   LOG_LEVEL: Env.schema.string(),
+  /**
+   * Orígenes autorizados por CORS, separados por comas y sin barra final
+   * (ej. `https://app.valanserh.com,https://admin.valanserh.com`).
+   * OBLIGATORIA a propósito: con `credentials: true`, un API sin lista blanca
+   * expone la sesión de cualquier usuario a cualquier sitio que visite. Arrancar
+   * sin ella debe fallar, no degradar en silencio.
+   */
+  CORS_ALLOWED_ORIGINS: Env.schema.string(),
   /** Zona IANA para reglas de negocio por “día calendario” (vigencias salariales, etc.). Independiente de `TZ` del proceso. */
   APP_BUSINESS_TIMEZONE: Env.schema.string.optional(),
   /**
