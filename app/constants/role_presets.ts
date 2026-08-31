@@ -45,22 +45,29 @@ function tabRead(section: (typeof ALL_TAB_SECTIONS)[number]): EmployeeActionSlug
   return `tab-${section}-read` as EmployeeActionSlug
 }
 
-function tabWrite(
-  section: Exclude<(typeof ALL_TAB_SECTIONS)[number], 'consentimiento'>
-): EmployeeActionSlug[] {
-  return [
-    `tab-${section}-read` as EmployeeActionSlug,
-    `tab-${section}-write` as EmployeeActionSlug,
-  ]
+/**
+ * Secciones cuya escritura sí la gobierna un `tab-<section>-write` que el API
+ * exige de verdad. Quedan fuera `consentimiento`, `responsable` y `asignados`
+ * (USRH1787433076993): sus casillas de escritura y eliminación se retiraron
+ * del catálogo porque ninguna operación del servidor las consultaba —lo real
+ * es `register-physical-consent` para la primera y
+ * `manage-responsible-edit` ∨ `manage-assigned-edit` para las otras dos—.
+ * Excluirlas aquí convierte en error de compilación cualquier intento de
+ * volver a repartirlas desde una plantilla; sin esta exclusión el
+ * `as EmployeeActionSlug` de abajo lo dejaría pasar y reventaría en runtime
+ * con 422 PLT.RP.MISSING_PERMISSIONS.
+ */
+type WritableTabSection = Exclude<
+  (typeof ALL_TAB_SECTIONS)[number],
+  'consentimiento' | 'responsable' | 'asignados'
+>
+
+function tabWrite(section: WritableTabSection) {
+  return [`tab-${section}-read`, `tab-${section}-write`] as const satisfies readonly EmployeeActionSlug[]
 }
 
-function tabFull(
-  section: Exclude<(typeof ALL_TAB_SECTIONS)[number], 'consentimiento'>
-): EmployeeActionSlug[] {
-  return [
-    ...tabWrite(section),
-    `tab-${section}-delete` as EmployeeActionSlug,
-  ]
+function tabFull(section: WritableTabSection) {
+  return [...tabWrite(section), `tab-${section}-delete`] as const satisfies readonly EmployeeActionSlug[]
 }
 
 // --- hr-admin: perfil completo del módulo (incluye salud delicada; turnos e incapacidades) ---
@@ -111,12 +118,11 @@ const HR_ADMIN_SLUGS = uniqueSlugs([
   ...tabFull('periodos-lactancia'),
   ...tabFull('expediente'),
   'tab-consentimiento-read',
-  'tab-consentimiento-write',
   ...tabFull('domicilio'),
   ...tabFull('bancos'),
-  ...tabFull('responsable'),
+  tabRead('responsable'),
   ...tabFull('zonas'),
-  ...tabFull('asignados'),
+  tabRead('asignados'),
   ...tabFull('biometricos'),
   ...tabFull('anotaciones'),
   ...tabFull('dispositivos'),
@@ -170,7 +176,7 @@ const BRANCH_SUPERVISOR_SLUGS = uniqueSlugs([
   ...tabWrite('expediente'),
   tabRead('responsable'),
   ...tabWrite('zonas'),
-  ...tabWrite('asignados'),
+  tabRead('asignados'),
   ...tabWrite('anotaciones'),
   tabRead('dispositivos'),
   ...tabWrite('evaluaciones'),
@@ -220,9 +226,8 @@ const DATA_ENTRY_SLUGS = uniqueSlugs([
   ...tabWrite('domicilio'),
   ...tabWrite('expediente'),
   'tab-consentimiento-read',
-  'tab-consentimiento-write',
-  ...tabWrite('responsable'),
-  ...tabWrite('asignados'),
+  tabRead('responsable'),
+  tabRead('asignados'),
   ...tabWrite('certificaciones'),
 ])
 
@@ -232,7 +237,7 @@ export const ROLE_PRESETS: readonly RolePresetDefinition[] = [
     name: 'Administrador de RH',
     description:
       'Perfil completo del módulo de Colaboradores: ve, edita y elimina el expediente, opera el listado, descarga todo y accede a las cinco categorías de datos delicados.',
-    version: '1.0.0',
+    version: '1.1.0',
     moduleSlug: ROLE_PRESET_MODULE_SLUG,
     permissionSlugs: HR_ADMIN_SLUGS,
   },
@@ -241,7 +246,7 @@ export const ROLE_PRESETS: readonly RolePresetDefinition[] = [
     name: 'Supervisor de sucursal',
     description:
       'Ve a su gente y el expediente laboral, anota incidencias, mueve zona/sucursal, evalúa, reportes de asistencia y vacaciones, y gafetes. Sin bancos, salud, lactancia, biométricos ni consentimientos; sin alta ni baja.',
-    version: '1.0.0',
+    version: '1.1.0',
     moduleSlug: ROLE_PRESET_MODULE_SLUG,
     permissionSlugs: BRANCH_SUPERVISOR_SLUGS,
   },
@@ -259,7 +264,7 @@ export const ROLE_PRESETS: readonly RolePresetDefinition[] = [
     name: 'Capturista',
     description:
       'Alta y captura de expediente (foto, ficha, persona, domicilio, documentos, consentimiento, responsable, asignación, certificaciones), importación y gafetes. Sin eliminar ni dar de baja; sin bancos, salud, lactancia, biométricos ni evaluaciones.',
-    version: '1.0.0',
+    version: '1.1.0',
     moduleSlug: ROLE_PRESET_MODULE_SLUG,
     permissionSlugs: DATA_ENTRY_SLUGS,
   },

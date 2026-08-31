@@ -15,7 +15,7 @@ const employeesSensitiveWrite = (action: EmployeeActionSlug): PermissionGateOpti
 
 /**
  * Mapa acumulado de declaraciones de permiso de escritura del módulo Empleados
- * (orden 7 + Persona/Domicilio/Bancos + Condición médica/Lactancia/Incapacidades + Expediente/Certificaciones + Turnos/Excepciones/Vacaciones + Biométricos/Dispositivos + Evaluaciones/Assessments/Ruta de carrera + Zonas/Anotaciones/Bonificaciones/Responsable/Activos).
+ * (orden 7 + Persona/Domicilio/Bancos + Condición médica/Lactancia/Incapacidades + Expediente/Certificaciones + Turnos/Excepciones/Vacaciones + Biométricos/Dispositivos + Evaluaciones/Assessments/Ruta de carrera + Zonas/Anotaciones/Bonificaciones/Responsable/Activos + Gafetes del backoffice).
  * Fuente única que consumen las rutas; no concede nada ni enciende la exigencia del módulo.
  */
 export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
@@ -36,6 +36,17 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   deleteTemporaryAssignment: employeesStandard('tab-trabajo-delete'),
   importEmployeesExcel: employeesStandard('import-employees'),
   importShiftAssignmentsExcel: employeesStandard('import-shift-assignments'),
+  // Gafetes del backoffice (USRH1787433076993): las cuatro vías —consultar,
+  // PDF, PNG y lote— las gobierna `generate-badges`, que es la casilla que el
+  // backoffice ya usaba para mostrar u ocultar el botón. Antes las tres
+  // individuales colgaban de `tab-foto-read` —el permiso de ver la
+  // fotografía, no el de generar el documento— y el lote no comprobaba nada.
+  // El gafete propio del colaborador (`GET /me`) queda fuera a propósito: es
+  // exención de diseño (`collaborator-own-badge`).
+  showEmployeeBadge: employeesStandard('generate-badges'),
+  getEmployeeBadgePdf: employeesStandard('generate-badges'),
+  getEmployeeBadgePng: employeesStandard('generate-badges'),
+  bulkEmployeeBadges: employeesStandard('generate-badges'),
   syncDepartments: employeesStandard('manage-biotime'),
   syncPositions: employeesStandard('manage-biotime'),
   syncEmployees: employeesStandard('manage-biotime'),

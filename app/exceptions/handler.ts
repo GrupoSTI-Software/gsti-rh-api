@@ -22,6 +22,11 @@ import {
   isAuthInvitationRateLimitError,
   respondAuthInvitationRateLimit,
 } from '../helpers/auth_invitation_request_errors.js'
+import {
+  isAdditionalBusinessUnitCreatePath,
+  isAdditionalBusinessUnitRateLimitError,
+  respondAdditionalBusinessUnitRateLimit,
+} from '../helpers/business_unit_request_errors.js'
 
 export default class HttpExceptionHandler extends ExceptionHandler {
   /**
@@ -68,6 +73,13 @@ export default class HttpExceptionHandler extends ExceptionHandler {
 
     if (isAuthInvitationRateLimitError(error) && isAuthInvitationPath(ctx.request.url())) {
       return respondAuthInvitationRateLimit(ctx, error)
+    }
+
+    if (
+      isAdditionalBusinessUnitRateLimitError(error) &&
+      isAdditionalBusinessUnitCreatePath(ctx.request.url())
+    ) {
+      return respondAdditionalBusinessUnitRateLimit(ctx, error)
     }
 
     return super.handle(error, ctx)
