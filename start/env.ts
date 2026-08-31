@@ -126,7 +126,24 @@ export default await Env.create(new URL('../', import.meta.url), {
   ASSIST_SYNC_ALERT_EMAILS: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
-  | Variables for configuring api host synchronization 
+  | Almacenamiento de objetos (DigitalOcean Spaces en produccion,
+  | MinIO en desarrollo). El codigo sirve para ambos: `forcePathStyle`
+  | siempre activo y endpoint por variable.
+  |----------------------------------------------------------
+  */
+  AWS_ACCESS_KEY_ID: Env.schema.string(),
+  AWS_SECRET_ACCESS_KEY: Env.schema.string(),
+  AWS_ENDPOINT: Env.schema.string(),
+  AWS_BUCKET: Env.schema.string(),
+  /** El SDK v3 exige region aunque el proveedor S3-compatible la ignore. */
+  AWS_DEFAULT_REGION: Env.schema.string.optional(),
+  /** Prefijo raiz de todas las keys del bucket. */
+  AWS_ROOT_PATH: Env.schema.string(),
+  AWS_ROOT_NAME: Env.schema.string.optional(),
+  AWS_URL: Env.schema.string.optional(),
+  /*
+  |----------------------------------------------------------
+  | Variables for configuring api host synchronization
   |----------------------------------------------------------
   */
   API_BIOMETRICS_HOST: Env.schema.string.optional(),
