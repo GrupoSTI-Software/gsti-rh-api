@@ -55,12 +55,7 @@ export default class EmployeeSuppplyAssignamentPhotoService {
         continue
       }
 
-      const fileName = `${new Date().getTime()}_${photo.clientName}`
-      const photoUrl = await uploadService.fileUpload(
-        photo,
-        'employee-supply-assignation-photos',
-        fileName
-      )
+      const photoUrl = await uploadService.fileUpload(photo, 'profile-photo', 'employee-supply-assignation-photos')
 
       if (photoUrl === 'file_not_found' || photoUrl === 'S3Producer.fileUpload') {
         continue

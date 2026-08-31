@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import Notice from '#models/notice'
 import NoticeService from '#services/notice_service'
 import { createNoticeValidator, updateNoticeValidator } from '#validators/notice'
@@ -266,7 +267,7 @@ export default class NoticeController {
 
       //   const fileName = `${new Date().getTime()}_${file.clientName}`
       //   const uploadService = new UploadService()
-      //   const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
+      //   const fileUrl = await uploadService.fileUpload(file, 'evidence-document', 'notices')
       //   notice.noticeDescription = fileUrl
       // }
 
@@ -317,9 +318,8 @@ export default class NoticeController {
           }
 
 
-          const fileName = `${new Date().getTime()}_${file.clientName}`
           const uploadService = new UploadService()
-          const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
+          const fileUrl = await uploadService.fileUpload(file, 'evidence-document', 'notices')
           notice.noticeDescription = fileUrl
         }
       } else if (notice.noticeType === 'text') {
@@ -332,9 +332,8 @@ export default class NoticeController {
         if (files) {
           const noticeFileService = new NoticeFileService()
           for (const file of files) {
-            const fileName = `${new Date().getTime()}_${file.clientName}`
             const uploadService = new UploadService()
-            const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
+            const fileUrl = await uploadService.fileUpload(file, 'evidence-document', 'notices')
             const noticeFile = {
               noticeId: newNotice.noticeId,
               noticeFilePath: fileUrl,
@@ -357,6 +356,10 @@ export default class NoticeController {
         data: { notice: newNotice },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -512,10 +515,9 @@ export default class NoticeController {
             }
           }
 
-          const fileName = `${new Date().getTime()}_${file.clientName}`
 
           await noticeService.deleteFileS3(currentNotice.noticeDescription)
-          const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
+          const fileUrl = await uploadService.fileUpload(file, 'evidence-document', 'notices')
           notice.noticeDescription = fileUrl
         }
       } else if (notice.noticeType === 'text') {
@@ -525,8 +527,7 @@ export default class NoticeController {
         const files = request.files('files', validationOptions)
         if (files) {
           for (const file of files) {
-            const fileName = `${new Date().getTime()}_${file.clientName}`
-            const fileUrl = await uploadService.fileUpload(file, 'notices', fileName)
+            const fileUrl = await uploadService.fileUpload(file, 'evidence-document', 'notices')
             const noticeFile = {
               noticeId: notice.noticeId,
               noticeFilePath: fileUrl,
@@ -554,6 +555,10 @@ export default class NoticeController {
         data: { notice: updateNotice },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

@@ -9,7 +9,8 @@ import {
 import { Upload } from '@aws-sdk/lib-storage'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import Env from '#start/env'
-import fs from 'node:fs'
+import FileIntakeService from '#services/file_intake_service'
+import type { FileIntakeProfileName } from '#constants/file_intake'
 import https from 'node:https'
 import http from 'node:http'
 import { Readable } from 'node:stream'
@@ -19,6 +20,16 @@ import logger from '@adonisjs/core/services/logger'
  * Resultado de obtener un objeto de S3 como stream junto con metadata útil
  * para servirlo en una respuesta HTTP.
  */
+/** Ajustes opcionales de una subida. */
+export interface FileUploadOptions {
+  /**
+   * Key relativa dentro de la carpeta, cuando el modulo necesita una ruta
+   * determinista propia. Si se omite, el intake genera un nombre no predecible
+   * con la extension del MIME real.
+   */
+  readonly fileName?: string
+}
+
 export interface S3ObjectStream {
   stream: Readable
   contentType: string
@@ -93,46 +104,61 @@ export default class UploadService {
   private BUCKET_NAME = Env.get('AWS_BUCKET')
   private APP_NAME = `${Env.get('AWS_ROOT_PATH')}/`
 
+  /**
+   * Sube un archivo multipart al bucket.
+   *
+   * TODO archivo pasa obligatoriamente por `FileIntakeService` antes de tocar
+   * el bucket: el perfil decide que se acepta, en que se transforma, como se
+   * llama el objeto y si es publico. Nada de esto se deriva ya de lo que
+   * declara el cliente.
+   *
+   * @param file        Archivo tal como lo entrega `request.file()`.
+   * @param profileName Perfil de uso. Obligatorio: no hay subida sin politica.
+   * @param folderName  Carpeta logica bajo `{AWS_ROOT_PATH}/`.
+   * @param options     `fileName` solo cuando el modulo construye su propia key
+   *                    determinista (expediente REPSE, evidencias, adjuntos).
+   *
+   * @returns La Key del objeto si es privado, o su URL publica si el perfil lo
+   *          declara publico. `'file_not_found'` cuando no llego archivo y
+   *          `'S3Producer.fileUpload'` cuando falla el bucket, igual que antes.
+   *
+   * @throws {FileIntakeError} Si el archivo llego pero no pasa la politica del
+   *         perfil. Es un 422 con triplete, no un fallo del servidor.
+   */
   async fileUpload(
-    file: any,
+    file: unknown,
+    profileName: FileIntakeProfileName,
     folderName = '',
-    fileName = '',
-    permission = 'public-read'
+    options: FileUploadOptions = {}
   ): Promise<string> {
+    // Archivo ausente sigue siendo un caso valido: hay campos opcionales.
+    if (!file) {
+      return 'file_not_found'
+    }
+
+    const intake = await new FileIntakeService().accept(
+      file as Parameters<FileIntakeService['accept']>[0],
+      profileName
+    )
+
+    const fileNameGenerated = options.fileName || intake.storageFileName
+    const key = `${this.APP_NAME}${folderName || 'files'}/${fileNameGenerated}`
+    const permission: ObjectCannedACL = intake.storesPublicly ? 'public-read' : 'private'
+
     try {
-      if (!file) {
-        return 'file_not_found'
-      }
-
-      const fileContent = fs.createReadStream(file.tmpPath)
-
-      const timestamp = new Date().getTime()
-      const randomValue = Math.random().toFixed(10).toString().replace('.', '')
-      const fileNameGenerated = fileName || `T${timestamp}R${randomValue}.${file.extname}`
-      if (file.subtype === 'svg') {
-        file.subtype = 'svg+xml'
-      }
-      const key = `${this.APP_NAME}${folderName || 'files'}/${fileNameGenerated}`
-
       await new Upload({
         client: s3Client,
         params: {
           Bucket: this.BUCKET_NAME,
           Key: key,
-          Body: fileContent,
-          ACL: permission as ObjectCannedACL,
-          ContentType: `${file.type}/${file.subtype}`,
+          Body: intake.buffer,
+          ACL: permission,
+          // El ContentType sale del contenido real, nunca de `file.type`.
+          ContentType: intake.mimeType,
         },
       }).done()
 
-      // Si el archivo es privado, retornar la Key (ruta del archivo) para guardar en BD
-      // La URL temporal se generará bajo demanda con getDownloadLink()
-      if (permission === 'private') {
-        return key
-      }
-
-      // Si es público, retornar la URL pública
-      return this.buildPublicUrl(key)
+      return intake.storesPublicly ? this.buildPublicUrl(key) : key
     } catch (err) {
       logger.error(
         {

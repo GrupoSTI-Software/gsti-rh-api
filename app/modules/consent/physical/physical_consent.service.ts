@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 import { cuid } from '@adonisjs/core/helpers'
 import type { MultipartFile } from '@adonisjs/core/bodyparser'
+import type { FileIntakeProfileName } from '#constants/file_intake'
+import type { FileUploadOptions } from '#services/upload_service'
 import type Employee from '#models/employee'
 import type UserConsent from '#models/user_consent'
 import type User from '#models/user'
@@ -44,7 +46,12 @@ const SIGNED_URL_EXPIRES_SECONDS = 5 * 60
  * fakear porque el contrato es angosto y estable).
  */
 export interface PhysicalConsentFileStorage {
-  fileUpload(file: MultipartFile, folderName: string, fileName: string, permission: string): Promise<string>
+  fileUpload(
+    file: MultipartFile,
+    profileName: FileIntakeProfileName,
+    folderName: string,
+    options?: FileUploadOptions
+  ): Promise<string>
   getDownloadLink(filePath: string, expireSeconds?: number): Promise<unknown>
 }
 
@@ -348,7 +355,7 @@ export default class PhysicalConsentService {
     sanitizedName: string
   ): Promise<string> {
     const fileName = `${S3_FOLDER}/${employeeId}/${cuid()}-${sanitizedName}`
-    const result = await this.fileStorage.fileUpload(file, '', fileName, 'private')
+    const result = await this.fileStorage.fileUpload(file, 'evidence-document', '', { fileName })
 
     if (!result || result === 'file_not_found' || result === 'S3Producer.fileUpload') {
       throw new ConsentError(

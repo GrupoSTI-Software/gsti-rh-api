@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import UploadService from '#services/upload_service'
 import path from 'node:path'
 import Env from '#start/env'
@@ -268,13 +269,8 @@ export default class ProceedingFileTypePropertyValueController {
         }
       }
       if (file) {
-        const fileName = `${new Date().getTime()}_${file.clientName}`
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(
-          file,
-          'proceeding-file-type-property-values',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(file, 'employee-record-document', 'proceeding-file-type-property-values')
         proceedingFileTypePropertyValue.proceedingFileTypePropertyValueValue = fileUrl
       }
       const newProceedingFileTypePropertyValue =
@@ -297,6 +293,10 @@ export default class ProceedingFileTypePropertyValueController {
         data: { proceedingFileTypePropertyValue: newProceedingFileTypePropertyValue },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       return unexpectedErrorResponse(error, response)
     }
   }
@@ -501,13 +501,8 @@ export default class ProceedingFileTypePropertyValueController {
         }
       }
       if (file) {
-        const fileName = `${new Date().getTime()}_${file.clientName}`
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(
-          file,
-          'proceeding-file-type-property-values',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(file, 'employee-record-document', 'proceeding-file-type-property-values')
         if (currentProceedingFileTypePropertyValue.proceedingFileTypePropertyValueValue) {
           const fileNameWithExt = decodeURIComponent(
             path.basename(
@@ -534,6 +529,10 @@ export default class ProceedingFileTypePropertyValueController {
         }
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       return unexpectedErrorResponse(error, response)
     }
   }

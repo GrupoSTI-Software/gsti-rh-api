@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
 import Env from '#start/env'
@@ -246,15 +247,9 @@ export default class EmployeeContractController {
           }
         }
         // get file name and extension
-        const fileName = `${new Date().getTime()}_${employeeContractFile.clientName}`
         const uploadService = new UploadService()
 
-        const fileUrl = await uploadService.fileUpload(
-          employeeContractFile,
-          'employee-contracts',
-          fileName,
-          'private'
-        )
+        const fileUrl = await uploadService.fileUpload(employeeContractFile, 'employee-record-document', 'employee-contracts')
         employeeContract.employeeContractFile = fileUrl
       }
       const newEmployeeContract = await employeeContractService.create(employeeContract)
@@ -266,6 +261,10 @@ export default class EmployeeContractController {
         data: { employeeContract: newEmployeeContract },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -541,14 +540,8 @@ export default class EmployeeContractController {
             data: employeeContractFile,
           }
         }
-        const fileName = `${new Date().getTime()}_${employeeContractFile.clientName}`
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(
-          employeeContractFile,
-          'employee-contracts',
-          fileName,
-          'private'
-        )
+        const fileUrl = await uploadService.fileUpload(employeeContractFile, 'employee-record-document', 'employee-contracts')
         if (currentEmployeeContract.employeeContractFile) {
           const fileNameWithExt = decodeURIComponent(
             path.basename(currentEmployeeContract.employeeContractFile)
@@ -571,6 +564,10 @@ export default class EmployeeContractController {
         data: { employeeContract: updateEmployeeContract },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

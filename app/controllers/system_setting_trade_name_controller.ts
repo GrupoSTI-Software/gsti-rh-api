@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import SystemSetting from '#models/system_setting'
 import SystemSettingTradeName from '#models/system_setting_trade_name'
 import SystemSettingTradeNameService from '#services/system_setting_trade_name_service'
@@ -344,8 +345,7 @@ export default class SystemSettingTradeNameController {
           }
         }
         const uploadService = new UploadService()
-        const fileName = `${new Date().getTime()}_${systemSettingLogo.clientName}`
-        const fileUrl = await uploadService.fileUpload(systemSettingLogo, 'system-settings', fileName)
+        const fileUrl = await uploadService.fileUpload(systemSettingLogo, 'branding-asset', 'system-settings')
         payload.systemSettingLogo = fileUrl
       }
 
@@ -365,12 +365,7 @@ export default class SystemSettingTradeNameController {
           }
         }
         const uploadService = new UploadService()
-        const fileName = `${new Date().getTime()}_${systemSettingBanner.clientName}`
-        const fileUrl = await uploadService.fileUpload(
-          systemSettingBanner,
-          'system-settings',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(systemSettingBanner, 'branding-asset', 'system-settings')
         payload.systemSettingBanner = fileUrl
       }
 
@@ -390,12 +385,7 @@ export default class SystemSettingTradeNameController {
           }
         }
         const uploadService = new UploadService()
-        const fileName = `${new Date().getTime()}_${systemSettingFavicon.clientName}`
-        const fileUrl = await uploadService.fileUpload(
-          systemSettingFavicon,
-          'system-settings',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(systemSettingFavicon, 'branding-asset', 'system-settings')
         payload.systemSettingFavicon = fileUrl
       }
 
@@ -417,12 +407,7 @@ export default class SystemSettingTradeNameController {
           }
         }
         const uploadService = new UploadService()
-        const fileName = `${new Date().getTime()}_${systemSettingEmployeeAplicationIcon.clientName}`
-        const fileUrl = await uploadService.fileUpload(
-          systemSettingEmployeeAplicationIcon,
-          'system-settings',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(systemSettingEmployeeAplicationIcon, 'branding-asset', 'system-settings')
         if (fileUrl === 'S3Producer.fileUpload' || fileUrl === 'file_not_found') {
           response.status(500)
           return {
@@ -446,6 +431,10 @@ export default class SystemSettingTradeNameController {
         data: { systemSettingTradeName: created },
       }
     } catch (error: any) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -607,8 +596,7 @@ export default class SystemSettingTradeNameController {
           const fileKey = `${Env.get('AWS_ROOT_PATH')}/system-settings/${fileNameWithExt}`
           await uploadService.deleteFile(fileKey)
         }
-        const fileName = `${new Date().getTime()}_${systemSettingLogo.clientName}`
-        const fileUrl = await uploadService.fileUpload(systemSettingLogo, 'system-settings', fileName)
+        const fileUrl = await uploadService.fileUpload(systemSettingLogo, 'branding-asset', 'system-settings')
         payload.systemSettingLogo = fileUrl
       }
 
@@ -633,12 +621,7 @@ export default class SystemSettingTradeNameController {
           const fileKey = `${Env.get('AWS_ROOT_PATH')}/system-settings/${fileNameWithExt}`
           await uploadService.deleteFile(fileKey)
         }
-        const fileName = `${new Date().getTime()}_${systemSettingBanner.clientName}`
-        const fileUrl = await uploadService.fileUpload(
-          systemSettingBanner,
-          'system-settings',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(systemSettingBanner, 'branding-asset', 'system-settings')
         payload.systemSettingBanner = fileUrl
       }
 
@@ -663,12 +646,7 @@ export default class SystemSettingTradeNameController {
           const fileKey = `${Env.get('AWS_ROOT_PATH')}/system-settings/${fileNameWithExt}`
           await uploadService.deleteFile(fileKey)
         }
-        const fileName = `${new Date().getTime()}_${systemSettingFavicon.clientName}`
-        const fileUrl = await uploadService.fileUpload(
-          systemSettingFavicon,
-          'system-settings',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(systemSettingFavicon, 'branding-asset', 'system-settings')
         payload.systemSettingFavicon = fileUrl
       }
 
@@ -706,12 +684,7 @@ export default class SystemSettingTradeNameController {
             }
           }
         }
-        const fileName = `${new Date().getTime()}_${systemSettingEmployeeAplicationIcon.clientName}`
-        const fileUrl = await uploadService.fileUpload(
-          systemSettingEmployeeAplicationIcon,
-          'system-settings',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(systemSettingEmployeeAplicationIcon, 'branding-asset', 'system-settings')
         if (fileUrl === 'S3Producer.fileUpload' || fileUrl === 'file_not_found') {
           response.status(500)
           return {
@@ -735,6 +708,10 @@ export default class SystemSettingTradeNameController {
         data: { systemSettingTradeName: updated },
       }
     } catch (error: any) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -1066,12 +1043,7 @@ export default class SystemSettingTradeNameController {
         }
       }
 
-      const fileName = `${new Date().getTime()}_${systemSettingEmployeeAplicationIcon.clientName}`
-      const fileUrl = await uploadService.fileUpload(
-        systemSettingEmployeeAplicationIcon,
-        'system-settings',
-        fileName
-      )
+      const fileUrl = await uploadService.fileUpload(systemSettingEmployeeAplicationIcon, 'branding-asset', 'system-settings')
 
       if (fileUrl === 'S3Producer.fileUpload' || fileUrl === 'file_not_found') {
         response.status(500)
@@ -1099,6 +1071,10 @@ export default class SystemSettingTradeNameController {
         },
       }
     } catch (error: any) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

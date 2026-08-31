@@ -231,7 +231,7 @@ export default class TraumaticEventReportEvidenceService {
   private async uploadToS3(file: any, reportId: number, sanitizedName: string): Promise<string> {
     const key = `${S3_FOLDER}/${reportId}/${cuid()}-${sanitizedName}`
     const uploadService = new UploadService()
-    const result = await uploadService.fileUpload(file, '', key, 'private')
+    const result = await uploadService.fileUpload(file, 'evidence-document', '', { fileName: key })
 
     if (!result || result === 'file_not_found' || result === 'S3Producer.fileUpload') {
       throw new TraumaticEventReportEvidenceError(

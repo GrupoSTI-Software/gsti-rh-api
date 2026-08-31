@@ -1,4 +1,5 @@
 import Department from '#models/department'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeService from '#services/employee_service'
@@ -2564,17 +2565,20 @@ export default class EmployeeController {
       return response.status(404).send({ message: 'Employee not found' })
     }
     // get file name and extension
-    const fileName = `${new Date().getTime()}_${photo.clientName}`
 
     // get employee and update employee photo
     try {
-      const photoUrl = await uploadService.fileUpload(photo, 'employees', fileName)
+      const photoUrl = await uploadService.fileUpload(photo, 'profile-photo', 'employees')
       if (currentEmployee.employeePhoto) {
         await uploadService.deleteFile(currentEmployee.employeePhoto)
       }
       const employee = await employeeService.updateEmployeePhotoUrl(employeeId, photoUrl)
       return response.status(200).send({ url: photoUrl, employee })
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       return response.status(500).send({ message: 'Error uploading file', error })
     }
   }

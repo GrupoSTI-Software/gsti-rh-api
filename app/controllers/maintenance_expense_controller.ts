@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import MaintenanceExpense from '#models/maintenance_expense'
 import MaintenanceExpenseService from '#services/maintenance_expense_service'
 import { createMaintenanceExpenseValidator } from '#validators/maintenance_expense'
@@ -144,8 +145,7 @@ export default class MaintenanceExpenseController {
           }
         }
         const uploadService = new UploadService()
-        const fileName = `${new Date().getTime()}_${photo.clientName}`
-        const fileUrl = await uploadService.fileUpload(photo, 'maintenance-expense', fileName)
+        const fileUrl = await uploadService.fileUpload(photo, 'evidence-document', 'maintenance-expense')
         maintenanceExpenseData.maintenanceExpenseTicket = fileUrl
       }
       const newExpense = await maintenanceExpenseService.create(maintenanceExpenseData)
@@ -157,6 +157,10 @@ export default class MaintenanceExpenseController {
         data: { expense: newExpense },
       })
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500).send({
@@ -248,8 +252,7 @@ export default class MaintenanceExpenseController {
           const fileKey = `${Env.get('AWS_ROOT_PATH')}/maintenance-expense/${fileNameWithExt}`
           await uploadService.deleteFile(fileKey)
         }
-        const fileName = `${new Date().getTime()}_${photo.clientName}`
-        const fileUrl = await uploadService.fileUpload(photo, 'maintenance-expense', fileName)
+        const fileUrl = await uploadService.fileUpload(photo, 'evidence-document', 'maintenance-expense')
         maintenanceExpenseData.maintenanceExpenseTicket = fileUrl
       }
       if (valid.status !== 200) {
@@ -266,6 +269,10 @@ export default class MaintenanceExpenseController {
         data: { expense: updatedExpense },
       })
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500).send({

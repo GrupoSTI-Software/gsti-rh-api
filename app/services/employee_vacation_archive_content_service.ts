@@ -91,14 +91,8 @@ export default class EmployeeVacationArchiveContentService {
     }
 
     const folderName = `employee-vacation-archives/${employeeVacationArchiveId}`
-    const fileName = `${Date.now()}_${file.clientName || 'file'}`
 
-    const fileUrlOrKey = await uploadService.fileUpload(
-      file,
-      folderName,
-      fileName,
-      'private'
-    )
+    const fileUrlOrKey = await uploadService.fileUpload(file, 'employee-record-document', folderName)
 
     if (fileUrlOrKey === 'file_not_found' || fileUrlOrKey === 'S3Producer.fileUpload') {
       const err = SYSTEM_SETTING_ERROR_CODES.UPLOAD_ERROR
@@ -283,13 +277,7 @@ export default class EmployeeVacationArchiveContentService {
         }
       }
       const folderName = `employee-vacation-archives/${employeeVacationArchiveId}`
-      const fileName = `${Date.now()}_${payload.file.clientName || 'file'}`
-      const newKey = await uploadService.fileUpload(
-        payload.file,
-        folderName,
-        fileName,
-        'private'
-      )
+      const newKey = await uploadService.fileUpload(payload.file, 'employee-record-document', folderName)
       if (newKey === 'file_not_found' || newKey === 'S3Producer.fileUpload') {
         const err = SYSTEM_SETTING_ERROR_CODES.UPLOAD_ERROR
         return {

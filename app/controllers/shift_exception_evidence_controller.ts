@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
 import ShiftExceptionEvidenceService from '#services/shift_exception_evidence_service'
@@ -260,7 +261,6 @@ export default class ShiftExceptionEvidenceController {
       shiftExceptionId: shiftExceptionId,
     } as ShiftExceptionEvidence
     // get file name and extension
-    const fileName = `${new Date().getTime()}_${file.clientName}`
     const uploadService = new UploadService()
     const isValidInfo = await shiftExceptionEvidenceService.verifyInfoExist(shiftExceptionEvidence)
     if (isValidInfo.status !== 200) {
@@ -274,7 +274,7 @@ export default class ShiftExceptionEvidenceController {
       }
     }
     try {
-      const fileUrl = await uploadService.fileUpload(file, `shift-exception-evidences/${shiftExceptionId}`, fileName)
+      const fileUrl = await uploadService.fileUpload(file, 'evidence-document', `shift-exception-evidences/${shiftExceptionId}`)
       shiftExceptionEvidence.shiftExceptionEvidenceFile = fileUrl
       shiftExceptionEvidence.shiftExceptionEvidenceType = file.type ? file.type : ''
       const newShiftExceptionEvidence = await shiftExceptionEvidenceService.create(shiftExceptionEvidence)
@@ -286,6 +286,10 @@ export default class ShiftExceptionEvidenceController {
         data: { shiftExceptionEvidence: newShiftExceptionEvidence },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -474,9 +478,8 @@ export default class ShiftExceptionEvidenceController {
             data: file,
           }
         }
-        const fileName = `${new Date().getTime()}_${file.clientName}`
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(file, 'shift-exception-evidences', fileName)
+        const fileUrl = await uploadService.fileUpload(file, 'evidence-document', 'shift-exception-evidences')
         if (currentShiftExceptionEvidence.shiftExceptionEvidenceFile) {
           const fileNameWithExt = decodeURIComponent(
             path.basename(currentShiftExceptionEvidence.shiftExceptionEvidenceFile)
@@ -498,6 +501,10 @@ export default class ShiftExceptionEvidenceController {
         data: { shiftExceptionEvidence: updateShiftExceptionEvidence },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

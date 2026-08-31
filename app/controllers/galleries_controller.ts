@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import Gallery from '../models/gallery.js'
 import { createGalleryValidator, updateGalleryValidator } from '../validators/gallery.js'
 import { formatResponse } from '../helpers/responseFormatter.js'
@@ -249,6 +250,10 @@ export default class GalleriesController {
           formatResponse('success', 'Successfully created', 'Resource created', gallery.toJSON())
         )
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       return response
         .status(400)
         .json(formatResponse('error', 'Validation error', 'Invalid input, validation error', error))
@@ -356,6 +361,10 @@ export default class GalleriesController {
           formatResponse('success', 'Successfully updated', 'Resource updated', gallery.toJSON())
         )
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       return response
         .status(400)
         .json(formatResponse('error', 'Validation error', 'Invalid input, validation error', error))
