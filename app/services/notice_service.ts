@@ -463,18 +463,14 @@ export default class NoticeService {
 
      if ((isUrl || isFilePath) && notice.noticeType === 'pdf') {
        try {
-         if (isUrl) {
-           const response = await fetch(description)
-           if (response.ok) {
-             const arrayBuffer = await response.arrayBuffer()
-             attachmentBuffer = Buffer.from(arrayBuffer)
-             attachmentFilename = decodeURIComponent(path.basename(new URL(description).pathname))
-           }
-         } else {
-           const uploadService = new UploadService()
-           attachmentBuffer = await uploadService.downloadFileBuffer(description)
-           attachmentFilename = decodeURIComponent(path.basename(description))
-         }
+         // Siempre por el bucket con credenciales, nunca con un `fetch` a la
+         // URL guardada: eso era una peticion saliente gobernada por un valor
+         // de base de datos, y ademas el adjunto ya se guarda como key privada.
+         const uploadService = new UploadService()
+         attachmentBuffer = await uploadService.readStoredFileBuffer(description)
+         attachmentFilename = decodeURIComponent(
+           path.basename(isUrl ? new URL(description).pathname : description)
+         )
 
          if (attachmentFilename) {
            const ext = path.extname(attachmentFilename).toLowerCase()
@@ -495,20 +491,13 @@ export default class NoticeService {
          if (!filePath) continue
 
          try {
-           let fileBuffer: Buffer | null = null
-           let fileName = ''
-
-           if (/^https?:\/\//i.test(filePath)) {
-             const response = await fetch(filePath)
-             if (response.ok) {
-               const arrayBuffer = await response.arrayBuffer()
-               fileBuffer = Buffer.from(arrayBuffer)
-               fileName = decodeURIComponent(path.basename(new URL(filePath).pathname))
-             }
-           } else {
-             fileBuffer = await uploadService.downloadFileBuffer(filePath)
-             fileName = decodeURIComponent(path.basename(filePath))
-           }
+           // Igual que arriba: la lectura va por el bucket, no por HTTP contra
+           // la URL guardada.
+           const esUrl = /^https?:\/\//i.test(filePath)
+           const fileBuffer = await uploadService.readStoredFileBuffer(filePath)
+           const fileName = decodeURIComponent(
+             path.basename(esUrl ? new URL(filePath).pathname : filePath)
+           )
 
            if (fileBuffer && fileName) {
              const ext = path.extname(fileName).toLowerCase()

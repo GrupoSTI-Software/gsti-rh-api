@@ -265,6 +265,33 @@ export default class UploadService {
   }
 
   /**
+   * Lee un archivo desde CUALQUIER forma en que se almacene en la base de
+   * datos: una URL publica (filas historicas subidas con `public-read`) o una
+   * Key directa (objetos privados, que es lo que se guarda desde el
+   * endurecimiento de la subida).
+   *
+   * Es el reemplazo de los `axios.get(url)` internos: con la ACL privada por
+   * defecto, el campo ya no contiene una URL que se pueda pedir por HTTP.
+   * Devuelve `null` si el objeto no existe o no es accesible.
+   */
+  async readStoredFileBuffer(storedPath: string): Promise<Buffer | null> {
+    const ref = this.resolveS3Ref(storedPath)
+    if (!ref?.key) return null
+
+    try {
+      const result = await s3Client.send(
+        new GetObjectCommand({
+          Bucket: ref.bucket || this.BUCKET_NAME,
+          Key: ref.key,
+        })
+      )
+      return await bodyToBuffer(result.Body)
+    } catch {
+      return null
+    }
+  }
+
+  /**
    * Obtiene un objeto de S3 como stream listo para hacer pipe a la respuesta HTTP.
    * Devuelve null cuando el objeto no existe (NoSuchKey / NotFound / 403).
    * Lanza cualquier otro error del SDK para que la capa superior lo mapee.
@@ -436,25 +463,28 @@ export default class UploadService {
   resolveS3Ref(storedPath: string): { bucket: string; key: string } | null {
     if (!storedPath) return null
 
-    if (storedPath.includes('digitaloceanspaces.com')) {
+    if (/^https?:\/\//i.test(storedPath)) {
       try {
         const url = new URL(storedPath)
-        const hostLabels = url.hostname.split('.').length
         const rawPath = url.pathname.replace(/^\//, '')
+        const primeraEtiqueta = url.hostname.split('.')[0]
 
         let bucket: string
         let key: string
 
-        if (hostLabels <= 3) {
-          // path-style: region.digitaloceanspaces.com/bucket/key
+        // virtual-hosted: bucket.region.digitaloceanspaces.com/key
+        // Se reconoce cuando la primera etiqueta del host ES el bucket, no por
+        // contar etiquetas: `127.0.0.1:9000/bucket/key` (MinIO) es path-style
+        // y tiene cuatro.
+        if (this.BUCKET_NAME && primeraEtiqueta === this.BUCKET_NAME) {
+          bucket = primeraEtiqueta
+          key = decodeURIComponent(rawPath)
+        } else {
+          // path-style: host/bucket/key
           const slash = rawPath.indexOf('/')
           if (slash === -1) return null
           bucket = rawPath.slice(0, slash)
           key = decodeURIComponent(rawPath.slice(slash + 1))
-        } else {
-          // virtual-hosted: bucket.region.digitaloceanspaces.com/key
-          bucket = url.hostname.split('.')[0]
-          key = decodeURIComponent(rawPath)
         }
 
         if (!bucket || !key) return null
@@ -464,9 +494,17 @@ export default class UploadService {
       }
     }
 
-    // No es URL: key directa o con prefijo de bucket
+    // No es URL: key directa o key con el nombre del bucket como prefijo.
+    //
+    // La ambiguedad es real cuando `AWS_BUCKET` y `AWS_ROOT_PATH` coinciden
+    // (`valanserh/valanserh/files/x.jpg` seria indistinguible de
+    // `valanserh/files/x.jpg` con prefijo). Se resuelve por el lado seguro: si
+    // el path YA empieza por el prefijo raiz de la aplicacion es una key
+    // nuestra y se deja intacta. Recortar ahi apuntaria a un objeto que no
+    // existe, y eso rompe borrado y lectura en silencio.
     let key = storedPath
-    if (this.BUCKET_NAME && storedPath.startsWith(this.BUCKET_NAME + '/')) {
+    const esKeyDeLaAplicacion = storedPath.startsWith(this.APP_NAME)
+    if (this.BUCKET_NAME && !esKeyDeLaAplicacion && storedPath.startsWith(this.BUCKET_NAME + '/')) {
       key = storedPath.slice(this.BUCKET_NAME.length + 1)
     }
 

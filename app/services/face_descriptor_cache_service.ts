@@ -1,8 +1,7 @@
 import * as faceapi from 'face-api.js'
+import UploadService from '#services/upload_service'
 import { createCanvas, loadImage, Image } from '@napi-rs/canvas'
 import path from 'node:path'
-import https from 'node:https'
-import http from 'node:http'
 import fs from 'node:fs'
 // import logger from '@adonisjs/core/services/logger'
 
@@ -60,30 +59,19 @@ function hasTinyFaceDetector(): boolean {
 }
 
 /**
- * Descarga imagen desde URL con timeout configurable
+ * Lee la imagen del bucket por la referencia guardada (key privada o URL
+ * historica). Sustituye al HTTP GET directo: con la foto en ACL privada, el
+ * campo ya no es una URL alcanzable sin credenciales.
  */
-async function downloadImageBuffer(url: string, timeoutMs: number = CONFIG.DOWNLOAD_TIMEOUT_MS): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https') ? https : http
-
-    const request = protocol.get(url, { timeout: timeoutMs }, (res) => {
-      if (res.statusCode !== 200) {
-        reject(new Error(`HTTP ${res.statusCode}: Failed to download image`))
-        return
-      }
-
-      const chunks: Uint8Array[] = []
-      res.on('data', (chunk: Uint8Array) => chunks.push(chunk))
-      res.on('end', () => resolve(Buffer.concat(chunks)))
-      res.on('error', reject)
-    })
-
-    request.on('error', reject)
-    request.on('timeout', () => {
-      request.destroy()
-      reject(new Error('Download timeout'))
-    })
-  })
+async function downloadImageBuffer(
+  storedPath: string,
+  _timeoutMs: number = CONFIG.DOWNLOAD_TIMEOUT_MS
+): Promise<Buffer> {
+  const buffer = await new UploadService().readStoredFileBuffer(storedPath)
+  if (!buffer) {
+    throw new Error('No fue posible leer la imagen del almacenamiento')
+  }
+  return buffer
 }
 
 /**

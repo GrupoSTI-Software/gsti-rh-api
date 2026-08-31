@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import axios from 'axios'
+import UploadService from '#services/upload_service'
 import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas'
 import QRCode from 'qrcode'
 
@@ -337,15 +337,16 @@ export default class BadgeRenderService {
     }
   }
 
-  /** Descarga tolerante — espejo `position_service.ts:936-944`: nunca bloquea el gafete. */
-  async fetchImageTolerant(url: string | null): Promise<Buffer | null> {
-    if (!url) return null
-    try {
-      const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 8000 })
-      return Buffer.from(res.data)
-    } catch {
-      return null
-    }
+  /**
+   * Lectura tolerante de la foto: nunca bloquea el gafete.
+   *
+   * Va al bucket por la referencia guardada (key privada o URL historica) en
+   * lugar de hacer un HTTP GET: desde que la foto se sube con ACL privada, el
+   * campo ya no contiene una URL que se pueda pedir sin credenciales.
+   */
+  async fetchImageTolerant(storedPath: string | null): Promise<Buffer | null> {
+    if (!storedPath) return null
+    return new UploadService().readStoredFileBuffer(storedPath)
   }
 
   private async tryLoadImage(buffer: Buffer): Promise<Awaited<ReturnType<typeof loadImage>> | null> {
