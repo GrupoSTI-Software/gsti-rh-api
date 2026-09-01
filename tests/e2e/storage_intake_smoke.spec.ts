@@ -264,7 +264,7 @@ test.group('Smoke — familias prohibidas rechazadas antes del bucket', (group) 
         assert.isNotEmpty(e.title)
         assert.isNotEmpty(e.detail)
         assert.isNotEmpty(e.key)
-        assert.equal(e.httpStatus, 422)
+        assert.equal(e.status, 422)
       }
     })
   }

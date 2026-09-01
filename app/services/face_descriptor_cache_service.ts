@@ -1,5 +1,5 @@
 import * as faceapi from 'face-api.js'
-import UploadService from '#services/upload_service'
+import { readEmployeePhotoBuffer } from '#helpers/employee_photo_source'
 import { createCanvas, loadImage, Image } from '@napi-rs/canvas'
 import path from 'node:path'
 import fs from 'node:fs'
@@ -59,17 +59,17 @@ function hasTinyFaceDetector(): boolean {
 }
 
 /**
- * Lee la imagen del bucket por la referencia guardada (key privada o URL
- * historica). Sustituye al HTTP GET directo: con la foto en ACL privada, el
- * campo ya no es una URL alcanzable sin credenciales.
+ * Lee la foto del empleado por la referencia guardada. El resolutor distingue
+ * la key del bucket de la URL del servidor de biometricos: las fotos que llegan
+ * de la sincronizacion del checador no viven en el bucket.
  */
 async function downloadImageBuffer(
   storedPath: string,
   _timeoutMs: number = CONFIG.DOWNLOAD_TIMEOUT_MS
 ): Promise<Buffer> {
-  const buffer = await new UploadService().readStoredFileBuffer(storedPath)
+  const buffer = await readEmployeePhotoBuffer(storedPath)
   if (!buffer) {
-    throw new Error('No fue posible leer la imagen del almacenamiento')
+    throw new Error('No fue posible leer la foto del empleado')
   }
   return buffer
 }

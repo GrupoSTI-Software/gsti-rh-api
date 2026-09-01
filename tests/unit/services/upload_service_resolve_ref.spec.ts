@@ -20,9 +20,7 @@ test.group('UploadService.resolveS3Ref', () => {
     assert.deepEqual(ref, { bucket: 'mi-bucket', key: 'valanserh/files/foto.jpg' })
   })
 
-  test('URL virtual-hosted: el bucket sale del host cuando coincide con el configurado', ({
-    assert,
-  }) => {
+  test('URL virtual-hosted del bucket propio: el bucket sale del host', ({ assert }) => {
     const ref = service.resolveS3Ref(
       `https://${bucket}.sfo3.digitaloceanspaces.com/valanserh/files/foto.jpg`
     )
@@ -30,8 +28,31 @@ test.group('UploadService.resolveS3Ref', () => {
     assert.deepEqual(ref, { bucket, key: 'valanserh/files/foto.jpg' })
   })
 
-  test('URL de MinIO con puerto: se lee como path-style, no como virtual-hosted', ({ assert }) => {
-    const ref = service.resolveS3Ref(`http://127.0.0.1:9000/${bucket}/valanserh/files/foto.jpg`)
+  test('URL virtual-hosted de un bucket AJENO se resuelve a ese bucket, no al configurado', ({
+    assert,
+  }) => {
+    // Regresion: comparar la primera etiqueta contra AWS_BUCKET rompia las
+    // filas historicas, que viven en otro bucket. `sae-assets` es el bucket,
+    // `sae-rh-system/...` es la key, no al reves.
+    const ref = service.resolveS3Ref(
+      'https://sae-assets.sfo3.digitaloceanspaces.com/sae-rh-system/files/foto.jpg'
+    )
+
+    assert.deepEqual(ref, { bucket: 'sae-assets', key: 'sae-rh-system/files/foto.jpg' })
+  })
+
+  test('una URL que NO es del almacenamiento no es una referencia S3', ({ assert }) => {
+    // La foto que publica el checador en su propio servidor se troceaba como si
+    // fuera una key del bucket, dejando sin foto al empleado sincronizado.
+    assert.isNull(service.resolveS3Ref('http://201.150.46.146:81/photos/E123.jpg'))
+    assert.isNull(service.resolveS3Ref('https://evil.example.com/valanserh/files/foto.jpg'))
+  })
+
+  test('URL del endpoint configurado (MinIO con puerto): se lee como path-style', ({ assert }) => {
+    // Un host con puerto tiene mas etiquetas que un dominio de Spaces, asi que
+    // contar etiquetas sin mirar el dominio lo confundia con virtual-hosted.
+    const endpoint = env.get('AWS_ENDPOINT').replace(/\/+$/, '')
+    const ref = service.resolveS3Ref(`${endpoint}/${bucket}/valanserh/files/foto.jpg`)
 
     assert.deepEqual(ref, { bucket, key: 'valanserh/files/foto.jpg' })
   })

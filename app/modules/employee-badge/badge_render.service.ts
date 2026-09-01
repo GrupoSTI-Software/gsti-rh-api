@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import UploadService from '#services/upload_service'
+import { readEmployeePhotoBuffer } from '#helpers/employee_photo_source'
 import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas'
 import QRCode from 'qrcode'
 
@@ -340,13 +340,12 @@ export default class BadgeRenderService {
   /**
    * Lectura tolerante de la foto: nunca bloquea el gafete.
    *
-   * Va al bucket por la referencia guardada (key privada o URL historica) en
-   * lugar de hacer un HTTP GET: desde que la foto se sube con ACL privada, el
-   * campo ya no contiene una URL que se pueda pedir sin credenciales.
+   * Delega en el resolutor de fotos de empleado, que distingue la key del
+   * bucket de la URL del servidor de biometricos (las fotos que llegan de la
+   * sincronizacion del checador no viven en el bucket).
    */
   async fetchImageTolerant(storedPath: string | null): Promise<Buffer | null> {
-    if (!storedPath) return null
-    return new UploadService().readStoredFileBuffer(storedPath)
+    return readEmployeePhotoBuffer(storedPath)
   }
 
   private async tryLoadImage(buffer: Buffer): Promise<Awaited<ReturnType<typeof loadImage>> | null> {

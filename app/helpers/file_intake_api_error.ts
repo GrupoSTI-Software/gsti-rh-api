@@ -24,7 +24,7 @@ export function resolveFileIntakeApiError(error: unknown): ResolvedFileIntakeErr
       detail: error.detail,
       key: error.key,
       code: error.errorCode,
-      status: error.httpStatus,
+      status: error.status,
     }
   }
 

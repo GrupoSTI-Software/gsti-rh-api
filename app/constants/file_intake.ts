@@ -211,6 +211,13 @@ export const FILE_INTAKE_STORAGE_EXTENSION_BY_MIME: Readonly<Record<FileIntakeMi
  * Extensiones de codigo, scripts, ejecutables, config e imagenes de disco.
  * Se valida CUALQUIER segmento del nombre, no solo el ultimo, para cubrir la
  * doble extension (`factura.php.jpg`).
+ *
+ * QUEDAN FUERA A PROPOSITO las de una sola letra (`c`, `h`, `m`, `r`). Al
+ * mirar todos los segmentos del nombre convertian en "script o ejecutable"
+ * documentos legitimos con iniciales: `Perez.J.M.pdf`, `acta.h.pdf`,
+ * `CURP.R.pdf`. En un expediente de RH mexicano ese patron es comun, y el
+ * riesgo real ya lo cubren dos candados mas duros: la extension final debe
+ * pertenecer al perfil y el contenido se valida por magic bytes.
  */
 export const FILE_INTAKE_BLOCKED_EXTENSIONS = [
   // Vectores / markup ejecutable
@@ -251,8 +258,6 @@ export const FILE_INTAKE_BLOCKED_EXTENSIONS = [
   'cs',
   'vb',
   // C / C++ / Rust / Go
-  'c',
-  'h',
   'cpp',
   'cc',
   'cxx',
@@ -269,8 +274,6 @@ export const FILE_INTAKE_BLOCKED_EXTENSIONS = [
   'lua',
   'pl',
   'pm',
-  'r',
-  'm',
   'mm',
   // SQL / datos / config
   'sql',

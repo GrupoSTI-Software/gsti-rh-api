@@ -72,10 +72,15 @@ export default class FileIntakeService {
     this.assertDeclaredSizeWithinLimit(profile, file)
 
     const inputBuffer = await this.readTmpFile(file)
+
+    // El tope se mide sobre lo que MANDO el usuario, no sobre el resultado de
+    // la transformacion. Re-encodear puede engordar el archivo (un JPEG que
+    // sale PNG por politica del perfil crece varias veces), y rechazarlo por
+    // eso seria castigar al usuario por una decision nuestra.
+    this.assertSizeWithinLimit(profile, inputBuffer.length)
+
     const mimeType = await this.detectAllowedMime(profile, inputBuffer)
     const transformed = await this.transform(profile, inputBuffer, mimeType)
-
-    this.assertFinalSizeWithinLimit(profile, transformed.buffer.length)
 
     return {
       buffer: transformed.buffer,
@@ -120,13 +125,20 @@ export default class FileIntakeService {
     }
   }
 
+  /**
+   * Primer filtro por el tamano que DECLARA el multipart. Es barato y descarta
+   * lo evidente antes de leer un byte del disco; no se confia en el, porque lo
+   * declara el cliente: `assertSizeWithinLimit` vuelve a medir sobre el
+   * contenido real.
+   */
   private assertDeclaredSizeWithinLimit(profile: FileIntakeProfile, file: IncomingFile): void {
     if (typeof file.size === 'number' && file.size > profile.maxBytes) {
       throw this.tooLargeError(profile)
     }
   }
 
-  private assertFinalSizeWithinLimit(profile: FileIntakeProfile, sizeInBytes: number): void {
+  /** Tope real, medido sobre el contenido que llego. */
+  private assertSizeWithinLimit(profile: FileIntakeProfile, sizeInBytes: number): void {
     if (sizeInBytes > profile.maxBytes) {
       throw this.tooLargeError(profile)
     }
@@ -141,7 +153,7 @@ export default class FileIntakeService {
         detail: 'No fue posible leer el archivo recibido.',
         key: 'archivo-ilegible',
         errorCode: FILE_INTAKE_ERROR_CODES.SANITIZATION_FAILED,
-        httpStatus: 400,
+        status: 400,
       })
     }
   }

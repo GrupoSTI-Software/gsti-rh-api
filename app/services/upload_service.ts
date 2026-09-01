@@ -64,6 +64,10 @@ const s3Client = new S3Client({
   },
 })
 
+/** Dominio de DigitalOcean Spaces y su numero de etiquetas (`sfo3.digitaloceanspaces.com` = 3). */
+const SPACES_DOMAIN = 'digitaloceanspaces.com'
+const SPACES_DOMAIN_LABELS = 2
+
 /** Forma mínima de un error del SDK que el servicio necesita interpretar. */
 interface S3ErrorShape {
   name?: string
@@ -278,10 +282,21 @@ export default class UploadService {
     const ref = this.resolveS3Ref(storedPath)
     if (!ref?.key) return null
 
+    // El bucket lo decide la configuracion, NUNCA la cadena guardada. Sin este
+    // candado, un campo de base de datos con una URL de otro bucket haria que
+    // el API leyera un objeto ajeno con sus propias credenciales.
+    if (ref.bucket && this.BUCKET_NAME && ref.bucket !== this.BUCKET_NAME) {
+      logger.warn(
+        { bucketSolicitado: ref.bucket, bucketConfigurado: this.BUCKET_NAME },
+        'readStoredFileBuffer: referencia a un bucket ajeno, descartada'
+      )
+      return null
+    }
+
     try {
       const result = await s3Client.send(
         new GetObjectCommand({
-          Bucket: ref.bucket || this.BUCKET_NAME,
+          Bucket: this.BUCKET_NAME,
           Key: ref.key,
         })
       )
@@ -466,21 +481,32 @@ export default class UploadService {
     if (/^https?:\/\//i.test(storedPath)) {
       try {
         const url = new URL(storedPath)
+
+        // Una URL que no apunta al almacenamiento NO es una referencia S3.
+        // Devolver algo aqui era el origen de dos fallos: la foto que el
+        // checador publica en su propio servidor se troceaba como si fuera una
+        // key del bucket, y cualquier host ajeno podia inventarse un bucket.
+        if (!this.isStorageHost(url.hostname)) return null
+
         const rawPath = url.pathname.replace(/^\//, '')
-        const primeraEtiqueta = url.hostname.split('.')[0]
+
+        // virtual-hosted (`bucket.region.digitaloceanspaces.com/key`) frente a
+        // path-style (`region.digitaloceanspaces.com/bucket/key`). Se distingue
+        // por la cantidad de etiquetas del dominio del proveedor, NO comparando
+        // contra el bucket configurado: las filas historicas viven en otro
+        // bucket y esa comparacion las resolvia mal. Un endpoint propio o MinIO
+        // (`127.0.0.1:9000/bucket/key`) es siempre path-style.
+        const etiquetas = url.hostname.split('.')
+        const esVirtualHosted =
+          url.hostname.endsWith(SPACES_DOMAIN) && etiquetas.length > SPACES_DOMAIN_LABELS + 1
 
         let bucket: string
         let key: string
 
-        // virtual-hosted: bucket.region.digitaloceanspaces.com/key
-        // Se reconoce cuando la primera etiqueta del host ES el bucket, no por
-        // contar etiquetas: `127.0.0.1:9000/bucket/key` (MinIO) es path-style
-        // y tiene cuatro.
-        if (this.BUCKET_NAME && primeraEtiqueta === this.BUCKET_NAME) {
-          bucket = primeraEtiqueta
+        if (esVirtualHosted) {
+          bucket = etiquetas[0]
           key = decodeURIComponent(rawPath)
         } else {
-          // path-style: host/bucket/key
           const slash = rawPath.indexOf('/')
           if (slash === -1) return null
           bucket = rawPath.slice(0, slash)
@@ -509,6 +535,22 @@ export default class UploadService {
     }
 
     return { bucket: this.BUCKET_NAME || '', key: decodeURIComponent(key) }
+  }
+
+  /**
+   * Verdadero si el host pertenece al almacenamiento de objetos: el endpoint
+   * configurado (DigitalOcean Spaces en produccion, MinIO en desarrollo) o
+   * cualquier subdominio de Spaces, que es donde viven las filas historicas.
+   */
+  private isStorageHost(hostname: string): boolean {
+    if (hostname === SPACES_DOMAIN || hostname.endsWith(`.${SPACES_DOMAIN}`)) return true
+
+    try {
+      const endpointHost = new URL(Env.get('AWS_ENDPOINT')).hostname
+      return hostname === endpointHost || hostname.endsWith(`.${endpointHost}`)
+    } catch {
+      return false
+    }
   }
 
   /**

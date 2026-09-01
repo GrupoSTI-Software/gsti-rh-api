@@ -153,6 +153,12 @@ export default await Env.create(new URL('../', import.meta.url), {
   |----------------------------------------------------------
   */
   API_BIOMETRICS_HOST: Env.schema.string.optional(),
+  /**
+   * URL base del servidor de fotos del checador. Su host es el UNICO origen
+   * externo autorizado para leer una foto de empleado
+   * (`helpers/employee_photo_source.ts`).
+   */
+  API_BIOMETRICS_EMPLOYEE_PHOTO_URL: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
   | Variables for configuring MongoDB connection

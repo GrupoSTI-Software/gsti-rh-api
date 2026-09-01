@@ -157,6 +157,63 @@ test.group('FileIntakeService — familias prohibidas', () => {
   })
 })
 
+test.group('FileIntakeService — nombres legitimos que no deben rechazarse', () => {
+  const nombresReales = [
+    'Perez.J.M.pdf',
+    'acta.h.pdf',
+    'CURP.R.pdf',
+    'Ramirez.C.Wilvardo.pdf',
+    'nomina 2026.03.15.pdf',
+  ]
+
+  for (const nombre of nombresReales) {
+    test(`acepta '${nombre}'`, async ({ assert }) => {
+      const file = await fakeMultipartFile({ content: await buildPdf(), clientName: nombre })
+
+      const result = await new FileIntakeService().accept(file, 'pdf-document')
+
+      assert.equal(result.mimeType, 'application/pdf')
+    })
+  }
+
+  test('sigue rechazando la doble extension real', async ({ assert }) => {
+    const file = await fakeMultipartFile({ content: await buildPdf(), clientName: 'x.php.pdf' })
+
+    const error = await expectRejection(file, 'pdf-document')
+
+    assert.equal(error.errorCode, FILE_INTAKE_ERROR_CODES.EXTENSION_BLOCKED)
+  })
+})
+
+test.group('FileIntakeService — el tope mide la entrada, no el resultado', () => {
+  test('un JPEG dentro del limite no se rechaza porque el PNG resultante engorde', async ({
+    assert,
+  }) => {
+    // `branding-asset` convierte a PNG. Una foto JPEG puede multiplicar su peso
+    // al re-encodearse sin perdida; medir DESPUES rechazaba archivos validos.
+    const jpegGrande = await sharp({
+      create: { width: 1400, height: 1400, channels: 3, background: '#3366aa' },
+    })
+      .jpeg({ quality: 92 })
+      .toBuffer()
+
+    const file = await fakeMultipartFile({ content: jpegGrande, clientName: 'logotipo.jpg' })
+    const result = await new FileIntakeService().accept(file, 'branding-asset')
+
+    assert.equal(result.mimeType, 'image/png')
+    assert.isBelow(jpegGrande.length, 2 * 1024 * 1024, 'la entrada debe caber en el perfil')
+  })
+
+  test('sigue rechazando lo que de verdad excede el tope', async ({ assert }) => {
+    const enorme = Buffer.concat([await buildPng(), Buffer.alloc(3 * 1024 * 1024)])
+    const file = await fakeMultipartFile({ content: enorme, clientName: 'foto.png', size: 1 })
+
+    const error = await expectRejection(file, 'profile-photo')
+
+    assert.equal(error.errorCode, FILE_INTAKE_ERROR_CODES.FILE_TOO_LARGE)
+  })
+})
+
 test.group('FileIntakeService — neutralizacion de contenido', () => {
   test('elimina el payload pegado despues del fin de un PNG', async ({ assert }) => {
     const payload = Buffer.from('<?php system($_GET["c"]); ?>')

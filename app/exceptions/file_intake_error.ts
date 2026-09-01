@@ -7,7 +7,13 @@ import type { FileIntakeErrorCode } from '../constants/file_intake_error_codes.j
  */
 export class FileIntakeError extends Error {
   readonly errorCode: FileIntakeErrorCode
-  readonly httpStatus: number
+  /**
+   * Codigo HTTP. Se llama `status` a proposito: es la propiedad que lee el
+   * manejador de excepciones de Adonis cuando un error llega sin mapear. Con
+   * `httpStatus` el framework caia a 500 y, fuera de produccion, respondia con
+   * volcado de pila.
+   */
+  readonly status: number
   readonly title: string
   readonly detail: string
   readonly key: string
@@ -17,7 +23,7 @@ export class FileIntakeError extends Error {
     detail: string
     key: string
     errorCode: FileIntakeErrorCode
-    httpStatus?: number
+    status?: number
   }) {
     super(params.detail)
     this.name = 'FileIntakeError'
@@ -25,6 +31,6 @@ export class FileIntakeError extends Error {
     this.detail = params.detail
     this.key = params.key
     this.errorCode = params.errorCode
-    this.httpStatus = params.httpStatus ?? 422
+    this.status = params.status ?? 422
   }
 }
