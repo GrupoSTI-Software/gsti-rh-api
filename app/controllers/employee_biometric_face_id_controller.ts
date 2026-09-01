@@ -172,7 +172,7 @@ export default class EmployeeBiometricFaceIdController {
       // Validar que se subió un archivo
       const validationOptions = {
         types: ['image'],
-        size: '2mb',
+        size: '5mb',
       }
       const photo = request.file('photo', validationOptions)
 
@@ -402,7 +402,7 @@ export default class EmployeeBiometricFaceIdController {
       // Validar que se subió un archivo
       const validationOptions = {
         types: ['image'],
-        size: '2mb',
+        size: '5mb',
       }
       const photo = request.file('photo', validationOptions)
 

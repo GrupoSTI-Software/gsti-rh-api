@@ -136,7 +136,10 @@ export const FILE_INTAKE_PROFILES: Readonly<Record<FileIntakeProfileName, FileIn
   'profile-photo': {
     allowedClientExtensions: ['jpg', 'jpeg', 'png', 'webp'],
     allowedMimes: FILE_INTAKE_IMAGE_MIMES,
-    maxBytes: 2 * MB,
+    // El tope mide el archivo de ENTRADA. Lo que se guarda pesa bastante menos:
+    // sale reescrito como JPEG, asi que cinco megas de origen no son cinco
+    // megas en el bucket.
+    maxBytes: 5 * MB,
     imagePolicy: { kind: 'convert', toMime: 'image/jpeg' },
     storesPublicly: false,
   },

@@ -8,6 +8,7 @@ import ExcelJS from 'exceljs'
 import FileIntakeService from '../../../app/services/file_intake_service.js'
 import { FileIntakeError } from '../../../app/exceptions/file_intake_error.js'
 import { FILE_INTAKE_ERROR_CODES } from '../../../app/constants/file_intake_error_codes.js'
+import { FILE_INTAKE_PROFILES } from '../../../app/constants/file_intake.js'
 import type { FileIntakeProfileName } from '../../../app/constants/file_intake.js'
 import { assertSpreadsheetFile } from '../../../app/helpers/spreadsheet_intake_guard.js'
 import UploadService from '../../../app/services/upload_service.js'
@@ -140,7 +141,8 @@ test.group('FileIntakeService — familias prohibidas', () => {
     const file = await fakeMultipartFile({
       content: png,
       clientName: 'foto.png',
-      size: 5 * 1024 * 1024,
+      // Derivado del perfil: un literal se descalibra en cuanto cambia el tope.
+      size: FILE_INTAKE_PROFILES['profile-photo'].maxBytes + 1,
     })
 
     const error = await expectRejection(file, 'profile-photo')
@@ -205,11 +207,18 @@ test.group('FileIntakeService — el tope mide la entrada, no el resultado', () 
     const result = await new FileIntakeService().accept(file, 'branding-asset')
 
     assert.equal(result.mimeType, 'image/png')
-    assert.isBelow(jpegGrande.length, 2 * 1024 * 1024, 'la entrada debe caber en el perfil')
+    assert.isBelow(
+      jpegGrande.length,
+      FILE_INTAKE_PROFILES['branding-asset'].maxBytes,
+      'la entrada debe caber en el perfil'
+    )
   })
 
   test('sigue rechazando lo que de verdad excede el tope', async ({ assert }) => {
-    const enorme = Buffer.concat([await buildPng(), Buffer.alloc(3 * 1024 * 1024)])
+    const enorme = Buffer.concat([
+      await buildPng(),
+      Buffer.alloc(FILE_INTAKE_PROFILES['profile-photo'].maxBytes + 1),
+    ])
     const file = await fakeMultipartFile({ content: enorme, clientName: 'foto.png', size: 1 })
 
     const error = await expectRejection(file, 'profile-photo')
@@ -410,5 +419,33 @@ test.group('Centinelas de subida — no se persisten ni se leen', () => {
     assert.isFalse(isUploadFailureSentinel('valanserh/employees/foto.jpg'))
     assert.isFalse(isUploadFailureSentinel(null))
     assert.isFalse(isUploadFailureSentinel(''))
+  })
+})
+
+/**
+ * El tope de la foto vive en dos repos: el perfil del API y la constante del
+ * formulario del backoffice (`components/employeePhotoForm/domain/
+ * employee-photo-form.const.ts` y su gemela del biometrico). No se pueden
+ * comparar entre si desde una prueba, asi que cada lado fija su mitad y esta
+ * deja escrito con que valor debe coincidir la otra.
+ */
+test.group('Perfil profile-photo — tope acordado con el cliente', () => {
+  test('acepta hasta cinco megas de entrada', ({ assert }) => {
+    assert.equal(FILE_INTAKE_PROFILES['profile-photo'].maxBytes, 5 * 1024 * 1024)
+  })
+
+  test('los controladores de foto declaran el mismo tope', async ({ assert }) => {
+    // `request.file()` solo respeta `size` y `extnames`, y estos controladores
+    // no consultan `photo.isValid`: el rechazo real lo hace el intake. Aun asi
+    // el numero debe coincidir para que no documente un tope que no existe.
+    const controladores = [
+      'app/controllers/employee_controller.ts',
+      'app/controllers/employee_biometric_face_id_controller.ts',
+    ]
+
+    for (const ruta of controladores) {
+      const content = await fs.readFile(path.join(process.cwd(), ruta), 'utf-8')
+      assert.notInclude(content, "size: '2mb'", `${ruta} declara un tope que ya no es el vigente`)
+    }
   })
 })

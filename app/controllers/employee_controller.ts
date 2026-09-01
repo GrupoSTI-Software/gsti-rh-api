@@ -2553,7 +2553,7 @@ export default class EmployeeController {
 
     const validationOptions = {
       types: ['image'],
-      size: '2mb',
+      size: '5mb',
     }
     const employeeId = request.param('employeeId')
     const photo = request.file('photo', validationOptions)
