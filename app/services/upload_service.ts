@@ -58,9 +58,17 @@ const s3Client = new S3Client({
     accessKeyId: Env.get('AWS_ACCESS_KEY_ID'),
     secretAccessKey: Env.get('AWS_SECRET_ACCESS_KEY'),
   },
-  maxAttempts: 1,
+  // Tres intentos: es el valor por defecto del SDK y el que tenia la version
+  // anterior. Las tres operaciones que usa el servicio son idempotentes (la
+  // clave del objeto se calcula antes de subir), asi que reintentar solo cuesta
+  // tiempo. Con uno solo, cualquier hipo de red se le devolvia al usuario como
+  // un fallo definitivo.
+  maxAttempts: 3,
   requestHandler: {
-    connectionTimeout: 10_000,
+    // Establecer la conexion es rapido o no va a pasar: cinco segundos separan
+    // un pico de latencia de un almacenamiento inalcanzable, y acotan el peor
+    // caso de los tres intentos.
+    connectionTimeout: 5_000,
     requestTimeout: 120_000,
   },
 })
