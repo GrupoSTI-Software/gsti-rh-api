@@ -1,4 +1,5 @@
 import Department from '#models/department'
+import { isUploadFailureSentinel } from '#constants/upload_sentinels'
 import { assertSpreadsheetFile } from '#helpers/spreadsheet_intake_guard'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import DepartmentPosition from '#models/department_position'
@@ -2570,6 +2571,20 @@ export default class EmployeeController {
     // get employee and update employee photo
     try {
       const photoUrl = await uploadService.fileUpload(photo, 'profile-photo', 'employees')
+
+      // `fileUpload` devuelve un centinela cuando el almacenamiento falla.
+      // Guardarlo dejaba en la base una referencia que no apunta a nada y que
+      // revienta al leerla: es lo que dejo al empleado 4282 sin foto legible.
+      if (isUploadFailureSentinel(photoUrl)) {
+        response.status(500)
+        return {
+          type: 'error',
+          title: 'Foto no guardada',
+          detail: 'No fue posible almacenar la foto. Intenta de nuevo.',
+          key: 'foto-no-almacenada',
+        }
+      }
+
       if (currentEmployee.employeePhoto) {
         await uploadService.deleteFile(currentEmployee.employeePhoto)
       }

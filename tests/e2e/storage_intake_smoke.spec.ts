@@ -13,6 +13,7 @@ import {
 } from '@aws-sdk/client-s3'
 import env from '#start/env'
 import UploadService from '#services/upload_service'
+import StoredFileStreamService from '#services/stored_file_stream_service'
 import { FileIntakeError } from '#exceptions/file_intake_error'
 import { FILE_INTAKE_ERROR_CODES } from '#constants/file_intake_error_codes'
 import type { FileIntakeProfileName } from '#constants/file_intake'
@@ -306,5 +307,106 @@ test.group('Smoke — key propia del modulo', (group) => {
     )
 
     assert.isTrue(resultado.endsWith('.pdf'))
+  })
+})
+
+test.group('Smoke — ciclo completo: se sube y se vuelve a leer', (group) => {
+  group.tap((t) => t.skip(!HABILITADO, 'define RUN_STORAGE_SMOKE=1 para ejecutarlo'))
+
+  /** Cada perfil que persiste, con un archivo valido de su formato. */
+  async function muestras(): Promise<Array<[FileIntakeProfileName, string, Buffer]>> {
+    const png = await buildPng()
+    const doc = await PDFDocument.create()
+    doc.addPage()
+    const pdf = Buffer.from(await doc.save())
+
+    return [
+      ['pdf-document', 'acta.pdf', pdf],
+      ['evidence-document', 'evidencia.pdf', pdf],
+      ['evidence-document', 'evidencia.png', png],
+      ['employee-record-document', 'expediente.pdf', pdf],
+      ['profile-photo', 'foto.png', png],
+      ['signature', 'firma.png', png],
+      ['branding-asset', 'logotipo.png', png],
+      ['complaint-attachment', 'adjunto.png', png],
+    ]
+  }
+
+  test('todo lo que se sube se puede volver a leer como buffer', async ({ assert }) => {
+    const uploadService = new UploadService()
+
+    for (const [perfil, nombre, contenido] of await muestras()) {
+      const { resultado, key } = await uploadWithProfile(nombre, contenido, perfil)
+
+      const buffer = await uploadService.readStoredFileBuffer(resultado)
+
+      assert.isNotNull(buffer, `${perfil} (${nombre}): no se pudo releer lo subido`)
+      assert.isAbove(buffer!.length, 0, `${perfil}: el contenido leido vino vacio`)
+
+      // La referencia que se guarda en base de datos tiene que servir para leer.
+      const porKey = await uploadService.readStoredFileBuffer(key)
+      assert.isNotNull(porKey, `${perfil}: la key guardada no resuelve`)
+    }
+  })
+
+  test('todo lo que se sube se puede servir como stream', async ({ assert }) => {
+    const uploadService = new UploadService()
+
+    for (const [perfil, nombre, contenido] of await muestras()) {
+      const { resultado } = await uploadWithProfile(nombre, contenido, perfil)
+
+      const objeto = await uploadService.streamStoredFile(resultado)
+
+      assert.isNotNull(objeto, `${perfil} (${nombre}): no se pudo abrir el stream`)
+      assert.isNotEmpty(objeto!.contentType, `${perfil}: sin ContentType`)
+    }
+  })
+
+  test('la salida por endpoint entrega el binario con sus cabeceras', async ({ assert }) => {
+    const { resultado } = await uploadWithProfile('evidencia.pdf', await (async () => {
+      const doc = await PDFDocument.create()
+      doc.addPage()
+      return Buffer.from(await doc.save())
+    })(), 'evidence-document')
+
+    const cabeceras: Record<string, string> = {}
+    let statusEnviado = 0
+    const response = {
+      header: (nombre: string, valor: string) => {
+        cabeceras[nombre] = valor
+      },
+      status: (codigo: number) => {
+        statusEnviado = codigo
+      },
+      stream: () => undefined,
+      send: () => undefined,
+    } as unknown as Parameters<StoredFileStreamService['streamInto']>[0]['response']
+
+    const entregado = await new StoredFileStreamService().streamInto({ response }, resultado)
+
+    assert.isTrue(entregado, 'el servicio de salida no entrego el archivo')
+    assert.equal(statusEnviado, 200)
+    assert.equal(cabeceras['Content-Type'], 'application/pdf')
+    assert.include(cabeceras['Cache-Control'], 'private')
+  })
+
+  test('una referencia con el centinela de error no se pide al bucket', async ({ assert }) => {
+    // La base guarda filas con el centinela de `fileUpload` de subidas fallidas.
+    const uploadService = new UploadService()
+
+    assert.isNull(uploadService.resolveS3Ref('S3Producer.fileUpload'))
+    assert.isNull(uploadService.resolveS3Ref('file_not_found'))
+    assert.isNull(await uploadService.readStoredFileBuffer('S3Producer.fileUpload'))
+    assert.isNull(await uploadService.streamStoredFile('S3Producer.fileUpload'))
+  })
+
+  test('borrar un objeto recien subido funciona con la referencia guardada', async ({ assert }) => {
+    const { resultado } = await uploadWithProfile('temporal.png', await buildPng(), 'profile-photo')
+    const uploadService = new UploadService()
+
+    const borrado = await uploadService.deleteFile(resultado)
+
+    assert.equal(borrado.status, 200, `el borrado respondio ${borrado.message}`)
+    assert.isNull(await uploadService.readStoredFileBuffer(resultado), 'sigue legible tras borrarlo')
   })
 })

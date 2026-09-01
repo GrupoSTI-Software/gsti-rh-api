@@ -7,6 +7,9 @@ import {
   type ObjectCannedACL,
 } from '@aws-sdk/client-s3'
 import { Upload } from '@aws-sdk/lib-storage'
+import { isUploadFailureSentinel } from '#constants/upload_sentinels'
+import { FileIntakeError } from '#exceptions/file_intake_error'
+import { FILE_INTAKE_ERROR_CODES } from '#constants/file_intake_error_codes'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import Env from '#start/env'
 import FileIntakeService, { type IncomingFile } from '#services/file_intake_service'
@@ -197,7 +200,23 @@ export default class UploadService {
         },
         'Fallo al subir archivo a S3'
       )
-      return 'S3Producer.fileUpload'
+
+      // Se lanza en lugar de devolver el centinela `S3Producer.fileUpload`.
+      // Devolverlo obligaba a cada consumidor a comprobarlo, y 38 de los 105
+      // puntos de subida no lo hacían: escribían el centinela en la base como
+      // si fuera la referencia del archivo, dejando filas que apuntan a un
+      // objeto inexistente y revientan al leerlas.
+      //
+      // `FileIntakeError` ya viaja bien: está registrado en el manejador global
+      // y en los resolvers de módulo, así que el usuario recibe el triplete en
+      // lugar de creer que su archivo se guardó.
+      throw new FileIntakeError({
+        title: 'Archivo no almacenado',
+        detail: 'No fue posible guardar el archivo. Vuelve a intentarlo.',
+        key: 'archivo-no-almacenado',
+        errorCode: FILE_INTAKE_ERROR_CODES.SYS_UNHANDLED,
+        status: 500,
+      })
     }
   }
 
@@ -456,6 +475,11 @@ export default class UploadService {
    */
   resolveS3Ref(storedPath: string): { bucket: string; key: string } | null {
     if (!storedPath) return null
+
+    // La base guarda filas con el centinela de error de `fileUpload` en lugar
+    // de una referencia, de subidas que fallaron. No son rutas: tratarlas como
+    // tales hace pedir al bucket un objeto imposible.
+    if (isUploadFailureSentinel(storedPath)) return null
 
     if (/^https?:\/\//i.test(storedPath)) {
       try {

@@ -10,6 +10,9 @@ import { FileIntakeError } from '../../../app/exceptions/file_intake_error.js'
 import { FILE_INTAKE_ERROR_CODES } from '../../../app/constants/file_intake_error_codes.js'
 import type { FileIntakeProfileName } from '../../../app/constants/file_intake.js'
 import { assertSpreadsheetFile } from '../../../app/helpers/spreadsheet_intake_guard.js'
+import UploadService from '../../../app/services/upload_service.js'
+import { isUploadFailureSentinel } from '../../../app/constants/upload_sentinels.js'
+import env from '#start/env'
 
 /**
  * Archivo multipart mínimo respaldado por un temporal real: el intake lee el
@@ -381,5 +384,31 @@ test.group('FileIntakeService — guarda de importadores', () => {
     await assertSpreadsheetFile(file as never)
 
     assert.isTrue(true, 'no debe lanzar')
+  })
+})
+
+test.group('Centinelas de subida — no se persisten ni se leen', () => {
+  test('el centinela de fallo no se resuelve como referencia de almacenamiento', ({ assert }) => {
+    const service = new UploadService()
+
+    // La base guarda estas cadenas en filas de subidas que fallaron antes de
+    // que `fileUpload` lanzara: pedirlas al bucket es pedir un objeto imposible.
+    assert.isNull(service.resolveS3Ref('S3Producer.fileUpload'))
+    assert.isNull(service.resolveS3Ref('file_not_found'))
+  })
+
+  test('una referencia real sigue resolviendose', ({ assert }) => {
+    const service = new UploadService()
+    const rootPath = env.get('AWS_ROOT_PATH')
+
+    assert.isNotNull(service.resolveS3Ref(`${rootPath}/employees/foto.jpg`))
+  })
+
+  test('el helper reconoce los dos centinelas y nada mas', ({ assert }) => {
+    assert.isTrue(isUploadFailureSentinel('S3Producer.fileUpload'))
+    assert.isTrue(isUploadFailureSentinel('file_not_found'))
+    assert.isFalse(isUploadFailureSentinel('valanserh/employees/foto.jpg'))
+    assert.isFalse(isUploadFailureSentinel(null))
+    assert.isFalse(isUploadFailureSentinel(''))
   })
 })
