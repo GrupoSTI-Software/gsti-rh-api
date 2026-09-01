@@ -64,12 +64,13 @@ async function getUserForBusinessUnit(businessUnitId: number): Promise<User> {
   return User.query().whereNull('user_deleted_at').where('user_id', pivot.userId).firstOrFail()
 }
 
-/** Instante irrepetible por corrida: evita chocar con checadas de ejecuciones previas. */
+/**
+ * Instante reciente e irrepetible por corrida: dentro de la ventana de hora de
+ * captura permitida y distinto en cada ejecución, para no chocar con checadas de
+ * corridas previas.
+ */
 function uniquePunchTime(offsetSeconds: number): DateTime {
-  const seed = Math.floor(Date.now() / 1000) % 86_400
-  return DateTime.fromISO('2026-02-10T08:00:00', { zone: 'utc' }).plus({
-    seconds: seed + offsetSeconds,
-  })
+  return DateTime.utc().startOf('second').minus({ hours: 2 }).plus({ seconds: offsetSeconds })
 }
 
 function buildRecord(
@@ -238,7 +239,7 @@ test.group('Assists — motor de ingesta idempotente (USRH1786554648211)', (grou
     assert,
   }) => {
     const user = await getUserForBusinessUnit(fixture.businessUnitId)
-    const punchTime = uniquePunchTime(240).toFormat('yyyy-MM-dd HH:mm:ss')
+    const punchTime = uniquePunchTime(240).toISO() as string
 
     const response = await client
       .post('/api/v1/assists')
@@ -292,7 +293,7 @@ test.group('Assists — motor de ingesta idempotente (USRH1786554648211)', (grou
       .json({
         employeeId: fixture.employeeId,
         assistType: 'check',
-        assistPunchTime: uniquePunchTime(300).toFormat('yyyy-MM-dd HH:mm:ss'),
+        assistPunchTime: uniquePunchTime(300).toISO() as string,
         assistChannel: 'satelite',
       })
       .loginAs(user)
@@ -318,7 +319,7 @@ test.group('Assists — motor de ingesta idempotente (USRH1786554648211)', (grou
       .json({
         employeeId: fixture.foreignEmployeeId,
         assistType: 'check',
-        assistPunchTime: uniquePunchTime(360).toFormat('yyyy-MM-dd HH:mm:ss'),
+        assistPunchTime: uniquePunchTime(360).toISO() as string,
       })
       .loginAs(user)
       .header('X-Business-Unit-Id', fixture.publicId)

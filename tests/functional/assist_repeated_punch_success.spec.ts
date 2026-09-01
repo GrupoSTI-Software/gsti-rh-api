@@ -55,11 +55,12 @@ async function getUserForBusinessUnit(businessUnitId: number): Promise<User> {
   return User.query().whereNull('user_deleted_at').where('user_id', pivot.userId).firstOrFail()
 }
 
+/**
+ * Instante reciente e irrepetible por corrida, en ISO-8601 con desfase explícito y
+ * dentro de la ventana de hora de captura permitida.
+ */
 function uniquePunchTime(offsetSeconds: number): string {
-  const seed = Math.floor(Date.now() / 1000) % 86_400
-  return DateTime.fromISO('2026-02-11T08:00:00', { zone: 'utc' })
-    .plus({ seconds: seed + offsetSeconds })
-    .toFormat('yyyy-MM-dd HH:mm:ss')
+  return DateTime.utc().startOf('second').minus({ hours: 2 }).plus({ seconds: offsetSeconds }).toISO() as string
 }
 
 test.group('Assists — la checada repetida responde éxito (USRH1788135907801)', (group) => {

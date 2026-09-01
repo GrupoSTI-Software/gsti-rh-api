@@ -72,3 +72,32 @@ export const ASSIST_INGESTION_TENANT_UNRESOLVED: AssistIngestionRejection = {
   key: 'empresa-de-la-checada-no-resuelta',
   i18nBase: 'assist_tenant_unresolved',
 }
+
+/** La hora de captura declarada no es legible en ninguno de los dos formatos. */
+export const ASSIST_INGESTION_PUNCH_TIME_FORMAT: AssistIngestionRejection = {
+  status: 400,
+  code: ASSIST_ERROR_CODES.VAL_PUNCH_TIME_FORMAT,
+  key: 'hora-de-captura-invalida',
+  i18nBase: 'assist_punch_time_format',
+}
+
+/** La hora de captura se adelanta al reloj del servidor más allá de la tolerancia. */
+export const ASSIST_INGESTION_PUNCH_TIME_FUTURE: AssistIngestionRejection = {
+  status: 422,
+  code: ASSIST_ERROR_CODES.VAL_PUNCH_TIME_FUTURE,
+  key: 'hora-de-captura-en-el-futuro',
+  i18nBase: 'assist_punch_time_future',
+}
+
+/**
+ * La hora de captura es más antigua que la ventana permitida.
+ *
+ * Ni el mensaje ni la respuesta dicen cuánto se puede retroceder: publicar el ancho
+ * es entregarle el margen exacto a quien quiera aprovecharlo.
+ */
+export const ASSIST_INGESTION_PUNCH_TIME_OUT_OF_WINDOW: AssistIngestionRejection = {
+  status: 422,
+  code: ASSIST_ERROR_CODES.VAL_PUNCH_TIME_OUT_OF_WINDOW,
+  key: 'hora-de-captura-fuera-de-la-ventana-permitida',
+  i18nBase: 'assist_punch_time_out_of_window',
+}

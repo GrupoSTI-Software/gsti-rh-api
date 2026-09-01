@@ -1,4 +1,6 @@
+import logger from '@adonisjs/core/services/logger'
 import type { DateTime } from 'luxon'
+import env from '#start/env'
 import { assistChannelSentinel, computeAssistNaturalKey } from '#utils/assist_natural_key'
 import type { AssistIngestionRecord } from './dto/assist_ingestion.dto.js'
 
@@ -64,4 +66,75 @@ export function assistIngestionNaturalKey(record: AssistIngestionRecord): string
     assistPunchTimeUtc: record.punchTimeUtc,
     assistTerminalSn: assistChannelSentinel(record.origin, record.terminalSn),
   })
+}
+
+/**
+ * Topes duros de la ventana de hora de captura.
+ *
+ * La configuración de operación se satura a estos intervalos y nunca los rebasa:
+ * aflojar más la ventana exige cambiar código y pasar por revisión. La alternativa
+ * —dejarla en la configuración de negocio— la volvería pública y ajustable a un año
+ * desde una pantalla, que es tanto como volver declarativa la nómina.
+ */
+export const ASSIST_PUNCH_TIME_MAX_BACKDATE_HOURS_DEFAULT = 72
+export const ASSIST_PUNCH_TIME_MAX_BACKDATE_HOURS_MIN = 1
+export const ASSIST_PUNCH_TIME_MAX_BACKDATE_HOURS_CAP = 168
+
+/**
+ * Tolerancia de hora futura. Arranca en 120 s y no en cero porque un equipo con el
+ * desfase normal de reloj perdería todas sus checadas: un rechazo no se encola.
+ * Baja a cero cuando el equipo aprenda a corregir su propio reloj.
+ */
+export const ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS_DEFAULT = 120
+export const ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS_MIN = 0
+export const ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS_CAP = 300
+
+function saturate(value: number, min: number, max: number, variable: string): number {
+  const saturated = Math.min(Math.max(value, min), max)
+  if (saturated !== value) {
+    logger.warn(
+      { variable, configured: value, applied: saturated, min, max },
+      'Valor de configuración fuera del intervalo permitido; se aplica el tope de código.'
+    )
+  }
+  return saturated
+}
+
+/**
+ * Número de configuración, tolerante a que llegue como texto: el esquema de entorno
+ * ya lo valida al arrancar, pero un valor puesto en caliente llega crudo.
+ */
+function readNumber(raw: unknown, fallback: number): number {
+  if (typeof raw === 'number' && Number.isFinite(raw)) return raw
+  if (typeof raw === 'string' && raw.trim() !== '') {
+    const parsed = Number(raw)
+    if (Number.isFinite(parsed)) return parsed
+  }
+  return fallback
+}
+
+/** Ventana vigente hacia atrás, en horas, ya saturada al tope del producto. */
+export function getAssistPunchTimeMaxBackdateHours(): number {
+  return saturate(
+    readNumber(
+      env.get('ASSIST_PUNCH_TIME_MAX_BACKDATE_HOURS'),
+      ASSIST_PUNCH_TIME_MAX_BACKDATE_HOURS_DEFAULT
+    ),
+    ASSIST_PUNCH_TIME_MAX_BACKDATE_HOURS_MIN,
+    ASSIST_PUNCH_TIME_MAX_BACKDATE_HOURS_CAP,
+    'ASSIST_PUNCH_TIME_MAX_BACKDATE_HOURS'
+  )
+}
+
+/** Tolerancia vigente de hora futura, en segundos, ya saturada al tope del producto. */
+export function getAssistPunchTimeFutureToleranceSeconds(): number {
+  return saturate(
+    readNumber(
+      env.get('ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS'),
+      ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS_DEFAULT
+    ),
+    ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS_MIN,
+    ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS_CAP,
+    'ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS'
+  )
 }

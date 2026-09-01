@@ -5,8 +5,7 @@ import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
 import { ASSIST_CHANNEL, ASSIST_ORIGIN } from '#constants/assist_origin'
 import type { AssistChannel, AssistCreateFrom } from '#constants/assist_origin'
 import { ensureEmployeeAssistWrite } from '#helpers/ensure_employee_assist_write'
-import { isLegacyMexicoSummerTime } from '#utils/legacy_mexico_dst'
-import AssistIngestionService from './assist_ingestion.service.js'
+import AssistIngestionService, { resolvePunchTime } from './assist_ingestion.service.js'
 import {
   ASSIST_INGESTION_BATCH_MAX_BODY_BYTES,
   ASSIST_INGESTION_BATCH_MAX_ITEMS,
@@ -112,6 +111,10 @@ export function mapIngestionResultToHttp(
       data: {
         assist: result.assist,
         outcome: result.outcome,
+        // Se deduce comparando la hora de captura con la hora en que llegó: no hay
+        // dato guardado detrás, y sirve para saber qué checadas llegaron diferidas.
+        deferred: result.assist.assistDeferred,
+        deferredBySeconds: result.assist.assistDeferredBySeconds,
         // Única fuente de hora de servidor no manipulable: con ella el equipo
         // de origen corrige su propio reloj.
         serverTime: DateTime.utc().toISO(),
@@ -126,6 +129,8 @@ interface AssistBatchResultBody {
   clientRef: string | null
   outcome: AssistIngestionItemResult['outcome']
   assistId?: number
+  deferred?: boolean
+  deferredBySeconds?: number
   error?: { title: string; detail: string; key: string; code: string }
 }
 
@@ -154,24 +159,6 @@ function summarize(results: AssistBatchResultBody[]): AssistIngestionSummary {
     rejected,
     acknowledged: inserted + preexisting,
   }
-}
-
-/**
- * Instante de la checada tal como lo resuelve hoy el alta unitaria.
- *
- * `null` cuando la hora declarada no es legible. La ventana de captura y el retiro
- * del ajuste heredado de horario de verano son de `USRH1788135907803`; mientras ese
- * ajuste siga vivo, los dos caminos tienen que producir el mismo instante o
- * escribirían identidades distintas para la misma checada.
- */
-function resolvePunchTime(declared: string | null | undefined, isOwner: boolean): DateTime | null {
-  const raw =
-    isOwner || !declared ? DateTime.now().setZone('UTC-6').toFormat('yyyy-MM-dd HH:mm:ss') : declared
-
-  const parsed = DateTime.fromFormat(raw, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' }).toUTC()
-  if (!parsed.isValid) return null
-
-  return isLegacyMexicoSummerTime(parsed.toJSDate()) ? parsed.plus({ hour: -1 }) : parsed
 }
 
 /**
@@ -213,7 +200,7 @@ export default class AssistIngestionController {
    *                 maxItems: 200
    *                 items:
    *                   type: object
-   *                   required: [employeeId]
+   *                   required: [employeeId, assistPunchTime]
    *                   properties:
    *                     clientRef:
    *                       type: string
@@ -223,7 +210,10 @@ export default class AssistIngestionController {
    *                       type: integer
    *                     assistPunchTime:
    *                       type: string
-   *                       description: Hora del marcaje (YYYY-MM-DD HH:mm:ss)
+   *                       description: |
+   *                         Hora en que ocurrió la checada, obligatoria por elemento.
+   *                         ISO-8601 con desfase explícito o el formato legado
+   *                         `YYYY-MM-DD HH:mm:ss` en UTC-6.
    *                     assistType:
    *                       type: string
    *                       enum: [check, eatin, eatout]
@@ -241,7 +231,8 @@ export default class AssistIngestionController {
    *         description: |
    *           Entrega procesada. El veredicto de cada checada viaja en
    *           `data.results[]` (`inserted`, `preexisting` o `rejected` con su motivo),
-   *           en el mismo orden en que se enviaron.
+   *           en el mismo orden en que se enviaron. Los elementos que quedaron
+   *           registrados llevan además `deferred` y `deferredBySeconds`.
    *       '400':
    *         description: |
    *           Sobre mal formado (key `lote-de-checadas-fuera-de-tamano`, code
@@ -324,16 +315,16 @@ export default class AssistIngestionController {
         continue
       }
 
-      const punchTimeUtc = resolvePunchTime(item.assistPunchTime, access.isOwner)
-      if (!punchTimeUtc) {
-        results[index].error = rejectionBody(ASSIST_INGESTION_INVALID_ITEM, i18n)
+      const resolvedPunchTime = resolvePunchTime(item.assistPunchTime, DateTime.utc())
+      if (!resolvedPunchTime.ok) {
+        results[index].error = rejectionBody(resolvedPunchTime.rejection, i18n)
         continue
       }
 
       accepted.push({
         subject: { kind: 'employeeId', employeeId: item.employeeId },
         assistType: item.assistType ?? null,
-        punchTimeUtc,
+        punchTimeUtc: resolvedPunchTime.punchTimeUtc,
         geo: {
           latitude: item.assistLatitude ?? null,
           longitude: item.assistLongitude ?? null,
@@ -355,7 +346,13 @@ export default class AssistIngestionController {
         index,
         clientRef: result.clientRef,
         outcome: result.outcome,
-        ...(result.assist ? { assistId: result.assist.assistId } : {}),
+        ...(result.assist
+          ? {
+              assistId: result.assist.assistId,
+              deferred: result.assist.assistDeferred,
+              deferredBySeconds: result.assist.assistDeferredBySeconds,
+            }
+          : {}),
         ...(result.error ? { error: rejectionBody(result.error, i18n) } : {}),
       }
     }

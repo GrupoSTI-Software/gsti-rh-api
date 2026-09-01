@@ -213,22 +213,26 @@ export default class Assist extends compose(BaseModel, SoftDeletes, withBusiness
   declare deletedAt: DateTime | null
 
   /**
-   * Segundos entre el marcaje y su llegada al servidor. `null` cuando la fila se
-   * consultó sin alguno de los dos instantes. Derivado: no se guarda.
+   * Segundos entre el marcaje y su llegada al servidor, truncados en cero: un reloj
+   * de equipo adelantado nunca produce un retraso negativo. Derivado de los dos
+   * instantes que ya se guardan; no hay columna ni dato nuevo.
    */
   @computed()
-  get arrivalDelaySeconds(): number | null {
-    if (!this.assistPunchTimeUtc || !this.assistCreatedAt) return null
-    return assistArrivalDelayInSeconds(this.assistPunchTimeUtc, this.assistCreatedAt)
+  get assistDeferredBySeconds(): number {
+    if (!this.assistPunchTimeUtc || !this.assistCreatedAt) return 0
+    const seconds = assistArrivalDelayInSeconds(this.assistPunchTimeUtc, this.assistCreatedAt)
+    return Number.isFinite(seconds) ? Math.max(0, Math.trunc(seconds)) : 0
   }
 
   /**
    * La checada llegó diferida: el equipo que la registró estuvo sin conexión.
-   * Se deduce de los dos instantes que ya se guardan; no hay dato nuevo.
+   *
+   * No distingue causa: una fila del sync que llegó tarde también sale diferida, y
+   * es correcto — llegó tarde. No es un indicador de manipulación.
    */
   @computed()
-  get isDeferredArrival(): boolean | null {
-    if (!this.assistPunchTimeUtc || !this.assistCreatedAt) return null
+  get assistDeferred(): boolean {
+    if (!this.assistPunchTimeUtc || !this.assistCreatedAt) return false
     return isAssistArrivalDeferred(this.assistPunchTimeUtc, this.assistCreatedAt)
   }
 }

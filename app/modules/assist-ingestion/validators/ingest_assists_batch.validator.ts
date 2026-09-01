@@ -21,15 +21,18 @@ function optionalDecimal() {
  * elemento mal formado es un veredicto suyo, no un motivo para tirar la entrega
  * completa — que es justo lo que vuelve viable vaciar una cola con un defecto dentro.
  *
- * `assistPunchTime` es opcional en esta rebanada; quien lo vuelve obligatorio y le
- * aplica la ventana de captura es USRH1788135907803, sobre este mismo validador.
+ * `assistPunchTime` es obligatorio por elemento (USRH1788135907803): una entrega
+ * existe para vaciar una cola, y una checada encolada sin su hora de captura llegaría
+ * con la hora en que hubo internet, que a efectos de nómina es casi como perderla.
+ * En el alta unitaria sigue siendo opcional, por compatibilidad con los equipos que
+ * no se han actualizado.
  */
 export const assistBatchItemValidator = vine.compile(
   vine.object({
     clientRef: vine.string().trim().maxLength(64).nullable().optional(),
     employeeId: vine.number().withoutDecimals().positive(),
     assistType: vine.string().trim().maxLength(50).nullable().optional(),
-    assistPunchTime: vine.string().trim().maxLength(40).nullable().optional(),
+    assistPunchTime: vine.string().trim().maxLength(40),
     assistLatitude: optionalDecimal(),
     assistLongitude: optionalDecimal(),
     assistPrecision: optionalDecimal(),

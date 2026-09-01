@@ -24,8 +24,9 @@ import { ASSIST_SYNC_RUN_UNSCOPED_REASON } from '#constants/assist_sync'
 import { resolveAssistApiError } from '#helpers/assist_api_error'
 import { AssistError } from '#exceptions/assist_error'
 import { TenantContext } from '#utils/tenant_context'
-import { isLegacyMexicoSummerTime } from '#utils/legacy_mexico_dst'
-import AssistIngestionService from '#modules/assist-ingestion/assist_ingestion.service'
+import AssistIngestionService, {
+  resolvePunchTime,
+} from '#modules/assist-ingestion/assist_ingestion.service'
 import {
   mapIngestionResultToHttp,
   resolveAssistOrigin,
@@ -1050,8 +1051,13 @@ export default class AssistsController {
    *                 default: ''
    *               assistPunchTime:
    *                 type: string
-   *                 format: date
-   *                 description: Assist punch time (YYYY-MM-DD HH:mm:ss)
+   *                 description: |
+   *                   Hora en que ocurrió la checada. ISO-8601 con desfase explícito
+   *                   (`2026-08-30T08:05:00-06:00`) o el formato legado
+   *                   `YYYY-MM-DD HH:mm:ss`, interpretado en UTC-6. Ausente: se usa
+   *                   la hora del servidor. Se acepta dentro de una ventana hacia
+   *                   atrás y sin adelantarse al reloj del servidor más allá de la
+   *                   tolerancia vigente; el ancho de la ventana no se publica.
    *                 required: false
    *                 default: ''
    *               assistLongitude:
@@ -1111,6 +1117,12 @@ export default class AssistsController {
    *                     outcome:
    *                       type: string
    *                       enum: [inserted, preexisting]
+   *                     deferred:
+   *                       type: boolean
+   *                       description: La checada llegó con retraso respecto de su hora de captura
+   *                     deferredBySeconds:
+   *                       type: integer
+   *                       description: Segundos de retraso, truncados en cero
    *                     serverTime:
    *                       type: string
    *                       format: date-time
@@ -1182,7 +1194,12 @@ export default class AssistsController {
    *               key: sin-autorizacion-para-registrar-asistencia-ajena
    *               code: AST.AUTHZ.002
    *       '422':
-   *         description: Colaborador dado de baja (key `colaborador-dado-de-baja`, code `AST.AUTHZ.001`).
+   *         description: |
+   *           Colaborador dado de baja (key `colaborador-dado-de-baja`, code
+   *           `AST.AUTHZ.001`), hora de captura en el futuro más allá de la
+   *           tolerancia (key `hora-de-captura-en-el-futuro`, code `AST.VAL.005`) u
+   *           hora de captura fuera de la ventana permitida (key
+   *           `hora-de-captura-fuera-de-la-ventana-permitida`, code `AST.VAL.006`).
    *         content:
    *           application/json:
    *             example:
@@ -1289,7 +1306,7 @@ export default class AssistsController {
         }
       }
 
-      let assistPunchTime = payload.assistPunchTime
+      const assistPunchTime = payload.assistPunchTime
       const assistLongitude = payload.assistLongitude ?? null
       const assistLatitude = payload.assistLatitude ?? null
       const assistPrecision = payload.assistPrecision ?? null
@@ -1329,22 +1346,25 @@ export default class AssistsController {
         }
       }
 
-      if (isOwner) {
-        assistPunchTime = DateTime.now().setZone('UTC-6').toFormat('yyyy-MM-dd HH:mm:ss')
-      } else if (!assistPunchTime) {
-        assistPunchTime = DateTime.now().setZone('UTC-6').toFormat('yyyy-MM-dd HH:mm:ss')
-      }
-
-
-      let dateTimePunchTime: DateTime = DateTime.fromFormat(assistPunchTime, 'yyyy-MM-dd HH:mm:ss', {zone: 'UTC-6' }).toUTC()
-
-      if (dateTimePunchTime) {
-        const isSummerDate = isLegacyMexicoSummerTime(dateTimePunchTime.toJSDate())
-
-        if (isSummerDate) {
-          dateTimePunchTime = dateTimePunchTime.plus({ hour: -1 })
+      // La hora que vale es la hora en que ocurrió la checada, no la hora en que se
+      // logró entregar: si el equipo la declara, se respeta, siempre que caiga dentro
+      // de la ventana permitida y no se adelante al reloj del servidor.
+      const resolvedPunchTime = resolvePunchTime(assistPunchTime, DateTime.utc())
+      if (!resolvedPunchTime.ok) {
+        const rejection = resolvedPunchTime.rejection
+        const detail = i18n.t(`${rejection.i18nBase}_message`, undefined, rejection.key)
+        response.status(rejection.status)
+        return {
+          type: 'warning',
+          title: i18n.t(`${rejection.i18nBase}_title`, undefined, rejection.key),
+          message: detail,
+          detail,
+          key: rejection.key,
+          code: rejection.code,
         }
       }
+
+      const dateTimePunchTime: DateTime = resolvedPunchTime.punchTimeUtc
 
       const assistOrigin = resolveAssistOrigin(payload.assistChannel, isOwner)
       const assistCreatedByUserId = isOwner ? null : (auth.user?.userId ?? null)

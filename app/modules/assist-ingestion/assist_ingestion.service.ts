@@ -3,12 +3,20 @@ import Employee from '#models/employee'
 import SyncAssistsService from '#services/sync_assists_service'
 import { AssistError } from '#exceptions/assist_error'
 import { resolveAssistBusinessUnitId } from '#helpers/assist_business_unit_guard'
-import { assistIngestionNaturalKey } from './assist_ingestion.constants.js'
+import {
+  assistIngestionNaturalKey,
+  getAssistPunchTimeFutureToleranceSeconds,
+  getAssistPunchTimeMaxBackdateHours,
+  isAssistArrivalDeferred,
+} from './assist_ingestion.constants.js'
 import AssistIngestionRepositoryMysql from './assist_ingestion.repository.mysql.js'
 import {
   ASSIST_INGESTION_BATCH_DUPLICATE_ITEM,
   ASSIST_INGESTION_EMPLOYEE_NOT_FOUND,
   ASSIST_INGESTION_EMPLOYEE_TERMINATED,
+  ASSIST_INGESTION_PUNCH_TIME_FORMAT,
+  ASSIST_INGESTION_PUNCH_TIME_FUTURE,
+  ASSIST_INGESTION_PUNCH_TIME_OUT_OF_WINDOW,
   ASSIST_INGESTION_TENANT_UNRESOLVED,
 } from './assist_ingestion.rejections.js'
 import type { AssistIngestionRepository } from './assist_ingestion.repository.js'
@@ -208,5 +216,65 @@ function summarize(results: AssistIngestionItemResult[]): AssistIngestionSummary
     preexisting,
     rejected,
     acknowledged: inserted + preexisting,
+  }
+}
+
+const LEGACY_PUNCH_TIME_FORMAT = 'yyyy-MM-dd HH:mm:ss'
+const LEGACY_PUNCH_TIME_ZONE = 'UTC-6'
+/** ISO-8601 con desfase explícito: `Z`, `+HH:MM`, `-HH:MM` o sin dos puntos. */
+const EXPLICIT_OFFSET = /(?:Z|[+-]\d{2}:?\d{2})$/
+
+/** Hora de captura resuelta, o el motivo por el que no se acepta. */
+export type ResolvedPunchTime =
+  | { ok: true; punchTimeUtc: DateTime; deferredBySeconds: number; deferred: boolean }
+  | { ok: false; rejection: AssistIngestionRejection }
+
+/**
+ * Resuelve la hora en que ocurrió la checada.
+ *
+ * **El orden no es negociable:** parsear → normalizar a UTC → validar futuro →
+ * validar ventana → derivar la marca de diferida. Cualquier ajuste aplicado antes de
+ * validar desplaza la frontera de "futuro" y falsea la marca.
+ *
+ * Sin hora declarada se usa el reloj del servidor y no se evalúa la ventana: un
+ * equipo que no se ha actualizado sigue registrando exactamente como hoy.
+ *
+ * @param declared hora que el equipo de origen declara, si la declara
+ * @param receivedAt instante en que el servidor recibió la checada
+ */
+export function resolvePunchTime(
+  declared: string | null | undefined,
+  receivedAt: DateTime
+): ResolvedPunchTime {
+  const received = receivedAt.toUTC()
+
+  if (declared === null || declared === undefined || declared.trim() === '') {
+    return { ok: true, punchTimeUtc: received, deferredBySeconds: 0, deferred: false }
+  }
+
+  const value = declared.trim()
+  const parsed = EXPLICIT_OFFSET.test(value)
+    ? DateTime.fromISO(value, { setZone: true }).toUTC()
+    : DateTime.fromFormat(value, LEGACY_PUNCH_TIME_FORMAT, { zone: LEGACY_PUNCH_TIME_ZONE }).toUTC()
+
+  if (!parsed.isValid) {
+    return { ok: false, rejection: ASSIST_INGESTION_PUNCH_TIME_FORMAT }
+  }
+
+  const aheadSeconds = parsed.diff(received, 'seconds').seconds
+  if (aheadSeconds > getAssistPunchTimeFutureToleranceSeconds()) {
+    return { ok: false, rejection: ASSIST_INGESTION_PUNCH_TIME_FUTURE }
+  }
+
+  const behindSeconds = received.diff(parsed, 'seconds').seconds
+  if (behindSeconds > getAssistPunchTimeMaxBackdateHours() * 3600) {
+    return { ok: false, rejection: ASSIST_INGESTION_PUNCH_TIME_OUT_OF_WINDOW }
+  }
+
+  return {
+    ok: true,
+    punchTimeUtc: parsed,
+    deferredBySeconds: Math.max(0, Math.trunc(behindSeconds)),
+    deferred: isAssistArrivalDeferred(parsed, received),
   }
 }

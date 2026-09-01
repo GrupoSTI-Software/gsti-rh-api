@@ -83,7 +83,9 @@ test.group('Assists — inactivada no libera slot de llave natural (CA-23)', (gr
       return Employee.query().where('employee_id', employeeId).firstOrFail()
     }, 'empleado fixture CA-23')
 
-    punchTime = DateTime.fromISO('2026-06-15T14:30:00', { zone: 'utc' })
+    // Dentro de la ventana de hora de captura, para que el POST del criterio HTTP
+    // llegue al motor de ingesta en vez de rebotar por antigüedad.
+    punchTime = DateTime.utc().startOf('second').minus({ hours: 2 })
     terminalSn = `CA23-SN-${Date.now()}`
     empCode = String(employee.employeeCode ?? `CA23-${employeeId}`)
     const syncId = await nextAssistSyncId()
@@ -212,7 +214,7 @@ test.group('Assists — inactivada no libera slot de llave natural (CA-23)', (gr
         assistLongitude: 0,
         assistLatitude: 0,
         assistPrecision: 0,
-        assistPunchTime: punchTime.setZone('UTC-6').toFormat('yyyy-MM-dd HH:mm:ss'),
+        assistPunchTime: punchTime.toISO(),
       })
       .loginAs(user)
       .header('X-Business-Unit-Id', publicId)
