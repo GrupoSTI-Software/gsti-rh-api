@@ -92,6 +92,21 @@ function isMissingObjectError(error: unknown): boolean {
   )
 }
 
+/**
+ * Sustituye la extensión de `fileName` por la de `storageFileName`, que sale
+ * del MIME real detectado. Conserva el resto de la ruta intacto.
+ */
+function replaceExtension(fileName: string, storageFileName: string): string {
+  const realExtension = storageFileName.slice(storageFileName.lastIndexOf('.'))
+  const lastDot = fileName.lastIndexOf('.')
+  const lastSlash = fileName.lastIndexOf('/')
+
+  // Sin punto en el último segmento no hay extensión que sustituir: se añade.
+  if (lastDot <= lastSlash) return `${fileName}${realExtension}`
+
+  return `${fileName.slice(0, lastDot)}${realExtension}`
+}
+
 /** Convierte el cuerpo de una respuesta de S3 en Buffer. */
 async function bodyToBuffer(body: unknown): Promise<Buffer | null> {
   if (!body) return null
@@ -149,7 +164,14 @@ export default class UploadService {
 
     const intake = await this.fileIntake.accept(file, profileName)
 
-    const fileNameGenerated = options.fileName || intake.storageFileName
+    // Si el módulo trae su propia ruta determinista se respeta, pero la
+    // extensión se ajusta al MIME REAL de salida: esas rutas se componen con el
+    // nombre que mandó el cliente, así que arrastraban una extensión que podía
+    // mentir sobre el contenido (un PNG que el perfil convierte a JPEG seguía
+    // guardándose como `.png`).
+    const fileNameGenerated = options.fileName
+      ? replaceExtension(options.fileName, intake.storageFileName)
+      : intake.storageFileName
     const key = `${this.APP_NAME}${folderName || 'files'}/${fileNameGenerated}`
     const permission: ObjectCannedACL = intake.storesPublicly ? 'public-read' : 'private'
 

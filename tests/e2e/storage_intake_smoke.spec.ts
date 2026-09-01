@@ -269,3 +269,42 @@ test.group('Smoke — familias prohibidas rechazadas antes del bucket', (group) 
     })
   }
 })
+
+test.group('Smoke — key propia del modulo', (group) => {
+  group.tap((t) => t.skip(!HABILITADO, 'define RUN_STORAGE_SMOKE=1 para ejecutarlo'))
+
+  test('la ruta determinista se respeta pero la extension refleja el contenido real', async ({
+    assert,
+  }) => {
+    // Los modulos con expediente componen su key con el nombre del cliente, asi
+    // que arrastraban una extension que podia mentir: un PNG que el perfil
+    // convierte a JPEG se guardaba como `.png`.
+    const keyPropia = `${CARPETA}/expediente/2026/evidencia-original.png`
+    const resultado = await new UploadService().fileUpload(
+      await buildMultipartFile('evidencia-original.png', await buildPng()),
+      'evidence-document',
+      '',
+      { fileName: keyPropia }
+    )
+
+    assert.include(resultado, `${CARPETA}/expediente/2026/evidencia-original`)
+    assert.isTrue(resultado.endsWith('.jpg'), `la key deberia terminar en .jpg: ${resultado}`)
+
+    const o = await inspectStoredObject(resultado)
+    assert.equal(o.contentType, 'image/jpeg')
+  })
+
+  test('un PDF conserva su extension porque no cambia de formato', async ({ assert }) => {
+    const doc = await PDFDocument.create()
+    doc.addPage()
+    const keyPropia = `${CARPETA}/expediente/2026/acta.pdf`
+    const resultado = await new UploadService().fileUpload(
+      await buildMultipartFile('acta.pdf', Buffer.from(await doc.save())),
+      'pdf-document',
+      '',
+      { fileName: keyPropia }
+    )
+
+    assert.isTrue(resultado.endsWith('.pdf'))
+  })
+})
