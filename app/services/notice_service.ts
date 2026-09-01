@@ -465,8 +465,8 @@ export default class NoticeService {
      if ((isUrl || isFilePath) && notice.noticeType === 'pdf') {
        try {
          // Siempre por el bucket con credenciales, nunca con un `fetch` a la
-         // URL guardada: eso era una peticion saliente gobernada por un valor
-         // de base de datos, y ademas el adjunto ya se guarda como key privada.
+         // URL guardada: eso era una petición saliente gobernada por un valor
+         // de base de datos, y además el adjunto ya se guarda como key privada.
          const uploadService = new UploadService()
          attachmentBuffer = await uploadService.readStoredFileBuffer(description)
          attachmentFilename = decodeURIComponent(

@@ -25,7 +25,7 @@ export interface FileUploadOptions {
   /**
    * Key relativa dentro de la carpeta, cuando el modulo necesita una ruta
    * determinista propia. Si se omite, el intake genera un nombre no predecible
-   * con la extension del MIME real.
+   * con la extensión del MIME real.
    */
   readonly fileName?: string
 }
@@ -64,7 +64,7 @@ const s3Client = new S3Client({
   },
 })
 
-/** Dominio de DigitalOcean Spaces y su numero de etiquetas (`sfo3.digitaloceanspaces.com` = 3). */
+/** Dominio de DigitalOcean Spaces y su número de etiquetas (`sfo3.digitaloceanspaces.com` = 3). */
 const SPACES_DOMAIN = 'digitaloceanspaces.com'
 const SPACES_DOMAIN_LABELS = 2
 
@@ -119,21 +119,21 @@ export default class UploadService {
    * Sube un archivo multipart al bucket.
    *
    * TODO archivo pasa obligatoriamente por `FileIntakeService` antes de tocar
-   * el bucket: el perfil decide que se acepta, en que se transforma, como se
-   * llama el objeto y si es publico. Nada de esto se deriva ya de lo que
+   * el bucket: el perfil decide qué se acepta, en qué se transforma, cómo se
+   * llama el objeto y si es público. Nada de esto se deriva ya de lo que
    * declara el cliente.
    *
    * @param file        Archivo tal como lo entrega `request.file()`.
-   * @param profileName Perfil de uso. Obligatorio: no hay subida sin politica.
-   * @param folderName  Carpeta logica bajo `{AWS_ROOT_PATH}/`.
+   * @param profileName Perfil de uso. Obligatorio: no hay subida sin política.
+   * @param folderName  Carpeta lógica bajo `{AWS_ROOT_PATH}/`.
    * @param options     `fileName` solo cuando el modulo construye su propia key
    *                    determinista (expediente REPSE, evidencias, adjuntos).
    *
-   * @returns La Key del objeto si es privado, o su URL publica si el perfil lo
-   *          declara publico. `'file_not_found'` cuando no llego archivo y
+   * @returns La Key del objeto si es privado, o su URL pública si el perfil lo
+   *          declara público. `'file_not_found'` cuando no llego archivo y
    *          `'S3Producer.fileUpload'` cuando falla el bucket, igual que antes.
    *
-   * @throws {FileIntakeError} Si el archivo llego pero no pasa la politica del
+   * @throws {FileIntakeError} Si el archivo llego pero no pasa la política del
    *         perfil. Es un 422 con triplete, no un fallo del servidor.
    */
   async fileUpload(
@@ -270,7 +270,7 @@ export default class UploadService {
 
   /**
    * Lee un archivo desde CUALQUIER forma en que se almacene en la base de
-   * datos: una URL publica (filas historicas subidas con `public-read`) o una
+   * datos: una URL pública (filas históricas subidas con `public-read`) o una
    * Key directa (objetos privados, que es lo que se guarda desde el
    * endurecimiento de la subida).
    *
@@ -282,8 +282,8 @@ export default class UploadService {
     const ref = this.resolveS3Ref(storedPath)
     if (!ref?.key) return null
 
-    // El bucket lo decide la configuracion, NUNCA la cadena guardada. Sin este
-    // candado, un campo de base de datos con una URL de otro bucket haria que
+    // El bucket lo decide la configuración, NUNCA la cadena guardada. Sin este
+    // candado, un campo de base de datos con una URL de otro bucket haría que
     // el API leyera un objeto ajeno con sus propias credenciales.
     if (ref.bucket && this.BUCKET_NAME && ref.bucket !== this.BUCKET_NAME) {
       logger.warn(
@@ -461,9 +461,9 @@ export default class UploadService {
    * Resuelve la referencia S3 completa (bucket + key) desde cualquier forma en que
    * se almacena un archivo en la base de datos:
    *
-   * - URL path-style:     https://region.digitaloceanspaces.com/bucket/key
+   * - URL path-style:     https://región.digitaloceanspaces.com/bucket/key
    *                       → { bucket: "bucket", key: "key" }
-   * - URL virtual-hosted: https://bucket.region.digitaloceanspaces.com/key
+   * - URL virtual-hosted: https://bucket.región.digitaloceanspaces.com/key
    *                       → { bucket: "bucket", key: "key" }
    * - Con prefijo bucket: bucket/key  (coincide con BUCKET_NAME del env)
    *                       → { bucket: BUCKET_NAME, key: "key" }
@@ -483,18 +483,18 @@ export default class UploadService {
         const url = new URL(storedPath)
 
         // Una URL que no apunta al almacenamiento NO es una referencia S3.
-        // Devolver algo aqui era el origen de dos fallos: la foto que el
-        // checador publica en su propio servidor se troceaba como si fuera una
-        // key del bucket, y cualquier host ajeno podia inventarse un bucket.
+        // Devolver algo aquí era el origen de dos fallos: la foto que el
+        // checador pública en su propio servidor se troceaba como si fuera una
+        // key del bucket, y cualquier host ajeno podía inventarse un bucket.
         if (!this.isStorageHost(url.hostname)) return null
 
         const rawPath = url.pathname.replace(/^\//, '')
 
-        // virtual-hosted (`bucket.region.digitaloceanspaces.com/key`) frente a
-        // path-style (`region.digitaloceanspaces.com/bucket/key`). Se distingue
+        // virtual-hosted (`bucket.región.digitaloceanspaces.com/key`) frente a
+        // path-style (`región.digitaloceanspaces.com/bucket/key`). Se distingue
         // por la cantidad de etiquetas del dominio del proveedor, NO comparando
-        // contra el bucket configurado: las filas historicas viven en otro
-        // bucket y esa comparacion las resolvia mal. Un endpoint propio o MinIO
+        // contra el bucket configurado: las filas históricas viven en otro
+        // bucket y esa comparacion las resolvía mal. Un endpoint propio o MinIO
         // (`127.0.0.1:9000/bucket/key`) es siempre path-style.
         const etiquetas = url.hostname.split('.')
         const esVirtualHosted =
@@ -522,11 +522,11 @@ export default class UploadService {
 
     // No es URL: key directa o key con el nombre del bucket como prefijo.
     //
-    // La ambiguedad es real cuando `AWS_BUCKET` y `AWS_ROOT_PATH` coinciden
-    // (`valanserh/valanserh/files/x.jpg` seria indistinguible de
+    // La ambigüedad es real cuando `AWS_BUCKET` y `AWS_ROOT_PATH` coinciden
+    // (`valanserh/valanserh/files/x.jpg` sería indistinguible de
     // `valanserh/files/x.jpg` con prefijo). Se resuelve por el lado seguro: si
-    // el path YA empieza por el prefijo raiz de la aplicacion es una key
-    // nuestra y se deja intacta. Recortar ahi apuntaria a un objeto que no
+    // el path YA empieza por el prefijo raiz de la aplicación es una key
+    // nuestra y se deja intacta. Recortar ahí apuntaria a un objeto que no
     // existe, y eso rompe borrado y lectura en silencio.
     let key = storedPath
     const esKeyDeLaAplicacion = storedPath.startsWith(this.APP_NAME)
@@ -540,7 +540,7 @@ export default class UploadService {
   /**
    * Verdadero si el host pertenece al almacenamiento de objetos: el endpoint
    * configurado (DigitalOcean Spaces en produccion, MinIO en desarrollo) o
-   * cualquier subdominio de Spaces, que es donde viven las filas historicas.
+   * cualquier subdominio de Spaces, que es donde viven las filas históricas.
    */
   private isStorageHost(hostname: string): boolean {
     if (hostname === SPACES_DOMAIN || hostname.endsWith(`.${SPACES_DOMAIN}`)) return true

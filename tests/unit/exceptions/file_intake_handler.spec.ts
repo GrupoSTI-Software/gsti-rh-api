@@ -5,9 +5,9 @@ import { FILE_INTAKE_ERROR_CODES } from '../../../app/constants/file_intake_erro
 
 /**
  * El rechazo de un archivo tiene que llegar al cliente como 422 con el triplete
- * del estandar. La prueba se hace sobre la RESPUESTA, no sobre el objeto de
- * excepcion: el hueco que esta suite cubre fue exactamente ese — el error se
- * construia bien pero nadie lo traducia, asi que el cliente recibia un 500.
+ * del estándar. La prueba se hace sobre la RESPUESTA, no sobre el objeto de
+ * excepción: el hueco que esta suite cubre fue exactamente ese — el error se
+ * construía bien pero nadie lo traducía, así que el cliente recibía un 500.
  */
 
 /** Doble del `response` de Adonis: registra status y cuerpo. */
@@ -92,7 +92,7 @@ test.group('HttpExceptionHandler — rechazo de archivos', () => {
       errorCode: FILE_INTAKE_ERROR_CODES.FILE_MISSING,
     })
 
-    // Regresion: con `httpStatus` el framework caia a 500 si el error escapaba
+    // Regresión: con `httpStatus` el framework caía a 500 si el error escapaba
     // de la rama del handler.
     assert.equal(error.status, 422)
     assert.notProperty(error, 'httpStatus')

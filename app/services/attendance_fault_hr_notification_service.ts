@@ -426,7 +426,7 @@ export default class AttendanceFaultHrNotificationService {
   /**
    * URL de la foto para la plantilla del correo. Vacia cuando la referencia es
    * un objeto privado: un cliente de correo no puede autenticarse, y componerla
-   * con `APP_URL` solo producia una imagen rota. La plantilla ya degrada con
+   * con `APP_URL` solo producía una imagen rota. La plantilla ya degrada con
    * `@if(emp.photoUrl)`.
    */
   resolvePhotoUrl(photo: string | null): string {

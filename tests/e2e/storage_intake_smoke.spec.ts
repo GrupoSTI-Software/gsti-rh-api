@@ -64,10 +64,10 @@ async function png(): Promise<Buffer> {
 /**
  * Lee del bucket la metadata, el ACL y el cuerpo del objeto recien escrito.
  *
- * `publico` vale `null` cuando el backend no implementa ACL por objeto: MinIO
+ * `público` vale `null` cuando el backend no implementa ACL por objeto: MinIO
  * acepta el `ACL: public-read` sin error pero `GetObjectAcl` siempre responde
  * `FULL_CONTROL` de `CanonicalUser`, sin grant de `AllUsers`. Verificado contra
- * el MinIO local. DigitalOcean Spaces si los reporta, asi que ahi la asercion
+ * el MinIO local. DigitalOcean Spaces si los reporta, así que ahí la aserción
  * de ACL efectivo si corre.
  */
 async function inspeccionar(key: string) {
@@ -92,7 +92,7 @@ async function subir(nombre: string, contenido: Buffer, perfil: FileIntakeProfil
     perfil,
     CARPETA
   )
-  // Un perfil publico devuelve URL; uno privado devuelve la key directa.
+  // Un perfil público devuelve URL; uno privado devuelve la key directa.
   const key = resultado.startsWith('http')
     ? decodeURIComponent(new URL(resultado).pathname.replace(`/${BUCKET}/`, ''))
     : resultado
@@ -132,7 +132,7 @@ test.group('Smoke — subida real al almacenamiento', (group) => {
     const { resultado, key } = await subir('logotipo.webp', webp, 'branding-asset')
     const o = await inspeccionar(key)
 
-    // La senal observable del perfil publico es que devuelve URL en lugar de key.
+    // La señal observable del perfil público es que devuelve URL en lugar de key.
     assert.isTrue(resultado.startsWith('http'), 'un perfil publico devuelve URL')
     assert.isTrue(key.endsWith('.png'))
     assert.equal(o.contentType, 'image/png')

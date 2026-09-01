@@ -67,7 +67,7 @@ export default class PlatformDeviceModelService {
    * Resuelve la URL de la foto de referencia del modelo.
    *
    * La imagen vive en el Space como `<slug>.webp`, no en el disco del API: el
-   * servidor de estaticos esta apagado a proposito (`config/static.ts`).
+   * servidor de estáticos esta apagado a propósito (`config/static.ts`).
    * Mientras el archivo real del modelo no exista, el frontend debe mostrar
    * `default.webp` para evitar imagenes rotas.
    *

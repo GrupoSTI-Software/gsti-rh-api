@@ -246,7 +246,7 @@ export default class EmployeeContractController {
             data: employeeContractFile,
           }
         }
-        // get file name and extension
+        // get file name and extensión
         const uploadService = new UploadService()
 
         const fileUrl = await uploadService.fileUpload(employeeContractFile, 'employee-record-document', 'employee-contracts')

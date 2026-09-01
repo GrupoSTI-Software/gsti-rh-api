@@ -91,12 +91,12 @@ import './routes/work_disability_note_routes.js'
  * sobrecargos y reservas) DESREGISTRADAS a la espera de la baja definitiva
  * del modulo.
  *
- * Motivo: concentraban 17 puntos de subida de archivos publicos, sin tope de
- * tamano y sin validacion de extension. Al ir el modulo de salida, se retira
+ * Motivo: concentraban 17 puntos de subida de archivos públicos, sin tope de
+ * tamaño y sin validación de extensión. Al ir el modulo de salida, se retira
  * la superficie expuesta en lugar de invertir en endurecerla.
  *
  * Los archivos siguen en `start/routes/` y sus controladores en `app/`: al
- * dar de baja el modulo hay que eliminar tambien esos archivos, sus modelos,
+ * dar de baja el modulo hay que eliminar también esos archivos, sus modelos,
  * servicios y validators. Lista desregistrada:
  *   - aircraft_routes
  *   - aircraft_class_routes
@@ -119,7 +119,7 @@ import './routes/work_disability_note_routes.js'
  *
  * NO incluye `customer_routes` ni `customer_proceeding_file_routes`: la tabla
  * `customers` la consulta `employee_service.ts` para validar `person_id`
- * duplicado, asi que su baja requiere analisis propio.
+ * duplicado, así que su baja requiere analisis propio.
  */
 
 import './routes/employee_children_routes.js'

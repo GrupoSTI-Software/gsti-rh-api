@@ -11,7 +11,7 @@ import { FILE_INTAKE_ERROR_CODES } from '../../../app/constants/file_intake_erro
 import type { FileIntakeProfileName } from '../../../app/constants/file_intake.js'
 
 /**
- * Archivo multipart minimo respaldado por un temporal real: el intake lee el
+ * Archivo multipart mínimo respaldado por un temporal real: el intake lee el
  * contenido del disco, no lo que declare el objeto.
  */
 async function fakeMultipartFile(params: {

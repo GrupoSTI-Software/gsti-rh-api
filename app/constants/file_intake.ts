@@ -1,17 +1,17 @@
 /**
- * Politica unica de entrada de archivos del sistema.
+ * Política única de entrada de archivos del sistema.
  *
  * Todo archivo que llega por multipart pasa por un perfil de esta tabla antes
- * de tocar el bucket. El perfil declara que extensiones acepta del cliente, que
- * MIME real (por magic bytes) tolera, cuanto puede pesar, en que se transforma
- * y si el objeto resultante es publico.
+ * de tocar el bucket. El perfil declara qué extensiones acepta del cliente, que
+ * MIME real (por magic bytes) tolera, cuánto puede pesar, en qué se transforma
+ * y si el objeto resultante es público.
  *
- * Nada de esto se apoya en lo que declara el cliente: la extension del nombre y
+ * Nada de esto se apoya en lo que declara el cliente: la extensión del nombre y
  * el `Content-Type` del multipart son pistas que se validan, nunca la fuente de
- * la decision.
+ * la decisión.
  */
 
-/** Imagenes: unicos formatos raster que entran al sistema. Sin SVG (es XML ejecutable). */
+/** Imagenes: únicos formatos raster que entran al sistema. Sin SVG (es XML ejecutable). */
 export const FILE_INTAKE_IMAGE_MIMES = ['image/jpeg', 'image/png', 'image/webp'] as const
 
 export const FILE_INTAKE_PDF_MIMES = ['application/pdf'] as const
@@ -33,7 +33,7 @@ export const FILE_INTAKE_AUDIO_MIMES = [
 
 /**
  * Hoja de calculo OOXML. `file-type` distingue un .xlsx real de un ZIP
- * renombrado: un ZIP generico se reporta como `application/zip` y no entra.
+ * renombrado: un ZIP genérico se reporta como `application/zip` y no entra.
  */
 export const FILE_INTAKE_SPREADSHEET_MIMES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
@@ -52,14 +52,14 @@ export type FileIntakeMime = (typeof FILE_INTAKE_ALLOWED_MIMES)[number]
 export type FileIntakeImageOutputMime = Extract<FileIntakeMime, 'image/jpeg' | 'image/png'>
 
 /**
- * Que hace un perfil con una imagen.
+ * Qué hace un perfil con una imagen.
  * - `reject`: el perfil no acepta imagenes.
  * - `preserve`: re-encodea manteniendo el formato de origen.
  * - `convert`: re-encodea al formato declarado, sea cual sea el de origen.
  *
  * En los tres casos que aceptan imagen se re-encodea SIEMPRE: reconstruir el
- * pixel es lo que descarta EXIF y cualquier payload pegado despues del fin del
- * contenedor. El formato de salida es una decision de compatibilidad, no de
+ * pixel es lo que descarta EXIF y cualquier payload pegado después del fin del
+ * contenedor. El formato de salida es una decisión de compatibilidad, no de
  * seguridad.
  */
 export type FileIntakeImagePolicy =
@@ -75,7 +75,7 @@ export interface FileIntakeProfile {
   readonly allowedClientExtensions: readonly string[]
   /** MIME real tolerado, detectado por magic bytes sobre el contenido. */
   readonly allowedMimes: readonly FileIntakeMime[]
-  /** Tope por archivo, aplicado antes y despues de transformar. */
+  /** Tope por archivo, aplicado antes y después de transformar. */
   readonly maxBytes: number
   readonly imagePolicy: FileIntakeImagePolicy
   /**
@@ -151,7 +151,7 @@ export const FILE_INTAKE_PROFILES: Readonly<Record<FileIntakeProfileName, FileIn
   },
 
   /**
-   * Logo, favicon e icono de aplicacion. Unico perfil publico del sistema.
+   * Logo, favicon e icono de aplicación. Único perfil público del sistema.
    * Sale como PNG y no como WebP porque el logo termina en tres consumidores
    * que no lo soportan: `pdfkit` (`position_service`), la imagen embebida del
    * XLSX y Outlook de escritorio, que renderiza el correo con el motor de Word.
@@ -193,7 +193,7 @@ export const FILE_INTAKE_PROFILES: Readonly<Record<FileIntakeProfileName, FileIn
   },
 }
 
-/** Extension de almacenamiento segun el MIME REAL de salida, nunca la del cliente. */
+/** Extensión de almacenamiento según el MIME REAL de salida, nunca la del cliente. */
 export const FILE_INTAKE_STORAGE_EXTENSION_BY_MIME: Readonly<Record<FileIntakeMime, string>> = {
   'image/jpeg': 'jpg',
   'image/png': 'png',
@@ -208,15 +208,15 @@ export const FILE_INTAKE_STORAGE_EXTENSION_BY_MIME: Readonly<Record<FileIntakeMi
 }
 
 /**
- * Extensiones de codigo, scripts, ejecutables, config e imagenes de disco.
- * Se valida CUALQUIER segmento del nombre, no solo el ultimo, para cubrir la
- * doble extension (`factura.php.jpg`).
+ * Extensiones de código, scripts, ejecutables, config e imagenes de disco.
+ * Se valida CUALQUIER segmento del nombre, no solo el último, para cubrir la
+ * doble extensión (`factura.php.jpg`).
  *
  * QUEDAN FUERA A PROPOSITO las de una sola letra (`c`, `h`, `m`, `r`). Al
- * mirar todos los segmentos del nombre convertian en "script o ejecutable"
+ * mirar todos los segmentos del nombre convertían en "script o ejecutable"
  * documentos legitimos con iniciales: `Perez.J.M.pdf`, `acta.h.pdf`,
- * `CURP.R.pdf`. En un expediente de RH mexicano ese patron es comun, y el
- * riesgo real ya lo cubren dos candados mas duros: la extension final debe
+ * `CURP.R.pdf`. En un expediente de RH mexicano ese patrón es común, y el
+ * riesgo real ya lo cubren dos candados más duros: la extensión final debe
  * pertenecer al perfil y el contenido se valida por magic bytes.
  */
 export const FILE_INTAKE_BLOCKED_EXTENSIONS = [

@@ -1,16 +1,16 @@
 import type { FileIntakeErrorCode } from '../constants/file_intake_error_codes.js'
 
 /**
- * Rechazo de un archivo en la entrada, con el triplete del estandar
+ * Rechazo de un archivo en la entrada, con el triplete del estándar
  * (titulo, detalle y key) ya resuelto. Nunca lleva el nombre original del
  * archivo ni su ruta temporal: el detalle es accionable, no un eco del input.
  */
 export class FileIntakeError extends Error {
   readonly errorCode: FileIntakeErrorCode
   /**
-   * Codigo HTTP. Se llama `status` a proposito: es la propiedad que lee el
+   * Código HTTP. Se llama `status` a propósito: es la propiedad que lee el
    * manejador de excepciones de Adonis cuando un error llega sin mapear. Con
-   * `httpStatus` el framework caia a 500 y, fuera de produccion, respondia con
+   * `httpStatus` el framework caía a 500 y, fuera de produccion, respondia con
    * volcado de pila.
    */
   readonly status: number

@@ -30,13 +30,13 @@ export interface FileIntakeResult {
   /** MIME real de SALIDA. Es el que debe viajar como `ContentType` al bucket. */
   readonly mimeType: FileIntakeMime
   readonly fileSize: number
-  /** Nombre no predecible con la extension del MIME de salida. */
+  /** Nombre no predecible con la extensión del MIME de salida. */
   readonly storageFileName: string
   /** Copiado del perfil: quien persiste decide la ACL con esto, no por su cuenta. */
   readonly storesPublicly: boolean
 }
 
-/** Lo minimo que el intake necesita de un archivo multipart. */
+/** Lo mínimo que el intake necesita de un archivo multipart. */
 type IncomingFile = Pick<MultipartFile, 'tmpPath' | 'clientName' | 'extname' | 'size'>
 
 const TITLE = 'Archivo no aceptado'
@@ -48,16 +48,16 @@ const MP3_MIME_SET: ReadonlySet<string> = new Set(FILE_INTAKE_MP3_MIMES)
 const SPREADSHEET_MIME_SET: ReadonlySet<string> = new Set(FILE_INTAKE_SPREADSHEET_MIMES)
 
 /**
- * Puerta unica de entrada de archivos.
+ * Puerta única de entrada de archivos.
  *
  * El orden de las comprobaciones es deliberado y va de barato a caro:
- * presencia, nombre declarado, tamano declarado, contenido real, transformacion
- * y tamano final. Cada rechazo sale como `FileIntakeError` con el triplete del
- * estandar, nunca como excepcion cruda.
+ * presencia, nombre declarado, tamaño declarado, contenido real, transformación
+ * y tamaño final. Cada rechazo sale como `FileIntakeError` con el triplete del
+ * estándar, nunca como excepción cruda.
  */
 export default class FileIntakeService {
   /**
-   * Acepta o rechaza un archivo multipart segun su perfil.
+   * Acepta o rechaza un archivo multipart según su perfil.
    * @param file Archivo tal como lo entrega `request.file()`.
    * @param profileName Perfil de uso declarado por el modulo que lo recibe.
    */
@@ -74,9 +74,9 @@ export default class FileIntakeService {
     const inputBuffer = await this.readTmpFile(file)
 
     // El tope se mide sobre lo que MANDO el usuario, no sobre el resultado de
-    // la transformacion. Re-encodear puede engordar el archivo (un JPEG que
-    // sale PNG por politica del perfil crece varias veces), y rechazarlo por
-    // eso seria castigar al usuario por una decision nuestra.
+    // la transformación. Re-encodear puede engordar el archivo (un JPEG que
+    // sale PNG por política del perfil crece varias veces), y rechazarlo por
+    // eso sería castigar al usuario por una decisión nuestra.
     this.assertSizeWithinLimit(profile, inputBuffer.length)
 
     const mimeType = await this.detectAllowedMime(profile, inputBuffer)
@@ -95,7 +95,7 @@ export default class FileIntakeService {
     if (!file || !file.tmpPath) {
       throw new FileIntakeError({
         title: TITLE,
-        detail: 'No se recibio ningun archivo en la peticion.',
+        detail: 'No se recibió ningún archivo en la petición.',
         key: 'archivo-faltante',
         errorCode: FILE_INTAKE_ERROR_CODES.FILE_MISSING,
       })
@@ -109,7 +109,7 @@ export default class FileIntakeService {
       throw new FileIntakeError({
         title: TITLE,
         detail:
-          'El nombre del archivo contiene una extension de script, ejecutable o configuracion.',
+          'El nombre del archivo contiene una extensión de script, ejecutable o configuración.',
         key: 'extension-bloqueada',
         errorCode: FILE_INTAKE_ERROR_CODES.EXTENSION_BLOCKED,
       })
@@ -126,7 +126,7 @@ export default class FileIntakeService {
   }
 
   /**
-   * Primer filtro por el tamano que DECLARA el multipart. Es barato y descarta
+   * Primer filtro por el tamaño que DECLARA el multipart. Es barato y descarta
    * lo evidente antes de leer un byte del disco; no se confia en el, porque lo
    * declara el cliente: `assertSizeWithinLimit` vuelve a medir sobre el
    * contenido real.
@@ -160,8 +160,8 @@ export default class FileIntakeService {
 
   /**
    * Determina el formato REAL por magic bytes y lo contrasta con el perfil.
-   * Un SVG o un script no producen firma reconocible y caen aqui; un binario
-   * disfrazado de imagen cae aqui aunque su nombre y su `Content-Type` mientan.
+   * Un SVG o un script no producen firma reconocible y caen aquí; un binario
+   * disfrazado de imagen cae aquí aunque su nombre y su `Content-Type` mientan.
    */
   private async detectAllowedMime(
     profile: FileIntakeProfile,
@@ -205,7 +205,7 @@ export default class FileIntakeService {
 
     if (SPREADSHEET_MIME_SET.has(mimeType)) {
       // La hoja no se persiste ni se puede reconstruir sin alterar formulas:
-      // la garantia aqui es que el contenido ES una hoja OOXML real.
+      // la garantía aquí es que el contenido ES una hoja OOXML real.
       return { buffer: inputBuffer, mimeType }
     }
 
@@ -214,7 +214,7 @@ export default class FileIntakeService {
 
   /**
    * Re-encodea la imagen. Reconstruir el pixel descarta EXIF, perfiles ICC,
-   * capas y cualquier payload pegado despues del fin del contenedor.
+   * capas y cualquier payload pegado después del fin del contenedor.
    * `rotate()` sin argumentos aplica la orientacion EXIF antes de descartarla.
    */
   private async transformImage(
@@ -298,7 +298,7 @@ export default class FileIntakeService {
     const maxMegabytes = Math.round(profile.maxBytes / (1024 * 1024))
     return new FileIntakeError({
       title: TITLE,
-      detail: `El archivo supera el tamano maximo de ${maxMegabytes} MB.`,
+      detail: `El archivo supera el tamaño máximo de ${maxMegabytes} MB.`,
       key: 'archivo-demasiado-grande',
       errorCode: FILE_INTAKE_ERROR_CODES.FILE_TOO_LARGE,
     })
@@ -307,7 +307,7 @@ export default class FileIntakeService {
   private sanitizationFailedError(): FileIntakeError {
     return new FileIntakeError({
       title: TITLE,
-      detail: 'El archivo esta danado o su contenido no pudo procesarse.',
+      detail: 'El archivo está dañado o su contenido no pudo procesarse.',
       key: 'archivo-no-procesable',
       errorCode: FILE_INTAKE_ERROR_CODES.SANITIZATION_FAILED,
     })

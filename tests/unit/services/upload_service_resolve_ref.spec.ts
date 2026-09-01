@@ -5,7 +5,7 @@ import UploadService from '#services/upload_service'
 /**
  * `resolveS3Ref` es el traductor entre lo que hay guardado en la base de datos
  * y el par bucket+key que entiende el SDK. Convive con tres generaciones de
- * valores: URL publica de Spaces (filas historicas), URL de MinIO (desarrollo)
+ * valores: URL pública de Spaces (filas históricas), URL de MinIO (desarrollo)
  * y Key directa (todo lo subido desde el endurecimiento).
  */
 test.group('UploadService.resolveS3Ref', () => {
@@ -31,8 +31,8 @@ test.group('UploadService.resolveS3Ref', () => {
   test('URL virtual-hosted de un bucket AJENO se resuelve a ese bucket, no al configurado', ({
     assert,
   }) => {
-    // Regresion: comparar la primera etiqueta contra AWS_BUCKET rompia las
-    // filas historicas, que viven en otro bucket. `sae-assets` es el bucket,
+    // Regresión: comparar la primera etiqueta contra AWS_BUCKET rompía las
+    // filas históricas, que viven en otro bucket. `sae-assets` es el bucket,
     // `sae-rh-system/...` es la key, no al reves.
     const ref = service.resolveS3Ref(
       'https://sae-assets.sfo3.digitaloceanspaces.com/sae-rh-system/files/foto.jpg'
@@ -42,14 +42,14 @@ test.group('UploadService.resolveS3Ref', () => {
   })
 
   test('una URL que NO es del almacenamiento no es una referencia S3', ({ assert }) => {
-    // La foto que publica el checador en su propio servidor se troceaba como si
+    // La foto que pública el checador en su propio servidor se troceaba como si
     // fuera una key del bucket, dejando sin foto al empleado sincronizado.
     assert.isNull(service.resolveS3Ref('http://201.150.46.146:81/photos/E123.jpg'))
     assert.isNull(service.resolveS3Ref('https://evil.example.com/valanserh/files/foto.jpg'))
   })
 
   test('URL del endpoint configurado (MinIO con puerto): se lee como path-style', ({ assert }) => {
-    // Un host con puerto tiene mas etiquetas que un dominio de Spaces, asi que
+    // Un host con puerto tiene más etiquetas que un dominio de Spaces, así que
     // contar etiquetas sin mirar el dominio lo confundia con virtual-hosted.
     const endpoint = env.get('AWS_ENDPOINT').replace(/\/+$/, '')
     const ref = service.resolveS3Ref(`${endpoint}/${bucket}/valanserh/files/foto.jpg`)
@@ -66,7 +66,7 @@ test.group('UploadService.resolveS3Ref', () => {
   })
 
   test('cuando el bucket coincide con el prefijo raiz NO se recorta la key', ({ assert }) => {
-    // Regresion: con AWS_BUCKET === AWS_ROOT_PATH la heuristica de "prefijo de
+    // Regresión: con AWS_BUCKET === AWS_ROOT_PATH la heurística de "prefijo de
     // bucket" recortaba el primer segmento de toda key nueva y apuntaba a un
     // objeto inexistente, rompiendo borrado y lectura en silencio.
     const rootPath = env.get('AWS_ROOT_PATH')
@@ -78,9 +78,9 @@ test.group('UploadService.resolveS3Ref', () => {
   test('ante la ambiguedad bucket/prefijo gana la lectura como key directa', ({ assert }) => {
     // `bucket/loQueSea` es indistinguible de una key con el bucket de prefijo.
     // La precedencia es deliberada: si el path empieza por el prefijo raiz se
-    // trata como key nuestra y no se recorta, porque recortar de mas apunta a
+    // trata como key nuestra y no se recorta, porque recortar de más apunta a
     // un objeto inexistente y rompe borrado y lectura en silencio, mientras que
-    // recortar de menos solo falla si de verdad venia con prefijo de bucket.
+    // recortar de menos solo falla si de verdad venía con prefijo de bucket.
     const rootPath = env.get('AWS_ROOT_PATH')
     const conPrefijoRaiz = `${rootPath}/otra-carpeta/foto.jpg`
 

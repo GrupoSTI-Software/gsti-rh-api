@@ -135,7 +135,7 @@ export default await Env.create(new URL('../', import.meta.url), {
   AWS_SECRET_ACCESS_KEY: Env.schema.string(),
   AWS_ENDPOINT: Env.schema.string(),
   AWS_BUCKET: Env.schema.string(),
-  /** El SDK v3 exige region aunque el proveedor S3-compatible la ignore. */
+  /** El SDK v3 exige región aunque el proveedor S3-compatible la ignore. */
   AWS_DEFAULT_REGION: Env.schema.string.optional(),
   /** Prefijo raiz de todas las keys del bucket. */
   AWS_ROOT_PATH: Env.schema.string(),

@@ -9,9 +9,9 @@ import {
 const BLOCKED_EXTENSION_SET: ReadonlySet<string> = new Set(FILE_INTAKE_BLOCKED_EXTENSIONS)
 
 /**
- * Extrae TODAS las extensiones de un nombre de archivo, no solo la ultima.
+ * Extrae TODAS las extensiones de un nombre de archivo, no solo la última.
  * `factura.php.jpg` devuelve `['php', 'jpg']`, que es lo que permite cazar la
- * doble extension. Descarta cualquier componente de ruta que venga en el nombre.
+ * doble extensión. Descarta cualquier componente de ruta que venga en el nombre.
  */
 export function extractFileNameExtensions(clientName?: string, extname?: string): string[] {
   const normalizedExtname = normalizeExtension(extname)
@@ -65,8 +65,8 @@ export function rejectClientFileName(
 
 /**
  * Nombre de almacenamiento no predecible: `{uuid}-{salt}.{ext}`.
- * La extension sale del MIME REAL de salida; el nombre del cliente nunca llega
- * al bucket, asi que no puede arrastrar rutas, acentos ni una extension mentida.
+ * La extensión sale del MIME REAL de salida; el nombre del cliente nunca llega
+ * al bucket, así que no puede arrastrar rutas, acentos ni una extensión mentida.
  */
 export function buildStorageFileName(mimeType: FileIntakeMime): string {
   const extension = FILE_INTAKE_STORAGE_EXTENSION_BY_MIME[mimeType]

@@ -2,7 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { FILE_INTAKE_ERROR_CODES } from '#constants/file_intake_error_codes'
 import { FileIntakeError } from '#exceptions/file_intake_error'
 
-/** Cuerpo de error con el triplete del estandar mas el codigo estable. */
+/** Cuerpo de error con el triplete del estándar más el código estable. */
 export interface ResolvedFileIntakeError {
   readonly title: string
   readonly detail: string
@@ -13,7 +13,7 @@ export interface ResolvedFileIntakeError {
 
 /**
  * Traduce un rechazo de la entrada de archivos al contrato de error del
- * estandar. Cualquier otra excepcion sale como fallo no clasificado, nunca
+ * estándar. Cualquier otra excepción sale como fallo no clasificado, nunca
  * con el mensaje crudo de la libreria: el detalle de un `sharp` o un `pdf-lib`
  * roto no es accionable para el usuario y puede filtrar rutas del servidor.
  */
@@ -37,7 +37,7 @@ export function resolveFileIntakeApiError(error: unknown): ResolvedFileIntakeErr
   }
 }
 
-/** Verdadero si la excepcion proviene de la entrada de archivos. */
+/** Verdadero si la excepción proviene de la entrada de archivos. */
 export function isFileIntakeError(error: unknown): error is FileIntakeError {
   return error instanceof FileIntakeError
 }

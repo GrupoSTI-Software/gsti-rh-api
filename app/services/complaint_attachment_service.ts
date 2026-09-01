@@ -220,7 +220,7 @@ export default class ComplaintAttachmentService {
   }
 
   /**
-   * Delega la validacion y sanitizacion al servicio transversal y traduce su
+   * Delega la validación y sanitización al servicio transversal y traduce su
    * rechazo al contrato de error del buzon, que el frontend ya consume.
    */
   private async acceptAttachment(file: unknown) {

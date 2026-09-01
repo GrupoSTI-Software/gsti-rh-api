@@ -49,7 +49,7 @@ export default class HttpExceptionHandler extends ExceptionHandler {
      *
      * Es la red que recogen los `throw` de los puntos de subida; el que un
      * modulo prefiera traducir el rechazo a su propio contrato (como hace el
-     * buzon de quejas) sigue siendo valido y no pasa por aqui.
+     * buzon de quejas) sigue siendo valido y no pasa por aquí.
      */
     if (isFileIntakeError(error)) {
       respondFileIntakeError(ctx.response, error)

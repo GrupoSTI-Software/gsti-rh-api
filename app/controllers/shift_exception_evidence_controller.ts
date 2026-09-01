@@ -260,7 +260,7 @@ export default class ShiftExceptionEvidenceController {
       shiftExceptionEvidenceFile: '',
       shiftExceptionId: shiftExceptionId,
     } as ShiftExceptionEvidence
-    // get file name and extension
+    // get file name and extensión
     const uploadService = new UploadService()
     const isValidInfo = await shiftExceptionEvidenceService.verifyInfoExist(shiftExceptionEvidence)
     if (isValidInfo.status !== 200) {

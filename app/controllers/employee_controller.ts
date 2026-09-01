@@ -2564,7 +2564,7 @@ export default class EmployeeController {
     if (!currentEmployee) {
       return response.status(404).send({ message: 'Employee not found' })
     }
-    // get file name and extension
+    // get file name and extensión
 
     // get employee and update employee photo
     try {
