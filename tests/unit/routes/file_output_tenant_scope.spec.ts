@@ -70,9 +70,9 @@ test.group('Salida de archivos — candados de tenant y permisos', () => {
       'solo `scopedQuery` puede consultar ShiftExceptionEvidence directamente'
     )
 
-    // Se compara sobre el texto compactado: la version anterior de esta
-    // asercion buscaba una cadena de una sola linea dentro de codigo indentado
-    // y multilinea, asi que NUNCA coincidia y el test pasaba sin comprobar nada.
+    // Se compara sobre el texto compactado: la versión anterior de esta
+    // asercion buscaba una cadena de una sola línea dentro de código indentado
+    // y multilinea, así que NUNCA coincidia y el test pasaba sin comprobar nada.
     // Mientras tanto, `update` y `delete` seguian consultando el modelo directo.
     assert.notInclude(
       compact(controlador),
@@ -86,8 +86,8 @@ test.group('Salida de archivos — candados de tenant y permisos', () => {
   }) => {
     const controlador = compact(await leer('app/controllers/shift_exception_evidence_controller.ts'))
 
-    // `update` y `delete`: el borrado ademas arrastra el objeto del bucket, asi
-    // que un identificador ajeno destruia datos de otra empresa.
+    // `update` y `delete`: el borrado además arrastra el objeto del bucket, así
+    // que un identificador ajeno destruía datos de otra empresa.
     const llamadasAlServicio = controlador.match(/newShiftExceptionEvidenceService\(\)\.show\(/g) ?? []
 
     assert.isAtLeast(

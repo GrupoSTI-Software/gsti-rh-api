@@ -9,7 +9,7 @@ import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_ca
 
 test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
   // 117 desde que la foto de perfil salio por endpoint autenticado
-  // (`streamEmployeePhoto`), al retirar el proxy publico de imagenes.
+  // (`streamEmployeePhoto`), al retirar el proxy público de imagenes.
   test('declara exactamente 117 operaciones con module employees y bypass standard', ({
     assert,
   }) => {

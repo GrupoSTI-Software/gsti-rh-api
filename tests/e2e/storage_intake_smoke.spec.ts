@@ -276,8 +276,8 @@ test.group('Smoke — key propia del modulo', (group) => {
   test('la ruta determinista se respeta pero la extension refleja el contenido real', async ({
     assert,
   }) => {
-    // Los modulos con expediente componen su key con el nombre del cliente, asi
-    // que arrastraban una extension que podia mentir: un PNG que el perfil
+    // Los modulos con expediente componen su key con el nombre del cliente, así
+    // que arrastraban una extensión que podía mentir: un PNG que el perfil
     // convierte a JPEG se guardaba como `.png`.
     const keyPropia = `${CARPETA}/expediente/2026/evidencia-original.png`
     const resultado = await new UploadService().fileUpload(
