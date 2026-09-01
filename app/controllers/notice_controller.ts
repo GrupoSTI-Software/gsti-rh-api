@@ -475,9 +475,9 @@ export default class NoticeController {
       const noticeFileService = new NoticeFileService()
       const filesDeleted = request.input('filesDeleted') || []
       for (const fileDeleted of filesDeleted) {
-        // El identificador viene del cuerpo de la peticion: la consulta se
+        // El identificador viene del cuerpo de la petición: la consulta se
         // acota al aviso que se esta editando, que ya paso por el filtro de
-        // empresa. Sin ese `where`, un administrador podia borrar el archivo
+        // empresa. Sin ese `where`, un administrador podía borrar el archivo
         // de un aviso de otra empresa —y su objeto en el bucket— pasando el id.
         const noticeFile = await NoticeFile.query()
           .whereNull('notice_file_deleted_at')

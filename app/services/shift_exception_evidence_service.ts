@@ -28,13 +28,13 @@ export default class ShiftExceptionEvidenceService {
   /**
    * Consulta base acotada al tenant.
    *
-   * `ShiftExceptionEvidence` NO compone `withBusinessUnitScope`, asi que sus
+   * `ShiftExceptionEvidence` NO compone `withBusinessUnitScope`, así que sus
    * queries no heredan el filtro del `TenantContext` por si solas: consultarlo
-   * directo devolvia evidencias de cualquier empresa con solo cambiar el ID.
+   * directo devolvía evidencias de cualquier empresa con solo cambiar el ID.
    * El scope se hereda de `ShiftException`, que si es tenant-scoped, filtrando
    * por la relacion.
    *
-   * Toda lectura de este modelo debe partir de aqui.
+   * Toda lectura de este modelo debe partir de aquí.
    */
   private scopedQuery() {
     return ShiftExceptionEvidence.query()

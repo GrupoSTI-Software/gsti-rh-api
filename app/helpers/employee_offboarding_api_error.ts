@@ -8,7 +8,7 @@ import {
 import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
 
 /**
- * Forma única del error hacia el cliente en el módulo de salidas de personal
+ * Forma única del error hacía el cliente en el módulo de salidas de personal
  * (spec §6): el BO ramifica por `key`; `code` queda para trazabilidad.
  */
 export type ResolvedEmployeeOffboardingApiError = {
@@ -17,9 +17,9 @@ export type ResolvedEmployeeOffboardingApiError = {
   detail: string
   key: string
   /**
-   * Codigo estable del error. Admite tambien el catalogo `FILE.*` porque el
-   * rechazo de un archivo conserva su propio codigo: al cliente le sirve para
-   * distinguir "extension bloqueada" de "contenido no corresponde".
+   * Código estable del error. Admite también el catalogo `FILE.*` porque el
+   * rechazo de un archivo conserva su propio código: al cliente le sirve para
+   * distinguir "extensión bloqueada" de "contenido no corresponde".
    */
   code: EmployeeOffboardingErrorCode | FileIntakeErrorCode
   /** Carga adicional opcional (`rejectedFiles[]` del envío de evidencias, D-3). */

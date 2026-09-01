@@ -101,7 +101,7 @@ export default class ShiftExceptionEvidenceController {
   async index({ response }: HttpContext) {
     try {
       // Pasa por el servicio para heredar el filtro de tenant: consultar el
-      // modelo directo devolvia las evidencias de todas las empresas.
+      // modelo directo devolvía las evidencias de todas las empresas.
       const shiftExceptionEvidences = await new ShiftExceptionEvidenceService().index()
       return response.status(200).json({
         type: 'success',
@@ -437,7 +437,7 @@ export default class ShiftExceptionEvidenceController {
       }
       // Pasa por el servicio para heredar el filtro de empresa. Sin el, el
       // identificador de la ruta alcanzaba la evidencia de cualquier empresa: en
-      // el borrado eso ademas arrastra su objeto del bucket.
+      // el borrado eso además arrastra su objeto del bucket.
       const currentShiftExceptionEvidence = await new ShiftExceptionEvidenceService().show(
         Number(shiftExceptionEvidenceId)
       )
@@ -634,7 +634,7 @@ export default class ShiftExceptionEvidenceController {
       }
       // Pasa por el servicio para heredar el filtro de empresa. Sin el, el
       // identificador de la ruta alcanzaba la evidencia de cualquier empresa: en
-      // el borrado eso ademas arrastra su objeto del bucket.
+      // el borrado eso además arrastra su objeto del bucket.
       const currentShiftExceptionEvidence = await new ShiftExceptionEvidenceService().show(
         Number(shiftExceptionEvidenceId)
       )

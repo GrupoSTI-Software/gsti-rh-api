@@ -341,7 +341,7 @@ export default class EmployeeLactationPeriodEvidencesController {
     fallback: number
   ) {
     // El rechazo de un archivo es 422 con triplete: sin esta rama el resolver
-    // del modulo lo degrada a un 500 generico y el usuario nunca sabe que su
+    // del modulo lo degrada a un 500 genérico y el usuario nunca sabe que su
     // archivo fue rechazado ni por que.
     if (isFileIntakeError(error)) {
       return respondFileIntakeError(response, error)

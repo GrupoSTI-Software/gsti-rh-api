@@ -419,9 +419,9 @@ export default class UploadService {
     if (!ref?.key) return null
 
     // Mismo candado que `readStoredFileBuffer`: el bucket lo decide la
-    // configuracion, nunca la cadena guardada. Antes, una referencia que
-    // empezara por http la pedia por HTTP tal cual, lo que convertia cualquier
-    // campo de base de datos en una peticion saliente del servidor con su
+    // configuración, nunca la cadena guardada. Antes, una referencia que
+    // empezara por http la pedia por HTTP tal cual, lo que convertía cualquier
+    // campo de base de datos en una petición saliente del servidor con su
     // respuesta reflejada al cliente: el mismo primitivo por el que se retiro
     // `proxy-image`.
     if (ref.bucket && this.BUCKET_NAME && ref.bucket !== this.BUCKET_NAME) {

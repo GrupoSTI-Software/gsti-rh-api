@@ -8,11 +8,11 @@ export default class SystemSettingTradeNameService {
    * Consulta acotada a las razones sociales de la empresa activa.
    *
    * Ni `SystemSettingTradeName` ni `SystemSetting` componen el mixin de
-   * empresa, asi que ninguna consulta hereda el filtro por si sola. Como el
+   * empresa, así que ninguna consulta hereda el filtro por si sola. Como el
    * `systemSettingId` llega del cliente, sin este candado bastaba con cambiarlo
-   * para leer o modificar la configuracion —y el branding— de otra empresa.
+   * para leer o modificar la configuración —y el branding— de otra empresa.
    *
-   * Se incluyen las filas con `business_unit_id` nulo: son la configuracion
+   * Se incluyen las filas con `business_unit_id` nulo: son la configuración
    * global del sistema, visible para todos.
    */
   private scopedQuery() {
@@ -37,9 +37,9 @@ export default class SystemSettingTradeNameService {
   /**
    * Resuelve el `SystemSetting` padre dentro de la empresa activa.
    *
-   * `SystemSetting` no compone el mixin de empresa, asi que consultarlo por su
+   * `SystemSetting` no compone el mixin de empresa, así que consultarlo por su
    * identificador no hereda el filtro del contexto. Devuelve `null` cuando el
-   * ajuste no pertenece a la empresa activa ni es configuracion global.
+   * ajuste no pertenece a la empresa activa ni es configuración global.
    */
   async findScopedSystemSetting(systemSettingId: number) {
     const query = SystemSetting.query()

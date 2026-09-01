@@ -249,7 +249,7 @@ export default class ValidationsController {
    *               title: Validaciones de Proveedor REPSE
    *               message: Validaci?n registrada correctamente
    *               data:
-   *                 validacion:
+   *                 validación:
    *                   proveedorRepseValidacionId: 1
    *                   proveedorRepseId: 1
    *                   businessUnitId: 1
@@ -383,7 +383,7 @@ export default class ValidationsController {
     i18n: HttpContext['i18n']
   ) {
     // El rechazo de un archivo es 422 con triplete: sin esta rama el resolver
-    // del modulo lo degrada a un 500 generico y el usuario nunca sabe que su
+    // del modulo lo degrada a un 500 genérico y el usuario nunca sabe que su
     // archivo fue rechazado ni por que.
     if (isFileIntakeError(error)) {
       return respondFileIntakeError(response, error)

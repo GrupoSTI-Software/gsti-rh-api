@@ -114,10 +114,10 @@ export default class EmployeeSuppplyAssignamentPhotoService {
     photoId: number,
     uploadService: UploadService
   ): Promise<PhotoServiceResult> {
-    // `EmployeeSupplieAssignationPhoto` no compone el mixin de empresa, asi que
+    // `EmployeeSupplieAssignationPhoto` no compone el mixin de empresa, así que
     // consultarla por su propio identificador no hereda el filtro del contexto:
     // se acota por la relacion con `EmployeeSupplie`, que si es tenant-scoped.
-    // Sin esto, el identificador que llega por la ruta permitia borrar la foto
+    // Sin esto, el identificador que llega por la ruta permitía borrar la foto
     // de otra empresa, y con ella su objeto en el bucket.
     const photo = await EmployeeSupplieAssignationPhoto.query()
       .where('employeeSupplieAssignationPhotoId', photoId)

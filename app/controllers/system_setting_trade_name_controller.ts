@@ -293,8 +293,8 @@ export default class SystemSettingTradeNameController {
       const data = await request.validateUsing(createSystemSettingTradeNameValidator)
 
       // El `systemSettingId` llega en el cuerpo: se resuelve dentro del scope de
-      // la empresa activa. Sin esto se podia dar de alta una razon social —y su
-      // branding— bajo la configuracion de otra empresa.
+      // la empresa activa. Sin esto se podía dar de alta una razón social —y su
+      // branding— bajo la configuración de otra empresa.
       const parent = await new SystemSettingTradeNameService().findScopedSystemSetting(
         data.systemSettingId
       )
@@ -534,7 +534,7 @@ export default class SystemSettingTradeNameController {
       }
 
       // Pasa por el servicio para heredar el filtro de empresa: consultar el
-      // modelo directo permitia alcanzar la razon social de otra empresa con
+      // modelo directo permitía alcanzar la razón social de otra empresa con
       // solo cambiar el identificador de la ruta.
       const current = await new SystemSettingTradeNameService().show(
         Number(systemSettingTradeNameId)
@@ -783,7 +783,7 @@ export default class SystemSettingTradeNameController {
       }
 
       // Pasa por el servicio para heredar el filtro de empresa: consultar el
-      // modelo directo permitia alcanzar la razon social de otra empresa con
+      // modelo directo permitía alcanzar la razón social de otra empresa con
       // solo cambiar el identificador de la ruta.
       const current = await new SystemSettingTradeNameService().show(
         Number(systemSettingTradeNameId)
@@ -980,7 +980,7 @@ export default class SystemSettingTradeNameController {
       }
 
       // Pasa por el servicio para heredar el filtro de empresa: consultar el
-      // modelo directo permitia alcanzar la razon social de otra empresa con
+      // modelo directo permitía alcanzar la razón social de otra empresa con
       // solo cambiar el identificador de la ruta.
       const current = await new SystemSettingTradeNameService().show(
         Number(systemSettingTradeNameId)
