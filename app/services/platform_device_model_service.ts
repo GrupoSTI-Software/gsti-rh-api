@@ -1,4 +1,3 @@
-import env from '#start/env'
 import PlatformDeviceModel, {
   type PlatformDeviceModelStatus,
 } from '#models/platform_device_model'
@@ -64,19 +63,24 @@ export default class PlatformDeviceModelService {
   }
 
   /**
-   * Resuelve la URL de la foto de referencia del modelo.
+   * Resuelve la ruta de la imagen de referencia del modelo.
    *
-   * La imagen vive en el Space como `<slug>.webp`, no en el disco del API: el
-   * servidor de estáticos esta apagado a propósito (`config/static.ts`).
-   * Mientras el archivo real del modelo no exista, el frontend debe mostrar
-   * `default.webp` para evitar imagenes rotas.
+   * Es una ruta RELATIVA que el frontend resuelve contra su propio host: las
+   * imágenes viven en los estáticos del backoffice, no en el bucket ni en este
+   * API.
    *
-   * `DEVICE_ASSETS_BASE_URL` permite apuntar al CDN del Space. Sin ella se
-   * devuelve la ruta relativa, que el frontend resuelve contra su propio host.
+   * El motivo es que no son contenido de cliente. Nadie las sube —no existe
+   * un endpoint de carga para ellas— y son idénticas para todas las empresas:
+   * es un catálogo de iconos curado con el producto. Ponerlas en el bucket
+   * obligaba a publicar su URL, y con ella el endpoint del almacenamiento, en
+   * el HTML del backoffice; servirlas por un endpoint autenticado gastaba una
+   * petición con sesión para entregar el icono de un ZKTeco.
+   *
+   * Mientras no exista el archivo del modelo, el frontend muestra
+   * `default.webp` para evitar imágenes rotas.
    */
   private resolvePhotoUrl(slug: string): string {
-    const baseUrl = env.get('DEVICE_ASSETS_BASE_URL')?.replace(/\/+$/, '')
-    return baseUrl ? `${baseUrl}/${slug}.webp` : `/devices/${slug}.webp`
+    return `/devices/${slug}.webp`
   }
 
   /** Serializa un modelo a la forma pública. */
