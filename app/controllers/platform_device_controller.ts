@@ -24,17 +24,27 @@ export default class PlatformDeviceController {
    *   get:
    *     tags:
    *       - Platform Device Inventory
-   *     summary: Contadores del parque de inventario
+   *     summary: Contadores y costo del parque de inventario
    *     description: >
-   *       Devuelve los cinco contadores globales del inventario y su desglose
-   *       por modelo del catálogo en una sola consulta agrupada. No acepta filtros
+   *       Devuelve los cinco contadores globales del inventario, el costo de
+   *       adquisición agregado del parque propio y su desglose por modelo del
+   *       catálogo, todo en una sola consulta agrupada. No acepta filtros
    *       (RN8 del spec 1874: los contadores responden "cuánto hay", no
    *       "cuánto se está viendo"). Incluye modelos con cero aparatos.
+   *
+   *       `costoAdquisicionCents` suma en centavos únicamente las unidades de
+   *       origen `propia` que no tienen baja lógica. Las `del_cliente` no llevan
+   *       costo por R6 del inventario y quedan fuera; las `retirada` sí suman,
+   *       porque se adquirieron igual.
+   *
+   *       `unidadesPropiasSinCosto` cuenta las unidades propias a las que nadie
+   *       les capturó el costo. Mientras sea mayor que cero, el total NO es el
+   *       valor completo del parque y quien lo consuma debe advertirlo.
    *     security:
    *       - bearerAuth: []
    *     responses:
    *       '200':
-   *         description: Contadores del parque
+   *         description: Contadores y costo del parque
    *         content:
    *           application/json:
    *             example:
@@ -45,6 +55,8 @@ export default class PlatformDeviceController {
    *                 asignadas: 24
    *                 retiradas: 2
    *                 delCliente: 4
+   *                 costoAdquisicionCents: 18430000
+   *                 unidadesPropiasSinCosto: 3
    *                 porModelo:
    *                   - modelId: 1
    *                     modelName: "ZKTeco SpeedFace V5L"
@@ -54,6 +66,8 @@ export default class PlatformDeviceController {
    *                     asignadas: 20
    *                     retiradas: 1
    *                     delCliente: 1
+   *                     costoAdquisicionCents: 14550000
+   *                     unidadesPropiasSinCosto: 2
    *       '401':
    *         description: Sin autenticar
    *       '403':
