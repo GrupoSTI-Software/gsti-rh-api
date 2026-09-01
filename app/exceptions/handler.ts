@@ -27,6 +27,7 @@ import {
   isAdditionalBusinessUnitRateLimitError,
   respondAdditionalBusinessUnitRateLimit,
 } from '../helpers/business_unit_request_errors.js'
+import { isFileIntakeError, respondFileIntakeError } from '../helpers/file_intake_api_error.js'
 
 export default class HttpExceptionHandler extends ExceptionHandler {
   /**
@@ -40,6 +41,21 @@ export default class HttpExceptionHandler extends ExceptionHandler {
    * response to the client
    */
   async handle(error: unknown, ctx: HttpContext) {
+    /**
+     * Rechazo de la entrada de archivos. Sin esta rama el error llega al
+     * manejador por defecto: responde 500 en vez del 422 que es, y fuera de
+     * produccion (`debug = !app.inProduction`) vuelca la pila y rutas
+     * absolutas del servidor en la respuesta.
+     *
+     * Es la red que recogen los `throw` de los puntos de subida; el que un
+     * modulo prefiera traducir el rechazo a su propio contrato (como hace el
+     * buzon de quejas) sigue siendo valido y no pasa por aquí.
+     */
+    if (isFileIntakeError(error)) {
+      respondFileIntakeError(ctx.response, error)
+      return
+    }
+
     if (
       error &&
       typeof error === 'object' &&

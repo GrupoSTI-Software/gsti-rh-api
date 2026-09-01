@@ -1,57 +1,11 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import Gallery from '../models/gallery.js'
 import { createGalleryValidator, updateGalleryValidator } from '../validators/gallery.js'
 import { formatResponse } from '../helpers/responseFormatter.js'
-import AWS, { S3 } from 'aws-sdk'
-import fs from 'node:fs'
-import Env from '#start/env'
+import UploadService from '#services/upload_service'
 
 export default class GalleriesController {
-  private s3Config: AWS.S3.ClientConfiguration = {
-    accessKeyId: Env.get('AWS_ACCESS_KEY_ID'),
-    secretAccessKey: Env.get('AWS_SECRET_ACCESS_KEY'),
-    endpoint: Env.get('AWS_ENDPOINT'),
-    s3ForcePathStyle: true,
-  }
-  private BUCKET_NAME = Env.get('AWS_BUCKET')
-  private APP_NAME = `${Env.get('AWS_ROOT_PATH')}/`
-
-  constructor() {
-    AWS.config.update(this.s3Config)
-  }
-
-  async fileUpload(
-    file: any,
-    folderName = '',
-    fileName = '',
-    permission = 'public-read'
-  ): Promise<string> {
-    try {
-      if (!file) {
-        return 'file_not_found'
-      }
-
-      const s3 = new AWS.S3()
-      const fileContent = fs.createReadStream(file.tmpPath)
-
-      const timestamp = new Date().getTime()
-      const randomValue = Math.random().toFixed(10).toString().replace('.', '')
-      const fileNameGenerated = fileName || `T${timestamp}R${randomValue}.${file.extname}`
-
-      const uploadParams = {
-        Bucket: this.BUCKET_NAME,
-        Key: `${this.APP_NAME}${folderName || 'files'}/${fileNameGenerated}`,
-        Body: fileContent,
-        ACL: permission,
-        ContentType: `${file.type}/${file.subtype}`,
-      } as S3.Types.PutObjectRequest
-
-      const response = await s3.upload(uploadParams).promise()
-      return response.Location
-    } catch (err) {
-      return 'S3Producer.fileUpload'
-    }
-  }
   /**
    * @swagger
    * /galleries:
@@ -231,7 +185,7 @@ export default class GalleriesController {
 
       const imageFile = request.file('galleryImage')
       if (imageFile) {
-        const imageUrl = await this.fileUpload(imageFile)
+        const imageUrl = await new UploadService().fileUpload(imageFile, 'profile-photo', 'galleries')
         if (imageUrl !== 'file_not_found' && imageUrl !== 'S3Producer.fileUpload') {
           data.galeryPath = imageUrl
           console.error(imageUrl)
@@ -249,6 +203,10 @@ export default class GalleriesController {
           formatResponse('success', 'Successfully created', 'Resource created', gallery.toJSON())
         )
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       return response
         .status(400)
         .json(formatResponse('error', 'Validation error', 'Invalid input, validation error', error))
@@ -337,7 +295,7 @@ export default class GalleriesController {
 
       const imageFile = request.file('galleryImage')
       if (imageFile) {
-        const imageUrl = await this.fileUpload(imageFile, 'galleries')
+        const imageUrl = await new UploadService().fileUpload(imageFile, 'profile-photo', 'galleries')
         if (imageUrl !== 'file_not_found' && imageUrl !== 'S3Producer.fileUpload') {
           data.galeryPath = imageUrl
         } else {
@@ -356,6 +314,10 @@ export default class GalleriesController {
           formatResponse('success', 'Successfully updated', 'Resource updated', gallery.toJSON())
         )
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       return response
         .status(400)
         .json(formatResponse('error', 'Validation error', 'Invalid input, validation error', error))

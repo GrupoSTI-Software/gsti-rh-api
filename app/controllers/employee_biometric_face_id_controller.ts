@@ -1,4 +1,5 @@
 import Employee from '#models/employee'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import EmployeeBiometricFaceIdService from '#services/employee_biometric_face_id_service'
 import { HttpContext } from '@adonisjs/core/http'
 import { inject } from '@adonisjs/core'
@@ -171,7 +172,7 @@ export default class EmployeeBiometricFaceIdController {
       // Validar que se subió un archivo
       const validationOptions = {
         types: ['image'],
-        size: '2mb',
+        size: '5mb',
       }
       const photo = request.file('photo', validationOptions)
 
@@ -186,10 +187,9 @@ export default class EmployeeBiometricFaceIdController {
       }
 
       // Generar nombre único para el archivo
-      const fileName = `${new Date().getTime()}_${photo.clientName || 'biometric_face'}`
 
       // Subir la foto al S3
-      const photoUrl = await uploadService.fileUpload(photo, 'employee-biometric-faces', fileName, 'private')
+      const photoUrl = await uploadService.fileUpload(photo, 'profile-photo', 'employee-biometric-faces')
       if (!photoUrl || photoUrl === 'file_not_found' || photoUrl === 'S3Producer.fileUpload') {
         response.status(500)
         return {
@@ -232,6 +232,10 @@ export default class EmployeeBiometricFaceIdController {
         }
       }
     } catch (error: any) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       response.status(500)
       return {
@@ -398,7 +402,7 @@ export default class EmployeeBiometricFaceIdController {
       // Validar que se subió un archivo
       const validationOptions = {
         types: ['image'],
-        size: '2mb',
+        size: '5mb',
       }
       const photo = request.file('photo', validationOptions)
 
@@ -413,10 +417,9 @@ export default class EmployeeBiometricFaceIdController {
       }
 
       // Generar nombre único para el archivo
-      const fileName = `${new Date().getTime()}_${photo.clientName || 'biometric_face'}`
 
       // Subir la nueva foto al S3
-      const photoUrl = await uploadService.fileUpload(photo, 'employee-biometric-faces', fileName, 'private')
+      const photoUrl = await uploadService.fileUpload(photo, 'profile-photo', 'employee-biometric-faces')
       if (!photoUrl || photoUrl === 'file_not_found' || photoUrl === 'S3Producer.fileUpload') {
         response.status(500)
         return {
@@ -439,6 +442,10 @@ export default class EmployeeBiometricFaceIdController {
         data: result.data,
       }
     } catch (error: any) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       response.status(500)
       return {

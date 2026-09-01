@@ -50,22 +50,15 @@ import './routes/role_routes.js'
 import './routes/role_preset_routes.js'
 import './routes/exception_type_routes.js'
 import './routes/vacations_routes.js'
-import './routes/aircraft_class_routes.js'
 import './routes/proceeding_file_routes.js'
 import './routes/employee_proceeding_file_routes.js'
 import './routes/proceeding_file_type_routes.js'
-import './routes/aircraft_property_routes.js'
-import './routes/pilot_routes.js'
-import './routes/pilot_proceeding_file_routes.js'
-import './routes/flight_attendant_routes.js'
-import './routes/flight_attendant_proceeding_file_routes.js'
 import './routes/airport.js'
 import './routes/customer_routes.js'
 import './routes/customer_proceeding_file_routes.js'
 import './routes/system_setting_routes.js'
 import './routes/system_settings_proceeding_files_routes.js'
 import './routes/system_settings_employees.js'
-import './routes/aircraft_routes.js'
 import './routes/system_module_routes.js'
 import './routes/gallery_routes.js'
 import './routes/business_unit_routes.js'
@@ -73,7 +66,6 @@ import './routes/branch_offices.js'
 import './routes/nom035_routes.js'
 import './routes/nom037_routes.js'
 import './routes/branch_office_shift_quota_routes.js'
-import './routes/aircraft_proceeding_file_routes.js'
 import './routes/proceeding_file_status_routes.js'
 import './routes/tolerance_routes.js'
 import './routes/system_settings_notification_emails_routes.js'
@@ -83,7 +75,6 @@ import './routes/employee_vacation_archive_routes.js'
 import './routes/exception_request_routes.js'
 import './routes/log_routes.js'
 import './routes/employee_type_routes.js'
-import './routes/aircraft_operator_routes.js'
 import './routes/work_disability_type_routes.js'
 import './routes/traumatic_event_type_routes.js'
 import './routes/traumatic_event_report_routes.js'
@@ -95,15 +86,44 @@ import './routes/insurance_coverage_type_routes.js'
 import './routes/work_disability_routes.js'
 import './routes/work_disability_period_routes.js'
 import './routes/work_disability_note_routes.js'
-import './routes/reservations_routes.js'
-import './routes/reservation_leg_routes.js'
-import './routes/reservation_note_routes.js'
-import './routes/aircraft_maintenance_status_routes.js'
-import './routes/maintenance_urgency_level_routes.js'
-import './routes/maintenance_type_routes.js'
-import './routes/aircraft_maintenance_routes.js'
-import './routes/maintenance_expense_routes.js'
-import './routes/maintenance_expense_category_routes.js'
+
+/*
+ * Rutas del dominio de aviacion (aeronaves, mantenimiento, pilotos,
+ * sobrecargos y reservas) DESREGISTRADAS a la espera de la baja definitiva
+ * del modulo.
+ *
+ * Motivo: concentraban 17 puntos de subida de archivos públicos, sin tope de
+ * tamaño y sin validación de extensión. Al ir el modulo de salida, se retira
+ * la superficie expuesta en lugar de invertir en endurecerla.
+ *
+ * Los archivos siguen en `start/routes/` y sus controladores en `app/`: al
+ * dar de baja el modulo hay que eliminar también esos archivos, sus modelos,
+ * servicios y validators. Lista desregistrada:
+ *   - aircraft_routes
+ *   - aircraft_class_routes
+ *   - aircraft_property_routes
+ *   - aircraft_operator_routes
+ *   - aircraft_proceeding_file_routes
+ *   - aircraft_maintenance_routes
+ *   - aircraft_maintenance_status_routes
+ *   - maintenance_expense_routes
+ *   - maintenance_expense_category_routes
+ *   - maintenance_type_routes
+ *   - maintenance_urgency_level_routes
+ *   - pilot_routes
+ *   - pilot_proceeding_file_routes
+ *   - flight_attendant_routes
+ *   - flight_attendant_proceeding_file_routes
+ *   - reservations_routes
+ *   - reservation_leg_routes
+ *   - reservation_note_routes
+ *
+ * NO incluye `customer_routes` ni `customer_proceeding_file_routes`: la tabla
+ * `customers` la consulta `employee_service.ts` para validar `person_id`
+ * duplicado, así que su baja requiere analisis propio.
+ */
+
+import './routes/employee_photo_routes.js'
 import './routes/employee_children_routes.js'
 import './routes/employee_spouse_routes.js'
 import './routes/address_type_routes.js'

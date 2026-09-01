@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 import { cuid } from '@adonisjs/core/helpers'
 import type { MultipartFile } from '@adonisjs/core/bodyparser'
+import type { FileIntakeProfileName } from '#constants/file_intake'
+import type { FileUploadOptions } from '#services/upload_service'
 import type Employee from '#models/employee'
 import type UserConsent from '#models/user_consent'
 import type User from '#models/user'
@@ -27,8 +29,15 @@ const DOCUMENT_TYPE = 'biometric_consent'
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 
 /** PDF/JPG/PNG por extensión y MIME — doble validación, nunca solo una (S4). */
-const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png'] as const
-const ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'] as const
+// El perfil `evidence-document` del intake es la fuente de verdad; esta lista
+// es un pre-filtro barato y debe mantenerse alineada con el.
+const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'] as const
+const ALLOWED_MIME_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+] as const
 
 /** Carpeta lógica en S3; el escaneo se sube SIEMPRE `private` (S3). */
 const S3_FOLDER = 'consent-evidences'
@@ -44,7 +53,12 @@ const SIGNED_URL_EXPIRES_SECONDS = 5 * 60
  * fakear porque el contrato es angosto y estable).
  */
 export interface PhysicalConsentFileStorage {
-  fileUpload(file: MultipartFile, folderName: string, fileName: string, permission: string): Promise<string>
+  fileUpload(
+    file: MultipartFile,
+    profileName: FileIntakeProfileName,
+    folderName: string,
+    options?: FileUploadOptions
+  ): Promise<string>
   getDownloadLink(filePath: string, expireSeconds?: number): Promise<unknown>
 }
 
@@ -348,7 +362,7 @@ export default class PhysicalConsentService {
     sanitizedName: string
   ): Promise<string> {
     const fileName = `${S3_FOLDER}/${employeeId}/${cuid()}-${sanitizedName}`
-    const result = await this.fileStorage.fileUpload(file, '', fileName, 'private')
+    const result = await this.fileStorage.fileUpload(file, 'evidence-document', '', { fileName })
 
     if (!result || result === 'file_not_found' || result === 'S3Producer.fileUpload') {
       throw new ConsentError(

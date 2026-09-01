@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import Pilot from '#models/pilot'
 import PilotService from '#services/pilot_service'
 import EmployeeService from '#services/employee_service'
@@ -307,8 +308,7 @@ export default class PilotController {
           }
         }
         const uploadService = new UploadService()
-        const fileName = `${new Date().getTime()}_${photo.clientName}`
-        const fileUrl = await uploadService.fileUpload(photo, 'pilots', fileName)
+        const fileUrl = await uploadService.fileUpload(photo, 'profile-photo', 'pilots')
         pilot.pilotPhoto = fileUrl
       }
       const newPilot = await pilotService.create(pilot)
@@ -320,6 +320,10 @@ export default class PilotController {
         data: { pilot: newPilot },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -503,8 +507,7 @@ export default class PilotController {
           const fileKey = `${Env.get('AWS_ROOT_PATH')}/pilots/${fileNameWithExt}`
           await uploadService.deleteFile(fileKey)
         }
-        const fileName = `${new Date().getTime()}_${photo.clientName}`
-        const fileUrl = await uploadService.fileUpload(photo, 'pilots', fileName)
+        const fileUrl = await uploadService.fileUpload(photo, 'profile-photo', 'pilots')
         pilot.pilotPhoto = fileUrl
       }
       const updatePilot = await pilotService.update(currentPilot, pilot)
@@ -516,6 +519,10 @@ export default class PilotController {
         data: { pilot: updatePilot },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
