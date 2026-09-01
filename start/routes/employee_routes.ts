@@ -212,7 +212,6 @@ router
   .use(middleware.sensitiveMaskEcho())
 
 // Ruta pública para servir imágenes de forma segura (sin autenticación)
-router.get('/api/proxy-image', '#controllers/employee_controller.proxyImage')
 
 // router.get('/odoo/employees', '#controllers/employee_controller.getOdooEmployees')
 // router.get('/odoo/employees/groups', '#controllers/employee_controller.getOdooGroups')

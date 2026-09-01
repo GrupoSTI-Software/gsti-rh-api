@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError, respondFileIntakeError } from '#helpers/file_intake_api_error'
 import RoleService from '#services/role_service'
 import EmployeeLactationPeriodEvidenceService from '#services/employee_lactation_period_evidence_service'
 import { employeeLactationPeriodEvidenceUploadValidator } from '#validators/employee_lactation_period_evidence'
@@ -339,6 +340,13 @@ export default class EmployeeLactationPeriodEvidencesController {
     response: HttpContext['response'],
     fallback: number
   ) {
+    // El rechazo de un archivo es 422 con triplete: sin esta rama el resolver
+    // del modulo lo degrada a un 500 genérico y el usuario nunca sabe que su
+    // archivo fue rechazado ni por que.
+    if (isFileIntakeError(error)) {
+      return respondFileIntakeError(response, error)
+    }
+
     const resolved = resolveEmployeeLactationPeriodEvidenceApiError(error, fallback)
     if (resolved.key) {
       const titleByCode: Partial<Record<string, string>> = {

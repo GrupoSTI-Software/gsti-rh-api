@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import Zone from '#models/zone'
 import ZoneService from '#services/zone_service'
 import { createZoneValidator, updateZoneValidator } from '#validators/zone'
@@ -496,8 +497,7 @@ export default class ZoneController {
     }
 
     try {
-      const fileName = `${new Date().getTime()}_${thumbnail.clientName}`
-      const thumbnailUrl = await uploadService.fileUpload(thumbnail, 'zones', fileName)
+      const thumbnailUrl = await uploadService.fileUpload(thumbnail, 'profile-photo', 'zones')
 
       if (currentZone.zoneThumbnail) {
         await uploadService.deleteFile(currentZone.zoneThumbnail)
@@ -512,6 +512,10 @@ export default class ZoneController {
         data: { url: thumbnailUrl, zone },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       response.status(500)
       return {
         type: 'error',

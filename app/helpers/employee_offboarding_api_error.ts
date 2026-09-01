@@ -1,4 +1,6 @@
 import type { I18n } from '@adonisjs/i18n'
+import { isFileIntakeError, resolveFileIntakeApiError } from './file_intake_api_error.js'
+import type { FileIntakeErrorCode } from '../constants/file_intake_error_codes.js'
 import {
   EMPLOYEE_OFFBOARDING_ERROR_CODES,
   type EmployeeOffboardingErrorCode,
@@ -6,7 +8,7 @@ import {
 import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
 
 /**
- * Forma única del error hacia el cliente en el módulo de salidas de personal
+ * Forma única del error hacía el cliente en el módulo de salidas de personal
  * (spec §6): el BO ramifica por `key`; `code` queda para trazabilidad.
  */
 export type ResolvedEmployeeOffboardingApiError = {
@@ -14,7 +16,12 @@ export type ResolvedEmployeeOffboardingApiError = {
   title: string
   detail: string
   key: string
-  code: EmployeeOffboardingErrorCode
+  /**
+   * Código estable del error. Admite también el catalogo `FILE.*` porque el
+   * rechazo de un archivo conserva su propio código: al cliente le sirve para
+   * distinguir "extensión bloqueada" de "contenido no corresponde".
+   */
+  code: EmployeeOffboardingErrorCode | FileIntakeErrorCode
   /** Carga adicional opcional (`rejectedFiles[]` del envío de evidencias, D-3). */
   data?: Record<string, unknown>
 }
@@ -42,6 +49,20 @@ export function resolveEmployeeOffboardingApiError(
   i18n: I18n,
   fallbacks: EmployeeOffboardingErrorFallbacks = {}
 ): ResolvedEmployeeOffboardingApiError {
+  // Rechazo de un archivo: se devuelve tal cual, con su 422 y su triplete. Sin
+  // esta rama el resolver lo trata como error no clasificado y responde 500,
+  // ocultando al usuario que su archivo fue rechazado y por que.
+  if (isFileIntakeError(error)) {
+    const rechazo = resolveFileIntakeApiError(error)
+    return {
+      status: rechazo.status,
+      title: rechazo.title,
+      detail: rechazo.detail,
+      key: rechazo.key,
+      code: rechazo.code as FileIntakeErrorCode,
+    }
+  }
+
   const err = error as {
     code?: string
     message?: string

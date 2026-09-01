@@ -8,12 +8,15 @@ import { EMPLOYEE_VACATION_ARCHIVE_ERROR_CODES } from '../constants/employee_vac
 /** Tamaño máximo de archivo: 5MB */
 export const EMPLOYEE_VACATION_ARCHIVE_MAX_FILE_SIZE = 5 * 1024 * 1024
 
-/** Extensiones permitidas: imágenes y PDF */
+/**
+ * Extensiones permitidas: imágenes y PDF. Sin GIF por decisión de producto.
+ * El perfil `employee-record-document` del intake es la fuente de verdad; esta
+ * lista es un pre-filtro barato y debe mantenerse alineada con él.
+ */
 export const EMPLOYEE_VACATION_ARCHIVE_ALLOWED_EXTENSIONS = [
   'jpg',
   'jpeg',
   'png',
-  'gif',
   'webp',
   'pdf',
 ]

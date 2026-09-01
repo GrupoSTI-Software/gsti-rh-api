@@ -3,6 +3,13 @@ import { I18n } from '@adonisjs/i18n'
 import { BusinessUnitInterface } from '../interfaces/business_unit_interface.js'
 import { ResponseDataInterface } from '../interfaces/response_data_interface.js'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import { randomStringFromAlphabet } from '../helpers/csprng_string.js'
+import {
+  BUSINESS_UNIT_SLUG_ALPHABET,
+  BUSINESS_UNIT_SLUG_PREFIX,
+  BUSINESS_UNIT_SLUG_RANDOM_LENGTH,
+  BUSINESS_UNIT_SLUG_UNIQUE_INDEX,
+} from '../constants/business_unit.js'
 
 export default class BusinessUnitService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -11,31 +18,45 @@ export default class BusinessUnitService {
     this.t = i18n.formatMessage.bind(i18n)
   }
 
-  private buildSlugBase(name: string): string {
+  /**
+   * Genera un slug opaco para una empresa nueva (USRH1787932877000).
+   *
+   * Formato: `bu-` + 12 caracteres de `abcdefghjkmnpqrstuvwxyz23456789`.
+   * - Sin efectos secundarios: no lee ni escribe en base de datos.
+   * - CSPRNG con muestreo por rechazo vía `randomStringFromAlphabet`.
+   * - La unicidad la garantiza el índice `business_units_slug_active_unique`;
+   *   este método solo produce el candidato por intento.
+   * - El nombre de la empresa no participa: dos empresas con el mismo nombre
+   *   reciben tokens distintos, y una empresa borrada no puede ceder su slug.
+   */
+  generateOpaqueSlug(): string {
     return (
-      name
-        .toLowerCase()
-        .trim()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '')
-        .replace(/[^a-z0-9\s]/g, '')
-        .trim()
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-') || 'empresa'
+      BUSINESS_UNIT_SLUG_PREFIX +
+      randomStringFromAlphabet(BUSINESS_UNIT_SLUG_ALPHABET, BUSINESS_UNIT_SLUG_RANDOM_LENGTH)
     )
   }
 
-  async resolveUniqueSlug(name: string): Promise<string> {
-    const base = this.buildSlugBase(name)
-    let slug = base
-    let counter = 1
-    let exists = await BusinessUnit.query().where('business_unit_slug', slug).first()
-    while (exists) {
-      slug = `${base}-${counter}`
-      counter++
-      exists = await BusinessUnit.query().where('business_unit_slug', slug).first()
+  /**
+   * Comprueba si un error es un `ER_DUP_ENTRY` del índice de unicidad del
+   * slug (`business_units_slug_active_unique`) y solo de ese índice.
+   *
+   * La discriminación es por nombre de índice, no por código de error a
+   * secas: un `ER_DUP_ENTRY` de otro índice (p. ej. el de emails únicos)
+   * no debe reintentarse y no debe confundirse con una colisión de slug.
+   *
+   * Revisa `error.code` y `error.original.code` porque Lucid puede envolver
+   * el error del driver MySQL en un objeto propio.
+   */
+  isSlugDuplicateError(error: unknown): boolean {
+    if (error === null || error === undefined || typeof error !== 'object') return false
+    const err = error as {
+      code?: string
+      sqlMessage?: string
+      original?: { code?: string; sqlMessage?: string }
     }
-    return slug
+    const code = err.code ?? err.original?.code
+    const sqlMessage = err.sqlMessage ?? err.original?.sqlMessage ?? ''
+    return code === 'ER_DUP_ENTRY' && sqlMessage.includes(BUSINESS_UNIT_SLUG_UNIQUE_INDEX)
   }
 
   /**
