@@ -538,7 +538,7 @@ export default class SystemSettingController {
       }
       const systemSettingLogo = request.file('systemSettingLogo', validationOptions)
       if (systemSettingLogo) {
-        const allowedExtensions = ['svg', 'png', 'webp']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(systemSettingLogo.extname ? systemSettingLogo.extname : '')
         ) {
@@ -557,7 +557,7 @@ export default class SystemSettingController {
       }
       const systemSettingBanner = request.file('systemSettingBanner', validationOptions)
       if (systemSettingBanner) {
-        const allowedExtensions = ['svg', 'png', 'webp']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(
             systemSettingBanner.extname ? systemSettingBanner.extname : ''
@@ -578,7 +578,7 @@ export default class SystemSettingController {
       }
       const systemSettingFavicon = request.file('systemSettingFavicon', validationOptions)
       if (systemSettingFavicon) {
-        const allowedExtensions = ['svg', 'png', 'webp']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(
             systemSettingFavicon.extname ? systemSettingFavicon.extname : ''
@@ -941,7 +941,7 @@ export default class SystemSettingController {
       const systemSettingLogo = request.file('systemSettingLogo', validationOptions)
       systemSetting.systemSettingLogo = currentSystemSetting.systemSettingLogo
       if (systemSettingLogo) {
-        const allowedExtensions = ['svg', 'png', 'webp']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(systemSettingLogo.extname ? systemSettingLogo.extname : '')
         ) {
@@ -965,7 +965,7 @@ export default class SystemSettingController {
       }
       const systemSettingBanner = request.file('systemSettingBanner', validationOptions)
       if (systemSettingBanner) {
-        const allowedExtensions = ['svg', 'png', 'webp']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(
             systemSettingBanner.extname ? systemSettingBanner.extname : ''
@@ -992,7 +992,7 @@ export default class SystemSettingController {
       const systemSettingFavicon = request.file('systemSettingFavicon', validationOptions)
       systemSetting.systemSettingFavicon = currentSystemSetting.systemSettingFavicon
       if (systemSettingFavicon) {
-        const allowedExtensions = ['svg', 'png', 'webp']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(
             systemSettingFavicon.extname ? systemSettingFavicon.extname : ''

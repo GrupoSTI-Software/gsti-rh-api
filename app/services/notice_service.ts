@@ -1,4 +1,5 @@
 import Notice from '#models/notice'
+import { resolvePublicAssetUrl } from '#helpers/public_asset_url'
 import NoticeRecipient from '#models/notice_recipient'
 import Employee from '#models/employee'
 import { I18n } from '@adonisjs/i18n'
@@ -543,6 +544,11 @@ export default class NoticeService {
             .htmlView('emails/notice_mail', {
               noticeSubject: notice.noticeSubject,
               noticeDescription: notice.noticeDescription,
+              // Solo se pinta la imagen del aviso si es publicamente
+              // alcanzable; si es un objeto privado, la plantilla la omite en
+              // vez de mostrar un recuadro roto. El archivo sigue viajando
+              // adjunto al correo.
+              noticeImageUrl: resolvePublicAssetUrl(notice.noticeDescription),
               tradeName,
               backgroundImageLogo,
               noticeType: notice.noticeType,

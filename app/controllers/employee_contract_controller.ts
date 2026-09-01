@@ -232,7 +232,7 @@ export default class EmployeeContractController {
         }
       }
       if (employeeContractFile) {
-        const allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'doc', 'docx']
+        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
         const fileExtension = employeeContractFile.extname
           ? employeeContractFile.extname.toLowerCase()
           : ''
@@ -526,7 +526,7 @@ export default class EmployeeContractController {
         }
       }
       if (employeeContractFile) {
-        const allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'doc', 'docx']
+        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
         const fileExtension = employeeContractFile.extname
           ? employeeContractFile.extname.toLowerCase()
           : ''

@@ -193,7 +193,7 @@ export default class WorkDisabilityPeriodController {
       }
       const workDisabilityPeriodFile = request.file('workDisabilityPeriodFile', validationOptions)
       if (workDisabilityPeriodFile) {
-        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp']
+        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
         if (!allowedExtensions.includes(workDisabilityPeriodFile.extname || '')) {
           response.status(400)
           return {
@@ -462,7 +462,7 @@ export default class WorkDisabilityPeriodController {
       }
       const workDisabilityPeriodFile = request.file('workDisabilityPeriodFile', validationOptions)
       if (workDisabilityPeriodFile) {
-        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp']
+        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
         if (!allowedExtensions.includes(workDisabilityPeriodFile.extname || '')) {
           response.status(400)
           return {

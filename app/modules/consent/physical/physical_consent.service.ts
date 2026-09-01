@@ -29,8 +29,15 @@ const DOCUMENT_TYPE = 'biometric_consent'
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 
 /** PDF/JPG/PNG por extensión y MIME — doble validación, nunca solo una (S4). */
-const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png'] as const
-const ALLOWED_MIME_TYPES = ['application/pdf', 'image/jpeg', 'image/png'] as const
+// El perfil `evidence-document` del intake es la fuente de verdad; esta lista
+// es un pre-filtro barato y debe mantenerse alineada con el.
+const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'] as const
+const ALLOWED_MIME_TYPES = [
+  'application/pdf',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+] as const
 
 /** Carpeta lógica en S3; el escaneo se sube SIEMPRE `private` (S3). */
 const S3_FOLDER = 'consent-evidences'

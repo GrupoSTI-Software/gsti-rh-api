@@ -172,7 +172,7 @@ export default class WorkDisabilityPeriodExpenseController {
           data: { workDisabilityPeriodExpense },
         }
       }
-      const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp']
+      const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
       if (!allowedExtensions.includes(workDisabilityPeriodExpenseFile.extname || '')) {
         response.status(400)
         return {
@@ -393,7 +393,7 @@ export default class WorkDisabilityPeriodExpenseController {
         validationOptions
       )
       if (workDisabilityPeriodExpenseFile) {
-        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp']
+        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
         if (!allowedExtensions.includes(workDisabilityPeriodExpenseFile.extname || '')) {
           response.status(400)
           return {

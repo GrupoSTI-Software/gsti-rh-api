@@ -249,15 +249,15 @@ export default class SystemSettingTradeNameController {
    *               systemSettingLogo:
    *                 type: string
    *                 format: binary
-   *                 description: Logo (svg, png o webp)
+   *                 description: Logo (jpg, png o webp; se almacena como PNG)
    *               systemSettingBanner:
    *                 type: string
    *                 format: binary
-   *                 description: Banner (svg, png o webp)
+   *                 description: Banner (jpg, png o webp; se almacena como PNG)
    *               systemSettingFavicon:
    *                 type: string
    *                 format: binary
-   *                 description: Favicon (svg, png o webp)
+   *                 description: Favicon (jpg, png o webp; se almacena como PNG)
    *               systemSettingEmployeeAplicationIcon:
    *                 type: string
    *                 format: binary
@@ -333,7 +333,7 @@ export default class SystemSettingTradeNameController {
 
       const systemSettingLogo = request.file('systemSettingLogo', validationOptions)
       if (systemSettingLogo) {
-        const allowedExtensions = ['svg', 'png', 'webp', 'jpg', 'jpeg']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (!allowedExtensions.includes(systemSettingLogo.extname ? systemSettingLogo.extname : '')) {
           response.status(400)
           return {
@@ -351,7 +351,7 @@ export default class SystemSettingTradeNameController {
 
       const systemSettingBanner = request.file('systemSettingBanner', validationOptions)
       if (systemSettingBanner) {
-        const allowedExtensions = ['svg', 'png', 'webp', 'jpg', 'jpeg']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(systemSettingBanner.extname ? systemSettingBanner.extname : '')
         ) {
@@ -371,7 +371,7 @@ export default class SystemSettingTradeNameController {
 
       const systemSettingFavicon = request.file('systemSettingFavicon', validationOptions)
       if (systemSettingFavicon) {
-        const allowedExtensions = ['svg', 'png', 'webp', 'jpg', 'jpeg']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(systemSettingFavicon.extname ? systemSettingFavicon.extname : '')
         ) {
@@ -579,7 +579,7 @@ export default class SystemSettingTradeNameController {
 
       const systemSettingLogo = request.file('systemSettingLogo', validationOptions)
       if (systemSettingLogo) {
-        const allowedExtensions = ['svg', 'png', 'webp', 'jpg', 'jpeg']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (!allowedExtensions.includes(systemSettingLogo.extname ? systemSettingLogo.extname : '')) {
           response.status(400)
           return {
@@ -602,7 +602,7 @@ export default class SystemSettingTradeNameController {
 
       const systemSettingBanner = request.file('systemSettingBanner', validationOptions)
       if (systemSettingBanner) {
-        const allowedExtensions = ['svg', 'png', 'webp', 'jpg', 'jpeg']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(systemSettingBanner.extname ? systemSettingBanner.extname : '')
         ) {
@@ -627,7 +627,7 @@ export default class SystemSettingTradeNameController {
 
       const systemSettingFavicon = request.file('systemSettingFavicon', validationOptions)
       if (systemSettingFavicon) {
-        const allowedExtensions = ['svg', 'png', 'webp', 'jpg', 'jpeg']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(systemSettingFavicon.extname ? systemSettingFavicon.extname : '')
         ) {
