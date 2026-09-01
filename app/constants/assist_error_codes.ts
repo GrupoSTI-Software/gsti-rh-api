@@ -7,6 +7,8 @@ export const ASSIST_ERROR_CODES = {
   TENANT_UNRESOLVED: 'AST.VAL.001',
   /** `employeeId` ausente o no es entero positivo. */
   VAL_EMPLOYEE_ID: 'AST.VAL.002',
+  /** El `employeeId` no resuelve a un colaborador de la empresa activa. */
+  VAL_EMPLOYEE_NOT_FOUND: 'AST.VAL.008',
   /** Colaborador dado de baja; no se registra jornada. */
   AUTHZ_EMPLOYEE_TERMINATED: 'AST.AUTHZ.001',
   /** Captura ajena sin permiso `add-assist-manual`. */

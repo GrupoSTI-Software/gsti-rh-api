@@ -20,11 +20,20 @@ import RoleService from '#services/role_service'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { ensureEmployeeAssistWrite } from '#helpers/ensure_employee_assist_write'
 import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
-import { ASSIST_ORIGIN } from '#constants/assist_origin'
 import { ASSIST_SYNC_RUN_UNSCOPED_REASON } from '#constants/assist_sync'
 import { resolveAssistApiError } from '#helpers/assist_api_error'
 import { AssistError } from '#exceptions/assist_error'
 import { TenantContext } from '#utils/tenant_context'
+import AssistIngestionService from '#modules/assist-ingestion/assist_ingestion.service'
+import {
+  mapIngestionResultToHttp,
+  resolveAssistOrigin,
+} from '#modules/assist-ingestion/assist_ingestion.controller'
+import {
+  firstValidationMessage,
+  storeAssistValidator,
+} from '#modules/assist-ingestion/validators/store_assist.validator'
+import type { StoreAssistPayload } from '#modules/assist-ingestion/validators/store_assist.validator'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -1065,9 +1074,19 @@ export default class AssistsController {
    *                 required: false
    *                 default: 'check'
    *                 enum: [check, eatin, eatout]
+   *               assistChannel:
+   *                 type: string
+   *                 description: |
+   *                   Canal por el que se declara la checada. Vocabulario cerrado.
+   *                   Ausente: se deriva de si registra la propia persona (compatibilidad).
+   *                 required: false
+   *                 enum: [app, kiosk, backoffice, device]
    *     responses:
    *       '201':
-   *         description: Resource processed successfully
+   *         description: |
+   *           Checada procesada. **Los dos desenlaces responden 201**: el desenlace
+   *           viaja en `data.outcome` (`inserted` = se registró ahora, `preexisting`
+   *           = ya estaba y no se creó un segundo registro), nunca en el estado.
    *         content:
    *           application/json:
    *             schema:
@@ -1084,7 +1103,17 @@ export default class AssistsController {
    *                   description: Message of response
    *                 data:
    *                   type: object
-   *                   description: Processed object
+   *                   properties:
+   *                     assist:
+   *                       type: object
+   *                       description: La fila, insertada o preexistente
+   *                     outcome:
+   *                       type: string
+   *                       enum: [inserted, preexisting]
+   *                     serverTime:
+   *                       type: string
+   *                       format: date-time
+   *                       description: Hora del servidor en ISO-8601 UTC
    *       '404':
    *         description: Resource not found
    *         content:
@@ -1107,8 +1136,9 @@ export default class AssistsController {
    *       '400':
    *         description: |
    *           Parámetros inválidos. Incluye `employeeId` ausente o no entero positivo
-   *           (key `identificador-de-colaborador-invalido`, code `AST.VAL.002`) o empleado
-   *           inexistente/fuera de alcance (formato legacy con `data`).
+   *           y cuerpo fuera de la lista blanca (code `AST.VAL.002`), o colaborador
+   *           inexistente o de otra empresa (key `colaborador-no-encontrado`, code
+   *           `AST.VAL.008`), indistinguibles entre sí por diseño.
    *         content:
    *           application/json:
    *             examples:
@@ -1122,14 +1152,14 @@ export default class AssistsController {
    *                   key: identificador-de-colaborador-invalido
    *                   code: AST.VAL.002
    *               employeeNotFound:
-   *                 summary: Empleado inexistente o fuera de alcance
+   *                 summary: Colaborador inexistente o de otra empresa
    *                 value:
    *                   type: warning
-   *                   title: Empleado no fue encontrado
-   *                   message: Empleado no fue encontrado con el ID ingresado
-   *                   data:
-   *                     employeeId: 999999
-   *                     assistPunchTime: null
+   *                   title: Colaborador no encontrado
+   *                   message: El colaborador indicado no existe en la empresa activa.
+   *                   detail: El colaborador indicado no existe en la empresa activa.
+   *                   key: colaborador-no-encontrado
+   *                   code: AST.VAL.008
    *       '403':
    *         description: Captura ajena sin permiso `add-assist-manual` (key `sin-autorizacion-para-registrar-asistencia-ajena`, code `AST.AUTHZ.002`).
    *         content:
@@ -1216,11 +1246,30 @@ export default class AssistsController {
         }
       }
 
-      let assistPunchTime = request.input('assistPunchTime')
-      const assistLongitude = request.input('assistLongitude')
-      const assistLatitude = request.input('assistLatitude')
-      const assistPrecision = request.input('assistPrecision')
-      const assistType = request.input('assistType')
+      // Lista blanca: el cliente sólo declara el hecho. Todo campo de pertenencia
+      // o de rastro que venga en el cuerpo se descarta aquí y lo deriva el servidor.
+      let payload: StoreAssistPayload
+      try {
+        payload = await storeAssistValidator.validate(request.all())
+      } catch (validationError) {
+        const detail =
+          firstValidationMessage(validationError) ?? t('assist_register_val_employee_id_message')
+        response.status(400)
+        return {
+          type: 'warning',
+          title: t('assist_register_val_employee_id_title'),
+          message: detail,
+          detail,
+          key: 'datos-de-checada-invalidos',
+          code: ASSIST_ERROR_CODES.VAL_EMPLOYEE_ID,
+        }
+      }
+
+      let assistPunchTime = payload.assistPunchTime
+      const assistLongitude = payload.assistLongitude ?? null
+      const assistLatitude = payload.assistLatitude ?? null
+      const assistPrecision = payload.assistPrecision ?? null
+      const assistType = payload.assistType ?? null
       const employee = await Employee.query()
         .withTrashed()
         .where('employee_id', employeeIdNumber)
@@ -1228,14 +1277,18 @@ export default class AssistsController {
         .preload('department')
         .first()
 
+      // Indistinguible de "no existe" aunque el colaborador sea de otra empresa:
+      // el mixin de `Employee` ya lo dejó fuera del alcance y no se delata.
       if (!employee) {
-        const entity = t('employee')
+        const detail = t('assist_employee_not_found_message')
         response.status(400)
         return {
           type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { employeeId: employeeIdNumber, assistPunchTime },
+          title: t('assist_employee_not_found_title'),
+          message: detail,
+          detail,
+          key: 'colaborador-no-encontrado',
+          code: ASSIST_ERROR_CODES.VAL_EMPLOYEE_NOT_FOUND,
         }
       }
 
@@ -1269,13 +1322,13 @@ export default class AssistsController {
         }
       }
 
-      const assistOrigin = isOwner ? ASSIST_ORIGIN.SELF_SERVICE : ASSIST_ORIGIN.ADMIN_CAPTURE
+      const assistOrigin = resolveAssistOrigin(payload.assistChannel, isOwner)
       const assistCreatedByUserId = isOwner ? null : (auth.user?.userId ?? null)
 
       const assist = {
         assistId: 1,
         assistEmpCode: employee.employeeCode ? employee.employeeCode : '',
-        assistTerminalSn: '',
+        assistTerminalSn: null,
         assistTerminalAlias: '',
         assistAreaAlias: '',
         assistLongitude: assistLongitude,
@@ -1294,6 +1347,8 @@ export default class AssistsController {
         deletedAt: null,
       } as Assist
 
+      // Deduplicación viva heredada: responde 400 ante un reenvío que sí ve.
+      // La retira API-2, que deja la llave natural como criterio único.
       const assistsService = new AssistsService(i18n)
       const verifyInfo = await assistsService.verifyInfo(assist)
 
@@ -1307,17 +1362,27 @@ export default class AssistsController {
         }
       }
 
-      const newAssist = await assistsService.store(assist)
+      // Motor de ingesta: la escritura no puede crear dos filas de la misma checada.
+      const ingestion = await new AssistIngestionService().ingest([
+        {
+          subject: { kind: 'employeeId', employeeId: employee.employeeId },
+          assistType,
+          punchTimeUtc: dateTimePunchTime,
+          geo: {
+            latitude: assistLatitude,
+            longitude: assistLongitude,
+            precision: assistPrecision,
+          },
+          origin: assistOrigin,
+          createdByUserId: assistCreatedByUserId,
+          terminalSn: null,
+          clientRef: null,
+        },
+      ])
 
-      if (newAssist) {
-        response.status(201)
-        return {
-          type: 'success',
-          title: t('resource'),
-          message: t('resource_was_created_successfully'),
-          data: { assist: newAssist },
-        }
-      }
+      const envelope = mapIngestionResultToHttp(ingestion.results[0], i18n)
+      response.status(envelope.status)
+      return envelope.body
     } catch (error) {
       if (error instanceof AssistError) {
         const resolved = resolveAssistApiError(error, 422, i18n)
