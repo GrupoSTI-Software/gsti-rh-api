@@ -36,8 +36,15 @@ export interface FileIntakeResult {
   readonly storesPublicly: boolean
 }
 
-/** Lo mínimo que el intake necesita de un archivo multipart. */
-type IncomingFile = Pick<MultipartFile, 'tmpPath' | 'clientName' | 'extname' | 'size'>
+/**
+ * Lo mínimo que el intake necesita de un archivo multipart.
+ *
+ * Se declara como subconjunto de `MultipartFile` en lugar de pedir el tipo
+ * completo para que un módulo pueda construirlo desde su propia forma (el
+ * comprobante de pago, por ejemplo) sin fabricar un `MultipartFile` entero, y
+ * sin que nadie tenga que recurrir a `any` o a un cast opaco.
+ */
+export type IncomingFile = Pick<MultipartFile, 'tmpPath' | 'clientName' | 'extname' | 'size'>
 
 const TITLE = 'Archivo no aceptado'
 
@@ -251,9 +258,11 @@ export default class FileIntakeService {
     mimeType: FileIntakeMime
   ): Promise<{ buffer: Buffer; mimeType: FileIntakeMime }> {
     try {
-      const pdfDoc = await PDFDocument.load(new Uint8Array(inputBuffer), {
-        ignoreEncryption: true,
-      })
+      // Un PDF cifrado se rechaza en lugar de aceptarse: `ignoreEncryption`
+      // permitía cargarlo, pero al volver a guardarlo se perdía el cifrado y el
+      // archivo quedaba ilegible en el bucket. Es preferible avisar al usuario
+      // de que su PDF está protegido que guardarle un documento roto.
+      const pdfDoc = await PDFDocument.load(new Uint8Array(inputBuffer))
 
       pdfDoc.setTitle('')
       pdfDoc.setAuthor('')

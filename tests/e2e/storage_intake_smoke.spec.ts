@@ -43,7 +43,7 @@ const ROOT = env.get('AWS_ROOT_PATH')
 const CARPETA = 'smoke-intake'
 const HABILITADO = process.env.RUN_STORAGE_SMOKE === '1'
 
-async function archivo(nombre: string, contenido: Buffer) {
+async function buildMultipartFile(nombre: string, contenido: Buffer) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'smoke-'))
   const tmpPath = path.join(dir, nombre)
   await fs.writeFile(tmpPath, contenido)
@@ -55,7 +55,7 @@ async function archivo(nombre: string, contenido: Buffer) {
   }
 }
 
-async function png(): Promise<Buffer> {
+async function buildPng(): Promise<Buffer> {
   return sharp({ create: { width: 48, height: 48, channels: 3, background: '#2e5fa3' } })
     .png()
     .toBuffer()
@@ -70,7 +70,7 @@ async function png(): Promise<Buffer> {
  * el MinIO local. DigitalOcean Spaces si los reporta, así que ahí la aserción
  * de ACL efectivo si corre.
  */
-async function inspeccionar(key: string) {
+async function inspectStoredObject(key: string) {
   const head = await inspector.send(new HeadObjectCommand({ Bucket: BUCKET, Key: key }))
   const obj = await inspector.send(new GetObjectCommand({ Bucket: BUCKET, Key: key }))
   const body = Buffer.from(await obj.Body!.transformToByteArray())
@@ -86,9 +86,9 @@ async function inspeccionar(key: string) {
 }
 
 /** Ejecuta una subida real y devuelve la key del objeto escrito. */
-async function subir(nombre: string, contenido: Buffer, perfil: FileIntakeProfileName) {
+async function uploadWithProfile(nombre: string, contenido: Buffer, perfil: FileIntakeProfileName) {
   const resultado = await new UploadService().fileUpload(
-    await archivo(nombre, contenido),
+    await buildMultipartFile(nombre, contenido),
     perfil,
     CARPETA
   )
@@ -112,8 +112,8 @@ test.group('Smoke — subida real al almacenamiento', (group) => {
       .jpeg()
       .toBuffer()
 
-    const { key } = await subir('nomina secreta.jpg', conExif, 'profile-photo')
-    const o = await inspeccionar(key)
+    const { key } = await uploadWithProfile('nomina secreta.jpg', conExif, 'profile-photo')
+    const o = await inspectStoredObject(key)
 
     assert.isTrue(key.startsWith(`${ROOT}/${CARPETA}/`), `clave inesperada: ${key}`)
     assert.notInclude(key, 'nomina')
@@ -126,11 +126,11 @@ test.group('Smoke — subida real al almacenamiento', (group) => {
   })
 
   test('branding: publico y PNG aunque entre WebP', async ({ assert }) => {
-    const webp = await sharp(await png())
+    const webp = await sharp(await buildPng())
       .webp()
       .toBuffer()
-    const { resultado, key } = await subir('logotipo.webp', webp, 'branding-asset')
-    const o = await inspeccionar(key)
+    const { resultado, key } = await uploadWithProfile('logotipo.webp', webp, 'branding-asset')
+    const o = await inspectStoredObject(key)
 
     // La señal observable del perfil público es que devuelve URL en lugar de key.
     assert.isTrue(resultado.startsWith('http'), 'un perfil publico devuelve URL')
@@ -149,8 +149,8 @@ test.group('Smoke — subida real al almacenamiento', (group) => {
     doc.setAuthor('Autor Identificante')
     doc.setTitle('Titulo Identificante')
 
-    const { key } = await subir('acta.pdf', Buffer.from(await doc.save()), 'pdf-document')
-    const o = await inspeccionar(key)
+    const { key } = await uploadWithProfile('acta.pdf', Buffer.from(await doc.save()), 'pdf-document')
+    const o = await inspectStoredObject(key)
 
     assert.equal(o.contentType, 'application/pdf')
     assert.notEqual(o.publico, true)
@@ -160,8 +160,8 @@ test.group('Smoke — subida real al almacenamiento', (group) => {
   })
 
   test('firma: privada y PNG', async ({ assert }) => {
-    const { key } = await subir('firma.png', await png(), 'signature')
-    const o = await inspeccionar(key)
+    const { key } = await uploadWithProfile('firma.png', await buildPng(), 'signature')
+    const o = await inspectStoredObject(key)
 
     assert.isTrue(key.endsWith('.png'))
     assert.equal(o.contentType, 'image/png')
@@ -171,11 +171,11 @@ test.group('Smoke — subida real al almacenamiento', (group) => {
   test('evidencia: PDF e imagen conviven en el mismo perfil', async ({ assert }) => {
     const doc = await PDFDocument.create()
     doc.addPage()
-    const comoPdf = await subir('evidencia.pdf', Buffer.from(await doc.save()), 'evidence-document')
-    const comoImagen = await subir('evidencia.png', await png(), 'evidence-document')
+    const comoPdf = await uploadWithProfile('evidencia.pdf', Buffer.from(await doc.save()), 'evidence-document')
+    const comoImagen = await uploadWithProfile('evidencia.png', await buildPng(), 'evidence-document')
 
-    const oPdf = await inspeccionar(comoPdf.key)
-    const oImagen = await inspeccionar(comoImagen.key)
+    const oPdf = await inspectStoredObject(comoPdf.key)
+    const oImagen = await inspectStoredObject(comoImagen.key)
 
     assert.equal(oPdf.contentType, 'application/pdf')
     assert.equal(oImagen.contentType, 'image/jpeg')
@@ -186,8 +186,8 @@ test.group('Smoke — subida real al almacenamiento', (group) => {
     wb.addWorksheet('hoja').addRow(['dato'])
     const xlsx = Buffer.from(await wb.xlsx.writeBuffer())
 
-    const { key } = await subir('empleados.xlsx', xlsx, 'spreadsheet-import')
-    const o = await inspeccionar(key)
+    const { key } = await uploadWithProfile('empleados.xlsx', xlsx, 'spreadsheet-import')
+    const o = await inspectStoredObject(key)
 
     assert.equal(o.contentType, 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     assert.isTrue(o.body.equals(xlsx))
@@ -196,10 +196,10 @@ test.group('Smoke — subida real al almacenamiento', (group) => {
   test('solo el perfil de branding devuelve URL publica; el resto devuelve key', async ({
     assert,
   }) => {
-    const imagen = await png()
-    const branding = await subir('logotipo.png', imagen, 'branding-asset')
-    const foto = await subir('foto.png', imagen, 'profile-photo')
-    const firma = await subir('firma.png', imagen, 'signature')
+    const imagen = await buildPng()
+    const branding = await uploadWithProfile('logotipo.png', imagen, 'branding-asset')
+    const foto = await uploadWithProfile('foto.png', imagen, 'profile-photo')
+    const firma = await uploadWithProfile('firma.png', imagen, 'signature')
 
     assert.isTrue(branding.resultado.startsWith('http'), 'branding debe devolver URL')
     assert.isFalse(foto.resultado.startsWith('http'), 'la foto debe devolver key, no URL')
@@ -208,10 +208,10 @@ test.group('Smoke — subida real al almacenamiento', (group) => {
 
   test('el payload pegado tras el fin del PNG no llega al bucket', async ({ assert }) => {
     const payload = Buffer.from('<?php system($_GET["c"]); ?>')
-    const conPayload = Buffer.concat([await png(), payload])
+    const conPayload = Buffer.concat([await buildPng(), payload])
 
-    const { key } = await subir('foto.png', conPayload, 'profile-photo')
-    const o = await inspeccionar(key)
+    const { key } = await uploadWithProfile('foto.png', conPayload, 'profile-photo')
+    const o = await inspectStoredObject(key)
 
     assert.isFalse(o.body.includes(payload), 'el payload llego al bucket')
   })
@@ -255,7 +255,7 @@ test.group('Smoke — familias prohibidas rechazadas antes del bucket', (group) 
   for (const [etiqueta, nombre, contenido, perfil, codigo] of casos) {
     test(`${etiqueta}: error con triplete y nada escrito`, async ({ assert }) => {
       try {
-        await subir(nombre, contenido, perfil)
+        await uploadWithProfile(nombre, contenido, perfil)
         assert.fail(`${etiqueta} fue aceptado`)
       } catch (error) {
         assert.instanceOf(error, FileIntakeError, `${etiqueta} lanzo excepcion cruda`)

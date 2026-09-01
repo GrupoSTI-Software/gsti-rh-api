@@ -4,7 +4,7 @@ import ComplaintAttachment from '#models/complaint_attachment'
 import Employee from '#models/employee'
 import User from '#models/user'
 import UploadService from '#services/upload_service'
-import FileIntakeService from '#services/file_intake_service'
+import FileIntakeService, { type IncomingFile } from '#services/file_intake_service'
 import { COMPLAINT_ERROR_CODES } from '#constants/complaint_error_codes'
 import {
   COMPLAINT_ATTACHMENT_S3_FOLDER,
@@ -223,12 +223,9 @@ export default class ComplaintAttachmentService {
    * Delega la validación y sanitización al servicio transversal y traduce su
    * rechazo al contrato de error del buzon, que el frontend ya consume.
    */
-  private async acceptAttachment(file: unknown) {
+  private async acceptAttachment(file: IncomingFile | null | undefined) {
     try {
-      return await this.fileIntake.accept(
-        file as Parameters<FileIntakeService['accept']>[0],
-        'complaint-attachment'
-      )
+      return await this.fileIntake.accept(file, 'complaint-attachment')
     } catch (error) {
       throw this.invalidFileError(resolveComplaintAttachmentMessageKey(error))
     }

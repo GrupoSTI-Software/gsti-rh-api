@@ -671,7 +671,7 @@ export default class BillingPaymentService {
           clientName: receipt.clientName,
           extname: receipt.extname ?? receipt.clientName.split('.').pop() ?? '',
           size: receipt.size,
-        } as Parameters<FileIntakeService['accept']>[0],
+        },
         'evidence-document'
       )
     } catch (error) {

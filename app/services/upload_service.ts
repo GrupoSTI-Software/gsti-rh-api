@@ -9,7 +9,7 @@ import {
 import { Upload } from '@aws-sdk/lib-storage'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import Env from '#start/env'
-import FileIntakeService from '#services/file_intake_service'
+import FileIntakeService, { type IncomingFile } from '#services/file_intake_service'
 import type { FileIntakeProfileName } from '#constants/file_intake'
 import https from 'node:https'
 import http from 'node:http'
@@ -137,7 +137,7 @@ export default class UploadService {
    *         perfil. Es un 422 con triplete, no un fallo del servidor.
    */
   async fileUpload(
-    file: unknown,
+    file: IncomingFile | null | undefined,
     profileName: FileIntakeProfileName,
     folderName = '',
     options: FileUploadOptions = {}
@@ -147,10 +147,7 @@ export default class UploadService {
       return 'file_not_found'
     }
 
-    const intake = await this.fileIntake.accept(
-      file as Parameters<FileIntakeService['accept']>[0],
-      profileName
-    )
+    const intake = await this.fileIntake.accept(file, profileName)
 
     const fileNameGenerated = options.fileName || intake.storageFileName
     const key = `${this.APP_NAME}${folderName || 'files'}/${fileNameGenerated}`

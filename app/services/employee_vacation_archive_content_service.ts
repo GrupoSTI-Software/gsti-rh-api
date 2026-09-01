@@ -1,4 +1,5 @@
 import UploadService from '#services/upload_service'
+import type { IncomingFile } from '#services/file_intake_service'
 import EmployeeVacationArchiveContent from '#models/employee_vacation_archive_content'
 import EmployeeVacationArchive from '#models/employee_vacation_archive'
 import ShiftException from '#models/shift_exception'
@@ -31,7 +32,7 @@ export default class EmployeeVacationArchiveContentService {
    */
   async createContent(
     employeeVacationArchiveId: number,
-    file: { size: number; extname?: string; clientName?: string; tmpPath: string; type?: string; subtype?: string },
+    file: IncomingFile,
     description: string | null,
     uploadService: UploadService,
     shiftExceptionIds?: number[]
@@ -225,7 +226,7 @@ export default class EmployeeVacationArchiveContentService {
     employeeVacationArchiveId: number,
     employeeVacationArchiveContentId: number,
     payload: {
-      file?: { size: number; extname?: string; clientName?: string; tmpPath: string; type?: string; subtype?: string }
+      file?: IncomingFile
       description?: string | null
       shiftExceptionIds?: number[]
     },
