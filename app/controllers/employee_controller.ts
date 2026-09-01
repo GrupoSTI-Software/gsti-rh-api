@@ -1,4 +1,5 @@
 import Department from '#models/department'
+import { assertSpreadsheetFile } from '#helpers/spreadsheet_intake_guard'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
@@ -7120,6 +7121,10 @@ export default class EmployeeController {
         return respondEmployeeImportValFileError({ i18n }, response, 'too_large')
       }
 
+      // La hoja no se abre sin comprobar antes que es OOXML real: un `.xlsx`
+      // es un ZIP y el nombre no prueba nada.
+      await assertSpreadsheetFile(file)
+
       // Validar que el archivo sea un Excel
       const allowedExtensions = [...EMPLOYEE_IMPORT_UPLOAD.acceptedExtensions]
       const allowedMimeTypes = [
@@ -8105,6 +8110,10 @@ export default class EmployeeController {
           message: 'Excel file is required',
         }
       }
+
+      // La hoja no se abre sin comprobar antes que es OOXML real: un `.xlsx`
+      // es un ZIP y el nombre no prueba nada.
+      await assertSpreadsheetFile(file)
 
       // Validar que el archivo sea un Excel
       const allowedExtensions = ['.xlsx', '.xls']

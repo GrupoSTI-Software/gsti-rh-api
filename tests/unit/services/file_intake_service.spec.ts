@@ -9,6 +9,7 @@ import FileIntakeService from '../../../app/services/file_intake_service.js'
 import { FileIntakeError } from '../../../app/exceptions/file_intake_error.js'
 import { FILE_INTAKE_ERROR_CODES } from '../../../app/constants/file_intake_error_codes.js'
 import type { FileIntakeProfileName } from '../../../app/constants/file_intake.js'
+import { assertSpreadsheetFile } from '../../../app/helpers/spreadsheet_intake_guard.js'
 
 /**
  * Archivo multipart mínimo respaldado por un temporal real: el intake lee el
@@ -356,5 +357,29 @@ test.group('FileIntakeService — perfil del buzon de quejas', () => {
     const error = await expectRejection(file, 'complaint-attachment')
 
     assert.equal(error.errorCode, FILE_INTAKE_ERROR_CODES.EXTENSION_BLOCKED)
+  })
+})
+
+test.group('FileIntakeService — guarda de importadores', () => {
+  test('un ZIP renombrado a .xlsx no llega al parser', async ({ assert }) => {
+    const zip = Buffer.concat([Buffer.from('PK'), Buffer.alloc(200)])
+    const file = await fakeMultipartFile({ content: zip, clientName: 'empleados.xlsx' })
+
+    let capturado: unknown = null
+    try {
+      await assertSpreadsheetFile(file as never)
+    } catch (error) {
+      capturado = error
+    }
+
+    assert.instanceOf(capturado, FileIntakeError)
+  })
+
+  test('una hoja real pasa la guarda', async ({ assert }) => {
+    const file = await fakeMultipartFile({ content: await buildXlsx(), clientName: 'e.xlsx' })
+
+    await assertSpreadsheetFile(file as never)
+
+    assert.isTrue(true, 'no debe lanzar')
   })
 })

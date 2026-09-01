@@ -1,4 +1,6 @@
 import { DateTime } from 'luxon'
+import FileIntakeService from '#services/file_intake_service'
+import { FileIntakeError } from '#exceptions/file_intake_error'
 import db from '@adonisjs/lucid/services/db'
 import BillingSubscription from '#models/billing_subscription'
 import BillingPayment from '#models/billing_payment'
@@ -61,6 +63,7 @@ export interface ReceiptFile {
   tmpPath: string
   clientName: string
   size: number
+  extname?: string
   headers: { 'content-type'?: string }
 }
 
@@ -207,15 +210,18 @@ export default class BillingPaymentService {
     // ── 2. Validar y subir comprobante (fuera de la trx) ────────────────────
     this.validateReceipt(receipt)
 
-    const receiptMime = receipt.headers['content-type'] ?? 'application/octet-stream'
-    const ext = this.extFromMime(receiptMime)
-    const s3RelativeKey = `${RECEIPT_S3_FOLDER}/${subscriptionId}/${Date.now()}-receipt.${ext}`
+    // El comprobante es un archivo de un cliente: pasa por la puerta única
+    // antes de tocar el bucket. Antes se subía el binario tal cual, con el
+    // `Content-Type` que declaraba el navegador como única validación.
+    const intake = await this.acceptReceipt(receipt)
+    const s3RelativeKey = `${RECEIPT_S3_FOLDER}/${subscriptionId}/${intake.storageFileName}`
 
     const uploadService = new UploadService()
-    const { default: fs } = await import('node:fs/promises')
-    const buffer = await fs.readFile(receipt.tmpPath)
-
-    const s3Key = await uploadService.uploadPrivateBuffer(s3RelativeKey, buffer, receiptMime)
+    const s3Key = await uploadService.uploadPrivateBuffer(
+      s3RelativeKey,
+      intake.buffer,
+      intake.mimeType
+    )
 
     if (!s3Key) {
       throw new BillingPaymentServiceError(
@@ -296,7 +302,7 @@ export default class BillingPaymentService {
             billingPaymentMethod: input.method,
             billingPaymentReference: input.reference ?? null,
             billingPaymentReceiptPath: s3Key,
-            billingPaymentReceiptMime: receiptMime,
+            billingPaymentReceiptMime: intake.mimeType,
             billingPaymentProvider: 'manual',
             billingPaymentPaidAt: paidAtDt,
             billingPaymentPeriodStart: null,
@@ -652,6 +658,38 @@ export default class BillingPaymentService {
 
   // ─── Validación del comprobante ───────────────────────────────────────────
 
+  /**
+   * Somete el comprobante al intake con el perfil de evidencia y traduce su
+   * rechazo al contrato de error del módulo, para que el frontend siga viendo
+   * los mismos códigos que ya consume.
+   */
+  private async acceptReceipt(receipt: ReceiptFile) {
+    try {
+      return await new FileIntakeService().accept(
+        {
+          tmpPath: receipt.tmpPath,
+          clientName: receipt.clientName,
+          extname: receipt.extname ?? receipt.clientName.split('.').pop() ?? '',
+          size: receipt.size,
+        } as Parameters<FileIntakeService['accept']>[0],
+        'evidence-document'
+      )
+    } catch (error) {
+      const detail =
+        error instanceof FileIntakeError
+          ? error.detail
+          : 'El comprobante debe ser PDF, JPG o PNG.'
+
+      throw new BillingPaymentServiceError(
+        'Comprobante no aceptado',
+        BILLING_PAYMENT_ERROR_CODES.RECEIPT_INVALID,
+        422,
+        'comprobante-tipo-invalido',
+        detail
+      )
+    }
+  }
+
   private validateReceipt(receipt: ReceiptFile): void {
     if (!receipt?.tmpPath) {
       throw new BillingPaymentServiceError(
@@ -869,14 +907,6 @@ export default class BillingPaymentService {
     }
   }
 
-  private extFromMime(mime: string): string {
-    const map: Record<string, string> = {
-      'application/pdf': 'pdf',
-      'image/jpeg': 'jpg',
-      'image/png': 'png',
-    }
-    return map[mime] ?? 'bin'
-  }
 
   private async notifyChangeNotApplicable(
     subscription: BillingSubscription,

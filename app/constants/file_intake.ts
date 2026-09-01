@@ -165,8 +165,10 @@ export const FILE_INTAKE_PROFILES: Readonly<Record<FileIntakeProfileName, FileIn
   },
 
   /**
-   * Importadores de Excel. No se persiste en el bucket: se valida para que el
-   * parser (`exceljs`) nunca reciba algo que no sea una hoja OOXML real.
+   * Importadores de Excel. La hoja NO se persiste en el bucket: el importador
+   * sigue leyendo el temporal del multipart. El perfil existe para que
+   * `exceljs` nunca abra algo que no sea una hoja OOXML real, y se aplica con
+   * `helpers/spreadsheet_intake_guard.ts` en los cuatro puntos de entrada.
    */
   'spreadsheet-import': {
     allowedClientExtensions: ['xlsx'],

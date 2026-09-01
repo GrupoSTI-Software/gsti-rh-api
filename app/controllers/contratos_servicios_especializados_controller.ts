@@ -1,4 +1,5 @@
 import logger from '@adonisjs/core/services/logger'
+import { assertSpreadsheetFile } from '#helpers/spreadsheet_intake_guard'
 import type { HttpContext } from '@adonisjs/core/http'
 import ContratoServicioEspecializadoService, {
   type Anexo15dCreatePayload,
@@ -583,6 +584,10 @@ export default class ContratosServiciosEspecializadosController {
           'archivo-no-excel'
         )
       }
+
+      // La hoja no se abre sin comprobar antes que es OOXML real: un `.xlsx`
+      // es un ZIP y el nombre no prueba nada.
+      await assertSpreadsheetFile(file)
 
       if (file.hasErrors) {
         const sizeError = file.errors.some((err) => err.type === 'size')
