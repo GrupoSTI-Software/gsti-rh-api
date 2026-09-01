@@ -70,11 +70,46 @@ test.group('Salida de archivos — candados de tenant y permisos', () => {
       'solo `scopedQuery` puede consultar ShiftExceptionEvidence directamente'
     )
 
+    // Se compara sobre el texto compactado: la version anterior de esta
+    // asercion buscaba una cadena de una sola linea dentro de codigo indentado
+    // y multilinea, asi que NUNCA coincidia y el test pasaba sin comprobar nada.
+    // Mientras tanto, `update` y `delete` seguian consultando el modelo directo.
+    assert.notInclude(
+      compact(controlador),
+      'ShiftExceptionEvidence.query()',
+      'el controlador debe pasar por el servicio para heredar el scope de empresa'
+    )
+  })
+
+  test('las escrituras de evidencias tambien pasan por el servicio acotado', async ({
+    assert,
+  }) => {
+    const controlador = compact(await leer('app/controllers/shift_exception_evidence_controller.ts'))
+
+    // `update` y `delete`: el borrado ademas arrastra el objeto del bucket, asi
+    // que un identificador ajeno destruia datos de otra empresa.
+    const llamadasAlServicio = controlador.match(/newShiftExceptionEvidenceService\(\)\.show\(/g) ?? []
+
+    assert.isAtLeast(
+      llamadasAlServicio.length,
+      2,
+      'update y delete deben resolver la evidencia por el servicio acotado'
+    )
+  })
+
+  test('el alta de razon social resuelve su ajuste padre dentro del scope', async ({ assert }) => {
+    const controlador = compact(
+      await leer('app/controllers/system_setting_trade_name_controller.ts')
+    )
+    const servicio = await leer('app/services/system_setting_trade_name_service.ts')
+
     assert.notInclude(
       controlador,
-      "ShiftExceptionEvidence.query().whereNull('shift_exception_evidence_deleted_at')",
-      'el controlador debe pasar por el servicio para heredar el scope'
+      'SystemSetting.query()',
+      'el `systemSettingId` llega del cuerpo: debe resolverse acotado'
     )
+    assert.include(servicio, 'async findScopedSystemSetting(')
+    assert.include(servicio, 'TenantContext.getScope()')
   })
 
   test('los controladores de salida no aceptan rutas ni URLs del cliente', async ({ assert }) => {

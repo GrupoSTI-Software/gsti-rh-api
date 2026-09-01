@@ -11,8 +11,6 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import Env from '#start/env'
 import FileIntakeService, { type IncomingFile } from '#services/file_intake_service'
 import type { FileIntakeProfileName } from '#constants/file_intake'
-import https from 'node:https'
-import http from 'node:http'
 import { Readable } from 'node:stream'
 import logger from '@adonisjs/core/services/logger'
 
@@ -417,64 +415,26 @@ export default class UploadService {
    * Devuelve `null` si el archivo no existe o no es accesible.
    */
   async streamStoredFile(storedPath: string): Promise<S3ObjectStream | null> {
-    if (!storedPath) return null
+    const ref = this.resolveS3Ref(storedPath)
+    if (!ref?.key) return null
 
-    if (storedPath.startsWith('http://') || storedPath.startsWith('https://')) {
-      return this.streamFromPublicUrl(storedPath)
+    // Mismo candado que `readStoredFileBuffer`: el bucket lo decide la
+    // configuracion, nunca la cadena guardada. Antes, una referencia que
+    // empezara por http la pedia por HTTP tal cual, lo que convertia cualquier
+    // campo de base de datos en una peticion saliente del servidor con su
+    // respuesta reflejada al cliente: el mismo primitivo por el que se retiro
+    // `proxy-image`.
+    if (ref.bucket && this.BUCKET_NAME && ref.bucket !== this.BUCKET_NAME) {
+      logger.warn(
+        { bucketSolicitado: ref.bucket, bucketConfigurado: this.BUCKET_NAME },
+        'streamStoredFile: referencia a un bucket ajeno, descartada'
+      )
+      return null
     }
 
-    return this.getObjectStream(storedPath)
+    return this.getObjectStream(ref.key)
   }
 
-  /**
-   * Hace stream de un archivo accesible públicamente via HTTP/HTTPS.
-   * Usado para expedientes legacy subidos con ACL public-read.
-   */
-  private streamFromPublicUrl(publicUrl: string): Promise<S3ObjectStream | null> {
-    return new Promise((resolve, reject) => {
-      const protocol = publicUrl.startsWith('https://') ? https : http
-
-      const req = protocol.get(publicUrl, (res) => {
-        if (res.statusCode === 404 || res.statusCode === 403) {
-          logger.warn(
-            { url: publicUrl, statusCode: res.statusCode },
-            'streamFromPublicUrl: archivo no encontrado o sin acceso'
-          )
-          res.resume()
-          resolve(null)
-          return
-        }
-
-        if (!res.statusCode || res.statusCode >= 400) {
-          logger.warn(
-            { url: publicUrl, statusCode: res.statusCode },
-            'streamFromPublicUrl: respuesta inesperada del servidor de origen'
-          )
-          res.resume()
-          resolve(null)
-          return
-        }
-
-        const contentLength = res.headers['content-length']
-          ? Number.parseInt(res.headers['content-length'], 10)
-          : undefined
-        const lastModifiedHeader = res.headers['last-modified']
-
-        resolve({
-          stream: res as unknown as Readable,
-          contentType: res.headers['content-type'] || 'application/octet-stream',
-          contentLength,
-          etag: res.headers['etag'],
-          lastModified: lastModifiedHeader ? new Date(lastModifiedHeader) : undefined,
-        })
-      })
-
-      req.on('error', (err) => {
-        logger.error({ url: publicUrl, err }, 'streamFromPublicUrl: error de red')
-        reject(err)
-      })
-    })
-  }
 
   /**
    * Resuelve la referencia S3 completa (bucket + key) desde cualquier forma en que

@@ -435,10 +435,12 @@ export default class ShiftExceptionEvidenceController {
           data: { shiftExceptionEvidenceId },
         }
       }
-      const currentShiftExceptionEvidence = await ShiftExceptionEvidence.query()
-        .whereNull('shift_exception_evidence_deleted_at')
-        .where('shift_exception_evidence_id', shiftExceptionEvidenceId)
-        .first()
+      // Pasa por el servicio para heredar el filtro de empresa. Sin el, el
+      // identificador de la ruta alcanzaba la evidencia de cualquier empresa: en
+      // el borrado eso ademas arrastra su objeto del bucket.
+      const currentShiftExceptionEvidence = await new ShiftExceptionEvidenceService().show(
+        Number(shiftExceptionEvidenceId)
+      )
       if (!currentShiftExceptionEvidence) {
         response.status(404)
         return {
@@ -630,10 +632,12 @@ export default class ShiftExceptionEvidenceController {
           data: { shiftExceptionEvidenceId },
         }
       }
-      const currentShiftExceptionEvidence = await ShiftExceptionEvidence.query()
-        .whereNull('shift_exception_evidence_deleted_at')
-        .where('shift_exception_evidence_id', shiftExceptionEvidenceId)
-        .first()
+      // Pasa por el servicio para heredar el filtro de empresa. Sin el, el
+      // identificador de la ruta alcanzaba la evidencia de cualquier empresa: en
+      // el borrado eso ademas arrastra su objeto del bucket.
+      const currentShiftExceptionEvidence = await new ShiftExceptionEvidenceService().show(
+        Number(shiftExceptionEvidenceId)
+      )
       if (!currentShiftExceptionEvidence) {
         response.status(404)
         return {

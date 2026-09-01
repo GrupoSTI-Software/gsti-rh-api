@@ -1,6 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
-import SystemSetting from '#models/system_setting'
 import SystemSettingTradeName from '#models/system_setting_trade_name'
 import SystemSettingTradeNameService from '#services/system_setting_trade_name_service'
 import UploadService from '#services/upload_service'
@@ -293,10 +292,12 @@ export default class SystemSettingTradeNameController {
     try {
       const data = await request.validateUsing(createSystemSettingTradeNameValidator)
 
-      const parent = await SystemSetting.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_id', data.systemSettingId)
-        .first()
+      // El `systemSettingId` llega en el cuerpo: se resuelve dentro del scope de
+      // la empresa activa. Sin esto se podia dar de alta una razon social —y su
+      // branding— bajo la configuracion de otra empresa.
+      const parent = await new SystemSettingTradeNameService().findScopedSystemSetting(
+        data.systemSettingId
+      )
 
       if (!parent) {
         response.status(404)

@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError, respondFileIntakeError } from '#helpers/file_intake_api_error'
 import { DateTime } from 'luxon'
 import EmployeeCertificationUploadService from '#services/employee_certification_upload_service'
 import { EmployeeCertificationError } from '../exceptions/employee_certification_error.js'
@@ -277,6 +278,13 @@ export default class EmployeeCertificationUploadController {
   }
 
   private respondError(error: unknown, response: HttpContext['response']) {
+    // El rechazo de un archivo es 422 con triplete: sin esta rama el resolver
+    // del modulo lo degrada a un 500 generico y el usuario nunca sabe que su
+    // archivo fue rechazado ni por que.
+    if (isFileIntakeError(error)) {
+      return respondFileIntakeError(response, error)
+    }
+
     if (error instanceof EmployeeCertificationError) {
       return response.status(error.httpStatus).json({
         type: 'error',

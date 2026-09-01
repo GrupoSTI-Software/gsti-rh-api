@@ -34,6 +34,31 @@ export default class SystemSettingTradeNameService {
     )
   }
 
+  /**
+   * Resuelve el `SystemSetting` padre dentro de la empresa activa.
+   *
+   * `SystemSetting` no compone el mixin de empresa, asi que consultarlo por su
+   * identificador no hereda el filtro del contexto. Devuelve `null` cuando el
+   * ajuste no pertenece a la empresa activa ni es configuracion global.
+   */
+  async findScopedSystemSetting(systemSettingId: number) {
+    const query = SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .where('system_setting_id', systemSettingId)
+
+    if (!TenantContext.isActive() || TenantContext.isBypassed()) {
+      return query.first()
+    }
+
+    const scope = TenantContext.getScope()
+
+    return query
+      .where((subQuery) => {
+        subQuery.whereIn('business_unit_id', scope).orWhereNull('business_unit_id')
+      })
+      .first()
+  }
+
   async index(systemSettingId: number) {
     const rows = await this.scopedQuery()
       .where('system_setting_id', systemSettingId)
