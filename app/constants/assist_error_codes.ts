@@ -9,6 +9,8 @@ export const ASSIST_ERROR_CODES = {
   VAL_EMPLOYEE_ID: 'AST.VAL.002',
   /** El `employeeId` no resuelve a un colaborador de la empresa activa. */
   VAL_EMPLOYEE_NOT_FOUND: 'AST.VAL.008',
+  /** `assistChannel` presente pero fuera del vocabulario cerrado `ASSIST_CHANNEL`. */
+  VAL_CHANNEL_UNKNOWN: 'AST.VAL.009',
   /** Colaborador dado de baja; no se registra jornada. */
   AUTHZ_EMPLOYEE_TERMINATED: 'AST.AUTHZ.001',
   /** Captura ajena sin permiso `add-assist-manual`. */

@@ -194,10 +194,14 @@ test.group('Assists — inactivada no libera slot de llave natural (CA-23)', (gr
     assert.equal(rows[0].assistActive, 0)
   })
 
-  test('CA-23 · POST HTTP con mismos datos tampoco re-captura (verifyInfo + tenant)', async ({
+  test('CA-23 · POST HTTP en el mismo segundo no toca la fila del checador', async ({
     client,
     assert,
   }) => {
+    // Tras USRH1788135907801 el único criterio es la llave natural, y la serie real
+    // del checador entra en ella tal cual mientras que la checada de la app entra con
+    // su centinela de canal: son dos hechos distintos del mismo segundo y conviven.
+    // La fila del fixture no se altera; ésa es la garantía que este caso protege.
     const user = await getUserForBusinessUnit(businessUnitId)
 
     const response = await client
@@ -213,7 +217,15 @@ test.group('Assists — inactivada no libera slot de llave natural (CA-23)', (gr
       .loginAs(user)
       .header('X-Business-Unit-Id', publicId)
 
-    assert.oneOf(response.status(), [400, 422])
+    assert.oneOf(response.status(), [201, 403])
+
+    if (response.status() === 201) {
+      const createdId = response.body().data.assist.assistId
+      assert.notEqual(createdId, fixtureAssistId)
+      await TenantContext.runUnscoped(async () => {
+        await Assist.query().withTrashed().where('assist_id', createdId).delete()
+      }, 'limpieza de la checada de app creada en CA-23')
+    }
 
     const rows = await TenantContext.runUnscoped(async () => {
       return Assist.query().where('assist_natural_key', naturalKey)
@@ -221,5 +233,6 @@ test.group('Assists — inactivada no libera slot de llave natural (CA-23)', (gr
 
     assert.lengthOf(rows, 1)
     assert.equal(rows[0].assistId, fixtureAssistId)
+    assert.equal(rows[0].assistActive, 0)
   })
 })

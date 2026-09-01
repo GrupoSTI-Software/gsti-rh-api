@@ -8,7 +8,7 @@ import User from '#models/user'
 import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
 import { AssistError } from '#exceptions/assist_error'
 import { TenantContext } from '#utils/tenant_context'
-import { computeAssistNaturalKey } from '#utils/assist_natural_key'
+import { assistChannelSentinel, computeAssistNaturalKey } from '#utils/assist_natural_key'
 import AssistIngestionRepositoryMysql from '#modules/assist-ingestion/assist_ingestion.repository.mysql'
 import type { AssistIngestionRecord } from '#modules/assist-ingestion/dto/assist_ingestion.dto'
 
@@ -124,7 +124,7 @@ test.group('Assists — motor de ingesta idempotente (USRH1786554648211)', (grou
       businessUnitId: fixture.businessUnitId,
       assistEmpCode: fixture.employeeCode,
       assistPunchTimeUtc: punchTimeUtc,
-      assistTerminalSn: null,
+      assistTerminalSn: assistChannelSentinel('self-service', null),
     })
 
     const [first] = await TenantContext.run([fixture.businessUnitId], () =>
@@ -158,7 +158,7 @@ test.group('Assists — motor de ingesta idempotente (USRH1786554648211)', (grou
       businessUnitId: fixture.businessUnitId,
       assistEmpCode: fixture.employeeCode,
       assistPunchTimeUtc: punchTimeUtc,
-      assistTerminalSn: null,
+      assistTerminalSn: assistChannelSentinel('self-service', null),
     })
 
     const [first] = await TenantContext.run([fixture.businessUnitId], () =>
@@ -193,7 +193,7 @@ test.group('Assists — motor de ingesta idempotente (USRH1786554648211)', (grou
       businessUnitId: fixture.businessUnitId,
       assistEmpCode: fixture.employeeCode,
       assistPunchTimeUtc: punchTimeUtc,
-      assistTerminalSn: null,
+      assistTerminalSn: assistChannelSentinel('self-service', null),
     })
 
     const [left, right] = await TenantContext.run([fixture.businessUnitId], () =>
@@ -299,7 +299,7 @@ test.group('Assists — motor de ingesta idempotente (USRH1786554648211)', (grou
       .header('X-Business-Unit-Id', fixture.publicId)
 
     response.assertStatus(400)
-    assert.equal(response.body().code, ASSIST_ERROR_CODES.VAL_EMPLOYEE_ID)
+    assert.equal(response.body().code, ASSIST_ERROR_CODES.VAL_CHANNEL_UNKNOWN)
   })
 
   test('un colaborador de otra empresa se rechaza igual que uno inexistente', async ({

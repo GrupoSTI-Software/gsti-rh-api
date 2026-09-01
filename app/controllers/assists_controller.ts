@@ -30,7 +30,7 @@ import {
   resolveAssistOrigin,
 } from '#modules/assist-ingestion/assist_ingestion.controller'
 import {
-  firstValidationMessage,
+  firstValidationIssue,
   storeAssistValidator,
 } from '#modules/assist-ingestion/validators/store_assist.validator'
 import type { StoreAssistPayload } from '#modules/assist-ingestion/validators/store_assist.validator'
@@ -1151,6 +1151,15 @@ export default class AssistsController {
    *                   detail: El identificador del colaborador es inválido.
    *                   key: identificador-de-colaborador-invalido
    *                   code: AST.VAL.002
+   *               unknownChannel:
+   *                 summary: Canal de checada no reconocido
+   *                 value:
+   *                   type: warning
+   *                   title: Canal de checada no reconocido
+   *                   message: El canal declarado no es uno de los canales permitidos.
+   *                   detail: El canal declarado no es uno de los canales permitidos.
+   *                   key: canal-de-checada-no-reconocido
+   *                   code: AST.VAL.009
    *               employeeNotFound:
    *                 summary: Colaborador inexistente o de otra empresa
    *                 value:
@@ -1252,8 +1261,22 @@ export default class AssistsController {
       try {
         payload = await storeAssistValidator.validate(request.all())
       } catch (validationError) {
-        const detail =
-          firstValidationMessage(validationError) ?? t('assist_register_val_employee_id_message')
+        const issue = firstValidationIssue(validationError)
+        // El canal es vocabulario cerrado y tiene rechazo propio: no se normaliza
+        // ni se ignora, y su motivo no se confunde con el resto del cuerpo.
+        if (issue?.field === 'assistChannel') {
+          const detail = t('assist_channel_unknown_message')
+          response.status(400)
+          return {
+            type: 'warning',
+            title: t('assist_channel_unknown_title'),
+            message: detail,
+            detail,
+            key: 'canal-de-checada-no-reconocido',
+            code: ASSIST_ERROR_CODES.VAL_CHANNEL_UNKNOWN,
+          }
+        }
+        const detail = issue?.message ?? t('assist_register_val_employee_id_message')
         response.status(400)
         return {
           type: 'warning',

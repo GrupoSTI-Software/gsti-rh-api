@@ -1,6 +1,10 @@
 import Assist from '#models/assist'
 import { resolveAssistBusinessUnitId } from '#helpers/assist_business_unit_guard'
-import { ASSIST_NATURAL_KEY_INDEX, computeAssistNaturalKey } from '#utils/assist_natural_key'
+import {
+  ASSIST_NATURAL_KEY_INDEX,
+  assistChannelSentinel,
+  computeAssistNaturalKey,
+} from '#utils/assist_natural_key'
 import type { AssistIngestionRepository } from './assist_ingestion.repository.js'
 import type {
   AssistIngestionPersisted,
@@ -28,14 +32,16 @@ export default class AssistIngestionRepositoryMysql implements AssistIngestionRe
   async ingestMany(records: AssistIngestionRecord[]): Promise<AssistIngestionPersisted[]> {
     if (records.length === 0) return []
 
-    // 1. Llave natural por registro. Nunca se reimplementa el algoritmo.
+    // 1. Llave natural por registro. Nunca se reimplementa el algoritmo, y el
+    //    centinela de canal se aplica igual que en el hook del modelo: si divergieran,
+    //    la clasificación buscaría una llave distinta de la que se persiste.
     const keyed = records.map((record) => ({
       record,
       naturalKey: computeAssistNaturalKey({
         businessUnitId: record.businessUnitId,
         assistEmpCode: record.employeeCode,
         assistPunchTimeUtc: record.punchTimeUtc,
-        assistTerminalSn: record.terminalSn,
+        assistTerminalSn: assistChannelSentinel(record.origin, record.terminalSn),
       }),
     }))
 

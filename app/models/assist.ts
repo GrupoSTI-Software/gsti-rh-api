@@ -5,7 +5,7 @@ import { compose } from '@adonisjs/core/helpers'
 import type { AssistCreateFrom } from '#constants/assist_origin'
 import { resolveAssistBusinessUnitId } from '#helpers/assist_business_unit_guard'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
-import { computeAssistNaturalKey } from '#utils/assist_natural_key'
+import { assistChannelSentinel, computeAssistNaturalKey } from '#utils/assist_natural_key'
 import {
   assistArrivalDelayInSeconds,
   isAssistArrivalDeferred,
@@ -167,6 +167,10 @@ export default class Assist extends compose(BaseModel, SoftDeletes, withBusiness
   /**
    * Calcula la llave natural en `@beforeSave` (no `@beforeCreate`): el sync BioTime
    * muta código, instante y terminal sobre filas ya persistidas.
+   *
+   * Único sitio de escritura de la llave en runtime: aplicar aquí el centinela de
+   * canal cubre el controlador de la app, la captura del Backoffice, el motor de
+   * ingesta, las fábricas de demo, la simulación de onboarding y el sync.
    */
   @beforeSave()
   static assignNaturalKey(instance: Assist) {
@@ -177,7 +181,7 @@ export default class Assist extends compose(BaseModel, SoftDeletes, withBusiness
       businessUnitId: instance.businessUnitId,
       assistEmpCode: instance.assistEmpCode,
       assistPunchTimeUtc: instance.assistPunchTimeUtc,
-      assistTerminalSn: instance.assistTerminalSn,
+      assistTerminalSn: assistChannelSentinel(instance.assistOrigin, instance.assistTerminalSn),
     })
   }
 

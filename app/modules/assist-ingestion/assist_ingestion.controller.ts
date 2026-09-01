@@ -1,9 +1,8 @@
 import type { I18n } from '@adonisjs/i18n'
 import { DateTime } from 'luxon'
-import { ASSIST_ORIGIN } from '#constants/assist_origin'
-import type { AssistCreateFrom } from '#constants/assist_origin'
+import { ASSIST_CHANNEL, ASSIST_ORIGIN } from '#constants/assist_origin'
+import type { AssistChannel, AssistCreateFrom } from '#constants/assist_origin'
 import type { AssistIngestionItemResult } from './dto/assist_ingestion.dto.js'
-import type { AssistIngestionChannel } from './validators/store_assist.validator.js'
 
 /**
  * Canal declarado por el cliente → procedencia que se guarda.
@@ -11,11 +10,11 @@ import type { AssistIngestionChannel } from './validators/store_assist.validator
  * `ASSIST_ORIGIN` solo no basta: hoy la app personal y el kiosco escriben ambos
  * `self-service`, así que el canal lo declara el equipo y el servidor lo traduce.
  */
-const CHANNEL_TO_ORIGIN: Record<AssistIngestionChannel, AssistCreateFrom> = {
-  app: ASSIST_ORIGIN.SELF_SERVICE,
-  kiosk: ASSIST_ORIGIN.DEVICE,
-  backoffice: ASSIST_ORIGIN.ADMIN_CAPTURE,
-  device: ASSIST_ORIGIN.SYNC,
+const CHANNEL_TO_ORIGIN: Record<AssistChannel, AssistCreateFrom> = {
+  [ASSIST_CHANNEL.APP]: ASSIST_ORIGIN.SELF_SERVICE,
+  [ASSIST_CHANNEL.KIOSK]: ASSIST_ORIGIN.DEVICE,
+  [ASSIST_CHANNEL.BACKOFFICE]: ASSIST_ORIGIN.ADMIN_CAPTURE,
+  [ASSIST_CHANNEL.DEVICE]: ASSIST_ORIGIN.SYNC,
 }
 
 /** Sobre HTTP: código de estado y cuerpo ya armado. */
@@ -30,7 +29,7 @@ export interface AssistIngestionHttpEnvelope {
  * no declara canal nunca falla por no declararlo.
  */
 export function resolveAssistOrigin(
-  channel: AssistIngestionChannel | null | undefined,
+  channel: AssistChannel | null | undefined,
   isOwner: boolean
 ): AssistCreateFrom {
   if (channel) return CHANNEL_TO_ORIGIN[channel]

@@ -1,16 +1,6 @@
 import vine from '@vinejs/vine'
 import type { Infer } from '@vinejs/vine/types'
-
-/**
- * Canales por los que puede declararse una checada. Vocabulario cerrado.
- *
- * TEMPORAL DE API-1: el catálogo definitivo (`ASSIST_CHANNEL`) y su código de
- * rechazo propio (`AST.VAL.009`) los aporta API-2 en `#constants/assist_origin`.
- * Hasta entonces el unitario ya acepta y valida el canal contra este literal, y
- * un valor fuera del vocabulario se rechaza con `AST.VAL.002`.
- */
-export const ASSIST_INGESTION_CHANNELS = ['app', 'kiosk', 'backoffice', 'device'] as const
-export type AssistIngestionChannel = (typeof ASSIST_INGESTION_CHANNELS)[number]
+import { ASSIST_CHANNEL_VALUES } from '#constants/assist_origin'
 
 /**
  * Decimal opcional del marcaje. El Backoffice manda cadena vacía en las coordenadas
@@ -43,21 +33,31 @@ export const storeAssistValidator = vine.compile(
     assistLatitude: optionalDecimal(),
     assistLongitude: optionalDecimal(),
     assistPrecision: optionalDecimal(),
-    assistChannel: vine.enum(ASSIST_INGESTION_CHANNELS).nullable().optional(),
+    assistChannel: vine.enum(ASSIST_CHANNEL_VALUES).nullable().optional(),
   })
 )
 
 /** Cuerpo ya saneado del alta unitaria. */
 export type StoreAssistPayload = Infer<typeof storeAssistValidator>
 
+/** Campo y mensaje del primer fallo de validación de Vine. */
+export interface StoreAssistValidationIssue {
+  field: string
+  message: string
+}
+
 /**
- * Primer mensaje de un fallo de validación de Vine, para explicarle al cliente qué
- * campo no pasó sin filtrar la forma interna del error. `null` si el error no es de Vine.
+ * Primer fallo de validación de Vine, para explicarle al cliente qué campo no pasó
+ * sin filtrar la forma interna del error. `null` si el error no es de Vine.
  */
-export function firstValidationMessage(error: unknown): string | null {
+export function firstValidationIssue(error: unknown): StoreAssistValidationIssue | null {
   if (typeof error !== 'object' || error === null) return null
   const candidate = error as { code?: string; messages?: unknown }
   if (candidate.code !== 'E_VALIDATION_ERROR' || !Array.isArray(candidate.messages)) return null
-  const [first] = candidate.messages as Array<{ message?: unknown }>
-  return typeof first?.message === 'string' ? first.message : null
+  const [first] = candidate.messages as Array<{ field?: unknown; message?: unknown }>
+  if (typeof first?.message !== 'string') return null
+  return {
+    field: typeof first.field === 'string' ? first.field : '',
+    message: first.message,
+  }
 }
