@@ -11,6 +11,10 @@ export const ASSIST_ERROR_CODES = {
   VAL_EMPLOYEE_NOT_FOUND: 'AST.VAL.008',
   /** `assistChannel` presente pero fuera del vocabulario cerrado `ASSIST_CHANNEL`. */
   VAL_CHANNEL_UNKNOWN: 'AST.VAL.009',
+  /** Lote vacío, no-arreglo o por encima del tope de elementos o de tamaño. */
+  VAL_BATCH_SIZE: 'AST.VAL.004',
+  /** Dos elementos de la misma entrega comparten llave natural. */
+  VAL_BATCH_DUPLICATE_ITEM: 'AST.VAL.007',
   /** Colaborador dado de baja; no se registra jornada. */
   AUTHZ_EMPLOYEE_TERMINATED: 'AST.AUTHZ.001',
   /** Captura ajena sin permiso `add-assist-manual`. */

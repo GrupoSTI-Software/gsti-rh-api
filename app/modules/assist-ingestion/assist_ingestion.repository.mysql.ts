@@ -1,10 +1,7 @@
 import Assist from '#models/assist'
 import { resolveAssistBusinessUnitId } from '#helpers/assist_business_unit_guard'
-import {
-  ASSIST_NATURAL_KEY_INDEX,
-  assistChannelSentinel,
-  computeAssistNaturalKey,
-} from '#utils/assist_natural_key'
+import { ASSIST_NATURAL_KEY_INDEX } from '#utils/assist_natural_key'
+import { assistIngestionNaturalKey } from './assist_ingestion.constants.js'
 import type { AssistIngestionRepository } from './assist_ingestion.repository.js'
 import type {
   AssistIngestionPersisted,
@@ -32,17 +29,13 @@ export default class AssistIngestionRepositoryMysql implements AssistIngestionRe
   async ingestMany(records: AssistIngestionRecord[]): Promise<AssistIngestionPersisted[]> {
     if (records.length === 0) return []
 
-    // 1. Llave natural por registro. Nunca se reimplementa el algoritmo, y el
-    //    centinela de canal se aplica igual que en el hook del modelo: si divergieran,
-    //    la clasificación buscaría una llave distinta de la que se persiste.
+    // 1. Llave natural por registro, con el helper compartido del módulo: el mismo
+    //    que usa la deduplicación intra-lote y el mismo criterio que el hook del
+    //    modelo. Si divergieran, la clasificación buscaría una llave distinta de la
+    //    que se persiste.
     const keyed = records.map((record) => ({
       record,
-      naturalKey: computeAssistNaturalKey({
-        businessUnitId: record.businessUnitId,
-        assistEmpCode: record.employeeCode,
-        assistPunchTimeUtc: record.punchTimeUtc,
-        assistTerminalSn: assistChannelSentinel(record.origin, record.terminalSn),
-      }),
+      naturalKey: assistIngestionNaturalKey(record),
     }))
 
     // 2. Una sola consulta de clasificación para todo el arreglo. `.withTrashed()` es

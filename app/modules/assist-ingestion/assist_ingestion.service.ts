@@ -1,9 +1,16 @@
 import { DateTime } from 'luxon'
 import Employee from '#models/employee'
 import SyncAssistsService from '#services/sync_assists_service'
-import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
+import { AssistError } from '#exceptions/assist_error'
 import { resolveAssistBusinessUnitId } from '#helpers/assist_business_unit_guard'
+import { assistIngestionNaturalKey } from './assist_ingestion.constants.js'
 import AssistIngestionRepositoryMysql from './assist_ingestion.repository.mysql.js'
+import {
+  ASSIST_INGESTION_BATCH_DUPLICATE_ITEM,
+  ASSIST_INGESTION_EMPLOYEE_NOT_FOUND,
+  ASSIST_INGESTION_EMPLOYEE_TERMINATED,
+  ASSIST_INGESTION_TENANT_UNRESOLVED,
+} from './assist_ingestion.rejections.js'
 import type { AssistIngestionRepository } from './assist_ingestion.repository.js'
 import type {
   AssistIngestionItem,
@@ -16,14 +23,6 @@ import type {
   AssistIngestionSummary,
 } from './dto/assist_ingestion.dto.js'
 
-/** El `employeeId` no resuelve a un colaborador de la empresa activa (regla 8). */
-const EMPLOYEE_NOT_FOUND: AssistIngestionRejection = {
-  status: 400,
-  code: ASSIST_ERROR_CODES.VAL_EMPLOYEE_NOT_FOUND,
-  key: 'colaborador-no-encontrado',
-  i18nBase: 'assist_employee_not_found',
-}
-
 /** Colaborador resuelto: a quién pertenece la checada y de qué empresa es. */
 interface ResolvedSubject {
   employeeId: number
@@ -31,13 +30,21 @@ interface ResolvedSubject {
   businessUnitId: number
 }
 
+type SubjectResolution =
+  | { ok: true; subject: ResolvedSubject }
+  | { ok: false; rejection: AssistIngestionRejection }
+
 /**
  * Motor de ingesta de checadas.
  *
- * Resuelve el sujeto, delega la escritura idempotente en el puerto y arma el
- * veredicto por elemento. El recálculo del calendario se dispara **sólo** por los
- * elementos `inserted` y **una sola vez por colaborador**: un reenvío no cuesta
- * trabajo, o cualquiera podría multiplicar la carga del servidor repitiendo envíos.
+ * Resuelve el sujeto de cada elemento, descarta los gemelos que vienen repetidos
+ * dentro de la misma entrega, delega la escritura idempotente en el puerto y arma
+ * el veredicto por elemento conservando el orden original.
+ *
+ * El recálculo del calendario se dispara **sólo** por los elementos `inserted` y
+ * **una sola vez por colaborador**, cubriendo el rango de todas sus checadas de la
+ * entrega: un reenvío no cuesta trabajo, o una entrega de doscientas repeticiones
+ * se convertiría en doscientos recálculos pedidos por el cliente.
  */
 export default class AssistIngestionService {
   private readonly repository: AssistIngestionRepository
@@ -52,27 +59,43 @@ export default class AssistIngestionService {
       clientRef: item.clientRef,
       outcome: 'rejected',
       assist: null,
-      error: EMPLOYEE_NOT_FOUND,
+      error: ASSIST_INGESTION_EMPLOYEE_NOT_FOUND,
     }))
 
     const records: AssistIngestionRecord[] = []
+    const seenNaturalKeys = new Set<string>()
 
     for (const [index, item] of items.entries()) {
-      const subject = await this.resolveSubject(item.subject)
-      if (!subject) continue
+      const resolution = await this.resolveSubject(item.subject)
+      if (!resolution.ok) {
+        results[index].error = resolution.rejection
+        continue
+      }
 
-      records.push({
+      const record: AssistIngestionRecord = {
         index,
-        businessUnitId: subject.businessUnitId,
-        employeeId: subject.employeeId,
-        employeeCode: subject.employeeCode,
+        businessUnitId: resolution.subject.businessUnitId,
+        employeeId: resolution.subject.employeeId,
+        employeeCode: resolution.subject.employeeCode,
         assistType: item.assistType,
         punchTimeUtc: item.punchTimeUtc,
         geo: item.geo,
         origin: item.origin,
         createdByUserId: item.createdByUserId,
         terminalSn: item.terminalSn,
-      })
+      }
+
+      // Los gemelos se resuelven en memoria, antes de tocar la base: si se dejaran
+      // a la base, el segundo saldría como "ya estaba" —indistinguible de un
+      // reenvío legítimo— y un cliente podría provocar excepciones a voluntad.
+      const naturalKey = assistIngestionNaturalKey(record)
+      if (seenNaturalKeys.has(naturalKey)) {
+        results[index].error = ASSIST_INGESTION_BATCH_DUPLICATE_ITEM
+        continue
+      }
+      seenNaturalKeys.add(naturalKey)
+
+      records.push(record)
     }
 
     const persisted = await this.repository.ingestMany(records)
@@ -93,51 +116,47 @@ export default class AssistIngestionService {
   }
 
   /**
-   * Resuelve el colaborador y su empresa. Devuelve `null` cuando no llega a uno solo
-   * de la empresa activa: la respuesta es indistinguible de "no existe" aunque el
-   * colaborador sea de otra empresa (anti-enumeración, regla 8).
+   * Resuelve el colaborador y su empresa.
+   *
+   * Un colaborador de otra empresa devuelve exactamente el mismo rechazo que uno
+   * inexistente: nadie averigua desde fuera quién trabaja en otra empresa.
    */
-  private async resolveSubject(subject: AssistIngestionSubject): Promise<ResolvedSubject | null> {
+  private async resolveSubject(subject: AssistIngestionSubject): Promise<SubjectResolution> {
     const employee =
       subject.kind === 'employeeId'
-        ? await Employee.query()
-            .whereNull('employee_deleted_at')
-            .where('employee_id', subject.employeeId)
-            .first()
+        ? await Employee.query().withTrashed().where('employee_id', subject.employeeId).first()
         : await Employee.query()
-            .whereNull('employee_deleted_at')
+            .withTrashed()
             .where('business_unit_id', subject.businessUnitId)
             .where('employee_code', subject.employeeCode)
             .first()
 
-    if (!employee) return null
+    if (!employee) return { ok: false, rejection: ASSIST_INGESTION_EMPLOYEE_NOT_FOUND }
+    if (employee.deletedAt) return { ok: false, rejection: ASSIST_INGESTION_EMPLOYEE_TERMINATED }
 
-    return {
-      employeeId: employee.employeeId,
-      employeeCode: employee.employeeCode ? String(employee.employeeCode) : '',
-      businessUnitId: resolveAssistBusinessUnitId(employee.businessUnitId),
+    try {
+      return {
+        ok: true,
+        subject: {
+          employeeId: employee.employeeId,
+          employeeCode: employee.employeeCode ? String(employee.employeeCode) : '',
+          businessUnitId: resolveAssistBusinessUnitId(employee.businessUnitId),
+        },
+      }
+    } catch (error) {
+      if (error instanceof AssistError) {
+        return { ok: false, rejection: ASSIST_INGESTION_TENANT_UNRESOLVED }
+      }
+      throw error
     }
   }
 
   /**
    * Recalcula el calendario de asistencia de cada colaborador con al menos una
-   * checada nueva, una sola vez y cubriendo el rango de todas sus checadas del envío.
+   * checada nueva, una sola vez y cubriendo el rango de todas sus checadas.
    */
   private async recalculateCalendars(persisted: AssistIngestionPersisted[]): Promise<void> {
-    const ranges = new Map<number, { from: DateTime; to: DateTime }>()
-
-    for (const row of persisted) {
-      if (row.outcome !== 'inserted') continue
-      const punchTime = row.assist.assistPunchTimeUtc
-      const current = ranges.get(row.assist.assistEmpId)
-      if (!current) {
-        ranges.set(row.assist.assistEmpId, { from: punchTime, to: punchTime })
-        continue
-      }
-      if (punchTime.toMillis() < current.from.toMillis()) current.from = punchTime
-      if (punchTime.toMillis() > current.to.toMillis()) current.to = punchTime
-    }
-
+    const ranges = assistIngestionCalendarRanges(persisted)
     if (ranges.size === 0) return
 
     const syncAssistsService = new SyncAssistsService()
@@ -149,6 +168,33 @@ export default class AssistIngestionService {
       })
     }
   }
+}
+
+/**
+ * Rango de recálculo por colaborador: un solo tramo por cada persona con al menos
+ * una checada nueva, cubriendo desde su marcaje más antiguo hasta el más reciente.
+ *
+ * Los desenlaces que no escribieron no generan rango: una entrega de doscientas
+ * repeticiones no puede convertirse en doscientos recálculos.
+ */
+export function assistIngestionCalendarRanges(
+  persisted: AssistIngestionPersisted[]
+): Map<number, { from: DateTime; to: DateTime }> {
+  const ranges = new Map<number, { from: DateTime; to: DateTime }>()
+
+  for (const row of persisted) {
+    if (row.outcome !== 'inserted') continue
+    const punchTime = row.assist.assistPunchTimeUtc
+    const current = ranges.get(row.assist.assistEmpId)
+    if (!current) {
+      ranges.set(row.assist.assistEmpId, { from: punchTime, to: punchTime })
+      continue
+    }
+    if (punchTime.toMillis() < current.from.toMillis()) current.from = punchTime
+    if (punchTime.toMillis() > current.to.toMillis()) current.to = punchTime
+  }
+
+  return ranges
 }
 
 function summarize(results: AssistIngestionItemResult[]): AssistIngestionSummary {

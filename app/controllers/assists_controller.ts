@@ -24,6 +24,7 @@ import { ASSIST_SYNC_RUN_UNSCOPED_REASON } from '#constants/assist_sync'
 import { resolveAssistApiError } from '#helpers/assist_api_error'
 import { AssistError } from '#exceptions/assist_error'
 import { TenantContext } from '#utils/tenant_context'
+import { isLegacyMexicoSummerTime } from '#utils/legacy_mexico_dst'
 import AssistIngestionService from '#modules/assist-ingestion/assist_ingestion.service'
 import {
   mapIngestionResultToHttp,
@@ -1338,7 +1339,7 @@ export default class AssistsController {
       let dateTimePunchTime: DateTime = DateTime.fromFormat(assistPunchTime, 'yyyy-MM-dd HH:mm:ss', {zone: 'UTC-6' }).toUTC()
 
       if (dateTimePunchTime) {
-        const isSummerDate = this.checkDSTSummerTime(dateTimePunchTime.toJSDate())
+        const isSummerDate = isLegacyMexicoSummerTime(dateTimePunchTime.toJSDate())
 
         if (isSummerDate) {
           dateTimePunchTime = dateTimePunchTime.plus({ hour: -1 })
@@ -1919,30 +1920,6 @@ export default class AssistsController {
         message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
-    }
-  }
-
-  private getMexicoDSTChangeDates (year: number) {
-    const startDST = new Date(year, 3, 1)
-    startDST.setDate(1 + (7 - startDST.getDay()) % 7) // Asegura que es el primer domingo
-
-    // Último domingo de octubre (fin del horario de verano)
-    const endDST = new Date(year, 9, 31)
-    endDST.setDate(endDST.getDate() - endDST.getDay()) // Asegura que es el último domingo
-
-    return { startDST, endDST }
-  }
-
-  private checkDSTSummerTime (date: Date): boolean {
-    const year = date.getFullYear()
-    const { startDST, endDST } = this.getMexicoDSTChangeDates(year)
-
-    if (date >= startDST && date < endDST) {
-      // En horario de verano
-      return true
-    } else {
-      // En horario estándar
-      return false
     }
   }
 
