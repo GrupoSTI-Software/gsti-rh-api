@@ -1,10 +1,41 @@
 import SystemSettingTradeName from '#models/system_setting_trade_name'
+import SystemSetting from '#models/system_setting'
+import { TenantContext } from '#utils/tenant_context'
 import { DateTime } from 'luxon'
 
 export default class SystemSettingTradeNameService {
+  /**
+   * Consulta acotada a las razones sociales de la empresa activa.
+   *
+   * Ni `SystemSettingTradeName` ni `SystemSetting` componen el mixin de
+   * empresa, asi que ninguna consulta hereda el filtro por si sola. Como el
+   * `systemSettingId` llega del cliente, sin este candado bastaba con cambiarlo
+   * para leer o modificar la configuracion —y el branding— de otra empresa.
+   *
+   * Se incluyen las filas con `business_unit_id` nulo: son la configuracion
+   * global del sistema, visible para todos.
+   */
+  private scopedQuery() {
+    const query = SystemSettingTradeName.query().whereNull('system_setting_deleted_at')
+
+    if (!TenantContext.isActive() || TenantContext.isBypassed()) {
+      return query
+    }
+
+    const scope = TenantContext.getScope()
+
+    return query.whereIn(
+      'system_setting_id',
+      SystemSetting.query()
+        .select('system_setting_id')
+        .where((subQuery) => {
+          subQuery.whereIn('business_unit_id', scope).orWhereNull('business_unit_id')
+        })
+    )
+  }
+
   async index(systemSettingId: number) {
-    const rows = await SystemSettingTradeName.query()
-      .whereNull('system_setting_deleted_at')
+    const rows = await this.scopedQuery()
       .where('system_setting_id', systemSettingId)
       .orderBy('system_setting_trade_name_id')
     return { data: rows }
@@ -45,8 +76,7 @@ export default class SystemSettingTradeNameService {
   }
 
   async show(systemSettingTradeNameId: number) {
-    return await SystemSettingTradeName.query()
-      .whereNull('system_setting_deleted_at')
+    return await this.scopedQuery()
       .where('system_setting_trade_name_id', systemSettingTradeNameId)
       .first()
   }

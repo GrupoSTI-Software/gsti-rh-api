@@ -532,10 +532,12 @@ export default class SystemSettingTradeNameController {
         }
       }
 
-      const current = await SystemSettingTradeName.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_trade_name_id', systemSettingTradeNameId)
-        .first()
+      // Pasa por el servicio para heredar el filtro de empresa: consultar el
+      // modelo directo permitia alcanzar la razon social de otra empresa con
+      // solo cambiar el identificador de la ruta.
+      const current = await new SystemSettingTradeNameService().show(
+        Number(systemSettingTradeNameId)
+      )
 
       if (!current) {
         response.status(404)
@@ -779,10 +781,12 @@ export default class SystemSettingTradeNameController {
         }
       }
 
-      const current = await SystemSettingTradeName.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_trade_name_id', systemSettingTradeNameId)
-        .first()
+      // Pasa por el servicio para heredar el filtro de empresa: consultar el
+      // modelo directo permitia alcanzar la razon social de otra empresa con
+      // solo cambiar el identificador de la ruta.
+      const current = await new SystemSettingTradeNameService().show(
+        Number(systemSettingTradeNameId)
+      )
 
       if (!current) {
         response.status(404)
@@ -974,10 +978,12 @@ export default class SystemSettingTradeNameController {
         }
       }
 
-      const current = await SystemSettingTradeName.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_trade_name_id', systemSettingTradeNameId)
-        .first()
+      // Pasa por el servicio para heredar el filtro de empresa: consultar el
+      // modelo directo permitia alcanzar la razon social de otra empresa con
+      // solo cambiar el identificador de la ruta.
+      const current = await new SystemSettingTradeNameService().show(
+        Number(systemSettingTradeNameId)
+      )
 
       if (!current) {
         response.status(404)
