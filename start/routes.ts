@@ -122,6 +122,7 @@ import './routes/work_disability_note_routes.js'
  * duplicado, así que su baja requiere analisis propio.
  */
 
+import './routes/employee_photo_routes.js'
 import './routes/employee_children_routes.js'
 import './routes/employee_spouse_routes.js'
 import './routes/address_type_routes.js'

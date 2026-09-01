@@ -20,6 +20,8 @@ const employeesSensitiveRead = (action: EmployeeActionSlug): PermissionGateOptio
  */
 export const EMPLOYEES_READ_PERMISSION_DECLARATIONS = {
   showEmployee: employeesStandard('tab-trabajo-read'),
+  /** Foto de perfil: mismo permiso que ver la ficha del empleado. */
+  streamEmployeePhoto: employeesStandard('tab-trabajo-read'),
   getEmployeeById: employeesStandard('tab-trabajo-read'),
   getEmployeeByPerson: employeesStandard('tab-trabajo-read'),
   getSalaryHistory: employeesStandard('tab-trabajo-read'),
