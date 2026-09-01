@@ -100,7 +100,9 @@ export default class ShiftExceptionEvidenceController {
 
   async index({ response }: HttpContext) {
     try {
-      const shiftExceptionEvidences = await ShiftExceptionEvidence.query().whereNull('shift_exception_evidence_deleted_at')
+      // Pasa por el servicio para heredar el filtro de tenant: consultar el
+      // modelo directo devolvia las evidencias de todas las empresas.
+      const shiftExceptionEvidences = await new ShiftExceptionEvidenceService().index()
       return response.status(200).json({
         type: 'success',
         title: 'Successfully action',

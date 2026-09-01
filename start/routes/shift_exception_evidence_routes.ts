@@ -25,6 +25,21 @@ router
       .use(
         middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showShiftExceptionEvidence)
       )
+    router
+      .get(
+        '/:shiftExceptionEvidenceId/file',
+        '#controllers/shift_exception_evidence_stream_controller.show'
+      )
+      .use(
+        middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showShiftExceptionEvidence)
+      )
   })
   .use(middleware.auth())
+  /**
+   * Sin `businessScope()` el `TenantContext` no se activa, y entonces el filtro
+   * de tenant que hereda `ShiftExceptionEvidence` de `ShiftException` no se
+   * aplica: `index` devolvia las evidencias de TODAS las empresas y `show`
+   * entregaba cualquiera cambiando el id. Son justificantes de RH.
+   */
+  .use(middleware.businessScope())
   .prefix('/api/shift-exception-evidences')
