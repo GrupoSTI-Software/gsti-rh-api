@@ -124,6 +124,24 @@ export default await Env.create(new URL('../', import.meta.url), {
    * antes estaban escritas dentro del código. Separados por coma. (USRH1787178944072)
    */
   ASSIST_SYNC_ALERT_EMAILS: Env.schema.string.optional(),
+  /**
+   * Ventana hacia atrás, en horas, dentro de la cual el API acepta una checada cuya
+   * hora de captura es anterior a la de recepción. Sin definir aplica el default del
+   * accesor (72 h). El valor se satura al intervalo [1, 168] fijado en código: fuera
+   * de rango no interrumpe el registro de checadas, se satura y queda en bitácora.
+   * No es configuración de negocio: no vive en `system_settings` y no se publica.
+   * (USRH1788135907803)
+   */
+  ASSIST_PUNCH_TIME_MAX_BACKDATE_HOURS: Env.schema.number.optional(),
+  /**
+   * Tolerancia, en segundos, para una hora de captura por delante del reloj del
+   * servidor. Default 120: absorbe el desfase natural del reloj de los equipos, que
+   * si no haría perder la checada de todo teléfono adelantado. Aplica a todos los
+   * medios, kiosco y captura administrativa incluidos. Se pone en 0 cuando el equipo
+   * aprenda a corregir su propio reloj contra el del servidor. Se satura a [0, 300].
+   * (USRH1788135907803)
+   */
+  ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS: Env.schema.number.optional(),
   /*
   |----------------------------------------------------------
   | Almacenamiento de objetos (DigitalOcean Spaces en produccion,

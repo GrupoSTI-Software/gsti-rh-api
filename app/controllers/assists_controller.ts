@@ -20,11 +20,22 @@ import RoleService from '#services/role_service'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { ensureEmployeeAssistWrite } from '#helpers/ensure_employee_assist_write'
 import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
-import { ASSIST_ORIGIN } from '#constants/assist_origin'
 import { ASSIST_SYNC_RUN_UNSCOPED_REASON } from '#constants/assist_sync'
 import { resolveAssistApiError } from '#helpers/assist_api_error'
 import { AssistError } from '#exceptions/assist_error'
 import { TenantContext } from '#utils/tenant_context'
+import AssistIngestionService, {
+  resolvePunchTime,
+} from '#modules/assist-ingestion/assist_ingestion.service'
+import {
+  mapIngestionResultToHttp,
+  resolveAssistOrigin,
+} from '#modules/assist-ingestion/assist_ingestion.controller'
+import {
+  firstValidationIssue,
+  storeAssistValidator,
+} from '#modules/assist-ingestion/validators/store_assist.validator'
+import type { StoreAssistPayload } from '#modules/assist-ingestion/validators/store_assist.validator'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -1040,8 +1051,13 @@ export default class AssistsController {
    *                 default: ''
    *               assistPunchTime:
    *                 type: string
-   *                 format: date
-   *                 description: Assist punch time (YYYY-MM-DD HH:mm:ss)
+   *                 description: |
+   *                   Hora en que ocurrió la checada. ISO-8601 con desfase explícito
+   *                   (`2026-08-30T08:05:00-06:00`) o el formato legado
+   *                   `YYYY-MM-DD HH:mm:ss`, interpretado en UTC-6. Ausente: se usa
+   *                   la hora del servidor. Se acepta dentro de una ventana hacia
+   *                   atrás y sin adelantarse al reloj del servidor más allá de la
+   *                   tolerancia vigente; el ancho de la ventana no se publica.
    *                 required: false
    *                 default: ''
    *               assistLongitude:
@@ -1065,9 +1081,19 @@ export default class AssistsController {
    *                 required: false
    *                 default: 'check'
    *                 enum: [check, eatin, eatout]
+   *               assistChannel:
+   *                 type: string
+   *                 description: |
+   *                   Canal por el que se declara la checada. Vocabulario cerrado.
+   *                   Ausente: se deriva de si registra la propia persona (compatibilidad).
+   *                 required: false
+   *                 enum: [app, kiosk, backoffice, device]
    *     responses:
    *       '201':
-   *         description: Resource processed successfully
+   *         description: |
+   *           Checada procesada. **Los dos desenlaces responden 201**: el desenlace
+   *           viaja en `data.outcome` (`inserted` = se registró ahora, `preexisting`
+   *           = ya estaba y no se creó un segundo registro), nunca en el estado.
    *         content:
    *           application/json:
    *             schema:
@@ -1084,7 +1110,23 @@ export default class AssistsController {
    *                   description: Message of response
    *                 data:
    *                   type: object
-   *                   description: Processed object
+   *                   properties:
+   *                     assist:
+   *                       type: object
+   *                       description: La fila, insertada o preexistente
+   *                     outcome:
+   *                       type: string
+   *                       enum: [inserted, preexisting]
+   *                     deferred:
+   *                       type: boolean
+   *                       description: La checada llegó con retraso respecto de su hora de captura
+   *                     deferredBySeconds:
+   *                       type: integer
+   *                       description: Segundos de retraso, truncados en cero
+   *                     serverTime:
+   *                       type: string
+   *                       format: date-time
+   *                       description: Hora del servidor en ISO-8601 UTC
    *       '404':
    *         description: Resource not found
    *         content:
@@ -1107,8 +1149,9 @@ export default class AssistsController {
    *       '400':
    *         description: |
    *           Parámetros inválidos. Incluye `employeeId` ausente o no entero positivo
-   *           (key `identificador-de-colaborador-invalido`, code `AST.VAL.002`) o empleado
-   *           inexistente/fuera de alcance (formato legacy con `data`).
+   *           y cuerpo fuera de la lista blanca (code `AST.VAL.002`), o colaborador
+   *           inexistente o de otra empresa (key `colaborador-no-encontrado`, code
+   *           `AST.VAL.008`), indistinguibles entre sí por diseño.
    *         content:
    *           application/json:
    *             examples:
@@ -1121,15 +1164,24 @@ export default class AssistsController {
    *                   detail: El identificador del colaborador es inválido.
    *                   key: identificador-de-colaborador-invalido
    *                   code: AST.VAL.002
-   *               employeeNotFound:
-   *                 summary: Empleado inexistente o fuera de alcance
+   *               unknownChannel:
+   *                 summary: Canal de checada no reconocido
    *                 value:
    *                   type: warning
-   *                   title: Empleado no fue encontrado
-   *                   message: Empleado no fue encontrado con el ID ingresado
-   *                   data:
-   *                     employeeId: 999999
-   *                     assistPunchTime: null
+   *                   title: Canal de checada no reconocido
+   *                   message: El canal declarado no es uno de los canales permitidos.
+   *                   detail: El canal declarado no es uno de los canales permitidos.
+   *                   key: canal-de-checada-no-reconocido
+   *                   code: AST.VAL.009
+   *               employeeNotFound:
+   *                 summary: Colaborador inexistente o de otra empresa
+   *                 value:
+   *                   type: warning
+   *                   title: Colaborador no encontrado
+   *                   message: El colaborador indicado no existe en la empresa activa.
+   *                   detail: El colaborador indicado no existe en la empresa activa.
+   *                   key: colaborador-no-encontrado
+   *                   code: AST.VAL.008
    *       '403':
    *         description: Captura ajena sin permiso `add-assist-manual` (key `sin-autorizacion-para-registrar-asistencia-ajena`, code `AST.AUTHZ.002`).
    *         content:
@@ -1142,7 +1194,12 @@ export default class AssistsController {
    *               key: sin-autorizacion-para-registrar-asistencia-ajena
    *               code: AST.AUTHZ.002
    *       '422':
-   *         description: Colaborador dado de baja (key `colaborador-dado-de-baja`, code `AST.AUTHZ.001`).
+   *         description: |
+   *           Colaborador dado de baja (key `colaborador-dado-de-baja`, code
+   *           `AST.AUTHZ.001`), hora de captura en el futuro más allá de la
+   *           tolerancia (key `hora-de-captura-en-el-futuro`, code `AST.VAL.005`) u
+   *           hora de captura fuera de la ventana permitida (key
+   *           `hora-de-captura-fuera-de-la-ventana-permitida`, code `AST.VAL.006`).
    *         content:
    *           application/json:
    *             example:
@@ -1216,11 +1273,44 @@ export default class AssistsController {
         }
       }
 
-      let assistPunchTime = request.input('assistPunchTime')
-      const assistLongitude = request.input('assistLongitude')
-      const assistLatitude = request.input('assistLatitude')
-      const assistPrecision = request.input('assistPrecision')
-      const assistType = request.input('assistType')
+      // Lista blanca: el cliente sólo declara el hecho. Todo campo de pertenencia
+      // o de rastro que venga en el cuerpo se descarta aquí y lo deriva el servidor.
+      let payload: StoreAssistPayload
+      try {
+        payload = await storeAssistValidator.validate(request.all())
+      } catch (validationError) {
+        const issue = firstValidationIssue(validationError)
+        // El canal es vocabulario cerrado y tiene rechazo propio: no se normaliza
+        // ni se ignora, y su motivo no se confunde con el resto del cuerpo.
+        if (issue?.field === 'assistChannel') {
+          const detail = t('assist_channel_unknown_message')
+          response.status(400)
+          return {
+            type: 'warning',
+            title: t('assist_channel_unknown_title'),
+            message: detail,
+            detail,
+            key: 'canal-de-checada-no-reconocido',
+            code: ASSIST_ERROR_CODES.VAL_CHANNEL_UNKNOWN,
+          }
+        }
+        const detail = issue?.message ?? t('assist_register_val_employee_id_message')
+        response.status(400)
+        return {
+          type: 'warning',
+          title: t('assist_register_val_employee_id_title'),
+          message: detail,
+          detail,
+          key: 'datos-de-checada-invalidos',
+          code: ASSIST_ERROR_CODES.VAL_EMPLOYEE_ID,
+        }
+      }
+
+      const assistPunchTime = payload.assistPunchTime
+      const assistLongitude = payload.assistLongitude ?? null
+      const assistLatitude = payload.assistLatitude ?? null
+      const assistPrecision = payload.assistPrecision ?? null
+      const assistType = payload.assistType ?? null
       const employee = await Employee.query()
         .withTrashed()
         .where('employee_id', employeeIdNumber)
@@ -1228,14 +1318,18 @@ export default class AssistsController {
         .preload('department')
         .first()
 
+      // Indistinguible de "no existe" aunque el colaborador sea de otra empresa:
+      // el mixin de `Employee` ya lo dejó fuera del alcance y no se delata.
       if (!employee) {
-        const entity = t('employee')
+        const detail = t('assist_employee_not_found_message')
         response.status(400)
         return {
           type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { employeeId: employeeIdNumber, assistPunchTime },
+          title: t('assist_employee_not_found_title'),
+          message: detail,
+          detail,
+          key: 'colaborador-no-encontrado',
+          code: ASSIST_ERROR_CODES.VAL_EMPLOYEE_NOT_FOUND,
         }
       }
 
@@ -1252,30 +1346,33 @@ export default class AssistsController {
         }
       }
 
-      if (isOwner) {
-        assistPunchTime = DateTime.now().setZone('UTC-6').toFormat('yyyy-MM-dd HH:mm:ss')
-      } else if (!assistPunchTime) {
-        assistPunchTime = DateTime.now().setZone('UTC-6').toFormat('yyyy-MM-dd HH:mm:ss')
-      }
-
-
-      let dateTimePunchTime: DateTime = DateTime.fromFormat(assistPunchTime, 'yyyy-MM-dd HH:mm:ss', {zone: 'UTC-6' }).toUTC()
-
-      if (dateTimePunchTime) {
-        const isSummerDate = this.checkDSTSummerTime(dateTimePunchTime.toJSDate())
-
-        if (isSummerDate) {
-          dateTimePunchTime = dateTimePunchTime.plus({ hour: -1 })
+      // La hora que vale es la hora en que ocurrió la checada, no la hora en que se
+      // logró entregar: si el equipo la declara, se respeta, siempre que caiga dentro
+      // de la ventana permitida y no se adelante al reloj del servidor.
+      const resolvedPunchTime = resolvePunchTime(assistPunchTime, DateTime.utc())
+      if (!resolvedPunchTime.ok) {
+        const rejection = resolvedPunchTime.rejection
+        const detail = i18n.t(`${rejection.i18nBase}_message`, undefined, rejection.key)
+        response.status(rejection.status)
+        return {
+          type: 'warning',
+          title: i18n.t(`${rejection.i18nBase}_title`, undefined, rejection.key),
+          message: detail,
+          detail,
+          key: rejection.key,
+          code: rejection.code,
         }
       }
 
-      const assistOrigin = isOwner ? ASSIST_ORIGIN.SELF_SERVICE : ASSIST_ORIGIN.ADMIN_CAPTURE
+      const dateTimePunchTime: DateTime = resolvedPunchTime.punchTimeUtc
+
+      const assistOrigin = resolveAssistOrigin(payload.assistChannel, isOwner)
       const assistCreatedByUserId = isOwner ? null : (auth.user?.userId ?? null)
 
       const assist = {
         assistId: 1,
         assistEmpCode: employee.employeeCode ? employee.employeeCode : '',
-        assistTerminalSn: '',
+        assistTerminalSn: null,
         assistTerminalAlias: '',
         assistAreaAlias: '',
         assistLongitude: assistLongitude,
@@ -1294,6 +1391,8 @@ export default class AssistsController {
         deletedAt: null,
       } as Assist
 
+      // Deduplicación viva heredada: responde 400 ante un reenvío que sí ve.
+      // La retira API-2, que deja la llave natural como criterio único.
       const assistsService = new AssistsService(i18n)
       const verifyInfo = await assistsService.verifyInfo(assist)
 
@@ -1307,17 +1406,27 @@ export default class AssistsController {
         }
       }
 
-      const newAssist = await assistsService.store(assist)
+      // Motor de ingesta: la escritura no puede crear dos filas de la misma checada.
+      const ingestion = await new AssistIngestionService().ingest([
+        {
+          subject: { kind: 'employeeId', employeeId: employee.employeeId },
+          assistType,
+          punchTimeUtc: dateTimePunchTime,
+          geo: {
+            latitude: assistLatitude,
+            longitude: assistLongitude,
+            precision: assistPrecision,
+          },
+          origin: assistOrigin,
+          createdByUserId: assistCreatedByUserId,
+          terminalSn: null,
+          clientRef: null,
+        },
+      ])
 
-      if (newAssist) {
-        response.status(201)
-        return {
-          type: 'success',
-          title: t('resource'),
-          message: t('resource_was_created_successfully'),
-          data: { assist: newAssist },
-        }
-      }
+      const envelope = mapIngestionResultToHttp(ingestion.results[0], i18n)
+      response.status(envelope.status)
+      return envelope.body
     } catch (error) {
       if (error instanceof AssistError) {
         const resolved = resolveAssistApiError(error, 422, i18n)
@@ -1831,30 +1940,6 @@ export default class AssistsController {
         message: t('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
-    }
-  }
-
-  private getMexicoDSTChangeDates (year: number) {
-    const startDST = new Date(year, 3, 1)
-    startDST.setDate(1 + (7 - startDST.getDay()) % 7) // Asegura que es el primer domingo
-
-    // Último domingo de octubre (fin del horario de verano)
-    const endDST = new Date(year, 9, 31)
-    endDST.setDate(endDST.getDate() - endDST.getDay()) // Asegura que es el último domingo
-
-    return { startDST, endDST }
-  }
-
-  private checkDSTSummerTime (date: Date): boolean {
-    const year = date.getFullYear()
-    const { startDST, endDST } = this.getMexicoDSTChangeDates(year)
-
-    if (date >= startDST && date < endDST) {
-      // En horario de verano
-      return true
-    } else {
-      // En horario estándar
-      return false
     }
   }
 

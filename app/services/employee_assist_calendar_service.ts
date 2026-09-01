@@ -192,8 +192,10 @@ export default class EmployeeAssistsCalendarService {
       await Promise.all(promises)
       assistDay = syncAssistService.verifyCheckOutToday(assistDay)
 
-      assistDay.assist = this.fixedCSTSummerTime(DateTime.fromISO(assistDay.day).toJSDate(), assistDay.assist)
-
+      // El calendario devuelve el instante que quedó registrado, tal cual, cualquier
+      // día del año y venga la checada de donde venga (USRH1788135907804). El ajuste
+      // de horario de verano que sumaba una hora entre abril y octubre se retiró:
+      // México dejó de aplicarlo en 2022 y sólo desplazaba lo que la pantalla muestra.
       employeeCalendar.push(assistDay)
     }
     // Ordenar el resultado por día
@@ -204,51 +206,4 @@ export default class EmployeeAssistsCalendarService {
     return employeeCalendar
   }
 
-  private getMexicoDSTChangeDates (year: number) {
-    const startDST = new Date(year, 3, 1)
-    startDST.setDate(1 + (7 - startDST.getDay()) % 7) // Asegura que es el primer domingo
-
-    // Último domingo de octubre (fin del horario de verano)
-    const endDST = new Date(year, 9, 31)
-    endDST.setDate(endDST.getDate() - endDST.getDay()) // Asegura que es el último domingo
-
-    return { startDST, endDST }
-  }
-
-  private checkDSTSummerTime (date: Date): boolean {
-    const year = date.getFullYear()
-    const { startDST, endDST } = this.getMexicoDSTChangeDates(year)
-
-    if (date >= startDST && date < endDST) {
-      // En horario de verano
-      return true
-    } else {
-      // En horario estándar
-      return false
-    }
-  }
-
-  private fixedCSTSummerTime (evaluatedDay: Date, assist: any) {
-    const isSummerTime = this.checkDSTSummerTime(evaluatedDay)
-
-    if (isSummerTime) {
-      if (assist?.checkIn?.assistPunchTimeUtc) {
-        assist.checkIn.assistPunchTimeUtc = DateTime.fromISO(assist.checkIn.assistPunchTimeUtc.toString()).setZone('UTC').plus({ hour: 1 }).toISO()
-      }
-
-      if (assist?.checkEatIn?.assistPunchTimeUtc) {
-        assist.checkEatIn.assistPunchTimeUtc = DateTime.fromISO(assist.checkEatIn.assistPunchTimeUtc.toString()).setZone('UTC').plus({ hour: 1 }).toISO()
-      }
-
-      if (assist?.checkEatOut?.assistPunchTimeUtc) {
-        assist.checkEatOut.assistPunchTimeUtc = DateTime.fromISO(assist.checkEatOut.assistPunchTimeUtc.toString()).setZone('UTC').plus({ hour: 1 }).toISO()
-      }
-
-      if (assist?.checkOut?.assistPunchTimeUtc) {
-        assist.checkOut.assistPunchTimeUtc = DateTime.fromISO(assist.checkOut.assistPunchTimeUtc.toString()).setZone('UTC').plus({ hour: 1 }).toISO()
-      }
-    }
-
-    return assist
-  }
 }
