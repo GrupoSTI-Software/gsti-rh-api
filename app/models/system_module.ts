@@ -1,10 +1,11 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, beforeCreate, column, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import SystemPermission from './system_permission.js'
 import SystemFeature from '#models/system_feature'
-import type { HasMany } from '@adonisjs/lucid/types/relations'
+import SystemModuleGroup from '#models/system_module_group'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 
 /**
  * @swagger
@@ -31,9 +32,13 @@ import type { HasMany } from '@adonisjs/lucid/types/relations'
  *          systemModulePath:
  *            type: string
  *            description: System module path
- *          systemModuleGroup:
- *            type: string
- *            description: System module group
+ *          systemModuleGroupId:
+ *            type: number
+ *            nullable: true
+ *            description: FK al grupo del menú (null si es módulo suelto).
+ *          systemModuleOrder:
+ *            type: number
+ *            description: Posición del módulo dentro de su grupo.
  *          systemModuleActive:
  *            type: number
  *            description: System module status
@@ -71,8 +76,13 @@ export default class SystemModule extends compose(BaseModel, SoftDeletes) {
   @column()
   declare systemModulePath: string
 
+  /** FK al catálogo de grupos. NULL cuando el módulo es suelto (regla 5). */
   @column()
-  declare systemModuleGroup: string
+  declare systemModuleGroupId: number | null
+
+  /** Posición del módulo dentro de su grupo (backfill = system_module_id * 10). */
+  @column()
+  declare systemModuleOrder: number
 
   @column()
   declare systemModuleActive: number
@@ -112,4 +122,13 @@ export default class SystemModule extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'systemModuleId',
   })
   declare features: HasMany<typeof SystemFeature>
+
+  /**
+   * Grupo del menú al que pertenece este módulo.
+   * El nombre de la relación reutiliza `systemModuleGroup` a propósito
+   * (addendum §D de USRH1788282413065): el campo pasa de string a
+   * object | null en el JSON.  Aceptado bajo W2 (release atómico de 3 repos).
+   */
+  @belongsTo(() => SystemModuleGroup, { foreignKey: 'systemModuleGroupId' })
+  declare systemModuleGroup: BelongsTo<typeof SystemModuleGroup>
 }

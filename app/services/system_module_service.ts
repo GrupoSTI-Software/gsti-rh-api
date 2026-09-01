@@ -1,4 +1,5 @@
 import SystemModule from '#models/system_module'
+import SystemModuleGroup from '#models/system_module_group'
 import { SystemModuleFilterSearchInterface } from '../interfaces/system.module_filter_search_interface.js'
 
 export default class SystemModuleService {
@@ -23,10 +24,6 @@ export default class SystemModuleService {
   }
 
   async getGroups() {
-    const groups = await SystemModule.query()
-      .select('system_module_group')
-      .distinct('system_module_group')
-      .orderBy('system_module_group')
-    return groups
+    return SystemModuleGroup.query().orderBy('system_module_group_order')
   }
 }

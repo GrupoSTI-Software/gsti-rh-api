@@ -33,7 +33,6 @@ export default class extends BaseSeeder {
           'Programa de atención de factores de riesgo conforme a NOM-035-STPS-2018 numerales 8.2–8.5',
         systemModules: '1',
         systemModulePath: '/attention-program',
-        systemModuleGroup: '5. NOM-035',
         systemModuleActive: 1,
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>',

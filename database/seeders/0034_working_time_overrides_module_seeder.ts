@@ -52,7 +52,6 @@ export default class extends BaseSeeder {
         systemModuleDescription: 'Jornada propia de la empresa (overrides) sobre el tope federal',
         systemModules: '1',
         systemModulePath: '/working-time-overrides',
-        systemModuleGroup: '4. Configuraciones',
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"

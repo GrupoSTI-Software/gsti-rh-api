@@ -55,8 +55,8 @@ test.group('RolePresetService.computeDesiredPermissionIds / preview', (group) =>
       systemModuleDescription: 'Fixture de prueba',
       systemModules: '1',
       systemModulePath: `/test-role-preset-preview-${stamp}`,
-      systemModuleGroup: 'test',
       systemModuleActive: 1,
+      systemModuleOrder: 10,
       systemModuleIcon: '',
     })
 

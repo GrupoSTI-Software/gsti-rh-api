@@ -39,7 +39,6 @@ export default class extends BaseSeeder {
           'Difusión 5.7.e de resultados agregados y anonimizados por centro de trabajo conforme a NOM-035-STPS-2018',
         systemModules: '1',
         systemModulePath: '/disclosure',
-        systemModuleGroup: '5. NOM-035',
         systemModuleActive: 1,
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18" /><path d="M7 16V9" /><path d="M12 16V6" /><path d="M17 16v-4" /></svg>',

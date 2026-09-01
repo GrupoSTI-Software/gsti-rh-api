@@ -18,7 +18,7 @@ export default class PlatformSystemModuleService {
    * @returns Catálogo completo de módulos.
    */
   async listAll(): Promise<SystemModule[]> {
-    return SystemModule.query().orderBy('system_module_group').orderBy('system_module_id')
+    return SystemModule.query().orderBy('system_module_id')
   }
 
   /**

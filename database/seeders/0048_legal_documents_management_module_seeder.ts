@@ -48,7 +48,6 @@ export default class extends BaseSeeder {
           'Gestión y publicación de versiones del aviso de privacidad, términos y condiciones y consentimiento biométrico (administración de plataforma, reservado al rol root)',
         systemModules: '1',
         systemModulePath: '/legal-documents',
-        systemModuleGroup: '4. Configuraciones',
         systemModuleActive: 1,
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z" /><path d="M9 9h1" /><path d="M9 13h6" /><path d="M9 17h6" /></svg>',

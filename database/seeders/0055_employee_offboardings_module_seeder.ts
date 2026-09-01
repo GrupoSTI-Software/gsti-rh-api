@@ -68,7 +68,6 @@ export default class extends BaseSeeder {
           'Configuración del catálogo de conceptos de salida por empresa: la lista contra la cual se revisa cada salida de personal (entrega de activos, finiquito, adeudos, documentos y accesos)',
         systemModules: '1',
         systemModulePath: '/employee-offboardings',
-        systemModuleGroup: '2. Empresa',
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"

@@ -26,8 +26,8 @@ test.group('RoleService.assignPermissions — trx opcional', (group) => {
       systemModuleDescription: 'Fixture de test',
       systemModules: '1',
       systemModulePath: `/test-assign-trx-${stamp}`,
-      systemModuleGroup: 'test',
       systemModuleActive: 1,
+      systemModuleOrder: 10,
       systemModuleIcon: '',
     })
     permission = await SystemPermission.create({
@@ -103,8 +103,8 @@ test.group('RoleService.assignPermissionsBatch — lote atómico', (group) => {
       systemModuleDescription: 'Fixture de test',
       systemModules: '1',
       systemModulePath: `/test-batch-${stamp}`,
-      systemModuleGroup: 'test',
       systemModuleActive: 1,
+      systemModuleOrder: 10,
       systemModuleIcon: '',
     })
     permission = await SystemPermission.create({
