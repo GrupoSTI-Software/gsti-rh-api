@@ -890,7 +890,6 @@
   "employee_offboarding_document_download_message": "Enlace de descarga generado",
   "employee_offboarding_document_incomplete_detail": "No es posible emitir la constancia de separaci\u00f3n. Falta capturar: {fields}.",
   "employee_offboarding_document_employee_active_detail": "La constancia se emite una vez ejecutada la baja del colaborador.",
-  "employee_offboarding_document_already_issued_detail": "Este expediente ya tiene una constancia de separaci\u00f3n emitida.",
   "employee_offboarding_document_not_found_detail": "El documento no existe o ya no est\u00e1 disponible.",
   "employee_offboarding_document_render_failed_detail": "No fue posible generar el archivo de la constancia.",
   "employee_offboarding_document_storage_failed_detail": "No fue posible almacenar la constancia generada.",

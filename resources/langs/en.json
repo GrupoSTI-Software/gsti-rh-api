@@ -887,7 +887,6 @@
   "employee_offboarding_document_download_message": "Download link generated",
   "employee_offboarding_document_incomplete_detail": "The separation certificate cannot be issued. Missing data: {fields}.",
   "employee_offboarding_document_employee_active_detail": "The certificate is issued once the employee termination has been executed.",
-  "employee_offboarding_document_already_issued_detail": "This case already has an issued separation certificate.",
   "employee_offboarding_document_not_found_detail": "The document does not exist or is no longer available.",
   "employee_offboarding_document_render_failed_detail": "The certificate file could not be generated.",
   "employee_offboarding_document_storage_failed_detail": "The generated certificate could not be stored.",

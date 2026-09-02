@@ -1,3 +1,4 @@
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type BusinessUnit from '#models/business_unit'
 import type Employee from '#models/employee'
 import type EmployeeOffboarding from '#models/employee_offboarding'
@@ -22,6 +23,8 @@ export interface EmployeeOffboardingDocumentCreateData {
   employeeOffboardingDocumentSeniorityDays: number
   employeeOffboardingDocumentContentHash: string
   employeeOffboardingDocumentGeneratedByUserId: number | null
+  /** Id de la emisión que esta reemplaza; `null` en la primera (USRH1787433503692). */
+  employeeOffboardingDocumentSupersededDocumentId: number | null
 }
 
 /**
@@ -51,16 +54,57 @@ export interface DocumentsRepository {
   /** Empresa del expediente (razón social del patrón), por el BU snapshoteado. */
   findBusinessUnit(businessUnitId: number): Promise<BusinessUnit | null>
 
-  /** Documentos vivos del expediente de un tipo (frontera de una emisión en H1a). */
-  countByOffboardingAndType(employeeOffboardingId: number, documentType: string): Promise<number>
+  /**
+   * Contador del folio consecutivo (USRH1787433503692): cuenta INCLUIDAS las
+   * filas borradas lógicamente — un folio consumido nunca se recicla y el
+   * consecutivo no retrocede tras un retiro. Bajo `trx` corre dentro del
+   * lock del expediente.
+   */
+  countByOffboardingAndType(
+    employeeOffboardingId: number,
+    documentType: string,
+    trx?: TransactionClientContract
+  ): Promise<number>
 
-  /** Inserta la emisión ya sellada. */
+  /**
+   * Bloquea con `forUpdate` la fila de `employee_offboardings` YA RESUELTA
+   * en alcance (nunca un id crudo del cliente): serializa el folio y el
+   * traslado de vigencia entre emisiones concurrentes.
+   */
+  lockOffboardingRow(
+    employeeOffboardingId: number,
+    trx: TransactionClientContract
+  ): Promise<EmployeeOffboarding | null>
+
+  /**
+   * Marca como no vigente la emisión vigente anterior (nunca la borra,
+   * regla 2) y devuelve su id para poblar `supersededDocumentId`; `null` si
+   * era la primera. Corre bajo el mismo lock del expediente.
+   *
+   * El invariante "una sola vigente por (expediente, tipo)" lo garantiza el
+   * `forUpdate`, no un índice: MySQL no soporta únicos parciales y un
+   * UNIQUE(expediente, tipo, is_current) impediría el historial apilado.
+   */
+  markCurrentAsSuperseded(
+    employeeOffboardingId: number,
+    documentType: string,
+    trx: TransactionClientContract
+  ): Promise<number | null>
+
+  /** Inserta la emisión ya sellada, dentro de la transacción del lock. */
   createDocument(
-    data: EmployeeOffboardingDocumentCreateData
+    data: EmployeeOffboardingDocumentCreateData,
+    trx: TransactionClientContract
   ): Promise<EmployeeOffboardingDocument>
 
-  /** Documentos vivos del expediente, id descendente. */
-  listByOffboarding(employeeOffboardingId: number): Promise<EmployeeOffboardingDocument[]>
+  /**
+   * Documentos vivos del expediente, id descendente. Sin `includeSuperseded`
+   * solo las vigentes (regla 5); `documentType` acota por tipo.
+   */
+  listByOffboarding(
+    employeeOffboardingId: number,
+    filters: { includeSuperseded: boolean; documentType?: string }
+  ): Promise<EmployeeOffboardingDocument[]>
 
   /** Documento vivo acotado por el expediente; `null` = 404 uniforme. */
   findDocumentInOffboarding(
