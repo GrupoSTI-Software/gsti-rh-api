@@ -206,23 +206,39 @@ async function cleanupFixtures(businessUnitIds: number[], planIds: number[]): Pr
   }
 }
 
-/** Ubica la fila de una empresa recorriendo las páginas del endpoint hasta encontrarla o agotarlas. */
-async function findTenant(
+/**
+ * Recorre todas las páginas del listado (vía `meta.lastPage`) y entrega el
+ * universo de filas más el resumen. Un solo crawl alimenta todas las búsquedas
+ * de una prueba: no se re-pide una página ya leída.
+ */
+async function collectReceivables(
   client: ApiClient,
-  actor: User,
-  publicId: string
-): Promise<TenantBody | undefined> {
+  actor: User
+): Promise<{ tenants: TenantBody[]; resumen: SummaryBody; type: string }> {
+  const tenants: TenantBody[] = []
   let page = 1
+  let type = ''
+  let resumen: SummaryBody | undefined
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const response = await client.get(BASE_URL).qs({ page, limit: 100 }).loginAs(actor)
+    response.assertStatus(200)
     const body = response.body()
-    const tenants = body.data.tenants as TenantBody[]
-    const found = tenants.find((tenant) => tenant.businessUnitPublicId === publicId)
-    if (found) return found
-    if (page >= body.meta.lastPage) return undefined
+    if (page === 1) {
+      type = body.type
+      resumen = body.data.resumen as SummaryBody
+    }
+    tenants.push(...(body.data.tenants as TenantBody[]))
+    if (page >= body.meta.lastPage) {
+      return { tenants, resumen: resumen!, type }
+    }
     page += 1
   }
+}
+
+/** Filas con ese publicId en un universo ya recorrido. Puede haber 0, 1 o más. */
+function findTenants(tenants: TenantBody[], publicId: string): TenantBody[] {
+  return tenants.filter((tenant) => tenant.businessUnitPublicId === publicId)
 }
 
 test.group('GET /api/platform/metrics/receivables', (group) => {
@@ -293,25 +309,17 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
     })
     businessUnitIds.push(buId)
 
-    const response = await client.get(BASE_URL).qs({ limit: 100 }).loginAs(admin!.user)
-    response.assertStatus(200)
+    const collected = await collectReceivables(client, admin!.user)
+    assert.equal(collected.type, 'success')
 
-    const body = response.body()
-    assert.equal(body.type, 'success')
+    const repeticiones = findTenants(collected.tenants, publicId)
+    assert.lengthOf(repeticiones, 1, 'la empresa morosa debe aparecer una sola vez en todas las páginas')
+    const row = repeticiones[0]!
+    assert.equal(row.montoVencidoCents, 580000)
+    assert.equal(row.businessUnitActive, 0, 'la desactivación no perdona la deuda (regla 8)')
+    assert.deepEqual(Object.keys(row).sort(), EXPECTED_TENANT_KEYS.sort())
 
-    const row = await findTenant(client, admin!.user, publicId)
-    assert.isDefined(row, 'la empresa morosa debe aparecer en tenants[]')
-    assert.equal(row!.montoVencidoCents, 580000)
-    assert.equal(row!.businessUnitActive, 0, 'la desactivación no perdona la deuda (regla 8)')
-    assert.deepEqual(Object.keys(row!).sort(), EXPECTED_TENANT_KEYS.sort())
-
-    // Aparece una sola vez: el importe no se multiplica por meses de atraso (regla 3).
-    const repeticiones = (body.data.tenants as TenantBody[]).filter(
-      (tenant) => tenant.businessUnitPublicId === publicId
-    )
-    assert.lengthOf(repeticiones, 1)
-
-    const after = body.data.resumen as SummaryBody
+    const after = collected.resumen
     assert.equal(after.totalVencidoCents - before.totalVencidoCents, 580000)
     assert.equal(after.tenantsVencidos - before.tenantsVencidos, 1)
     assert.match(after.calculadoAl, /^\d{4}-\d{2}-\d{2}$/)
@@ -344,18 +352,18 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
       publicIds.push(created.publicId)
     }
 
-    const afterResponse = await client.get(BASE_URL).qs({ limit: 100 }).loginAs(admin!.user)
-    const body = afterResponse.body()
+    const collected = await collectReceivables(client, admin!.user)
 
     for (const [index, caso] of casos.entries()) {
-      const row = await findTenant(client, admin!.user, publicIds[index]!)
-      assert.isDefined(row, `fila del caso ${caso.suffix}`)
-      assert.equal(row!.diasAtraso, caso.daysLate)
-      assert.equal(row!.bucket, caso.bucket)
-      assert.match(row!.periodoFin, /^\d{4}-\d{2}-\d{2}$/)
+      const matches = findTenants(collected.tenants, publicIds[index]!)
+      assert.lengthOf(matches, 1, `fila del caso ${caso.suffix}`)
+      const row = matches[0]!
+      assert.equal(row.diasAtraso, caso.daysLate)
+      assert.equal(row.bucket, caso.bucket)
+      assert.match(row.periodoFin, /^\d{4}-\d{2}-\d{2}$/)
     }
 
-    const after = body.data.resumen as SummaryBody
+    const after = collected.resumen
     for (const caso of casos) {
       const key = caso.bucket as 'hasta30' | 'de31a60' | 'mas60'
       assert.equal(after.porBucket[key].tenants - before.porBucket[key].tenants, 1)
@@ -398,6 +406,9 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
     assert,
   }) => {
     const stamp = Date.now() + 2
+    const beforeResponse = await client.get(BASE_URL).loginAs(admin!.user)
+    const before = beforeResponse.body().data.resumen as SummaryBody
+
     const { publicId, buId } = await createOverdue({
       planId,
       stamp,
@@ -408,13 +419,20 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
     })
     businessUnitIds.push(buId)
 
-    const row = await findTenant(client, admin!.user, publicId)
+    const collected = await collectReceivables(client, admin!.user)
+    const matches = findTenants(collected.tenants, publicId)
+    assert.lengthOf(matches, 1)
+    const row = matches[0]!
 
-    assert.isDefined(row)
-    assert.equal(row!.montoVencidoCents, 580000, 'el adeudo no se netea (regla 6)')
-    assert.equal(row!.saldoAFavorCents, 100000)
+    assert.equal(row.montoVencidoCents, 580000, 'el adeudo no se netea (regla 6)')
+    assert.equal(row.saldoAFavorCents, 100000)
     // Ningún campo publica la resta ni el neto.
-    assert.notInclude(Object.values(row!), 480000)
+    assert.notInclude(Object.values(row), 480000)
+
+    // El resumen agrega crédito y adeudo por separado: el frontend lee estas dos cifras.
+    const after = collected.resumen
+    assert.equal(after.totalVencidoCents - before.totalVencidoCents, 580000)
+    assert.equal(after.saldoAFavorCents - before.saldoAFavorCents, 100000)
   })
 
   test('CA-5 — activos, en prueba, cancelados y bajas lógicas quedan fuera', async ({
@@ -434,17 +452,17 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
     ]
     for (const excluido of excluidos) businessUnitIds.push(excluido.buId)
 
-    const response = await client.get(BASE_URL).qs({ limit: 100 }).loginAs(admin!.user)
-    const body = response.body()
+    const collected = await collectReceivables(client, admin!.user)
 
     for (const excluido of excluidos) {
-      assert.isUndefined(
-        await findTenant(client, admin!.user, excluido.publicId),
+      assert.lengthOf(
+        findTenants(collected.tenants, excluido.publicId),
+        0,
         `${excluido.publicId} no debe estar en la cartera`
       )
     }
 
-    const after = body.data.resumen as SummaryBody
+    const after = collected.resumen
     assert.equal(after.totalVencidoCents, before.totalVencidoCents)
     assert.equal(after.tenantsVencidos, before.tenantsVencidos)
   })

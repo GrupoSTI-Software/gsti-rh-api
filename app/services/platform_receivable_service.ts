@@ -133,7 +133,7 @@ export default class PlatformReceivableService {
    */
   async listReceivables(filters: ListReceivablesFilters = {}): Promise<ListReceivablesResult> {
     const page = filters.page ?? 1
-    const limit = Math.min(filters.limit ?? 20, 100)
+    const limit = Math.max(1, Math.min(filters.limit ?? 20, 100))
     const offset = (page - 1) * limit
     // Una sola lectura del reloj para las dos consultas: el resumen y las filas
     // tienen que hablar del mismo día aunque el proceso cruce la medianoche.
@@ -246,6 +246,7 @@ export default class PlatformReceivableService {
     limit: number
   ): Promise<ReceivableTenantItem[]> {
     const rows = (await this.overdueQuery()
+      // Excepción deliberada al whereNull de cada tabla tocada: se muestra el nombre del plan aunque esté dado de baja (mismo criterio que platform_tenant_service).
       .leftJoin('billing_plans as bp', 'bp.billing_plan_id', 'bs.billing_plan_id')
       .select([
         'bu.business_unit_public_id as businessUnitPublicId',
