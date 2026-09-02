@@ -36,6 +36,12 @@ export const DISCOUNT_CODE_ERROR_CODES = {
   QUOTE_PLAN_NOT_QUOTABLE: 'PLT.DSC.QUOTE_PLAN_NOT_QUOTABLE',
   /** El plan de la cotización no tiene precio vigente para la fecha de hoy */
   QUOTE_NO_ACTIVE_PRICE: 'PLT.DSC.QUOTE_NO_ACTIVE_PRICE',
+  /**
+   * El descuento del código deja el subtotal del periodo en cero o menos
+   * (USRH1787714804401 §4.5). El canje se rechaza antes de congelar nada:
+   * una contratación en cero no se puede cobrar ni renovar.
+   */
+  SUBTOTAL_ZERO: 'PLT.DSC.SUBTOTAL_ZERO',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.DSC.SYS_UNHANDLED',
 } as const

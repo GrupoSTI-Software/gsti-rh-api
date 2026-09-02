@@ -126,6 +126,24 @@ export function subscriptionPastDueError(): BillingSubscriptionServiceError {
   )
 }
 
+/**
+ * Candado temporal (USRH1787714804401 §4.4, regla 16): mientras la
+ * suscripción tenga un código de descuento vivo (beneficio no agotado),
+ * los tres puntos de autoservicio que recalculan el precio quedan
+ * cerrados. Lo retira el eslabón 9 en su primer commit.
+ */
+export function changeBlockedByDiscountCodeError(): BillingSubscriptionServiceError {
+  const detail =
+    'Esta suscripción tiene un código de descuento vigente y su cupo no puede cambiarse todavía. Escríbenos para ajustarlo.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_BLOCKED_BY_DISCOUNT_CODE,
+    409,
+    'cambio-bloqueado-por-codigo-de-descuento',
+    detail
+  )
+}
+
 /** Periodo vigente sin días por delante para prorratear. */
 export function periodNotProratableError(): BillingSubscriptionServiceError {
   const detail =

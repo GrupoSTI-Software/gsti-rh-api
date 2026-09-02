@@ -1,3 +1,4 @@
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import DiscountCode, { type DiscountCodeKind } from '#models/discount_code'
 import BillingPlan from '#models/billing_plan'
 import BillingCatalogService from '#services/billing_catalog_service'
@@ -384,14 +385,31 @@ export default class DiscountCodeService {
    *
    * Orden de chequeo: existe → activo → vigencia iniciada → vigencia no
    * vencida → cupo de canjes disponible.
+   *
+   * `trx` + `lockForUpdate` (USRH1787714804401 §4/Anexo C §2): cuando el
+   * alta de suscripción canjea el código dentro de su propia transacción,
+   * pasa `lockForUpdate = true` para tomar `SELECT … FOR UPDATE` sobre la
+   * fila del código y bloquear a cualquier otra alta concurrente con el
+   * mismo código hasta el commit. Sin `trx`, se comporta igual que antes
+   * (usado por la cotización de solo lectura, que nunca bloquea nada).
    */
-  async assertRedeemableCode(discountCodeText: string, referenceDate: string): Promise<DiscountCode> {
+  async assertRedeemableCode(
+    discountCodeText: string,
+    referenceDate: string = toBusinessDateString(),
+    trx?: TransactionClientContract,
+    lockForUpdate: boolean = false
+  ): Promise<DiscountCode> {
     const normalizedCode = discountCodeText.trim().toUpperCase()
 
-    const discountCode = await DiscountCode.query()
+    const query = DiscountCode.query(trx ? { client: trx } : {})
       .where('discount_code_code', normalizedCode)
       .whereNull('discount_code_deleted_at')
-      .first()
+
+    if (lockForUpdate) {
+      query.forUpdate()
+    }
+
+    const discountCode = await query.first()
 
     if (!discountCode) {
       throw new DiscountCodeServiceError(
@@ -453,6 +471,50 @@ export default class DiscountCodeService {
     }
 
     return discountCode
+  }
+
+  /**
+   * Consume un canje del código dentro de la transacción del alta
+   * (USRH1787714804401 §4/Anexo C §2). **Único escritor** de
+   * `discount_code_redeemed_count` en todo el sistema: ninguna otra parte
+   * lo mueve ni se captura a mano (regla 7).
+   *
+   * Segunda comprobación del límite, ahora en el propio `UPDATE`: aunque
+   * `assertRedeemableCode(..., trx, true)` ya bloqueó la fila con
+   * `FOR UPDATE` y validó el cupo, este `WHERE` condicional es la defensa
+   * que de verdad impide que el UPDATE mueva el contador más allá del
+   * límite si algo cambiara entre una lectura y otra. Si el UPDATE afecta
+   * cero filas, el cupo ya se agotó y el alta se rechaza — el llamador es
+   * responsable de hacer rollback de la transacción completa.
+   */
+  async consumeRedemptionWithin(
+    discountCodeId: number,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    const affected = await DiscountCode.query({ client: trx })
+      .where('discount_code_id', discountCodeId)
+      .where((builder) => {
+        builder
+          .whereNull('discount_code_max_redemptions')
+          .orWhereRaw('discount_code_redeemed_count < discount_code_max_redemptions')
+      })
+      .increment('discount_code_redeemed_count', 1)
+
+    // `increment` regresa la cantidad afectada (number) o un array según el
+    // driver; normalizamos para no fallar por una forma inesperada.
+    const affectedRows = Array.isArray(affected)
+      ? Number.parseInt(`${affected[0] ?? 0}`, 10) || 0
+      : Number.parseInt(`${affected ?? 0}`, 10) || 0
+
+    if (affectedRows < 1) {
+      throw new DiscountCodeServiceError(
+        `Código de descuento ${discountCodeId} agotó su cupo de canjes al consumirlo`,
+        DISCOUNT_CODE_ERROR_CODES.CODE_EXHAUSTED,
+        422,
+        'codigo-agotado',
+        'El código de descuento agotó su cupo máximo de canjes.'
+      )
+    }
   }
 
   /** Coherencia valor↔tipo (regla 6). */
