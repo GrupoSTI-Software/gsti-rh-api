@@ -32,6 +32,10 @@ import {
   resolveAssistOrigin,
 } from '#modules/assist-ingestion/assist_ingestion.controller'
 import {
+  ASSIST_INGESTION_EMPLOYEE_TERMINATED,
+  ASSIST_INGESTION_FOREIGN_WRITE,
+} from '#modules/assist-ingestion/assist_ingestion.rejections'
+import {
   firstValidationIssue,
   storeAssistValidator,
 } from '#modules/assist-ingestion/validators/store_assist.validator'
@@ -1259,17 +1263,27 @@ export default class AssistsController {
         }
       }
 
-      const { allowed, isOwner } = await ensureEmployeeAssistWrite(auth.user, employeeIdNumber)
+      const { allowed, isOwner, ownerTerminated } = await ensureEmployeeAssistWrite(
+        auth.user,
+        employeeIdNumber
+      )
       if (!allowed) {
-        const detail = t('assist_write_forbidden_message')
-        response.status(403)
+        // La propia checada de alguien dado de baja se niega por su motivo real y
+        // no como captura ajena: el cliente discrimina por `code` y los dos
+        // desenlaces son opuestos —uno se arregla dando un permiso y se debe
+        // reintentar, el otro no se arregla nunca y no tiene sentido insistir—.
+        const rejection = ownerTerminated
+          ? ASSIST_INGESTION_EMPLOYEE_TERMINATED
+          : ASSIST_INGESTION_FOREIGN_WRITE
+        const detail = t(`${rejection.i18nBase}_message`)
+        response.status(rejection.status)
         return {
           type: 'warning',
-          title: t('assist_write_forbidden_title'),
+          title: t(`${rejection.i18nBase}_title`),
           message: detail,
           detail,
-          key: 'sin-autorizacion-para-registrar-asistencia-ajena',
-          code: ASSIST_ERROR_CODES.AUTHZ_FOREIGN_WRITE,
+          key: rejection.key,
+          code: rejection.code,
         }
       }
 
