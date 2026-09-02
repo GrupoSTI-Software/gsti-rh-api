@@ -66,7 +66,7 @@ pone `assist_active = 0` y **conserva** `assist_natural_key`.
 | Camino | Comportamiento ante reenvío idéntico |
 |--------|--------------------------------------|
 | Sync BioTime | `ER_DUP_ENTRY` → contador `duplicates`, corrida continúa |
-| POST `/api/v1/assists` | `verifyInfo` detecta `(assist_emp_id, assist_punch_time)` existente → 400 |
+| POST `/api/v1/assists` | **201 con `outcome: "preexisting"`**: no se crea segunda fila y no se recalcula el calendario. La deduplicación de aplicación por `(assist_emp_id, assist_punch_time)` se retiró en `USRH1788135907801`; el único criterio es la llave natural |
 | Insert directo | MySQL rechaza por UNIQUE |
 
 Tests de regresión: `tests/functional/assist_inactivated_natural_key.spec.ts`,
