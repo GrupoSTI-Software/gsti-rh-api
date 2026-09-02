@@ -46,7 +46,6 @@ export default class extends BaseSeeder {
           'Registro consolidado de eventos traumáticos con canalizaciones y exámenes, para inspección STPS (NOM-035-STPS-2018 §5.8.c)',
         systemModules: '1',
         systemModulePath: '/traumatic-event-reports-registry',
-        systemModuleGroup: '5. NOM-035',
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"

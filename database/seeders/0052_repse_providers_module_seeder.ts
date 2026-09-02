@@ -64,7 +64,6 @@ export default class extends BaseSeeder {
           'Catálogo de proveedores REPSE del contratante y bitácora de validaciones periódicas de folio',
         systemModules: '1',
         systemModulePath: '/repse-providers',
-        systemModuleGroup: '2. Empresa',
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"

@@ -45,7 +45,6 @@ export default class extends BaseSeeder {
           'Configura el período de conservación de evidencia NOM-035-STPS-2018 por empresa (piso legal 1 año, default 4 años)',
         systemModules: '1',
         systemModulePath: '/retention-policy',
-        systemModuleGroup: '5. NOM-035',
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns='http://www.w3.org/2000/svg'

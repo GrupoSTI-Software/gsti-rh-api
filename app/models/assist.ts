@@ -1,13 +1,15 @@
 import { DateTime } from 'luxon'
-import { BaseModel, beforeCreate, beforeSave, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, beforeSave, column, computed } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
 import type { AssistCreateFrom } from '#constants/assist_origin'
-import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
-import { AssistError } from '#exceptions/assist_error'
+import { resolveAssistBusinessUnitId } from '#helpers/assist_business_unit_guard'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
-import { TenantContext } from '#utils/tenant_context'
-import { computeAssistNaturalKey } from '#utils/assist_natural_key'
+import { assistChannelSentinel, computeAssistNaturalKey } from '#utils/assist_natural_key'
+import {
+  assistArrivalDelayInSeconds,
+  isAssistArrivalDeferred,
+} from '#modules/assist-ingestion/assist_ingestion.constants'
 
 /**
  * @swagger
@@ -147,27 +149,28 @@ export default class Assist extends compose(BaseModel, SoftDeletes, withBusiness
   /**
    * Resuelve `businessUnitId` desde la unidad activa del request.
    * Fail-closed: sin contexto resoluble lanza `AssistError`.
+   *
+   * **Invariante:** un `businessUnitId` explícito NUNCA se pisa. Es el contrato con
+   * el motor de ingesta (`#modules/assist-ingestion`), que resuelve la empresa por su
+   * cuenta porque también corre fuera de un request —el canal del checador físico
+   * llegará sin sesión— y no puede apoyarse en el alcance activo.
+   *
+   * El rechazo lo emite `resolveAssistBusinessUnitId`, compartido con ese módulo,
+   * para que los dos caminos respondan el mismo `{title, detail, key, code}`.
    */
   @beforeCreate()
   static assignBusinessUnitId(instance: Assist) {
     if (instance.businessUnitId) return
-
-    const [businessUnitId] = TenantContext.getScope()
-    if (!businessUnitId) {
-      throw new AssistError(
-        'Empresa de la checada no resuelta',
-        ASSIST_ERROR_CODES.TENANT_UNRESOLVED,
-        422,
-        'empresa-de-la-checada-no-resuelta',
-        'La checada no trae empresa y no hay una unidad activa en el alcance.'
-      )
-    }
-    instance.businessUnitId = businessUnitId
+    instance.businessUnitId = resolveAssistBusinessUnitId()
   }
 
   /**
    * Calcula la llave natural en `@beforeSave` (no `@beforeCreate`): el sync BioTime
    * muta código, instante y terminal sobre filas ya persistidas.
+   *
+   * Único sitio de escritura de la llave en runtime: aplicar aquí el centinela de
+   * canal cubre el controlador de la app, la captura del Backoffice, el motor de
+   * ingesta, las fábricas de demo, la simulación de onboarding y el sync.
    */
   @beforeSave()
   static assignNaturalKey(instance: Assist) {
@@ -178,7 +181,7 @@ export default class Assist extends compose(BaseModel, SoftDeletes, withBusiness
       businessUnitId: instance.businessUnitId,
       assistEmpCode: instance.assistEmpCode,
       assistPunchTimeUtc: instance.assistPunchTimeUtc,
-      assistTerminalSn: instance.assistTerminalSn,
+      assistTerminalSn: assistChannelSentinel(instance.assistOrigin, instance.assistTerminalSn),
     })
   }
 
@@ -191,6 +194,15 @@ export default class Assist extends compose(BaseModel, SoftDeletes, withBusiness
   @column.dateTime({ autoCreate: true })
   declare assistPunchTimeOrigin: DateTime
 
+  /**
+   * Testigo de llegada: el único dato que dice cuándo entró la checada al sistema.
+   *
+   * **Invariante:** lo llena `autoCreate` con el reloj del servidor y nadie más.
+   * No se acepta del cliente, no se copia de la petición, no lleva `autoUpdate` y
+   * ninguna rama de reenvío lo escribe. `assist_upload_time` y
+   * `assist_punch_time_origin` no sirven para esto: el alta les asigna el mismo
+   * instante del marcaje.
+   */
   @column.dateTime({ autoCreate: true })
   declare assistCreatedAt: DateTime
 
@@ -199,4 +211,28 @@ export default class Assist extends compose(BaseModel, SoftDeletes, withBusiness
 
   @column.dateTime({ columnName: 'assist_deleted_at' })
   declare deletedAt: DateTime | null
+
+  /**
+   * Segundos entre el marcaje y su llegada al servidor, truncados en cero: un reloj
+   * de equipo adelantado nunca produce un retraso negativo. Derivado de los dos
+   * instantes que ya se guardan; no hay columna ni dato nuevo.
+   */
+  @computed()
+  get assistDeferredBySeconds(): number {
+    if (!this.assistPunchTimeUtc || !this.assistCreatedAt) return 0
+    const seconds = assistArrivalDelayInSeconds(this.assistPunchTimeUtc, this.assistCreatedAt)
+    return Number.isFinite(seconds) ? Math.max(0, Math.trunc(seconds)) : 0
+  }
+
+  /**
+   * La checada llegó diferida: el equipo que la registró estuvo sin conexión.
+   *
+   * No distingue causa: una fila del sync que llegó tarde también sale diferida, y
+   * es correcto — llegó tarde. No es un indicador de manipulación.
+   */
+  @computed()
+  get assistDeferred(): boolean {
+    if (!this.assistPunchTimeUtc || !this.assistCreatedAt) return false
+    return isAssistArrivalDeferred(this.assistPunchTimeUtc, this.assistCreatedAt)
+  }
 }

@@ -300,8 +300,10 @@ export default class UserController {
           response.status(400)
           return {
             type: 'warning',
-            title: 'Login',
-            message: 'Employee not found',
+            title: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.title,
+            message: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.detail,
+            detail: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.detail,
+            key: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.key,
             data: { user: {} },
           }
         }
@@ -315,8 +317,10 @@ export default class UserController {
           response.status(400)
           return {
             type: 'warning',
-            title: 'Login',
-            message: 'This device is already associated with another employee.',
+            title: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.title,
+            message: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.detail,
+            detail: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.detail,
+            key: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.key,
             data: { user: {} },
           }
         }

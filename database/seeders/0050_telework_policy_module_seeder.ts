@@ -39,7 +39,6 @@ export default class extends BaseSeeder {
           'Editor del borrador de la Política de Teletrabajo conforme a NOM-037-STPS-2023 numeral 5.2',
         systemModules: '1',
         systemModulePath: '/telework-policy',
-        systemModuleGroup: '7. NOM-037',
         systemModuleActive: 1,
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3h11l5 5v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" /><path d="M15 3v5h5" /><path d="M8 13h8" /><path d="M8 17h5" /></svg>',

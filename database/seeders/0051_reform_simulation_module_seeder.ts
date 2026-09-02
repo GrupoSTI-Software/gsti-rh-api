@@ -56,7 +56,6 @@ export default class extends BaseSeeder {
           'Proyección del impacto de la reforma de jornada de 40 horas sobre el personal activo',
         systemModules: '1',
         systemModulePath: '/reform-simulation',
-        systemModuleGroup: '4. Configuraciones',
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"

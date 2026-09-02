@@ -43,7 +43,6 @@ export default class extends BaseSeeder {
           'Consulta de solo lectura del historial de revelados individuales y exportaciones masivas con datos sensibles',
         systemModules: '1',
         systemModulePath: '/sensitive-data-access-log',
-        systemModuleGroup: '5. NOM-035',
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns='http://www.w3.org/2000/svg'
