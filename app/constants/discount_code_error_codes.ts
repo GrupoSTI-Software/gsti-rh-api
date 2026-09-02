@@ -22,6 +22,20 @@ export const DISCOUNT_CODE_ERROR_CODES = {
   ALREADY_ACTIVE: 'PLT.DSC.ALREADY_ACTIVE',
   /** Se intentó desactivar un código que ya está inactivo */
   ALREADY_INACTIVE: 'PLT.DSC.ALREADY_INACTIVE',
+  /** Código encontrado pero apagado: no puede canjearse ni cotizarse (USRH1787714804400) */
+  CODE_INACTIVE: 'PLT.DSC.CODE_INACTIVE',
+  /** Código encontrado pero su vigencia aún no inicia */
+  CODE_NOT_YET_VALID: 'PLT.DSC.CODE_NOT_YET_VALID',
+  /** Código encontrado pero su vigencia ya terminó */
+  CODE_EXPIRED: 'PLT.DSC.CODE_EXPIRED',
+  /** Código encontrado pero agotó su cupo de canjes */
+  CODE_EXHAUSTED: 'PLT.DSC.CODE_EXHAUSTED',
+  /** El plan de la cotización no existe */
+  QUOTE_PLAN_NOT_FOUND: 'PLT.DSC.QUOTE_PLAN_NOT_FOUND',
+  /** El plan de la cotización es un borrador o está retirado: no se puede cotizar */
+  QUOTE_PLAN_NOT_QUOTABLE: 'PLT.DSC.QUOTE_PLAN_NOT_QUOTABLE',
+  /** El plan de la cotización no tiene precio vigente para la fecha de hoy */
+  QUOTE_NO_ACTIVE_PRICE: 'PLT.DSC.QUOTE_NO_ACTIVE_PRICE',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.DSC.SYS_UNHANDLED',
 } as const
