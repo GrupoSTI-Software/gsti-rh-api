@@ -12,6 +12,7 @@ import {
 } from './assist_ingestion.constants.js'
 import {
   ASSIST_INGESTION_CHANNEL_UNKNOWN,
+  ASSIST_INGESTION_EMPLOYEE_TERMINATED,
   ASSIST_INGESTION_FOREIGN_WRITE,
   ASSIST_INGESTION_INVALID_ITEM,
 } from './assist_ingestion.rejections.js'
@@ -283,7 +284,10 @@ export default class AssistIngestionController {
     // El permiso se resuelve una vez por colaborador distinto, nunca una vez por
     // entrega: evaluarlo una sola vez dejaría colar checadas ajenas detrás de un
     // primer elemento propio.
-    const writeAccess = new Map<number, { allowed: boolean; isOwner: boolean }>()
+    const writeAccess = new Map<
+      number,
+      Awaited<ReturnType<typeof ensureEmployeeAssistWrite>>
+    >()
     const accepted: AssistIngestionItem[] = []
     const originalIndexes: number[] = []
 
@@ -311,7 +315,12 @@ export default class AssistIngestionController {
       }
 
       if (!access.allowed) {
-        results[index].error = rejectionBody(ASSIST_INGESTION_FOREIGN_WRITE, i18n)
+        results[index].error = rejectionBody(
+          access.ownerTerminated
+            ? ASSIST_INGESTION_EMPLOYEE_TERMINATED
+            : ASSIST_INGESTION_FOREIGN_WRITE,
+          i18n
+        )
         continue
       }
 
