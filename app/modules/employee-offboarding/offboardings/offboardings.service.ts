@@ -138,7 +138,7 @@ export default class OffboardingsService {
       throw this.alreadyOpenError()
     }
 
-    return await this.buildDto(result.employeeOffboardingId, employee)
+    return await this.buildDto(result.employeeOffboardingId, employee, businessUnitScope)
   }
 
   /**
@@ -162,7 +162,7 @@ export default class OffboardingsService {
       throw this.caseNotFoundError()
     }
 
-    return await this.buildDto(targetCase.employeeOffboardingId, employee)
+    return await this.buildDto(targetCase.employeeOffboardingId, employee, businessUnitScope)
   }
 
   /**
@@ -220,7 +220,7 @@ export default class OffboardingsService {
     offboarding.employeeOffboardingClosedByUserId = closedByUserId
     await this.repository.saveCase(offboarding)
 
-    return await this.buildDtoForCase(offboarding)
+    return await this.buildDtoForCase(offboarding, businessUnitScope)
   }
 
   /**
@@ -247,18 +247,19 @@ export default class OffboardingsService {
     offboarding.employeeOffboardingClosedByUserId = null
     await this.repository.saveCase(offboarding)
 
-    return await this.buildDtoForCase(offboarding)
+    return await this.buildDtoForCase(offboarding, businessUnitScope)
   }
 
   /** DTO tras cerrar/reabrir: el colaborador se resuelve sin alcance y con trashed. */
   private async buildDtoForCase(
-    offboarding: { employeeOffboardingId: number; employeeId: number }
+    offboarding: { employeeOffboardingId: number; employeeId: number },
+    businessUnitScope: number[]
   ): Promise<EmployeeOffboardingDto> {
     const employee = await this.repository.findEmployeeWithTrashed(offboarding.employeeId)
     if (!employee) {
       throw this.employeeNotFoundError()
     }
-    return await this.buildDto(offboarding.employeeOffboardingId, employee)
+    return await this.buildDto(offboarding.employeeOffboardingId, employee, businessUnitScope)
   }
 
   /**
@@ -363,9 +364,13 @@ export default class OffboardingsService {
   /** Arma el DTO con "hoy" resuelto UNA vez por request (regla 9). */
   private async buildDto(
     employeeOffboardingId: number,
-    employee: Employee
+    employee: Employee,
+    businessUnitScope: number[]
   ): Promise<EmployeeOffboardingDto> {
-    const offboarding = await this.repository.findByIdWithItems(employeeOffboardingId)
+    const offboarding = await this.repository.findByIdWithItems(
+      employeeOffboardingId,
+      businessUnitScope
+    )
     if (!offboarding) {
       throw this.caseNotFoundError()
     }
