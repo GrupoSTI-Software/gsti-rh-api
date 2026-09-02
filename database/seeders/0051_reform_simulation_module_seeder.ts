@@ -4,6 +4,7 @@ import SystemModule from '../../app/models/system_module.js'
 import SystemPermission from '../../app/models/system_permission.js'
 import SystemSettingSystemModule from '../../app/models/system_setting_system_module.js'
 import RoleSystemPermission from '../../app/models/role_system_permission.js'
+import { resolveSystemModuleGroupIds } from '../../app/helpers/system_module_group_seed_resolver.js'
 
 /**
  * Registra en el sistema el módulo "Simulador reforma 40h" (pantalla BO
@@ -47,6 +48,10 @@ export default class extends BaseSeeder {
 
   /** 1. Alta del módulo en el catálogo. */
   private async seedModule() {
+    const groupIdByKey = await resolveSystemModuleGroupIds(
+      ['configuraciones'],
+      '0051_reform_simulation_module_seeder'
+    )
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
@@ -57,6 +62,8 @@ export default class extends BaseSeeder {
         systemModules: '1',
         systemModulePath: '/reform-simulation',
         systemModuleActive: 1,
+        systemModuleOrder: this.moduleId * 10,
+        systemModuleGroupId: groupIdByKey.get('configuraciones'),
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
           width="48"
