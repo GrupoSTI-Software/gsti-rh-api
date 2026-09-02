@@ -21,16 +21,40 @@ export default class PlatformSystemModuleController {
    *   get:
    *     tags:
    *       - Platform System Modules
-   *     summary: Listar todos los módulos del sistema (incluidos inactivos)
+   *     summary: Catálogo completo de módulos con grupo anidado (panel de plataforma)
+   *     description: >
+   *       Devuelve todos los módulos, incluidos los inactivos, con su grupo anidado
+   *       en `systemModuleGroup` (objeto precargado; `null` si el módulo es suelto
+   *       o su grupo fue dado de baja). El grupo viaja anidado porque el panel de
+   *       plataforma no consulta la ruta de catálogo `/api/system-modules/get-groups`.
+   *       Orden clusterizado (R9): grupos en el orden del catálogo, módulos dentro
+   *       del suyo por `systemModuleOrder`, y todos los módulos sueltos juntos
+   *       al final en un único bloque (requerido por PrimeVue `row-group-mode="subheader"`).
+   *       Excluye módulos con baja lógica. No está paginado (USRH1788282413110 §9.4).
    *     security:
    *       - bearerAuth: []
    *     responses:
    *       '200':
-   *         description: Catálogo completo de módulos con su disponibilidad global
+   *         description: Catálogo completo de módulos con grupo anidado en orden clusterizado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: success
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     systemModules:
+   *                       type: array
+   *                       items:
+   *                         $ref: '#/components/schemas/SystemModule'
    *       '401':
    *         description: Sin autenticar
    *       '403':
-   *         description: Usuario sin marcador de plataforma
+   *         description: Usuario sin marcador de plataforma (`AUTH.PLATFORM.FORBIDDEN`)
    */
   async index({ response }: HttpContext) {
     try {
