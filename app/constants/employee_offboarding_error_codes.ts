@@ -81,8 +81,6 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   DOC_CASE_NOT_FOUND: 'OFFB.DOC.CASE_NOT_FOUND',
   /** Documento inexistente, borrado o de otro expediente — 404 uniforme. */
   DOC_NOT_FOUND: 'OFFB.DOC.NOT_FOUND',
-  /** Segunda emisión sobre el mismo expediente (regla 9, H1a) — 409. */
-  DOC_ALREADY_ISSUED: 'OFFB.DOC.ALREADY_ISSUED',
   /** Falta un dato obligatorio del documento (regla 6) — 422. */
   DOC_INCOMPLETE: 'OFFB.DOC.INCOMPLETE',
   /** Colaborador todavía activo (regla 1) — 422. */

@@ -8,6 +8,7 @@ import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_se
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
 import DocumentsService from './documents.service.js'
 import { issueOffboardingDocumentValidator } from './validators/issue_document.validator.js'
+import { listOffboardingDocumentsValidator } from './validators/list_documents.validator.js'
 
 /** Ramos genéricos del resolvedor con los códigos propios del slice. */
 const DOCUMENT_FALLBACKS: EmployeeOffboardingErrorFallbacks = {
@@ -31,13 +32,22 @@ export default class DocumentsController {
    *     tags: [Expediente de salida]
    *     summary: Lista los documentos emitidos del expediente
    *     description: |
-   *       Solo filas vivas, id descendente. Nunca expone la Key de S3 ni
-   *       un tipo MIME: el documento del slice es siempre PDF.
+   *       Solo filas vivas, id descendente. Por defecto devuelve SOLO la
+   *       emisión vigente; con includeSuperseded=true viaja el historial
+   *       completo con las reemplazadas (USRH1787433503692). Nunca expone
+   *       la Key de S3 ni un tipo MIME: el documento del slice es siempre PDF.
    *     parameters:
    *       - in: path
    *         name: offboardingId
    *         required: true
    *         schema: { type: integer }
+   *       - in: query
+   *         name: includeSuperseded
+   *         schema: { type: boolean, default: false }
+   *         description: Incluye las emisiones reemplazadas (historial completo)
+   *       - in: query
+   *         name: documentType
+   *         schema: { type: string, enum: [separation_letter] }
    *     responses:
    *       200:
    *         description: Documentos en data.employeeOffboardingDocuments
@@ -50,8 +60,12 @@ export default class DocumentsController {
     try {
       const service = new DocumentsService(i18n)
       await service.assertCanAccess(auth.user?.roleId, 'read')
+      const filters = await request.validateUsing(listOffboardingDocumentsValidator)
       const offboardingId = this.parseId(request.param('offboardingId'), i18n)
-      const employeeOffboardingDocuments = await service.list(offboardingId, businessUnitScope)
+      const employeeOffboardingDocuments = await service.list(offboardingId, businessUnitScope, {
+        includeSuperseded: filters.includeSuperseded === true,
+        documentType: filters.documentType,
+      })
       return StandardResponseFormatter.success(
         response,
         employeeOffboardingDocuments,
@@ -72,14 +86,16 @@ export default class DocumentsController {
    *     security:
    *       - bearerAuth: []
    *     tags: [Expediente de salida]
-   *     summary: Emite la constancia de separación del expediente
+   *     summary: Emite o re-emite la constancia de separación del expediente
    *     description: |
-   *       Solo con la baja ya ejecutada (regla 1) y con los datos
-   *       obligatorios capturados (regla 6): si falta uno no se produce
-   *       nada. Una sola constancia por expediente en esta historia (regla
-   *       9). PDF fijo en español, privado en S3, con snapshot de lo
-   *       impreso, sello sha256 y tamaño. Sobre expediente cerrado sí se
-   *       emite (regla 12). No muta nada más (regla 17).
+   *       Solo con la baja ya ejecutada y con los datos obligatorios
+   *       capturados: si falta uno no se produce nada. Se emite cuantas
+   *       veces haga falta (USRH1787433503692): cada emisión es una fila
+   *       nueva con folio consecutivo bajo forUpdate, la anterior queda
+   *       reemplazada (nunca se borra) y exactamente una queda vigente.
+   *       PDF fijo en español, privado en S3, con snapshot de lo impreso,
+   *       sello sha256 y tamaño. Sobre expediente cerrado sí se emite.
+   *       No muta nada más.
    *     parameters:
    *       - in: path
    *         name: offboardingId
@@ -102,8 +118,6 @@ export default class DocumentsController {
    *         description: Sin permiso create (key sin-permiso)
    *       404:
    *         description: Expediente fuera del alcance (key expediente-no-encontrado)
-   *       409:
-   *         description: Ya existe una constancia emitida (key constancia-ya-emitida)
    *       422:
    *         description: Baja no ejecutada (key baja-no-ejecutada) o dato faltante (key constancia-incompleta)
    *       500:

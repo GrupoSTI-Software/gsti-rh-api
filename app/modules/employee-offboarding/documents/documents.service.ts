@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto'
 import { cuid } from '@adonisjs/core/helpers'
+import db from '@adonisjs/lucid/services/db'
 import type { I18n } from '@adonisjs/i18n'
 import RoleService from '#services/role_service'
 import SystemSettingService from '#services/system_setting_service'
@@ -115,15 +116,6 @@ export default class DocumentsService {
       throw this.employeeStillActiveError()
     }
 
-    // Regla 9 (frontera de H1a): una sola constancia viva por expediente
-    const existing = await this.repository.countByOffboardingAndType(
-      offboarding.employeeOffboardingId,
-      documentType
-    )
-    if (existing > 0) {
-      throw this.alreadyIssuedError()
-    }
-
     // Datos ya saneados: lo mismo que se imprime es lo que se snapshotea
     const businessUnit = await this.repository.findBusinessUnit(offboarding.businessUnitId)
     const legalName = sanitizeRenderText(businessUnit?.businessUnitLegalName ?? '').slice(
@@ -179,63 +171,129 @@ export default class DocumentsService {
     }
 
     const issuedAt = todayInBusinessZone()
-    const folio = `CS-${offboarding.employeeOffboardingId}-${issuedAt.year}-0001`
+    const departmentOrUnit = departmentName.length > 0 ? departmentName : legalName
 
-    // Regla 7: sin departamento se imprime la unidad de adscripción
-    const buffer = await this.renderOrFail({
-      folio,
-      employeeName,
-      positionName,
-      departmentOrUnit: departmentName.length > 0 ? departmentName : legalName,
-      legalName,
-      hireDateIso,
-      referenceDateIso,
-      seniority: computeSeniority(hireDateIso, referenceDateIso),
-      tradeName: await this.resolveTradeName(offboarding.businessUnitId),
-      issuedAt,
-    })
+    // Regla 3 — folio consecutivo por expediente y tipo. El folio SE IMPRIME
+    // en el PDF, así que se estima ANTES de renderizar (sin lock) y se
+    // CONFIRMA bajo el forUpdate: si otra emisión ganó la carrera, se
+    // re-renderiza con el consecutivo correcto. El lock nunca se sostiene
+    // durante el render ni la subida (transacción corta y al final); el
+    // objeto de un intento perdedor queda huérfano en S3 — degradación
+    // aceptada, nunca una fila que apunte a un objeto inexistente.
+    const MAX_FOLIO_ATTEMPTS = 3
+    for (let attempt = 1; attempt <= MAX_FOLIO_ATTEMPTS; attempt++) {
+      const expectedCount = await this.repository.countByOffboardingAndType(
+        offboarding.employeeOffboardingId,
+        documentType
+      )
+      const folio = this.buildFolio(
+        offboarding.employeeOffboardingId,
+        issuedAt.year,
+        expectedCount + 1
+      )
 
-    const contentHash = createHash('sha256').update(buffer).digest('hex')
-    // Nombre solo con folio y literales del sistema: nunca datos personales
-    const fileName = this.sanitizeFileName(`constancia-de-separacion-${folio}.pdf`)
-    const storedKey = await new UploadService().uploadPrivateBuffer(
-      `${DOCUMENTS_S3_FOLDER}/${offboarding.employeeOffboardingId}/${cuid()}-${fileName}`,
-      buffer,
-      DOCUMENT_MIME_TYPE
-    )
-    if (!storedKey) {
-      throw this.storageFailedError()
+      // Regla 7 de H1a: sin departamento se imprime la unidad de adscripción
+      const buffer = await this.renderOrFail({
+        folio,
+        employeeName,
+        positionName,
+        departmentOrUnit,
+        legalName,
+        hireDateIso,
+        referenceDateIso,
+        seniority: computeSeniority(hireDateIso, referenceDateIso),
+        tradeName: await this.resolveTradeName(offboarding.businessUnitId),
+        issuedAt,
+      })
+
+      const contentHash = createHash('sha256').update(buffer).digest('hex')
+      // Nombre solo con folio y literales del sistema: nunca datos personales
+      const fileName = this.sanitizeFileName(`constancia-de-separacion-${folio}.pdf`)
+      const storedKey = await new UploadService().uploadPrivateBuffer(
+        `${DOCUMENTS_S3_FOLDER}/${offboarding.employeeOffboardingId}/${cuid()}-${fileName}`,
+        buffer,
+        DOCUMENT_MIME_TYPE
+      )
+      if (!storedKey) {
+        throw this.storageFailedError()
+      }
+
+      // Transacción corta y al final: lock del expediente YA resuelto en
+      // alcance, recuento bajo lock, traslado de vigencia (nunca se borra la
+      // anterior, regla 2) e INSERT — un único forUpdate para todo.
+      const record = await db.transaction(async (trx) => {
+        const locked = await this.repository.lockOffboardingRow(
+          offboarding.employeeOffboardingId,
+          trx
+        )
+        if (!locked) {
+          throw this.caseNotFoundError()
+        }
+
+        const countUnderLock = await this.repository.countByOffboardingAndType(
+          offboarding.employeeOffboardingId,
+          documentType,
+          trx
+        )
+        if (countUnderLock !== expectedCount) {
+          // Otra emisión consumió el folio estimado: el impreso ya no
+          // coincidiría con el guardado — se reintenta con el correcto
+          return null
+        }
+
+        const supersededDocumentId = await this.repository.markCurrentAsSuperseded(
+          offboarding.employeeOffboardingId,
+          documentType,
+          trx
+        )
+
+        return await this.repository.createDocument(
+          {
+            employeeOffboardingId: offboarding.employeeOffboardingId,
+            employeeOffboardingDocumentType: documentType,
+            employeeOffboardingDocumentFolio: folio,
+            employeeOffboardingDocumentFile: storedKey,
+            employeeOffboardingDocumentFileName: fileName,
+            employeeOffboardingDocumentSizeBytes: buffer.byteLength,
+            employeeOffboardingDocumentEmployeeName: employeeName,
+            employeeOffboardingDocumentPositionName: positionName,
+            employeeOffboardingDocumentDepartmentName:
+              departmentName.length > 0 ? departmentName : null,
+            employeeOffboardingDocumentLegalName: legalName,
+            employeeOffboardingDocumentHireDate: hireDateIso,
+            employeeOffboardingDocumentReferenceDate: referenceDateIso,
+            employeeOffboardingDocumentReferenceDateSource: referenceDateSource,
+            employeeOffboardingDocumentSeniorityDays: seniorityDays,
+            employeeOffboardingDocumentContentHash: contentHash,
+            employeeOffboardingDocumentGeneratedByUserId: generatedByUserId,
+            employeeOffboardingDocumentSupersededDocumentId: supersededDocumentId,
+          },
+          trx
+        )
+      })
+
+      if (record) {
+        return await this.toDto(record)
+      }
     }
 
-    const record = await this.repository.createDocument({
-      employeeOffboardingId: offboarding.employeeOffboardingId,
-      employeeOffboardingDocumentType: documentType,
-      employeeOffboardingDocumentFolio: folio,
-      employeeOffboardingDocumentFile: storedKey,
-      employeeOffboardingDocumentFileName: fileName,
-      employeeOffboardingDocumentSizeBytes: buffer.byteLength,
-      employeeOffboardingDocumentEmployeeName: employeeName,
-      employeeOffboardingDocumentPositionName: positionName,
-      employeeOffboardingDocumentDepartmentName: departmentName.length > 0 ? departmentName : null,
-      employeeOffboardingDocumentLegalName: legalName,
-      employeeOffboardingDocumentHireDate: hireDateIso,
-      employeeOffboardingDocumentReferenceDate: referenceDateIso,
-      employeeOffboardingDocumentReferenceDateSource: referenceDateSource,
-      employeeOffboardingDocumentSeniorityDays: seniorityDays,
-      employeeOffboardingDocumentContentHash: contentHash,
-      employeeOffboardingDocumentGeneratedByUserId: generatedByUserId,
-    })
-
-    return await this.toDto(record)
+    throw this.concurrencyExhaustedError()
   }
 
-  /** Documentos vivos del expediente, id descendente. */
+  /**
+   * Documentos vivos del expediente, id descendente. Por defecto solo la
+   * vigente (regla 5); el historial se pide con `includeSuperseded`.
+   */
   async list(
     employeeOffboardingId: number,
-    businessUnitScope: number[]
+    businessUnitScope: number[],
+    filters: { includeSuperseded: boolean; documentType?: string }
   ): Promise<EmployeeOffboardingDocumentDto[]> {
     const offboarding = await this.resolveOffboarding(employeeOffboardingId, businessUnitScope)
-    const records = await this.repository.listByOffboarding(offboarding.employeeOffboardingId)
+    const records = await this.repository.listByOffboarding(
+      offboarding.employeeOffboardingId,
+      filters
+    )
     const userIds = [
       ...new Set(
         records
@@ -354,21 +412,30 @@ export default class DocumentsService {
     })
   }
 
-  private alreadyIssuedError() {
-    return new EmployeeOffboardingServiceError({
-      key: 'constancia-ya-emitida',
-      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_ALREADY_ISSUED,
-      httpStatus: 409,
-      title: this.t('employee_offboarding_document_issue_error_title'),
-      detail: this.t('employee_offboarding_document_already_issued_detail'),
-    })
-  }
-
   /**
    * Detalle compuesto en el idioma de la petición con las etiquetas del
    * catálogo (nunca valores de la ficha): "a, b y c" por `Intl.ListFormat`,
    * que resuelve la conjunción por locale sin una clave i18n extra.
    */
+  /** `CS-{expediente}-{año en zona de negocio}-{consecutivo a 4 dígitos}` (regla 3). */
+  private buildFolio(employeeOffboardingId: number, year: number, sequence: number): string {
+    return `CS-${employeeOffboardingId}-${year}-${String(sequence).padStart(4, '0')}`
+  }
+
+  /**
+   * Tras varios intentos la carrera por el folio no se resolvió: estado
+   * excepcional (el botón en vuelo del BO evita llegar aquí) — 500 genérico.
+   */
+  private concurrencyExhaustedError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'error-interno',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_UNEXPECTED,
+      httpStatus: 500,
+      title: this.t('employee_offboarding_unexpected_title'),
+      detail: this.t('employee_offboarding_unexpected_message'),
+    })
+  }
+
   private incompleteError(missing: MissingSeparationLetterField[]) {
     const labels = missing.map((field) => this.t(MISSING_FIELD_LABEL_KEY[field]))
     const fields = new Intl.ListFormat(this.locale, { style: 'long', type: 'conjunction' }).format(
