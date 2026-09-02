@@ -13,48 +13,69 @@ import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
  *   schemas:
  *      SystemModule:
  *        type: object
+ *        description: >
+ *          Módulo del sistema (apartado del menú lateral de Valanserh).
+ *          La relación `systemModuleGroup` se precarga **siempre** en los
+ *          endpoints que devuelven módulos: `null` significa "módulo suelto"
+ *          (sin grupo activo); la clave **nunca** está ausente en el JSON.
+ *          Ausente y nulo son estados distintos — nunca se confunden
+ *          (USRH1788282413110 §9.3).
  *        properties:
  *          systemModuleId:
  *            type: number
- *            description: System module id
+ *            description: Identificador interno del módulo.
  *          systemModuleName:
  *            type: string
- *            description: System module name
+ *            description: Nombre legible del módulo.
  *          systemModuleSlug:
  *            type: string
- *            description: System module slug
+ *            description: Clave estable para rutas e i18n.
  *          systemModuleDescription:
  *            type: string
- *            description: System module description
+ *            description: Descripción del módulo.
  *          systemModules:
  *            type: string
- *            description: System module order
+ *            description: Campo legacy de permisos del módulo.
  *          systemModulePath:
  *            type: string
- *            description: System module path
+ *            description: Ruta de navegación del módulo.
  *          systemModuleGroupId:
  *            type: number
  *            nullable: true
- *            description: FK al grupo del menú (null si es módulo suelto).
+ *            description: >
+ *              FK al grupo del catálogo. `null` cuando el módulo es suelto
+ *              (no pertenece a ningún grupo activo). Señal primaria de módulo suelto.
+ *          systemModuleGroup:
+ *            nullable: true
+ *            description: >
+ *              Objeto del grupo al que pertenece el módulo, **siempre precargado**.
+ *              `null` cuando el módulo es suelto o su grupo fue dado de baja.
+ *              La clave está **siempre presente** en el JSON: ausente ≠ nulo.
+ *              Nunca llega como `""` ni como la cadena `"Sin grupo"`.
+ *            allOf:
+ *              - $ref: '#/components/schemas/SystemModuleGroup'
  *          systemModuleOrder:
  *            type: number
- *            description: Posición del módulo dentro de su grupo.
+ *            description: >
+ *              Posición del módulo dentro de su grupo. Misma escala que
+ *              `systemModuleGroupOrder` (múltiplos de 10) para que los módulos
+ *              sueltos puedan intercalarse entre grupos sin recalcular.
  *          systemModuleActive:
  *            type: number
- *            description: System module status
+ *            description: Estado de disponibilidad global del módulo (1 activo, 0 inactivo).
  *          systemModulePermissionEnforcementActive:
  *            type: boolean
- *            description: Indica si el módulo exige permisos explícitos (interruptor de USRH1785766406721)
+ *            description: Indica si el módulo exige permisos explícitos (USRH1785766406721).
  *          systemModuleIcon:
  *            type: string
- *            description: System module icon path
+ *            description: Icono del módulo.
  *          systemModuleCreatedAt:
  *            type: string
  *          systemModuleUpdatedAt:
  *            type: string
  *          systemModuleDeletedAt:
  *            type: string
- *
+ *            nullable: true
  */
 
 export default class SystemModule extends compose(BaseModel, SoftDeletes) {

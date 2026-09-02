@@ -66,6 +66,18 @@ export interface DeviceModelSummary {
   asignadas: number
   retiradas: number
   delCliente: number
+  /**
+   * Suma en centavos del costo de adquisición de las unidades PROPIAS del
+   * modelo. Las `del_cliente` no llevan costo por R6 del inventario y quedan
+   * fuera. Las retiradas sí suman: se compraron igual. `0` si no hay unidades.
+   */
+  costoAdquisicionCents: number
+  /**
+   * Unidades propias del modelo a las que nadie les capturó el costo. Sin este
+   * dato, `costoAdquisicionCents` se leería como el valor completo del parque
+   * y mentiría.
+   */
+  unidadesPropiasSinCosto: number
 }
 
 /** Respuesta de `GET /api/platform/devices/units/summary`. */
@@ -75,6 +87,10 @@ export interface DeviceInventorySummary {
   asignadas: number
   retiradas: number
   delCliente: number
+  /** Suma en centavos del costo de adquisición de todas las unidades propias vivas. */
+  costoAdquisicionCents: number
+  /** Total de unidades propias vivas sin costo capturado. */
+  unidadesPropiasSinCosto: number
   porModelo: DeviceModelSummary[]
 }
 
@@ -169,6 +185,9 @@ export default class PlatformDeviceService {
       status: PlatformDeviceStockStatus
       origin: PlatformDeviceOrigin
       cnt: string
+      /** SUM() de MySQL llega como DECIMAL, y Knex lo entrega como string. */
+      costCents: string
+      sinCosto: string
     }
 
     const rows = await db
@@ -180,7 +199,12 @@ export default class PlatformDeviceService {
         'm.platform_device_model_name as modelName',
         'm.platform_device_model_slug as modelSlug',
         'd.platform_device_stock_status as status',
-        'd.platform_device_origin as origin'
+        'd.platform_device_origin as origin',
+        // COALESCE porque MySQL devuelve NULL, no 0, cuando todo el grupo es nulo.
+        db.raw('COALESCE(SUM(d.platform_device_acquisition_cost_cents), 0) as costCents'),
+        db.raw(
+          'SUM(CASE WHEN d.platform_device_acquisition_cost_cents IS NULL THEN 1 ELSE 0 END) as sinCosto'
+        )
       )
       .count('* as cnt')
       .groupBy(
@@ -196,7 +220,15 @@ export default class PlatformDeviceService {
       .whereNull('platform_device_model_deleted_at')
       .orderBy('platform_device_model_name')
 
-    const globalCounters = { total: 0, disponibles: 0, asignadas: 0, retiradas: 0, delCliente: 0 }
+    const globalCounters = {
+      total: 0,
+      disponibles: 0,
+      asignadas: 0,
+      retiradas: 0,
+      delCliente: 0,
+      costoAdquisicionCents: 0,
+      unidadesPropiasSinCosto: 0,
+    }
 
     // Mapa de contadores por modelId para plegar las filas agrupadas.
     const byModel = new Map<number, DeviceModelSummary>()
@@ -211,6 +243,8 @@ export default class PlatformDeviceService {
         asignadas: 0,
         retiradas: 0,
         delCliente: 0,
+        costoAdquisicionCents: 0,
+        unidadesPropiasSinCosto: 0,
       })
     }
 
@@ -225,7 +259,22 @@ export default class PlatformDeviceService {
       if (row.origin === 'del_cliente') {
         mc.delCliente += cnt
         globalCounters.delCliente += cnt
-      } else if (row.status === 'disponible') {
+        continue
+      }
+
+      // Desde aquí, todas las filas del grupo son de origen `propia`: el
+      // groupBy ya separó por origen, así que el costo se suma sin volver a
+      // preguntar. Las retiradas también suman — se compraron igual; lo único
+      // que quedó fuera es la baja lógica, filtrada con whereNull arriba.
+      const costCents = Number(row.costCents)
+      const sinCosto = Number(row.sinCosto)
+
+      mc.costoAdquisicionCents += costCents
+      globalCounters.costoAdquisicionCents += costCents
+      mc.unidadesPropiasSinCosto += sinCosto
+      globalCounters.unidadesPropiasSinCosto += sinCosto
+
+      if (row.status === 'disponible') {
         mc.disponibles += cnt
         globalCounters.disponibles += cnt
       } else if (row.status === 'asignada') {
