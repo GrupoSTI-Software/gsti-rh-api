@@ -26,3 +26,20 @@ export function changeInconsistentSnapshotError(detail?: string): BillingPayment
     message
   )
 }
+
+/**
+ * Acuerdo de descuento congelado incoherente o desglose que no cuadra al
+ * cobrar el periodo (USRH1787714804403, reglas 6 y 7).
+ */
+export function discountSnapshotInconsistentError(detail?: string): BillingPaymentServiceError {
+  const message =
+    detail ??
+    'El acuerdo de descuento congelado de la suscripción está incompleto o el desglose no cuadra con el importe cobrado.'
+  return new BillingPaymentServiceError(
+    message,
+    BILLING_PAYMENT_ERROR_CODES.DISCOUNT_SNAPSHOT_INCONSISTENT,
+    500,
+    'descuento-snapshot-inconsistente',
+    message
+  )
+}
