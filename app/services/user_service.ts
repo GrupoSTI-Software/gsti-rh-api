@@ -8,6 +8,9 @@ import { DateTime } from 'luxon'
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogUser } from '../interfaces/MongoDB/log_user.js'
 import mail from '@adonisjs/mail/services/main'
+import env from '#start/env'
+import i18nManager from '@adonisjs/i18n/services/main'
+import { resolveMailLocale } from '#constants/mail_locale'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import Role from '#models/role'
 import { SYSTEM_ROLE_SLUGS } from '#constants/system_roles'
@@ -407,40 +410,52 @@ export default class UserService {
    * ruta de reporte (restablecer + escribir a soporte) para que un acceso no
    * autorizado se detecte de inmediato.
    *
-   * @param url - Origen del backoffice desde el que se hizo el cambio; se usa
-   *   como destino del CTA de inicio de sesión.
+   * Se manda siempre, venga el cambio del backoffice o de la app. La app no
+   * envía cabecera `Origin`, así que el destino del CTA cae a `APP_URL`; si
+   * tampoco hay, el correo sale sin botón. Un aviso de seguridad sin enlace
+   * sigue sirviendo; no mandarlo, no.
+   *
+   * Los textos van en español por {@link resolveMailLocale}, igual que el resto
+   * de los correos.
+   *
+   * @param url - Origen desde el que se hizo el cambio, o null si no lo hay.
+   * @param newUser - Usuario cuya contraseña acaba de cambiar.
    */
-  async sendNewPasswordEmail(url: string, newUser: User) {
+  async sendNewPasswordEmail(url: string | null, newUser: User) {
     const tradeName = 'Valanserh'
     const backgroundImageLogo =
       'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
 
     await newUser.load('person')
     const firstName = newUser.person?.personFirstname || newUser.userEmail
-    const loginUrl = url.replace(/\/$/, '')
+    const loginUrl = (url ?? env.get('APP_URL', '')).replace(/\/$/, '')
+
+    // El idioma del correo no lo decide la petición: sale del punto único.
+    const mailI18n = i18nManager.locale(resolveMailLocale())
+    const t = mailI18n.formatMessage.bind(mailI18n)
 
     // El enlace de soporte se compone aquí (dirección fija del producto) y la
     // vista lo imprime sin escapar: el catálogo solo aporta el texto alrededor.
     const supportLink = `<a href="mailto:${SUPPORT_EMAIL}" style="color: #445cba; text-decoration: underline;">${SUPPORT_EMAIL}</a>`
 
-    const subject = this.t('auth.password_changed.subject', { tradeName })
+    const subject = t('auth.password_changed.subject', { tradeName })
     const emailData = {
       tradeName,
       backgroundImageLogo,
       loginUrl,
       firstName,
       subject,
-      preheader: this.t('auth.password_changed.preheader'),
-      title: this.t('auth.password_changed.title'),
-      greetingLead: this.t('auth.password_changed.greeting_lead'),
-      intro: this.t('auth.password_changed.intro'),
-      cta: this.t('auth.password_changed.cta'),
-      ctaCaption: this.t('auth.password_changed.cta_caption', { tradeName }),
-      alertTitle: this.t('auth.password_changed.alert_title'),
-      alertBody: this.t('auth.password_changed.alert_body', { supportLink }),
-      securityNotice: this.t('auth.password_changed.security_notice', { tradeName }),
-      fallbackUrl: this.t('auth.password_changed.fallback_url'),
-      footer: this.t('auth.password_changed.footer', { tradeName }),
+      preheader: t('auth.password_changed.preheader'),
+      title: t('auth.password_changed.title'),
+      greetingLead: t('auth.password_changed.greeting_lead'),
+      intro: t('auth.password_changed.intro'),
+      cta: t('auth.password_changed.cta'),
+      ctaCaption: t('auth.password_changed.cta_caption', { tradeName }),
+      alertTitle: t('auth.password_changed.alert_title'),
+      alertBody: t('auth.password_changed.alert_body', { supportLink }),
+      securityNotice: t('auth.password_changed.security_notice', { tradeName }),
+      fallbackUrl: t('auth.password_changed.fallback_url'),
+      footer: t('auth.password_changed.footer', { tradeName }),
     }
 
     const userEmail = resolveMailSender()

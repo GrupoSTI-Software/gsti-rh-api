@@ -1,5 +1,6 @@
 import { BaseMail } from '@adonisjs/mail'
 import i18nManager from '@adonisjs/i18n/services/main'
+import { resolveMailLocale } from '#constants/mail_locale'
 
 export interface PasswordRecoveryMailBranding {
   tradeName: string
@@ -29,7 +30,8 @@ export default class PasswordRecoveryMail extends BaseMail {
     const { to, from, firstName, resetUrl, pinCode, language, branding, validityMinutes } =
       this.params
 
-    const i18n = i18nManager.locale(language)
+    // Correo siempre en español hasta el lanzamiento en inglés (mail_locale.ts).
+    const i18n = i18nManager.locale(resolveMailLocale(language))
     const subject = i18n.formatMessage('auth.password_recovery.subject', {
       tradeName: branding.tradeName,
     })
@@ -38,8 +40,6 @@ export default class PasswordRecoveryMail extends BaseMail {
     // `firstName` se imprime desde la vista con `{{ }}` para que Edge lo escape.
     const greetingLead = i18n.formatMessage('auth.password_recovery.greeting_lead')
     const intro = i18n.formatMessage('auth.password_recovery.intro')
-    const cta = i18n.formatMessage('auth.password_recovery.cta')
-    const ctaCaption = i18n.formatMessage('auth.password_recovery.cta_caption')
     const codeLabel = i18n.formatMessage('auth.password_recovery.code_label')
     // `validity` trae `<strong>` alrededor de los minutos para respetar el diseño;
     // la vista la imprime sin escapar. El único dato interpolado es el entero de
@@ -67,8 +67,6 @@ export default class PasswordRecoveryMail extends BaseMail {
         greetingLead,
         firstName,
         intro,
-        cta,
-        ctaCaption,
         codeLabel,
         validity,
         ignoreNotice,
