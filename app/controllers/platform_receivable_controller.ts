@@ -35,6 +35,9 @@ export default class PlatformReceivableController {
    *       El saldo a favor viaja aparte y jamás se resta del adeudo.
    *       Se resuelve en el momento de la consulta: sin caché, sin proceso nocturno y sin
    *       tabla intermedia. Nunca expone el identificador interno de la empresa ni datos fiscales.
+   *       Aparte del universo past_due viaja canceladas[]: los clientes que cancelaron debiendo.
+   *       Invariante del contrato: ningún campo de esta respuesta es —ni podrá ser— la suma de
+   *       resumen.totalVencidoCents y el importe de canceladas[]. Son dos conjuntos que no se suman.
    *       Requiere sesión válida y is_platform_admin = 1.
    *     security:
    *       - bearerAuth: []
@@ -136,6 +139,45 @@ export default class PlatformReceivableController {
    *                             format: date
    *                           saldoAFavorCents:
    *                             type: integer
+   *                     canceladas:
+   *                       type: array
+   *                       description: |
+   *                         Suscripciones canceladas cuyo último periodo cerró sin pagarse antes de la
+   *                         cancelación. Conjunto ajeno a tenants[] y a resumen: su importe NO está
+   *                         incluido en resumen.totalVencidoCents y no cae en ningún tramo de antigüedad.
+   *                         Corresponde a gestión manual, no a cobranza recurrente.
+   *                         No se pagina: la paginación de meta aplica solo a tenants[].
+   *                         La deuda va congelada, por eso no trae bucket ni días de atraso contra hoy.
+   *                         Una misma empresa puede aparecer más de una vez si canceló debiendo en más
+   *                         de una suscripción.
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           businessUnitPublicId:
+   *                             type: string
+   *                             format: uuid
+   *                           businessUnitName:
+   *                             type: string
+   *                           businessUnitActive:
+   *                             type: integer
+   *                             description: 0 cuando la empresa está desactivada. No la excluye.
+   *                           planName:
+   *                             type: string
+   *                             nullable: true
+   *                           montoAdeudadoCents:
+   *                             type: integer
+   *                             description: Total contratado CON IVA en centavos, congelado al momento de la baja.
+   *                           periodoFin:
+   *                             type: string
+   *                             format: date
+   *                             example: "2026-06-30"
+   *                           canceladoEl:
+   *                             type: string
+   *                             format: date
+   *                             example: "2026-07-15"
+   *                           diasAtrasoAlCancelar:
+   *                             type: integer
+   *                             description: Días completos entre periodoFin y canceladoEl. No se recalcula contra hoy.
    *                 meta:
    *                   type: object
    *                   properties:
@@ -189,13 +231,14 @@ export default class PlatformReceivableController {
    *   El importe publicado es el total contratado CON IVA y cada morosa aporta un solo periodo.\
    *   El resumen se calcula sobre la cartera completa, nunca sobre la página.\
    *   El saldo a favor viaja aparte y jamás se resta del adeudo.\
-   *   Solo lectura; nunca expone el identificador interno de la empresa ni datos fiscales.
+   *   Solo lectura; nunca expone el identificador interno de la empresa ni datos fiscales.\
+   *   Aparte viaja canceladas[] con quienes cancelaron debiendo: no suma al total vencido y es gestión manual.
    * @tag Platform · Métricas
    * @operationId getPlatformReceivables
    * @security [{"bearerAuth": []}]
    * @paramQuery page - Página (default 1) - integer
    * @paramQuery limit - Resultados por página, máx 100 (default 20) - integer
-   * @responseBody 200 - {"type": "success", "data": {"resumen": {"totalVencidoCents": 580000, "tenantsVencidos": 1, "saldoAFavorCents": 100000, "porBucket": {"hasta30": {"tenants": 1, "montoCents": 580000}, "de31a60": {"tenants": 0, "montoCents": 0}, "mas60": {"tenants": 0, "montoCents": 0}}, "calculadoAl": "2026-09-02"}, "tenants": [{"businessUnitPublicId": "uuid", "businessUnitName": "Empresa Demo", "businessUnitActive": 1, "planName": "Plan Pro", "montoVencidoCents": 580000, "diasAtraso": 12, "bucket": "hasta30", "periodoFin": "2026-08-21", "saldoAFavorCents": 100000}]}, "meta": {"total": 1, "page": 1, "limit": 20, "lastPage": 1}}
+   * @responseBody 200 - {"type": "success", "data": {"resumen": {"totalVencidoCents": 580000, "tenantsVencidos": 1, "saldoAFavorCents": 100000, "porBucket": {"hasta30": {"tenants": 1, "montoCents": 580000}, "de31a60": {"tenants": 0, "montoCents": 0}, "mas60": {"tenants": 0, "montoCents": 0}}, "calculadoAl": "2026-09-03"}, "tenants": [{"businessUnitPublicId": "uuid", "businessUnitName": "Empresa Demo", "businessUnitActive": 1, "planName": "Plan Pro", "montoVencidoCents": 580000, "diasAtraso": 12, "bucket": "hasta30", "periodoFin": "2026-08-21", "saldoAFavorCents": 100000}], "canceladas": [{"businessUnitPublicId": "uuid", "businessUnitName": "Empresa Baja", "businessUnitActive": 1, "planName": "Plan Pro", "montoAdeudadoCents": 348000, "periodoFin": "2026-06-30", "canceladoEl": "2026-07-15", "diasAtrasoAlCancelar": 15}]}, "meta": {"total": 1, "page": 1, "limit": 20, "lastPage": 1}}
    * @responseBody 422 - {"title": "No fue posible obtener la cartera vencida", "detail": "El límite de resultados por página no puede ser mayor a 100.", "key": "no-fue-posible-obtener-la-cartera-vencida", "code": "PLT.MET.VAL_INPUT"}
    * @responseBody 403 - {"title": "string", "detail": "string", "key": "AUTH.PLATFORM.FORBIDDEN"}
    * @responseBody 500 - {"title": "string", "detail": "string", "key": "error-inesperado-al-obtener-la-cartera-vencida", "code": "PLT.MET.SYS_UNHANDLED"}
