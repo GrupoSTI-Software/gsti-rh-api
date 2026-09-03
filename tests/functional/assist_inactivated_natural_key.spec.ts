@@ -83,7 +83,9 @@ test.group('Assists — inactivada no libera slot de llave natural (CA-23)', (gr
       return Employee.query().where('employee_id', employeeId).firstOrFail()
     }, 'empleado fixture CA-23')
 
-    punchTime = DateTime.fromISO('2026-06-15T14:30:00', { zone: 'utc' })
+    // Dentro de la ventana de hora de captura, para que el POST del criterio HTTP
+    // llegue al motor de ingesta en vez de rebotar por antigüedad.
+    punchTime = DateTime.utc().startOf('second').minus({ hours: 2 })
     terminalSn = `CA23-SN-${Date.now()}`
     empCode = String(employee.employeeCode ?? `CA23-${employeeId}`)
     const syncId = await nextAssistSyncId()
@@ -194,10 +196,14 @@ test.group('Assists — inactivada no libera slot de llave natural (CA-23)', (gr
     assert.equal(rows[0].assistActive, 0)
   })
 
-  test('CA-23 · POST HTTP con mismos datos tampoco re-captura (verifyInfo + tenant)', async ({
+  test('CA-23 · POST HTTP en el mismo segundo no toca la fila del checador', async ({
     client,
     assert,
   }) => {
+    // Tras USRH1788135907801 el único criterio es la llave natural, y la serie real
+    // del checador entra en ella tal cual mientras que la checada de la app entra con
+    // su centinela de canal: son dos hechos distintos del mismo segundo y conviven.
+    // La fila del fixture no se altera; ésa es la garantía que este caso protege.
     const user = await getUserForBusinessUnit(businessUnitId)
 
     const response = await client
@@ -208,12 +214,20 @@ test.group('Assists — inactivada no libera slot de llave natural (CA-23)', (gr
         assistLongitude: 0,
         assistLatitude: 0,
         assistPrecision: 0,
-        assistPunchTime: punchTime.setZone('UTC-6').toFormat('yyyy-MM-dd HH:mm:ss'),
+        assistPunchTime: punchTime.toISO(),
       })
       .loginAs(user)
       .header('X-Business-Unit-Id', publicId)
 
-    assert.oneOf(response.status(), [400, 422])
+    assert.oneOf(response.status(), [201, 403])
+
+    if (response.status() === 201) {
+      const createdId = response.body().data.assist.assistId
+      assert.notEqual(createdId, fixtureAssistId)
+      await TenantContext.runUnscoped(async () => {
+        await Assist.query().withTrashed().where('assist_id', createdId).delete()
+      }, 'limpieza de la checada de app creada en CA-23')
+    }
 
     const rows = await TenantContext.runUnscoped(async () => {
       return Assist.query().where('assist_natural_key', naturalKey)
@@ -221,5 +235,6 @@ test.group('Assists — inactivada no libera slot de llave natural (CA-23)', (gr
 
     assert.lengthOf(rows, 1)
     assert.equal(rows[0].assistId, fixtureAssistId)
+    assert.equal(rows[0].assistActive, 0)
   })
 })

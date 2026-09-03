@@ -1,6 +1,7 @@
 import { test } from '@japa/runner'
 import RegulatoryCoverageModuleSeeder from '#database/seeders/0053_regulatory_coverage_module_seeder'
 import SystemModule from '#models/system_module'
+import SystemModuleGroup from '#models/system_module_group'
 import SystemPermission from '#models/system_permission'
 import SystemSettingSystemModule from '#models/system_setting_system_module'
 import RoleSystemPermission from '#models/role_system_permission'
@@ -41,7 +42,12 @@ test.group('0053_regulatory_coverage_module_seeder — alta del módulo', () => 
     assert.exists(systemModule, 'debe existir el módulo regulatory-coverage')
     assert.equal(systemModule!.systemModuleName, 'Cobertura regulatoria')
     assert.equal(systemModule!.systemModulePath, '/regulatory-coverage')
-    assert.equal(systemModule!.systemModuleGroup, '7. Plataforma')
+    const plataformaGroup = await SystemModuleGroup.findBy('system_module_group_key', 'plataforma')
+    assert.equal(
+      systemModule!.systemModuleGroupId,
+      plataformaGroup?.systemModuleGroupId,
+      'el módulo debe apuntar al grupo "plataforma" del catálogo'
+    )
     assert.equal(
       systemModule!.systemModuleActive,
       1,

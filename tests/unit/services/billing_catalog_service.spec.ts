@@ -130,6 +130,134 @@ test.group('BillingCatalogService — resolvePrice: matemática de cálculo', ()
 })
 
 // ---------------------------------------------------------------------------
+// Módulo: resolvePrice con código de descuento (USRH1787714804400)
+// ---------------------------------------------------------------------------
+
+type DiscountKind = 'percent' | 'fixed_amount' | 'unit_price'
+
+/** Reproduce exactamente el algoritmo de resolvePrice con `appliedCode`. */
+function calculateResolvedPriceWithCode(params: {
+  listPricePerEmployee: number
+  employeeCount: number
+  discountPercent: number
+  taxRate: number
+  appliedCode: { kind: DiscountKind; value: number }
+}) {
+  const { listPricePerEmployee, employeeCount, discountPercent, taxRate, appliedCode } = params
+
+  const pricePerEmployee =
+    appliedCode.kind === 'unit_price' ? appliedCode.value : listPricePerEmployee
+
+  const grossAmount = pricePerEmployee * employeeCount
+  const discountAmount = round2(grossAmount * (discountPercent / 100))
+  const subtotalAfterVolume = round2(grossAmount - discountAmount)
+
+  const listGrossAmount = listPricePerEmployee * employeeCount
+  const listDiscountAmount = round2(listGrossAmount * (discountPercent / 100))
+  const listSubtotal = round2(listGrossAmount - listDiscountAmount)
+  const listTaxAmount = round2(listSubtotal * taxRate)
+  const listTotal = round2(listSubtotal + listTaxAmount)
+
+  let finalSubtotal: number
+  if (appliedCode.kind === 'percent') {
+    const amount = round2(subtotalAfterVolume * (appliedCode.value / 100))
+    finalSubtotal = Math.max(0, round2(subtotalAfterVolume - amount))
+  } else if (appliedCode.kind === 'fixed_amount') {
+    finalSubtotal = Math.max(0, round2(subtotalAfterVolume - appliedCode.value))
+  } else {
+    finalSubtotal = Math.max(0, subtotalAfterVolume)
+  }
+
+  const codeDiscountAmount = round2(listSubtotal - finalSubtotal)
+  const taxAmount = round2(finalSubtotal * taxRate)
+  const total = round2(finalSubtotal + taxAmount)
+
+  return {
+    pricePerEmployee,
+    discountAmount,
+    subtotal: finalSubtotal,
+    taxAmount,
+    total,
+    codeDiscountAmount,
+    undiscounted: { subtotal: listSubtotal, taxAmount: listTaxAmount, total: listTotal },
+  }
+}
+
+test.group('BillingCatalogService — resolvePrice con código percent (después del volumen)', () => {
+  test('120 empleados, tramo 10 %, código percent 15 %', ({ assert }) => {
+    const result = calculateResolvedPriceWithCode({
+      listPricePerEmployee: 79,
+      employeeCount: 120,
+      discountPercent: 10,
+      taxRate: 0.16,
+      appliedCode: { kind: 'percent', value: 15 },
+    })
+    assert.equal(result.undiscounted.subtotal, 8532)
+    assert.equal(result.undiscounted.total, 9897.12)
+    assert.equal(result.subtotal, 7252.2)
+    assert.equal(result.taxAmount, 1160.35)
+    assert.equal(result.total, 8412.55)
+    assert.equal(result.codeDiscountAmount, 1279.8)
+  })
+})
+
+test.group('BillingCatalogService — resolvePrice con código fixed_amount (después del volumen)', () => {
+  test('120 empleados, tramo 10 %, código fixed_amount 1200', ({ assert }) => {
+    const result = calculateResolvedPriceWithCode({
+      listPricePerEmployee: 79,
+      employeeCount: 120,
+      discountPercent: 10,
+      taxRate: 0.16,
+      appliedCode: { kind: 'fixed_amount', value: 1200 },
+    })
+    assert.equal(result.subtotal, 7332)
+    assert.equal(result.taxAmount, 1173.12)
+    assert.equal(result.total, 8505.12)
+    assert.equal(result.codeDiscountAmount, 1200)
+  })
+
+  test('subtotal no negativo: el descuento excede el subtotal disponible, todo queda en cero', ({
+    assert,
+  }) => {
+    const result = calculateResolvedPriceWithCode({
+      listPricePerEmployee: 79,
+      employeeCount: 10,
+      discountPercent: 0,
+      taxRate: 0.16,
+      appliedCode: { kind: 'fixed_amount', value: 1200 },
+    })
+    assert.equal(result.subtotal, 0)
+    assert.equal(result.taxAmount, 0)
+    assert.equal(result.total, 0)
+    // El ahorro reportado es el efectivamente aplicado (790), no el nominal (1200).
+    assert.equal(result.codeDiscountAmount, 790)
+  })
+})
+
+test.group('BillingCatalogService — resolvePrice con código unit_price (sustituye antes del bruto)', () => {
+  test('120 empleados, precio de lista 79 sustituido por 65: el tramo se recalcula sobre el nuevo bruto', ({
+    assert,
+  }) => {
+    const result = calculateResolvedPriceWithCode({
+      listPricePerEmployee: 79,
+      employeeCount: 120,
+      discountPercent: 10,
+      taxRate: 0.16,
+      appliedCode: { kind: 'unit_price', value: 65 },
+    })
+    // El bloque "sin código" conserva el tramo real sobre el precio de lista.
+    assert.equal(result.undiscounted.subtotal, 8532)
+    // El cálculo con código usa el tramo sobre el bruto ya sustituido (780, no 948).
+    assert.equal(result.pricePerEmployee, 65)
+    assert.equal(result.discountAmount, 780)
+    assert.equal(result.subtotal, 7020)
+    assert.equal(result.taxAmount, 1123.2)
+    assert.equal(result.total, 8143.2)
+    assert.equal(result.codeDiscountAmount, 1512)
+  })
+})
+
+// ---------------------------------------------------------------------------
 // Módulo: BillingCatalogServiceError
 // ---------------------------------------------------------------------------
 

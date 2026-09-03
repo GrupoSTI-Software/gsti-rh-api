@@ -1,7 +1,14 @@
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import DiscountCode, { type DiscountCodeKind } from '#models/discount_code'
+import BillingPlan from '#models/billing_plan'
+import BillingCatalogService from '#services/billing_catalog_service'
 import { DISCOUNT_CODE_ERROR_CODES } from '#constants/discount_code_error_codes'
 import { DiscountCodeServiceError } from '#exceptions/discount_code_service_error'
-import { isBusinessCalendarDateBefore } from '#utils/business_date'
+import {
+  isBusinessCalendarDateBefore,
+  toBusinessDateString,
+  toCalendarIsoDate,
+} from '#utils/business_date'
 
 // ---------------------------------------------------------------------------
 // Tipos de entrada / salida
@@ -44,6 +51,44 @@ export interface ListDiscountCodesResult {
   meta: { total: number; page: number; limit: number; lastPage: number }
 }
 
+/** Parámetros de `GET /discount-codes/:discountCodeText/quote` (USRH1787714804400). */
+export interface QuoteWithDiscountCodeInput {
+  discountCodeText: string
+  billingPlanId: number
+  employeeCount: number
+}
+
+/** Un lado de la comparación (con o sin código) de la cotización. */
+export interface DiscountCodeQuotePriceBlock {
+  pricePerEmployee: number
+  discountPercent: number
+  discountAmount: number
+  subtotal: number
+  taxRate: number
+  taxAmount: number
+  total: number
+}
+
+export interface DiscountCodeQuote {
+  discountCodeCode: string
+  discountCodeKind: DiscountCodeKind
+  billingPlanId: number
+  employeeCount: number
+  currency: string
+  trialDays: number
+  effectiveFrom: string
+  /** Precio ya con el descuento por volumen, SIN el código. */
+  undiscounted: DiscountCodeQuotePriceBlock
+  /** Precio con el código aplicado, acumulado después del descuento por volumen. */
+  discounted: DiscountCodeQuotePriceBlock & { codeDiscountAmount: number }
+  /**
+   * `false` cuando el descuento del código deja el subtotal en cero (regla
+   * del subtotal no negativo): la contratación no tendría cargo, así que no
+   * se puede formalizar el contrato en esos términos.
+   */
+  isContractable: boolean
+}
+
 /** Código de error MySQL para violación de índice UNIQUE (defensa en profundidad). */
 const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
 
@@ -60,6 +105,8 @@ const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
  *    lo mueve el canje (USRH1787714804401).
  */
 export default class DiscountCodeService {
+  private readonly catalog = new BillingCatalogService()
+
   /**
    * Listado paginado con filtros. Sin criterios, se comporta como el
    * catálogo completo (sin retirados), orden `discount_code_id asc`.
@@ -230,6 +277,244 @@ export default class DiscountCodeService {
     discountCode.discountCodeActive = 0
     await discountCode.save()
     return discountCode
+  }
+
+  /**
+   * Cotiza el costo de contratar `employeeCount` empleados en el plan
+   * `billingPlanId`, con y sin el código de descuento `discountCodeText`
+   * (USRH1787714804400). Operación de solo lectura: no reserva el código,
+   * no descuenta su cupo y no crea ni modifica ninguna suscripción.
+   *
+   * Orden de validación (falla rápido, del dato más barato al más caro):
+   *  1. El código existe y es redimible hoy (`assertRedeemableCode`).
+   *  2. El plan existe, está publicado y activo (no se cotiza un borrador).
+   *  3. El plan tiene un precio vigente para hoy.
+   */
+  async quoteWithDiscountCode(input: QuoteWithDiscountCodeInput): Promise<DiscountCodeQuote> {
+    const referenceDate = toBusinessDateString()
+    const discountCode = await this.assertRedeemableCode(input.discountCodeText, referenceDate)
+
+    const plan = await BillingPlan.query()
+      .where('billing_plan_id', input.billingPlanId)
+      .first()
+
+    if (!plan) {
+      throw new DiscountCodeServiceError(
+        `Plan ${input.billingPlanId} no encontrado`,
+        DISCOUNT_CODE_ERROR_CODES.QUOTE_PLAN_NOT_FOUND,
+        404,
+        'plan-no-encontrado',
+        'El plan solicitado no existe.'
+      )
+    }
+
+    if (!plan.isPublished || plan.billingPlanActive !== 1) {
+      throw new DiscountCodeServiceError(
+        `Plan ${input.billingPlanId} no está publicado y vigente`,
+        DISCOUNT_CODE_ERROR_CODES.QUOTE_PLAN_NOT_QUOTABLE,
+        422,
+        'plan-no-cotizable',
+        'Solo se puede cotizar un plan publicado y vigente del catálogo. Un plan en borrador no se cotiza.'
+      )
+    }
+
+    let undiscountedResolved
+    let discountedResolved
+    try {
+      // Dos llamadas independientes, no una: el bloque `undiscounted` debe
+      // ser exactamente lo que devuelve `resolvePrice` sin ningún código,
+      // sin importar cómo evolucione el cálculo con código a futuro.
+      undiscountedResolved = await this.catalog.resolvePrice(
+        input.billingPlanId,
+        input.employeeCount,
+        referenceDate
+      )
+      discountedResolved = await this.catalog.resolvePrice(
+        input.billingPlanId,
+        input.employeeCount,
+        referenceDate,
+        { kind: discountCode.discountCodeKind, value: discountCode.discountCodeValue }
+      )
+    } catch {
+      throw new DiscountCodeServiceError(
+        `Plan ${input.billingPlanId} no tiene precio vigente para ${referenceDate}`,
+        DISCOUNT_CODE_ERROR_CODES.QUOTE_NO_ACTIVE_PRICE,
+        422,
+        'sin-precio-vigente',
+        'El plan no tiene un precio vigente en el catálogo para la fecha de hoy.'
+      )
+    }
+
+    return {
+      discountCodeCode: discountCode.discountCodeCode,
+      discountCodeKind: discountCode.discountCodeKind,
+      billingPlanId: input.billingPlanId,
+      employeeCount: input.employeeCount,
+      currency: undiscountedResolved.currency,
+      trialDays: undiscountedResolved.trialDays,
+      // El driver puede devolver la columna DATE como `Date` crudo: se
+      // normaliza siempre a YYYY-MM-DD antes de exponerla en la API.
+      effectiveFrom: toCalendarIsoDate(undiscountedResolved.effectiveFrom) ?? referenceDate,
+      undiscounted: {
+        pricePerEmployee: undiscountedResolved.pricePerEmployee,
+        discountPercent: undiscountedResolved.discountPercent,
+        discountAmount: undiscountedResolved.discountAmount,
+        subtotal: undiscountedResolved.subtotal,
+        taxRate: undiscountedResolved.taxRate,
+        taxAmount: undiscountedResolved.taxAmount,
+        total: undiscountedResolved.total,
+      },
+      discounted: {
+        pricePerEmployee: discountedResolved.pricePerEmployee,
+        discountPercent: discountedResolved.discountPercent,
+        discountAmount: discountedResolved.discountAmount,
+        subtotal: discountedResolved.subtotal,
+        taxRate: discountedResolved.taxRate,
+        taxAmount: discountedResolved.taxAmount,
+        total: discountedResolved.total,
+        codeDiscountAmount: discountedResolved.codeDiscountAmount ?? 0,
+      },
+      isContractable: discountedResolved.subtotal > 0,
+    }
+  }
+
+  /**
+   * Resuelve un texto de código a un `DiscountCode` redimible HOY, o lanza
+   * un error específico con la razón exacta por la que no lo es (regla:
+   * nunca un mensaje genérico de "código inválido").
+   *
+   * Orden de chequeo: existe → activo → vigencia iniciada → vigencia no
+   * vencida → cupo de canjes disponible.
+   *
+   * `trx` + `lockForUpdate` (USRH1787714804401 §4/Anexo C §2): cuando el
+   * alta de suscripción canjea el código dentro de su propia transacción,
+   * pasa `lockForUpdate = true` para tomar `SELECT … FOR UPDATE` sobre la
+   * fila del código y bloquear a cualquier otra alta concurrente con el
+   * mismo código hasta el commit. Sin `trx`, se comporta igual que antes
+   * (usado por la cotización de solo lectura, que nunca bloquea nada).
+   */
+  async assertRedeemableCode(
+    discountCodeText: string,
+    referenceDate: string = toBusinessDateString(),
+    trx?: TransactionClientContract,
+    lockForUpdate: boolean = false
+  ): Promise<DiscountCode> {
+    const normalizedCode = discountCodeText.trim().toUpperCase()
+
+    const query = DiscountCode.query(trx ? { client: trx } : {})
+      .where('discount_code_code', normalizedCode)
+      .whereNull('discount_code_deleted_at')
+
+    if (lockForUpdate) {
+      query.forUpdate()
+    }
+
+    const discountCode = await query.first()
+
+    if (!discountCode) {
+      throw new DiscountCodeServiceError(
+        `Código de descuento ${normalizedCode} no encontrado`,
+        DISCOUNT_CODE_ERROR_CODES.NOT_FOUND,
+        404,
+        'codigo-no-encontrado',
+        'El código de descuento no existe o fue retirado del catálogo.'
+      )
+    }
+
+    if (discountCode.discountCodeActive === 0) {
+      throw new DiscountCodeServiceError(
+        `Código de descuento ${normalizedCode} está inactivo`,
+        DISCOUNT_CODE_ERROR_CODES.CODE_INACTIVE,
+        422,
+        'codigo-inactivo',
+        'El código de descuento está apagado y no se puede canjear.'
+      )
+    }
+
+    // El driver MySQL puede devolver columnas DATE como `Date` crudo en vez
+    // de string: se normalizan siempre antes de comparar (mismo patrón que
+    // `assertSellableForPublic` en billing_catalog_service.ts).
+    const validFrom = toCalendarIsoDate(discountCode.discountCodeValidFrom)
+    const validTo = toCalendarIsoDate(discountCode.discountCodeValidTo)
+
+    if (validFrom && isBusinessCalendarDateBefore(referenceDate, validFrom)) {
+      throw new DiscountCodeServiceError(
+        `Código de descuento ${normalizedCode} aún no inicia su vigencia`,
+        DISCOUNT_CODE_ERROR_CODES.CODE_NOT_YET_VALID,
+        422,
+        'codigo-aun-no-vigente',
+        `El código de descuento entra en vigor hasta el ${validFrom}.`
+      )
+    }
+
+    if (validTo && isBusinessCalendarDateBefore(validTo, referenceDate)) {
+      throw new DiscountCodeServiceError(
+        `Código de descuento ${normalizedCode} ya venció`,
+        DISCOUNT_CODE_ERROR_CODES.CODE_EXPIRED,
+        422,
+        'codigo-vencido',
+        `El código de descuento venció el ${validTo}.`
+      )
+    }
+
+    if (
+      discountCode.discountCodeMaxRedemptions !== null &&
+      discountCode.discountCodeRedeemedCount >= discountCode.discountCodeMaxRedemptions
+    ) {
+      throw new DiscountCodeServiceError(
+        `Código de descuento ${normalizedCode} agotó su cupo de canjes`,
+        DISCOUNT_CODE_ERROR_CODES.CODE_EXHAUSTED,
+        422,
+        'codigo-agotado',
+        'El código de descuento agotó su cupo máximo de canjes.'
+      )
+    }
+
+    return discountCode
+  }
+
+  /**
+   * Consume un canje del código dentro de la transacción del alta
+   * (USRH1787714804401 §4/Anexo C §2). **Único escritor** de
+   * `discount_code_redeemed_count` en todo el sistema: ninguna otra parte
+   * lo mueve ni se captura a mano (regla 7).
+   *
+   * Segunda comprobación del límite, ahora en el propio `UPDATE`: aunque
+   * `assertRedeemableCode(..., trx, true)` ya bloqueó la fila con
+   * `FOR UPDATE` y validó el cupo, este `WHERE` condicional es la defensa
+   * que de verdad impide que el UPDATE mueva el contador más allá del
+   * límite si algo cambiara entre una lectura y otra. Si el UPDATE afecta
+   * cero filas, el cupo ya se agotó y el alta se rechaza — el llamador es
+   * responsable de hacer rollback de la transacción completa.
+   */
+  async consumeRedemptionWithin(
+    discountCodeId: number,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    const affected = await DiscountCode.query({ client: trx })
+      .where('discount_code_id', discountCodeId)
+      .where((builder) => {
+        builder
+          .whereNull('discount_code_max_redemptions')
+          .orWhereRaw('discount_code_redeemed_count < discount_code_max_redemptions')
+      })
+      .increment('discount_code_redeemed_count', 1)
+
+    // `increment` regresa la cantidad afectada (number) o un array según el
+    // driver; normalizamos para no fallar por una forma inesperada.
+    const affectedRows = Array.isArray(affected)
+      ? Number.parseInt(`${affected[0] ?? 0}`, 10) || 0
+      : Number.parseInt(`${affected ?? 0}`, 10) || 0
+
+    if (affectedRows < 1) {
+      throw new DiscountCodeServiceError(
+        `Código de descuento ${discountCodeId} agotó su cupo de canjes al consumirlo`,
+        DISCOUNT_CODE_ERROR_CODES.CODE_EXHAUSTED,
+        422,
+        'codigo-agotado',
+        'El código de descuento agotó su cupo máximo de canjes.'
+      )
+    }
   }
 
   /** Coherencia valor↔tipo (regla 6). */

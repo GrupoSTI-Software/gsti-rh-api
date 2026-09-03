@@ -3381,42 +3381,13 @@ export default class AssistsService {
     return faults
   }
 
-  async store(assist: Assist) {
-    const newAssist = new Assist()
-    newAssist.assistEmpCode = assist.assistEmpCode
-    newAssist.assistTerminalSn = assist.assistTerminalSn
-    newAssist.assistTerminalAlias = assist.assistTerminalAlias
-    newAssist.assistAreaAlias = assist.assistAreaAlias
-    newAssist.assistLongitude = assist.assistLongitude
-    newAssist.assistLatitude = assist.assistLatitude
-    newAssist.assistPrecision = assist.assistPrecision
-    newAssist.assistUploadTime = assist.assistUploadTime
-    newAssist.assistEmpId = assist.assistEmpId
-    newAssist.assistTerminalId = assist.assistTerminalId
-    newAssist.assistSyncId = assist.assistSyncId
-    newAssist.assistType = assist.assistType
-    newAssist.assistOrigin = assist.assistOrigin
-    newAssist.assistCreatedByUserId = assist.assistCreatedByUserId
-    newAssist.assistPunchTime = assist.assistPunchTime
-    newAssist.assistPunchTimeUtc = assist.assistPunchTimeUtc
-    newAssist.assistPunchTimeOrigin = assist.assistPunchTimeOrigin
-    await newAssist.save()
-    const employee = await  Employee.query()
-      .whereNull('employee_deleted_at')
-      .where('employee_code',assist.assistEmpCode )
-      .first()
-    if (employee) {
-      const syncAssistsService = new SyncAssistsService(this.i18n)
-      const filter: SyncAssistsServiceIndexInterface = {
-        date: newAssist.assistPunchTimeUtc.setZone('UTC-6').plus({ day: -1 }).toFormat('yyyy-MM-dd'),
-        dateEnd: newAssist.assistPunchTimeUtc.setZone('UTC-6').plus({ day: 1 }).toFormat('yyyy-MM-dd'),
-        employeeID: employee.employeeId
-      }
-      await syncAssistsService.setDateCalendar(filter)
-    }
-
-    return newAssist
-  }
+  /**
+   * `store()` se retiró en USRH1788135907801: el alta de checadas pasa por
+   * `#modules/assist-ingestion`, único camino de escritura del producto. La versión
+   * anterior resolvía al empleado del recálculo de calendario sólo por
+   * `employee_code`, sin empresa, y podía recalcular el calendario de la persona
+   * equivocada cuando dos empresas comparten código.
+   */
 
   /**
    * Registra una asistencia simplificada mediante WebSocket.
@@ -3494,25 +3465,11 @@ export default class AssistsService {
         data: { ...assist },
       }
     }
-    if (punchTime) {
-      const existDate = await Assist.query()
-        .where('assist_emp_id', assist.assistEmpId)
-        .whereNull('assist_deleted_at')
-        .where('assist_punch_time', sqlPunchTime)
-        .first()
-
-      if (existDate) {
-        const entity = this.t('assist')
-        const param = this.t('assist_register')
-        return {
-          status: 400,
-          type: 'warning',
-          title: this.t('the_value_of_entity_already_exists_for_another_register', { entity: param  }),
-          message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_value_of_entity_is_already_assigned_to_another_register', { entity: param })}`,
-          data: { ...assist },
-        }
-      }
-    }
+    // La deduplicación por (assist_emp_id, assist_punch_time) se retiró en
+    // USRH1788135907801: el único criterio de "ya existe" en el producto es la llave
+    // natural, que el motor de ingesta arbitra con el índice único y contesta como
+    // éxito idempotente. Esta rama devolvía 400 por una checada que sí había quedado
+    // registrada. La validación del instante parseable de arriba se conserva.
     return {
       status: 200,
       type: 'success',

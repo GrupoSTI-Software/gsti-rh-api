@@ -28,7 +28,6 @@ export type EmployeeOffboardingErrorKey =
   | 'documento-no-encontrado'
   | 'constancia-incompleta'
   | 'baja-no-ejecutada'
-  | 'constancia-ya-emitida'
   | 'constancia-no-generada'
   | 'constancia-no-almacenada'
   | 'constancia-descarga-fallida'

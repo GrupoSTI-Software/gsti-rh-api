@@ -66,3 +66,14 @@ export const listDiscountCodesValidator = vine.compile(
     limit: vine.number().positive().withoutDecimals().max(100).optional(),
   })
 )
+
+/**
+ * Query para `GET /api/platform/billing/discount-codes/:discountCodeText/quote`
+ * (USRH1787714804400).
+ */
+export const quoteDiscountCodeValidator = vine.compile(
+  vine.object({
+    billingPlanId: vine.number().positive().withoutDecimals(),
+    employeeCount: vine.number().positive().withoutDecimals(),
+  })
+)

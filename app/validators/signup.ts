@@ -1,4 +1,5 @@
 import vine from '@vinejs/vine'
+import { PASSWORD_COMPLEXITY_PATTERN, PASSWORD_MIN_LENGTH } from '#helpers/password_policy'
 
 export const verifyOtpValidator = vine.compile(
   vine.object({
@@ -13,8 +14,8 @@ export const completeSignupValidator = vine.compile(
     signupToken: vine.string().trim().minLength(1),
     password: vine
       .string()
-      .minLength(12)
-      .regex(/^(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).+$/),
+      .minLength(PASSWORD_MIN_LENGTH)
+      .regex(PASSWORD_COMPLEXITY_PATTERN),
     passwordConfirm: vine.string(),
   })
 )

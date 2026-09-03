@@ -18,6 +18,11 @@ import {
   respondResendAccessRateLimit,
 } from '../helpers/user_resend_access_request_errors.js'
 import {
+  isAuthLoginPath,
+  isAuthLoginRateLimitError,
+  respondAuthLoginRateLimit,
+} from '../helpers/auth_login_request_errors.js'
+import {
   isAuthInvitationPath,
   isAuthInvitationRateLimitError,
   respondAuthInvitationRateLimit,
@@ -85,6 +90,10 @@ export default class HttpExceptionHandler extends ExceptionHandler {
 
     if (isResendAccessRateLimitError(error) && isResendAccessPath(ctx.request.url())) {
       return respondResendAccessRateLimit(ctx, error)
+    }
+
+    if (isAuthLoginRateLimitError(error) && isAuthLoginPath(ctx.request.url())) {
+      return respondAuthLoginRateLimit(ctx, error)
     }
 
     if (isAuthInvitationRateLimitError(error) && isAuthInvitationPath(ctx.request.url())) {

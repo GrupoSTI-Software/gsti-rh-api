@@ -17,6 +17,13 @@ export const createBillingSubscriptionValidator = vine.compile(
      * empresa ya tiene una contratación viva.
      */
     replaceLiveSubscription: vine.boolean().optional(),
+    /**
+     * Texto del código de descuento a canjear (USRH1787714804401 §11.3).
+     * Opcional; solo se valida forma aquí. Existencia, canjeabilidad y
+     * normalización a MAYÚSCULAS las resuelve `assertRedeemableCode`, no
+     * este validador: un texto inexistente es 404 de dominio, no 422 de forma.
+     */
+    discountCode: vine.string().trim().minLength(3).maxLength(40).optional(),
   })
 )
 
