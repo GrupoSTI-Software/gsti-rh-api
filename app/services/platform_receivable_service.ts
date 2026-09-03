@@ -56,6 +56,31 @@ export interface ReceivableTenantItem {
   saldoAFavorCents: number
 }
 
+/**
+ * Suscripción cancelada cuyo último periodo cerró sin pagarse **antes** de que
+ * la empresa se fuera (regla 7). Conjunto ajeno a la cartera vencida: no se
+ * cobra por la vía recurrente y su importe jamás suma al total vencido.
+ *
+ * La deuda va congelada: no trae `bucket` ni días de atraso contra hoy, porque
+ * ya no es una cobranza en curso y un tramo de antigüedad sobre una deuda
+ * muerta invitaría a leerla como si lo fuera.
+ */
+export interface CanceledReceivableItem {
+  businessUnitPublicId: string
+  businessUnitName: string
+  /** `0` cuando la empresa está desactivada. Viaja igual que en la cartera vencida. */
+  businessUnitActive: number
+  planName: string | null
+  /** `contracted_total` (CON IVA) en centavos enteros. Congelado. */
+  montoAdeudadoCents: number
+  /** `current_period_end` recortado a `YYYY-MM-DD`. */
+  periodoFin: string
+  /** `canceled_at` recortado a `YYYY-MM-DD`. */
+  canceladoEl: string
+  /** Días civiles completos entre `periodoFin` y `canceladoEl`. Siempre `0` o más. */
+  diasAtrasoAlCancelar: number
+}
+
 /** Parámetros de paginación para el listado de morosos de la plataforma. */
 export interface ListReceivablesFilters {
   page?: number
@@ -67,6 +92,15 @@ export interface ListReceivablesResult {
   data: {
     resumen: ReceivablesSummary
     tenants: ReceivableTenantItem[]
+    /**
+     * Canceladas con adeudo (regla 6). Conjunto **ajeno** a `tenants[]` y a
+     * `resumen`: ni una de estas filas entra al universo `past_due` ni suma al
+     * total vencido. No se pagina en esta rebanada (hoy son unidades).
+     *
+     * Invariante del contrato: ningún campo de la respuesta es —ni podrá ser—
+     * la suma de `resumen.totalVencidoCents` y el importe de este arreglo.
+     */
+    canceladas: CanceledReceivableItem[]
   }
   meta: { total: number; page: number; limit: number; lastPage: number }
 }
@@ -141,12 +175,13 @@ export default class PlatformReceivableService {
 
     const resumen = await this.loadSummary(businessDate)
     const tenants = await this.loadPage(businessDate, offset, limit)
+    const canceladas = await this.loadCanceled()
 
     // El total sale del conteo agregado, no del largo del arreglo paginado (regla 9).
     const total = resumen.tenantsVencidos
     const lastPage = Math.max(1, Math.ceil(total / limit))
 
-    return { data: { resumen, tenants }, meta: { total, page, limit, lastPage } }
+    return { data: { resumen, tenants, canceladas }, meta: { total, page, limit, lastPage } }
   }
 
   /**
@@ -165,6 +200,44 @@ export default class PlatformReceivableService {
       .where('bs.billing_subscription_status', 'past_due')
       .whereNull('bs.billing_subscription_deleted_at')
       .whereNull('bu.business_unit_deleted_at')
+  }
+
+  /**
+   * Universo de canceladas con adeudo (regla 7): suscripciones canceladas, vivas
+   * en la base, de empresas vivas, cuyo periodo cerró **antes** del día en que
+   * la empresa canceló.
+   *
+   * El criterio se deriva de dos fechas porque el modelo **no tiene marca** de
+   * "canceló debiendo": `past_due` es absorbente y no crea filas de adeudo
+   * (`billing_subscription_clock_service.ts:236-239`), y `cancelWithin` no
+   * escribe bitácora. La otra vía candidata —buscar una transición previa a
+   * `past_due` en `billing_subscription_transitions`— se descartó: esa tabla
+   * solo guarda las tres razones del reloj y tiene alrededor de un mes de
+   * historia, así que subreportaría en silencio.
+   *
+   * Se compara a nivel de día con `DATE(...)` en las dos columnas: son
+   * `TIMESTAMP` y la hora no decide si el periodo quedó impago. Riesgo
+   * declarado y aceptado: una cancelación registrada el **mismo día** del
+   * vencimiento queda fuera.
+   *
+   * Si `current_period_end` fuera nulo, `DATE(NULL) < …` evalúa a NULL y la fila
+   * no pasa el filtro. Es lo correcto: sin fecha de cierre no se puede afirmar
+   * que el periodo quedó impago.
+   *
+   * Los dos `whereNull` van a mano porque las queries crudas de Knex no pasan
+   * por el hook de `SoftDeletes`. `business_unit_active = 0` NO excluye: la
+   * desactivación no perdona la deuda.
+   */
+  private canceledWithDebtQuery() {
+    return db
+      .from('billing_subscriptions as bs')
+      .join('business_units as bu', 'bu.business_unit_id', 'bs.business_unit_id')
+      .where('bs.billing_subscription_status', 'canceled')
+      .whereNull('bs.billing_subscription_deleted_at')
+      .whereNull('bu.business_unit_deleted_at')
+      .whereRaw(
+        'DATE(bs.billing_subscription_current_period_end) < DATE(bs.billing_subscription_canceled_at)'
+      )
   }
 
   /**
@@ -294,6 +367,66 @@ export default class PlatformReceivableService {
       bucket: resolveReceivableBucket(diasAtraso),
       periodoFin,
       saldoAFavorCents: Number(row.saldoAFavorCents ?? 0),
+    }
+  }
+
+  /**
+   * Lista completa de canceladas con adeudo, en el orden del contrato: la baja
+   * más reciente primero, luego el importe más alto, y el nombre comercial como
+   * desempate final. No se pagina: el supuesto de volumen declarado en la HU es
+   * que hoy son unidades, no cientos.
+   *
+   * @returns Las canceladas con adeudo, ya como DTO plano.
+   */
+  private async loadCanceled(): Promise<CanceledReceivableItem[]> {
+    const rows = (await this.canceledWithDebtQuery()
+      // Misma excepción deliberada que en `loadPage`: se muestra el nombre del
+      // plan aunque el plan esté dado de baja.
+      .leftJoin('billing_plans as bp', 'bp.billing_plan_id', 'bs.billing_plan_id')
+      .select([
+        'bu.business_unit_public_id as businessUnitPublicId',
+        'bu.business_unit_name as businessUnitName',
+        'bu.business_unit_active as businessUnitActive',
+        'bp.billing_plan_name as planName',
+        'bs.billing_subscription_current_period_end as periodoFin',
+        'bs.billing_subscription_canceled_at as canceladoEl',
+      ])
+      .select(db.raw(`${CONTRACTED_TOTAL_CENTS_SQL} as montoAdeudadoCents`))
+      .orderByRaw('DATE(bs.billing_subscription_canceled_at) desc')
+      .orderByRaw(`${CONTRACTED_TOTAL_CENTS_SQL} desc`)
+      .orderBy('bu.business_unit_name', 'asc')) as Array<Record<string, unknown>>
+
+    return rows
+      .map((row) => this.toCanceledItem(row))
+      .filter((item): item is CanceledReceivableItem => item !== null)
+  }
+
+  /**
+   * DTO plano de una cancelada con adeudo, armado campo por campo con casteo
+   * explícito. No sale de aquí ningún identificador interno ni ningún dato
+   * fiscal.
+   *
+   * @param row - Fila cruda de `canceledWithDebtQuery`.
+   * @returns La cancelada tal como la publica el contrato, o `null` si alguna de
+   *   las dos fechas llegó vacía — la consulta ya exige que existan, así que una
+   *   fila así solo puede venir de un filtro que no se aplicó, y no se publica
+   *   inventándole fechas.
+   */
+  private toCanceledItem(row: Record<string, unknown>): CanceledReceivableItem | null {
+    const periodoFin = toCalendarIsoDate(row.periodoFin)
+    const canceladoEl = toCalendarIsoDate(row.canceladoEl)
+
+    if (periodoFin === null || canceladoEl === null) return null
+
+    return {
+      businessUnitPublicId: row.businessUnitPublicId as string,
+      businessUnitName: row.businessUnitName as string,
+      businessUnitActive: Number(row.businessUnitActive ?? 0),
+      planName: (row.planName as string | null) ?? null,
+      montoAdeudadoCents: Number(row.montoAdeudadoCents ?? 0),
+      periodoFin,
+      canceladoEl,
+      diasAtrasoAlCancelar: Math.max(0, daysBetweenBusinessDates(periodoFin, canceladoEl)),
     }
   }
 }

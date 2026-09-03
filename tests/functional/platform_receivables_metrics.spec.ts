@@ -35,6 +35,18 @@ const EXPECTED_TENANT_KEYS = [
   'saldoAFavorCents',
 ]
 
+/** Llaves exactas de una cancelada con adeudo. Lista cerrada, igual que la de las filas. */
+const EXPECTED_CANCELADA_KEYS = [
+  'businessUnitActive',
+  'businessUnitName',
+  'businessUnitPublicId',
+  'canceladoEl',
+  'diasAtrasoAlCancelar',
+  'montoAdeudadoCents',
+  'periodoFin',
+  'planName',
+]
+
 interface TestActor {
   user: User
   person: Person
@@ -58,6 +70,17 @@ interface TenantBody {
   bucket: string
   periodoFin: string
   saldoAFavorCents: number
+}
+
+interface CanceladaBody {
+  businessUnitPublicId: string
+  businessUnitName: string
+  businessUnitActive: number
+  planName: string | null
+  montoAdeudadoCents: number
+  periodoFin: string
+  canceladoEl: string
+  diasAtrasoAlCancelar: number
 }
 
 async function createActor(emailPrefix: string, isPlatformAdmin: boolean): Promise<TestActor> {
@@ -136,6 +159,13 @@ interface OverdueFixture {
   businessUnitActive?: number
   businessUnitDeleted?: boolean
   subscriptionDeleted?: boolean
+  /**
+   * Días **después** del cierre del periodo en que se registra la cancelación.
+   * Positivo = canceló debiendo (el periodo ya había cerrado). Negativo =
+   * canceló al corriente (se fue antes de que el periodo venciera).
+   * `undefined` deja `canceled_at` nulo.
+   */
+  canceledDaysAfterPeriodEnd?: number
 }
 
 /** Crea empresa + suscripción con el atraso pedido y devuelve el publicId de la empresa. */
@@ -174,6 +204,10 @@ async function createOverdue(fixture: OverdueFixture): Promise<{ publicId: strin
     billingSubscriptionCurrentPeriodStart: now.minus({ days: fixture.daysLate + 30 }),
     billingSubscriptionCurrentPeriodEnd: now.minus({ days: fixture.daysLate }),
     billingSubscriptionSubscribedAt: now,
+    billingSubscriptionCanceledAt:
+      fixture.canceledDaysAfterPeriodEnd === undefined
+        ? null
+        : now.minus({ days: fixture.daysLate - fixture.canceledDaysAfterPeriodEnd }),
     billingSubscriptionLiveBusinessUnitId:
       status === 'canceled' ? null : businessUnit.businessUnitId,
   })
@@ -214,11 +248,12 @@ async function cleanupFixtures(businessUnitIds: number[], planIds: number[]): Pr
 async function collectReceivables(
   client: ApiClient,
   actor: User
-): Promise<{ tenants: TenantBody[]; resumen: SummaryBody; type: string }> {
+): Promise<{ tenants: TenantBody[]; canceladas: CanceladaBody[]; resumen: SummaryBody; type: string }> {
   const tenants: TenantBody[] = []
   let page = 1
   let type = ''
   let resumen: SummaryBody | undefined
+  let canceladas: CanceladaBody[] = []
   // eslint-disable-next-line no-constant-condition
   while (true) {
     const response = await client.get(BASE_URL).qs({ page, limit: 100 }).loginAs(actor)
@@ -227,10 +262,11 @@ async function collectReceivables(
     if (page === 1) {
       type = body.type
       resumen = body.data.resumen as SummaryBody
+      canceladas = body.data.canceladas as CanceladaBody[]
     }
     tenants.push(...(body.data.tenants as TenantBody[]))
     if (page >= body.meta.lastPage) {
-      return { tenants, resumen: resumen!, type }
+      return { tenants, canceladas, resumen: resumen!, type }
     }
     page += 1
   }
@@ -488,5 +524,151 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
     assert.notInclude(serialized, 'billingSubscriptionId')
     assert.notInclude(serialized, 'rfc')
     assert.notInclude(serialized, 'billingEmail')
+  })
+
+  test('CA-3 — la cancelada con adeudo sale solo en su sección, con sus dos fechas', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now()
+    const { publicId, buId } = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'ca3',
+      status: 'canceled',
+      daysLate: 60,
+      canceledDaysAfterPeriodEnd: 15,
+      contractedTotal: 5800,
+    })
+    businessUnitIds.push(buId)
+
+    const collected = await collectReceivables(client, admin!.user)
+
+    assert.lengthOf(
+      findTenants(collected.tenants, publicId),
+      0,
+      'una cancelada no es cartera vencida (regla 6)'
+    )
+
+    const filas = collected.canceladas.filter((row) => row.businessUnitPublicId === publicId)
+    assert.lengthOf(filas, 1)
+    const fila = filas[0]!
+    assert.deepEqual(Object.keys(fila).sort(), EXPECTED_CANCELADA_KEYS.sort())
+    assert.equal(fila.montoAdeudadoCents, 580000)
+    assert.equal(fila.diasAtrasoAlCancelar, 15)
+    assert.match(fila.periodoFin, /^\d{4}-\d{2}-\d{2}$/)
+    assert.match(fila.canceladoEl, /^\d{4}-\d{2}-\d{2}$/)
+    assert.isTrue(fila.periodoFin < fila.canceladoEl, 'el periodo cerró antes de la cancelación')
+  })
+
+  test('CA-4 — una cancelación al corriente no sale en ninguna de las dos secciones', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now()
+    const { publicId, buId } = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'ca4',
+      status: 'canceled',
+      daysLate: 30,
+      // Canceló 20 días ANTES de que el periodo cerrara: se fue al corriente.
+      canceledDaysAfterPeriodEnd: -20,
+      contractedTotal: 9999,
+    })
+    businessUnitIds.push(buId)
+
+    const collected = await collectReceivables(client, admin!.user)
+
+    assert.lengthOf(findTenants(collected.tenants, publicId), 0)
+    assert.lengthOf(
+      collected.canceladas.filter((row) => row.businessUnitPublicId === publicId),
+      0,
+      'quien se fue sin deber no es una deuda perdida (regla 7)'
+    )
+  })
+
+  test('CA-5 — el importe de una cancelada con adeudo no mueve el total vencido', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now()
+    const beforeResponse = await client.get(BASE_URL).loginAs(admin!.user)
+    const before = beforeResponse.body().data.resumen as SummaryBody
+
+    const { buId } = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'ca5',
+      status: 'canceled',
+      daysLate: 90,
+      canceledDaysAfterPeriodEnd: 5,
+      contractedTotal: 44444,
+    })
+    businessUnitIds.push(buId)
+
+    const collected = await collectReceivables(client, admin!.user)
+
+    assert.equal(collected.resumen.totalVencidoCents, before.totalVencidoCents)
+    assert.equal(collected.resumen.tenantsVencidos, before.tenantsVencidos)
+    assert.equal(
+      collected.resumen.porBucket.mas60.tenants,
+      before.porBucket.mas60.tenants,
+      'una cancelada no cae en ningún tramo de antigüedad'
+    )
+  })
+
+  test('CA-9 — los borrados quedan fuera de canceladas[]', async ({ client, assert }) => {
+    const stamp = Date.now()
+    const borradaEmpresa = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'ca9-bu',
+      status: 'canceled',
+      daysLate: 40,
+      canceledDaysAfterPeriodEnd: 10,
+      contractedTotal: 1000,
+      businessUnitDeleted: true,
+    })
+    const borradaSuscripcion = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'ca9-sub',
+      status: 'canceled',
+      daysLate: 40,
+      canceledDaysAfterPeriodEnd: 10,
+      contractedTotal: 1000,
+      subscriptionDeleted: true,
+    })
+    businessUnitIds.push(borradaEmpresa.buId, borradaSuscripcion.buId)
+
+    const collected = await collectReceivables(client, admin!.user)
+    const ids = collected.canceladas.map((row) => row.businessUnitPublicId)
+
+    assert.notInclude(ids, borradaEmpresa.publicId)
+    assert.notInclude(ids, borradaSuscripcion.publicId)
+  })
+
+  test('canceladas[] llega ordenado de la baja más reciente a la más vieja', async ({
+    client,
+    assert,
+  }) => {
+    const collected = await collectReceivables(client, admin!.user)
+    const fechas = collected.canceladas.map((row) => row.canceladoEl)
+
+    assert.deepEqual(fechas, [...fechas].sort().reverse())
+  })
+
+  test('canceladas[] no publica identificadores internos ni datos fiscales', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client.get(BASE_URL).qs({ limit: 100 }).loginAs(admin!.user)
+    const crudo = JSON.stringify(response.body().data.canceladas)
+
+    assert.notInclude(crudo, 'businessUnitId')
+    assert.notInclude(crudo, 'billingSubscriptionId')
+    assert.notInclude(crudo, 'rfc')
+    assert.notInclude(crudo, 'billingEmail')
   })
 })
