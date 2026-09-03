@@ -4,6 +4,7 @@ import SystemModule from '../../app/models/system_module.js'
 import SystemPermission from '../../app/models/system_permission.js'
 import SystemSettingSystemModule from '../../app/models/system_setting_system_module.js'
 import RoleSystemPermission from '../../app/models/role_system_permission.js'
+import { resolveSystemModuleGroupIds } from '../../app/helpers/system_module_group_seed_resolver.js'
 
 export default class extends BaseSeeder {
   private readonly moduleId = 44
@@ -24,6 +25,10 @@ export default class extends BaseSeeder {
   }
 
   private async seedModule() {
+    const groupIdByKey = await resolveSystemModuleGroupIds(
+      ['nom-035'],
+      '0045_nom035_attention_program_module_seeder'
+    )
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
@@ -34,6 +39,8 @@ export default class extends BaseSeeder {
         systemModules: '1',
         systemModulePath: '/attention-program',
         systemModuleActive: 1,
+        systemModuleOrder: this.moduleId * 10,
+        systemModuleGroupId: groupIdByKey.get('nom-035'),
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 11l3 3L22 4" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></svg>',
         systemModuleUpdatedAt: DateTime.now(),

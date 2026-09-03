@@ -4,6 +4,7 @@ import SystemModule from '../../app/models/system_module.js'
 import SystemPermission from '../../app/models/system_permission.js'
 import SystemSettingSystemModule from '../../app/models/system_setting_system_module.js'
 import RoleSystemPermission from '../../app/models/role_system_permission.js'
+import { resolveSystemModuleGroupIds } from '../../app/helpers/system_module_group_seed_resolver.js'
 
 /**
  * Registra en el sistema el módulo de "Reportes de evento traumático" (NOM-035 §6.5).
@@ -45,6 +46,10 @@ export default class extends BaseSeeder {
 
   /** 1. Alta del módulo en el catálogo. */
   private async seedModule() {
+    const groupIdByKey = await resolveSystemModuleGroupIds(
+      ['nom-035'],
+      '0036_traumatic_event_reports_module_seeder'
+    )
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
@@ -55,6 +60,8 @@ export default class extends BaseSeeder {
         systemModules: '1',
         systemModulePath: '/traumatic-event-reports',
         systemModuleActive: 1,
+        systemModuleOrder: this.moduleId * 10,
+        systemModuleGroupId: groupIdByKey.get('nom-035'),
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
           width="48"
