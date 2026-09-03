@@ -1,5 +1,6 @@
 import { BaseMail } from '@adonisjs/mail'
 import i18nManager from '@adonisjs/i18n/services/main'
+import { resolveMailLocale } from '#constants/mail_locale'
 
 /**
  * Branding inyectado por `AuthMailService`. Mantiene la consistencia visual
@@ -49,7 +50,8 @@ export default class WelcomeMail extends BaseMail {
       branding.backgroundImageLogo = 'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
     }
 
-    const i18n = i18nManager.locale(language)
+    // Correo siempre en español hasta el lanzamiento en inglés (mail_locale.ts).
+    const i18n = i18nManager.locale(resolveMailLocale(language))
     const subject = i18n.formatMessage('auth.signup.welcome.subject', {
       tradeName: branding.tradeName,
       firstName,
