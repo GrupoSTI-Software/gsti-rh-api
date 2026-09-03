@@ -15,6 +15,16 @@ export const MIN_CONTRACTED_EMPLOYEES = 10
 /** Tope defensivo de empleados contratados, compartido por las dos superficies. */
 export const PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP = 100_000
 
+/**
+ * El alta de empresa adicional **omite el periodo de prueba** (USRH1787932877001).
+ *
+ * El periodo de prueba es un incentivo para atraer clientes nuevos; quien ya
+ * paga no puede consumirlo de nuevo con solo crear una empresa. El valor se
+ * pasa como `skipTrial` a `createSubscription()`; cambiar a `false` habilitaría
+ * el trial en futuras variantes de negocio sin tocar el servicio.
+ */
+export const ADDITIONAL_BUSINESS_UNIT_SKIPS_TRIAL = true
+
 const EMPLOYEES_BLOCK_DETAIL =
   'La cantidad de empleados se contrata en bloques de 10, con un mínimo de 10.'
 

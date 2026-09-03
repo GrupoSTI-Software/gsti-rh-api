@@ -10,9 +10,9 @@ export interface DeviceModelRecord {
   brand: string
   name: string
   slug: string
-  /** URL relativa de la foto de referencia. Resuelta como `/devices/<slug>.svg`.
-   *  Mientras no exista el archivo real del modelo, el frontend puede mostrar
-   *  `/devices/default.svg` como imagen neutra de reemplazo. */
+  /** URL de la foto de referencia, servida desde el Space como WebP. Mientras
+   *  no exista el archivo real del modelo, el frontend puede mostrar
+   *  `default.webp` como imagen neutra de reemplazo. */
   photoUrl: string
   status: PlatformDeviceModelStatus
   active: boolean
@@ -63,13 +63,24 @@ export default class PlatformDeviceModelService {
   }
 
   /**
-   * Resuelve la URL de la foto de referencia del modelo.
-   * La foto vive en `public/devices/<slug>.svg`. Mientras el archivo real
-   * del modelo no esté disponible, el frontend debe mostrar el placeholder
-   * `default.svg` para evitar imágenes rotas.
+   * Resuelve la ruta de la imagen de referencia del modelo.
+   *
+   * Es una ruta RELATIVA que el frontend resuelve contra su propio host: las
+   * imágenes viven en los estáticos del backoffice, no en el bucket ni en este
+   * API.
+   *
+   * El motivo es que no son contenido de cliente. Nadie las sube —no existe
+   * un endpoint de carga para ellas— y son idénticas para todas las empresas:
+   * es un catálogo de iconos curado con el producto. Ponerlas en el bucket
+   * obligaba a publicar su URL, y con ella el endpoint del almacenamiento, en
+   * el HTML del backoffice; servirlas por un endpoint autenticado gastaba una
+   * petición con sesión para entregar el icono de un ZKTeco.
+   *
+   * Mientras no exista el archivo del modelo, el frontend muestra
+   * `default.webp` para evitar imágenes rotas.
    */
   private resolvePhotoUrl(slug: string): string {
-    return `/devices/${slug}.svg`
+    return `/devices/${slug}.webp`
   }
 
   /** Serializa un modelo a la forma pública. */

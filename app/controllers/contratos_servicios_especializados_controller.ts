@@ -1,4 +1,6 @@
 import logger from '@adonisjs/core/services/logger'
+import { isFileIntakeError, respondFileIntakeError } from '#helpers/file_intake_api_error'
+import { assertSpreadsheetFile } from '#helpers/spreadsheet_intake_guard'
 import type { HttpContext } from '@adonisjs/core/http'
 import ContratoServicioEspecializadoService, {
   type Anexo15dCreatePayload,
@@ -584,6 +586,10 @@ export default class ContratosServiciosEspecializadosController {
         )
       }
 
+      // La hoja no se abre sin comprobar antes que es OOXML real: un `.xlsx`
+      // es un ZIP y el nombre no prueba nada.
+      await assertSpreadsheetFile(file)
+
       if (file.hasErrors) {
         const sizeError = file.errors.some((err) => err.type === 'size')
         return sizeError
@@ -862,6 +868,13 @@ export default class ContratosServiciosEspecializadosController {
     fallback: number,
     i18n: HttpContext['i18n']
   ) {
+    // El rechazo de un archivo es 422 con triplete: sin esta rama el resolver
+    // del modulo lo degrada a un 500 genérico y el usuario nunca sabe que su
+    // archivo fue rechazado ni por que.
+    if (isFileIntakeError(error)) {
+      return respondFileIntakeError(response, error)
+    }
+
     const resolved = resolveContratoServicioEspecializadoApiError(error, fallback, i18n)
     if (resolved.errorCode === CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.SYS_UNHANDLED) {
       logger.error({ err: error }, 'Error inesperado en contratos de servicios especializados')

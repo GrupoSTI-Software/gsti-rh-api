@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import AircraftClass from '../models/aircraft_class.js'
 import {
   createAircraftClassValidator,
@@ -259,6 +260,10 @@ export default class AircraftClassController {
           )
         )
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       return response
         .status(400)
         .json(
@@ -487,6 +492,10 @@ export default class AircraftClassController {
           )
         )
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       return response
         .status(400)
         .json(

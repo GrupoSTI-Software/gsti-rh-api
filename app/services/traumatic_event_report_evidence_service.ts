@@ -13,7 +13,9 @@ import { TRAUMATIC_EVENT_REPORT_EVIDENCE_CATEGORIES } from '../validators/trauma
 const MAX_FILE_BYTES = 10 * 1024 * 1024
 
 /** PDF, JPG y PNG (ticket exige los 3 tipos). */
-const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png'] as const
+// El perfil `evidence-document` del intake es la fuente de verdad; esta lista
+// es un pre-filtro barato y debe mantenerse alineada con el.
+const ALLOWED_EXTENSIONS = ['pdf', 'jpg', 'jpeg', 'png', 'webp'] as const
 const ALLOWED_MIME_TYPES = [
   'application/pdf',
   'image/jpeg',
@@ -231,7 +233,7 @@ export default class TraumaticEventReportEvidenceService {
   private async uploadToS3(file: any, reportId: number, sanitizedName: string): Promise<string> {
     const key = `${S3_FOLDER}/${reportId}/${cuid()}-${sanitizedName}`
     const uploadService = new UploadService()
-    const result = await uploadService.fileUpload(file, '', key, 'private')
+    const result = await uploadService.fileUpload(file, 'evidence-document', '', { fileName: key })
 
     if (!result || result === 'file_not_found' || result === 'S3Producer.fileUpload') {
       throw new TraumaticEventReportEvidenceError(

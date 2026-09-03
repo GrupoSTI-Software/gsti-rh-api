@@ -1,5 +1,6 @@
 import { BaseMail } from '@adonisjs/mail'
 import i18nManager from '@adonisjs/i18n/services/main'
+import { resolveMailLocale } from '#constants/mail_locale'
 
 /**
  * Una fila de la tabla del correo (un periodo por vencer).
@@ -46,7 +47,8 @@ export default class LactationExpiringMail extends BaseMail {
 
   prepare() {
     const { to, bcc, from, language, tradeName, sidebarColor, rows } = this.params
-    const i18n = i18nManager.locale(language)
+    // Correo siempre en español hasta el lanzamiento en inglés (mail_locale.ts).
+    const i18n = i18nManager.locale(resolveMailLocale(language))
 
     const subject = i18n.formatMessage(
       'employee_lactation_expiring_notification.subject',

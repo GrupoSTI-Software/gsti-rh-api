@@ -58,16 +58,19 @@ test.group('Assist — slot de llave natural tras inactivación (CA-23 / regla 1
     assert.include(content, 'counters.duplicates++')
   })
 
-  test('verifyInfo · dedupe local no filtra assist_active (inactiva también bloquea re-captura HTTP)', ({
+  test('verifyInfo · la dedupe local se retiró: el único criterio es la llave natural', ({
     assert,
   }) => {
+    // USRH1788135907801: la rama por (assist_emp_id, assist_punch_time) devolvía 400
+    // por una checada que sí había quedado registrada. Se conserva sólo la validación
+    // del instante parseable; el "ya existe" lo arbitra el índice único.
     const content = readFileSync(VERIFY_INFO_SNIPPET, 'utf-8')
     const verifyBlock = content.slice(
       content.indexOf('async verifyInfo('),
       content.indexOf('createActionLog(')
     )
-    assert.include(verifyBlock, "where('assist_emp_id'")
-    assert.include(verifyBlock, "where('assist_punch_time'")
-    assert.notMatch(verifyBlock, /where\s*\(\s*['"]assist_active['"]/)
+    assert.notInclude(verifyBlock, "where('assist_emp_id'")
+    assert.notInclude(verifyBlock, "where('assist_punch_time'")
+    assert.include(verifyBlock, 'status: 200')
   })
 })
