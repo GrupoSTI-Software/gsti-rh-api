@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import SystemModule from '../../app/models/system_module.js'
 import SystemPermission from '../../app/models/system_permission.js'
 import RoleSystemPermission from '../../app/models/role_system_permission.js'
+import { resolveSystemModuleGroupIds } from '../../app/helpers/system_module_group_seed_resolver.js'
 
 /**
  * Módulo/permisos de la gestión de documentos legales desde backoffice GSTI
@@ -39,6 +40,10 @@ export default class extends BaseSeeder {
   }
 
   private async seedModule() {
+    const groupIdByKey = await resolveSystemModuleGroupIds(
+      ['configuraciones'],
+      '0048_legal_documents_management_module_seeder'
+    )
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
@@ -49,6 +54,8 @@ export default class extends BaseSeeder {
         systemModules: '1',
         systemModulePath: '/legal-documents',
         systemModuleActive: 1,
+        systemModuleOrder: this.moduleId * 10,
+        systemModuleGroupId: groupIdByKey.get('configuraciones'),
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4" /><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2Z" /><path d="M9 9h1" /><path d="M9 13h6" /><path d="M9 17h6" /></svg>',
         systemModuleUpdatedAt: DateTime.now(),

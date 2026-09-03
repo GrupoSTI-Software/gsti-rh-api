@@ -4,6 +4,7 @@ import SystemModule from '../../app/models/system_module.js'
 import SystemPermission from '../../app/models/system_permission.js'
 import SystemSettingSystemModule from '../../app/models/system_setting_system_module.js'
 import RoleSystemPermission from '../../app/models/role_system_permission.js'
+import { resolveSystemModuleGroupIds } from '../../app/helpers/system_module_group_seed_resolver.js'
 
 /**
  * Registra en el sistema el módulo "Proveedores REPSE" (USRH1784259105646,
@@ -55,6 +56,10 @@ export default class extends BaseSeeder {
 
   /** 1. Alta del módulo en el catálogo. */
   private async seedModule() {
+    const groupIdByKey = await resolveSystemModuleGroupIds(
+      ['empresa'],
+      '0052_repse_providers_module_seeder'
+    )
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
@@ -65,6 +70,8 @@ export default class extends BaseSeeder {
         systemModules: '1',
         systemModulePath: '/repse-providers',
         systemModuleActive: 1,
+        systemModuleOrder: this.moduleId * 10,
+        systemModuleGroupId: groupIdByKey.get('empresa'),
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
           width="48"

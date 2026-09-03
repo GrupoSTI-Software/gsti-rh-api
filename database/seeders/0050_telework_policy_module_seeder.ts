@@ -4,6 +4,7 @@ import SystemModule from '../../app/models/system_module.js'
 import SystemPermission from '../../app/models/system_permission.js'
 import SystemSettingSystemModule from '../../app/models/system_setting_system_module.js'
 import RoleSystemPermission from '../../app/models/role_system_permission.js'
+import { resolveSystemModuleGroupIds } from '../../app/helpers/system_module_group_seed_resolver.js'
 
 /**
  * Módulo/sección "Política de Teletrabajo" (NOM-037, numeral 5.2,
@@ -30,6 +31,10 @@ export default class extends BaseSeeder {
   }
 
   private async seedModule() {
+    const groupIdByKey = await resolveSystemModuleGroupIds(
+      ['nom-037'],
+      '0050_telework_policy_module_seeder'
+    )
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
@@ -40,6 +45,8 @@ export default class extends BaseSeeder {
         systemModules: '1',
         systemModulePath: '/telework-policy',
         systemModuleActive: 1,
+        systemModuleOrder: this.moduleId * 10,
+        systemModuleGroupId: groupIdByKey.get('nom-037'),
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 3h11l5 5v13a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z" /><path d="M15 3v5h5" /><path d="M8 13h8" /><path d="M8 17h5" /></svg>',
         systemModuleUpdatedAt: DateTime.now(),
