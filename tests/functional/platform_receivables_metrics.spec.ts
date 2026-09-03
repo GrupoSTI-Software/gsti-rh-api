@@ -588,6 +588,31 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
     )
   })
 
+  test('la cancelación registrada el mismo día del vencimiento queda fuera (borde declarado)', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now()
+    const { publicId, buId } = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'borde-mismo-dia',
+      status: 'canceled',
+      daysLate: 30,
+      canceledDaysAfterPeriodEnd: 0,
+      contractedTotal: 1234,
+    })
+    businessUnitIds.push(buId)
+
+    const collected = await collectReceivables(client, admin!.user)
+
+    assert.lengthOf(
+      collected.canceladas.filter((row) => row.businessUnitPublicId === publicId),
+      0,
+      'el criterio es estrictamente menor: el mismo día no cuenta como adeudo'
+    )
+  })
+
   test('CA-5 — el importe de una cancelada con adeudo no mueve el total vencido', async ({
     client,
     assert,
