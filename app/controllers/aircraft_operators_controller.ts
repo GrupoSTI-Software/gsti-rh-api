@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import AircraftOperator from '#models/aircraft_operator'
 import AircraftOperatorService from '#services/aircraft_operator_service'
 import { createAircraftOperatorValidator } from '#validators/aircraft_operator'
@@ -196,8 +197,7 @@ export default class AircraftOperatorsController {
           }
         }
         const uploadService = new UploadService()
-        const fileName = `${new Date().getTime()}_${photo.clientName}`
-        const fileUrl = await uploadService.fileUpload(photo, 'pilots', fileName)
+        const fileUrl = await uploadService.fileUpload(photo, 'profile-photo', 'pilots')
         aircraftOperator.aircraftOperatorImage = fileUrl
       }
       // 4) Use service to create operator
@@ -211,6 +211,10 @@ export default class AircraftOperatorsController {
         data: { operator: newOperator },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0]?.message : error.message
 
@@ -352,8 +356,7 @@ export default class AircraftOperatorsController {
           const fileKey = `${Env.get('AWS_ROOT_PATH')}/pilots/${fileNameWithExt}`
           await uploadService.deleteFile(fileKey)
         }
-        const fileName = `${new Date().getTime()}_${photo.clientName}`
-        const fileUrl = await uploadService.fileUpload(photo, 'pilots', fileName)
+        const fileUrl = await uploadService.fileUpload(photo, 'profile-photo', 'pilots')
         aircraftOperator.aircraftOperatorImage = fileUrl
       }
 
@@ -379,6 +382,10 @@ export default class AircraftOperatorsController {
         data: { operator: updatedOperator },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0]?.message : error.message
 

@@ -1,5 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
-import SystemSetting from '#models/system_setting'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import SystemSettingTradeName from '#models/system_setting_trade_name'
 import SystemSettingTradeNameService from '#services/system_setting_trade_name_service'
 import UploadService from '#services/upload_service'
@@ -248,15 +248,15 @@ export default class SystemSettingTradeNameController {
    *               systemSettingLogo:
    *                 type: string
    *                 format: binary
-   *                 description: Logo (svg, png o webp)
+   *                 description: Logo (jpg, png o webp; se almacena como PNG)
    *               systemSettingBanner:
    *                 type: string
    *                 format: binary
-   *                 description: Banner (svg, png o webp)
+   *                 description: Banner (jpg, png o webp; se almacena como PNG)
    *               systemSettingFavicon:
    *                 type: string
    *                 format: binary
-   *                 description: Favicon (svg, png o webp)
+   *                 description: Favicon (jpg, png o webp; se almacena como PNG)
    *               systemSettingEmployeeAplicationIcon:
    *                 type: string
    *                 format: binary
@@ -292,10 +292,12 @@ export default class SystemSettingTradeNameController {
     try {
       const data = await request.validateUsing(createSystemSettingTradeNameValidator)
 
-      const parent = await SystemSetting.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_id', data.systemSettingId)
-        .first()
+      // El `systemSettingId` llega en el cuerpo: se resuelve dentro del scope de
+      // la empresa activa. Sin esto se podía dar de alta una razón social —y su
+      // branding— bajo la configuración de otra empresa.
+      const parent = await new SystemSettingTradeNameService().findScopedSystemSetting(
+        data.systemSettingId
+      )
 
       if (!parent) {
         response.status(404)
@@ -332,7 +334,7 @@ export default class SystemSettingTradeNameController {
 
       const systemSettingLogo = request.file('systemSettingLogo', validationOptions)
       if (systemSettingLogo) {
-        const allowedExtensions = ['svg', 'png', 'webp', 'jpg', 'jpeg']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (!allowedExtensions.includes(systemSettingLogo.extname ? systemSettingLogo.extname : '')) {
           response.status(400)
           return {
@@ -344,14 +346,13 @@ export default class SystemSettingTradeNameController {
           }
         }
         const uploadService = new UploadService()
-        const fileName = `${new Date().getTime()}_${systemSettingLogo.clientName}`
-        const fileUrl = await uploadService.fileUpload(systemSettingLogo, 'system-settings', fileName)
+        const fileUrl = await uploadService.fileUpload(systemSettingLogo, 'branding-asset', 'system-settings')
         payload.systemSettingLogo = fileUrl
       }
 
       const systemSettingBanner = request.file('systemSettingBanner', validationOptions)
       if (systemSettingBanner) {
-        const allowedExtensions = ['svg', 'png', 'webp', 'jpg', 'jpeg']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(systemSettingBanner.extname ? systemSettingBanner.extname : '')
         ) {
@@ -365,18 +366,13 @@ export default class SystemSettingTradeNameController {
           }
         }
         const uploadService = new UploadService()
-        const fileName = `${new Date().getTime()}_${systemSettingBanner.clientName}`
-        const fileUrl = await uploadService.fileUpload(
-          systemSettingBanner,
-          'system-settings',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(systemSettingBanner, 'branding-asset', 'system-settings')
         payload.systemSettingBanner = fileUrl
       }
 
       const systemSettingFavicon = request.file('systemSettingFavicon', validationOptions)
       if (systemSettingFavicon) {
-        const allowedExtensions = ['svg', 'png', 'webp', 'jpg', 'jpeg']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(systemSettingFavicon.extname ? systemSettingFavicon.extname : '')
         ) {
@@ -390,12 +386,7 @@ export default class SystemSettingTradeNameController {
           }
         }
         const uploadService = new UploadService()
-        const fileName = `${new Date().getTime()}_${systemSettingFavicon.clientName}`
-        const fileUrl = await uploadService.fileUpload(
-          systemSettingFavicon,
-          'system-settings',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(systemSettingFavicon, 'branding-asset', 'system-settings')
         payload.systemSettingFavicon = fileUrl
       }
 
@@ -417,12 +408,7 @@ export default class SystemSettingTradeNameController {
           }
         }
         const uploadService = new UploadService()
-        const fileName = `${new Date().getTime()}_${systemSettingEmployeeAplicationIcon.clientName}`
-        const fileUrl = await uploadService.fileUpload(
-          systemSettingEmployeeAplicationIcon,
-          'system-settings',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(systemSettingEmployeeAplicationIcon, 'branding-asset', 'system-settings')
         if (fileUrl === 'S3Producer.fileUpload' || fileUrl === 'file_not_found') {
           response.status(500)
           return {
@@ -446,6 +432,10 @@ export default class SystemSettingTradeNameController {
         data: { systemSettingTradeName: created },
       }
     } catch (error: any) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -543,10 +533,12 @@ export default class SystemSettingTradeNameController {
         }
       }
 
-      const current = await SystemSettingTradeName.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_trade_name_id', systemSettingTradeNameId)
-        .first()
+      // Pasa por el servicio para heredar el filtro de empresa: consultar el
+      // modelo directo permitía alcanzar la razón social de otra empresa con
+      // solo cambiar el identificador de la ruta.
+      const current = await new SystemSettingTradeNameService().show(
+        Number(systemSettingTradeNameId)
+      )
 
       if (!current) {
         response.status(404)
@@ -590,7 +582,7 @@ export default class SystemSettingTradeNameController {
 
       const systemSettingLogo = request.file('systemSettingLogo', validationOptions)
       if (systemSettingLogo) {
-        const allowedExtensions = ['svg', 'png', 'webp', 'jpg', 'jpeg']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (!allowedExtensions.includes(systemSettingLogo.extname ? systemSettingLogo.extname : '')) {
           response.status(400)
           return {
@@ -607,14 +599,13 @@ export default class SystemSettingTradeNameController {
           const fileKey = `${Env.get('AWS_ROOT_PATH')}/system-settings/${fileNameWithExt}`
           await uploadService.deleteFile(fileKey)
         }
-        const fileName = `${new Date().getTime()}_${systemSettingLogo.clientName}`
-        const fileUrl = await uploadService.fileUpload(systemSettingLogo, 'system-settings', fileName)
+        const fileUrl = await uploadService.fileUpload(systemSettingLogo, 'branding-asset', 'system-settings')
         payload.systemSettingLogo = fileUrl
       }
 
       const systemSettingBanner = request.file('systemSettingBanner', validationOptions)
       if (systemSettingBanner) {
-        const allowedExtensions = ['svg', 'png', 'webp', 'jpg', 'jpeg']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(systemSettingBanner.extname ? systemSettingBanner.extname : '')
         ) {
@@ -633,18 +624,13 @@ export default class SystemSettingTradeNameController {
           const fileKey = `${Env.get('AWS_ROOT_PATH')}/system-settings/${fileNameWithExt}`
           await uploadService.deleteFile(fileKey)
         }
-        const fileName = `${new Date().getTime()}_${systemSettingBanner.clientName}`
-        const fileUrl = await uploadService.fileUpload(
-          systemSettingBanner,
-          'system-settings',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(systemSettingBanner, 'branding-asset', 'system-settings')
         payload.systemSettingBanner = fileUrl
       }
 
       const systemSettingFavicon = request.file('systemSettingFavicon', validationOptions)
       if (systemSettingFavicon) {
-        const allowedExtensions = ['svg', 'png', 'webp', 'jpg', 'jpeg']
+        const allowedExtensions = ['jpg', 'jpeg', 'png', 'webp']
         if (
           !allowedExtensions.includes(systemSettingFavicon.extname ? systemSettingFavicon.extname : '')
         ) {
@@ -663,12 +649,7 @@ export default class SystemSettingTradeNameController {
           const fileKey = `${Env.get('AWS_ROOT_PATH')}/system-settings/${fileNameWithExt}`
           await uploadService.deleteFile(fileKey)
         }
-        const fileName = `${new Date().getTime()}_${systemSettingFavicon.clientName}`
-        const fileUrl = await uploadService.fileUpload(
-          systemSettingFavicon,
-          'system-settings',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(systemSettingFavicon, 'branding-asset', 'system-settings')
         payload.systemSettingFavicon = fileUrl
       }
 
@@ -706,12 +687,7 @@ export default class SystemSettingTradeNameController {
             }
           }
         }
-        const fileName = `${new Date().getTime()}_${systemSettingEmployeeAplicationIcon.clientName}`
-        const fileUrl = await uploadService.fileUpload(
-          systemSettingEmployeeAplicationIcon,
-          'system-settings',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(systemSettingEmployeeAplicationIcon, 'branding-asset', 'system-settings')
         if (fileUrl === 'S3Producer.fileUpload' || fileUrl === 'file_not_found') {
           response.status(500)
           return {
@@ -735,6 +711,10 @@ export default class SystemSettingTradeNameController {
         data: { systemSettingTradeName: updated },
       }
     } catch (error: any) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -802,10 +782,12 @@ export default class SystemSettingTradeNameController {
         }
       }
 
-      const current = await SystemSettingTradeName.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_trade_name_id', systemSettingTradeNameId)
-        .first()
+      // Pasa por el servicio para heredar el filtro de empresa: consultar el
+      // modelo directo permitía alcanzar la razón social de otra empresa con
+      // solo cambiar el identificador de la ruta.
+      const current = await new SystemSettingTradeNameService().show(
+        Number(systemSettingTradeNameId)
+      )
 
       if (!current) {
         response.status(404)
@@ -997,10 +979,12 @@ export default class SystemSettingTradeNameController {
         }
       }
 
-      const current = await SystemSettingTradeName.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_trade_name_id', systemSettingTradeNameId)
-        .first()
+      // Pasa por el servicio para heredar el filtro de empresa: consultar el
+      // modelo directo permitía alcanzar la razón social de otra empresa con
+      // solo cambiar el identificador de la ruta.
+      const current = await new SystemSettingTradeNameService().show(
+        Number(systemSettingTradeNameId)
+      )
 
       if (!current) {
         response.status(404)
@@ -1066,12 +1050,7 @@ export default class SystemSettingTradeNameController {
         }
       }
 
-      const fileName = `${new Date().getTime()}_${systemSettingEmployeeAplicationIcon.clientName}`
-      const fileUrl = await uploadService.fileUpload(
-        systemSettingEmployeeAplicationIcon,
-        'system-settings',
-        fileName
-      )
+      const fileUrl = await uploadService.fileUpload(systemSettingEmployeeAplicationIcon, 'branding-asset', 'system-settings')
 
       if (fileUrl === 'S3Producer.fileUpload' || fileUrl === 'file_not_found') {
         response.status(500)
@@ -1099,6 +1078,10 @@ export default class SystemSettingTradeNameController {
         },
       }
     } catch (error: any) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

@@ -1,4 +1,7 @@
 import Department from '#models/department'
+import { isUploadFailureSentinel } from '#constants/upload_sentinels'
+import { assertSpreadsheetFile } from '#helpers/spreadsheet_intake_guard'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeService from '#services/employee_service'
@@ -2550,7 +2553,7 @@ export default class EmployeeController {
 
     const validationOptions = {
       types: ['image'],
-      size: '2mb',
+      size: '5mb',
     }
     const employeeId = request.param('employeeId')
     const photo = request.file('photo', validationOptions)
@@ -2563,18 +2566,35 @@ export default class EmployeeController {
     if (!currentEmployee) {
       return response.status(404).send({ message: 'Employee not found' })
     }
-    // get file name and extension
-    const fileName = `${new Date().getTime()}_${photo.clientName}`
+    // get file name and extensión
 
     // get employee and update employee photo
     try {
-      const photoUrl = await uploadService.fileUpload(photo, 'employees', fileName)
+      const photoUrl = await uploadService.fileUpload(photo, 'profile-photo', 'employees')
+
+      // `fileUpload` devuelve un centinela cuando el almacenamiento falla.
+      // Guardarlo dejaba en la base una referencia que no apunta a nada y que
+      // revienta al leerla: es lo que dejo al empleado 4282 sin foto legible.
+      if (isUploadFailureSentinel(photoUrl)) {
+        response.status(500)
+        return {
+          type: 'error',
+          title: 'Foto no guardada',
+          detail: 'No fue posible almacenar la foto. Intenta de nuevo.',
+          key: 'foto-no-almacenada',
+        }
+      }
+
       if (currentEmployee.employeePhoto) {
         await uploadService.deleteFile(currentEmployee.employeePhoto)
       }
       const employee = await employeeService.updateEmployeePhotoUrl(employeeId, photoUrl)
       return response.status(200).send({ url: photoUrl, employee })
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       return response.status(500).send({ message: 'Error uploading file', error })
     }
   }
@@ -6403,150 +6423,6 @@ export default class EmployeeController {
     }
   }
 
-  /**
-   * @swagger
-   * /api/employees/proxy-image:
-   *   get:
-   *     tags:
-   *       - Employees
-   *     summary: Proxy endpoint to serve external images securely
-   *     parameters:
-   *       - in: query
-   *         name: url
-   *         required: true
-   *         schema:
-   *           type: string
-   *         description: URL of the external image to proxy
-   *     responses:
-   *       '200':
-   *         description: Image served successfully
-   *         content:
-   *           image/*:
-   *             schema:
-   *               type: string
-   *               format: binary
-   *       '400':
-   *         description: Invalid or missing URL parameter
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                 title:
-   *                   type: string
-   *                 message:
-   *                   type: string
-   *       '500':
-   *         description: Error loading the image
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                 title:
-   *                   type: string
-   *                 message:
-   *                   type: string
-   */
-  async proxyImage({ request, response }: HttpContext) {
-    try {
-      const imageUrl = request.input('url')
-
-      if (!imageUrl) {
-        response.status(400)
-        return {
-          type: 'error',
-          title: 'Invalid request',
-          message: 'URL parameter is required',
-        }
-      }
-
-      // Validar que la URL sea válida
-      try {
-        new URL(imageUrl)
-      } catch {
-        response.status(400)
-        return {
-          type: 'error',
-          title: 'Invalid URL',
-          message: 'The provided URL is not valid',
-        }
-      }
-
-      // Validar que la URL apunte a un dominio permitido (opcional, por seguridad)
-      const allowedDomains = [
-        '201.150.46.146:81',
-        'sfo3.digitaloceanspaces.com'
-        // Agrega aquí los dominios que consideres seguros
-      ]
-
-      const urlObject = new URL(imageUrl)
-      // Crear el host completo (hostname + puerto si existe)
-      const fullHost = urlObject.port
-        ? `${urlObject.hostname}:${urlObject.port}`
-        : urlObject.hostname
-
-      if (allowedDomains.length > 0 && !allowedDomains.includes(fullHost) && !allowedDomains.includes(urlObject.hostname)) {
-        response.status(403)
-        return {
-          type: 'error',
-          title: 'Forbidden domain',
-          message: `The requested domain "${fullHost}" is not allowed`,
-        }
-      }
-
-      // Realizar la petición a la imagen externa
-      const imageResponse = await axios.get(imageUrl, {
-        responseType: 'stream',
-        timeout: 10000, // 10 segundos de timeout
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (compatible; ImageProxy/1.0)',
-        },
-      })
-
-      // Obtener el content-type de la respuesta
-      const contentType = imageResponse.headers['content-type']
-
-      // Validar que sea realmente una imagen
-      if (!contentType || !contentType.startsWith('image/')) {
-        response.status(400)
-        return {
-          type: 'error',
-          title: 'Invalid content type',
-          message: 'The requested URL does not point to an image',
-        }
-      }
-
-      // Configurar las cabeceras de respuesta
-      response.header('Content-Type', contentType)
-      response.header('Cache-Control', 'public, max-age=86400') // Cache por 24 horas
-
-      // Transmitir la imagen
-      return response.stream(imageResponse.data)
-
-    } catch (error) {
-      if (error.code === 'ECONNABORTED') {
-        response.status(408)
-        return {
-          type: 'error',
-          title: 'Request timeout',
-          message: 'The image request timed out',
-        }
-      }
-
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'Error loading the image',
-        error: error.message,
-      }
-    }
-  }
 
   /**
    * @swagger
@@ -7259,6 +7135,10 @@ export default class EmployeeController {
       if (typeof file.size === 'number' && file.size > EMPLOYEE_IMPORT_UPLOAD.maxFileBytes) {
         return respondEmployeeImportValFileError({ i18n }, response, 'too_large')
       }
+
+      // La hoja no se abre sin comprobar antes que es OOXML real: un `.xlsx`
+      // es un ZIP y el nombre no prueba nada.
+      await assertSpreadsheetFile(file)
 
       // Validar que el archivo sea un Excel
       const allowedExtensions = [...EMPLOYEE_IMPORT_UPLOAD.acceptedExtensions]
@@ -8245,6 +8125,10 @@ export default class EmployeeController {
           message: 'Excel file is required',
         }
       }
+
+      // La hoja no se abre sin comprobar antes que es OOXML real: un `.xlsx`
+      // es un ZIP y el nombre no prueba nada.
+      await assertSpreadsheetFile(file)
 
       // Validar que el archivo sea un Excel
       const allowedExtensions = ['.xlsx', '.xls']

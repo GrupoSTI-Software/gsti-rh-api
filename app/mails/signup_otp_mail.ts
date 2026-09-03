@@ -1,5 +1,6 @@
 import { BaseMail } from '@adonisjs/mail'
 import i18nManager from '@adonisjs/i18n/services/main'
+import { resolveMailLocale } from '#constants/mail_locale'
 
 /**
  * Branding inyectado por `AuthMailService` para mantener consistencia visual
@@ -45,7 +46,8 @@ export default class SignupOtpMail extends BaseMail {
   prepare() {
     const { to, from, firstName, pinCode, language, branding, validityMinutes } = this.params
 
-    const i18n = i18nManager.locale(language)
+    // Correo siempre en español hasta el lanzamiento en inglés (mail_locale.ts).
+    const i18n = i18nManager.locale(resolveMailLocale(language))
     const subject = i18n.formatMessage('auth.signup.otp.subject', { pinCode })
     const preheader = i18n.formatMessage('auth.signup.otp.preheader')
     // El saludo va partido a propósito: el diseño resalta solo el nombre, y

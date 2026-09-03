@@ -1,10 +1,66 @@
 import SystemSettingTradeName from '#models/system_setting_trade_name'
+import SystemSetting from '#models/system_setting'
+import { TenantContext } from '#utils/tenant_context'
 import { DateTime } from 'luxon'
 
 export default class SystemSettingTradeNameService {
-  async index(systemSettingId: number) {
-    const rows = await SystemSettingTradeName.query()
+  /**
+   * Consulta acotada a las razones sociales de la empresa activa.
+   *
+   * Ni `SystemSettingTradeName` ni `SystemSetting` componen el mixin de
+   * empresa, así que ninguna consulta hereda el filtro por si sola. Como el
+   * `systemSettingId` llega del cliente, sin este candado bastaba con cambiarlo
+   * para leer o modificar la configuración —y el branding— de otra empresa.
+   *
+   * Se incluyen las filas con `business_unit_id` nulo: son la configuración
+   * global del sistema, visible para todos.
+   */
+  private scopedQuery() {
+    const query = SystemSettingTradeName.query().whereNull('system_setting_deleted_at')
+
+    if (!TenantContext.isActive() || TenantContext.isBypassed()) {
+      return query
+    }
+
+    const scope = TenantContext.getScope()
+
+    return query.whereIn(
+      'system_setting_id',
+      SystemSetting.query()
+        .select('system_setting_id')
+        .where((subQuery) => {
+          subQuery.whereIn('business_unit_id', scope).orWhereNull('business_unit_id')
+        })
+    )
+  }
+
+  /**
+   * Resuelve el `SystemSetting` padre dentro de la empresa activa.
+   *
+   * `SystemSetting` no compone el mixin de empresa, así que consultarlo por su
+   * identificador no hereda el filtro del contexto. Devuelve `null` cuando el
+   * ajuste no pertenece a la empresa activa ni es configuración global.
+   */
+  async findScopedSystemSetting(systemSettingId: number) {
+    const query = SystemSetting.query()
       .whereNull('system_setting_deleted_at')
+      .where('system_setting_id', systemSettingId)
+
+    if (!TenantContext.isActive() || TenantContext.isBypassed()) {
+      return query.first()
+    }
+
+    const scope = TenantContext.getScope()
+
+    return query
+      .where((subQuery) => {
+        subQuery.whereIn('business_unit_id', scope).orWhereNull('business_unit_id')
+      })
+      .first()
+  }
+
+  async index(systemSettingId: number) {
+    const rows = await this.scopedQuery()
       .where('system_setting_id', systemSettingId)
       .orderBy('system_setting_trade_name_id')
     return { data: rows }
@@ -45,8 +101,7 @@ export default class SystemSettingTradeNameService {
   }
 
   async show(systemSettingTradeNameId: number) {
-    return await SystemSettingTradeName.query()
-      .whereNull('system_setting_deleted_at')
+    return await this.scopedQuery()
       .where('system_setting_trade_name_id', systemSettingTradeNameId)
       .first()
   }

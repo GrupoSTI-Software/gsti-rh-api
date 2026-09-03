@@ -1,8 +1,12 @@
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import { DateTime } from 'luxon'
 import PlatformDevice, {
   type PlatformDeviceOrigin,
+  type PlatformDeviceRetireReason,
   type PlatformDeviceStockStatus,
 } from '#models/platform_device'
+import PlatformDeviceAssignment from '#models/platform_device_assignment'
 import PlatformDeviceModel from '#models/platform_device_model'
 import { PLATFORM_DEVICE_ERROR_CODES } from '../constants/platform_device_error_codes.js'
 import { PlatformDeviceServiceError } from '../exceptions/platform_device_service_error.js'
@@ -33,6 +37,8 @@ export interface DeviceRecord {
   platformDeviceSerialNumber: string
   platformDeviceOrigin: PlatformDeviceOrigin
   platformDeviceStockStatus: PlatformDeviceStockStatus
+  /** true = en circulación; false = apartado por operador (toggle HU 1877) */
+  platformDeviceActive: boolean
   platformDeviceAcquisitionCostCents: number | null
   platformDeviceAcquisitionDate: string | null
   assignedTenant: AssignedTenant | null
@@ -60,6 +66,18 @@ export interface DeviceModelSummary {
   asignadas: number
   retiradas: number
   delCliente: number
+  /**
+   * Suma en centavos del costo de adquisición de las unidades PROPIAS del
+   * modelo. Las `del_cliente` no llevan costo por R6 del inventario y quedan
+   * fuera. Las retiradas sí suman: se compraron igual. `0` si no hay unidades.
+   */
+  costoAdquisicionCents: number
+  /**
+   * Unidades propias del modelo a las que nadie les capturó el costo. Sin este
+   * dato, `costoAdquisicionCents` se leería como el valor completo del parque
+   * y mentiría.
+   */
+  unidadesPropiasSinCosto: number
 }
 
 /** Respuesta de `GET /api/platform/devices/units/summary`. */
@@ -69,6 +87,10 @@ export interface DeviceInventorySummary {
   asignadas: number
   retiradas: number
   delCliente: number
+  /** Suma en centavos del costo de adquisición de todas las unidades propias vivas. */
+  costoAdquisicionCents: number
+  /** Total de unidades propias vivas sin costo capturado. */
+  unidadesPropiasSinCosto: number
   porModelo: DeviceModelSummary[]
 }
 
@@ -121,11 +143,15 @@ export default class PlatformDeviceService {
       platformDeviceSerialNumber: device.platformDeviceSerialNumber,
       platformDeviceOrigin: device.platformDeviceOrigin,
       platformDeviceStockStatus: device.platformDeviceStockStatus,
+      platformDeviceActive: device.platformDeviceActive === 1,
       platformDeviceAcquisitionCostCents: device.platformDeviceAcquisitionCostCents,
       platformDeviceAcquisitionDate: device.platformDeviceAcquisitionDate,
-      // platform_device_assignments aún no existe (ticket 1876).
-      // Se entrega null como degradación documentada en §11 del spec 1874.
-      assignedTenant: null,
+      assignedTenant: device.assignments?.[0]?.businessUnit
+        ? {
+            publicId: device.assignments[0].businessUnit.businessUnitPublicId,
+            name: device.assignments[0].businessUnit.businessUnitName,
+          }
+        : null,
       model: {
         platformDeviceModelId: model.platformDeviceModelId,
         platformDeviceModelBrand: model.platformDeviceModelBrand,
@@ -159,6 +185,9 @@ export default class PlatformDeviceService {
       status: PlatformDeviceStockStatus
       origin: PlatformDeviceOrigin
       cnt: string
+      /** SUM() de MySQL llega como DECIMAL, y Knex lo entrega como string. */
+      costCents: string
+      sinCosto: string
     }
 
     const rows = await db
@@ -170,7 +199,12 @@ export default class PlatformDeviceService {
         'm.platform_device_model_name as modelName',
         'm.platform_device_model_slug as modelSlug',
         'd.platform_device_stock_status as status',
-        'd.platform_device_origin as origin'
+        'd.platform_device_origin as origin',
+        // COALESCE porque MySQL devuelve NULL, no 0, cuando todo el grupo es nulo.
+        db.raw('COALESCE(SUM(d.platform_device_acquisition_cost_cents), 0) as costCents'),
+        db.raw(
+          'SUM(CASE WHEN d.platform_device_acquisition_cost_cents IS NULL THEN 1 ELSE 0 END) as sinCosto'
+        )
       )
       .count('* as cnt')
       .groupBy(
@@ -186,7 +220,15 @@ export default class PlatformDeviceService {
       .whereNull('platform_device_model_deleted_at')
       .orderBy('platform_device_model_name')
 
-    const globalCounters = { total: 0, disponibles: 0, asignadas: 0, retiradas: 0, delCliente: 0 }
+    const globalCounters = {
+      total: 0,
+      disponibles: 0,
+      asignadas: 0,
+      retiradas: 0,
+      delCliente: 0,
+      costoAdquisicionCents: 0,
+      unidadesPropiasSinCosto: 0,
+    }
 
     // Mapa de contadores por modelId para plegar las filas agrupadas.
     const byModel = new Map<number, DeviceModelSummary>()
@@ -201,6 +243,8 @@ export default class PlatformDeviceService {
         asignadas: 0,
         retiradas: 0,
         delCliente: 0,
+        costoAdquisicionCents: 0,
+        unidadesPropiasSinCosto: 0,
       })
     }
 
@@ -215,7 +259,22 @@ export default class PlatformDeviceService {
       if (row.origin === 'del_cliente') {
         mc.delCliente += cnt
         globalCounters.delCliente += cnt
-      } else if (row.status === 'disponible') {
+        continue
+      }
+
+      // Desde aquí, todas las filas del grupo son de origen `propia`: el
+      // groupBy ya separó por origen, así que el costo se suma sin volver a
+      // preguntar. Las retiradas también suman — se compraron igual; lo único
+      // que quedó fuera es la baja lógica, filtrada con whereNull arriba.
+      const costCents = Number(row.costCents)
+      const sinCosto = Number(row.sinCosto)
+
+      mc.costoAdquisicionCents += costCents
+      globalCounters.costoAdquisicionCents += costCents
+      mc.unidadesPropiasSinCosto += sinCosto
+      globalCounters.unidadesPropiasSinCosto += sinCosto
+
+      if (row.status === 'disponible') {
         mc.disponibles += cnt
         globalCounters.disponibles += cnt
       } else if (row.status === 'asignada') {
@@ -278,7 +337,8 @@ export default class PlatformDeviceService {
             .from('platform_device_assignments as a')
             .join('business_units as bu', 'bu.business_unit_id', 'a.business_unit_id')
             .where('bu.business_unit_public_id', input.tenantPublicId!)
-            .whereNull('a.released_at')
+            .whereNull('a.platform_device_assignment_released_at')
+            .whereNull('a.platform_device_assignment_deleted_at')
             .select('a.platform_device_id')
         })
       }
@@ -292,6 +352,11 @@ export default class PlatformDeviceService {
 
     const devices = await buildQuery()
       .preload('deviceModel')
+      .preload('assignments', (q) => {
+        q.whereNull('platform_device_assignment_released_at')
+          .whereNull('platform_device_assignment_deleted_at')
+          .preload('businessUnit')
+      })
       .orderBy('platform_device_created_at', 'desc')
       .offset((page - 1) * limit)
       .limit(limit)
@@ -330,6 +395,11 @@ export default class PlatformDeviceService {
       .where('platform_device_id', deviceId)
       .whereNull('platform_device_deleted_at')
       .preload('deviceModel')
+      .preload('assignments', (q) => {
+        q.whereNull('platform_device_assignment_released_at')
+          .whereNull('platform_device_assignment_deleted_at')
+          .preload('businessUnit')
+      })
       .first()
 
     if (!device) {
@@ -384,8 +454,8 @@ export default class PlatformDeviceService {
 
     // 3) Coherencia origen/costo → 422 COST_NOT_ALLOWED_FOR_ORIGIN
     if (input.platformDeviceOrigin === 'del_cliente') {
-      const hasCost = input.platformDeviceAcquisitionCostCents != null
-      const hasDate = input.platformDeviceAcquisitionDate != null
+      const hasCost = input.platformDeviceAcquisitionCostCents !== null && input.platformDeviceAcquisitionCostCents !== undefined
+      const hasDate = input.platformDeviceAcquisitionDate !== null && input.platformDeviceAcquisitionDate !== undefined
 
       if (hasCost || hasDate) {
         throw new PlatformDeviceServiceError(
@@ -412,7 +482,7 @@ export default class PlatformDeviceService {
         PLATFORM_DEVICE_ERROR_CODES.DEVICE_SERIAL_TAKEN,
         422,
         PLATFORM_DEVICE_ERROR_CODES.DEVICE_SERIAL_TAKEN,
-        `Ya existe una unidad registrada con ese número de serie.`
+        'Ya existe una unidad registrada con ese número de serie.'
       )
     }
 
@@ -441,10 +511,167 @@ export default class PlatformDeviceService {
           PLATFORM_DEVICE_ERROR_CODES.DEVICE_SERIAL_TAKEN,
           422,
           PLATFORM_DEVICE_ERROR_CODES.DEVICE_SERIAL_TAKEN,
-          `Ya existe una unidad registrada con ese número de serie.`
+          'Ya existe una unidad registrada con ese número de serie.'
         )
       }
       throw error
+    }
+  }
+
+  // ─── Ciclo de vida (USRH1787189981877) ────────────────────────────────────
+
+  /**
+   * Aparta (active=false) o devuelve a circulación (active=true) un aparato.
+   * Un aparato retirado no se puede reactivar (CA-7).
+   * Un aparato con entrega abierta no se puede apartar (CA-6).
+   *
+   * @throws PlatformDeviceServiceError 404 — aparato no encontrado.
+   * @throws PlatformDeviceServiceError 422 LIFECYCLE_HAS_OPEN_ASSIGNMENT — entrega abierta.
+   * @throws PlatformDeviceServiceError 422 LIFECYCLE_ALREADY_RETIRED — ya retirado.
+   */
+  async setDeviceActive(
+    deviceId: number,
+    active: boolean
+  ): Promise<{ deviceId: number; serialNumber: string; active: boolean }> {
+    return db.transaction(async (trx) => {
+      const device = await PlatformDevice.query({ client: trx })
+        .where('platform_device_id', deviceId)
+        .whereNull('platform_device_deleted_at')
+        .forUpdate()
+        .first()
+
+      if (!device) {
+        throw new PlatformDeviceServiceError(
+          `Aparato ${deviceId} no encontrado`,
+          PLATFORM_DEVICE_ERROR_CODES.DEVICE_NOT_FOUND,
+          404,
+          PLATFORM_DEVICE_ERROR_CODES.DEVICE_NOT_FOUND,
+          'El aparato del inventario no existe o fue dado de baja.'
+        )
+      }
+
+      if (device.platformDeviceStockStatus === 'retirada') {
+        throw new PlatformDeviceServiceError(
+          `Aparato ${deviceId} ya está retirado`,
+          PLATFORM_DEVICE_ERROR_CODES.LIFECYCLE_ALREADY_RETIRED,
+          422,
+          PLATFORM_DEVICE_ERROR_CODES.LIFECYCLE_ALREADY_RETIRED,
+          'El aparato ya fue retirado definitivamente y no puede volver a circulación ni ser apartado de nuevo.'
+        )
+      }
+
+      // Solo bloquear apartar (active=false); reactivar no requiere el guard.
+      if (!active) {
+        await this.assertNoOpenAssignment(deviceId, trx)
+      }
+
+      device.useTransaction(trx)
+      device.platformDeviceActive = active ? 1 : 0
+      await device.save()
+
+      return {
+        deviceId: device.platformDeviceId,
+        serialNumber: device.platformDeviceSerialNumber,
+        active: device.platformDeviceActive === 1,
+      }
+    })
+  }
+
+  /**
+   * Retira definitivamente un aparato del inventario con motivo obligatorio.
+   * El retiro es irreversible (RN4). No borra el registro ni libera el serial.
+   *
+   * @throws PlatformDeviceServiceError 404 — aparato no encontrado.
+   * @throws PlatformDeviceServiceError 422 LIFECYCLE_HAS_OPEN_ASSIGNMENT — entrega abierta.
+   * @throws PlatformDeviceServiceError 422 LIFECYCLE_ALREADY_RETIRED — ya retirado.
+   */
+  async retireDevice(
+    deviceId: number,
+    reason: PlatformDeviceRetireReason,
+    retiredAt?: Date
+  ): Promise<{
+    deviceId: number
+    serialNumber: string
+    status: string
+    retireReason: string
+    retiredAt: string
+  }> {
+    return db.transaction(async (trx) => {
+      const device = await PlatformDevice.query({ client: trx })
+        .where('platform_device_id', deviceId)
+        .whereNull('platform_device_deleted_at')
+        .forUpdate()
+        .first()
+
+      if (!device) {
+        throw new PlatformDeviceServiceError(
+          `Aparato ${deviceId} no encontrado`,
+          PLATFORM_DEVICE_ERROR_CODES.DEVICE_NOT_FOUND,
+          404,
+          PLATFORM_DEVICE_ERROR_CODES.DEVICE_NOT_FOUND,
+          'El aparato del inventario no existe o fue dado de baja.'
+        )
+      }
+
+      if (device.platformDeviceStockStatus === 'retirada') {
+        throw new PlatformDeviceServiceError(
+          `Aparato ${deviceId} ya está retirado`,
+          PLATFORM_DEVICE_ERROR_CODES.LIFECYCLE_ALREADY_RETIRED,
+          422,
+          PLATFORM_DEVICE_ERROR_CODES.LIFECYCLE_ALREADY_RETIRED,
+          'El aparato ya fue retirado definitivamente. El retiro es irreversible.'
+        )
+      }
+
+      await this.assertNoOpenAssignment(deviceId, trx)
+
+      const retiredAtStr = retiredAt
+        ? DateTime.fromJSDate(retiredAt).toISODate()!
+        : DateTime.now().toISODate()!
+
+      device.useTransaction(trx)
+      device.platformDeviceStockStatus = 'retirada'
+      device.platformDeviceRetireReason = reason
+      device.platformDeviceRetiredAt = retiredAtStr
+      await device.save()
+
+      return {
+        deviceId: device.platformDeviceId,
+        serialNumber: device.platformDeviceSerialNumber,
+        status: 'retirada',
+        retireReason: reason,
+        retiredAt: retiredAtStr,
+      }
+    })
+  }
+
+  /**
+   * Guarda común: rechaza la operación si el aparato tiene una entrega
+   * abierta en `platform_device_assignments` (RN7 del spec 1877).
+   *
+   * El `forUpdate` ya está tomado sobre `platform_devices` antes de llamar
+   * aquí, por lo que no hay carrera entre la consulta y la mutación.
+   */
+  private async assertNoOpenAssignment(
+    deviceId: number,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    const openAssignment = await PlatformDeviceAssignment.query({ client: trx })
+      .where('platform_device_id', deviceId)
+      .whereNull('platform_device_assignment_released_at')
+      .whereNull('platform_device_assignment_deleted_at')
+      .preload('businessUnit')
+      .first()
+
+    if (openAssignment) {
+      const tenantName = openAssignment.businessUnit?.businessUnitName ?? 'un tenant'
+      throw new PlatformDeviceServiceError(
+        `Aparato ${deviceId} tiene entrega abierta con ${tenantName}`,
+        PLATFORM_DEVICE_ERROR_CODES.LIFECYCLE_HAS_OPEN_ASSIGNMENT,
+        422,
+        PLATFORM_DEVICE_ERROR_CODES.LIFECYCLE_HAS_OPEN_ASSIGNMENT,
+        `La unidad está asignada a «${tenantName}». Debe desasignarse antes de retirarla o apartarla.`
+      )
     }
   }
 }

@@ -1,4 +1,5 @@
 import env from '#start/env'
+import { resolvePublicAssetUrl } from '#helpers/public_asset_url'
 import QRCode from 'qrcode'
 import { EMPLOYEE_BADGE_ERROR_CODES } from '#constants/employee_badge_error_codes'
 import { EmployeeBadgeError } from '#exceptions/employee_badge_error'
@@ -180,14 +181,14 @@ export default class BadgeService {
       .replace(/\s+/g, ' ')
   }
 
-  /** Espejo defensivo de `resolvePhotoUrl` (`attendance_fault_hr_notification_service.ts:425-438`). */
+  /**
+   * URL de la foto para el contrato del gafete. `null` cuando el objeto es
+   * privado, de modo que `fotoFaltante` diga la verdad en vez de entregar una
+   * URL que el cliente no puede resolver. El PDF del gafete no depende de esto:
+   * lee el binario del bucket por su cuenta.
+   */
   private resolvePhotoUrl(photo: string | null): string | null {
-    if (!photo) return null
-    if (photo.startsWith('http://') || photo.startsWith('https://')) return photo
-    const base = env.get('APP_URL', '').replace(/\/$/, '')
-    if (!base) return photo
-    const path = photo.startsWith('/') ? photo : `/${photo}`
-    return `${base}${path}`
+    return resolvePublicAssetUrl(photo)
   }
 
   /** Espejo de `magic_link_service.ts:50-51`: la variable `BACKOFFICE_URL` ya existe, sin env nueva. */

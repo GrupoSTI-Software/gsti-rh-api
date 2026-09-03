@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { assertSpreadsheetFile } from '#helpers/spreadsheet_intake_guard'
 import logger from '@adonisjs/core/services/logger'
 import { EmployeeVacationExcelFilterInterface } from '../interfaces/employee_vacation_excel_filter_interface.js'
 import EmployeeVacationService from '#services/employee_vacation_service'
@@ -651,6 +652,10 @@ export default class EmployeeVacationController {
           message: 'Debe subir un archivo Excel (.xlsx).',
         }
       }
+
+      // La hoja no se abre sin comprobar antes que es OOXML real: un `.xlsx`
+      // es un ZIP y el nombre no prueba nada.
+      await assertSpreadsheetFile(file)
 
       if (file.hasErrors) {
         response.status(400)
