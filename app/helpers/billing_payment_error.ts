@@ -43,3 +43,23 @@ export function discountSnapshotInconsistentError(detail?: string): BillingPayme
     message
   )
 }
+
+/**
+ * El pago cubriría más periodos que los que le restan al beneficio del
+ * código (USRH1787714804404, regla 11). `wouldCoverPeriods` y
+ * `remainingBenefitPeriods` viajan en el `detail` para que el cliente vea
+ * las cifras reales, igual que `PERIODS_OUT_OF_RANGE`.
+ */
+export function discountPeriodsExceededError(
+  wouldCoverPeriods: number,
+  remainingBenefitPeriods: number
+): BillingPaymentServiceError {
+  const message = `El pago cubriría ${wouldCoverPeriods} periodos y al descuento le queda ${remainingBenefitPeriods}. Esos periodos se cobran a precios distintos: regístralos por separado.`
+  return new BillingPaymentServiceError(
+    message,
+    BILLING_PAYMENT_ERROR_CODES.DISCOUNT_PERIODS_EXCEEDED,
+    422,
+    'periodos-exceden-descuento',
+    message
+  )
+}

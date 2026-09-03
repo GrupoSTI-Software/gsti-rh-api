@@ -44,6 +44,13 @@ export const BILLING_PAYMENT_ERROR_CODES = {
    * financiera falsa en `billing_payments`, que es append-only.
    */
   DISCOUNT_SNAPSHOT_INCONSISTENT: 'PLT.PAY.DISCOUNT_SNAPSHOT_INCONSISTENT',
+  /**
+   * El pago cubriría más periodos que los que le restan al beneficio del
+   * código (USRH1787714804404, regla 11): esos periodos se cobrarían a dos
+   * precios distintos y un pago deja un solo desglose inmutable. Se rechaza
+   * en vez de mezclarlos; el cliente debe registrarlos por separado.
+   */
+  DISCOUNT_PERIODS_EXCEEDED: 'PLT.PAY.DISCOUNT_PERIODS_EXCEEDED',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.PAY.SYS_UNHANDLED',
 } as const

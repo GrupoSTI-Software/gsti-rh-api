@@ -276,7 +276,8 @@ test.group('BillingPaymentService.registerPayment — descuento congelado (USRH1
       assert.equal(breakdown.totalCents, 841_255)
       assert.equal(breakdown.discountCodeText, 'BIENVENIDA15')
       assert.equal(breakdown.discountCodeKind, 'percent')
-      assert.equal(breakdown.discountCodeBenefitPeriodsUsedAfter, 0)
+      // USRH1787714804404: este primer pago ya consume 1 de los 3 periodos pactados.
+      assert.equal(breakdown.discountCodeBenefitPeriodsUsedAfter, 1)
       // El importe cobrado sigue siendo el total congelado.
       assert.equal(registered.amountCents, 841_255)
     } finally {
@@ -321,8 +322,9 @@ test.group('BillingPaymentService.registerPayment — descuento congelado (USRH1
       assert.equal(breakdown.taxAmountCents, 117_312)
       assert.equal(breakdown.totalCents, 850_512)
       assert.equal(breakdown.discountCodeKind, 'fixed_amount')
-      // benefitPeriods null (indefinido): sigue vivo, used_after transcribe el 0 actual.
-      assert.equal(breakdown.discountCodeBenefitPeriodsUsedAfter, 0)
+      // benefitPeriods null (indefinido, USRH1787714804404): el contador sigue
+      // subiendo para auditoría, aunque el precio nunca se restaure.
+      assert.equal(breakdown.discountCodeBenefitPeriodsUsedAfter, 1)
     } finally {
       await cleanup([bu.businessUnitId], [planId])
     }

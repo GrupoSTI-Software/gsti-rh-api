@@ -15,7 +15,10 @@ import BillingSubscriptionChangeService, {
 import type { DiscountCodeKind } from '#models/discount_code'
 import { BILLING_PAYMENT_ERROR_CODES } from '../constants/billing_payment_error_codes.js'
 import { BillingPaymentServiceError } from '../exceptions/billing_payment_service_error.js'
-import { discountSnapshotInconsistentError } from '../helpers/billing_payment_error.js'
+import {
+  discountSnapshotInconsistentError,
+  discountPeriodsExceededError,
+} from '../helpers/billing_payment_error.js'
 import { todayInBusinessZone, toCalendarIsoDate } from '../utils/business_date.js'
 import { RECEIPT_MAX_BYTES, RECEIPT_ALLOWED_MIMES } from '../validators/billing_payment.js'
 
@@ -391,6 +394,23 @@ export default class BillingPaymentService {
           )
         }
 
+        // El congelado se lee una sola vez aquí (USRH1787714804404) y se
+        // reutiliza más abajo para la foto y para el consumo/restauración:
+        // nunca se vuelve a consultar ni a recalcular.
+        const frozenDiscount = this.readFrozenDiscount(subscription)
+
+        // ── Regla 11: un pago no puede cubrir periodos a dos precios ──────
+        // distintos. Si al beneficio (con duración pactada) le restan menos
+        // periodos de los que este pago cubriría, se rechaza entero, antes
+        // de tocar saldos — deja un solo desglose honesto por pago.
+        if (periodsCovered >= 1 && frozenDiscount !== null && frozenDiscount.benefitPeriods !== null) {
+          const remainingBenefitPeriods =
+            frozenDiscount.benefitPeriods - frozenDiscount.benefitPeriodsUsed
+          if (periodsCovered > remainingBenefitPeriods) {
+            throw discountPeriodsExceededError(periodsCovered, remainingBenefitPeriods)
+          }
+        }
+
         const creditAppliedCents = periodsCovered * periodAmountCents
         const creditBalanceAfterCents = saldoTrasAdeudo - creditAppliedCents
 
@@ -430,8 +450,16 @@ export default class BillingPaymentService {
         // si hubo aumento, describe el periodo que efectivamente se extendió.
         // El código de descuento se transcribe del congelado (USRH1787714804403);
         // nunca se recalcula ni se consulta billing_plan_prices/resolvePrice.
-        const frozenDiscount = this.readFrozenDiscount(subscription)
         const snapshot = this.computeFinancialSnapshot(subscription, frozenDiscount)
+
+        // Regla 12 (USRH1787714804404): el contador que se graba en el
+        // histórico ya lleva sumado el consumo de este pago, aunque la foto
+        // (arriba) siga describiendo el periodo tal como se cobró — con o
+        // sin descuento — antes de que el consumo/restauración lo muevan.
+        const benefitPeriodsUsedAfter =
+          frozenDiscount !== null && periodsCovered >= 1
+            ? frozenDiscount.benefitPeriodsUsed + periodsCovered
+            : snapshot.discountCodeBenefitPeriodsUsedAfter
 
         newPayment.useTransaction(trx)
         newPayment.billingPaymentPeriodAmountCents = periodAmountCents
@@ -449,8 +477,7 @@ export default class BillingPaymentService {
         newPayment.billingPaymentDiscountCodeText = snapshot.discountCodeText
         newPayment.billingPaymentDiscountCodeKind = snapshot.discountCodeKind
         newPayment.billingPaymentCodeDiscountAmountCents = snapshot.codeDiscountAmountCents
-        newPayment.billingPaymentDiscountCodeBenefitPeriodsUsedAfter =
-          snapshot.discountCodeBenefitPeriodsUsedAfter
+        newPayment.billingPaymentDiscountCodeBenefitPeriodsUsedAfter = benefitPeriodsUsedAfter
         newPayment.billingPaymentPeriodStart = newPeriodStart
         newPayment.billingPaymentPeriodEnd = newPeriodEnd
         await newPayment.save()
@@ -468,6 +495,35 @@ export default class BillingPaymentService {
           // Sincronizar columna espejo si venía de un estado a reactivar
           if (!subscription.billingSubscriptionLiveBusinessUnitId) {
             subscription.billingSubscriptionLiveBusinessUnitId = subscription.businessUnitId
+          }
+        }
+
+        // ── Consumo del beneficio y restauración del precio (USRH1787714804404) ──
+        // Regla 1-3: un periodo de beneficio se consume por cada periodo que
+        // avanza. Regla 9-10: con duración indefinida el contador sigue
+        // subiendo pero nunca se compara ni se restaura; con el beneficio ya
+        // agotado, `readFrozenDiscount` ya devolvió null y este bloque no corre.
+        if (periodsCovered >= 1 && frozenDiscount !== null) {
+          const newBenefitPeriodsUsed = frozenDiscount.benefitPeriodsUsed + periodsCovered
+          subscription.billingSubscriptionDiscountCodeBenefitPeriodsUsed = newBenefitPeriodsUsed
+
+          const benefitExhausted =
+            frozenDiscount.benefitPeriods !== null &&
+            newBenefitPeriodsUsed >= frozenDiscount.benefitPeriods
+
+          if (benefitExhausted) {
+            // Regla 5, 6: restaura desde lo congelado al canjear, nunca
+            // desde el catálogo. El descuento por volumen (discountPercent)
+            // no se toca. Las condiciones del código no se borran (regla 8).
+            subscription.billingSubscriptionContractedSubtotal =
+              subscription.billingSubscriptionUndiscountedSubtotal!
+            subscription.billingSubscriptionContractedTaxAmount =
+              subscription.billingSubscriptionUndiscountedTaxAmount!
+            subscription.billingSubscriptionContractedTotal =
+              subscription.billingSubscriptionUndiscountedTotal!
+            subscription.billingSubscriptionContractedUnitAmount =
+              subscription.billingSubscriptionUndiscountedUnitAmount!
+            subscription.billingSubscriptionCodeDiscountAmount = 0
           }
         }
 
