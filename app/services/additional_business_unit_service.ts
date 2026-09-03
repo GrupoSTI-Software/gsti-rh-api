@@ -166,9 +166,11 @@ export default class AdditionalBusinessUnitService {
 
           // 3.4d Configuración mínima del tenant nuevo
           await systemSettingService.createForTenant(
-            newBu.businessUnitId,
-            slug,
-            newBu.businessUnitName,
+            {
+              businessUnitId: newBu.businessUnitId,
+              businessUnitSlug: slug,
+              businessUnitName: newBu.businessUnitName,
+            },
             trx
           )
 

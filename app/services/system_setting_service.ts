@@ -9,6 +9,7 @@ import {
   SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT,
   tenantDefaultContent,
 } from '../constants/system_setting_defaults.js'
+import type { TenantProvisioningTargetInterface } from '../interfaces/tenant_provisioning_target_interface.js'
 
 export default class SystemSettingService {
   /**
@@ -406,17 +407,20 @@ export default class SystemSettingService {
    *   reprovisionarse tras un soft-delete de su configuración.
    * - Si no existe, se crea con los defaults.
    *
+   * Recibe la empresa destino como objeto (`TenantProvisioningTargetInterface`)
+   * y no como parámetros sueltos: slug y nombre son ambos `string` y podían
+   * invertirse sin que el compilador lo notara.
+   *
    * `system_setting_business_units` también se puebla con el slug del tenant
    * nuevo (convivencia con los 27 consumidores legacy de `getActive()` que
    * hoy resuelven por `FIND_IN_SET`; migrarlos es trabajo de las HUs 3 y 4
    * del set, fuera de alcance aquí).
    */
   async createForTenant(
-    businessUnitId: number,
-    businessUnitSlug: string,
-    businessUnitName: string,
+    target: TenantProvisioningTargetInterface,
     trx: TransactionClientContract
   ): Promise<SystemSetting> {
+    const { businessUnitId, businessUnitSlug, businessUnitName } = target
     const content = tenantDefaultContent(businessUnitName)
 
     const existing = await SystemSetting.query({ client: trx })

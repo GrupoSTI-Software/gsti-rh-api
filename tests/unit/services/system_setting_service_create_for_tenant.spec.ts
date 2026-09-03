@@ -49,9 +49,11 @@ test.group('SystemSettingService.createForTenant', (group) => {
 
     const created = await db.transaction(async (trx) => {
       return service.createForTenant(
-        businessUnit!.businessUnitId,
-        businessUnit!.businessUnitSlug,
-        businessUnit!.businessUnitName,
+        {
+          businessUnitId: businessUnit!.businessUnitId,
+          businessUnitSlug: businessUnit!.businessUnitSlug,
+          businessUnitName: businessUnit!.businessUnitName,
+        },
         trx
       )
     })
@@ -119,9 +121,11 @@ test.group('SystemSettingService.createForTenant', (group) => {
 
     await db.transaction(async (trx) => {
       return service.createForTenant(
-        businessUnit!.businessUnitId,
-        businessUnit!.businessUnitSlug,
-        businessUnit!.businessUnitName,
+        {
+          businessUnitId: businessUnit!.businessUnitId,
+          businessUnitSlug: businessUnit!.businessUnitSlug,
+          businessUnitName: businessUnit!.businessUnitName,
+        },
         trx
       )
     })
@@ -150,9 +154,11 @@ test.group('SystemSettingService.createForTenant', (group) => {
     try {
       const created = await db.transaction(async (trx) => {
         return service.createForTenant(
-          isolatedUnit.businessUnitId,
-          isolatedUnit.businessUnitSlug,
-          isolatedUnit.businessUnitName,
+          {
+            businessUnitId: isolatedUnit.businessUnitId,
+            businessUnitSlug: isolatedUnit.businessUnitSlug,
+            businessUnitName: isolatedUnit.businessUnitName,
+          },
           trx
         )
       })
@@ -197,9 +203,11 @@ test.group('SystemSettingService.createForTenant', (group) => {
 
     const revived = await db.transaction(async (trx) => {
       return service.createForTenant(
-        businessUnit!.businessUnitId,
-        businessUnit!.businessUnitSlug,
-        businessUnit!.businessUnitName,
+        {
+          businessUnitId: businessUnit!.businessUnitId,
+          businessUnitSlug: businessUnit!.businessUnitSlug,
+          businessUnitName: businessUnit!.businessUnitName,
+        },
         trx
       )
     })

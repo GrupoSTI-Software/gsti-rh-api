@@ -411,9 +411,11 @@ export default class SignupDraftService {
         // Configuración del tenant nuevo, ligada por business_unit_id y sembrada
         // con los defaults de la empresa — dentro de la misma transacción (fail-closed).
         await systemSettingService.createForTenant(
-          trxBusinessUnit.businessUnitId,
-          slug,
-          trxBusinessUnit.businessUnitName,
+          {
+            businessUnitId: trxBusinessUnit.businessUnitId,
+            businessUnitSlug: slug,
+            businessUnitName: trxBusinessUnit.businessUnitName,
+          },
           trx
         )
 

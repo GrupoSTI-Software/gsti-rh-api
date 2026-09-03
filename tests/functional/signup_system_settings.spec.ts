@@ -210,17 +210,21 @@ test.group('SignupDraftService.complete() - creación de system_settings del ten
 
     await db.transaction(async (trx) => {
       await systemSettingService.createForTenant(
-        businessUnit.businessUnitId,
-        businessUnit.businessUnitSlug,
-        businessUnit.businessUnitName,
+        {
+          businessUnitId: businessUnit.businessUnitId,
+          businessUnitSlug: businessUnit.businessUnitSlug,
+          businessUnitName: businessUnit.businessUnitName,
+        },
         trx
       )
     })
     await db.transaction(async (trx) => {
       await systemSettingService.createForTenant(
-        businessUnit.businessUnitId,
-        businessUnit.businessUnitSlug,
-        businessUnit.businessUnitName,
+        {
+          businessUnitId: businessUnit.businessUnitId,
+          businessUnitSlug: businessUnit.businessUnitSlug,
+          businessUnitName: businessUnit.businessUnitName,
+        },
         trx
       )
     })
