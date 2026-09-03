@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import EmployeeOffboarding from '#models/employee_offboarding'
@@ -54,36 +55,83 @@ export default class DocumentsRepositoryMysql implements DocumentsRepository {
 
   async countByOffboardingAndType(
     employeeOffboardingId: number,
-    documentType: string
+    documentType: string,
+    trx?: TransactionClientContract
   ): Promise<number> {
-    const row = await EmployeeOffboardingDocument.query()
+    // `withTrashed` a propósito: el consecutivo del folio no retrocede tras
+    // un borrado lógico — un hueco en la secuencia delata una emisión retirada
+    const row = await EmployeeOffboardingDocument.query({ client: trx })
+      .withTrashed()
       .where('employee_offboarding_id', employeeOffboardingId)
       .where('employee_offboarding_document_type', documentType)
-      .whereNull('employee_offboarding_document_deleted_at')
       .count('* as total')
       .first()
     return Number(row?.$extras.total ?? 0)
   }
 
-  async createDocument(
-    data: EmployeeOffboardingDocumentCreateData
-  ): Promise<EmployeeOffboardingDocument> {
-    // Las fechas civiles llegan `YYYY-MM-DD`; el modelo las declara `DateTime` (@column.date)
-    return await EmployeeOffboardingDocument.create({
-      ...data,
-      employeeOffboardingDocumentHireDate: DateTime.fromISO(data.employeeOffboardingDocumentHireDate),
-      employeeOffboardingDocumentReferenceDate: DateTime.fromISO(
-        data.employeeOffboardingDocumentReferenceDate
-      ),
-      employeeOffboardingDocumentIsCurrent: true,
-      employeeOffboardingDocumentSupersededDocumentId: null,
-    })
+  async lockOffboardingRow(
+    employeeOffboardingId: number,
+    trx: TransactionClientContract
+  ): Promise<EmployeeOffboarding | null> {
+    return await EmployeeOffboarding.query({ client: trx })
+      .where('employee_offboarding_id', employeeOffboardingId)
+      .whereNull('employee_offboarding_deleted_at')
+      .forUpdate()
+      .first()
   }
 
-  async listByOffboarding(employeeOffboardingId: number): Promise<EmployeeOffboardingDocument[]> {
+  async markCurrentAsSuperseded(
+    employeeOffboardingId: number,
+    documentType: string,
+    trx: TransactionClientContract
+  ): Promise<number | null> {
+    const currents = await EmployeeOffboardingDocument.query({ client: trx })
+      .where('employee_offboarding_id', employeeOffboardingId)
+      .where('employee_offboarding_document_type', documentType)
+      .where('employee_offboarding_document_is_current', true)
+      .whereNull('employee_offboarding_document_deleted_at')
+    for (const current of currents) {
+      current.useTransaction(trx)
+      current.employeeOffboardingDocumentIsCurrent = false
+      await current.save()
+    }
+    if (currents.length === 0) return null
+    return Math.max(...currents.map((row) => row.employeeOffboardingDocumentId))
+  }
+
+  async createDocument(
+    data: EmployeeOffboardingDocumentCreateData,
+    trx: TransactionClientContract
+  ): Promise<EmployeeOffboardingDocument> {
+    // Las fechas civiles llegan `YYYY-MM-DD`; el modelo las declara `DateTime` (@column.date)
+    return await EmployeeOffboardingDocument.create(
+      {
+        ...data,
+        employeeOffboardingDocumentHireDate: DateTime.fromISO(
+          data.employeeOffboardingDocumentHireDate
+        ),
+        employeeOffboardingDocumentReferenceDate: DateTime.fromISO(
+          data.employeeOffboardingDocumentReferenceDate
+        ),
+        employeeOffboardingDocumentIsCurrent: true,
+      },
+      { client: trx }
+    )
+  }
+
+  async listByOffboarding(
+    employeeOffboardingId: number,
+    filters: { includeSuperseded: boolean; documentType?: string }
+  ): Promise<EmployeeOffboardingDocument[]> {
     return await EmployeeOffboardingDocument.query()
       .where('employee_offboarding_id', employeeOffboardingId)
       .whereNull('employee_offboarding_document_deleted_at')
+      .if(!filters.includeSuperseded, (query) => {
+        query.where('employee_offboarding_document_is_current', true)
+      })
+      .if(!!filters.documentType, (query) => {
+        query.where('employee_offboarding_document_type', filters.documentType!)
+      })
       .orderBy('employee_offboarding_document_id', 'desc')
   }
 

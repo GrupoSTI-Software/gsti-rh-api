@@ -1,5 +1,7 @@
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
+import { DiscountCodeServiceError } from '../exceptions/discount_code_service_error.js'
+import { resolveDiscountCodeApiError } from './discount_code_api_error.js'
 
 export type ResolvedBillingSubscriptionError = {
   title: string
@@ -43,6 +45,13 @@ export function resolveBillingSubscriptionApiError(
       resolved.data = error.data
     }
     return resolved
+  }
+
+  // Delegación (USRH1787714804401 §4/Anexo C §4): un código no canjeable
+  // rechaza el alta con el mismo motivo `{title, detail, key, code}` que ya
+  // daría la cotización — no se reescribe el mensaje aquí.
+  if (error instanceof DiscountCodeServiceError) {
+    return resolveDiscountCodeApiError(error, fallbackStatus)
   }
 
   return {

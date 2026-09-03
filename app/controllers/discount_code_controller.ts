@@ -4,6 +4,7 @@ import {
   createDiscountCodeValidator,
   updateDiscountCodeValidator,
   listDiscountCodesValidator,
+  quoteDiscountCodeValidator,
 } from '#validators/discount_code'
 import { resolveDiscountCodeApiError } from '../helpers/discount_code_api_error.js'
 
@@ -307,6 +308,69 @@ export default class DiscountCodeController {
         Number(params.discountCodeId)
       )
       return response.status(200).json({ type: 'success', data: discountCode })
+    } catch (error) {
+      const { status, ...body } = resolveDiscountCodeApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/billing/discount-codes/{discountCodeText}/quote:
+   *   get:
+   *     tags:
+   *       - Platform Billing
+   *     summary: Cotizar una contratación con un código de descuento aplicado
+   *     description: >
+   *       Solo lectura (USRH1787714804400): no reserva el código, no
+   *       consume su cupo de canjes ni crea o modifica ninguna suscripción.
+   *       Devuelve el precio sin el código (ya con descuento por volumen) y
+   *       el precio con el código aplicado, acumulado después del volumen.
+   *       Solo se puede cotizar sobre un plan publicado y vigente.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: discountCodeText
+   *         required: true
+   *         schema:
+   *           type: string
+   *       - name: billingPlanId
+   *         in: query
+   *         required: true
+   *         schema:
+   *           type: integer
+   *       - name: employeeCount
+   *         in: query
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       '200':
+   *         description: Cotización con y sin el código de descuento
+   *       '404':
+   *         description: >
+   *           Código no encontrado (PLT.DSC.NOT_FOUND) o plan no encontrado
+   *           (PLT.DSC.QUOTE_PLAN_NOT_FOUND)
+   *       '422':
+   *         description: >
+   *           Código no redimible — inactivo (PLT.DSC.CODE_INACTIVE), aún no
+   *           vigente (PLT.DSC.CODE_NOT_YET_VALID), vencido
+   *           (PLT.DSC.CODE_EXPIRED) o agotado (PLT.DSC.CODE_EXHAUSTED) — o
+   *           plan no cotizable (PLT.DSC.QUOTE_PLAN_NOT_QUOTABLE) o sin
+   *           precio vigente (PLT.DSC.QUOTE_NO_ACTIVE_PRICE)
+   */
+  async quote({ params, request, response }: HttpContext) {
+    try {
+      const { billingPlanId, employeeCount } = await request.validateUsing(
+        quoteDiscountCodeValidator
+      )
+      const quote = await this.service.quoteWithDiscountCode({
+        discountCodeText: String(params.discountCodeText),
+        billingPlanId,
+        employeeCount,
+      })
+      return response.status(200).json({ type: 'success', data: quote })
     } catch (error) {
       const { status, ...body } = resolveDiscountCodeApiError(error)
       return response.status(status).json(body)

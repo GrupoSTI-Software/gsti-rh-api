@@ -155,8 +155,8 @@ test.group('SystemPermissionCatalogConsistencyService — hallazgos', (group) =>
       systemModuleDescription: 'test',
       systemModules: '0',
       systemModulePath: `/${slug}`,
-      systemModuleGroup: 'Test',
       systemModuleActive: 0,
+      systemModuleOrder: 10,
       systemModuleIcon: '',
       systemModuleUpdatedAt: DateTime.now(),
     })

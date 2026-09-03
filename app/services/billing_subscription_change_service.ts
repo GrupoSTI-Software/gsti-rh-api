@@ -18,6 +18,7 @@ import {
   changeInconsistentSnapshotError,
 } from '../helpers/billing_payment_error.js'
 import {
+  changeBlockedByDiscountCodeError,
   changeNotADecreaseError,
   changeNotAnIncreaseError,
   employeesBelowActiveHeadcountError,
@@ -184,6 +185,8 @@ export default class BillingSubscriptionChangeService {
     requestedEmployees: number
   ): Promise<SubscriptionChangePreview> {
     const subscription = await this.loadLiveSubscription(businessUnitId)
+
+    this.assertNoLiveDiscountCode(subscription)
 
     if (subscription.billingSubscriptionStatus === 'past_due') {
       throw subscriptionPastDueError()
@@ -837,6 +840,8 @@ export default class BillingSubscriptionChangeService {
     preview: SubscriptionChangePreview,
     trx: TransactionClientContract
   ): Promise<void> {
+    this.assertNoLiveDiscountCode(subscription)
+
     const todayIso = toBusinessDateString()
     const resolved = await this.catalog.resolvePrice(
       subscription.billingPlanId,
@@ -915,6 +920,28 @@ export default class BillingSubscriptionChangeService {
     }
 
     return subscription
+  }
+
+  /**
+   * Candado temporal (USRH1787714804401 §4.4, regla 16): guarda, no
+   * reescritura. Una sola comprobación leída de la suscripción ya cargada,
+   * sin consulta nueva. Bloquea mientras haya código congelado y el
+   * beneficio no esté agotado; con el beneficio agotado o sin código, el
+   * cambio pasa exactamente como hoy. Lo retira el eslabón 9 en su primer
+   * commit.
+   */
+  private assertNoLiveDiscountCode(subscription: BillingSubscription): void {
+    if (!subscription.billingSubscriptionDiscountCodeText) {
+      return
+    }
+
+    const benefitPeriods = subscription.billingSubscriptionDiscountCodeBenefitPeriods
+    const benefitPeriodsUsed = subscription.billingSubscriptionDiscountCodeBenefitPeriodsUsed
+    const benefitExhausted = benefitPeriods !== null && benefitPeriodsUsed >= benefitPeriods
+
+    if (!benefitExhausted) {
+      throw changeBlockedByDiscountCodeError()
+    }
   }
 
   private resolvePeriodDays(
