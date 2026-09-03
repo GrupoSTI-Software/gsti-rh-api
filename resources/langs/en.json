@@ -1322,11 +1322,12 @@
       "subject": "Reset your password on {tradeName}",
       "preheader": "We received a request to reset your password. Use the link and verification code.",
       "greeting_lead": "Hi,",
+      "cta": "Reset password",
       "intro": "We received a request to reset your Valanserh account password. Open the link below, verify the code and set your new password.",
       "code_label": "Verification code",
       "validity": "The link and the code expire in <strong>{minutes} minutes</strong>. If they expire, request a new reset from the sign-in screen. Do not share the code with anyone.",
       "ignore_notice": "If you did not request this change, ignore this email: your current password remains active and your account is protected.",
-      "fallback_url": "Open this address in your browser to continue:",
+      "fallback_url": "If the button doesn't work, copy and paste this address into your browser:",
       "footer": "This is an automated message from {tradeName}. Please do not reply to this email."
     }
   },
@@ -1375,6 +1376,7 @@
   "password_recovery_code_success": "Code verified successfully",
   "password_recovery_pin_pending": "You must verify the code before resetting your password",
   "password_recovery_token_invalid": "The token is invalid",
+  "password_recovery_policy_unmet": "The password must be at least 8 characters long and include upper and lower case, a number and a symbol.",
   "password_recovery_token_valid": "The token is valid",
   "password_recovery_reset_success": "The password has been changed successfully",
   "password_recovery_pin_invalid": "The PIN code is invalid",

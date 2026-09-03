@@ -40,6 +40,7 @@ export default class PasswordRecoveryMail extends BaseMail {
     // `firstName` se imprime desde la vista con `{{ }}` para que Edge lo escape.
     const greetingLead = i18n.formatMessage('auth.password_recovery.greeting_lead')
     const intro = i18n.formatMessage('auth.password_recovery.intro')
+    const cta = i18n.formatMessage('auth.password_recovery.cta')
     const codeLabel = i18n.formatMessage('auth.password_recovery.code_label')
     // `validity` trae `<strong>` alrededor de los minutos para respetar el diseño;
     // la vista la imprime sin escapar. El único dato interpolado es el entero de
@@ -67,6 +68,7 @@ export default class PasswordRecoveryMail extends BaseMail {
         greetingLead,
         firstName,
         intro,
+        cta,
         codeLabel,
         validity,
         ignoreNotice,

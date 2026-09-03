@@ -26,6 +26,7 @@ import { respondRefreshTokenUnauthorized } from '../helpers/auth_token_response.
 import i18nManager from '@adonisjs/i18n/services/main'
 import logger from '@adonisjs/core/services/logger'
 import { resolveMailLocale } from '#constants/mail_locale'
+import { isValidPassword } from '#helpers/password_policy'
 import { PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES } from '#constants/password_recovery'
 import { secureRandomInt } from '#helpers/csprng_string'
 import {
@@ -1285,6 +1286,20 @@ export default class UserController {
       userPassword = passwordArray
         ? userPassword.map((item: string) => item).join(',')
         : userPassword
+
+      // La política se valida aquí y no solo en pantalla: el backoffice y la app
+      // pintan el medidor, pero quien llame al endpoint directo se los salta.
+      if (!isValidPassword(userPassword)) {
+        response.status(422)
+        return {
+          type: 'warning',
+          title: i18n.formatMessage('password_recovery_title'),
+          message: i18n.formatMessage('password_recovery_policy_unmet'),
+          key: 'AUTH.RECOVERY.PASSWORD_POLICY',
+          data: null,
+        }
+      }
+
       user.userPassword = userPassword
       user.userToken = ''
       user.pinCode = ''
