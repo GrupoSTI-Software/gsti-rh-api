@@ -1,5 +1,6 @@
 import { BaseMail } from '@adonisjs/mail'
 import i18nManager from '@adonisjs/i18n/services/main'
+import { resolveMailLocale } from '#constants/mail_locale'
 
 export interface MagicLinkMailBranding {
   tradeName: string
@@ -36,7 +37,8 @@ export default class MagicLinkMail extends BaseMail {
         'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
     }
 
-    const i18n = i18nManager.locale(language)
+    // Correo siempre en español hasta el lanzamiento en inglés (mail_locale.ts).
+    const i18n = i18nManager.locale(resolveMailLocale(language))
     const subject = i18n.formatMessage('auth.magic_link.subject', { tradeName: branding.tradeName })
     const preheader = i18n.formatMessage('auth.magic_link.preheader')
     const greeting = i18n.formatMessage('auth.magic_link.greeting', { firstName })
