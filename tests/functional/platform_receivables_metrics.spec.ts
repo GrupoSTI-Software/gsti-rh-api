@@ -475,7 +475,10 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
     assert.isAtMost((primera.data.tenants as TenantBody[]).length, 1)
     assert.equal(primera.meta.limit, 1)
     assert.equal(primera.meta.page, 1)
-    assert.equal(primera.meta.total, (primera.data.resumen as SummaryBody).tenantsVencidos)
+    // `meta.total` cuenta el universo de filas (past_due OR con aumento
+    // pendiente); `tenantsVencidos` sigue contando solo past_due (CA-3 de
+    // USRH1788052455652). El primero nunca es menor que el segundo.
+    assert.isAtLeast(primera.meta.total, (primera.data.resumen as SummaryBody).tenantsVencidos)
     assert.equal(primera.meta.lastPage, Math.max(1, primera.meta.total))
 
     const completaResponse = await client
@@ -569,12 +572,13 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
     const body = response.body()
     const tenants = body.data.tenants as TenantBody[]
 
-    for (let index = 1; index < tenants.length; index += 1) {
-      // El universo sigue siendo `past_due` en este task: `diasAtraso` nunca es
-      // nulo todavía. El `?? 0` solo satisface el tipo ensanchado para Task 3.
+    // El orden entre vencidos lo cubre su propio test; aquí solo se verifica que
+    // ninguna fila del universo ampliado rompa el descendente con un nulo.
+    const conAtraso = tenants.filter((row) => row.diasAtraso !== null)
+    for (let index = 1; index < conAtraso.length; index += 1) {
       assert.isAtMost(
-        tenants[index]!.diasAtraso ?? 0,
-        tenants[index - 1]!.diasAtraso ?? 0,
+        conAtraso[index]!.diasAtraso!,
+        conAtraso[index - 1]!.diasAtraso!,
         'diasAtraso debe venir descendente'
       )
     }
@@ -989,6 +993,135 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
     )
     assert.lengthOf(findTenants(collected.tenants, subBorrada.publicId), 0)
     assert.lengthOf(findTenants(collected.tenants, buBorrada.publicId), 0)
+  })
+
+  test('CA-3 — el cliente al corriente con aumento pendiente entra sin marcas de morosidad', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now() + 20
+    const beforeResponse = await client.get(BASE_URL).loginAs(admin!.user)
+    const before = beforeResponse.body().data.resumen as SummaryBody
+
+    // `daysLate: -15` deja el fin de periodo 15 días en el futuro: está al
+    // corriente, no se le pasó nada.
+    const { publicId, buId, subId } = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'aum-al-corriente',
+      status: 'active',
+      daysLate: -15,
+      contractedTotal: 5800,
+      creditBalanceCents: 25000,
+    })
+    businessUnitIds.push(buId)
+    await createSubscriptionChange({
+      businessUnitId: buId,
+      billingSubscriptionId: subId,
+      proratedAmountCents: 91210,
+    })
+
+    const collected = await collectReceivables(client, admin!.user)
+    const filas = findTenants(collected.tenants, publicId)
+
+    assert.lengthOf(filas, 1, 'el cliente al corriente con asientos sin facturar sí aparece')
+    const fila = filas[0]!
+
+    assert.equal(fila.montoVencidoCents, 0, 'no debe nada vencido')
+    assert.isNull(fila.diasAtraso, 'la antigüedad es propia del vencido (regla 5)')
+    assert.isNull(fila.bucket, 'el adeudo por aumento no cae en ningún tramo (regla 5)')
+    assert.equal(fila.adeudoPorAumentoCents, 91210)
+    assert.match(fila.periodoFin, /^\d{4}-\d{2}-\d{2}$/)
+    assert.equal(fila.saldoAFavorCents, 25000)
+    assert.deepEqual(Object.keys(fila).sort(), EXPECTED_TENANT_KEYS.sort())
+
+    // No se le clasifica como moroso en ninguna cuenta del resumen (regla 4).
+    const after = collected.resumen
+    assert.equal(after.tenantsVencidos, before.tenantsVencidos)
+    assert.equal(after.totalVencidoCents, before.totalVencidoCents)
+    for (const key of ['hasta30', 'de31a60', 'mas60'] as const) {
+      assert.equal(after.porBucket[key].tenants, before.porBucket[key].tenants)
+      assert.equal(after.porBucket[key].montoCents, before.porBucket[key].montoCents)
+    }
+
+    // Pero sí cuenta como fila del detalle: si no, la paginación lo dejaría fuera.
+    assert.equal(after.tenantsConAdeudoPorAumento - before.tenantsConAdeudoPorAumento, 1)
+  })
+
+  test('CA-3 — el cliente al corriente sin aumento pendiente sigue fuera del detalle', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now() + 21
+    const { publicId, buId } = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'aum-sano',
+      status: 'active',
+      daysLate: -15,
+      contractedTotal: 5800,
+    })
+    businessUnitIds.push(buId)
+
+    const collected = await collectReceivables(client, admin!.user)
+
+    assert.lengthOf(
+      findTenants(collected.tenants, publicId),
+      0,
+      'el detalle es de deuda: sin vencido y sin adeudo no hay renglón'
+    )
+  })
+
+  test('CA-3 — una cancelada con aumento pendiente no se cuela al detalle', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now() + 22
+    const { publicId, buId, subId } = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'aum-cancelada',
+      status: 'canceled',
+      daysLate: 40,
+      canceledDaysAfterPeriodEnd: 10,
+      contractedTotal: 1000,
+    })
+    businessUnitIds.push(buId)
+    await createSubscriptionChange({
+      businessUnitId: buId,
+      billingSubscriptionId: subId,
+      proratedAmountCents: 88888,
+    })
+
+    const collected = await collectReceivables(client, admin!.user)
+
+    assert.lengthOf(
+      findTenants(collected.tenants, publicId),
+      0,
+      'las bajas con adeudo se reportan en canceladas[], no en el detalle de cartera'
+    )
+  })
+
+  test('los vencidos encabezan el detalle y las filas de solo adeudo van después', async ({
+    client,
+    assert,
+  }) => {
+    const collected = await collectReceivables(client, admin!.user)
+    const conAtraso = collected.tenants.filter((row) => row.diasAtraso !== null)
+
+    assert.deepEqual(
+      collected.tenants.slice(0, conAtraso.length).map((row) => row.businessUnitPublicId),
+      conAtraso.map((row) => row.businessUnitPublicId),
+      'ninguna fila sin atraso se cuela entre los vencidos'
+    )
+
+    for (let index = 1; index < conAtraso.length; index += 1) {
+      assert.isAtMost(
+        conAtraso[index]!.diasAtraso!,
+        conAtraso[index - 1]!.diasAtraso!,
+        'diasAtraso debe venir descendente entre los vencidos'
+      )
+    }
   })
 
   test('ningún campo del resumen es la suma del vencido y el adeudo (regla 1)', async ({
