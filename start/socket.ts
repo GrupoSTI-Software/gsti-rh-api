@@ -508,7 +508,7 @@ if (Ws.io) {
         if (existing) {
           // Actualizar dispositivo existente (serial_number no cambia)
           const updateData = {
-            accessPointName: payload.alias,
+            accessPointName: existing.accessPointName,
             businessUnitId: existing.businessUnitId,
             accessPointActive: existing.accessPointActive,
             accessPointSerialNumber: serialNumber,
