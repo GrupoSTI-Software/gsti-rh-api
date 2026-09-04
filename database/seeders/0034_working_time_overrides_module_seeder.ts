@@ -46,7 +46,7 @@ export default class extends BaseSeeder {
   /** 1. Alta del módulo en el catálogo. */
   private async seedModule() {
     const groupIdByKey = await resolveSystemModuleGroupIds(
-      ['configuraciones'],
+      ['zksync'],
       '0034_working_time_overrides_module_seeder'
     )
     await SystemModule.updateOrCreate(
@@ -58,8 +58,8 @@ export default class extends BaseSeeder {
         systemModules: '1',
         systemModulePath: '/working-time-overrides',
         systemModuleActive: 1,
-        systemModuleOrder: this.moduleId * 10,
-        systemModuleGroupId: groupIdByKey.get('configuraciones'),
+        systemModuleOrder: 30,
+        systemModuleGroupId: groupIdByKey.get('zksync'),
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
           width="48"
