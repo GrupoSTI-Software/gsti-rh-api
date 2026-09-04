@@ -8,6 +8,8 @@ import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
+import { ensureEmployeeBiometricRead } from '#helpers/ensure_employee_biometric_read'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 export default class EmployeeBiometricFaceIdController {
   /**
@@ -695,10 +697,8 @@ export default class EmployeeBiometricFaceIdController {
    *                   type: string
    */
   @inject()
-  async getPhoto(
-    { request, response }: HttpContext,
-    uploadService: UploadService
-  ) {
+  async getPhoto(ctx: HttpContext, uploadService: UploadService) {
+    const { request, response } = ctx
     try {
       const employeeId = request.param('employeeId')
 
@@ -710,6 +710,17 @@ export default class EmployeeBiometricFaceIdController {
           message: 'El ID del empleado es requerido',
           data: { employeeId },
         }
+      }
+
+      // Solo el dueño de la foto pasa sin permiso de administración.
+      if (
+        !(await ensureEmployeeBiometricRead(
+          ctx,
+          Number(employeeId),
+          EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBiometricFaceId
+        ))
+      ) {
+        return
       }
 
       // Validar que el empleado existe
@@ -891,6 +902,17 @@ export default class EmployeeBiometricFaceIdController {
         }
       }
 
+      // Solo el dueño de la foto pasa sin permiso de administración.
+      if (
+        !(await ensureEmployeeBiometricRead(
+          ctx,
+          Number(employeeId),
+          EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBiometricFaceIdWithToken
+        ))
+      ) {
+        return
+      }
+
       // Validar que el empleado existe
       const currentEmployee = await Employee.query()
         .where('employee_id', employeeId)
@@ -921,11 +943,12 @@ export default class EmployeeBiometricFaceIdController {
         }
       }
 
-      let sameToken = true
-      if (biometricFaceId.employeeBiometricFaceIdToken !== token) {
-        sameToken = false
-        await employeeBiometricService.updateToken(biometricFaceId, token)
-      }
+      // Solo se informa si el token del cliente coincide con el guardado. Antes
+      // se sobrescribía el de la base con el que mandara quien preguntara: una
+      // escritura sin autorización sobre el registro de cualquier empleado. El
+      // campo nunca autorizó nada —la invalidación de caché va por updatedAt— y
+      // ningún cliente lee `sameToken` hoy.
+      const sameToken = biometricFaceId.employeeBiometricFaceIdToken === token
 
       const photoUrl = await uploadService.getDownloadLink(biometricFaceId.employeeBiometricFaceIdPhotoUrl)
       if (typeof photoUrl === 'string') {

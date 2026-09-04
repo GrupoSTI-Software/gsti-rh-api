@@ -1,23 +1,26 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
-import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 /**
- * USRH1783821206584: todo el grupo es administración desde el Backoffice con
- * sesión de usuario (bearerAuth) — incluidas `getPhotoToken`/`streamPhoto`,
- * que son un proxy server-side para servir la foto ya autenticada (no un
- * checador de dispositivo sin unidad activa como `POST /api/verify-face`,
- * que vive en `face_routes.ts` y se deja explícitamente sin `businessScope`).
+ * USRH1783821206584: el grupo se sirve con sesión de usuario (bearerAuth). Las
+ * escrituras son administración desde el Backoffice y llevan su gate aquí; las
+ * tres lecturas NO lo llevan porque las comparte la app del colaborador, que
+ * pide su propia foto para checar: su permiso se evalúa en el controlador, que
+ * exime al dueño y exige el permiso a cualquier otra sesión. No confundir con
+ * `POST /api/verify-face` (`face_routes.ts`), checador de dispositivo sin unidad
+ * activa, que se deja explícitamente sin `businessScope`.
  */
 router
   .group(() => {
     router
+      // Sin permissionGate en el router a propósito: el permiso se evalúa en el
+      // controlador, que antes exime al dueño de la foto. Con el gate aquí, la
+      // app del empleado quedaría fuera de su propia foto.
       .get(
         '/:employeeId/biometric-face-id',
         '#controllers/employee_biometric_face_id_controller.getPhoto'
       )
-      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBiometricFaceId))
     router
       .post(
         '/:employeeId/biometric-face-id',
@@ -41,20 +44,10 @@ router
         '/:employeeId/biometric-face-id-with-token/:token',
         '#controllers/employee_biometric_face_id_controller.getPhotoToken'
       )
-      .use(
-        middleware.permissionGate(
-          EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBiometricFaceIdWithToken
-        )
-      )
     router
       .get(
         '/:employeeId/biometric-face-id-photo',
         '#controllers/employee_biometric_photos_controller.streamPhoto'
-      )
-      .use(
-        middleware.permissionGate(
-          EMPLOYEES_READ_PERMISSION_DECLARATIONS.streamBiometricFacePhoto
-        )
       )
   })
   .prefix('/api/employees')
