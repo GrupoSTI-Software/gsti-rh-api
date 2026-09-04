@@ -20,3 +20,8 @@ router
   })
   .prefix('/api/system-setting-trade-names')
   .use(middleware.auth())
+  /**
+   * Sin `businessScope()` el contexto de empresa no se activa y las consultas
+   * del servicio no pueden acotarse: el `systemSettingId` llega del cliente.
+   */
+  .use(middleware.businessScope())

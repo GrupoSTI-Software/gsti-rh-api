@@ -1,8 +1,7 @@
 import * as faceapi from 'face-api.js'
+import { readEmployeePhotoBuffer } from '#helpers/employee_photo_source'
 import { createCanvas, loadImage, Image } from '@napi-rs/canvas'
 import path from 'node:path'
-import https from 'node:https'
-import http from 'node:http'
 import fs from 'node:fs'
 // import logger from '@adonisjs/core/services/logger'
 
@@ -60,30 +59,19 @@ function hasTinyFaceDetector(): boolean {
 }
 
 /**
- * Descarga imagen desde URL con timeout configurable
+ * Lee la foto del empleado por la referencia guardada. El resolutor distingue
+ * la key del bucket de la URL del servidor de biometricos: las fotos que llegan
+ * de la sincronizacion del checador no viven en el bucket.
  */
-async function downloadImageBuffer(url: string, timeoutMs: number = CONFIG.DOWNLOAD_TIMEOUT_MS): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https') ? https : http
-
-    const request = protocol.get(url, { timeout: timeoutMs }, (res) => {
-      if (res.statusCode !== 200) {
-        reject(new Error(`HTTP ${res.statusCode}: Failed to download image`))
-        return
-      }
-
-      const chunks: Uint8Array[] = []
-      res.on('data', (chunk: Uint8Array) => chunks.push(chunk))
-      res.on('end', () => resolve(Buffer.concat(chunks)))
-      res.on('error', reject)
-    })
-
-    request.on('error', reject)
-    request.on('timeout', () => {
-      request.destroy()
-      reject(new Error('Download timeout'))
-    })
-  })
+async function downloadImageBuffer(
+  storedPath: string,
+  _timeoutMs: number = CONFIG.DOWNLOAD_TIMEOUT_MS
+): Promise<Buffer> {
+  const buffer = await readEmployeePhotoBuffer(storedPath)
+  if (!buffer) {
+    throw new Error('No fue posible leer la foto del empleado')
+  }
+  return buffer
 }
 
 /**

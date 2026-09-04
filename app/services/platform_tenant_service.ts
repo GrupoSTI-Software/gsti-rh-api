@@ -4,7 +4,10 @@ import SatCfdiUse from '#models/sat_cfdi_use'
 import SatTaxRegime from '#models/sat_tax_regime'
 import TenantBillingProfile from '#models/tenant_billing_profile'
 import { computeBillingProfileCompleteness } from '../helpers/tenant_billing_profile_completeness.js'
-import type { BillingProfileMissingField } from '../helpers/tenant_billing_profile_completeness.js'
+import type {
+  BillingProfileCompletenessInput,
+  BillingProfileMissingField,
+} from '../helpers/tenant_billing_profile_completeness.js'
 import { isValidRfcSat } from '../shared/validators/rfc.validator.js'
 import { PLATFORM_TENANT_ERROR_CODES } from '../constants/platform_tenant_error_codes.js'
 import { PlatformTenantServiceError } from '../exceptions/platform_tenant_service_error.js'
@@ -33,6 +36,16 @@ export interface TenantSubscriptionSnapshot {
   canceledAt: string | null
 }
 
+/**
+ * Completitud fiscal derivada de un tenant, tal como viaja al landlord.
+ * Son datos derivados: `missingFields` lista los NOMBRES de los campos que
+ * faltan, nunca los valores capturados (regla 4).
+ */
+export interface TenantBillingCompleteness {
+  complete: boolean
+  missingFields: BillingProfileMissingField[]
+}
+
 export interface TenantListItem {
   businessUnitPublicId: string
   businessUnitName: string
@@ -40,6 +53,10 @@ export interface TenantListItem {
   businessUnitActive: number
   hasBiometrics: boolean
   activeEmployees: number
+  /** Derivado: `false` cuando falta al menos uno de los cinco datos obligatorios de facturación (regla 1). */
+  billingProfileComplete: boolean
+  /** Derivado: nombres de los datos obligatorios que faltan, en el orden del catálogo. Nunca los valores. */
+  missingFields: BillingProfileMissingField[]
   subscription: TenantSubscriptionSnapshot | null
 }
 
@@ -94,6 +111,36 @@ function toIsoDate(value: unknown): string | null {
   if (!value) return null
   if (typeof value === 'string') return value.slice(0, 10)
   return toCalendarIsoDate(value as Parameters<typeof toCalendarIsoDate>[0])
+}
+
+/**
+ * Perfil ausente expresado como entrada de la regla de completitud: ningún dato
+ * capturado. Existe para que el tenant que NUNCA capturó su perfil fiscal se
+ * evalúe con la MISMA regla que el que sí lo capturó (regla 3), en lugar de con
+ * una lista de códigos escrita a mano que quedaría corta en silencio el día que
+ * el catálogo `REQUIRED_FIELDS` crezca.
+ */
+const EMPTY_BILLING_PROFILE: BillingProfileCompletenessInput = {
+  rfc: null,
+  legalName: '',
+  postalCode: null,
+  taxRegimeCode: null,
+  cfdiUseCode: null,
+}
+
+/**
+ * Resuelve la completitud fiscal de un tenant. La ausencia de perfil se trata
+ * como perfil vacío (regla 2): devuelve `complete: false` con los cinco datos
+ * obligatorios en `missingFields`, nunca `true` ni un arreglo vacío. Para
+ * facturar, "sin capturar" e "incompleto" son lo mismo.
+ *
+ * @param profile - Perfil fiscal del tenant, o `null` si nunca capturó datos.
+ * @returns Completitud y nombres de los datos que faltan, en el orden del catálogo.
+ */
+export function resolveTenantBillingCompleteness(
+  profile: BillingProfileCompletenessInput | null
+): TenantBillingCompleteness {
+  return computeBillingProfileCompleteness(profile ?? EMPTY_BILLING_PROFILE)
 }
 
 // ─── Servicio ─────────────────────────────────────────────────────────────────
@@ -244,12 +291,19 @@ export default class PlatformTenantService {
       }
     }
 
-    // ── 7. Armar respuesta ────────────────────────────────────────────────────
+    // ── 7. Completitud fiscal de la página (UNA consulta, no una por fila) ────
+    const billingCompleteness = await this.loadBillingCompletenessMap(
+      rows.map((r) => r.buId as number)
+    )
+
+    // ── 8. Armar respuesta ────────────────────────────────────────────────────
     const data: TenantListItem[] = rows.map((r) => {
       const sub = this.pickSub(r.buId as number, filters.status, subMap, canceledSubMap)
       return this.toListItem(
         sub ? { ...r, ...sub } : r,
-        employeeCounts[r.businessUnitPublicId as string] ?? 0
+        employeeCounts[r.businessUnitPublicId as string] ?? 0,
+        // Sin entrada en el mapa = nunca capturó perfil (regla 2).
+        billingCompleteness[r.buId as number] ?? resolveTenantBillingCompleteness(null)
       )
     })
 
@@ -359,6 +413,47 @@ export default class PlatformTenantService {
     const labels = await this.resolveSatCatalogLabels(profile.taxRegimeCode, profile.cfdiUseCode)
 
     return this.toBillingProfileSnapshot(profile, labels)
+  }
+
+  /**
+   * Completitud fiscal de todos los tenants de la página en UNA sola consulta
+   * (jamás una por fila; espeja el mapa de empleados activos del listado).
+   *
+   * Va por Lucid y no por `db.from(...)` a propósito: el RFC viaja cifrado en
+   * reposo y es el `consume` del modelo quien lo descifra, mientras que la regla
+   * de completitud lo evalúa como texto. El `runUnscoped` es el mismo camino
+   * auditado que usa la ficha individual: el operador de plataforma no tiene
+   * tenant propio. El filtro de perfiles borrados lo aplica el mixin
+   * `SoftDeletes` del modelo, así que solo entran perfiles vivos.
+   *
+   * @param businessUnitIds - IDs internos de las empresas de la página.
+   * @returns Mapa `businessUnitId` → completitud. Sin entrada para la empresa que nunca capturó perfil.
+   */
+  private async loadBillingCompletenessMap(
+    businessUnitIds: number[]
+  ): Promise<Record<number, TenantBillingCompleteness>> {
+    if (businessUnitIds.length === 0) {
+      return {}
+    }
+
+    const profiles = await TenantContext.runUnscoped(
+      () => TenantBillingProfile.query().whereIn('businessUnitId', businessUnitIds),
+      PLATFORM_BILLING_PROFILE_UNSCOPE_REASON
+    )
+
+    const map: Record<number, TenantBillingCompleteness> = {}
+
+    for (const profile of profiles) {
+      map[profile.businessUnitId] = resolveTenantBillingCompleteness({
+        rfc: profile.rfc,
+        legalName: profile.legalName,
+        postalCode: profile.postalCode,
+        taxRegimeCode: profile.taxRegimeCode,
+        cfdiUseCode: profile.cfdiUseCode,
+      })
+    }
+
+    return map
   }
 
   /** Resuelve descripciones legibles del catálogo sembrado (máx. 2 consultas por detalle). */
@@ -510,12 +605,27 @@ export default class PlatformTenantService {
     billingProfile: TenantBillingProfileSnapshot | null
   ): TenantDetail {
     return {
-      ...this.toListItem(row, activeEmployees),
+      ...this.toListItem(
+        row,
+        activeEmployees,
+        // La raíz repite la completitud que ya calculó el snapshot; cuando no hay
+        // perfil, la misma regla del listado dice `false` + los cinco (regla 2).
+        billingProfile
+          ? {
+              complete: billingProfile.billingProfileComplete,
+              missingFields: billingProfile.missingFields,
+            }
+          : resolveTenantBillingCompleteness(null)
+      ),
       billingProfile,
     }
   }
 
-  private toListItem(row: Record<string, unknown>, activeEmployees: number): TenantListItem {
+  private toListItem(
+    row: Record<string, unknown>,
+    activeEmployees: number,
+    billingCompleteness: TenantBillingCompleteness
+  ): TenantListItem {
     const hasSubscription = row.subscriptionStatus !== null && row.subscriptionStatus !== undefined
 
     return {
@@ -525,6 +635,8 @@ export default class PlatformTenantService {
       businessUnitActive: Number(row.businessUnitActive ?? 0),
       hasBiometrics: Boolean(Number(row.hasBiometrics ?? 0)),
       activeEmployees,
+      billingProfileComplete: billingCompleteness.complete,
+      missingFields: billingCompleteness.missingFields,
       subscription: hasSubscription
         ? {
             status: row.subscriptionStatus as string,

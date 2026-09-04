@@ -2,6 +2,7 @@ import { BaseSeeder } from '@adonisjs/lucid/seeders'
 import { DateTime } from 'luxon'
 import SystemModule from '../../app/models/system_module.js'
 import SystemSettingSystemModule from '../../app/models/system_setting_system_module.js'
+import { resolveSystemModuleGroupIds } from '../../app/helpers/system_module_group_seed_resolver.js'
 
 /**
  * Registra en el sistema el módulo "Evidencia de aceptaciones" (USRH1783368377327).
@@ -32,6 +33,10 @@ export default class extends BaseSeeder {
   }
 
   private async seedModule() {
+    const groupIdByKey = await resolveSystemModuleGroupIds(
+      ['plataforma'],
+      '0048_consent_evidence_module_seeder'
+    )
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
@@ -42,8 +47,9 @@ export default class extends BaseSeeder {
           'legales (LFPDPPP), reservado al rol root — USRH1783368377327',
         systemModules: '1',
         systemModulePath: '/consent-evidence',
-        systemModuleGroup: '7. Plataforma',
         systemModuleActive: 1,
+        systemModuleOrder: this.moduleId * 10,
+        systemModuleGroupId: groupIdByKey.get('plataforma'),
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 4 5v6c0 5 3.5 9 8 11 4.5-2 8-6 8-11V5l-8-3z" /><path d="m9 12 2 2 4-4" /></svg>',
         systemModuleUpdatedAt: DateTime.now(),

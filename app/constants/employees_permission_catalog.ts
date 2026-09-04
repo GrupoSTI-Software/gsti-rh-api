@@ -17,6 +17,37 @@ import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
  * documental es `exact`; con `broader`/`narrower` sí se materializan porque
  * son una decisión distinta a la ya sembrada (decisión de diseño 3 del plan).
  */
+/**
+ * Criterio de declaración (USRH1787433076993, regla de negocio 4). Ninguna
+ * acción de este catálogo puede quedar declarada sin que al menos una
+ * operación real del API la exija —vía `middleware.permissionGate` o vía
+ * comprobación explícita en controlador—, salvo excepción escrita aquí por
+ * nombre y con motivo. Una casilla que el servidor nunca consulta le miente
+ * al cliente en la pantalla de Roles y permisos: la marca, la desmarca y no
+ * pasa nada.
+ *
+ * Excepciones vigentes, por nombre y con motivo:
+ *
+ * 1. `manage-responsible-read`, `manage-assigned-read`, `manage-files`,
+ *    `read-only-files`, `show-face-id`, `show-fingers` y
+ *    `reveal-sensitive-data`. Sin consumidor en el API, pero sí lo tienen en
+ *    el backoffice, donde condicionan pantalla. Producen efecto, no son
+ *    casillas muertas.
+ * 2. `sensitive-identificacion-write`, `sensitive-contacto-write`,
+ *    `sensitive-financiero-write`, `sensitive-salud-write` y
+ *    `sensitive-biometrico-write`. Superficie declarada por adelantado de
+ *    USRH1787204602831, que es quien les añade el consumidor. Dueña: esa HU.
+ * 3. Los seis `collaborator-*` de la sección F. Llevan bloque `exemption`,
+ *    `SystemPermissionCatalogSyncService.ensureAction` los ignora y nunca
+ *    tienen fila en `system_permissions`. Son apartados documentales, no
+ *    permisos.
+ *
+ * Retirados por esta HU, con baja lógica en base de datos (no borrado) y por
+ * tanto reversibles: `tab-consentimiento-write`, `tab-responsable-write`,
+ * `tab-responsable-delete`, `tab-asignados-write` y `tab-asignados-delete`.
+ * Lo que de verdad gobierna esas escrituras es `register-physical-consent` y
+ * `manage-responsible-edit` ∨ `manage-assigned-edit`, que no se tocan.
+ */
 export type EmployeesSection =
   | 'foto'
   | 'trabajo'
@@ -50,6 +81,26 @@ type TabSection = Exclude<
 >
 
 /**
+ * Entrada `tab-<section>-read`, común a toda pestaña. Extraída de
+ * `tabReadWrite` (USRH1787433076993) porque tres pestañas ahora declaran solo
+ * la consulta y necesitan construirla sin arrastrar la de escritura.
+ *
+ * Genérica en `S` y con `as const` en el objeto por la misma razón que sus
+ * consumidoras: anotar el retorno ensancharía `slug` a `string` y ese
+ * ensanchamiento se filtraría a `EmployeeActionSlug`.
+ */
+function tabReadEntry<S extends TabSection>(section: S, label: string) {
+  return {
+    slug: `tab-${section}-read` as const,
+    displayName: `Consultar ${label}`,
+    kind: 'read' as const,
+    section,
+    exceptionProfile: 'standard' as const,
+    legacyEquivalence: { systemPermissionSlug: 'read' as const, relation: 'broader' as const },
+  } as const
+}
+
+/**
  * Entradas `tab-<section>-read|write` comunes a toda pestaña. No se exporta:
  * es un detalle de armado de este catálogo, no una utilidad reusable por
  * otros módulos.
@@ -63,14 +114,7 @@ type TabSection = Exclude<
  * devuelve, TypeScript conserva el slug literal de cada pestaña.
  */
 function tabReadWrite<S extends TabSection>(section: S, label: string, writeLegacySlug?: string) {
-  const read = {
-    slug: `tab-${section}-read` as const,
-    displayName: `Consultar ${label}`,
-    kind: 'read' as const,
-    section,
-    exceptionProfile: 'standard' as const,
-    legacyEquivalence: { systemPermissionSlug: 'read' as const, relation: 'broader' as const },
-  } as const
+  const read = tabReadEntry(section, label)
   const write = {
     slug: `tab-${section}-write` as const,
     displayName: `Modificar ${label}`,
@@ -115,9 +159,23 @@ function tabActionsWithDelete<S extends TabSection>(
   return [read, write, del] as const
 }
 
-/** Pestañas sin delete (solo consentimiento — regla de negocio 2). */
-function tabActionsNoDelete<S extends TabSection>(section: S, label: string) {
-  return tabReadWrite(section, label)
+/**
+ * Pestañas de las que solo se declara la consulta (USRH1787433076993). Su
+ * escritura la gobierna un permiso distinto que el API sí exige:
+ * `register-physical-consent` para consentimiento
+ * (`app/modules/consent/physical/physical_consent.controller.ts:13`), y
+ * `manage-responsible-edit` ∨ `manage-assigned-edit` para responsable y
+ * asignados (`app/constants/employees_write_permission_declarations.ts`,
+ * entradas `createUserResponsibleEmployee` / `updateUserResponsibleEmployee` /
+ * `deleteUserResponsibleEmployee`). Declarar aquí un `-write` o un `-delete`
+ * para ellas produce una casilla que el cliente puede marcar y desmarcar sin
+ * que cambie nada.
+ *
+ * Sin ramas, igual que sus dos hermanas y por la misma razón (TS2590, ver el
+ * docblock de `tabActionsWithDelete`).
+ */
+function tabActionsReadOnly<S extends TabSection>(section: S, label: string) {
+  return [tabReadEntry(section, label)] as const
 }
 
 /**
@@ -363,7 +421,8 @@ const CATALOG_ENTRIES = [
     legacyEquivalence: { systemPermissionSlug: 'register-physical-consent', relation: 'exact' },
   },
 
-  // --- B) Pestañas del expediente (nuevas) — 18 con delete + consentimiento sin delete ---
+  // --- B) Pestañas del expediente (nuevas) — 16 con delete + consentimiento,
+  //         responsable y asignados solo de consulta (USRH1787433076993) ---
   ...tabActionsWithDelete('foto', 'Foto'),
   ...tabActionsWithDelete('trabajo', 'Trabajo'),
   ...tabActionsWithDelete('persona', 'Persona'),
@@ -375,9 +434,9 @@ const CATALOG_ENTRIES = [
   ...tabActionsWithDelete('expediente', 'Expediente', 'manage-files'),
   ...tabActionsWithDelete('domicilio', 'Domicilio'),
   ...tabActionsWithDelete('bancos', 'Bancos'),
-  ...tabActionsWithDelete('responsable', 'Responsable'),
+  ...tabActionsReadOnly('responsable', 'Responsable'),
   ...tabActionsWithDelete('zonas', 'Zonas'),
-  ...tabActionsWithDelete('asignados', 'Asignados'),
+  ...tabActionsReadOnly('asignados', 'Asignados'),
   ...tabActionsWithDelete('biometricos', 'Biométricos'),
   ...tabActionsWithDelete('anotaciones', 'Anotaciones'),
   ...tabActionsWithDelete('dispositivos', 'Dispositivos'),
@@ -385,7 +444,7 @@ const CATALOG_ENTRIES = [
   ...tabActionsWithDelete('assessments', 'Assessments'),
   ...tabActionsWithDelete('ruta-carrera', 'Ruta de carrera'),
   ...tabActionsWithDelete('certificaciones', 'Certificaciones'),
-  ...tabActionsNoDelete('consentimiento', 'Consentimiento'),
+  ...tabActionsReadOnly('consentimiento', 'Consentimiento'),
 
   // --- Suministros del colaborador (USRH1785766406727): un permiso para todo el ciclo ---
   {

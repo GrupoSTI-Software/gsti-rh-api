@@ -1,9 +1,10 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import PlatformDeviceModel from './platform_device_model.js'
+import PlatformDeviceAssignment from './platform_device_assignment.js'
 
 /** Indica si el aparato fue comprado por GSTI o pertenece al cliente. */
 export type PlatformDeviceOrigin = 'propia' | 'del_cliente'
@@ -15,6 +16,18 @@ export type PlatformDeviceOrigin = 'propia' | 'del_cliente'
  * - `retirada`: fuera de circulación (entrega 1877).
  */
 export type PlatformDeviceStockStatus = 'disponible' | 'asignada' | 'retirada'
+
+/**
+ * Motivo del retiro definitivo de un aparato (USRH1787189981877 · C-4 del set).
+ * `del_cliente` está reservado para retiro automático al devolver un aparato
+ * de origen del_cliente; los 4 motivos visibles al operador son los demás.
+ */
+export type PlatformDeviceRetireReason =
+  | 'danado'
+  | 'obsoleto'
+  | 'vendido'
+  | 'extraviado'
+  | 'del_cliente'
 
 /**
  * Unidad concreta del inventario biométrico de GSTI (USRH1787189981873).
@@ -39,6 +52,17 @@ export default class PlatformDevice extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare platformDeviceStockStatus: PlatformDeviceStockStatus
+
+  /**
+   * Motivo por el que el aparato fue retirado del inventario. NULL = no retirado.
+   * Una vez establecido no se revierte (el retiro es definitivo, RN4 del spec 1877).
+   */
+  @column()
+  declare platformDeviceRetireReason: PlatformDeviceRetireReason | null
+
+  /** Fecha en que se ejecutó el retiro (YYYY-MM-DD). NULL = no retirado. */
+  @column()
+  declare platformDeviceRetiredAt: string | null
 
   /** Costo de adquisición en centavos MXN. Nulo para aparatos del cliente. */
   @column()
@@ -66,4 +90,10 @@ export default class PlatformDevice extends compose(BaseModel, SoftDeletes) {
     localKey: 'platformDeviceModelId',
   })
   declare deviceModel: BelongsTo<typeof PlatformDeviceModel>
+
+  @hasMany(() => PlatformDeviceAssignment, {
+    foreignKey: 'platformDeviceId',
+    localKey: 'platformDeviceId',
+  })
+  declare assignments: HasMany<typeof PlatformDeviceAssignment>
 }

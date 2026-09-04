@@ -1,17 +1,22 @@
 import { defineConfig } from '@adonisjs/static'
 
 /**
- * Configuración del servidor de archivos estáticos.
- * Sirve el contenido del directorio `public/` bajo la raíz del dominio.
+ * Servidor de archivos estáticos APAGADO.
  *
- * Uso: GET /devices/zkteco-speedface-v5l.svg
- *   → public/devices/zkteco-speedface-v5l.svg
+ * El API no sirve archivos desde su propio dominio. Estuvo activo para exponer
+ * `public/devices/*.svg`, pero un SVG es XML y admite `<script>`: servirlo
+ * desde el dominio del API lo pone en su mismo origen.
  *
- * Solo activo para rutas que comienzan con `/devices/` para evitar
- * exponer accidentalmente otros archivos del directorio public.
+ * Además, pese al comentario que llevaba esta configuración, `enabled: true`
+ * NO acotaba nada a `/devices/`: servía el directorio `public/` completo.
+ *
+ * Las imagenes de referencia de los modelos de dispositivo viven ahora en el
+ * Space como WebP (ver `platform_device_model_service.resolvePhotoUrl`). El
+ * resto de los archivos sale por endpoint autenticado que resuelve la clave
+ * del objeto desde el recurso.
  */
 const staticServerConfig = defineConfig({
-  enabled: true,
+  enabled: false,
   etag: true,
   lastModified: true,
   dotFiles: 'ignore',

@@ -1,5 +1,6 @@
 import { BaseMail } from '@adonisjs/mail'
 import i18nManager from '@adonisjs/i18n/services/main'
+import { resolveMailLocale } from '#constants/mail_locale'
 
 export interface ComplaintNewAdminMailBranding {
   tradeName: string
@@ -27,7 +28,8 @@ export default class ComplaintNewAdminMail extends BaseMail {
 
   prepare() {
     const { to, from, language, branding, folio, pendingNewCount, boardUrl } = this.params
-    const i18n = i18nManager.locale(language)
+    // Correo siempre en español hasta el lanzamiento en inglés (mail_locale.ts).
+    const i18n = i18nManager.locale(resolveMailLocale(language))
     const { tradeName, backgroundImageLogo } = branding
 
     const subject = i18n.formatMessage('complaint_new_admin_notification.subject', {

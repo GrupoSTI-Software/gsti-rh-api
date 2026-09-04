@@ -109,8 +109,8 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
       systemModuleDescription: 'Fixture de test',
       systemModules: '1',
       systemModulePath: `/test-assign-batch-${stamp}`,
-      systemModuleGroup: 'test',
       systemModuleActive: 1,
+      systemModuleOrder: 10,
       systemModuleIcon: '',
     })
     permission = await SystemPermission.create({

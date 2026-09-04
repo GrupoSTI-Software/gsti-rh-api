@@ -329,7 +329,7 @@ export default class EvidencesService {
   private async uploadToS3(file: any, itemId: number, sanitizedName: string): Promise<string> {
     const key = `${EVIDENCE_S3_FOLDER}/${itemId}/${cuid()}-${sanitizedName}`
     const uploadService = new UploadService()
-    const result = await uploadService.fileUpload(file, '', key, 'private')
+    const result = await uploadService.fileUpload(file, 'evidence-document', '', { fileName: key })
 
     if (!result || result === 'file_not_found' || result === 'S3Producer.fileUpload') {
       throw new EmployeeOffboardingServiceError({

@@ -235,7 +235,7 @@ export default class ExpedienteService {
 
     const fileName = `${EXPEDIENTE_S3_FOLDER}/${proveedorRepseId}/${cuid()}-${sanitizedName}`
     const uploadService = new UploadService()
-    const result = await uploadService.fileUpload(file, '', fileName, 'private')
+    const result = await uploadService.fileUpload(file, 'pdf-document', '', { fileName: fileName })
 
     if (!result || result === 'file_not_found' || result === 'S3Producer.fileUpload') {
       throw new RepseExpedienteError(

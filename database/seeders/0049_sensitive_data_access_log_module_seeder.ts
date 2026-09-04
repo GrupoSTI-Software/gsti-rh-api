@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import SystemModule from '../../app/models/system_module.js'
 import SystemPermission from '../../app/models/system_permission.js'
 import SystemSettingSystemModule from '../../app/models/system_setting_system_module.js'
+import { resolveSystemModuleGroupIds } from '../../app/helpers/system_module_group_seed_resolver.js'
 
 /**
  * Registra en el sistema el módulo de "Bitácora de accesos a datos sensibles".
@@ -34,6 +35,10 @@ export default class extends BaseSeeder {
   }
 
   private async seedModule() {
+    const groupIdByKey = await resolveSystemModuleGroupIds(
+      ['nom-035'],
+      '0049_sensitive_data_access_log_module_seeder'
+    )
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
@@ -43,8 +48,9 @@ export default class extends BaseSeeder {
           'Consulta de solo lectura del historial de revelados individuales y exportaciones masivas con datos sensibles',
         systemModules: '1',
         systemModulePath: '/sensitive-data-access-log',
-        systemModuleGroup: '5. NOM-035',
         systemModuleActive: 1,
+        systemModuleOrder: this.moduleId * 10,
+        systemModuleGroupId: groupIdByKey.get('nom-035'),
         systemModuleIcon: `<svg
           xmlns='http://www.w3.org/2000/svg'
           width='48'

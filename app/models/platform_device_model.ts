@@ -13,7 +13,7 @@ export type PlatformDeviceModelStatus = 'vigente' | 'en_validacion' | 'descontin
  * Modelo de dispositivo biométrico autorizado por GSTI (USRH1787189981870).
  * Catálogo global — sin business_unit_id ni withBusinessUnitScope mixin.
  * El slug es inmutable y es la llave con la que el landlord resuelve la foto
- * de referencia (`public/devices/<slug>.webp`). Espeja sat_tax_regime.ts.
+ * de referencia (`<slug>.webp` en el Space). Espeja sat_tax_regime.ts.
  */
 export default class PlatformDeviceModel extends compose(BaseModel, SoftDeletes) {
   static readonly table = 'platform_device_models'

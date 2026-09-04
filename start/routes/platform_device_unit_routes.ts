@@ -16,12 +16,14 @@ import { middleware } from '../kernel.js'
  * que `summary` nunca sea capturado como id numérico, sin importar el orden
  * de declaración. Precedente vivo: `employee_routes.ts:62`, `auth_signup_routes.ts:34`.
  *
- *   GET  /api/platform/devices/units/summary             → summary (contadores del parque)
- *   GET  /api/platform/devices/units                     → index (listado con filtros)
- *   GET  /api/platform/devices/units/:platformDeviceId   → show (detalle por id)
- *   POST /api/platform/devices/units                     → store (alta de unidad)
+  *   GET   /api/platform/devices/units/summary                        → summary
+  *   GET   /api/platform/devices/units                                → index
+  *   GET   /api/platform/devices/units/:platformDeviceId              → show
+  *   POST  /api/platform/devices/units                                → store
+  *   PATCH /api/platform/devices/units/:platformDeviceId/active       → setActive (apartar/devolver)
+  *   POST  /api/platform/devices/units/:platformDeviceId/retirement   → retire (retiro definitivo)
  *
- * Ref: USRH1787189981873 (alta) · USRH1787189981874 (tablero).
+ * Ref: USRH1787189981873 (alta) · USRH1787189981874 (tablero) · USRH1787189981877 (ciclo de vida).
  */
 router
   .group(() => {
@@ -31,6 +33,12 @@ router
       .get('/:platformDeviceId', '#controllers/platform_device_controller.show')
       .where('platformDeviceId', router.matchers.number())
     router.post('/', '#controllers/platform_device_controller.store')
+    router
+      .patch('/:platformDeviceId/active', '#controllers/platform_device_controller.setActive')
+      .where('platformDeviceId', router.matchers.number())
+    router
+      .post('/:platformDeviceId/retirement', '#controllers/platform_device_controller.retire')
+      .where('platformDeviceId', router.matchers.number())
   })
   .prefix('/api/platform/devices/units')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])

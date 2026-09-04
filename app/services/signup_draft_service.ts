@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
 import { secureRandomInt } from '#helpers/csprng_string'
+import { BUSINESS_UNIT_SLUG_MAX_ATTEMPTS } from '../constants/business_unit.js'
+import { BUSINESS_UNIT_SIGNUP_ERROR_CODES } from '../constants/business_unit_signup_error_codes.js'
 import logger from '@adonisjs/core/services/logger'
 import { I18n } from '@adonisjs/i18n'
 import db from '@adonisjs/lucid/services/db'
@@ -312,8 +314,10 @@ export default class SignupDraftService {
       return billingValidation
     }
 
-    // Slug fuera de la transacción: solo lectura de unicidad, no persiste nada.
-    const slug = await businessUnitService.resolveUniqueSlug(draft.signupDraftBusinessUnitName)
+    // Slug opaco generado fuera de la transacción (USRH1787932877000).
+    // La unicidad la garantiza el índice UNIQUE; el reintento acotado abajo
+    // regenera el token si la base rechaza el INSERT con ER_DUP_ENTRY.
+    let slug = businessUnitService.generateOpaqueSlug()
 
     let businessUnit: BusinessUnit
     let user: User
@@ -356,6 +360,11 @@ export default class SignupDraftService {
     // Armado completo del alta (Person → BusinessUnit → User → attach →
     // system_settings) todo-o-nada: un fallo en cualquier paso revierte todo,
     // sin dejar datos huérfanos (USRH1783712837572).
+    // El bucle acota el reintento ante colisión de slug: transacción nueva
+    // por intento garantiza rollback limpio y cero datos huérfanos
+    // (USRH1787932877000).
+    let slugAttempt = 1
+    for (;;) {
     try {
       const result = await db.transaction(async (trx) => {
         const personData = new Person()
@@ -399,9 +408,16 @@ export default class SignupDraftService {
         trxUser.userEmailVerifiedAt = DateTime.now()
         await trxUser.save()
 
-        // Configuración base del tenant nuevo, ligada por business_unit_id y
-        // copiada del registro base — dentro de la misma transacción (fail-closed).
-        await systemSettingService.createForTenant(trxBusinessUnit.businessUnitId, slug, trx)
+        // Configuración del tenant nuevo, ligada por business_unit_id y sembrada
+        // con los defaults de la empresa — dentro de la misma transacción (fail-closed).
+        await systemSettingService.createForTenant(
+          {
+            businessUnitId: trxBusinessUnit.businessUnitId,
+            businessUnitSlug: slug,
+            businessUnitName: trxBusinessUnit.businessUnitName,
+          },
+          trx
+        )
 
         const trxSubscription = await billingSubscriptionService.createSubscription(
           {
@@ -418,7 +434,35 @@ export default class SignupDraftService {
       businessUnit = result.businessUnit
       user = result.user
       subscription = result.subscription
+      break
     } catch (error) {
+      // Colisión de slug: regenerar token y reintentar la transacción completa.
+      if (businessUnitService.isSlugDuplicateError(error)) {
+        if (slugAttempt >= BUSINESS_UNIT_SLUG_MAX_ATTEMPTS) {
+          logger.error(
+            { err: error, intento: slugAttempt },
+            'SignupDraftService.complete: agotados los intentos para asignar slug de empresa.'
+          )
+          return {
+            status: 500,
+            type: 'error',
+            title: 'Alta de empresa',
+            message: 'No fue posible completar el registro.',
+            detail: 'No fue posible asignar el identificador de la empresa.',
+            key: 'no-fue-posible-asignar-el-identificador-de-la-empresa',
+            code: BUSINESS_UNIT_SIGNUP_ERROR_CODES.SLUG_CONFLICT,
+            data: {},
+          }
+        }
+        slugAttempt++
+        slug = businessUnitService.generateOpaqueSlug()
+        logger.warn(
+          { intento: slugAttempt },
+          'SignupDraftService.complete: colisión de slug, reintentando con nuevo token.'
+        )
+        continue
+      }
+
       const billingResult = this.toServiceResult(error)
       if (billingResult) {
         logger.error({ err: error }, 'SignupDraftService.complete: fallo de billing en el alta.')
@@ -438,6 +482,7 @@ export default class SignupDraftService {
         errorCode: String(resolved.errorCode),
       }
     }
+    } // fin del bucle de reintento de slug
 
     await draft.delete()
 

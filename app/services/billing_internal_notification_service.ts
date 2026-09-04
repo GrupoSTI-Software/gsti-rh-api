@@ -58,6 +58,19 @@ export type NotifySelfServiceSubscriptionCreatedParams = {
   subscription: BillingSubscription
   businessUnitName: string
   billingPlanName: string
+  /**
+   * Diferencia la notificación de primer registro (`'signup'`) de la del alta de
+   * empresa adicional (`'additional'`). Ausente o `undefined` se trata como `'signup'`
+   * para no romper la llamada existente de `SignupDraftService.complete()`.
+   */
+  origin?: 'signup' | 'additional'
+  /**
+   * Número de empresas activas del usuario creador tras el alta, incluida la
+   * nueva. Solo relevante cuando `origin === 'additional'`; se incorpora al
+   * asunto del correo para que el equipo de operaciones vea cuántas empresas
+   * tiene ya el cliente.
+   */
+  creatorLiveBusinessUnitCount?: number
 }
 
 export type NotifySubscriptionChangeNotApplicableParams = {
@@ -79,6 +92,8 @@ type FailureLogPayload = {
   contractedCurrency: string
   contractedTrialDays: number
   firstPaymentDate: string | null
+  origin?: 'signup' | 'additional'
+  creatorLiveBusinessUnitCount?: number
   recipients?: string[]
 }
 
@@ -109,11 +124,17 @@ export default class BillingInternalNotificationService {
   /**
    * Notifica al equipo interno de GSTI sobre una contratación self-service recién
    * registrada. Solo formatea datos del snapshot; no recalcula montos ni fechas.
+   *
+   * Cuando `origin === 'additional'` el asunto del correo diferencia la empresa
+   * adicional de la del primer registro e incluye el conteo de empresas vivas
+   * del creador (USRH1787932877001). Fuera de producción aplica gate de lista
+   * blanca (`filterRecipientsForDelivery`).
    */
   async notifySelfServiceSubscriptionCreated(
     params: NotifySelfServiceSubscriptionCreatedParams
   ): Promise<void> {
-    const { subscription, businessUnitName, billingPlanName } = params
+    const { subscription, businessUnitName, billingPlanName, origin, creatorLiveBusinessUnitCount } =
+      params
     const failureBase = this.buildFailureLogPayload(params)
 
     try {
@@ -121,9 +142,18 @@ export default class BillingInternalNotificationService {
 
       if (recipients.length === 0) {
         logger.warn(
-          { billingSubscriptionId: subscription.billingSubscriptionId },
+          { billingSubscriptionId: subscription.billingSubscriptionId, origin },
           'BillingInternalNotificationService: sin destinatarios configurados; se omite el aviso de contratación self-service.'
         )
+        return
+      }
+
+      const recipientsToSend = this.filterRecipientsForDelivery(recipients, {
+        billingSubscriptionId: subscription.billingSubscriptionId,
+        origin: origin ?? 'signup',
+      })
+
+      if (recipientsToSend.length === 0) {
         return
       }
 
@@ -131,12 +161,14 @@ export default class BillingInternalNotificationService {
 
       await mail.send(
         new SelfServiceSubscriptionCreatedMail({
-          to: recipients,
+          to: recipientsToSend,
           from,
           tradeName: SENDER_TRADE_NAME,
           subscription,
           businessUnitName,
           billingPlanName,
+          isAdditional: origin === 'additional',
+          creatorLiveBusinessUnitCount,
         })
       )
     } catch (error) {
@@ -359,7 +391,8 @@ export default class BillingInternalNotificationService {
   private buildFailureLogPayload(
     params: NotifySelfServiceSubscriptionCreatedParams
   ): FailureLogPayload {
-    const { subscription, businessUnitName, billingPlanName } = params
+    const { subscription, businessUnitName, billingPlanName, origin, creatorLiveBusinessUnitCount } =
+      params
     return {
       billingSubscriptionId: subscription.billingSubscriptionId,
       businessUnitName,
@@ -369,6 +402,8 @@ export default class BillingInternalNotificationService {
       contractedCurrency: subscription.billingSubscriptionContractedCurrency,
       contractedTrialDays: subscription.billingSubscriptionContractedTrialDays,
       firstPaymentDate: subscription.billingSubscriptionTrialEndsAt?.toISODate() ?? null,
+      origin,
+      creatorLiveBusinessUnitCount,
     }
   }
 
@@ -465,10 +500,15 @@ export default class BillingInternalNotificationService {
   /**
    * Fuera de producción simula la entrega a destinatarios fuera de la lista blanca
    * (info en bitácora) y devuelve solo los autorizados para envío real.
+   *
+   * El parámetro `context` es genérico (`Record<string, unknown>`) para poder
+   * usarse tanto en el aviso de cambio de suscripción (con
+   * `billingSubscriptionChangeId` y `event`) como en el aviso de contratación
+   * self-service (con `billingSubscriptionId` y `origin`).
    */
   private filterRecipientsForDelivery(
     recipients: string[],
-    context: { billingSubscriptionChangeId: number; event: SubscriptionChangeNotificationEvent }
+    context: Record<string, unknown>
   ): string[] {
     const isDevelopment = env.get('NODE_ENV') !== 'production'
     if (!isDevelopment) {
@@ -485,8 +525,7 @@ export default class BillingInternalNotificationService {
       if (!isInDevList) {
         logger.info(
           {
-            billingSubscriptionChangeId: context.billingSubscriptionChangeId,
-            event: context.event,
+            ...context,
             recipient: this.redactEmail(email),
           },
           'BillingInternalNotificationService: entrega simulada por gate de desarrollo.'

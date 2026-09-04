@@ -26,7 +26,7 @@ export function resolvePlatformDeviceApiError(
   if (err?.code === 'E_VALIDATION_ERROR') {
     const detail = err.messages?.[0]?.message ?? 'Datos inválidos'
     return {
-      title: 'Modelos de dispositivo',
+      title: 'Inventario de dispositivos',
       detail,
       key: PLATFORM_DEVICE_ERROR_CODES.VAL_INPUT,
       code: PLATFORM_DEVICE_ERROR_CODES.VAL_INPUT,
@@ -36,7 +36,7 @@ export function resolvePlatformDeviceApiError(
 
   if (error instanceof PlatformDeviceServiceError) {
     return {
-      title: 'Modelos de dispositivo',
+      title: 'Inventario de dispositivos',
       detail: error.detail ?? error.message,
       key: error.key ?? error.errorCode,
       code: error.errorCode,

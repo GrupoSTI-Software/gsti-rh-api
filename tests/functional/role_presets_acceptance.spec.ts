@@ -93,8 +93,8 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
       systemModuleDescription: 'Fixture de aceptación',
       systemModules: '1',
       systemModulePath: `/acceptance-other-${stamp}`,
-      systemModuleGroup: 'test',
       systemModuleActive: 1,
+      systemModuleOrder: 10,
       systemModuleIcon: '',
     })
     otherPermission = await SystemPermission.create({
