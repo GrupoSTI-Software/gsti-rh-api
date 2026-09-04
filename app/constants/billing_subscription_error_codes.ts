@@ -53,13 +53,6 @@ export const BILLING_SUBSCRIPTION_ERROR_CODES = {
   CHANGE_NOT_A_DECREASE: 'PLT.SUB.CHANGE_NOT_A_DECREASE',
   /** No existe un cambio de suscripción vivo que cancelar */
   NO_LIVE_CHANGE: 'PLT.SUB.NO_LIVE_CHANGE',
-  /**
-   * Candado temporal (USRH1787714804401 §4.4): mientras la suscripción
-   * tenga un código de descuento vivo (beneficio no agotado), los cambios
-   * de cupo en autoservicio del tenant quedan cerrados. Lo retira el
-   * eslabón 9 — Conservar el descuento al cambiar la cantidad contratada.
-   */
-  CHANGE_BLOCKED_BY_DISCOUNT_CODE: 'PLT.SUB.CHANGE_BLOCKED_BY_DISCOUNT_CODE',
 } as const
 
 export type BillingSubscriptionErrorCode =

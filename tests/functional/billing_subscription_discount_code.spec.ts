@@ -11,7 +11,6 @@ import BillingCatalogService from '#services/billing_catalog_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
 import BillingSubscriptionChangeService from '#services/billing_subscription_change_service'
 import DiscountCodeService from '#services/discount_code_service'
-import { BILLING_SUBSCRIPTION_ERROR_CODES } from '#constants/billing_subscription_error_codes'
 import { DISCOUNT_CODE_ERROR_CODES } from '#constants/discount_code_error_codes'
 import { toBusinessDateString } from '#utils/business_date'
 
@@ -100,6 +99,7 @@ async function createCode(
 }
 
 async function cleanupBusinessUnit(businessUnitId: number) {
+  await BillingSubscriptionChange.query().where('business_unit_id', businessUnitId).delete()
   await BillingSubscription.query().where('business_unit_id', businessUnitId).delete()
   await BusinessUnit.query().where('business_unit_id', businessUnitId).delete()
 }
@@ -485,9 +485,10 @@ test.group('createSubscription — concurrencia: último canje disponible (regla
 })
 
 // ---------------------------------------------------------------------------
-// Candado temporal (§4.4, regla 16): change-preview, requestIncrease y el
-// aumento en periodo de prueba quedan cerrados mientras el beneficio del
-// código esté vivo. Se ejercen contra el servicio directamente (igual que
+// Candado temporal (§4.4, regla 16), retirado por USRH1787714804405 (CA-0):
+// change-preview, requestIncrease y el aumento en periodo de prueba ya no
+// se cierran mientras el beneficio del código esté vivo; recalculan con el
+// descuento aplicado. Se ejercen contra el servicio directamente (igual que
 // `billing_subscription_trx.spec.ts`) para no depender del seed de roles
 // del tenant, que en este entorno local tiene datos huérfanos preexistentes
 // no relacionados con esta historia.
@@ -528,7 +529,9 @@ test.group('Candado temporal §4.4 — cambios de cupo del tenant con código vi
     await cleanupPlan(planId)
   })
 
-  test('previewChange: 409 con beneficio vivo, sin recalcular nada', async ({ assert }) => {
+  test('previewChange: candado retirado (USRH1787714804405 CA-0) — recalcula con descuento', async ({
+    assert,
+  }) => {
     const stamp = Date.now() + 9
     const businessUnit = await createBusinessUnit(stamp)
     const code = await createCode(stamp, { benefitPeriods: 3 })
@@ -537,20 +540,10 @@ test.group('Candado temporal §4.4 — cambios de cupo del tenant con código vi
     try {
       const subscription = await createLiveSubscriptionWithCode(businessUnit, planId!, code, 1)
 
-      let thrown: unknown = null
-      try {
-        await changeService.previewChange(businessUnit.businessUnitId, 20)
-      } catch (error) {
-        thrown = error
-      }
-
-      assert.isNotNull(thrown)
-      assert.equal((thrown as { httpStatus?: number }).httpStatus, 409)
-      assert.equal(
-        (thrown as { errorCode?: string }).errorCode,
-        BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_BLOCKED_BY_DISCOUNT_CODE
-      )
-      assert.equal((thrown as { key?: string }).key, 'cambio-bloqueado-por-codigo-de-descuento')
+      const preview = await changeService.previewChange(businessUnit.businessUnitId, 20)
+      assert.equal(preview.changeType, 'increase')
+      assert.isDefined(preview.newAmounts.codeDiscountAmount)
+      assert.isAbove(preview.newAmounts.codeDiscountAmount!, 0)
 
       const reloaded = await BillingSubscription.findOrFail(subscription.billingSubscriptionId)
       assert.equal(reloaded.billingSubscriptionContractedEmployees, 10)
@@ -560,7 +553,7 @@ test.group('Candado temporal §4.4 — cambios de cupo del tenant con código vi
     }
   })
 
-  test('requestIncrease: 409 con beneficio vivo, no crea billing_subscription_changes', async ({
+  test('requestIncrease: candado retirado (USRH1787714804405 CA-0) — congela el descuento recalculado', async ({
     assert,
   }) => {
     const stamp = Date.now() + 10
@@ -571,25 +564,16 @@ test.group('Candado temporal §4.4 — cambios de cupo del tenant con código vi
     try {
       await createLiveSubscriptionWithCode(businessUnit, planId!, code, 0)
 
-      let thrown: unknown = null
-      try {
-        await changeService.requestIncrease(businessUnit.businessUnitId, 20)
-      } catch (error) {
-        thrown = error
-      }
-
-      assert.isNotNull(thrown)
-      assert.equal((thrown as { httpStatus?: number }).httpStatus, 409)
-      assert.equal(
-        (thrown as { errorCode?: string }).errorCode,
-        BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_BLOCKED_BY_DISCOUNT_CODE
-      )
+      const result = await changeService.requestIncrease(businessUnit.businessUnitId, 20)
+      assert.equal(result.billingSubscriptionChangeStatus, 'pending_payment')
 
       const changes = await BillingSubscriptionChange.query().where(
         'business_unit_id',
         businessUnit.businessUnitId
       )
-      assert.lengthOf(changes, 0)
+      assert.lengthOf(changes, 1)
+      assert.equal(changes[0].billingSubscriptionChangeDiscountCodeText, code.discountCodeCode)
+      assert.isAbove(Number(changes[0].billingSubscriptionChangeCodeDiscountAmount), 0)
     } finally {
       await cleanupBusinessUnit(businessUnit.businessUnitId)
       await cleanupCode(code.discountCodeId)
