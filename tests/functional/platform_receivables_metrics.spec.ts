@@ -1077,6 +1077,9 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
     assert,
   }) => {
     const stamp = Date.now() + 22
+    const beforeResponse = await client.get(BASE_URL).loginAs(admin!.user)
+    const before = beforeResponse.body().data.resumen as SummaryBody
+
     const { publicId, buId, subId } = await createOverdue({
       planId,
       stamp,
@@ -1099,6 +1102,20 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
       findTenants(collected.tenants, publicId),
       0,
       'las bajas con adeudo se reportan en canceladas[], no en el detalle de cartera'
+    )
+
+    // Tampoco se cuela al agregado del resumen: ni el importe ni el conteo de
+    // empresas con adeudo por aumento se mueven por una cancelada (regla 7).
+    const after = collected.resumen
+    assert.equal(
+      after.totalAdeudoPorAumentoCents,
+      before.totalAdeudoPorAumentoCents,
+      'el adeudo de una cancelada no suma al total de adeudo por aumento'
+    )
+    assert.equal(
+      after.tenantsConAdeudoPorAumento,
+      before.tenantsConAdeudoPorAumento,
+      'una cancelada con adeudo no cuenta como empresa con adeudo por aumento'
     )
   })
 

@@ -36,7 +36,15 @@ export interface ReceivableBucketSlice {
 export interface ReceivablesSummary {
   /** Suma de los importes con IVA de toda la cartera, en centavos enteros. */
   totalVencidoCents: number
-  /** Cuántas empresas están en `past_due`. Es también el `meta.total`. */
+  /**
+   * Cuántas empresas están en `past_due`. **Ya no** es `meta.total`
+   * (USRH1788052455652): `meta.total` —calculado en `countReceivableRows()`,
+   * junto a `tenants[]` más abajo en este archivo— cuenta el universo más
+   * ancho del detalle, que además de los morosos suma a los clientes al
+   * corriente con adeudo por aumento de asientos pendiente. Antes de esta
+   * historia los dos números coincidían porque el detalle solo traía morosos;
+   * ya no.
+   */
   tenantsVencidos: number
   /** Saldo a favor agregado. Informativo: NUNCA se resta del adeudo (regla 6). */
   saldoAFavorCents: number
@@ -53,7 +61,14 @@ export interface ReceivablesSummary {
   tenantsConAdeudoPorAumento: number
 }
 
-/** Una empresa morosa tal como viaja en el contrato. Sin identificadores internos. */
+/**
+ * Una empresa morosa tal como viaja en el contrato. Sin identificadores internos.
+ *
+ * Desde USRH1788052455652 el nombre queda corto: la fila también representa a
+ * un cliente al corriente con adeudo por aumento de asientos pendiente, que no
+ * es moroso. `montoVencidoCents`, `diasAtraso` y `bucket` distinguen ambos
+ * casos (ver sus docblocks).
+ */
 export interface ReceivableTenantItem {
   businessUnitPublicId: string
   businessUnitName: string
@@ -569,7 +584,8 @@ export default class PlatformReceivableService {
   private toTenantItem(row: Record<string, unknown>, businessDate: string): ReceivableTenantItem {
     // `current_period_end` se siembra al alta y nunca queda vacío
     // (`billing_subscription_service.ts:459-460,514`). El `?? businessDate` es la
-    // red que garantiza la regla 4: los días de atraso siempre son un número.
+    // red que garantiza la regla 4: `periodoFin` siempre es una fecha, aunque la
+    // fila entre solo por adeudo por aumento y `diasAtraso` salga `null`.
     const periodoFin = toCalendarIsoDate(row.periodoFin) ?? businessDate
     const isOverdue = row.subscriptionStatus === 'past_due'
     const diasAtraso = isOverdue
