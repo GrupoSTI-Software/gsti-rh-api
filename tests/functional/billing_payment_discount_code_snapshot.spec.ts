@@ -255,7 +255,7 @@ test.group('BillingPaymentService.registerPayment — descuento congelado (USRH1
 
     try {
       const service = new BillingPaymentService()
-      const registered = await registerPayment(subscription, 'DISC-PERCENT-1')
+      const registered = await registerPayment(subscription, 'DESC-PERCENT-1')
       const detail = await service.getPaymentDetail(
         subscription.billingSubscriptionId,
         registered.billingPaymentId
@@ -308,7 +308,7 @@ test.group('BillingPaymentService.registerPayment — descuento congelado (USRH1
 
     try {
       const service = new BillingPaymentService()
-      const registered = await registerPayment(subscription, 'DISC-FIXED-1')
+      const registered = await registerPayment(subscription, 'DESC-FIXED-1')
       const detail = await service.getPaymentDetail(
         subscription.billingSubscriptionId,
         registered.billingPaymentId
@@ -360,7 +360,7 @@ test.group('BillingPaymentService.registerPayment — descuento congelado (USRH1
 
     try {
       const service = new BillingPaymentService()
-      const registered = await registerPayment(subscription, 'DISC-UNITPRICE-1')
+      const registered = await registerPayment(subscription, 'DESC-UNITPRICE-1')
       const detail = await service.getPaymentDetail(
         subscription.billingSubscriptionId,
         registered.billingPaymentId
@@ -415,7 +415,7 @@ test.group('BillingPaymentService.registerPayment — descuento congelado (USRH1
 
     try {
       const service = new BillingPaymentService()
-      const registered = await registerPayment(subscription, 'DISC-EXHAUSTED-1')
+      const registered = await registerPayment(subscription, 'DESC-EXHAUSTED-1')
       const detail = await service.getPaymentDetail(
         subscription.billingSubscriptionId,
         registered.billingPaymentId
@@ -492,7 +492,7 @@ test.group('BillingPaymentService.registerPayment — descuento congelado (USRH1
     try {
       let thrown: unknown = null
       try {
-        await registerPayment(subscription, 'DISC-BROKEN-KIND-1')
+        await registerPayment(subscription, 'DESC-BROKEN-KIND-1')
       } catch (error) {
         thrown = error
       }
@@ -541,7 +541,7 @@ test.group('BillingPaymentService.registerPayment — descuento congelado (USRH1
     try {
       let thrown: unknown = null
       try {
-        await registerPayment(subscription, 'DISC-BROKEN-MATH-1')
+        await registerPayment(subscription, 'DESC-BROKEN-MATH-1')
       } catch (error) {
         thrown = error
       }
