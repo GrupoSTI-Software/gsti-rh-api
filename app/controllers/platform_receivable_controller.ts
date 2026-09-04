@@ -25,12 +25,13 @@ export default class PlatformReceivableController {
    *   get:
    *     tags:
    *       - Platform · Métricas
-   *     summary: Cartera vencida con total, antigüedad de saldos y detalle por empresa
+   *     summary: Cartera de plataforma con vencido, adeudo por aumento y detalle por empresa
    *     description: |
    *       Devuelve el total vencido de toda la plataforma, su reparto en tres tramos de
-   *       antigüedad y el detalle paginado de las empresas morosas.
-   *       La cartera son exclusivamente las suscripciones en estado past_due, vivas y de
-   *       empresas vivas: al corriente, en prueba y canceladas quedan fuera aunque deban.
+   *       antigüedad, el total de adeudo por aumento de asientos y el detalle paginado por empresa.
+   *       La cartera vencida propia son las suscripciones past_due, vivas y de empresas vivas;
+   *       en prueba y canceladas quedan fuera de tenants[]. Un cliente al corriente solo entra
+   *       al detalle si tiene un aumento de asientos pendiente de pago.
    *       El importe publicado es el total contratado CON IVA — lo que la empresa debe pagar,
    *       no el ingreso de la plataforma — y cada morosa aporta un solo periodo: lo que crece
    *       con el tiempo son los días de atraso, no el importe.
@@ -72,7 +73,7 @@ export default class PlatformReceivableController {
    *           default: 20
    *     responses:
    *       '200':
-   *         description: Resumen de la cartera vencida y página de empresas morosas
+   *         description: Resumen de cartera (vencido y adeudo por aumento) y página del detalle por empresa
    *         content:
    *           application/json:
    *             schema:
@@ -266,10 +267,12 @@ export default class PlatformReceivableController {
    *                   example: AUTH.PLATFORM.FORBIDDEN
    *
    * @index
-   * @summary Cartera vencida con total, antigüedad de saldos y detalle por empresa
+   * @summary Cartera de plataforma con vencido, adeudo por aumento y detalle por empresa
    * @description Devuelve el total vencido de toda la plataforma, su reparto en tres tramos\
-   *   de antigüedad y el detalle paginado de las empresas morosas.\
-   *   La cartera son exclusivamente las suscripciones en past_due, vivas y de empresas vivas.\
+   *   de antigüedad, el total de adeudo por aumento de asientos y el detalle paginado por empresa.\
+   *   La cartera vencida propia son suscripciones past_due, vivas y de empresas vivas; en prueba\
+   *   y canceladas quedan fuera de tenants[]. Un cliente al corriente solo entra al detalle si\
+   *   tiene un aumento de asientos pendiente de pago.\
    *   El importe publicado es el total contratado CON IVA y cada morosa aporta un solo periodo.\
    *   El resumen se calcula sobre la cartera completa, nunca sobre la página.\
    *   El saldo a favor viaja aparte y jamás se resta del adeudo.\
