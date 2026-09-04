@@ -180,6 +180,19 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
     encrypted: true,
   },
 
+  // ─── BillingTaxReceipt: identificación (USRH1788288461952) ────────────────
+  // RFC del receptor congelado en el comprobante. Cifrado AES; SIN blind index
+  // (nadie busca comprobantes por RFC en este set). treatment 'cifrar', no
+  // 'cifrar-buscable': esa marca declararía una capacidad que no existe.
+  // Ancla: app/models/billing_tax_receipt.ts (columna `rfc`)
+  {
+    model: 'BillingTaxReceipt',
+    column: 'rfc',
+    legalCategory: 'identificacion',
+    treatment: 'cifrar',
+    encrypted: true,
+  },
+
   // ─── Employee: financiero (VIGENTE, EN CLARO — cifrado en HU aparte) ──────
   // Dato vivo del que se derivan EmployeeSalaryHistory.salaryDaily y el cálculo
   // de nómina. Se clasifica y se oculta en serialización; NO se cifra todavía

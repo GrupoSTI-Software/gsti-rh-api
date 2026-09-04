@@ -1,5 +1,6 @@
 /**
- * Contrato HTTP de los catálogos fiscales del SAT (USRH1786737531063).
+ * Contrato HTTP de los catálogos fiscales del SAT (USRH1786737531063,
+ * USRH1788288461952).
  *
  * Formas fijadas para "Completar los datos de emisión del CFDI" y el landlord GSTI.
  * Errores: `{ title, detail, key, code }` vía prefijo `SAT.CAT.*`.
@@ -27,10 +28,21 @@ export interface SatCfdiUseCatalogItem {
   receiverRegimeCodes: string[]
 }
 
-/** Respuesta de lectura de ambos catálogos (regla 8: catálogo íntegro). */
+/** Entrada de c_MotivoCancelacion expuesta al cliente (USRH1788288461952). */
+export interface SatCancellationReasonCatalogItem {
+  /** Clave oficial de c_MotivoCancelacion, p. ej. '01'. */
+  code: string
+  /** Descripción literal publicada por el SAT. */
+  description: string
+  /** Si el motivo obliga a declarar el folio fiscal del comprobante sustituto. */
+  requiresSubstitute: boolean
+}
+
+/** Respuesta de lectura de los catálogos SAT (regla 8: catálogo íntegro). */
 export interface SatCatalogsResponse {
   taxRegimes: SatTaxRegimeCatalogItem[]
   cfdiUses: SatCfdiUseCatalogItem[]
+  cancellationReasons: SatCancellationReasonCatalogItem[]
 }
 
 /** Envoltura de éxito de GET `/api/billing/sat-catalogs`. */
