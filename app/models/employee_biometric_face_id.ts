@@ -32,6 +32,10 @@ import { sensitiveSerialize } from '#helpers/sensitive_serialize'
  *          employeeBiometricFaceIdToken:
  *            type: string
  *            description: Token of the biometric face id. Puede llegar enmascarado según el permiso de lectura de su categoría.
+ *          employeeBiometricFaceIdQuality:
+ *            type: number
+ *            nullable: true
+ *            description: Confianza de detección facial de la captura (0-100), medida por el Backoffice al subir la foto. Null en fotos anteriores a la medición.
  *          employeeBiometricFaceIdCreatedAt:
  *            type: string
  *            format: date-time
@@ -94,6 +98,17 @@ export default class EmployeeBiometricFaceId extends compose(
     serialize: sensitiveSerialize('EmployeeBiometricFaceId', 'employeeBiometricFaceIdToken'),
   })
   declare employeeBiometricFaceIdToken: string
+
+  /**
+   * Confianza de detección facial de la captura (0-100).
+   *
+   * Es metadato de la imagen —no una plantilla biométrica— así que no pasa
+   * por `sensitiveSerialize`: no reidentifica a nadie y el endpoint que lo
+   * expone ya está detrás del permiso de lectura de la categoría biométrica.
+   * `null` cuando la foto se cargó antes de que se midiera.
+   */
+  @column()
+  declare employeeBiometricFaceIdQuality: number | null
 
   @column.dateTime({ autoCreate: true })
   declare employeeBiometricFaceIdCreatedAt: DateTime

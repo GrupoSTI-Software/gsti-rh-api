@@ -382,12 +382,14 @@ test.group('Biometricos/Dispositivos - soft-rollout (exigencia OFF)', (group) =>
           .post(`/api/employees/${employeeId}/biometric-face-id`)
           .loginAs(actor!.user)
           .headers(buHeader(actor!))
-          .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' }),
+          .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+          .field('quality', '95'),
         client
           .put(`/api/employees/${employeeId}/biometric-face-id`)
           .loginAs(actor!.user)
           .headers(buHeader(actor!))
-          .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' }),
+          .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+          .field('quality', '95'),
         client
           .delete(`/api/employees/${employeeId}/biometric-face-id`)
           .loginAs(actor!.user)
@@ -487,6 +489,7 @@ test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
       .loginAs(actor!.user)
       .headers(buHeader(actor!))
       .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+      .field('quality', '95')
     assertPermissionDenied(assert, deniedUpload)
 
     await grantOnly(actor!.role.roleId, ['upload-face-id'])
@@ -495,6 +498,7 @@ test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
       .loginAs(actor!.user)
       .headers(buHeader(actor!))
       .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+      .field('quality', '95')
     assertNotPermissionDenied(assert, allowedUpload)
 
     const allowedReplace = await client
@@ -502,6 +506,7 @@ test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
       .loginAs(actor!.user)
       .headers(buHeader(actor!))
       .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+      .field('quality', '95')
     assertNotPermissionDenied(assert, allowedReplace)
   })
 
@@ -644,12 +649,14 @@ test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
         .post(`/api/employees/${employeeId}/biometric-face-id`)
         .loginAs(actor!.user)
         .headers(buHeader(actor!))
-        .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' }),
+        .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+        .field('quality', '95'),
       client
         .put(`/api/employees/${employeeId}/biometric-face-id`)
         .loginAs(actor!.user)
         .headers(buHeader(actor!))
-        .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' }),
+        .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+        .field('quality', '95'),
       client
         .delete(`/api/employees/${employeeId}/biometric-face-id`)
         .loginAs(actor!.user)

@@ -8,6 +8,7 @@ import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
+import { checkEmployeeBiometricFaceIdQuality } from '#helpers/employee_biometric_face_id_quality'
 import { ensureEmployeeBiometricRead } from '#helpers/ensure_employee_biometric_read'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
@@ -39,6 +40,11 @@ export default class EmployeeBiometricFaceIdController {
    *                 type: string
    *                 format: binary
    *                 description: The biometric face photo file to upload (must be an image)
+   *               quality:
+   *                 type: integer
+   *                 minimum: 0
+   *                 maximum: 100
+   *                 description: Confianza de detección facial medida por el cliente sobre esta imagen. Opcional; ausente o fuera de rango se guarda como null.
    *     responses:
    *       200:
    *         description: Photo uploaded successfully
@@ -188,7 +194,14 @@ export default class EmployeeBiometricFaceIdController {
         }
       }
 
-      // Generar nombre único para el archivo
+      // Corte de admisión por calidad. Va ANTES de tocar S3: rechazar después
+      // de subir dejaría un objeto privado huérfano en el bucket, sin fila que
+      // lo referencie y sin nada que lo recoja.
+      const qualityCheck = checkEmployeeBiometricFaceIdQuality(request.input('quality'))
+      if (!qualityCheck.accepted) {
+        return response.status(qualityCheck.rejection.status).json(qualityCheck.rejection.body)
+      }
+      const quality = qualityCheck.quality
 
       // Subir la foto al S3
       const photoUrl = await uploadService.fileUpload(photo, 'profile-photo', 'employee-biometric-faces')
@@ -211,7 +224,7 @@ export default class EmployeeBiometricFaceIdController {
         // Guardar primero, borrar después: si el guardado falla por permiso de
         // categoría sensible, la foto anterior en S3 no debe perderse.
         const oldPhotoUrl = existingRecord.employeeBiometricFaceIdPhotoUrl
-        result = await service.update(existingRecord, photoUrl)
+        result = await service.update(existingRecord, photoUrl, quality)
         if (oldPhotoUrl) {
           await uploadService.deleteFile(oldPhotoUrl)
         }
@@ -224,7 +237,7 @@ export default class EmployeeBiometricFaceIdController {
         }
       } else {
         // Si no existe, crear nuevo registro
-        result = await service.create(employeeId, photoUrl)
+        result = await service.create(employeeId, photoUrl, quality)
         response.status(201)
         return {
           type: 'success',
@@ -276,6 +289,11 @@ export default class EmployeeBiometricFaceIdController {
    *                 type: string
    *                 format: binary
    *                 description: The new biometric face photo file to upload (must be an image)
+   *               quality:
+   *                 type: integer
+   *                 minimum: 0
+   *                 maximum: 100
+   *                 description: Confianza de detección facial medida por el cliente sobre esta imagen. Opcional; ausente o fuera de rango se guarda como null.
    *     responses:
    *       200:
    *         description: Photo replaced successfully
@@ -418,7 +436,13 @@ export default class EmployeeBiometricFaceIdController {
         }
       }
 
-      // Generar nombre único para el archivo
+      // Corte de admisión por calidad, antes de subir nada: además de no dejar
+      // huérfanos en S3, así una foto rechazada nunca borra la anterior.
+      const qualityCheck = checkEmployeeBiometricFaceIdQuality(request.input('quality'))
+      if (!qualityCheck.accepted) {
+        return response.status(qualityCheck.rejection.status).json(qualityCheck.rejection.body)
+      }
+      const quality = qualityCheck.quality
 
       // Subir la nueva foto al S3
       const photoUrl = await uploadService.fileUpload(photo, 'profile-photo', 'employee-biometric-faces')
@@ -434,7 +458,7 @@ export default class EmployeeBiometricFaceIdController {
 
       // Reemplazar la foto (elimina la anterior del S3 y crea/actualiza con la nueva)
       const service = new EmployeeBiometricFaceIdService()
-      const result = await service.replacePhoto(employeeId, photoUrl, uploadService)
+      const result = await service.replacePhoto(employeeId, photoUrl, uploadService, quality)
 
       response.status(result.status)
       return {

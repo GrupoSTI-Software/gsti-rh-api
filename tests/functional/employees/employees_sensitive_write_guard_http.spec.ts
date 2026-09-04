@@ -321,6 +321,7 @@ test.group('Sensitive write guard — 403 HTTP real (Important 3)', (group) => {
         .loginAs(actor!.user)
         .headers(buHeader(actor!))
         .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+        .field('quality', '95')
 
       assertSensitiveWriteForbidden(assert, response)
       assert.lengthOf(deleteFileCalls, 0)
