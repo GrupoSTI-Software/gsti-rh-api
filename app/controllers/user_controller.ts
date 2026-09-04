@@ -24,6 +24,9 @@ import RoleService from '#services/role_service'
 import { AUTH_LOGIN_ERRORS } from '#constants/auth_login_error_codes'
 import { respondRefreshTokenUnauthorized } from '../helpers/auth_token_response.js'
 import i18nManager from '@adonisjs/i18n/services/main'
+import logger from '@adonisjs/core/services/logger'
+import { resolveMailLocale } from '#constants/mail_locale'
+import { isValidPassword } from '#helpers/password_policy'
 import { PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES } from '#constants/password_recovery'
 import { secureRandomInt } from '#helpers/csprng_string'
 import {
@@ -300,8 +303,10 @@ export default class UserController {
           response.status(400)
           return {
             type: 'warning',
-            title: 'Login',
-            message: 'Employee not found',
+            title: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.title,
+            message: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.detail,
+            detail: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.detail,
+            key: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.key,
             data: { user: {} },
           }
         }
@@ -315,8 +320,10 @@ export default class UserController {
           response.status(400)
           return {
             type: 'warning',
-            title: 'Login',
-            message: 'This device is already associated with another employee.',
+            title: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.title,
+            message: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.detail,
+            detail: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.detail,
+            key: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.key,
             data: { user: {} },
           }
         }
@@ -898,6 +905,7 @@ export default class UserController {
 
     try {
       const userEmail = request.input('userEmail')
+      const isApp = !!request.all().isApp
 
       if (!userEmail || typeof userEmail !== 'string' || !userEmail.includes('@')) {
         response.status(200)
@@ -905,11 +913,10 @@ export default class UserController {
           type: 'success',
           title: i18n.formatMessage('password_recovery_title'),
           message: i18n.formatMessage('password_recovery_request_sent'),
-          data: null,
+          data: this.buildRecoveryAppPayload(isApp),
         }
       }
 
-      const isApp = !!request.all().isApp
       const url = request.header('origin')
       const hostData = this.getUrlInfo(url ?? 'no_url_host_data_provided')
 
@@ -925,7 +932,7 @@ export default class UserController {
           type: 'success',
           title: i18n.formatMessage('password_recovery_title'),
           message: i18n.formatMessage('password_recovery_request_sent'),
-          data: null,
+          data: this.buildRecoveryAppPayload(isApp),
         }
       }
 
@@ -947,7 +954,11 @@ export default class UserController {
           'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
 
         const smtpUsername = resolveMailSender()
-        const emailSubject = i18n.formatMessage('auth.password_recovery.subject', { tradeName })
+        // El asunto es parte del correo, no de la respuesta: va en el idioma
+        // forzado de los correos, no en el que pidió el cliente.
+        const emailSubject = i18nManager
+          .locale(resolveMailLocale(language))
+          .formatMessage('auth.password_recovery.subject', { tradeName })
         await mail.send((message) => {
           message
             .to(user.userEmail)
@@ -960,6 +971,9 @@ export default class UserController {
               backgroundImageLogo,
               isApp: true,
               pinCode: user.pinCode,
+              // La vigencia se pasa desde la constante que fija `pinCodeExpiresAt`:
+              // así el texto del correo no puede desincronizarse del vencimiento real.
+              validityMinutes: PASSWORD_RECOVERY_PIN_VALIDITY_MINUTES,
             })
         })
       } else {
@@ -979,9 +993,18 @@ export default class UserController {
         type: 'success',
         title: i18n.formatMessage('password_recovery_title'),
         message: i18n.formatMessage('password_recovery_request_sent'),
-        data: null,
+        // La app necesita el token para verificar el código contra el servidor
+        // (`/auth/recovery/code-verify`); el PIN NUNCA viaja en la respuesta,
+        // solo llega al buzón. Sin PIN el token no sirve para nada: el reset
+        // exige que el código ya se haya consumido.
+        data: isApp ? { user: { userToken: user.userToken } } : null,
       }
-    } catch {
+    } catch (error) {
+      // La respuesta al cliente sigue siendo genérica a propósito (no revela si
+      // el correo existe), pero el fallo real —SMTP caído, plantilla rota, error
+      // de base— tiene que quedar registrado: sin esta traza un envío que nunca
+      // sale se ve desde fuera igual que uno exitoso.
+      logger.error({ err: error }, 'auth:recovery — fallo al procesar la solicitud de recuperación')
       response.status(200)
       return {
         type: 'success',
@@ -1263,17 +1286,37 @@ export default class UserController {
       userPassword = passwordArray
         ? userPassword.map((item: string) => item).join(',')
         : userPassword
+
+      // La política se valida aquí y no solo en pantalla: el backoffice y la app
+      // pintan el medidor, pero quien llame al endpoint directo se los salta.
+      if (!isValidPassword(userPassword)) {
+        response.status(422)
+        return {
+          type: 'warning',
+          title: i18n.formatMessage('password_recovery_title'),
+          message: i18n.formatMessage('password_recovery_policy_unmet'),
+          key: 'AUTH.RECOVERY.PASSWORD_POLICY',
+          data: null,
+        }
+      }
+
       user.userPassword = userPassword
       user.userToken = ''
       user.pinCode = ''
       user.pinCodeExpiresAt = null
       user.save()
 
-      const url = request.header('origin')
-
-      if (url) {
+      // El aviso de "tu contraseña cambió" se manda siempre: es la señal con la
+      // que alguien detecta un acceso ajeno. La app no envía `Origin`, así que
+      // el servicio resuelve el destino del CTA por su cuenta.
+      const url = request.header('origin') ?? null
+      try {
         const userService = new UserService(i18n)
-        userService.sendNewPasswordEmail(url, user)
+        await userService.sendNewPasswordEmail(url, user)
+      } catch (error) {
+        // El cambio de contraseña ya está hecho y confirmado al cliente: que
+        // falle el aviso no lo revierte, pero no puede pasar en silencio.
+        logger.error({ err: error }, 'auth:password-reset — fallo al enviar el aviso de cambio')
       }
 
       response.status(200)
@@ -2470,6 +2513,22 @@ export default class UserController {
         error: error.message,
       }
     }
+  }
+
+  /**
+   * Cuerpo `data` de la respuesta de recuperación para los caminos que NO
+   * llegan a enviar correo (correo mal formado o no registrado).
+   *
+   * La app espera un token para el siguiente paso, así que en esos casos se
+   * devuelve uno aleatorio que no corresponde a ningún usuario: la respuesta es
+   * indistinguible de la de un correo válido y sigue sin revelar qué cuentas
+   * existen. Ese token no abre nada — la verificación del código lo rechaza.
+   *
+   * @param isApp - true cuando la solicitud viene de la aplicación móvil.
+   * @returns El `data` de la respuesta: `{ user: { userToken } }` o `null`.
+   */
+  private buildRecoveryAppPayload(isApp: boolean) {
+    return isApp ? { user: { userToken: uuid() } } : null
   }
 
   private getUrlInfo(url: string) {

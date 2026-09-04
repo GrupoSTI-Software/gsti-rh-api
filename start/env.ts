@@ -37,6 +37,14 @@ export default await Env.create(new URL('../', import.meta.url), {
   WORK_JOURNAL_HMAC_SECRET: Env.schema.string.optional(),
   HOST: Env.schema.string({ format: 'host' }),
   LOG_LEVEL: Env.schema.string(),
+  /**
+   * Orígenes autorizados por CORS, separados por comas y sin barra final
+   * (ej. `https://app.valanserh.com,https://admin.valanserh.com`).
+   * OBLIGATORIA a propósito: con `credentials: true`, un API sin lista blanca
+   * expone la sesión de cualquier usuario a cualquier sitio que visite. Arrancar
+   * sin ella debe fallar, no degradar en silencio.
+   */
+  CORS_ALLOWED_ORIGINS: Env.schema.string(),
   /** Zona IANA para reglas de negocio por “día calendario” (vigencias salariales, etc.). Independiente de `TZ` del proceso. */
   APP_BUSINESS_TIMEZONE: Env.schema.string.optional(),
   /**
@@ -116,12 +124,53 @@ export default await Env.create(new URL('../', import.meta.url), {
    * antes estaban escritas dentro del código. Separados por coma. (USRH1787178944072)
    */
   ASSIST_SYNC_ALERT_EMAILS: Env.schema.string.optional(),
+  /**
+   * Ventana hacia atrás, en horas, dentro de la cual el API acepta una checada cuya
+   * hora de captura es anterior a la de recepción. Sin definir aplica el default del
+   * accesor (72 h). El valor se satura al intervalo [1, 168] fijado en código: fuera
+   * de rango no interrumpe el registro de checadas, se satura y queda en bitácora.
+   * No es configuración de negocio: no vive en `system_settings` y no se publica.
+   * (USRH1788135907803)
+   */
+  ASSIST_PUNCH_TIME_MAX_BACKDATE_HOURS: Env.schema.number.optional(),
+  /**
+   * Tolerancia, en segundos, para una hora de captura por delante del reloj del
+   * servidor. Default 120: absorbe el desfase natural del reloj de los equipos, que
+   * si no haría perder la checada de todo teléfono adelantado. Aplica a todos los
+   * medios, kiosco y captura administrativa incluidos. Se pone en 0 cuando el equipo
+   * aprenda a corregir su propio reloj contra el del servidor. Se satura a [0, 300].
+   * (USRH1788135907803)
+   */
+  ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS: Env.schema.number.optional(),
   /*
   |----------------------------------------------------------
-  | Variables for configuring api host synchronization 
+  | Almacenamiento de objetos (DigitalOcean Spaces en produccion,
+  | MinIO en desarrollo). El codigo sirve para ambos: `forcePathStyle`
+  | siempre activo y endpoint por variable.
+  |----------------------------------------------------------
+  */
+  AWS_ACCESS_KEY_ID: Env.schema.string(),
+  AWS_SECRET_ACCESS_KEY: Env.schema.string(),
+  AWS_ENDPOINT: Env.schema.string(),
+  AWS_BUCKET: Env.schema.string(),
+  /** El SDK v3 exige región aunque el proveedor S3-compatible la ignore. */
+  AWS_DEFAULT_REGION: Env.schema.string.optional(),
+  /** Prefijo raiz de todas las keys del bucket. */
+  AWS_ROOT_PATH: Env.schema.string(),
+  AWS_ROOT_NAME: Env.schema.string.optional(),
+  AWS_URL: Env.schema.string.optional(),
+  /*
+  |----------------------------------------------------------
+  | Variables for configuring api host synchronization
   |----------------------------------------------------------
   */
   API_BIOMETRICS_HOST: Env.schema.string.optional(),
+  /**
+   * URL base del servidor de fotos del checador. Su host es el UNICO origen
+   * externo autorizado para leer una foto de empleado
+   * (`helpers/employee_photo_source.ts`).
+   */
+  API_BIOMETRICS_EMPLOYEE_PHOTO_URL: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
   | Variables for configuring MongoDB connection

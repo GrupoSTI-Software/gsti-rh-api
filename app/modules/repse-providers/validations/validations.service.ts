@@ -20,12 +20,15 @@ import type { ProveedorRepseValidacionDto } from './dto/validations.dto.js'
 /** Mismo límite que la evidencia de contratos especializados. */
 export const MAX_EVIDENCE_FILE_BYTES = 10 * 1024 * 1024
 
-const ALLOWED_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg']
+// El perfil `evidence-document` del intake es la fuente de verdad; esta lista
+// es un pre-filtro barato y debe mantenerse alineada con el.
+const ALLOWED_EXTENSIONS = ['pdf', 'png', 'jpg', 'jpeg', 'webp']
 const ALLOWED_MIME_TYPES = [
   'application/pdf',
   'image/png',
   'image/jpeg',
   'image/jpg',
+  'image/webp',
 ]
 const S3_FOLDER = 'repse-providers/validaciones'
 
@@ -222,7 +225,7 @@ export default class ValidationsService {
 
     const fileName = `${S3_FOLDER}/${proveedorRepseId}/${cuid()}-${sanitizedName}`
     const uploadService = new UploadService()
-    const result = await uploadService.fileUpload(file, '', fileName, 'private')
+    const result = await uploadService.fileUpload(file, 'evidence-document', '', { fileName: fileName })
 
     if (!result || result === 'file_not_found' || result === 'S3Producer.fileUpload') {
       throw new RepseProviderError(

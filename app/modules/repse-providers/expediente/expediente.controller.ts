@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError, respondFileIntakeError } from '#helpers/file_intake_api_error'
 import type { MessagesProviderContact, FieldContext } from '@vinejs/vine/types'
 import {
   assertComplianceRepsePermission,
@@ -687,6 +688,13 @@ export default class ExpedienteController {
     fallback: number,
     i18n: HttpContext['i18n']
   ) {
+    // El rechazo de un archivo es 422 con triplete: sin esta rama el resolver
+    // del modulo lo degrada a un 500 genérico y el usuario nunca sabe que su
+    // archivo fue rechazado ni por que.
+    if (isFileIntakeError(error)) {
+      return respondFileIntakeError(response, error)
+    }
+
     const resolved = resolveRepseExpedienteApiError(error, fallback, i18n)
     const body: Record<string, unknown> = {
       type: 'error',

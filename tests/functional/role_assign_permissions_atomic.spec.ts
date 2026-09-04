@@ -84,8 +84,8 @@ test.group('POST /api/roles/assign/:roleId — atomicidad (USRH1785766406721)', 
       systemModuleDescription: 'Fixture de test',
       systemModules: '1',
       systemModulePath: `/test-assign-atomic-${stamp}`,
-      systemModuleGroup: 'test',
       systemModuleActive: 1,
+      systemModuleOrder: 10,
       systemModuleIcon: '',
     })
     permission = await SystemPermission.create({

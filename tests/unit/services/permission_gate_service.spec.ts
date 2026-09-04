@@ -34,8 +34,8 @@ test.group('PermissionGateService', (group) => {
       systemModuleDescription: 'Fixture de test',
       systemModules: '1',
       systemModulePath: `/${MODULE_SLUG}`,
-      systemModuleGroup: 'test',
       systemModuleActive: 1,
+      systemModuleOrder: 10,
       systemModuleIcon: '',
     })
     readPermission = await SystemPermission.create({

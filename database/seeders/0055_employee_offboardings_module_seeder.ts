@@ -4,6 +4,7 @@ import SystemModule from '../../app/models/system_module.js'
 import SystemPermission from '../../app/models/system_permission.js'
 import SystemSettingSystemModule from '../../app/models/system_setting_system_module.js'
 import RoleSystemPermission from '../../app/models/role_system_permission.js'
+import { resolveSystemModuleGroupIds } from '../../app/helpers/system_module_group_seed_resolver.js'
 
 /**
  * Registra el módulo "Salidas de personal" (USRH1786568279581): la sección
@@ -59,6 +60,10 @@ export default class extends BaseSeeder {
 
   /** 1. Alta del módulo en el catálogo. `systemModuleActive: 1` es el flag que realmente gatea menú y acceso. */
   private async seedModule() {
+    const groupIdByKey = await resolveSystemModuleGroupIds(
+      ['empresa'],
+      '0055_employee_offboardings_module_seeder'
+    )
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
@@ -68,8 +73,9 @@ export default class extends BaseSeeder {
           'Configuración del catálogo de conceptos de salida por empresa: la lista contra la cual se revisa cada salida de personal (entrega de activos, finiquito, adeudos, documentos y accesos)',
         systemModules: '1',
         systemModulePath: '/employee-offboardings',
-        systemModuleGroup: '2. Empresa',
         systemModuleActive: 1,
+        systemModuleOrder: this.moduleId * 10,
+        systemModuleGroupId: groupIdByKey.get('empresa'),
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
           width="48"

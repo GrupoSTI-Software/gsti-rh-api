@@ -156,15 +156,22 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
     )
   }
 
-  async findByIdWithItems(employeeOffboardingId: number): Promise<EmployeeOffboarding | null> {
-    // `runUnscoped`: el expediente ya se resolvió dentro del alcance por su
-    // BU snapshoteado; el concepto de cada pendiente viaja por FK y su
-    // modelo compone el mixin de tenant, que con contexto activo filtraría
-    // el preload por el alcance del request en vez de por el expediente.
+  async findByIdWithItems(
+    employeeOffboardingId: number,
+    businessUnitIds: number[]
+  ): Promise<EmployeeOffboarding | null> {
+    // Fail-closed (molde `findEmployeeInScope`): sin alcance no hay consulta
+    if (businessUnitIds.length === 0) return null
+    // El alcance de empresa va EXPLÍCITO sobre el BU snapshoteado del
+    // expediente (defensa en profundidad: no sustituye la validación del
+    // llamador, la duplica a propósito). `runUnscoped` solo para el preload
+    // del concepto, cuyo modelo compone el mixin de tenant y con contexto
+    // activo filtraría por el alcance del request en vez de por el expediente.
     return await TenantContext.runUnscoped(
       async () =>
         await EmployeeOffboarding.query()
           .where('employee_offboarding_id', employeeOffboardingId)
+          .whereIn('business_unit_id', businessUnitIds)
           .whereNull('employee_offboarding_deleted_at')
           .preload('items', (itemsQuery) => {
             itemsQuery

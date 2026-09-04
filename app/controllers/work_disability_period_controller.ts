@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import { inject } from '@adonisjs/core'
 import WorkDisabilityPeriod from '#models/work_disability_period'
 import WorkDisabilityPeriodService from '#services/work_disability_period_service'
@@ -192,7 +193,7 @@ export default class WorkDisabilityPeriodController {
       }
       const workDisabilityPeriodFile = request.file('workDisabilityPeriodFile', validationOptions)
       if (workDisabilityPeriodFile) {
-        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp']
+        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
         if (!allowedExtensions.includes(workDisabilityPeriodFile.extname || '')) {
           response.status(400)
           return {
@@ -213,14 +214,8 @@ export default class WorkDisabilityPeriodController {
             code: WORK_DISABILITY_ERROR_CODES.FILE_TOO_LARGE,
           }
         }
-        const fileName = `${new Date().getTime()}_${workDisabilityPeriodFile.clientName}`
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(
-          workDisabilityPeriodFile,
-          'work-disability-files',
-          fileName,
-          'private'
-        )
+        const fileUrl = await uploadService.fileUpload(workDisabilityPeriodFile, 'evidence-document', 'work-disability-files')
         workDisabilityPeriod.workDisabilityPeriodFile = fileUrl
       }
 
@@ -256,6 +251,10 @@ export default class WorkDisabilityPeriodController {
         }
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -463,7 +462,7 @@ export default class WorkDisabilityPeriodController {
       }
       const workDisabilityPeriodFile = request.file('workDisabilityPeriodFile', validationOptions)
       if (workDisabilityPeriodFile) {
-        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp']
+        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
         if (!allowedExtensions.includes(workDisabilityPeriodFile.extname || '')) {
           response.status(400)
           return {
@@ -484,14 +483,8 @@ export default class WorkDisabilityPeriodController {
             code: WORK_DISABILITY_ERROR_CODES.FILE_TOO_LARGE,
           }
         }
-        const fileName = `${new Date().getTime()}_${workDisabilityPeriodFile.clientName}`
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(
-          workDisabilityPeriodFile,
-          'work-disability-files',
-          fileName,
-          'private'
-        )
+        const fileUrl = await uploadService.fileUpload(workDisabilityPeriodFile, 'evidence-document', 'work-disability-files')
         if (currentWorkDisabilityPeriod.workDisabilityPeriodFile) {
           await uploadService.deleteFile(currentWorkDisabilityPeriod.workDisabilityPeriodFile)
         }
@@ -530,6 +523,10 @@ export default class WorkDisabilityPeriodController {
         }
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

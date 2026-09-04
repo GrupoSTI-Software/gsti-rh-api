@@ -9,6 +9,17 @@ export interface SelfServiceSubscriptionCreatedMailParams {
   subscription: BillingSubscription
   businessUnitName: string
   billingPlanName: string
+  /**
+   * `true` cuando la notificación proviene del alta de empresa adicional
+   * (USRH1787932877001); cambia el asunto del correo para que el equipo de
+   * operaciones distinga el primer registro del de una empresa nueva.
+   */
+  isAdditional?: boolean
+  /**
+   * Número de empresas activas del usuario creador tras el alta (incluida la
+   * nueva). Se incorpora al asunto solo cuando `isAdditional === true`.
+   */
+  creatorLiveBusinessUnitCount?: number
 }
 
 /**
@@ -32,11 +43,28 @@ export default class SelfServiceSubscriptionCreatedMail extends BaseMail {
   }
 
   prepare() {
-    const { to, from, tradeName, subscription, businessUnitName, billingPlanName } = this.params
+    const {
+      to,
+      from,
+      tradeName,
+      subscription,
+      businessUnitName,
+      billingPlanName,
+      isAdditional,
+      creatorLiveBusinessUnitCount,
+    } = this.params
 
     const environment = env.get('NODE_ENV')
     const environmentTag = environment === 'production' ? '' : `[${environment.toUpperCase()}] `
-    const subject = `${environmentTag}[Interno] Nueva contratación — ${businessUnitName}`
+
+    let subject: string
+    if (isAdditional === true) {
+      const countTag =
+        creatorLiveBusinessUnitCount !== undefined ? ` #${creatorLiveBusinessUnitCount}` : ''
+      subject = `${environmentTag}[Interno] Empresa adicional${countTag} — ${businessUnitName}`
+    } else {
+      subject = `${environmentTag}[Interno] Nueva contratación — ${businessUnitName}`
+    }
 
     const discountLabel =
       subscription.billingSubscriptionDiscountPercent > 0

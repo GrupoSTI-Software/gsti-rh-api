@@ -73,6 +73,28 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   EVID_NOT_FOUND: 'OFFB.EVID.NOT_FOUND',
   /** Fallo de S3 al subir o al firmar el enlace (USRH1786568279593) — 500. */
   EVID_S3_FAILED: 'OFFB.EVID.S3_FAILED',
+  /** Cuerpo o parámetros del documento mal formados (USRH1787433503686) — 400. */
+  DOC_VAL_INPUT: 'OFFB.DOC.VAL_INPUT',
+  /** Sin permiso create (emitir) o read (listar/descargar) — 403. */
+  DOC_FORBIDDEN: 'OFFB.DOC.FORBIDDEN',
+  /** Expediente inexistente, borrado o de otra empresa — 404 uniforme. */
+  DOC_CASE_NOT_FOUND: 'OFFB.DOC.CASE_NOT_FOUND',
+  /** Documento inexistente, borrado o de otro expediente — 404 uniforme. */
+  DOC_NOT_FOUND: 'OFFB.DOC.NOT_FOUND',
+  /** Falta un dato obligatorio del documento (regla 6) — 422. */
+  DOC_INCOMPLETE: 'OFFB.DOC.INCOMPLETE',
+  /** Colaborador todavía activo (regla 1) — 422. */
+  DOC_EMPLOYEE_STILL_ACTIVE: 'OFFB.DOC.EMPLOYEE_STILL_ACTIVE',
+  /** pdfkit falló o el buffer salió vacío — 500. */
+  DOC_RENDER_FAILED: 'OFFB.DOC.RENDER_FAILED',
+  /** `uploadPrivateBuffer` devolvió null — 500. */
+  DOC_STORAGE_FAILED: 'OFFB.DOC.STORAGE_FAILED',
+  /** `getDownloadLink` no devolvió una cadena — 500. */
+  DOC_DOWNLOAD_FAILED: 'OFFB.DOC.DOWNLOAD_FAILED',
+  /** Error no clasificado del slice de documentos — 500. */
+  DOC_UNEXPECTED: 'OFFB.DOC.UNEXPECTED',
+  /** Fecha de separación anterior a la de ingreso (regla 7, USRH1787433503689) — 422. */
+  DOC_DATE_RANGE_INVALID: 'OFFB.DOC.DATE_RANGE_INVALID',
 } as const
 
 export type EmployeeOffboardingErrorCode =

@@ -405,9 +405,15 @@ export default class PhysicalConsentController {
   // ---------------------------------------------------------------------------
 
   /**
-   * `root` pasa por el atajo estándar de `RoleService.hasAccess`; el resto necesita
-   * la fila real en `role_system_permissions` para el slug indicado. Server-side
-   * SIEMPRE (S2): el BO solo oculta el botón, esto es lo que de verdad protege.
+   * `root` y `owner` quedan exentos, aunque por vías distintas: `root` por el
+   * atajo de aquí mismo, y `owner` un nivel más abajo, en el
+   * `if (role.roleSlug === 'root' || role.roleSlug === 'owner')` de
+   * `RoleService.hasAccess` (`app/services/role_service.ts:170`). El efecto
+   * neto coincide con el perfil `standard` que usa el resto del módulo: no
+   * hay asimetría (verificado en USRH1787433076993). El resto de roles
+   * necesita la fila real en `role_system_permissions` para el slug indicado.
+   * Server-side SIEMPRE (S2): el BO solo oculta el botón, esto es lo que de
+   * verdad protege.
    */
   private async assertHasPermission(ctx: HttpContext, action: string): Promise<void> {
     const user = ctx.auth.user!
