@@ -261,6 +261,15 @@ export default class BillingSubscriptionController {
    *                         billingSubscriptionChangeAppliedAt:
    *                           type: string
    *                           nullable: true
+   *                     discountBenefitRestoredFrom:
+   *                       type: string
+   *                       nullable: true
+   *                       description: >
+   *                         Fecha calendario (USRH1787714804407) desde la que se cobra
+   *                         el precio sin el código de descuento congelado: el
+   *                         `period_end` del pago que agotó el beneficio. `null` sin
+   *                         código, con beneficio vigente o indefinido, o si ningún
+   *                         pago registró el consumo que lo agotó.
    *       '404':
    *         description: Suscripción no encontrada
    */

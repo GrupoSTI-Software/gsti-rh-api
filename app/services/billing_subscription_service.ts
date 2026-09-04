@@ -11,6 +11,7 @@ import DiscountCode from '#models/discount_code'
 import { DiscountCodeServiceError } from '#exceptions/discount_code_service_error'
 import { DISCOUNT_CODE_ERROR_CODES } from '#constants/discount_code_error_codes'
 import BillingSubscriptionChange from '#models/billing_subscription_change'
+import BillingPayment from '#models/billing_payment'
 import type { SubscriptionChangeRecord } from '#services/billing_subscription_change_service'
 import EmployeeQuotaService from '#services/employee_quota_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
@@ -293,19 +294,63 @@ export default class BillingSubscriptionService {
    * en `pending_payment` sobre esta suscripción, se expone en
    * `pendingIncreaseChange` para que el drawer de registro de pago lo
    * muestre sin calcular cifras propias. `null` cuando no hay adeudo vivo.
+   *
+   * Desde USRH1787714804407 también expone `discountBenefitRestoredFrom`:
+   * la fecha calendario desde la que se cobra el precio sin el código
+   * congelado, para que la ficha explique un total más alto sin que el
+   * operador tenga que consultar la base de datos. `null` sin código, con
+   * beneficio vigente o indefinido, o si ningún pago registró el consumo.
    */
-  async getSubscriptionDetail(
-    subscriptionId: number
-  ): Promise<Record<string, unknown> & { pendingIncreaseChange: SubscriptionChangeRecord | null }> {
+  async getSubscriptionDetail(subscriptionId: number): Promise<
+    Record<string, unknown> & {
+      pendingIncreaseChange: SubscriptionChangeRecord | null
+      discountBenefitRestoredFrom: string | null
+    }
+  > {
     const subscription = await this.getSubscription(subscriptionId)
     const pendingIncreaseChange = await this.findPendingIncreaseChange(
       subscription.billingSubscriptionId
     )
+    const discountBenefitRestoredFrom = await this.findDiscountBenefitRestoredFrom(subscription)
 
     return {
       ...subscription.serialize(),
       pendingIncreaseChange,
+      discountBenefitRestoredFrom,
     }
+  }
+
+  /**
+   * Fecha calendario desde la que se cobra el precio sin el código: el
+   * `period_end` del pago que agotó el beneficio (`billing_payment_service.ts:379-395`).
+   * `null` sin código, con `_discount_code_benefit_periods` indefinido
+   * (nunca se agota) o si ningún pago registró el consumo que lo agotó.
+   *
+   * Corta antes de consultar `billing_payments` (regla 8, USRH1787714804406/407):
+   * sin código congelado o con beneficio indefinido no hay nada que buscar.
+   * Sin `join`, una sola lectura por FK — mismo patrón que
+   * `findPendingIncreaseChange`.
+   */
+  private async findDiscountBenefitRestoredFrom(
+    subscription: BillingSubscription
+  ): Promise<string | null> {
+    const benefitPeriods = subscription.billingSubscriptionDiscountCodeBenefitPeriods
+    if (subscription.billingSubscriptionDiscountCodeText === null || benefitPeriods === null) {
+      return null
+    }
+
+    const payment = await BillingPayment.query()
+      .where('billing_subscription_id', subscription.billingSubscriptionId)
+      .whereNotNull('billing_payment_discount_code_benefit_periods_used_after')
+      .where('billing_payment_discount_code_benefit_periods_used_after', '>=', benefitPeriods)
+      .orderBy('billing_payment_id', 'asc')
+      .first()
+
+    if (!payment) {
+      return null
+    }
+
+    return toCalendarIsoDate(payment.billingPaymentPeriodEnd)
   }
 
   /**
