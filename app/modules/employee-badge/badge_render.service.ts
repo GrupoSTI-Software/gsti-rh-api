@@ -1,6 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
-import axios from 'axios'
+import { readEmployeePhotoBuffer } from '#helpers/employee_photo_source'
 import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas'
 import QRCode from 'qrcode'
 
@@ -337,15 +337,15 @@ export default class BadgeRenderService {
     }
   }
 
-  /** Descarga tolerante — espejo `position_service.ts:936-944`: nunca bloquea el gafete. */
-  async fetchImageTolerant(url: string | null): Promise<Buffer | null> {
-    if (!url) return null
-    try {
-      const res = await axios.get(url, { responseType: 'arraybuffer', timeout: 8000 })
-      return Buffer.from(res.data)
-    } catch {
-      return null
-    }
+  /**
+   * Lectura tolerante de la foto: nunca bloquea el gafete.
+   *
+   * Delega en el resolutor de fotos de empleado, que distingue la key del
+   * bucket de la URL del servidor de biometricos (las fotos que llegan de la
+   * sincronizacion del checador no viven en el bucket).
+   */
+  async fetchImageTolerant(storedPath: string | null): Promise<Buffer | null> {
+    return readEmployeePhotoBuffer(storedPath)
   }
 
   private async tryLoadImage(buffer: Buffer): Promise<Awaited<ReturnType<typeof loadImage>> | null> {

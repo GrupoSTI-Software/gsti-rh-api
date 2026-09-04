@@ -86,3 +86,31 @@ export const listDevicesValidator = vine.compile(
     limit: vine.number().positive().withoutDecimals().max(100).optional(),
   })
 )
+
+/**
+ * Body para `PATCH /api/platform/devices/units/:id/active`.
+ * Aparta (active=false) o devuelve a circulación (active=true) un aparato.
+ * Ref: USRH1787189981877 · CA-1, CA-2.
+ */
+export const setDeviceActiveValidator = vine.compile(
+  vine.object({
+    active: vine.boolean(),
+  })
+)
+
+/**
+ * Body para `POST /api/platform/devices/units/:id/retirement`.
+ * Retira definitivamente un aparato con motivo obligatorio.
+ * Los 4 motivos visibles al operador son danado/obsoleto/vendido/extraviado.
+ * `retiredAt` es opcional — si se omite el servicio usa la fecha de hoy.
+ * Ref: USRH1787189981877 · CA-3, CA-8.
+ */
+export const retireDeviceValidator = vine.compile(
+  vine.object({
+    reason: vine.enum(['danado', 'obsoleto', 'vendido', 'extraviado'] as const),
+    retiredAt: vine
+      .date({ formats: ['YYYY-MM-DD'] })
+      .beforeOrEqual('today')
+      .optional(),
+  })
+)

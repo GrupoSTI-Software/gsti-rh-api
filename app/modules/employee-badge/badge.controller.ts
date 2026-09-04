@@ -425,6 +425,16 @@ export default class BadgeController {
    *               data: null
    *       '401':
    *         description: Sin autenticación.
+   *       '403':
+   *         description: |
+   *           Sin el permiso `generate-badges` del módulo Empleados, con la
+   *           exigencia del módulo encendida en la empresa.
+   *         content:
+   *           application/json:
+   *             example:
+   *               title: Sin permiso
+   *               detail: No tienes permiso para realizar esta operación.
+   *               key: PERM.DENIED
    *       '404':
    *         description: Ningún trabajador del payload resolvió en el tenant (indistinguible).
    *         content:

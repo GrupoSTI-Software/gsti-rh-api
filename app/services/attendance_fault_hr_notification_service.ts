@@ -1,4 +1,5 @@
 import Employee from '#models/employee'
+import { resolvePublicAssetUrl } from '#helpers/public_asset_url'
 import SystemSetting from '#models/system_setting'
 import BusinessUnit from '#models/business_unit'
 import Tolerance from '#models/tolerance'
@@ -7,7 +8,6 @@ import {
   ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG,
 } from '#constants/attendance_fault_hr_notification'
 import AssistsService from '#services/assist_service'
-import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import Database from '@adonisjs/lucid/services/db'
@@ -423,19 +423,14 @@ export default class AttendanceFaultHrNotificationService {
     return c.startsWith('#') ? c : `#${c}`
   }
 
+  /**
+   * URL de la foto para la plantilla del correo. Vacia cuando la referencia es
+   * un objeto privado: un cliente de correo no puede autenticarse, y componerla
+   * con `APP_URL` solo producía una imagen rota. La plantilla ya degrada con
+   * `@if(emp.photoUrl)`.
+   */
   resolvePhotoUrl(photo: string | null): string {
-    if (!photo) {
-      return ''
-    }
-    if (photo.startsWith('http://') || photo.startsWith('https://')) {
-      return photo
-    }
-    const base = env.get('APP_URL', '').replace(/\/$/, '')
-    if (!base) {
-      return photo
-    }
-    const path = photo.startsWith('/') ? photo : `/${photo}`
-    return `${base}${path}`
+    return resolvePublicAssetUrl(photo) ?? ''
   }
 
   /**

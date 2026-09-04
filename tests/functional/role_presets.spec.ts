@@ -113,8 +113,8 @@ test.group('Role presets HTTP (USRH1785766406742)', (group) => {
       systemModuleDescription: 'Fixture de test',
       systemModules: '1',
       systemModulePath: `/role-presets-test-${stamp}`,
-      systemModuleGroup: 'test',
       systemModuleActive: 1,
+      systemModuleOrder: 10,
       systemModuleIcon: '',
     })
     const otherPermission = await SystemPermission.create({

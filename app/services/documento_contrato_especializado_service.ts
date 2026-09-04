@@ -259,7 +259,7 @@ export default class DocumentoContratoEspecializadoService {
 
     const fileName = `${S3_FOLDER}/${contratoId}/${cuid()}-${sanitizedName}`
     const uploadService = new UploadService()
-    const result = await uploadService.fileUpload(file, '', fileName, 'private')
+    const result = await uploadService.fileUpload(file, 'pdf-document', '', { fileName: fileName })
 
     if (!result || result === 'file_not_found' || result === 'S3Producer.fileUpload') {
       throw new DocumentoContratoEspecializadoError(

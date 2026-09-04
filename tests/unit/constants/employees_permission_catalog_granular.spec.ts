@@ -47,7 +47,9 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
     }
   })
 
-  test('declara read+write(+delete) por pestaña; consentimiento sin delete', ({ assert }) => {
+  test('declara read+write(+delete) por pestaña; consentimiento, responsable y asignados solo read', ({
+    assert,
+  }) => {
     const tabs = [
       'foto',
       'trabajo',
@@ -57,9 +59,7 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
       'expediente',
       'domicilio',
       'bancos',
-      'responsable',
       'zonas',
-      'asignados',
       'biometricos',
       'anotaciones',
       'dispositivos',
@@ -73,11 +73,23 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
       assert.exists(EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === `tab-${tab}-write`))
       assert.exists(EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === `tab-${tab}-delete`))
     }
-    assert.exists(EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === 'tab-consentimiento-read'))
-    assert.exists(EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === 'tab-consentimiento-write'))
-    assert.isUndefined(
-      EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === 'tab-consentimiento-delete')
-    )
+
+    // USRH1787433076993: la escritura de estas tres la gobierna otro permiso
+    // que el API sí exige, así que su -write y su -delete quedaron retirados.
+    for (const tab of ['consentimiento', 'responsable', 'asignados']) {
+      assert.exists(
+        EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === `tab-${tab}-read`),
+        `tab-${tab}-read`
+      )
+      assert.isUndefined(
+        EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === `tab-${tab}-write`),
+        `tab-${tab}-write`
+      )
+      assert.isUndefined(
+        EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === `tab-${tab}-delete`),
+        `tab-${tab}-delete`
+      )
+    }
   })
 
   test('tab-expediente-write documenta broader hacia manage-files, no update-information', ({

@@ -1,8 +1,19 @@
-import AWS, { S3 } from 'aws-sdk'
+import {
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadObjectCommand,
+  PutObjectAclCommand,
+  S3Client,
+  type ObjectCannedACL,
+} from '@aws-sdk/client-s3'
+import { Upload } from '@aws-sdk/lib-storage'
+import { isUploadFailureSentinel } from '#constants/upload_sentinels'
+import { FileIntakeError } from '#exceptions/file_intake_error'
+import { FILE_INTAKE_ERROR_CODES } from '#constants/file_intake_error_codes'
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import Env from '#start/env'
-import fs from 'node:fs'
-import https from 'node:https'
-import http from 'node:http'
+import FileIntakeService, { type IncomingFile } from '#services/file_intake_service'
+import type { FileIntakeProfileName } from '#constants/file_intake'
 import { Readable } from 'node:stream'
 import logger from '@adonisjs/core/services/logger'
 
@@ -10,6 +21,16 @@ import logger from '@adonisjs/core/services/logger'
  * Resultado de obtener un objeto de S3 como stream junto con metadata útil
  * para servirlo en una respuesta HTTP.
  */
+/** Ajustes opcionales de una subida. */
+export interface FileUploadOptions {
+  /**
+   * Key relativa dentro de la carpeta, cuando el modulo necesita una ruta
+   * determinista propia. Si se omite, el intake genera un nombre no predecible
+   * con la extensión del MIME real.
+   */
+  readonly fileName?: string
+}
+
 export interface S3ObjectStream {
   stream: Readable
   contentType: string
@@ -18,74 +39,165 @@ export interface S3ObjectStream {
   lastModified?: Date
 }
 
-export default class UploadService {
-  private s3Config: AWS.S3.ClientConfiguration = {
+/**
+ * Cliente S3 compartido por todo el proceso.
+ *
+ * El SDK v2 creaba una instancia por llamada; v3 mantiene el pool de conexiones
+ * en el cliente, así que reusarlo evita renegociar TLS en cada subida.
+ *
+ * `forcePathStyle` es obligatorio para DigitalOcean Spaces y para el MinIO de
+ * desarrollo. Sin límites explícitos el SDK reintenta esperando el timeout TCP
+ * del sistema operativo (~75 s por intento), lo que producía cuelgues de
+ * minutos cuando el endpoint no era alcanzable desde la red actual.
+ */
+const s3Client = new S3Client({
+  region: Env.get('AWS_DEFAULT_REGION') || 'us-east-1',
+  endpoint: Env.get('AWS_ENDPOINT'),
+  forcePathStyle: true,
+  credentials: {
     accessKeyId: Env.get('AWS_ACCESS_KEY_ID'),
     secretAccessKey: Env.get('AWS_SECRET_ACCESS_KEY'),
-    endpoint: Env.get('AWS_ENDPOINT'),
-    s3ForcePathStyle: true, // Necesario para espacios de DigitalOcean
-    // Sin estos límites el SDK v2 reintenta 3 veces esperando el timeout TCP
-    // del SO (~75 s por intento), resultando en cuelgues de 4-5 minutos cuando
-    // el endpoint no está accesible desde la red actual.
-    maxRetries: 0,
-    httpOptions: {
-      connectTimeout: 10_000, // 10 s para establecer conexión TCP
-      timeout: 120_000,       // 2 min máximo de transferencia (comprobante ≤ 10 MB)
-    },
+  },
+  // Tres intentos: es el valor por defecto del SDK y el que tenia la version
+  // anterior. Las tres operaciones que usa el servicio son idempotentes (la
+  // clave del objeto se calcula antes de subir), asi que reintentar solo cuesta
+  // tiempo. Con uno solo, cualquier hipo de red se le devolvia al usuario como
+  // un fallo definitivo.
+  maxAttempts: 3,
+  requestHandler: {
+    // Establecer la conexion es rapido o no va a pasar: cinco segundos separan
+    // un pico de latencia de un almacenamiento inalcanzable, y acotan el peor
+    // caso de los tres intentos.
+    connectionTimeout: 5_000,
+    requestTimeout: 120_000,
+  },
+})
+
+/** Dominio de DigitalOcean Spaces y su número de etiquetas (`sfo3.digitaloceanspaces.com` = 3). */
+const SPACES_DOMAIN = 'digitaloceanspaces.com'
+const SPACES_DOMAIN_LABELS = 2
+
+/** Forma mínima de un error del SDK que el servicio necesita interpretar. */
+interface S3ErrorShape {
+  name?: string
+  message?: string
+  $metadata?: { httpStatusCode?: number }
+}
+
+function asS3Error(error: unknown): S3ErrorShape {
+  return typeof error === 'object' && error !== null ? (error as S3ErrorShape) : {}
+}
+
+/** Verdadero cuando el objeto no existe o las credenciales no alcanzan a verlo. */
+function isMissingObjectError(error: unknown): boolean {
+  const err = asS3Error(error)
+  const status = err.$metadata?.httpStatusCode
+  return (
+    err.name === 'NotFound' ||
+    err.name === 'NoSuchKey' ||
+    err.name === 'AccessDenied' ||
+    status === 404 ||
+    status === 403
+  )
+}
+
+/**
+ * Sustituye la extensión de `fileName` por la de `storageFileName`, que sale
+ * del MIME real detectado. Conserva el resto de la ruta intacto.
+ */
+function replaceExtension(fileName: string, storageFileName: string): string {
+  const realExtension = storageFileName.slice(storageFileName.lastIndexOf('.'))
+  const lastDot = fileName.lastIndexOf('.')
+  const lastSlash = fileName.lastIndexOf('/')
+
+  // Sin punto en el último segmento no hay extensión que sustituir: se añade.
+  if (lastDot <= lastSlash) return `${fileName}${realExtension}`
+
+  return `${fileName.slice(0, lastDot)}${realExtension}`
+}
+
+/** Convierte el cuerpo de una respuesta de S3 en Buffer. */
+async function bodyToBuffer(body: unknown): Promise<Buffer | null> {
+  if (!body) return null
+
+  const streamLike = body as { transformToByteArray?: () => Promise<Uint8Array> }
+  if (typeof streamLike.transformToByteArray === 'function') {
+    return Buffer.from(await streamLike.transformToByteArray())
   }
 
-  // private bucketConfig: any = {
-  //   Bucket: Env.get('AWS_BUCKET'),
-  //   CreateBucketConfiguration: {
-  //     LocationConstraint: Env.get('AWS_DEFAULT_REGION'),
-  //   },
-  // }
+  return null
+}
 
+export default class UploadService {
   private BUCKET_NAME = Env.get('AWS_BUCKET')
-  // private LOCATION = Env.get('AWS_DEFAULT_REGION')
   private APP_NAME = `${Env.get('AWS_ROOT_PATH')}/`
 
-  constructor() {
-    AWS.config.update(this.s3Config)
-  }
+  /**
+   * El intake se recibe por constructor para poder fakearlo en tests. El valor
+   * por defecto conserva `new UploadService()` sin argumentos, que es como lo
+   * construyen los consumidores existentes.
+   */
+  constructor(private readonly fileIntake: FileIntakeService = new FileIntakeService()) {}
 
+  /**
+   * Sube un archivo multipart al bucket.
+   *
+   * TODO archivo pasa obligatoriamente por `FileIntakeService` antes de tocar
+   * el bucket: el perfil decide qué se acepta, en qué se transforma, cómo se
+   * llama el objeto y si es público. Nada de esto se deriva ya de lo que
+   * declara el cliente.
+   *
+   * @param file        Archivo tal como lo entrega `request.file()`.
+   * @param profileName Perfil de uso. Obligatorio: no hay subida sin política.
+   * @param folderName  Carpeta lógica bajo `{AWS_ROOT_PATH}/`.
+   * @param options     `fileName` solo cuando el modulo construye su propia key
+   *                    determinista (expediente REPSE, evidencias, adjuntos).
+   *
+   * @returns La Key del objeto si es privado, o su URL pública si el perfil lo
+   *          declara público. `'file_not_found'` cuando no llego archivo y
+   *          `'S3Producer.fileUpload'` cuando falla el bucket, igual que antes.
+   *
+   * @throws {FileIntakeError} Si el archivo llego pero no pasa la política del
+   *         perfil. Es un 422 con triplete, no un fallo del servidor.
+   */
   async fileUpload(
-    file: any,
+    file: IncomingFile | null | undefined,
+    profileName: FileIntakeProfileName,
     folderName = '',
-    fileName = '',
-    permission = 'public-read'
+    options: FileUploadOptions = {}
   ): Promise<string> {
+    // Archivo ausente sigue siendo un caso valido: hay campos opcionales.
+    if (!file) {
+      return 'file_not_found'
+    }
+
+    const intake = await this.fileIntake.accept(file, profileName)
+
+    // Si el módulo trae su propia ruta determinista se respeta, pero la
+    // extensión se ajusta al MIME REAL de salida: esas rutas se componen con el
+    // nombre que mandó el cliente, así que arrastraban una extensión que podía
+    // mentir sobre el contenido (un PNG que el perfil convierte a JPEG seguía
+    // guardándose como `.png`).
+    const fileNameGenerated = options.fileName
+      ? replaceExtension(options.fileName, intake.storageFileName)
+      : intake.storageFileName
+    const key = `${this.APP_NAME}${folderName || 'files'}/${fileNameGenerated}`
+    const permission: ObjectCannedACL = intake.storesPublicly ? 'public-read' : 'private'
+
     try {
-      if (!file) {
-        return 'file_not_found'
-      }
+      await new Upload({
+        client: s3Client,
+        params: {
+          Bucket: this.BUCKET_NAME,
+          Key: key,
+          Body: intake.buffer,
+          ACL: permission,
+          // El ContentType sale del contenido real, nunca de `file.type`.
+          ContentType: intake.mimeType,
+        },
+      }).done()
 
-      const s3 = new AWS.S3()
-      const fileContent = fs.createReadStream(file.tmpPath)
-
-      const timestamp = new Date().getTime()
-      const randomValue = Math.random().toFixed(10).toString().replace('.', '')
-      const fileNameGenerated = fileName || `T${timestamp}R${randomValue}.${file.extname}`
-      if (file.subtype === 'svg') {
-        file.subtype = 'svg+xml'
-      }
-      const uploadParams = {
-        Bucket: this.BUCKET_NAME,
-        Key: `${this.APP_NAME}${folderName || 'files'}/${fileNameGenerated}`,
-        Body: fileContent,
-        ACL: permission,
-        ContentType: `${file.type}/${file.subtype}`,
-      } as S3.Types.PutObjectRequest
-      const response = await s3.upload(uploadParams).promise()
-
-      // Si el archivo es privado, retornar la Key (ruta del archivo) para guardar en BD
-      // La URL temporal se generará bajo demanda con getDownloadLink()
-      if (permission === 'private') {
-        return response.Key
-      }
-
-      // Si es público, retornar la URL pública
-      return response.Location
+      return intake.storesPublicly ? this.buildPublicUrl(key) : key
     } catch (err) {
       logger.error(
         {
@@ -96,7 +208,23 @@ export default class UploadService {
         },
         'Fallo al subir archivo a S3'
       )
-      return 'S3Producer.fileUpload'
+
+      // Se lanza en lugar de devolver el centinela `S3Producer.fileUpload`.
+      // Devolverlo obligaba a cada consumidor a comprobarlo, y 38 de los 105
+      // puntos de subida no lo hacían: escribían el centinela en la base como
+      // si fuera la referencia del archivo, dejando filas que apuntan a un
+      // objeto inexistente y revientan al leerlas.
+      //
+      // `FileIntakeError` ya viaja bien: está registrado en el manejador global
+      // y en los resolvers de módulo, así que el usuario recibe el triplete en
+      // lugar de creer que su archivo se guardó.
+      throw new FileIntakeError({
+        title: 'Archivo no almacenado',
+        detail: 'No fue posible guardar el archivo. Vuelve a intentarlo.',
+        key: 'archivo-no-almacenado',
+        errorCode: FILE_INTAKE_ERROR_CODES.SYS_UNHANDLED,
+        status: 500,
+      })
     }
   }
 
@@ -110,22 +238,22 @@ export default class UploadService {
     contentType: string
   ): Promise<string | null> {
     try {
-      const s3 = new AWS.S3()
       const key = relativeKey.startsWith(this.APP_NAME)
         ? relativeKey
         : `${this.APP_NAME}files/${relativeKey}`
 
-      const response = await s3
-        .upload({
-          Bucket: this.BUCKET_NAME as string,
+      await new Upload({
+        client: s3Client,
+        params: {
+          Bucket: this.BUCKET_NAME,
           Key: key,
           Body: body,
           ACL: 'private',
           ContentType: contentType,
-        })
-        .promise()
+        },
+      }).done()
 
-      return response.Key
+      return key
     } catch (err) {
       logger.error(
         {
@@ -145,19 +273,21 @@ export default class UploadService {
       return { status: 404, data: null, message: 'file_path_not_found' }
     }
 
-    const s3 = new AWS.S3(this.s3Config)
-
     try {
       // Generar URL temporal firmada para archivos privados
-      const temporalURL = await s3.getSignedUrl('getObject', {
-        Bucket: this.BUCKET_NAME,
-        Key: filePath,
-        Expires: expireSeconds, // Por defecto 24 horas
-      })
+      const temporalURL = await getSignedUrl(
+        s3Client,
+        new GetObjectCommand({
+          Bucket: this.BUCKET_NAME,
+          Key: filePath,
+        }),
+        { expiresIn: expireSeconds }
+      )
 
       return temporalURL
-    } catch (error: any) {
-      return { status: 500, data: null, message: `get_url_failed: ${error.message}` }
+    } catch (error: unknown) {
+      const err = asS3Error(error)
+      return { status: 500, data: null, message: `get_url_failed: ${err.message ?? 'unknown'}` }
     }
   }
 
@@ -168,20 +298,53 @@ export default class UploadService {
   async downloadFileBuffer(filePath: string): Promise<Buffer | null> {
     if (!filePath || !this.BUCKET_NAME) return null
 
-    const s3 = new AWS.S3(this.s3Config)
-
     try {
-      const result = await s3
-        .getObject({
-          Bucket: this.BUCKET_NAME as string,
+      const result = await s3Client.send(
+        new GetObjectCommand({
+          Bucket: this.BUCKET_NAME,
           Key: filePath,
         })
-        .promise()
+      )
 
-      if (result.Body) {
-        return result.Body as Buffer
-      }
+      return await bodyToBuffer(result.Body)
+    } catch {
       return null
+    }
+  }
+
+  /**
+   * Lee un archivo desde CUALQUIER forma en que se almacene en la base de
+   * datos: una URL pública (filas históricas subidas con `public-read`) o una
+   * Key directa (objetos privados, que es lo que se guarda desde el
+   * endurecimiento de la subida).
+   *
+   * Es el reemplazo de los `axios.get(url)` internos: con la ACL privada por
+   * defecto, el campo ya no contiene una URL que se pueda pedir por HTTP.
+   * Devuelve `null` si el objeto no existe o no es accesible.
+   */
+  async readStoredFileBuffer(storedPath: string): Promise<Buffer | null> {
+    const ref = this.resolveS3Ref(storedPath)
+    if (!ref?.key) return null
+
+    // El bucket lo decide la configuración, NUNCA la cadena guardada. Sin este
+    // candado, un campo de base de datos con una URL de otro bucket haría que
+    // el API leyera un objeto ajeno con sus propias credenciales.
+    if (ref.bucket && this.BUCKET_NAME && ref.bucket !== this.BUCKET_NAME) {
+      logger.warn(
+        { bucketSolicitado: ref.bucket, bucketConfigurado: this.BUCKET_NAME },
+        'readStoredFileBuffer: referencia a un bucket ajeno, descartada'
+      )
+      return null
+    }
+
+    try {
+      const result = await s3Client.send(
+        new GetObjectCommand({
+          Bucket: this.BUCKET_NAME,
+          Key: ref.key,
+        })
+      )
+      return await bodyToBuffer(result.Body)
     } catch {
       return null
     }
@@ -200,37 +363,37 @@ export default class UploadService {
       return null
     }
     if (!targetBucket) {
-      logger.warn({ key }, 'getObjectStream: bucket no resuelto (AWS_BUCKET no configurado y sin bucket explícito)')
+      logger.warn(
+        { key },
+        'getObjectStream: bucket no resuelto (AWS_BUCKET no configurado y sin bucket explícito)'
+      )
       return null
     }
 
-    const s3 = new AWS.S3(this.s3Config)
-    const params = {
-      Bucket: targetBucket,
-      Key: key,
-    } as S3.Types.GetObjectRequest
+    const params = { Bucket: targetBucket, Key: key }
 
     try {
       // Verificar existencia y obtener metadata sin descargar el cuerpo.
-      const head = await s3.headObject(params).promise()
-      const stream = s3.getObject(params).createReadStream()
+      const head = await s3Client.send(new HeadObjectCommand(params))
+      const object = await s3Client.send(new GetObjectCommand(params))
 
       return {
-        stream,
+        stream: object.Body as Readable,
         contentType: head.ContentType || 'application/octet-stream',
         contentLength: head.ContentLength,
         etag: head.ETag,
         lastModified: head.LastModified,
       }
-    } catch (error: any) {
-      if (
-        error?.code === 'NotFound' ||
-        error?.code === 'NoSuchKey' ||
-        error?.statusCode === 404 ||
-        error?.statusCode === 403
-      ) {
+    } catch (error: unknown) {
+      if (isMissingObjectError(error)) {
+        const err = asS3Error(error)
         logger.warn(
-          { bucket: targetBucket, key, code: error?.code, statusCode: error?.statusCode },
+          {
+            bucket: targetBucket,
+            key,
+            code: err.name,
+            statusCode: err.$metadata?.httpStatusCode,
+          },
           'getObjectStream: objeto no encontrado o sin acceso en S3'
         )
         return null
@@ -243,7 +406,10 @@ export default class UploadService {
    * Genera URLs temporales para múltiples archivos
    * Útil para cuando se obtienen listados de registros con archivos privados
    */
-  async getDownloadLinks(filePaths: string[], expireSeconds = 60 * 60 * 24): Promise<{ [key: string]: string }> {
+  async getDownloadLinks(
+    filePaths: string[],
+    expireSeconds = 60 * 60 * 24
+  ): Promise<{ [key: string]: string }> {
     const urls: { [key: string]: string } = {}
 
     for (const filePath of filePaths) {
@@ -276,72 +442,34 @@ export default class UploadService {
    * Devuelve `null` si el archivo no existe o no es accesible.
    */
   async streamStoredFile(storedPath: string): Promise<S3ObjectStream | null> {
-    if (!storedPath) return null
+    const ref = this.resolveS3Ref(storedPath)
+    if (!ref?.key) return null
 
-    if (storedPath.startsWith('http://') || storedPath.startsWith('https://')) {
-      return this.streamFromPublicUrl(storedPath)
+    // Mismo candado que `readStoredFileBuffer`: el bucket lo decide la
+    // configuración, nunca la cadena guardada. Antes, una referencia que
+    // empezara por http la pedia por HTTP tal cual, lo que convertía cualquier
+    // campo de base de datos en una petición saliente del servidor con su
+    // respuesta reflejada al cliente: el mismo primitivo por el que se retiro
+    // `proxy-image`.
+    if (ref.bucket && this.BUCKET_NAME && ref.bucket !== this.BUCKET_NAME) {
+      logger.warn(
+        { bucketSolicitado: ref.bucket, bucketConfigurado: this.BUCKET_NAME },
+        'streamStoredFile: referencia a un bucket ajeno, descartada'
+      )
+      return null
     }
 
-    return this.getObjectStream(storedPath)
+    return this.getObjectStream(ref.key)
   }
 
-  /**
-   * Hace stream de un archivo accesible públicamente via HTTP/HTTPS.
-   * Usado para expedientes legacy subidos con ACL public-read.
-   */
-  private streamFromPublicUrl(publicUrl: string): Promise<S3ObjectStream | null> {
-    return new Promise((resolve, reject) => {
-      const protocol = publicUrl.startsWith('https://') ? https : http
-
-      const req = protocol.get(publicUrl, (res) => {
-        if (res.statusCode === 404 || res.statusCode === 403) {
-          logger.warn(
-            { url: publicUrl, statusCode: res.statusCode },
-            'streamFromPublicUrl: archivo no encontrado o sin acceso'
-          )
-          res.resume()
-          resolve(null)
-          return
-        }
-
-        if (!res.statusCode || res.statusCode >= 400) {
-          logger.warn(
-            { url: publicUrl, statusCode: res.statusCode },
-            'streamFromPublicUrl: respuesta inesperada del servidor de origen'
-          )
-          res.resume()
-          resolve(null)
-          return
-        }
-
-        const contentLength = res.headers['content-length']
-          ? Number.parseInt(res.headers['content-length'], 10)
-          : undefined
-        const lastModifiedHeader = res.headers['last-modified']
-
-        resolve({
-          stream: res as unknown as Readable,
-          contentType: res.headers['content-type'] || 'application/octet-stream',
-          contentLength,
-          etag: res.headers['etag'],
-          lastModified: lastModifiedHeader ? new Date(lastModifiedHeader) : undefined,
-        })
-      })
-
-      req.on('error', (err) => {
-        logger.error({ url: publicUrl, err }, 'streamFromPublicUrl: error de red')
-        reject(err)
-      })
-    })
-  }
 
   /**
    * Resuelve la referencia S3 completa (bucket + key) desde cualquier forma en que
    * se almacena un archivo en la base de datos:
    *
-   * - URL path-style:     https://region.digitaloceanspaces.com/bucket/key
+   * - URL path-style:     https://región.digitaloceanspaces.com/bucket/key
    *                       → { bucket: "bucket", key: "key" }
-   * - URL virtual-hosted: https://bucket.region.digitaloceanspaces.com/key
+   * - URL virtual-hosted: https://bucket.región.digitaloceanspaces.com/key
    *                       → { bucket: "bucket", key: "key" }
    * - Con prefijo bucket: bucket/key  (coincide con BUCKET_NAME del env)
    *                       → { bucket: BUCKET_NAME, key: "key" }
@@ -356,25 +484,44 @@ export default class UploadService {
   resolveS3Ref(storedPath: string): { bucket: string; key: string } | null {
     if (!storedPath) return null
 
-    if (storedPath.includes('digitaloceanspaces.com')) {
+    // La base guarda filas con el centinela de error de `fileUpload` en lugar
+    // de una referencia, de subidas que fallaron. No son rutas: tratarlas como
+    // tales hace pedir al bucket un objeto imposible.
+    if (isUploadFailureSentinel(storedPath)) return null
+
+    if (/^https?:\/\//i.test(storedPath)) {
       try {
         const url = new URL(storedPath)
-        const hostLabels = url.hostname.split('.').length
+
+        // Una URL que no apunta al almacenamiento NO es una referencia S3.
+        // Devolver algo aquí era el origen de dos fallos: la foto que el
+        // checador pública en su propio servidor se troceaba como si fuera una
+        // key del bucket, y cualquier host ajeno podía inventarse un bucket.
+        if (!this.isStorageHost(url.hostname)) return null
+
         const rawPath = url.pathname.replace(/^\//, '')
+
+        // virtual-hosted (`bucket.región.digitaloceanspaces.com/key`) frente a
+        // path-style (`región.digitaloceanspaces.com/bucket/key`). Se distingue
+        // por la cantidad de etiquetas del dominio del proveedor, NO comparando
+        // contra el bucket configurado: las filas históricas viven en otro
+        // bucket y esa comparacion las resolvía mal. Un endpoint propio o MinIO
+        // (`127.0.0.1:9000/bucket/key`) es siempre path-style.
+        const etiquetas = url.hostname.split('.')
+        const esVirtualHosted =
+          url.hostname.endsWith(SPACES_DOMAIN) && etiquetas.length > SPACES_DOMAIN_LABELS + 1
 
         let bucket: string
         let key: string
 
-        if (hostLabels <= 3) {
-          // path-style: region.digitaloceanspaces.com/bucket/key
+        if (esVirtualHosted) {
+          bucket = etiquetas[0]
+          key = decodeURIComponent(rawPath)
+        } else {
           const slash = rawPath.indexOf('/')
           if (slash === -1) return null
           bucket = rawPath.slice(0, slash)
           key = decodeURIComponent(rawPath.slice(slash + 1))
-        } else {
-          // virtual-hosted: bucket.region.digitaloceanspaces.com/key
-          bucket = url.hostname.split('.')[0]
-          key = decodeURIComponent(rawPath)
         }
 
         if (!bucket || !key) return null
@@ -384,13 +531,37 @@ export default class UploadService {
       }
     }
 
-    // No es URL: key directa o con prefijo de bucket
+    // No es URL: key directa o key con el nombre del bucket como prefijo.
+    //
+    // La ambigüedad es real cuando `AWS_BUCKET` y `AWS_ROOT_PATH` coinciden
+    // (`valanserh/valanserh/files/x.jpg` sería indistinguible de
+    // `valanserh/files/x.jpg` con prefijo). Se resuelve por el lado seguro: si
+    // el path YA empieza por el prefijo raiz de la aplicación es una key
+    // nuestra y se deja intacta. Recortar ahí apuntaria a un objeto que no
+    // existe, y eso rompe borrado y lectura en silencio.
     let key = storedPath
-    if (this.BUCKET_NAME && storedPath.startsWith(this.BUCKET_NAME + '/')) {
+    const esKeyDeLaAplicacion = storedPath.startsWith(this.APP_NAME)
+    if (this.BUCKET_NAME && !esKeyDeLaAplicacion && storedPath.startsWith(this.BUCKET_NAME + '/')) {
       key = storedPath.slice(this.BUCKET_NAME.length + 1)
     }
 
     return { bucket: this.BUCKET_NAME || '', key: decodeURIComponent(key) }
+  }
+
+  /**
+   * Verdadero si el host pertenece al almacenamiento de objetos: el endpoint
+   * configurado (DigitalOcean Spaces en produccion, MinIO en desarrollo) o
+   * cualquier subdominio de Spaces, que es donde viven las filas históricas.
+   */
+  private isStorageHost(hostname: string): boolean {
+    if (hostname === SPACES_DOMAIN || hostname.endsWith(`.${SPACES_DOMAIN}`)) return true
+
+    try {
+      const endpointHost = new URL(Env.get('AWS_ENDPOINT')).hostname
+      return hostname === endpointHost || hostname.endsWith(`.${endpointHost}`)
+    } catch {
+      return false
+    }
   }
 
   /**
@@ -412,21 +583,18 @@ export default class UploadService {
       return { status: 400, data: null, message: 'invalid_url_format' }
     }
 
-    const s3 = new AWS.S3(this.s3Config)
-    const params = {
-      Bucket: ref.bucket,
-      Key: ref.key,
-    } as S3.Types.DeleteObjectRequest
+    const params = { Bucket: ref.bucket, Key: ref.key }
 
     try {
-      await s3.headObject(params).promise()
-      const delResponse = await s3.deleteObject(params).promise()
+      await s3Client.send(new HeadObjectCommand(params))
+      const delResponse = await s3Client.send(new DeleteObjectCommand(params))
       return { status: 200, data: delResponse, message: 'file_deleted_successfully' }
-    } catch (error: any) {
-      if (error.code === 'NotFound') {
+    } catch (error: unknown) {
+      const err = asS3Error(error)
+      if (err.name === 'NotFound' || err.$metadata?.httpStatusCode === 404) {
         return { status: 404, data: null, message: 'file_not_found' }
       }
-      return { status: 500, data: null, message: `delete_failed: ${error.message}` }
+      return { status: 500, data: null, message: `delete_failed: ${err.message ?? 'unknown'}` }
     }
   }
 
@@ -454,7 +622,18 @@ export default class UploadService {
    * @param acl    - Valor de ACL, p.ej. 'private' o 'public-read'.
    */
   async setObjectAcl(bucket: string, key: string, acl: string): Promise<void> {
-    const s3 = new AWS.S3(this.s3Config)
-    await s3.putObjectAcl({ Bucket: bucket, Key: key, ACL: acl }).promise()
+    await s3Client.send(
+      new PutObjectAclCommand({ Bucket: bucket, Key: key, ACL: acl as ObjectCannedACL })
+    )
+  }
+
+  /**
+   * URL pública de un objeto. El SDK v3 no devuelve `Location` en el resultado
+   * de `Upload`, así que se compone desde el endpoint configurado usando
+   * path-style, que es el esquema que habla tanto Spaces como el MinIO local.
+   */
+  private buildPublicUrl(key: string): string {
+    const endpoint = Env.get('AWS_ENDPOINT').replace(/\/+$/, '')
+    return `${endpoint}/${this.BUCKET_NAME}/${key.split('/').map(encodeURIComponent).join('/')}`
   }
 }

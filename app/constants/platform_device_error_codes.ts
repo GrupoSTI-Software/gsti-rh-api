@@ -20,6 +20,16 @@ export const PLATFORM_DEVICE_ERROR_CODES = {
   COST_NOT_ALLOWED_FOR_ORIGIN: 'PLT.DEV.COST_NOT_ALLOWED_FOR_ORIGIN',
   /** Unidad del inventario no encontrada o con baja lógica */
   DEVICE_NOT_FOUND: 'PLT.DEV.DEVICE_NOT_FOUND',
+  /** La unidad no está disponible para asignar (ya está asignada o retirada) */
+  ASSIGN_NOT_AVAILABLE: 'PLT.DEV.ASSIGN_NOT_AVAILABLE',
+  /** El tenant no tiene la habilitación de biométricos en sitio encendida */
+  ASSIGN_TENANT_NOT_ENABLED: 'PLT.DEV.ASSIGN_TENANT_NOT_ENABLED',
+  /** Empresa (tenant) no encontrada o sin alta en el sistema */
+  TENANT_NOT_FOUND: 'PLT.DEV.TENANT_NOT_FOUND',
+  /** No se puede desactivar ni retirar una unidad con entrega abierta (RN7 del spec 1877) */
+  LIFECYCLE_HAS_OPEN_ASSIGNMENT: 'PLT.DEV.LIFECYCLE_HAS_OPEN_ASSIGNMENT',
+  /** La unidad ya fue retirada; el retiro es irreversible (RN4 del spec 1877) */
+  LIFECYCLE_ALREADY_RETIRED: 'PLT.DEV.LIFECYCLE_ALREADY_RETIRED',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.DEV.SYS_UNHANDLED',
 } as const

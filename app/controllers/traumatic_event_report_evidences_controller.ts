@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError, respondFileIntakeError } from '#helpers/file_intake_api_error'
 import RoleService from '#services/role_service'
 import TraumaticEventReportEvidenceService from '#services/traumatic_event_report_evidence_service'
 import { traumaticEventReportEvidenceUploadValidator } from '#validators/traumatic_event_report_evidence'
@@ -335,6 +336,13 @@ export default class TraumaticEventReportEvidencesController {
     response: HttpContext['response'],
     fallbackStatus: number
   ) {
+    // El rechazo de un archivo es 422 con triplete: sin esta rama el resolver
+    // del modulo lo degrada a un 500 genérico y el usuario nunca sabe que su
+    // archivo fue rechazado ni por que.
+    if (isFileIntakeError(error)) {
+      return respondFileIntakeError(response, error)
+    }
+
     const resolved = resolveTraumaticEventReportEvidenceApiError(error, fallbackStatus)
     return response.status(resolved.status).json({
       type: 'error',

@@ -4,6 +4,7 @@ import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import {
+  sessionUserEmployeeOwnership,
   sessionUserOwnsEmployee,
   sessionUserOwnsPerson,
 } from '#helpers/session_user_owns_employee'
@@ -133,6 +134,25 @@ test.group('sessionUserOwnsEmployee', (group) => {
     const orphan = new User()
     orphan.personId = undefined as unknown as number
     assert.isFalse(await sessionUserOwnsEmployee(orphan, employee.employeeId))
+  })
+
+  test('sessionUserEmployeeOwnership distingue los tres casos', async ({ assert }) => {
+    // "No es tuyo" y "es tuyo pero está dado de baja" son hechos distintos: quien
+    // registra asistencia necesita separarlos porque los desenlaces son opuestos.
+    assert.equal(await sessionUserEmployeeOwnership(user, employee.employeeId), 'active')
+    assert.equal(await sessionUserEmployeeOwnership(user, otherEmployee.employeeId), 'none')
+    assert.equal(
+      await sessionUserEmployeeOwnership(user, deletedEmployee.employeeId),
+      'terminated'
+    )
+  })
+
+  test('sessionUserEmployeeOwnership sin sesión o con id inválido es none', async ({
+    assert,
+  }) => {
+    assert.equal(await sessionUserEmployeeOwnership(null, employee.employeeId), 'none')
+    assert.equal(await sessionUserEmployeeOwnership(user, 0), 'none')
+    assert.equal(await sessionUserEmployeeOwnership(user, -3), 'none')
   })
 
   test('sessionUserOwnsPerson compara personId de sesión', ({ assert }) => {

@@ -21,7 +21,7 @@ export default class EmployeeSuppliesResponseContractsController {
    *         name: file
    *         type: file
    *         required: true
-   *         description: The contract file to upload (PDF, DOC, DOCX, JPG, JPEG, PNG)
+   *         description: The contract file to upload (PDF)
    *       - in: formData
    *         name: digitalSignature
    *         type: file

@@ -18,10 +18,21 @@ import {
   respondResendAccessRateLimit,
 } from '../helpers/user_resend_access_request_errors.js'
 import {
+  isAuthLoginPath,
+  isAuthLoginRateLimitError,
+  respondAuthLoginRateLimit,
+} from '../helpers/auth_login_request_errors.js'
+import {
   isAuthInvitationPath,
   isAuthInvitationRateLimitError,
   respondAuthInvitationRateLimit,
 } from '../helpers/auth_invitation_request_errors.js'
+import {
+  isAdditionalBusinessUnitCreatePath,
+  isAdditionalBusinessUnitRateLimitError,
+  respondAdditionalBusinessUnitRateLimit,
+} from '../helpers/business_unit_request_errors.js'
+import { isFileIntakeError, respondFileIntakeError } from '../helpers/file_intake_api_error.js'
 
 export default class HttpExceptionHandler extends ExceptionHandler {
   /**
@@ -35,6 +46,21 @@ export default class HttpExceptionHandler extends ExceptionHandler {
    * response to the client
    */
   async handle(error: unknown, ctx: HttpContext) {
+    /**
+     * Rechazo de la entrada de archivos. Sin esta rama el error llega al
+     * manejador por defecto: responde 500 en vez del 422 que es, y fuera de
+     * produccion (`debug = !app.inProduction`) vuelca la pila y rutas
+     * absolutas del servidor en la respuesta.
+     *
+     * Es la red que recogen los `throw` de los puntos de subida; el que un
+     * modulo prefiera traducir el rechazo a su propio contrato (como hace el
+     * buzon de quejas) sigue siendo valido y no pasa por aquí.
+     */
+    if (isFileIntakeError(error)) {
+      respondFileIntakeError(ctx.response, error)
+      return
+    }
+
     if (
       error &&
       typeof error === 'object' &&
@@ -66,8 +92,19 @@ export default class HttpExceptionHandler extends ExceptionHandler {
       return respondResendAccessRateLimit(ctx, error)
     }
 
+    if (isAuthLoginRateLimitError(error) && isAuthLoginPath(ctx.request.url())) {
+      return respondAuthLoginRateLimit(ctx, error)
+    }
+
     if (isAuthInvitationRateLimitError(error) && isAuthInvitationPath(ctx.request.url())) {
       return respondAuthInvitationRateLimit(ctx, error)
+    }
+
+    if (
+      isAdditionalBusinessUnitRateLimitError(error) &&
+      isAdditionalBusinessUnitCreatePath(ctx.request.url())
+    ) {
+      return respondAdditionalBusinessUnitRateLimit(ctx, error)
     }
 
     return super.handle(error, ctx)

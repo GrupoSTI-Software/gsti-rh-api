@@ -50,8 +50,8 @@ test.group('RolePresetService.apply', (group) => {
       systemModuleDescription: 'Fixture de prueba',
       systemModules: '1',
       systemModulePath: `/test-role-preset-apply-${stamp}`,
-      systemModuleGroup: 'test',
       systemModuleActive: 1,
+      systemModuleOrder: 10,
       systemModuleIcon: '',
     })
     customPermission = await SystemPermission.create({
@@ -94,7 +94,7 @@ test.group('RolePresetService.apply', (group) => {
         {
           presetSlug: 'branch-supervisor',
           mode: 'replace',
-          expectedPresetVersion: '1.0.0',
+          expectedPresetVersion: '1.1.0',
           baselinePermissionIds: preview.baselinePermissionIds,
         },
         trx
@@ -140,7 +140,7 @@ test.group('RolePresetService.apply', (group) => {
         {
           presetSlug: 'data-entry',
           mode: 'merge',
-          expectedPresetVersion: '1.0.0',
+          expectedPresetVersion: '1.1.0',
           baselinePermissionIds: preview.baselinePermissionIds,
         },
         trx

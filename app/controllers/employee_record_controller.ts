@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import EmployeeRecord from '#models/employee_record'
 import EmployeeRecordService from '#services/employee_record_service'
 import {
@@ -177,9 +178,8 @@ export default class EmployeeRecordController {
         }
       }
       if (file) {
-        const fileName = `${new Date().getTime()}_${file.clientName}`
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(file, 'employees-records', fileName)
+        const fileUrl = await uploadService.fileUpload(file, 'employee-record-document', 'employees-records')
         employeeRecord.employeeRecordValue = fileUrl
       }
       const newEmployeeRecord = await employeeRecordService.create(employeeRecord)
@@ -193,6 +193,10 @@ export default class EmployeeRecordController {
         }
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -378,9 +382,8 @@ export default class EmployeeRecordController {
         }
       }
       if (file) {
-        const fileName = `${new Date().getTime()}_${file.clientName}`
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(file, 'employees-records', fileName)
+        const fileUrl = await uploadService.fileUpload(file, 'employee-record-document', 'employees-records')
         if (currentEmployeeRecord.employeeRecordValue) {
           const fileNameWithExt = decodeURIComponent(
             path.basename(currentEmployeeRecord.employeeRecordValue)
@@ -404,6 +407,10 @@ export default class EmployeeRecordController {
         }
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
