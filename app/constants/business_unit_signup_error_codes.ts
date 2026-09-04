@@ -29,7 +29,7 @@ export const BUSINESS_UNIT_SIGNUP_ERROR_CODES = {
    * cambiando lo que capturó.
    */
   SLUG_CONFLICT: 'TNT.BU.SLUG_CONFLICT',
-  /** `createForTenant` falló — falta el registro base `system_setting_id = 1` */
+  /** `createForTenant` falló al provisionar la configuración de la empresa nueva */
   SETTINGS_PROVISIONING_FAILED: 'TNT.BU.SETTINGS_PROVISIONING_FAILED',
   /** Fallo no clasificado: todo el alta fue revertido */
   CREATION_FAILED: 'TNT.BU.CREATION_FAILED',
