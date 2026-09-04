@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
 import ProceedingFileService from '#services/proceeding_file_service'
@@ -293,7 +294,7 @@ export async function processProceedingFileMultipartStore(
     }
   }
   try {
-    const fileUrl = await uploadService.fileUpload(file, 'proceeding-files', fileName, 'private')
+    const fileUrl = await uploadService.fileUpload(file, 'employee-record-document', 'proceeding-files')
     proceedingFile.proceedingFilePath = fileUrl
     if (!proceedingFile.proceedingFileName) {
       proceedingFile.proceedingFileName = fileName
@@ -312,6 +313,10 @@ export async function processProceedingFileMultipartStore(
       data: { proceedingFile: newProceedingFile },
     }
   } catch (error) {
+    // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+    // servidor: se relanza para que lo formatee el handler global.
+    if (isFileIntakeError(error)) throw error
+
     const messageError =
       error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
     response.status(500)
@@ -829,7 +834,7 @@ export default class ProceedingFileController {
         }
         const fileName = `${new Date().getTime()}_${file.clientName}`
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(file, 'proceeding-files', fileName, 'private')
+        const fileUrl = await uploadService.fileUpload(file, 'employee-record-document', 'proceeding-files')
         if (currentProceedingFile.proceedingFilePath) {
           const fileNameWithExt = decodeURIComponent(
             path.basename(currentProceedingFile.proceedingFilePath)
@@ -868,6 +873,10 @@ export default class ProceedingFileController {
         data: { proceedingFile: updateProceedingFile },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

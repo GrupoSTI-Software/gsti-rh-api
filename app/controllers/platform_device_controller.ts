@@ -1,6 +1,11 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import PlatformDeviceService from '#services/platform_device_service'
-import { createDeviceValidator, listDevicesValidator } from '#validators/platform_device'
+import {
+  createDeviceValidator,
+  listDevicesValidator,
+  retireDeviceValidator,
+  setDeviceActiveValidator,
+} from '#validators/platform_device'
 import { resolvePlatformDeviceApiError } from '../helpers/platform_device_api_error.js'
 
 /**
@@ -19,17 +24,27 @@ export default class PlatformDeviceController {
    *   get:
    *     tags:
    *       - Platform Device Inventory
-   *     summary: Contadores del parque de inventario
+   *     summary: Contadores y costo del parque de inventario
    *     description: >
-   *       Devuelve los cinco contadores globales del inventario y su desglose
-   *       por modelo del catálogo en una sola consulta agrupada. No acepta filtros
+   *       Devuelve los cinco contadores globales del inventario, el costo de
+   *       adquisición agregado del parque propio y su desglose por modelo del
+   *       catálogo, todo en una sola consulta agrupada. No acepta filtros
    *       (RN8 del spec 1874: los contadores responden "cuánto hay", no
    *       "cuánto se está viendo"). Incluye modelos con cero aparatos.
+   *
+   *       `costoAdquisicionCents` suma en centavos únicamente las unidades de
+   *       origen `propia` que no tienen baja lógica. Las `del_cliente` no llevan
+   *       costo por R6 del inventario y quedan fuera; las `retirada` sí suman,
+   *       porque se adquirieron igual.
+   *
+   *       `unidadesPropiasSinCosto` cuenta las unidades propias a las que nadie
+   *       les capturó el costo. Mientras sea mayor que cero, el total NO es el
+   *       valor completo del parque y quien lo consuma debe advertirlo.
    *     security:
    *       - bearerAuth: []
    *     responses:
    *       '200':
-   *         description: Contadores del parque
+   *         description: Contadores y costo del parque
    *         content:
    *           application/json:
    *             example:
@@ -40,6 +55,8 @@ export default class PlatformDeviceController {
    *                 asignadas: 24
    *                 retiradas: 2
    *                 delCliente: 4
+   *                 costoAdquisicionCents: 18430000
+   *                 unidadesPropiasSinCosto: 3
    *                 porModelo:
    *                   - modelId: 1
    *                     modelName: "ZKTeco SpeedFace V5L"
@@ -49,6 +66,8 @@ export default class PlatformDeviceController {
    *                     asignadas: 20
    *                     retiradas: 1
    *                     delCliente: 1
+   *                     costoAdquisicionCents: 14550000
+   *                     unidadesPropiasSinCosto: 2
    *       '401':
    *         description: Sin autenticar
    *       '403':
@@ -269,6 +288,157 @@ export default class PlatformDeviceController {
         platformDeviceAcquisitionDate: data.platformDeviceAcquisitionDate,
       })
       return response.status(201).json({ type: 'success', data: { device } })
+    } catch (error) {
+      const { status, ...body } = resolvePlatformDeviceApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/devices/units/{platformDeviceId}/active:
+   *   patch:
+   *     tags:
+   *       - Platform Device Inventory
+   *     summary: Apartar o devolver a circulación una unidad
+   *     description: >
+   *       Toggle del campo `active` de la unidad. `active: false` la aparta
+   *       (deja de contarse como disponible y no aparece en el selector de
+   *       asignación); `active: true` la devuelve a circulación.
+   *
+   *       Restricciones: no se puede apartar una unidad con entrega abierta
+   *       (LIFECYCLE_HAS_OPEN_ASSIGNMENT), ni reactivar una unidad ya retirada
+   *       (LIFECYCLE_ALREADY_RETIRED). La operación es idempotente para el
+   *       mismo valor de `active`.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: platformDeviceId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - active
+   *             properties:
+   *               active:
+   *                 type: boolean
+   *     responses:
+   *       '200':
+   *         description: Estado actualizado
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: success
+   *               data:
+   *                 deviceId: 41
+   *                 serialNumber: "AXK9-00001"
+   *                 active: false
+   *       '401':
+   *         description: Sin autenticar
+   *       '403':
+   *         description: AUTH.PLATFORM.FORBIDDEN
+   *       '404':
+   *         description: PLT.DEV.DEVICE_NOT_FOUND
+   *       '422':
+   *         description: >
+   *           PLT.DEV.VAL_INPUT — Body inválido |
+   *           PLT.DEV.LIFECYCLE_HAS_OPEN_ASSIGNMENT — Unidad con entrega abierta |
+   *           PLT.DEV.LIFECYCLE_ALREADY_RETIRED — Unidad ya retirada
+   */
+  async setActive({ params, request, response }: HttpContext) {
+    try {
+      const data = await request.validateUsing(setDeviceActiveValidator)
+      const result = await this.service.setDeviceActive(Number(params.platformDeviceId), data.active)
+      return response.status(200).json({ type: 'success', data: result })
+    } catch (error) {
+      const { status, ...body } = resolvePlatformDeviceApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/devices/units/{platformDeviceId}/retirement:
+   *   post:
+   *     tags:
+   *       - Platform Device Inventory
+   *     summary: Retirar definitivamente una unidad del inventario
+   *     description: >
+   *       Retiro irreversible de un aparato con motivo obligatorio. El aparato
+   *       sigue existiendo en el inventario (nunca se borra) y su número de
+   *       serie queda reservado de forma permanente. No se puede deshacer.
+   *
+   *       Motivos válidos: `danado`, `obsoleto`, `vendido`, `extraviado`.
+   *       `retiredAt` es opcional; si se omite se usa la fecha de hoy.
+   *
+   *       Restricciones: no se puede retirar una unidad con entrega abierta
+   *       (LIFECYCLE_HAS_OPEN_ASSIGNMENT), ni una unidad ya retirada
+   *       (LIFECYCLE_ALREADY_RETIRED).
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: platformDeviceId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - reason
+   *             properties:
+   *               reason:
+   *                 type: string
+   *                 enum: [danado, obsoleto, vendido, extraviado]
+   *               retiredAt:
+   *                 type: string
+   *                 format: date
+   *                 example: "2026-08-29"
+   *     responses:
+   *       '200':
+   *         description: Unidad retirada
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: success
+   *               data:
+   *                 deviceId: 41
+   *                 serialNumber: "AXK9-00001"
+   *                 status: "retirada"
+   *                 retireReason: "danado"
+   *                 retiredAt: "2026-08-29"
+   *       '401':
+   *         description: Sin autenticar
+   *       '403':
+   *         description: AUTH.PLATFORM.FORBIDDEN
+   *       '404':
+   *         description: PLT.DEV.DEVICE_NOT_FOUND
+   *       '422':
+   *         description: >
+   *           PLT.DEV.VAL_INPUT — Body inválido o motivo fuera del catálogo |
+   *           PLT.DEV.LIFECYCLE_HAS_OPEN_ASSIGNMENT — Unidad con entrega abierta |
+   *           PLT.DEV.LIFECYCLE_ALREADY_RETIRED — Unidad ya retirada
+   */
+  async retire({ params, request, response }: HttpContext) {
+    try {
+      const data = await request.validateUsing(retireDeviceValidator)
+      const result = await this.service.retireDevice(
+        Number(params.platformDeviceId),
+        data.reason,
+        data.retiredAt ?? undefined
+      )
+      return response.status(200).json({ type: 'success', data: result })
     } catch (error) {
       const { status, ...body } = resolvePlatformDeviceApiError(error)
       return response.status(status).json(body)

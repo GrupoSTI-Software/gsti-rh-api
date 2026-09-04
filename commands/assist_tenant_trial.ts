@@ -4,7 +4,7 @@ import { BaseCommand, flags } from '@adonisjs/core/ace'
 import type { CommandOptions } from '@adonisjs/core/types/ace'
 import db from '@adonisjs/lucid/services/db'
 import { DateTime } from 'luxon'
-import { computeAssistNaturalKey } from '#utils/assist_natural_key'
+import { assistChannelSentinel, computeAssistNaturalKey } from '#utils/assist_natural_key'
 
 /** Empresas vivas del ensayo (CA-21, §9.9). */
 const TRIAL_BU1_ID = 1
@@ -438,7 +438,10 @@ export default class AssistTenantTrial extends BaseCommand {
           'business_unit_id',
           'assist_emp_code',
           'assist_punch_time_utc',
-          'assist_terminal_sn'
+          'assist_terminal_sn',
+          // El centinela de canal se deriva del origen: sin él este comando escribiría
+          // llaves distintas de las que calcula el hook del modelo.
+          'assist_origin'
         )
 
       if (rows.length === 0) {
@@ -453,7 +456,7 @@ export default class AssistTenantTrial extends BaseCommand {
           businessUnitId: Number(row.business_unit_id),
           assistEmpCode: row.assist_emp_code,
           assistPunchTimeUtc: punchUtc,
-          assistTerminalSn: row.assist_terminal_sn,
+          assistTerminalSn: assistChannelSentinel(row.assist_origin, row.assist_terminal_sn),
         })
       }
 

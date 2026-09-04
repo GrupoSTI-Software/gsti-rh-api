@@ -147,14 +147,12 @@ test.group('SignupDraftService.complete() - creación de system_settings del ten
     }
   })
 
-  test('alta feliz: crea 1 fila de system_settings ligada por business_unit_id, copiada del registro base', async ({
+  test('alta feliz: crea 1 fila de system_settings ligada por business_unit_id, con los defaults de la empresa', async ({
     assert,
   }) => {
     ;({ draft, token } = await createVerifiedDraft(stamp, publishedPlanId!))
     businessUnitName = draft.signupDraftBusinessUnitName
     email = draft.signupDraftEmail
-
-    const base = await SystemSetting.query().where('system_setting_id', 1).firstOrFail()
 
     const service = new SignupDraftService(getI18nStub())
     const result = await service.complete({
@@ -175,7 +173,24 @@ test.group('SignupDraftService.complete() - creación de system_settings del ten
     assert.lengthOf(settingsRows, 1, 'Debe crearse exactamente una fila de system_settings para el tenant nuevo')
 
     const settings = settingsRows[0]
-    assert.equal(settings.systemSettingTradeName, base.systemSettingTradeName)
+    // Identidad propia de la empresa, no la del registro base (GrupoSTI)
+    assert.equal(settings.systemSettingTradeName, businessUnit.businessUnitName)
+    assert.isNull(settings.systemSettingLogo)
+    assert.isNull(settings.systemSettingBanner)
+    assert.isNull(settings.systemSettingFavicon)
+    assert.isNull(settings.systemSettingEmployeeAplicationIcon)
+    assert.equal(settings.systemSettingSidebarColor, 'FFFFFF')
+    assert.equal(settings.systemSettingActive, 1)
+    assert.equal(settings.systemSettingToleranceCountPerAbsence, 3)
+    assert.equal(settings.systemSettingRestrictFutureVacation, 1)
+    assert.equal(settings.systemSettingBirthdayEmails, 0)
+    assert.equal(settings.systemSettingAnniversaryEmails, 0)
+    assert.equal(settings.systemSettingAttendanceFaultHrEmails, 0)
+    assert.isNull(settings.systemSettingMaxAbsencesBeforeAttendanceLock)
+    assert.isNull(settings.systemSettingMaxLateArrivalsBeforeAttendanceLock)
+    assert.equal(settings.systemSettingPeriodAbsencesBeforeAttendanceLock, 'monthly')
+    assert.equal(settings.systemSettingPeriodLateArrivalsBeforeAttendanceLock, 'monthly')
+    assert.equal(Number(settings.systemSettingMonthlyConversionFactor), 30.42)
     assert.equal(settings.systemSettingBusinessUnits, businessUnit.businessUnitSlug)
     assert.notEqual(settings.businessUnitId, null)
   })
@@ -194,10 +209,24 @@ test.group('SignupDraftService.complete() - creación de system_settings del ten
     await businessUnit.save()
 
     await db.transaction(async (trx) => {
-      await systemSettingService.createForTenant(businessUnit.businessUnitId, businessUnit.businessUnitSlug, trx)
+      await systemSettingService.createForTenant(
+        {
+          businessUnitId: businessUnit.businessUnitId,
+          businessUnitSlug: businessUnit.businessUnitSlug,
+          businessUnitName: businessUnit.businessUnitName,
+        },
+        trx
+      )
     })
     await db.transaction(async (trx) => {
-      await systemSettingService.createForTenant(businessUnit.businessUnitId, businessUnit.businessUnitSlug, trx)
+      await systemSettingService.createForTenant(
+        {
+          businessUnitId: businessUnit.businessUnitId,
+          businessUnitSlug: businessUnit.businessUnitSlug,
+          businessUnitName: businessUnit.businessUnitName,
+        },
+        trx
+      )
     })
 
     const rows = await SystemSetting.query().where('business_unit_id', businessUnit.businessUnitId)

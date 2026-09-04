@@ -23,6 +23,10 @@ export default class PlatformTenantController {
    *       Devuelve el listado paginado de empresas (tenants) con su estado de suscripción
    *       resuelto por LEFT JOIN y su conteo agregado de empleados activos.
    *       Las empresas sin suscripción aparecen con subscription null.
+   *       Cada empresa incluye billingProfileComplete y missingFields, derivados del perfil
+   *       fiscal: la empresa que nunca capturó su perfil trae los cinco datos como faltantes.
+   *       Nunca se publican los valores fiscales capturados (RFC, razón social fiscal,
+   *       código postal, correo de facturación): solo el booleano y los nombres de lo que falta.
    *       El parámetro search también acepta un RFC completo válido ante el SAT;
    *       en ese caso resuelve por huella ciega sin buscar fragmentos de RFC.
    *       Solo lectura; nunca expone datos nominales de empleados ni business_unit_id interno.
@@ -87,6 +91,18 @@ export default class PlatformTenantController {
    *                         type: integer
    *                       activeEmployees:
    *                         type: integer
+   *                       billingProfileComplete:
+   *                         type: boolean
+   *                         description: Derivado. false cuando falta al menos uno de los cinco datos obligatorios de facturación
+   *                       missingFields:
+   *                         type: array
+   *                         description: |
+   *                           Nombres de los datos obligatorios que faltan, en el orden del catálogo.
+   *                           La empresa que nunca capturó su perfil fiscal trae los cinco.
+   *                           Solo nombres: ningún valor fiscal capturado se publica en el listado.
+   *                         items:
+   *                           type: string
+   *                           enum: [rfc, legalName, postalCode, taxRegimeCode, cfdiUseCode]
    *                       subscription:
    *                         type: object
    *                         nullable: true
@@ -140,6 +156,9 @@ export default class PlatformTenantController {
    * @description Devuelve el listado paginado de empresas (tenants) con su estado\
    *   de suscripción resuelto por LEFT JOIN y su conteo agregado de empleados activos.\
    *   Las empresas sin suscripción aparecen con subscription null.\
+   *   Cada empresa incluye billingProfileComplete y missingFields derivados del perfil fiscal;\
+   *   la empresa que nunca capturó su perfil trae los cinco datos como faltantes.\
+   *   Nunca se publican los valores fiscales capturados, solo los nombres de lo que falta.\
    *   El parámetro search también acepta un RFC completo válido ante el SAT;\
    *   en ese caso resuelve por huella ciega sin buscar fragmentos de RFC.\
    *   Solo lectura; nunca expone datos nominales de empleados ni business_unit_id interno.
@@ -150,7 +169,7 @@ export default class PlatformTenantController {
    * @paramQuery status - Filtro por estado de suscripción (trialing|active|past_due|canceled) - string
    * @paramQuery page - Página (default 1) - integer
    * @paramQuery limit - Resultados por página, máx 100 (default 20) - integer
-   * @responseBody 200 - {"type": "success", "data": [], "meta": {"total": 0, "page": 1, "limit": 20, "lastPage": 1}}
+   * @responseBody 200 - {"type": "success", "data": [{"businessUnitPublicId": "uuid", "businessUnitName": "Empresa Demo", "businessUnitLegalName": "Empresa Demo SA de CV", "businessUnitActive": 1, "hasBiometrics": false, "activeEmployees": 12, "billingProfileComplete": false, "missingFields": ["postalCode", "cfdiUseCode"], "subscription": null}], "meta": {"total": 1, "page": 1, "limit": 20, "lastPage": 1}}
    * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.TEN.VAL_INPUT"}
    * @responseBody 403 - {"title": "string", "detail": "string", "key": "AUTH.PLATFORM.FORBIDDEN"}
    */
@@ -219,6 +238,15 @@ export default class PlatformTenantController {
    *                       type: integer
    *                     activeEmployees:
    *                       type: integer
+   *                     billingProfileComplete:
+   *                       type: boolean
+   *                       description: Derivado. Repite en la raíz la completitud del perfil fiscal; false cuando billingProfile es null
+   *                     missingFields:
+   *                       type: array
+   *                       description: Derivado. Nombres de los datos obligatorios que faltan; los cinco cuando billingProfile es null
+   *                       items:
+   *                         type: string
+   *                         enum: [rfc, legalName, postalCode, taxRegimeCode, cfdiUseCode]
    *                     subscription:
    *                       type: object
    *                       nullable: true
@@ -319,7 +347,7 @@ export default class PlatformTenantController {
    * @operationId getPlatformTenantDetail
    * @security [{"bearerAuth": []}]
    * @paramPath id - UUID público de la empresa (businessUnitPublicId) - string
-   * @responseBody 200 - {"type": "success", "data": {"businessUnitPublicId": "uuid", "businessUnitName": "Empresa Demo", "businessUnitLegalName": "Empresa Demo SA de CV", "businessUnitActive": 1, "activeEmployees": 12, "subscription": null, "billingProfile": {"rfc": "ABC010101AB9", "legalName": "Abc SA de CV", "postalCode": "06600", "taxRegimeCode": "601", "taxRegimeLabel": "General de Ley Personas Morales", "cfdiUseCode": "G03", "cfdiUseLabel": "Gastos en general", "billingEmail": "facturas@empresa.mx", "billingProfileComplete": true, "missingFields": [], "capturedAt": "2026-08-01T12:00:00.000Z", "updatedAt": "2026-08-01T12:00:00.000Z"}}}
+   * @responseBody 200 - {"type": "success", "data": {"businessUnitPublicId": "uuid", "businessUnitName": "Empresa Demo", "businessUnitLegalName": "Empresa Demo SA de CV", "businessUnitActive": 1, "activeEmployees": 12, "billingProfileComplete": true, "missingFields": [], "subscription": null, "billingProfile": {"rfc": "ABC010101AB9", "legalName": "Abc SA de CV", "postalCode": "06600", "taxRegimeCode": "601", "taxRegimeLabel": "General de Ley Personas Morales", "cfdiUseCode": "G03", "cfdiUseLabel": "Gastos en general", "billingEmail": "facturas@empresa.mx", "billingProfileComplete": true, "missingFields": [], "capturedAt": "2026-08-01T12:00:00.000Z", "updatedAt": "2026-08-01T12:00:00.000Z"}}}
    * @responseBody 404 - {"title": "string", "detail": "string", "key": "tenant-no-encontrado", "code": "PLT.TEN.NOT_FOUND"}
    * @responseBody 403 - {"title": "string", "detail": "string", "key": "AUTH.PLATFORM.FORBIDDEN"}
    */

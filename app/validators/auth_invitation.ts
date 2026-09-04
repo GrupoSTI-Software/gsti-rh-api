@@ -1,13 +1,14 @@
 import vine from '@vinejs/vine'
+import { PASSWORD_COMPLEXITY_PATTERN, PASSWORD_MIN_LENGTH } from '#helpers/password_policy'
 
-/** Política alineada a `app/validators/signup.ts` (12 + mayúscula + número + símbolo). */
+/** Política única del producto: ver `app/helpers/password_policy.ts`. */
 export const invitationSetPasswordValidator = vine.compile(
   vine.object({
     token: vine.string().trim().minLength(1).maxLength(150),
     userPassword: vine
       .string()
-      .minLength(12)
-      .regex(/^(?=.*[A-Z])(?=.*[0-9])(?=.*[^A-Za-z0-9]).+$/),
+      .minLength(PASSWORD_MIN_LENGTH)
+      .regex(PASSWORD_COMPLEXITY_PATTERN),
     userPasswordConfirm: vine.string(),
   })
 )

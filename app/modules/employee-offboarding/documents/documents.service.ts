@@ -1,0 +1,502 @@
+import { createHash } from 'node:crypto'
+import { cuid } from '@adonisjs/core/helpers'
+import db from '@adonisjs/lucid/services/db'
+import type { I18n } from '@adonisjs/i18n'
+import RoleService from '#services/role_service'
+import SystemSettingService from '#services/system_setting_service'
+import UploadService from '#services/upload_service'
+import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
+import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
+import {
+  daysBetweenBusinessDates,
+  toCalendarIsoDate,
+  todayInBusinessZone,
+} from '#utils/business_date'
+import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '../concepts/concepts.constants.js'
+import { buildUserNamesMap } from '../offboardings/dto/offboardings.dto.js'
+import {
+  DOCUMENT_DEPARTMENT_NAME_MAX_LENGTH,
+  DOCUMENT_EMPLOYEE_NAME_MAX_LENGTH,
+  DOCUMENT_LEGAL_NAME_MAX_LENGTH,
+  DOCUMENT_MIME_TYPE,
+  DOCUMENT_POSITION_NAME_MAX_LENGTH,
+  DOCUMENT_SIGNED_URL_EXPIRES_SECONDS,
+  DOCUMENTS_S3_FOLDER,
+  MISSING_FIELD_LABEL_KEY,
+  REFERENCE_DATE_SOURCE,
+  type EmployeeOffboardingDocumentType,
+} from './documents.constants.js'
+import DocumentsRepositoryMysql from './documents.repository.mysql.js'
+import type { DocumentsRepository } from './documents.repository.js'
+import SeparationLetterPdfService, {
+  collectMissingSeparationLetterFields,
+  computeSeniority,
+  sanitizeRenderText,
+  type MissingSeparationLetterField,
+} from './separation_letter_pdf.service.js'
+import { toDocumentDto, type EmployeeOffboardingDocumentDto } from './dto/documents.dto.js'
+
+/** Acciones del módulo `employee-offboardings` que usa este slice (regla 14). */
+export type EmployeeOffboardingDocumentAction = 'read' | 'create'
+
+/**
+ * Reglas de negocio de los documentos del expediente (USRH1787433503686):
+ * emisión solo con la baja ejecutada (regla 1), una sola constancia por
+ * expediente en H1a (regla 9), dato faltante = no se emite nada (regla 6),
+ * snapshot saneado de lo impreso más sello sha256 y tamaño (regla 11),
+ * archivo privado con enlace de 300 s (regla 16) y aislamiento en dos
+ * saltos por el BU snapshoteado del expediente (regla 15).
+ *
+ * Sobre expediente CERRADO sí se emite (regla 12): desviación declarada
+ * frente a la regla 8 de USRH1786568279596 — el candado de solo lectura
+ * de esa historia vive por slice (pendientes y comprobantes) y este slice
+ * no lo aplica. Elevado a Wilvardo, no cambiado en silencio.
+ */
+export default class DocumentsService {
+  private t: (key: string, params?: { [key: string]: string | number }) => string
+  private readonly locale: string
+  private readonly repository: DocumentsRepository
+  private readonly pdfService: SeparationLetterPdfService
+
+  constructor(
+    i18n: I18n,
+    repository: DocumentsRepository = new DocumentsRepositoryMysql(),
+    pdfService: SeparationLetterPdfService = new SeparationLetterPdfService()
+  ) {
+    this.t = i18n.formatMessage.bind(i18n)
+    this.locale = i18n.locale
+    this.repository = repository
+    this.pdfService = pdfService
+  }
+
+  /**
+   * Regla 14 — `create` para emitir, `read` para consultar y descargar.
+   * `root` y `owner` hacen bypass dentro de `RoleService.hasAccess`.
+   */
+  async assertCanAccess(
+    roleId: number | null | undefined,
+    action: EmployeeOffboardingDocumentAction
+  ) {
+    if (!roleId) {
+      throw this.forbiddenError()
+    }
+    const roleService = new RoleService()
+    const hasAccess = await roleService.hasAccess(
+      roleId,
+      EMPLOYEE_OFFBOARDINGS_MODULE_SLUG,
+      action
+    )
+    if (!hasAccess) {
+      throw this.forbiddenError()
+    }
+  }
+
+  /**
+   * Emite la constancia (orden deliberado): expediente en alcance → baja
+   * ejecutada → una sola emisión → completitud → render → sello → subida
+   * privada → fila. Render y subida van fuera de transacción; si la fila
+   * falla tras subir queda un objeto huérfano en S3, nunca una fila que
+   * apunte a un objeto inexistente.
+   */
+  async issue(
+    employeeOffboardingId: number,
+    documentType: EmployeeOffboardingDocumentType,
+    businessUnitScope: number[],
+    generatedByUserId: number | null
+  ): Promise<EmployeeOffboardingDocumentDto> {
+    const offboarding = await this.resolveOffboarding(employeeOffboardingId, businessUnitScope)
+
+    const employee = await this.repository.findEmployeeForLetter(offboarding.employeeId)
+    if (!employee) {
+      throw this.caseNotFoundError()
+    }
+
+    // Regla 1: el documento hace constar un hecho consumado
+    if (employee.deletedAt === null || employee.deletedAt === undefined) {
+      throw this.employeeStillActiveError()
+    }
+
+    // Datos ya saneados: lo mismo que se imprime es lo que se snapshotea
+    const businessUnit = await this.repository.findBusinessUnit(offboarding.businessUnitId)
+    const legalName = sanitizeRenderText(businessUnit?.businessUnitLegalName ?? '').slice(
+      0,
+      DOCUMENT_LEGAL_NAME_MAX_LENGTH
+    )
+    const employeeName = sanitizeRenderText(
+      [
+        employee.person?.personFirstname,
+        employee.person?.personLastname,
+        employee.person?.personSecondLastname,
+      ]
+        .filter((part) => typeof part === 'string')
+        .join(' ')
+    ).slice(0, DOCUMENT_EMPLOYEE_NAME_MAX_LENGTH)
+    const positionName = sanitizeRenderText(employee.position?.positionName ?? '').slice(
+      0,
+      DOCUMENT_POSITION_NAME_MAX_LENGTH
+    )
+    const departmentName = sanitizeRenderText(employee.department?.departmentName ?? '').slice(
+      0,
+      DOCUMENT_DEPARTMENT_NAME_MAX_LENGTH
+    )
+    const hireDateIso = toCalendarIsoDate(employee.employeeHireDate)
+    // Regla 5 — cascada (molde literal del DTO del expediente): la fecha real
+    // de baja y, si no existe (bajas de piloto/sobrecargo), la de apertura del
+    // expediente. Se recuerda de cuál salió (regla 6). `??`, nunca `||`.
+    const terminatedDateIso = toCalendarIsoDate(employee.employeeTerminatedDate)
+    const referenceDateIso =
+      terminatedDateIso ?? toCalendarIsoDate(offboarding.employeeOffboardingPlannedDate)
+    const referenceDateSource = terminatedDateIso
+      ? REFERENCE_DATE_SOURCE.TERMINATED
+      : REFERENCE_DATE_SOURCE.PLANNED
+
+    // Regla 1 — guarda PURA en un punto único, antes de gastar CPU o red:
+    // el 422 enumera cada dato con su pestaña destino (regla 2).
+    const missing = collectMissingSeparationLetterFields({
+      legalName,
+      employeeName,
+      position: positionName,
+      hireDate: hireDateIso,
+      separationDate: referenceDateIso,
+    })
+    if (missing.length > 0 || !hireDateIso || !referenceDateIso) {
+      throw this.incompleteError(missing)
+    }
+
+    // Regla 7 — coherencia DESPUÉS de la guarda: sin las dos fechas no hay
+    // nada que comparar y el usuario recibiría el error equivocado.
+    const seniorityDays = daysBetweenBusinessDates(hireDateIso, referenceDateIso)
+    if (seniorityDays < 0) {
+      throw this.dateRangeInvalidError()
+    }
+
+    const issuedAt = todayInBusinessZone()
+    const departmentOrUnit = departmentName.length > 0 ? departmentName : legalName
+
+    // Regla 3 — folio consecutivo por expediente y tipo. El folio SE IMPRIME
+    // en el PDF, así que se estima ANTES de renderizar (sin lock) y se
+    // CONFIRMA bajo el forUpdate: si otra emisión ganó la carrera, se
+    // re-renderiza con el consecutivo correcto. El lock nunca se sostiene
+    // durante el render ni la subida (transacción corta y al final); el
+    // objeto de un intento perdedor queda huérfano en S3 — degradación
+    // aceptada, nunca una fila que apunte a un objeto inexistente.
+    const MAX_FOLIO_ATTEMPTS = 3
+    for (let attempt = 1; attempt <= MAX_FOLIO_ATTEMPTS; attempt++) {
+      const expectedCount = await this.repository.countByOffboardingAndType(
+        offboarding.employeeOffboardingId,
+        documentType
+      )
+      const folio = this.buildFolio(
+        offboarding.employeeOffboardingId,
+        issuedAt.year,
+        expectedCount + 1
+      )
+
+      // Regla 7 de H1a: sin departamento se imprime la unidad de adscripción
+      const buffer = await this.renderOrFail({
+        folio,
+        employeeName,
+        positionName,
+        departmentOrUnit,
+        legalName,
+        hireDateIso,
+        referenceDateIso,
+        seniority: computeSeniority(hireDateIso, referenceDateIso),
+        tradeName: await this.resolveTradeName(offboarding.businessUnitId),
+        issuedAt,
+      })
+
+      const contentHash = createHash('sha256').update(buffer).digest('hex')
+      // Nombre solo con folio y literales del sistema: nunca datos personales
+      const fileName = this.sanitizeFileName(`constancia-de-separacion-${folio}.pdf`)
+      const storedKey = await new UploadService().uploadPrivateBuffer(
+        `${DOCUMENTS_S3_FOLDER}/${offboarding.employeeOffboardingId}/${cuid()}-${fileName}`,
+        buffer,
+        DOCUMENT_MIME_TYPE
+      )
+      if (!storedKey) {
+        throw this.storageFailedError()
+      }
+
+      // Transacción corta y al final: lock del expediente YA resuelto en
+      // alcance, recuento bajo lock, traslado de vigencia (nunca se borra la
+      // anterior, regla 2) e INSERT — un único forUpdate para todo.
+      const record = await db.transaction(async (trx) => {
+        const locked = await this.repository.lockOffboardingRow(
+          offboarding.employeeOffboardingId,
+          trx
+        )
+        if (!locked) {
+          throw this.caseNotFoundError()
+        }
+
+        const countUnderLock = await this.repository.countByOffboardingAndType(
+          offboarding.employeeOffboardingId,
+          documentType,
+          trx
+        )
+        if (countUnderLock !== expectedCount) {
+          // Otra emisión consumió el folio estimado: el impreso ya no
+          // coincidiría con el guardado — se reintenta con el correcto
+          return null
+        }
+
+        const supersededDocumentId = await this.repository.markCurrentAsSuperseded(
+          offboarding.employeeOffboardingId,
+          documentType,
+          trx
+        )
+
+        return await this.repository.createDocument(
+          {
+            employeeOffboardingId: offboarding.employeeOffboardingId,
+            employeeOffboardingDocumentType: documentType,
+            employeeOffboardingDocumentFolio: folio,
+            employeeOffboardingDocumentFile: storedKey,
+            employeeOffboardingDocumentFileName: fileName,
+            employeeOffboardingDocumentSizeBytes: buffer.byteLength,
+            employeeOffboardingDocumentEmployeeName: employeeName,
+            employeeOffboardingDocumentPositionName: positionName,
+            employeeOffboardingDocumentDepartmentName:
+              departmentName.length > 0 ? departmentName : null,
+            employeeOffboardingDocumentLegalName: legalName,
+            employeeOffboardingDocumentHireDate: hireDateIso,
+            employeeOffboardingDocumentReferenceDate: referenceDateIso,
+            employeeOffboardingDocumentReferenceDateSource: referenceDateSource,
+            employeeOffboardingDocumentSeniorityDays: seniorityDays,
+            employeeOffboardingDocumentContentHash: contentHash,
+            employeeOffboardingDocumentGeneratedByUserId: generatedByUserId,
+            employeeOffboardingDocumentSupersededDocumentId: supersededDocumentId,
+          },
+          trx
+        )
+      })
+
+      if (record) {
+        return await this.toDto(record)
+      }
+    }
+
+    throw this.concurrencyExhaustedError()
+  }
+
+  /**
+   * Documentos vivos del expediente, id descendente. Por defecto solo la
+   * vigente (regla 5); el historial se pide con `includeSuperseded`.
+   */
+  async list(
+    employeeOffboardingId: number,
+    businessUnitScope: number[],
+    filters: { includeSuperseded: boolean; documentType?: string }
+  ): Promise<EmployeeOffboardingDocumentDto[]> {
+    const offboarding = await this.resolveOffboarding(employeeOffboardingId, businessUnitScope)
+    const records = await this.repository.listByOffboarding(
+      offboarding.employeeOffboardingId,
+      filters
+    )
+    const userIds = [
+      ...new Set(
+        records
+          .map((record) => record.employeeOffboardingDocumentGeneratedByUserId)
+          .filter((id): id is number => id !== null && id !== undefined)
+      ),
+    ]
+    const userNamesById = buildUserNamesMap(await this.repository.findUsersByIds(userIds))
+    return records.map((record) => toDocumentDto(record, userNamesById))
+  }
+
+  /** URL pre-firmada de 300 s (regla 16). Se pide una nueva en cada clic. */
+  async getDownloadUrl(
+    employeeOffboardingId: number,
+    employeeOffboardingDocumentId: number,
+    businessUnitScope: number[]
+  ): Promise<{ downloadUrl: string; expiresInSeconds: number }> {
+    const offboarding = await this.resolveOffboarding(employeeOffboardingId, businessUnitScope)
+    const record = await this.repository.findDocumentInOffboarding(
+      offboarding.employeeOffboardingId,
+      employeeOffboardingDocumentId
+    )
+    if (!record) {
+      throw this.documentNotFoundError()
+    }
+
+    const url = await new UploadService().getDownloadLink(
+      record.employeeOffboardingDocumentFile,
+      DOCUMENT_SIGNED_URL_EXPIRES_SECONDS
+    )
+    // `getDownloadLink` no lanza: devuelve null u objeto en error. Nunca `!url`.
+    if (typeof url !== 'string') {
+      throw this.downloadFailedError()
+    }
+    return { downloadUrl: url, expiresInSeconds: DOCUMENT_SIGNED_URL_EXPIRES_SECONDS }
+  }
+
+  /** Primer salto: expediente vivo dentro del alcance, 404 uniforme. */
+  private async resolveOffboarding(employeeOffboardingId: number, businessUnitScope: number[]) {
+    const offboarding = await this.repository.findOffboardingInScope(
+      employeeOffboardingId,
+      businessUnitScope
+    )
+    if (!offboarding) {
+      throw this.caseNotFoundError()
+    }
+    return offboarding
+  }
+
+  private async renderOrFail(
+    data: Parameters<SeparationLetterPdfService['render']>[0]
+  ): Promise<Buffer> {
+    let buffer: Buffer
+    try {
+      buffer = await this.pdfService.render(data)
+    } catch {
+      throw this.renderFailedError()
+    }
+    if (buffer.byteLength === 0) {
+      throw this.renderFailedError()
+    }
+    return buffer
+  }
+
+  /** Nombre comercial para el membrete; cosmético, nunca bloquea (fail-closed del setting). */
+  private async resolveTradeName(businessUnitId: number): Promise<string> {
+    try {
+      const setting = await new SystemSettingService().resolveByBusinessUnitId(businessUnitId)
+      return sanitizeRenderText(setting?.systemSettingTradeName ?? '')
+    } catch {
+      return ''
+    }
+  }
+
+  private async toDto(record: Parameters<typeof toDocumentDto>[0]) {
+    const userId = record.employeeOffboardingDocumentGeneratedByUserId
+    const users = userId ? await this.repository.findUsersByIds([userId]) : []
+    return toDocumentDto(record, buildUserNamesMap(users))
+  }
+
+  /** Lista blanca ASCII, colapsa `..`, corte a 100 (tercera copia privada del precedente). */
+  private sanitizeFileName(rawName: string): string {
+    return `${rawName}`
+      .replace(/[^a-zA-Z0-9._-]/g, '_')
+      .replace(/\.{2,}/g, '.')
+      .slice(0, 100)
+  }
+
+  private forbiddenError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'sin-permiso',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_FORBIDDEN,
+      httpStatus: 403,
+      title: this.t('employee_offboarding_forbidden_title'),
+      detail: this.t('employee_offboarding_forbidden_message'),
+    })
+  }
+
+  private caseNotFoundError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'expediente-no-encontrado',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_CASE_NOT_FOUND,
+      httpStatus: 404,
+      title: this.t('employee_offboarding_case_not_found_title'),
+      detail: this.t('employee_offboarding_case_out_of_scope_message'),
+    })
+  }
+
+  private documentNotFoundError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'documento-no-encontrado',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_NOT_FOUND,
+      httpStatus: 404,
+      title: this.t('employee_offboarding_document_not_found_title'),
+      detail: this.t('employee_offboarding_document_not_found_detail'),
+    })
+  }
+
+  /**
+   * Detalle compuesto en el idioma de la petición con las etiquetas del
+   * catálogo (nunca valores de la ficha): "a, b y c" por `Intl.ListFormat`,
+   * que resuelve la conjunción por locale sin una clave i18n extra.
+   */
+  /** `CS-{expediente}-{año en zona de negocio}-{consecutivo a 4 dígitos}` (regla 3). */
+  private buildFolio(employeeOffboardingId: number, year: number, sequence: number): string {
+    return `CS-${employeeOffboardingId}-${year}-${String(sequence).padStart(4, '0')}`
+  }
+
+  /**
+   * Tras varios intentos la carrera por el folio no se resolvió: estado
+   * excepcional (el botón en vuelo del BO evita llegar aquí) — 500 genérico.
+   */
+  private concurrencyExhaustedError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'error-interno',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_UNEXPECTED,
+      httpStatus: 500,
+      title: this.t('employee_offboarding_unexpected_title'),
+      detail: this.t('employee_offboarding_unexpected_message'),
+    })
+  }
+
+  private incompleteError(missing: MissingSeparationLetterField[]) {
+    const labels = missing.map((field) => this.t(MISSING_FIELD_LABEL_KEY[field]))
+    const fields = new Intl.ListFormat(this.locale, { style: 'long', type: 'conjunction' }).format(
+      labels
+    )
+    return new EmployeeOffboardingServiceError({
+      key: 'constancia-incompleta',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_INCOMPLETE,
+      httpStatus: 422,
+      title: this.t('employee_offboarding_document_issue_error_title'),
+      detail: this.t('employee_offboarding_document_incomplete_detail', { fields }),
+    })
+  }
+
+  private dateRangeInvalidError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'fechas-de-la-constancia-incoherentes',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_DATE_RANGE_INVALID,
+      httpStatus: 422,
+      title: this.t('employee_offboarding_document_issue_error_title'),
+      detail: this.t('employee_offboarding_document_date_range_detail'),
+    })
+  }
+
+  private employeeStillActiveError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'baja-no-ejecutada',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_EMPLOYEE_STILL_ACTIVE,
+      httpStatus: 422,
+      title: this.t('employee_offboarding_document_issue_error_title'),
+      detail: this.t('employee_offboarding_document_employee_active_detail'),
+    })
+  }
+
+  private renderFailedError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'constancia-no-generada',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_RENDER_FAILED,
+      httpStatus: 500,
+      title: this.t('employee_offboarding_document_issue_error_title'),
+      detail: this.t('employee_offboarding_document_render_failed_detail'),
+    })
+  }
+
+  private storageFailedError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'constancia-no-almacenada',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_STORAGE_FAILED,
+      httpStatus: 500,
+      title: this.t('employee_offboarding_document_issue_error_title'),
+      detail: this.t('employee_offboarding_document_storage_failed_detail'),
+    })
+  }
+
+  private downloadFailedError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'constancia-descarga-fallida',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_DOWNLOAD_FAILED,
+      httpStatus: 500,
+      title: this.t('employee_offboarding_document_download_error_title'),
+      detail: this.t('employee_offboarding_document_download_failed_detail'),
+    })
+  }
+}

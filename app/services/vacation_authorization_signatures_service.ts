@@ -40,7 +40,7 @@ export default class VacationAuthorizationSignaturesService {
 
     // Upload signature to S3
     const uploader = new UploadService()
-    const fileUrl = await uploader.fileUpload(signatureFile, 'vacation_signatures')
+    const fileUrl = await uploader.fileUpload(signatureFile, 'signature', 'vacation_signatures')
     if (!fileUrl || fileUrl === 'file_not_found' || fileUrl === 'S3Producer.fileUpload') {
       return {
         status: 500,
@@ -157,7 +157,7 @@ export default class VacationAuthorizationSignaturesService {
 
     // Upload signature to S3
     const uploader = new UploadService()
-    const fileUrl = await uploader.fileUpload(signatureFile, 'vacation_signatures')
+    const fileUrl = await uploader.fileUpload(signatureFile, 'signature', 'vacation_signatures')
     if (!fileUrl || fileUrl === 'file_not_found' || fileUrl === 'S3Producer.fileUpload') {
       return {
         status: 500,
