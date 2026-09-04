@@ -51,7 +51,7 @@ export default class extends BaseSeeder {
         systemModules: '1',
         systemModulePath: '/retention-policy',
         systemModuleActive: 1,
-        systemModuleOrder: this.moduleId * 10,
+        systemModuleOrder: 70,
         systemModuleGroupId: groupIdByKey.get('nom-035'),
         systemModuleIcon: `<svg
           xmlns='http://www.w3.org/2000/svg'

@@ -82,7 +82,7 @@ export default class extends BaseSeeder {
   /** 1. Alta del módulo en el catálogo. `systemModuleActive: 1` es el flag que realmente gatea menú y acceso. */
   private async seedModule() {
     const groupIdByKey = await resolveSystemModuleGroupIds(
-      ['plataforma'],
+      ['empresa'],
       '0053_regulatory_coverage_module_seeder'
     )
     await SystemModule.updateOrCreate(
@@ -94,9 +94,9 @@ export default class extends BaseSeeder {
           'Consulta de solo lectura del nivel de cobertura del producto frente a las normas mexicanas vigentes (NOM-035, NOM-037): numerales evaluables, módulos que los cubren y vista ejecutiva',
         systemModules: '1',
         systemModulePath: '/regulatory-coverage',
-        systemModuleGroupId: groupIdByKey.get('plataforma'),
+        systemModuleGroupId: groupIdByKey.get('empresa'),
         systemModuleActive: 1,
-        systemModuleOrder: this.moduleId * 10,
+        systemModuleOrder: 140,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
           width="48"

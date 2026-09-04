@@ -49,7 +49,7 @@ export default class extends BaseSeeder {
   /** 1. Alta del módulo en el catálogo. */
   private async seedModule() {
     const groupIdByKey = await resolveSystemModuleGroupIds(
-      ['configuraciones'],
+      ['empresa'],
       '0051_reform_simulation_module_seeder'
     )
     await SystemModule.updateOrCreate(
@@ -62,8 +62,8 @@ export default class extends BaseSeeder {
         systemModules: '1',
         systemModulePath: '/reform-simulation',
         systemModuleActive: 1,
-        systemModuleOrder: this.moduleId * 10,
-        systemModuleGroupId: groupIdByKey.get('configuraciones'),
+        systemModuleOrder: 150,
+        systemModuleGroupId: groupIdByKey.get('empresa'),
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
           width="48"

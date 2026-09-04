@@ -36,7 +36,7 @@ export default class extends BaseSeeder {
 
   private async seedModule() {
     const groupIdByKey = await resolveSystemModuleGroupIds(
-      ['nom-035'],
+      ['plataforma'],
       '0049_sensitive_data_access_log_module_seeder'
     )
     await SystemModule.updateOrCreate(
@@ -49,8 +49,8 @@ export default class extends BaseSeeder {
         systemModules: '1',
         systemModulePath: '/sensitive-data-access-log',
         systemModuleActive: 1,
-        systemModuleOrder: this.moduleId * 10,
-        systemModuleGroupId: groupIdByKey.get('nom-035'),
+        systemModuleOrder: 30,
+        systemModuleGroupId: groupIdByKey.get('plataforma'),
         systemModuleIcon: `<svg
           xmlns='http://www.w3.org/2000/svg'
           width='48'
