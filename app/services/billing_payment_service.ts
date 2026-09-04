@@ -14,8 +14,13 @@ import BillingSubscriptionChangeService, {
   type ApplyIncreaseOutcome,
   type SubscriptionChangeRecord,
 } from '#services/billing_subscription_change_service'
+import type { DiscountCodeKind } from '#models/discount_code'
 import { BILLING_PAYMENT_ERROR_CODES } from '../constants/billing_payment_error_codes.js'
 import { BillingPaymentServiceError } from '../exceptions/billing_payment_service_error.js'
+import {
+  discountSnapshotInconsistentError,
+  discountPeriodsExceededError,
+} from '../helpers/billing_payment_error.js'
 import { todayInBusinessZone, toCalendarIsoDate } from '../utils/business_date.js'
 import { RECEIPT_MAX_BYTES, RECEIPT_ALLOWED_MIMES } from '../validators/billing_payment.js'
 
@@ -89,6 +94,11 @@ export interface PaymentBreakdown {
   taxRate: number
   taxAmountCents: number
   totalCents: number
+  /** Marca del código de descuento del periodo cobrado (USRH1787714804403). Null/0 sin código. */
+  discountCodeText: string | null
+  discountCodeKind: DiscountCodeKind | null
+  codeDiscountAmountCents: number
+  discountCodeBenefitPeriodsUsedAfter: number | null
 }
 
 /**
@@ -146,6 +156,27 @@ interface FinancialSnapshot {
   totalCents: number
   discountPercent: number
   taxRate: number
+  /** Marca del código de descuento del periodo cobrado (USRH1787714804403). Null/0 sin código. */
+  discountCodeText: string | null
+  discountCodeKind: DiscountCodeKind | null
+  codeDiscountAmountCents: number
+  discountCodeBenefitPeriodsUsedAfter: number | null
+}
+
+/**
+ * Acuerdo de descuento congelado en la suscripción, leído sin I/O
+ * (USRH1787714804403 §11.3). `null` cuando el periodo no lleva código:
+ * ni la suscripción canjeó uno, ni le queda beneficio vivo.
+ */
+interface FrozenDiscount {
+  text: string
+  kind: DiscountCodeKind
+  benefitPeriods: number | null
+  benefitPeriodsUsed: number
+  /** Pesos que el código descuenta en el periodo vigente. */
+  codeDiscountAmount: number
+  /** Precio por empleado de lista, antes de que un código unit_price lo sustituya. */
+  listUnitAmount: number
 }
 
 // ─── Servicio ─────────────────────────────────────────────────────────────────
@@ -299,6 +330,10 @@ export default class BillingPaymentService {
             billingPaymentTotalCents: 0,
             billingPaymentDiscountPercent: 0,
             billingPaymentTaxRate: 0,
+            billingPaymentDiscountCodeText: null,
+            billingPaymentDiscountCodeKind: null,
+            billingPaymentCodeDiscountAmountCents: 0,
+            billingPaymentDiscountCodeBenefitPeriodsUsedAfter: null,
             billingPaymentMethod: input.method,
             billingPaymentReference: input.reference ?? null,
             billingPaymentReceiptPath: s3Key,
@@ -365,6 +400,23 @@ export default class BillingPaymentService {
           )
         }
 
+        // El congelado se lee una sola vez aquí (USRH1787714804404) y se
+        // reutiliza más abajo para la foto y para el consumo/restauración:
+        // nunca se vuelve a consultar ni a recalcular.
+        const frozenDiscount = this.readFrozenDiscount(subscription)
+
+        // ── Regla 11: un pago no puede cubrir periodos a dos precios ──────
+        // distintos. Si al beneficio (con duración pactada) le restan menos
+        // periodos de los que este pago cubriría, se rechaza entero, antes
+        // de tocar saldos — deja un solo desglose honesto por pago.
+        if (periodsCovered >= 1 && frozenDiscount !== null && frozenDiscount.benefitPeriods !== null) {
+          const remainingBenefitPeriods =
+            frozenDiscount.benefitPeriods - frozenDiscount.benefitPeriodsUsed
+          if (periodsCovered > remainingBenefitPeriods) {
+            throw discountPeriodsExceededError(periodsCovered, remainingBenefitPeriods)
+          }
+        }
+
         const creditAppliedCents = periodsCovered * periodAmountCents
         const creditBalanceAfterCents = saldoTrasAdeudo - creditAppliedCents
 
@@ -402,7 +454,18 @@ export default class BillingPaymentService {
 
         // Foto financiera con el trato vigente al cierre de la trx (regla 14):
         // si hubo aumento, describe el periodo que efectivamente se extendió.
-        const snapshot = this.computeFinancialSnapshot(subscription)
+        // El código de descuento se transcribe del congelado (USRH1787714804403);
+        // nunca se recalcula ni se consulta billing_plan_prices/resolvePrice.
+        const snapshot = this.computeFinancialSnapshot(subscription, frozenDiscount)
+
+        // Regla 12 (USRH1787714804404): el contador que se graba en el
+        // histórico ya lleva sumado el consumo de este pago, aunque la foto
+        // (arriba) siga describiendo el periodo tal como se cobró — con o
+        // sin descuento — antes de que el consumo/restauración lo muevan.
+        const benefitPeriodsUsedAfter =
+          frozenDiscount !== null && periodsCovered >= 1
+            ? frozenDiscount.benefitPeriodsUsed + periodsCovered
+            : snapshot.discountCodeBenefitPeriodsUsedAfter
 
         newPayment.useTransaction(trx)
         newPayment.billingPaymentPeriodAmountCents = periodAmountCents
@@ -417,6 +480,10 @@ export default class BillingPaymentService {
         newPayment.billingPaymentTotalCents = snapshot.totalCents
         newPayment.billingPaymentDiscountPercent = snapshot.discountPercent
         newPayment.billingPaymentTaxRate = snapshot.taxRate
+        newPayment.billingPaymentDiscountCodeText = snapshot.discountCodeText
+        newPayment.billingPaymentDiscountCodeKind = snapshot.discountCodeKind
+        newPayment.billingPaymentCodeDiscountAmountCents = snapshot.codeDiscountAmountCents
+        newPayment.billingPaymentDiscountCodeBenefitPeriodsUsedAfter = benefitPeriodsUsedAfter
         newPayment.billingPaymentPeriodStart = newPeriodStart
         newPayment.billingPaymentPeriodEnd = newPeriodEnd
         await newPayment.save()
@@ -434,6 +501,35 @@ export default class BillingPaymentService {
           // Sincronizar columna espejo si venía de un estado a reactivar
           if (!subscription.billingSubscriptionLiveBusinessUnitId) {
             subscription.billingSubscriptionLiveBusinessUnitId = subscription.businessUnitId
+          }
+        }
+
+        // ── Consumo del beneficio y restauración del precio (USRH1787714804404) ──
+        // Regla 1-3: un periodo de beneficio se consume por cada periodo que
+        // avanza. Regla 9-10: con duración indefinida el contador sigue
+        // subiendo pero nunca se compara ni se restaura; con el beneficio ya
+        // agotado, `readFrozenDiscount` ya devolvió null y este bloque no corre.
+        if (periodsCovered >= 1 && frozenDiscount !== null) {
+          const newBenefitPeriodsUsed = frozenDiscount.benefitPeriodsUsed + periodsCovered
+          subscription.billingSubscriptionDiscountCodeBenefitPeriodsUsed = newBenefitPeriodsUsed
+
+          const benefitExhausted =
+            frozenDiscount.benefitPeriods !== null &&
+            newBenefitPeriodsUsed >= frozenDiscount.benefitPeriods
+
+          if (benefitExhausted) {
+            // Regla 5, 6: restaura desde lo congelado al canjear, nunca
+            // desde el catálogo. El descuento por volumen (discountPercent)
+            // no se toca. Las condiciones del código no se borran (regla 8).
+            subscription.billingSubscriptionContractedSubtotal =
+              subscription.billingSubscriptionUndiscountedSubtotal!
+            subscription.billingSubscriptionContractedTaxAmount =
+              subscription.billingSubscriptionUndiscountedTaxAmount!
+            subscription.billingSubscriptionContractedTotal =
+              subscription.billingSubscriptionUndiscountedTotal!
+            subscription.billingSubscriptionContractedUnitAmount =
+              subscription.billingSubscriptionUndiscountedUnitAmount!
+            subscription.billingSubscriptionCodeDiscountAmount = 0
           }
         }
 
@@ -627,28 +723,147 @@ export default class BillingPaymentService {
     return Math.round(value * 100)
   }
 
+  // ─── Descuento congelado (USRH1787714804403 §11.3) ────────────────────────
+
+  /**
+   * Lee, sin ninguna consulta ni cálculo, el acuerdo de descuento congelado
+   * de la suscripción. `null` si el periodo no lleva código: la
+   * contratación no canjeó uno (`discount_code_text` NULL), o el beneficio
+   * ya se agotó (`benefit_periods_used >= benefit_periods`, cuando el
+   * beneficio tiene duración finita).
+   *
+   * @throws {BillingPaymentServiceError} `DISCOUNT_SNAPSHOT_INCONSISTENT` si
+   *   hay un código presente pero su congelado está incompleto o su `kind`
+   *   no es ninguno de los tres válidos (regla 7, fail-closed).
+   */
+  private readFrozenDiscount(subscription: BillingSubscription): FrozenDiscount | null {
+    const text = subscription.billingSubscriptionDiscountCodeText
+    if (text === null) {
+      return null
+    }
+
+    const benefitPeriods = subscription.billingSubscriptionDiscountCodeBenefitPeriods
+    const benefitPeriodsUsed = subscription.billingSubscriptionDiscountCodeBenefitPeriodsUsed
+
+    if (benefitPeriods !== null && benefitPeriodsUsed >= benefitPeriods) {
+      // Beneficio agotado: el periodo se cobra como si no hubiera código.
+      return null
+    }
+
+    const kind = subscription.billingSubscriptionDiscountCodeKind
+    const listUnitAmount = subscription.billingSubscriptionUndiscountedUnitAmount
+    const undiscountedSubtotal = subscription.billingSubscriptionUndiscountedSubtotal
+    const undiscountedTaxAmount = subscription.billingSubscriptionUndiscountedTaxAmount
+    const undiscountedTotal = subscription.billingSubscriptionUndiscountedTotal
+    const validKinds: DiscountCodeKind[] = ['percent', 'fixed_amount', 'unit_price']
+
+    if (
+      kind === null ||
+      !validKinds.includes(kind) ||
+      listUnitAmount === null ||
+      undiscountedSubtotal === null ||
+      undiscountedTaxAmount === null ||
+      undiscountedTotal === null
+    ) {
+      throw discountSnapshotInconsistentError(
+        `Suscripción ${subscription.billingSubscriptionId}: acuerdo de descuento congelado incompleto o kind inválido`
+      )
+    }
+
+    return {
+      text,
+      kind,
+      benefitPeriods,
+      benefitPeriodsUsed,
+      codeDiscountAmount: Number(subscription.billingSubscriptionCodeDiscountAmount),
+      listUnitAmount: Number(listUnitAmount),
+    }
+  }
+
   // ─── Foto financiera (regla 12; secuencia de resolvePrice) ────────────────
 
-  private computeFinancialSnapshot(subscription: BillingSubscription): FinancialSnapshot {
-    const unitAmount = Number(subscription.billingSubscriptionContractedUnitAmount)
-    const employees = subscription.billingSubscriptionContractedEmployees
+  /**
+   * Sin código: idéntico byte a byte al cálculo de siempre (regla 9, sin
+   * regresión). Con código: transcribe el trato ya congelado por la
+   * contratación (eslabón 5/6), nunca lo recalcula ni consulta
+   * `billing_plan_prices` — evita que un catálogo cambiado o un plan
+   * retirado altere un trato ya cerrado (regla 4).
+   *
+   * El descuento por volumen del desglose se obtiene por diferencia
+   * (`gross − código − subtotal`), porque solo el descuento del código
+   * viaja congelado como cifra propia; el subtotal, impuesto y total
+   * cobrados se transcriben tal cual de `contracted_*` (regla 5, Anexo A).
+   *
+   * @throws {BillingPaymentServiceError} `DISCOUNT_SNAPSHOT_INCONSISTENT` si
+   *   la identidad `undiscounted_subtotal − code_discount_amount =
+   *   contracted_subtotal` declarada por el eslabón 5 (§9) no cuadra —
+   *   señal de que un eslabón posterior rompió el congelado (regla 6).
+   */
+  private computeFinancialSnapshot(
+    subscription: BillingSubscription,
+    frozenDiscount: FrozenDiscount | null
+  ): FinancialSnapshot {
     const discountPercent = Number(subscription.billingSubscriptionDiscountPercent)
     const taxRate = Number(subscription.billingSubscriptionContractedTaxRate)
 
-    const grossAmount = unitAmount * employees
-    const discountAmount = this.round2(grossAmount * (discountPercent / 100))
-    const subtotal = this.round2(grossAmount - discountAmount)
-    const taxAmount = this.round2(subtotal * taxRate)
-    const total = this.round2(subtotal + taxAmount)
+    if (frozenDiscount === null) {
+      const unitAmount = Number(subscription.billingSubscriptionContractedUnitAmount)
+      const employees = subscription.billingSubscriptionContractedEmployees
+
+      const grossAmount = unitAmount * employees
+      const discountAmount = this.round2(grossAmount * (discountPercent / 100))
+      const subtotal = this.round2(grossAmount - discountAmount)
+      const taxAmount = this.round2(subtotal * taxRate)
+      const total = this.round2(subtotal + taxAmount)
+
+      return {
+        grossCents: Math.round(grossAmount * 100),
+        discountAmountCents: Math.round(discountAmount * 100),
+        subtotalCents: Math.round(subtotal * 100),
+        taxAmountCents: Math.round(taxAmount * 100),
+        totalCents: Math.round(total * 100),
+        discountPercent,
+        taxRate,
+        discountCodeText: null,
+        discountCodeKind: null,
+        codeDiscountAmountCents: 0,
+        discountCodeBenefitPeriodsUsedAfter: null,
+      }
+    }
+
+    // ── Con código: transcripción del trato congelado ───────────────────
+    const employees = subscription.billingSubscriptionContractedEmployees
+    const contractedSubtotal = Number(subscription.billingSubscriptionContractedSubtotal)
+    const contractedTaxAmount = Number(subscription.billingSubscriptionContractedTaxAmount)
+    const contractedTotal = Number(subscription.billingSubscriptionContractedTotal)
+    const undiscountedSubtotal = Number(subscription.billingSubscriptionUndiscountedSubtotal)
+
+    const grossAmount = this.round2(frozenDiscount.listUnitAmount * employees)
+    const codeDiscountAmount = this.round2(frozenDiscount.codeDiscountAmount)
+    const volumeDiscountAmount = this.round2(grossAmount - codeDiscountAmount - contractedSubtotal)
+
+    // Regla 6/9: la identidad congelada por el eslabón 5 debe seguir cuadrando.
+    if (
+      Math.round((undiscountedSubtotal - codeDiscountAmount) * 100) !==
+      Math.round(contractedSubtotal * 100)
+    ) {
+      throw discountSnapshotInconsistentError(
+        `Suscripción ${subscription.billingSubscriptionId}: undiscounted_subtotal − code_discount_amount no cuadra con contracted_subtotal`
+      )
+    }
 
     return {
       grossCents: Math.round(grossAmount * 100),
-      discountAmountCents: Math.round(discountAmount * 100),
-      subtotalCents: Math.round(subtotal * 100),
-      taxAmountCents: Math.round(taxAmount * 100),
-      totalCents: Math.round(total * 100),
+      discountAmountCents: Math.round(volumeDiscountAmount * 100),
+      subtotalCents: Math.round(contractedSubtotal * 100),
+      taxAmountCents: Math.round(contractedTaxAmount * 100),
+      totalCents: Math.round(contractedTotal * 100),
       discountPercent,
       taxRate,
+      discountCodeText: frozenDiscount.text,
+      discountCodeKind: frozenDiscount.kind,
+      codeDiscountAmountCents: Math.round(codeDiscountAmount * 100),
+      discountCodeBenefitPeriodsUsedAfter: frozenDiscount.benefitPeriodsUsed,
     }
   }
 
@@ -902,6 +1117,11 @@ export default class BillingPaymentService {
             taxRate: Number(payment.billingPaymentTaxRate),
             taxAmountCents: payment.billingPaymentTaxAmountCents,
             totalCents,
+            discountCodeText: payment.billingPaymentDiscountCodeText,
+            discountCodeKind: payment.billingPaymentDiscountCodeKind,
+            codeDiscountAmountCents: payment.billingPaymentCodeDiscountAmountCents,
+            discountCodeBenefitPeriodsUsedAfter:
+              payment.billingPaymentDiscountCodeBenefitPeriodsUsedAfter,
           }
         : null,
     }

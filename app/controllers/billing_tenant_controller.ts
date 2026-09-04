@@ -608,6 +608,14 @@ export default class BillingTenantController {
    *       prorrateo (si es aumento) y fecha de efecto (si es reducción) sin
    *       modificar la suscripción. Solo el dueño de la cuenta (`owner`).
    *       Requiere suscripción viva y periodo con días por delante.
+   *
+   *       Con código de descuento vigente (USRH1787714804405), `newAmounts`
+   *       suma cinco campos opcionales — `codeDiscountAmount`,
+   *       `undiscountedUnitAmount`, `undiscountedSubtotal`,
+   *       `undiscountedTaxAmount`, `undiscountedTotal` — con el efecto del
+   *       código ya recalculado sobre el tamaño nuevo y lo que costaría sin
+   *       él; el prorrateo se calcula sobre los totales con descuento. Sin
+   *       código, la respuesta es idéntica a la de antes de esta historia.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -708,6 +716,13 @@ export default class BillingTenantController {
    *       activa) o aplica de inmediato sin cobro (periodo de prueba). Solo el dueño
    *       de la cuenta (`owner`). Delega el cálculo en la previsualización; no acepta
    *       importes ni identificadores de suscripción en el body.
+   *
+   *       Con código de descuento vigente, el trato se congela ya con el
+   *       descuento recalculado sobre el tamaño nuevo (USRH1787714804405):
+   *       `newAmounts` suma los mismos cinco campos opcionales que la
+   *       previsualización. Si el código se agotó entre que se prometió y
+   *       que se cobró, el pago se asienta pero el aumento queda
+   *       `not_applicable` con motivo `descuento-desfasado`.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -843,6 +858,12 @@ export default class BillingTenantController {
    *       No modifica el cupo ni los importes del periodo en curso; no cobra ni devuelve
    *       dinero. Solo el dueño de la cuenta (`owner`). Si ya existía otra petición viva,
    *       la sustituye. No acepta identificadores de suscripción en el body.
+   *
+   *       Con código de descuento vigente, el trato agendado congela el
+   *       descuento recalculado sobre el tamaño nuevo (USRH1787714804405).
+   *       Si el código se agotó entre que se agendó y que el barrido diario
+   *       la aplica, la reducción queda `not_applicable` con motivo
+   *       `descuento-desfasado` y la suscripción no se toca.
    *     security:
    *       - bearerAuth: []
    *     parameters:

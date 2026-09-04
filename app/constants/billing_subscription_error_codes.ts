@@ -53,6 +53,15 @@ export const BILLING_SUBSCRIPTION_ERROR_CODES = {
   CHANGE_NOT_A_DECREASE: 'PLT.SUB.CHANGE_NOT_A_DECREASE',
   /** No existe un cambio de suscripción vivo que cancelar */
   NO_LIVE_CHANGE: 'PLT.SUB.NO_LIVE_CHANGE',
+  /**
+   * El cambio de plan se rechaza porque el código congelado en la
+   * suscripción es de tipo `unit_price` (fija el precio por empleado) y
+   * todavía tiene periodos de beneficio por consumir (USRH1787714804406
+   * §4.1, decisión cerrada por Wilvardo). Conservarlo al mover a un plan
+   * más caro entregaría ese plan al precio pactado del barato. Se levanta
+   * solo cuando el beneficio se agota.
+   */
+  PLAN_CHANGE_UNIT_PRICE_CODE: 'PLT.SUB.PLAN_CHANGE_UNIT_PRICE_CODE',
 } as const
 
 export type BillingSubscriptionErrorCode =

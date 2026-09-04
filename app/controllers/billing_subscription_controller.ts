@@ -261,6 +261,15 @@ export default class BillingSubscriptionController {
    *                         billingSubscriptionChangeAppliedAt:
    *                           type: string
    *                           nullable: true
+   *                     discountBenefitRestoredFrom:
+   *                       type: string
+   *                       nullable: true
+   *                       description: >
+   *                         Fecha calendario (USRH1787714804407) desde la que se cobra
+   *                         el precio sin el código de descuento congelado: el
+   *                         `period_end` del pago que agotó el beneficio. `null` sin
+   *                         código, con beneficio vigente o indefinido, o si ningún
+   *                         pago registró el consumo que lo agotó.
    *       '404':
    *         description: Suscripción no encontrada
    */
@@ -302,6 +311,14 @@ export default class BillingSubscriptionController {
    *       nunca queda sin contratación ni con dos al mismo tiempo. La suscripción
    *       reemplazada no se borra: queda `canceled`, consultable con su trato,
    *       sus fechas y sus pagos.
+   *       `discountCode` es opcional (USRH1787714804401): si viene, el código debe
+   *       ser canjeable hoy (misma regla que `GET .../discount-codes/:text/quote`);
+   *       el precio con el descuento se congela en `contracted_*`, las condiciones
+   *       del código y los totales sin código quedan congelados en columnas propias,
+   *       y el cupo del código se consume en uno, todo en la misma transacción del
+   *       alta. Si el descuento deja el subtotal en cero o menos, el alta se
+   *       rechaza con `PLT.DSC.SUBTOTAL_ZERO` y el cupo no se consume. Sin
+   *       `discountCode`, el alta es idéntica a la de antes de esta historia.
    *     security:
    *       - bearerAuth: []
    *     requestBody:
@@ -335,11 +352,18 @@ export default class BillingSubscriptionController {
    *                   `true`, se cancela la actual y se crea la nueva en un solo
    *                   acto transaccional. Sin este campo (o en `false`), el
    *                   comportamiento es idéntico al de hoy (rechazo 409).
+   *               discountCode:
+   *                 type: string
+   *                 minLength: 3
+   *                 maxLength: 40
+   *                 description: >
+   *                   Opcional (USRH1787714804401). Texto del código de descuento
+   *                   a canjear; no distingue mayúsculas/minúsculas.
    *     responses:
    *       '201':
    *         description: Suscripción creada en trialing, o active sin prueba si la empresa ya la gozó antes (la anterior queda canceled si hubo reemplazo)
    *       '404':
-   *         description: Empresa o plan no encontrado
+   *         description: Empresa o plan no encontrado, o el código de descuento no existe en el catálogo (PLT.DSC.NOT_FOUND)
    *       '409':
    *         description: La empresa ya tiene una suscripción viva y no se envió replaceLiveSubscription
    *       '422':
@@ -349,7 +373,12 @@ export default class BillingSubscriptionController {
    *           (PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN), rebasa el tope defensivo
    *           (PLT.SUB.EMPLOYEES_ABOVE_SAFETY_CAP) o es menor que el mínimo por
    *           plantilla activa (PLT.SUB.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT, con
-   *           `data: { active, minimum }`)
+   *           `data: { active, minimum }`). Con `discountCode`, además puede
+   *           rechazar por que el código está inactivo (PLT.DSC.CODE_INACTIVE),
+   *           aún no vigente (PLT.DSC.CODE_NOT_YET_VALID), vencido
+   *           (PLT.DSC.CODE_EXPIRED), agotó su cupo de canjes
+   *           (PLT.DSC.CODE_EXHAUSTED), o el descuento deja el subtotal del
+   *           periodo en cero o menos (PLT.DSC.SUBTOTAL_ZERO)
    */
   async store({ request, response }: HttpContext) {
     try {
@@ -370,7 +399,11 @@ export default class BillingSubscriptionController {
    *   recongelar valida que la cantidad contratada vigente siga cumpliendo
    *   bloques de 10 y el mínimo por la plantilla activa actual; si la
    *   plantilla creció desde que se contrató, rechaza con 422 y no cambia
-   *   nada. Las suscripciones canceladas rechazan esta operación.
+   *   nada. Las suscripciones canceladas rechazan esta operación. Si la
+   *   suscripción tiene un código de descuento congelado, se conserva y se
+   *   recalcula sobre el precio del plan nuevo; si el código fija el precio
+   *   por empleado (`unit_price`) y todavía tiene periodos de beneficio por
+   *   consumir, la operación se rechaza con 409 sin cambiar nada.
    * @tag Billing · Subscriptions
    * @operationId changePlan
    * @security [{"bearerAuth": []}]
@@ -378,6 +411,7 @@ export default class BillingSubscriptionController {
    * @requestBody {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["billingPlanId"], "properties": {"billingPlanId": {"type": "integer"}}}}}}
    * @responseBody 200 - {"type": "success", "data": {}}
    * @responseBody 404 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.SUB.NOT_FOUND|PLT.SUB.PLAN_NOT_FOUND"}
+   * @responseBody 409 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.SUB.PLAN_CHANGE_UNIT_PRICE_CODE"}
    * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.SUB.SUBSCRIPTION_CANCELED|PLT.SUB.PLAN_NOT_PUBLISHED|PLT.SUB.NO_ACTIVE_PRICE|PLT.SUB.VAL_INPUT|PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN|PLT.SUB.EMPLOYEES_ABOVE_SAFETY_CAP|PLT.SUB.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT"}
    */
   async changePlan({ params, request, response }: HttpContext) {

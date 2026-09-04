@@ -3,6 +3,7 @@ import db from '@adonisjs/lucid/services/db'
 import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingVolumeTier from '#models/billing_volume_tier'
+import type { DiscountCodeKind } from '#models/discount_code'
 import { BILLING_CATALOG_ERROR_CODES } from '../constants/billing_catalog_error_codes.js'
 import { BillingCatalogServiceError } from '../exceptions/billing_catalog_service_error.js'
 import { toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
@@ -47,6 +48,17 @@ export interface UpdateTierInput {
   billingVolumeTierDiscountPercent?: number
 }
 
+/**
+ * Código de descuento ya validado (redimible) a aplicar sobre un `resolvePrice`
+ * (USRH1787714804400). `discount_code_service.ts` es responsable de resolver
+ * y validar el código antes de construir este valor; este servicio no
+ * conoce `DiscountCode` como modelo, solo el par tipo/valor a aplicar.
+ */
+export interface AppliedDiscountCode {
+  kind: DiscountCodeKind
+  value: number
+}
+
 // ---------------------------------------------------------------------------
 // Tipos de salida
 // ---------------------------------------------------------------------------
@@ -66,6 +78,21 @@ export interface ResolvedPrice {
   trialDays: number
   effectiveFrom: string
   resolvedAt: string
+  /**
+   * Campos presentes solo cuando se resuelve con un `AppliedDiscountCode`
+   * (USRH1787714804400). `codeDiscountAmount` es el ahorro EFECTIVAMENTE
+   * aplicado (nunca el nominal): si el descuento excede el subtotal, queda
+   * topado a lo que realmente se pudo descontar (regla del subtotal no
+   * negativo). Los `undiscounted*` reflejan qué habría costado con el
+   * precio de lista y el mismo tramo por volumen, sin el código — para
+   * poder congelar ambos lados de la comparación en una sola llamada.
+   */
+  codeDiscountAmount?: number
+  codeKind?: DiscountCodeKind
+  undiscountedPricePerEmployee?: number
+  undiscountedSubtotal?: number
+  undiscountedTaxAmount?: number
+  undiscountedTotal?: number
 }
 
 // ---------------------------------------------------------------------------
@@ -696,11 +723,24 @@ export default class BillingCatalogService {
    *     subtotal = pricePerEmployee × employeeCount × (1 - discountPercent/100)
    *     tax      = subtotal × taxRate
    *     total    = subtotal + tax
+   *
+   * Con `appliedCode` (USRH1787714804400), el orden de acumulación es:
+   *  0. `unit_price` sustituye `pricePerEmployee` ANTES del bruto (paso 1);
+   *     el tramo por volumen (paso 2) se calcula sobre el bruto ya
+   *     sustituido — mismo tramo, importe distinto al de lista.
+   *  4. `percent`/`fixed_amount` se restan del subtotal YA con el tramo
+   *     aplicado (nunca antes).
+   *  5. El subtotal nunca es negativo: si el descuento excede el subtotal
+   *     disponible, subtotal/impuesto/total quedan en cero y el ahorro
+   *     reportado (`codeDiscountAmount`) es el efectivamente aplicado.
+   *  6. El impuesto siempre se recalcula sobre el subtotal final; nunca se
+   *     descuenta el impuesto en sí mismo.
    */
   async resolvePrice(
     planId: number,
     employeeCount: number,
-    referenceDate?: string
+    referenceDate?: string,
+    appliedCode?: AppliedDiscountCode
   ): Promise<ResolvedPrice> {
     await this.getPlan(planId)
 
@@ -729,14 +769,49 @@ export default class BillingCatalogService {
       .first()
 
     const discountPercent = applicableTier?.billingVolumeTierDiscountPercent ?? 0
-    const pricePerEmployee = Number(currentPrice.billingPlanPriceAmount)
+    const listPricePerEmployee = Number(currentPrice.billingPlanPriceAmount)
     const taxRate = Number(currentPrice.billingPlanPriceTaxRate)
+
+    // Paso 0 + 1 (regla del `unit_price`): el precio por empleado a usar en
+    // el bruto es el del código si sustituye precio; si no, el de lista.
+    const pricePerEmployee =
+      appliedCode?.kind === 'unit_price' ? appliedCode.value : listPricePerEmployee
 
     const grossAmount = pricePerEmployee * employeeCount
     const discountAmount = round2(grossAmount * (discountPercent / 100))
-    const subtotal = round2(grossAmount - discountAmount)
-    const taxAmount = round2(subtotal * taxRate)
-    const total = round2(subtotal + taxAmount)
+    const subtotalAfterVolume = round2(grossAmount - discountAmount)
+
+    let finalSubtotal = subtotalAfterVolume
+    let codeDiscountAmount: number | undefined
+    let undiscountedPricePerEmployee: number | undefined
+    let undiscountedSubtotal: number | undefined
+    let undiscountedTaxAmount: number | undefined
+    let undiscountedTotal: number | undefined
+
+    if (appliedCode) {
+      // Bloque "sin código": siempre con el precio de lista y el mismo
+      // tramo por volumen, sin importar si el código sustituye el precio.
+      // Es el punto de comparación para medir el ahorro efectivo.
+      const listGrossAmount = listPricePerEmployee * employeeCount
+      const listDiscountAmount = round2(listGrossAmount * (discountPercent / 100))
+      const listSubtotal = round2(listGrossAmount - listDiscountAmount)
+      const listTaxAmount = round2(listSubtotal * taxRate)
+      const listTotal = round2(listSubtotal + listTaxAmount)
+
+      finalSubtotal = applyCodeDiscount(subtotalAfterVolume, appliedCode)
+
+      undiscountedPricePerEmployee = listPricePerEmployee
+      undiscountedSubtotal = listSubtotal
+      undiscountedTaxAmount = listTaxAmount
+      undiscountedTotal = listTotal
+      // Ahorro EFECTIVAMENTE aplicado: nunca el nominal del código, sino la
+      // diferencia real contra el subtotal de lista (regla del subtotal no
+      // negativo — ya topado dentro de `finalSubtotal`).
+      codeDiscountAmount = round2(listSubtotal - finalSubtotal)
+    }
+
+    const taxAmount = round2(finalSubtotal * taxRate)
+    const total = round2(finalSubtotal + taxAmount)
 
     return {
       billingPlanId: planId,
@@ -745,13 +820,23 @@ export default class BillingCatalogService {
       currency: currentPrice.billingPlanPriceCurrency,
       discountPercent,
       discountAmount,
-      subtotal,
+      subtotal: finalSubtotal,
       taxRate,
       taxAmount,
       total,
       trialDays: currentPrice.billingPlanPriceTrialDays,
       effectiveFrom: currentPrice.billingPlanPriceEffectiveFrom,
       resolvedAt: refDate,
+      ...(appliedCode
+        ? {
+            codeDiscountAmount,
+            codeKind: appliedCode.kind,
+            undiscountedPricePerEmployee,
+            undiscountedSubtotal,
+            undiscountedTaxAmount,
+            undiscountedTotal,
+          }
+        : {}),
     }
   }
 
@@ -888,4 +973,22 @@ export default class BillingCatalogService {
 /** Redondeo a 2 decimales para cálculos monetarios. */
 function round2(value: number): number {
   return Math.round(value * 100) / 100
+}
+
+/**
+ * Aplica el descuento del código sobre el subtotal YA con el tramo por
+ * volumen aplicado (USRH1787714804400, regla de acumulación después del
+ * volumen). `unit_price` no resta nada aquí: su efecto ya ocurrió al
+ * sustituir el precio por empleado antes del bruto. El resultado nunca es
+ * negativo (regla del subtotal no negativo).
+ */
+function applyCodeDiscount(subtotalAfterVolume: number, appliedCode: AppliedDiscountCode): number {
+  if (appliedCode.kind === 'percent') {
+    const amount = round2(subtotalAfterVolume * (appliedCode.value / 100))
+    return Math.max(0, round2(subtotalAfterVolume - amount))
+  }
+  if (appliedCode.kind === 'fixed_amount') {
+    return Math.max(0, round2(subtotalAfterVolume - appliedCode.value))
+  }
+  return Math.max(0, subtotalAfterVolume)
 }

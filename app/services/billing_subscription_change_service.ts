@@ -10,7 +10,10 @@ import BillingSubscriptionChange, {
   LIVE_SUBSCRIPTION_CHANGE_STATUSES,
   type BillingSubscriptionChangeStatus,
 } from '#models/billing_subscription_change'
-import BillingCatalogService from '#services/billing_catalog_service'
+import BillingCatalogService, {
+  type AppliedDiscountCode,
+  type ResolvedPrice,
+} from '#services/billing_catalog_service'
 import BillingTenantService from '#services/billing_tenant_service'
 import EmployeeQuotaService from '#services/employee_quota_service'
 import {
@@ -49,6 +52,17 @@ export interface SubscriptionChangePreviewAmounts {
   taxRate: number
   taxAmount: number
   total: number
+  /**
+   * Bloque del código de descuento (USRH1787714804405 §11.1). Presentes solo
+   * cuando la suscripción tiene un código congelado (agotado o no); ausentes
+   * — no `null` — cuando nunca canjeó uno, para que la respuesta sea byte a
+   * byte la de antes de esta historia (regla 13, CA-10).
+   */
+  codeDiscountAmount?: number
+  undiscountedUnitAmount?: number
+  undiscountedSubtotal?: number
+  undiscountedTaxAmount?: number
+  undiscountedTotal?: number
 }
 
 export interface SubscriptionChangePreviewCurrentPeriod {
@@ -104,7 +118,10 @@ export interface SubscriptionChangeRecord {
   supersededBillingSubscriptionChangeId: number | null
 }
 
-export type ApplyIncreaseNotApplicableReason = 'base-de-cantidad-desfasada' | 'plan-no-disponible'
+export type ApplyIncreaseNotApplicableReason =
+  | 'base-de-cantidad-desfasada'
+  | 'plan-no-disponible'
+  | 'descuento-desfasado'
 
 export type ApplyIncreaseOutcome =
   | { outcome: 'no_live_change' }
@@ -121,7 +138,9 @@ export type ApplyIncreaseOutcome =
       consumedCents: number
     }
 
-export type ApplyScheduledDecreaseNotApplicableReason = 'cantidad-menor-a-plantilla-activa'
+export type ApplyScheduledDecreaseNotApplicableReason =
+  | 'cantidad-menor-a-plantilla-activa'
+  | 'descuento-desfasado'
 
 export type ApplyScheduledDecreaseOutcome =
   | { outcome: 'sin_cambio' }
@@ -157,6 +176,11 @@ export interface SubscriptionIncreaseRequestResult {
     taxRate: number
     taxAmount: number
     total: number
+    codeDiscountAmount?: number
+    undiscountedUnitAmount?: number
+    undiscountedSubtotal?: number
+    undiscountedTaxAmount?: number
+    undiscountedTotal?: number
   }
   proration: SubscriptionChangePreviewProration | null
   cutDate: string
@@ -214,14 +238,16 @@ export default class BillingSubscriptionChangeService {
     const contractedEmployees = subscription.billingSubscriptionContractedEmployees
     const changeType = this.classifyChangeType(contractedEmployees, requestedEmployees)
 
+    const appliedCode = this.resolveAppliedCode(subscription)
     const resolved = await this.catalog.resolvePrice(
       subscription.billingPlanId,
       requestedEmployees,
-      todayIso
+      todayIso,
+      appliedCode
     )
 
     const currentAmounts = this.buildCurrentAmounts(subscription)
-    const newAmounts = this.buildNewAmounts(resolved)
+    const newAmounts = this.buildNewAmounts(subscription, resolved)
 
     const proration =
       changeType === 'increase'
@@ -315,6 +341,17 @@ export default class BillingSubscriptionChangeService {
           billingSubscriptionChangeTaxAmount: preview.newAmounts.taxAmount,
           billingSubscriptionChangeTotal: preview.newAmounts.total,
           billingSubscriptionChangeProratedAmountCents: proratedCents,
+          billingSubscriptionChangeCodeDiscountAmount: preview.newAmounts.codeDiscountAmount ?? 0,
+          billingSubscriptionChangeUndiscountedUnitAmount:
+            preview.newAmounts.undiscountedUnitAmount ?? null,
+          billingSubscriptionChangeUndiscountedSubtotal:
+            preview.newAmounts.undiscountedSubtotal ?? null,
+          billingSubscriptionChangeUndiscountedTaxAmount:
+            preview.newAmounts.undiscountedTaxAmount ?? null,
+          billingSubscriptionChangeUndiscountedTotal:
+            preview.newAmounts.undiscountedTotal ?? null,
+          billingSubscriptionChangeDiscountCodeText: fresh.billingSubscriptionDiscountCodeText,
+          billingSubscriptionChangeDiscountCodeKind: fresh.billingSubscriptionDiscountCodeKind,
           billingSubscriptionChangeEffectiveAt: null,
           billingSubscriptionChangeAppliedAt: appliedAt,
           billingSubscriptionChangeBillingPaymentId: null,
@@ -385,11 +422,14 @@ export default class BillingSubscriptionChangeService {
 
       await this.tenantService.assertPlanReadyToSubscribe(subscription.billingPlanId, todayIso)
 
+      const appliedCode = this.resolveAppliedCode(subscription)
       const resolved = await this.catalog.resolvePrice(
         subscription.billingPlanId,
         requestedEmployees,
-        todayIso
+        todayIso,
+        appliedCode
       )
+      const discountBlock = this.buildDiscountBlock(subscription, resolved)
 
       const liveChanges = await BillingSubscriptionChange.query({ client: trx })
         .where('billing_subscription_id', subscription.billingSubscriptionId)
@@ -430,6 +470,13 @@ export default class BillingSubscriptionChangeService {
           billingSubscriptionChangeTaxAmount: resolved.taxAmount,
           billingSubscriptionChangeTotal: resolved.total,
           billingSubscriptionChangeProratedAmountCents: 0,
+          billingSubscriptionChangeCodeDiscountAmount: discountBlock.codeDiscountAmount,
+          billingSubscriptionChangeUndiscountedUnitAmount: discountBlock.undiscountedUnitAmount,
+          billingSubscriptionChangeUndiscountedSubtotal: discountBlock.undiscountedSubtotal,
+          billingSubscriptionChangeUndiscountedTaxAmount: discountBlock.undiscountedTaxAmount,
+          billingSubscriptionChangeUndiscountedTotal: discountBlock.undiscountedTotal,
+          billingSubscriptionChangeDiscountCodeText: subscription.billingSubscriptionDiscountCodeText,
+          billingSubscriptionChangeDiscountCodeKind: subscription.billingSubscriptionDiscountCodeKind,
           billingSubscriptionChangeEffectiveAt: effectiveAt,
           billingSubscriptionChangeAppliedAt: null,
           billingSubscriptionChangeBillingPaymentId: null,
@@ -525,6 +572,23 @@ export default class BillingSubscriptionChangeService {
         .forUpdate()
         .firstOrFail()
 
+      this.assertIncreaseChangeSnapshotConsistent(change)
+
+      if (this.detectDiscountCodeDrift(change, lockedSub)) {
+        const updated = await this.markScheduledDecreaseNotApplicable(
+          change,
+          trx,
+          'descuento-desfasado'
+        )
+        return {
+          outcome: 'not_applicable',
+          change: this.buildChangeRecord(updated, null),
+          activeEmployees,
+          minimumContractedEmployees,
+          reason: 'descuento-desfasado',
+        }
+      }
+
       const previousEmployees = lockedSub.billingSubscriptionContractedEmployees
 
       lockedSub.billingSubscriptionContractedEmployees = change.billingSubscriptionChangeNewEmployees
@@ -535,6 +599,25 @@ export default class BillingSubscriptionChangeService {
       lockedSub.billingSubscriptionContractedSubtotal = change.billingSubscriptionChangeSubtotal
       lockedSub.billingSubscriptionContractedTaxAmount = change.billingSubscriptionChangeTaxAmount
       lockedSub.billingSubscriptionContractedTotal = change.billingSubscriptionChangeTotal
+      lockedSub.billingSubscriptionCodeDiscountAmount = Number(
+        change.billingSubscriptionChangeCodeDiscountAmount
+      )
+      lockedSub.billingSubscriptionUndiscountedUnitAmount =
+        change.billingSubscriptionChangeUndiscountedUnitAmount !== null
+          ? Number(change.billingSubscriptionChangeUndiscountedUnitAmount)
+          : null
+      lockedSub.billingSubscriptionUndiscountedSubtotal =
+        change.billingSubscriptionChangeUndiscountedSubtotal !== null
+          ? Number(change.billingSubscriptionChangeUndiscountedSubtotal)
+          : null
+      lockedSub.billingSubscriptionUndiscountedTaxAmount =
+        change.billingSubscriptionChangeUndiscountedTaxAmount !== null
+          ? Number(change.billingSubscriptionChangeUndiscountedTaxAmount)
+          : null
+      lockedSub.billingSubscriptionUndiscountedTotal =
+        change.billingSubscriptionChangeUndiscountedTotal !== null
+          ? Number(change.billingSubscriptionChangeUndiscountedTotal)
+          : null
       lockedSub.billingSubscriptionContractedEffectiveFrom = DateTime.fromISO(businessDate, {
         zone: getBusinessTimeZone(),
       })
@@ -623,6 +706,20 @@ export default class BillingSubscriptionChangeService {
       }
     }
 
+    if (this.detectDiscountCodeDrift(liveChange, subscription)) {
+      const updated = await this.markChangeNotApplicable(
+        liveChange,
+        billingPaymentId,
+        'descuento-desfasado',
+        trx
+      )
+      return {
+        outcome: 'not_applicable',
+        change: this.buildChangeRecord(updated, null),
+        reason: 'descuento-desfasado',
+      }
+    }
+
     const todayIso = toBusinessDateString()
     try {
       await this.tenantService.assertPlanReadyToSubscribe(subscription.billingPlanId, todayIso)
@@ -664,6 +761,25 @@ export default class BillingSubscriptionChangeService {
     subscription.billingSubscriptionContractedTotal = Number(
       liveChange.billingSubscriptionChangeTotal
     )
+    subscription.billingSubscriptionCodeDiscountAmount = Number(
+      liveChange.billingSubscriptionChangeCodeDiscountAmount
+    )
+    subscription.billingSubscriptionUndiscountedUnitAmount =
+      liveChange.billingSubscriptionChangeUndiscountedUnitAmount !== null
+        ? Number(liveChange.billingSubscriptionChangeUndiscountedUnitAmount)
+        : null
+    subscription.billingSubscriptionUndiscountedSubtotal =
+      liveChange.billingSubscriptionChangeUndiscountedSubtotal !== null
+        ? Number(liveChange.billingSubscriptionChangeUndiscountedSubtotal)
+        : null
+    subscription.billingSubscriptionUndiscountedTaxAmount =
+      liveChange.billingSubscriptionChangeUndiscountedTaxAmount !== null
+        ? Number(liveChange.billingSubscriptionChangeUndiscountedTaxAmount)
+        : null
+    subscription.billingSubscriptionUndiscountedTotal =
+      liveChange.billingSubscriptionChangeUndiscountedTotal !== null
+        ? Number(liveChange.billingSubscriptionChangeUndiscountedTotal)
+        : null
 
     liveChange.useTransaction(trx)
     liveChange.billingSubscriptionChangeStatus = 'applied'
@@ -726,11 +842,12 @@ export default class BillingSubscriptionChangeService {
 
   private async markScheduledDecreaseNotApplicable(
     change: BillingSubscriptionChange,
-    trx: TransactionClientContract
+    trx: TransactionClientContract,
+    reason: ApplyScheduledDecreaseNotApplicableReason = 'cantidad-menor-a-plantilla-activa'
   ): Promise<BillingSubscriptionChange> {
     change.useTransaction(trx)
     change.billingSubscriptionChangeStatus = 'not_applicable'
-    change.billingSubscriptionChangeNotApplicableReason = 'cantidad-menor-a-plantilla-activa'
+    change.billingSubscriptionChangeNotApplicableReason = reason
     change.billingSubscriptionChangeAppliedAt = null
     await change.save()
     return change
@@ -782,6 +899,26 @@ export default class BillingSubscriptionChangeService {
       change.billingSubscriptionChangeNewEmployees <= 0
     ) {
       throw changeInconsistentSnapshotError()
+    }
+
+    // Bloque del código (USRH1787714804405 §14/CA-7): con código congelado en
+    // la fila del cambio, los cinco campos deben venir completos y finitos
+    // — agotado o no, `resolveAppliedCode`/`buildDiscountBlock` siempre los
+    // llenan (regla 5: sin código, 0/undiscounted=contracted).
+    if (change.billingSubscriptionChangeDiscountCodeText !== null) {
+      const discountFields = [
+        change.billingSubscriptionChangeCodeDiscountAmount,
+        change.billingSubscriptionChangeUndiscountedUnitAmount,
+        change.billingSubscriptionChangeUndiscountedSubtotal,
+        change.billingSubscriptionChangeUndiscountedTaxAmount,
+        change.billingSubscriptionChangeUndiscountedTotal,
+      ]
+
+      for (const value of discountFields) {
+        if (value === null || !Number.isFinite(Number(value))) {
+          throw changeInconsistentSnapshotError()
+        }
+      }
     }
   }
 
@@ -838,10 +975,12 @@ export default class BillingSubscriptionChangeService {
     trx: TransactionClientContract
   ): Promise<void> {
     const todayIso = toBusinessDateString()
+    const appliedCode = this.resolveAppliedCode(subscription)
     const resolved = await this.catalog.resolvePrice(
       subscription.billingPlanId,
       preview.requestedEmployees,
-      todayIso
+      todayIso,
+      appliedCode
     )
 
     const currentPrice = await BillingPlanPrice.query({ client: trx })
@@ -854,6 +993,8 @@ export default class BillingSubscriptionChangeService {
       throw subscriptionChangeConflictError()
     }
 
+    const discountBlock = this.buildDiscountBlock(subscription, resolved)
+
     subscription.useTransaction(trx)
     subscription.billingSubscriptionContractedEmployees = preview.requestedEmployees
     subscription.billingPlanPriceId = currentPrice.billingPlanPriceId
@@ -864,6 +1005,11 @@ export default class BillingSubscriptionChangeService {
     subscription.billingSubscriptionContractedTaxAmount = resolved.taxAmount
     subscription.billingSubscriptionContractedTotal = resolved.total
     subscription.billingSubscriptionContractedCurrency = resolved.currency
+    subscription.billingSubscriptionCodeDiscountAmount = discountBlock.codeDiscountAmount
+    subscription.billingSubscriptionUndiscountedUnitAmount = discountBlock.undiscountedUnitAmount
+    subscription.billingSubscriptionUndiscountedSubtotal = discountBlock.undiscountedSubtotal
+    subscription.billingSubscriptionUndiscountedTaxAmount = discountBlock.undiscountedTaxAmount
+    subscription.billingSubscriptionUndiscountedTotal = discountBlock.undiscountedTotal
     await subscription.save()
   }
 
@@ -890,6 +1036,11 @@ export default class BillingSubscriptionChangeService {
         taxRate: preview.newAmounts.taxRate,
         taxAmount: preview.newAmounts.taxAmount,
         total: preview.newAmounts.total,
+        codeDiscountAmount: preview.newAmounts.codeDiscountAmount,
+        undiscountedUnitAmount: preview.newAmounts.undiscountedUnitAmount,
+        undiscountedSubtotal: preview.newAmounts.undiscountedSubtotal,
+        undiscountedTaxAmount: preview.newAmounts.undiscountedTaxAmount,
+        undiscountedTotal: preview.newAmounts.undiscountedTotal,
       },
       proration,
       cutDate: preview.cutDate,
@@ -962,16 +1113,11 @@ export default class BillingSubscriptionChangeService {
     }
   }
 
-  private buildNewAmounts(resolved: {
-    pricePerEmployee: number
-    discountPercent: number
-    discountAmount: number
-    subtotal: number
-    taxRate: number
-    taxAmount: number
-    total: number
-  }): SubscriptionChangePreviewAmounts {
-    return {
+  private buildNewAmounts(
+    subscription: BillingSubscription,
+    resolved: ResolvedPrice
+  ): SubscriptionChangePreviewAmounts {
+    const base: SubscriptionChangePreviewAmounts = {
       pricePerEmployee: resolved.pricePerEmployee,
       discountPercent: resolved.discountPercent,
       discountAmount: resolved.discountAmount,
@@ -980,6 +1126,127 @@ export default class BillingSubscriptionChangeService {
       taxAmount: resolved.taxAmount,
       total: resolved.total,
     }
+
+    if (subscription.billingSubscriptionDiscountCodeText === null) {
+      return base
+    }
+
+    const block = this.buildDiscountBlock(subscription, resolved)
+    return {
+      ...base,
+      codeDiscountAmount: block.codeDiscountAmount,
+      undiscountedUnitAmount: block.undiscountedUnitAmount ?? undefined,
+      undiscountedSubtotal: block.undiscountedSubtotal ?? undefined,
+      undiscountedTaxAmount: block.undiscountedTaxAmount ?? undefined,
+      undiscountedTotal: block.undiscountedTotal ?? undefined,
+    }
+  }
+
+  /**
+   * Determina si a la suscripción se le debe aplicar su código congelado al
+   * recotizar (USRH1787714804405 §4.1). `undefined` sin código o con el
+   * beneficio agotado (regla 15 de USRH1787714804404.md, fuente única): un
+   * cambio de cupo no revive un beneficio agotado ni lo consume.
+   */
+  private resolveAppliedCode(subscription: BillingSubscription): AppliedDiscountCode | undefined {
+    const text = subscription.billingSubscriptionDiscountCodeText
+    if (text === null) {
+      return undefined
+    }
+
+    const benefitPeriods = subscription.billingSubscriptionDiscountCodeBenefitPeriods
+    const benefitPeriodsUsed = subscription.billingSubscriptionDiscountCodeBenefitPeriodsUsed
+    const benefitExhausted = benefitPeriods !== null && benefitPeriodsUsed >= benefitPeriods
+
+    if (benefitExhausted) {
+      return undefined
+    }
+
+    const kind = subscription.billingSubscriptionDiscountCodeKind
+    const value = subscription.billingSubscriptionDiscountCodeValue
+    if (kind === null || value === null) {
+      return undefined
+    }
+
+    return { kind, value: Number(value) }
+  }
+
+  /**
+   * Construye el bloque de cifras del código a partir de un `ResolvedPrice`
+   * (regla 3 y 5). Con código congelado y no agotado, viene de los
+   * `undiscounted*` que `resolvePrice` calculó del lado del código. Con
+   * código congelado pero agotado (`resolveAppliedCode` devolvió
+   * `undefined`), el trato se calculó sin código: `codeDiscountAmount = 0`
+   * y `undiscounted_* = contracted_*` (regla 5, no se deja en NULL). Sin
+   * código nunca (§13, sin regresión), no se llama a este método.
+   */
+  private buildDiscountBlock(
+    subscription: BillingSubscription,
+    resolved: ResolvedPrice
+  ): {
+    codeDiscountAmount: number
+    undiscountedUnitAmount: number | null
+    undiscountedSubtotal: number | null
+    undiscountedTaxAmount: number | null
+    undiscountedTotal: number | null
+  } {
+    if (subscription.billingSubscriptionDiscountCodeText === null) {
+      return {
+        codeDiscountAmount: 0,
+        undiscountedUnitAmount: null,
+        undiscountedSubtotal: null,
+        undiscountedTaxAmount: null,
+        undiscountedTotal: null,
+      }
+    }
+
+    if (resolved.codeDiscountAmount !== undefined) {
+      return {
+        codeDiscountAmount: resolved.codeDiscountAmount,
+        undiscountedUnitAmount: resolved.undiscountedPricePerEmployee ?? null,
+        undiscountedSubtotal: resolved.undiscountedSubtotal ?? null,
+        undiscountedTaxAmount: resolved.undiscountedTaxAmount ?? null,
+        undiscountedTotal: resolved.undiscountedTotal ?? null,
+      }
+    }
+
+    // Beneficio agotado: sin código, undiscounted_* = contracted_* (regla 5).
+    return {
+      codeDiscountAmount: 0,
+      undiscountedUnitAmount: resolved.pricePerEmployee,
+      undiscountedSubtotal: resolved.subtotal,
+      undiscountedTaxAmount: resolved.taxAmount,
+      undiscountedTotal: resolved.total,
+    }
+  }
+
+  /**
+   * Guarda fail-closed de código desfasado (USRH1787714804405 §4.3, regla
+   * 10). Compara el texto del código congelado en la fila del cambio contra
+   * el de la suscripción bloqueada y, si coincide, el estado de agotamiento
+   * al congelar (`codeDiscountAmount > 0` ⇒ se aplicó) contra el actual
+   * (`resolveAppliedCode`). Cualquier diferencia es desfase: el cambio no se
+   * aplica.
+   */
+  private detectDiscountCodeDrift(
+    change: BillingSubscriptionChange,
+    subscription: BillingSubscription
+  ): boolean {
+    const frozenText = change.billingSubscriptionChangeDiscountCodeText
+    const currentText = subscription.billingSubscriptionDiscountCodeText
+
+    if (frozenText !== currentText) {
+      return true
+    }
+
+    if (frozenText === null) {
+      return false
+    }
+
+    const frozenApplied = Number(change.billingSubscriptionChangeCodeDiscountAmount) > 0
+    const currentApplied = this.resolveAppliedCode(subscription) !== undefined
+
+    return frozenApplied !== currentApplied
   }
 
   private buildProration(

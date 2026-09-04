@@ -6,6 +6,7 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import BusinessUnit from './business_unit.js'
 import BillingPlan from './billing_plan.js'
 import BillingPlanPrice from './billing_plan_price.js'
+import DiscountCode, { type DiscountCodeKind } from './discount_code.js'
 
 export type BillingSubscriptionStatus = 'trialing' | 'active' | 'past_due' | 'canceled'
 
@@ -86,6 +87,55 @@ export default class BillingSubscription extends compose(BaseModel, SoftDeletes)
   @column()
   declare billingSubscriptionCreditBalanceCents: number
 
+  // ---------------------------------------------------------------------
+  // Canje y congelado del código de descuento (USRH1787714804401 §10).
+  // Snapshot write-once: se llenan junto con los `contracted_*` al crear
+  // la suscripción y ningún cambio posterior del catálogo las altera.
+  // NULL en las 10 columnas cuando el alta no trajo `discountCode`.
+  // ---------------------------------------------------------------------
+
+  @column()
+  declare billingSubscriptionDiscountCodeId: number | null
+
+  @column()
+  declare billingSubscriptionDiscountCodeText: string | null
+
+  @column()
+  declare billingSubscriptionDiscountCodeKind: DiscountCodeKind | null
+
+  @column()
+  declare billingSubscriptionDiscountCodeValue: number | null
+
+  @column()
+  declare billingSubscriptionDiscountCodeBenefitPeriods: number | null
+
+  /** Nace en 0; lo mueve el cobro del periodo (eslabón 8), no esta HU. */
+  @column()
+  declare billingSubscriptionDiscountCodeBenefitPeriodsUsed: number
+
+  /** Pesos que el código descuenta en el periodo vigente; 0 cuando no hay código. */
+  @column()
+  declare billingSubscriptionCodeDiscountAmount: number
+
+  /**
+   * Precio por empleado de lista, antes de que un código `unit_price` lo
+   * sustituya. Se llena con `resolved.undiscountedPricePerEmployee`, nunca
+   * se deduce de `billingSubscriptionContractedUnitAmount` ni se relee del
+   * catálogo (§10.1).
+   */
+  @column()
+  declare billingSubscriptionUndiscountedUnitAmount: number | null
+
+  /** Totales sin el código: con el descuento por volumen ya aplicado, sin el del código. */
+  @column()
+  declare billingSubscriptionUndiscountedSubtotal: number | null
+
+  @column()
+  declare billingSubscriptionUndiscountedTaxAmount: number | null
+
+  @column()
+  declare billingSubscriptionUndiscountedTotal: number | null
+
   @column.date({
     serialize: (value: DateTime | null) => value?.toISODate() ?? null,
   })
@@ -150,4 +200,7 @@ export default class BillingSubscription extends compose(BaseModel, SoftDeletes)
 
   @belongsTo(() => BillingPlanPrice, { foreignKey: 'billingPlanPriceId' })
   declare planPrice: BelongsTo<typeof BillingPlanPrice>
+
+  @belongsTo(() => DiscountCode, { foreignKey: 'billingSubscriptionDiscountCodeId' })
+  declare discountCode: BelongsTo<typeof DiscountCode>
 }

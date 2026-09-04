@@ -22,7 +22,7 @@ test.group('platform_discount_code_routes — guard de plataforma', () => {
     assert.notInclude(content, 'businessScope')
   })
 
-  test('declara las 6 rutas del catálogo', async ({ assert }) => {
+  test('declara las 7 rutas del catálogo', async ({ assert }) => {
     const content = await readFile(join(process.cwd(), ROUTES_PATH), 'utf8')
     assert.include(content, "router.get('/discount-codes', '#controllers/discount_code_controller.index')")
     assert.include(
@@ -36,6 +36,14 @@ test.group('platform_discount_code_routes — guard de plataforma', () => {
     )
     assert.include(content, 'discount_code_controller.activate')
     assert.include(content, 'discount_code_controller.deactivate')
+  })
+
+  test('declara la ruta de cotización de solo lectura (USRH1787714804400)', async ({ assert }) => {
+    const content = await readFile(join(process.cwd(), ROUTES_PATH), 'utf8')
+    assert.include(
+      content,
+      "router.get(\n      '/discount-codes/:discountCodeText/quote',\n      '#controllers/discount_code_controller.quote'\n    )"
+    )
   })
 })
 

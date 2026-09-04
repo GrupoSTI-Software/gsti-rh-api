@@ -408,9 +408,16 @@ export default class SignupDraftService {
         trxUser.userEmailVerifiedAt = DateTime.now()
         await trxUser.save()
 
-        // Configuración base del tenant nuevo, ligada por business_unit_id y
-        // copiada del registro base — dentro de la misma transacción (fail-closed).
-        await systemSettingService.createForTenant(trxBusinessUnit.businessUnitId, slug, trx)
+        // Configuración del tenant nuevo, ligada por business_unit_id y sembrada
+        // con los defaults de la empresa — dentro de la misma transacción (fail-closed).
+        await systemSettingService.createForTenant(
+          {
+            businessUnitId: trxBusinessUnit.businessUnitId,
+            businessUnitSlug: slug,
+            businessUnitName: trxBusinessUnit.businessUnitName,
+          },
+          trx
+        )
 
         const trxSubscription = await billingSubscriptionService.createSubscription(
           {
