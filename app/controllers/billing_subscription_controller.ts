@@ -390,7 +390,11 @@ export default class BillingSubscriptionController {
    *   recongelar valida que la cantidad contratada vigente siga cumpliendo
    *   bloques de 10 y el mínimo por la plantilla activa actual; si la
    *   plantilla creció desde que se contrató, rechaza con 422 y no cambia
-   *   nada. Las suscripciones canceladas rechazan esta operación.
+   *   nada. Las suscripciones canceladas rechazan esta operación. Si la
+   *   suscripción tiene un código de descuento congelado, se conserva y se
+   *   recalcula sobre el precio del plan nuevo; si el código fija el precio
+   *   por empleado (`unit_price`) y todavía tiene periodos de beneficio por
+   *   consumir, la operación se rechaza con 409 sin cambiar nada.
    * @tag Billing · Subscriptions
    * @operationId changePlan
    * @security [{"bearerAuth": []}]
@@ -398,6 +402,7 @@ export default class BillingSubscriptionController {
    * @requestBody {"required": true, "content": {"application/json": {"schema": {"type": "object", "required": ["billingPlanId"], "properties": {"billingPlanId": {"type": "integer"}}}}}}
    * @responseBody 200 - {"type": "success", "data": {}}
    * @responseBody 404 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.SUB.NOT_FOUND|PLT.SUB.PLAN_NOT_FOUND"}
+   * @responseBody 409 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.SUB.PLAN_CHANGE_UNIT_PRICE_CODE"}
    * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.SUB.SUBSCRIPTION_CANCELED|PLT.SUB.PLAN_NOT_PUBLISHED|PLT.SUB.NO_ACTIVE_PRICE|PLT.SUB.VAL_INPUT|PLT.SUB.EMPLOYEES_NOT_BLOCK_OF_TEN|PLT.SUB.EMPLOYEES_ABOVE_SAFETY_CAP|PLT.SUB.EMPLOYEES_BELOW_ACTIVE_HEADCOUNT"}
    */
   async changePlan({ params, request, response }: HttpContext) {
