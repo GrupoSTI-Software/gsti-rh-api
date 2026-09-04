@@ -65,10 +65,16 @@ export interface OffboardingsRepository {
   ): Promise<void>
 
   /**
-   * Expediente con sus pendientes vivos y el concepto de cada uno resuelto
-   * con `withTrashed()` (§7 D8), listo para armar el DTO.
+   * Expediente vivo DENTRO DEL ALCANCE de empresas, con sus pendientes vivos
+   * y el concepto de cada uno resuelto con `withTrashed()` (§7 D8), listo
+   * para armar el DTO. Comprueba la empresa por sí mismo, sin depender de
+   * que el llamador lo haya hecho antes (USRH1787434050262): `null` =
+   * inexistente o fuera del alcance — 404 uniforme, indistinguible.
    */
-  findByIdWithItems(employeeOffboardingId: number): Promise<EmployeeOffboarding | null>
+  findByIdWithItems(
+    employeeOffboardingId: number,
+    businessUnitIds: number[]
+  ): Promise<EmployeeOffboarding | null>
 
   /**
    * Insumos del expediente para el diagnóstico de lectura (D-3 de

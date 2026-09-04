@@ -177,7 +177,7 @@ export default class EmployeeCertificationUploadService {
     const fileName = `${S3_FOLDER}/${employeeId}/${certificationId}/${cuid()}-${sanitizedName}`
 
     const uploadService = new UploadService()
-    const result = await uploadService.fileUpload(file, '', fileName, 'private')
+    const result = await uploadService.fileUpload(file, 'evidence-document', '', { fileName: fileName })
 
     if (!result || result === 'file_not_found' || result === 'S3Producer.fileUpload') {
       throw new EmployeeCertificationError(

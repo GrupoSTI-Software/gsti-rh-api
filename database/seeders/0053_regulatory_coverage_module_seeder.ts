@@ -2,6 +2,7 @@ import { BaseSeeder } from '@adonisjs/lucid/seeders'
 import { DateTime } from 'luxon'
 import SystemModule from '../../app/models/system_module.js'
 import SystemPermission from '../../app/models/system_permission.js'
+import { resolveSystemModuleGroupIds } from '../../app/helpers/system_module_group_seed_resolver.js'
 import SystemSettingSystemModule from '../../app/models/system_setting_system_module.js'
 import RoleSystemPermission from '../../app/models/role_system_permission.js'
 
@@ -80,6 +81,10 @@ export default class extends BaseSeeder {
 
   /** 1. Alta del módulo en el catálogo. `systemModuleActive: 1` es el flag que realmente gatea menú y acceso. */
   private async seedModule() {
+    const groupIdByKey = await resolveSystemModuleGroupIds(
+      ['plataforma'],
+      '0053_regulatory_coverage_module_seeder'
+    )
     await SystemModule.updateOrCreate(
       { systemModuleId: this.moduleId },
       {
@@ -89,8 +94,9 @@ export default class extends BaseSeeder {
           'Consulta de solo lectura del nivel de cobertura del producto frente a las normas mexicanas vigentes (NOM-035, NOM-037): numerales evaluables, módulos que los cubren y vista ejecutiva',
         systemModules: '1',
         systemModulePath: '/regulatory-coverage',
-        systemModuleGroup: '7. Plataforma',
+        systemModuleGroupId: groupIdByKey.get('plataforma'),
         systemModuleActive: 1,
+        systemModuleOrder: this.moduleId * 10,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
           width="48"

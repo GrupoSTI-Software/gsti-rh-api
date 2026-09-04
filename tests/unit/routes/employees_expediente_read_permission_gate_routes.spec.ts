@@ -141,7 +141,7 @@ test.group('persona/domicilio/bancos/salud — PermissionGate lectura expediente
 })
 
 test.group('lactancia/consentimiento/foto — PermissionGate lectura expediente', () => {
-  test('GET de lactancia, consentimiento y gafete declaran sus gates', async ({ assert }) => {
+  test('GET de lactancia y consentimiento declaran sus gates', async ({ assert }) => {
     const routes = [
       {
         file: 'start/routes/employee_lactation_periods_routes.ts',
@@ -157,10 +157,6 @@ test.group('lactancia/consentimiento/foto — PermissionGate lectura expediente'
         file: 'app/modules/consent/physical/physical_consent.routes.ts',
         keys: ['getEmployeeConsentStatus'],
       },
-      {
-        file: 'app/modules/employee-badge/badge.routes.ts',
-        keys: ['showEmployeeBadge', 'getEmployeeBadgePdf', 'getEmployeeBadgePng'],
-      },
     ]
 
     for (const { file, keys } of routes) {
@@ -173,6 +169,29 @@ test.group('lactancia/consentimiento/foto — PermissionGate lectura expediente'
         )
       }
     }
+  })
+
+  // USRH1787433076993: el gafete dejó de colgar de `tab-foto-read`. Las cuatro
+  // vías del backoffice las gobierna `generate-badges`, declarado en el mapa
+  // de escritura porque su `kind` es `write`.
+  test('las cuatro vías de gafete del backoffice declaran generate-badges', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'app/modules/employee-badge/badge.routes.ts'),
+      'utf8'
+    )
+    for (const key of [
+      'showEmployeeBadge',
+      'getEmployeeBadgePdf',
+      'getEmployeeBadgePng',
+      'bulkEmployeeBadges',
+    ]) {
+      assert.include(
+        content,
+        `permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.${key})`,
+        key
+      )
+    }
+    assert.notInclude(content, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS')
   })
 
   test('gafete/me y consentimiento download-url no declaran gate de lectura', async ({

@@ -45,11 +45,7 @@ import {
   type TenantActor,
 } from '../functional/employees/sensitive_read_by_category_support.js'
 
-async function getThreeSurfaces(
-  client: ApiClient,
-  actor: TenantActor,
-  fixture: SensitiveFixture
-) {
+async function getThreeSurfaces(client: ApiClient, actor: TenantActor, fixture: SensitiveFixture) {
   const header = buHeader(actor)
   const employeeRes = await client
     .get(`/api/employees/${fixture.employee.employeeId}`)
@@ -60,9 +56,7 @@ async function getThreeSurfaces(
     .loginAs(actor.user)
     .header('X-Business-Unit-Id', header)
   const medicalRes = await client
-    .get(
-      `/api/employee-medical-conditions/${fixture.medical.employeeMedicalConditionId}`
-    )
+    .get(`/api/employee-medical-conditions/${fixture.medical.employeeMedicalConditionId}`)
     .loginAs(actor.user)
     .header('X-Business-Unit-Id', header)
   return { employeeRes, bankRes, medicalRes }
@@ -157,10 +151,7 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     expectNeverDenied(response, assert)
     const person = employeePerson(response.body())
     assert.equal(person.personEmail, fixture!.clear.email)
-    assert.equal(
-      person.personCurp,
-      maskSensitiveValue(fixture!.clear.curp, 'identificacion')
-    )
+    assert.equal(person.personCurp, maskSensitiveValue(fixture!.clear.curp, 'identificacion'))
   })
 
   test('E.3: solo sensitive-identificacion-read destapa CURP/RFC/NSS; contacto y bancos tapados', async ({
@@ -168,11 +159,7 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     assert,
   }) => {
     await grantOnly(actor!.role.roleId, ['sensitive-identificacion-read'])
-    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(
-      client,
-      actor!,
-      fixture!
-    )
+    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(client, actor!, fixture!)
     expectNeverDenied(employeeRes, assert)
     expectNeverDenied(bankRes, assert)
     expectNeverDenied(medicalRes, assert)
@@ -188,29 +175,17 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     assert,
   }) => {
     await grantOnly(actor!.role.roleId, ['sensitive-financiero-read'])
-    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(
-      client,
-      actor!,
-      fixture!
-    )
+    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(client, actor!, fixture!)
     expectNeverDenied(bankRes, assert)
     expectBankClear(employeeBankBody(bankRes.body()), fixture!.clear, assert)
     expectPersonContactoMasked(employeePerson(employeeRes.body()), fixture!.clear, assert)
-    expectPersonIdentificacionMasked(
-      employeePerson(employeeRes.body()),
-      fixture!.clear,
-      assert
-    )
+    expectPersonIdentificacionMasked(employeePerson(employeeRes.body()), fixture!.clear, assert)
     expectMedicalMasked(medicalConditionBody(medicalRes.body()), fixture!.clear, assert)
   })
 
   test('E.5: las cinco lecturas entregan las 11 en claro', async ({ client, assert }) => {
     await grantOnly(actor!.role.roleId, [...FIVE_READS])
-    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(
-      client,
-      actor!,
-      fixture!
-    )
+    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(client, actor!, fixture!)
     expectNeverDenied(employeeRes, assert)
     expectElevenClear(
       employeePerson(employeeRes.body()),
@@ -274,10 +249,7 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     expectNeverDenied(response, assert)
     const person = personShowBody(response.body())
     assert.equal(person.personEmail, maskSensitiveValue(fixture!.clear.email, 'contacto'))
-    assert.equal(
-      person.personCurp,
-      maskSensitiveValue(fixture!.clear.curp, 'identificacion')
-    )
+    assert.equal(person.personCurp, maskSensitiveValue(fixture!.clear.curp, 'identificacion'))
   })
 
   test('E.8: GET /api/customers/:id con contacto destapa email; sin identificación', async ({
@@ -304,6 +276,7 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     }
   })
 
+  // Las rutas de aviacion quedaron desregistradas a la espera de la baja del modulo; este caso debe eliminarse junto con pilots/flight-attendants.
   test('E.9: GET /api/pilots/:id serializa person anidado con las mismas reglas', async ({
     client,
     assert,
@@ -314,9 +287,7 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
       pilotHireDate: DateTime.utc(),
     })
     try {
-      const response = await client
-        .get(`/api/pilots/${pilot.pilotId}`)
-        .loginAs(actor!.user)
+      const response = await client.get(`/api/pilots/${pilot.pilotId}`).loginAs(actor!.user)
       expectNeverDenied(response, assert)
       expectContactoClearIdentificacionMasked(
         nestedEmployeePerson(response.body(), 'pilot'),
@@ -326,8 +297,12 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     } finally {
       await Pilot.query().where('pilot_id', pilot.pilotId).delete()
     }
-  })
+  }).skip(
+    true,
+    'Rutas de aviacion desregistradas a la espera de la baja del modulo; este caso se elimina junto con pilots/flight-attendants.'
+  )
 
+  // Las rutas de aviacion quedaron desregistradas a la espera de la baja del modulo; este caso debe eliminarse junto con pilots/flight-attendants.
   test('E.10: GET /api/flight-attendants/:id serializa person anidado con las mismas reglas', async ({
     client,
     assert,
@@ -352,7 +327,10 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
         .where('flight_attendant_id', attendant.flightAttendantId)
         .delete()
     }
-  })
+  }).skip(
+    true,
+    'Rutas de aviacion desregistradas a la espera de la baja del modulo; este caso se elimina junto con pilots/flight-attendants.'
+  )
 
   test('E.11: GET /api/employees/:id/banks con financiero destapa CLABE', async ({
     client,
@@ -366,9 +344,7 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     expectNeverDenied(response, assert)
     const banks = nestedBanks(response.body())
     assert.isAbove(banks.length, 0)
-    const match = banks.find(
-      (row) => Number(row.employeeBankId) === fixture!.bank.employeeBankId
-    )
+    const match = banks.find((row) => Number(row.employeeBankId) === fixture!.bank.employeeBankId)
     assert.exists(match)
     expectBankClear(match as Record<string, unknown>, fixture!.clear, assert)
   })

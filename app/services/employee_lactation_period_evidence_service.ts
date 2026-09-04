@@ -266,7 +266,7 @@ export default class EmployeeLactationPeriodEvidenceService {
   ): Promise<string> {
     const fileName = `${S3_FOLDER}/${periodId}/${cuid()}-${sanitizedName}`
     const uploadService = new UploadService()
-    const result = await uploadService.fileUpload(file, '', fileName, 'private')
+    const result = await uploadService.fileUpload(file, 'pdf-document', '', { fileName: fileName })
 
     if (!result || result === 'file_not_found' || result === 'S3Producer.fileUpload') {
       throw new EmployeeLactationPeriodEvidenceError(

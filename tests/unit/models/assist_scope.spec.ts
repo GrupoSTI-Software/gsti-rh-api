@@ -12,6 +12,7 @@ import { assertModelHasColumns } from '../helpers/lucid_model_assertions.js'
  */
 
 const MODEL_FILE = join(process.cwd(), 'app/models/assist.ts')
+const GUARD_FILE = join(process.cwd(), 'app/helpers/assist_business_unit_guard.ts')
 const MIGRATIONS_DIR = join(process.cwd(), 'database/migrations')
 
 test.group('Assist — modelo con withBusinessUnitScope (USRH1786566437097)', () => {
@@ -32,8 +33,13 @@ test.group('Assist — modelo con withBusinessUnitScope (USRH1786566437097)', ()
     const content = readFileSync(MODEL_FILE, 'utf-8')
     assert.include(content, '@beforeCreate()')
     assert.match(content, /if \(instance\.businessUnitId\) return/)
-    assert.include(content, 'TenantContext.getScope()')
-    assert.include(content, 'ASSIST_ERROR_CODES.TENANT_UNRESOLVED')
+    // USRH1786554648211: el fail-closed se extrajo a un guard compartido con el motor
+    // de ingesta, para que los dos caminos de escritura emitan el mismo triplete.
+    assert.include(content, 'resolveAssistBusinessUnitId()')
+
+    const guard = readFileSync(GUARD_FILE, 'utf-8')
+    assert.include(guard, 'TenantContext.getScope()')
+    assert.include(guard, 'ASSIST_ERROR_CODES.TENANT_UNRESOLVED')
   })
 
   test('B4 · la llave natural se calcula en @beforeSave, no en @beforeCreate', ({ assert }) => {

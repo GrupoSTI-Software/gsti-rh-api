@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import { formatResponse } from '../helpers/responseFormatter.js'
 import AircraftProperty from '../models/aircraft_property.js'
 import {
@@ -222,6 +223,10 @@ export default class AircraftPropertiesController {
           )
         )
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       return response
         .status(400)
         .json(
@@ -464,6 +469,10 @@ export default class AircraftPropertiesController {
           )
         )
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       console.error('Error updating aircraft property:', error)
       return response
         .status(400)
