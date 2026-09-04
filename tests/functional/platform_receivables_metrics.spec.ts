@@ -9,6 +9,10 @@ import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingVolumeTier from '#models/billing_volume_tier'
 import BillingSubscription, { type BillingSubscriptionStatus } from '#models/billing_subscription'
+import BillingSubscriptionChange, {
+  type BillingSubscriptionChangeStatus,
+  type BillingSubscriptionChangeType,
+} from '#models/billing_subscription_change'
 import BillingCatalogService from '#services/billing_catalog_service'
 
 /**
@@ -24,6 +28,7 @@ const BASE_URL = '/api/platform/metrics/receivables'
 
 /** Llaves exactas de una fila. Lista cerrada: si alguien agrega un campo, este test lo detiene. */
 const EXPECTED_TENANT_KEYS = [
+  'adeudoPorAumentoCents',
   'bucket',
   'businessUnitActive',
   'businessUnitName',
@@ -58,6 +63,8 @@ interface SummaryBody {
   saldoAFavorCents: number
   porBucket: Record<'hasta30' | 'de31a60' | 'mas60', { tenants: number; montoCents: number }>
   calculadoAl: string
+  totalAdeudoPorAumentoCents: number
+  tenantsConAdeudoPorAumento: number
 }
 
 interface TenantBody {
@@ -66,10 +73,11 @@ interface TenantBody {
   businessUnitActive: number
   planName: string | null
   montoVencidoCents: number
-  diasAtraso: number
-  bucket: string
+  diasAtraso: number | null
+  bucket: string | null
   periodoFin: string
   saldoAFavorCents: number
+  adeudoPorAumentoCents: number
 }
 
 interface CanceladaBody {
@@ -169,7 +177,9 @@ interface OverdueFixture {
 }
 
 /** Crea empresa + suscripción con el atraso pedido y devuelve el publicId de la empresa. */
-async function createOverdue(fixture: OverdueFixture): Promise<{ publicId: string; buId: number }> {
+async function createOverdue(
+  fixture: OverdueFixture
+): Promise<{ publicId: string; buId: number; subId: number }> {
   const now = DateTime.now()
   const businessUnit = new BusinessUnit()
   businessUnit.businessUnitName = `Receivables BU ${fixture.suffix} ${fixture.stamp}`
@@ -219,11 +229,59 @@ async function createOverdue(fixture: OverdueFixture): Promise<{ publicId: strin
     await businessUnit.delete()
   }
 
-  return { publicId: businessUnit.businessUnitPublicId, buId: businessUnit.businessUnitId }
+  return {
+    publicId: businessUnit.businessUnitPublicId,
+    buId: businessUnit.businessUnitId,
+    subId: subscription.billingSubscriptionId,
+  }
+}
+
+/**
+ * Registra un cambio de suscripción para los casos del adeudo por aumento.
+ * Los importes del periodo son ruido para esta prueba: lo único que se mide es
+ * `proratedAmountCents`, que es el campo que el agregado suma.
+ */
+async function createSubscriptionChange(params: {
+  businessUnitId: number
+  billingSubscriptionId: number
+  proratedAmountCents: number
+  status?: BillingSubscriptionChangeStatus
+  type?: BillingSubscriptionChangeType
+  deleted?: boolean
+}): Promise<void> {
+  const change = await BillingSubscriptionChange.create({
+    billingSubscriptionId: params.billingSubscriptionId,
+    businessUnitId: params.businessUnitId,
+    billingSubscriptionChangeType: params.type ?? 'increase',
+    billingSubscriptionChangeStatus: params.status ?? 'pending_payment',
+    billingSubscriptionChangePreviousEmployees: 10,
+    billingSubscriptionChangeNewEmployees: 15,
+    billingSubscriptionChangeUnitAmount: 65,
+    billingSubscriptionChangeDiscountPercent: 0,
+    billingSubscriptionChangeTaxRate: 0.16,
+    billingSubscriptionChangeSubtotal: 975,
+    billingSubscriptionChangeTaxAmount: 156,
+    billingSubscriptionChangeTotal: 1131,
+    billingSubscriptionChangeProratedAmountCents: params.proratedAmountCents,
+    billingSubscriptionChangeEffectiveAt: null,
+    billingSubscriptionChangeAppliedAt: null,
+    billingSubscriptionChangeBillingPaymentId: null,
+    billingSubscriptionChangeNotApplicableReason: null,
+  })
+
+  if (params.deleted) {
+    await change.delete()
+  }
 }
 
 async function cleanupFixtures(businessUnitIds: number[], planIds: number[]): Promise<void> {
   for (const businessUnitId of businessUnitIds) {
+    const changes = await BillingSubscriptionChange.query()
+      .withTrashed()
+      .where('business_unit_id', businessUnitId)
+    for (const change of changes) {
+      await change.forceDelete()
+    }
     const subscriptions = await BillingSubscription.query()
       .withTrashed()
       .where('business_unit_id', businessUnitId)
@@ -512,9 +570,11 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
     const tenants = body.data.tenants as TenantBody[]
 
     for (let index = 1; index < tenants.length; index += 1) {
+      // El universo sigue siendo `past_due` en este task: `diasAtraso` nunca es
+      // nulo todavía. El `?? 0` solo satisface el tipo ensanchado para Task 3.
       assert.isAtMost(
-        tenants[index]!.diasAtraso,
-        tenants[index - 1]!.diasAtraso,
+        tenants[index]!.diasAtraso ?? 0,
+        tenants[index - 1]!.diasAtraso ?? 0,
         'diasAtraso debe venir descendente'
       )
     }
@@ -695,5 +755,256 @@ test.group('GET /api/platform/metrics/receivables', (group) => {
     assert.notInclude(crudo, 'billingSubscriptionId')
     assert.notInclude(crudo, 'rfc')
     assert.notInclude(crudo, 'billingEmail')
+  })
+
+  test('CA-1 — el adeudo por aumento viaja en su propio campo, aparte del vencido', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now() + 10
+    const beforeResponse = await client.get(BASE_URL).loginAs(admin!.user)
+    const before = beforeResponse.body().data.resumen as SummaryBody
+
+    const { publicId, buId, subId } = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'aum-ca1',
+      daysLate: 12,
+      contractedTotal: 5800,
+    })
+    businessUnitIds.push(buId)
+    await createSubscriptionChange({
+      businessUnitId: buId,
+      billingSubscriptionId: subId,
+      proratedAmountCents: 91210,
+    })
+
+    const collected = await collectReceivables(client, admin!.user)
+    const filas = findTenants(collected.tenants, publicId)
+    assert.lengthOf(filas, 1)
+    const fila = filas[0]!
+
+    assert.deepEqual(Object.keys(fila).sort(), EXPECTED_TENANT_KEYS.sort())
+    assert.equal(fila.adeudoPorAumentoCents, 91210, 'el prorrateo ya viene en centavos')
+    assert.equal(fila.montoVencidoCents, 580000, 'el vencido no absorbe el adeudo')
+
+    // Ningún campo de la fila publica la suma de los dos números (regla 1).
+    assert.notInclude(Object.values(fila), 671210)
+
+    const after = collected.resumen
+    assert.equal(after.totalAdeudoPorAumentoCents - before.totalAdeudoPorAumentoCents, 91210)
+    assert.equal(after.tenantsConAdeudoPorAumento - before.tenantsConAdeudoPorAumento, 1)
+    assert.equal(
+      after.totalVencidoCents - before.totalVencidoCents,
+      580000,
+      'el adeudo no mueve el total vencido'
+    )
+  })
+
+  test('CA-2 — dos aumentos pendientes se suman, no gana el más reciente', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now() + 11
+    const { publicId, buId, subId } = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'aum-ca2',
+      daysLate: 20,
+      contractedTotal: 1000,
+    })
+    businessUnitIds.push(buId)
+    await createSubscriptionChange({
+      businessUnitId: buId,
+      billingSubscriptionId: subId,
+      proratedAmountCents: 30000,
+    })
+    await createSubscriptionChange({
+      businessUnitId: buId,
+      billingSubscriptionId: subId,
+      proratedAmountCents: 12500,
+    })
+
+    const collected = await collectReceivables(client, admin!.user)
+    const fila = findTenants(collected.tenants, publicId)[0]!
+
+    assert.equal(fila.adeudoPorAumentoCents, 42500)
+  })
+
+  test('CA-4 — los dos totales del adeudo son de plataforma, no de página', async ({
+    client,
+    assert,
+  }) => {
+    const primeraResponse = await client
+      .get(BASE_URL)
+      .qs({ page: 1, limit: 1 })
+      .loginAs(admin!.user)
+    const primera = primeraResponse.body()
+    const completaResponse = await client
+      .get(BASE_URL)
+      .qs({ page: 1, limit: 100 })
+      .loginAs(admin!.user)
+    const completa = completaResponse.body()
+
+    const resumenPrimera = primera.data.resumen as SummaryBody
+    const resumenCompleta = completa.data.resumen as SummaryBody
+
+    assert.equal(
+      resumenPrimera.totalAdeudoPorAumentoCents,
+      resumenCompleta.totalAdeudoPorAumentoCents
+    )
+    assert.equal(
+      resumenPrimera.tenantsConAdeudoPorAumento,
+      resumenCompleta.tenantsConAdeudoPorAumento
+    )
+    assert.isAtLeast(
+      resumenPrimera.totalAdeudoPorAumentoCents,
+      (primera.data.tenants as TenantBody[])[0]?.adeudoPorAumentoCents ?? 0,
+      'el total de plataforma nunca es menor que el de una fila'
+    )
+  })
+
+  test('CA-5 — el aumento borrado no suma y el estado que no es pendiente tampoco', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now() + 12
+    const beforeResponse = await client.get(BASE_URL).loginAs(admin!.user)
+    const before = beforeResponse.body().data.resumen as SummaryBody
+
+    const { publicId, buId, subId } = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'aum-ca5',
+      daysLate: 20,
+      contractedTotal: 1000,
+    })
+    businessUnitIds.push(buId)
+
+    await createSubscriptionChange({
+      businessUnitId: buId,
+      billingSubscriptionId: subId,
+      proratedAmountCents: 11111,
+      deleted: true,
+    })
+    await createSubscriptionChange({
+      businessUnitId: buId,
+      billingSubscriptionId: subId,
+      proratedAmountCents: 22222,
+      status: 'applied',
+    })
+    await createSubscriptionChange({
+      businessUnitId: buId,
+      billingSubscriptionId: subId,
+      proratedAmountCents: 33333,
+      status: 'scheduled',
+    })
+    await createSubscriptionChange({
+      businessUnitId: buId,
+      billingSubscriptionId: subId,
+      proratedAmountCents: 44444,
+      type: 'decrease',
+    })
+
+    const collected = await collectReceivables(client, admin!.user)
+    const fila = findTenants(collected.tenants, publicId)[0]!
+
+    assert.equal(fila.adeudoPorAumentoCents, 0, 'ninguno de los cuatro es adeudo por aumento vivo')
+    assert.equal(
+      collected.resumen.totalAdeudoPorAumentoCents,
+      before.totalAdeudoPorAumentoCents
+    )
+  })
+
+  test('CA-5 — la empresa desactivada con adeudo sí cuenta y viaja marcada', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now() + 13
+    const { publicId, buId, subId } = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'aum-inactiva',
+      daysLate: 20,
+      contractedTotal: 1000,
+      businessUnitActive: 0,
+    })
+    businessUnitIds.push(buId)
+    await createSubscriptionChange({
+      businessUnitId: buId,
+      billingSubscriptionId: subId,
+      proratedAmountCents: 55555,
+    })
+
+    const collected = await collectReceivables(client, admin!.user)
+    const fila = findTenants(collected.tenants, publicId)[0]!
+
+    assert.equal(fila.businessUnitActive, 0, 'la desactivación no perdona la deuda (regla 7)')
+    assert.equal(fila.adeudoPorAumentoCents, 55555)
+  })
+
+  test('CA-5 — un adeudo de suscripción o empresa borrada no suma al total', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now() + 14
+    const beforeResponse = await client.get(BASE_URL).loginAs(admin!.user)
+    const before = beforeResponse.body().data.resumen as SummaryBody
+
+    const subBorrada = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'aum-sub-del',
+      daysLate: 20,
+      contractedTotal: 1000,
+      subscriptionDeleted: true,
+    })
+    const buBorrada = await createOverdue({
+      planId,
+      stamp,
+      suffix: 'aum-bu-del',
+      daysLate: 20,
+      contractedTotal: 1000,
+      businessUnitDeleted: true,
+    })
+    businessUnitIds.push(subBorrada.buId, buBorrada.buId)
+
+    await createSubscriptionChange({
+      businessUnitId: subBorrada.buId,
+      billingSubscriptionId: subBorrada.subId,
+      proratedAmountCents: 66666,
+    })
+    await createSubscriptionChange({
+      businessUnitId: buBorrada.buId,
+      billingSubscriptionId: buBorrada.subId,
+      proratedAmountCents: 77777,
+    })
+
+    const collected = await collectReceivables(client, admin!.user)
+
+    assert.equal(
+      collected.resumen.totalAdeudoPorAumentoCents,
+      before.totalAdeudoPorAumentoCents,
+      'los borrados lógicos quedan fuera del agregado'
+    )
+    assert.lengthOf(findTenants(collected.tenants, subBorrada.publicId), 0)
+    assert.lengthOf(findTenants(collected.tenants, buBorrada.publicId), 0)
+  })
+
+  test('ningún campo del resumen es la suma del vencido y el adeudo (regla 1)', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client.get(BASE_URL).loginAs(admin!.user)
+    const resumen = response.body().data.resumen as SummaryBody
+    const suma = resumen.totalVencidoCents + resumen.totalAdeudoPorAumentoCents
+
+    // Solo se descarta cuando los dos números son distintos de cero: si uno es
+    // cero la suma coincide con el otro por aritmética, no por publicarla.
+    if (resumen.totalVencidoCents > 0 && resumen.totalAdeudoPorAumentoCents > 0) {
+      assert.notInclude(Object.values(resumen), suma)
+    }
+    assert.notProperty(resumen, 'totalDeudaCents')
+    assert.notProperty(resumen, 'totalCents')
   })
 })

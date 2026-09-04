@@ -4,6 +4,11 @@ import {
   toBusinessDateString,
   toCalendarIsoDate,
 } from '../utils/business_date.js'
+import {
+  PENDING_INCREASE_AMOUNT_COLUMN,
+  PENDING_INCREASE_CHANGES_TABLE,
+  pendingIncreaseChangeConditionSql,
+} from '../helpers/billing_pending_increase_change_filter.js'
 
 // ─── Tipos de retorno ─────────────────────────────────────────────────────────
 
@@ -37,6 +42,14 @@ export interface ReceivablesSummary {
   porBucket: Record<ReceivableBucket, ReceivableBucketSlice>
   /** Fecha de negocio del cálculo, `YYYY-MM-DD`. */
   calculadoAl: string
+  /**
+   * Suma del adeudo por aumento de asientos de **toda** la cartera, en centavos
+   * (regla 6). Es facturación pendiente, no cobranza: **nunca** se suma a
+   * `totalVencidoCents` ni se publica junto con él como una sola cifra (regla 1).
+   */
+  totalAdeudoPorAumentoCents: number
+  /** Cuántas empresas tienen adeudo por aumento mayor a cero. No es un subconjunto de `tenantsVencidos`. */
+  tenantsConAdeudoPorAumento: number
 }
 
 /** Una empresa morosa tal como viaja en el contrato. Sin identificadores internos. */
@@ -54,6 +67,14 @@ export interface ReceivableTenantItem {
   periodoFin: string
   /** Saldo a favor de la empresa. Viaja aparte y no se netea (regla 6). */
   saldoAFavorCents: number
+  /**
+   * Adeudo por aumento de asientos de la empresa, en centavos: la suma de todos
+   * sus aumentos pendientes de pago (regla 3). `0` cuando no tiene ninguno.
+   *
+   * Es facturación pendiente y viaja aparte de `montoVencidoCents` a propósito:
+   * sumarlos convertiría a un cliente que creció en un moroso (regla 1).
+   */
+  adeudoPorAumentoCents: number
 }
 
 /**
@@ -144,10 +165,36 @@ const BUCKET_CASE_SQL = `
     ELSE 'mas60'
   END`
 
+/**
+ * Adeudo por aumento de la suscripción de la fila, en centavos.
+ *
+ * Va como escalar correlacionado y no como `LEFT JOIN` agrupado porque el
+ * universo de filas ya está definido por su propio `WHERE`: un join agregado
+ * obligaría a agrupar toda la consulta paginada por suscripción para no
+ * multiplicar filas cuando hay más de un aumento pendiente (regla 3).
+ *
+ * `COALESCE` a `0` porque la ausencia de aumentos es un cero explícito, no un
+ * nulo: la columna del tablero no desaparece cuando no hay adeudo (regla 8).
+ *
+ * No se multiplica por 100: la columna del prorrateo ya está en centavos.
+ */
+const PENDING_INCREASE_DEBT_CENTS_SQL = `COALESCE((
+    SELECT SUM(pic.${PENDING_INCREASE_AMOUNT_COLUMN})
+    FROM ${PENDING_INCREASE_CHANGES_TABLE} as pic
+    WHERE pic.billing_subscription_id = bs.billing_subscription_id
+      AND ${pendingIncreaseChangeConditionSql('pic')}
+  ), 0)`
+
 // ─── Servicio ─────────────────────────────────────────────────────────────────
 
 /**
- * Cartera vencida de la plataforma (USRH1788052455651).
+ * Cartera de la plataforma: el vencido y el adeudo por aumento de asientos
+ * (USRH1788052455651 + USRH1788052455652).
+ *
+ * Son **dos números independientes** y así viajan: el vencido es cobranza, el
+ * adeudo por aumento es facturación pendiente. Ningún campo de este servicio es
+ * —ni podrá ser— su suma (regla 1). La antigüedad y los tramos son propios del
+ * vencido: el adeudo por aumento no tiene edad (regla 5).
  *
  * Solo lectura: no escribe, no abre transacción y no tiene efectos secundarios.
  * No recalcula la morosidad — lee el estado `past_due` que el reloj de cobranza
@@ -290,13 +337,77 @@ export default class PlatformReceivableService {
       saldoAFavorCents += Number(row.saldoCents ?? 0)
     }
 
+    const pendingIncrease = await this.loadPendingIncreaseTotals()
+
     return {
       totalVencidoCents,
       tenantsVencidos,
       saldoAFavorCents,
       porBucket,
       calculadoAl: businessDate,
+      totalAdeudoPorAumentoCents: pendingIncrease.totalCents,
+      tenantsConAdeudoPorAumento: pendingIncrease.tenants,
     }
+  }
+
+  /**
+   * Los dos totales del adeudo por aumento, sobre **toda** la cartera (regla 6).
+   *
+   * Consulta propia y no un campo más del resumen del vencido: el universo del
+   * adeudo no es el del vencido — incluye a las empresas al corriente — y
+   * mezclarlos en un solo `GROUP BY bucket` habría metido el adeudo a los tramos
+   * de antigüedad, que son propios del vencido (regla 5).
+   *
+   * Agrupa por suscripción y no por empresa para que un aumento pendiente que
+   * cuelga de una suscripción cancelada o borrada no se le atribuya a la
+   * suscripción viva de la misma empresa. El candado
+   * `billing_subscription_live_business_unit_id` (UNIQUE) garantiza a lo más una
+   * suscripción viva por empresa, así que contar suscripciones con adeudo es
+   * contar empresas con adeudo.
+   *
+   * La suma y el conteo se cierran en JavaScript sobre las filas agrupadas —y no
+   * con un `HAVING` dentro de una subconsulta— porque los aumentos pendientes de
+   * la plataforma son unidades: el arreglo intermedio es minúsculo y la
+   * intención queda legible. `canceled` queda fuera: sus adeudos son materia de
+   * `canceladas[]`, no de este número.
+   *
+   * Los tres `whereNull` van a mano porque las queries crudas de Knex no pasan
+   * por el hook de `SoftDeletes`. `business_unit_active = 0` NO excluye: la
+   * desactivación no perdona la deuda (regla 7).
+   *
+   * @returns Total en centavos y cuántas empresas tienen adeudo mayor a cero.
+   */
+  private async loadPendingIncreaseTotals(): Promise<{ totalCents: number; tenants: number }> {
+    const rows = (await db
+      .from(`${PENDING_INCREASE_CHANGES_TABLE} as pic`)
+      .join(
+        'billing_subscriptions as bs',
+        'bs.billing_subscription_id',
+        'pic.billing_subscription_id'
+      )
+      .join('business_units as bu', 'bu.business_unit_id', 'bs.business_unit_id')
+      .whereRaw(pendingIncreaseChangeConditionSql('pic'))
+      .whereNot('bs.billing_subscription_status', 'canceled')
+      .whereNull('bs.billing_subscription_deleted_at')
+      .whereNull('bu.business_unit_deleted_at')
+      .groupBy('bs.billing_subscription_id')
+      .select(
+        db.raw(`COALESCE(SUM(pic.${PENDING_INCREASE_AMOUNT_COLUMN}), 0) as adeudoCents`)
+      )) as Array<Record<string, unknown>>
+
+    let totalCents = 0
+    let tenants = 0
+
+    for (const row of rows) {
+      const adeudoCents = Number(row.adeudoCents ?? 0)
+      // Un prorrateo de cero (un aumento pedido en prueba) no es adeudo: suma
+      // cero y no cuenta como empresa con adeudo. Mismo umbral que el helper.
+      if (adeudoCents <= 0) continue
+      totalCents += adeudoCents
+      tenants += 1
+    }
+
+    return { totalCents, tenants }
   }
 
   /**
@@ -330,6 +441,7 @@ export default class PlatformReceivableService {
         'bs.billing_subscription_credit_balance_cents as saldoAFavorCents',
       ])
       .select(db.raw(`${CONTRACTED_TOTAL_CENTS_SQL} as montoVencidoCents`))
+      .select(db.raw(`${PENDING_INCREASE_DEBT_CENTS_SQL} as adeudoPorAumentoCents`))
       // Misma red que el DTO: periodo nulo se ordena como si venciera hoy.
       .orderByRaw('COALESCE(DATE(bs.billing_subscription_current_period_end), ?) asc', [
         businessDate,
@@ -367,6 +479,7 @@ export default class PlatformReceivableService {
       bucket: resolveReceivableBucket(diasAtraso),
       periodoFin,
       saldoAFavorCents: Number(row.saldoAFavorCents ?? 0),
+      adeudoPorAumentoCents: Number(row.adeudoPorAumentoCents ?? 0),
     }
   }
 
