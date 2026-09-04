@@ -6,6 +6,23 @@ import AccessPointService from '#services/access_point_service'
 import BusinessUnit from '#models/business_unit'
 import i18nManager from '@adonisjs/i18n/services/main'
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
+import logger from '@adonisjs/core/services/logger'
+
+/**
+ * Blindaje de `device-info` contra `uq_access_point_serial_number`
+ * (USRH1787193625428). Solo se activa cuando el `create` de la rama de
+ * alta choca contra el índice único; nunca se toca la rama de actualización
+ * (`:491-521` de esta HU histórica) ni `accessPointName: payload.alias`.
+ */
+function isDuplicateSerialError(error: unknown): boolean {
+  const err = error as { code?: string; errno?: number; message?: string } | undefined
+  return (
+    err?.code === 'ER_DUP_ENTRY' ||
+    err?.errno === 1062 ||
+    Boolean(err?.message?.includes('uq_access_point_serial_number'))
+  )
+}
 
 Ws.boot()
 
@@ -560,7 +577,56 @@ if (Ws.io) {
           return
         }
 
-        const created = await accessPointService.create(newAccessPoint)
+        let created: AccessPoint
+        try {
+          created = await accessPointService.create(newAccessPoint)
+        } catch (createError) {
+          if (!isDuplicateSerialError(createError)) {
+            throw createError
+          }
+
+          logger.warn(
+            { serialNumber, index: 'uq_access_point_serial_number' },
+            'device-info: serie ya registrada, resolviendo choque'
+          )
+
+          // `AccessPoint.query()` compone SoftDeletes y filtra bajas por
+          // defecto: se consulta en crudo para poder ver también la fila
+          // muerta que secuestra la serie (CA-12).
+          const occupant = await db
+            .from('access_points')
+            .where('access_point_serial_number', serialNumber)
+            .first()
+
+          if (occupant?.access_point_deleted_at) {
+            // Ocupante muerto: libera la serie y reintenta una sola vez.
+            await db
+              .from('access_points')
+              .where('access_point_id', occupant.access_point_id)
+              .whereNotNull('access_point_deleted_at')
+              .update({ access_point_serial_number: null })
+
+            logger.warn(
+              { serialNumber, freedAccessPointId: occupant.access_point_id },
+              'device-info: serie liberada de una fila dada de baja, reintentando alta'
+            )
+
+            created = await accessPointService.create(newAccessPoint)
+          } else {
+            // Ocupante vivo: no se toca nada. Mensaje propio, nunca el del driver.
+            logger.warn(
+              { serialNumber, businessUnitId: occupant?.business_unit_id ?? null },
+              'device-info: serie ya registrada en un punto de acceso vivo'
+            )
+            socket.emit('device-info-ack', {
+              success: false,
+              error: 'El número de serie ya está registrado en el sistema.',
+              serial_number: serialNumber,
+            })
+            return
+          }
+        }
+
         if (Ws.io) {
           Ws.io.emit('device-info-received', {
             ...payload,

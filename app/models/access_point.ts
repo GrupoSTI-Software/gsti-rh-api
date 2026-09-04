@@ -5,6 +5,7 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import BusinessUnit from './business_unit.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import PlatformDevice from './platform_device.js'
 
 /**
  * @swagger
@@ -22,6 +23,10 @@ import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
  *         businessUnitId:
  *           type: number
  *           description: Business unit id
+ *         platformDeviceId:
+ *           type: number
+ *           nullable: true
+ *           description: Amarre hacia la unidad del inventario de plataforma (USRH1787193625428). Null si no viene de una entrega nuestra.
  *         accessPointActive:
  *           type: number
  *           description: Active status (0 = inactive, 1 = active)
@@ -75,6 +80,15 @@ export default class AccessPoint extends compose(BaseModel, SoftDeletes, withBus
   @column()
   declare businessUnitId: number
 
+  /**
+   * Amarre hacia la unidad física del inventario de plataforma
+   * (USRH1787193625428). NULL para los equipos preexistentes y los que el
+   * cliente da de alta a mano; lo puebla "Precargar el punto de acceso del
+   * tenant al asignar la unidad" (USRH1787189981879).
+   */
+  @column()
+  declare platformDeviceId: number | null
+
   @column()
   declare accessPointActive: number
 
@@ -115,4 +129,9 @@ export default class AccessPoint extends compose(BaseModel, SoftDeletes, withBus
     foreignKey: 'businessUnitId',
   })
   declare businessUnit: BelongsTo<typeof BusinessUnit>
+
+  @belongsTo(() => PlatformDevice, {
+    foreignKey: 'platformDeviceId',
+  })
+  declare platformDevice: BelongsTo<typeof PlatformDevice>
 }
