@@ -277,4 +277,47 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
     assert.include(cuerpo, 'noticeUpdatedAt')
     assert.include(cuerpo, 'noticeType')
   })
+
+  test('B5: el adjunto de un aviso ajeno responde 404, nunca 403', async ({
+    client,
+    assert,
+  }) => {
+    // 404 y no 403: un 403 distinguiría "existe pero no es tuyo" de "no
+    // existe", revelando la existencia del aviso.
+    const response = await client
+      .get(`/api/notices/${avisos[0]}/files/1/content`)
+      .loginAs(beto!.user)
+
+    assert.equal(response.status(), 404)
+  })
+
+  test('B5: el cuerpo-archivo de un aviso ajeno responde 404', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/notices/${avisos[0]}/body-file`)
+      .loginAs(beto!.user)
+
+    assert.equal(response.status(), 404)
+  })
+
+  test('B5: un id no numérico se rechaza con 400 tipado', async ({ client, assert }) => {
+    const response = await client.get('/api/notices/abc/body-file').loginAs(ana!.user)
+
+    assert.equal(response.status(), 400)
+    assert.equal(response.body().key, 'aviso-id-invalido')
+  })
+
+  test('B5: un aviso de TEXTO no tiene cuerpo-archivo que entregar', async ({
+    client,
+    assert,
+  }) => {
+    // Los avisos de texto guardan su cuerpo en la columna, no como archivo.
+    const response = await client
+      .get(`/api/notices/${avisos[0]}/body-file`)
+      .loginAs(ana!.user)
+
+    assert.equal(response.status(), 404)
+  })
 })
