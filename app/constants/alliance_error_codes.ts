@@ -31,6 +31,12 @@ export const ALLIANCE_ERROR_CODES = {
   CFDI_USE_NOT_FOR_REGIME: 'PLT.ALL.CFDI_USE_NOT_FOR_REGIME',
   /** Carrera de dos PUT sobre el perfil vivo de la misma alianza */
   BILLING_PROFILE_CONFLICT: 'PLT.ALL.BILLING_PROFILE_CONFLICT',
+  /** La alianza no tiene código (ventana previa a esta HU, o consulta vacía) */
+  CODE_NOT_FOUND: 'PLT.ALL.CODE_NOT_FOUND',
+  /** Se intentó acuñar un segundo código para la misma alianza */
+  CODE_ALREADY_EXISTS: 'PLT.ALL.CODE_ALREADY_EXISTS',
+  /** Agotados los reintentos de acuñación contra el UNIQUE del texto */
+  CODE_GENERATION_EXHAUSTED: 'PLT.ALL.CODE_GENERATION_EXHAUSTED',
   /** Error no tipado del módulo */
   SYS_UNHANDLED: 'PLT.ALL.SYS_UNHANDLED',
 } as const
@@ -133,6 +139,27 @@ export const ALLIANCE_ERRORS = {
     detail: 'Otro proceso está guardando el perfil fiscal de la alianza. Intenta de nuevo.',
     code: ALLIANCE_ERROR_CODES.BILLING_PROFILE_CONFLICT,
     status: 409,
+  },
+  CODE_NOT_FOUND: {
+    key: 'codigo-no-encontrado',
+    title: 'Alianzas',
+    detail: 'La alianza comercial no tiene código de descuento.',
+    code: ALLIANCE_ERROR_CODES.CODE_NOT_FOUND,
+    status: 404,
+  },
+  CODE_ALREADY_EXISTS: {
+    key: 'codigo-ya-existe',
+    title: 'Alianzas',
+    detail: 'La alianza comercial ya tiene su código. No se genera otro.',
+    code: ALLIANCE_ERROR_CODES.CODE_ALREADY_EXISTS,
+    status: 409,
+  },
+  CODE_GENERATION_EXHAUSTED: {
+    key: 'generacion-de-codigo-agotada',
+    title: 'Alianzas',
+    detail: 'No se pudo generar un código único para la alianza. Intenta de nuevo.',
+    code: ALLIANCE_ERROR_CODES.CODE_GENERATION_EXHAUSTED,
+    status: 500,
   },
   SYS_UNHANDLED: {
     key: 'error-sistema',

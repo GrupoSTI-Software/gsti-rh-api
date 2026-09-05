@@ -15,7 +15,7 @@ import BusinessUnit from '#models/business_unit'
  */
 
 const TEST_PASSWORD = 'AllianceGuardTest123!'
-const ALLIANCE_AREA_ROUTE_COUNT = 8
+const ALLIANCE_AREA_ROUTE_COUNT = 9
 
 type AllianceHttpMethod = 'get' | 'post' | 'patch' | 'put'
 
@@ -28,6 +28,7 @@ const ALLIANCE_AREA_ROUTES: Array<{ method: AllianceHttpMethod; path: string }> 
   { method: 'post', path: '/api/platform/alliances/1/deactivate' },
   { method: 'get', path: '/api/platform/alliances/1/billing-profile' },
   { method: 'put', path: '/api/platform/alliances/1/billing-profile' },
+  { method: 'get', path: '/api/platform/alliances/1/code' },
 ]
 
 interface TestActor {
@@ -77,7 +78,7 @@ async function cleanupActor(actor: TestActor | null) {
 }
 
 test.group('Guard /api/platform/alliances — conteo del área', () => {
-  test('el área declara exactamente 8 rutas de alianzas', ({ assert }) => {
+  test('el área declara exactamente 9 rutas de alianzas', ({ assert }) => {
     assert.equal(ALLIANCE_AREA_ROUTES.length, ALLIANCE_AREA_ROUTE_COUNT)
   })
 

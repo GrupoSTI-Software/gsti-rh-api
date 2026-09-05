@@ -4,6 +4,7 @@ import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import Alliance from '#models/alliance'
+import DiscountCode from '#models/discount_code'
 import { ALLIANCE_ERROR_CODES } from '#constants/alliance_error_codes'
 
 /**
@@ -63,6 +64,7 @@ async function cleanupActor(actor: TestActor | null) {
 
 async function cleanupAlliances(ids: number[]) {
   if (ids.length === 0) return
+  await DiscountCode.query().whereIn('discount_code_alliance_id', ids).delete()
   await Alliance.query().whereIn('alliance_id', ids).delete()
 }
 

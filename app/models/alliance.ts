@@ -4,6 +4,7 @@ import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import type { HasOne } from '@adonisjs/lucid/types/relations'
 import AllianceBillingProfile from '#models/alliance_billing_profile'
+import DiscountCode from '#models/discount_code'
 
 /**
  * Alianza comercial de GSTI (USRH1788505941892).
@@ -91,4 +92,10 @@ export default class Alliance extends compose(BaseModel, SoftDeletes) {
     localKey: 'allianceId',
   })
   declare allianceBillingProfile: HasOne<typeof AllianceBillingProfile>
+
+  @hasOne(() => DiscountCode, {
+    foreignKey: 'allianceId',
+    localKey: 'allianceId',
+  })
+  declare discountCode: HasOne<typeof DiscountCode>
 }

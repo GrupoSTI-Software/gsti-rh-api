@@ -5,6 +5,7 @@ import SatTaxRegime from '#models/sat_tax_regime'
 import db from '@adonisjs/lucid/services/db'
 import { ALLIANCE_ERRORS } from '#constants/alliance_error_codes'
 import { AllianceServiceError } from '#exceptions/alliance_service_error'
+import { assertPositiveAllianceId } from '#services/alliance_service'
 import { deriveTaxpayerTypeFromRfc } from '#helpers/sat_taxpayer_type'
 import { computeBillingProfileCompleteness } from '#helpers/tenant_billing_profile_completeness'
 import { blindIndex } from '#utils/blind_index'
@@ -81,6 +82,8 @@ export default class AllianceBillingProfileService {
   }
 
   private async assertAllianceExists(allianceId: number): Promise<Alliance> {
+    assertPositiveAllianceId(allianceId)
+
     const alliance = await Alliance.query()
       .where('alliance_id', allianceId)
       .whereNull('alliance_deleted_at')

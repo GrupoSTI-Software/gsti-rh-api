@@ -413,4 +413,42 @@ export default class AllianceController {
       return response.status(status).json(body)
     }
   }
+
+  /**
+   * @swagger
+   * /api/platform/alliances/{allianceId}/code:
+   *   get:
+   *     tags:
+   *       - Platform Alliances
+   *     summary: Consultar el código de descuento de una alianza
+   *     description: >
+   *       Única consulta dedicada del texto. Distingue alianza
+   *       inexistente (NOT_FOUND) de alianza sin código (CODE_NOT_FOUND).
+   *       No se cachea: el cuerpo lleva el texto del código.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: allianceId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       '200':
+   *         description: Código de la alianza
+   *       '404':
+   *         description: >
+   *           Alianza no encontrada (PLT.ALL.NOT_FOUND) o sin código
+   *           (PLT.ALL.CODE_NOT_FOUND)
+   */
+  async showCode({ params, response }: HttpContext) {
+    response.header('Cache-Control', 'no-store')
+    try {
+      const data = await this.service.getAllianceDiscountCode(Number(params.allianceId))
+      return response.status(200).json({ type: 'success', data })
+    } catch (error) {
+      const { status, ...body } = resolveAllianceApiError(error)
+      return response.status(status).json(body)
+    }
+  }
 }

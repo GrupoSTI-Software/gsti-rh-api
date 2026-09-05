@@ -1,9 +1,10 @@
 /**
- * Formas canónicas de la alianza comercial (USRH1788505941892 / USRH1788505941893).
+ * Formas canónicas de la alianza comercial
+ * (USRH1788505941892 / USRH1788505941893 / USRH1788505941894).
  *
- * Las HUs siguientes (03a, 03b, 06b) agregan campos a estas mismas
+ * Las HUs siguientes (03b, 06b) agregan campos a estas mismas
  * interfaces; ninguna las redefine. Esta HU no entrega
- * `allianceDiscountCode` ni `allianceLiveAttributionsCount`.
+ * `allianceLiveAttributionsCount` ni `qrUrlPath` / `allianceQrReady`.
  */
 
 import type { BillingProfileMissingField } from '../helpers/tenant_billing_profile_completeness.js'
@@ -50,9 +51,19 @@ export interface AllianceBillingProfileUpsertInput {
   billingEmail?: string | null
 }
 
+/** Vista del código de la alianza. 03b agrega `qrUrlPath` y `allianceQrReady`. */
+export interface AllianceDiscountCodeView {
+  discountCodeId: number
+  discountCodeText: string
+  discountCodeKind: 'percent' | 'fixed_amount' | 'unit_price'
+  discountCodeValue: number
+  discountCodeActive: 0 | 1
+}
+
 export interface AllianceView extends AllianceListItem {
   allianceContactPhone: string | null
   updatedAt: string | null
+  allianceDiscountCode: AllianceDiscountCodeView | null
 }
 
 export interface CreateAllianceInput {

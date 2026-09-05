@@ -23,6 +23,8 @@ export interface CreateDiscountCodeInput {
   discountCodeValidTo?: string | null
   discountCodeMaxRedemptions?: number | null
   discountCodeBenefitPeriods?: number | null
+  /** Dueño opcional. Solo lo escribe la acuñación de alianzas. */
+  discountCodeAllianceId?: number | null
 }
 
 export interface UpdateDiscountCodeInput {
@@ -153,8 +155,11 @@ export default class DiscountCodeService {
   }
 
   /** 404 tipado si no existe o está retirado del catálogo. */
-  async getDiscountCode(discountCodeId: number): Promise<DiscountCode> {
-    const discountCode = await DiscountCode.query()
+  async getDiscountCode(
+    discountCodeId: number,
+    trx?: TransactionClientContract
+  ): Promise<DiscountCode> {
+    const discountCode = await DiscountCode.query(trx ? { client: trx } : {})
       .where('discount_code_id', discountCodeId)
       .whereNull('discount_code_deleted_at')
       .first()
@@ -172,25 +177,32 @@ export default class DiscountCodeService {
     return discountCode
   }
 
-  async createDiscountCode(input: CreateDiscountCodeInput): Promise<DiscountCode> {
+  async createDiscountCode(
+    input: CreateDiscountCodeInput,
+    trx?: TransactionClientContract
+  ): Promise<DiscountCode> {
     this.assertValueCoherence(input.discountCodeKind, input.discountCodeValue)
     this.assertValidityRange(input.discountCodeValidFrom, input.discountCodeValidTo)
 
     const normalizedCode = input.discountCodeCode.trim().toUpperCase()
 
     try {
-      return await DiscountCode.create({
-        discountCodeCode: normalizedCode,
-        discountCodeName: input.discountCodeName,
-        discountCodeKind: input.discountCodeKind,
-        discountCodeValue: input.discountCodeValue,
-        discountCodeValidFrom: input.discountCodeValidFrom ?? null,
-        discountCodeValidTo: input.discountCodeValidTo ?? null,
-        discountCodeMaxRedemptions: input.discountCodeMaxRedemptions ?? null,
-        discountCodeRedeemedCount: 0,
-        discountCodeBenefitPeriods: input.discountCodeBenefitPeriods ?? null,
-        discountCodeActive: 1,
-      })
+      return await DiscountCode.create(
+        {
+          discountCodeCode: normalizedCode,
+          discountCodeName: input.discountCodeName,
+          discountCodeKind: input.discountCodeKind,
+          discountCodeValue: input.discountCodeValue,
+          discountCodeValidFrom: input.discountCodeValidFrom ?? null,
+          discountCodeValidTo: input.discountCodeValidTo ?? null,
+          discountCodeMaxRedemptions: input.discountCodeMaxRedemptions ?? null,
+          discountCodeRedeemedCount: 0,
+          discountCodeBenefitPeriods: input.discountCodeBenefitPeriods ?? null,
+          discountCodeActive: 1,
+          allianceId: input.discountCodeAllianceId ?? null,
+        },
+        trx ? { client: trx } : undefined
+      )
     } catch (error) {
       this.rethrowDuplicateDiscountCodeError(error, normalizedCode)
     }
@@ -243,8 +255,11 @@ export default class DiscountCodeService {
     return discountCode
   }
 
-  async activateDiscountCode(discountCodeId: number): Promise<DiscountCode> {
-    const discountCode = await this.getDiscountCode(discountCodeId)
+  async activateDiscountCode(
+    discountCodeId: number,
+    trx?: TransactionClientContract
+  ): Promise<DiscountCode> {
+    const discountCode = await this.getDiscountCode(discountCodeId, trx)
 
     if (discountCode.discountCodeActive === 1) {
       throw new DiscountCodeServiceError(
@@ -256,13 +271,19 @@ export default class DiscountCodeService {
       )
     }
 
+    if (trx) {
+      discountCode.useTransaction(trx)
+    }
     discountCode.discountCodeActive = 1
     await discountCode.save()
     return discountCode
   }
 
-  async deactivateDiscountCode(discountCodeId: number): Promise<DiscountCode> {
-    const discountCode = await this.getDiscountCode(discountCodeId)
+  async deactivateDiscountCode(
+    discountCodeId: number,
+    trx?: TransactionClientContract
+  ): Promise<DiscountCode> {
+    const discountCode = await this.getDiscountCode(discountCodeId, trx)
 
     if (discountCode.discountCodeActive === 0) {
       throw new DiscountCodeServiceError(
@@ -274,6 +295,9 @@ export default class DiscountCodeService {
       )
     }
 
+    if (trx) {
+      discountCode.useTransaction(trx)
+    }
     discountCode.discountCodeActive = 0
     await discountCode.save()
     return discountCode

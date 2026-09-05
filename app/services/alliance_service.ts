@@ -1,9 +1,21 @@
 import Alliance from '#models/alliance'
 import AllianceBillingProfile from '#models/alliance_billing_profile'
+import DiscountCode from '#models/discount_code'
+import db from '@adonisjs/lucid/services/db'
+import logger from '@adonisjs/core/services/logger'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { ALLIANCE_ERRORS } from '#constants/alliance_error_codes'
 import { AllianceServiceError } from '#exceptions/alliance_service_error'
+import { DISCOUNT_CODE_ERROR_CODES } from '#constants/discount_code_error_codes'
+import { DiscountCodeServiceError } from '#exceptions/discount_code_service_error'
+import {
+  ALLIANCE_CODE_MAX_ATTEMPTS,
+  generateAllianceCodeText,
+} from '#helpers/alliance_code_generator'
 import { computeBillingProfileCompleteness } from '#helpers/tenant_billing_profile_completeness'
+import DiscountCodeService from '#services/discount_code_service'
 import type {
+  AllianceDiscountCodeView,
   AllianceListItem,
   AllianceView,
   CreateAllianceInput,
@@ -11,6 +23,27 @@ import type {
   ListAlliancesResult,
   UpdateAllianceInput,
 } from '../interfaces/alliance_interface.js'
+
+const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
+
+function throwFromCatalog(
+  catalog: (typeof ALLIANCE_ERRORS)[keyof typeof ALLIANCE_ERRORS]
+): never {
+  throw new AllianceServiceError(
+    catalog.detail,
+    catalog.code,
+    catalog.status,
+    catalog.key,
+    catalog.detail
+  )
+}
+
+/** Id de ruta inválido (NaN, 0, negativo) se trata como no encontrado, no como 500. */
+export function assertPositiveAllianceId(allianceId: number): void {
+  if (!Number.isFinite(allianceId) || allianceId <= 0) {
+    throwFromCatalog(ALLIANCE_ERRORS.NOT_FOUND)
+  }
+}
 
 /**
  * Rechaza un porcentaje de comisión fuera de 0..100 o con más de dos
@@ -101,11 +134,32 @@ export function toAllianceListItem(alliance: Alliance): AllianceListItem {
   }
 }
 
+export function toAllianceDiscountCodeView(code: DiscountCode): AllianceDiscountCodeView {
+  return {
+    discountCodeId: Number(code.discountCodeId),
+    discountCodeText: code.discountCodeCode,
+    discountCodeKind: code.discountCodeKind,
+    discountCodeValue: Number(code.discountCodeValue),
+    discountCodeActive: code.discountCodeActive === 1 ? 1 : 0,
+  }
+}
+
+function resolvePreloadedDiscountCode(alliance: Alliance): DiscountCode | null {
+  const related = alliance.$preloaded.discountCode
+  if (!related || Array.isArray(related)) {
+    return null
+  }
+  return related as DiscountCode
+}
+
 export function toAllianceView(alliance: Alliance): AllianceView {
+  const code = resolvePreloadedDiscountCode(alliance)
+
   return {
     ...toAllianceListItem(alliance),
     allianceContactPhone: alliance.allianceContactPhone,
     updatedAt: toIso(alliance.updatedAt),
+    allianceDiscountCode: code ? toAllianceDiscountCodeView(code) : null,
   }
 }
 
@@ -113,11 +167,13 @@ export function toAllianceView(alliance: Alliance): AllianceView {
  * Lógica de negocio del registro de alianzas comerciales de la plataforma
  * (USRH1788505941892).
  *
- * Invariantes: toda alianza nace activa; el nombre puede repetirse; el
- * porcentaje y el plazo son valores por omisión (esta HU no los aplica);
- * ningún método escribe `alliance_deleted_at`.
+ * Invariantes: toda alianza nace activa y con su código; el nombre puede
+ * repetirse; el porcentaje y el plazo son valores por omisión; ningún
+ * método escribe `alliance_deleted_at`.
  */
 export default class AllianceService {
+  private readonly discountCodes = new DiscountCodeService()
+
   /**
    * Listado paginado con filtros. Sin criterios, se comporta como el
    * catálogo completo (sin retirados), orden `alliance_id asc`.
@@ -158,12 +214,15 @@ export default class AllianceService {
     }
   }
 
-  /** 404 tipado si no existe o está retirada con soft delete. */
+  /** 404 tipado si no existe, el id es inválido o está retirada con soft delete. */
   async getAlliance(allianceId: number): Promise<Alliance> {
+    assertPositiveAllianceId(allianceId)
+
     const alliance = await Alliance.query()
       .where('alliance_id', allianceId)
       .whereNull('alliance_deleted_at')
       .preload('allianceBillingProfile')
+      .preload('discountCode')
       .first()
 
     if (!alliance) {
@@ -184,15 +243,94 @@ export default class AllianceService {
     assertCommissionPercent(input.allianceDefaultCommissionPercent)
     assertTermPeriods(input.allianceDefaultTermPeriods)
 
-    return Alliance.create({
-      allianceName: input.allianceName,
-      allianceContactName: input.allianceContactName ?? null,
-      allianceContactEmail: input.allianceContactEmail ?? null,
-      allianceContactPhone: input.allianceContactPhone ?? null,
-      allianceDefaultCommissionPercent: input.allianceDefaultCommissionPercent,
-      allianceDefaultTermPeriods: input.allianceDefaultTermPeriods ?? null,
-      allianceActive: 1,
+    return db.transaction(async (trx) => {
+      const alliance = await Alliance.create(
+        {
+          allianceName: input.allianceName,
+          allianceContactName: input.allianceContactName ?? null,
+          allianceContactEmail: input.allianceContactEmail ?? null,
+          allianceContactPhone: input.allianceContactPhone ?? null,
+          allianceDefaultCommissionPercent: input.allianceDefaultCommissionPercent,
+          allianceDefaultTermPeriods: input.allianceDefaultTermPeriods ?? null,
+          allianceActive: 1,
+        },
+        { client: trx }
+      )
+
+      const code = await this.mintAllianceDiscountCode(alliance, trx)
+      alliance.$setRelated('discountCode', code)
+      return alliance
     })
+  }
+
+  /**
+   * Acuña el código de la alianza dentro de la transacción del alta.
+   * Pre-chequeo del texto; si choca, genera otro. Nunca deja escapar
+   * el texto en un error ni en un log.
+   */
+  async mintAllianceDiscountCode(
+    alliance: Alliance,
+    trx: TransactionClientContract
+  ): Promise<DiscountCode> {
+    const alreadyOwned = await DiscountCode.query({ client: trx })
+      .where('discount_code_alliance_id', alliance.allianceId)
+      .first()
+
+    if (alreadyOwned) {
+      throwFromCatalog(ALLIANCE_ERRORS.CODE_ALREADY_EXISTS)
+    }
+
+    for (let attempt = 1; attempt <= ALLIANCE_CODE_MAX_ATTEMPTS; attempt++) {
+      const text = generateAllianceCodeText()
+      const taken = await trx.from('discount_codes').where('discount_code_code', text).first()
+
+      if (taken) {
+        logger.warn(
+          { allianceId: alliance.allianceId, attempt },
+          'Colisión de texto al acuñar el código de una alianza'
+        )
+        continue
+      }
+
+      try {
+        return await this.discountCodes.createDiscountCode(
+          {
+            discountCodeCode: text,
+            discountCodeName: `Alianza ${alliance.allianceName}`.slice(0, 160),
+            discountCodeKind: 'percent',
+            discountCodeValue: 0,
+            discountCodeAllianceId: alliance.allianceId,
+          },
+          trx
+        )
+      } catch (error) {
+        if (this.isRetryableTextCollision(error, alliance.allianceId, attempt)) {
+          continue
+        }
+        this.rethrowNonRetryableMintFailure(error)
+      }
+    }
+
+    logger.error(
+      { allianceId: alliance.allianceId },
+      'Agotados los intentos de acuñación del código de una alianza'
+    )
+    throwFromCatalog(ALLIANCE_ERRORS.CODE_GENERATION_EXHAUSTED)
+  }
+
+  /**
+   * Consulta el código de la alianza. Distingue alianza inexistente
+   * (`NOT_FOUND`) de alianza sin código (`CODE_NOT_FOUND`).
+   */
+  async getAllianceDiscountCode(allianceId: number): Promise<AllianceDiscountCodeView> {
+    const alliance = await this.getAlliance(allianceId)
+    const code = resolvePreloadedDiscountCode(alliance)
+
+    if (!code) {
+      throwFromCatalog(ALLIANCE_ERRORS.CODE_NOT_FOUND)
+    }
+
+    return toAllianceDiscountCodeView(code)
   }
 
   /**
@@ -241,37 +379,94 @@ export default class AllianceService {
     const alliance = await this.getAlliance(allianceId)
 
     if (alliance.allianceActive === 1) {
-      const catalog = ALLIANCE_ERRORS.ALREADY_ACTIVE
-      throw new AllianceServiceError(
-        catalog.detail,
-        catalog.code,
-        catalog.status,
-        catalog.key,
-        catalog.detail
-      )
+      throwFromCatalog(ALLIANCE_ERRORS.ALREADY_ACTIVE)
     }
 
-    alliance.allianceActive = 1
-    await alliance.save()
-    return alliance
+    return db.transaction(async (trx) => {
+      alliance.useTransaction(trx)
+      alliance.allianceActive = 1
+      await alliance.save()
+      await this.syncDiscountCodeActive(alliance.allianceId, 1, trx)
+      await alliance.load('discountCode')
+      return alliance
+    })
   }
 
   async deactivateAlliance(allianceId: number): Promise<Alliance> {
     const alliance = await this.getAlliance(allianceId)
 
     if (alliance.allianceActive === 0) {
-      const catalog = ALLIANCE_ERRORS.ALREADY_INACTIVE
-      throw new AllianceServiceError(
-        catalog.detail,
-        catalog.code,
-        catalog.status,
-        catalog.key,
-        catalog.detail
-      )
+      throwFromCatalog(ALLIANCE_ERRORS.ALREADY_INACTIVE)
     }
 
-    alliance.allianceActive = 0
-    await alliance.save()
-    return alliance
+    return db.transaction(async (trx) => {
+      alliance.useTransaction(trx)
+      alliance.allianceActive = 0
+      await alliance.save()
+      await this.syncDiscountCodeActive(alliance.allianceId, 0, trx)
+      await alliance.load('discountCode')
+      return alliance
+    })
+  }
+
+  /**
+   * Cascada tolerante: solo invoca al catálogo si el código no está
+   * ya en el estado destino. Sin código, no hace nada (ventana §16).
+   */
+  private async syncDiscountCodeActive(
+    allianceId: number,
+    target: 0 | 1,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    const code = await DiscountCode.query({ client: trx })
+      .where('discount_code_alliance_id', allianceId)
+      .first()
+
+    if (!code || code.discountCodeActive === target) {
+      return
+    }
+
+    if (target === 1) {
+      await this.discountCodes.activateDiscountCode(code.discountCodeId, trx)
+      return
+    }
+
+    await this.discountCodes.deactivateDiscountCode(code.discountCodeId, trx)
+  }
+
+  /**
+   * Choque de texto entre el pre-chequeo y el INSERT. Se reintenta.
+   * Nunca reexpone el texto: `CODE_DUPLICATE` lo lleva en `detail`.
+   */
+  private isRetryableTextCollision(
+    error: unknown,
+    allianceId: number,
+    attempt: number
+  ): boolean {
+    if (
+      error instanceof DiscountCodeServiceError &&
+      error.errorCode === DISCOUNT_CODE_ERROR_CODES.CODE_DUPLICATE
+    ) {
+      logger.warn(
+        { allianceId, attempt },
+        'Colisión de texto al insertar el código de una alianza'
+      )
+      return true
+    }
+
+    return false
+  }
+
+  /** `ER_DUP_ENTRY` sobre el UNIQUE de dueño; cualquier otro error se relanza. */
+  private rethrowNonRetryableMintFailure(error: unknown): never {
+    const dbError = error as { code?: string; sqlMessage?: string }
+    if (
+      dbError.code === ER_DUP_ENTRY &&
+      dbError.sqlMessage?.includes('uq_discount_code_alliance_id')
+    ) {
+      throwFromCatalog(ALLIANCE_ERRORS.CODE_ALREADY_EXISTS)
+    }
+
+    throw error
   }
 }

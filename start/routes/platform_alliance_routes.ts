@@ -15,6 +15,7 @@ import { middleware } from '../kernel.js'
  *   POST   /api/platform/alliances/:allianceId/deactivate → desactivar
  *   GET    /api/platform/alliances/:allianceId/billing-profile → perfil fiscal
  *   PUT    /api/platform/alliances/:allianceId/billing-profile → upsert perfil
+ *   GET    /api/platform/alliances/:allianceId/code            → código de la alianza
  */
 router
   .group(() => {
@@ -32,6 +33,7 @@ router
       '/alliances/:allianceId/billing-profile',
       '#controllers/alliance_controller.billingProfileUpsert'
     )
+    router.get('/alliances/:allianceId/code', '#controllers/alliance_controller.showCode')
   })
   .prefix('/api/platform')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])

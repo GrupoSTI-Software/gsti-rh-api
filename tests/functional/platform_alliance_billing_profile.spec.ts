@@ -4,6 +4,7 @@ import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import Alliance from '#models/alliance'
+import DiscountCode from '#models/discount_code'
 import AllianceBillingProfile from '#models/alliance_billing_profile'
 import SatTaxRegime from '#models/sat_tax_regime'
 import SatCfdiUse from '#models/sat_cfdi_use'
@@ -144,6 +145,7 @@ test.group('GET/PUT /api/platform/alliances/:id/billing-profile', (group) => {
       await AllianceBillingProfile.query().whereIn('alliance_billing_profile_id', profileIds).delete()
     }
     if (allianceIds.length > 0) {
+      await DiscountCode.query().whereIn('discount_code_alliance_id', allianceIds).delete()
       await Alliance.query().whereIn('alliance_id', allianceIds).delete()
     }
     await cleanupActor(admin)
