@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { BaseModel, column, hasOne } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import type { HasOne } from '@adonisjs/lucid/types/relations'
+import AllianceBillingProfile from '#models/alliance_billing_profile'
 
 /**
  * Alianza comercial de GSTI (USRH1788505941892).
@@ -83,4 +85,10 @@ export default class Alliance extends compose(BaseModel, SoftDeletes) {
 
   @column.dateTime({ columnName: 'alliance_deleted_at' })
   declare deletedAt: DateTime | null
+
+  @hasOne(() => AllianceBillingProfile, {
+    foreignKey: 'allianceId',
+    localKey: 'allianceId',
+  })
+  declare allianceBillingProfile: HasOne<typeof AllianceBillingProfile>
 }

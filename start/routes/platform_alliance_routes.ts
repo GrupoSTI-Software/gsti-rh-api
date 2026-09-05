@@ -13,6 +13,8 @@ import { middleware } from '../kernel.js'
  *   PATCH  /api/platform/alliances/:allianceId      → corrección (sin estado)
  *   POST   /api/platform/alliances/:allianceId/activate   → reactivar
  *   POST   /api/platform/alliances/:allianceId/deactivate → desactivar
+ *   GET    /api/platform/alliances/:allianceId/billing-profile → perfil fiscal
+ *   PUT    /api/platform/alliances/:allianceId/billing-profile → upsert perfil
  */
 router
   .group(() => {
@@ -22,6 +24,14 @@ router
     router.patch('/alliances/:allianceId', '#controllers/alliance_controller.update')
     router.post('/alliances/:allianceId/activate', '#controllers/alliance_controller.activate')
     router.post('/alliances/:allianceId/deactivate', '#controllers/alliance_controller.deactivate')
+    router.get(
+      '/alliances/:allianceId/billing-profile',
+      '#controllers/alliance_controller.billingProfileShow'
+    )
+    router.put(
+      '/alliances/:allianceId/billing-profile',
+      '#controllers/alliance_controller.billingProfileUpsert'
+    )
   })
   .prefix('/api/platform')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])

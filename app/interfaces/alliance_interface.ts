@@ -1,11 +1,16 @@
 /**
- * Formas canónicas de la alianza comercial (USRH1788505941892).
+ * Formas canónicas de la alianza comercial (USRH1788505941892 / USRH1788505941893).
  *
- * Las HUs siguientes (02, 03a, 03b, 06b) agregan campos a estas mismas
+ * Las HUs siguientes (03a, 03b, 06b) agregan campos a estas mismas
  * interfaces; ninguna las redefine. Esta HU no entrega
- * `billingProfileComplete`, `allianceDiscountCode` ni
- * `allianceLiveAttributionsCount`.
+ * `allianceDiscountCode` ni `allianceLiveAttributionsCount`.
  */
+
+import type { BillingProfileMissingField } from '../helpers/tenant_billing_profile_completeness.js'
+import type { SatTaxpayerType } from '../helpers/sat_taxpayer_type.js'
+
+export type { BillingProfileMissingField } from '../helpers/tenant_billing_profile_completeness.js'
+export type { SatTaxpayerType } from '../helpers/sat_taxpayer_type.js'
 
 export interface AllianceListItem {
   allianceId: number
@@ -16,6 +21,33 @@ export interface AllianceListItem {
   allianceDefaultTermPeriods: number | null
   allianceActive: 0 | 1
   createdAt: string
+  billingProfileComplete: boolean
+  missingFields: BillingProfileMissingField[]
+}
+
+/** Vista del perfil fiscal de la alianza. Única superficie que expone el RFC en claro. */
+export interface AllianceBillingProfileView {
+  exists: boolean
+  rfc: string | null
+  legalName: string
+  postalCode: string | null
+  taxRegimeCode: string | null
+  cfdiUseCode: string | null
+  billingEmail: string | null
+  taxpayerType: SatTaxpayerType | null
+  billingProfileComplete: boolean
+  missingFields: BillingProfileMissingField[]
+  createdAt: string | null
+  updatedAt: string | null
+}
+
+export interface AllianceBillingProfileUpsertInput {
+  legalName: string
+  rfc?: string | null
+  postalCode?: string | null
+  taxRegimeCode?: string | null
+  cfdiUseCode?: string | null
+  billingEmail?: string | null
 }
 
 export interface AllianceView extends AllianceListItem {

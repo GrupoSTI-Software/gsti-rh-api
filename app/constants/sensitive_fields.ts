@@ -180,6 +180,17 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
     encrypted: true,
   },
 
+  // RFC fiscal de la alianza; cifrado AES + blind index. Sin maskedInApi:
+  // no entra al flujo GET /reveal/:token (USRH1788505941893).
+  // Ancla: app/models/alliance_billing_profile.ts (columna `rfc`)
+  {
+    model: 'AllianceBillingProfile',
+    column: 'rfc',
+    legalCategory: 'identificacion',
+    treatment: 'cifrar-buscable',
+    encrypted: true,
+  },
+
   // ─── Employee: financiero (VIGENTE, EN CLARO — cifrado en HU aparte) ──────
   // Dato vivo del que se derivan EmployeeSalaryHistory.salaryDaily y el cálculo
   // de nómina. Se clasifica y se oculta en serialización; NO se cifra todavía

@@ -1,11 +1,30 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { ALLIANCE_ERRORS } from '#constants/alliance_error_codes'
+import AllianceBillingProfileService from '#services/alliance_billing_profile_service'
 import AllianceService, { toAllianceView } from '#services/alliance_service'
+import { upsertAllianceBillingProfileValidator } from '#validators/alliance_billing_profile'
 import {
   createAllianceValidator,
   listAlliancesValidator,
   updateAllianceValidator,
 } from '#validators/alliance'
 import { resolveAllianceApiError } from '../helpers/alliance_api_error.js'
+
+function resolveAllianceHttpError(error: unknown) {
+  const err = error as { code?: string; messages?: Array<{ rule?: string }> }
+  if (err?.code === 'E_VALIDATION_ERROR' && err.messages?.[0]?.rule === 'rfc_sat') {
+    const catalog = ALLIANCE_ERRORS.RFC_INVALID
+    return {
+      title: 'Alianzas',
+      detail: catalog.detail,
+      key: catalog.key,
+      code: catalog.code,
+      status: catalog.status,
+    }
+  }
+
+  return resolveAllianceApiError(error)
+}
 
 /**
  * Controlador del registro de alianzas comerciales (USRH1788505941892).
@@ -14,6 +33,7 @@ import { resolveAllianceApiError } from '../helpers/alliance_api_error.js'
  */
 export default class AllianceController {
   private readonly service = new AllianceService()
+  private readonly billingProfileService = new AllianceBillingProfileService()
 
   /**
    * @swagger
@@ -285,6 +305,111 @@ export default class AllianceController {
       return response.status(200).json({ type: 'success', data: toAllianceView(alliance) })
     } catch (error) {
       const { status, ...body } = resolveAllianceApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/alliances/{allianceId}/billing-profile:
+   *   get:
+   *     tags:
+   *       - Platform Alliances
+   *     summary: Consultar el perfil fiscal de una alianza
+   *     description: >
+   *       Si aún no hay fila, responde 200 con exists false y la razón
+   *       social heredada del nombre de la alianza. Única superficie que
+   *       entrega el RFC en claro.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: allianceId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       '200':
+   *         description: Perfil fiscal (existente o heredado)
+   *       '404':
+   *         description: Alianza no encontrada (PLT.ALL.NOT_FOUND)
+   */
+  async billingProfileShow({ params, response }: HttpContext) {
+    try {
+      const data = await this.billingProfileService.getBillingProfile(Number(params.allianceId))
+      return response.status(200).json({ type: 'success', data })
+    } catch (error) {
+      const { status, ...body } = resolveAllianceHttpError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/alliances/{allianceId}/billing-profile:
+   *   put:
+   *     tags:
+   *       - Platform Alliances
+   *     summary: Crear o corregir el perfil fiscal de una alianza
+   *     description: >
+   *       Upsert singular (siempre 200). Ausente conserva, null limpia,
+   *       valor escribe. Se permite sobre una alianza inactiva. El RFC
+   *       se valida contra la forma SAT; régimen y uso contra el catálogo.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: allianceId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - legalName
+   *             properties:
+   *               legalName:
+   *                 type: string
+   *               rfc:
+   *                 type: string
+   *                 nullable: true
+   *               postalCode:
+   *                 type: string
+   *                 nullable: true
+   *               taxRegimeCode:
+   *                 type: string
+   *                 nullable: true
+   *               cfdiUseCode:
+   *                 type: string
+   *                 nullable: true
+   *               billingEmail:
+   *                 type: string
+   *                 nullable: true
+   *     responses:
+   *       '200':
+   *         description: Perfil fiscal creado o corregido
+   *       '404':
+   *         description: Alianza no encontrada (PLT.ALL.NOT_FOUND)
+   *       '409':
+   *         description: Conflicto de alta simultánea (PLT.ALL.BILLING_PROFILE_CONFLICT)
+   *       '422':
+   *         description: >
+   *           Datos inválidos, RFC inválido o combinación SAT incompatible
+   */
+  async billingProfileUpsert({ params, request, response }: HttpContext) {
+    try {
+      const payload = await request.validateUsing(upsertAllianceBillingProfileValidator)
+      const data = await this.billingProfileService.upsertBillingProfile(
+        Number(params.allianceId),
+        payload
+      )
+      return response.status(200).json({ type: 'success', data })
+    } catch (error) {
+      const { status, ...body } = resolveAllianceHttpError(error)
       return response.status(status).json(body)
     }
   }

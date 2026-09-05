@@ -15,9 +15,9 @@ import BusinessUnit from '#models/business_unit'
  */
 
 const TEST_PASSWORD = 'AllianceGuardTest123!'
-const ALLIANCE_AREA_ROUTE_COUNT = 6
+const ALLIANCE_AREA_ROUTE_COUNT = 8
 
-type AllianceHttpMethod = 'get' | 'post' | 'patch'
+type AllianceHttpMethod = 'get' | 'post' | 'patch' | 'put'
 
 const ALLIANCE_AREA_ROUTES: Array<{ method: AllianceHttpMethod; path: string }> = [
   { method: 'get', path: '/api/platform/alliances' },
@@ -26,6 +26,8 @@ const ALLIANCE_AREA_ROUTES: Array<{ method: AllianceHttpMethod; path: string }> 
   { method: 'patch', path: '/api/platform/alliances/1' },
   { method: 'post', path: '/api/platform/alliances/1/activate' },
   { method: 'post', path: '/api/platform/alliances/1/deactivate' },
+  { method: 'get', path: '/api/platform/alliances/1/billing-profile' },
+  { method: 'put', path: '/api/platform/alliances/1/billing-profile' },
 ]
 
 interface TestActor {
@@ -75,7 +77,7 @@ async function cleanupActor(actor: TestActor | null) {
 }
 
 test.group('Guard /api/platform/alliances — conteo del área', () => {
-  test('el área declara exactamente 6 rutas de alianzas', ({ assert }) => {
+  test('el área declara exactamente 8 rutas de alianzas', ({ assert }) => {
     assert.equal(ALLIANCE_AREA_ROUTES.length, ALLIANCE_AREA_ROUTE_COUNT)
   })
 
@@ -117,8 +119,12 @@ test.group('Guard /api/platform/alliances — 403 sin platformAdmin', (group) =>
       assert,
     }) => {
       const request = client[route.method](route.path).loginAs(tenant!.user)
-      if (route.method === 'post' || route.method === 'patch') {
-        request.json({ allianceName: 'No debe persistir', allianceDefaultCommissionPercent: 10 })
+      if (route.method === 'post' || route.method === 'patch' || route.method === 'put') {
+        request.json({
+          allianceName: 'No debe persistir',
+          allianceDefaultCommissionPercent: 10,
+          legalName: 'No debe persistir',
+        })
       }
 
       const response = await request

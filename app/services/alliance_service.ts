@@ -1,6 +1,8 @@
 import Alliance from '#models/alliance'
+import AllianceBillingProfile from '#models/alliance_billing_profile'
 import { ALLIANCE_ERRORS } from '#constants/alliance_error_codes'
 import { AllianceServiceError } from '#exceptions/alliance_service_error'
+import { computeBillingProfileCompleteness } from '#helpers/tenant_billing_profile_completeness'
 import type {
   AllianceListItem,
   AllianceView,
@@ -60,7 +62,31 @@ function toIso(value: { toISO: () => string | null } | null | undefined): string
   return value.toISO()
 }
 
+function resolveAllianceCompleteness(alliance: Alliance) {
+  const profile = alliance.allianceBillingProfile as AllianceBillingProfile | null | undefined
+
+  if (!profile) {
+    return computeBillingProfileCompleteness({
+      rfc: null,
+      legalName: alliance.allianceName,
+      postalCode: null,
+      taxRegimeCode: null,
+      cfdiUseCode: null,
+    })
+  }
+
+  return computeBillingProfileCompleteness({
+    rfc: profile.rfc,
+    legalName: profile.legalName,
+    postalCode: profile.postalCode,
+    taxRegimeCode: profile.taxRegimeCode,
+    cfdiUseCode: profile.cfdiUseCode,
+  })
+}
+
 export function toAllianceListItem(alliance: Alliance): AllianceListItem {
+  const completeness = resolveAllianceCompleteness(alliance)
+
   return {
     allianceId: alliance.allianceId,
     allianceName: alliance.allianceName,
@@ -70,6 +96,8 @@ export function toAllianceListItem(alliance: Alliance): AllianceListItem {
     allianceDefaultTermPeriods: alliance.allianceDefaultTermPeriods,
     allianceActive: alliance.allianceActive === 1 ? 1 : 0,
     createdAt: toIso(alliance.createdAt) ?? '',
+    billingProfileComplete: completeness.complete,
+    missingFields: completeness.missingFields,
   }
 }
 
@@ -98,7 +126,10 @@ export default class AllianceService {
     const page = filters.page ?? 1
     const limit = Math.min(filters.limit ?? 20, 100)
 
-    const query = Alliance.query().whereNull('alliance_deleted_at').orderBy('alliance_id', 'asc')
+    const query = Alliance.query()
+      .whereNull('alliance_deleted_at')
+      .preload('allianceBillingProfile')
+      .orderBy('alliance_id', 'asc')
 
     if (filters.search) {
       const term = `%${filters.search.toUpperCase()}%`
@@ -132,6 +163,7 @@ export default class AllianceService {
     const alliance = await Alliance.query()
       .where('alliance_id', allianceId)
       .whereNull('alliance_deleted_at')
+      .preload('allianceBillingProfile')
       .first()
 
     if (!alliance) {
