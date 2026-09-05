@@ -25,10 +25,19 @@ test.group('employee_biometric_face_id_routes — PermissionGate Biométricos', 
       compact(content),
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeFaceId)'
     )
+    // Cuarta escritura del grupo: promover el rostro biometrico a foto de
+    // perfil. El gate del router cubre solo `tab-foto-write`; la lectura
+    // biometrica que la operacion tambien exige la evalua el controlador con
+    // `evaluateEnforced`, porque este middleware concede mientras la exigencia
+    // del modulo `employees` siga apagada.
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.useEmployeeFaceIdAsPhoto)'
+    )
     const matches =
       compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
       []
-    assert.equal(matches.length, 3)
+    assert.equal(matches.length, 4)
     assert.notMatch(
       compact(content),
       /get\('\/:employeeId\/biometric-face-id',\s*'#controllers\/employee_biometric_face_id_controller\.getPhoto'\)\.use\(middleware\.permissionGate/

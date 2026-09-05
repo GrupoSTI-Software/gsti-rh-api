@@ -1,4 +1,5 @@
 import {
+  CopyObjectCommand,
   DeleteObjectCommand,
   GetObjectCommand,
   HeadObjectCommand,
@@ -13,7 +14,8 @@ import { FILE_INTAKE_ERROR_CODES } from '#constants/file_intake_error_codes'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import Env from '#start/env'
 import FileIntakeService, { type IncomingFile } from '#services/file_intake_service'
-import type { FileIntakeProfileName } from '#constants/file_intake'
+import { FILE_INTAKE_PROFILES, type FileIntakeProfileName } from '#constants/file_intake'
+import { buildStorageFileName } from '#helpers/file_intake_file_name'
 import { Readable } from 'node:stream'
 import logger from '@adonisjs/core/services/logger'
 
@@ -263,6 +265,125 @@ export default class UploadService {
           key: relativeKey,
         },
         'Fallo al subir buffer privado a S3'
+      )
+      return null
+    }
+  }
+
+  /**
+   * Copia un objeto que YA vive en el bucket a otra carpeta del mismo bucket,
+   * bajo una key nueva y no predecible.
+   *
+   * Existe para el unico caso en que un archivo cambia de dueño sin volver a
+   * salir y entrar por la red: reutilizar el rostro biometrico como foto de
+   * perfil del colaborador. El origen y el destino comparten perfil de intake
+   * (`profile-photo`), asi que los bytes YA pasaron por la misma politica —
+   * magic bytes, tope de tamaño y re-encode a JPEG— y volver a validarlos
+   * seria redundante. Lo que NO se hereda es la ACL: se fija explicitamente
+   * desde el perfil en lugar de dejar que S3 la arrastre del origen.
+   *
+   * Comprobaciones antes de copiar, todas fail-closed:
+   * - el bucket del origen tiene que ser el configurado (mismo candado que
+   *   `readStoredFileBuffer`: una fila con una URL ajena no puede hacer que el
+   *   API copie un objeto de otro bucket con nuestras credenciales);
+   * - el `ContentType` real del objeto tiene que estar en `allowedMimes` del
+   *   perfil destino;
+   * - si el perfil convierte a un MIME fijo, el objeto tiene que ser ya ese
+   *   MIME. Copiar sin transformar un PNG a un perfil que promete JPEG dejaria
+   *   en el bucket un objeto que miente sobre su formato.
+   *
+   * @param sourceStoredPath Referencia del origen tal como esta en la base:
+   *                         key directa o URL publica de una fila historica.
+   * @param profileName      Perfil del DESTINO. Decide MIME admitido y ACL.
+   * @param folderName       Carpeta logica destino bajo `{AWS_ROOT_PATH}/`.
+   *
+   * @returns La key del objeto nuevo (o su URL publica si el perfil es
+   *          publico), o `null` si el origen no se puede resolver, no existe,
+   *          no cumple la politica del destino o el bucket falla.
+   */
+  async copyStoredObject(
+    sourceStoredPath: string,
+    profileName: FileIntakeProfileName,
+    folderName: string
+  ): Promise<string | null> {
+    if (!sourceStoredPath || !this.BUCKET_NAME) return null
+
+    const ref = this.resolveS3Ref(sourceStoredPath)
+    if (!ref?.key) return null
+
+    if (ref.bucket && ref.bucket !== this.BUCKET_NAME) {
+      logger.warn(
+        { bucketSolicitado: ref.bucket, bucketConfigurado: this.BUCKET_NAME },
+        'copyStoredObject: referencia a un bucket ajeno, descartada'
+      )
+      return null
+    }
+
+    const profile = FILE_INTAKE_PROFILES[profileName]
+
+    let head
+    try {
+      head = await s3Client.send(
+        new HeadObjectCommand({ Bucket: this.BUCKET_NAME, Key: ref.key })
+      )
+    } catch (error: unknown) {
+      const err = asS3Error(error)
+      logger.warn(
+        { err, key: ref.key, perfil: profileName },
+        'copyStoredObject: el objeto origen no existe o no es accesible'
+      )
+      return null
+    }
+
+    const sourceMime = `${head.ContentType ?? ''}`.split(';')[0].trim().toLowerCase()
+
+    // Se busca dentro de `allowedMimes` en lugar de comparar contra la cadena
+    // suelta: asi el MIME que sigue adelante es del tipo del catalogo, no un
+    // `string` cualquiera salido de la cabecera del objeto.
+    const storedMime = profile.allowedMimes.find((mime) => mime === sourceMime)
+    const conviertoA = profile.imagePolicy.kind === 'convert' ? profile.imagePolicy.toMime : null
+
+    if (!storedMime || (conviertoA !== null && storedMime !== conviertoA)) {
+      logger.warn(
+        { key: ref.key, perfil: profileName, mimeOrigen: sourceMime, mimeEsperado: conviertoA },
+        'copyStoredObject: el objeto origen no cumple la politica del perfil destino'
+      )
+      return null
+    }
+
+    const destinationKey = `${this.APP_NAME}${folderName || 'files'}/${buildStorageFileName(
+      storedMime
+    )}`
+    const permission: ObjectCannedACL = profile.storesPublicly ? 'public-read' : 'private'
+
+    try {
+      await s3Client.send(
+        new CopyObjectCommand({
+          Bucket: this.BUCKET_NAME,
+          Key: destinationKey,
+          // `CopySource` viaja como un solo path `bucket/key`. Se codifica
+          // porque la key lleva UUID con guiones pero puede llevar tambien
+          // caracteres que S3 interpretaria como separador.
+          CopySource: encodeURI(`${this.BUCKET_NAME}/${ref.key}`),
+          ACL: permission,
+          // La copia no hereda la ACL del origen ni su ContentType: ambos se
+          // reescriben, que es justo lo que `REPLACE` habilita.
+          MetadataDirective: 'REPLACE',
+          ContentType: storedMime,
+        })
+      )
+
+      return profile.storesPublicly ? this.buildPublicUrl(destinationKey) : destinationKey
+    } catch (err) {
+      logger.error(
+        {
+          err,
+          bucket: this.BUCKET_NAME,
+          endpoint: Env.get('AWS_ENDPOINT'),
+          origen: ref.key,
+          destino: destinationKey,
+        },
+        'copyStoredObject: fallo al copiar el objeto en S3'
       )
       return null
     }

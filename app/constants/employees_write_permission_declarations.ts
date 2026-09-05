@@ -137,6 +137,11 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   uploadEmployeeFaceId: employeesStandard('upload-face-id'),
   replaceEmployeeFaceId: employeesStandard('upload-face-id'),
   deleteEmployeeFaceId: employeesStandard('tab-biometricos-delete'),
+  // Copiar el rostro biometrico a la foto de perfil cruza dos categorias. Esta
+  // declaracion cubre SOLO el lado de escritura; el de lectura biometrica lo
+  // exige el controlador con `ensureBiometricFaceToPhotoCopy`, porque un
+  // arreglo de acciones aqui se resolveria en OR y bastaria con tener una.
+  useEmployeeFaceIdAsPhoto: employeesStandard('tab-foto-write'),
   updateEmployeeFingers: employeesStandard('upload-fingers'),
   createEmployeeBiometric: employeesStandard('tab-biometricos-write'),
   /** Asignar un punto de acceso al empleado desde la seccion de biometricos. */

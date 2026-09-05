@@ -11,6 +11,10 @@ import {
 import { checkEmployeeBiometricFaceIdQuality } from '#helpers/employee_biometric_face_id_quality'
 import { ensureEmployeeBiometricRead } from '#helpers/ensure_employee_biometric_read'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
+import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
+import { ensureBiometricFaceToPhotoCopy } from '#helpers/ensure_biometric_face_to_photo_copy'
+import EmployeeService from '#services/employee_service'
+import PiiAccessLogService from '#services/pii_access_log_service'
 
 export default class EmployeeBiometricFaceIdController {
   /**
@@ -1007,5 +1011,188 @@ export default class EmployeeBiometricFaceIdController {
       }
     }
   }
-}
 
+  /**
+   * @swagger
+   * /api/employees/{employeeId}/biometric-face-id/use-as-photo:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employee Biometric Face ID
+   *     summary: Use the biometric face photo as the employee profile photo
+   *     description: |
+   *       Copia el rostro biométrico del colaborador dentro del mismo bucket y guarda
+   *       la copia como su foto de perfil. No recibe archivo: el origen es siempre la
+   *       foto biométrica ya registrada, así que no hay forma de inyectar una imagen
+   *       distinta por esta vía.
+   *
+   *       La operación cruza dos categorías de dato, por lo que exige AMBOS permisos
+   *       —`tab-biometricos-read` y `tab-foto-write`— evaluados sin el interruptor de
+   *       exigencia del módulo, y deja asiento en la bitácora de accesos a datos
+   *       personales (`pii_access_logs`) sobre la columna biométrica de origen.
+   *     parameters:
+   *       - in: path
+   *         name: employeeId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: ID of the employee
+   *     responses:
+   *       200:
+   *         description: Profile photo updated from the biometric face photo
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type: { type: string, example: success }
+   *                 title: { type: string, example: Foto de perfil actualizada }
+   *                 message: { type: string, example: La foto biométrica ahora es la foto de perfil del colaborador }
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     employee: { type: object }
+   *       403:
+   *         description: Sin permiso de lectura biométrica o sin permiso de escritura de la foto.
+   *       404:
+   *         description: Employee or biometric photo not found
+   *       500:
+   *         description: Internal Server Error
+   */
+  @inject()
+  async useAsEmployeePhoto(ctx: HttpContext, uploadService: UploadService) {
+    const { request, response, i18n } = ctx
+    try {
+      const employeeId = Number(request.param('employeeId'))
+
+      if (!Number.isInteger(employeeId) || employeeId <= 0) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Error de validación',
+          message: 'El ID del empleado es requerido',
+          data: { employeeId: request.param('employeeId') },
+        }
+      }
+
+      // Los DOS permisos antes de leer nada: el gate del router solo cubre la
+      // escritura de la foto y ademas pasa por `evaluate`, que concede mientras
+      // el modulo `employees` tenga la exigencia apagada.
+      const permitido = await ensureBiometricFaceToPhotoCopy(
+        ctx,
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBiometricFaceId,
+        EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.useEmployeeFaceIdAsPhoto
+      )
+      if (!permitido) return
+
+      // `Employee` lleva `withBusinessUnitScope`: esta consulta ya esta acotada
+      // a la unidad activa de la sesion, no hace falta filtrarla a mano.
+      const currentEmployee = await Employee.query()
+        .where('employee_id', employeeId)
+        .whereNull('employee_deleted_at')
+        .first()
+
+      if (!currentEmployee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Empleado no encontrado',
+          message: 'El empleado no fue encontrado con el ID proporcionado',
+          data: { employeeId },
+        }
+      }
+
+      const service = new EmployeeBiometricFaceIdService()
+      const biometricFaceId = await service.findByEmployeeId(employeeId)
+      const sourcePhotoUrl = biometricFaceId?.employeeBiometricFaceIdPhotoUrl
+
+      if (!biometricFaceId || !sourcePhotoUrl) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Foto no encontrada',
+          message: 'No se encontró una foto biométrica para este empleado',
+          data: { employeeId },
+        }
+      }
+
+      // El asiento se escribe ANTES de copiar. La bitacora tiene que registrar
+      // el intento de sacar el rostro de su categoria aunque el bucket falle
+      // despues: si se dejara para el final, un fallo de S3 borraria la huella
+      // de que alguien pidio el dato biometrico.
+      await new PiiAccessLogService().record({
+        businessUnitId: currentEmployee.businessUnitId,
+        accessorUserId: ctx.auth.user!.userId,
+        model: 'EmployeeBiometricFaceId',
+        modelColumn: 'employeeBiometricFaceIdPhotoUrl',
+        recordId: biometricFaceId.employeeBiometricFaceIdId,
+        accessorIp: request.ip(),
+        accessorUserAgent: request.header('User-Agent') ?? null,
+        requestId: request.id() ?? null,
+      })
+
+      // Copia dentro del bucket: los bytes no vuelven a salir por la red y no
+      // hay archivo de entrada que validar. El perfil destino es el mismo con
+      // el que se guardo el rostro, solo cambia la carpeta.
+      const photoUrl = await uploadService.copyStoredObject(
+        sourcePhotoUrl,
+        'profile-photo',
+        'employees'
+      )
+
+      if (!photoUrl) {
+        response.status(500)
+        return {
+          type: 'error',
+          title: 'Foto no copiada',
+          message: 'No fue posible copiar la foto biométrica. Intenta de nuevo.',
+          data: null,
+        }
+      }
+
+      // Guardar primero, borrar despues: mismo orden que en `uploadPhoto`. Si
+      // el guardado falla por permiso de categoria sensible, la foto anterior
+      // del colaborador sigue en el bucket y su fila sigue apuntando a ella.
+      const previousPhotoUrl = currentEmployee.employeePhoto
+      const employee = await new EmployeeService(i18n).updateEmployeePhotoUrl(employeeId, photoUrl)
+
+      if (!employee) {
+        // La fila desaparecio entre la lectura y el guardado. La copia recien
+        // hecha ya no la referencia nadie: se retira para no dejarla huerfana.
+        await uploadService.deleteFile(photoUrl)
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Empleado no encontrado',
+          message: 'El empleado no fue encontrado con el ID proporcionado',
+          data: { employeeId },
+        }
+      }
+
+      // El rostro biometrico NO se toca: sigue siendo el original en su carpeta
+      // y su fila. Lo que se retira es la foto de perfil anterior, que acaba de
+      // quedar sin referencia.
+      if (previousPhotoUrl && previousPhotoUrl !== photoUrl) {
+        await uploadService.deleteFile(previousPhotoUrl)
+      }
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Foto de perfil actualizada',
+        message: 'La foto biométrica ahora es la foto de perfil del colaborador',
+        data: { employee },
+      }
+    } catch (error: any) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Error del servidor',
+        message: 'Ocurrió un error inesperado al usar la foto biométrica como foto de perfil',
+        error: error.message,
+      }
+    }
+  }
+}
