@@ -223,4 +223,58 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
     response.assertStatus(200)
     assert.include(JSON.stringify(response.body()), 'Aviso de Ana')
   })
+
+  test('B4: el listado de administración deja de cruzar empresas', async ({
+    client,
+    assert,
+  }) => {
+    // Sin employeeId es la rama de administración. Antes devolvía los avisos de
+    // TODAS las empresas a cualquier autenticado: el grupo monta solo `auth()`,
+    // así que el contexto de tenant está inactivo y el mixin del modelo no
+    // aplica ningún filtro.
+    const response = await client.get('/api/notices').loginAs(beto!.user)
+
+    response.assertStatus(200)
+    const cuerpo = JSON.stringify(response.body())
+    assert.notInclude(cuerpo, 'Aviso de Ana')
+  })
+
+  test('B4: el payload deja de llevar los correos de toda la plantilla', async ({
+    client,
+    assert,
+  }) => {
+    // `notice_recipient_emails` es un longtext con los correos de TODOS los
+    // destinatarios. Ningún cliente lo parsea, domina el tamaño de la respuesta
+    // y con el caché acabaría en el disco de cada teléfono.
+    const response = await client
+      .get('/api/notices')
+      .qs({ employeeId: ana!.employee.employeeId })
+      .loginAs(ana!.user)
+
+    response.assertStatus(200)
+    const cuerpo = JSON.stringify(response.body())
+    // La clave puede seguir apareciendo serializada como nula —el modelo la
+    // declara—, pero su CONTENIDO ya no viaja, que es lo que pesaba y lo que
+    // acabaría en el disco de cada teléfono.
+    assert.notInclude(cuerpo, '@gsti-tests.local"]')
+    assert.notInclude(cuerpo, '"noticeRecipientEmails":"')
+    // Y el conteo que el backoffice necesita llega calculado por el servidor.
+    assert.include(cuerpo, 'noticeRecipientsCount')
+  })
+
+  test('B4: el listado trae updatedAt y type, que el detalle offline necesita',
+    async ({ client, assert }) => {
+    // `noticeUpdatedAt` decide si un detalle guardado sigue sirviendo sin pedir
+    // los avisos uno por uno. `noticeType` es obligatorio para el computed del
+    // cuerpo-archivo: sin él, el aviso saldría distinto en la lista que al
+    // abrirlo, sin un solo error visible.
+    const response = await client
+      .get('/api/notices')
+      .qs({ employeeId: ana!.employee.employeeId })
+      .loginAs(ana!.user)
+
+    const cuerpo = JSON.stringify(response.body())
+    assert.include(cuerpo, 'noticeUpdatedAt')
+    assert.include(cuerpo, 'noticeType')
+  })
 })

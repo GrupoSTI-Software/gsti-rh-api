@@ -1,6 +1,7 @@
 import { HttpContext } from '@adonisjs/core/http'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import { resolveSessionEmployeeId } from '#helpers/resolve_session_employee_id'
+import BusinessAccessScopeService from '#services/business_access_scope_service'
 import Notice from '#models/notice'
 import NoticeService from '#services/notice_service'
 import { createNoticeValidator, updateNoticeValidator } from '#validators/notice'
@@ -67,8 +68,15 @@ export default class NoticeController {
       const employeeId = rawEmployeeId
         ? ((await resolveSessionEmployeeId(ctx)) ?? -1)
         : undefined
+      // El corte por empresa se resuelve con el scope del usuario y NO con el
+      // header de unidad activa: la ruta no monta `businessScope()` a propósito
+      // —los avisos con unidad NULL quedarían fuera— y montarlo rompería la app.
+      const scopeService = new BusinessAccessScopeService()
+      const scopeIds = await scopeService.getAccessibleIds(ctx.auth.user!)
+
       const noticeService = new NoticeService(i18n)
       const notices = await noticeService.index({
+        scopeIds,
         search,
         page,
         limit,
