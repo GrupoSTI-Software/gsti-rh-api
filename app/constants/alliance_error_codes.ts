@@ -37,6 +37,8 @@ export const ALLIANCE_ERROR_CODES = {
   CODE_ALREADY_EXISTS: 'PLT.ALL.CODE_ALREADY_EXISTS',
   /** Agotados los reintentos de acuñación contra el UNIQUE del texto */
   CODE_GENERATION_EXHAUSTED: 'PLT.ALL.CODE_GENERATION_EXHAUSTED',
+  /** El almacenamiento no entregó la imagen del QR */
+  QR_UNAVAILABLE: 'PLT.ALL.QR_UNAVAILABLE',
   /** Error no tipado del módulo */
   SYS_UNHANDLED: 'PLT.ALL.SYS_UNHANDLED',
 } as const
@@ -160,6 +162,13 @@ export const ALLIANCE_ERRORS = {
     detail: 'No se pudo generar un código único para la alianza. Intenta de nuevo.',
     code: ALLIANCE_ERROR_CODES.CODE_GENERATION_EXHAUSTED,
     status: 500,
+  },
+  QR_UNAVAILABLE: {
+    key: 'qr-no-disponible',
+    title: 'Alianzas',
+    detail: 'No se pudo obtener la imagen del código ahora. Inténtalo de nuevo.',
+    code: ALLIANCE_ERROR_CODES.QR_UNAVAILABLE,
+    status: 503,
   },
   SYS_UNHANDLED: {
     key: 'error-sistema',

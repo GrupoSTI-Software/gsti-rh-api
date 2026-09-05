@@ -14,6 +14,13 @@ export const ALLIANCE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 export const ALLIANCE_CODE_LENGTH = 10
 export const ALLIANCE_CODE_MAX_ATTEMPTS = 8
 
+/**
+ * Vida de la URL firmada del QR (USRH1788505941895).
+ * Siempre se pasa a `getDownloadLink` como segundo argumento:
+ * el default del servicio son 24 h.
+ */
+export const QR_URL_EXPIRE_SECONDS = 300
+
 function defaultGenerateAllianceCodeText(): string {
   return randomStringFromAlphabet(ALLIANCE_CODE_ALPHABET, ALLIANCE_CODE_LENGTH)
 }

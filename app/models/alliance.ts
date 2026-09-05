@@ -78,6 +78,13 @@ export default class Alliance extends compose(BaseModel, SoftDeletes) {
   @column({ consume: (value: number | string) => (Number(value) === 1 ? 1 : 0) })
   declare allianceActive: 0 | 1
 
+  /**
+   * Key S3 del PNG del QR. NULL = aún no subido.
+   * `serializeAs: null`: la key incluye el texto del código en el nombre.
+   */
+  @column({ columnName: 'alliance_qr_storage_key', serializeAs: null })
+  declare allianceQrStorageKey: string | null
+
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
 

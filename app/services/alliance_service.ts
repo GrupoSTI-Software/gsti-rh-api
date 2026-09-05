@@ -10,13 +10,17 @@ import { DISCOUNT_CODE_ERROR_CODES } from '#constants/discount_code_error_codes'
 import { DiscountCodeServiceError } from '#exceptions/discount_code_service_error'
 import {
   ALLIANCE_CODE_MAX_ATTEMPTS,
+  QR_URL_EXPIRE_SECONDS,
   generateAllianceCodeText,
 } from '#helpers/alliance_code_generator'
 import { computeBillingProfileCompleteness } from '#helpers/tenant_billing_profile_completeness'
 import DiscountCodeService from '#services/discount_code_service'
+import UploadService from '#services/upload_service'
+import QRCode from 'qrcode'
 import type {
   AllianceDiscountCodeView,
   AllianceListItem,
+  AllianceQrUrlView,
   AllianceView,
   CreateAllianceInput,
   ListAlliancesFilters,
@@ -134,13 +138,18 @@ export function toAllianceListItem(alliance: Alliance): AllianceListItem {
   }
 }
 
-export function toAllianceDiscountCodeView(code: DiscountCode): AllianceDiscountCodeView {
+export function toAllianceDiscountCodeView(
+  code: DiscountCode,
+  alliance: Alliance
+): AllianceDiscountCodeView {
   return {
     discountCodeId: Number(code.discountCodeId),
     discountCodeText: code.discountCodeCode,
     discountCodeKind: code.discountCodeKind,
     discountCodeValue: Number(code.discountCodeValue),
     discountCodeActive: code.discountCodeActive === 1 ? 1 : 0,
+    qrUrlPath: `/platform/alliances/${alliance.allianceId}/code/qr-url`,
+    allianceQrReady: Boolean(alliance.allianceQrStorageKey),
   }
 }
 
@@ -159,7 +168,7 @@ export function toAllianceView(alliance: Alliance): AllianceView {
     ...toAllianceListItem(alliance),
     allianceContactPhone: alliance.allianceContactPhone,
     updatedAt: toIso(alliance.updatedAt),
-    allianceDiscountCode: code ? toAllianceDiscountCodeView(code) : null,
+    allianceDiscountCode: code ? toAllianceDiscountCodeView(code, alliance) : null,
   }
 }
 
@@ -173,6 +182,11 @@ export function toAllianceView(alliance: Alliance): AllianceView {
  */
 export default class AllianceService {
   private readonly discountCodes = new DiscountCodeService()
+  private readonly uploads: UploadService
+
+  constructor(uploads: UploadService = new UploadService()) {
+    this.uploads = uploads
+  }
 
   /**
    * Listado paginado con filtros. Sin criterios, se comporta como el
@@ -243,8 +257,8 @@ export default class AllianceService {
     assertCommissionPercent(input.allianceDefaultCommissionPercent)
     assertTermPeriods(input.allianceDefaultTermPeriods)
 
-    return db.transaction(async (trx) => {
-      const alliance = await Alliance.create(
+    const alliance = await db.transaction(async (trx) => {
+      const created = await Alliance.create(
         {
           allianceName: input.allianceName,
           allianceContactName: input.allianceContactName ?? null,
@@ -257,10 +271,83 @@ export default class AllianceService {
         { client: trx }
       )
 
-      const code = await this.mintAllianceDiscountCode(alliance, trx)
-      alliance.$setRelated('discountCode', code)
-      return alliance
+      const code = await this.mintAllianceDiscountCode(created, trx)
+      created.$setRelated('discountCode', code)
+      return created
     })
+
+    await this.ensureAllianceQrUploaded(alliance)
+    return alliance
+  }
+
+  /**
+   * Genera y sube el PNG del QR si aún no hay key. Idempotente y no lanza:
+   * un fallo de S3 se registra y devuelve `null`. Persiste la key que
+   * **devuelve** el servicio de subida, no la compuesta por el llamador.
+   */
+  async ensureAllianceQrUploaded(alliance: Alliance): Promise<string | null> {
+    if (alliance.allianceQrStorageKey) {
+      return alliance.allianceQrStorageKey
+    }
+
+    try {
+      const code =
+        resolvePreloadedDiscountCode(alliance) ??
+        (await DiscountCode.query().where('discount_code_alliance_id', alliance.allianceId).first())
+
+      if (!code) {
+        return null
+      }
+
+      const png = await QRCode.toBuffer(code.discountCodeCode, { margin: 1, width: 512 })
+      const composedKey = `alliances/${alliance.allianceId}/qr-${code.discountCodeCode}.png`
+      const returnedKey = await this.uploads.uploadPrivateBuffer(composedKey, png, 'image/png')
+
+      if (!returnedKey) {
+        logger.warn({ allianceId: alliance.allianceId }, 'No se pudo subir el QR de la alianza')
+        return null
+      }
+
+      alliance.allianceQrStorageKey = returnedKey
+      await alliance.save()
+      return returnedKey
+    } catch (error) {
+      const err = error as { message?: string; status?: number }
+      logger.warn(
+        { allianceId: alliance.allianceId, message: err.message, status: err.status },
+        'Fallo al asegurar el QR de la alianza'
+      )
+      return null
+    }
+  }
+
+  /**
+   * Entrega la URL firmada del QR. Si la key falta, repara en el acto.
+   * Distingue sin código (404) de almacenamiento caído (503).
+   */
+  async getAllianceQrUrl(allianceId: number): Promise<AllianceQrUrlView> {
+    const alliance = await this.getAlliance(allianceId)
+    const code = resolvePreloadedDiscountCode(alliance)
+
+    if (!code) {
+      throwFromCatalog(ALLIANCE_ERRORS.CODE_NOT_FOUND)
+    }
+
+    const key = await this.ensureAllianceQrUploaded(alliance)
+    if (!key) {
+      throwFromCatalog(ALLIANCE_ERRORS.QR_UNAVAILABLE)
+    }
+
+    const url = await this.uploads.getDownloadLink(key, QR_URL_EXPIRE_SECONDS)
+    if (typeof url !== 'string') {
+      logger.warn(
+        { allianceId: alliance.allianceId },
+        'La firma de la URL del QR no devolvió un string'
+      )
+      throwFromCatalog(ALLIANCE_ERRORS.QR_UNAVAILABLE)
+    }
+
+    return { url, expiresIn: QR_URL_EXPIRE_SECONDS }
   }
 
   /**
@@ -330,7 +417,7 @@ export default class AllianceService {
       throwFromCatalog(ALLIANCE_ERRORS.CODE_NOT_FOUND)
     }
 
-    return toAllianceDiscountCodeView(code)
+    return toAllianceDiscountCodeView(code, alliance)
   }
 
   /**

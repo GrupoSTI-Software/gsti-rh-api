@@ -16,6 +16,7 @@ import { middleware } from '../kernel.js'
  *   GET    /api/platform/alliances/:allianceId/billing-profile → perfil fiscal
  *   PUT    /api/platform/alliances/:allianceId/billing-profile → upsert perfil
  *   GET    /api/platform/alliances/:allianceId/code            → código de la alianza
+ *   GET    /api/platform/alliances/:allianceId/code/qr-url     → URL firmada del QR
  */
 router
   .group(() => {
@@ -34,6 +35,10 @@ router
       '#controllers/alliance_controller.billingProfileUpsert'
     )
     router.get('/alliances/:allianceId/code', '#controllers/alliance_controller.showCode')
+    router.get(
+      '/alliances/:allianceId/code/qr-url',
+      '#controllers/alliance_controller.showQrUrl'
+    )
   })
   .prefix('/api/platform')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])

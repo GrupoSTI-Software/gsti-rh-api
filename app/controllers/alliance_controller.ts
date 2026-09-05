@@ -451,4 +451,42 @@ export default class AllianceController {
       return response.status(status).json(body)
     }
   }
+
+  /**
+   * @swagger
+   * /api/platform/alliances/{allianceId}/code/qr-url:
+   *   get:
+   *     tags:
+   *       - Platform Alliances
+   *     summary: Obtener la URL firmada del QR de la alianza
+   *     description: >
+   *       Entrega un enlace de 300 segundos. Si la imagen aún no está
+   *       guardada, la produce y la sube en el acto. No es la imagen:
+   *       es el paso 1 de dos.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: allianceId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       '200':
+   *         description: URL firmada y expiresIn
+   *       '404':
+   *         description: Alianza no encontrada o sin código
+   *       '503':
+   *         description: Almacenamiento no disponible (PLT.ALL.QR_UNAVAILABLE)
+   */
+  async showQrUrl({ params, response }: HttpContext) {
+    response.header('Cache-Control', 'no-store')
+    try {
+      const data = await this.service.getAllianceQrUrl(Number(params.allianceId))
+      return response.status(200).json({ type: 'success', data })
+    } catch (error) {
+      const { status, ...body } = resolveAllianceApiError(error)
+      return response.status(status).json(body)
+    }
+  }
 }

@@ -312,6 +312,8 @@ test.group('GET /api/platform/alliances/:id/code', (group) => {
     assert.equal(withCode.body().data.discountCodeText, expectedText)
     assert.equal(withCode.body().data.discountCodeKind, 'percent')
     assert.equal(Number(withCode.body().data.discountCodeValue), 0)
+    assert.equal(withCode.body().data.qrUrlPath, `/platform/alliances/${allianceId}/code/qr-url`)
+    assert.property(withCode.body().data, 'allianceQrReady')
 
     const bare = await Alliance.create({
       allianceName: `Sin código ${Date.now()}`,
