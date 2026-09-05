@@ -56,6 +56,16 @@ export interface GafeteDto {
    * distinto de `fotoUrl === null`: con objetos privados la URL publica es
    * null aunque la foto exista. `fotoFaltante:false` + `fotoUrl:null` es la
    * senal de "pidela por el endpoint autenticado".
+   *
+   * DEFECTO VIVO QUE ESTE CAMPO YA NO SENALA (declarado, no arreglado): los
+   * tres caminos de render descargable —PDF (E2), PNG (E5) y lote (E6)— arman
+   * la foto desde `buildRenderContext`, que sigue usando `resolvePhotoUrl` y
+   * por tanto recibe `null` para toda foto guardada como objeto privado. Antes
+   * de este cambio, `fotoFaltante:true` avisaba de rebote que ese gafete
+   * saldria sin retrato; ahora dice `false` y el render sigue igual de mudo.
+   * Arreglarlo es hacer que el render lea el binario por la misma via
+   * autenticada que `/api/employees/me/photo`, y esta fuera del alcance de la
+   * HU ESB-04-02-08-01.
    */
   fotoFaltante: boolean
   empresa: string
