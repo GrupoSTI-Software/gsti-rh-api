@@ -40,6 +40,7 @@ router
     router.put('/:noticeId', '#controllers/notice_controller.update')
     router.delete('/:noticeId', '#controllers/notice_controller.delete')
     router.post('/:noticeId/send', '#controllers/notice_controller.send')
+    router.post('/:noticeId/duplicate', '#controllers/notice_controller.duplicate')
   })
   .prefix('/api/notices')
   .use(middleware.auth())

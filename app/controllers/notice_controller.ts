@@ -1,15 +1,73 @@
 import { HttpContext } from '@adonisjs/core/http'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import { resolveSessionEmployeeId } from '#helpers/resolve_session_employee_id'
+import { sanitizeNoticeHtml } from '#helpers/sanitize_notice_content'
 import Notice from '#models/notice'
-import NoticeService from '#services/notice_service'
-import { createNoticeValidator, updateNoticeValidator } from '#validators/notice'
+import NoticeService, {
+  type NoticeInput,
+  type NoticeValidationError,
+} from '#services/notice_service'
+import {
+  createNoticeValidator,
+  sendNoticeValidator,
+  updateNoticeValidator,
+} from '#validators/notice'
 import UploadService from '#services/upload_service'
 import NoticeFileService from '#services/notice_file_service'
 import NoticeFile from '#models/notice_file'
-import { resolveRequestBusinessUnitId } from '../helpers/resolve_request_business_unit_id.js'
+import {
+  NOTICE_AUDIENCE,
+  NOTICE_AUDIENCE_VALUES,
+  NOTICE_FILE_FOLDER,
+  NOTICE_FILE_INTAKE_PROFILE,
+  NOTICE_SEND_MODE,
+  NOTICE_STATUS_VALUES,
+  NOTICE_TYPE,
+  NOTICE_TYPE_VALUES,
+  type NoticeAudienceValue,
+  type NoticeSendModeValue,
+  type NoticeStatusValue,
+  type NoticeTypeValue,
+} from '#constants/notice'
+
+/**
+ * Perfil y carpeta de todo archivo de aviso. Antes se pasaba `types: [...]` a
+ * `request.file`, opción que Adonis 6 no reconoce: la validación real —por
+ * contenido, no por extensión— la hace el perfil de entrada en el servicio de
+ * subida.
+ */
+const NOTICE_FILE_FIELD = 'noticeFile'
+const NOTICE_ATTACHMENTS_FIELD = 'files'
 
 export default class NoticeController {
+  /** Respuesta de rechazo con el triplete del estándar. */
+  private reject(response: HttpContext['response'], error: NoticeValidationError) {
+    response.status(error.status)
+    return {
+      type: 'warning',
+      title: error.title,
+      detail: error.detail,
+      key: error.key,
+    }
+  }
+
+  private isStatus(value: unknown): value is NoticeStatusValue {
+    return typeof value === 'string' && (NOTICE_STATUS_VALUES as readonly string[]).includes(value)
+  }
+
+  private isAudience(value: unknown): value is NoticeAudienceValue {
+    return typeof value === 'string' && (NOTICE_AUDIENCE_VALUES as readonly string[]).includes(value)
+  }
+
+  private isType(value: unknown): value is NoticeTypeValue {
+    return typeof value === 'string' && (NOTICE_TYPE_VALUES as readonly string[]).includes(value)
+  }
+
+  /** Fecha `YYYY-MM-DD` tal cual, o `undefined` si no tiene esa forma. */
+  private isoDate(value: unknown): string | undefined {
+    return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : undefined
+  }
+
   /**
    * @swagger
    * /api/notices:
@@ -24,6 +82,36 @@ export default class NoticeController {
    *         in: query
    *         required: false
    *         description: Search term for notice subject
+   *         schema:
+   *           type: string
+   *       - name: status
+   *         in: query
+   *         required: false
+   *         description: Folder filter (sent, scheduled, draft)
+   *         schema:
+   *           type: string
+   *       - name: audience
+   *         in: query
+   *         required: false
+   *         description: Audience filter (company, department, manual)
+   *         schema:
+   *           type: string
+   *       - name: noticeType
+   *         in: query
+   *         required: false
+   *         description: Content type filter (text, image, pdf)
+   *         schema:
+   *           type: string
+   *       - name: dateFrom
+   *         in: query
+   *         required: false
+   *         description: Inclusive lower bound (YYYY-MM-DD) on the relevant date
+   *         schema:
+   *           type: string
+   *       - name: dateTo
+   *         in: query
+   *         required: false
+   *         description: Inclusive upper bound (YYYY-MM-DD) on the relevant date
    *         schema:
    *           type: string
    *       - name: page
@@ -42,7 +130,7 @@ export default class NoticeController {
    *           type: integer
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: Resource processed successfully. Includes folder counts for the backoffice view.
    *       default:
    *         description: Unexpected error
    */
@@ -70,6 +158,9 @@ export default class NoticeController {
       // El corte por empresa lo hace el middleware `businessScope()`, que esta
       // ruta ya monta: deja el TenantContext activo y el mixin del modelo filtra
       // solo. Aquí no se replica.
+      const status = request.input('status')
+      const audience = request.input('audience')
+      const noticeType = request.input('noticeType')
       const noticeService = new NoticeService(i18n)
       const notices = await noticeService.index({
         search,
@@ -77,7 +168,15 @@ export default class NoticeController {
         limit,
         employeeId,
         readStatus,
+        status: this.isStatus(status) ? status : undefined,
+        audience: this.isAudience(audience) ? audience : undefined,
+        noticeType: this.isType(noticeType) ? noticeType : undefined,
+        dateFrom: this.isoDate(request.input('dateFrom')),
+        dateTo: this.isoDate(request.input('dateTo')),
       })
+      // Los conteos de carpetas son del buzón de administración; la app no
+      // los pinta y no vale la pena la consulta extra en cada arranque.
+      const counts = employeeId === undefined ? await noticeService.counts(search) : undefined
       response.status(200)
       return {
         type: 'success',
@@ -85,6 +184,7 @@ export default class NoticeController {
         message: t('resources_were_found_successfully'),
         data: {
           notices,
+          counts,
         },
       }
     } catch (error) {
@@ -159,6 +259,27 @@ export default class NoticeController {
   }
 
   /**
+   * Arma la entrada del aviso a partir del cuerpo validado. El mensaje de
+   * texto se sanea aquí porque se pinta como HTML en tres clientes; los avisos
+   * de imagen o PDF no traen mensaje: su descripción es la key del archivo.
+   */
+  private buildInput(payload: {
+    noticeSubject: string
+    noticeDescription?: string
+    noticeType?: NoticeTypeValue
+    noticeAudience?: NoticeAudienceValue
+  }): NoticeInput {
+    const noticeType = payload.noticeType ?? NOTICE_TYPE.TEXT
+    return {
+      noticeSubject: payload.noticeSubject.trim(),
+      noticeDescription:
+        noticeType === NOTICE_TYPE.TEXT ? sanitizeNoticeHtml(payload.noticeDescription) : '',
+      noticeType,
+      noticeAudience: payload.noticeAudience ?? NOTICE_AUDIENCE.MANUAL,
+    }
+  }
+
+  /**
    * @swagger
    * /api/notices:
    *   post:
@@ -171,7 +292,7 @@ export default class NoticeController {
    *       - application/json
    *     requestBody:
    *       content:
-   *         application/json:
+   *         multipart/form-data:
    *           schema:
    *             type: object
    *             properties:
@@ -179,204 +300,125 @@ export default class NoticeController {
    *                 type: string
    *                 description: Notice subject/title
    *                 required: true
-   *                 default: ''
    *               noticeDescription:
    *                 type: string
-   *                 description: Notice description/content (HTML rich text)
-   *                 required: true
-   *                 default: ''
+   *                 description: Message (HTML rich text). Only for text notices; max 1200 plain characters
+   *               noticeType:
+   *                 type: string
+   *                 description: Notice type (text, image, pdf)
+   *                 default: 'text'
+   *               noticeAudience:
+   *                 type: string
+   *                 description: How recipients were chosen (company, department, manual)
+   *                 default: 'manual'
+   *               noticeSendMode:
+   *                 type: string
+   *                 description: now (send immediately), draft (save only) or scheduled (send at noticeScheduledAt)
+   *                 default: 'now'
+   *               noticeScheduledAt:
+   *                 type: string
+   *                 format: date-time
+   *                 description: ISO 8601 send time, required when noticeSendMode is scheduled
    *               recipientEmployeeIds:
    *                 type: array
    *                 items:
    *                   type: number
    *                 description: Array of employee IDs to send notice to
-   *                 required: false
-   *               noticeType:
-   *                 type: string
-   *                 description: Notice type (text, image, pdf)
-   *                 required: false
-   *                 default: 'text'
    *               noticeFile:
    *                 type: string
    *                 format: binary
-   *                 description: The file to upload
+   *                 description: Body file for image or pdf notices
    *               files:
    *                 type: array
    *                 items:
    *                   type: string
    *                   format: binary
-   *                   description: The files to upload (excel, doc, ppt, pdf, image, txt)
+   *                   description: Attachments for text notices (pdf or image)
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '400':
+   *         description: Business rule rejected the notice (title, detail, key)
    *       default:
    *         description: Unexpected error
    */
   async store(ctx: HttpContext) {
-    const { request, response, i18n } = ctx
+    const { request, response, i18n, auth } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const recipientEmployeeIds = request.input('recipientEmployeeIds', []) || []
-      const notice = {
-        noticeSubject: (request.input('noticeSubject', '') || '').toString().trim(),
-        noticeDescription: (request.input('noticeDescription', '') || '').toString().trim(),
-        noticeType: (request.input('noticeType', 'text') || '').toString().trim(),
-      } as Notice
-
+      const payload = await request.validateUsing(createNoticeValidator)
       const noticeService = new NoticeService(i18n)
-      await request.validateUsing(createNoticeValidator)
-      const verifyInfo = await noticeService.verifyInfo(notice)
-      if (verifyInfo.status !== 200) {
-        response.status(verifyInfo.status)
-        return {
-          type: verifyInfo.type,
-          title: verifyInfo.title,
-          message: verifyInfo.message,
-          data: { ...notice },
-        }
+      const notice = this.buildInput(payload)
+      const sendMode: NoticeSendModeValue = payload.noticeSendMode ?? NOTICE_SEND_MODE.NOW
+      const scheduledAt =
+        sendMode === NOTICE_SEND_MODE.SCHEDULED
+          ? noticeService.parseScheduledAt(payload.noticeScheduledAt)
+          : null
+      const recipients = await noticeService.resolveRecipients(payload.recipientEmployeeIds ?? [])
+      const bodyFile =
+        notice.noticeType === NOTICE_TYPE.TEXT ? null : request.file(NOTICE_FILE_FIELD)
+
+      const rejected = noticeService.verifyInfo(notice, {
+        sendMode,
+        scheduledAt,
+        hasBodyFile: !!bodyFile,
+        recipientsCount: recipients.length,
+      })
+      if (rejected) return this.reject(response, rejected)
+
+      // El archivo entra al bucket ANTES de crear la fila: si el perfil lo
+      // rechaza, no queda un aviso a medias.
+      const uploadService = new UploadService()
+      if (bodyFile) {
+        notice.noticeDescription = await uploadService.fileUpload(
+          bodyFile,
+          NOTICE_FILE_INTAKE_PROFILE,
+          NOTICE_FILE_FOLDER
+        )
       }
-
-      // const validationOptions = {
-      //   types: ['image', 'pdf'],
-      //   size: '',
-      // }
-
-      // const file = request.file('noticeFile', validationOptions)
-      // if (file) {
-      //   // solo se pueden recibir imagenes y pdfs
-      //   // validate file required
-      //   if (!file) {
-      //     response.status(400)
-      //     return {
-      //       status: 400,
-      //       type: 'warning',
-      //       title: 'Please upload a file valid',
-      //       message: 'Missing data to process',
-      //       data: file,
-      //     }
-      //   }
-      //   const disallowedExtensions = [
-      //     'mp4',
-      //     'avi',
-      //     'mkv',
-      //     'mov',
-      //     'wmv',
-      //     'flv', // Video
-      //     'mp3',
-      //     'wav',
-      //     'flac',
-      //     'aac',
-      //     'ogg', // Audio
-      //   ]
-      //   // Verificar si la extensión del archivo está en la lista de no permitidas
-      //   if (disallowedExtensions.includes(file.extname ? file.extname : '')) {
-      //     response.status(400)
-      //     return {
-      //       status: 400,
-      //       type: 'warning',
-      //       title: 'Please upload a file valid',
-      //       message: 'Missing data to process',
-      //       data: file,
-      //     }
-      //   }
-
-
-      //   const fileName = `${new Date().getTime()}_${file.clientName}`
-      //   const uploadService = new UploadService()
-      //   const fileUrl = await uploadService.fileUpload(file, 'evidence-document', 'notices')
-      //   notice.noticeDescription = fileUrl
-      // }
-
 
       // La empresa del aviso sale del scope que ya resolvió `businessScope()`,
       // que este grupo sí monta. Nunca del cuerpo de la petición: quien crea no
       // elige a qué empresa pertenece lo que crea.
       const newNotice = await noticeService.create(
         notice,
-        recipientEmployeeIds,
-        ctx.businessUnitScope[0]
+        recipients,
+        ctx.businessUnitScope[0],
+        auth.user?.userId ?? null,
+        scheduledAt
       )
-      if (notice.noticeType === 'image' || notice.noticeType === 'pdf') {
-        const validationOptions = {
-          types: ['image', 'pdf'],
-          size: '',
-        }
-        const file = request.file('noticeFile', validationOptions)
-        if (file) {
-          // solo se pueden recibir imagenes y pdfs
-          // validate file required
-          if (!file) {
-            response.status(400)
-            return {
-              status: 400,
-              type: 'warning',
-              title: 'Please upload a file valid',
-              message: 'Missing data to process',
-              data: file,
-            }
-          }
-          const disallowedExtensions = [
-            'mp4',
-            'avi',
-            'mkv',
-            'mov',
-            'wmv',
-            'flv', // Video
-            'mp3',
-            'wav',
-            'flac',
-            'aac',
-            'ogg', // Audio
-          ]
-          // Verificar si la extensión del archivo está en la lista de no permitidas
-          if (disallowedExtensions.includes(file.extname ? file.extname : '')) {
-            response.status(400)
-            return {
-              status: 400,
-              type: 'warning',
-              title: 'Please upload a file valid',
-              message: 'Missing data to process',
-              data: file,
-            }
-          }
 
-
-          const uploadService = new UploadService()
-          const fileUrl = await uploadService.fileUpload(file, 'evidence-document', 'notices')
-          notice.noticeDescription = fileUrl
-        }
-      } else if (notice.noticeType === 'text') {
-        const validationOptions = {
-          types: ['excel', 'doc', 'ppt', 'pdf', 'image', 'txt'],
-          size: '',
-        }
-        const files = request.files('files', validationOptions)
-
-        if (files) {
-          const noticeFileService = new NoticeFileService()
-          for (const file of files) {
-            const uploadService = new UploadService()
-            const fileUrl = await uploadService.fileUpload(file, 'evidence-document', 'notices')
-            const noticeFile = {
-              noticeId: newNotice.noticeId,
-              noticeFilePath: fileUrl,
-            } as NoticeFile
-            await noticeFileService.create(noticeFile)
-          }
+      if (notice.noticeType === NOTICE_TYPE.TEXT) {
+        const noticeFileService = new NoticeFileService()
+        for (const file of request.files(NOTICE_ATTACHMENTS_FIELD)) {
+          const fileUrl = await uploadService.fileUpload(
+            file,
+            NOTICE_FILE_INTAKE_PROFILE,
+            NOTICE_FILE_FOLDER
+          )
+          await noticeFileService.create({
+            noticeId: newNotice.noticeId,
+            noticeFilePath: fileUrl,
+          } as NoticeFile)
         }
       }
-      // USRH1783712837584: la ruta tiene `auth()` pero no `businessScope()`;
-      // se resuelve el id de la empresa del usuario desde el header.
-      const businessUnitId = await resolveRequestBusinessUnitId(ctx)
-      await noticeService.sendNoticeEmails(newNotice.noticeId, false, businessUnitId)
 
+      if (sendMode === NOTICE_SEND_MODE.NOW) {
+        await noticeService.sendNoticeEmails(newNotice.noticeId, false, ctx.businessUnitScope[0])
+      }
 
+      const saved = await noticeService.show(newNotice.noticeId)
       response.status(201)
       return {
         type: 'success',
         title: t('notice'),
-        message: t('resource_was_created_successfully'),
-        data: { notice: newNotice },
+        message:
+          sendMode === NOTICE_SEND_MODE.SCHEDULED
+            ? t('notice_scheduled_successfully')
+            : sendMode === NOTICE_SEND_MODE.DRAFT
+              ? t('notice_saved_as_draft')
+              : t('resource_was_created_successfully'),
+        data: { notice: saved },
       }
     } catch (error) {
       // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
@@ -385,7 +427,7 @@ export default class NoticeController {
 
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
+      response.status(error.code === 'E_VALIDATION_ERROR' ? 422 : 500)
       return {
         type: 'error',
         title: t('server_error'),
@@ -413,29 +455,48 @@ export default class NoticeController {
    *         required: true
    *     requestBody:
    *       content:
-   *         application/json:
+   *         multipart/form-data:
    *           schema:
    *             type: object
    *             properties:
+   *               noticeSubject:
+   *                 type: string
+   *               noticeDescription:
+   *                 type: string
+   *               noticeType:
+   *                 type: string
+   *               noticeAudience:
+   *                 type: string
+   *               noticeSendMode:
+   *                 type: string
+   *                 description: now (save and send), draft (save only) or scheduled (save and schedule)
+   *               noticeScheduledAt:
+   *                 type: string
+   *                 format: date-time
+   *               recipientEmployeeIds:
+   *                 type: array
+   *                 items:
+   *                   type: number
    *               noticeFile:
    *                 type: string
    *                 format: binary
-   *                 description: The file to upload
+   *                 description: Replacement body file for image or pdf notices
    *               files:
    *                 type: array
    *                 items:
    *                   type: string
    *                   format: binary
-   *                   description: The files to upload (excel, doc, ppt, pdf, image, txt)
+   *                   description: New attachments for text notices
    *               filesDeleted:
    *                 type: array
    *                 items:
    *                   type: number
-   *                   description: Notice file id
-   *                 required: false
+   *                   description: Notice file id to remove
    *     responses:
    *       '201':
    *         description: Resource processed successfully
+   *       '400':
+   *         description: Business rule rejected the notice (title, detail, key)
    *       default:
    *         description: Unexpected error
    */
@@ -467,37 +528,33 @@ export default class NoticeController {
         }
       }
 
-      const notice = {
-        noticeId,
-        noticeSubject: (request.input('noticeSubject', '') || '').toString().trim(),
-        noticeDescription: (request.input('noticeDescription', '') || '').toString().trim(),
-        noticeType: (request.input('noticeType', 'text') || '').toString().trim(),
-      } as Notice
-
-      const resendOnUpdate = request.input('resendOnUpdate', true) !== false // Por defecto true si no se especifica
-      // Siempre recibir recipientEmployeeIds del request (puede ser array vacío)
-      const recipientEmployeeIds = request.input('recipientEmployeeIds', []) || []
-
-      await request.validateUsing(updateNoticeValidator)
+      const payload = await request.validateUsing(updateNoticeValidator)
       const noticeService = new NoticeService(i18n)
-      const verifyInfo = await noticeService.verifyInfo(notice)
-      if (verifyInfo.status !== 200) {
-        response.status(verifyInfo.status)
-        return {
-          type: verifyInfo.type,
-          title: verifyInfo.title,
-          message: verifyInfo.message,
-          data: { ...notice },
-        }
-      }
-      const validationOptions = {
-        types: ['image', 'pdf'],
-        size: '',
-      }
+      const notice = this.buildInput(payload)
+      const sendMode: NoticeSendModeValue = payload.noticeSendMode ?? NOTICE_SEND_MODE.DRAFT
+      const scheduledAt =
+        sendMode === NOTICE_SEND_MODE.SCHEDULED
+          ? noticeService.parseScheduledAt(payload.noticeScheduledAt)
+          : null
+      const recipients = await noticeService.resolveRecipients(payload.recipientEmployeeIds ?? [])
+      const isText = notice.noticeType === NOTICE_TYPE.TEXT
+      const bodyFile = isText ? null : request.file(NOTICE_FILE_FIELD)
+      // Un aviso de imagen o PDF que sigue siendo del mismo tipo conserva su
+      // archivo si no llega uno nuevo.
+      const keepsBodyFile =
+        !isText && currentNotice.noticeType === notice.noticeType && !!currentNotice.noticeDescription
+
+      const rejected = noticeService.verifyInfo(notice, {
+        sendMode,
+        scheduledAt,
+        hasBodyFile: !!bodyFile || keepsBodyFile,
+        recipientsCount: recipients.length,
+      })
+      if (rejected) return this.reject(response, rejected)
+
       const uploadService = new UploadService()
       const noticeFileService = new NoticeFileService()
-      const filesDeleted = request.input('filesDeleted') || []
-      for (const fileDeleted of filesDeleted) {
+      for (const fileDeleted of payload.filesDeleted ?? []) {
         // El identificador viene del cuerpo de la petición: la consulta se
         // acota al aviso que se esta editando, que ya paso por el filtro de
         // empresa. Sin ese `where`, un administrador podía borrar el archivo
@@ -505,7 +562,7 @@ export default class NoticeController {
         const noticeFile = await NoticeFile.query()
           .whereNull('notice_file_deleted_at')
           .where('notice_file_id', fileDeleted)
-          .where('notice_id', notice.noticeId)
+          .where('notice_id', noticeId)
           .first()
         if (noticeFile) {
           await noticeFileService.delete(noticeFile)
@@ -513,74 +570,57 @@ export default class NoticeController {
         }
       }
 
-      if (notice.noticeType === 'image' || notice.noticeType === 'pdf') {
-      const file = request.file('noticeFile', validationOptions)
-        if (file) {
-          // solo se pueden recibir imagenes y pdfs
-          // validate file required
-          const disallowedExtensions = [
-            'mp4',
-            'avi',
-            'mkv',
-            'mov',
-            'wmv',
-            'flv', // Video
-            'mp3',
-            'wav',
-            'flac',
-            'aac',
-            'ogg', // Audio
-          ]
-          // Verificar si la extensión del archivo está en la lista de no permitidas
-          if (disallowedExtensions.includes(file.extname ? file.extname : '')) {
-            response.status(400)
-            return {
-              status: 400,
-              type: 'warning',
-              title: 'Please upload a file valid',
-              message: 'Missing data to process',
-              data: file,
-            }
-          }
-
-
+      if (!isText) {
+        if (bodyFile) {
           await noticeService.deleteFileS3(currentNotice.noticeDescription)
-          const fileUrl = await uploadService.fileUpload(file, 'evidence-document', 'notices')
-          notice.noticeDescription = fileUrl
+          notice.noticeDescription = await uploadService.fileUpload(
+            bodyFile,
+            NOTICE_FILE_INTAKE_PROFILE,
+            NOTICE_FILE_FOLDER
+          )
+        } else {
+          notice.noticeDescription = currentNotice.noticeDescription
         }
-      } else if (notice.noticeType === 'text') {
-
-        await noticeService.deleteFileS3(currentNotice.noticeDescription)
-
-        const files = request.files('files', validationOptions)
-        if (files) {
-          for (const file of files) {
-            const fileUrl = await uploadService.fileUpload(file, 'evidence-document', 'notices')
-            const noticeFile = {
-              noticeId: notice.noticeId,
-              noticeFilePath: fileUrl,
-            } as NoticeFile
-            await noticeFileService.create(noticeFile)
-          }
+      } else {
+        if (currentNotice.noticeType !== NOTICE_TYPE.TEXT) {
+          await noticeService.deleteFileS3(currentNotice.noticeDescription)
+        }
+        for (const file of request.files(NOTICE_ATTACHMENTS_FIELD)) {
+          const fileUrl = await uploadService.fileUpload(
+            file,
+            NOTICE_FILE_INTAKE_PROFILE,
+            NOTICE_FILE_FOLDER
+          )
+          await noticeFileService.create({
+            noticeId,
+            noticeFilePath: fileUrl,
+          } as NoticeFile)
         }
       }
 
-      // USRH1783712837584: la ruta tiene `auth()` pero no `businessScope()`;
-      // se resuelve el id de la empresa del usuario desde el header.
-      const businessUnitId = await resolveRequestBusinessUnitId(ctx)
-      const updateNotice = await noticeService.update(
-        currentNotice,
-        notice,
-        resendOnUpdate,
-        recipientEmployeeIds,
-        businessUnitId
-      )
+      await noticeService.update(currentNotice, notice, recipients, scheduledAt)
+
+      if (sendMode === NOTICE_SEND_MODE.NOW) {
+        // Si ya había salido, el correo avisa que es una actualización.
+        await noticeService.sendNoticeEmails(
+          noticeId,
+          !!currentNotice.noticeSentAt,
+          ctx.businessUnitScope[0]
+        )
+      }
+
+      const saved = await noticeService.show(noticeId)
       response.status(201)
       return {
         type: 'success',
         title: t('notice'),
-        message: t('resource_was_updated_successfully'),
-        data: { notice: updateNotice },
+        message:
+          sendMode === NOTICE_SEND_MODE.SCHEDULED
+            ? t('notice_scheduled_successfully')
+            : sendMode === NOTICE_SEND_MODE.DRAFT
+              ? t('notice_saved_as_draft')
+              : t('resource_was_updated_successfully'),
+        data: { notice: saved },
       }
     } catch (error) {
       // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
@@ -589,7 +629,7 @@ export default class NoticeController {
 
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
+      response.status(error.code === 'E_VALIDATION_ERROR' ? 422 : 500)
       return {
         type: 'error',
         title: t('server_error'),
@@ -746,7 +786,7 @@ export default class NoticeController {
    *       - bearerAuth: []
    *     tags:
    *       - Notices
-   *     summary: send notice to recipients
+   *     summary: send (or resend) notice to recipients
    *     parameters:
    *       - in: path
    *         name: noticeId
@@ -754,6 +794,15 @@ export default class NoticeController {
    *           type: number
    *         description: Notice id
    *         required: true
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               onlyUnread:
+   *                 type: boolean
+   *                 description: Resend only to recipients who have not confirmed reading
    *     responses:
    *       '200':
    *         description: Notice sent successfully
@@ -774,13 +823,89 @@ export default class NoticeController {
           data: { noticeId },
         }
       }
+      const payload = await request.validateUsing(sendNoticeValidator)
       const noticeService = new NoticeService(i18n)
       // La empresa sale del scope que ya resolvió `businessScope()`, que este
-      // grupo monta. El comentario anterior decía que la ruta no lo montaba y
-      // resolvía el header a mano: dejó de ser cierto y sobraba.
-      const result = await noticeService.sendNotice(noticeId, ctx.businessUnitScope[0])
+      // grupo monta.
+      const result = await noticeService.sendNotice(
+        noticeId,
+        ctx.businessUnitScope[0],
+        payload.onlyUnread === true
+      )
       response.status(result.status)
       return result
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/notices/{noticeId}/duplicate:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Notices
+   *     summary: create a draft copy of a notice (content, audience, recipients and files)
+   *     parameters:
+   *       - in: path
+   *         name: noticeId
+   *         schema:
+   *           type: number
+   *         description: Notice id
+   *         required: true
+   *     responses:
+   *       '201':
+   *         description: Draft copy created
+   *       '404':
+   *         description: Notice not found
+   *       default:
+   *         description: Unexpected error
+   */
+  async duplicate(ctx: HttpContext) {
+    const { request, response, i18n, auth } = ctx
+    const t = i18n.formatMessage.bind(i18n)
+    try {
+      const noticeId = Number(request.param('noticeId'))
+      if (!noticeId || Number.isNaN(noticeId)) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: t('entity_id_was_not_found', { entity: t('notice') }),
+          message: t('missing_data_to_process'),
+          data: { noticeId },
+        }
+      }
+      const source = await Notice.query()
+        .whereNull('notice_deleted_at')
+        .where('notice_id', noticeId)
+        .first()
+      if (!source) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: t('entity_was_not_found', { entity: t('notice') }),
+          message: t('entity_was_not_found_with_entered_id', { entity: t('notice') }),
+          data: { noticeId },
+        }
+      }
+      const noticeService = new NoticeService(i18n)
+      const copy = await noticeService.duplicate(source, auth.user?.userId ?? null)
+      const saved = await noticeService.show(copy.noticeId)
+      response.status(201)
+      return {
+        type: 'success',
+        title: t('notice'),
+        message: t('notice_duplicated_successfully'),
+        data: { notice: saved },
+      }
     } catch (error) {
       response.status(500)
       return {
