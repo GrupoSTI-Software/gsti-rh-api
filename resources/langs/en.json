@@ -2979,5 +2979,20 @@
   "access_point_employee_assignment_not_found_title": "Assignment not found",
   "access_point_employee_assignment_not_found_message": "The employee is not assigned to that access point",
   "access_point_employee_internal_title": "Unexpected error",
-  "access_point_employee_internal_message": "The access point operation could not be completed"
+  "access_point_employee_internal_message": "The access point operation could not be completed",
+  "calendar_export_holidays_sheet": "Holidays",
+  "calendar_export_birthdays_sheet": "Birthdays",
+  "calendar_export_anniversaries_sheet": "Anniversaries",
+  "calendar_export_date": "Date",
+  "calendar_export_holiday": "Holiday",
+  "calendar_export_type": "Type",
+  "calendar_export_official_rest_day": "Official rest day",
+  "calendar_export_commemorative": "Commemorative",
+  "calendar_export_payroll_code": "Payroll code",
+  "calendar_export_employee": "Employee",
+  "calendar_export_department": "Department",
+  "calendar_export_position": "Position",
+  "calendar_export_years": "Years at the company",
+  "calendar_export_hire_date": "Hire date",
+  "calendar_export_created": "The file was generated successfully"
 }

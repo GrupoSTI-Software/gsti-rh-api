@@ -1,5 +1,7 @@
 import Icon from '#models/icon'
 import HolidayService from '#services/holiday_service'
+import CalendarExportService from '#services/calendar_export_service'
+import { CALENDAR_EXPORT_FILE_NAMES } from '#constants/calendar_export'
 import Holiday from '../models/holiday.js'
 import { createOrUpdateHolidayValidator } from '../validators/holiday.js'
 import { HttpContext } from '@adonisjs/core/http'
@@ -438,6 +440,45 @@ export default class HolidayController {
         type: 'error',
         title: 'Not found',
         message: 'Resource not found',
+        data: null,
+      })
+    }
+  }
+
+  /**
+   * Excel con las festividades del año de la empresa activa.
+   *
+   * Mismo corte que `index`: solo lo que la sesión ve en el calendario.
+   */
+  async exportExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
+    try {
+      const requestedYear = Number.parseInt(request.input('year'), 10)
+      const year = Number.isFinite(requestedYear) ? requestedYear : new Date().getFullYear()
+      const buUnits = businessUnitScope.length > 0
+        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
+        : []
+      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
+      const service = await new HolidayService(i18n).index(
+        `${year}-01-01`,
+        `${year}-12-31`,
+        '',
+        1,
+        Number.MAX_SAFE_INTEGER,
+        businessSlugs
+      )
+      if (service.status !== 200 || !service.holidays) {
+        return response.status(service.status).json(service)
+      }
+      const holidays = (service.holidays as unknown as { all(): Holiday[] }).all()
+      const buffer = await new CalendarExportService(i18n).holidays(holidays, year)
+      response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      response.header('Content-Disposition', `attachment; filename=${year}-${CALENDAR_EXPORT_FILE_NAMES.holidays}`)
+      return response.status(200).send(buffer)
+    } catch (error) {
+      return response.status(500).json({
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error occurred',
         data: null,
       })
     }
