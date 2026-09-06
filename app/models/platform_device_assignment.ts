@@ -5,13 +5,15 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import PlatformDevice from './platform_device.js'
 import BusinessUnit from './business_unit.js'
+import type { TENURE_REGIMES } from '#validators/platform_device_assignment'
 
 /**
  * Figura bajo la que queda un equipo con el cliente (USRH1787189981880).
- * Fuente única del enum: `TENURE_REGIMES` en
- * `app/validators/platform_device_assignment.ts`.
+ * Derivado de `TENURE_REGIMES` en
+ * `app/validators/platform_device_assignment.ts` — fuente única del enum
+ * en el API (§10.2 del spec). NO se duplica el literal aquí.
  */
-export type PlatformDeviceAssignmentTenureRegime = 'comodato' | 'venta' | 'propiedad_cliente'
+export type PlatformDeviceAssignmentTenureRegime = (typeof TENURE_REGIMES)[number]
 
 /**
  * Registro de colocación de un aparato a una empresa cliente.
