@@ -1,7 +1,6 @@
 import { HttpContext } from '@adonisjs/core/http'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import { resolveSessionEmployeeId } from '#helpers/resolve_session_employee_id'
-import BusinessAccessScopeService from '#services/business_access_scope_service'
 import Notice from '#models/notice'
 import NoticeService from '#services/notice_service'
 import { createNoticeValidator, updateNoticeValidator } from '#validators/notice'
@@ -68,15 +67,11 @@ export default class NoticeController {
       const employeeId = rawEmployeeId
         ? ((await resolveSessionEmployeeId(ctx)) ?? -1)
         : undefined
-      // El corte por empresa se resuelve con el scope del usuario y NO con el
-      // header de unidad activa: la ruta no monta `businessScope()` a propósito
-      // —los avisos con unidad NULL quedarían fuera— y montarlo rompería la app.
-      const scopeService = new BusinessAccessScopeService()
-      const scopeIds = await scopeService.getAccessibleIds(ctx.auth.user!)
-
+      // El corte por empresa lo hace el middleware `businessScope()`, que esta
+      // ruta ya monta: deja el TenantContext activo y el mixin del modelo filtra
+      // solo. Aquí no se replica.
       const noticeService = new NoticeService(i18n)
       const notices = await noticeService.index({
-        scopeIds,
         search,
         page,
         limit,
@@ -293,7 +288,14 @@ export default class NoticeController {
       // }
 
 
-      const newNotice = await noticeService.create(notice, recipientEmployeeIds)
+      // La empresa del aviso sale del scope que ya resolvió `businessScope()`,
+      // que este grupo sí monta. Nunca del cuerpo de la petición: quien crea no
+      // elige a qué empresa pertenece lo que crea.
+      const newNotice = await noticeService.create(
+        notice,
+        recipientEmployeeIds,
+        ctx.businessUnitScope[0]
+      )
       if (notice.noticeType === 'image' || notice.noticeType === 'pdf') {
         const validationOptions = {
           types: ['image', 'pdf'],
@@ -773,10 +775,10 @@ export default class NoticeController {
         }
       }
       const noticeService = new NoticeService(i18n)
-      // USRH1783712837584: la ruta tiene `auth()` pero no `businessScope()`;
-      // se resuelve el id de la empresa del usuario desde el header.
-      const businessUnitId = await resolveRequestBusinessUnitId(ctx)
-      const result = await noticeService.sendNotice(noticeId, businessUnitId)
+      // La empresa sale del scope que ya resolvió `businessScope()`, que este
+      // grupo monta. El comentario anterior decía que la ruta no lo montaba y
+      // resolvía el header a mano: dejó de ser cierto y sobraba.
+      const result = await noticeService.sendNotice(noticeId, ctx.businessUnitScope[0])
       response.status(result.status)
       return result
     } catch (error) {

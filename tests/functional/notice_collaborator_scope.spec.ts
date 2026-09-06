@@ -127,6 +127,15 @@ async function createNoticeFor(actor: Actor, subject: string): Promise<Notice> {
   return notice
 }
 
+/**
+ * La empresa activa. Desde que las rutas de lectura montan `businessScope()`,
+ * el header es obligatorio en TODAS: es el mismo que envían la app del empleado
+ * y el backoffice en cada petición.
+ */
+function unidadDe(actor: Actor): string {
+  return actor.businessUnit.businessUnitPublicId
+}
+
 test.group('Avisos — alcance por colaborador (B3)', (group) => {
   let ana: Actor | null = null
   let beto: Actor | null = null
@@ -156,6 +165,7 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
     const response = await client
       .get('/api/notices')
       .qs({ employeeId: ana!.employee.employeeId })
+      .header('X-Business-Unit-Id', unidadDe(beto!))
       .loginAs(beto!.user)
 
     response.assertStatus(200)
@@ -172,6 +182,7 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
     const response = await client
       .get(`/api/notices/${avisos[0]}`)
       .qs({ employeeId: ana!.employee.employeeId })
+      .header('X-Business-Unit-Id', unidadDe(beto!))
       .loginAs(beto!.user)
 
     // No es 403: distinguir "existe pero no es tuyo" de "no existe" filtraría
@@ -185,10 +196,12 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
     client,
     assert,
   }) => {
-    const propio = await client.get('/api/notices/unread-count').loginAs(beto!.user)
+    const propio = await client.get('/api/notices/unread-count').header('X-Business-Unit-Id', unidadDe(beto!))
+      .loginAs(beto!.user)
     const conIdAjeno = await client
       .get('/api/notices/unread-count')
       .qs({ employeeId: ana!.employee.employeeId })
+      .header('X-Business-Unit-Id', unidadDe(beto!))
       .loginAs(beto!.user)
 
     propio.assertStatus(200)
@@ -204,6 +217,7 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
     await client
       .post(`/api/notices/${avisos[0]}/mark-as-read`)
       .qs({ employeeId: ana!.employee.employeeId })
+      .header('X-Business-Unit-Id', unidadDe(beto!))
       .loginAs(beto!.user)
 
     // La fila de Ana sigue sin leer: Beto no pudo tocarla.
@@ -218,6 +232,7 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
     const response = await client
       .get('/api/notices')
       .qs({ employeeId: ana!.employee.employeeId })
+      .header('X-Business-Unit-Id', unidadDe(ana!))
       .loginAs(ana!.user)
 
     response.assertStatus(200)
@@ -232,7 +247,8 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
     // TODAS las empresas a cualquier autenticado: el grupo monta solo `auth()`,
     // así que el contexto de tenant está inactivo y el mixin del modelo no
     // aplica ningún filtro.
-    const response = await client.get('/api/notices').loginAs(beto!.user)
+    const response = await client.get('/api/notices').header('X-Business-Unit-Id', unidadDe(beto!))
+      .loginAs(beto!.user)
 
     response.assertStatus(200)
     const cuerpo = JSON.stringify(response.body())
@@ -249,6 +265,7 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
     const response = await client
       .get('/api/notices')
       .qs({ employeeId: ana!.employee.employeeId })
+      .header('X-Business-Unit-Id', unidadDe(ana!))
       .loginAs(ana!.user)
 
     response.assertStatus(200)
@@ -271,6 +288,7 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
     const response = await client
       .get('/api/notices')
       .qs({ employeeId: ana!.employee.employeeId })
+      .header('X-Business-Unit-Id', unidadDe(ana!))
       .loginAs(ana!.user)
 
     const cuerpo = JSON.stringify(response.body())
@@ -286,6 +304,7 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
     // existe", revelando la existencia del aviso.
     const response = await client
       .get(`/api/notices/${avisos[0]}/files/1/content`)
+      .header('X-Business-Unit-Id', unidadDe(beto!))
       .loginAs(beto!.user)
 
     assert.equal(response.status(), 404)
@@ -297,13 +316,15 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
   }) => {
     const response = await client
       .get(`/api/notices/${avisos[0]}/body-file`)
+      .header('X-Business-Unit-Id', unidadDe(beto!))
       .loginAs(beto!.user)
 
     assert.equal(response.status(), 404)
   })
 
   test('B5: un id no numérico se rechaza con 400 tipado', async ({ client, assert }) => {
-    const response = await client.get('/api/notices/abc/body-file').loginAs(ana!.user)
+    const response = await client.get('/api/notices/abc/body-file').header('X-Business-Unit-Id', unidadDe(ana!))
+      .loginAs(ana!.user)
 
     assert.equal(response.status(), 400)
     assert.equal(response.body().key, 'aviso-id-invalido')
@@ -316,8 +337,50 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
     // Los avisos de texto guardan su cuerpo en la columna, no como archivo.
     const response = await client
       .get(`/api/notices/${avisos[0]}/body-file`)
+      .header('X-Business-Unit-Id', unidadDe(ana!))
       .loginAs(ana!.user)
 
     assert.equal(response.status(), 404)
+  })
+
+  test('CORTE DE RAIZ: sin empresa activa no se leen avisos', async ({
+    client,
+    assert,
+  }) => {
+    // Las rutas de lectura montan `businessScope()` como el resto de rutas con
+    // datos de empresa. Antes no lo hacían porque la columna era nullable y el
+    // filtro dejaba fuera los avisos sin empresa; eso ya no existe.
+    const response = await client.get('/api/notices').loginAs(ana!.user)
+
+    assert.equal(response.status(), 400)
+    assert.equal(response.body().key, 'BU.VAL.000')
+  })
+
+  test('CORTE DE RAIZ: con la empresa de otro tenant, no se llega', async ({
+    client,
+    assert,
+  }) => {
+    // El middleware valida el header contra el scope del usuario: pedir los
+    // avisos declarando una empresa ajena responde 404 sin revelar si existe.
+    const response = await client
+      .get('/api/notices')
+      .header('X-Business-Unit-Id', unidadDe(beto!))
+      .loginAs(ana!.user)
+
+    assert.equal(response.status(), 404)
+    assert.equal(response.body().key, 'BU.NOT.001')
+  })
+
+  test('CORTE DE RAIZ: un aviso nace CON la empresa de quien lo crea', async ({
+    assert,
+  }) => {
+    // Es la causa raíz de todo esto: el alta no asignaba la empresa, así que
+    // cada aviso nacía sin ella —invisible para el filtro de tenant, imposible
+    // de editar o borrar— y no eran avisos legacy: eran todos.
+    const notice = await Notice.query()
+      .where('notice_id', avisos[0])
+      .first()
+
+    assert.isNotNull(notice!.businessUnitId)
   })
 })

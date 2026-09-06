@@ -2,8 +2,16 @@ import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 
 /**
- * Lecturas de la app empleado: solo auth(), sin empresa activa en header.
- * USRH1784316436823 — no montar businessScope aquí (rompería la app).
+ * Lecturas de la app empleado.
+ *
+ * Montan `businessScope()` como el resto de rutas con datos de empresa. Antes no
+ * lo hacían porque `notices.business_unit_id` era nullable y el filtro de tenant
+ * dejaba fuera los avisos sin empresa; eso se resolvió de raíz: el alta ya
+ * asigna la empresa y la columna es obligatoria, así que no quedan avisos que
+ * excluir y el mixin del modelo hace todo el corte.
+ *
+ * La app del empleado envía `x-business-unit-id` en cada petición y el
+ * colaborador tiene fila en `business_unit_users`, así que pasa el middleware.
  */
 router
   .group(() => {
@@ -21,6 +29,7 @@ router
   })
   .prefix('/api/notices')
   .use(middleware.auth())
+  .use(middleware.businessScope())
 
 /**
  * Operaciones de administración: exigen empresa activa (defensa en profundidad).

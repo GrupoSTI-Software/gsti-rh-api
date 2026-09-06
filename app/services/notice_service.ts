@@ -48,17 +48,12 @@ export default class NoticeService {
     this.i18n = i18n
   }
 
-  /**
-   * @param scopeIds unidades de negocio accesibles para el usuario. Cuando se
-   *   entrega, el listado deja de cruzar empresas.
-   */
   async index(filters: {
     search?: string
     page: number
     limit: number
     employeeId?: number
     readStatus?: 'all' | 'read' | 'unread'
-    scopeIds?: number[]
   }) {
     const selectedColumns = [
       'notice_id',
@@ -92,26 +87,10 @@ export default class NoticeService {
       })
       .preload('files')
 
-    // Corte por empresa. Sin esto, `GET /api/notices` sin employeeId devuelve
-    // los avisos de TODAS las empresas a cualquier autenticado: el grupo monta
-    // solo `auth()`, así que el TenantContext está inactivo y el mixin de scope
-    // del modelo no aplica ningún filtro.
-    //
-    // No se arregla montando `businessScope()`: `notices.business_unit_id` es
-    // nullable por diseño —la migración dejó NULL los no derivables— y el mixin
-    // filtra con `whereIn`, que los excluiría. Ese es el motivo real de que la
-    // ruta no lo monte, y sigue vigente.
-    //
-    // Los avisos con unidad NULL se CONSERVAN a propósito: un aviso legacy
-    // sigue siendo visible para cualquier usuario de backoffice de cualquier
-    // tenant. Es el precio de no ocultarlos, y va escrito para que nadie lo lea
-    // como un olvido.
-    const scopeIds = filters.scopeIds
-    if (scopeIds !== undefined) {
-      query = query.where((sub) => {
-        sub.whereIn('business_unit_id', scopeIds).orWhereNull('business_unit_id')
-      })
-    }
+    // El corte por empresa lo hace el mixin del modelo con el TenantContext que
+    // deja `businessScope()`, que estas rutas ya montan. El filtro explícito que
+    // hubo aquí sobra desde que la columna es obligatoria: no quedan avisos sin
+    // empresa que hubiera que dejar pasar aparte.
 
     // Si se proporciona employeeId, filtrar por notice_recipients y hacer preload
     if (filters.employeeId) {
@@ -192,8 +171,19 @@ export default class NoticeService {
     return personalEmail || ''
   }
 
-  async create(notice: Notice, recipientEmployeeIds: number[] = []) {
+  /**
+   * @param businessUnitId empresa a la que pertenece el aviso. **Obligatorio.**
+   *   Hasta ahora no se asignaba y cada aviso nacía sin empresa: invisible para
+   *   el filtro de tenant —ni se podía editar ni borrar— y, con el corte de
+   *   lectura, visible para todas. No eran avisos legacy: eran todos.
+   */
+  async create(
+    notice: Notice,
+    recipientEmployeeIds: number[] = [],
+    businessUnitId: number
+  ) {
     const newNotice = new Notice()
+    newNotice.businessUnitId = businessUnitId
     newNotice.noticeSubject = notice.noticeSubject
     newNotice.noticeDescription = notice.noticeDescription
     newNotice.noticeSentCount = 0
