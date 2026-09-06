@@ -7,6 +7,13 @@ import PlatformDevice from './platform_device.js'
 import BusinessUnit from './business_unit.js'
 
 /**
+ * Figura bajo la que queda un equipo con el cliente (USRH1787189981880).
+ * Fuente única del enum: `TENURE_REGIMES` en
+ * `app/validators/platform_device_assignment.ts`.
+ */
+export type PlatformDeviceAssignmentTenureRegime = 'comodato' | 'venta' | 'propiedad_cliente'
+
+/**
  * Registro de colocación de un aparato a una empresa cliente.
  * Una fila por entrega; el histórico se acumula y nunca se borra.
  * Ref: USRH1787189981876 · §10 del spec.
@@ -37,6 +44,22 @@ export default class PlatformDeviceAssignment extends compose(BaseModel, SoftDel
    */
   @column()
   declare platformDeviceAssignmentReleasedAt: string | null
+
+  /**
+   * Figura bajo la que quedó el equipo con el cliente (USRH1787189981880).
+   * Restringida por el origen de la unidad: `del_cliente` → solo
+   * `propiedad_cliente`; `propia` → `comodato` o `venta`.
+   */
+  @column()
+  declare platformDeviceAssignmentTenureRegime: PlatformDeviceAssignmentTenureRegime
+
+  /** Precio de venta en centavos MXN. Solo cuando el régimen es `venta`. */
+  @column()
+  declare platformDeviceAssignmentSalePriceCents: number | null
+
+  /** Moneda del precio de venta. Significativa solo cuando hay precio. */
+  @column()
+  declare platformDeviceAssignmentSaleCurrency: string
 
   /** ID del usuario de plataforma que registró la entrega (trazabilidad). */
   @column()

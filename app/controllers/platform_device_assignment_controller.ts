@@ -51,6 +51,7 @@ export default class PlatformDeviceAssignmentController {
    *               - platformDeviceId
    *               - tenantPublicId
    *               - deliveredAt
+   *               - tenureRegime
    *             properties:
    *               platformDeviceId:
    *                 type: integer
@@ -62,6 +63,17 @@ export default class PlatformDeviceAssignmentController {
    *                 type: string
    *                 format: date
    *                 example: "2026-08-20"
+   *               tenureRegime:
+   *                 type: string
+   *                 enum: [comodato, venta, propiedad_cliente]
+   *                 description: >
+   *                   Figura bajo la que queda el equipo. Restringida por el
+   *                   origen de la unidad: del_cliente solo admite
+   *                   propiedad_cliente; propia admite comodato o venta.
+   *               salePriceCents:
+   *                 type: integer
+   *                 description: Obligatorio y solo permitido cuando tenureRegime = venta. Centavos MXN.
+   *                 example: 1250000
    *     responses:
    *       '201':
    *         description: Asignación registrada
@@ -84,6 +96,9 @@ export default class PlatformDeviceAssignmentController {
    *                   accessPointId: 412
    *                   accessPointName: "ZKTeco SpeedFace V5L · 8A31"
    *                   accessPointSerialNumber: "CJ9F2400A8A31"
+   *                 tenureRegime: "venta"
+   *                 salePriceCents: 1250000
+   *                 saleCurrency: "MXN"
    *       '401':
    *         description: Sin autenticar
    *       '403':
@@ -99,7 +114,10 @@ export default class PlatformDeviceAssignmentController {
    *           PLT.DEV.VAL_INPUT — Body inválido o fecha futura |
    *           PLT.DEV.ASSIGN_NOT_AVAILABLE — Aparato ya asignado o retirado |
    *           PLT.DEV.ASSIGN_TENANT_NOT_ENABLED — Tenant sin habilitación de biométricos |
-   *           PLT.DEV.DEVICE_SERIAL_MISSING — La unidad no tiene número de serie registrado
+   *           PLT.DEV.DEVICE_SERIAL_MISSING — La unidad no tiene número de serie registrado |
+   *           PLT.DEV.SALE_PRICE_REQUIRED — Régimen venta sin precio |
+   *           PLT.DEV.SALE_PRICE_NOT_ALLOWED — Precio con régimen que no lo admite |
+   *           PLT.DEV.TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN — Régimen incompatible con el origen de la unidad
    *       '500':
    *         description: PLT.DEV.ACCESS_POINT_PRELOAD_FAILED — Falló la materialización del punto de acceso
    */
@@ -112,6 +130,8 @@ export default class PlatformDeviceAssignmentController {
         platformDeviceId: data.platformDeviceId,
         tenantPublicId: data.tenantPublicId,
         deliveredAt: data.deliveredAt,
+        tenureRegime: data.tenureRegime,
+        salePriceCents: data.salePriceCents,
         createdByUserId: userId ?? undefined,
       })
 

@@ -6,7 +6,9 @@ import PlatformDevice, {
   type PlatformDeviceRetireReason,
   type PlatformDeviceStockStatus,
 } from '#models/platform_device'
-import PlatformDeviceAssignment from '#models/platform_device_assignment'
+import PlatformDeviceAssignment, {
+  type PlatformDeviceAssignmentTenureRegime,
+} from '#models/platform_device_assignment'
 import PlatformDeviceModel from '#models/platform_device_model'
 import { PLATFORM_DEVICE_ERROR_CODES } from '../constants/platform_device_error_codes.js'
 import { PlatformDeviceServiceError } from '../exceptions/platform_device_service_error.js'
@@ -42,6 +44,11 @@ export interface DeviceRecord {
   platformDeviceAcquisitionCostCents: number | null
   platformDeviceAcquisitionDate: string | null
   assignedTenant: AssignedTenant | null
+  /**
+   * Régimen de tenencia de la entrega abierta (USRH1787189981880).
+   * `null` cuando la unidad no tiene ninguna entrega vigente (regla 9).
+   */
+  currentTenureRegime: PlatformDeviceAssignmentTenureRegime | null
   model: ResolvedDeviceModel
 }
 
@@ -152,6 +159,7 @@ export default class PlatformDeviceService {
             name: device.assignments[0].businessUnit.businessUnitName,
           }
         : null,
+      currentTenureRegime: device.assignments?.[0]?.platformDeviceAssignmentTenureRegime ?? null,
       model: {
         platformDeviceModelId: model.platformDeviceModelId,
         platformDeviceModelBrand: model.platformDeviceModelBrand,
