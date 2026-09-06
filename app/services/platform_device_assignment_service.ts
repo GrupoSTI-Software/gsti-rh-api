@@ -39,6 +39,10 @@ export interface AssignmentListItem {
     slug: string
   }
   deliveredAt: string
+  /** Figura de tenencia de esta entrega (USRH1787189981880). */
+  tenureRegime: PlatformDeviceAssignmentTenureRegime
+  salePriceCents: number | null
+  saleCurrency: string
 }
 
 interface CreateAssignmentInput {
@@ -356,6 +360,9 @@ export default class PlatformDeviceAssignmentService {
         slug: a.device.deviceModel.platformDeviceModelSlug,
       },
       deliveredAt: a.platformDeviceAssignmentDeliveredAt,
+      tenureRegime: a.platformDeviceAssignmentTenureRegime,
+      salePriceCents: a.platformDeviceAssignmentSalePriceCents,
+      saleCurrency: a.platformDeviceAssignmentSaleCurrency,
     }))
   }
 }

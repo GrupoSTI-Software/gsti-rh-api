@@ -185,6 +185,9 @@ export default class PlatformDeviceAssignmentController {
    *                     name: "ZKTeco SpeedFace V5L"
    *                     slug: "zkteco-speedface-v5l"
    *                   deliveredAt: "2026-08-20"
+   *                   tenureRegime: "venta"
+   *                   salePriceCents: 1250000
+   *                   saleCurrency: "MXN"
    *       '401':
    *         description: Sin autenticar
    *       '403':
