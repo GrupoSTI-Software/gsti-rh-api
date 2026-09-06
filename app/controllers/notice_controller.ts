@@ -1,5 +1,7 @@
 import { HttpContext } from '@adonisjs/core/http'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
+import { resolveSessionEmployeeId } from '#helpers/resolve_session_employee_id'
+import BusinessAccessScopeService from '#services/business_access_scope_service'
 import Notice from '#models/notice'
 import NoticeService from '#services/notice_service'
 import { createNoticeValidator, updateNoticeValidator } from '#validators/notice'
@@ -45,7 +47,8 @@ export default class NoticeController {
    *       default:
    *         description: Unexpected error
    */
-  async index({ request, response, i18n }: HttpContext) {
+  async index(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const search = request.input('search')
@@ -55,9 +58,25 @@ export default class NoticeController {
       const readStatus = request.input('readStatus') as 'all' | 'read' | 'unread' | undefined
       const page = Number.isNaN(rawPage) || rawPage <= 0 ? 1 : rawPage
       const limit = Number.isNaN(rawLimit) || rawLimit <= 0 ? 100 : rawLimit
-      const employeeId = rawEmployeeId ? Number(rawEmployeeId) : undefined
+      // La PRESENCIA del parámetro decide la vista; su VALOR se descarta y lo
+      // pone la sesión. Antes se obedecía: con el token de cualquier trabajador
+      // se leían los avisos de otro.
+      //
+      // Un employeeId ajeno no devuelve 403 sino lo propio: un 403 distinguiría
+      // "existe pero no es tuyo" de "no existe", y rompería a un cliente viejo
+      // que llevara el id desincronizado.
+      const employeeId = rawEmployeeId
+        ? ((await resolveSessionEmployeeId(ctx)) ?? -1)
+        : undefined
+      // El corte por empresa se resuelve con el scope del usuario y NO con el
+      // header de unidad activa: la ruta no monta `businessScope()` a propósito
+      // —los avisos con unidad NULL quedarían fuera— y montarlo rompería la app.
+      const scopeService = new BusinessAccessScopeService()
+      const scopeIds = await scopeService.getAccessibleIds(ctx.auth.user!)
+
       const noticeService = new NoticeService(i18n)
       const notices = await noticeService.index({
+        scopeIds,
         search,
         page,
         limit,
@@ -106,11 +125,13 @@ export default class NoticeController {
    *       default:
    *         description: Unexpected error
    */
-  async getUnreadCount({ request, response, i18n }: HttpContext) {
+  async getUnreadCount(ctx: HttpContext) {
+    const { response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const rawEmployeeId = request.input('employeeId')
-      const employeeId = rawEmployeeId ? Number(rawEmployeeId) : undefined
+      // Deja de leer el query por completo: no tiene consumidor fuera de la app
+      // y esta cuenta es siempre la propia.
+      const employeeId = await resolveSessionEmployeeId(ctx)
       if (!employeeId || Number.isNaN(employeeId)) {
         response.status(400)
         return {
@@ -666,7 +687,8 @@ export default class NoticeController {
    *       default:
    *         description: Unexpected error
    */
-  async show({ request, response, i18n }: HttpContext) {
+  async show(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const noticeId = Number(request.param('noticeId'))
@@ -679,8 +701,12 @@ export default class NoticeController {
           data: { noticeId },
         }
       }
+      // Igual que en `index`: la presencia decide la vista, el valor lo pone
+      // la sesión.
       const rawEmployeeId = request.input('employeeId')
-      const employeeId = rawEmployeeId ? Number(rawEmployeeId) : undefined
+      const employeeId = rawEmployeeId
+        ? ((await resolveSessionEmployeeId(ctx)) ?? -1)
+        : undefined
       const noticeService = new NoticeService(i18n)
       const notice = await noticeService.show(noticeId, employeeId)
       if (!notice) {
@@ -792,7 +818,8 @@ export default class NoticeController {
    *       default:
    *         description: Unexpected error
    */
-  async markAsRead({ request, response, i18n }: HttpContext) {
+  async markAsRead(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const noticeId = Number(request.param('noticeId'))
@@ -805,9 +832,11 @@ export default class NoticeController {
           data: { noticeId },
         }
       }
-      const rawEmployeeId = request.input('employeeId')
-      const employeeId = rawEmployeeId ? Number(rawEmployeeId) : undefined
-      if (!employeeId || Number.isNaN(employeeId)) {
+      // Deja de leer el query: marcar como leído es siempre sobre lo propio.
+      // Antes esto era una escritura IDOR — con el token de cualquiera se podía
+      // marcar como leído el aviso de otro.
+      const employeeId = await resolveSessionEmployeeId(ctx)
+      if (!employeeId) {
         response.status(400)
         return {
           type: 'warning',

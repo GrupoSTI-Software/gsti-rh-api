@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, column, computed, hasMany } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
@@ -85,6 +85,40 @@ export default class Notice extends compose(BaseModel, SoftDeletes, withBusiness
     foreignKey: 'noticeId',
   })
   declare recipients: HasMany<typeof NoticeRecipient>
+
+  /**
+   * Cuántos destinatarios tiene el aviso.
+   *
+   * Lo alimenta el `withCount('recipients')` del listado. Sustituye al conteo
+   * que el backoffice hacía sobre la longitud de `notice_recipient_emails`, un
+   * longtext con los correos de toda la plantilla que salió del SELECT.
+   *
+   * **El backoffice debe pasar a leer este campo ANTES de liberar este cambio.**
+   * Su fallback `notice.recipients?.length` devuelve 0 sin preload, así que el
+   * contador caería a cero en todas las tarjetas sin un solo error visible.
+   */
+  /**
+   * Ruta autenticada del cuerpo cuando el aviso NO es de texto.
+   *
+   * Los avisos de imagen o PDF guardan la key del archivo en
+   * `notice_description`, sin fila en `notice_files`. Hoy el cliente imprime esa
+   * key privada como texto en pantalla.
+   *
+   * **Necesita `notice_type` en el SELECT.** Sin él sale null en el listado y
+   * bien en el detalle, y el aviso se pinta distinto en cada sitio sin un solo
+   * error visible.
+   */
+  @computed()
+  get noticeBodyFileUrl(): string | null {
+    if (!this.noticeType || this.noticeType === 'text') return null
+    if (!this.noticeDescription) return null
+    return `/api/notices/${this.noticeId}/body-file`
+  }
+
+  @computed()
+  get noticeRecipientsCount(): number {
+    return Number(this.$extras.recipients_count ?? 0)
+  }
 
   @hasMany(() => NoticeFile, {
     foreignKey: 'noticeId',

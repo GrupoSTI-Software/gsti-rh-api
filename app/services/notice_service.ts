@@ -25,6 +25,20 @@ const DEVELOPMENT_EMAIL_LIST = [
   'wilvardo@gmail.com'
 ]
 
+/**
+ * Lo que este servicio necesita de la sub-consulta de destinatarios.
+ *
+ * Contrato estructural y no el tipo de Lucid porque `whereHas` y `preload`
+ * entregan builders DISTINTOS —`RelationSubQueryBuilderContract` y
+ * `HasManyQueryBuilderContract`— y no hay un supertipo común que los cubra. Con
+ * las dos operaciones que de verdad se usan, el mismo callback sirve a ambos y
+ * el archivo se queda sin `any`, que es regla del repo.
+ */
+interface NoticeRecipientQuery {
+  whereNull(column: string): NoticeRecipientQuery
+  where(column: string, value: string | number | boolean): NoticeRecipientQuery
+}
+
 export default class NoticeService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
   private i18n: I18n
@@ -34,27 +48,74 @@ export default class NoticeService {
     this.i18n = i18n
   }
 
-  async index(filters: { search?: string; page: number; limit: number; employeeId?: number; readStatus?: 'all' | 'read' | 'unread' }) {
+  /**
+   * @param scopeIds unidades de negocio accesibles para el usuario. Cuando se
+   *   entrega, el listado deja de cruzar empresas.
+   */
+  async index(filters: {
+    search?: string
+    page: number
+    limit: number
+    employeeId?: number
+    readStatus?: 'all' | 'read' | 'unread'
+    scopeIds?: number[]
+  }) {
     const selectedColumns = [
       'notice_id',
       'notice_subject',
       'notice_description',
-      'notice_recipient_emails',
       'notice_sent_count',
       'notice_sent_at',
       'notice_created_at',
+      // `notice_updated_at` decide si un detalle guardado en el aparato sigue
+      // sirviendo, sin pedir los avisos uno por uno.
+      'notice_updated_at',
+      // `notice_type` es obligatorio para el computed del cuerpo-archivo. Sin
+      // él, el aviso saldría bien en el detalle y mal en el listado, sin un
+      // solo error visible.
+      'notice_type',
+      // Sale `notice_recipient_emails`: es un longtext con los correos de TODOS
+      // los destinatarios, domina el tamaño del payload y ningún cliente lo
+      // parsea. Con el caché en el aparato del trabajador, además, eran los
+      // correos de toda la plantilla en el disco de cada teléfono.
     ]
 
     let query = Notice.query()
       .whereNull('notice_deleted_at')
+      // El contador de destinatarios que el BO pintaba con la longitud de la
+      // lista de correos, ahora contado en el servidor.
+      .withCount('recipients', (recipientQuery) => {
+        recipientQuery.whereNull('notice_recipient_deleted_at')
+      })
       .if(filters.search, (q) => {
         q.whereRaw('UPPER(notice_subject) LIKE ?', [`%${filters.search!.toUpperCase()}%`])
       })
       .preload('files')
 
+    // Corte por empresa. Sin esto, `GET /api/notices` sin employeeId devuelve
+    // los avisos de TODAS las empresas a cualquier autenticado: el grupo monta
+    // solo `auth()`, así que el TenantContext está inactivo y el mixin de scope
+    // del modelo no aplica ningún filtro.
+    //
+    // No se arregla montando `businessScope()`: `notices.business_unit_id` es
+    // nullable por diseño —la migración dejó NULL los no derivables— y el mixin
+    // filtra con `whereIn`, que los excluiría. Ese es el motivo real de que la
+    // ruta no lo monte, y sigue vigente.
+    //
+    // Los avisos con unidad NULL se CONSERVAN a propósito: un aviso legacy
+    // sigue siendo visible para cualquier usuario de backoffice de cualquier
+    // tenant. Es el precio de no ocultarlos, y va escrito para que nadie lo lea
+    // como un olvido.
+    const scopeIds = filters.scopeIds
+    if (scopeIds !== undefined) {
+      query = query.where((sub) => {
+        sub.whereIn('business_unit_id', scopeIds).orWhereNull('business_unit_id')
+      })
+    }
+
     // Si se proporciona employeeId, filtrar por notice_recipients y hacer preload
     if (filters.employeeId) {
-      const baseRecipientQuery = (recipientSubQuery: any) => {
+      const baseRecipientQuery = (recipientSubQuery: NoticeRecipientQuery) => {
         recipientSubQuery
           .whereNull('notice_recipient_deleted_at')
           .where('employee_id', filters.employeeId!)

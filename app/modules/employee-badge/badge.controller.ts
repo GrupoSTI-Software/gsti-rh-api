@@ -78,6 +78,7 @@ export default class BadgeController {
    *                       empresa: "Seguridad Integral SA de CV"
    *                       folioRepse: "REPSE-12345-2024"
    *                       folioVigente: true
+   *                       folioVigenteHasta: "2031-03-31"
    *                       vinculoVigente: true
    *                       urlVerificacion: "https://bo.example.com/badge-verification/abc123"
    *                       qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"
@@ -96,6 +97,7 @@ export default class BadgeController {
    *                       empresa: "Distribuidora El Roble S. de R.L."
    *                       folioRepse: null
    *                       folioVigente: null
+   *                       folioVigenteHasta: null
    *                       vinculoVigente: true
    *                       urlVerificacion: "https://bo.example.com/badge-verification/def456"
    *                       qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"
@@ -517,6 +519,7 @@ export default class BadgeController {
    *                   empresa: "Seguridad Integral SA de CV"
    *                   folioRepse: "REPSE-12345-2024"
    *                   folioVigente: true
+   *                   folioVigenteHasta: "2031-03-31"
    *                   vinculoVigente: true
    *                   urlVerificacion: "https://bo.example.com/badge-verification/abc123"
    *                   qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"

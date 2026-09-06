@@ -39,6 +39,18 @@ router
         '#controllers/employee_biometric_face_id_controller.deletePhoto'
       )
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeFaceId))
+    // Copia del rostro biometrico a la foto de perfil. El gate del router cubre
+    // solo la escritura de la foto; el controlador exige ademas la lectura
+    // biometrica y lo hace con `evaluateEnforced`, porque este `permissionGate`
+    // concede mientras la exigencia del modulo `employees` siga apagada.
+    router
+      .post(
+        '/:employeeId/biometric-face-id/use-as-photo',
+        '#controllers/employee_biometric_face_id_controller.useAsEmployeePhoto'
+      )
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.useEmployeeFaceIdAsPhoto)
+      )
     router
       .get(
         '/:employeeId/biometric-face-id-with-token/:token',

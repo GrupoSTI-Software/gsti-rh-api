@@ -11,6 +11,13 @@ router
     router.get('/', '#controllers/notice_controller.index')
     router.get('/:noticeId', '#controllers/notice_controller.show')
     router.post('/:noticeId/mark-as-read', '#controllers/notice_controller.markAsRead')
+    // Los binarios van en el grupo de lectura: montar businessScope reintroduciria
+    // el problema de los avisos con unidad NULL.
+    router.get(
+      '/:noticeId/files/:noticeFileId/content',
+      '#controllers/notice_file_stream_controller.fileContent'
+    )
+    router.get('/:noticeId/body-file', '#controllers/notice_file_stream_controller.bodyFile')
   })
   .prefix('/api/notices')
   .use(middleware.auth())
