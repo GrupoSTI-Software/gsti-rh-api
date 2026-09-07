@@ -22,6 +22,10 @@ import UploadProgressRepositoryMysql from '#modules/access-point/upload-progress
 import type { UploadProgressRepository } from '#modules/access-point/upload-progress/upload_progress.repository'
 import DeviceProfileRepositoryMysql from '#modules/access-point/device-profile/device_profile.repository.mysql'
 import DeviceProfileService from '#modules/access-point/device-profile/device_profile.service'
+import AttlogIngestionService from '#modules/adms/ingestion/attlog_ingestion.service'
+import { attlogLayoutFor } from '#modules/adms/parsers/parser.types'
+import AccessPoint from '#models/access_point'
+import BusinessUnit from '#models/business_unit'
 import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
 import type { ResolvedAdmsDevice } from './adms_device_resolver.service.js'
 
@@ -66,7 +70,8 @@ export default class AdmsChannelService {
     private readonly incidents: IncidentService = new IncidentService(),
     private readonly progress: UploadProgressRepository = new UploadProgressRepositoryMysql(),
     private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
-    private readonly deviceProfiles: DeviceProfileService = new DeviceProfileService()
+    private readonly deviceProfiles: DeviceProfileService = new DeviceProfileService(),
+    private readonly attlog: AttlogIngestionService = new AttlogIngestionService()
   ) {}
 
   async receiveUpload(input: UploadInput): Promise<ChannelReply> {
@@ -247,6 +252,9 @@ export default class AdmsChannelService {
       await this.deviceProfiles.upsertFromOptions(input.device, input.body, rawMessageId)
       return { status: ADMS_RAW_STATUS.PROCESSED, error: null }
     }
+    if (input.table === ADMS_UPLOAD_TABLE.ATTLOG) {
+      return this.ingestAttlog(input, rawMessageId)
+    }
     if (input.table && known.includes(input.table)) {
       return { status: ADMS_RAW_STATUS.RECEIVED, error: null }
     }
@@ -269,6 +277,37 @@ export default class AdmsChannelService {
       { dedupeMinutes: UNKNOWN_TABLE_DEDUPE_MINUTES }
     )
     return { status: ADMS_RAW_STATUS.UNPARSED, error: 'tabla desconocida' }
+  }
+
+  /**
+   * Contexto que la ingesta necesita y que solo el canal conoce: la plataforma
+   * que el equipo declaro en `options`, el nombre del punto de acceso y las
+   * zonas horarias. Se leen aqui para que el servicio de ingesta no dependa de
+   * Lucid.
+   */
+  private async ingestAttlog(
+    input: UploadInput,
+    rawMessageId: number
+  ): Promise<TableProcessingResult> {
+    const { device } = input
+    const profile = await this.profiles.ensure(device.accessPointId, device.businessUnitId)
+    const accessPoint = await AccessPoint.query()
+      .where('access_point_id', device.accessPointId)
+      .first()
+    const businessUnit = await BusinessUnit.query()
+      .where('business_unit_id', device.businessUnitId)
+      .first()
+
+    const result = await this.attlog.ingest({
+      device,
+      body: input.body,
+      rawMessageId,
+      layout: attlogLayoutFor(profile.accessPointProfilePlatform ?? null),
+      accessPointName: accessPoint?.accessPointName ?? '',
+      deviceZone: device.timezone,
+      businessUnitZone: businessUnit?.businessUnitTimezone ?? null,
+    })
+    return { status: result.status, error: result.error }
   }
 
   private async persistRaw(

@@ -17,6 +17,7 @@ import type IncidentService from '#modules/adms/raw/incident.service'
 import type { IncidentInput, IncidentOutcome } from '#modules/adms/raw/incident.service'
 import type { ResolvedAdmsDevice } from '#modules/adms/channel/adms_device_resolver.service'
 import type DeviceProfileService from '#modules/access-point/device-profile/device_profile.service'
+import type AttlogIngestionService from '#modules/adms/ingestion/attlog_ingestion.service'
 import type AccessPointProfile from '#models/access_point_profile'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
@@ -51,15 +52,19 @@ interface Recorded {
   advances: StampAdvance[]
   incidents: IncidentInput[]
   optionsUpserts: number
+  attlogIngests: number
 }
 
-function makeService(options: { insertThrows?: boolean } = {}) {
+function makeService(
+  options: { insertThrows?: boolean; attlogStatus?: 'processed' | 'partial' } = {}
+) {
   const recorded: Recorded = {
     inserts: [],
     finishes: [],
     advances: [],
     incidents: [],
     optionsUpserts: 0,
+    attlogIngests: 0,
   }
   const rawMessages: RawMessageRepository = {
     async insertReceived(input) {
@@ -78,6 +83,10 @@ function makeService(options: { insertThrows?: boolean } = {}) {
     async advance(input) {
       recorded.advances.push(input)
     },
+    async listFor() {
+      return []
+    },
+    async resetAll() {},
   }
   const profiles: DeviceProfileRepository = {
     async ensure() {
@@ -108,12 +117,30 @@ function makeService(options: { insertThrows?: boolean } = {}) {
       return { platform: 'ZAM180_TFT', layoutKnown: true, changedFields: [], mismatches: 0 }
     },
   } as unknown as DeviceProfileService
+  /**
+   * La ingesta de ATTLOG tiene su propia prueba; aqui solo interesa que el
+   * canal la invoque y respete su veredicto.
+   */
+  const attlog = {
+    async ingest() {
+      recorded.attlogIngests += 1
+      return {
+        status: options.attlogStatus ?? 'processed',
+        error: null,
+        inserted: 1,
+        preexisting: 0,
+        held: 0,
+        unparsed: 0,
+      }
+    },
+  } as unknown as AttlogIngestionService
   const service = new AdmsChannelService(
     rawMessages,
     incidents,
     progress,
     profiles,
-    deviceProfiles
+    deviceProfiles,
+    attlog
   )
   return { service, recorded }
 }
