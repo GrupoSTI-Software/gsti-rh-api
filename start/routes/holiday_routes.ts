@@ -5,6 +5,8 @@ router
   .group(() => {
     router.post('/holidays', '#controllers/holidays_controller.store')
     router.get('/holidays', '#controllers/holidays_controller.index')
+    // Antes de `/:id` para que "export-excel" no se lea como identificador.
+    router.get('/holidays/export-excel', '#controllers/holidays_controller.exportExcel')
     router.get('/holidays/:id', '#controllers/holidays_controller.show')
     router.put('/holidays/:id', '#controllers/holidays_controller.update')
     router.delete('/holidays/:id', '#controllers/holidays_controller.destroy')

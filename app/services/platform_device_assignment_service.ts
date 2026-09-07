@@ -5,6 +5,10 @@ import PlatformDeviceAssignment from '#models/platform_device_assignment'
 import BusinessUnit from '#models/business_unit'
 import { PLATFORM_DEVICE_ERROR_CODES } from '../constants/platform_device_error_codes.js'
 import { PlatformDeviceServiceError } from '../exceptions/platform_device_service_error.js'
+import PlatformDeviceAccessPointService, {
+  type AccessPointPreloadOutcome,
+  type PreloadedAccessPoint,
+} from './platform_device_access_point_service.js'
 
 export interface AssignmentRecord {
   assignmentId: number
@@ -14,6 +18,9 @@ export interface AssignmentRecord {
   deliveredAt: string
   releasedAt: string | null
   deviceStatus: string
+  /** Resultado de la precarga del punto de acceso del tenant (USRH1787189981879). */
+  accessPointOutcome: AccessPointPreloadOutcome
+  accessPoint: PreloadedAccessPoint
 }
 
 export interface AssignmentListItem {
@@ -59,9 +66,13 @@ interface ListAssignmentsInput {
  *   5. Cinturón: contar asignaciones abiertas → 422 si > 0.
  *   6. Crear asignación con released_at = null.
  *   7. Cambiar status a 'asignada' y guardar.
+ *   8. Precargar (crear o adoptar) el access_point del tenant, amarrado por
+ *      platformDeviceId (USRH1787189981879 · §10 del spec).
  *   Si cualquier paso falla, la transacción hace rollback completo.
  */
 export default class PlatformDeviceAssignmentService {
+  private readonly accessPointService = new PlatformDeviceAccessPointService()
+
   /**
    * Registra la entrega de un aparato disponible a un tenant.
    * Operación atómica: asignación + cambio de estado en una sola transacción.
@@ -107,6 +118,7 @@ export default class PlatformDeviceAssignmentService {
       const device = await PlatformDevice.query({ client: trx })
         .where('platform_device_id', input.platformDeviceId)
         .whereNull('platform_device_deleted_at')
+        .preload('deviceModel')
         .forUpdate()
         .first()
 
@@ -179,6 +191,17 @@ export default class PlatformDeviceAssignmentService {
       device.platformDeviceStockStatus = 'asignada'
       await device.save()
 
+      // Paso 8: precargar (crear o adoptar) el access_point del tenant.
+      // Dentro de la misma transacción, después del lock: si falla, revierte
+      // asignación + cambio de status completos (USRH1787189981879 · CA-4).
+      const preload = await this.accessPointService.preload({
+        businessUnitId: tenant.businessUnitId,
+        platformDeviceId: device.platformDeviceId,
+        serialNumber: device.platformDeviceSerialNumber,
+        modelName: device.deviceModel.platformDeviceModelName,
+        trx,
+      })
+
       return {
         assignmentId: assignment.platformDeviceAssignmentId,
         deviceId: device.platformDeviceId,
@@ -190,6 +213,8 @@ export default class PlatformDeviceAssignmentService {
         deliveredAt: deliveredAtStr,
         releasedAt: null,
         deviceStatus: 'asignada',
+        accessPointOutcome: preload.outcome,
+        accessPoint: preload.accessPoint,
       }
     })
   }
