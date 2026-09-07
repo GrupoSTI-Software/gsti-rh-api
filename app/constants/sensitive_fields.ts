@@ -131,6 +131,12 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   { model: 'EmployeeBiometricFaceId', column: 'employeeBiometricFaceIdToken', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: false },
   { model: 'EmployeeBiometricFaceId', column: 'employeeBiometricFaceIdPhotoUrl', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
 
+  // ─── AdmsRawMessage: biométrico ───────────────────────────────────────────
+  // admsRawMessageBody — cuerpo íntegro de una subida del checador; puede llevar
+  // templates de huella y rostro y nombres. Nunca se serializa ni se busca en SQL.
+  // Ancla: app/models/adms_raw_message.ts
+  { model: 'AdmsRawMessage', column: 'admsRawMessageBody', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
   // ─── EmployeeMedicalCondition: salud (sensible reforzado) ─────────────────
   // No se buscan en SQL; contienen información clínica individual.
   // Ancla: app/models/employee_medical_condition.ts
