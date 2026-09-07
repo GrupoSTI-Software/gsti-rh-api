@@ -137,6 +137,13 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // Ancla: app/models/adms_raw_message.ts
   { model: 'AdmsRawMessage', column: 'admsRawMessageBody', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
 
+  // ─── AdmsUnmappedPin: identificación ──────────────────────────────────────
+  // admsUnmappedPinName — nombre que el checador declara para un PIN que no
+  // corresponde a ningún colaborador. Identifica a una persona antes de que
+  // exista en el sistema. No se busca en SQL; se borra al conciliar o descartar.
+  // Ancla: app/models/adms_unmapped_pin.ts
+  { model: 'AdmsUnmappedPin', column: 'admsUnmappedPinName', legalCategory: 'identificacion', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+
   // ─── EmployeeMedicalCondition: salud (sensible reforzado) ─────────────────
   // No se buscan en SQL; contienen información clínica individual.
   // Ancla: app/models/employee_medical_condition.ts
