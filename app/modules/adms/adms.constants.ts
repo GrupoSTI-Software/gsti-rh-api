@@ -1,0 +1,164 @@
+/**
+ * Constantes del canal ADMS del checador ZKTeco (spec v2, secciones 2, 4 y 13).
+ *
+ * Fuente del protocolo: `adms-probe/bateria-final-spike-v5l.md` rev. 5. Todo lo
+ * que aqui se afirma como validado tiene captura; lo demas esta marcado como
+ * hipotesis y tiene su prueba de hardware en la seccion 16 del spec.
+ */
+
+/** Serie del equipo tal como viaja en `?SN=`. Fuera del patron no se toca la base. */
+export const ADMS_SERIAL_PATTERN = /^[A-Za-z0-9-]{6,32}$/
+
+/** Verdadero si el valor es una serie con formato aceptable. */
+export function isValidDeviceSerial(value: unknown): value is string {
+  return typeof value === 'string' && ADMS_SERIAL_PATTERN.test(value)
+}
+
+/** Tope del cuerpo crudo de una subida (OPERLOG con templates cabe de sobra). */
+export const ADMS_MAX_BODY_BYTES = 4 * 1024 * 1024
+
+/** Tope de lineas por subida; el firmware manda lotes de 15 a 20. */
+export const ADMS_MAX_LINES_PER_UPLOAD = 2000
+
+/** Tamano de trozo con que se entregan las lineas a los procesadores. */
+export const ADMS_PROCESS_CHUNK_LINES = 200
+
+/** Motivos de las dos lecturas fuera de scope del canal (spec 13, regla 2). */
+export const ADMS_UNKNOWN_SERIAL_UNSCOPED_REASON =
+  'canal ADMS: serie desconocida, cuarentena sin empresa'
+export const ADMS_PHOTO_TOKEN_UNSCOPED_REASON =
+  'canal ADMS: descarga de foto por token opaco, empresa resuelta desde la publicacion'
+
+/** Ventana en la que dos IP distintas para la misma serie cuentan como anomalia. */
+export const ADMS_IP_ANOMALY_WINDOW_SECONDS = 300
+
+/** Limites del canal (spec 4.2 y 4.6). Store del limiter en memoria, por worker. */
+export const ADMS_RATE = {
+  devicePerMinute: 300,
+  ipPerMinute: 1200,
+  photoPerMinute: 60,
+  unknownSerialPerHour: 20,
+  unknownSerialBlockMinutes: 15,
+  quarantineRowsPerIpPerDay: 200,
+  deviceLinesPerWindow: 5000,
+  deviceBytesPerWindow: 8 * 1024 * 1024,
+  deviceWindow: '5 minutes',
+} as const
+
+/** Tablas cuyo avance se devuelve en el saludo. Solo ATTLOG, OPERLOG y BIODATA traen `Stamp`. */
+export const ADMS_STAMP_TABLES = ['ATTLOG', 'OPERLOG', 'USERINFO', 'ATTPHOTO', 'BIODATA'] as const
+export type AdmsStampTable = (typeof ADMS_STAMP_TABLES)[number]
+
+/** Valor inicial del avance de una tabla sin subidas registradas. */
+export const ADMS_STAMP_INITIAL = '0'
+
+/**
+ * Variante del bloque de saludo. `extended` agrega TransFlag, Stamp y OpStamp al
+ * bloque escueto de la sonda; `minimal` es el bloque exacto que la sonda emitia
+ * por defecto. La variante en el cable de las sesiones T&A no tiene captura
+ * (spec 16.1): la constante permite volver sin desplegar.
+ */
+export const ADMS_HANDSHAKE_VARIANT: 'extended' | 'minimal' = 'extended'
+
+/** Valores validados del bloque de saludo (adms-probe.mjs l.147-161). */
+export const ADMS_HANDSHAKE = {
+  serverVer: '2.4.1 2024-01-01',
+  getOptionFrom: 'attlog,userinfo',
+  errorDelay: 30,
+  delay: 5,
+  transTimes: '00:00;23:59',
+  transInterval: 1,
+  realtime: 1,
+  encrypt: 0,
+} as const
+
+/** TransFlag moderno con todos los tipos, el que hizo subir rostros en CA. */
+export const ADMS_TRANS_FLAG =
+  'TransData AttLog OpLog AttPhoto EnrollUser ChgUser EnrollFP ChgFP FPImag FACE UserPic BioPhoto'
+
+/** Bloque de opciones para `POST /iclock/push` (dialecto CA, adms-probe.mjs l.165-182). */
+export const ADMS_CA_PUSH_OPTIONS = {
+  serverVersion: '2.0.1',
+  serverName: 'ADMS',
+  pushVersion: '2.0.1',
+  errorDelay: 10,
+  delay: 5,
+  transTimes: '00:00;23:59',
+  transInterval: 1,
+  realtime: 1,
+  encrypt: 0,
+} as const
+
+/** Prefijo del codigo de registro estable por dispositivo (`RegistryCode=RC<id>`). */
+export const ADMS_REGISTRY_CODE_PREFIX = 'RC'
+
+/** Acuse pelado: series desconocidas, `ping`, `devicecmd`, `getrequest` sin cola. */
+export const ADMS_OK = 'OK'
+
+/** Acuse de subida: literal con espacio, `n` = lineas no vacias (validado). */
+export function admsAck(lineCount: number): string {
+  return `${ADMS_OK}: ${lineCount}`
+}
+
+/** Cuenta lineas no vacias igual que la sonda (`raw.split('\n').filter(l => l.trim())`). */
+export function countNonEmptyLines(body: string): number {
+  if (body.length === 0) return 0
+  return body.split('\n').filter((line) => line.trim().length > 0).length
+}
+
+/** Tablas que el canal reconoce en `POST /iclock/cdata?table=`. */
+export const ADMS_UPLOAD_TABLE = {
+  OPTIONS: 'options',
+  ATTLOG: 'ATTLOG',
+  OPERLOG: 'OPERLOG',
+  BIODATA: 'BIODATA',
+  RTLOG: 'rtlog',
+  RTSTATE: 'rtstate',
+  TABLEDATA: 'tabledata',
+} as const
+
+/** Tablas que solo existen en el dialecto CA (Push 2.0). Verlas marca el dialecto. */
+export const ADMS_CA_TABLES: readonly string[] = ['rtlog', 'rtstate', 'tabledata']
+
+/** Tablas del dialecto clasico T&A. Verlas marca el dialecto. */
+export const ADMS_TA_TABLES: readonly string[] = ['ATTLOG', 'OPERLOG', 'BIODATA']
+
+/** Clases de incidente del canal (spec 10, `adms_incidents._kind`). */
+export const ADMS_INCIDENT_KIND = {
+  SERIAL_MISSING: 'serial_missing',
+  SERIAL_PROBE: 'serial_probe',
+  DEVICE_INACTIVE: 'device_inactive',
+  IP_ANOMALY: 'ip_anomaly',
+  IP_DENIED: 'ip_denied',
+  DIALECT_CA: 'dialect_ca',
+  UNKNOWN_TABLE: 'unknown_table',
+  UNKNOWN_LAYOUT: 'unknown_layout',
+  UNKNOWN_PLATFORM: 'unknown_platform',
+  PARSE_ERROR: 'parse_error',
+  PERSIST_ERROR: 'persist_error',
+  OVERSIZE_BODY: 'oversize_body',
+  OVERSIZE_UPLOAD: 'oversize_upload',
+  RATE_LIMITED: 'rate_limited',
+  RESEND_LOOP: 'resend_loop',
+  TIMEZONE_INVALID: 'timezone_invalid',
+  OPLOG: 'oplog',
+} as const
+export type AdmsIncidentKind = (typeof ADMS_INCIDENT_KIND)[keyof typeof ADMS_INCIDENT_KIND]
+
+/** Severidad del incidente. */
+export const ADMS_INCIDENT_SEVERITY = ['info', 'warning', 'error'] as const
+export type AdmsIncidentSeverity = (typeof ADMS_INCIDENT_SEVERITY)[number]
+
+/** Estado del crudo (spec 10). Esta rebanada solo escribe `received`. */
+export const ADMS_RAW_STATUS = {
+  RECEIVED: 'received',
+  PROCESSED: 'processed',
+  PARTIAL: 'partial',
+  UNPARSED: 'unparsed',
+  FAILED: 'failed',
+} as const
+export type AdmsRawStatus = (typeof ADMS_RAW_STATUS)[keyof typeof ADMS_RAW_STATUS]
+
+/** Dialecto detectado por lo que sube el equipo. */
+export const ADMS_DIALECT = { TA: 'ta', CA: 'ca', UNKNOWN: 'unknown' } as const
+export type AdmsDialect = (typeof ADMS_DIALECT)[keyof typeof ADMS_DIALECT]
