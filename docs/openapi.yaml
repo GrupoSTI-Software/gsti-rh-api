@@ -3725,9 +3725,12 @@ components:
           nullable: true
         fotoFaltante:
           type: boolean
-          description: "`true` cuando `fotoUrl` es `null` (regla 10 — no bloquea la generación)."
+          description: "`true` solo cuando NO hay fotografía en el expediente. `fotoFaltante:false` con `fotoUrl:null` significa que la foto existe pero es un objeto privado: pídela por el endpoint autenticado."
         empresa:
           type: string
+        puesto:
+          type: string
+          nullable: true
         logoUrl:
           type: string
           nullable: true
@@ -3737,9 +3740,14 @@ components:
         folioVigente:
           type: boolean
           nullable: true
+        folioVigenteHasta:
+          type: string
+          format: date
+          nullable: true
+          description: "Fecha civil `YYYY-MM-DD` de vencimiento del registro REPSE; `null` sin registro. Viaja también con el folio vencido: el cliente recalcula la vigencia contra su propia fecha de negocio."
         vinculoVigente:
           type: boolean
-          description: "Siempre `true` en las superficies de generación (E1/E2/E3): el empleado consultable ya está activo por construcción."
+          description: "`employeeActive && businessUnitActive`, el mismo criterio que la verificación pública (E4). En E1/E2/E3 resuelve `true` en toda petición alcanzable —`businessScope()` solo admite empresas activas y el repositorio descarta al trabajador de baja—, pero se calcula, ya no se afirma."
         urlVerificacion:
           type: string
           description: "`${BACKOFFICE_URL}/badge-verification/<token>` (R8) — el token nunca viaja como campo suelto."
@@ -11704,6 +11712,7 @@ paths:
                         logoUrl: "https://cdn.example.com/logo.png"
                         folioRepse: "REPSE-12345-2024"
                         folioVigente: true
+                        folioVigenteHasta: "2031-03-31"
                         vinculoVigente: true
                         urlVerificacion: "https://bo.example.com/badge-verification/abc123"
                         qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"
@@ -11723,6 +11732,7 @@ paths:
                         logoUrl: null
                         folioRepse: null
                         folioVigente: null
+                        folioVigenteHasta: null
                         vinculoVigente: true
                         urlVerificacion: "https://bo.example.com/badge-verification/def456"
                         qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"
@@ -12066,6 +12076,7 @@ paths:
                     logoUrl: "https://cdn.example.com/logo.png"
                     folioRepse: "REPSE-12345-2024"
                     folioVigente: true
+                    folioVigenteHasta: "2031-03-31"
                     vinculoVigente: true
                     urlVerificacion: "https://bo.example.com/badge-verification/abc123"
                     qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"

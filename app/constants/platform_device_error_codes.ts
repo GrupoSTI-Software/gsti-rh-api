@@ -38,6 +38,12 @@ export const PLATFORM_DEVICE_ERROR_CODES = {
   DEVICE_SERIAL_MISSING: 'PLT.DEV.DEVICE_SERIAL_MISSING',
   /** Falló la materialización del punto de acceso del tenant; revierte toda la transacción (CA-4 del spec 1879) */
   ACCESS_POINT_PRELOAD_FAILED: 'PLT.DEV.ACCESS_POINT_PRELOAD_FAILED',
+  /** Régimen `venta` sin `salePriceCents` (regla 2 del spec 1880) */
+  SALE_PRICE_REQUIRED: 'PLT.DEV.SALE_PRICE_REQUIRED',
+  /** Se envió `salePriceCents` con un régimen que no lo admite (regla 3 del spec 1880) */
+  SALE_PRICE_NOT_ALLOWED: 'PLT.DEV.SALE_PRICE_NOT_ALLOWED',
+  /** El régimen elegido no es compatible con el origen de la unidad (reglas 4 y 5 del spec 1880) */
+  TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN: 'PLT.DEV.TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.DEV.SYS_UNHANDLED',
 } as const
