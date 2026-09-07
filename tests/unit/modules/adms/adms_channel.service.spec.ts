@@ -215,6 +215,17 @@ test.group('ADMS channel service: acuse tras persistir', () => {
     assert.lengthOf(recorded.advances, 0)
   })
 
+  test('una subida parcial si avanza el stamp: lo retenido es recuperable', async ({ assert }) => {
+    const { service, recorded } = makeService({ attlogStatus: 'partial' })
+    const reply = await service.receiveUpload(uploadOf())
+    assert.equal(reply.status, 200)
+    assert.equal(recorded.finishes[0].patch.status, 'partial')
+    assert.deepEqual(
+      recorded.advances.map((row) => row.value),
+      ['9999']
+    )
+  })
+
   test('la tabla options se interpreta y el crudo queda procesado', async ({ assert }) => {
     const { service, recorded } = makeService()
     const reply = await service.receiveUpload(

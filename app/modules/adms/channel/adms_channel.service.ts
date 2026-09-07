@@ -130,13 +130,17 @@ export default class AdmsChannelService {
     })
 
     /**
-     * El stamp solo avanza cuando la subida se entendio: una tabla que quedo
-     * `unparsed` no debe decirle al equipo que el servidor ya tiene ese avance.
+     * El stamp avanza cuando la subida se entendio. `partial` cuenta: se
+     * proceso y lo que no se pudo atribuir quedo retenido y recuperable; si no
+     * avanzara, el avance quedaria congelado para siempre en cuanto apareciera
+     * un PIN desconocido, que es lo normal al arrancar un equipo. Solo una
+     * tabla que no se entendio (`unparsed`) o que fallo lo detiene.
      */
     const stampTables: readonly string[] = ADMS_STAMP_TABLES
     const understood =
       processing.status === ADMS_RAW_STATUS.RECEIVED ||
-      processing.status === ADMS_RAW_STATUS.PROCESSED
+      processing.status === ADMS_RAW_STATUS.PROCESSED ||
+      processing.status === ADMS_RAW_STATUS.PARTIAL
     if (understood && input.table && input.stamp && stampTables.includes(input.table)) {
       await this.progress.advance({
         accessPointId: input.device.accessPointId,

@@ -124,7 +124,9 @@ test.group('ADMS channel (rebanada 1)', (group) => {
       'lectura del crudo'
     )
     assert.equal(raw.admsRawMessageBody, line)
-    assert.equal(raw.admsRawMessageStatus, 'received')
+    // `partial`: el PIN 9999 de la fixture no corresponde a ningun colaborador,
+    // asi que la checada quedo retenida. El crudo se guardo igual y se acuso.
+    assert.equal(raw.admsRawMessageStatus, 'partial')
     assert.equal(raw.admsRawMessageAck, 'OK: 1')
     assert.equal(raw.businessUnitId, businessUnitId)
 
