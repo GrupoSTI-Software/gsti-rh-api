@@ -49,6 +49,8 @@ export interface TableProcessingResult {
 
 const PAYLOAD_TOO_LARGE: ChannelReply = { status: 413, body: 'PAYLOAD TOO LARGE' }
 const UNKNOWN_TABLE_DEDUPE_MINUTES = 60
+/** El equipo reintenta cada ~5 s: sin dedupe habria una fila por reintento. */
+const OVERSIZE_DEDUPE_MINUTES = 60
 const DIALECT_CA_DEDUPE_MINUTES = 24 * 60
 
 /**
@@ -70,29 +72,43 @@ export default class AdmsChannelService {
     const lineCount = countNonEmptyLines(input.body)
     const rawMessageId = await this.persistRaw(input, lineCount, now)
 
+    /**
+     * Demasiadas lineas: el crudo YA quedo persistido integro, que es la
+     * condicion del acuse (spec 4.3). Por eso se acusa `OK: n` en vez de 413.
+     *
+     * Un 413 aqui seria permanente para ese mismo cuerpo y el equipo, que es
+     * fail-safe, lo reintentaria cada ~5 s insertando otro crudo de hasta
+     * 4 MB en cada vuelta hasta llenar el disco. Acusando, el equipo avanza,
+     * no pierde nada (el cuerpo esta guardado y cifrado) y la subida queda
+     * `unparsed` para `adms:reprocess-raw` con su incidente visible.
+     */
     if (lineCount > ADMS_MAX_LINES_PER_UPLOAD) {
+      const ack = admsAck(lineCount)
       await this.rawMessages.finish(rawMessageId, {
         status: ADMS_RAW_STATUS.UNPARSED,
-        ack: null,
+        ack,
         error: `lines=${lineCount} > ${ADMS_MAX_LINES_PER_UPLOAD}`,
         processedAt: now,
       })
-      await this.incidents.record({
-        kind: ADMS_INCIDENT_KIND.OVERSIZE_UPLOAD,
-        severity: 'error',
-        code: ADMS_ERROR_CODES.SIZE_LINES,
-        title: 'Subida con demasiadas lineas',
-        detail:
-          'El equipo mando mas lineas de las que el canal acepta en una sola subida; el crudo queda para reproceso.',
-        key: 'subida-excedida',
-        serial: input.device.serial,
-        accessPointId: input.device.accessPointId,
-        businessUnitId: input.device.businessUnitId,
-        rawMessageId,
-        context: { table: input.table ?? undefined, lines: lineCount, bytes: input.bytes },
-        now,
-      })
-      return PAYLOAD_TOO_LARGE
+      await this.incidents.record(
+        {
+          kind: ADMS_INCIDENT_KIND.OVERSIZE_UPLOAD,
+          severity: 'error',
+          code: ADMS_ERROR_CODES.SIZE_LINES,
+          title: 'Subida con demasiadas lineas',
+          detail:
+            'El equipo mando mas lineas de las que el canal procesa en una sola subida; se acuso para que no reintente y el crudo quedo guardado para reproceso.',
+          key: 'subida-excedida',
+          serial: input.device.serial,
+          accessPointId: input.device.accessPointId,
+          businessUnitId: input.device.businessUnitId,
+          rawMessageId,
+          context: { table: input.table ?? undefined, lines: lineCount, bytes: input.bytes },
+          now,
+        },
+        { dedupeMinutes: OVERSIZE_DEDUPE_MINUTES }
+      )
+      return { status: 200, body: ack }
     }
 
     await this.detectDialect(input.device, input.table)
@@ -106,8 +122,15 @@ export default class AdmsChannelService {
       processedAt: now,
     })
 
+    /**
+     * El stamp solo avanza cuando la subida se entendio: una tabla que quedo
+     * `unparsed` no debe decirle al equipo que el servidor ya tiene ese avance.
+     */
     const stampTables: readonly string[] = ADMS_STAMP_TABLES
-    if (input.table && input.stamp && stampTables.includes(input.table)) {
+    const understood =
+      processing.status === ADMS_RAW_STATUS.RECEIVED ||
+      processing.status === ADMS_RAW_STATUS.PROCESSED
+    if (understood && input.table && input.stamp && stampTables.includes(input.table)) {
       await this.progress.advance({
         accessPointId: input.device.accessPointId,
         businessUnitId: input.device.businessUnitId,
@@ -144,20 +167,23 @@ export default class AdmsChannelService {
     table: string | null,
     bytes: number
   ): Promise<ChannelReply> {
-    await this.incidents.record({
-      kind: ADMS_INCIDENT_KIND.OVERSIZE_BODY,
-      severity: 'error',
-      code: ADMS_ERROR_CODES.SIZE_BODY,
-      title: 'Cuerpo de subida excedido',
-      detail:
-        'El equipo mando un cuerpo mayor al tope del canal; se rechaza sin acuse para que reintente o se revise el equipo.',
-      key: 'cuerpo-excedido',
-      serial: device.serial,
-      accessPointId: device.accessPointId,
-      businessUnitId: device.businessUnitId,
-      context: { table: table ?? undefined, bytes },
-      now: device.receivedAt,
-    })
+    await this.incidents.record(
+      {
+        kind: ADMS_INCIDENT_KIND.OVERSIZE_BODY,
+        severity: 'error',
+        code: ADMS_ERROR_CODES.SIZE_BODY,
+        title: 'Cuerpo de subida excedido',
+        detail:
+          'El equipo mando un cuerpo mayor al tope del canal; se rechaza sin acuse para que reintente o se revise el equipo.',
+        key: 'cuerpo-excedido',
+        serial: device.serial,
+        accessPointId: device.accessPointId,
+        businessUnitId: device.businessUnitId,
+        context: { table: table ?? undefined, bytes },
+        now: device.receivedAt,
+      },
+      { dedupeMinutes: OVERSIZE_DEDUPE_MINUTES }
+    )
     return PAYLOAD_TOO_LARGE
   }
 

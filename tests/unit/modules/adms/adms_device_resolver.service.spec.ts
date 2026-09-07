@@ -19,6 +19,7 @@ function makeDeps(row: AccessPointLookupRow | null, blocked = false, freshProfil
   const hits: string[] = []
   const claims: string[] = []
   const touches: string[] = []
+  const sightings: string[] = []
   const lookup: AccessPointLookupPort = {
     async findBySerial() {
       return row
@@ -65,6 +66,9 @@ function makeDeps(row: AccessPointLookupRow | null, blocked = false, freshProfil
       return dialect
     },
     async setRegistryCode() {},
+    async recordIpSeen(_id: number, _bu: number, sighting: { ip: string }) {
+      sightings.push(sighting.ip)
+    },
   } as unknown as DeviceProfileRepository
   const service = new AdmsDeviceResolverService(
     lookup,
@@ -73,7 +77,7 @@ function makeDeps(row: AccessPointLookupRow | null, blocked = false, freshProfil
     quarantine,
     profile
   )
-  return { service, incidents, hits, claims, touches }
+  return { service, incidents, hits, claims, touches, sightings }
 }
 
 const ROW: AccessPointLookupRow = {
@@ -140,7 +144,7 @@ test.group('ADMS device resolver', () => {
   test('equipo activo resuelve y el toque registra latido, reclamo y anomalia de IP', async ({
     assert,
   }) => {
-    const { service, incidents, claims, touches } = makeDeps(ROW)
+    const { service, incidents, claims, touches, sightings } = makeDeps(ROW)
     const result = await service.resolve({
       serial: ROW.serial,
       ip: '192.168.1.5',
@@ -155,6 +159,8 @@ test.group('ADMS device resolver', () => {
     assert.deepEqual(claims, [ROW.serial])
     assert.equal(incidents[0]?.kind, 'ip_anomaly')
     assert.equal(incidents[0]?.context?.previousIp, '10.0.0.1')
+    // La ultima IP la escribe el adaptador, no el servicio.
+    assert.deepEqual(sightings, ['192.168.1.5'])
   })
 
   test('primer contacto con perfil recien creado no genera anomalia ni explota', async ({

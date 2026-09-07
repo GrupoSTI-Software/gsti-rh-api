@@ -25,6 +25,19 @@ test.group('ADMS handshake', () => {
     assert.notInclude(block, '\r')
   })
 
+  test('un stamp fuera del patron no vuelve al equipo: se degrada a cero', ({ assert }) => {
+    const service = new AdmsHandshakeService('extended')
+    const block = service.buildHandshake({
+      ATTLOG: '9999',
+      USERINFO: '0\nEncrypt=1',
+      ATTPHOTO: 'x'.repeat(40),
+    })
+    assert.notInclude(block, 'Encrypt=1\n')
+    assert.include(block.split('\n'), 'USERINFOStamp=0')
+    assert.include(block.split('\n'), 'ATTPHOTOStamp=0')
+    assert.include(block.split('\n'), 'ATTLOGStamp=9999')
+  })
+
   test('bloque minimo es exactamente el de la sonda', ({ assert }) => {
     const service = new AdmsHandshakeService('minimal')
     const block = service.buildHandshake({})

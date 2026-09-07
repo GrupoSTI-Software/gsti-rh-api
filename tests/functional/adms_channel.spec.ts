@@ -66,6 +66,12 @@ test.group('ADMS channel (rebanada 1)', (group) => {
 
   group.teardown(async () => {
     await TenantContext.runUnscoped(async () => {
+      // Reactivar aqui y no al final de su prueba: si esa prueba falla a la
+      // mitad, el equipo no puede quedarse desactivado para las siguientes.
+      await db
+        .from('access_points')
+        .where('access_point_id', accessPoint.accessPointId)
+        .update({ access_point_active: 1 })
       await AdmsRawMessage.query()
         .whereIn('adms_raw_message_serial', [SERIAL, UNKNOWN_SERIAL])
         .delete()
@@ -246,6 +252,44 @@ test.group('ADMS channel (rebanada 1)', (group) => {
           .update({ access_point_active: 1 }),
       'reactivar el punto de acceso de prueba'
     )
+  })
+
+  test('un Stamp con salto de linea no se guarda ni vuelve en el saludo', async ({ assert }) => {
+    const injected = await post(
+      `/iclock/cdata?SN=${SERIAL}&table=USERINFO&Stamp=${encodeURIComponent('0\nEncrypt=1')}`,
+      ''
+    )
+    assert.equal(injected.status, 200)
+    const handshakeResponse = await get(`/iclock/cdata?SN=${SERIAL}&options=all`)
+    const handshake = await handshakeResponse.text()
+    assert.notInclude(handshake, 'Encrypt=1\n')
+    assert.include(handshake.split('\n'), 'USERINFOStamp=0')
+    assert.include(handshake.split('\n'), 'Encrypt=0')
+    const raw = await TenantContext.runUnscoped(
+      () =>
+        AdmsRawMessage.query()
+          .where('adms_raw_message_serial', SERIAL)
+          .where('adms_raw_message_table', 'USERINFO')
+          .orderBy('adms_raw_message_id', 'desc')
+          .firstOrFail(),
+      'lectura del crudo inyectado'
+    )
+    assert.isNull(raw.admsRawMessageStamp)
+  })
+
+  test('POST a ruta desconocida se guarda y acusa; tabla en minusculas no es ATTLOG', async ({
+    assert,
+  }) => {
+    const unknown = await post(`/iclock/otracosa?SN=${SERIAL}`, 'a\nb\n')
+    assert.equal(unknown.status, 200)
+    assert.equal(await unknown.text(), 'OK: 2')
+    const lower = await post(`/iclock/cdata?SN=${SERIAL}&table=attlog&Stamp=9999`, 'a\n')
+    assert.equal(await lower.text(), 'OK: 1')
+    const stamps = await TenantContext.runUnscoped(
+      () => AccessPointStamp.query().where('access_point_id', accessPoint.accessPointId),
+      'lectura de stamps'
+    )
+    assert.isUndefined(stamps.find((row) => row.accessPointStampTable === 'attlog'))
   })
 
   test('ruta GET desconocida responde 404 y nunca OK', async ({ assert }) => {

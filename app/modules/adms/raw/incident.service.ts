@@ -1,5 +1,5 @@
 import type { DateTime } from 'luxon'
-import type { AdmsIncidentContext } from '#models/adms_incident'
+import type { AdmsIncidentContext, AdmsIncidentContextKey } from '#models/adms_incident'
 import type { AdmsIncidentKind, AdmsIncidentSeverity } from '#modules/adms/adms.constants'
 import IncidentRepositoryMysql from './incident.repository.mysql.js'
 import type { IncidentRepository } from './incident.repository.js'
@@ -22,8 +22,12 @@ export interface IncidentInput {
 
 export type IncidentOutcome = 'created' | 'deduped'
 
-/** Claves que un incidente puede llevar en `context` (spec 13, regla 11). */
-const CONTEXT_WHITELIST: ReadonlyArray<keyof AdmsIncidentContext> = [
+/**
+ * Claves que un incidente puede llevar en `context` (spec 13, regla 11).
+ * `AdmsIncidentContextKey` no tiene firma de indice, asi que un typo aqui es
+ * error de compilacion y no una clave descartada en silencio.
+ */
+const CONTEXT_WHITELIST: ReadonlyArray<AdmsIncidentContextKey> = [
   'serial',
   'pin',
   'ip',
@@ -46,7 +50,12 @@ function sanitizeContext(
   for (const key of CONTEXT_WHITELIST) {
     const value = context[key]
     if (value === undefined || value === null) continue
-    clean[key] = typeof value === 'string' ? value.slice(0, CONTEXT_VALUE_MAX_LENGTH) : value
+    if (typeof value === 'string') {
+      // Un salto de linea en el contexto ensucia la bitacora y el JSON del BO.
+      clean[key] = value.replace(/[\r\n]+/g, ' ').slice(0, CONTEXT_VALUE_MAX_LENGTH) as never
+      continue
+    }
+    clean[key] = value as never
   }
   return Object.keys(clean).length > 0 ? clean : null
 }

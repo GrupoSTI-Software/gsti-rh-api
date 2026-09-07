@@ -14,6 +14,12 @@ test.group('ADMS cidr', () => {
     assert.isTrue(ipMatchesCidrList('::ffff:192.168.1.99', ['192.168.1.0/24']))
     assert.isFalse(ipMatchesCidrList('192.168.1.99', ['not-a-cidr']))
     assert.isFalse(ipMatchesCidrList('192.168.1.99', ['192.168.1.0/33']))
+    // Mascara vacia: `Number('')` es 0 y autorizaria todo si no se rechaza.
+    assert.isFalse(ipMatchesCidrList('8.8.8.8', ['10.0.0.7/']))
+    assert.isFalse(ipMatchesCidrList('8.8.8.8', ['10.0.0.0/ 8']))
+    assert.isFalse(ipMatchesCidrList('8.8.8.8', ['10.0.0.0/8x']))
+    // Un `/0` explicito si autoriza todo: es una lista abierta a proposito.
+    assert.isTrue(ipMatchesCidrList('8.8.8.8', ['10.0.0.0/0']))
     assert.isFalse(ipMatchesCidrList('', ['192.168.1.0/24']))
     assert.isFalse(ipMatchesCidrList('192.168.1.99', []))
   })

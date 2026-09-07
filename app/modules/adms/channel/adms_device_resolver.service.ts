@@ -202,8 +202,9 @@ export default class AdmsDeviceResolverService {
         { dedupeMinutes: IP_ANOMALY_DEDUPE_MINUTES }
       )
     }
-    profile.accessPointProfileLastIpSeen = device.ip
-    profile.accessPointProfileLastIpSeenAt = device.receivedAt
-    await profile.save()
+    await this.profiles.recordIpSeen(device.accessPointId, device.businessUnitId, {
+      ip: device.ip,
+      seenAt: device.receivedAt,
+    })
   }
 }

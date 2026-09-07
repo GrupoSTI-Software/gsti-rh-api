@@ -71,6 +71,25 @@ function rawQueryOf(ctx: HttpContext): string | null {
   return index >= 0 && index < full.length - 1 ? full.slice(index + 1) : null
 }
 
+/**
+ * Resumen del error apto para la bitacora.
+ *
+ * Nunca se loguea el objeto de error completo: knex le cuelga `sql` y
+ * `bindings`, asi que un fallo del INSERT del crudo escribiria el cuerpo
+ * cifrado entero (hasta 4 MB, con templates biometricos) en el log
+ * (spec 13, regla 7). Solo salen nombre, mensaje, codigo y pila.
+ */
+function describeError(error: unknown): Record<string, string | undefined> {
+  if (!(error instanceof Error)) return { errorName: 'unknown', errorMessage: String(error) }
+  const code = (error as { code?: string }).code
+  return {
+    errorName: error.name,
+    errorMessage: error.message.slice(0, 500),
+    errorCode: code,
+    errorStack: error.stack?.split('\n').slice(0, 5).join('\n'),
+  }
+}
+
 async function consumeOrReject(key: string, requests: number): Promise<boolean> {
   try {
     await limiter.use({ requests, duration: '1 minute' }).consume(key)
@@ -148,7 +167,7 @@ export default class AdmsChannelGateway {
       return sendText(ctx.response, reply.status, reply.body)
     } catch (error) {
       logger.error(
-        { err: error, requestId: ctx.request.id(), path, method, ip },
+        { ...describeError(error), requestId: ctx.request.id(), path, method, ip },
         'canal ADMS: error no controlado; se responde 500 sin acuse'
       )
       if (!ctx.response.headersSent) sendText(ctx.response, 500, 'ERROR')

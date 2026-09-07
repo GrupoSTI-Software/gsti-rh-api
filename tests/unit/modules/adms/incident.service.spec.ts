@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import IncidentService from '#modules/adms/raw/incident.service'
 import type { IncidentRepository, IncidentRecord } from '#modules/adms/raw/incident.repository'
+import type { AdmsIncidentContext } from '#models/adms_incident'
 import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 
@@ -41,7 +42,9 @@ test.group('ADMS incident service', () => {
       serial: 'SYZ8252500376',
       accessPointId: 12,
       businessUnitId: 1,
-      context: { table: 'FOO', lines: 3, name: 'NO DEBE PASAR' } as never,
+      // Cast deliberado: el tipo ya no admite `name`, pero el contexto puede
+      // llegar de un JSON externo. La lista blanca debe descartarlo en runtime.
+      context: { table: 'FOO', lines: 3, name: 'NO DEBE PASAR' } as AdmsIncidentContext,
       now: DateTime.utc(),
     })
     assert.equal(outcome, 'created')

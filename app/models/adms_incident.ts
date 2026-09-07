@@ -4,7 +4,12 @@ import { compose } from '@adonisjs/core/helpers'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import type { AdmsIncidentKind, AdmsIncidentSeverity } from '#modules/adms/adms.constants'
 
-/** Contexto del incidente: lista blanca de claves, sin PII ni templates (spec 13, regla 11). */
+/**
+ * Contexto del incidente: lista blanca cerrada, sin PII ni templates (spec 13,
+ * regla 11). Sin firma de indice a proposito: con ella `keyof` se degrada a
+ * `string`, la lista blanca del servicio deja de estar tipada y un typo se
+ * descarta en silencio.
+ */
 export interface AdmsIncidentContext {
   serial?: string
   pin?: string
@@ -16,8 +21,10 @@ export interface AdmsIncidentContext {
   platform?: string
   previousIp?: string
   at?: string
-  [key: string]: string | number | undefined
 }
+
+/** Claves permitidas, derivadas del tipo: agregar una obliga a tocar la interfaz. */
+export type AdmsIncidentContextKey = keyof AdmsIncidentContext
 
 /**
  * Incidente consultable del canal ADMS (spec v2, 10). `businessUnitId` NULL es

@@ -39,6 +39,9 @@ export function ipMatchesCidrList(ip: string, cidrs: readonly string[]): boolean
     }
     if (candidateV4 === null) continue
 
+    // Una mascara vacia (`10.0.0.7/`) no es `/0`: `Number('')` da 0 y autorizaria
+    // cualquier IP. Entrada malformada nunca autoriza (spec 13, regla 10).
+    if (maskText !== undefined && !/^\d{1,2}$/.test(maskText)) continue
     const mask = maskText === undefined ? 32 : Number(maskText)
     if (!Number.isInteger(mask) || mask < 0 || mask > 32) continue
     const bits = mask === 0 ? 0 : (0xffffffff << (32 - mask)) >>> 0

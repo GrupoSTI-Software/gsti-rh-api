@@ -14,6 +14,38 @@ export function isValidDeviceSerial(value: unknown): value is string {
   return typeof value === 'string' && ADMS_SERIAL_PATTERN.test(value)
 }
 
+/**
+ * `Stamp=` del query. El firmware siempre declara un entero (238 capturas con
+ * `Stamp=9999`). El valor se guarda y VUELVE al equipo dentro del bloque de
+ * saludo, asi que un valor con salto de linea inyectaria opciones en el
+ * aparato: fuera del patron no se guarda ni se devuelve (spec 13, regla 13).
+ */
+export const ADMS_STAMP_PATTERN = /^\d{1,30}$/
+
+export function isValidStamp(value: unknown): value is string {
+  return typeof value === 'string' && ADMS_STAMP_PATTERN.test(value)
+}
+
+/**
+ * `table=` del query. Lista abierta pero acotada: el nombre entra en columnas
+ * de ancho fijo y en incidentes. Fuera del patron se trata como sin tabla.
+ */
+export const ADMS_TABLE_PATTERN = /^[A-Za-z0-9_./-]{1,50}$/
+
+export function isValidUploadTable(value: unknown): value is string {
+  return typeof value === 'string' && ADMS_TABLE_PATTERN.test(value)
+}
+
+/** Ancho de `adms_raw_messages.adms_raw_message_content_type`. */
+export const ADMS_CONTENT_TYPE_MAX_LENGTH = 100
+
+/**
+ * El perfil se lee por `access_point_id`, que es UNIQUE, sin el corte por
+ * empresa: la fila puede traer la empresa anterior si el equipo se reasigno.
+ */
+export const ADMS_PROFILE_UNSCOPED_REASON =
+  'canal ADMS: perfil del equipo por access_point_id (UNIQUE) para realinear la empresa'
+
 /** Tope del cuerpo crudo de una subida (OPERLOG con templates cabe de sobra). */
 export const ADMS_MAX_BODY_BYTES = 4 * 1024 * 1024
 

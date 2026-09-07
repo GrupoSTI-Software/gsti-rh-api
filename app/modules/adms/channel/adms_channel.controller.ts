@@ -1,6 +1,12 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
-import { ADMS_MAX_BODY_BYTES, ADMS_OK } from '#modules/adms/adms.constants'
+import {
+  ADMS_CONTENT_TYPE_MAX_LENGTH,
+  ADMS_MAX_BODY_BYTES,
+  ADMS_OK,
+  isValidStamp,
+  isValidUploadTable,
+} from '#modules/adms/adms.constants'
 import { getBusinessTimeZone } from '#utils/business_date'
 import UploadProgressRepositoryMysql from '#modules/access-point/upload-progress/upload_progress.repository.mysql'
 import type { UploadProgressRepository } from '#modules/access-point/upload-progress/upload_progress.repository'
@@ -119,12 +125,22 @@ export default class AdmsChannelController {
       method: request.method,
       path: request.path,
       query: request.rawQuery,
-      table: tableOverride !== undefined ? tableOverride : (request.query.table ?? null),
-      stamp: request.query.Stamp ?? null,
-      contentType: request.ctx.request.header('content-type') ?? null,
+      table: tableOverride !== undefined ? tableOverride : this.safeTable(request.query.table),
+      stamp: isValidStamp(request.query.Stamp) ? request.query.Stamp : null,
+      contentType:
+        request.ctx.request.header('content-type')?.slice(0, ADMS_CONTENT_TYPE_MAX_LENGTH) ?? null,
       body,
       bytes,
     }
+  }
+
+  /**
+   * Nada que venga del query entra a la base ni vuelve al equipo sin patron:
+   * el nombre de tabla se guarda en una columna de ancho fijo y el `Stamp`
+   * regresa dentro del bloque de saludo (spec 13, regla 13).
+   */
+  private safeTable(value: string | undefined): string | null {
+    return isValidUploadTable(value) ? value : null
   }
 
   /**

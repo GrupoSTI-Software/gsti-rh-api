@@ -6,6 +6,7 @@ import {
   ADMS_STAMP_INITIAL,
   ADMS_STAMP_TABLES,
   ADMS_TRANS_FLAG,
+  isValidStamp,
 } from '#modules/adms/adms.constants'
 
 /**
@@ -16,8 +17,16 @@ import {
 export default class AdmsHandshakeService {
   constructor(private readonly variant: 'extended' | 'minimal' = ADMS_HANDSHAKE_VARIANT) {}
 
+  /**
+   * Segunda barrera contra la inyeccion de lineas: el valor ya se valido al
+   * entrar, pero una fila guardada antes de esa validacion no puede volver al
+   * equipo. Un stamp fuera del patron se degrada a `0` (spec 13, regla 13).
+   */
   buildHandshake(stamps: Record<string, string>): string {
-    const stampOf = (table: string) => stamps[table] ?? ADMS_STAMP_INITIAL
+    const stampOf = (table: string) => {
+      const value = stamps[table]
+      return isValidStamp(value) ? value : ADMS_STAMP_INITIAL
+    }
     const lines: string[] = [
       `ServerVer=${ADMS_HANDSHAKE.serverVer}`,
       `GET OPTION FROM=${ADMS_HANDSHAKE.getOptionFrom}`,
