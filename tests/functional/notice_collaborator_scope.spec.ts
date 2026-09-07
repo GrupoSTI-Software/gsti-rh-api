@@ -1,5 +1,7 @@
 import { test } from '@japa/runner'
+import { DateTime } from 'luxon'
 import User from '#models/user'
+import RoleSystemPermission from '#models/role_system_permission'
 import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
@@ -7,6 +9,10 @@ import BusinessUnitUser from '#models/business_unit_user'
 import Employee from '#models/employee'
 import Notice from '#models/notice'
 import NoticeRecipient from '#models/notice_recipient'
+import {
+  grantNoticePermissions,
+  revokeNoticePermissions,
+} from './helpers/notice_permissions.js'
 
 /**
  * Los avisos de un colaborador dejan de ser legibles con el token de otro
@@ -107,13 +113,18 @@ async function cleanupActor(actor: Actor | null) {
     .delete()
 }
 
-/** Un aviso dirigido a [actor], con su fila de destinatario. */
+/**
+ * Un aviso ENVIADO dirigido a [actor], con su fila de destinatario. Enviado
+ * porque para el colaborador solo existe lo que ya salió: un borrador o un
+ * programado no se lista aunque tenga la fila (ver `notice_lifecycle.spec`).
+ */
 async function createNoticeFor(actor: Actor, subject: string): Promise<Notice> {
   const notice = await Notice.create({
     businessUnitId: actor.businessUnit.businessUnitId,
     noticeSubject: subject,
     noticeDescription: 'Cuerpo de prueba',
     noticeType: 'text',
+    noticeSentAt: DateTime.now(),
   })
   const recipient = new NoticeRecipient()
   recipient.noticeId = notice.noticeId
@@ -140,10 +151,18 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
   let ana: Actor | null = null
   let beto: Actor | null = null
   const avisos: number[] = []
+  let grants: RoleSystemPermission[] = []
 
   group.setup(async () => {
     ana = await createActor('ana')
     beto = await createActor('beto')
+    // La rama de administración (sin employeeId) exige el permiso `read` del
+    // módulo; se concede a los dos roles temporales para que la prueba no
+    // dependa de si la exigencia del módulo está encendida en esta base.
+    grants = [
+      ...(await grantNoticePermissions(ana.role.roleId, ['read'])),
+      ...(await grantNoticePermissions(beto.role.roleId, ['read'])),
+    ]
     const avisoDeAna = await createNoticeFor(ana, 'Aviso de Ana')
     const avisoDeBeto = await createNoticeFor(beto, 'Aviso de Beto')
     avisos.push(avisoDeAna.noticeId, avisoDeBeto.noticeId)
@@ -154,6 +173,7 @@ test.group('Avisos — alcance por colaborador (B3)', (group) => {
       await NoticeRecipient.query().whereIn('notice_id', avisos).delete()
       await Notice.query().whereIn('notice_id', avisos).delete()
     }
+    await revokeNoticePermissions(grants)
     await cleanupActor(ana)
     await cleanupActor(beto)
   })
