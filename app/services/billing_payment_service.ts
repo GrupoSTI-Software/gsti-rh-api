@@ -23,6 +23,8 @@ import {
 } from '../helpers/billing_payment_error.js'
 import { todayInBusinessZone, toCalendarIsoDate } from '../utils/business_date.js'
 import { RECEIPT_MAX_BYTES, RECEIPT_ALLOWED_MIMES } from '../validators/billing_payment.js'
+import { BILLING_TAX_RECEIPT_LIVE_STATUS } from '#constants/billing_tax_receipt'
+import { hasFinancialSnapshot } from '#helpers/billing_payment_financial_snapshot'
 
 // ─── Carpeta S3 de comprobantes ───────────────────────────────────────────────
 const RECEIPT_S3_FOLDER = 'billing/payments/receipts'
@@ -83,6 +85,8 @@ export interface PaymentListItem {
   receiptAvailable: boolean
   /** Periodos completos que este pago cubrió (0 = parcial, no movió el periodo). */
   periodsCovered: number
+  /** Si el pago tiene un comprobante fiscal vivo. Sin datos fiscales. */
+  hasTaxReceipt: boolean
 }
 
 /** Desglose financiero persistido al asentar el pago (USRH1785962095098). */
@@ -971,6 +975,8 @@ export default class BillingPaymentService {
 
     const paginated = await BillingPayment.query()
       .where('billingSubscriptionId', subscriptionId)
+      .select('billing_payments.*')
+      .select(this.liveTaxReceiptExistsSelect())
       .orderBy('billingPaymentPaidAt', 'desc')
       .paginate(page, limit)
 
@@ -1017,6 +1023,8 @@ export default class BillingPaymentService {
     const payment = await BillingPayment.query()
       .where('billingPaymentId', paymentId)
       .where('billingSubscriptionId', subscriptionId)
+      .select('billing_payments.*')
+      .select(this.liveTaxReceiptExistsSelect())
       .first()
 
     if (!payment) {
@@ -1087,7 +1095,23 @@ export default class BillingPaymentService {
       periodEnd: toCalendarIsoDate(payment.billingPaymentPeriodEnd),
       receiptAvailable: !!payment.billingPaymentReceiptPath,
       periodsCovered: payment.billingPaymentPeriodsCovered,
+      hasTaxReceipt: Number(payment.$extras.has_tax_receipt) === 1,
     }
+  }
+
+  /**
+   * `EXISTS` de un comprobante vivo (`status = issued`) en la misma query
+   * del listado o del detalle. No es N+1: viaja como columna calculada.
+   */
+  private liveTaxReceiptExistsSelect() {
+    return db.raw(
+      `EXISTS (
+        SELECT 1 FROM billing_tax_receipts
+        WHERE billing_tax_receipts.billing_payment_id = billing_payments.billing_payment_id
+          AND billing_tax_receipts.billing_tax_receipt_status = ?
+      ) AS has_tax_receipt`,
+      [BILLING_TAX_RECEIPT_LIVE_STATUS]
+    )
   }
 
   /**
@@ -1098,7 +1122,7 @@ export default class BillingPaymentService {
    */
   private toDetailItem(payment: BillingPayment): PaymentDetailItem {
     const totalCents = Number(payment.billingPaymentTotalCents)
-    const breakdownAvailable = totalCents !== 0
+    const breakdownAvailable = hasFinancialSnapshot(totalCents)
 
     return {
       ...this.toListItem(payment),
