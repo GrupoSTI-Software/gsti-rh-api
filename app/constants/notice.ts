@@ -48,6 +48,11 @@ export type NoticeTypeValue = (typeof NOTICE_TYPE)[keyof typeof NOTICE_TYPE]
 
 export const NOTICE_TYPE_VALUES = [NOTICE_TYPE.TEXT, NOTICE_TYPE.IMAGE, NOTICE_TYPE.PDF] as const
 
+/** Guard del catálogo de tipos: la columna del modelo es `string`. */
+export function isNoticeTypeValue(value: unknown): value is NoticeTypeValue {
+  return typeof value === 'string' && (NOTICE_TYPE_VALUES as readonly string[]).includes(value)
+}
+
 /**
  * Qué hace el guardado con el aviso: enviarlo de inmediato, dejarlo en
  * borrador o agendarlo para que lo envíe el comando programado.
@@ -56,6 +61,12 @@ export const NOTICE_SEND_MODE = {
   NOW: 'now',
   DRAFT: 'draft',
   SCHEDULED: 'scheduled',
+  /**
+   * Guardar cambios sin reenviar. Junto con `now` es el único modo válido
+   * sobre un aviso ya enviado; sobre uno que aún no sale se guarda como
+   * borrador.
+   */
+  UPDATE: 'update',
 } as const
 
 export type NoticeSendModeValue = (typeof NOTICE_SEND_MODE)[keyof typeof NOTICE_SEND_MODE]
@@ -64,7 +75,14 @@ export const NOTICE_SEND_MODE_VALUES = [
   NOTICE_SEND_MODE.NOW,
   NOTICE_SEND_MODE.DRAFT,
   NOTICE_SEND_MODE.SCHEDULED,
+  NOTICE_SEND_MODE.UPDATE,
 ] as const
+
+/**
+ * Slug del módulo en `system_modules` (fila 32, `0017_system_module_seeder`).
+ * Único lugar canónico para las declaraciones del gate de permisos.
+ */
+export const NOTICE_PERMISSION_MODULE_SLUG = 'avisos-y-noticias'
 
 /**
  * Tope del mensaje de un aviso de texto, medido sobre el texto plano (sin

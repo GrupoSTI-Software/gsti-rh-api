@@ -15,11 +15,16 @@ import SystemSettingService from '#services/system_setting_service'
 import SystemSetting from '#models/system_setting'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import UploadService from '#services/upload_service'
+import NoticeFileService from '#services/notice_file_service'
 import path from 'node:path'
-import Env from '#start/env'
+import logger from '@adonisjs/core/services/logger'
 import UserFcmToken from '#models/user_fcm_token'
 import admin from '../../config/firebase.js'
 import { noticePlainTextLength } from '#helpers/sanitize_notice_content'
+import {
+  resolveEmployeeRoleScope,
+  type EmployeeRoleScope,
+} from '#helpers/resolve_employee_role_scope'
 import { resolveMailLocale } from '#constants/mail_locale'
 import { MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME, MAIL_TIME_ZONE } from '#constants/mail_branding'
 import {
@@ -31,6 +36,7 @@ import {
   NOTICE_SEND_MODE,
   NOTICE_STATUS,
   NOTICE_TYPE,
+  isNoticeTypeValue,
   type NoticeAudienceValue,
   type NoticeSendModeValue,
   type NoticeStatusValue,
@@ -90,6 +96,9 @@ export interface NoticeInput {
   noticeDescription: string
   noticeType: NoticeTypeValue
   noticeAudience: NoticeAudienceValue
+  /** Criterio del público `department`; `null` para `company` y `manual`. */
+  noticeDepartmentId: number | null
+  noticePositionId: number | null
 }
 
 /** Contexto que decide qué reglas de negocio aplican al guardar. */
@@ -99,6 +108,20 @@ export interface NoticeVerifyContext {
   /** `true` si el aviso de imagen o PDF tiene archivo, nuevo o ya guardado. */
   hasBodyFile: boolean
   recipientsCount: number
+  /** `true` si el aviso ya salió (`notice_sent_at` con valor): cambia qué modos se aceptan. */
+  isSent: boolean
+}
+
+/**
+ * Con qué se arma la lista de destinatarios. El público decide qué campos
+ * cuentan: `manual` usa los ids, `department` el departamento y el puesto, y
+ * `company` no necesita nada más que la empresa.
+ */
+export interface NoticeRecipientCriteria {
+  audience: NoticeAudienceValue
+  departmentId: number | null
+  positionId: number | null
+  recipientEmployeeIds: number[]
 }
 
 /** Rechazo de negocio con el triplete del estándar. */
@@ -214,12 +237,18 @@ export default class NoticeService {
       .whereNull('notice_deleted_at')
       // El contador de destinatarios que el BO pintaba con la longitud de la
       // lista de correos, ahora contado en el servidor.
+      // Los conteos son del público vigente: una fila histórica que el criterio
+      // nuevo dejó fuera sigue en el seguimiento, pero no cuenta en "N de M lo
+      // abrieron" ni en cuántos recibirán un reenvío.
       .withCount('recipients', (recipientQuery) => {
-        recipientQuery.whereNull('notice_recipient_deleted_at')
+        recipientQuery
+          .whereNull('notice_recipient_deleted_at')
+          .where('notice_recipient_in_audience', true)
       })
       .withCount('recipients', (recipientQuery) => {
         recipientQuery
           .whereNull('notice_recipient_deleted_at')
+          .where('notice_recipient_in_audience', true)
           .where('notice_recipient_read', true)
           .as('recipients_read_count')
       })
@@ -242,6 +271,9 @@ export default class NoticeService {
 
     // Si se proporciona employeeId, filtrar por notice_recipients y hacer preload
     if (filters.employeeId) {
+      // Para el colaborador solo existe lo enviado: un borrador o un programado
+      // no se lista aunque ya tenga su fila de destinatario.
+      query = query.whereNotNull('notice_sent_at')
       const baseRecipientQuery = (recipientSubQuery: NoticeRecipientQuery) => {
         recipientSubQuery
           .whereNull('notice_recipient_deleted_at')
@@ -360,6 +392,9 @@ export default class NoticeService {
   async getUnreadCount(employeeId: number): Promise<number> {
     const count = await Notice.query()
       .whereNull('notice_deleted_at')
+      // Solo cuenta lo enviado: un borrador o un programado con fila de
+      // destinatario no es un aviso pendiente para la app.
+      .whereNotNull('notice_sent_at')
       .whereHas('recipients', (recipientQuery) => {
         recipientQuery
           .whereNull('notice_recipient_deleted_at')
@@ -403,6 +438,109 @@ export default class NoticeService {
         personQuery.preload('user')
       })
 
+    return this.toResolvedRecipients(employees)
+  }
+
+  /**
+   * Destinatarios según el público. `company` y `department` se resuelven en
+   * el servidor —colaboradores activos de la empresa con correo efectivo,
+   * recortados al alcance del rol de quien redacta: el mismo criterio con el
+   * que el compositor cuenta y lista— y `manual` con los ids que manda el
+   * cliente.
+   *
+   * @param businessUnitId empresa del aviso. Va explícita y no se fía del
+   *   tenant: el comando programado corre con el filtro apagado y resuelve el
+   *   criterio de cada aviso con SU empresa.
+   * @param roleScope alcance de colaboradores de quien redacta. `null` solo
+   *   cuando no hay a quién atribuírselo (autor sin registrar o dado de baja):
+   *   entonces se resuelve con la empresa completa.
+   */
+  async resolveRecipientsByCriteria(
+    criteria: NoticeRecipientCriteria,
+    businessUnitId: number,
+    roleScope: EmployeeRoleScope | null
+  ): Promise<ResolvedRecipient[]> {
+    if (criteria.audience === NOTICE_AUDIENCE.MANUAL) {
+      return this.resolveRecipients(criteria.recipientEmployeeIds)
+    }
+
+    const departmentId =
+      criteria.audience === NOTICE_AUDIENCE.DEPARTMENT ? criteria.departmentId : null
+    // Sin departamento no hay criterio que resolver; `verifyInfo` lo rechaza
+    // como "sin destinatarios" cuando el modo exige el aviso completo.
+    if (criteria.audience === NOTICE_AUDIENCE.DEPARTMENT && !departmentId) return []
+
+    const query = Employee.query()
+      .whereNull('employee_deleted_at')
+      .where('business_unit_id', businessUnitId)
+    if (departmentId) {
+      query.where('department_id', departmentId)
+      if (criteria.positionId) {
+        query.where('position_id', criteria.positionId)
+      }
+    }
+    if (roleScope) {
+      this.applyRoleScope(query, roleScope)
+    }
+    const employees = await query.preload('person', (personQuery) => {
+      personQuery.preload('user')
+    })
+
+    return this.toResolvedRecipients(employees)
+  }
+
+  /**
+   * Mismo recorte que `EmployeeService.index`: sin acceso completo a la
+   * plantilla, solo los colaboradores a cargo del usuario y él mismo; con
+   * acceso completo, los departamentos visibles para el rol.
+   */
+  private applyRoleScope(
+    query: ModelQueryBuilderContract<typeof Employee>,
+    roleScope: EmployeeRoleScope
+  ): void {
+    const userId = roleScope.userResponsibleId
+    if (userId) {
+      query.where((scoped) => {
+        scoped
+          .whereHas('userResponsibleEmployee', (responsibleQuery) => {
+            responsibleQuery
+              .where('user_id', userId)
+              .whereNull('user_responsible_employee_deleted_at')
+          })
+          .orWhereHas('person', (personQuery) => {
+            personQuery.whereHas('user', (userQuery) => {
+              userQuery.where('user_id', userId)
+            })
+          })
+      })
+      return
+    }
+    query.whereIn('department_id', roleScope.departmentsList)
+  }
+
+  /**
+   * El criterio `department` solo puede apuntar a un departamento que el rol
+   * ve; si no, el compositor prometería un alcance que el usuario no tiene.
+   * `company` no se rechaza: se recorta al resolver.
+   */
+  verifyAudienceScope(
+    criteria: NoticeRecipientCriteria,
+    roleScope: EmployeeRoleScope | null
+  ): NoticeValidationError | null {
+    if (!roleScope || criteria.audience !== NOTICE_AUDIENCE.DEPARTMENT) return null
+    if (!criteria.departmentId || roleScope.departmentsList.includes(criteria.departmentId)) {
+      return null
+    }
+    return {
+      status: 400,
+      title: this.t('notice_validation_title'),
+      detail: this.t('notice_department_out_of_scope'),
+      key: 'departamento-fuera-de-alcance',
+    }
+  }
+
+  /** Deja fuera a quien no tiene ningún correo: no habría a dónde enviarle. */
+  private toResolvedRecipients(employees: Employee[]): ResolvedRecipient[] {
     const recipients: ResolvedRecipient[] = []
     for (const employee of employees) {
       const email = this.resolveRecipientEmailLikeGetMails(employee).trim()
@@ -421,8 +559,23 @@ export default class NoticeService {
   }
 
   /**
+   * `draft` guarda lo que haya, y `update` sobre un aviso que aún no sale se
+   * comporta igual. Sobre un aviso ya enviado, `update` y `now` exigen el aviso
+   * completo: lo que ya recibió la gente no puede quedar a medias.
+   */
+  private requiresCompleteContent(sendMode: NoticeSendModeValue, isSent: boolean): boolean {
+    if (sendMode === NOTICE_SEND_MODE.DRAFT) return false
+    if (sendMode === NOTICE_SEND_MODE.UPDATE) return isSent
+    return true
+  }
+
+  /**
    * Reglas de negocio del guardado. Vine ya validó forma y catálogos; aquí va
    * lo que depende de varios campos a la vez.
+   *
+   * Un borrador solo exige asunto. Sobre un aviso ya enviado solo caben
+   * `update` (guardar sin reenviar) y `now` (guardar y reenviar): volverlo
+   * borrador o programarlo se rechaza con `aviso-ya-enviado`.
    */
   verifyInfo(notice: NoticeInput, context: NoticeVerifyContext): NoticeValidationError | null {
     const title = this.t('notice_validation_title')
@@ -437,22 +590,33 @@ export default class NoticeService {
       return reject(this.t('notice_subject_is_required'), 'aviso-asunto-requerido')
     }
 
+    if (
+      context.isSent &&
+      (context.sendMode === NOTICE_SEND_MODE.DRAFT ||
+        context.sendMode === NOTICE_SEND_MODE.SCHEDULED)
+    ) {
+      return reject(this.t('notice_already_sent'), 'aviso-ya-enviado')
+    }
+
+    const requiresComplete = this.requiresCompleteContent(context.sendMode, context.isSent)
+
     if (notice.noticeType === NOTICE_TYPE.TEXT) {
       const length = noticePlainTextLength(notice.noticeDescription)
-      if (length === 0) {
+      if (requiresComplete && length === 0) {
         return reject(this.t('notice_description_is_required'), 'aviso-mensaje-requerido')
       }
+      // El tope aplica también al borrador: lo que no cabe no se guarda.
       if (length > NOTICE_MESSAGE_MAX_LENGTH) {
         return reject(
           this.t('notice_message_too_long', { max: NOTICE_MESSAGE_MAX_LENGTH }),
           'aviso-mensaje-demasiado-largo'
         )
       }
-    } else if (!context.hasBodyFile) {
+    } else if (requiresComplete && !context.hasBodyFile) {
       return reject(this.t('notice_file_is_required'), 'aviso-archivo-requerido')
     }
 
-    if (context.sendMode !== NOTICE_SEND_MODE.DRAFT && context.recipientsCount === 0) {
+    if (requiresComplete && context.recipientsCount === 0) {
       return reject(this.t('notice_recipients_are_required'), 'aviso-destinatarios-requeridos')
     }
 
@@ -503,6 +667,8 @@ export default class NoticeService {
     newNotice.noticeDescription = notice.noticeDescription
     newNotice.noticeType = notice.noticeType
     newNotice.noticeAudience = notice.noticeAudience
+    newNotice.noticeDepartmentId = notice.noticeDepartmentId
+    newNotice.noticePositionId = notice.noticePositionId
     newNotice.noticeSentCount = 0
     newNotice.noticeSentAt = null
     newNotice.noticeScheduledAt = scheduledAt
@@ -529,13 +695,17 @@ export default class NoticeService {
     noticeRecipient.noticeRecipientRead = false
     noticeRecipient.noticeRecipientReadAt = null
     noticeRecipient.noticeRecipientError = null
+    noticeRecipient.noticeRecipientInAudience = true
     await noticeRecipient.save()
   }
 
   /**
-   * Deja la lista de destinatarios igual a la recibida: agrega los que faltan y
-   * da de baja los que ya no están. Los que se conservan mantienen su
-   * seguimiento de lectura, que es lo que un reemplazo completo perdería.
+   * Alinea los destinatarios con la lista recibida: agrega los que faltan y
+   * retira los que ya no aplican, salvo los que tienen historial. Una fila a la
+   * que ya se le envió o que ya abrió el aviso es seguimiento y se conserva
+   * aunque el criterio nuevo la deje fuera —marcada fuera del público, para
+   * que un reenvío no la alcance—; solo se elimina lo que nunca recibió nada.
+   * Volver a entrar al público restaura la marca.
    */
   private async syncRecipients(notice: Notice, recipients: ResolvedRecipient[]): Promise<void> {
     const existing = await NoticeRecipient.query()
@@ -543,24 +713,41 @@ export default class NoticeService {
       .where('notice_id', notice.noticeId)
 
     const wantedIds = new Set(recipients.map((r) => r.employeeId))
+    const keptIds = new Set<number>()
 
     for (const current of existing) {
-      if (current.employeeId === null || !wantedIds.has(current.employeeId)) {
-        await current.delete()
+      if (current.employeeId !== null && wantedIds.has(current.employeeId)) {
+        keptIds.add(current.employeeId)
+        await this.setInAudience(current, true)
+        continue
       }
+      if (this.hasDeliveryHistory(current)) {
+        await this.setInAudience(current, false)
+        continue
+      }
+      await current.delete()
     }
 
-    const existingIds = new Set(
-      existing.filter((r) => r.employeeId !== null && wantedIds.has(r.employeeId)).map((r) => r.employeeId)
-    )
     for (const recipient of recipients) {
-      if (!existingIds.has(recipient.employeeId)) {
+      if (!keptIds.has(recipient.employeeId)) {
         await this.createRecipient(notice.noticeId, recipient)
       }
     }
 
     notice.noticeRecipientEmails = JSON.stringify(recipients.map((r) => r.employeeEmail))
     await notice.save()
+  }
+
+  /** Ya se le envió o ya lo abrió: es historial de seguimiento, no una fila descartable. */
+  private hasDeliveryHistory(recipient: NoticeRecipient): boolean {
+    return !!recipient.noticeRecipientSentAt || !!recipient.noticeRecipientReadAt
+  }
+
+  /** Solo escribe si cambia: la sincronización corre en cada guardado. */
+  private async setInAudience(recipient: NoticeRecipient, inAudience: boolean): Promise<void> {
+    if (Boolean(recipient.noticeRecipientInAudience) === inAudience) return
+    recipient.noticeRecipientInAudience = inAudience
+    await recipient.save()
   }
 
   async update(
@@ -573,7 +760,13 @@ export default class NoticeService {
     currentNotice.noticeDescription = notice.noticeDescription
     currentNotice.noticeType = notice.noticeType
     currentNotice.noticeAudience = notice.noticeAudience
+    currentNotice.noticeDepartmentId = notice.noticeDepartmentId
+    currentNotice.noticePositionId = notice.noticePositionId
     currentNotice.noticeScheduledAt = scheduledAt
+    // Cualquier guardado limpia el error del intento programado anterior: RH
+    // ya vio el aviso y lo tocó. Enviar con éxito también lo limpia (ver
+    // `markDispatched`).
+    currentNotice.noticeScheduleError = null
     await currentNotice.save()
 
     await this.syncRecipients(currentNotice, recipients)
@@ -581,13 +774,37 @@ export default class NoticeService {
     return currentNotice
   }
 
+  /**
+   * Baja del aviso: primero las filas (destinatarios, adjuntos y el aviso) y
+   * al final los objetos del almacenamiento (adjuntos y cuerpo imagen o PDF).
+   *
+   * En ese orden porque un objeto que no se pueda borrar se registra y no
+   * detiene nada, mientras que borrar los objetos antes dejaba, si la baja de
+   * filas fallaba después, un aviso vivo apuntando a keys inexistentes
+   * (`body-file` en 404 y correos sin adjunto).
+   */
   async delete(currentNotice: Notice) {
-    // Eliminar destinatarios relacionados
+    const noticeFileService = new NoticeFileService()
+    const files = await NoticeFile.query()
+      .whereNull('notice_file_deleted_at')
+      .where('notice_id', currentNotice.noticeId)
+    const storedKeys = files.map((file) => file.noticeFilePath)
+    if (currentNotice.noticeType !== NOTICE_TYPE.TEXT) {
+      storedKeys.push(currentNotice.noticeDescription)
+    }
+
     await NoticeRecipient.query()
       .whereNull('notice_recipient_deleted_at')
       .where('notice_id', currentNotice.noticeId)
       .delete()
+    for (const file of files) {
+      await noticeFileService.delete(file)
+    }
     await currentNotice.delete()
+
+    for (const storedKey of storedKeys) {
+      await this.deleteStoredFile(storedKey)
+    }
     return currentNotice
   }
 
@@ -604,27 +821,37 @@ export default class NoticeService {
       .where('notice_id', noticeId)
       .preload('files')
 
-    // Si se proporciona employeeId, filtrar el preload de recipients
     if (employeeId) {
-      query = query.preload('recipients', (recipientQuery) => {
-        recipientQuery
-          .whereNull('notice_recipient_deleted_at')
-          .where('employee_id', employeeId)
-      })
+      // Vista del colaborador: solo lo enviado y solo si es destinatario. Viaja
+      // únicamente su fila (su bandera de lectura), nunca la lista de
+      // destinatarios.
+      const ownRecipient = (recipientQuery: NoticeRecipientQuery) => {
+        recipientQuery.whereNull('notice_recipient_deleted_at').where('employee_id', employeeId)
+      }
+      query = query
+        .whereNotNull('notice_sent_at')
+        .whereHas('recipients', ownRecipient)
+        .preload('recipients', ownRecipient)
       const notice = await query.first()
       return notice ? notice.serialize() : null
     }
 
+    // Viajan TODAS las filas vivas (las históricas fuera del público también:
+    // son seguimiento), cada una con `noticeRecipientInAudience`; los conteos
+    // solo cuentan el público vigente.
     query = query
       .preload('recipients', (recipientQuery) => {
         recipientQuery.whereNull('notice_recipient_deleted_at').orderBy('employee_name', 'asc')
       })
       .withCount('recipients', (recipientQuery) => {
-        recipientQuery.whereNull('notice_recipient_deleted_at')
+        recipientQuery
+          .whereNull('notice_recipient_deleted_at')
+          .where('notice_recipient_in_audience', true)
       })
       .withCount('recipients', (recipientQuery) => {
         recipientQuery
           .whereNull('notice_recipient_deleted_at')
+          .where('notice_recipient_in_audience', true)
           .where('notice_recipient_read', true)
           .as('recipients_read_count')
       })
@@ -678,13 +905,18 @@ export default class NoticeService {
   }
 
   /**
-   * Marca un aviso como leído para un empleado específico
+   * Registra que el colaborador abrió el aviso. Idempotente: la primera
+   * apertura fija `notice_recipient_read_at` y las siguientes no la mueven.
    */
   async markAsRead(noticeId: number, employeeId: number) {
     const noticeRecipient = await NoticeRecipient.query()
       .whereNull('notice_recipient_deleted_at')
       .where('notice_id', noticeId)
       .where('employee_id', employeeId)
+      // Solo se abre lo enviado: sin fecha de envío el aviso no existe para la app.
+      .whereHas('notice', (noticeQuery) => {
+        noticeQuery.whereNull('notice_deleted_at').whereNotNull('notice_sent_at')
+      })
       .first()
 
     if (!noticeRecipient) {
@@ -697,9 +929,11 @@ export default class NoticeService {
       }
     }
 
-    noticeRecipient.noticeRecipientRead = true
-    noticeRecipient.noticeRecipientReadAt = DateTime.now()
-    await noticeRecipient.save()
+    if (!noticeRecipient.noticeRecipientReadAt) {
+      noticeRecipient.noticeRecipientRead = true
+      noticeRecipient.noticeRecipientReadAt = DateTime.now()
+      await noticeRecipient.save()
+    }
 
     return {
       status: 200,
@@ -712,6 +946,11 @@ export default class NoticeService {
 
   /**
    * Envía el aviso por correo y notificación push a sus destinatarios.
+   *
+   * Es síncrono y puede tardar: el comando programado lo espera; las rutas
+   * HTTP lo disparan sin `await` a través de `dispatchSend`. No fija la fecha
+   * de envío ni cancela la agenda —eso es de `markDispatched`—; aquí solo se
+   * acumula cuántos correos salieron y el resultado por destinatario.
    * @param noticeId ID del aviso
    * @param isUpdate Si es true, agrega prefijo "Update" o "Actualización" al subject
    * @param businessUnitId empresa para el branding cuando el aviso no la tiene persistida
@@ -727,7 +966,11 @@ export default class NoticeService {
       .whereNull('notice_deleted_at')
       .where('notice_id', noticeId)
       .preload('recipients', (query) => {
-        query.whereNull('notice_recipient_deleted_at')
+        // Solo el público vigente: una fila histórica que el criterio nuevo
+        // dejó fuera conserva su seguimiento pero no recibe reenvíos.
+        query
+          .whereNull('notice_recipient_deleted_at')
+          .where('notice_recipient_in_audience', true)
         if (onlyUnread) {
           query.where('notice_recipient_read', false)
         }
@@ -1002,18 +1245,9 @@ export default class NoticeService {
 
     }
 
-    // Actualizar el aviso con la información de envío. Un reenvío parcial (solo
-    // a quien no ha leído) no reescribe la fecha del envío original.
-    if (!onlyUnread || !notice.noticeSentAt) {
-      notice.noticeSentCount = sentCount
-      notice.noticeSentAt = sentCount > 0 ? DateTime.now() : notice.noticeSentAt
-    } else {
-      notice.noticeSentCount = notice.noticeSentCount + sentCount
-    }
-    // Enviado es enviado: la agenda deja de aplicar.
-    if (notice.noticeSentAt) {
-      notice.noticeScheduledAt = null
-    }
+    // Solo el conteo: un reenvío parcial (a quien no lo ha abierto) acumula y
+    // uno completo reemplaza. El estado del aviso lo fija `markDispatched`.
+    notice.noticeSentCount = onlyUnread ? notice.noticeSentCount + sentCount : sentCount
     await notice.save()
 
     return {
@@ -1030,13 +1264,101 @@ export default class NoticeService {
     }
   }
 
-  async sendNotice(noticeId: number, businessUnitId: number | null = null, onlyUnread = false) {
-    return await this.sendNoticeEmails(noticeId, false, businessUnitId, onlyUnread)
+  /**
+   * Destinatarios vivos del público vigente a los que iría un envío; con
+   * `onlyUnread`, solo los que no han abierto el aviso.
+   */
+  private async countPendingRecipients(noticeId: number, onlyUnread: boolean): Promise<number> {
+    const pending = await NoticeRecipient.query()
+      .whereNull('notice_recipient_deleted_at')
+      .where('notice_id', noticeId)
+      .where('notice_recipient_in_audience', true)
+      .if(onlyUnread, (recipientQuery) => {
+        recipientQuery.where('notice_recipient_read', false)
+      })
+      .count('* as total')
+    return Number(pending[0]?.$extras.total ?? 0)
   }
 
   /**
-   * Crea un borrador idéntico al aviso dado: mismo contenido, mismo público y
-   * mismos destinatarios (sin seguimiento de lectura, que es del original).
+   * Un aviso que aún no ha salido solo se despacha completo. `send` no pasa
+   * por `verifyInfo` y, desde que un borrador solo exige asunto, un borrador
+   * con público `company` ya tiene destinatarios y podía salir vacío. Sobre un
+   * aviso ya enviado no aplica: lo que salió ya estaba completo.
+   */
+  async verifyDispatchable(notice: Notice): Promise<NoticeValidationError | null> {
+    if (notice.noticeSentAt) return null
+    const input: NoticeInput = {
+      noticeSubject: notice.noticeSubject,
+      noticeDescription: notice.noticeDescription ?? '',
+      noticeType: isNoticeTypeValue(notice.noticeType) ? notice.noticeType : NOTICE_TYPE.TEXT,
+      noticeAudience: notice.noticeAudience,
+      noticeDepartmentId: notice.noticeDepartmentId ?? null,
+      noticePositionId: notice.noticePositionId ?? null,
+    }
+    return this.verifyInfo(input, {
+      sendMode: NOTICE_SEND_MODE.NOW,
+      scheduledAt: null,
+      hasBodyFile: input.noticeType !== NOTICE_TYPE.TEXT && !!notice.noticeDescription,
+      recipientsCount: await this.countPendingRecipients(notice.noticeId, false),
+      isSent: false,
+    })
+  }
+
+  /**
+   * Despacha el envío sin bloquear la petición: fija el estado del aviso
+   * (`markDispatched`), cuenta a cuántos destinatarios se les enviará y
+   * dispara `sendNoticeEmails` sin `await`. Los fallos del envío quedan en
+   * cada fila de destinatario y en la bitácora, nunca en la respuesta HTTP,
+   * que ya salió. Con cero destinatarios pendientes no cambia nada.
+   *
+   * @returns número de destinatarios a los que se les enviará
+   */
+  async dispatchSend(
+    notice: Notice,
+    options: { businessUnitId: number | null; isUpdate?: boolean; onlyUnread?: boolean }
+  ): Promise<number> {
+    const onlyUnread = options.onlyUnread === true
+    const dispatched = await this.countPendingRecipients(notice.noticeId, onlyUnread)
+    if (dispatched === 0) return 0
+
+    await this.markDispatched(notice)
+
+    this.sendNoticeEmails(
+      notice.noticeId,
+      options.isUpdate === true,
+      options.businessUnitId,
+      onlyUnread
+    ).catch((error: unknown) => {
+      logger.error(
+        { err: error, noticeId: notice.noticeId },
+        'NoticeService: falló el envío en segundo plano del aviso'
+      )
+    })
+
+    return dispatched
+  }
+
+  /**
+   * Enviado es enviado: fija la fecha de envío la primera vez y la de reenvío
+   * las siguientes, cancela la agenda y limpia el error del programado.
+   */
+  private async markDispatched(notice: Notice): Promise<void> {
+    const now = DateTime.now()
+    if (notice.noticeSentAt) {
+      notice.noticeLastResentAt = now
+    } else {
+      notice.noticeSentAt = now
+    }
+    notice.noticeScheduledAt = null
+    notice.noticeScheduleError = null
+    await notice.save()
+  }
+
+  /**
+   * Crea un borrador idéntico al aviso dado: mismo contenido, mismo público
+   * (con su departamento y puesto) y mismos destinatarios (sin seguimiento de
+   * envío ni de lectura, que es del original).
    * Los archivos se copian dentro del bucket para que borrar la copia no deje
    * al original sin ellos. Un archivo que no se pueda copiar se omite y se
    * registra: la copia sigue siendo útil sin él.
@@ -1066,6 +1388,8 @@ export default class NoticeService {
     copy.noticeDescription = description
     copy.noticeType = source.noticeType
     copy.noticeAudience = source.noticeAudience
+    copy.noticeDepartmentId = source.noticeDepartmentId
+    copy.noticePositionId = source.noticePositionId
     copy.noticeSentCount = 0
     copy.noticeSentAt = null
     copy.noticeScheduledAt = null
@@ -1073,9 +1397,12 @@ export default class NoticeService {
     copy.noticeRecipientEmails = source.noticeRecipientEmails
     await copy.save()
 
+    // Solo el público vigente: las filas históricas fuera del criterio son
+    // seguimiento del original, no destinatarios de la copia.
     const recipients = await NoticeRecipient.query()
       .whereNull('notice_recipient_deleted_at')
       .where('notice_id', source.noticeId)
+      .where('notice_recipient_in_audience', true)
     for (const recipient of recipients) {
       if (recipient.employeeId === null) continue
       await this.createRecipient(copy.noticeId, {
@@ -1114,9 +1441,13 @@ export default class NoticeService {
   /**
    * Envía los avisos programados cuya hora ya llegó. Lo corre el comando
    * agendado fuera de una request, así que el llamador debe abrir el bypass de
-   * tenant. Un aviso que no logra ningún envío vuelve a borrador para no
-   * reintentarse cada minuto: el error queda en la bitácora del comando y en
-   * `notice_recipient_error`.
+   * tenant. El criterio del público (`company`, `department`) se vuelve a
+   * resolver al momento de enviar: quien entró o salió del departamento desde
+   * que se programó cuenta hoy, no entonces.
+   *
+   * Un aviso que no logra ningún envío vuelve a borrador para no reintentarse
+   * cada minuto, con el motivo en `notice_schedule_error` (además de la
+   * bitácora del comando y de `notice_recipient_error`).
    */
   async sendDueScheduled(log: NoticeSchedulerLogger): Promise<SendScheduledResult> {
     const due = await Notice.query()
@@ -1132,21 +1463,23 @@ export default class NoticeService {
 
     for (const notice of due) {
       try {
+        await this.refreshCriteriaRecipients(notice)
         const outcome = await this.sendNoticeEmails(notice.noticeId, false, notice.businessUnitId)
         const sent =
           outcome.data && 'sentCount' in outcome.data ? Number(outcome.data.sentCount ?? 0) : 0
         if (sent > 0) {
+          await this.markDispatched(notice)
           result.sentCount += 1
           log.info(`Aviso ${notice.noticeId} enviado a ${sent} destinatario(s)`)
           continue
         }
         result.failedCount += 1
-        await this.demoteToDraft(notice.noticeId)
+        await this.demoteToDraft(notice.noticeId, this.t('notice_scheduled_send_no_deliveries'))
         log.warn(`Aviso ${notice.noticeId} sin envíos: vuelve a borrador`)
       } catch (error: unknown) {
         result.failedCount += 1
         const message = error instanceof Error ? error.message : String(error)
-        await this.demoteToDraft(notice.noticeId)
+        await this.demoteToDraft(notice.noticeId, message)
         log.error(`Aviso ${notice.noticeId} falló al enviarse: ${message}`)
       }
     }
@@ -1154,21 +1487,67 @@ export default class NoticeService {
     return result
   }
 
-  private async demoteToDraft(noticeId: number): Promise<void> {
+  /**
+   * Vuelve a resolver los destinatarios de un aviso por criterio (`company` o
+   * `department`) con la empresa del propio aviso y con el alcance del rol de
+   * quien lo redactó, igual que al guardarlo. `manual` se queda con su lista:
+   * fue elegida a mano.
+   *
+   * Sin autor atribuible (aviso anterior al registro del autor, o autor dado
+   * de baja) se resuelve sin recorte, con la empresa completa: es lo que
+   * hacían los programados hasta ahora. Lo usan el comando programado y el
+   * primer envío de un borrador desde `send`, para que la plantilla sea la
+   * del momento de salir y no la del momento de guardar.
+   */
+  async refreshCriteriaRecipients(notice: Notice): Promise<void> {
+    if (notice.noticeAudience === NOTICE_AUDIENCE.MANUAL || notice.businessUnitId === null) return
+
+    const roleScope =
+      typeof notice.noticeCreatedByUserId === 'number'
+        ? await resolveEmployeeRoleScope(notice.noticeCreatedByUserId, this.i18n)
+        : null
+    const recipients = await this.resolveRecipientsByCriteria(
+      {
+        audience: notice.noticeAudience,
+        departmentId: notice.noticeDepartmentId ?? null,
+        positionId: notice.noticePositionId ?? null,
+        recipientEmployeeIds: [],
+      },
+      notice.businessUnitId,
+      roleScope
+    )
+    await this.syncRecipients(notice, recipients)
+  }
+
+  /**
+   * Degrada un programado fallido a borrador y deja el motivo a la vista del
+   * buzón. Se relee la fila: `sendNoticeEmails` la tocó en otra instancia.
+   */
+  private async demoteToDraft(noticeId: number, reason: string): Promise<void> {
     const notice = await Notice.query().where('notice_id', noticeId).first()
     if (!notice) return
     notice.noticeScheduledAt = null
+    notice.noticeScheduleError = reason
     await notice.save()
   }
 
-  async deleteFileS3(fileUrl: string) {
-    if (fileUrl && /^https?:\/\//i.test(fileUrl.trim())) {
-      const uploadService = new UploadService()
-      const fileNameWithExt = decodeURIComponent(
-        path.basename(fileUrl)
+  /**
+   * Borra un objeto del almacenamiento por su key o por su URL histórica.
+   * Antes solo se borraban URLs públicas y la key se reconstruía con la carpeta
+   * de avisos; desde que los archivos se guardan como key privada, eso no
+   * borraba nada. Un fallo se registra y no interrumpe: la fila que apuntaba
+   * al objeto ya se dio de baja o se reemplaza.
+   */
+  async deleteStoredFile(storedPath: string | null | undefined): Promise<void> {
+    const reference = (storedPath || '').trim()
+    if (!reference) return
+
+    const result = await new UploadService().deleteFile(reference)
+    if (result.status !== 200 && result.status !== 404) {
+      logger.warn(
+        { storedPath: reference, message: result.message },
+        'NoticeService: no se pudo borrar el objeto del aviso en el almacenamiento'
       )
-      const fileKey = `${Env.get('AWS_ROOT_PATH')}/notices/${fileNameWithExt}`
-      await uploadService.deleteFile(fileKey)
     }
   }
 }

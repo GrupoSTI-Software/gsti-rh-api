@@ -45,6 +45,23 @@ import User from './user.js'
  *           type: string
  *           format: date-time
  *           description: Date when the scheduled notice must be sent
+ *         noticeDepartmentId:
+ *           type: number
+ *           nullable: true
+ *           description: Department criterion when the audience is department
+ *         noticePositionId:
+ *           type: number
+ *           nullable: true
+ *           description: Optional position criterion when the audience is department
+ *         noticeLastResentAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *           description: Last resend of an already sent notice
+ *         noticeScheduleError:
+ *           type: string
+ *           nullable: true
+ *           description: Why the last scheduled send failed (cleared on reschedule or successful send)
  *         noticeStatus:
  *           type: string
  *           description: Derived status (sent, scheduled, draft)
@@ -82,6 +99,17 @@ export default class Notice extends compose(BaseModel, SoftDeletes, withBusiness
   @column()
   declare noticeAudience: NoticeAudienceValue
 
+  /**
+   * Criterio del público `department`: departamento y, opcionalmente, puesto.
+   * Con él el envío programado vuelve a resolver los destinatarios al momento
+   * de enviar. NULL para `company` y `manual`.
+   */
+  @column()
+  declare noticeDepartmentId: number | null
+
+  @column()
+  declare noticePositionId: number | null
+
   @column()
   declare noticeRecipientEmails: string | null
 
@@ -94,6 +122,17 @@ export default class Notice extends compose(BaseModel, SoftDeletes, withBusiness
   /** Hora del envío agendado. NULL en enviados y borradores. */
   @column.dateTime()
   declare noticeScheduledAt: DateTime | null
+
+  /** Último reenvío de un aviso ya enviado. `noticeSentAt` conserva el envío original. */
+  @column.dateTime()
+  declare noticeLastResentAt: DateTime | null
+
+  /**
+   * Por qué falló el último envío programado. Se guarda al degradar el aviso a
+   * borrador y se limpia al reprogramarlo o al enviarlo con éxito.
+   */
+  @column()
+  declare noticeScheduleError: string | null
 
   /** Quién redactó el aviso. No se serializa: el nombre sale en `noticeAuthorName`. */
   @column({ serializeAs: null })

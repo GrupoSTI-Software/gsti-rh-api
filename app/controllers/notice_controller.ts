@@ -5,14 +5,22 @@ import { sanitizeNoticeHtml } from '#helpers/sanitize_notice_content'
 import Notice from '#models/notice'
 import NoticeService, {
   type NoticeInput,
+  type NoticeRecipientCriteria,
   type NoticeValidationError,
 } from '#services/notice_service'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import {
+  resolveEmployeeRoleScope,
+  type EmployeeRoleScope,
+} from '#helpers/resolve_employee_role_scope'
+import { NOTICES_READ_PERMISSION_DECLARATIONS } from '#constants/notices_permission_declarations'
 import {
   createNoticeValidator,
   sendNoticeValidator,
   updateNoticeValidator,
 } from '#validators/notice'
 import UploadService from '#services/upload_service'
+import type { IncomingFile } from '#services/file_intake_service'
 import NoticeFileService from '#services/notice_file_service'
 import NoticeFile from '#models/notice_file'
 import {
@@ -23,7 +31,7 @@ import {
   NOTICE_SEND_MODE,
   NOTICE_STATUS_VALUES,
   NOTICE_TYPE,
-  NOTICE_TYPE_VALUES,
+  isNoticeTypeValue,
   type NoticeAudienceValue,
   type NoticeSendModeValue,
   type NoticeStatusValue,
@@ -38,6 +46,9 @@ import {
  */
 const NOTICE_FILE_FIELD = 'noticeFile'
 const NOTICE_ATTACHMENTS_FIELD = 'files'
+
+/** Traductor ligado a la petición (`i18n.formatMessage`). */
+type Translate = (key: string, data?: Record<string, string | number>) => string
 
 export default class NoticeController {
   /** Respuesta de rechazo con el triplete del estándar. */
@@ -57,10 +68,6 @@ export default class NoticeController {
 
   private isAudience(value: unknown): value is NoticeAudienceValue {
     return typeof value === 'string' && (NOTICE_AUDIENCE_VALUES as readonly string[]).includes(value)
-  }
-
-  private isType(value: unknown): value is NoticeTypeValue {
-    return typeof value === 'string' && (NOTICE_TYPE_VALUES as readonly string[]).includes(value)
   }
 
   /** Fecha `YYYY-MM-DD` tal cual, o `undefined` si no tiene esa forma. */
@@ -155,6 +162,16 @@ export default class NoticeController {
       const employeeId = rawEmployeeId
         ? ((await resolveSessionEmployeeId(ctx)) ?? -1)
         : undefined
+      // Sin colaborador es el buzón de administración: exige el permiso de
+      // lectura del módulo. No va en el router porque la ruta se comparte con
+      // la app, que se identifica por su fila de destinatario y no por permiso.
+      if (employeeId === undefined) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          NOTICES_READ_PERMISSION_DECLARATIONS.index
+        )
+        if (!allowed) return
+      }
       // El corte por empresa lo hace el middleware `businessScope()`, que esta
       // ruta ya monta: deja el TenantContext activo y el mixin del modelo filtra
       // solo. Aquí no se replica.
@@ -170,7 +187,7 @@ export default class NoticeController {
         readStatus,
         status: this.isStatus(status) ? status : undefined,
         audience: this.isAudience(audience) ? audience : undefined,
-        noticeType: this.isType(noticeType) ? noticeType : undefined,
+        noticeType: isNoticeTypeValue(noticeType) ? noticeType : undefined,
         dateFrom: this.isoDate(request.input('dateFrom')),
         dateTo: this.isoDate(request.input('dateTo')),
       })
@@ -262,21 +279,96 @@ export default class NoticeController {
    * Arma la entrada del aviso a partir del cuerpo validado. El mensaje de
    * texto se sanea aquí porque se pinta como HTML en tres clientes; los avisos
    * de imagen o PDF no traen mensaje: su descripción es la key del archivo.
+   * El departamento y el puesto solo se persisten con el público `department`.
    */
   private buildInput(payload: {
     noticeSubject: string
     noticeDescription?: string
     noticeType?: NoticeTypeValue
     noticeAudience?: NoticeAudienceValue
+    departmentId?: number | null
+    positionId?: number | null
   }): NoticeInput {
     const noticeType = payload.noticeType ?? NOTICE_TYPE.TEXT
+    const noticeAudience = payload.noticeAudience ?? NOTICE_AUDIENCE.MANUAL
+    const byDepartment = noticeAudience === NOTICE_AUDIENCE.DEPARTMENT
     return {
       noticeSubject: payload.noticeSubject.trim(),
       noticeDescription:
         noticeType === NOTICE_TYPE.TEXT ? sanitizeNoticeHtml(payload.noticeDescription) : '',
       noticeType,
-      noticeAudience: payload.noticeAudience ?? NOTICE_AUDIENCE.MANUAL,
+      noticeAudience,
+      noticeDepartmentId: byDepartment ? (payload.departmentId ?? null) : null,
+      noticePositionId: byDepartment ? (payload.positionId ?? null) : null,
     }
+  }
+
+  /**
+   * Criterio de destinatarios: el público del aviso más los ids del cuerpo,
+   * que solo cuentan para `manual`. `company` y `department` los resuelve el
+   * servidor.
+   */
+  private criteriaOf(
+    notice: NoticeInput,
+    recipientEmployeeIds: number[] | undefined
+  ): NoticeRecipientCriteria {
+    return {
+      audience: notice.noticeAudience,
+      departmentId: notice.noticeDepartmentId,
+      positionId: notice.noticePositionId,
+      recipientEmployeeIds: recipientEmployeeIds ?? [],
+    }
+  }
+
+  /** Mensaje del guardado según lo que hizo con el aviso. */
+  private saveMessage(
+    t: Translate,
+    sendMode: NoticeSendModeValue,
+    dispatched: number,
+    savedMessage: string
+  ): string {
+    if (sendMode === NOTICE_SEND_MODE.SCHEDULED) return t('notice_scheduled_successfully')
+    if (sendMode === NOTICE_SEND_MODE.DRAFT) return t('notice_saved_as_draft')
+    if (sendMode === NOTICE_SEND_MODE.NOW) return t('notice_send_dispatched', { count: dispatched })
+    return savedMessage
+  }
+
+  /**
+   * Alcance de colaboradores del usuario de la sesión, con la regla del
+   * listado de empleados. El público `company` y `department` se resuelve con
+   * él: el compositor cuenta y lista con ese mismo recorte, así que el número
+   * que promete es el que sale.
+   */
+  private async roleScopeOf(ctx: HttpContext): Promise<EmployeeRoleScope | null> {
+    const userId = ctx.auth.user?.userId
+    return userId ? resolveEmployeeRoleScope(userId, ctx.i18n) : null
+  }
+
+  /**
+   * Sube los adjuntos y devuelve sus keys. Si el perfil rechaza uno, los ya
+   * subidos en esta misma petición se borran antes de relanzar: no quedan
+   * objetos huérfanos ni filas a medias. Las filas se crean después, cuando
+   * el aviso ya está guardado.
+   */
+  private async uploadAttachments(
+    files: IncomingFile[],
+    uploadService: UploadService,
+    noticeService: NoticeService
+  ): Promise<string[]> {
+    const keys: string[] = []
+    for (const file of files) {
+      try {
+        keys.push(
+          await uploadService.fileUpload(file, NOTICE_FILE_INTAKE_PROFILE, NOTICE_FILE_FOLDER)
+        )
+      } catch (error) {
+        for (const key of keys) {
+          await noticeService.deleteStoredFile(key)
+        }
+        throw error
+      }
+    }
+    return keys
   }
 
   /**
@@ -313,8 +405,14 @@ export default class NoticeController {
    *                 default: 'manual'
    *               noticeSendMode:
    *                 type: string
-   *                 description: now (send immediately), draft (save only) or scheduled (send at noticeScheduledAt)
+   *                 description: now (send immediately), draft (save only; the subject is enough) or scheduled (send at noticeScheduledAt)
    *                 default: 'now'
+   *               departmentId:
+   *                 type: number
+   *                 description: Department criterion when noticeAudience is department. Recipients for company and department are resolved server-side within the role scope of the author (same rule as the employees list); a department outside that scope is rejected with key departamento-fuera-de-alcance
+   *               positionId:
+   *                 type: number
+   *                 description: Optional position criterion when noticeAudience is department
    *               noticeScheduledAt:
    *                 type: string
    *                 format: date-time
@@ -323,7 +421,7 @@ export default class NoticeController {
    *                 type: array
    *                 items:
    *                   type: number
-   *                 description: Array of employee IDs to send notice to
+   *                 description: Employee IDs when noticeAudience is manual (ignored otherwise)
    *               noticeFile:
    *                 type: string
    *                 format: binary
@@ -336,7 +434,7 @@ export default class NoticeController {
    *                   description: Attachments for text notices (pdf or image)
    *     responses:
    *       '201':
-   *         description: Resource processed successfully
+   *         description: Notice saved. data.dispatched is how many recipients the send was dispatched to (0 unless noticeSendMode is now); the send itself runs in the background
    *       '400':
    *         description: Business rule rejected the notice (title, detail, key)
    *       default:
@@ -354,20 +452,33 @@ export default class NoticeController {
         sendMode === NOTICE_SEND_MODE.SCHEDULED
           ? noticeService.parseScheduledAt(payload.noticeScheduledAt)
           : null
-      const recipients = await noticeService.resolveRecipients(payload.recipientEmployeeIds ?? [])
-      const bodyFile =
-        notice.noticeType === NOTICE_TYPE.TEXT ? null : request.file(NOTICE_FILE_FIELD)
+      // La empresa del aviso sale del scope que ya resolvió `businessScope()`,
+      // que este grupo sí monta. Nunca del cuerpo de la petición: quien crea no
+      // elige a qué empresa pertenece lo que crea.
+      const businessUnitId = ctx.businessUnitScope[0]
+      const criteria = this.criteriaOf(notice, payload.recipientEmployeeIds)
+      const roleScope = await this.roleScopeOf(ctx)
+      const outOfScope = noticeService.verifyAudienceScope(criteria, roleScope)
+      if (outOfScope) return this.reject(response, outOfScope)
+      const recipients = await noticeService.resolveRecipientsByCriteria(
+        criteria,
+        businessUnitId,
+        roleScope
+      )
+      const isText = notice.noticeType === NOTICE_TYPE.TEXT
+      const bodyFile = isText ? null : request.file(NOTICE_FILE_FIELD)
 
       const rejected = noticeService.verifyInfo(notice, {
         sendMode,
         scheduledAt,
         hasBodyFile: !!bodyFile,
         recipientsCount: recipients.length,
+        isSent: false,
       })
       if (rejected) return this.reject(response, rejected)
 
-      // El archivo entra al bucket ANTES de crear la fila: si el perfil lo
-      // rechaza, no queda un aviso a medias.
+      // Los archivos entran al bucket ANTES de crear la fila: si el perfil
+      // rechaza uno, no queda un aviso a medias.
       const uploadService = new UploadService()
       if (bodyFile) {
         notice.noticeDescription = await uploadService.fileUpload(
@@ -376,49 +487,44 @@ export default class NoticeController {
           NOTICE_FILE_FOLDER
         )
       }
+      const attachmentKeys = isText
+        ? await this.uploadAttachments(
+            request.files(NOTICE_ATTACHMENTS_FIELD),
+            uploadService,
+            noticeService
+          )
+        : []
 
-      // La empresa del aviso sale del scope que ya resolvió `businessScope()`,
-      // que este grupo sí monta. Nunca del cuerpo de la petición: quien crea no
-      // elige a qué empresa pertenece lo que crea.
       const newNotice = await noticeService.create(
         notice,
         recipients,
-        ctx.businessUnitScope[0],
+        businessUnitId,
         auth.user?.userId ?? null,
         scheduledAt
       )
 
-      if (notice.noticeType === NOTICE_TYPE.TEXT) {
-        const noticeFileService = new NoticeFileService()
-        for (const file of request.files(NOTICE_ATTACHMENTS_FIELD)) {
-          const fileUrl = await uploadService.fileUpload(
-            file,
-            NOTICE_FILE_INTAKE_PROFILE,
-            NOTICE_FILE_FOLDER
-          )
-          await noticeFileService.create({
-            noticeId: newNotice.noticeId,
-            noticeFilePath: fileUrl,
-          } as NoticeFile)
-        }
+      const noticeFileService = new NoticeFileService()
+      for (const noticeFilePath of attachmentKeys) {
+        await noticeFileService.create({
+          noticeId: newNotice.noticeId,
+          noticeFilePath,
+        } as NoticeFile)
       }
 
-      if (sendMode === NOTICE_SEND_MODE.NOW) {
-        await noticeService.sendNoticeEmails(newNotice.noticeId, false, ctx.businessUnitScope[0])
-      }
+      // El envío no bloquea la petición: se despacha y la respuesta vuelve con
+      // cuántos destinatarios recibirán el aviso.
+      const dispatched =
+        sendMode === NOTICE_SEND_MODE.NOW
+          ? await noticeService.dispatchSend(newNotice, { businessUnitId })
+          : 0
 
       const saved = await noticeService.show(newNotice.noticeId)
       response.status(201)
       return {
         type: 'success',
         title: t('notice'),
-        message:
-          sendMode === NOTICE_SEND_MODE.SCHEDULED
-            ? t('notice_scheduled_successfully')
-            : sendMode === NOTICE_SEND_MODE.DRAFT
-              ? t('notice_saved_as_draft')
-              : t('resource_was_created_successfully'),
-        data: { notice: saved },
+        message: this.saveMessage(t, sendMode, dispatched, t('resource_was_created_successfully')),
+        data: { notice: saved, dispatched },
       }
     } catch (error) {
       // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
@@ -469,7 +575,13 @@ export default class NoticeController {
    *                 type: string
    *               noticeSendMode:
    *                 type: string
-   *                 description: now (save and send), draft (save only) or scheduled (save and schedule)
+   *                 description: now (save and send), draft (save only), scheduled (save and schedule) or update (save without resending). Once the notice was sent only update and now are accepted (400 aviso-ya-enviado otherwise)
+   *               departmentId:
+   *                 type: number
+   *                 description: Department criterion when noticeAudience is department
+   *               positionId:
+   *                 type: number
+   *                 description: Optional position criterion when noticeAudience is department
    *               noticeScheduledAt:
    *                 type: string
    *                 format: date-time
@@ -531,12 +643,25 @@ export default class NoticeController {
       const payload = await request.validateUsing(updateNoticeValidator)
       const noticeService = new NoticeService(i18n)
       const notice = this.buildInput(payload)
-      const sendMode: NoticeSendModeValue = payload.noticeSendMode ?? NOTICE_SEND_MODE.DRAFT
+      const isSent = !!currentNotice.noticeSentAt
+      // Sin modo explícito, un enviado se guarda sin reenviar y el resto queda
+      // en borrador: el valor seguro de cada estado.
+      const sendMode: NoticeSendModeValue =
+        payload.noticeSendMode ?? (isSent ? NOTICE_SEND_MODE.UPDATE : NOTICE_SEND_MODE.DRAFT)
       const scheduledAt =
         sendMode === NOTICE_SEND_MODE.SCHEDULED
           ? noticeService.parseScheduledAt(payload.noticeScheduledAt)
           : null
-      const recipients = await noticeService.resolveRecipients(payload.recipientEmployeeIds ?? [])
+      const businessUnitId = ctx.businessUnitScope[0]
+      const criteria = this.criteriaOf(notice, payload.recipientEmployeeIds)
+      const roleScope = await this.roleScopeOf(ctx)
+      const outOfScope = noticeService.verifyAudienceScope(criteria, roleScope)
+      if (outOfScope) return this.reject(response, outOfScope)
+      const recipients = await noticeService.resolveRecipientsByCriteria(
+        criteria,
+        businessUnitId,
+        roleScope
+      )
       const isText = notice.noticeType === NOTICE_TYPE.TEXT
       const bodyFile = isText ? null : request.file(NOTICE_FILE_FIELD)
       // Un aviso de imagen o PDF que sigue siendo del mismo tipo conserva su
@@ -549,11 +674,47 @@ export default class NoticeController {
         scheduledAt,
         hasBodyFile: !!bodyFile || keepsBodyFile,
         recipientsCount: recipients.length,
+        isSent,
       })
       if (rejected) return this.reject(response, rejected)
 
+      // Orden: subir -> persistir -> borrar lo anterior. Si el perfil rechaza
+      // un archivo (422) o falla el guardado, el aviso sigue apuntando a
+      // objetos que existen. Borrar antes dejaba una key colgante: `body-file`
+      // en 404 y el correo sin adjunto.
       const uploadService = new UploadService()
       const noticeFileService = new NoticeFileService()
+      let previousBodyKey: string | null = null
+      if (!isText) {
+        if (bodyFile) {
+          previousBodyKey = currentNotice.noticeDescription
+          notice.noticeDescription = await uploadService.fileUpload(
+            bodyFile,
+            NOTICE_FILE_INTAKE_PROFILE,
+            NOTICE_FILE_FOLDER
+          )
+        } else {
+          notice.noticeDescription = currentNotice.noticeDescription
+        }
+      } else if (currentNotice.noticeType !== NOTICE_TYPE.TEXT) {
+        // Pasa de imagen o PDF a texto: el cuerpo anterior sobra, pero solo se
+        // borra cuando el cambio de tipo ya quedó guardado.
+        previousBodyKey = currentNotice.noticeDescription
+      }
+      const attachmentKeys = isText
+        ? await this.uploadAttachments(
+            request.files(NOTICE_ATTACHMENTS_FIELD),
+            uploadService,
+            noticeService
+          )
+        : []
+
+      await noticeService.update(currentNotice, notice, recipients, scheduledAt)
+
+      for (const noticeFilePath of attachmentKeys) {
+        await noticeFileService.create({ noticeId, noticeFilePath } as NoticeFile)
+      }
+
       for (const fileDeleted of payload.filesDeleted ?? []) {
         // El identificador viene del cuerpo de la petición: la consulta se
         // acota al aviso que se esta editando, que ya paso por el filtro de
@@ -566,61 +727,28 @@ export default class NoticeController {
           .first()
         if (noticeFile) {
           await noticeFileService.delete(noticeFile)
-          await noticeService.deleteFileS3(noticeFile.noticeFilePath)
+          await noticeService.deleteStoredFile(noticeFile.noticeFilePath)
         }
       }
 
-      if (!isText) {
-        if (bodyFile) {
-          await noticeService.deleteFileS3(currentNotice.noticeDescription)
-          notice.noticeDescription = await uploadService.fileUpload(
-            bodyFile,
-            NOTICE_FILE_INTAKE_PROFILE,
-            NOTICE_FILE_FOLDER
-          )
-        } else {
-          notice.noticeDescription = currentNotice.noticeDescription
-        }
-      } else {
-        if (currentNotice.noticeType !== NOTICE_TYPE.TEXT) {
-          await noticeService.deleteFileS3(currentNotice.noticeDescription)
-        }
-        for (const file of request.files(NOTICE_ATTACHMENTS_FIELD)) {
-          const fileUrl = await uploadService.fileUpload(
-            file,
-            NOTICE_FILE_INTAKE_PROFILE,
-            NOTICE_FILE_FOLDER
-          )
-          await noticeFileService.create({
-            noticeId,
-            noticeFilePath: fileUrl,
-          } as NoticeFile)
-        }
+      if (previousBodyKey && previousBodyKey !== notice.noticeDescription) {
+        await noticeService.deleteStoredFile(previousBodyKey)
       }
 
-      await noticeService.update(currentNotice, notice, recipients, scheduledAt)
-
-      if (sendMode === NOTICE_SEND_MODE.NOW) {
-        // Si ya había salido, el correo avisa que es una actualización.
-        await noticeService.sendNoticeEmails(
-          noticeId,
-          !!currentNotice.noticeSentAt,
-          ctx.businessUnitScope[0]
-        )
-      }
+      // Si ya había salido, el correo avisa que es una actualización. El envío
+      // no bloquea la petición.
+      const dispatched =
+        sendMode === NOTICE_SEND_MODE.NOW
+          ? await noticeService.dispatchSend(currentNotice, { businessUnitId, isUpdate: isSent })
+          : 0
 
       const saved = await noticeService.show(noticeId)
       response.status(201)
       return {
         type: 'success',
         title: t('notice'),
-        message:
-          sendMode === NOTICE_SEND_MODE.SCHEDULED
-            ? t('notice_scheduled_successfully')
-            : sendMode === NOTICE_SEND_MODE.DRAFT
-              ? t('notice_saved_as_draft')
-              : t('resource_was_updated_successfully'),
-        data: { notice: saved },
+        message: this.saveMessage(t, sendMode, dispatched, t('resource_was_updated_successfully')),
+        data: { notice: saved, dispatched },
       }
     } catch (error) {
       // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
@@ -749,6 +877,15 @@ export default class NoticeController {
       const employeeId = rawEmployeeId
         ? ((await resolveSessionEmployeeId(ctx)) ?? -1)
         : undefined
+      // Misma regla que en `index`: la rama de administración exige el permiso
+      // de lectura del módulo.
+      if (employeeId === undefined) {
+        const allowed = await ensureSecondaryPermission(
+          ctx,
+          NOTICES_READ_PERMISSION_DECLARATIONS.show
+        )
+        if (!allowed) return
+      }
       const noticeService = new NoticeService(i18n)
       const notice = await noticeService.show(noticeId, employeeId)
       if (!notice) {
@@ -802,10 +939,12 @@ export default class NoticeController {
    *             properties:
    *               onlyUnread:
    *                 type: boolean
-   *                 description: Resend only to recipients who have not confirmed reading
+   *                 description: Resend only to recipients who have not opened the notice
    *     responses:
    *       '200':
-   *         description: Notice sent successfully
+   *         description: Send dispatched in the background. data.dispatched is how many recipients (still in the current audience) will receive it; a resend of an already sent notice updates noticeLastResentAt
+   *       '400':
+   *         description: The notice was never sent and is incomplete (title, detail, key as in store with noticeSendMode now)
    *       default:
    *         description: Unexpected error
    */
@@ -823,17 +962,43 @@ export default class NoticeController {
           data: { noticeId },
         }
       }
+      const notice = await Notice.query()
+        .whereNull('notice_deleted_at')
+        .where('notice_id', noticeId)
+        .first()
+      if (!notice) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: t('entity_was_not_found', { entity: t('notice') }),
+          message: t('entity_was_not_found_with_entered_id', { entity: t('notice') }),
+          data: { noticeId },
+        }
+      }
       const payload = await request.validateUsing(sendNoticeValidator)
       const noticeService = new NoticeService(i18n)
+      // Primer envío de un borrador: el público por criterio se vuelve a
+      // resolver con la plantilla de hoy, igual que hace el programado.
+      if (!notice.noticeSentAt) await noticeService.refreshCriteriaRecipients(notice)
+      // Un borrador solo exige asunto al guardarse; para salir tiene que estar
+      // completo, con las mismas reglas que `now`.
+      const incomplete = await noticeService.verifyDispatchable(notice)
+      if (incomplete) return this.reject(response, incomplete)
       // La empresa sale del scope que ya resolvió `businessScope()`, que este
-      // grupo monta.
-      const result = await noticeService.sendNotice(
-        noticeId,
-        ctx.businessUnitScope[0],
-        payload.onlyUnread === true
-      )
-      response.status(result.status)
-      return result
+      // grupo monta. El envío se despacha sin bloquear la petición; sobre un
+      // aviso ya enviado actualiza `noticeLastResentAt`.
+      const dispatched = await noticeService.dispatchSend(notice, {
+        businessUnitId: ctx.businessUnitScope[0],
+        onlyUnread: payload.onlyUnread === true,
+      })
+      const saved = await noticeService.show(noticeId)
+      response.status(200)
+      return {
+        type: 'success',
+        title: t('notice'),
+        message: t('notice_send_dispatched', { count: dispatched }),
+        data: { notice: saved, dispatched },
+      }
     } catch (error) {
       response.status(500)
       return {
