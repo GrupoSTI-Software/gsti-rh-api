@@ -14,7 +14,7 @@ import type AccessPointProfile from '#models/access_point_profile'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
 
-function makeDeps(row: AccessPointLookupRow | null, blocked = false) {
+function makeDeps(row: AccessPointLookupRow | null, blocked = false, freshProfile = false) {
   const incidents: IncidentInput[] = []
   const hits: string[] = []
   const claims: string[] = []
@@ -53,6 +53,8 @@ function makeDeps(row: AccessPointLookupRow | null, blocked = false) {
   } as unknown as QuarantineService
   const profile = {
     async ensure() {
+      /** Un perfil recien insertado por Lucid no trae las columnas nullable no asignadas. */
+      if (freshProfile) return { async save() {} } as unknown as AccessPointProfile
       return {
         accessPointProfileLastIpSeen: '10.0.0.1',
         accessPointProfileLastIpSeenAt: NOW.minus({ seconds: 30 }),
@@ -153,5 +155,22 @@ test.group('ADMS device resolver', () => {
     assert.deepEqual(claims, [ROW.serial])
     assert.equal(incidents[0]?.kind, 'ip_anomaly')
     assert.equal(incidents[0]?.context?.previousIp, '10.0.0.1')
+  })
+
+  test('primer contacto con perfil recien creado no genera anomalia ni explota', async ({
+    assert,
+  }) => {
+    const { service, incidents, touches } = makeDeps(ROW, false, true)
+    const result = await service.resolve({
+      serial: ROW.serial,
+      ip: '192.168.1.5',
+      now: NOW,
+      hints: null,
+    })
+    assert.equal(result.kind, 'ok')
+    if (result.kind !== 'ok') return
+    await service.touch(result.device)
+    assert.deepEqual(touches, ['192.168.1.5'])
+    assert.lengthOf(incidents, 0)
   })
 })

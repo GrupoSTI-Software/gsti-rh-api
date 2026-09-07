@@ -174,12 +174,16 @@ export default class AdmsDeviceResolverService {
     )
 
     const profile = await this.profiles.ensure(device.accessPointId, device.businessUnitId)
-    const previousIp = profile.accessPointProfileLastIpSeen
-    const previousAt = profile.accessPointProfileLastIpSeenAt
+    /**
+     * Un perfil recien creado por `ensure` trae estas columnas como `undefined`
+     * (Lucid no rellena nullables no asignadas tras `save`): se normalizan a null.
+     */
+    const previousIp = profile.accessPointProfileLastIpSeen ?? null
+    const previousAt = profile.accessPointProfileLastIpSeenAt ?? null
     const withinWindow =
       previousAt !== null &&
       device.receivedAt.diff(previousAt, 'seconds').seconds <= ADMS_IP_ANOMALY_WINDOW_SECONDS
-    if (previousIp && previousIp !== device.ip && withinWindow) {
+    if (previousIp !== null && previousIp !== device.ip && withinWindow) {
       await this.incidents.record(
         {
           kind: ADMS_INCIDENT_KIND.IP_ANOMALY,
