@@ -42,11 +42,11 @@ test.group('0053_regulatory_coverage_module_seeder — alta del módulo', () => 
     assert.exists(systemModule, 'debe existir el módulo regulatory-coverage')
     assert.equal(systemModule!.systemModuleName, 'Cobertura regulatoria')
     assert.equal(systemModule!.systemModulePath, '/regulatory-coverage')
-    const plataformaGroup = await SystemModuleGroup.findBy('system_module_group_key', 'plataforma')
+    const empresaGroup = await SystemModuleGroup.findBy('system_module_group_key', 'empresa')
     assert.equal(
       systemModule!.systemModuleGroupId,
-      plataformaGroup?.systemModuleGroupId,
-      'el módulo debe apuntar al grupo "plataforma" del catálogo'
+      empresaGroup?.systemModuleGroupId,
+      'el módulo debe apuntar al grupo "empresa" del catálogo'
     )
     assert.equal(
       systemModule!.systemModuleActive,

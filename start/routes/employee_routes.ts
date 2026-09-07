@@ -31,6 +31,10 @@ router
       .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBirthday))
     router.get('/get-anniversary', '#controllers/employee_controller.getAnniversary')
       .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getAnniversary))
+    router.get('/get-birthday-excel', '#controllers/employee_controller.getBirthdayExcel')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBirthdayExcel))
+    router.get('/get-anniversary-excel', '#controllers/employee_controller.getAnniversaryExcel')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getAnniversaryExcel))
     router
       .get('/get-vacations', '#controllers/employee_controller.getVacations')
       .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.getVacations))
