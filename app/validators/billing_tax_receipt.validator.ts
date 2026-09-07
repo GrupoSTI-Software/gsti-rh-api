@@ -2,6 +2,7 @@ import vine from '@vinejs/vine'
 import type { FieldContext } from '@vinejs/vine/types'
 import { DateTime } from 'luxon'
 import {
+  BILLING_TAX_RECEIPT_FILE_TYPES,
   BILLING_TAX_RECEIPT_STAMPED_AT_CLOCK_SKEW_MINUTES,
   BILLING_TAX_RECEIPT_UUID_LENGTH,
   BILLING_TAX_RECEIPT_UUID_PATTERN,
@@ -46,5 +47,16 @@ export const storeTaxReceiptValidator = vine.compile(
     series: vine.string().trim().maxLength(25).optional().nullable(),
     folio: vine.string().trim().maxLength(40).optional().nullable(),
     stampedAt: vine.string().trim().use(stampedAtNotFutureRule()),
+  })
+)
+
+/**
+ * Params de descarga. `fileType` es enum cerrado: un string libre concatenado
+ * a una Key sería path traversal, no un descuido de tipado.
+ */
+export const downloadTaxReceiptFileValidator = vine.compile(
+  vine.object({
+    taxReceiptId: vine.number().positive().withoutDecimals(),
+    fileType: vine.enum(BILLING_TAX_RECEIPT_FILE_TYPES),
   })
 )

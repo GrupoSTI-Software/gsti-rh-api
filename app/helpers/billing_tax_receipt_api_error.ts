@@ -1,7 +1,9 @@
+import { FILE_INTAKE_ERROR_CODES } from '#constants/file_intake_error_codes'
 import {
   BILLING_TAX_RECEIPT_ERROR_CODES,
   BILLING_TAX_RECEIPT_ERRORS,
 } from '#constants/billing_tax_receipt_error_codes'
+import { FileIntakeError } from '#exceptions/file_intake_error'
 import {
   BillingTaxReceiptServiceError,
   type BillingTaxReceiptErrorData,
@@ -52,6 +54,20 @@ export function resolveBillingTaxReceiptApiError(
       detail: first?.message ?? definition.detail,
       key: definition.key,
       code: BILLING_TAX_RECEIPT_ERROR_CODES.VAL_INPUT,
+      status: definition.status,
+    }
+  }
+
+  if (error instanceof FileIntakeError) {
+    const definition =
+      error.errorCode === FILE_INTAKE_ERROR_CODES.FILE_TOO_LARGE
+        ? BILLING_TAX_RECEIPT_ERRORS.FILE_TOO_LARGE
+        : BILLING_TAX_RECEIPT_ERRORS.FILE_TYPE_NOT_ALLOWED
+    return {
+      title: definition.title,
+      detail: error.detail,
+      key: definition.key,
+      code: definition.code,
       status: definition.status,
     }
   }

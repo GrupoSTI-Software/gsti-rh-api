@@ -53,7 +53,17 @@ export function rejectClientFileName(
     return 'extension-not-allowed'
   }
 
-  if (extensions.some((extension) => BLOCKED_EXTENSION_SET.has(extension))) {
+  // Una extensión de la blocklist sigue bloqueada salvo que el perfil la
+  // declare de forma explícita. Es lo que permite abrir 'xml' SOLO para el
+  // acuse del CFDI sin sacarlo de la blocklist global, que es lo que lo
+  // mantiene cerrado en quejas, expediente, REPSE, importaciones y branding.
+  // Hoy ningún perfil declara ninguna extensión bloqueada, así que el
+  // comportamiento de los ocho perfiles vivos no cambia.
+  const isBlocked = (extension: string): boolean =>
+    BLOCKED_EXTENSION_SET.has(extension) &&
+    !profile.allowedClientExtensions.includes(extension)
+
+  if (extensions.some(isBlocked)) {
     return 'extension-blocked'
   }
 

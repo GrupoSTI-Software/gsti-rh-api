@@ -1,6 +1,6 @@
 /**
- * Valores de dominio del comprobante fiscal de membresía (USRH1788288461952).
- * La rebanada 3 ampliará este archivo con topes y perfil de archivos.
+ * Valores de dominio del comprobante fiscal de membresía.
+ * USRH1788288461952 creó el archivo; USRH1788288461975 añade topes y perfil.
  */
 export const BILLING_TAX_RECEIPT_STATUSES = ['issued', 'cancelled', 'substituted'] as const
 
@@ -22,3 +22,28 @@ export const BILLING_TAX_RECEIPT_UUID_UNIQUE = 'billing_tax_receipts_uuid_unique
 
 /** UNIQUE de un comprobante vivo por pago (columna generada `is_live`). */
 export const BILLING_TAX_RECEIPT_PAYMENT_LIVE_UNIQUE = 'billing_tax_receipts_payment_live_unique'
+
+/** Perfil de intake del acuse. Único que acepta XML, y solo por perfil. */
+export const BILLING_TAX_RECEIPT_INTAKE_PROFILE = 'tax-receipt-document' as const
+
+/** Carpeta lógica bajo la que `uploadPrivateBuffer` antepone `{AWS_ROOT_PATH}files/`. */
+export const BILLING_TAX_RECEIPT_S3_FOLDER = 'billing/tax-receipts'
+
+/** Tope propio del XML, comprobado antes del intake. El perfil topa a 5 MB (PDF). */
+export const BILLING_TAX_RECEIPT_XML_MAX_BYTES = 1024 * 1024
+
+/**
+ * El XML se sube opaco para forzar descarga y no ejecución inline en el
+ * origen del bucket. El MIME real va a `billing_tax_receipt_xml_mime`.
+ */
+export const BILLING_TAX_RECEIPT_XML_UPLOAD_CONTENT_TYPE = 'application/octet-stream'
+
+export const BILLING_TAX_RECEIPT_FILE_TYPES = ['xml', 'pdf'] as const
+
+export type BillingTaxReceiptFileType = (typeof BILLING_TAX_RECEIPT_FILE_TYPES)[number]
+
+/**
+ * Caducidad del enlace firmado. Explícita siempre: el default de
+ * `getDownloadLink` es 24 h. Estos archivos llevan el RFC del receptor.
+ */
+export const BILLING_TAX_RECEIPT_SIGNED_URL_EXPIRES_SECONDS = 5 * 60

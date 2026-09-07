@@ -20,6 +20,16 @@ export const BILLING_TAX_RECEIPT_ERROR_CODES = {
   LIVE_RECEIPT_EXISTS: 'PLT.TAX.LIVE_RECEIPT_EXISTS',
   /** Folio fiscal ya ocupado, incluso por un comprobante cancelado */
   UUID_ALREADY_REGISTERED: 'PLT.TAX.UUID_ALREADY_REGISTERED',
+  /** Contenido o extensión que no corresponden al acuse */
+  FILE_TYPE_NOT_ALLOWED: 'PLT.TAX.FILE_TYPE_NOT_ALLOWED',
+  /** XML o PDF por encima de su tope */
+  FILE_TOO_LARGE: 'PLT.TAX.FILE_TOO_LARGE',
+  /** `uploadPrivateBuffer` devolvió null — S3 caído al subir */
+  FILE_UPLOAD_FAILED: 'PLT.TAX.FILE_UPLOAD_FAILED',
+  /** `:taxReceiptId` inexistente o sin pago encadenado */
+  TAX_RECEIPT_NOT_FOUND: 'PLT.TAX.TAX_RECEIPT_NOT_FOUND',
+  /** Path nulo u objeto ausente en el bucket */
+  FILE_NOT_AVAILABLE: 'PLT.TAX.FILE_NOT_AVAILABLE',
   /** Error no tipado del módulo */
   SYS_UNHANDLED: 'PLT.TAX.SYS_UNHANDLED',
 } as const
@@ -87,6 +97,41 @@ export const BILLING_TAX_RECEIPT_ERRORS = {
     detail: 'Ese folio fiscal ya está registrado en la plataforma.',
     code: BILLING_TAX_RECEIPT_ERROR_CODES.UUID_ALREADY_REGISTERED,
     status: 409,
+  },
+  FILE_TYPE_NOT_ALLOWED: {
+    key: 'archivo-no-permitido',
+    title: 'Archivo no permitido',
+    detail: 'El archivo no es del tipo declarado.',
+    code: BILLING_TAX_RECEIPT_ERROR_CODES.FILE_TYPE_NOT_ALLOWED,
+    status: 422,
+  },
+  FILE_TOO_LARGE: {
+    key: 'archivo-demasiado-grande',
+    title: 'Archivo demasiado grande',
+    detail: 'El archivo supera el tamaño máximo permitido.',
+    code: BILLING_TAX_RECEIPT_ERROR_CODES.FILE_TOO_LARGE,
+    status: 422,
+  },
+  FILE_UPLOAD_FAILED: {
+    key: 'no-fue-posible-guardar-el-archivo',
+    title: 'No fue posible guardar el archivo',
+    detail: 'No fue posible guardar el archivo del comprobante fiscal.',
+    code: BILLING_TAX_RECEIPT_ERROR_CODES.FILE_UPLOAD_FAILED,
+    status: 500,
+  },
+  TAX_RECEIPT_NOT_FOUND: {
+    key: 'comprobante-no-encontrado',
+    title: 'Comprobante no encontrado',
+    detail: 'No se encontró el comprobante fiscal indicado.',
+    code: BILLING_TAX_RECEIPT_ERROR_CODES.TAX_RECEIPT_NOT_FOUND,
+    status: 404,
+  },
+  FILE_NOT_AVAILABLE: {
+    key: 'archivo-no-disponible',
+    title: 'Archivo no disponible',
+    detail: 'El archivo solicitado no está disponible.',
+    code: BILLING_TAX_RECEIPT_ERROR_CODES.FILE_NOT_AVAILABLE,
+    status: 404,
   },
   SYS_UNHANDLED: {
     key: 'error-sistema',

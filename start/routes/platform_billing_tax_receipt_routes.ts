@@ -12,6 +12,8 @@ import { middleware } from '#start/kernel'
  *        → registrar el CFDI contra el pago (multipart/form-data)
  *   GET  /api/platform/billing/payments/:paymentId/tax-receipt
  *        → comprobante vivo, o `data: null` si está pendiente de facturar
+ *   GET  /api/platform/billing/tax-receipts/:taxReceiptId/files/:fileType/download
+ *        → enlace firmado de 300 s (`fileType` ∈ xml | pdf)
  */
 const taxReceiptWriteRateLimit = limiter.define('tax-receipt-write', (ctx) => {
   const userId = ctx.auth.user?.userId ?? 'anon'
@@ -24,6 +26,10 @@ router
       .post('/payments/:paymentId/tax-receipt', '#controllers/billing_tax_receipt_controller.store')
       .use(taxReceiptWriteRateLimit)
     router.get('/payments/:paymentId/tax-receipt', '#controllers/billing_tax_receipt_controller.show')
+    router.get(
+      '/tax-receipts/:taxReceiptId/files/:fileType/download',
+      '#controllers/billing_tax_receipt_controller.download'
+    )
   })
   .prefix('/api/platform/billing')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])
