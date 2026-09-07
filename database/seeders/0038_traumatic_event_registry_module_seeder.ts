@@ -52,7 +52,7 @@ export default class extends BaseSeeder {
         systemModules: '1',
         systemModulePath: '/traumatic-event-reports-registry',
         systemModuleActive: 1,
-        systemModuleOrder: this.moduleId * 10,
+        systemModuleOrder: 40,
         systemModuleGroupId: groupIdByKey.get('nom-035'),
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
