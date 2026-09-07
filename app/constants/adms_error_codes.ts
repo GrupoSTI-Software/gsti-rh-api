@@ -46,6 +46,9 @@ export const ADMS_ERROR_CODES = {
   PIN_PENDING_NOT_FOUND: 'ADMS.PIN.004',
   /** Recurso fuera del alcance de la empresa (responde 404). */
   AUTHZ_OUT_OF_SCOPE: 'ADMS.AUTHZ.001',
+  AUTHZ_FORBIDDEN: 'ADMS.AUTHZ.002',
+  VAL_INPUT: 'ADMS.VAL.004',
+  SYS_INTERNAL: 'ADMS.SYS.002',
 } as const
 
 export type AdmsErrorCode = (typeof ADMS_ERROR_CODES)[keyof typeof ADMS_ERROR_CODES]

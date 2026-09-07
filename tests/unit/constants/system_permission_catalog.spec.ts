@@ -50,7 +50,12 @@ test.group('Índice maestro — catálogo real', () => {
   test('el resto de los módulos queda reconocido, sin acciones enumeradas (deuda conocida)', ({
     assert,
   }) => {
-    const enumeratedModuleSlugs = ['employees', 'positions', 'employees-attendance-monitor']
+    const enumeratedModuleSlugs = [
+      'employees',
+      'positions',
+      'employees-attendance-monitor',
+      'puntos-de-acceso',
+    ]
     const otherModules = SYSTEM_PERMISSION_CATALOG.modules.filter(
       (moduleEntry) => !enumeratedModuleSlugs.includes(moduleEntry.slug)
     )
