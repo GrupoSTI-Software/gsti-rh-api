@@ -166,6 +166,8 @@ export const ADMS_INCIDENT_KIND = {
   UNKNOWN_TABLE: 'unknown_table',
   UNKNOWN_LAYOUT: 'unknown_layout',
   UNKNOWN_PLATFORM: 'unknown_platform',
+  VERSION_CHANGED: 'version_changed',
+  VERSION_SOURCE_MISMATCH: 'version_source_mismatch',
   PARSE_ERROR: 'parse_error',
   PERSIST_ERROR: 'persist_error',
   OVERSIZE_BODY: 'oversize_body',

@@ -21,6 +21,7 @@ import IncidentService from '#modules/adms/raw/incident.service'
 import UploadProgressRepositoryMysql from '#modules/access-point/upload-progress/upload_progress.repository.mysql'
 import type { UploadProgressRepository } from '#modules/access-point/upload-progress/upload_progress.repository'
 import DeviceProfileRepositoryMysql from '#modules/access-point/device-profile/device_profile.repository.mysql'
+import DeviceProfileService from '#modules/access-point/device-profile/device_profile.service'
 import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
 import type { ResolvedAdmsDevice } from './adms_device_resolver.service.js'
 
@@ -64,7 +65,8 @@ export default class AdmsChannelService {
     private readonly rawMessages: RawMessageRepository = new RawMessageRepositoryMysql(),
     private readonly incidents: IncidentService = new IncidentService(),
     private readonly progress: UploadProgressRepository = new UploadProgressRepositoryMysql(),
-    private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql()
+    private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
+    private readonly deviceProfiles: DeviceProfileService = new DeviceProfileService()
   ) {}
 
   async receiveUpload(input: UploadInput): Promise<ChannelReply> {
@@ -241,6 +243,10 @@ export default class AdmsChannelService {
       ADMS_UPLOAD_TABLE.RTSTATE,
       ADMS_UPLOAD_TABLE.TABLEDATA,
     ]
+    if (input.table === ADMS_UPLOAD_TABLE.OPTIONS) {
+      await this.deviceProfiles.upsertFromOptions(input.device, input.body, rawMessageId)
+      return { status: ADMS_RAW_STATUS.PROCESSED, error: null }
+    }
     if (input.table && known.includes(input.table)) {
       return { status: ADMS_RAW_STATUS.RECEIVED, error: null }
     }

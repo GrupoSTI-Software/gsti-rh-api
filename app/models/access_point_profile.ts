@@ -104,6 +104,15 @@ export default class AccessPointProfile extends compose(BaseModel, withBusinessU
   declare accessPointProfileMaxUserPhotoCount: number | null
 
   @column()
+  declare accessPointProfileMaxUserCount: number | null
+
+  @column()
+  declare accessPointProfileMaxFingerCount: number | null
+
+  @column()
+  declare accessPointProfileMaxAttLogCount: number | null
+
+  @column()
   declare accessPointProfileUserCount: number | null
 
   @column()

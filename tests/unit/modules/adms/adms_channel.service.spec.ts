@@ -16,6 +16,7 @@ import type { DeviceProfileRepository } from '#modules/access-point/device-profi
 import type IncidentService from '#modules/adms/raw/incident.service'
 import type { IncidentInput, IncidentOutcome } from '#modules/adms/raw/incident.service'
 import type { ResolvedAdmsDevice } from '#modules/adms/channel/adms_device_resolver.service'
+import type DeviceProfileService from '#modules/access-point/device-profile/device_profile.service'
 import type AccessPointProfile from '#models/access_point_profile'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
@@ -49,10 +50,17 @@ interface Recorded {
   finishes: Array<{ id: number; patch: RawMessageFinish }>
   advances: StampAdvance[]
   incidents: IncidentInput[]
+  optionsUpserts: number
 }
 
 function makeService(options: { insertThrows?: boolean } = {}) {
-  const recorded: Recorded = { inserts: [], finishes: [], advances: [], incidents: [] }
+  const recorded: Recorded = {
+    inserts: [],
+    finishes: [],
+    advances: [],
+    incidents: [],
+    optionsUpserts: 0,
+  }
   const rawMessages: RawMessageRepository = {
     async insertReceived(input) {
       if (options.insertThrows) throw new Error('ER_LOCK_WAIT_TIMEOUT: la base no respondio')
@@ -80,6 +88,13 @@ function makeService(options: { insertThrows?: boolean } = {}) {
     },
     async setRegistryCode() {},
     async recordIpSeen() {},
+    async findByAccessPoint() {
+      return null
+    },
+    async applyOptions() {
+      return {} as unknown as AccessPointProfile
+    },
+    async copyDescriptor() {},
   }
   const incidents = {
     async record(input: IncidentInput): Promise<IncidentOutcome> {
@@ -87,7 +102,19 @@ function makeService(options: { insertThrows?: boolean } = {}) {
       return 'created'
     },
   } as unknown as IncidentService
-  const service = new AdmsChannelService(rawMessages, incidents, progress, profiles)
+  const deviceProfiles = {
+    async upsertFromOptions() {
+      recorded.optionsUpserts += 1
+      return { platform: 'ZAM180_TFT', layoutKnown: true, changedFields: [], mismatches: 0 }
+    },
+  } as unknown as DeviceProfileService
+  const service = new AdmsChannelService(
+    rawMessages,
+    incidents,
+    progress,
+    profiles,
+    deviceProfiles
+  )
   return { service, recorded }
 }
 
@@ -159,6 +186,17 @@ test.group('ADMS channel service: acuse tras persistir', () => {
     assert.equal(recorded.finishes[0].patch.ack, 'OK: 2001')
     assert.equal(recorded.incidents[0]?.kind, 'oversize_upload')
     assert.lengthOf(recorded.advances, 0)
+  })
+
+  test('la tabla options se interpreta y el crudo queda procesado', async ({ assert }) => {
+    const { service, recorded } = makeService()
+    const reply = await service.receiveUpload(
+      uploadOf({ table: 'options', stamp: null, body: '~Platform=ZAM180_TFT' })
+    )
+    assert.deepEqual(reply, { status: 200, body: 'OK: 1' })
+    assert.equal(recorded.optionsUpserts, 1)
+    assert.equal(recorded.finishes[0].patch.status, 'processed')
+    assert.lengthOf(recorded.incidents, 0)
   })
 
   test('un stamp fuera del patron ya llega en null y no avanza nada', async ({ assert }) => {

@@ -21,6 +21,10 @@ export interface AdmsIncidentContext {
   platform?: string
   previousIp?: string
   at?: string
+  field?: string
+  previous?: string
+  current?: string
+  modality?: string
 }
 
 /** Claves permitidas, derivadas del tipo: agregar una obliga a tocar la interfaz. */

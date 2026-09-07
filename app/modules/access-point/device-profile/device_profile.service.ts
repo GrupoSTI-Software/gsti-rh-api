@@ -1,0 +1,204 @@
+import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
+import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
+import type { ResolvedAdmsDevice } from '#modules/adms/channel/adms_device_resolver.service'
+import { parseOptionsBody, resolveVersions } from '#modules/adms/parsers/options.parser'
+import { attlogLayoutFor } from '#modules/adms/parsers/parser.types'
+import IncidentService from '#modules/adms/raw/incident.service'
+import DeviceProfileRepositoryMysql from './device_profile.repository.mysql.js'
+import type {
+  AccessPointDescriptor,
+  DeviceProfilePatch,
+  DeviceProfileRepository,
+} from './device_profile.repository.js'
+
+export interface OptionsUpsertResult {
+  platform: string | null
+  layoutKnown: boolean
+  changedFields: string[]
+  mismatches: number
+}
+
+interface VersionChange {
+  field: string
+  previous: string
+  current: string
+}
+
+const VERSION_CHANGED_DEDUPE_MINUTES = 60
+const PLATFORM_DEDUPE_MINUTES = 24 * 60
+
+/**
+ * Perfil del equipo a partir de `options` (spec 9.1). Nunca bloquea la
+ * subida: una plataforma desconocida o un cambio de version quedan como
+ * incidentes y el perfil se escribe igual. Ausencia de dato es null.
+ */
+export default class DeviceProfileService {
+  constructor(
+    private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
+    private readonly incidents: IncidentService = new IncidentService()
+  ) {}
+
+  async upsertFromOptions(
+    device: ResolvedAdmsDevice,
+    body: string,
+    rawMessageId: number
+  ): Promise<OptionsUpsertResult> {
+    const parsed = parseOptionsBody(body)
+    const versions = resolveVersions(parsed)
+    const previous = await this.profiles.ensure(device.accessPointId, device.businessUnitId)
+
+    const changes = this.detectVersionChanges(previous, {
+      fwVersion: parsed.fwVersion,
+      fpVersion: versions.fpVersion,
+      faceVersion: versions.faceVersion,
+    })
+    for (const change of changes) {
+      await this.incidents.record(
+        {
+          kind: ADMS_INCIDENT_KIND.VERSION_CHANGED,
+          severity: 'warning',
+          code: ADMS_ERROR_CODES.DEV_SERIAL_UNKNOWN,
+          title: 'El checador cambio de version',
+          detail:
+            'El equipo declara un firmware o algoritmo distinto al que tenia registrado. Revisar compatibilidad de templates antes de replicar.',
+          key: 'version-cambiada',
+          serial: device.serial,
+          accessPointId: device.accessPointId,
+          businessUnitId: device.businessUnitId,
+          rawMessageId,
+          context: { field: change.field, previous: change.previous, current: change.current },
+          now: device.receivedAt,
+        },
+        { dedupeMinutes: VERSION_CHANGED_DEDUPE_MINUTES }
+      )
+    }
+
+    for (const mismatch of versions.mismatches) {
+      await this.incidents.record(
+        {
+          kind: ADMS_INCIDENT_KIND.VERSION_SOURCE_MISMATCH,
+          severity: 'info',
+          code: ADMS_ERROR_CODES.DEV_SERIAL_UNKNOWN,
+          title: 'Versiones de algoritmo discrepantes',
+          detail:
+            'MultiBioVersion y el campo suelto no coinciden; prevalece MultiBioVersion (spec 9.1).',
+          key: 'version-discrepante',
+          serial: device.serial,
+          accessPointId: device.accessPointId,
+          businessUnitId: device.businessUnitId,
+          rawMessageId,
+          context: {
+            modality: mismatch.modality,
+            previous: mismatch.flat,
+            current: mismatch.multi,
+          },
+          now: device.receivedAt,
+        },
+        { dedupeMinutes: PLATFORM_DEDUPE_MINUTES }
+      )
+    }
+
+    const layout = attlogLayoutFor(parsed.platform)
+    const layoutKnown = layout !== null
+    if (parsed.platform !== null && !layoutKnown) {
+      await this.incidents.record(
+        {
+          kind: ADMS_INCIDENT_KIND.UNKNOWN_PLATFORM,
+          severity: 'warning',
+          code: ADMS_ERROR_CODES.VAL_LAYOUT_UNKNOWN,
+          title: 'Plataforma no validada',
+          detail:
+            'El equipo declara una plataforma fuera del mapa validado en hardware; las checadas se guardaran crudas hasta que se agregue su disposicion.',
+          key: 'plataforma-desconocida',
+          serial: device.serial,
+          accessPointId: device.accessPointId,
+          businessUnitId: device.businessUnitId,
+          rawMessageId,
+          context: { platform: parsed.platform },
+          now: device.receivedAt,
+        },
+        { dedupeMinutes: PLATFORM_DEDUPE_MINUTES }
+      )
+    }
+
+    const patch: DeviceProfilePatch = {
+      accessPointProfilePlatform: parsed.platform,
+      accessPointProfileFwVersion: parsed.fwVersion,
+      accessPointProfilePushVersion: parsed.pushVersion,
+      accessPointProfileOemVendor: parsed.oemVendor,
+      accessPointProfileLayoutKnown: layoutKnown ? 1 : 0,
+      accessPointProfileFpVersion: versions.fpVersion,
+      accessPointProfileFaceVersion: versions.faceVersion,
+      accessPointProfileFvVersion: versions.fvVersion,
+      accessPointProfilePvVersion: versions.pvVersion,
+      accessPointProfileVersionsSource:
+        Object.keys(versions.source).length > 0 ? versions.source : null,
+      accessPointProfileMultiBioDataSupport: parsed.multiBioDataSupport,
+      accessPointProfileMultiBioPhotoSupport: parsed.multiBioPhotoSupport,
+      accessPointProfileMultiBioVersion: parsed.multiBioVersion,
+      accessPointProfileMaxMultiBioDataCount: parsed.maxMultiBioDataCount,
+      accessPointProfileMaxMultiBioPhotoCount: parsed.maxMultiBioPhotoCount,
+      accessPointProfileMaxFaceCount: parsed.maxFaceCount,
+      accessPointProfileMaxUserPhotoCount: parsed.maxUserPhotoCount,
+      accessPointProfileMaxUserCount: parsed.maxUserCount,
+      accessPointProfileMaxFingerCount: parsed.maxFingerCount,
+      accessPointProfileMaxAttLogCount: parsed.maxAttLogCount,
+      accessPointProfileUserCount: parsed.userCount,
+      accessPointProfileFpCount: parsed.fpCount,
+      accessPointProfileFaceCount: parsed.faceCount,
+      accessPointProfileTransactionCount: parsed.transactionCount,
+      accessPointProfileFingerFunOn: parsed.fingerFunOn,
+      accessPointProfileFaceFunOn: parsed.faceFunOn,
+      accessPointProfilePhotoFunOn: parsed.photoFunOn,
+      accessPointProfileUserPicUrlFunOn: parsed.userPicUrlFunOn,
+      accessPointProfileSipEnableUnit: parsed.sipEnableUnit,
+      accessPointProfileVisualIntercomFunOn: parsed.visualIntercomFunOn,
+      accessPointProfileSubcontractingUpgradeFunOn: parsed.subcontractingUpgradeFunOn,
+      accessPointProfileVideoProtocol: parsed.videoProtocol,
+      accessPointProfileOptionsRaw: body.length > 0 ? body : null,
+      accessPointProfileOptionsReadAt: device.receivedAt,
+    }
+    await this.profiles.applyOptions(device.accessPointId, device.businessUnitId, patch)
+
+    const descriptor: AccessPointDescriptor = {
+      deviceName: parsed.deviceName,
+      mac: parsed.mac,
+      ip: parsed.ipAddress,
+      firmware: parsed.fwVersion,
+      platform: parsed.platform,
+    }
+    if (Object.values(descriptor).some((value) => value !== null)) {
+      await this.profiles.copyDescriptor(device.accessPointId, descriptor)
+    }
+
+    return {
+      platform: parsed.platform,
+      layoutKnown,
+      changedFields: changes.map((change) => change.field),
+      mismatches: versions.mismatches.length,
+    }
+  }
+
+  /** Solo cuenta como cambio cuando habia valor previo y el nuevo existe y difiere. */
+  private detectVersionChanges(
+    previous: {
+      accessPointProfileFwVersion?: string | null
+      accessPointProfileFpVersion?: string | null
+      accessPointProfileFaceVersion?: string | null
+    },
+    current: { fwVersion: string | null; fpVersion: string | null; faceVersion: string | null }
+  ): VersionChange[] {
+    const pairs: Array<[string, string | null | undefined, string | null]> = [
+      ['fwVersion', previous.accessPointProfileFwVersion, current.fwVersion],
+      ['fpVersion', previous.accessPointProfileFpVersion, current.fpVersion],
+      ['faceVersion', previous.accessPointProfileFaceVersion, current.faceVersion],
+    ]
+    const changes: VersionChange[] = []
+    for (const [field, before, after] of pairs) {
+      if (before && after && before !== after) {
+        changes.push({ field, previous: before, current: after })
+      }
+    }
+    return changes
+  }
+}

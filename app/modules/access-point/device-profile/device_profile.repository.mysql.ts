@@ -1,3 +1,4 @@
+import AccessPoint from '#models/access_point'
 import AccessPointProfile from '#models/access_point_profile'
 import {
   ADMS_DIALECT,
@@ -6,7 +7,9 @@ import {
 } from '#modules/adms/adms.constants'
 import { TenantContext } from '#utils/tenant_context'
 import type {
+  AccessPointDescriptor,
   DeviceProfileIpSighting,
+  DeviceProfilePatch,
   DeviceProfileRepository,
 } from './device_profile.repository.js'
 
@@ -74,5 +77,33 @@ export default class DeviceProfileRepositoryMysql implements DeviceProfileReposi
     if (profile.accessPointProfileRegistryCode === code) return
     profile.accessPointProfileRegistryCode = code
     await profile.save()
+  }
+
+  /** Lectura para las rutas privadas: aqui SI aplica el corte por empresa. */
+  async findByAccessPoint(accessPointId: number): Promise<AccessPointProfile | null> {
+    return AccessPointProfile.query().where('access_point_id', accessPointId).first()
+  }
+
+  async applyOptions(
+    accessPointId: number,
+    businessUnitId: number,
+    patch: DeviceProfilePatch
+  ): Promise<AccessPointProfile> {
+    const profile = await this.ensure(accessPointId, businessUnitId)
+    profile.merge(patch)
+    await profile.save()
+    return profile
+  }
+
+  /** Solo pisa lo que el aparato declara; un null deja la columna como estaba. */
+  async copyDescriptor(accessPointId: number, descriptor: AccessPointDescriptor): Promise<void> {
+    const update: Record<string, string> = {}
+    if (descriptor.deviceName !== null) update.access_point_device_name = descriptor.deviceName
+    if (descriptor.mac !== null) update.access_point_mac = descriptor.mac
+    if (descriptor.ip !== null) update.access_point_ip = descriptor.ip
+    if (descriptor.firmware !== null) update.access_point_firmware = descriptor.firmware
+    if (descriptor.platform !== null) update.access_point_platform = descriptor.platform
+    if (Object.keys(update).length === 0) return
+    await AccessPoint.query().where('access_point_id', accessPointId).update(update)
   }
 }

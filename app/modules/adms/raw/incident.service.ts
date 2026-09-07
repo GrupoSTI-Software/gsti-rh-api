@@ -38,6 +38,10 @@ const CONTEXT_WHITELIST: ReadonlyArray<AdmsIncidentContextKey> = [
   'platform',
   'previousIp',
   'at',
+  'field',
+  'previous',
+  'current',
+  'modality',
 ]
 
 const CONTEXT_VALUE_MAX_LENGTH = 200
