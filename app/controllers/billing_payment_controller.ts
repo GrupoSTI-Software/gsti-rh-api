@@ -47,15 +47,23 @@ export default class BillingPaymentController {
    *   servidor guardó en `registerPayment`. `breakdownAvailable=false`\
    *   marca los pagos anteriores a USRH1785962095095, sin foto financiera\
    *   guardada — `breakdown` viaja en `null`, nunca en ceros como si fueran\
-   *   datos reales. El pago se busca acotado a la suscripción de la ruta:\
-   *   uno ajeno o inexistente responde el mismo `404 PLT.PAY.NOT_FOUND`.\
+   *   datos reales. Cuando el periodo se cobró con código de descuento\
+   *   (USRH1787714804403), el `breakdown` transcribe, sin recalcular, el\
+   *   trato congelado: `discountCodeText`, `discountCodeKind` y\
+   *   `codeDiscountAmountCents` viajan con la marca del código, y\
+   *   `discountCodeBenefitPeriodsUsedAfter` con los periodos de beneficio ya\
+   *   consumidos tras ese pago (USRH1787714804404) — permite ver, en el\
+   *   histórico, cuál fue el pago que agotó el beneficio y disparó la\
+   *   restauración del precio. Los cuatro viajan en `null`/`0` cuando el\
+   *   periodo no llevó código. El pago se busca acotado a la suscripción de\
+   *   la ruta: uno ajeno o inexistente responde el mismo `404 PLT.PAY.NOT_FOUND`.\
    *   Solo lectura; nunca incluye la Key ni una URL del comprobante.
    * @tag Billing · Payments
    * @operationId getBillingPaymentDetail
    * @security [{"bearerAuth": []}]
    * @paramPath subscriptionId - ID interno de la suscripción - integer
    * @paramPath paymentId - ID interno del pago - integer
-   * @responseBody 200 - {"type": "success", "data": {"billingPaymentId": 12, "amountCents": 3000000, "method": "transfer", "reference": "SPEI-0099123", "paidAt": "2026-08-05T15:04:00.000-06:00", "periodStart": "2026-08-05", "periodEnd": "2026-11-05", "receiptAvailable": true, "periodsCovered": 3, "isCustomAmount": true, "periodAmountCents": 928000, "creditAppliedCents": 2784000, "debtAppliedCents": 0, "creditBalanceAfterCents": 216000, "breakdownAvailable": true, "breakdown": {"grossCents": 1000000, "discountPercent": 20.00, "discountAmountCents": 200000, "subtotalCents": 800000, "taxRate": 0.16, "taxAmountCents": 128000, "totalCents": 928000}}}
+   * @responseBody 200 - {"type": "success", "data": {"billingPaymentId": 12, "amountCents": 3000000, "method": "transfer", "reference": "SPEI-0099123", "paidAt": "2026-08-05T15:04:00.000-06:00", "periodStart": "2026-08-05", "periodEnd": "2026-11-05", "receiptAvailable": true, "periodsCovered": 3, "isCustomAmount": true, "periodAmountCents": 928000, "creditAppliedCents": 2784000, "debtAppliedCents": 0, "creditBalanceAfterCents": 216000, "breakdownAvailable": true, "breakdown": {"grossCents": 1000000, "discountPercent": 20.00, "discountAmountCents": 200000, "subtotalCents": 800000, "taxRate": 0.16, "taxAmountCents": 128000, "totalCents": 928000, "discountCodeText": "BIENVENIDA15", "discountCodeKind": "percent", "codeDiscountAmountCents": 120000, "discountCodeBenefitPeriodsUsedAfter": 0}}}
    * @responseBody 404 - {"title": "string", "detail": "string", "key": "pago-no-encontrado", "code": "PLT.PAY.NOT_FOUND"}
    */
   async show({ params, response }: HttpContext) {
@@ -289,6 +297,7 @@ export default class BillingPaymentController {
    *                     - PLT.PAY.PERIOD_AMOUNT_UNAVAILABLE
    *                     - PLT.PAY.PERIODS_OUT_OF_RANGE
    *                     - PLT.PAY.PENDING_INCREASE_STALE
+   *                     - PLT.PAY.DISCOUNT_PERIODS_EXCEEDED
    *                     - PLT.PAY.RECEIPT_INVALID
    *                     - PLT.PAY.VAL_INPUT
    *       '500':
@@ -309,6 +318,7 @@ export default class BillingPaymentController {
    *                   enum:
    *                     - PLT.PAY.CHANGE_APPLY_FAILED
    *                     - PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT
+   *                     - PLT.PAY.DISCOUNT_SNAPSHOT_INCONSISTENT
    *                     - PLT.PAY.RECEIPT_UPLOAD_FAILED
    *                     - PLT.PAY.SYS_UNHANDLED
    */
@@ -336,7 +346,24 @@ export default class BillingPaymentController {
    *   libera el cupo de inmediato pero no pone la suscripción en `active`.\
    *   `appliedChange` es null si no había cambio vivo; trae el registro cuando\
    *   quedó `applied` o `not_applicable`.\
-   *   La descarga del comprobante es del endpoint de histórico (04-05).
+   *   La descarga del comprobante es del endpoint de histórico (04-05).\
+   *   Cuando la suscripción tiene un código de descuento congelado vigente\
+   *   (USRH1787714804403), la foto financiera del periodo se transcribe del\
+   *   trato ya congelado por la contratación — nunca se recalcula ni se\
+   *   consulta el catálogo de precios. Si ese acuerdo congelado está\
+   *   incompleto, su tipo no es válido, o el desglose no cuadra con el\
+   *   importe cobrado, el pago se rechaza entero con\
+   *   `500 PLT.PAY.DISCOUNT_SNAPSHOT_INCONSISTENT` (fail-closed: nunca se\
+   *   asienta una foto financiera falsa en el histórico inmutable de pagos).\
+   *   Cada periodo que el pago hace avanzar consume un periodo del beneficio\
+   *   del código (USRH1787714804404); si el pago cubriría más periodos que\
+   *   los que le restan al beneficio, se rechaza con\
+   *   `422 PLT.PAY.DISCOUNT_PERIODS_EXCEEDED` en vez de cobrar esos periodos\
+   *   a dos precios distintos en un solo desglose inmutable. El pago que\
+   *   agota el beneficio se cobra con descuento y, en la misma operación,\
+   *   restaura el trato de la suscripción a las cifras sin código congeladas\
+   *   al canjear (con el descuento por volumen intacto); el cobro siguiente\
+   *   ya sale por esa cifra, sin que nadie tenga que acordarse.
    * @tag Billing · Payments
    * @operationId registerBillingPayment
    * @security [{"bearerAuth": []}]
@@ -344,8 +371,8 @@ export default class BillingPaymentController {
    * @requestBody {"required": true, "content": {"multipart/form-data": {"schema": {"type": "object", "required": ["method", "paidAt", "receipt"], "properties": {"amountCents": {"type": "integer", "minimum": 100, "description": "Obligatorio solo con allowCustomAmount=true. En flujo normal, si se envía, debe coincidir con el monto gobernado del periodo."}, "allowCustomAmount": {"type": "boolean", "default": false, "description": "Declara de forma explícita el registro por importe distinto."}, "method": {"type": "string", "enum": ["transfer", "cash", "other"]}, "reference": {"type": "string", "maxLength": 191}, "paidAt": {"type": "string", "format": "date-time"}, "receipt": {"type": "string", "format": "binary"}}}}}}
    * @responseBody 201 - {"type": "success", "data": {"billingPaymentId": 12, "billingSubscriptionId": 7, "amountCents": 3000000, "method": "transfer", "reference": "SPEI-0099123", "paidAt": "2026-08-05T15:04:00.000-06:00", "periodStart": "2026-08-05", "periodEnd": "2026-11-05", "hasReceipt": true, "isCustomAmount": true, "periodAmountCents": 927800, "periodsCovered": 3, "creditAppliedCents": 2783400, "debtAppliedCents": 0, "creditBalanceAfterCents": 216600, "subscription": {"billingSubscriptionId": 7, "status": "active", "currentPeriodStart": "2026-08-05", "currentPeriodEnd": "2026-11-05", "creditBalanceCents": 216600}, "appliedChange": null}}
    * @responseBody 404 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.SUBSCRIPTION_NOT_FOUND"}
-   * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.SUBSCRIPTION_CANCELED|PLT.PAY.AMOUNT_NOT_ALLOWED|PLT.PAY.AMOUNT_REQUIRED|PLT.PAY.AMOUNT_INVALID|PLT.PAY.PERIOD_AMOUNT_UNAVAILABLE|PLT.PAY.PERIODS_OUT_OF_RANGE|PLT.PAY.PENDING_INCREASE_STALE|PLT.PAY.RECEIPT_INVALID|PLT.PAY.VAL_INPUT"}
-   * @responseBody 500 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.CHANGE_APPLY_FAILED|PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT|PLT.PAY.RECEIPT_UPLOAD_FAILED|PLT.PAY.SYS_UNHANDLED"}
+   * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.SUBSCRIPTION_CANCELED|PLT.PAY.AMOUNT_NOT_ALLOWED|PLT.PAY.AMOUNT_REQUIRED|PLT.PAY.AMOUNT_INVALID|PLT.PAY.PERIOD_AMOUNT_UNAVAILABLE|PLT.PAY.PERIODS_OUT_OF_RANGE|PLT.PAY.PENDING_INCREASE_STALE|PLT.PAY.DISCOUNT_PERIODS_EXCEEDED|PLT.PAY.RECEIPT_INVALID|PLT.PAY.VAL_INPUT"}
+   * @responseBody 500 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.CHANGE_APPLY_FAILED|PLT.PAY.CHANGE_INCONSISTENT_SNAPSHOT|PLT.PAY.DISCOUNT_SNAPSHOT_INCONSISTENT|PLT.PAY.RECEIPT_UPLOAD_FAILED|PLT.PAY.SYS_UNHANDLED"}
    */
   async store({ params, request, response }: HttpContext) {
     try {

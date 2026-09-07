@@ -137,6 +137,9 @@ export const EMPLOYEES_READ_PERMISSION_DECLARATIONS = {
   indexEmployeesWithoutUser: employeesStandard('read'),
   getBirthday: employeesStandard('read'),
   getAnniversary: employeesStandard('read'),
+  /** Los Excel del calendario exponen lo mismo que el listado: mismo permiso. */
+  getBirthdayExcel: employeesStandard('read'),
+  getAnniversaryExcel: employeesStandard('read'),
   getWorkSchedules: employeesStandard('read'),
   getTerminationCatalog: employeesStandard('read'),
   indexEmployeeTypes: employeesStandard('read'),

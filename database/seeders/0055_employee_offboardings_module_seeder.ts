@@ -74,7 +74,7 @@ export default class extends BaseSeeder {
         systemModules: '1',
         systemModulePath: '/employee-offboardings',
         systemModuleActive: 1,
-        systemModuleOrder: this.moduleId * 10,
+        systemModuleOrder: 110,
         systemModuleGroupId: groupIdByKey.get('empresa'),
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"

@@ -88,19 +88,19 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
   declare systemSettingTradeName: string
 
   @column()
-  declare systemSettingLogo: string
+  declare systemSettingLogo: string | null
 
   @column()
-  declare systemSettingBanner: string
+  declare systemSettingBanner: string | null
 
   @column()
   declare systemSettingSidebarColor: string
 
   @column()
-  declare systemSettingFavicon: string
+  declare systemSettingFavicon: string | null
 
   @column()
-  declare systemSettingEmployeeAplicationIcon: string
+  declare systemSettingEmployeeAplicationIcon: string | null
 
   @column()
   declare systemSettingActive: number
