@@ -141,6 +141,18 @@ test.group('ADMS device resolver', () => {
     assert.equal(incidents[0]?.kind, 'ip_denied')
   })
 
+  test('una lista de CIDR configurada pero vacia no autoriza a nadie', async ({ assert }) => {
+    const { service, incidents } = makeDeps({ ...ROW, allowedCidrs: [] })
+    const result = await service.resolve({
+      serial: ROW.serial,
+      ip: '10.0.0.1',
+      now: NOW,
+      hints: null,
+    })
+    assert.deepEqual(result, { kind: 'reject', status: 200, body: 'OK' })
+    assert.equal(incidents[0]?.kind, 'ip_denied')
+  })
+
   test('equipo activo resuelve y el toque registra latido, reclamo y anomalia de IP', async ({
     assert,
   }) => {

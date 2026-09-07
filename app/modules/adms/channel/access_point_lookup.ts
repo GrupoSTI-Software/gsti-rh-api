@@ -33,16 +33,22 @@ interface AccessPointRawRow {
   access_point_last_connection: Date | string | null
 }
 
+/**
+ * `null` significa "sin restriccion configurada"; una lista vacia significa
+ * "configurada y no autoriza a nadie". Por eso un JSON corrupto devuelve `[]`
+ * y no `null`: una restriccion ilegible no puede convertirse en barra libre
+ * (spec 13, regla 10, fail-closed).
+ */
 function parseCidrs(value: string | string[] | null): string[] | null {
   if (value === null || value === undefined) return null
-  if (Array.isArray(value)) return value
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string')
   try {
     const parsed: unknown = JSON.parse(value)
     return Array.isArray(parsed)
       ? parsed.filter((item): item is string => typeof item === 'string')
-      : null
+      : []
   } catch {
-    return null
+    return []
   }
 }
 

@@ -123,11 +123,9 @@ export default class AdmsDeviceResolverService {
       return REJECT_OK
     }
 
-    if (
-      row.allowedCidrs &&
-      row.allowedCidrs.length > 0 &&
-      !ipMatchesCidrList(input.ip, row.allowedCidrs)
-    ) {
+    // `null` es "sin restriccion"; una lista vacia (o ilegible) no autoriza a
+    // nadie. La comprobacion no mira la longitud a proposito.
+    if (row.allowedCidrs !== null && !ipMatchesCidrList(input.ip, row.allowedCidrs)) {
       await TenantContext.run([row.businessUnitId], () =>
         this.incidents.record(
           {
