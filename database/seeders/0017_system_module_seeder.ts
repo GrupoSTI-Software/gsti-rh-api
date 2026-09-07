@@ -21,7 +21,8 @@ export default class extends BaseSeeder {
         systemModuleDescription: 'employees',
         systemModules: 1,
         systemModulePath: '/employees',
-        systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleGroupKey: null,
+        systemModuleOrder: 20,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -54,6 +55,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/departments',
         systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleOrder: 20,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -85,6 +87,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/positions',
         systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleOrder: 30,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -112,6 +115,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/vacations',
         systemModuleGroupKey: 'configuraciones' as SystemModuleGroupKey,
+        systemModuleOrder: 40,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -140,7 +144,8 @@ export default class extends BaseSeeder {
         systemModuleDescription: 'users',
         systemModules: 1,
         systemModulePath: '/users',
-        systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleGroupKey: 'configuraciones' as SystemModuleGroupKey,
+        systemModuleOrder: 20,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -168,6 +173,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/departments-attendance-monitor',
         systemModuleGroupKey: 'reportes' as SystemModuleGroupKey,
+        systemModuleOrder: 20,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -194,7 +200,8 @@ export default class extends BaseSeeder {
         systemModuleDescription: 'employees attendance monitor',
         systemModules: 1,
         systemModulePath: '/employees-attendance-monitor',
-        systemModuleGroupKey: 'reportes' as SystemModuleGroupKey,
+        systemModuleGroupKey: null,
+        systemModuleOrder: 10,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -222,6 +229,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/roles-and-permissions',
         systemModuleGroupKey: 'configuraciones' as SystemModuleGroupKey,
+        systemModuleOrder: 30,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -247,7 +255,8 @@ export default class extends BaseSeeder {
         systemModuleDescription: 'shifts',
         systemModules: 1,
         systemModulePath: '/shifts',
-        systemModuleGroupKey: 'configuraciones' as SystemModuleGroupKey,
+        systemModuleGroupKey: 'zksync' as SystemModuleGroupKey,
+        systemModuleOrder: 20,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -277,7 +286,8 @@ export default class extends BaseSeeder {
         systemModuleDescription: 'holidays',
         systemModules: 1,
         systemModulePath: '/holidays',
-        systemModuleGroupKey: 'calendarios' as SystemModuleGroupKey,
+        systemModuleGroupKey: null,
+        systemModuleOrder: 30,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -305,6 +315,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/system-settings',
         systemModuleGroupKey: 'configuraciones' as SystemModuleGroupKey,
+        systemModuleOrder: 10,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -337,6 +348,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/documents-expiration-matrix',
         systemModuleGroupKey: 'reportes' as SystemModuleGroupKey,
+        systemModuleOrder: 10,
         systemModuleActive: 1,
         systemModuleIcon:
           `<svg
@@ -362,7 +374,8 @@ export default class extends BaseSeeder {
         systemModuleDescription: 'proceeding file types',
         systemModules: 1,
         systemModulePath: '/proceeding-file-types',
-        systemModuleGroupKey: 'otros' as SystemModuleGroupKey,
+        systemModuleGroupKey: 'configuraciones' as SystemModuleGroupKey,
+        systemModuleOrder: 50,
         systemModuleActive: 1,
         systemModuleIcon:
           `<svg
@@ -391,7 +404,8 @@ export default class extends BaseSeeder {
         systemModuleDescription: 'Shift exception requests',
         systemModules: 1,
         systemModulePath: '/exception-requests',
-        systemModuleGroupKey: 'otros' as SystemModuleGroupKey,
+        systemModuleGroupKey: 'zksync' as SystemModuleGroupKey,
+        systemModuleOrder: 10,
         systemModuleActive: 1,
         systemModuleIcon:
           `<svg
@@ -421,6 +435,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/organization-chart',
         systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleOrder: 10,
         systemModuleActive: 1,
         systemModuleIcon:
           `<svg
@@ -448,7 +463,8 @@ export default class extends BaseSeeder {
         systemModuleDescription: 'birthdays-calendar',
         systemModules: 1,
         systemModulePath: '/birthdays-calendar',
-        systemModuleGroupKey: 'calendarios' as SystemModuleGroupKey,
+        systemModuleGroupKey: null,
+        systemModuleOrder: 50,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -474,7 +490,8 @@ export default class extends BaseSeeder {
         systemModuleDescription: 'vacations-calendar',
         systemModules: 1,
         systemModulePath: '/vacations-calendar',
-        systemModuleGroupKey: 'calendarios' as SystemModuleGroupKey,
+        systemModuleGroupKey: null,
+        systemModuleOrder: 40,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -503,7 +520,8 @@ export default class extends BaseSeeder {
         systemModuleDescription: 'work-anniversaries-calendar',
         systemModules: 1,
         systemModulePath: '/work-anniversaries-calendar',
-        systemModuleGroupKey: 'calendarios' as SystemModuleGroupKey,
+        systemModuleGroupKey: null,
+        systemModuleOrder: 60,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -533,6 +551,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/supplies',
         systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleOrder: 60,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -560,7 +579,8 @@ export default class extends BaseSeeder {
         systemModuleDescription: 'zonas',
         systemModules: 1,
         systemModulePath: '/zones',
-        systemModuleGroupKey: 'configuraciones' as SystemModuleGroupKey,
+        systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleOrder: 50,
         systemModuleActive: 1,
         systemModuleIcon:
         `<svg
@@ -590,6 +610,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/permissions-history',
         systemModuleGroupKey: 'reportes' as SystemModuleGroupKey,
+        systemModuleOrder: 30,
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
@@ -614,6 +635,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/notices',
         systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleOrder: 70,
         systemModuleActive: 1,
         systemModuleIcon: `
         <svg
@@ -641,6 +663,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/access-points',
         systemModuleGroupKey: 'zksync' as SystemModuleGroupKey,
+        systemModuleOrder: 40,
         systemModuleActive: 1,
         systemModuleIcon: `
         <svg
@@ -669,6 +692,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/branch-offices',
         systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleOrder: 40,
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
@@ -698,6 +722,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/assessment-templates',
         systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleOrder: 80,
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
@@ -717,6 +742,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/certifications',
         systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleOrder: 90,
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
@@ -744,6 +770,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/employee-lactation-periods',
         systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleOrder: 100,
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
@@ -770,6 +797,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/repse',
         systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleOrder: 120,
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
@@ -797,6 +825,7 @@ export default class extends BaseSeeder {
         systemModules: 1,
         systemModulePath: '/questionnaire-applicability',
         systemModuleGroupKey: 'nom-035' as SystemModuleGroupKey,
+        systemModuleOrder: 10,
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
@@ -821,7 +850,8 @@ export default class extends BaseSeeder {
           'Listado derivado de la NOM-037-STPS-2023 (numeral 5.1): teletrabajadores con más del 40% de jornada remota, con puesto, modalidad, porcentaje y lugar donde laboran',
         systemModules: 1,
         systemModulePath: '/telework-workers',
-        systemModuleGroupKey: 'empresa' as SystemModuleGroupKey,
+        systemModuleGroupKey: 'nom-037' as SystemModuleGroupKey,
+        systemModuleOrder: 10,
         systemModuleActive: 1,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
@@ -854,8 +884,9 @@ export default class extends BaseSeeder {
       const values = {
         ...systemModuleData,
         systemModules: String(systemModuleData.systemModules),
-        systemModuleGroupId: groupIdByKey.get(systemModuleGroupKey) ?? null,
-        systemModuleOrder: systemModuleId * 10,
+        systemModuleGroupId: systemModuleGroupKey
+          ? (groupIdByKey.get(systemModuleGroupKey) ?? null)
+          : null,
         systemModuleUpdatedAt: DateTime.now(),
       }
 

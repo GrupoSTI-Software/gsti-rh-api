@@ -1,6 +1,7 @@
 import scheduler from 'adonisjs-scheduler/services/main'
 import { LACTATION_NOTIFY_EXPIRING_COMMAND } from '#constants/employee_lactation_notification'
 import { REPSE_NOTIFY_FOLIO_EXPIRING_COMMAND } from '#constants/repse_folio_aviso'
+import { NOTICE_SEND_SCHEDULED_COMMAND } from '#constants/notice'
 import {
   ANNIVERSARY_DAY_EMAIL_COMMAND,
   ANNIVERSARY_REMINDER_EMAIL_COMMAND,
@@ -87,3 +88,10 @@ scheduler.command('onboarding:purge-abandoned-demo').cron('0 13 * * *')
  * los jobs atorados se recuperen con latencia razonable sin sobrecargar la BD.
  */
 scheduler.command('report-jobs:cleanup').cron('0 * * * *')
+
+/**
+ * Avisos programados (Avisos y noticias v2): cada minuto envía los que ya
+ * alcanzaron su hora. `withoutOverlapping` evita que dos corridas tomen el
+ * mismo aviso si un envío masivo tarda más de un minuto.
+ */
+scheduler.command(NOTICE_SEND_SCHEDULED_COMMAND).everyMinute().withoutOverlapping()

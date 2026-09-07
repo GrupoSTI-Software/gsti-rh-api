@@ -43,6 +43,9 @@ import Employee from './employee.js'
  *           type: string
  *           nullable: true
  *           description: Error message if email failed
+ *         noticeRecipientInAudience:
+ *           type: boolean
+ *           description: Whether the recipient still matches the current audience (false keeps tracking history without receiving resends)
  *         noticeRecipientCreatedAt:
  *           type: string
  *           format: date-time
@@ -102,6 +105,14 @@ export default class NoticeRecipient extends compose(BaseModel, SoftDeletes, wit
 
   @column()
   declare noticeRecipientError: string | null
+
+  /**
+   * `true` si la fila cumple el criterio vigente del aviso. Una fila con
+   * historial (ya se le envió o ya lo abrió) que el criterio nuevo deja fuera
+   * se conserva con `false`: sigue en el seguimiento pero no recibe reenvíos.
+   */
+  @column()
+  declare noticeRecipientInAudience: boolean
 
   @column.dateTime({ autoCreate: true })
   declare noticeRecipientCreatedAt: DateTime
