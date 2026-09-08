@@ -48,7 +48,7 @@ export const SYSTEM_MODULES_CATALOG = [
   { slug: 'zonas', legacySystemModuleId: 30, actionsEnumerated: false },
   { slug: 'permissions-history', legacySystemModuleId: 31, actionsEnumerated: false },
   { slug: 'avisos-y-noticias', legacySystemModuleId: 32, actionsEnumerated: false },
-  { slug: 'puntos-de-acceso', legacySystemModuleId: 33, actionsEnumerated: true },
+  { slug: 'biometric-devices', legacySystemModuleId: 33, actionsEnumerated: true },
   { slug: 'sucursales', legacySystemModuleId: 34, actionsEnumerated: false },
   { slug: 'assessment-templates', legacySystemModuleId: 35, actionsEnumerated: false },
   { slug: 'certifications', legacySystemModuleId: 36, actionsEnumerated: false },

@@ -52,7 +52,7 @@ export const SYSTEM_PERMISSION_CATALOG: SystemPermissionCatalog = {
     employees: EMPLOYEES_PERMISSION_CATALOG,
     positions: POSITIONS_PERMISSION_CATALOG,
     'employees-attendance-monitor': ATTENDANCE_MONITOR_PERMISSION_CATALOG,
-    'puntos-de-acceso': ACCESS_POINT_PERMISSION_CATALOG,
+    'biometric-devices': ACCESS_POINT_PERMISSION_CATALOG,
   },
 }
 

@@ -1,11 +1,11 @@
 import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
 
-export const ACCESS_POINT_MODULE_SLUG = 'puntos-de-acceso'
+export const ACCESS_POINT_MODULE_SLUG = 'biometric-devices'
 
 export type AccessPointSection = 'dispositivos'
 
 /**
- * Acciones del modulo Puntos de acceso (spec ADMS 12). Las cuatro legadas ya
+ * Acciones del modulo Dispositivos biometricos (spec ADMS 12). Las cuatro legadas ya
  * estan sembradas (modulo 33) y se declaran con equivalencia exacta; las cinco
  * nuevas las crea la migracion 1788912000008 con concesion espejo (read a
  * read-health; update a reset-upload-progress, manage-commands y
@@ -17,7 +17,7 @@ export type AccessPointSection = 'dispositivos'
 export const ACCESS_POINT_PERMISSION_CATALOG = [
   {
     slug: 'read',
-    displayName: 'Ver puntos de acceso',
+    displayName: 'Ver dispositivos biométricos',
     kind: 'read',
     section: 'dispositivos',
     exceptionProfile: 'standard',
@@ -25,7 +25,7 @@ export const ACCESS_POINT_PERMISSION_CATALOG = [
   },
   {
     slug: 'create',
-    displayName: 'Registrar puntos de acceso',
+    displayName: 'Registrar dispositivos biométricos',
     kind: 'write',
     section: 'dispositivos',
     exceptionProfile: 'standard',
@@ -33,7 +33,7 @@ export const ACCESS_POINT_PERMISSION_CATALOG = [
   },
   {
     slug: 'update',
-    displayName: 'Editar puntos de acceso',
+    displayName: 'Editar dispositivos biométricos',
     kind: 'write',
     section: 'dispositivos',
     exceptionProfile: 'standard',
@@ -41,7 +41,7 @@ export const ACCESS_POINT_PERMISSION_CATALOG = [
   },
   {
     slug: 'delete',
-    displayName: 'Dar de baja puntos de acceso',
+    displayName: 'Dar de baja dispositivos biométricos',
     kind: 'delete',
     section: 'dispositivos',
     exceptionProfile: 'standard',

@@ -54,7 +54,7 @@ test.group('Índice maestro — catálogo real', () => {
       'employees',
       'positions',
       'employees-attendance-monitor',
-      'puntos-de-acceso',
+      'biometric-devices',
     ]
     const otherModules = SYSTEM_PERMISSION_CATALOG.modules.filter(
       (moduleEntry) => !enumeratedModuleSlugs.includes(moduleEntry.slug)

@@ -37,7 +37,7 @@ async function grantToRole(roleId: number, slug: string): Promise<number | null>
   const permission = await db
     .from('system_permissions as sp')
     .join('system_modules as sm', 'sm.system_module_id', 'sp.system_module_id')
-    .where('sm.system_module_slug', 'puntos-de-acceso')
+    .where('sm.system_module_slug', 'biometric-devices')
     .where('sp.system_permission_slug', slug)
     .whereNull('sp.system_permission_deleted_at')
     .select('sp.system_permission_id')
