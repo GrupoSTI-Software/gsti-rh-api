@@ -25,7 +25,7 @@ cd gsti-rh-api
 node ace db:seed --files=database/seeders/_tmp_do_not_commit_qa_seeder.ts
 ```
 
-Deja listos los dos usuarios de esta prueba y siembra cinco cobros de recorrido: uno que cubre tres meses, uno del mes en curso, uno sin periodo registrado y uno colgado de una suscripción dada de baja.
+Deja listos los dos usuarios de esta prueba y siembra cuatro cobros de recorrido: uno que cubre tres meses, uno del mes en curso, uno sin periodo registrado y uno colgado de una suscripción dada de baja.
 
 | | Correo | Contraseña | Variante |
 |---|---|---|---|
@@ -89,6 +89,8 @@ Usuario: **A**.
 
 **Endpoint:** `GET /api/platform/metrics/mrr-series?meses=12`
 
+**Response — 200:** el cuerpo varía según los cobros que ya existan en la base — se verifica contra la consulta SQL, no contra un valor fijo.
+
 Calcula el valor esperado de los tres meses del cobro sembrado:
 
 ```sql
@@ -97,21 +99,30 @@ SELECT DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 5 MONTH), '%Y-%m') AS mes_1,
        DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 3 MONTH), '%Y-%m') AS mes_3;
 ```
 
-El cobro sembrado vale 300 000 centavos y cubre tres periodos, así que aporta **100 000 centavos a cada uno** de esos tres meses. Como la base es compartida, compara contra el total real de cada mes:
+El cobro sembrado vale 300 000 centavos y cubre tres periodos, así que aporta **100 000 centavos a cada uno** de esos tres meses. Como la base es compartida, compara contra el total real de cada mes con esta consulta: por cada `mes` (mes_1, mes_2 y mes_3) `aporte_por_mes` suma la parte de **todo** cobro cuyo rango cubierto incluye ese mes — no solo los que arrancan en él — y `cobros` cuenta cuántos aportan:
 
 ```sql
-SELECT DATE_FORMAT(bp.billing_payment_period_start, '%Y-%m') AS mes_inicio,
+SELECT m.mes,
        SUM(FLOOR(bp.billing_payment_subtotal_cents / GREATEST(bp.billing_payment_periods_covered, 1))) AS aporte_por_mes,
        COUNT(*) AS cobros
-FROM billing_payments bp
+FROM (
+  SELECT DATE_SUB(CURDATE(), INTERVAL 5 MONTH) AS mes_fecha, DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 5 MONTH), '%Y-%m') AS mes
+  UNION ALL
+  SELECT DATE_SUB(CURDATE(), INTERVAL 4 MONTH), DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 4 MONTH), '%Y-%m')
+  UNION ALL
+  SELECT DATE_SUB(CURDATE(), INTERVAL 3 MONTH), DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 3 MONTH), '%Y-%m')
+) m
+JOIN billing_payments bp
+  ON bp.billing_payment_period_start IS NOT NULL
+ AND bp.billing_payment_period_end IS NOT NULL
+ AND m.mes_fecha >= bp.billing_payment_period_start
+ AND m.mes_fecha < DATE_ADD(bp.billing_payment_period_start, INTERVAL GREATEST(bp.billing_payment_periods_covered, 1) MONTH)
 JOIN billing_subscriptions bs ON bs.billing_subscription_id = bp.billing_subscription_id
 JOIN business_units bu ON bu.business_unit_id = bs.business_unit_id
 WHERE bs.billing_subscription_deleted_at IS NULL
   AND bu.business_unit_deleted_at IS NULL
-  AND bp.billing_payment_period_start IS NOT NULL
-  AND bp.billing_payment_period_end IS NOT NULL
-GROUP BY mes_inicio
-ORDER BY mes_inicio;
+GROUP BY m.mes
+ORDER BY m.mes;
 ```
 
 **Qué debe pasar:**
@@ -128,7 +139,9 @@ Usuario: **A**.
 
 **Endpoint:** `GET /api/platform/metrics/mrr-series?meses=12`
 
-Averigua qué meses de la ventana no tienen ningún cobro atribuible, con la misma consulta del escenario anterior: los meses que **no aparecen** en su resultado y sí están en `puntos` son los huecos.
+**Response — 200:** el cuerpo varía según los cobros que ya existan en la base — se verifica contra la consulta SQL, no contra un valor fijo.
+
+Averigua qué meses de la ventana no tienen ningún cobro atribuible, con la misma consulta del escenario anterior (la que atribuye por rango cubierto, no por mes de arranque): los meses que **no aparecen** en su resultado — ningún cobro tiene un rango cubierto que alcance ese mes — y sí están en `puntos` son los huecos.
 
 **Qué debe pasar en cada uno de esos meses:**
 
@@ -156,6 +169,8 @@ Usuario: **A**.
 
 **Endpoint:** `GET /api/platform/metrics/mrr-series`
 
+**Response — 200:** el cuerpo varía según los cobros que ya existan en la base — se verifica contra la consulta SQL, no contra un valor fijo.
+
 **Qué debe pasar** en el **último** elemento de `puntos`:
 
 ```json
@@ -180,6 +195,8 @@ Usuario: **A**.
 
 **Endpoint:** `GET /api/platform/metrics/mrr-series`
 
+**Response — 200:** el cuerpo varía según los cobros que ya existan en la base — se verifica contra la consulta SQL, no contra un valor fijo.
+
 Calcula cuántos deben ser:
 
 ```sql
@@ -203,6 +220,8 @@ Además: ese cobro de 999 900 centavos **no aparece en ningún mes**. Si algún 
 Usuario: **A**.
 
 **Endpoint:** `GET /api/platform/metrics/mrr-series?meses=12`
+
+**Response — 200:** el cuerpo varía según los cobros que ya existan en la base — se verifica contra la consulta SQL, no contra un valor fijo.
 
 El seeder cuelga un cobro de **9 999 999 centavos** (casi cien mil pesos) de una suscripción dada de baja, con periodo hace cuatro meses. Es un importe absurdo a propósito: si el filtro fallara, sería imposible no verlo.
 
@@ -263,7 +282,7 @@ Verifica que la respuesta **no traiga campo `code`** (es una inconsistencia cono
 
 Y sin token, sin ningún `Authorization`:
 
-**Response — 401.**
+**Response — 401** (no se valida cuerpo: es el manejo genérico de autenticación del framework, no un contrato de esta historia).
 
 ---
 
@@ -273,8 +292,8 @@ Es el malentendido que la historia se hace cargo de evitar. Son dos métricas di
 
 Usuario: **A**. Llama a los dos endpoints:
 
-- `GET /api/platform/metrics/mrr` → devuelve `mrrActualNetoCents`: lo que está **contratado y vigente hoy**.
-- `GET /api/platform/metrics/mrr-series` → el último punto devuelve `mrrCobradoNetoCents`: lo que **se cobró** para el mes en curso.
+- `GET /api/platform/metrics/mrr` → **Response — 200** — devuelve `mrrActualNetoCents`: lo que está **contratado y vigente hoy**.
+- `GET /api/platform/metrics/mrr-series` → **Response — 200** — el último punto devuelve `mrrCobradoNetoCents`: lo que **se cobró** para el mes en curso.
 
 **Qué debe pasar:** los dos números son **distintos**, y eso es correcto. Lo que se verifica es que la diferencia esté declarada y no escondida:
 
