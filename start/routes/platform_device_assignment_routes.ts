@@ -34,10 +34,12 @@ router
  */
 router
   .group(() => {
-    router.post(
-      '/:platformDeviceId/unassign',
-      '#controllers/platform_device_assignment_controller.unassign'
-    )
+    router
+      .post(
+        '/:platformDeviceId/unassign',
+        '#controllers/platform_device_assignment_controller.unassign'
+      )
+      .where('platformDeviceId', router.matchers.number())
   })
   .prefix('/api/platform/devices/units')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])
