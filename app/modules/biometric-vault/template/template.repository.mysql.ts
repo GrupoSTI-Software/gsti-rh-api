@@ -1,6 +1,7 @@
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import BiometricTemplate from '#models/biometric_template'
 import type {
+  TemplateDetail,
   TemplateKey,
   TemplateRepository,
   TemplateSlot,
@@ -89,6 +90,24 @@ export default class TemplateRepositoryMysql implements TemplateRepository {
     row.biometricTemplateCapturedAt = input.capturedAt
     await row.save()
     return row
+  }
+
+  async findDetail(templateId: number): Promise<TemplateDetail | null> {
+    const row = await BiometricTemplate.query()
+      .where('biometric_template_id', templateId)
+      .first()
+    if (!row) return null
+    return {
+      templateId: row.biometricTemplateId,
+      bioType: row.biometricTemplateBioType,
+      bioNo: row.biometricTemplateBioNo,
+      bioIndex: row.biometricTemplateBioIndex,
+      bioFormat: row.biometricTemplateBioFormat,
+      majorVer: row.biometricTemplateMajorVer ?? null,
+      minorVer: row.biometricTemplateMinorVer ?? null,
+      valid: row.biometricTemplateValid,
+      duress: row.biometricTemplateDuress,
+    }
   }
 
   async listSlots(employeeId: number): Promise<TemplateSlot[]> {

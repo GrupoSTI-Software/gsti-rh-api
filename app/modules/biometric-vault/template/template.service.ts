@@ -6,6 +6,7 @@ import PiiAccessLogService from '#services/pii_access_log_service'
 import { validateTemplate } from './template_validation.js'
 import TemplateRepositoryMysql from './template.repository.mysql.js'
 import type {
+  TemplateDetail,
   TemplateRepository,
   TemplateSlot,
   TemplateUpsert,
@@ -163,6 +164,17 @@ export default class TemplateService {
   /** Que dedos y modalidades ya tienen dato, para confirmar una sobrescritura. */
   async occupiedSlots(employeeId: number): Promise<TemplateSlot[]> {
     return this.repository.listSlots(employeeId)
+  }
+
+  /**
+   * Metadatos del template SIN el blob: version menor, validez y coaccion.
+   *
+   * El comando que se manda al equipo los repite tal cual estaban en el
+   * registro; inventarlos cambiaria el significado del dato -- `Duress` marca
+   * el dedo con el que alguien avisa de que lo estan obligando.
+   */
+  async detailOf(templateId: number): Promise<TemplateDetail | null> {
+    return this.repository.findDetail(templateId)
   }
 }
 

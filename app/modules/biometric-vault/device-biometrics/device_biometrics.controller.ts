@@ -4,6 +4,7 @@ import vine from '@vinejs/vine'
 import { StandardResponseFormatter } from '#helpers/standard_response_formatter'
 import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 import {
   ensureAccessPointPermission,
   resolveScopedAccessPoint,
@@ -12,6 +13,7 @@ import {
 import { toDeviceCommandDto } from '#modules/device-commands/dto/device_command.dto'
 import FingerprintEnrollmentService from '../enrollment/fingerprint_enrollment.service.js'
 import DeviceFaceService from '../photo/device_face.service.js'
+import ReplicationService from '../replication/replication.service.js'
 import { FINGER_ID_MAX, FINGER_ID_MIN } from '../enrollment/fingerprint_enrollment.constants.js'
 
 const employeeValidator = vine.compile(
@@ -23,6 +25,15 @@ const enableFaceValidator = vine.compile(
     params: vine.object({ employeeId: vine.number().positive() }),
     /** Vacio o ausente: se publica hacia los equipos ya confirmados. */
     accessPointIds: vine.array(vine.number().positive()).optional(),
+  })
+)
+
+const replicationValidator = vine.compile(
+  vine.object({
+    params: vine.object({ employeeId: vine.number().positive() }),
+    sourceAccessPointId: vine.number().positive(),
+    targetAccessPointIds: vine.array(vine.number().positive()).minLength(1),
+    modalities: vine.array(vine.enum(['fingerprint', 'face'] as const)).optional(),
   })
 )
 
@@ -95,6 +106,103 @@ export default class DeviceBiometricsController {
         ),
         200,
         'command'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/employees/{employeeId}/device-biometrics/replicate:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Biometricos]
+   *     summary: Copia los biometricos del colaborador de un checador a otros
+   *     responses:
+   *       200:
+   *         description: Desglose por equipo destino en data.results
+   *       422:
+   *         description: Sin consentimiento (key consentimiento-faltante)
+   */
+  async replicate(ctx: HttpContext) {
+    return this.runReplication(ctx, false)
+  }
+
+  /**
+   * @swagger
+   * /api/v1/employees/{employeeId}/device-biometrics/replication-preview:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Biometricos]
+   *     summary: El mismo desglose sin encolar nada
+   *     responses:
+   *       200:
+   *         description: Desglose por equipo destino en data.preview
+   */
+  async replicationPreview(ctx: HttpContext) {
+    return this.runReplication(ctx, true)
+  }
+
+  /**
+   * La vista previa corre EL MISMO camino que la replicacion real, con el
+   * encolado apagado. Si fueran dos caminos distintos, el operador veria un
+   * desglose y ocurriria otro.
+   */
+  private async runReplication(ctx: HttpContext, dryRun: boolean) {
+    const { auth, request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(
+        ctx,
+        dryRun
+          ? EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeBiometrics
+          : EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeBiometric
+      )
+      const payload = await request.validateUsing(replicationValidator, {
+        data: {
+          params: request.params(),
+          sourceAccessPointId: request.input('sourceAccessPointId'),
+          targetAccessPointIds: request.input('targetAccessPointIds'),
+          modalities: request.input('modalities'),
+        },
+      })
+
+      const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
+      /** Origen y destinos, todos resueltos dentro del alcance antes de tocar nada. */
+      const source = await resolveScopedAccessPoint(ctx, payload.sourceAccessPointId)
+      const targetAccessPointIds: number[] = []
+      for (const accessPointId of payload.targetAccessPointIds) {
+        const target = await resolveScopedAccessPoint(ctx, accessPointId)
+        targetAccessPointIds.push(target.accessPointId)
+      }
+
+      const service = new ReplicationService()
+      const result = await service.replicate({
+        employeeId: employee.employeeId,
+        businessUnitId: employee.businessUnitId as number,
+        sourceAccessPointId: source.accessPointId,
+        targetAccessPointIds,
+        modalities: payload.modalities ?? [],
+        actor: {
+          userId: auth.user?.userId ?? null,
+          ip: request.ip(),
+          userAgent: request.header('user-agent') ?? null,
+          requestId: request.id() ?? null,
+        },
+        dryRun,
+      })
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        i18n.formatMessage('biometric_vault_title'),
+        i18n.formatMessage(
+          dryRun ? 'biometric_replication_preview_message' : 'biometric_replication_message'
+        ),
+        200,
+        dryRun ? 'preview' : 'results'
       )
     } catch (error) {
       return respondAdmsApiError(response, i18n, error)

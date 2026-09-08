@@ -3033,5 +3033,7 @@
   "biometric_vault_title": "Biométricos del colaborador",
   "biometric_consent_missing_title": "Falta el consentimiento biométrico",
   "device_face_enabled_message": "Se autorizo el uso de la foto en los checadores y se publico hacia los equipos indicados",
-  "device_face_disabled_message": "Se retiro la foto de los checadores y se encolo su borrado en cada equipo"
+  "device_face_disabled_message": "Se retiro la foto de los checadores y se encolo su borrado en cada equipo",
+  "biometric_replication_message": "Se encolo la copia de los biometricos hacia los equipos indicados",
+  "biometric_replication_preview_message": "Asi quedaria la copia; todavia no se encolo nada"
 }

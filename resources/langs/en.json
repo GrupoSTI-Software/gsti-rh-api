@@ -3030,5 +3030,7 @@
   "biometric_vault_title": "Employee biometrics",
   "biometric_consent_missing_title": "Biometric consent missing",
   "device_face_enabled_message": "Photo use on devices was authorized and published to the selected devices",
-  "device_face_disabled_message": "The photo was withdrawn from the devices and its deletion was queued on each one"
+  "device_face_disabled_message": "The photo was withdrawn from the devices and its deletion was queued on each one",
+  "biometric_replication_message": "Biometric replication to the selected devices was queued",
+  "biometric_replication_preview_message": "This is how the replication would look; nothing has been queued yet"
 }

@@ -43,6 +43,9 @@ function makeService(options: Options = {}) {
     async listSlots() {
       return options.slots ?? []
     },
+    async findDetail() {
+      return null
+    },
     async findForEmployee() {
       return options.slots ?? []
     },

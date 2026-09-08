@@ -23,6 +23,18 @@ router
       '/:employeeId/device-biometrics/face/disable',
       '#modules/biometric-vault/device-biometrics/device_biometrics.controller.disableFace'
     )
+    router.post(
+      '/:employeeId/device-biometrics/replicate',
+      '#modules/biometric-vault/device-biometrics/device_biometrics.controller.replicate'
+    )
+    /**
+     * POST y no GET: lleva una lista de destinos en el cuerpo y ademas destapa
+     * que biometricos tiene una persona. No es una lectura cacheable.
+     */
+    router.post(
+      '/:employeeId/device-biometrics/replication-preview',
+      '#modules/biometric-vault/device-biometrics/device_biometrics.controller.replicationPreview'
+    )
   })
   .prefix('/api/v1/employees')
   .use(middleware.auth())
