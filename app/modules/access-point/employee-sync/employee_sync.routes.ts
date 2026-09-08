@@ -38,3 +38,21 @@ router
   .prefix('/api/access-points')
   .use(middleware.auth())
   .use(middleware.businessScope())
+
+/**
+ * La vuelta del padron: los checadores de un colaborador.
+ *
+ * Cuelga de `/employees` porque la pantalla que la consume es la pestaña de
+ * biometricos de la persona, y por eso pide el permiso de lectura de esa
+ * pestaña y no el del catalogo de equipos.
+ */
+router
+  .group(() => {
+    router.get(
+      '/:employeeId/access-points',
+      '#modules/access-point/employee-sync/employee_sync.controller.listByEmployee'
+    )
+  })
+  .prefix('/api/v1/employees')
+  .use(middleware.auth())
+  .use(middleware.businessScope())

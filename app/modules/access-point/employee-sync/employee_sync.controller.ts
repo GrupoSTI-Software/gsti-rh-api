@@ -13,6 +13,18 @@ import AccessPointEmployee from '#models/access_point_employee'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import EmployeeSyncService from './employee_sync.service.js'
 import { toEmployeeSyncDto } from './dto/employee_sync.dto.js'
+import {
+  toEmployeeAccessPointDto,
+  type EmployeeAccessPointDto,
+  type EmployeeBiometricSummaryDto,
+  type EmployeeDevicesDto,
+} from './dto/employee_access_point.dto.js'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
+import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
+import AccessPoint from '#models/access_point'
+import BiometricTemplate from '#models/biometric_template'
+import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
+import { DateTime } from 'luxon'
 
 const pairValidator = vine.compile(
   vine.object({
@@ -25,6 +37,10 @@ const pairValidator = vine.compile(
 
 const accessPointValidator = vine.compile(
   vine.object({ params: vine.object({ accessPointId: vine.number().positive() }) })
+)
+
+const employeeValidator = vine.compile(
+  vine.object({ params: vine.object({ employeeId: vine.number().positive() }) })
 )
 
 const pinValidator = vine.compile(
@@ -140,6 +156,85 @@ export default class EmployeeSyncController {
 
   /**
    * @swagger
+   * /api/v1/employees/{employeeId}/access-points:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Puntos de acceso]
+   *     summary: Checadores del colaborador con su PIN y el estado del alta
+   *     description: >
+   *       La vuelta de `listByAccessPoint`: en que equipos esta la persona, con
+   *       que numero y si el aparato ya confirmo el alta. Incluye el PIN que se
+   *       propondria en un equipo nuevo y los biometricos resguardados.
+   *     responses:
+   *       200:
+   *         description: Equipos en data.employeeDevices
+   *       404:
+   *         description: El colaborador no esta en el alcance
+   */
+  async listByEmployee(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(
+        ctx,
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeBiometrics
+      )
+      const { params } = await request.validateUsing(employeeValidator, {
+        data: { params: request.params() },
+      })
+      const employee = await resolveScopedEmployee(ctx, params.employeeId)
+
+      /**
+       * Se omiten los revocados: el aparato ya confirmo que esa persona no esta
+       * ahi, y listarla junto a las altas vivas invita a operar sobre un
+       * vinculo que no existe. El rastro queda en los eventos del pivote.
+       */
+      const pivots = await AccessPointEmployee.query()
+        .where('employee_id', employee.employeeId)
+        .whereNot(
+          'access_point_employee_sync_status',
+          ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
+        )
+
+      const accessPointIds = pivots.map((pivot) => pivot.accessPointId)
+      const accessPoints =
+        accessPointIds.length > 0
+          ? await AccessPoint.query().whereIn('access_point_id', accessPointIds)
+          : []
+      const byId = new Map(accessPoints.map((row) => [row.accessPointId, row]))
+
+      const now = DateTime.utc()
+      const rows: EmployeeAccessPointDto[] = []
+      for (const pivot of pivots) {
+        const accessPoint = byId.get(pivot.accessPointId)
+        /** Un equipo dado de baja deja el pivote huerfano: no hay que pintarlo. */
+        if (!accessPoint) continue
+        rows.push(toEmployeeAccessPointDto(pivot, accessPoint, now))
+      }
+      rows.sort((a, b) => a.name.localeCompare(b.name))
+
+      const payload: EmployeeDevicesDto = {
+        employeeId: employee.employeeId,
+        suggestedPin: proposedPinFor(employee.employeeCode),
+        accessPoints: rows,
+        biometrics: await countBiometrics(employee.employeeId),
+      }
+
+      return StandardResponseFormatter.success(
+        response,
+        payload,
+        i18n.formatMessage('access_point_employee_title'),
+        i18n.formatMessage('access_point_employee_list_message'),
+        200,
+        'employeeDevices'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
    * /api/access-points/{accessPointId}/employee/{employeeId}/send:
    *   post:
    *     security:
@@ -245,4 +340,37 @@ function nameOf(employee: Employee): string {
     .filter((part) => typeof part === 'string' && part.length > 0)
     .join(' ')
     .trim()
+}
+
+/**
+ * PIN que se propone en un equipo nuevo: el codigo del colaborador.
+ *
+ * Es el mismo criterio que ya aplica el alta, y el que el canal infiere cuando
+ * ve un PIN suelto. Un codigo que no sea numerico no sirve como PIN y se
+ * devuelve vacio para que la pantalla pida uno.
+ */
+function proposedPinFor(employeeCode: number | string | null): string | null {
+  if (employeeCode === null || employeeCode === undefined) return null
+  const code = String(employeeCode)
+  return /^\d{1,9}$/.test(code) ? code : null
+}
+
+/** Biometricos resguardados del colaborador, por modalidad. */
+async function countBiometrics(employeeId: number): Promise<EmployeeBiometricSummaryDto> {
+  const rows = await BiometricTemplate.query()
+    .where('employee_id', employeeId)
+    .select('biometric_template_bio_type')
+    .count('* as total')
+    .groupBy('biometric_template_bio_type')
+
+  const byType = new Map<number, number>()
+  for (const row of rows) {
+    byType.set(Number(row.biometricTemplateBioType), Number(row.$extras.total))
+  }
+
+  return {
+    fingerprints: byType.get(BIO_TYPE.FINGERPRINT) ?? 0,
+    faces: byType.get(BIO_TYPE.FACE) ?? 0,
+    palms: byType.get(BIO_TYPE.PALM) ?? 0,
+  }
 }

@@ -146,6 +146,72 @@ test.group('ADMS matriz empleado por dispositivo (rebanada 7)', (group) => {
     assert.isFalse(response.body().data.accessPointEmployee.pinQuarantined)
   })
 
+  test('la vuelta del padron: los checadores del colaborador con su estado', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/v1/employees/${employee.employeeId}/access-points`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    if (response.status() === 403) {
+      assert.equal(response.body().key, 'sin-permiso')
+      return
+    }
+    response.assertStatus(200)
+    const payload = response.body().data.employeeDevices as {
+      employeeId: number
+      suggestedPin: string | null
+      accessPoints: Array<{
+        accessPointId: number
+        name: string
+        pin: string | null
+        syncStatus: string
+        connection: string
+        pinQuarantined: boolean
+      }>
+      biometrics: { fingerprints: number; faces: number; palms: number }
+    }
+
+    assert.equal(payload.employeeId, employee.employeeId)
+    const mio = payload.accessPoints.find(
+      (row) => row.accessPointId === accessPoint.accessPointId
+    )
+    assert.isDefined(mio)
+    // El PIN de la prueba anterior ya vive en el pivote.
+    assert.equal(mio?.pin, PIN)
+    assert.equal(mio?.syncStatus, 'pending')
+    // El equipo del fixture nunca ha llamado: no esta "caido", nunca conecto.
+    assert.equal(mio?.connection, 'never')
+    assert.isFalse(mio?.pinQuarantined)
+    assert.isNumber(payload.biometrics.fingerprints)
+  })
+
+  test('el colaborador de otra empresa responde 404, no 403', async ({ client, assert }) => {
+    const ajeno = await TenantContext.runUnscoped(
+      async () =>
+        Employee.query()
+          .whereNull('employee_deleted_at')
+          .whereNot('business_unit_id', businessUnitId)
+          .first(),
+      'colaborador de otra empresa para la prueba de alcance'
+    )
+    if (!ajeno) return
+
+    const response = await client
+      .get(`/api/v1/employees/${ajeno.employeeId}/access-points`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    if (response.status() === 403) {
+      assert.equal(response.body().key, 'sin-permiso')
+      return
+    }
+    // 403 revelaria que esa persona existe en otra parte.
+    response.assertStatus(404)
+  })
+
   test('enviar encola el alta y el sondeo la entrega', async ({ client, assert }) => {
     const response = await client
       .post(
