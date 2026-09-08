@@ -35,3 +35,32 @@ export const receivablesValidatorMessages = new SimpleMessagesProvider({
   'limit.min': 'El límite de resultados por página no puede ser menor a 1.',
   'limit.max': 'El límite de resultados por página no puede ser mayor a 100.',
 })
+
+/**
+ * Query params de `GET /api/platform/metrics/mrr-series`.
+ *
+ * `meses` es el ancho de la ventana. Opcional a propósito: el 12 por omisión lo
+ * aplica el controlador, como en la cartera, para que el default viva en un solo
+ * lugar en vez de duplicarse entre el validador y quien lo consume.
+ */
+export const mrrSeriesValidator = vine.compile(
+  vine.object({
+    meses: vine.number().withoutDecimals().min(1).max(24).optional(),
+  })
+)
+
+/**
+ * Mensajes en español de `mrrSeriesValidator`.
+ *
+ * Las cuatro reglas dicen la misma frase porque el `detail` del 422 está fijado
+ * por el criterio de aceptación: no puede cambiar según cuál regla de Vine falló
+ * primero. Van explícitos por el mismo motivo que los de la cartera — el provider
+ * global de i18n solo se aplica cuando la llamada no trae el suyo, y sin esto el
+ * mensaje saldría en inglés.
+ */
+export const mrrSeriesValidatorMessages = new SimpleMessagesProvider({
+  'meses.number': 'El número de meses debe estar entre 1 y 24.',
+  'meses.withoutDecimals': 'El número de meses debe estar entre 1 y 24.',
+  'meses.min': 'El número de meses debe estar entre 1 y 24.',
+  'meses.max': 'El número de meses debe estar entre 1 y 24.',
+})

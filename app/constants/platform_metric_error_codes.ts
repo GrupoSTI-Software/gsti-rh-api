@@ -58,3 +58,19 @@ export const MRR_METRIC_ERROR_TEXTS: PlatformMetricErrorTexts = {
   unhandledTitle: 'Error inesperado al obtener el ingreso mensual recurrente',
   unhandledKey: 'error-inesperado-al-obtener-el-ingreso-mensual-recurrente',
 }
+
+/**
+ * Textos de la serie mensual de MRR cobrado (USRH1788052455654).
+ *
+ * Juego propio y no reutilización del de la cifra: son dos endpoints del mismo
+ * prefijo y un título compartido dejaría al cliente sin saber cuál de los dos
+ * falló. El `key` es el slug kebab del título, como manda la convención del
+ * área; el spec proponía `datos-invalidos` y se descartó por consistencia. El
+ * `code` sí va literal — es el campo que el cliente consume.
+ */
+export const MRR_SERIES_METRIC_ERROR_TEXTS: PlatformMetricErrorTexts = {
+  failureTitle: 'No fue posible obtener la serie mensual de MRR',
+  failureKey: 'no-fue-posible-obtener-la-serie-mensual-de-mrr',
+  unhandledTitle: 'Error inesperado al obtener la serie mensual de MRR',
+  unhandledKey: 'error-inesperado-al-obtener-la-serie-mensual-de-mrr',
+}
