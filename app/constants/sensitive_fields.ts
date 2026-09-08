@@ -137,6 +137,13 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // Ancla: app/models/adms_raw_message.ts
   { model: 'AdmsRawMessage', column: 'admsRawMessageBody', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
 
+  // ─── DeviceCommand: biométrico ────────────────────────────────────────────
+  // deviceCommandPayload — línea literal que se manda al checador. En un
+  // `biodata_write` lleva el template de huella o rostro completo. No se busca
+  // en SQL y nunca se serializa hacia el Backoffice.
+  // Ancla: app/models/device_command.ts
+  { model: 'DeviceCommand', column: 'deviceCommandPayload', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
   // ─── AdmsUnmappedPin: identificación ──────────────────────────────────────
   // admsUnmappedPinName — nombre que el checador declara para un PIN que no
   // corresponde a ningún colaborador. Identifica a una persona antes de que
