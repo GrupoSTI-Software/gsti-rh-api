@@ -3,7 +3,6 @@ import type DeviceCommand from '#models/device_command'
 import type { DeviceCommandKind, DeviceCommandStatus } from './device_command.constants.js'
 
 export interface CommandInsert {
-  wireId: number
   accessPointId: number
   businessUnitId: number
   kind: DeviceCommandKind
@@ -18,15 +17,29 @@ export interface CommandInsert {
   biometricPhotoPublicationId: number | null
 }
 
+export interface EnqueueIdempotentResult {
+  command: DeviceCommand
+  created: boolean
+}
+
 /** Puerto de persistencia de la cola. El servicio no toca Lucid. */
 export interface DeviceCommandRepository {
   /**
-   * Corre `fn` con la fila del punto de acceso bloqueada, para que dos altas
-   * simultaneas del mismo colaborador no creen dos comandos.
+   * Busca por llave de correlacion e inserta, todo dentro de UNA transaccion
+   * con la fila del punto de acceso bloqueada.
+   *
+   * Es una sola operacion y no dos a proposito: `device_commands` referencia a
+   * `access_points`, asi que un insert desde fuera de la transaccion que tiene
+   * el bloqueo se queda esperando ese mismo candado hasta agotar el tiempo.
+   *
+   * `wireIdCandidates` viene ya calculado por el dominio; el adaptador prueba
+   * en orden hasta que uno no choque con la UNIQUE.
    */
-  withDeviceLock<T>(accessPointId: number, fn: () => Promise<T>): Promise<T>
+  enqueueIdempotent(
+    input: CommandInsert,
+    wireIdCandidates: number[]
+  ): Promise<EnqueueIdempotentResult | null>
   findLiveByCorrelation(accessPointId: number, correlationKey: string): Promise<DeviceCommand | null>
-  insert(input: CommandInsert): Promise<DeviceCommand>
   findById(commandId: number): Promise<DeviceCommand | null>
   findByWireId(wireId: number): Promise<DeviceCommand | null>
   /** Primer pendiente por prioridad, excluyendo los tipos que no se pueden despachar ahora. */

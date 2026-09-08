@@ -1,14 +1,16 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import type { I18n } from '@adonisjs/i18n'
 import { ADMS_ERROR_CODES, type AdmsErrorCode } from '#constants/adms_error_codes'
+import type { DeviceCommandErrorCode } from '#constants/device_command_error_codes'
 import { AdmsError } from '#exceptions/adms_error'
+import { DeviceCommandError } from '#exceptions/device_command_error'
 
 export interface ResolvedAdmsApiError {
   status: number
   title: string
   detail: string
   key: string
-  code: AdmsErrorCode
+  code: AdmsErrorCode | DeviceCommandErrorCode
 }
 
 /**
@@ -29,7 +31,11 @@ export function resolveAdmsApiError(error: unknown, i18n: I18n): ResolvedAdmsApi
     }
   }
 
-  if (error instanceof AdmsError) {
+  /**
+   * `AdmsError` y `DeviceCommandError` son el mismo contrato con distinto
+   * catálogo de códigos: el Backoffice ramifica por `key` en los dos casos.
+   */
+  if (error instanceof AdmsError || error instanceof DeviceCommandError) {
     return {
       status: error.httpStatus,
       title: error.message,

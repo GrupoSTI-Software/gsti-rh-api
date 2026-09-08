@@ -37,14 +37,11 @@ function makeRepository(options: Options = {}) {
   const saved: DeviceCommand[] = []
   const excludedSeen: string[][] = []
   const repository: DeviceCommandRepository = {
-    async withDeviceLock(_id, fn) {
-      return fn()
+    async enqueueIdempotent() {
+      return { command: commandOf(), created: true }
     },
     async findLiveByCorrelation() {
       return null
-    },
-    async insert() {
-      return commandOf()
     },
     async findById() {
       return options.byWireId ?? null

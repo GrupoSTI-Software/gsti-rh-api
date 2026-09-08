@@ -7,7 +7,16 @@ import {
   type DeviceCommandKind,
   type DeviceCommandStatus,
 } from './device_command.constants.js'
-import type { CommandInsert, DeviceCommandRepository } from './device_command.repository.js'
+import type {
+  CommandInsert,
+  DeviceCommandRepository,
+  EnqueueIdempotentResult,
+} from './device_command.repository.js'
+
+/** Verdadero si el choque es contra la UNIQUE del identificador de cable. */
+function isDuplicateWireId(error: unknown): boolean {
+  return (error as { code?: string })?.code === 'ER_DUP_ENTRY'
+}
 
 /** Estados en los que un comando sigue vivo para la idempotencia del encolado. */
 const LIVE_STATUSES: readonly DeviceCommandStatus[] = [
@@ -18,32 +27,47 @@ const LIVE_STATUSES: readonly DeviceCommandStatus[] = [
 /** Adaptador Lucid de la cola de comandos. */
 export default class DeviceCommandRepositoryMysql implements DeviceCommandRepository {
   /**
-   * Bloquea la fila del punto de acceso mientras dura la operacion. Es la
-   * convencion del repo para serializar por dispositivo sin inventar una
-   * UNIQUE parcial que MySQL 8 no soporta.
+   * Bloquea la fila del punto de acceso, busca por llave de correlacion e
+   * inserta, todo en la MISMA transaccion.
+   *
+   * No se puede partir en dos: `device_commands` referencia a `access_points`,
+   * asi que un insert desde otra conexion se quedaria esperando el candado que
+   * tiene esta transaccion hasta agotar el tiempo de espera de la base.
    */
-  async withDeviceLock<T>(accessPointId: number, fn: () => Promise<T>): Promise<T> {
+  async enqueueIdempotent(
+    input: CommandInsert,
+    wireIdCandidates: number[]
+  ): Promise<EnqueueIdempotentResult | null> {
     return db.transaction(async (trx) => {
-      await trx.from('access_points').where('access_point_id', accessPointId).forUpdate().first()
-      return fn()
+      await trx.from('access_points').where('access_point_id', input.accessPointId).forUpdate().first()
+
+      if (input.correlationKey) {
+        const existing = await DeviceCommand.query({ client: trx })
+          .where('access_point_id', input.accessPointId)
+          .where('device_command_correlation_key', input.correlationKey)
+          .whereIn('device_command_status', [...LIVE_STATUSES])
+          .orderBy('device_command_id', 'asc')
+          .first()
+        if (existing) return { command: existing, created: false }
+      }
+
+      for (const wireId of wireIdCandidates) {
+        const command = new DeviceCommand()
+        command.useTransaction(trx)
+        this.fill(command, input, wireId)
+        try {
+          await command.save()
+          return { command, created: true }
+        } catch (error) {
+          if (!isDuplicateWireId(error)) throw error
+        }
+      }
+      return null
     })
   }
 
-  async findLiveByCorrelation(
-    accessPointId: number,
-    correlationKey: string
-  ): Promise<DeviceCommand | null> {
-    return DeviceCommand.query()
-      .where('access_point_id', accessPointId)
-      .where('device_command_correlation_key', correlationKey)
-      .whereIn('device_command_status', [...LIVE_STATUSES])
-      .orderBy('device_command_id', 'asc')
-      .first()
-  }
-
-  async insert(input: CommandInsert): Promise<DeviceCommand> {
-    const command = new DeviceCommand()
-    command.deviceCommandWireId = input.wireId
+  private fill(command: DeviceCommand, input: CommandInsert, wireId: number): void {
+    command.deviceCommandWireId = wireId
     command.accessPointId = input.accessPointId
     command.businessUnitId = input.businessUnitId
     command.deviceCommandKind = input.kind
@@ -58,8 +82,18 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
     command.deviceCommandRequestedByUserId = input.requestedByUserId
     command.biometricTemplateId = input.biometricTemplateId
     command.biometricPhotoPublicationId = input.biometricPhotoPublicationId
-    await command.save()
-    return command
+  }
+
+  async findLiveByCorrelation(
+    accessPointId: number,
+    correlationKey: string
+  ): Promise<DeviceCommand | null> {
+    return DeviceCommand.query()
+      .where('access_point_id', accessPointId)
+      .where('device_command_correlation_key', correlationKey)
+      .whereIn('device_command_status', [...LIVE_STATUSES])
+      .orderBy('device_command_id', 'asc')
+      .first()
   }
 
   async findById(commandId: number): Promise<DeviceCommand | null> {

@@ -20,11 +20,6 @@ import type {
   EnqueueCommandResult,
 } from './device_command_port.js'
 
-/** Verdadero si el error es la violacion de una UNIQUE de MySQL. */
-function isDuplicate(error: unknown): boolean {
-  return (error as { code?: string })?.code === 'ER_DUP_ENTRY'
-}
-
 /**
  * Cola de ordenes hacia el checador (spec ADMS 6).
  *
@@ -47,16 +42,19 @@ export default class DeviceCommandService implements DeviceCommandPort {
         ? input.maxAttempts
         : this.defaultMaxAttempts(input.kind)
 
-    return this.repository.withDeviceLock(input.accessPointId, async () => {
-      if (input.correlationKey) {
-        const existing = await this.repository.findLiveByCorrelation(
-          input.accessPointId,
-          input.correlationKey
-        )
-        if (existing) return { command: existing, created: false }
-      }
+    /**
+     * El identificador de cable arranca en el reloj y sube de uno en uno ante
+     * colision: el acuse del equipo solo trae ese numero, asi que dos comandos
+     * no pueden compartirlo ni siquiera entre dispositivos distintos.
+     */
+    const base = this.clockMillis()
+    const wireIdCandidates = Array.from(
+      { length: DEVICE_COMMAND_WIRE_ID_RETRIES },
+      (_unused, index) => base + index
+    )
 
-      const command = await this.insertWithWireId({
+    const result = await this.repository.enqueueIdempotent(
+      {
         accessPointId: input.accessPointId,
         businessUnitId: input.businessUnitId,
         kind: input.kind,
@@ -69,34 +67,19 @@ export default class DeviceCommandService implements DeviceCommandPort {
         requestedByUserId: input.requestedByUserId ?? null,
         biometricTemplateId: input.biometricTemplateId ?? null,
         biometricPhotoPublicationId: input.biometricPhotoPublicationId ?? null,
-      })
-      return { command, created: true }
-    })
-  }
-
-  /**
-   * El identificador de cable arranca en el reloj y sube de uno en uno ante
-   * colision: el acuse del equipo solo trae ese numero, asi que dos comandos
-   * no pueden compartirlo ni siquiera entre dispositivos distintos.
-   */
-  private async insertWithWireId(
-    base: Omit<Parameters<DeviceCommandRepository['insert']>[0], 'wireId'>
-  ): Promise<DeviceCommand> {
-    let wireId = this.clockMillis()
-    for (let attempt = 0; attempt < DEVICE_COMMAND_WIRE_ID_RETRIES; attempt += 1) {
-      try {
-        return await this.repository.insert({ ...base, wireId })
-      } catch (error) {
-        if (!isDuplicate(error)) throw error
-        wireId += 1
-      }
-    }
-    throw new DeviceCommandError(
-      'No se pudo asignar un identificador libre para el comando',
-      DEVICE_COMMAND_ERROR_CODES.SYS_WIRE_ID,
-      500,
-      'identificador-ocupado'
+      },
+      wireIdCandidates
     )
+
+    if (!result) {
+      throw new DeviceCommandError(
+        'No se pudo asignar un identificador libre para el comando',
+        DEVICE_COMMAND_ERROR_CODES.SYS_WIRE_ID,
+        500,
+        'identificador-ocupado'
+      )
+    }
+    return result
   }
 
   /** `user_delete` no tiene tope: dejar a un ex-colaborador dentro del equipo es un riesgo. */

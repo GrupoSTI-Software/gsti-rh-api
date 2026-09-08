@@ -35,25 +35,28 @@ interface Options {
   duplicateWireIds?: number
 }
 
+/** Lo que el adaptador habria escrito, con el identificador que le toco. */
+type InsertedCommand = CommandInsert & { wireId: number }
+
 function makeService(options: Options = {}) {
-  const inserted: CommandInsert[] = []
+  const inserted: InsertedCommand[] = []
   const saved: DeviceCommand[] = []
   let remainingDuplicates = options.duplicateWireIds ?? 0
 
   const repository: DeviceCommandRepository = {
-    async withDeviceLock(_id, fn) {
-      return fn()
+    async enqueueIdempotent(input, wireIdCandidates) {
+      if (options.live) return { command: options.live, created: false }
+      // El adaptador real prueba los candidatos en orden hasta que uno entra.
+      const usable = wireIdCandidates.slice(remainingDuplicates)
+      if (usable.length === 0) return null
+      inserted.push({ ...input, wireId: usable[0] } as CommandInsert & { wireId: number })
+      return {
+        command: commandOf({ deviceCommandWireId: usable[0], deviceCommandKind: input.kind }),
+        created: true,
+      }
     },
     async findLiveByCorrelation() {
       return options.live ?? null
-    },
-    async insert(input) {
-      if (remainingDuplicates > 0) {
-        remainingDuplicates -= 1
-        throw Object.assign(new Error('duplicate'), { code: 'ER_DUP_ENTRY' })
-      }
-      inserted.push(input)
-      return commandOf({ deviceCommandWireId: input.wireId, deviceCommandKind: input.kind })
     },
     async findById() {
       return options.existing ?? null
@@ -136,6 +139,7 @@ test.group('Cola de comandos: encolado', () => {
     })
     assert.equal(inserted[0].wireId, 1788912000002)
     assert.equal(result.command.deviceCommandWireId, 1788912000002)
+    assert.isTrue(result.created)
   })
 
   test('si no hay identificador libre tras cinco intentos, falla explicitamente', async ({
