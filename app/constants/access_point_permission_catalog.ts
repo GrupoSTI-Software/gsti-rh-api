@@ -9,7 +9,10 @@ export type AccessPointSection = 'dispositivos'
  * estan sembradas (modulo 33) y se declaran con equivalencia exacta; las cinco
  * nuevas las crea la migracion 1788912000008 con concesion espejo (read a
  * read-health; update a reset-upload-progress, manage-commands y
- * reconcile-pins; claim-device solo a super-administrador y rh-manager).
+ * reconcile-pins).
+ *
+ * `claim-device` se retiro: reclamar un checador es acto de plataforma, no de un
+ * tenant. El cliente nunca registra dispositivos.
  */
 export const ACCESS_POINT_PERMISSION_CATALOG = [
   {
@@ -50,13 +53,6 @@ export const ACCESS_POINT_PERMISSION_CATALOG = [
     kind: 'read',
     section: 'dispositivos',
     exceptionProfile: 'standard',
-  },
-  {
-    slug: 'claim-device',
-    displayName: 'Reclamar un checador en cuarentena',
-    kind: 'write',
-    section: 'dispositivos',
-    exceptionProfile: 'strict',
   },
   {
     slug: 'reset-upload-progress',

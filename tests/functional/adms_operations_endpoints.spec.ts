@@ -10,8 +10,6 @@ import BusinessUnitUser from '#models/business_unit_user'
 import Employee from '#models/employee'
 import User from '#models/user'
 import { TenantContext } from '#utils/tenant_context'
-import QuarantineClaimService from '#modules/access-point/quarantine/quarantine_claim.service'
-import type { AdmsError } from '#exceptions/adms_error'
 
 /**
  * Rebanada 11: las pantallas de operacion.
@@ -227,55 +225,38 @@ test.group('ADMS endpoints de operacion (rebanada 11)', (group) => {
   })
 
   /**
-   * `claim-device` es estricto por decision de Wilvardo: solo lo tiene quien
-   * plataforma decida. Que el usuario de la fixture NO lo tenga es justamente
-   * lo que se comprueba aqui; el enmascarado se prueba contra el servicio.
+   * La cuarentena ya no tiene endpoint del lado del tenant: reclamar un
+   * checador es acto de plataforma. El cliente nunca registra dispositivos, asi
+   * que este endpoint no debe existir -- si reapareciera, un tenant podria dar
+   * de alta equipos adivinando series.
    */
-  test('sin el permiso estricto, la cuarentena no se ve', async ({ client, assert }) => {
-    const response = await client
+  test('el tenant ya no puede listar ni reclamar la cuarentena', async ({ client, assert }) => {
+    const lista = await client
       .get('/api/v1/access-points/quarantine')
       .loginAs(user)
       .header('X-Business-Unit-Id', publicId)
+    assert.equal(lista.status(), 404)
 
-    response.assertStatus(403)
-    assert.equal(response.body().key, 'sin-permiso')
+    const reclamo = await client
+      .post('/api/v1/access-points/quarantine/claim')
+      .json({ serialNumber: 'NOEXISTE123456', businessUnitId, accessPointName: 'X' })
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+    assert.equal(reclamo.status(), 404)
   })
 
-  test('la lista de cuarentena nunca lleva la serie completa ni la IP exacta', async ({
-    assert,
-  }) => {
-    const rows = await TenantContext.run([businessUnitId], () =>
-      new QuarantineClaimService().list()
+  test('la fila de cuarentena sigue registrandose desde el canal', async ({ assert }) => {
+    // El canal si la sigue alimentando: lo que se retiro es la via del tenant
+    // para reclamarla, no la deteccion.
+    const fila = await TenantContext.runUnscoped(
+      () =>
+        AdmsQuarantinedDevice.query()
+          .where('adms_quarantined_device_id', quarantineId)
+          .firstOrFail(),
+      'lectura de la cuarentena'
     )
-    const mine = rows.find((row) => row.quarantinedDeviceId === quarantineId)
-
-    assert.isDefined(mine)
-    // La serie entera convertiria la lista en un catalogo de series validas
-    // para quien no tiene el aparato delante.
-    assert.notInclude(JSON.stringify(rows), `TEST-ADMS-Q-${STAMP}`)
-    assert.equal(mine?.ipMasked, '192.168.44.0/24')
-  })
-
-  test('reclamar con una serie que no esta en espera falla sin decir por que', async ({
-    assert,
-  }) => {
-    let key: string | null = null
-    await TenantContext.run([businessUnitId], async () => {
-      try {
-        await new QuarantineClaimService().claim({
-          serialNumber: `NOEXISTE${STAMP}`.slice(0, 32),
-          businessUnitId,
-          accessPointName: 'Checador inventado',
-          businessUnitIds: [businessUnitId],
-          userId: user.userId,
-        })
-      } catch (error) {
-        key = (error as AdmsError).key ?? null
-      }
-    })
-    // Un mensaje distinto por caso convertiria el endpoint en un buscador de
-    // series ajenas.
-    assert.equal(key, 'cuarentena-no-encontrada')
+    assert.equal(fila.admsQuarantinedDeviceStatus, 'pending')
+    assert.isAbove(fila.admsQuarantinedDeviceHitCount, 0)
   })
 
   test('los PINs sin colaborador se listan sin filtrarse entre empresas', async ({

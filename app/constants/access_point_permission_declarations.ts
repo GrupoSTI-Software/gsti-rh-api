@@ -21,7 +21,6 @@ const accessPoints = (
  */
 export const ACCESS_POINT_PERMISSION_DECLARATIONS = {
   readHealth: accessPoints('read-health'),
-  claimDevice: accessPoints('claim-device', 'strict'),
   resetUploadProgress: accessPoints('reset-upload-progress'),
   manageCommands: accessPoints('manage-commands'),
   reconcilePins: accessPoints('reconcile-pins'),

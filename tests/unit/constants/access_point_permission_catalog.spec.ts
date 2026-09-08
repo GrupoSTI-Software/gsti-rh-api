@@ -33,7 +33,6 @@ test.group('Catalogo de permisos de puntos de acceso', () => {
       'update',
       'delete',
       'read-health',
-      'claim-device',
       'reset-upload-progress',
       'manage-commands',
       'reconcile-pins',
@@ -48,7 +47,7 @@ test.group('Catalogo de permisos de puntos de acceso', () => {
     }
     // Las cinco nuevas no existen en la siembra vieja: declarar equivalencia
     // les daria un origen legado que nadie tiene.
-    for (const nuevo of ['read-health', 'claim-device', 'reset-upload-progress']) {
+    for (const nuevo of ['read-health', 'reset-upload-progress', 'manage-commands']) {
       assert.isUndefined(actions.find((entry) => entry.slug === nuevo)?.legacyEquivalence)
     }
     assert.isTrue(
@@ -56,11 +55,21 @@ test.group('Catalogo de permisos de puntos de acceso', () => {
     )
   })
 
-  test('las declaraciones apuntan al modulo y claim-device es estricto', ({ assert }) => {
+  /**
+   * `claim-device` se retiro del catalogo: reclamar un checador en cuarentena
+   * es un acto de plataforma, no de un tenant. El cliente nunca registra sus
+   * dispositivos -- eso se hace desde landlord.
+   */
+  test('el catalogo ya no ofrece reclamar dispositivos a un tenant', ({ assert }) => {
+    const slugs = ACCESS_POINT_PERMISSION_CATALOG.map((action) => action.slug)
+    assert.notInclude(slugs, 'claim-device')
+    assert.notProperty(ACCESS_POINT_PERMISSION_DECLARATIONS, 'claimDevice')
+  })
+
+  test('las declaraciones apuntan al modulo y traen su perfil de excepcion', ({ assert }) => {
     for (const declaration of Object.values(ACCESS_POINT_PERMISSION_DECLARATIONS)) {
       assert.equal(declaration.module, ACCESS_POINT_MODULE_SLUG)
     }
-    assert.equal(ACCESS_POINT_PERMISSION_DECLARATIONS.claimDevice.bypass, 'strict')
     assert.equal(ACCESS_POINT_PERMISSION_DECLARATIONS.readHealth.bypass, 'standard')
     assert.equal(
       ACCESS_POINT_PERMISSION_DECLARATIONS.resetUploadProgress.action,
