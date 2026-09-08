@@ -6,13 +6,15 @@ import { AdmsError } from '#exceptions/adms_error'
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import { BiometricVaultError } from '#exceptions/biometric_vault_error'
 import type { BiometricVaultErrorCode } from '#constants/biometric_vault_error_codes'
+import { PlatformDeviceServiceError } from '#exceptions/platform_device_service_error'
+import type { PlatformDeviceErrorCode } from '#constants/platform_device_error_codes'
 
 export interface ResolvedAdmsApiError {
   status: number
   title: string
   detail: string
   key: string
-  code: AdmsErrorCode | DeviceCommandErrorCode | BiometricVaultErrorCode
+  code: AdmsErrorCode | DeviceCommandErrorCode | BiometricVaultErrorCode | PlatformDeviceErrorCode
 }
 
 /**
@@ -37,6 +39,21 @@ export function resolveAdmsApiError(error: unknown, i18n: I18n): ResolvedAdmsApi
    * Los tres errores del tramo son el mismo contrato con distinto catálogo de
    * códigos: el Backoffice ramifica por `key` en todos los casos.
    */
+  /**
+   * El tramo de plataforma lanza su propio error, con la misma forma pero otro
+   * catalogo. Sin esta rama, un 404 legitimo saldria como 500 y el operador
+   * veria "error interno" donde en realidad tecleo mal un identificador.
+   */
+  if (error instanceof PlatformDeviceServiceError) {
+    return {
+      status: error.httpStatus,
+      title: error.message,
+      detail: error.detail ?? error.message,
+      key: error.key ?? error.errorCode,
+      code: error.errorCode,
+    }
+  }
+
   if (
     error instanceof AdmsError ||
     error instanceof DeviceCommandError ||

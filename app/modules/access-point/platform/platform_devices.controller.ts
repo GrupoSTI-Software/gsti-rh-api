@@ -10,9 +10,20 @@ import AdmsQuarantinedDevice from '#models/adms_quarantined_device'
 import { TenantContext } from '#utils/tenant_context'
 import HealthService from '#modules/access-point/health/health.service'
 import { toIncidentDto } from '#modules/access-point/incidents/incidents.dto.js'
+import PlatformQuarantineClaimService from './quarantine_claim.service.js'
 
 const idValidator = vine.compile(
   vine.object({ params: vine.object({ quarantinedDeviceId: vine.number().positive() }) })
+)
+
+const claimValidator = vine.compile(
+  vine.object({
+    params: vine.object({ quarantinedDeviceId: vine.number().positive() }),
+    tenantPublicId: vine.string().trim().uuid(),
+    platformDeviceModelId: vine.number().positive(),
+    /** Sin fecha, se toma hoy: el aparato ya esta en sitio, por eso llamo. */
+    deliveredAt: vine.date().optional(),
+  })
 )
 
 const dismissValidator = vine.compile(
@@ -118,6 +129,56 @@ export default class PlatformDevicesController {
         i18n.formatMessage('access_point_quarantine_list_message'),
         200,
         'quarantinedDevices'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/devices/quarantine/{quarantinedDeviceId}/claim:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Plataforma]
+   *     summary: Reclama un equipo en espera y lo entrega a una empresa
+   *     responses:
+   *       200:
+   *         description: Unidad, entrega y punto de acceso en data.claim
+   *       404:
+   *         description: La cuarentena o la empresa no existen
+   *       409:
+   *         description: La cuarentena ya no esta en espera, o la serie es de otra empresa
+   */
+  async claim(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
+    try {
+      const payload = await request.validateUsing(claimValidator, {
+        data: {
+          params: request.params(),
+          tenantPublicId: request.input('tenantPublicId'),
+          platformDeviceModelId: request.input('platformDeviceModelId'),
+          deliveredAt: request.input('deliveredAt'),
+        },
+      })
+
+      const service = new PlatformQuarantineClaimService()
+      const result = await service.claim({
+        quarantinedDeviceId: payload.params.quarantinedDeviceId,
+        tenantPublicId: payload.tenantPublicId,
+        platformDeviceModelId: payload.platformDeviceModelId,
+        deliveredAt: payload.deliveredAt ?? new Date(),
+        createdByUserId: auth.user?.userId ?? null,
+      })
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        i18n.formatMessage('access_point_quarantine_title'),
+        i18n.formatMessage('platform_quarantine_claimed_message'),
+        200,
+        'claim'
       )
     } catch (error) {
       return respondAdmsApiError(response, i18n, error)

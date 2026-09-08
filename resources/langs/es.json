@@ -3052,5 +3052,6 @@
   "access_point_employee_list_message": "Colaboradores dados de alta en este checador",
   "platform_quarantine_dismissed_message": "Se descarto la fila de cuarentena",
   "platform_quarantine_unlocked_message": "Se libero la fila y se reinicio su contador de intentos",
-  "platform_retention_message": "Plazos con los que corre la purga y volumen actual"
+  "platform_retention_message": "Plazos con los que corre la purga y volumen actual",
+  "platform_quarantine_claimed_message": "El equipo quedo asignado a la empresa y registrado como propiedad del cliente"
 }

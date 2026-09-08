@@ -19,6 +19,14 @@ router
       '/quarantine',
       '#modules/access-point/platform/platform_devices.controller.quarantine'
     )
+    /**
+     * Reclamar: el cliente avisa que ya tiene el aparato y aqui se le asigna.
+     * Entra al inventario como `del_cliente`, no como stock de GSTI.
+     */
+    router.post(
+      '/quarantine/:quarantinedDeviceId/claim',
+      '#modules/access-point/platform/platform_devices.controller.claim'
+    )
     router.post(
       '/quarantine/:quarantinedDeviceId/dismiss',
       '#modules/access-point/platform/platform_devices.controller.dismiss'

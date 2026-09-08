@@ -3049,5 +3049,6 @@
   "access_point_employee_list_message": "Employees enrolled on this device",
   "platform_quarantine_dismissed_message": "The quarantine row was dismissed",
   "platform_quarantine_unlocked_message": "The row was unlocked and its failed-attempt counter was reset",
-  "platform_retention_message": "Retention windows in effect and current volume"
+  "platform_retention_message": "Retention windows in effect and current volume",
+  "platform_quarantine_claimed_message": "The device was assigned to the company and registered as customer-owned"
 }
