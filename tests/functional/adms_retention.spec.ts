@@ -187,6 +187,73 @@ test.group('ADMS retencion (rebanada 12)', (group) => {
     assert.equal(releida?.biometricPhotoPublicationStatus, 'published')
   })
 
+  /**
+   * El caso que romperia con la llave foranea mal elegida: un incidente cita el
+   * crudo, y el crudo vence. Con `RESTRICT` la purga fallaria en cuanto hubiera
+   * un incidente viejo; con `SET NULL` el crudo se va y el incidente sobrevive
+   * sin su origen, que es lo correcto -- el hecho paso aunque su copia se haya
+   * purgado.
+   */
+  test('un crudo citado por un incidente se purga y el incidente sobrevive', async ({
+    assert,
+  }) => {
+    const { rawId, incidentId } = await TenantContext.runUnscoped(async () => {
+      const viejo = DateTime.utc().minus({ days: 400 }).toFormat('yyyy-MM-dd HH:mm:ss')
+      const [raw] = await db.table('adms_raw_messages').insert({
+        business_unit_id: businessUnitId,
+        access_point_id: accessPoint.accessPointId,
+        adms_raw_message_serial: SERIAL,
+        adms_raw_message_remote_ip: '10.0.0.1',
+        adms_raw_message_method: 'POST',
+        adms_raw_message_path: '/iclock/cdata',
+        adms_raw_message_table: 'ATTLOG',
+        adms_raw_message_status: 'processed',
+        adms_raw_message_body: 'x',
+        adms_raw_message_body_bytes: 1,
+        adms_raw_message_line_count: 1,
+        adms_raw_message_received_at: viejo,
+        adms_raw_message_created_at: viejo,
+      })
+      const [incident] = await db.table('adms_incidents').insert({
+        access_point_id: accessPoint.accessPointId,
+        business_unit_id: businessUnitId,
+        adms_raw_message_id: raw,
+        adms_incident_kind: 'parse_error',
+        adms_incident_severity: 'warning',
+        adms_incident_code: 'ADMS.VAL.002',
+        adms_incident_title: 'Prueba de retencion',
+        adms_incident_detail: 'Cita un crudo que va a vencer',
+        adms_incident_key: 'prueba',
+        adms_incident_status: 'open',
+        adms_incident_created_at: viejo,
+        adms_incident_updated_at: viejo,
+      })
+      return { rawId: raw, incidentId: incident }
+    }, 'crudo viejo citado')
+
+    const result = await new RetentionService().purgeRawMessages()
+    assert.isAtLeast(result.deleted, 1)
+
+    const quedan = await TenantContext.runUnscoped(
+      () => db.from('adms_raw_messages').where('adms_raw_message_id', rawId).count('* as t'),
+      'crudo purgado'
+    )
+    assert.equal(Number(quedan[0].t), 0)
+
+    const incidente = await TenantContext.runUnscoped(
+      () => db.from('adms_incidents').where('adms_incident_id', incidentId).first(),
+      'incidente tras la purga'
+    )
+    assert.isNotNull(incidente)
+    // Sobrevive, pero ya no apunta a un crudo que no existe.
+    assert.isNull(incidente.adms_raw_message_id)
+
+    await TenantContext.runUnscoped(
+      () => db.from('adms_incidents').where('adms_incident_id', incidentId).delete(),
+      'limpieza del incidente'
+    )
+  })
+
   test('una cuarentena reclamada no se purga: es historia', async ({ assert }) => {
     const reclamada = await TenantContext.runUnscoped(async () => {
       const row = new AdmsQuarantinedDevice()
