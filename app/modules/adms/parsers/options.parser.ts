@@ -135,7 +135,13 @@ export function parseOptionsBody(body: string): ParsedOptions {
     oemVendor: text(raw, 'OEMVendor'),
     fwVersion: text(raw, 'FWVersion'),
     pushVersion: text(raw, 'PushVersion'),
-    fpVersion: text(raw, 'FPVersion'),
+    /**
+     * Dos nombres para lo mismo segun por donde llegue: `options` manda
+     * `FPVersion` y el volcado de `INFO` manda `~ZKFPVersion` (medido en el
+     * SenseFace 2A el 2026-09-08). Leer solo uno deja el perfil sin version de
+     * huella, y sin ella la replicacion no encuentra ningun template compatible.
+     */
+    fpVersion: text(raw, 'FPVersion') ?? text(raw, 'ZKFPVersion'),
     faceVersion: text(raw, 'FaceVersion'),
     fvVersion: text(raw, 'FvVersion'),
     pvVersion: text(raw, 'PvVersion'),

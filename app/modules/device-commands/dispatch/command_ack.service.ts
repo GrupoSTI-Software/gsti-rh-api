@@ -17,7 +17,17 @@ import type { DeviceProfileRepository } from '#modules/access-point/device-profi
 import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 
 export type AckOutcome =
-  | { kind: 'applied'; commandId: number; status: string; returnCode: number | null }
+  | {
+      kind: 'applied'
+      commandId: number
+      status: string
+      returnCode: number | null
+      /**
+       * Volcado del acuse de un `INFO`: trae las opciones del equipo. Solo se
+       * expone para ese tipo, que es el unico cuyo volcado significa algo.
+       */
+      infoDump: string | null
+    }
   | { kind: 'orphan'; wireId: number | null }
   | { kind: 'unreadable' }
 
@@ -92,6 +102,12 @@ export default class CommandAckService {
       commandId: command.deviceCommandId,
       status: command.deviceCommandStatus,
       returnCode: parsed.returnCode,
+      /**
+       * Solo del `INFO`: su volcado son las opciones del equipo y alimentan el
+       * perfil. El de otros comandos es texto suelto que no se interpreta.
+       */
+      infoDump:
+        command.deviceCommandKind === DEVICE_COMMAND_KIND.INFO ? (parsed.dump ?? null) : null,
     }
   }
 

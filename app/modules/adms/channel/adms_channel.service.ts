@@ -1,4 +1,5 @@
 import type { DateTime } from 'luxon'
+import logger from '@adonisjs/core/services/logger'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import {
   ADMS_CA_TABLES,
@@ -213,6 +214,26 @@ export default class AdmsChannelService {
       body: input.body,
       now,
     })
+
+    /**
+     * El volcado de un `INFO` son las opciones del equipo: es la unica via de
+     * llenar el perfil de un aparato que ya paso su saludo y no lo repite. Va
+     * en su propio try/catch porque el acuse ya se aplico y no puede perderse
+     * por un fallo al guardar el perfil.
+     */
+    if (outcome.kind === 'applied' && outcome.infoDump !== null) {
+      try {
+        await this.deviceProfiles.upsertFromInfo(input.device, outcome.infoDump, rawMessageId)
+      } catch (error) {
+        logger.warn(
+          {
+            accessPointId: input.device.accessPointId,
+            error: (error as Error).message.slice(0, 200),
+          },
+          'canal ADMS: el acuse de INFO se aplico pero su volcado no se pudo guardar'
+        )
+      }
+    }
 
     if (outcome.kind !== 'applied') {
       await this.incidents.record(

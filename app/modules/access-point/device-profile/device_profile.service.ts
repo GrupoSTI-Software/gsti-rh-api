@@ -48,6 +48,27 @@ export default class DeviceProfileService {
     private readonly evidence: ExecutionEvidenceService = new ExecutionEvidenceService()
   ) {}
 
+  /**
+   * Llena el perfil con el volcado que el equipo devuelve al acusar un `INFO`
+   * (spec 6.5, medido en hardware el 2026-09-08).
+   *
+   * Existe porque hay un hueco real en el ciclo: un aparato que hizo su saludo
+   * mientras estaba en cuarentena recibio un `OK` seco, se quedo sondeando y NO
+   * vuelve a saludar por su cuenta. Sin `options` no hay plataforma, y sin
+   * plataforma sus checadas se leen con una disposicion que puede no ser la
+   * suya. `INFO` es la unica via de preguntarselo.
+   *
+   * El volcado trae los mismos pares que `options` separados por saltos de
+   * linea en vez de comas, asi que lo interpreta el mismo parser.
+   */
+  async upsertFromInfo(
+    device: ResolvedAdmsDevice,
+    dump: string,
+    rawMessageId: number
+  ): Promise<OptionsUpsertResult> {
+    return this.upsertFromOptions(device, dump, rawMessageId)
+  }
+
   async upsertFromOptions(
     device: ResolvedAdmsDevice,
     body: string,

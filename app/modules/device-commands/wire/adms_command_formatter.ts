@@ -117,6 +117,13 @@ export function formatDeviceCommand(kind: DeviceCommandKind, fields: DeviceComma
 
     case DEVICE_COMMAND_KIND.CHECK:
       return 'CHECK'
+
+    /**
+     * Sin campos: el equipo contesta con sus opciones en el volcado del acuse.
+     * La gramatica es la del manual; su comportamiento se mide con hardware.
+     */
+    case DEVICE_COMMAND_KIND.INFO:
+      return 'INFO'
   }
 }
 

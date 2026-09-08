@@ -14,6 +14,12 @@ export const DEVICE_COMMAND_KIND = {
   BIOPHOTO_DELETE: 'biophoto_delete',
   CLOCK_SYNC: 'clock_sync',
   CHECK: 'check',
+  /**
+   * Pide al equipo que se presente: responde con el volcado de sus opciones
+   * en el acuse (spec 6.5). Es la unica via de llenar el perfil cuando el
+   * aparato ya paso su saludo y no lo va a repetir.
+   */
+  INFO: 'info',
 } as const
 
 export type DeviceCommandKind = (typeof DEVICE_COMMAND_KIND)[keyof typeof DEVICE_COMMAND_KIND]
@@ -45,6 +51,8 @@ export const DEVICE_COMMAND_PRIORITY: Readonly<Record<DeviceCommandKind, number>
   [DEVICE_COMMAND_KIND.BIOPHOTO_WRITE]: 5,
   [DEVICE_COMMAND_KIND.BIOPHOTO_DELETE]: 5,
   [DEVICE_COMMAND_KIND.CHECK]: 9,
+  /** Sale antes que `check`: el perfil desbloquea leer bien todo lo demas. */
+  [DEVICE_COMMAND_KIND.INFO]: 8,
 }
 
 /**

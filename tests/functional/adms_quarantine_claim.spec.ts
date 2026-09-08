@@ -26,6 +26,7 @@ test.group('Reclamo de cuarentena desde plataforma', (group) => {
   let tenant: BusinessUnit
   let modelId: number
   let biometricsWasEnabled = false
+  let primerAccessPointId = 0
   const quarantineIds: number[] = []
   const deviceIds: number[] = []
   const accessPointIds: number[] = []
@@ -108,6 +109,7 @@ test.group('Reclamo de cuarentena desde plataforma', (group) => {
     })
     deviceIds.push(result.platformDeviceId)
     accessPointIds.push(result.accessPointId)
+    primerAccessPointId = result.accessPointId
 
     assert.equal(result.serialNumber, SERIAL)
     assert.isAbove(result.accessPointId, 0)
@@ -143,6 +145,28 @@ test.group('Reclamo de cuarentena desde plataforma', (group) => {
     assert.equal(releida.admsQuarantinedDeviceStatus, 'claimed')
     assert.equal(releida.claimedBusinessUnitId, tenant.businessUnitId)
     assert.equal(releida.claimedAccessPointId, result.accessPointId)
+  })
+
+  /**
+   * El aparato hizo su saludo mientras estaba en cuarentena y ahi solo recibio
+   * un `OK` seco, asi que se quedo sondeando sin recibir configuracion y no
+   * vuelve a saludar solo. Sin esto, un equipo recien reclamado se queda con el
+   * perfil vacio para siempre y sus checadas se leen con la disposicion
+   * equivocada. Medido con hardware el 2026-09-08.
+   */
+  test('al reclamar se le pide al equipo que se presente', async ({ assert }) => {
+    const comandos = await TenantContext.runUnscoped(
+      () =>
+        db
+          .from('device_commands')
+          .where('access_point_id', primerAccessPointId)
+          .where('device_command_kind', 'info')
+          .select('device_command_status', 'device_command_correlation_key'),
+      'INFO de presentacion'
+    )
+    assert.lengthOf(comandos, 1)
+    assert.equal(comandos[0].device_command_status, 'pending')
+    assert.equal(comandos[0].device_command_correlation_key, 'info:presentacion-al-reclamar')
   })
 
   test('reclamar dos veces la misma fila no crea una segunda unidad', async ({ assert }) => {

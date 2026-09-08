@@ -6,6 +6,9 @@ import BusinessUnit from '#models/business_unit'
 import PlatformDevice from '#models/platform_device'
 import PlatformDeviceService from '#services/platform_device_service'
 import PlatformDeviceAssignmentService from '#services/platform_device_assignment_service'
+import DeviceCommandService from '#modules/device-commands/device_command.service'
+import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
+import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
 import { PLATFORM_DEVICE_ERROR_CODES } from '#constants/platform_device_error_codes'
 import { PlatformDeviceServiceError } from '#exceptions/platform_device_service_error'
 import { TenantContext } from '#utils/tenant_context'
@@ -52,7 +55,8 @@ export interface ClaimFromQuarantineResult {
 export default class PlatformQuarantineClaimService {
   constructor(
     private readonly devices: PlatformDeviceService = new PlatformDeviceService(),
-    private readonly assignments: PlatformDeviceAssignmentService = new PlatformDeviceAssignmentService()
+    private readonly assignments: PlatformDeviceAssignmentService = new PlatformDeviceAssignmentService(),
+    private readonly commands: DeviceCommandPort = new DeviceCommandService()
   ) {}
 
   async claim(input: ClaimFromQuarantineInput): Promise<ClaimFromQuarantineResult> {
@@ -106,6 +110,12 @@ export default class PlatformQuarantineClaimService {
       now
     )
 
+    await this.askDeviceToIntroduceItself(
+      assignment.accessPoint.accessPointId,
+      tenant.businessUnitId,
+      input.createdByUserId
+    )
+
     return {
       quarantinedDeviceId: row.admsQuarantinedDeviceId,
       serialNumber: serial,
@@ -115,6 +125,46 @@ export default class PlatformQuarantineClaimService {
       accessPointName: assignment.accessPoint.accessPointName,
       accessPointOutcome: assignment.accessPointOutcome,
       revivedDeletedAccessPoint: revived,
+    }
+  }
+
+  /**
+   * Le pide al equipo que se presente, con un `INFO` en la cola.
+   *
+   * Hace falta porque el aparato hizo su saludo MIENTRAS estaba en cuarentena:
+   * ahi el canal le respondio un `OK` seco -- el rechazo silencioso de una serie
+   * que no conocia -- y el equipo se quedo sondeando comandos sin recibir nunca
+   * la configuracion. Ya reclamado, no vuelve a saludar por su cuenta: se queda
+   * pidiendo ordenes para siempre y su perfil nunca se llena.
+   *
+   * `INFO` lo desbloquea: el equipo contesta con el volcado de sus opciones, y
+   * de ahi salen la plataforma y las versiones. Sin plataforma, sus checadas se
+   * leen con una disposicion que puede no ser la suya.
+   *
+   * No lanza. El reclamo ya esta hecho y es valido; si esto falla, el operador
+   * siempre puede mandar el `INFO` a mano.
+   */
+  private async askDeviceToIntroduceItself(
+    accessPointId: number,
+    businessUnitId: number,
+    userId: number | null
+  ): Promise<void> {
+    try {
+      await TenantContext.run([businessUnitId], () =>
+        this.commands.enqueue({
+          accessPointId,
+          businessUnitId,
+          kind: DEVICE_COMMAND_KIND.INFO,
+          fields: {},
+          correlationKey: 'info:presentacion-al-reclamar',
+          requestedByUserId: userId,
+        })
+      )
+    } catch (error) {
+      logger.warn(
+        { accessPointId, error: (error as Error).message.slice(0, 200) },
+        'Reclamo de cuarentena: no se pudo encolar el INFO de presentacion'
+      )
     }
   }
 
