@@ -169,6 +169,21 @@ export default class AdmsChannelGateway {
       }
 
       const query = parseQuery(ctx)
+      /**
+       * `hints: null` es deliberado, no un pendiente (decision del 2026-09-08).
+       *
+       * La cuarentena tiene sitio para las pistas del aparato -- plataforma,
+       * firmware, nombre del dispositivo -- y con ellas el panel podria
+       * proponer el modelo al reclamarlo. Pero esas pistas viajan en el CUERPO,
+       * y para una serie desconocida el canal corta antes de leerlo (regla
+       * 13.1: serie desconocida corta antes de cualquier otra consulta).
+       *
+       * Se evaluo abrir esa regla para leer un cuerpo minimo solo por las
+       * pistas, y se decidio que no: quien reclama tiene el aparato delante o
+       * su foto, y teclear el modelo cuesta menos que ampliar lo que el canal
+       * hace por un desconocido. Si alguna vez se quiere, `sanitizeQuarantineHints`
+       * ya esta escrito y espera.
+       */
       const resolution = await this.resolver.resolve({ serial: query.SN, ip, now, hints: null })
       if (resolution.kind === 'reject') {
         return sendText(ctx.response, resolution.status, resolution.body)
