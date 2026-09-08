@@ -408,4 +408,118 @@ export default class PlatformMrrService {
       suscripciones: Number(row.suscripciones ?? 0),
     }))
   }
+
+  /**
+   * Serie mensual de MRR **cobrado** (USRH1788052455654).
+   *
+   * Es una métrica distinta de `getMrrSnapshot`, no otra vista de la misma:
+   * aquélla mide lo contratado y vigente hoy, ésta mide lo que entró de cobros
+   * atribuibles a cada mes. El último punto de la serie normalmente **no**
+   * coincide con `mrrActualNetoCents`, y eso es correcto — por eso el payload
+   * declara `criterio: 'pagos'` y los campos se llaman distinto.
+   *
+   * Se leen TODOS los cobros con periodo, no solo los de la ventana: un cobro
+   * anterior que cubrió varios meses puede seguir aportando adentro, y acotar por
+   * fecha de arranque perdería esa aportación en silencio. Con el volumen de hoy
+   * la pasada completa es barata; si los cobros llegan a decenas de miles, ése es
+   * el momento de acotar por rango o de materializar la serie — supuesto abierto
+   * y declarado en la HU, no deuda escondida.
+   *
+   * @param months - Ancho de la ventana en meses, ya validado en 1..24 por el controlador.
+   * @returns La serie, su ventana y cuántos cobros quedaron fuera por no tener periodo.
+   */
+  async getMonthlySeries(months: number): Promise<PlatformMrrSeries> {
+    const currentMonth = toBusinessDateString().slice(0, 7)
+
+    const rows = await this.loadPaymentsWithPeriod()
+    const paymentsWithoutPeriod = await this.countPaymentsWithoutPeriod()
+
+    return buildMrrSeries(rows, { currentMonth, months, paymentsWithoutPeriod })
+  }
+
+  /**
+   * Universo de la serie: cobros de suscripciones vivas de empresas vivas.
+   *
+   * Los dos `whereNull` van a mano porque las queries crudas de Knex no pasan por
+   * el hook de `SoftDeletes` (gotcha del área, `platform_device_service.ts`). Sin
+   * ellos la serie suma los cobros de tenants borrados **sin fallar**, que es la
+   * peor forma de estar mal.
+   *
+   * **`billing_payments` no tiene borrado lógico:** es append-only, el modelo no
+   * declara `deletedAt` y la columna no existe en la tabla. No se le agrega un
+   * filtro `deleted_at` — la consulta reventaría.
+   *
+   * Sin filtro de estado de la suscripción: un cobro de una suscripción que hoy
+   * está `past_due` o `canceled` sigue siendo dinero que entró por el mes que
+   * cubrió. Lo que excluye es la baja lógica, no el estado.
+   */
+  private seriesBaseQuery() {
+    return db
+      .from('billing_payments as bp')
+      .join(
+        'billing_subscriptions as bs',
+        'bs.billing_subscription_id',
+        'bp.billing_subscription_id'
+      )
+      .join('business_units as bu', 'bu.business_unit_id', 'bs.business_unit_id')
+      .whereNull('bs.billing_subscription_deleted_at')
+      .whereNull('bu.business_unit_deleted_at')
+  }
+
+  /**
+   * Cobros con periodo registrado, reducidos a importe, meses cubiertos y mes de
+   * arranque.
+   *
+   * El mes se calcula con `DATE_FORMAT` en SQL y no en JavaScript: los valores
+   * `DATE` del driver MySQL llegan anclados a UTC y leerlos en zona local correría
+   * el día —y con él el mes— en todo cobro que arranque el día 1 (gotcha
+   * documentado en `business_date.ts`).
+   *
+   * Se lee `billing_payment_subtotal_cents`, que es el importe SIN IVA congelado
+   * al cobrar. **No se convierte a centavos**: ya lo está, al revés que las
+   * columnas `decimal` de la suscripción.
+   *
+   * @returns Una fila por cobro atribuible. Sin orden garantizado: el reparto no depende de él.
+   */
+  private async loadPaymentsWithPeriod(): Promise<MrrPaymentPeriodRow[]> {
+    const rows = (await this.seriesBaseQuery()
+      .whereNotNull('bp.billing_payment_period_start')
+      .whereNotNull('bp.billing_payment_period_end')
+      .select('bp.billing_payment_subtotal_cents as subtotalCents')
+      .select('bp.billing_payment_periods_covered as periodsCovered')
+      .select(
+        db.raw("DATE_FORMAT(bp.billing_payment_period_start, '%Y-%m') as periodStartMonth")
+      )) as Array<Record<string, unknown>>
+
+    return rows.map((row) => ({
+      subtotalCents: Number(row.subtotalCents ?? 0),
+      periodsCovered: Number(row.periodsCovered ?? 0),
+      periodStartMonth: String(row.periodStartMonth ?? ''),
+    }))
+  }
+
+  /**
+   * Cuántos cobros del universo no se pueden ubicar en ningún mes por no tener
+   * periodo registrado. Son los pagos parciales, que por diseño dejan
+   * `period_start` y `period_end` en nulo.
+   *
+   * Se informan, no se adivinan: ubicarlos por la fecha de pago inventaría
+   * ingreso en un mes que no lo recibió.
+   *
+   * Los paréntesis del `whereRaw` son obligatorios: sin ellos el `OR` se lleva
+   * por delante los `AND` del universo y la consulta devolvería cobros de
+   * empresas borradas.
+   *
+   * @returns Conteo de cobros descartados; 0 cuando no hay ninguno.
+   */
+  private async countPaymentsWithoutPeriod(): Promise<number> {
+    const row = (await this.seriesBaseQuery()
+      .whereRaw(
+        '(bp.billing_payment_period_start IS NULL OR bp.billing_payment_period_end IS NULL)'
+      )
+      .select(db.raw('COUNT(*) as total'))
+      .first()) as Record<string, unknown> | null
+
+    return Number(row?.total ?? 0)
+  }
 }
