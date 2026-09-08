@@ -44,6 +44,10 @@ export const PLATFORM_DEVICE_ERROR_CODES = {
   SALE_PRICE_NOT_ALLOWED: 'PLT.DEV.SALE_PRICE_NOT_ALLOWED',
   /** El régimen elegido no es compatible con el origen de la unidad (reglas 4 y 5 del spec 1880) */
   TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN: 'PLT.DEV.TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN',
+  /** La unidad no tiene ninguna entrega vigente que cerrar (regla 8 del spec 1881) */
+  NO_OPEN_ASSIGNMENT: 'PLT.DEV.NO_OPEN_ASSIGNMENT',
+  /** La fecha de liberación es anterior a la de entrega de esa asignación o posterior a hoy (regla 2 del spec 1881) */
+  RELEASE_DATE_INVALID: 'PLT.DEV.RELEASE_DATE_INVALID',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.DEV.SYS_UNHANDLED',
 } as const

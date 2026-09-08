@@ -1,12 +1,18 @@
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { DateTime } from 'luxon'
-import PlatformDevice from '#models/platform_device'
+import PlatformDevice, {
+  type PlatformDeviceRetireReason,
+  type PlatformDeviceStockStatus,
+} from '#models/platform_device'
 import PlatformDeviceAssignment, {
   type PlatformDeviceAssignmentTenureRegime,
 } from '#models/platform_device_assignment'
 import BusinessUnit from '#models/business_unit'
 import { PLATFORM_DEVICE_ERROR_CODES } from '../constants/platform_device_error_codes.js'
 import { PlatformDeviceServiceError } from '../exceptions/platform_device_service_error.js'
+import type { PlatformDeviceAssignmentReleaseReason } from '../constants/platform_device_assignment.js'
+import { toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
 import PlatformDeviceAccessPointService, {
   type AccessPointPreloadOutcome,
   type PreloadedAccessPoint,
@@ -57,6 +63,29 @@ interface CreateAssignmentInput {
 interface ListAssignmentsInput {
   tenantPublicId: string
   status?: 'open' | 'all'
+}
+
+interface UnassignDeviceInput {
+  releasedAt: Date
+  releaseReason: PlatformDeviceAssignmentReleaseReason
+}
+
+/** Forma que devuelve `unassign()` (§11 del spec USRH1787189981881). */
+export interface UnassignmentRecord {
+  assignment: {
+    id: number
+    tenantPublicId: string
+    deliveredAt: string
+    releasedAt: string
+    releaseReason: PlatformDeviceAssignmentReleaseReason
+    tenureRegime: PlatformDeviceAssignmentTenureRegime
+  }
+  device: {
+    id: number
+    serialNumber: string
+    stockStatus: PlatformDeviceStockStatus
+    retireReason: PlatformDeviceRetireReason | null
+  }
 }
 
 /**
@@ -244,6 +273,149 @@ export default class PlatformDeviceAssignmentService {
         saleCurrency: assignment.platformDeviceAssignmentSaleCurrency,
       }
     })
+  }
+
+  /**
+   * Cierra la entrega vigente de un aparato y resuelve su destino
+   * (USRH1787189981881 · §10 del spec).
+   *
+   * Máquina de tres salidas mutuamente excluyentes, en este orden de
+   * precedencia (regla explícita del spec cuando concurren 5 y 6):
+   *   1. Régimen `venta` → `retirada` con motivo `vendido` (regla 5).
+   *   2. Origen `del_cliente` → `retirada` con motivo `del_cliente` (regla 6),
+   *      cualquiera que sea el motivo de liberación capturado.
+   *   3. Cualquier otro caso → `disponible` (regla 4).
+   *
+   * Mismo patrón transaccional que `createAssignment`: `forUpdate()` sobre
+   * la fila **padre** de `platform_devices` (que siempre existe), nunca
+   * sobre el rango de `platform_device_assignments` (gotcha 9 del spec:
+   * un rango vacío no bloquea nada).
+   *
+   * @throws PlatformDeviceServiceError 404 — unidad no encontrada.
+   * @throws PlatformDeviceServiceError 422 — sin entrega vigente que cerrar.
+   * @throws PlatformDeviceServiceError 422 — fecha de liberación fuera de rango.
+   */
+  async unassign(
+    platformDeviceId: number,
+    input: UnassignDeviceInput
+  ): Promise<UnassignmentRecord> {
+    return db.transaction(async (trx) => {
+      // Bloquear la fila del aparato — misma razón que en createAssignment:
+      // evita que dos cierres concurrentes pisen el mismo estado.
+      const device = await PlatformDevice.query({ client: trx })
+        .where('platform_device_id', platformDeviceId)
+        .whereNull('platform_device_deleted_at')
+        .forUpdate()
+        .first()
+
+      if (!device) {
+        throw new PlatformDeviceServiceError(
+          `Aparato ${platformDeviceId} no encontrado`,
+          PLATFORM_DEVICE_ERROR_CODES.DEVICE_NOT_FOUND,
+          404,
+          PLATFORM_DEVICE_ERROR_CODES.DEVICE_NOT_FOUND,
+          'El aparato del inventario no existe o fue dado de baja.'
+        )
+      }
+
+      // Con la fila padre ya bloqueada, buscar la entrega vigente (regla 8).
+      const assignment = await PlatformDeviceAssignment.query({ client: trx })
+        .where('platform_device_id', platformDeviceId)
+        .whereNull('platform_device_assignment_released_at')
+        .whereNull('platform_device_assignment_deleted_at')
+        .preload('businessUnit')
+        .first()
+
+      if (!assignment) {
+        throw new PlatformDeviceServiceError(
+          `Aparato ${platformDeviceId} no tiene entrega vigente`,
+          PLATFORM_DEVICE_ERROR_CODES.NO_OPEN_ASSIGNMENT,
+          422,
+          PLATFORM_DEVICE_ERROR_CODES.NO_OPEN_ASSIGNMENT,
+          'La unidad no tiene una asignación vigente que cerrar.'
+        )
+      }
+
+      // Regla 2: releasedAt ∈ [deliveredAt de ESTA asignación, hoy en zona de negocio].
+      // A propósito el mismo error de negocio para ambos bordes (CA-6 del spec).
+      //
+      // `deliveredAt` se releyó de BD (no es el objeto recién creado en memoria):
+      // el driver mysql2 decodifica la columna DATE como `Date` de JS, no como
+      // string, aunque el tipo declarado en el modelo diga `string` (gotcha
+      // documentado en business_date.ts:38-46). Sin normalizar con
+      // `toCalendarIsoDate`, la comparación de rango de abajo pasa siempre
+      // como verdadera sin lanzar error — verificado manualmente, ver commit.
+      const releasedAtStr = DateTime.fromJSDate(input.releasedAt).toISODate()!
+      const todayStr = toBusinessDateString()
+      const deliveredAtStr = toCalendarIsoDate(assignment.platformDeviceAssignmentDeliveredAt)!
+
+      if (releasedAtStr < deliveredAtStr || releasedAtStr > todayStr) {
+        throw new PlatformDeviceServiceError(
+          `Fecha de liberación ${releasedAtStr} fuera de rango para la asignación ${assignment.platformDeviceAssignmentId}`,
+          PLATFORM_DEVICE_ERROR_CODES.RELEASE_DATE_INVALID,
+          422,
+          PLATFORM_DEVICE_ERROR_CODES.RELEASE_DATE_INVALID,
+          'La fecha de regreso no puede ser anterior a la fecha de entrega ni posterior a hoy.'
+        )
+      }
+
+      // Cerrar la entrega — nunca se borra ni se sobrescribe (regla 3).
+      assignment.useTransaction(trx)
+      assignment.platformDeviceAssignmentReleasedAt = releasedAtStr
+      assignment.platformDeviceAssignmentReleaseReason = input.releaseReason
+      await assignment.save()
+
+      // Resolver el destino de la unidad (reglas 4, 5, 6 — precedencia fijada arriba).
+      device.useTransaction(trx)
+      if (assignment.platformDeviceAssignmentTenureRegime === 'venta') {
+        device.platformDeviceStockStatus = 'retirada'
+        device.platformDeviceRetireReason = 'vendido'
+        device.platformDeviceRetiredAt = releasedAtStr
+      } else if (device.platformDeviceOrigin === 'del_cliente') {
+        device.platformDeviceStockStatus = 'retirada'
+        device.platformDeviceRetireReason = 'del_cliente'
+        device.platformDeviceRetiredAt = releasedAtStr
+      } else {
+        device.platformDeviceStockStatus = 'disponible'
+      }
+      await device.save()
+
+      // Punto de extensión declarado (§9 del spec): "Desactivar el punto de
+      // acceso del tenant al desasignar la unidad" (USRH1787189981883)
+      // engancha aquí, dentro de la misma transacción, después de cerrar la
+      // asignación y antes del commit. Vacío a propósito en este alcance.
+      await this.onAssignmentClosed(assignment, trx)
+
+      return {
+        assignment: {
+          id: assignment.platformDeviceAssignmentId,
+          tenantPublicId: assignment.businessUnit.businessUnitPublicId,
+          deliveredAt: deliveredAtStr,
+          releasedAt: assignment.platformDeviceAssignmentReleasedAt!,
+          releaseReason: assignment.platformDeviceAssignmentReleaseReason!,
+          tenureRegime: assignment.platformDeviceAssignmentTenureRegime,
+        },
+        device: {
+          id: device.platformDeviceId,
+          serialNumber: device.platformDeviceSerialNumber,
+          stockStatus: device.platformDeviceStockStatus,
+          retireReason: device.platformDeviceRetireReason,
+        },
+      }
+    })
+  }
+
+  /**
+   * Punto de extensión para "Desactivar el punto de acceso del tenant al
+   * desasignar la unidad" (USRH1787189981883 · §9 del spec 1881).
+   * Deliberadamente vacío en este alcance — no reimplementar aquí la
+   * desactivación del `access_point`; esa HU rellena este método.
+   */
+  private async onAssignmentClosed(
+    _assignment: PlatformDeviceAssignment,
+    _trx: TransactionClientContract
+  ): Promise<void> {
+    // Sin cuerpo a propósito (ver docblock).
   }
 
   /**
