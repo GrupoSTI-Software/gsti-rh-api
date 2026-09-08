@@ -24,6 +24,7 @@ import DeviceProfileRepositoryMysql from '#modules/access-point/device-profile/d
 import DeviceProfileService from '#modules/access-point/device-profile/device_profile.service'
 import AttlogIngestionService from '#modules/adms/ingestion/attlog_ingestion.service'
 import CommandAckService from '#modules/device-commands/dispatch/command_ack.service'
+import BiometricUploadService from '#modules/adms/uploads/biometric_upload.service'
 import { attlogLayoutFor } from '#modules/adms/parsers/parser.types'
 import AccessPoint from '#models/access_point'
 import BusinessUnit from '#models/business_unit'
@@ -74,7 +75,8 @@ export default class AdmsChannelService {
     private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
     private readonly deviceProfiles: DeviceProfileService = new DeviceProfileService(),
     private readonly attlog: AttlogIngestionService = new AttlogIngestionService(),
-    private readonly ack: CommandAckService = new CommandAckService()
+    private readonly ack: CommandAckService = new CommandAckService(),
+    private readonly biometrics: BiometricUploadService = new BiometricUploadService()
   ) {}
 
   async receiveUpload(input: UploadInput): Promise<ChannelReply> {
@@ -296,6 +298,12 @@ export default class AdmsChannelService {
     if (input.table === ADMS_UPLOAD_TABLE.ATTLOG) {
       return this.ingestAttlog(input, rawMessageId)
     }
+    if (
+      input.table === ADMS_UPLOAD_TABLE.BIODATA ||
+      input.table === ADMS_UPLOAD_TABLE.OPERLOG
+    ) {
+      return this.ingestBiometrics(input, rawMessageId)
+    }
     if (input.table && known.includes(input.table)) {
       return { status: ADMS_RAW_STATUS.RECEIVED, error: null }
     }
@@ -348,6 +356,34 @@ export default class AdmsChannelService {
       deviceZone: device.timezone,
       businessUnitZone: businessUnit?.businessUnitTimezone ?? null,
     })
+    return { status: result.status, error: result.error }
+  }
+
+  /**
+   * Biometricos que el equipo empuja. Las versiones del perfil se leen aqui
+   * porque solo el canal sabe que aparato subio: la linea `FP` de `OPERLOG` no
+   * declara version y sin ella el template no se podria replicar despues.
+   */
+  private async ingestBiometrics(
+    input: UploadInput,
+    rawMessageId: number
+  ): Promise<TableProcessingResult> {
+    const { device } = input
+    const profile = await this.profiles.ensure(device.accessPointId, device.businessUnitId)
+
+    const context = {
+      device,
+      body: input.body,
+      rawMessageId,
+      deviceFpVersion: profile.accessPointProfileFpVersion ?? null,
+      deviceFaceVersion: profile.accessPointProfileFaceVersion ?? null,
+    }
+
+    const result =
+      input.table === ADMS_UPLOAD_TABLE.BIODATA
+        ? await this.biometrics.ingestBiodata(context)
+        : await this.biometrics.ingestOperlog(context)
+
     return { status: result.status, error: result.error }
   }
 

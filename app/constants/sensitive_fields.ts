@@ -137,6 +137,21 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // Ancla: app/models/adms_raw_message.ts
   { model: 'AdmsRawMessage', column: 'admsRawMessageBody', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
 
+  // ─── BiometricTemplate: biométrico ────────────────────────────────────────
+  // biometricTemplateTemplate — la huella o el rostro del colaborador, tal como
+  // los produjo el algoritmo del equipo. Es el dato biométrico en sí. No se
+  // busca en SQL, no se serializa y solo se lee por TemplateService, que asienta
+  // el acceso en la bitácora de datos sensibles.
+  // Ancla: app/models/biometric_template.ts
+  { model: 'BiometricTemplate', column: 'biometricTemplateTemplate', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
+  // ─── AdmsHeldBiometric: biométrico ────────────────────────────────────────
+  // admsHeldBiometricTemplate — el mismo dato, capturado para un PIN que aún no
+  // corresponde a ningún colaborador. Se conserva porque volver a pedir el dedo
+  // cuesta una visita; se traslada a la bóveda al conciliar.
+  // Ancla: app/models/adms_held_biometric.ts
+  { model: 'AdmsHeldBiometric', column: 'admsHeldBiometricTemplate', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
   // ─── DeviceCommand: biométrico ────────────────────────────────────────────
   // deviceCommandPayload — línea literal que se manda al checador. En un
   // `biodata_write` lleva el template de huella o rostro completo. No se busca
