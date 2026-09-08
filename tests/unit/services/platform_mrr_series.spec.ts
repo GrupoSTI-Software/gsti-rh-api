@@ -179,6 +179,20 @@ test.group('buildMrrSeries', () => {
     assert.equal(serie.puntos.length, 3)
   })
 
+  test('un cobro multiperiodo anterior a la ventana sigue aportando a los meses de adentro', ({
+    assert,
+  }) => {
+    const serie = buildMrrSeries(
+      [pago({ subtotalCents: 1_200_000, periodsCovered: 12, periodStartMonth: '2026-01' })],
+      { currentMonth: MES_EN_CURSO, months: 3, paymentsWithoutPeriod: 0 }
+    )
+
+    assert.equal(serie.ventana.desde, '2026-07')
+    assert.equal(punto(serie, '2026-07').mrrCobradoNetoCents, 100_000)
+    assert.equal(punto(serie, '2026-09').mrrCobradoNetoCents, 100_000)
+    assert.equal(punto(serie, '2026-07').pagosConsiderados, 1)
+  })
+
   test('un primer cobro que cubre un periodo futuro no invierte la ventana', ({ assert }) => {
     const serie = buildMrrSeries(
       [pago({ subtotalCents: 100_000, periodsCovered: 1, periodStartMonth: '2026-11' })],

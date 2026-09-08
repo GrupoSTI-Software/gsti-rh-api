@@ -214,7 +214,8 @@ export default class PlatformMrrController {
    *       inflar el mes en que se pagó. El reparto usa división entera de centavos y el residuo
    *       no se atribuye a ningún mes.
    *       Los cobros sin periodo registrado NO se ubican en ningún mes —ni por la fecha de pago
-   *       ni por ningún otro criterio—: quedan fuera y se informan en pagosSinPeriodoExcluidos.
+   *       ni por ningún otro criterio—: quedan fuera y se informan en pagosSinPeriodoExcluidos
+   *       (cuenta de toda la historia, no de la ventana solicitada).
    *       Un mes sin cobros atribuibles vale 0 y viene marcado de baja confiabilidad. Nunca se
    *       rellena con el mes anterior, con un promedio ni con una estimación. El mes en curso
    *       siempre viene de baja confiabilidad: está incompleto por definición y siempre se verá
@@ -280,7 +281,8 @@ export default class PlatformMrrController {
    *                       type: integer
    *                       description: |
    *                         Cobros que no se pudieron ubicar en ningún mes por no tener periodo
-   *                         registrado. Se informan; jamás se les asigna un mes a ojo.
+   *                         registrado (cuenta de toda la historia, no de la ventana solicitada).
+   *                         Se informan; jamás se les asigna un mes a ojo.
    *                     puntos:
    *                       type: array
    *                       description: Un punto por mes, cronológico ascendente y sin huecos dentro de la ventana.
@@ -369,7 +371,8 @@ export default class PlatformMrrController {
    *   (mrrCobradoNetoCents). Sus números no tienen por qué coincidir y el último punto de la serie\
    *   normalmente será distinto de la cifra de la franja. Eso es correcto, no un defecto.\
    *   Cada cobro aporta su importe SIN IVA repartido en partes iguales entre los meses que cubrió.\
-   *   Los cobros sin periodo no se ubican en ningún mes: se excluyen y se cuentan.\
+   *   Los cobros sin periodo no se ubican en ningún mes: se excluyen y se cuentan\
+   *   (cuenta de toda la historia, no de la ventana solicitada).\
    *   Un mes sin cobros vale 0 y viene marcado; nunca se rellena con estimaciones. El mes en curso\
    *   siempre viene marcado porque está incompleto por definición.\
    *   Sin ningún cobro con periodo la respuesta es 200 con puntos vacío y ventana en null.\
@@ -379,7 +382,7 @@ export default class PlatformMrrController {
    * @operationId getPlatformMrrSeries
    * @security [{"bearerAuth": []}]
    * @paramQuery meses - Ancho de la ventana en meses, 1..24 (default 12) - integer
-   * @responseBody 200 - {"type": "success", "data": {"ventana": {"desde": "2026-04", "hasta": "2026-09"}, "criterio": "pagos", "pagosSinPeriodoExcluidos": 2, "puntos": [{"mes": "2026-04", "mrrCobradoNetoCents": 100000, "pagosConsiderados": 1, "confiabilidad": "alta", "motivoBajaConfiabilidad": null}, {"mes": "2026-05", "mrrCobradoNetoCents": 0, "pagosConsiderados": 0, "confiabilidad": "baja", "motivoBajaConfiabilidad": "sin-pagos-en-el-mes"}, {"mes": "2026-09", "mrrCobradoNetoCents": 65000, "pagosConsiderados": 1, "confiabilidad": "baja", "motivoBajaConfiabilidad": "mes-en-curso"}]}}
+   * @responseBody 200 - {"type": "success", "data": {"ventana": {"desde": "2026-04", "hasta": "2026-06"}, "criterio": "pagos", "pagosSinPeriodoExcluidos": 2, "puntos": [{"mes": "2026-04", "mrrCobradoNetoCents": 100000, "pagosConsiderados": 1, "confiabilidad": "alta", "motivoBajaConfiabilidad": null}, {"mes": "2026-05", "mrrCobradoNetoCents": 0, "pagosConsiderados": 0, "confiabilidad": "baja", "motivoBajaConfiabilidad": "sin-pagos-en-el-mes"}, {"mes": "2026-06", "mrrCobradoNetoCents": 65000, "pagosConsiderados": 1, "confiabilidad": "baja", "motivoBajaConfiabilidad": "mes-en-curso"}]}}
    * @responseBody 422 - {"title": "No fue posible obtener la serie mensual de MRR", "detail": "El número de meses debe estar entre 1 y 24.", "key": "no-fue-posible-obtener-la-serie-mensual-de-mrr", "code": "PLT.MET.VAL_INPUT"}
    * @responseBody 403 - {"title": "string", "detail": "string", "key": "AUTH.PLATFORM.FORBIDDEN"}
    * @responseBody 500 - {"title": "string", "detail": "string", "key": "error-inesperado-al-obtener-la-serie-mensual-de-mrr", "code": "PLT.MET.SYS_UNHANDLED"}
