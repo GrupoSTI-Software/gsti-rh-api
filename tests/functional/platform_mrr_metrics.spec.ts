@@ -116,7 +116,9 @@ test.group('GET /api/platform/metrics/mrr', (group) => {
     const data = response.body().data as MrrBody
     const suma = data.mrrActualNetoCents + data.mrrProyectadoTrialCents
 
-    assert.notInclude(Object.values(data), suma)
+    if (data.mrrActualNetoCents > 0 && data.mrrProyectadoTrialCents > 0) {
+      assert.notInclude(Object.values(data), suma)
+    }
     assert.notInclude(JSON.stringify(data), '"mrrTotal')
   })
 

@@ -258,7 +258,9 @@ test.group('PlatformMrrService.getMrrSnapshot', (group) => {
       'suscripcionesActivas',
       'suscripcionesEnPrueba',
     ])
-    assert.notInclude(Object.values(snapshot), suma)
+    if (snapshot.mrrActualNetoCents > 0 && snapshot.mrrProyectadoTrialCents > 0) {
+      assert.notInclude(Object.values(snapshot), suma)
+    }
   })
 
   test('CA-4 — al caer en past_due el actual baja exactamente ese importe', async ({ assert }) => {
