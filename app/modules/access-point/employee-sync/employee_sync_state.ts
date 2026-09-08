@@ -49,13 +49,15 @@ const TRANSITIONS: Readonly<
 }
 
 /**
- * Estados en los que el PIN NO se puede reasignar (spec 8.1 y 5.2).
+ * Estados en los que el PIN NO se puede reasignar a otra persona (spec 8.1).
  *
  * Va desde que se pide el borrado hasta que hay evidencia de que el equipo lo
  * aplico. `revoked` ya no esta: ahi el aparato confirmo que el PIN quedo libre.
  *
- * Sin esta cuarentena, un PIN reciclado le acreditaria al nuevo contratado las
- * checadas que el equipo todavia genera con el registro del anterior.
+ * OJO: no confundir con retener CHECADAS, que es otro momento y otra regla
+ * (spec 5.2, `isPinAmbiguousForPunches`). Mientras el borrado no sale del
+ * servidor, el colaborador sigue dado de alta en el aparato y lo que marque es
+ * suyo; lo que no se puede es darle ese numero a alguien mas todavia.
  */
 export const PIN_QUARANTINE_STATUSES: readonly AccessPointEmployeeSyncStatus[] = [
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKING,
@@ -66,6 +68,22 @@ export const PIN_QUARANTINE_STATUSES: readonly AccessPointEmployeeSyncStatus[] =
 
 export function isPinQuarantined(status: AccessPointEmployeeSyncStatus): boolean {
   return PIN_QUARANTINE_STATUSES.includes(status)
+}
+
+/**
+ * Estado en el que una checada con ese PIN es AMBIGUA y se retiene (spec 5.2).
+ *
+ * Solo `revoke_acked`. Es el unico momento en que no se sabe de quien es la
+ * checada: el equipo dijo que recibio el borrado pero no que lo aplico, asi que
+ * el marcaje podria ser del colaborador que aun figura o de nadie.
+ *
+ * Antes de eso (`revoking`, `revoke_sent`) el registro sigue vivo en el aparato
+ * y la checada es del colaborador de siempre: retenerla le quitaria tiempo
+ * trabajado. Despues (`revoked`) el PIN ya se pudo reasignar y la resolucion
+ * encuentra al nuevo dueno por su propio pivote.
+ */
+export function isPinAmbiguousForPunches(status: AccessPointEmployeeSyncStatus): boolean {
+  return status === ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED
 }
 
 export function canTransition(

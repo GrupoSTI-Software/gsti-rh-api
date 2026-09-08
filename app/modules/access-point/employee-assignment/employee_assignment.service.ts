@@ -1,11 +1,6 @@
 import type { I18n } from '@adonisjs/i18n'
-import RoleService from '#services/role_service'
 import { ACCESS_POINT_EMPLOYEE_ERROR_CODES } from '#constants/access_point_employee_error_codes'
 import AccessPointEmployeeServiceError from '#exceptions/access_point_employee_service_error'
-import {
-  ACCESS_POINT_EMPLOYEE_MODULE_SLUG,
-  ACCESS_POINT_EMPLOYEE_WRITE_ACTION,
-} from './employee_assignment.constants.js'
 import {
   toAccessPointEmployeeDto,
   type AccessPointEmployeeDto,
@@ -34,37 +29,6 @@ export default class EmployeeAssignmentService {
     return this.i18n.formatMessage(key)
   }
 
-  /**
-   * Verifica que el rol pueda escribir sobre biométricos del empleado.
-   *
-   * @param roleId Rol de la sesión.
-   * @throws AccessPointEmployeeServiceError con clave `sin-permiso`.
-   */
-  async assertCanAccess(roleId: number | null | undefined): Promise<void> {
-    const forbidden = () =>
-      new AccessPointEmployeeServiceError({
-        key: 'sin-permiso',
-        errorCode: ACCESS_POINT_EMPLOYEE_ERROR_CODES.FORBIDDEN,
-        httpStatus: 403,
-        title: this.t('access_point_employee_forbidden_title'),
-        detail: this.t('access_point_employee_forbidden_message'),
-      })
-
-    if (!roleId) {
-      throw forbidden()
-    }
-
-    const roleService = new RoleService()
-    const hasAccess = await roleService.hasAccess(
-      roleId,
-      ACCESS_POINT_EMPLOYEE_MODULE_SLUG,
-      ACCESS_POINT_EMPLOYEE_WRITE_ACTION
-    )
-
-    if (!hasAccess) {
-      throw forbidden()
-    }
-  }
 
   /**
    * Comprueba que ambos extremos existan dentro del alcance de la petición.

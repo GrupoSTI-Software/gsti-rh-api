@@ -6,6 +6,9 @@ import {
   DEVICE_COMMAND_STATUS,
   DEVICE_COMMAND_UNKNOWN_RETURN,
 } from '../device_command.constants.js'
+import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
+import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
+import type DeviceCommand from '#models/device_command'
 import { parseDeviceCmdBody } from '../wire/adms_ack.parser.js'
 import type { DeviceCommandRepository } from '../device_command.repository.js'
 
@@ -30,7 +33,8 @@ export interface AckInput {
  */
 export default class CommandAckService {
   constructor(
-    private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql()
+    private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
+    private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql()
   ) {}
 
   async apply(input: AckInput): Promise<AckOutcome> {
@@ -69,11 +73,40 @@ export default class CommandAckService {
     }
 
     await this.repository.save(command)
+    await this.syncPivot(command, parsed.returnCode)
+
     return {
       kind: 'applied',
       commandId: command.deviceCommandId,
       status: command.deviceCommandStatus,
       returnCode: parsed.returnCode,
+    }
+  }
+
+  /**
+   * Mueve el estado del colaborador en el equipo segun lo que acuso el aparato
+   * (spec 8.1).
+   *
+   * Un `Return=0` de un borrado deja `revoke_acked`, NUNCA `revoked`: el equipo
+   * dijo que recibio la orden, no que la aplico. Hasta que haya evidencia, el
+   * PIN sigue en cuarentena y no se le da a nadie mas.
+   */
+  private async syncPivot(command: DeviceCommand, returnCode: number | null): Promise<void> {
+    if (command.accessPointEmployeeId === null) return
+    const accepted = returnCode === 0
+
+    if (command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_UPSERT) {
+      await this.pivots.updateStatus(
+        command.accessPointEmployeeId,
+        accepted ? 'confirmed' : 'failed'
+      )
+      return
+    }
+    if (command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_DELETE) {
+      await this.pivots.updateStatus(
+        command.accessPointEmployeeId,
+        accepted ? 'revoke_acked' : 'revoke_failed'
+      )
     }
   }
 }

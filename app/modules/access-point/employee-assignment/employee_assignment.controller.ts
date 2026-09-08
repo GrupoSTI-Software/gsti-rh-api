@@ -1,6 +1,8 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { StandardResponseFormatter } from '#helpers/standard_response_formatter'
 import { resolveAccessPointEmployeeApiError } from '#helpers/access_point_employee_api_error'
+import { ensureAccessPointPermission } from '#modules/access-point/access_point_authorization'
+import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 import EmployeeAssignmentService from './employee_assignment.service.js'
 import { assignEmployeeToAccessPointValidator } from './validators/assign_employee.validator.js'
 
@@ -45,10 +47,14 @@ export default class EmployeeAssignmentController {
    *       409:
    *         description: El empleado ya estaba asignado (key asignacion-duplicada)
    */
-  async store({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response, i18n, businessUnitScope } = ctx
     try {
       const service = new EmployeeAssignmentService(i18n)
-      await service.assertCanAccess(auth.user?.roleId)
+      await ensureAccessPointPermission(
+        ctx,
+        EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.assignEmployeeAccessPoint
+      )
 
       const { params } = await request.validateUsing(assignEmployeeToAccessPointValidator, {
         data: { params: request.params() },
@@ -102,10 +108,14 @@ export default class EmployeeAssignmentController {
    *       404:
    *         description: Punto de acceso, empleado o asignación fuera de alcance
    */
-  async destroy({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+  async destroy(ctx: HttpContext) {
+    const { request, response, i18n, businessUnitScope } = ctx
     try {
       const service = new EmployeeAssignmentService(i18n)
-      await service.assertCanAccess(auth.user?.roleId)
+      await ensureAccessPointPermission(
+        ctx,
+        EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.removeEmployeeAccessPoint
+      )
 
       const { params } = await request.validateUsing(assignEmployeeToAccessPointValidator, {
         data: { params: request.params() },

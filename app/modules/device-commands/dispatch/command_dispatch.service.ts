@@ -7,6 +7,9 @@ import {
   type DeviceCommandKind,
 } from '../device_command.constants.js'
 import { getBusinessTimeZone } from '#utils/business_date'
+import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
+import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
+import type DeviceCommand from '#models/device_command'
 import { formatDeviceCommand, formatWireLine } from '../wire/adms_command_formatter.js'
 import { toZkDateTime } from '../wire/zk_datetime.js'
 import type { DeviceCommandRepository } from '../device_command.repository.js'
@@ -41,7 +44,8 @@ const SENSITIVE_KINDS: readonly DeviceCommandKind[] = [
  */
 export default class CommandDispatchService {
   constructor(
-    private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql()
+    private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
+    private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql()
   ) {}
 
   async next(input: DispatchInput): Promise<string> {
@@ -71,6 +75,30 @@ export default class CommandDispatchService {
     command.deviceCommandSentAt = input.now
     await this.repository.save(command)
 
+    await this.syncPivot(command, 'dispatched')
+
     return formatWireLine(command.deviceCommandWireId, command.deviceCommandPayload)
+  }
+
+  /**
+   * Mueve el estado del colaborador en el equipo junto con el del comando
+   * (spec 8.1).
+   *
+   * Solo lo hace si el comando declara a que fila del pivote pertenece: un
+   * comando suelto no puede cambiarle el estado a nadie.
+   */
+  private async syncPivot(
+    command: DeviceCommand,
+    moment: 'dispatched'
+  ): Promise<void> {
+    if (command.accessPointEmployeeId === null || moment !== 'dispatched') return
+
+    if (command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_UPSERT) {
+      await this.pivots.updateStatus(command.accessPointEmployeeId, 'sent')
+      return
+    }
+    if (command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_DELETE) {
+      await this.pivots.updateStatus(command.accessPointEmployeeId, 'revoke_sent')
+    }
   }
 }

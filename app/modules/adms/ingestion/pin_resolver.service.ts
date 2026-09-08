@@ -1,5 +1,5 @@
 import { ADMS_HELD_PUNCH_REASON, type AdmsHeldPunchReason } from '#models/adms_held_punch'
-import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
+import { isPinAmbiguousForPunches } from '#modules/access-point/employee-sync/employee_sync_state'
 import PinResolverRepositoryMysql from './pin_resolver.repository.mysql.js'
 import type { PinResolverRepository } from './pin_resolver.repository.js'
 
@@ -29,11 +29,14 @@ export default class PinResolverService {
     const pivot = await this.repository.findPivot(input.accessPointId, input.pin)
     if (pivot) {
       /**
-       * El borrado se acuso pero nadie confirmo que el equipo lo aplico: la
-       * checada podria ser de la persona nueva que reciclo ese PIN. Se retiene
-       * hasta que la matriz confirme (rebanada 7).
+       * El borrado se acuso pero nadie confirmo que el equipo lo aplico: no se
+       * sabe de quien es esta checada, asi que se retiene (spec 5.2).
+       *
+       * Solo en ese estado. Mientras el borrado no sale del servidor, el
+       * colaborador sigue dado de alta en el aparato y lo que marque es suyo:
+       * retenerlo ahi le quitaria tiempo trabajado.
        */
-      if (pivot.syncStatus === ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED) {
+      if (isPinAmbiguousForPunches(pivot.syncStatus)) {
         return { kind: 'held', reason: ADMS_HELD_PUNCH_REASON.PIN_QUARANTINED }
       }
       return {
