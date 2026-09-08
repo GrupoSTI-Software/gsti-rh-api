@@ -40,6 +40,22 @@ const dismissValidator = vine.compile(
  * esas personas se retiene y se acredita cuando alguien dice de quien es.
  */
 export default class UnmappedPinsController {
+  /**
+   * @swagger
+   * /api/v1/access-points/unmapped-pins:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Puntos de acceso]
+   *     summary: Numeros que el checador reporta y no corresponden a nadie
+   *     parameters:
+   *       - in: query
+   *         name: status
+   *         schema: { type: string, enum: [pending, linked, dismissed] }
+   *     responses:
+   *       200:
+   *         description: Lista en data.unmappedPins, con sus checadas y biometricos retenidos
+   */
   async index(ctx: HttpContext) {
     const { request, response, i18n } = ctx
     try {
@@ -65,6 +81,29 @@ export default class UnmappedPinsController {
   }
 
   /** Sugerencias, no decisiones: quien vincula es una persona. */
+  /**
+   * @swagger
+   * /api/v1/access-points/unmapped-pins/{unmappedPinId}/candidates:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Puntos de acceso]
+   *     summary: Colaboradores que podrian ser el dueño del numero
+   *     description: >
+   *       Son sugerencias, no decisiones: quien vincula es una persona.
+   *       Acreditar por parecido de nombre le colgaria las checadas de alguien
+   *       a otro, y eso se paga en dos nominas.
+   *     parameters:
+   *       - in: query
+   *         name: search
+   *         schema: { type: string }
+   *         description: Busqueda por nombre; requiere al menos tres caracteres
+   *     responses:
+   *       200:
+   *         description: Lista en data.candidates, con matchedBy code o name
+   *       404:
+   *         description: El numero pendiente no esta en el alcance
+   */
   async candidates(ctx: HttpContext) {
     const { request, response, i18n } = ctx
     try {
@@ -93,6 +132,26 @@ export default class UnmappedPinsController {
     }
   }
 
+  /**
+   * @swagger
+   * /api/v1/access-points/unmapped-pins/{unmappedPinId}/link:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Puntos de acceso]
+   *     summary: Le pone dueño al numero y acredita sus checadas retenidas
+   *     description: >
+   *       El pivote queda confirmado con pin_source device: el numero ya existe
+   *       en el aparato y marcarlo como pendiente generaria un alta que
+   *       sobrescribiria lo que ya funciona.
+   *     responses:
+   *       200:
+   *         description: Resultado en data.unmappedPin, con checadas acreditadas y biometricos movidos
+   *       409:
+   *         description: Ese numero ya es de otro colaborador en el equipo (key pin-ocupado)
+   *       404:
+   *         description: El numero o el colaborador no estan en el alcance
+   */
   async link(ctx: HttpContext) {
     const { auth, request, response, i18n } = ctx
     try {
@@ -122,6 +181,22 @@ export default class UnmappedPinsController {
     }
   }
 
+  /**
+   * @swagger
+   * /api/v1/access-points/unmapped-pins/{unmappedPinId}/dismiss:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Puntos de acceso]
+   *     summary: Descarta el numero
+   *     description: >
+   *       No es una lista negra: si el equipo vuelve a reportarlo, reaparece.
+   *     responses:
+   *       200:
+   *         description: Estado en data.unmappedPin
+   *       404:
+   *         description: El numero pendiente no esta en el alcance
+   */
   async dismiss(ctx: HttpContext) {
     const { auth, request, response, i18n } = ctx
     try {

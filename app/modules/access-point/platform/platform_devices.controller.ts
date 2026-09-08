@@ -185,7 +185,23 @@ export default class PlatformDevicesController {
     }
   }
 
-  /** Descarta una fila: un aparato que no es de nadie o que fue una sonda. */
+  /**
+   * @swagger
+   * /api/platform/devices/quarantine/{quarantinedDeviceId}/dismiss:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Plataforma]
+   *     summary: Descarta una fila de cuarentena
+   *     description: >
+   *       Un aparato que no es de nadie o que fue una sonda. Si la serie vuelve
+   *       a llamar, el canal la registra de nuevo.
+   *     responses:
+   *       200:
+   *         description: Estado en data.quarantinedDevice
+   *       404:
+   *         description: No existe esa fila de cuarentena
+   */
   async dismiss(ctx: HttpContext) {
     const { auth, request, response, i18n } = ctx
     try {
@@ -220,6 +236,23 @@ export default class PlatformDevicesController {
    * es una decision de plataforma y por eso reinicia el contador: dejarlo en el
    * limite haria que el siguiente error volviera a bloquear.
    */
+  /**
+   * @swagger
+   * /api/platform/devices/quarantine/{quarantinedDeviceId}/unlock:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Plataforma]
+   *     summary: Libera una fila bloqueada por intentos fallidos
+   *     description: >
+   *       Reinicia el contador ademas de liberar: dejarlo en el limite haria
+   *       que el siguiente error volviera a bloquear.
+   *     responses:
+   *       200:
+   *         description: Estado en data.quarantinedDevice
+   *       404:
+   *         description: No existe esa fila de cuarentena
+   */
   async unlock(ctx: HttpContext) {
     const { auth, request, response, i18n } = ctx
     try {
@@ -252,6 +285,25 @@ export default class PlatformDevicesController {
    * Los globales -- una serie desconocida sondeando, una IP enumerando -- no
    * cuelgan de ningun tenant y solo se ven aqui.
    */
+  /**
+   * @swagger
+   * /api/platform/devices/incidents:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Plataforma]
+   *     summary: Incidentes del canal de todas las empresas, incluidos los globales
+   *     description: >
+   *       Los globales -- una serie desconocida sondeando, una IP enumerando --
+   *       no cuelgan de ningun tenant y solo se ven aqui.
+   *     parameters:
+   *       - in: query
+   *         name: status
+   *         schema: { type: string, enum: [open, resolved] }
+   *     responses:
+   *       200:
+   *         description: Lista en data.incidents, cada uno con su businessUnitId
+   */
   async incidents(ctx: HttpContext) {
     const { request, response, i18n } = ctx
     try {
@@ -280,7 +332,21 @@ export default class PlatformDevicesController {
     }
   }
 
-  /** Plazos con los que corre la purga, para verlos sin entrar al servidor. */
+  /**
+   * @swagger
+   * /api/platform/devices/retention:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Plataforma]
+   *     summary: Plazos de retencion vigentes y volumen actual
+   *     description: >
+   *       Para verlos sin entrar al servidor. Los plazos salen de las variables
+   *       ADMS_*_RETENTION_DAYS, acotadas por un minimo en codigo.
+   *     responses:
+   *       200:
+   *         description: Plazos y conteos en data.retention
+   */
   async retention(ctx: HttpContext) {
     const { response, i18n } = ctx
     try {
