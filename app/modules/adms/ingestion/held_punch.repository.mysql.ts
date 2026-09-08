@@ -3,6 +3,32 @@ import AdmsHeldPunch from '#models/adms_held_punch'
 import AdmsUnmappedPin from '#models/adms_unmapped_pin'
 import type { HeldPunchInput, HeldPunchRepository } from './held_punch.repository.js'
 
+/**
+ * Anota lo que el equipo sabe del PIN y el sistema no.
+ *
+ * El nombre solo se escribe si llega uno y la fila no lo tenia: el primero que
+ * dio el aparato basta, y sobrescribirlo en cada contacto haria que un renombre
+ * en el equipo borrara la pista con la que alguien iba a conciliar.
+ *
+ * Las modalidades se acumulan: ver una huella hoy y un rostro mañana significa
+ * que el PIN tiene las dos, no que la segunda sustituya a la primera.
+ */
+function applyHints(
+  row: AdmsUnmappedPin,
+  name: string | null | undefined,
+  bioType: number | null | undefined
+): void {
+  const limpio = typeof name === 'string' ? name.trim().slice(0, 100) : ''
+  if (limpio.length > 0 && !row.admsUnmappedPinName) {
+    row.admsUnmappedPinName = limpio
+  }
+  if (typeof bioType === 'number' && Number.isInteger(bioType)) {
+    const vistos = new Set(row.admsUnmappedPinBioTypesSeen ?? [])
+    vistos.add(String(bioType))
+    row.admsUnmappedPinBioTypesSeen = [...vistos].sort()
+  }
+}
+
 /** Verdadero si el error es la violacion de una UNIQUE de MySQL. */
 function isDuplicate(error: unknown): boolean {
   return (error as { code?: string })?.code === 'ER_DUP_ENTRY'
@@ -38,6 +64,8 @@ export default class HeldPunchRepositoryMysql implements HeldPunchRepository {
     accessPointId: number
     businessUnitId: number
     pin: string
+    name?: string | null
+    bioType?: number | null
     now: DateTime
   }): Promise<number> {
     const existing = await AdmsUnmappedPin.query()
@@ -53,6 +81,7 @@ export default class HeldPunchRepositoryMysql implements HeldPunchRepository {
         existing.admsUnmappedPinStatus = 'pending'
         existing.admsUnmappedPinDismissReason = null
       }
+      applyHints(existing, input.name, input.bioType)
       await existing.save()
       return existing.admsUnmappedPinId
     }
@@ -64,6 +93,7 @@ export default class HeldPunchRepositoryMysql implements HeldPunchRepository {
     row.admsUnmappedPinFirstSeenAt = input.now
     row.admsUnmappedPinLastSeenAt = input.now
     row.admsUnmappedPinPunchCount = 1
+    applyHints(row, input.name, input.bioType)
     try {
       await row.save()
       return row.admsUnmappedPinId

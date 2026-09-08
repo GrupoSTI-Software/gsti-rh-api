@@ -133,6 +133,12 @@ export default class BiometricUploadService {
         accessPointId: context.device.accessPointId,
         businessUnitId: context.device.businessUnitId,
         pin: user.pin,
+        /**
+         * El nombre que el equipo le puso a ese PIN. Es la pista con la que el
+         * operador reconoce a quien vincular: sin ella concilia mirando un
+         * numero pelado. Se guarda cifrado y enmascarado como el resto de PII.
+         */
+        name: user.name,
         now: context.device.receivedAt,
       })
     }
@@ -189,6 +195,8 @@ export default class BiometricUploadService {
           accessPointId: device.accessPointId,
           businessUnitId: device.businessUnitId,
           pin: row.pin,
+          /** Que modalidad trae ese PIN, para que se vea antes de vincular. */
+          bioType: row.bioType,
           now: device.receivedAt,
         })
         await this.heldBiometrics.hold({

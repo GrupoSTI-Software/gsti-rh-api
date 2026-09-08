@@ -15,12 +15,26 @@ export interface UnmappedPinRow {
   unmappedPinId: number
   accessPointId: number
   pin: string
+  /**
+   * Nombre que el equipo declara para ese PIN, si lo mando en su bitacora.
+   * Es PII y sale enmascarado como el resto; se revela por el flujo de PII.
+   */
+  name: string | null
+  /** Modalidades vistas: `fingerprint`, `face`, `palm`. */
+  biometricsSeen: string[]
   status: string
   punchCount: number
   heldPunches: number
   heldBiometrics: number
   firstSeenAt: string
   lastSeenAt: string
+}
+
+/** Del numero que usa el aparato al nombre que entiende una persona. */
+const BIO_TYPE_LABEL: Record<string, string> = {
+  '1': 'fingerprint',
+  '8': 'palm',
+  '9': 'face',
 }
 
 export interface CandidateRow {
@@ -75,6 +89,10 @@ export default class UnmappedPinsService {
         unmappedPinId: row.admsUnmappedPinId,
         accessPointId: row.accessPointId,
         pin: row.admsUnmappedPinPin,
+        name: row.admsUnmappedPinName ?? null,
+        biometricsSeen: (row.admsUnmappedPinBioTypesSeen ?? []).map(
+          (tipo) => BIO_TYPE_LABEL[tipo] ?? `desconocido:${tipo}`
+        ),
         status: row.admsUnmappedPinStatus,
         punchCount: row.admsUnmappedPinPunchCount,
         heldPunches: Number(punches[0].$extras.total ?? 0),
