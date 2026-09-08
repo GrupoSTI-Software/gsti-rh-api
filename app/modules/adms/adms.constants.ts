@@ -170,6 +170,10 @@ export const ADMS_INCIDENT_KIND = {
   VERSION_SOURCE_MISMATCH: 'version_source_mismatch',
   /** Acuse de un comando que no existe o que es de otro dispositivo (spec 6.5). */
   ORPHAN_ACK: 'orphan_ack',
+  /** El reloj del equipo esta corrido mas alla del umbral (spec 6.7). */
+  CLOCK_DRIFT: 'clock_drift',
+  /** Deriva de casi una hora exacta: huele a cambio de horario sin aplicar. */
+  CLOCK_DST_SUSPECTED: 'clock_dst_suspected',
   PARSE_ERROR: 'parse_error',
   PERSIST_ERROR: 'persist_error',
   OVERSIZE_BODY: 'oversize_body',

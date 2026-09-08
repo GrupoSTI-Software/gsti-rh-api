@@ -25,6 +25,7 @@ export interface AdmsIncidentContext {
   previous?: string
   current?: string
   modality?: string
+  driftSeconds?: number
 }
 
 /** Claves permitidas, derivadas del tipo: agregar una obliga a tocar la interfaz. */
