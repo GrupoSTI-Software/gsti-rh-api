@@ -99,35 +99,40 @@ SELECT DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 5 MONTH), '%Y-%m') AS mes_1,
        DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 3 MONTH), '%Y-%m') AS mes_3;
 ```
 
-El cobro sembrado vale 300 000 centavos y cubre tres periodos, así que aporta **100 000 centavos a cada uno** de esos tres meses. Como la base es compartida, compara contra el total real de cada mes con esta consulta: por cada `mes` (mes_1, mes_2 y mes_3) `aporte_por_mes` suma la parte de **todo** cobro cuyo rango cubierto incluye ese mes — no solo los que arrancan en él — y `cobros` cuenta cuántos aportan:
+El cobro sembrado vale 300 000 centavos y cubre tres periodos, así que aporta **100 000 centavos a cada uno** de esos tres meses. Como la base es compartida, compara contra el total real de cada mes con esta consulta: un renglón por cada mes de la ventana de 12 (del mes en curso hacia atrás), con las fechas normalizadas al día 1 para no depender del día del mes en que la corras. `aporte_por_mes` suma la parte de **todo** cobro cuyo rango cubierto incluye ese mes — no solo los que arrancan en él — y `cobros` cuenta cuántos aportan. Filtra el resultado a `mes_1`, `mes_2` y `mes_3`:
 
 ```sql
-SELECT m.mes,
-       SUM(FLOOR(bp.billing_payment_subtotal_cents / GREATEST(bp.billing_payment_periods_covered, 1))) AS aporte_por_mes,
-       COUNT(*) AS cobros
-FROM (
-  SELECT DATE_SUB(CURDATE(), INTERVAL 5 MONTH) AS mes_fecha, DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 5 MONTH), '%Y-%m') AS mes
+WITH RECURSIVE meses AS (
+  SELECT 0 AS n
   UNION ALL
-  SELECT DATE_SUB(CURDATE(), INTERVAL 4 MONTH), DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 4 MONTH), '%Y-%m')
-  UNION ALL
-  SELECT DATE_SUB(CURDATE(), INTERVAL 3 MONTH), DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL 3 MONTH), '%Y-%m')
-) m
-JOIN billing_payments bp
+  SELECT n + 1 FROM meses WHERE n < 11
+)
+SELECT DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL meses.n MONTH), '%Y-%m') AS mes,
+       COALESCE(SUM(FLOOR(bp.billing_payment_subtotal_cents / GREATEST(bp.billing_payment_periods_covered, 1))), 0) AS aporte_por_mes,
+       COUNT(bp.billing_payment_id) AS cobros
+FROM meses
+LEFT JOIN billing_payments bp
   ON bp.billing_payment_period_start IS NOT NULL
  AND bp.billing_payment_period_end IS NOT NULL
- AND m.mes_fecha >= bp.billing_payment_period_start
- AND m.mes_fecha < DATE_ADD(bp.billing_payment_period_start, INTERVAL GREATEST(bp.billing_payment_periods_covered, 1) MONTH)
-JOIN billing_subscriptions bs ON bs.billing_subscription_id = bp.billing_subscription_id
-JOIN business_units bu ON bu.business_unit_id = bs.business_unit_id
-WHERE bs.billing_subscription_deleted_at IS NULL
-  AND bu.business_unit_deleted_at IS NULL
-GROUP BY m.mes
-ORDER BY m.mes;
+ AND DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL meses.n MONTH), '%Y-%m-01')
+       >= DATE_FORMAT(bp.billing_payment_period_start, '%Y-%m-01')
+ AND DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL meses.n MONTH), '%Y-%m-01')
+       < DATE_ADD(DATE_FORMAT(bp.billing_payment_period_start, '%Y-%m-01'), INTERVAL GREATEST(bp.billing_payment_periods_covered, 1) MONTH)
+LEFT JOIN billing_subscriptions bs
+  ON bs.billing_subscription_id = bp.billing_subscription_id
+ AND bs.billing_subscription_deleted_at IS NULL
+LEFT JOIN business_units bu
+  ON bu.business_unit_id = bs.business_unit_id
+ AND bu.business_unit_deleted_at IS NULL
+WHERE bp.billing_payment_id IS NULL
+   OR (bs.billing_subscription_id IS NOT NULL AND bu.business_unit_id IS NOT NULL)
+GROUP BY mes
+ORDER BY mes;
 ```
 
 **Qué debe pasar:**
 
-- Los tres meses (`mes_1`, `mes_2`, `mes_3`) tienen un valor **distinto de cero** en `mrrCobradoNetoCents`, y su `pagosConsiderados` incluye el cobro sembrado.
+- En el resultado, filtra a los tres meses (`mes_1`, `mes_2`, `mes_3`): cada uno tiene `aporte_por_mes` **distinto de cero** y `cobros` ≥ 1. Esos mismos meses en `puntos` tienen un valor **distinto de cero** en `mrrCobradoNetoCents`, y su `pagosConsiderados` incluye el cobro sembrado.
 - **Ninguno de los tres se lleva los 300 000 centavos completos.** Si uno solo se los lleva, el reparto está roto.
 - La diferencia entre `mes_1` y `mes_2` es exactamente la que expliquen los demás cobros de la base: el cobro sembrado aporta lo mismo a los tres.
 
@@ -141,7 +146,7 @@ Usuario: **A**.
 
 **Response — 200:** el cuerpo varía según los cobros que ya existan en la base — se verifica contra la consulta SQL, no contra un valor fijo.
 
-Averigua qué meses de la ventana no tienen ningún cobro atribuible, con la misma consulta del escenario anterior (la que atribuye por rango cubierto, no por mes de arranque): los meses que **no aparecen** en su resultado — ningún cobro tiene un rango cubierto que alcance ese mes — y sí están en `puntos` son los huecos.
+Averigua qué meses de la ventana no tienen ningún cobro atribuible, con la misma consulta del Escenario 2 (que ya cubre los 12 meses de la ventana): los meses cuyo `cobros` sale en `0` son los huecos.
 
 **Qué debe pasar en cada uno de esos meses:**
 
