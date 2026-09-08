@@ -6,6 +6,7 @@ import {
   ADMS_INCIDENT_KIND,
   ADMS_MAX_LINES_PER_UPLOAD,
   ADMS_OK,
+  ADMS_PROTOCOL_ROUTES,
   ADMS_RAW_STATUS,
   ADMS_STAMP_TABLES,
   ADMS_TA_TABLES,
@@ -337,6 +338,14 @@ export default class AdmsChannelService {
       return this.ingestBiometrics(input, rawMessageId)
     }
     if (input.table && known.includes(input.table)) {
+      return { status: ADMS_RAW_STATUS.RECEIVED, error: null }
+    }
+    /**
+     * Rutas del protocolo, no tablas: su cuerpo se atiende en otro sitio y el
+     * crudo ya quedo guardado. Contarlas como tabla desconocida levantaria un
+     * incidente en cada arranque del equipo y en cada acuse de comando.
+     */
+    if (input.table && ADMS_PROTOCOL_ROUTES.includes(input.table)) {
       return { status: ADMS_RAW_STATUS.RECEIVED, error: null }
     }
     await this.incidents.record(

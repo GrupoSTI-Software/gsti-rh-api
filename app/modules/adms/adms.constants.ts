@@ -155,6 +155,20 @@ export const ADMS_CA_TABLES: readonly string[] = ['rtlog', 'rtstate', 'tabledata
 /** Tablas del dialecto clasico T&A. Verlas marca el dialecto. */
 export const ADMS_TA_TABLES: readonly string[] = ['ATTLOG', 'OPERLOG', 'BIODATA']
 
+/**
+ * Rutas del protocolo que NO son tablas de datos (spec 4.1).
+ *
+ * `registry` es el alta del equipo, `push` su configuracion y `devicecmd` el
+ * acuse de un comando. Se etiquetan como "tabla" solo para que el crudo quede
+ * guardado con su origen; tratarlas como tabla desconocida levantaria un
+ * incidente por cada arranque y por cada acuse, y ese ruido tapa los incidentes
+ * que si hay que mirar.
+ *
+ * Su cuerpo se atiende en otro sitio: el codigo de registro lo escribe el
+ * controlador y el acuse lo correlaciona la cola de comandos.
+ */
+export const ADMS_PROTOCOL_ROUTES: readonly string[] = ['registry', 'push', 'devicecmd']
+
 /** Clases de incidente del canal (spec 10, `adms_incidents._kind`). */
 export const ADMS_INCIDENT_KIND = {
   SERIAL_MISSING: 'serial_missing',

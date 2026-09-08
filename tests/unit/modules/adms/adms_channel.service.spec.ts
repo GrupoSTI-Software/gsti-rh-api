@@ -246,6 +246,34 @@ test.group('ADMS channel service: acuse tras persistir', () => {
     assert.lengthOf(recorded.incidents, 0)
   })
 
+  /**
+   * `registry`, `push` y `devicecmd` son rutas del protocolo, no tablas de
+   * datos. Contarlas como tabla desconocida levantaria un incidente en cada
+   * arranque del equipo y en cada acuse de comando, y ese ruido tapa los
+   * incidentes que si hay que mirar.
+   */
+  test('las rutas del protocolo no cuentan como tabla desconocida', async ({ assert }) => {
+    for (const table of ['registry', 'push', 'devicecmd']) {
+      const { service, recorded } = makeService()
+      const reply = await service.receiveUpload(
+        uploadOf({ table, stamp: null, body: '~ZKFPVersion=10' })
+      )
+
+      assert.equal(reply.status, 200)
+      // El crudo se guarda igual: es la copia de lo que mando el equipo.
+      assert.lengthOf(recorded.inserts, 1)
+      assert.equal(recorded.finishes[0].patch.status, 'received')
+      assert.lengthOf(recorded.incidents, 0)
+    }
+  })
+
+  test('una tabla que de verdad no se conoce si levanta incidente', async ({ assert }) => {
+    const { service, recorded } = makeService()
+    await service.receiveUpload(uploadOf({ table: 'INVENTADA', stamp: null, body: 'x' }))
+    assert.equal(recorded.incidents[0]?.kind, 'unknown_table')
+    assert.equal(recorded.finishes[0].patch.status, 'unparsed')
+  })
+
   test('un stamp fuera del patron ya llega en null y no avanza nada', async ({ assert }) => {
     const { service, recorded } = makeService()
     await service.receiveUpload(uploadOf({ stamp: null }))
