@@ -43,3 +43,18 @@ export const RECEIVABLES_METRIC_ERROR_TEXTS: PlatformMetricErrorTexts = {
   unhandledTitle: 'Error inesperado al obtener la cartera vencida',
   unhandledKey: 'error-inesperado-al-obtener-la-cartera-vencida',
 }
+
+/**
+ * Textos del ingreso mensual recurrente (USRH1788052455653).
+ *
+ * El `key` es el slug kebab del título, como manda la convención de esta
+ * superficie. La tabla del spec proponía `error-inesperado` a secas; se
+ * descartó por consistencia con el área — el `code` es el campo que el cliente
+ * consume y ése sí va literal.
+ */
+export const MRR_METRIC_ERROR_TEXTS: PlatformMetricErrorTexts = {
+  failureTitle: 'No fue posible obtener el ingreso mensual recurrente',
+  failureKey: 'no-fue-posible-obtener-el-ingreso-mensual-recurrente',
+  unhandledTitle: 'Error inesperado al obtener el ingreso mensual recurrente',
+  unhandledKey: 'error-inesperado-al-obtener-el-ingreso-mensual-recurrente',
+}
