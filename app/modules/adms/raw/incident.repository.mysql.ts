@@ -58,6 +58,26 @@ export default class IncidentRepositoryMysql implements IncidentRepository {
     return row !== null
   }
 
+  async resolveOpen(
+    kind: AdmsIncidentKind,
+    accessPointId: number,
+    now: DateTime
+  ): Promise<number> {
+    const open = await AdmsIncident.query()
+      .where('adms_incident_kind', kind)
+      .where('adms_incident_status', 'open')
+      .where('access_point_id', accessPointId)
+
+    for (const incident of open) {
+      incident.admsIncidentStatus = 'resolved'
+      incident.admsIncidentResolvedAt = now
+      /** Lo cerro el canal al ver la causa resuelta, no una persona. */
+      incident.admsIncidentResolvedByUserId = null
+      await incident.save()
+    }
+    return open.length
+  }
+
   async insert(record: IncidentRecord): Promise<number> {
     const incident = new AdmsIncident()
     incident.accessPointId = record.accessPointId

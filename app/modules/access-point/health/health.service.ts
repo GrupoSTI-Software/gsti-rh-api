@@ -28,6 +28,7 @@ import type {
   AccessPointHealthDto,
   DeviceModelDto,
   EnrollmentHealth,
+  IncidentsHealth,
   OccupancySlot,
   QueueHealth,
 } from './health.dto.js'
@@ -260,12 +261,32 @@ export default class HealthService {
     }
   }
 
-  private async openIncidentsOf(accessPointId: number): Promise<number> {
+  /**
+   * Avisos abiertos separados por severidad.
+   *
+   * Se cuentan aparte porque no piden lo mismo: el `warning` de un reloj
+   * corrido hay que atenderlo, y el `info` de una bitacora subida solo deja
+   * constancia. Mezclarlos hace que el indicador marque siempre algo.
+   */
+  private async openIncidentsOf(accessPointId: number): Promise<IncidentsHealth> {
     const rows = await AdmsIncident.query()
       .where('access_point_id', accessPointId)
       .whereNull('adms_incident_resolved_at')
+      .select('adms_incident_severity')
       .count('* as total')
-    return Number(rows[0].$extras.total ?? 0)
+      .groupBy('adms_incident_severity')
+
+    let actionable = 0
+    let informational = 0
+    for (const row of rows) {
+      const total = Number(row.$extras.total ?? 0)
+      if (row.admsIncidentSeverity === 'info') {
+        informational += total
+        continue
+      }
+      actionable += total
+    }
+    return { actionable, informational }
   }
 
   private async hasOpenIpAnomaly(accessPointId: number): Promise<boolean> {

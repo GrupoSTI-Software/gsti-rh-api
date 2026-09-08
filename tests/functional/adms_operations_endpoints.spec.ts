@@ -118,6 +118,19 @@ test.group('ADMS endpoints de operacion (rebanada 11)', (group) => {
       await incident.save()
       incidentId = incident.admsIncidentId
 
+      /** Un aviso informativo: existe, pero no le pide nada a nadie. */
+      const notice = new AdmsIncident()
+      notice.accessPointId = ap.accessPointId
+      notice.businessUnitId = businessUnitId
+      notice.admsIncidentKind = 'oplog'
+      notice.admsIncidentSeverity = 'info'
+      notice.admsIncidentCode = 'ADMS.SYS.001'
+      notice.admsIncidentTitle = `Bitacora ${STAMP}`
+      notice.admsIncidentDetail = 'El equipo subio lineas de su bitacora.'
+      notice.admsIncidentKey = 'bitacora-de-operacion'
+      notice.admsIncidentStatus = 'open'
+      await notice.save()
+
       /** Otra empresa, para probar que no se filtra nada entre tenants. */
       const otherUnit = await BusinessUnit.query()
         .whereNot('businessUnitId', businessUnitId)
@@ -236,6 +249,26 @@ test.group('ADMS endpoints de operacion (rebanada 11)', (group) => {
     assert.equal(enrollment.fingerprints, 0)
     assert.equal(enrollment.faces, 0)
     assert.equal(enrollment.palms, 0)
+  })
+
+  test('el aviso informativo no se cuenta junto al que pide atencion', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/v1/access-points/${accessPoint.accessPointId}/health`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    response.assertStatus(200)
+    const incidents = response.body().data.accessPoint.openIncidents as {
+      actionable: number
+      informational: number
+    }
+
+    // El fixture abre un `clock_drift` (warning) y una bitacora (info).
+    assert.equal(incidents.actionable, 1)
+    assert.equal(incidents.informational, 1)
   })
 
   test('la salud de un equipo ajeno responde 404, no 403', async ({ client, assert }) => {

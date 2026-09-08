@@ -131,6 +131,24 @@ export default class DeviceProfileService {
 
     const layout = attlogLayoutFor(parsed.platform)
     const layoutKnown = layout !== null
+    /**
+     * El equipo ya declaro una plataforma que si sabemos leer: los avisos que
+     * decian lo contrario dejan de ser ciertos. Si se quedaran abiertos, la
+     * ficha marcaria un problema inexistente para siempre y la gente
+     * aprenderia a ignorar el indicador.
+     */
+    if (layoutKnown) {
+      await this.incidents.resolveResolvedCause(
+        ADMS_INCIDENT_KIND.UNKNOWN_PLATFORM,
+        device.accessPointId,
+        device.receivedAt
+      )
+      await this.incidents.resolveResolvedCause(
+        ADMS_INCIDENT_KIND.UNKNOWN_LAYOUT,
+        device.accessPointId,
+        device.receivedAt
+      )
+    }
     if (parsed.platform !== null && !layoutKnown) {
       await this.incidents.record(
         {

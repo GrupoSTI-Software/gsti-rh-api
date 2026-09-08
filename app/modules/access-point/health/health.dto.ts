@@ -68,6 +68,20 @@ export interface EnrollmentHealth {
   palms: number
 }
 
+/**
+ * Avisos abiertos del equipo, separados por lo que piden.
+ *
+ * Un `info` no pide nada -- la bitacora que subio el aparato, por ejemplo --
+ * y contarlo junto a un `warning` convierte el indicador en ruido: si siempre
+ * marca algo, deja de significar algo.
+ */
+export interface IncidentsHealth {
+  /** Piden atencion: `warning` y `error`. */
+  actionable: number
+  /** Solo dejan constancia. */
+  informational: number
+}
+
 export interface AccessPointHealthDto {
   accessPointId: number
   name: string
@@ -97,6 +111,6 @@ export interface AccessPointHealthDto {
   occupancy: OccupancySlot[]
   enrollment: EnrollmentHealth
   queue: QueueHealth
-  openIncidents: number
+  openIncidents: IncidentsHealth
   hardening: HardeningHealth
 }

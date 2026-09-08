@@ -96,6 +96,20 @@ export default class IncidentService {
     return this.repository.hasOpen(ADMS_INCIDENT_KIND.IP_ANOMALY, accessPointId)
   }
 
+  /**
+   * Cierra los avisos de un tipo cuando su causa dejo de existir.
+   *
+   * Un aviso que se queda abierto para siempre entrena a la gente a ignorar
+   * los avisos: el que sigue abierto tiene que significar algo.
+   */
+  async resolveResolvedCause(
+    kind: AdmsIncidentKind,
+    accessPointId: number,
+    now: DateTime
+  ): Promise<number> {
+    return this.repository.resolveOpen(kind, accessPointId, now)
+  }
+
   async record(
     input: IncidentInput,
     options: { dedupeMinutes?: number } = {}

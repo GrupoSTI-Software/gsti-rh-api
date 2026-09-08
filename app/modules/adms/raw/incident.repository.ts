@@ -33,4 +33,11 @@ export interface IncidentRepository {
   insert(record: IncidentRecord): Promise<number>
   /** Hay un incidente abierto de ese tipo para el dispositivo. */
   hasOpen(kind: AdmsIncidentKind, accessPointId: number): Promise<boolean>
+  /**
+   * Cierra los abiertos de ese tipo para el dispositivo y devuelve cuantos.
+   *
+   * Es para la causa que ya no existe, no para taparla: quien lo llama acaba
+   * de comprobar que la condicion se resolvio.
+   */
+  resolveOpen(kind: AdmsIncidentKind, accessPointId: number, now: DateTime): Promise<number>
 }

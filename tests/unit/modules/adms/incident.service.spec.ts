@@ -8,6 +8,7 @@ import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 
 function makeRepository(existing: IncidentRecord[] = []) {
   const inserted: IncidentRecord[] = []
+  const resolved: IncidentRecord[] = []
   const repository: IncidentRepository = {
     async findOpenSince(kind, scope, since) {
       return (
@@ -27,8 +28,15 @@ function makeRepository(existing: IncidentRecord[] = []) {
     async hasOpen() {
       return false
     },
+    async resolveOpen(kind, accessPointId) {
+      const abiertos = existing.filter(
+        (row) => row.kind === kind && row.accessPointId === accessPointId
+      )
+      resolved.push(...abiertos)
+      return abiertos.length
+    },
   }
-  return { repository, inserted }
+  return { repository, inserted, resolved }
 }
 
 test.group('ADMS incident service', () => {
@@ -95,5 +103,63 @@ test.group('ADMS incident service', () => {
     )
     assert.equal(outcome, 'deduped')
     assert.lengthOf(inserted, 0)
+  })
+
+  test('cierra los avisos cuya causa ya se resolvio', async ({ assert }) => {
+    const abierto: IncidentRecord = {
+      kind: ADMS_INCIDENT_KIND.UNKNOWN_LAYOUT,
+      severity: 'warning',
+      code: ADMS_ERROR_CODES.VAL_LAYOUT_UNKNOWN,
+      title: 'Disposicion de checadas no validada',
+      detail: 'El equipo no ha declarado una plataforma conocida.',
+      key: 'disposicion-desconocida',
+      serial: null,
+      accessPointId: 7,
+      businessUnitId: 3,
+      rawMessageId: null,
+      deviceCommandId: null,
+      context: null,
+      createdAt: DateTime.utc(),
+    }
+    const { repository, resolved } = makeRepository([abierto])
+    const service = new IncidentService(repository)
+
+    const cerrados = await service.resolveResolvedCause(
+      ADMS_INCIDENT_KIND.UNKNOWN_LAYOUT,
+      7,
+      DateTime.utc()
+    )
+
+    assert.equal(cerrados, 1)
+    assert.lengthOf(resolved, 1)
+  })
+
+  test('no toca los avisos de otro equipo', async ({ assert }) => {
+    const ajeno: IncidentRecord = {
+      kind: ADMS_INCIDENT_KIND.UNKNOWN_LAYOUT,
+      severity: 'warning',
+      code: ADMS_ERROR_CODES.VAL_LAYOUT_UNKNOWN,
+      title: 'Disposicion de checadas no validada',
+      detail: 'El equipo no ha declarado una plataforma conocida.',
+      key: 'disposicion-desconocida',
+      serial: null,
+      accessPointId: 9,
+      businessUnitId: 3,
+      rawMessageId: null,
+      deviceCommandId: null,
+      context: null,
+      createdAt: DateTime.utc(),
+    }
+    const { repository, resolved } = makeRepository([ajeno])
+    const service = new IncidentService(repository)
+
+    const cerrados = await service.resolveResolvedCause(
+      ADMS_INCIDENT_KIND.UNKNOWN_LAYOUT,
+      7,
+      DateTime.utc()
+    )
+
+    assert.equal(cerrados, 0)
+    assert.lengthOf(resolved, 0)
   })
 })
