@@ -3,7 +3,11 @@ import { BaseModel, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
-export type AssistCalendarRecalcJobStatus = 'pending' | 'done' | 'failed'
+/**
+ * `processing` es el reclamo: lo pone la corrida que se hizo cargo del trabajo,
+ * para que otra que arranque en paralelo no vuelva a tomarlo.
+ */
+export type AssistCalendarRecalcJobStatus = 'pending' | 'processing' | 'done' | 'failed'
 
 /**
  * Recalculo de calendario pendiente para un colaborador (spec v2, 5.4). El
@@ -30,6 +34,14 @@ export default class AssistCalendarRecalcJob extends compose(BaseModel, withBusi
 
   @column()
   declare assistCalendarRecalcJobStatus: AssistCalendarRecalcJobStatus
+
+  @column()
+  /** Identificador de la corrida que reclamo el trabajo. */
+  @column()
+  declare assistCalendarRecalcJobClaimedBy: string | null
+
+  @column.dateTime()
+  declare assistCalendarRecalcJobClaimedAt: DateTime | null
 
   @column()
   declare assistCalendarRecalcJobAttempts: number

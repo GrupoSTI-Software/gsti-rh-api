@@ -19,6 +19,11 @@ export default class AdmsRecalcCalendars extends BaseCommand {
     const service = new CalendarRecalcService()
     try {
       const result = await service.run()
+      if (result.recovered > 0) {
+        this.logger.warning(
+          `Recalculo de calendarios: ${result.recovered} trabajo(s) reclamado(s) sin cerrar volvieron a la cola`
+        )
+      }
       if (result.taken === 0) {
         this.logger.info('Recalculo de calendarios: sin trabajos pendientes')
         return
