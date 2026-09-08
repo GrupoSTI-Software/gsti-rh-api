@@ -19,7 +19,9 @@ export const ACCESS_POINT_EMPLOYEE_SYNC_STATUS = {
   CONFIRMED: 'confirmed',
   FAILED: 'failed',
   REVOKING: 'revoking',
+  REVOKE_SENT: 'revoke_sent',
   REVOKE_ACKED: 'revoke_acked',
+  REVOKE_FAILED: 'revoke_failed',
   REVOKED: 'revoked',
 } as const
 
