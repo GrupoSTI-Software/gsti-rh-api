@@ -3046,5 +3046,8 @@
   "unmapped_pin_candidates_message": "Employees this could be; the decision is yours",
   "unmapped_pin_linked_message": "The PIN was linked and its held punches were credited",
   "unmapped_pin_dismissed_message": "The PIN was dismissed; if the device reports it again, it will come back",
-  "access_point_employee_list_message": "Employees enrolled on this device"
+  "access_point_employee_list_message": "Employees enrolled on this device",
+  "platform_quarantine_dismissed_message": "The quarantine row was dismissed",
+  "platform_quarantine_unlocked_message": "The row was unlocked and its failed-attempt counter was reset",
+  "platform_retention_message": "Retention windows in effect and current volume"
 }
