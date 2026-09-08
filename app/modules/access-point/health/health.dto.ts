@@ -47,6 +47,27 @@ export interface DeviceModelDto {
   slug: string
 }
 
+/**
+ * Lo que Valanserh tiene registrado para este equipo.
+ *
+ * No es lo que el aparato dice tener: el firmware responde a INFO solo con sus
+ * maximos y nunca declara conteos actuales, y el servidor no puede consultarlo.
+ * Estos numeros salen del padron propio, que es el que el operador puede
+ * accionar: vincular un PIN suelto o reintentar un alta que no se aplico.
+ */
+export interface EnrollmentHealth {
+  /** Colaboradores cuya alta el equipo ya confirmo. */
+  confirmedEmployees: number
+  /** Altas o bajas que el equipo todavia no confirma. */
+  pendingEmployees: number
+  /** PIN que el equipo reporto y que nadie ha vinculado a una persona. */
+  unmappedPins: number
+  /** Biometricos resguardados que llegaron desde este equipo. */
+  fingerprints: number
+  faces: number
+  palms: number
+}
+
 export interface AccessPointHealthDto {
   accessPointId: number
   name: string
@@ -74,6 +95,7 @@ export interface AccessPointHealthDto {
   }
   clock: ClockHealth
   occupancy: OccupancySlot[]
+  enrollment: EnrollmentHealth
   queue: QueueHealth
   openIncidents: number
   hardening: HardeningHealth

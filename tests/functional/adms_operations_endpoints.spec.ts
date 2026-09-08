@@ -2,7 +2,11 @@ import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
+import AccessPointEmployee, {
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
+} from '#models/access_point_employee'
 import AccessPointProfile from '#models/access_point_profile'
+import AdmsUnmappedPin from '#models/adms_unmapped_pin'
 import AdmsIncident from '#models/adms_incident'
 import AdmsQuarantinedDevice from '#models/adms_quarantined_device'
 import BusinessUnit from '#models/business_unit'
@@ -30,6 +34,7 @@ test.group('ADMS endpoints de operacion (rebanada 11)', (group) => {
   let incidentId: number
   let foreignIncidentId: number | null = null
   let quarantineId: number
+  let employeeId: number
 
   group.setup(async () => {
     await TenantContext.runUnscoped(async () => {
@@ -42,6 +47,7 @@ test.group('ADMS endpoints de operacion (rebanada 11)', (group) => {
           .first()
         if (someone) {
           elegido = { unitId: candidate.businessUnitId, userId: candidate.userId }
+          employeeId = someone.employeeId
           break
         }
       }
@@ -75,6 +81,29 @@ test.group('ADMS endpoints de operacion (rebanada 11)', (group) => {
       profile.accessPointProfileMaxUserCount = 100
       profile.accessPointProfileFpCount = 80
       await profile.save()
+
+      /**
+       * Padron del equipo: una persona ya confirmada por el aparato y un PIN
+       * que el equipo reporto sin que nadie lo haya vinculado todavia.
+       */
+      const pivot = new AccessPointEmployee()
+      pivot.accessPointId = ap.accessPointId
+      pivot.businessUnitId = businessUnitId
+      pivot.employeeId = employeeId
+      pivot.accessPointEmployeePin = `9${STAMP.slice(-4)}`
+      pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED
+      pivot.accessPointEmployeePinSource = 'assigned'
+      await pivot.save()
+
+      const unmapped = new AdmsUnmappedPin()
+      unmapped.accessPointId = ap.accessPointId
+      unmapped.businessUnitId = businessUnitId
+      unmapped.admsUnmappedPinPin = `8${STAMP.slice(-4)}`
+      unmapped.admsUnmappedPinFirstSeenAt = DateTime.utc()
+      unmapped.admsUnmappedPinLastSeenAt = DateTime.utc()
+      unmapped.admsUnmappedPinPunchCount = 2
+      unmapped.admsUnmappedPinStatus = 'pending'
+      await unmapped.save()
 
       const incident = new AdmsIncident()
       incident.accessPointId = ap.accessPointId
@@ -141,6 +170,7 @@ test.group('ADMS endpoints de operacion (rebanada 11)', (group) => {
       await db.from('device_commands').whereIn('access_point_id', ids).delete()
       await db.from('adms_incidents').whereIn('access_point_id', ids).delete()
       await db.from('access_point_employees').whereIn('access_point_id', ids).delete()
+      await db.from('adms_unmapped_pins').whereIn('access_point_id', ids).delete()
       await db.from('access_point_stamps').whereIn('access_point_id', ids).delete()
       await AccessPointProfile.query().whereIn('access_point_id', ids).delete()
       await db.from('access_points').whereIn('access_point_id', ids).delete()
@@ -177,6 +207,35 @@ test.group('ADMS endpoints de operacion (rebanada 11)', (group) => {
     if (foreignAccessPoint) {
       assert.isUndefined(rows.find((row) => row.accessPointId === foreignAccessPoint?.accessPointId))
     }
+  })
+
+  test('el padron cuenta lo que Valanserh tiene registrado, no lo que el equipo dice', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/v1/access-points/${accessPoint.accessPointId}/health`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    response.assertStatus(200)
+    const enrollment = response.body().data.accessPoint.enrollment as {
+      confirmedEmployees: number
+      pendingEmployees: number
+      unmappedPins: number
+      fingerprints: number
+      faces: number
+      palms: number
+    }
+
+    assert.equal(enrollment.confirmedEmployees, 1)
+    assert.equal(enrollment.pendingEmployees, 0)
+    // El PIN que el equipo reporto y nadie vinculo es lo accionable de la ficha.
+    assert.equal(enrollment.unmappedPins, 1)
+    // Sin biometricos capturados desde este equipo no se inventa ninguno.
+    assert.equal(enrollment.fingerprints, 0)
+    assert.equal(enrollment.faces, 0)
+    assert.equal(enrollment.palms, 0)
   })
 
   test('la salud de un equipo ajeno responde 404, no 403', async ({ client, assert }) => {

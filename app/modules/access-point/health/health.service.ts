@@ -3,6 +3,12 @@ import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import { TenantContext } from '#utils/tenant_context'
 import AccessPointProfile from '#models/access_point_profile'
+import AccessPointEmployee, {
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
+} from '#models/access_point_employee'
+import AdmsUnmappedPin from '#models/adms_unmapped_pin'
+import BiometricTemplate from '#models/biometric_template'
+import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
 import AdmsIncident from '#models/adms_incident'
 import DeviceCommand from '#models/device_command'
 import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
@@ -18,7 +24,25 @@ import {
   ADMS_HEALTH_STATUS,
   type AdmsHealthStatus,
 } from './health.constants.js'
-import type { AccessPointHealthDto, DeviceModelDto, OccupancySlot, QueueHealth } from './health.dto.js'
+import type {
+  AccessPointHealthDto,
+  DeviceModelDto,
+  EnrollmentHealth,
+  OccupancySlot,
+  QueueHealth,
+} from './health.dto.js'
+
+/** Estados del pivote en los que el equipo todavia no confirmo el movimiento. */
+const UNCONFIRMED_SYNC_STATUSES = [
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.SENT,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.FAILED,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKING,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_SENT,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_FAILED,
+]
 
 /** El catalogo de modelos es de plataforma, no de una empresa. */
 const MODEL_UNSCOPED_REASON =
@@ -60,6 +84,7 @@ export default class HealthService {
     const stamps = await this.progress.listFor(accessPoint.accessPointId)
     const queue = await this.queueOf(accessPoint, now)
     const openIncidents = await this.openIncidentsOf(accessPoint.accessPointId)
+    const enrollment = await this.enrollmentOf(accessPoint.accessPointId)
     const ipAnomalyOpen = await this.hasOpenIpAnomaly(accessPoint.accessPointId)
 
     const lastUploadAt: Record<string, string | null> = {}
@@ -97,6 +122,7 @@ export default class HealthService {
         status: profile?.accessPointProfileClockSyncStatus ?? null,
       },
       occupancy: occupancyOf(profile),
+      enrollment,
       queue,
       openIncidents,
       hardening: {
@@ -105,6 +131,57 @@ export default class HealthService {
         lastIpSeenAt: profile?.accessPointProfileLastIpSeenAt?.toISO() ?? null,
         ipAnomalyOpen,
       },
+    }
+  }
+
+  /**
+   * Padron propio del equipo.
+   *
+   * El firmware responde a INFO con sus maximos y nunca con conteos actuales, y
+   * el servidor no puede consultarlo: lo unico que se puede afirmar es lo que
+   * Valanserh tiene registrado, que ademas es lo accionable — un PIN suelto se
+   * vincula y un alta sin confirmar se reintenta.
+   */
+  private async enrollmentOf(accessPointId: number): Promise<EnrollmentHealth> {
+    const confirmed = await AccessPointEmployee.query()
+      .where('access_point_id', accessPointId)
+      .where(
+        'access_point_employee_sync_status',
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED
+      )
+      .count('* as total')
+      .first()
+
+    const unconfirmed = await AccessPointEmployee.query()
+      .where('access_point_id', accessPointId)
+      .whereIn('access_point_employee_sync_status', UNCONFIRMED_SYNC_STATUSES)
+      .count('* as total')
+      .first()
+
+    const unmapped = await AdmsUnmappedPin.query()
+      .where('access_point_id', accessPointId)
+      .where('adms_unmapped_pin_status', 'pending')
+      .count('* as total')
+      .first()
+
+    const templates = await BiometricTemplate.query()
+      .where('source_access_point_id', accessPointId)
+      .select('biometric_template_bio_type')
+      .count('* as total')
+      .groupBy('biometric_template_bio_type')
+
+    const byType = new Map<number, number>()
+    for (const row of templates) {
+      byType.set(Number(row.biometricTemplateBioType), Number(row.$extras.total))
+    }
+
+    return {
+      confirmedEmployees: Number(confirmed?.$extras.total ?? 0),
+      pendingEmployees: Number(unconfirmed?.$extras.total ?? 0),
+      unmappedPins: Number(unmapped?.$extras.total ?? 0),
+      fingerprints: byType.get(BIO_TYPE.FINGERPRINT) ?? 0,
+      faces: byType.get(BIO_TYPE.FACE) ?? 0,
+      palms: byType.get(BIO_TYPE.PALM) ?? 0,
     }
   }
 
