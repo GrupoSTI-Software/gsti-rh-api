@@ -176,6 +176,54 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
       .limit(input.limit)
   }
 
+  /**
+   * Toma el candado de la fila del comando y comprueba el estado DENTRO de la
+   * transaccion. Se hace con el modelo y no con un `update` suelto porque el
+   * payload va cifrado: el cifrado lo sabe el modelo y no se replica aqui.
+   */
+  async markSent(input: {
+    commandId: number
+    payload: string
+    sentAt: DateTime
+  }): Promise<boolean> {
+    return db.transaction(async (trx) => {
+      const command = await DeviceCommand.query({ client: trx })
+        .where('device_command_id', input.commandId)
+        .where('device_command_status', DEVICE_COMMAND_STATUS.PENDING)
+        .forUpdate()
+        .first()
+      if (!command) return false
+      command.useTransaction(trx)
+      command.deviceCommandPayload = input.payload
+      command.deviceCommandStatus = DEVICE_COMMAND_STATUS.SENT
+      command.deviceCommandSentAt = input.sentAt
+      await command.save()
+      return true
+    })
+  }
+
+  async markFailedIfStill(input: {
+    commandId: number
+    expectedStatus: DeviceCommandStatus
+    failedAt: DateTime
+    error: string
+  }): Promise<boolean> {
+    return db.transaction(async (trx) => {
+      const command = await DeviceCommand.query({ client: trx })
+        .where('device_command_id', input.commandId)
+        .where('device_command_status', input.expectedStatus)
+        .forUpdate()
+        .first()
+      if (!command) return false
+      command.useTransaction(trx)
+      command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
+      command.deviceCommandFailedAt = input.failedAt
+      command.deviceCommandLastError = input.error
+      await command.save()
+      return true
+    })
+  }
+
   async save(command: DeviceCommand): Promise<void> {
     await command.save()
   }

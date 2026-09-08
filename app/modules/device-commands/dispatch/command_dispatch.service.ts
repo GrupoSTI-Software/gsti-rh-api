@@ -1,11 +1,7 @@
 import type { DateTime } from 'luxon'
 import { ADMS_OK } from '#modules/adms/adms.constants'
 import DeviceCommandRepositoryMysql from '../device_command.repository.mysql.js'
-import {
-  DEVICE_COMMAND_KIND,
-  DEVICE_COMMAND_STATUS,
-  type DeviceCommandKind,
-} from '../device_command.constants.js'
+import { DEVICE_COMMAND_KIND, type DeviceCommandKind } from '../device_command.constants.js'
 import { getBusinessTimeZone } from '#utils/business_date'
 import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
 import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
@@ -63,21 +59,32 @@ export default class CommandDispatchService {
      * verdad, que es el unico rastro fiable: el acuse del equipo es identico
      * con la hora buena y con la mala.
      */
+    let payload = command.deviceCommandPayload
     if (command.deviceCommandKind === DEVICE_COMMAND_KIND.CLOCK_SYNC) {
       const zone = input.deviceZone ?? getBusinessTimeZone()
       const local = input.now.setZone(zone)
-      command.deviceCommandPayload = formatDeviceCommand(DEVICE_COMMAND_KIND.CLOCK_SYNC, {
+      payload = formatDeviceCommand(DEVICE_COMMAND_KIND.CLOCK_SYNC, {
         dateTime: String(toZkDateTime(local.isValid ? local : input.now)),
       })
     }
 
-    command.deviceCommandStatus = DEVICE_COMMAND_STATUS.SENT
-    command.deviceCommandSentAt = input.now
-    await this.repository.save(command)
+    /**
+     * `hasInFlight` y `findNextPending` son dos lecturas sueltas: el equipo
+     * reintenta el sondeo cuando la respuesta tarda, asi que dos peticiones
+     * pueden llegar hasta aqui con el MISMO comando. La condicion de estado en
+     * la escritura decide quien lo entrega; el que pierde se va con OK y el
+     * equipo lo recoge en el siguiente sondeo.
+     */
+    const taken = await this.repository.markSent({
+      commandId: command.deviceCommandId,
+      payload,
+      sentAt: input.now,
+    })
+    if (!taken) return ADMS_OK
 
     await this.syncPivot(command, 'dispatched')
 
-    return formatWireLine(command.deviceCommandWireId, command.deviceCommandPayload)
+    return formatWireLine(command.deviceCommandWireId, payload)
   }
 
   /**
@@ -91,7 +98,7 @@ export default class CommandDispatchService {
     command: DeviceCommand,
     moment: 'dispatched'
   ): Promise<void> {
-    if (command.accessPointEmployeeId === null || moment !== 'dispatched') return
+    if (!command.accessPointEmployeeId || moment !== 'dispatched') return
 
     if (command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_UPSERT) {
       await this.pivots.updateStatus(command.accessPointEmployeeId, 'sent')

@@ -31,6 +31,8 @@ interface Options {
   inFlight?: boolean
   pending?: DeviceCommand | null
   byWireId?: DeviceCommand | null
+  /** Otra peticion se llevo el pendiente entre la lectura y la escritura. */
+  lostRace?: boolean
 }
 
 function makeRepository(options: Options = {}) {
@@ -65,6 +67,26 @@ function makeRepository(options: Options = {}) {
     async findStuck() {
       return []
     },
+    async markSent(input) {
+      const command = options.pending
+      if (options.lostRace === true || !command) return false
+      if (command.deviceCommandId !== input.commandId) return false
+      if (command.deviceCommandStatus !== DEVICE_COMMAND_STATUS.PENDING) return false
+      command.deviceCommandPayload = input.payload
+      command.deviceCommandStatus = DEVICE_COMMAND_STATUS.SENT
+      command.deviceCommandSentAt = input.sentAt
+      saved.push(command)
+      return true
+    },
+    async markFailedIfStill(input) {
+      const command = options.pending
+      if (!command || command.deviceCommandStatus !== input.expectedStatus) return false
+      command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
+      command.deviceCommandFailedAt = input.failedAt
+      command.deviceCommandLastError = input.error
+      saved.push(command)
+      return true
+    },
     async save(command) {
       saved.push(command)
     },
@@ -98,6 +120,18 @@ test.group('Despacho de comandos', () => {
     const { repository } = makeRepository()
     const service = new CommandDispatchService(repository)
     assert.equal(await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false }), 'OK')
+  })
+
+  test('si otro sondeo se lo llevo primero, este no entrega nada', async ({ assert }) => {
+    // El equipo reintenta el sondeo cuando la respuesta tarda: dos peticiones
+    // pueden ver la cola libre y elegir el mismo comando. Solo una lo entrega.
+    const pending = commandOf({ deviceCommandPayload: 'DATA DELETE USERINFO PIN=9999' })
+    const { repository, saved } = makeRepository({ pending, lostRace: true })
+    const service = new CommandDispatchService(repository)
+    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false })
+
+    assert.equal(line, 'OK')
+    assert.lengthOf(saved, 0)
   })
 
   test('con anomalia de IP abierta se retienen los que llevan biometrico', async ({ assert }) => {

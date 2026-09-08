@@ -55,11 +55,18 @@ export default class CommandSweepService {
 
     for (const command of stuck) {
       if (command.deviceCommandStatus === DEVICE_COMMAND_STATUS.SENT) {
-        command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
-        command.deviceCommandFailedAt = now
-        command.deviceCommandLastError = DEVICE_COMMAND_FAILURE.INFLIGHT_TIMEOUT
-        await this.repository.save(command)
-        timedOut += 1
+        /**
+         * Condicionado al estado leido: entre la lectura de la tanda y esta
+         * escritura puede haber entrado el acuse. Marcar "fallo" sobre una
+         * orden que el equipo si ejecuto haria que el operador la reintentara.
+         */
+        const failed = await this.repository.markFailedIfStill({
+          commandId: command.deviceCommandId,
+          expectedStatus: DEVICE_COMMAND_STATUS.SENT,
+          failedAt: now,
+          error: DEVICE_COMMAND_FAILURE.INFLIGHT_TIMEOUT,
+        })
+        if (failed) timedOut += 1
         continue
       }
 
@@ -82,11 +89,13 @@ export default class CommandSweepService {
         continue
       }
 
-      command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
-      command.deviceCommandFailedAt = now
-      command.deviceCommandLastError = DEVICE_COMMAND_FAILURE.NO_EVIDENCE
-      await this.repository.save(command)
-      withoutEvidence += 1
+      const failed = await this.repository.markFailedIfStill({
+        commandId: command.deviceCommandId,
+        expectedStatus: DEVICE_COMMAND_STATUS.ACKED,
+        failedAt: now,
+        error: DEVICE_COMMAND_FAILURE.NO_EVIDENCE,
+      })
+      if (failed) withoutEvidence += 1
     }
 
     return { taken: stuck.length, timedOut, withoutEvidence }

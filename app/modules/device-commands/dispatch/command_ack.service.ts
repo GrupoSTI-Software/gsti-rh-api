@@ -92,7 +92,7 @@ export default class CommandAckService {
    * PIN sigue en cuarentena y no se le da a nadie mas.
    */
   private async syncPivot(command: DeviceCommand, returnCode: number | null): Promise<void> {
-    if (command.accessPointEmployeeId === null) return
+    if (!command.accessPointEmployeeId) return
     const accepted = returnCode === 0
 
     if (command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_UPSERT) {

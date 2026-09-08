@@ -56,7 +56,11 @@ interface Recorded {
 }
 
 function makeService(
-  options: { insertThrows?: boolean; attlogStatus?: 'processed' | 'partial' } = {}
+  options: {
+    insertThrows?: boolean
+    attlogStatus?: 'processed' | 'partial'
+    ingestThrows?: boolean
+  } = {}
 ) {
   const recorded: Recorded = {
     inserts: [],
@@ -124,6 +128,11 @@ function makeService(
   const attlog = {
     async ingest() {
       recorded.attlogIngests += 1
+      if (options.ingestThrows) {
+        const error = new Error("Out of range value for column 'assist_verify_method' at row 1")
+        ;(error as { code?: string }).code = 'ER_WARN_DATA_OUT_OF_RANGE'
+        throw error
+      }
       return {
         status: options.attlogStatus ?? 'processed',
         error: null,
@@ -242,5 +251,41 @@ test.group('ADMS channel service: acuse tras persistir', () => {
     await service.receiveUpload(uploadOf({ stamp: null }))
     assert.lengthOf(recorded.advances, 0)
     assert.isNull(recorded.inserts[0].stamp)
+  })
+
+  /**
+   * El cuerpo ya esta guardado cuando el proceso revienta. Sin acuse el equipo
+   * reintentaria el mismo lote cada pocos segundos insertando otro crudo por
+   * vuelta, y `received` no lo recoge ni el reproceso ni la purga.
+   */
+  test('si el proceso revienta se acusa igual y el crudo queda reprocesable', async ({
+    assert,
+  }) => {
+    const { service, recorded } = makeService({ ingestThrows: true })
+    const reply = await service.receiveUpload(uploadOf())
+
+    assert.deepEqual(reply, { status: 200, body: 'OK: 1' })
+    assert.equal(recorded.finishes[0].patch.status, 'failed')
+    assert.include(recorded.finishes[0].patch.error ?? '', 'ER_WARN_DATA_OUT_OF_RANGE')
+    assert.equal(recorded.incidents[0]?.kind, 'persist_error')
+  })
+
+  test('un proceso fallido NO avanza el stamp: ese lote se recupera del crudo', async ({
+    assert,
+  }) => {
+    const { service, recorded } = makeService({ ingestThrows: true })
+    await service.receiveUpload(uploadOf())
+    assert.lengthOf(recorded.advances, 0)
+  })
+
+  test('el incidente del fallo no lleva el mensaje de la base, solo su tipo', async ({
+    assert,
+  }) => {
+    // El mensaje de MySQL trae los valores de la fila; el contexto se ve en el BO.
+    const { service, recorded } = makeService({ ingestThrows: true })
+    await service.receiveUpload(uploadOf())
+    const context = recorded.incidents[0]?.context ?? {}
+    assert.equal(context.reason, 'Error [ER_WARN_DATA_OUT_OF_RANGE]')
+    assert.notInclude(JSON.stringify(context), 'assist_verify_method')
   })
 })

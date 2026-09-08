@@ -31,6 +31,20 @@ const LAYOUTS: Readonly<
 /** Posicion del metodo de verificacion: estable en las dos plataformas medidas. */
 const VERIFY_INDEX = 3
 
+/**
+ * `verify` es el unico campo del aparato que se persiste tal cual, y sus dos
+ * columnas destino (`assists.assist_verify_method` y
+ * `adms_held_punches.adms_held_punch_verify`) son `tinyint unsigned`.
+ *
+ * Con `layout === null` -- el caso por defecto para todo modelo que no esta en
+ * el mapa -- el indice 3 se lee a ciegas y ahi puede venir cualquier cosa: un
+ * work code de cuatro digitos, un negativo. En MySQL estricto ese valor levanta
+ * ER_WARN_DATA_OUT_OF_RANGE, el error sube hasta la pasarela y el equipo se
+ * queda sin acuse reintentando el mismo lote cada cinco segundos. Fuera de
+ * banda vale mas no saber el metodo que perder la checada.
+ */
+const VERIFY_MAX = 255
+
 const PIN_PATTERN = /^\d{1,20}$/
 const LOCAL_TIME_PATTERN = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/
 
@@ -40,6 +54,12 @@ function intAt(fields: string[], index: number | null): number | null {
   if (raw === undefined || raw.trim().length === 0) return null
   const value = Number(raw.trim())
   return Number.isInteger(value) ? value : null
+}
+
+function verifyAt(fields: string[]): number | null {
+  const value = intAt(fields, VERIFY_INDEX)
+  if (value === null || value < 0 || value > VERIFY_MAX) return null
+  return value
 }
 
 /**
@@ -72,7 +92,7 @@ export function parseAttlogBody(
       pin,
       localTime,
       status: intAt(fields, positions.status),
-      verify: intAt(fields, VERIFY_INDEX),
+      verify: verifyAt(fields),
       workCode: intAt(fields, positions.workCode),
     })
   }

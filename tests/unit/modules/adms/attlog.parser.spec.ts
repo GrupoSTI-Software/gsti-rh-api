@@ -60,4 +60,25 @@ test.group('ADMS attlog parser', () => {
     const result = parseAttlogBody(`${V5L_LINE}\r\n`, 'zam180')
     assert.equal(result.rows[0].localTime, '2026-08-12 08:53:23')
   })
+
+  test('un verify fuera de la banda de la columna se descarta y la checada se queda', ({
+    assert,
+  }) => {
+    // La columna destino es tinyint unsigned. Con MySQL estricto un valor fuera
+    // de banda tumba el insert, y sin acuse el equipo reintenta el mismo lote
+    // para siempre. Vale mas no saber el metodo que perder la checada.
+    const result = parseAttlogBody(
+      '9999\t2026-08-12 08:53:23\t0\t1200\t0\t0\n9998\t2026-08-12 08:54:00\t0\t-1\t0\t0\n',
+      null
+    )
+    assert.lengthOf(result.rows, 2)
+    assert.isNull(result.rows[0].verify)
+    assert.isNull(result.rows[1].verify)
+    assert.deepEqual(result.unparsed, [])
+  })
+
+  test('un verify dentro de la banda si se conserva', ({ assert }) => {
+    const result = parseAttlogBody('9999\t2026-08-12 08:53:23\t0\t255\t0\t0\n', null)
+    assert.equal(result.rows[0].verify, 255)
+  })
 })

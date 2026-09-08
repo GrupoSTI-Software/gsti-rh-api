@@ -7,6 +7,7 @@ import { TenantContext } from '#utils/tenant_context'
 import AdmsChannelController, { type AdmsRequest } from './adms_channel.controller.js'
 import AdmsDeviceResolverService from './adms_device_resolver.service.js'
 import { sendText } from './adms_text_response.js'
+import { describeError } from './error_summary.js'
 import type { ChannelReply } from './adms_channel.service.js'
 
 type HandlerName =
@@ -79,17 +80,6 @@ function rawQueryOf(ctx: HttpContext): string | null {
  * cifrado entero (hasta 4 MB, con templates biometricos) en el log
  * (spec 13, regla 7). Solo salen nombre, mensaje, codigo y pila.
  */
-function describeError(error: unknown): Record<string, string | undefined> {
-  if (!(error instanceof Error)) return { errorName: 'unknown', errorMessage: String(error) }
-  const code = (error as { code?: string }).code
-  return {
-    errorName: error.name,
-    errorMessage: error.message.slice(0, 500),
-    errorCode: code,
-    errorStack: error.stack?.split('\n').slice(0, 5).join('\n'),
-  }
-}
-
 async function consumeOrReject(key: string, requests: number): Promise<boolean> {
   try {
     await limiter.use({ requests, duration: '1 minute' }).consume(key)

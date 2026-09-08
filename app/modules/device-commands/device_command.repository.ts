@@ -54,5 +54,31 @@ export interface DeviceCommandRepository {
     ackedBefore: DateTime
     limit: number
   }): Promise<DeviceCommand[]>
+  /**
+   * Marca un pendiente como enviado, y solo si SIGUE pendiente.
+   *
+   * El equipo sondea cada pocos segundos y reintenta cuando la respuesta
+   * tarda, asi que dos peticiones pueden ver la cola libre a la vez y elegir el
+   * mismo comando. Sin esta condicion las dos entregarian la misma orden: dos
+   * sesiones de enrolamiento abiertas, dos acuses con el mismo identificador.
+   *
+   * Devuelve falso si otra peticion se lo llevo primero; el que pierde no
+   * entrega nada.
+   */
+  markSent(input: { commandId: number; payload: string; sentAt: DateTime }): Promise<boolean>
+  /**
+   * Falla un comando solo si sigue en el estado en que se leyo.
+   *
+   * El barrido lee una tanda y la procesa en fila: entre la lectura y la
+   * escritura puede haber llegado el acuse. Escribir sin condicion pondria
+   * "fallo" sobre una orden que el equipo si ejecuto, y el operador la
+   * reintentaria.
+   */
+  markFailedIfStill(input: {
+    commandId: number
+    expectedStatus: DeviceCommandStatus
+    failedAt: DateTime
+    error: string
+  }): Promise<boolean>
   save(command: DeviceCommand): Promise<void>
 }

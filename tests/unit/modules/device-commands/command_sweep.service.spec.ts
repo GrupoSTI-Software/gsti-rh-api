@@ -22,13 +22,27 @@ function commandOf(overrides: Partial<DeviceCommand> = {}): DeviceCommand {
   } as DeviceCommand
 }
 
-function makeService(stuck: DeviceCommand[]) {
+function makeService(stuck: DeviceCommand[], statusChangedUnderfoot = false) {
   const saved: DeviceCommand[] = []
   let asked: Parameters<DeviceCommandRepository['findStuck']>[0] | null = null
   const repository = {
     async findStuck(input: Parameters<DeviceCommandRepository['findStuck']>[0]) {
       asked = input
       return stuck
+    },
+    async markFailedIfStill(input: Parameters<DeviceCommandRepository['markFailedIfStill']>[0]) {
+      const command = stuck.find((row) => row.deviceCommandId === input.commandId)
+      if (!command) return false
+      // La condicion real vive en el UPDATE; aqui se simula que el acuse
+      // cambio el estado entre la lectura de la tanda y la escritura.
+      if (statusChangedUnderfoot || command.deviceCommandStatus !== input.expectedStatus) {
+        return false
+      }
+      command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
+      command.deviceCommandFailedAt = input.failedAt
+      command.deviceCommandLastError = input.error
+      saved.push(command)
+      return true
     },
     async save(command: DeviceCommand) {
       saved.push(command)
@@ -49,6 +63,18 @@ test.group('Barrido de comandos colgados', () => {
     assert.equal(saved[0].deviceCommandStatus, 'failed')
     assert.equal(saved[0].deviceCommandLastError, 'inflight_timeout')
     assert.equal(saved[0].deviceCommandFailedAt, NOW)
+  })
+
+  test('si el acuse llego entre la lectura y la escritura, no se marca fallido', async ({
+    assert,
+  }) => {
+    // El barrido lee una tanda y la procesa en fila. Poner "fallo" sobre una
+    // orden que el equipo si ejecuto hace que el operador la reintente y el
+    // aparato la repita.
+    const { service, saved } = makeService([commandOf()], true)
+    const result = await service.run()
+    assert.equal(result.timedOut, 0)
+    assert.lengthOf(saved, 0)
   })
 
   test('un acusado sin evidencia pasa a fallido', async ({ assert }) => {

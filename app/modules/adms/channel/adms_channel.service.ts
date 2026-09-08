@@ -30,6 +30,7 @@ import AccessPoint from '#models/access_point'
 import BusinessUnit from '#models/business_unit'
 import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
 import type { ResolvedAdmsDevice } from './adms_device_resolver.service.js'
+import { errorKind, summarizeError } from './error_summary.js'
 
 export interface UploadInput {
   device: ResolvedAdmsDevice
@@ -125,7 +126,38 @@ export default class AdmsChannelService {
 
     await this.detectDialect(input.device, input.table)
 
-    const processing = await this.processTable(input, rawMessageId)
+    /**
+     * Si el proceso revienta -- un deadlock, un timeout, un valor que no cabe en
+     * su columna -- el cuerpo YA esta guardado integro y verificado. Dejar subir
+     * la excepcion daria 500 sin acuse: el equipo reintentaria el mismo lote
+     * cada cinco segundos insertando otro crudo por vuelta, y este quedaria en
+     * `received`, que ni `adms:reprocess-raw` ni `adms:purge-raw` recogen.
+     *
+     * Se acusa, se marca `failed` (que si es reprocesable) y NO se avanza el
+     * stamp: el equipo pasa al siguiente lote y este se recupera desde el crudo.
+     */
+    let processing: TableProcessingResult
+    try {
+      processing = await this.processTable(input, rawMessageId)
+    } catch (error) {
+      processing = { status: ADMS_RAW_STATUS.FAILED, error: summarizeError(error) }
+      await this.incidents.record({
+        kind: ADMS_INCIDENT_KIND.PERSIST_ERROR,
+        severity: 'error',
+        code: ADMS_ERROR_CODES.SYS_PERSIST,
+        title: 'La subida no se pudo procesar',
+        detail:
+          'El cuerpo llego completo y quedo guardado, pero el proceso fallo. Se acuso al equipo para que no se atore y el crudo quedo marcado para reproceso.',
+        key: 'subida-fallida',
+        serial: input.device.serial,
+        accessPointId: input.device.accessPointId,
+        businessUnitId: input.device.businessUnitId,
+        rawMessageId,
+        context: { table: input.table ?? undefined, lines: lineCount, reason: errorKind(error) },
+        now,
+      })
+    }
+
     const ack = admsAck(lineCount)
     await this.rawMessages.finish(rawMessageId, {
       status: processing.status,

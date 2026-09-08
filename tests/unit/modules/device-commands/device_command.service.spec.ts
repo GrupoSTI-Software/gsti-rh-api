@@ -79,6 +79,12 @@ function makeService(options: Options = {}) {
     async findStuck() {
       return []
     },
+    async markSent() {
+      return true
+    },
+    async markFailedIfStill() {
+      return true
+    },
     async save(command) {
       saved.push(command)
     },
