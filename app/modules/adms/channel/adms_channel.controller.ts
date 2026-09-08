@@ -95,6 +95,14 @@ export default class AdmsChannelController {
       accessPointId: device.accessPointId,
       now: device.receivedAt,
       ipAnomalyOpen,
+      /**
+       * La zona del EQUIPO, no la del negocio. El ajuste de reloj se recalcula
+       * al despachar y sin esto saldria con la zona de la aplicacion: una sede
+       * en Tijuana con la empresa en Ciudad de Mexico quedaria con una hora de
+       * mas justo por haber corregido su reloj, y todas sus checadas se irian
+       * a la franja equivocada.
+       */
+      deviceZone: device.timezone,
     })
     return { status: 200, body }
   }

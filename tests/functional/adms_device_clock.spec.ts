@@ -243,4 +243,60 @@ test.group('ADMS reloj del checador (rebanada 5)', (group) => {
       if (!createdAssistIds.includes(row.assist_id)) createdAssistIds.push(row.assist_id)
     }
   })
+
+  /**
+   * La hora que sale tiene que ser la del EQUIPO. Con la de la aplicacion, una
+   * sede en otra franja se queda con el reloj peor de como estaba, justo por
+   * haberlo corregido, y todas sus checadas se van a la hora equivocada.
+   *
+   * La zona de prueba es deliberadamente remota: cualquiera de Mexico podria
+   * coincidir con la del negocio y la prueba pasaria sin comprobar nada.
+   */
+  test('el ajuste sale con la zona del equipo, no con la de la aplicacion', async ({ assert }) => {
+    const remota = 'Pacific/Kiritimati'
+    await TenantContext.runUnscoped(async () => {
+      await db
+        .from('access_points')
+        .where('access_point_id', accessPoint.accessPointId)
+        .update({ access_point_timezone: remota })
+      await DeviceCommand.query().where('access_point_id', accessPoint.accessPointId).delete()
+      // Las muestras de las pruebas anteriores son de un reloj en hora: la
+      // mediana las respeta y una sola checada corrida no la movería.
+      const profile = await AccessPointProfile.query()
+        .where('access_point_id', accessPoint.accessPointId)
+        .firstOrFail()
+      profile.accessPointProfileClockSamples = []
+      profile.accessPointProfileClockSyncStatus = null
+      await profile.save()
+    }, 'zona propia del equipo para el ajuste')
+
+    const code = String(employee.employeeCode)
+    const corridas = [600, 605, 610]
+      .map(
+        (drift, index) =>
+          `${code}\t${localTimeWithDrift(remota, drift + index * 90)}\t0\t15\t0\t0\t0\t255\t0\t0\t`
+      )
+      .join('\n')
+    await postAttlog(`${corridas}\n`)
+
+    const antesDelDespacho = DateTime.utc()
+    const pending = await get(`/iclock/getrequest?SN=${SERIAL}`)
+    const line = await pending.text()
+    assert.match(line, /^C:\d+:SET OPTION DateTime=\d+$/)
+
+    const parts = fromZkDateTime(Number(line.split('DateTime=')[1]))
+    const esperado = antesDelDespacho.setZone(remota)
+    assert.equal(parts.year, esperado.year)
+    assert.equal(parts.month, esperado.month)
+    assert.equal(parts.day, esperado.day)
+    assert.equal(parts.hour, esperado.hour)
+
+    const assists = await TenantContext.runUnscoped(
+      () => db.from('assists').where('assist_terminal_sn', SERIAL).select('assist_id'),
+      'checadas creadas'
+    )
+    for (const row of assists) {
+      if (!createdAssistIds.includes(row.assist_id)) createdAssistIds.push(row.assist_id)
+    }
+  })
 })

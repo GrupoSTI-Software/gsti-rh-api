@@ -101,6 +101,10 @@ test.group('ADMS ingesta de checadas (rebanada 3)', (group) => {
       await AccessPointEmployee.query()
         .where('access_point_id', accessPoint.accessPointId)
         .delete()
+      // El ajuste de reloj se encola solo cuando la deriva pasa el umbral, y
+      // la FK a access_points es RESTRICT: sin esto el equipo no se puede
+      // borrar y la basura se acumula entre corridas.
+      await db.from('device_commands').where('access_point_id', accessPoint.accessPointId).delete()
       await AdmsIncident.query().where('access_point_id', accessPoint.accessPointId).delete()
       await AccessPointStamp.query().where('access_point_id', accessPoint.accessPointId).delete()
       await AccessPointProfile.query().where('access_point_id', accessPoint.accessPointId).delete()
