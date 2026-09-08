@@ -7,6 +7,9 @@ export interface CommandInsert {
   businessUnitId: number
   kind: DeviceCommandKind
   payload: string
+  /** En claro, para que la evidencia correlacione sin descifrar el payload. */
+  pin: string | null
+  bioNo: number | null
   priority: number
   maxAttempts: number | null
   employeeId: number | null
@@ -80,5 +83,21 @@ export interface DeviceCommandRepository {
     failedAt: DateTime
     error: string
   }): Promise<boolean>
+  /**
+   * Comandos de ese equipo que todavia esperan prueba de ejecucion.
+   *
+   * `sent` y `acked` los dos: el equipo puede subir la huella ANTES de que su
+   * acuse llegue, y descartar esa prueba por llegar en desorden dejaria el
+   * comando colgado hasta que el barrido lo diera por fallido.
+   *
+   * Se filtra por PIN y numero de biometrico en claro; el payload va cifrado y
+   * descifrar la cola entera para buscar no es una opcion.
+   */
+  findAwaitingEvidence(input: {
+    accessPointId: number
+    kinds: DeviceCommandKind[]
+    pin?: string
+    bioNo?: number
+  }): Promise<DeviceCommand[]>
   save(command: DeviceCommand): Promise<void>
 }

@@ -6,9 +6,8 @@ import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_wr
 import {
   ensureAccessPointPermission,
   resolveScopedAccessPoint,
+  resolveScopedEmployee,
 } from '#modules/access-point/access_point_authorization'
-import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
-import { AdmsError } from '#exceptions/adms_error'
 import Employee from '#models/employee'
 import EmployeeSyncService from './employee_sync.service.js'
 import { toEmployeeSyncDto } from './dto/employee_sync.dto.js'
@@ -63,7 +62,7 @@ export default class EmployeeSyncController {
         data: { params: request.params(), pin: request.input('pin') },
       })
       const accessPoint = await resolveScopedAccessPoint(ctx, payload.params.accessPointId)
-      await this.requireScopedEmployee(ctx, payload.params.employeeId)
+      await resolveScopedEmployee(ctx, payload.params.employeeId)
 
       const service = new EmployeeSyncService()
       const pivot = await service.setPin({
@@ -112,7 +111,7 @@ export default class EmployeeSyncController {
         data: { params: request.params() },
       })
       const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
-      const employee = await this.requireScopedEmployee(ctx, params.employeeId)
+      const employee = await resolveScopedEmployee(ctx, params.employeeId)
 
       const service = new EmployeeSyncService()
       const pivot = await service.send({
@@ -162,7 +161,7 @@ export default class EmployeeSyncController {
         data: { params: request.params() },
       })
       const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
-      await this.requireScopedEmployee(ctx, params.employeeId)
+      await resolveScopedEmployee(ctx, params.employeeId)
 
       const service = new EmployeeSyncService()
       const pivot = await service.revoke({
@@ -186,24 +185,6 @@ export default class EmployeeSyncController {
   }
 
   /** Un colaborador de otra empresa se comporta como inexistente. */
-  private async requireScopedEmployee(ctx: HttpContext, employeeId: number): Promise<Employee> {
-    const scope = ctx.businessUnitScope ?? []
-    const employee =
-      scope.length === 0
-        ? null
-        : await Employee.query()
-            .where('employee_id', employeeId)
-            .whereIn('business_unit_id', scope)
-            .first()
-    if (employee) return employee
-    throw new AdmsError(
-      ctx.i18n.formatMessage('adms_not_found_title'),
-      ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
-      404,
-      'colaborador-no-encontrado',
-      ctx.i18n.formatMessage('adms_not_found_message')
-    )
-  }
 }
 
 /** Nombre para la pantalla del equipo. El formateador lo recorta a 24. */

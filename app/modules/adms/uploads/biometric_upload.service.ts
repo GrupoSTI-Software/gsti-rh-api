@@ -12,6 +12,8 @@ import TemplateService from '#modules/biometric-vault/template/template.service'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
 import HeldBiometricRepositoryMysql from './held_biometric.repository.mysql.js'
 import type { HeldBiometricRepository } from './held_biometric.repository.js'
+import logger from '@adonisjs/core/services/logger'
+import ExecutionEvidenceService from '#modules/device-commands/evidence/execution_evidence.service'
 
 /** Una captura biometrica ya normalizada, venga de donde venga. */
 export interface NormalizedBiometric {
@@ -62,7 +64,8 @@ export default class BiometricUploadService {
     private readonly pins: PinResolverService = new PinResolverService(),
     private readonly heldBiometrics: HeldBiometricRepository = new HeldBiometricRepositoryMysql(),
     private readonly heldPunches: HeldPunchRepository = new HeldPunchRepositoryMysql(),
-    private readonly incidents: IncidentService = new IncidentService()
+    private readonly incidents: IncidentService = new IncidentService(),
+    private readonly evidence: ExecutionEvidenceService = new ExecutionEvidenceService()
   ) {}
 
   /** `table=BIODATA`: la via canonica, con version explicita. */
@@ -226,6 +229,25 @@ export default class BiometricUploadService {
         continue
       }
       stored += 1
+
+      /**
+       * La huella guardada es la prueba de que el enrolamiento se hizo (spec
+       * 6.6). Va en su propio try/catch: cerrar un comando es contabilidad y no
+       * puede tumbar la subida de un biometrico que ya esta a salvo.
+       */
+      try {
+        await this.evidence.fromBiometricUpload({
+          accessPointId: device.accessPointId,
+          pin: row.pin,
+          bioNo: row.bioNo,
+          now: device.receivedAt,
+        })
+      } catch (error) {
+        logger.warn(
+          { accessPointId: device.accessPointId, error: (error as Error).message.slice(0, 200) },
+          'canal ADMS: el biometrico se guardo pero no se pudo cerrar su comando'
+        )
+      }
     }
 
     const clean = unparsed === 0 && held === 0 && invalid === 0

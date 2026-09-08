@@ -4,6 +4,7 @@ import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import { AdmsError } from '#exceptions/adms_error'
 import AccessPoint from '#models/access_point'
 import PermissionGateService from '#services/permission_gate_service'
+import Employee from '#models/employee'
 
 /**
  * Autorizacion unica de las rutas del canal ADMS hacia el Backoffice
@@ -50,6 +51,36 @@ export async function resolveScopedAccessPoint(
     ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
     404,
     'punto-acceso-no-encontrado',
+    ctx.i18n.formatMessage('adms_not_found_message')
+  )
+}
+
+/**
+ * Lo mismo para todo `:employeeId`. Un colaborador de otra empresa se comporta
+ * como inexistente por la misma razon: un 403 confirmaria que existe.
+ *
+ * Se lee con el scope explicito y no con el mixin: el mixin filtra lecturas,
+ * pero una escritura que se apoye en el se cae en cuanto alguien la llame desde
+ * un contexto sin scope (regla 13.3).
+ */
+export async function resolveScopedEmployee(
+  ctx: HttpContext,
+  employeeId: number
+): Promise<Employee> {
+  const scope = ctx.businessUnitScope ?? []
+  const employee =
+    scope.length === 0
+      ? null
+      : await Employee.query()
+          .where('employee_id', employeeId)
+          .whereIn('business_unit_id', scope)
+          .first()
+  if (employee) return employee
+  throw new AdmsError(
+    ctx.i18n.formatMessage('adms_not_found_title'),
+    ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+    404,
+    'colaborador-no-encontrado',
     ctx.i18n.formatMessage('adms_not_found_message')
   )
 }

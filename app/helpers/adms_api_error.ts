@@ -4,13 +4,15 @@ import { ADMS_ERROR_CODES, type AdmsErrorCode } from '#constants/adms_error_code
 import type { DeviceCommandErrorCode } from '#constants/device_command_error_codes'
 import { AdmsError } from '#exceptions/adms_error'
 import { DeviceCommandError } from '#exceptions/device_command_error'
+import { BiometricVaultError } from '#exceptions/biometric_vault_error'
+import type { BiometricVaultErrorCode } from '#constants/biometric_vault_error_codes'
 
 export interface ResolvedAdmsApiError {
   status: number
   title: string
   detail: string
   key: string
-  code: AdmsErrorCode | DeviceCommandErrorCode
+  code: AdmsErrorCode | DeviceCommandErrorCode | BiometricVaultErrorCode
 }
 
 /**
@@ -32,10 +34,14 @@ export function resolveAdmsApiError(error: unknown, i18n: I18n): ResolvedAdmsApi
   }
 
   /**
-   * `AdmsError` y `DeviceCommandError` son el mismo contrato con distinto
-   * catálogo de códigos: el Backoffice ramifica por `key` en los dos casos.
+   * Los tres errores del tramo son el mismo contrato con distinto catálogo de
+   * códigos: el Backoffice ramifica por `key` en todos los casos.
    */
-  if (error instanceof AdmsError || error instanceof DeviceCommandError) {
+  if (
+    error instanceof AdmsError ||
+    error instanceof DeviceCommandError ||
+    error instanceof BiometricVaultError
+  ) {
     return {
       status: error.httpStatus,
       title: error.message,

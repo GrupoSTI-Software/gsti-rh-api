@@ -3024,5 +3024,9 @@
   "calendar_export_position": "Position",
   "calendar_export_years": "Years at the company",
   "calendar_export_hire_date": "Hire date",
-  "calendar_export_created": "The file was generated successfully"
+  "calendar_export_created": "The file was generated successfully",
+  "fingerprint_enrollment_queued_message": "The device was asked to capture the fingerprint; ask the employee to place their finger",
+  "fingerprint_enrollment_already_queued_message": "That fingerprint capture was already pending on this device",
+  "biometric_vault_title": "Employee biometrics",
+  "biometric_consent_missing_title": "Biometric consent missing"
 }

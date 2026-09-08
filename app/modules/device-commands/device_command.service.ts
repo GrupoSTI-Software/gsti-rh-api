@@ -59,6 +59,13 @@ export default class DeviceCommandService implements DeviceCommandPort {
         businessUnitId: input.businessUnitId,
         kind: input.kind,
         payload,
+        /**
+         * El PIN y el numero de biometrico se copian de los campos ya
+         * formateados: son los mismos que van dentro del payload cifrado, y
+         * aqui quedan legibles para que la evidencia los correlacione.
+         */
+        pin: input.fields.pin ?? null,
+        bioNo: input.fields.bioNo ?? input.fields.fid ?? null,
         priority,
         maxAttempts,
         employeeId: input.employeeId ?? null,

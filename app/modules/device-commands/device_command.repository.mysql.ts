@@ -71,6 +71,8 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
     command.accessPointId = input.accessPointId
     command.businessUnitId = input.businessUnitId
     command.deviceCommandKind = input.kind
+    command.deviceCommandPin = input.pin
+    command.deviceCommandBioNo = input.bioNo
     command.deviceCommandPayload = input.payload
     command.deviceCommandStatus = DEVICE_COMMAND_STATUS.PENDING
     command.deviceCommandPriority = input.priority
@@ -222,6 +224,24 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
       await command.save()
       return true
     })
+  }
+
+  async findAwaitingEvidence(input: {
+    accessPointId: number
+    kinds: DeviceCommandKind[]
+    pin?: string
+    bioNo?: number
+  }): Promise<DeviceCommand[]> {
+    const query = DeviceCommand.query()
+      .where('access_point_id', input.accessPointId)
+      .whereIn('device_command_kind', input.kinds)
+      .whereIn('device_command_status', [
+        DEVICE_COMMAND_STATUS.SENT,
+        DEVICE_COMMAND_STATUS.ACKED,
+      ])
+    if (input.pin !== undefined) query.where('device_command_pin', input.pin)
+    if (input.bioNo !== undefined) query.where('device_command_bio_no', input.bioNo)
+    return query.orderBy('device_command_id', 'asc')
   }
 
   async save(command: DeviceCommand): Promise<void> {

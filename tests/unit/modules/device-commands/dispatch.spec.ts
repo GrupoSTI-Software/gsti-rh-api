@@ -67,6 +67,9 @@ function makeRepository(options: Options = {}) {
     async findStuck() {
       return []
     },
+    async findAwaitingEvidence() {
+      return []
+    },
     async markSent(input) {
       const command = options.pending
       if (options.lostRace === true || !command) return false

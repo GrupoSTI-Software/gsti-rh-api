@@ -4,6 +4,8 @@ import type { ResolvedAdmsDevice } from '#modules/adms/channel/adms_device_resol
 import { parseOptionsBody, resolveVersions } from '#modules/adms/parsers/options.parser'
 import { attlogLayoutFor } from '#modules/adms/parsers/parser.types'
 import IncidentService from '#modules/adms/raw/incident.service'
+import logger from '@adonisjs/core/services/logger'
+import ExecutionEvidenceService from '#modules/device-commands/evidence/execution_evidence.service'
 import DeviceProfileRepositoryMysql from './device_profile.repository.mysql.js'
 import {
   clampBytes,
@@ -42,7 +44,8 @@ const PLATFORM_DEDUPE_MINUTES = 24 * 60
 export default class DeviceProfileService {
   constructor(
     private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
-    private readonly incidents: IncidentService = new IncidentService()
+    private readonly incidents: IncidentService = new IncidentService(),
+    private readonly evidence: ExecutionEvidenceService = new ExecutionEvidenceService()
   ) {}
 
   async upsertFromOptions(
@@ -186,6 +189,28 @@ export default class DeviceProfileService {
     }
     if (Object.values(descriptor).some((value) => value !== null)) {
       await this.profiles.copyDescriptor(device.accessPointId, descriptor)
+    }
+
+    /**
+     * Los contadores del equipo son la tercera prueba de ejecucion (spec 6.6):
+     * si el numero de huellas subio respecto al que se guardo al acusar, la
+     * huella entro. En su propio try/catch, que el perfil ya se guardo.
+     */
+    try {
+      await this.evidence.fromCounters({
+        accessPointId: device.accessPointId,
+        counters: {
+          fpCount: parsed.fpCount,
+          faceCount: parsed.faceCount,
+          userCount: parsed.userCount,
+        },
+        now: device.receivedAt,
+      })
+    } catch (error) {
+      logger.warn(
+        { accessPointId: device.accessPointId, error: (error as Error).message.slice(0, 200) },
+        'canal ADMS: el perfil se guardo pero no se pudo cerrar un comando con sus contadores'
+      )
     }
 
     return {

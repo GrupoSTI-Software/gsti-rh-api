@@ -46,6 +46,17 @@ export default class DeviceCommand extends compose(BaseModel, withBusinessUnitSc
   @column()
   declare deviceCommandKind: DeviceCommandKind
 
+  /**
+   * PIN y numero de biometrico en claro: el payload va cifrado y la evidencia
+   * de ejecucion tiene que correlacionar sin descifrar la cola entera. El PIN
+   * ya vive en claro en `access_point_employees`.
+   */
+  @column()
+  declare deviceCommandPin: string | null
+
+  @column()
+  declare deviceCommandBioNo: number | null
+
   @column({
     prepare: (value: string | null) =>
       value !== null && value !== undefined ? encryption.encrypt(value) : null,

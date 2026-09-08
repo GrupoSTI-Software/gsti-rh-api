@@ -3,6 +3,7 @@ import DeviceCommandService from '#modules/device-commands/device_command.servic
 import {
   DEVICE_COMMAND_KIND,
   DEVICE_COMMAND_STATUS,
+  DEVICE_COMMAND_EVIDENCE,
 } from '#modules/device-commands/device_command.constants'
 import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
 import { toZkDateTime } from '#modules/device-commands/wire/zk_datetime'
@@ -112,7 +113,7 @@ export default class DeviceClockSyncService {
 
     pending.deviceCommandStatus = DEVICE_COMMAND_STATUS.EXECUTED
     pending.deviceCommandExecutedAt = input.now
-    pending.deviceCommandExecutionEvidence = 'attlog_drift_ok'
+    pending.deviceCommandExecutionEvidence = DEVICE_COMMAND_EVIDENCE.ATTLOG_DRIFT_OK
     await pending.save()
     return pending
   }

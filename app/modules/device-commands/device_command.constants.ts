@@ -62,6 +62,34 @@ export const DEVICE_COMMAND_RETURN_CODES: Readonly<Record<number, string>> = {
 
 export const DEVICE_COMMAND_UNKNOWN_RETURN = 'unknown_return_code'
 
+/**
+ * Con que se dio por ejecutado un comando (spec 6.6).
+ *
+ * `Return=0` significa RECIBIDO, no ejecutado: la bateria en hardware midio un
+ * `Return=0` con la foto descartada y otro con el reloj movido 180 dias. Salvo
+ * el alta de usuario -- donde el acuse SI es la ejecucion, porque el aparato no
+ * tiene nada mas que hacer con ella -- todo lo demas necesita una prueba que
+ * venga del propio equipo despues.
+ */
+export const DEVICE_COMMAND_EVIDENCE = {
+  /** El acuse basta: solo para `user_upsert`. */
+  ACK: 'ack',
+  /** Una checada con la deriva ya corregida. */
+  ATTLOG_DRIFT_OK: 'attlog_drift_ok',
+  /** El equipo subio la huella o el rostro que se le pidio capturar. */
+  BIOMETRIC_UPLOAD: 'biometric_upload',
+  /** Una checada verificada con la modalidad que el comando escribio. */
+  ATTLOG_VERIFY: 'attlog_verify',
+  /** El contador del equipo subio respecto al que se guardo al acusar. */
+  COUNTER_UP: 'counter_up',
+} as const
+
+export type DeviceCommandEvidence =
+  (typeof DEVICE_COMMAND_EVIDENCE)[keyof typeof DEVICE_COMMAND_EVIDENCE]
+
+/** Metodo de verificacion de una checada hecha con huella (gramatica ZK). */
+export const ATTLOG_VERIFY_FINGERPRINT = 1
+
 /** Motivos con los que el barrido cierra un comando colgado (spec 6.2). */
 export const DEVICE_COMMAND_FAILURE = {
   INFLIGHT_TIMEOUT: 'inflight_timeout',

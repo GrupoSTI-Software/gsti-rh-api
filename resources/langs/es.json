@@ -3027,5 +3027,9 @@
   "calendar_export_position": "Puesto",
   "calendar_export_years": "Años en la empresa",
   "calendar_export_hire_date": "Fecha de ingreso",
-  "calendar_export_created": "El archivo se generó correctamente"
+  "calendar_export_created": "El archivo se generó correctamente",
+  "fingerprint_enrollment_queued_message": "Se pidió al checador que capture la huella; pide al colaborador que ponga el dedo",
+  "fingerprint_enrollment_already_queued_message": "Ya había una captura pendiente de esa huella en este equipo",
+  "biometric_vault_title": "Biométricos del colaborador",
+  "biometric_consent_missing_title": "Falta el consentimiento biométrico"
 }

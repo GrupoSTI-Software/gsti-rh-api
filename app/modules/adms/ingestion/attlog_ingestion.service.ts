@@ -9,6 +9,7 @@ import type { ResolvedAdmsDevice } from '#modules/adms/channel/adms_device_resol
 import { parseAttlogBody, type AttlogRow } from '#modules/adms/parsers/attlog.parser'
 import type { AdmsAttlogLayout } from '#modules/adms/parsers/parser.types'
 import IncidentService from '#modules/adms/raw/incident.service'
+import ExecutionEvidenceService from '#modules/device-commands/evidence/execution_evidence.service'
 import AssistIngestionService from '#modules/assist-ingestion/assist_ingestion.service'
 import type { AssistIngestionItem } from '#modules/assist-ingestion/dto/assist_ingestion.dto'
 import { ADMS_HELD_PUNCH_REASON } from '#models/adms_held_punch'
@@ -59,7 +60,8 @@ export default class AttlogIngestionService {
     private readonly assists: AssistIngestionService = new AssistIngestionService(),
     private readonly incidents: IncidentService = new IncidentService(),
     private readonly clock: DeviceClockService = new DeviceClockService(),
-    private readonly clockSync: DeviceClockSyncService = new DeviceClockSyncService()
+    private readonly clockSync: DeviceClockSyncService = new DeviceClockSyncService(),
+    private readonly evidence: ExecutionEvidenceService = new ExecutionEvidenceService()
   ) {}
 
   async ingest(context: AttlogIngestionContext): Promise<AttlogIngestionResult> {
@@ -182,6 +184,8 @@ export default class AttlogIngestionService {
 
     let inserted = 0
     let preexisting = 0
+    /** Filas que si quedaron acreditadas: las unicas que sirven de evidencia. */
+    const attributedRows: AttlogRow[] = []
 
     if (items.length > 0) {
       const result = await this.assists.ingest(items, { deferCalendarRecalc: true })
@@ -194,8 +198,11 @@ export default class AttlogIngestionService {
        * vez de perderse y el motivo queda visible.
        */
       for (const [index, itemResult] of result.results.entries()) {
-        if (itemResult.outcome !== 'rejected') continue
         const source = sourceRows[index]
+        if (itemResult.outcome !== 'rejected') {
+          if (source !== undefined) attributedRows.push(source)
+          continue
+        }
         if (source === undefined) continue
         heldCount += 1
         await this.holdRow(
@@ -209,6 +216,31 @@ export default class AttlogIngestionService {
     }
 
     await this.observeClock(context, clockSamples, zone.zone)
+
+    /**
+     * Una checada verificada con huella prueba que la huella quedo en el equipo
+     * (spec 6.6). Solo cuentan las que ENTRARON: una retenida no dice nada de
+     * quien la marco. En su propio try/catch, que cerrar comandos es
+     * contabilidad y las checadas ya estan guardadas.
+     */
+    try {
+      for (const row of attributedRows) {
+        await this.evidence.fromPunch({
+          accessPointId: context.device.accessPointId,
+          pin: row.pin,
+          verify: row.verify,
+          now: context.device.receivedAt,
+        })
+      }
+    } catch (error) {
+      logger.warn(
+        {
+          accessPointId: context.device.accessPointId,
+          error: (error as Error).message.slice(0, 200),
+        },
+        'canal ADMS: las checadas entraron pero no se pudo cerrar un enrolamiento'
+      )
+    }
 
     const clean = parsed.unparsed.length === 0 && heldCount === 0 && invalidTime === 0
     return {

@@ -5,12 +5,16 @@ import {
   DEVICE_COMMAND_RETURN_CODES,
   DEVICE_COMMAND_STATUS,
   DEVICE_COMMAND_UNKNOWN_RETURN,
+  DEVICE_COMMAND_EVIDENCE,
 } from '../device_command.constants.js'
 import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
 import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
 import type DeviceCommand from '#models/device_command'
 import { parseDeviceCmdBody } from '../wire/adms_ack.parser.js'
 import type { DeviceCommandRepository } from '../device_command.repository.js'
+import DeviceProfileRepositoryMysql from '#modules/access-point/device-profile/device_profile.repository.mysql'
+import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
+import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 
 export type AckOutcome =
   | { kind: 'applied'; commandId: number; status: string; returnCode: number | null }
@@ -34,7 +38,8 @@ export interface AckInput {
 export default class CommandAckService {
   constructor(
     private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
-    private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql()
+    private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
+    private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql()
   ) {}
 
   async apply(input: AckInput): Promise<AckOutcome> {
@@ -61,7 +66,14 @@ export default class CommandAckService {
       command.deviceCommandAckedAt = input.now
       if (executed) {
         command.deviceCommandExecutedAt = input.now
-        command.deviceCommandExecutionEvidence = 'ack'
+        command.deviceCommandExecutionEvidence = DEVICE_COMMAND_EVIDENCE.ACK
+      } else {
+        /**
+         * Foto de los contadores en el momento del acuse. La prueba de que el
+         * equipo hizo el trabajo es que el numero suba DESPUES; sin esta linea
+         * base no hay con que comparar y esa via de evidencia nunca se cumple.
+         */
+        command.deviceCommandCountersSnapshot = await this.readCounters(command.accessPointId)
       }
     } else {
       command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
@@ -91,6 +103,21 @@ export default class CommandAckService {
    * dijo que recibio la orden, no que la aplico. Hasta que haya evidencia, el
    * PIN sigue en cuarentena y no se le da a nadie mas.
    */
+  /**
+   * Contadores del perfil, que se refresca con cada subida de `options`. Si el
+   * equipo aun no ha mandado ninguna, no hay linea base y se guarda `null`: sin
+   * numero previo, ningun aumento se puede acreditar.
+   */
+  private async readCounters(accessPointId: number): Promise<DeviceCommandCountersSnapshot | null> {
+    const profile = await this.profiles.findByAccessPoint(accessPointId)
+    if (!profile) return null
+    return {
+      userCount: profile.accessPointProfileUserCount,
+      fpCount: profile.accessPointProfileFpCount,
+      faceCount: profile.accessPointProfileFaceCount,
+    }
+  }
+
   private async syncPivot(command: DeviceCommand, returnCode: number | null): Promise<void> {
     if (!command.accessPointEmployeeId) return
     const accepted = returnCode === 0

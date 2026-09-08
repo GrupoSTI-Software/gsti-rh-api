@@ -79,6 +79,9 @@ function makeService(options: Options = {}) {
     async findStuck() {
       return []
     },
+    async findAwaitingEvidence() {
+      return []
+    },
     async markSent() {
       return true
     },
