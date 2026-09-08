@@ -9,7 +9,7 @@ import AdmsIncident from '#models/adms_incident'
 import AdmsQuarantinedDevice from '#models/adms_quarantined_device'
 import { TenantContext } from '#utils/tenant_context'
 import HealthService from '#modules/access-point/health/health.service'
-import { toIncidentDto } from '#modules/access-point/incidents/incidents.dto.js'
+import { toIncidentDto } from '#modules/access-point/incidents/incidents.dto'
 import PlatformQuarantineClaimService from './quarantine_claim.service.js'
 
 const idValidator = vine.compile(
