@@ -3050,5 +3050,8 @@
   "platform_quarantine_dismissed_message": "The quarantine row was dismissed",
   "platform_quarantine_unlocked_message": "The row was unlocked and its failed-attempt counter was reset",
   "platform_retention_message": "Retention windows in effect and current volume",
-  "platform_quarantine_claimed_message": "The device was assigned to the company and registered as customer-owned"
+  "platform_quarantine_claimed_message": "The device was assigned to the company and registered as customer-owned",
+  "access_point_sync_answered_message": "The device answered and its details are up to date",
+  "access_point_sync_pending_message": "The device was asked; it will answer on its next poll",
+  "access_point_sync_failed_message": "The device replied that it could not complete the request"
 }

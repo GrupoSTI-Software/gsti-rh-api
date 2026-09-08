@@ -14,6 +14,14 @@ router
       '/:accessPointId/health',
       '#modules/access-point/health/health.controller.show'
     )
+    /**
+     * Sincronizar: deja un `INFO` en la cola y espera a que el equipo pase a
+     * recogerlo. Puede tardar hasta veinte segundos por diseño.
+     */
+    router.post(
+      '/:accessPointId/sync',
+      '#modules/access-point/health/health.controller.sync'
+    )
   })
   .prefix('/api/v1/access-points')
   .use(middleware.auth())

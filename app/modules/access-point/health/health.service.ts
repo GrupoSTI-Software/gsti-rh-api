@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
+import { TenantContext } from '#utils/tenant_context'
 import AccessPointProfile from '#models/access_point_profile'
 import AdmsIncident from '#models/adms_incident'
 import DeviceCommand from '#models/device_command'
@@ -17,7 +18,11 @@ import {
   ADMS_HEALTH_STATUS,
   type AdmsHealthStatus,
 } from './health.constants.js'
-import type { AccessPointHealthDto, OccupancySlot, QueueHealth } from './health.dto.js'
+import type { AccessPointHealthDto, DeviceModelDto, OccupancySlot, QueueHealth } from './health.dto.js'
+
+/** El catalogo de modelos es de plataforma, no de una empresa. */
+const MODEL_UNSCOPED_REASON =
+  'salud del checador: el catalogo de modelos es de plataforma, no de una empresa'
 
 /**
  * Estado de los checadores para la pantalla de operacion (spec ADMS 9.2).
@@ -66,6 +71,10 @@ export default class HealthService {
       accessPointId: accessPoint.accessPointId,
       name: accessPoint.accessPointName,
       serialNumber: accessPoint.accessPointSerialNumber,
+      deviceName: accessPoint.accessPointDeviceName ?? null,
+      mac: accessPoint.accessPointMac ?? null,
+      ip: accessPoint.accessPointIp ?? null,
+      model: await this.modelOf(accessPoint),
       active: accessPoint.accessPointActive === 1,
       status: statusOf(accessPoint.accessPointLastConnection, now),
       lastSeenAt: accessPoint.accessPointLastConnection?.toISO() ?? null,
@@ -140,6 +149,37 @@ export default class HealthService {
         oldest?.deviceCommandCreatedAt !== undefined && oldest.deviceCommandCreatedAt !== null
           ? Math.max(0, Math.round(now.diff(oldest.deviceCommandCreatedAt, 'seconds').seconds))
           : null,
+    }
+  }
+
+  /**
+   * Modelo del catalogo, solo si la unidad entro por el inventario de
+   * plataforma. Un equipo dado de alta a mano no lo tiene, y ahi el Backoffice
+   * cae a la imagen generica en vez de mostrar una que no corresponde.
+   */
+  private async modelOf(accessPoint: AccessPoint): Promise<DeviceModelDto | null> {
+    if (!accessPoint.platformDeviceId) return null
+    const row = await TenantContext.runUnscoped(
+      () =>
+        db
+          .from('platform_devices as d')
+          .innerJoin('platform_device_models as m', 'm.platform_device_model_id', 'd.platform_device_model_id')
+          .where('d.platform_device_id', accessPoint.platformDeviceId as number)
+          .select(
+            'm.platform_device_model_id',
+            'm.platform_device_model_brand',
+            'm.platform_device_model_name',
+            'm.platform_device_model_slug'
+          )
+          .first(),
+      MODEL_UNSCOPED_REASON
+    )
+    if (!row) return null
+    return {
+      platformDeviceModelId: Number(row.platform_device_model_id),
+      brand: String(row.platform_device_model_brand),
+      name: String(row.platform_device_model_name),
+      slug: String(row.platform_device_model_slug),
     }
   }
 

@@ -9,6 +9,7 @@ import {
   resolveScopedAccessPoint,
 } from '#modules/access-point/access_point_authorization'
 import HealthService from './health.service.js'
+import DeviceSyncService from './device_sync.service.js'
 
 const idValidator = vine.compile(
   vine.object({ params: vine.object({ accessPointId: vine.number().positive() }) })
@@ -85,6 +86,66 @@ export default class HealthController {
         row,
         i18n.formatMessage('access_point_health_title'),
         i18n.formatMessage('access_point_health_message'),
+        200,
+        'accessPoint'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/access-points/{accessPointId}/sync:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Puntos de acceso]
+   *     summary: Le pide al checador que vuelva a reportar su ficha
+   *     description: >
+   *       Con ADMS el servidor no puede consultar al aparato: se le deja un
+   *       INFO en la cola y se espera a que pase a recogerlo. Devuelve la ficha
+   *       ya actualizada si contesto, y `outcome` dice que paso.
+   *     responses:
+   *       200:
+   *         description: Ficha en data.accessPoint, con outcome answered, pending o failed
+   *       404:
+   *         description: El equipo no esta en el alcance
+   */
+  async sync(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(ctx, ACCESS_POINT_PERMISSION_DECLARATIONS.readHealth)
+      const { params } = await request.validateUsing(idValidator, {
+        data: { params: request.params() },
+      })
+      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
+
+      const outcome = await new DeviceSyncService().requestAndWait({
+        accessPointId: accessPoint.accessPointId,
+        businessUnitId: accessPoint.businessUnitId,
+        userId: auth.user?.userId ?? null,
+      })
+
+      /**
+       * Se relee el equipo: si contesto, su ficha cambio mientras esperabamos.
+       * Leer la instancia vieja mostraria justo lo que se pidio refrescar.
+       */
+      const fresh = await resolveScopedAccessPoint(ctx, params.accessPointId)
+      const row = await new HealthService().buildFor(fresh, DateTime.utc())
+
+      const messageKey =
+        outcome.kind === 'answered'
+          ? 'access_point_sync_answered_message'
+          : outcome.kind === 'failed'
+            ? 'access_point_sync_failed_message'
+            : 'access_point_sync_pending_message'
+
+      return StandardResponseFormatter.success(
+        response,
+        { ...row, sync: outcome },
+        i18n.formatMessage('access_point_health_title'),
+        i18n.formatMessage(messageKey),
         200,
         'accessPoint'
       )

@@ -38,10 +38,24 @@ export interface HardeningHealth {
   ipAnomalyOpen: boolean
 }
 
+/** Modelo del catalogo de plataforma, si la unidad vino del inventario. */
+export interface DeviceModelDto {
+  platformDeviceModelId: number
+  brand: string
+  name: string
+  /** El BO resuelve la imagen con este slug; sin modelo usa una generica. */
+  slug: string
+}
+
 export interface AccessPointHealthDto {
   accessPointId: number
   name: string
   serialNumber: string | null
+  /** Nombre que el propio aparato declara. Puede diferir del alias. */
+  deviceName: string | null
+  mac: string | null
+  ip: string | null
+  model: DeviceModelDto | null
   active: boolean
   status: AdmsHealthStatus
   lastSeenAt: string | null
