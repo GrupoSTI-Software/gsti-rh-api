@@ -1,6 +1,10 @@
 import type { DateTime } from 'luxon'
 import type { AdmsIncidentContext, AdmsIncidentContextKey } from '#models/adms_incident'
-import type { AdmsIncidentKind, AdmsIncidentSeverity } from '#modules/adms/adms.constants'
+import {
+  ADMS_INCIDENT_KIND,
+  type AdmsIncidentKind,
+  type AdmsIncidentSeverity,
+} from '#modules/adms/adms.constants'
 import IncidentRepositoryMysql from './incident.repository.mysql.js'
 import type { IncidentRepository } from './incident.repository.js'
 
@@ -79,6 +83,15 @@ export default class IncidentService {
 
   constructor(repository?: IncidentRepository) {
     this.repository = repository ?? new IncidentRepositoryMysql()
+  }
+
+  /**
+   * Con una anomalia de IP abierta el canal retiene los comandos que llevan
+   * template o token de foto (spec 13, regla 10): si dos equipos presentan la
+   * misma serie, un biometrico podria acabar en el aparato equivocado.
+   */
+  async hasOpenIpAnomaly(accessPointId: number): Promise<boolean> {
+    return this.repository.hasOpen(ADMS_INCIDENT_KIND.IP_ANOMALY, accessPointId)
   }
 
   async record(

@@ -23,6 +23,7 @@ import type { UploadProgressRepository } from '#modules/access-point/upload-prog
 import DeviceProfileRepositoryMysql from '#modules/access-point/device-profile/device_profile.repository.mysql'
 import DeviceProfileService from '#modules/access-point/device-profile/device_profile.service'
 import AttlogIngestionService from '#modules/adms/ingestion/attlog_ingestion.service'
+import CommandAckService from '#modules/device-commands/dispatch/command_ack.service'
 import { attlogLayoutFor } from '#modules/adms/parsers/parser.types'
 import AccessPoint from '#models/access_point'
 import BusinessUnit from '#models/business_unit'
@@ -56,6 +57,7 @@ const PAYLOAD_TOO_LARGE: ChannelReply = { status: 413, body: 'PAYLOAD TOO LARGE'
 const UNKNOWN_TABLE_DEDUPE_MINUTES = 60
 /** El equipo reintenta cada ~5 s: sin dedupe habria una fila por reintento. */
 const OVERSIZE_DEDUPE_MINUTES = 60
+const ORPHAN_ACK_DEDUPE_MINUTES = 60
 const DIALECT_CA_DEDUPE_MINUTES = 24 * 60
 
 /**
@@ -71,7 +73,8 @@ export default class AdmsChannelService {
     private readonly progress: UploadProgressRepository = new UploadProgressRepositoryMysql(),
     private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
     private readonly deviceProfiles: DeviceProfileService = new DeviceProfileService(),
-    private readonly attlog: AttlogIngestionService = new AttlogIngestionService()
+    private readonly attlog: AttlogIngestionService = new AttlogIngestionService(),
+    private readonly ack: CommandAckService = new CommandAckService()
   ) {}
 
   async receiveUpload(input: UploadInput): Promise<ChannelReply> {
@@ -155,7 +158,13 @@ export default class AdmsChannelService {
     return { status: 200, body: ack }
   }
 
-  /** Acuse de comando: se guarda crudo (tabla `devicecmd`); la rebanada 4 correlaciona. */
+  /**
+   * Acuse de un comando (spec 6.5). Se guarda crudo y se aplica al comando.
+   *
+   * Un acuse que no corresponde a ningun comando de ESTE equipo deja incidente
+   * y se responde `OK` igual: negarse dejaria al aparato reintentando para
+   * siempre por algo que el servidor ya no puede resolver.
+   */
   async receiveDeviceCmd(input: UploadInput): Promise<ChannelReply> {
     const now = input.device.receivedAt
     const rawMessageId = await this.persistRaw(
@@ -163,10 +172,38 @@ export default class AdmsChannelService {
       countNonEmptyLines(input.body),
       now
     )
+
+    const outcome = await this.ack.apply({
+      accessPointId: input.device.accessPointId,
+      body: input.body,
+      now,
+    })
+
+    if (outcome.kind !== 'applied') {
+      await this.incidents.record(
+        {
+          kind: ADMS_INCIDENT_KIND.ORPHAN_ACK,
+          severity: 'warning',
+          code: ADMS_ERROR_CODES.VAL_LINE_UNPARSEABLE,
+          title: 'Acuse sin comando que lo reclame',
+          detail:
+            'El equipo acuso un comando que no existe o que pertenece a otro dispositivo. No se aplica a ninguno: acreditarlo al equivocado marcaria como hecho algo que no paso.',
+          key: 'acuse-huerfano',
+          serial: input.device.serial,
+          accessPointId: input.device.accessPointId,
+          businessUnitId: input.device.businessUnitId,
+          rawMessageId,
+          context: outcome.kind === 'orphan' ? { returnCode: outcome.wireId ?? undefined } : null,
+          now,
+        },
+        { dedupeMinutes: ORPHAN_ACK_DEDUPE_MINUTES }
+      )
+    }
+
     await this.rawMessages.finish(rawMessageId, {
-      status: ADMS_RAW_STATUS.RECEIVED,
+      status: outcome.kind === 'applied' ? ADMS_RAW_STATUS.PROCESSED : ADMS_RAW_STATUS.UNPARSED,
       ack: ADMS_OK,
-      error: null,
+      error: outcome.kind === 'applied' ? null : outcome.kind,
       processedAt: now,
     })
     return { status: 200, body: ADMS_OK }

@@ -24,6 +24,9 @@ function makeRepository(existing: IncidentRecord[] = []) {
       inserted.push(record)
       return inserted.length
     },
+    async hasOpen() {
+      return false
+    },
   }
   return { repository, inserted }
 }

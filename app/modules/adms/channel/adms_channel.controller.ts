@@ -13,6 +13,8 @@ import type { UploadProgressRepository } from '#modules/access-point/upload-prog
 import DeviceProfileRepositoryMysql from '#modules/access-point/device-profile/device_profile.repository.mysql'
 import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
 import BusinessUnit from '#models/business_unit'
+import CommandDispatchService from '#modules/device-commands/dispatch/command_dispatch.service'
+import IncidentService from '#modules/adms/raw/incident.service'
 import AdmsChannelService, { type ChannelReply, type UploadInput } from './adms_channel.service.js'
 import AdmsHandshakeService from './adms_handshake.service.js'
 import { readRawBody } from './adms_raw_body.js'
@@ -38,7 +40,9 @@ export default class AdmsChannelController {
     private readonly channel: AdmsChannelService = new AdmsChannelService(),
     private readonly handshake: AdmsHandshakeService = new AdmsHandshakeService(),
     private readonly progress: UploadProgressRepository = new UploadProgressRepositoryMysql(),
-    private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql()
+    private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
+    private readonly dispatch: CommandDispatchService = new CommandDispatchService(),
+    private readonly incidents: IncidentService = new IncidentService()
   ) {}
 
   /** `GET /iclock/cdata?SN=&options=all`: bloque de saludo con los stamps del dispositivo. */
@@ -84,8 +88,15 @@ export default class AdmsChannelController {
   }
 
   /** `GET /iclock/getrequest`: un comando o `OK`. La rebanada 4 despacha; hoy `OK`. */
-  async getRequest(_request: AdmsRequest): Promise<ChannelReply> {
-    return { status: 200, body: ADMS_OK }
+  async getRequest(request: AdmsRequest): Promise<ChannelReply> {
+    const { device } = request
+    const ipAnomalyOpen = await this.incidents.hasOpenIpAnomaly(device.accessPointId)
+    const body = await this.dispatch.next({
+      accessPointId: device.accessPointId,
+      now: device.receivedAt,
+      ipAnomalyOpen,
+    })
+    return { status: 200, body }
   }
 
   /** `GET /iclock/ping`: latido; el resolutor ya toco `access_point_last_connection`. */

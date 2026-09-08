@@ -31,4 +31,6 @@ export interface IncidentRepository {
     since: DateTime
   ): Promise<IncidentRecord | null>
   insert(record: IncidentRecord): Promise<number>
+  /** Hay un incidente abierto de ese tipo para el dispositivo. */
+  hasOpen(kind: AdmsIncidentKind, accessPointId: number): Promise<boolean>
 }

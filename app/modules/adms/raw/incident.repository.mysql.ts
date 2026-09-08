@@ -1,6 +1,7 @@
 import type { DateTime } from 'luxon'
 import AdmsIncident from '#models/adms_incident'
 import type { AdmsIncidentKind } from '#modules/adms/adms.constants'
+// El tipo se usa tambien en `hasOpen`, que no filtra por ventana.
 import type { IncidentRecord, IncidentRepository, IncidentScope } from './incident.repository.js'
 
 function toRecord(row: AdmsIncident): IncidentRecord {
@@ -46,6 +47,15 @@ export default class IncidentRepositoryMysql implements IncidentRepository {
     }
     const row = await query.orderBy('adms_incident_id', 'desc').first()
     return row ? toRecord(row) : null
+  }
+
+  async hasOpen(kind: AdmsIncidentKind, accessPointId: number): Promise<boolean> {
+    const row = await AdmsIncident.query()
+      .where('adms_incident_kind', kind)
+      .where('adms_incident_status', 'open')
+      .where('access_point_id', accessPointId)
+      .first()
+    return row !== null
   }
 
   async insert(record: IncidentRecord): Promise<number> {
