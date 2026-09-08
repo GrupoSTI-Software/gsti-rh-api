@@ -216,6 +216,94 @@ test.group('Reclamo de cuarentena desde plataforma', (group) => {
     assert.equal(revivido.platformDeviceId, result.platformDeviceId)
   })
 
+  /**
+   * Lo que rompio en el primer uso real. Un intento fallido creaba la unidad y
+   * la compensacion la marcaba retirada; como la serie es UNICA en el
+   * inventario, esa lapida bloqueaba para siempre los reclamos de ese aparato.
+   * Compensar es dejar el mundo como estaba, no dejar un muerto atravesado.
+   */
+  test('si la asignacion falla, no queda ninguna unidad de esa serie', async ({ assert }) => {
+    const serial = `TESTF${STAMP}`.slice(0, 24)
+    const row = await quarantineOf(serial)
+
+    /** Se apaga la bandera de biometricos: la asignacion rechaza con 422. */
+    tenant.businessUnitHasBiometrics = 0
+    await TenantContext.runUnscoped(() => tenant.save(), 'apagar biometricos')
+
+    const service = new PlatformQuarantineClaimService()
+    let fallo = false
+    try {
+      await service.claim({
+        quarantinedDeviceId: row.admsQuarantinedDeviceId,
+        tenantPublicId: String(tenant.businessUnitPublicId),
+        platformDeviceModelId: modelId,
+        deliveredAt: new Date(),
+        createdByUserId: null,
+      })
+    } catch {
+      fallo = true
+    }
+    tenant.businessUnitHasBiometrics = 1
+    await TenantContext.runUnscoped(() => tenant.save(), 'restaurar biometricos')
+
+    assert.isTrue(fallo, 'la asignacion debia fallar sin la bandera')
+
+    const restos = await TenantContext.runUnscoped(
+      () =>
+        db
+          .from('platform_devices')
+          .where('platform_device_serial_number', serial)
+          .count('* as total'),
+      'restos de la compensacion'
+    )
+    assert.equal(Number(restos[0].total), 0)
+
+    // Y la cuarentena sigue en espera: se puede volver a intentar.
+    const releida = await TenantContext.runUnscoped(
+      () =>
+        AdmsQuarantinedDevice.query()
+          .where('adms_quarantined_device_id', row.admsQuarantinedDeviceId)
+          .firstOrFail(),
+      'cuarentena tras el fallo'
+    )
+    assert.equal(releida.admsQuarantinedDeviceStatus, 'pending')
+  })
+
+  test('una unidad retirada no se reusa, y el error dice el estado real', async ({ assert }) => {
+    const serial = `TESTX${STAMP}`.slice(0, 24)
+    const retirada = await TenantContext.runUnscoped(async () => {
+      const d = new PlatformDevice()
+      d.platformDeviceSerialNumber = serial
+      d.platformDeviceModelId = modelId
+      d.platformDeviceOrigin = 'del_cliente'
+      d.platformDeviceStockStatus = 'retirada'
+      d.platformDeviceRetireReason = 'danado'
+      d.platformDeviceActive = 0
+      await d.save()
+      deviceIds.push(d.platformDeviceId)
+      return d
+    }, 'unidad retirada')
+
+    const row = await quarantineOf(serial)
+    const service = new PlatformQuarantineClaimService()
+    try {
+      await service.claim({
+        quarantinedDeviceId: row.admsQuarantinedDeviceId,
+        tenantPublicId: String(tenant.businessUnitPublicId),
+        platformDeviceModelId: modelId,
+        deliveredAt: new Date(),
+        createdByUserId: null,
+      })
+      assert.fail('debio rechazar la unidad retirada')
+    } catch (error) {
+      const e = error as PlatformDeviceServiceError
+      assert.equal(e.httpStatus, 409)
+      // El mensaje habla del estado real, no de tenants ni fechas.
+      assert.include(e.detail ?? '', 'retirada')
+    }
+    assert.equal(retirada.platformDeviceStockStatus, 'retirada')
+  })
+
   test('una cuarentena que no existe responde 404, no 500', async ({ assert }) => {
     const service = new PlatformQuarantineClaimService()
     try {

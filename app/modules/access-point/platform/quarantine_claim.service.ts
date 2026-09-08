@@ -75,7 +75,7 @@ export default class PlatformQuarantineClaimService {
      */
     const revived = await this.reviveDeletedIfAny(serial, tenant.businessUnitId)
 
-    const device = await this.createOrReuseDevice(serial, input.platformDeviceModelId)
+    const { device, created } = await this.createOrReuseDevice(serial, input.platformDeviceModelId)
 
     let assignment: Awaited<ReturnType<PlatformDeviceAssignmentService['createAssignment']>>
     try {
@@ -94,7 +94,7 @@ export default class PlatformQuarantineClaimService {
        * creada se retira. Dejarla viva seria peor que no haberla creado -- un
        * `del_cliente` sin cliente contradice la regla de existencias.
        */
-      await this.compensate(device, input.createdByUserId, now)
+      await this.compensate(device, input.createdByUserId, created)
       throw error
     }
 
@@ -201,43 +201,75 @@ export default class PlatformQuarantineClaimService {
   /**
    * Si la serie ya esta en el inventario -- porque alguien la dio de alta antes
    * de que el aparato llamara -- se reusa esa unidad en vez de duplicarla.
+   *
+   * Solo si esta DISPONIBLE. Una unidad asignada o retirada no se puede
+   * colocar, y pasarsela a la asignacion produce un mensaje que habla de
+   * tenants y fechas cuando el problema es otro. Aqui se dice el estado real.
    */
   private async createOrReuseDevice(
     serial: string,
     modelId: number
-  ): Promise<PlatformDevice> {
+  ): Promise<{ device: PlatformDevice; created: boolean }> {
     const existing = await PlatformDevice.query()
       .where('platform_device_serial_number', serial)
       .whereNull('platform_device_deleted_at')
       .first()
-    if (existing) return existing
 
-    const created = await this.devices.create({
+    if (existing) {
+      if (existing.platformDeviceStockStatus === 'disponible') {
+        return { device: existing, created: false }
+      }
+      throw new PlatformDeviceServiceError(
+        `La unidad ${existing.platformDeviceId} de la serie ${serial} esta ${existing.platformDeviceStockStatus}`,
+        PLATFORM_DEVICE_ERROR_CODES.ASSIGN_NOT_AVAILABLE,
+        409,
+        PLATFORM_DEVICE_ERROR_CODES.ASSIGN_NOT_AVAILABLE,
+        existing.platformDeviceStockStatus === 'asignada'
+          ? 'Esa serie ya esta entregada a una empresa. Hay que cerrar esa entrega antes de volver a colocarla.'
+          : 'Esa serie esta retirada del inventario. Hay que reactivarla antes de poder entregarla.'
+      )
+    }
+
+    const nueva = await this.devices.create({
       platformDeviceSerialNumber: serial,
       platformDeviceModelId: modelId,
       /** Lo que lo distingue de nuestro stock. Sin costo ni fecha, por R6. */
       platformDeviceOrigin: 'del_cliente',
     })
     const device = await PlatformDevice.query()
-      .where('platform_device_id', created.platformDeviceId)
+      .where('platform_device_id', nueva.platformDeviceId)
       .firstOrFail()
-    return device
+    return { device, created: true }
   }
 
+  /**
+   * Deshace el alta de la unidad. Se BORRA la fila, no se retira.
+   *
+   * Retirarla parecia lo prudente y era lo contrario: la serie es UNICA en el
+   * inventario, asi que una unidad retirada con esa serie bloquea para siempre
+   * cualquier reclamo futuro del mismo aparato -- y como la retirada es un
+   * estado terminal, hay que ir a mano a resucitarla. Compensar significa dejar
+   * el mundo como estaba.
+   *
+   * Se usa `forceDelete` y no `delete`: el modelo tiene baja logica, y el indice
+   * unico no sabe de `platform_device_deleted_at`, asi que una fila con baja
+   * logica seguiria secuestrando la serie exactamente igual que la retirada.
+   *
+   * Es seguro porque la fila se acaba de crear en esta misma llamada: no tiene
+   * asignaciones, ni historial, ni nada que colgara de ella. Solo se borra la
+   * que creo este reclamo (`justCreated`), nunca una que ya existia.
+   */
   private async compensate(
     device: PlatformDevice,
     userId: number | null,
-    now: DateTime
+    justCreated: boolean
   ): Promise<void> {
+    if (!justCreated) return
     try {
-      device.platformDeviceStockStatus = 'retirada'
-      device.platformDeviceRetireReason = 'del_cliente'
-      device.platformDeviceRetiredAt = now.toFormat('yyyy-MM-dd')
-      device.platformDeviceActive = 0
-      await device.save()
+      await device.forceDelete()
       logger.warn(
         { platformDeviceId: device.platformDeviceId, userId },
-        'Reclamo de cuarentena: la asignacion fallo y la unidad se retiro'
+        'Reclamo de cuarentena: la asignacion fallo y la unidad recien creada se deshizo'
       )
     } catch (error) {
       logger.error(
@@ -245,7 +277,7 @@ export default class PlatformQuarantineClaimService {
           platformDeviceId: device.platformDeviceId,
           error: (error as Error).message.slice(0, 200),
         },
-        'Reclamo de cuarentena: no se pudo compensar la unidad creada'
+        'Reclamo de cuarentena: no se pudo deshacer la unidad creada; queda huerfana'
       )
     }
   }
