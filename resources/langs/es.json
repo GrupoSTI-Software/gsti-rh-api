@@ -3031,5 +3031,7 @@
   "fingerprint_enrollment_queued_message": "Se pidió al checador que capture la huella; pide al colaborador que ponga el dedo",
   "fingerprint_enrollment_already_queued_message": "Ya había una captura pendiente de esa huella en este equipo",
   "biometric_vault_title": "Biométricos del colaborador",
-  "biometric_consent_missing_title": "Falta el consentimiento biométrico"
+  "biometric_consent_missing_title": "Falta el consentimiento biométrico",
+  "device_face_enabled_message": "Se autorizo el uso de la foto en los checadores y se publico hacia los equipos indicados",
+  "device_face_disabled_message": "Se retiro la foto de los checadores y se encolo su borrado en cada equipo"
 }

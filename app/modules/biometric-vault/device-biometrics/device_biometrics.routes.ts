@@ -15,6 +15,14 @@ router
       '/:employeeId/device-biometrics/fingerprint-enrollment',
       '#modules/biometric-vault/device-biometrics/device_biometrics.controller.enrollFingerprint'
     )
+    router.post(
+      '/:employeeId/device-biometrics/face/enable',
+      '#modules/biometric-vault/device-biometrics/device_biometrics.controller.enableFace'
+    )
+    router.post(
+      '/:employeeId/device-biometrics/face/disable',
+      '#modules/biometric-vault/device-biometrics/device_biometrics.controller.disableFace'
+    )
   })
   .prefix('/api/v1/employees')
   .use(middleware.auth())

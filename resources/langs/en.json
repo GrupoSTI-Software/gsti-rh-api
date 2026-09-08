@@ -3028,5 +3028,7 @@
   "fingerprint_enrollment_queued_message": "The device was asked to capture the fingerprint; ask the employee to place their finger",
   "fingerprint_enrollment_already_queued_message": "That fingerprint capture was already pending on this device",
   "biometric_vault_title": "Employee biometrics",
-  "biometric_consent_missing_title": "Biometric consent missing"
+  "biometric_consent_missing_title": "Biometric consent missing",
+  "device_face_enabled_message": "Photo use on devices was authorized and published to the selected devices",
+  "device_face_disabled_message": "The photo was withdrawn from the devices and its deletion was queued on each one"
 }

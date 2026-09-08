@@ -11,7 +11,20 @@ import {
 } from '#modules/access-point/access_point_authorization'
 import { toDeviceCommandDto } from '#modules/device-commands/dto/device_command.dto'
 import FingerprintEnrollmentService from '../enrollment/fingerprint_enrollment.service.js'
+import DeviceFaceService from '../photo/device_face.service.js'
 import { FINGER_ID_MAX, FINGER_ID_MIN } from '../enrollment/fingerprint_enrollment.constants.js'
+
+const employeeValidator = vine.compile(
+  vine.object({ params: vine.object({ employeeId: vine.number().positive() }) })
+)
+
+const enableFaceValidator = vine.compile(
+  vine.object({
+    params: vine.object({ employeeId: vine.number().positive() }),
+    /** Vacio o ausente: se publica hacia los equipos ya confirmados. */
+    accessPointIds: vine.array(vine.number().positive()).optional(),
+  })
+)
 
 const enrollmentValidator = vine.compile(
   vine.object({
@@ -82,6 +95,109 @@ export default class DeviceBiometricsController {
         ),
         200,
         'command'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/employees/{employeeId}/device-biometrics/face/enable:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Biometricos]
+   *     summary: Autoriza usar la foto del colaborador en los checadores
+   *     responses:
+   *       200:
+   *         description: Version del derivado y destinos en data.deviceBiometrics
+   *       422:
+   *         description: Sin consentimiento, sin foto, o la foto no pasa la evaluacion (key foto-no-apta)
+   *       500:
+   *         description: La evaluacion no se pudo hacer; no es un rechazo de la foto
+   */
+  async enableFace(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(
+        ctx,
+        EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeBiometric
+      )
+      const payload = await request.validateUsing(enableFaceValidator, {
+        data: {
+          params: request.params(),
+          accessPointIds: request.input('accessPointIds'),
+        },
+      })
+      const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
+
+      /** Cada equipo del cuerpo se resuelve dentro del alcance antes de tocarlo. */
+      const accessPointIds: number[] = []
+      for (const accessPointId of payload.accessPointIds ?? []) {
+        const accessPoint = await resolveScopedAccessPoint(ctx, accessPointId)
+        accessPointIds.push(accessPoint.accessPointId)
+      }
+
+      const service = new DeviceFaceService()
+      const result = await service.enable({
+        employeeId: employee.employeeId,
+        businessUnitId: employee.businessUnitId as number,
+        accessPointIds,
+        actorUserId: auth.user?.userId ?? null,
+      })
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        i18n.formatMessage('biometric_vault_title'),
+        i18n.formatMessage('device_face_enabled_message'),
+        200,
+        'deviceBiometrics'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/employees/{employeeId}/device-biometrics/face/disable:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Biometricos]
+   *     summary: Retira la foto del colaborador de los checadores
+   *     responses:
+   *       200:
+   *         description: Publicaciones retiradas y borrados encolados en data.deviceBiometrics
+   */
+  async disableFace(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(
+        ctx,
+        EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeBiometric
+      )
+      const { params } = await request.validateUsing(employeeValidator, {
+        data: { params: request.params() },
+      })
+      const employee = await resolveScopedEmployee(ctx, params.employeeId)
+
+      const service = new DeviceFaceService()
+      const result = await service.disable({
+        employeeId: employee.employeeId,
+        businessUnitId: employee.businessUnitId as number,
+        actorUserId: auth.user?.userId ?? null,
+      })
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        i18n.formatMessage('biometric_vault_title'),
+        i18n.formatMessage('device_face_disabled_message'),
+        200,
+        'deviceBiometrics'
       )
     } catch (error) {
       return respondAdmsApiError(response, i18n, error)

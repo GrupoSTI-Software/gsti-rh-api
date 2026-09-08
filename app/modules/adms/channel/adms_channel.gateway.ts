@@ -8,6 +8,7 @@ import AdmsChannelController, { type AdmsRequest } from './adms_channel.controll
 import AdmsDeviceResolverService from './adms_device_resolver.service.js'
 import { sendText } from './adms_text_response.js'
 import { describeError } from './error_summary.js'
+import PhotoDownloadService from '#modules/biometric-vault/photo/photo_download.service'
 import type { ChannelReply } from './adms_channel.service.js'
 
 type HandlerName =
@@ -99,8 +100,48 @@ async function consumeOrReject(key: string, requests: number): Promise<boolean> 
 export default class AdmsChannelGateway {
   constructor(
     private readonly controller: AdmsChannelController = new AdmsChannelController(),
-    private readonly resolver: AdmsDeviceResolverService = new AdmsDeviceResolverService()
+    private readonly resolver: AdmsDeviceResolverService = new AdmsDeviceResolverService(),
+    private readonly photos: PhotoDownloadService = new PhotoDownloadService()
   ) {}
+
+  /**
+   * Entrega el derivado por token (spec 7.3). Todo lo que no sea una
+   * publicacion viva responde 404 en texto: ni 401 ni 403, que le confirmarian
+   * a quien prueba rutas que ahi hubo una foto.
+   */
+  private async servePhoto(
+    ctx: HttpContext,
+    path: string,
+    now: DateTime,
+    ip: string
+  ): Promise<void> {
+    const outcome = await this.photos.resolve(path, now)
+    if (outcome.kind !== 'ok') {
+      logger.info(
+        { reason: outcome.reason, publicationId: outcome.publicationId, ip },
+        'canal ADMS: descarga de foto rechazada'
+      )
+      /**
+       * Una peticion que llego con un token REAL y aun asi no se pudo servir es
+       * un fallo nuestro que el operador tiene que ver: el equipo se quedo sin
+       * la foto y el comando no va a cumplirse solo. Un token inventado, en
+       * cambio, es ruido de internet y no levanta nada.
+       */
+      if (outcome.publicationId !== null) {
+        await this.photos.reportFailedDownload(outcome.publicationId, outcome.reason, now)
+      }
+      return sendText(ctx.response, 404, 'NOT FOUND')
+    }
+
+    ctx.response.header('Content-Type', 'image/jpeg')
+    // Sin cache en ningun punto intermedio: es la cara de una persona.
+    ctx.response.header('Cache-Control', 'private, no-store')
+    if (outcome.contentLength !== null) {
+      ctx.response.header('Content-Length', String(outcome.contentLength))
+    }
+    ctx.response.status(200)
+    ctx.response.stream(outcome.stream)
+  }
 
   async dispatch(ctx: HttpContext): Promise<void> {
     const method = ctx.request.method().toUpperCase()
@@ -117,9 +158,14 @@ export default class AdmsChannelGateway {
       if (route === null || route === 'unknown_get') {
         return sendText(ctx.response, 404, 'NOT FOUND')
       }
+      /**
+       * La foto sale ANTES de resolver el dispositivo, y a proposito: la
+       * peticion de descarga no trae `SN` -- el firmware pide la URL tal cual
+       * se la dimos -- asi que exigir serie la rechazaria siempre. El token es
+       * la credencial y el limite por IP de arriba ya la cubre.
+       */
       if (route === 'photo') {
-        // Rebanada 9. Mientras no exista publicacion, 404: nunca un 200 generico.
-        return sendText(ctx.response, 404, 'no existe')
+        return this.servePhoto(ctx, path, now, ip)
       }
 
       const query = parseQuery(ctx)

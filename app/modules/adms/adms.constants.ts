@@ -184,6 +184,8 @@ export const ADMS_INCIDENT_KIND = {
   RESEND_LOOP: 'resend_loop',
   TIMEZONE_INVALID: 'timezone_invalid',
   OPLOG: 'oplog',
+  /** El equipo pidio una foto y no se le pudo dar (spec 7.3). */
+  PHOTO_DOWNLOAD_FAILED: 'photo_download_failed',
 } as const
 export type AdmsIncidentKind = (typeof ADMS_INCIDENT_KIND)[keyof typeof ADMS_INCIDENT_KIND]
 

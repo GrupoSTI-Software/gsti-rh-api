@@ -9,6 +9,8 @@ import type DeviceCommand from '#models/device_command'
 import { formatDeviceCommand, formatWireLine } from '../wire/adms_command_formatter.js'
 import { toZkDateTime } from '../wire/zk_datetime.js'
 import type { DeviceCommandRepository } from '../device_command.repository.js'
+import PhotoDispatchService from '#modules/biometric-vault/photo/photo_dispatch.service'
+import type { PhotoDispatchPort } from '#modules/biometric-vault/photo/photo_dispatch.port'
 
 export interface DispatchInput {
   accessPointId: number
@@ -41,7 +43,8 @@ const SENSITIVE_KINDS: readonly DeviceCommandKind[] = [
 export default class CommandDispatchService {
   constructor(
     private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
-    private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql()
+    private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
+    private readonly photos: PhotoDispatchPort = new PhotoDispatchService()
   ) {}
 
   async next(input: DispatchInput): Promise<string> {
@@ -66,6 +69,18 @@ export default class CommandDispatchService {
       payload = formatDeviceCommand(DEVICE_COMMAND_KIND.CLOCK_SYNC, {
         dateTime: String(toZkDateTime(local.isValid ? local : input.now)),
       })
+    }
+
+    /**
+     * La foto se re-publica en el momento de salir si su plazo ya vencio, y en
+     * todo caso la ventana se recorta a la del despacho (spec 7.3): un enlace
+     * que estuvo horas en la cola no puede seguir sirviendo horas mas una vez
+     * que viaja por la red del cliente.
+     */
+    if (command.deviceCommandKind === DEVICE_COMMAND_KIND.BIOPHOTO_WRITE) {
+      const refreshed = await this.photos.refreshForDispatch(command, input.now)
+      if (refreshed === null) return ADMS_OK
+      payload = refreshed
     }
 
     /**
