@@ -3035,5 +3035,19 @@
   "device_face_enabled_message": "Se autorizo el uso de la foto en los checadores y se publico hacia los equipos indicados",
   "device_face_disabled_message": "Se retiro la foto de los checadores y se encolo su borrado en cada equipo",
   "biometric_replication_message": "Se encolo la copia de los biometricos hacia los equipos indicados",
-  "biometric_replication_preview_message": "Asi quedaria la copia; todavia no se encolo nada"
+  "biometric_replication_preview_message": "Asi quedaria la copia; todavia no se encolo nada",
+  "access_point_health_title": "Estado de los checadores",
+  "access_point_health_message": "Estado actual segun lo ultimo que reporto cada equipo",
+  "access_point_incident_title": "Incidentes del canal",
+  "access_point_incident_list_message": "Incidentes registrados por el canal de los checadores",
+  "access_point_incident_resolved_message": "Se marco el incidente como atendido; si la causa sigue, el canal levantara otro",
+  "access_point_quarantine_title": "Equipos en espera",
+  "access_point_quarantine_list_message": "Checadores que estan llamando y todavia no tienen dueño; la serie se muestra parcial",
+  "access_point_quarantine_claimed_message": "El equipo quedo registrado en la empresa indicada",
+  "unmapped_pin_title": "Numeros sin colaborador",
+  "unmapped_pin_list_message": "Numeros que el checador reporta y todavia no corresponden a nadie",
+  "unmapped_pin_candidates_message": "Colaboradores que podrian ser; la decision es tuya",
+  "unmapped_pin_linked_message": "Se acredito el numero y se recuperaron sus checadas retenidas",
+  "unmapped_pin_dismissed_message": "Se descarto el numero; si el equipo vuelve a reportarlo, reaparecera",
+  "access_point_employee_list_message": "Colaboradores dados de alta en este checador"
 }

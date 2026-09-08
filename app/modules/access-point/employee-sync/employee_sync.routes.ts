@@ -8,6 +8,18 @@ import { middleware } from '#start/kernel'
  * la operacion es sobre el colaborador, no sobre el catalogo de equipos. El
  * permiso se resuelve dentro del controlador con `evaluateEnforced`.
  */
+/** Lectura del padron del equipo. Va en `/api/v1` como el resto de operacion. */
+router
+  .group(() => {
+    router.get(
+      '/:accessPointId/employees',
+      '#modules/access-point/employee-sync/employee_sync.controller.listByAccessPoint'
+    )
+  })
+  .prefix('/api/v1/access-points')
+  .use(middleware.auth())
+  .use(middleware.businessScope())
+
 router
   .group(() => {
     router.put(

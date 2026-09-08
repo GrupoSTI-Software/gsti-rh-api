@@ -9,6 +9,8 @@ import {
   resolveScopedEmployee,
 } from '#modules/access-point/access_point_authorization'
 import Employee from '#models/employee'
+import AccessPointEmployee from '#models/access_point_employee'
+import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import EmployeeSyncService from './employee_sync.service.js'
 import { toEmployeeSyncDto } from './dto/employee_sync.dto.js'
 
@@ -19,6 +21,10 @@ const pairValidator = vine.compile(
       employeeId: vine.number().positive(),
     }),
   })
+)
+
+const accessPointValidator = vine.compile(
+  vine.object({ params: vine.object({ accessPointId: vine.number().positive() }) })
 )
 
 const pinValidator = vine.compile(
@@ -80,6 +86,52 @@ export default class EmployeeSyncController {
         i18n.formatMessage('employee_sync_pin_message'),
         200,
         'accessPointEmployee'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/access-points/{accessPointId}/employees:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Puntos de acceso]
+   *     summary: Colaboradores dados de alta en el checador
+   *     responses:
+   *       200:
+   *         description: Lista en data.employees
+   *       404:
+   *         description: El equipo no esta en el alcance
+   */
+  async listByAccessPoint(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(ctx, ACCESS_POINT_PERMISSION_DECLARATIONS.readHealth)
+      const { params } = await request.validateUsing(accessPointValidator, {
+        data: { params: request.params() },
+      })
+      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
+
+      const status = request.input('status')
+      const query = AccessPointEmployee.query().where(
+        'access_point_id',
+        accessPoint.accessPointId
+      )
+      if (typeof status === 'string' && status.length > 0) {
+        query.where('access_point_employee_sync_status', status)
+      }
+      const pivots = await query.orderBy('access_point_employee_pin', 'asc').limit(500)
+
+      return StandardResponseFormatter.success(
+        response,
+        pivots.map(toEmployeeSyncDto),
+        i18n.formatMessage('access_point_employee_title'),
+        i18n.formatMessage('access_point_employee_list_message'),
+        200,
+        'employees'
       )
     } catch (error) {
       return respondAdmsApiError(response, i18n, error)
