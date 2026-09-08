@@ -75,6 +75,20 @@ test.group('Barrido de comandos colgados', () => {
     assert.lengthOf(saved, 0)
   })
 
+  test('el ajuste de reloj acusado tampoco falla: su evidencia es una checada futura', async ({
+    assert,
+  }) => {
+    const { service, saved } = makeService([
+      commandOf({
+        deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+        deviceCommandKind: DEVICE_COMMAND_KIND.CLOCK_SYNC,
+      }),
+    ])
+    const result = await service.run()
+    assert.equal(result.withoutEvidence, 0)
+    assert.lengthOf(saved, 0)
+  })
+
   test('el enrolamiento tiene un plazo mas corto porque se hace con el dedo puesto', async ({
     assert,
   }) => {

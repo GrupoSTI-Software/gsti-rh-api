@@ -1,5 +1,8 @@
 import type { DateTime } from 'luxon'
+import logger from '@adonisjs/core/services/logger'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
+import DeviceClockService from '#modules/access-point/device-clock/device_clock.service'
+import DeviceClockSyncService from '#modules/access-point/device-clock/device_clock_sync.service'
 import { ASSIST_ORIGIN } from '#constants/assist_origin'
 import { ADMS_INCIDENT_KIND, ADMS_RAW_STATUS, type AdmsRawStatus } from '#modules/adms/adms.constants'
 import type { ResolvedAdmsDevice } from '#modules/adms/channel/adms_device_resolver.service'
@@ -54,7 +57,9 @@ export default class AttlogIngestionService {
     private readonly time: DeviceTimeService = new DeviceTimeService(),
     private readonly held: HeldPunchRepository = new HeldPunchRepositoryMysql(),
     private readonly assists: AssistIngestionService = new AssistIngestionService(),
-    private readonly incidents: IncidentService = new IncidentService()
+    private readonly incidents: IncidentService = new IncidentService(),
+    private readonly clock: DeviceClockService = new DeviceClockService(),
+    private readonly clockSync: DeviceClockSyncService = new DeviceClockSyncService()
   ) {}
 
   async ingest(context: AttlogIngestionContext): Promise<AttlogIngestionResult> {
@@ -106,6 +111,12 @@ export default class AttlogIngestionService {
     /** Linea que origino cada item, alineada por posicion: el codigo del
      * colaborador no sirve de llave porque puede diferir del PIN. */
     const sourceRows: AttlogRow[] = []
+    /**
+     * Diferencia entre cuando llego la subida y cuando dice el equipo que
+     * ocurrio cada checada. Se juntan todas y se observan UNA vez al final:
+     * medir dentro del bucle escribiria el perfil una vez por linea.
+     */
+    const clockSamples: number[] = []
     let heldCount = 0
     let invalidTime = 0
 
@@ -115,6 +126,10 @@ export default class AttlogIngestionService {
         invalidTime += 1
         continue
       }
+
+      clockSamples.push(
+        Math.round(device.receivedAt.diff(converted.utc, 'seconds').seconds)
+      )
 
       const resolution = await this.pins.resolve({
         accessPointId: device.accessPointId,
@@ -189,6 +204,8 @@ export default class AttlogIngestionService {
       }
     }
 
+    await this.observeClock(context, clockSamples, zone.zone)
+
     const clean = parsed.unparsed.length === 0 && heldCount === 0 && invalidTime === 0
     return {
       status: clean ? ADMS_RAW_STATUS.PROCESSED : ADMS_RAW_STATUS.PARTIAL,
@@ -197,6 +214,68 @@ export default class AttlogIngestionService {
       preexisting,
       held: heldCount,
       unparsed: parsed.unparsed.length + invalidTime,
+    }
+  }
+
+  /**
+   * Observa el reloj con las muestras del lote (spec 6.7).
+   *
+   * Va al final y una sola vez. Nunca lanza hacia el canal: un problema
+   * midiendo el reloj no puede convertir en error una subida de checadas que
+   * ya se guardo.
+   */
+  private async observeClock(
+    context: AttlogIngestionContext,
+    samples: number[],
+    zone: string
+  ): Promise<void> {
+    if (samples.length === 0) return
+    const { device } = context
+
+    try {
+      const observation = await this.clock.observe({
+        accessPointId: device.accessPointId,
+        businessUnitId: device.businessUnitId,
+        serial: device.serial,
+        samples,
+        now: device.receivedAt,
+      })
+
+      if (observation.medianSeconds === null) return
+
+      if (!observation.driftDetected && !observation.dstSuspected) {
+        // La hora del equipo cuadra: si habia un ajuste esperando, esta es su
+        // evidencia. El acuse nunca pudo darla.
+        await this.clockSync.confirmFromDrift({
+          accessPointId: device.accessPointId,
+          businessUnitId: device.businessUnitId,
+          now: device.receivedAt,
+        })
+        return
+      }
+
+      /**
+       * Con sospecha de cambio de horario no se encola nada: el incidente ya
+       * quedo levantado y ajustar la hora taparia el sintoma real, que es la
+       * zona mal configurada en el aparato.
+       */
+      if (observation.dstSuspected) return
+
+      await this.clockSync.request({
+        accessPointId: device.accessPointId,
+        businessUnitId: device.businessUnitId,
+        deviceZone: zone,
+        now: device.receivedAt,
+      })
+    } catch (error) {
+      logger.error(
+        {
+          errorName: error instanceof Error ? error.name : 'unknown',
+          errorMessage: error instanceof Error ? error.message.slice(0, 300) : String(error),
+          accessPointId: device.accessPointId,
+        },
+        'canal ADMS: fallo la observacion del reloj; la ingesta de checadas no se altera'
+      )
     }
   }
 

@@ -19,6 +19,8 @@ import type {
 import type IncidentService from '#modules/adms/raw/incident.service'
 import type { IncidentInput, IncidentOutcome } from '#modules/adms/raw/incident.service'
 import type { ResolvedAdmsDevice } from '#modules/adms/channel/adms_device_resolver.service'
+import type DeviceClockService from '#modules/access-point/device-clock/device_clock.service'
+import type DeviceClockSyncService from '#modules/access-point/device-clock/device_clock_sync.service'
 
 const NOW = DateTime.fromISO('2026-08-12T15:00:00Z')
 
@@ -46,7 +48,15 @@ function contextOf(overrides: Partial<AttlogIngestionContext> = {}): AttlogInges
   }
 }
 
-function makeService(resolution: PinResolution | ((pin: string) => PinResolution)) {
+interface ServiceOptions {
+  /** Deriva que devuelve el reloj doblado, en segundos. */
+  clockMedian?: number
+}
+
+function makeService(
+  resolution: PinResolution | ((pin: string) => PinResolution),
+  options: ServiceOptions = {}
+) {
   const items: AssistIngestionItem[] = []
   const holds: HeldPunchInput[] = []
   const unmapped: string[] = []
@@ -72,10 +82,10 @@ function makeService(resolution: PinResolution | ((pin: string) => PinResolution
   const assists = {
     async ingest(
       incoming: AssistIngestionItem[],
-      options?: { deferCalendarRecalc?: boolean }
+      ingestOptions?: { deferCalendarRecalc?: boolean }
     ): Promise<AssistIngestionResult> {
       items.push(...incoming)
-      deferred.push(options?.deferCalendarRecalc === true)
+      deferred.push(ingestOptions?.deferCalendarRecalc === true)
       return {
         results: incoming.map((item, index) => ({
           index,
@@ -102,14 +112,56 @@ function makeService(resolution: PinResolution | ((pin: string) => PinResolution
     },
   } as unknown as IncidentService
 
+  /**
+   * El reloj se dobla a proposito: sin doble, su error se lo tragaria el
+   * try/catch de la ingesta y la prueba pasaria sin comprobar el enganche.
+   */
+  const clockObservations: number[][] = []
+  const clock = {
+    async observe(input: { samples: number[] }) {
+      clockObservations.push(input.samples)
+      return {
+        medianSeconds: options.clockMedian ?? 0,
+        driftDetected: (options.clockMedian ?? 0) > 60,
+        dstSuspected: false,
+        discarded: 0,
+      }
+    },
+  } as unknown as DeviceClockService
+
+  const clockRequests: string[] = []
+  const clockConfirms: number[] = []
+  const clockSync = {
+    async request(input: { deviceZone: string | null }) {
+      clockRequests.push(input.deviceZone ?? 'sin-zona')
+      return { kind: 'enqueued' as const }
+    },
+    async confirmFromDrift(input: { accessPointId: number }) {
+      clockConfirms.push(input.accessPointId)
+      return null
+    },
+  } as unknown as DeviceClockSyncService
+
   const service = new AttlogIngestionService(
     pins,
     new DeviceTimeService(),
     held,
     assists,
-    incidentService
+    incidentService,
+    clock,
+    clockSync
   )
-  return { service, items, holds, unmapped, incidents, deferred }
+  return {
+    service,
+    items,
+    holds,
+    unmapped,
+    incidents,
+    deferred,
+    clockObservations,
+    clockRequests,
+    clockConfirms,
+  }
 }
 
 const EMPLOYEE: PinResolution = {
@@ -212,6 +264,31 @@ test.group('ADMS attlog ingestion', () => {
     assert.lengthOf(items, 1)
     assert.equal(result.inserted, 1)
     assert.equal(incidents[0].kind, 'timezone_invalid')
+  })
+
+  test('el reloj se observa una vez por subida, no una por linea', async ({ assert }) => {
+    const { service, clockObservations, clockConfirms } = makeService(EMPLOYEE)
+    await service.ingest(
+      contextOf({ body: `${LINE}\n9998\t2026-08-12 08:54:00\t0\t1\n9997\t2026-08-12 08:55:00\t0\t1\n` })
+    )
+    assert.lengthOf(clockObservations, 1)
+    assert.lengthOf(clockObservations[0], 3)
+    // Sin deriva, una checada buena confirma un ajuste que estuviera esperando.
+    assert.deepEqual(clockConfirms, [12])
+  })
+
+  test('con deriva se pide el ajuste con la zona de la sede', async ({ assert }) => {
+    const { service, clockRequests, clockConfirms } = makeService(EMPLOYEE, { clockMedian: 300 })
+    await service.ingest(contextOf())
+    assert.deepEqual(clockRequests, ['America/Mexico_City'])
+    assert.lengthOf(clockConfirms, 0)
+  })
+
+  test('un lote sin checadas atribuibles no observa el reloj', async ({ assert }) => {
+    const { service, clockObservations } = makeService({ kind: 'held', reason: 'unknown_pin' })
+    await service.ingest(contextOf())
+    // El PIN no resolvio, pero la hora si: la muestra sirve igual.
+    assert.lengthOf(clockObservations, 1)
   })
 
   test('un cuerpo sin lineas legibles no llama al motor', async ({ assert }) => {

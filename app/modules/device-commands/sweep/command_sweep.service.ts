@@ -64,11 +64,23 @@ export default class CommandSweepService {
       }
 
       /**
-       * El borrado de usuario no falla por falta de evidencia: el equipo no
-       * anuncia una baja y su unica senal es que el contador de usuarios baje
-       * en la siguiente subida de opciones. Queda `acked` y visible.
+       * Dos tipos no fallan por falta de evidencia, porque su evidencia no
+       * llega en minutos (spec 6.2 y 6.7):
+       *
+       * - `user_delete`: el equipo no anuncia una baja; su unica senal es que
+       *   el contador de usuarios baje en la siguiente subida de opciones.
+       * - `clock_sync`: su evidencia es una checada real con la deriva ya
+       *   corregida, y en un equipo de poco movimiento eso puede tardar horas.
+       *   Fallarlo aqui obligaria a reintentar un ajuste que quiza si funciono.
+       *
+       * Los dos quedan `acked` y visibles.
        */
-      if (command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_DELETE) continue
+      if (
+        command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_DELETE ||
+        command.deviceCommandKind === DEVICE_COMMAND_KIND.CLOCK_SYNC
+      ) {
+        continue
+      }
 
       command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
       command.deviceCommandFailedAt = now
