@@ -4,6 +4,8 @@
 
 **Solución:** Un endpoint nuevo devuelve un valor por mes con el ingreso recurrente **cobrado** de la plataforma, reconstruido a partir de los cobros que el sistema ya tenía registrados. No espera a acumular historia nueva: sirve desde el primer día. Cada mes viene con una marca que dice si su cifra se puede sostener con los cobros o no, y por qué.
 
+Ejemplo: es como si vendieras dulces en la escuela y solo supieras cuánto traes hoy en la bolsa, sin saber si vas mejor o peor que antes. Ahora tu cuaderno te muestra mes por mes cuánto dinero te pagaron de verdad tus compañeros, y te marca los meses que todavía no se pueden tomar en serio porque no han terminado.
+
 Se prueba con un cliente de API (Postman, Insomnia, Bruno). La autenticación se asume resuelta por tu cliente: se envía el token del usuario en el header `Authorization: Bearer <token>`.
 
 **URL base:** `http://127.0.0.1:3333`
@@ -69,6 +71,18 @@ Usuario: **A**.
 }
 ```
 
+Qué significa cada dato:
+
+- `ventana.desde` / `ventana.hasta`: el primer y el último mes que trae la historia.
+- `puntos`: la historia mes por mes, un renglón por cada mes de la ventana.
+- `criterio: "pagos"`: la cifra sale de lo que ya se cobró, no de lo contratado.
+- `pagosSinPeriodoExcluidos`: cobros que se quedaron fuera porque no dicen a qué meses pertenecen.
+- `mes`: el mes al que pertenece la cifra.
+- `mrrCobradoNetoCents`: lo cobrado para ese mes, en centavos y sin impuestos.
+- `pagosConsiderados`: cuántos cobros aportaron a ese mes.
+- `confiabilidad`: si la cifra del mes se puede tomar en serio. Puede valer `alta` (sí se puede sostener con los cobros) o `baja` (no se puede tomar tal cual).
+- `motivoBajaConfiabilidad`: por qué no se puede tomar en serio, o nada (`null`) si la confiabilidad es `alta`. Puede valer `mes-en-curso` (al mes todavía le faltan días y cobros, así que su cifra va a crecer), `sin-pagos-en-el-mes` (el mes no tiene ningún cobro atribuido: su cero es falta de cobros, no un mes que valga cero) o `anterior-al-primer-pago` (el mes es anterior al primer cobro con periodo registrado — no se puede observar desde el endpoint porque la ventana nunca empieza antes de ese cobro).
+
 Verifica que:
 
 - `criterio` valga exactamente `"pagos"`.
@@ -89,7 +103,7 @@ Usuario: **A**.
 
 **Endpoint:** `GET /api/platform/metrics/mrr-series?meses=12`
 
-**Response — 200:** el cuerpo varía según los cobros que ya existan en la base — se verifica contra la consulta SQL, no contra un valor fijo.
+**Response — 200:** el cuerpo varía según los cobros que ya existan en la base — se verifica contra la consulta SQL, no contra un valor fijo. (Los datos son los ya explicados en el Escenario 1: aquí solo se verifica que el reparto entre los tres meses sea parejo.)
 
 Calcula el valor esperado de los tres meses del cobro sembrado:
 
@@ -148,7 +162,7 @@ Usuario: **A**.
 
 Averigua qué meses de la ventana no tienen ningún cobro atribuible, con la misma consulta del Escenario 2 (que ya cubre los 12 meses de la ventana): los meses cuyo `cobros` sale en `0` son los huecos.
 
-**Qué debe pasar en cada uno de esos meses:**
+**Qué debe pasar en cada uno de esos meses:** (los valores son los ya explicados en el Escenario 1)
 
 ```json
 {
@@ -176,7 +190,7 @@ Usuario: **A**.
 
 **Response — 200:** el cuerpo varía según los cobros que ya existan en la base — se verifica contra la consulta SQL, no contra un valor fijo.
 
-**Qué debe pasar** en el **último** elemento de `puntos`:
+**Qué debe pasar** en el **último** elemento de `puntos`: (los valores son los ya explicados en el Escenario 1)
 
 ```json
 {
@@ -200,7 +214,7 @@ Usuario: **A**.
 
 **Endpoint:** `GET /api/platform/metrics/mrr-series`
 
-**Response — 200:** el cuerpo varía según los cobros que ya existan en la base — se verifica contra la consulta SQL, no contra un valor fijo.
+**Response — 200:** el cuerpo varía según los cobros que ya existan en la base — se verifica contra la consulta SQL, no contra un valor fijo. (El dato es el ya explicado en el Escenario 1: aquí solo se verifica que el conteo cuadre con la consulta.)
 
 Calcula cuántos deben ser:
 
@@ -226,7 +240,7 @@ Usuario: **A**.
 
 **Endpoint:** `GET /api/platform/metrics/mrr-series?meses=12`
 
-**Response — 200:** el cuerpo varía según los cobros que ya existan en la base — se verifica contra la consulta SQL, no contra un valor fijo.
+**Response — 200:** el cuerpo varía según los cobros que ya existan en la base — se verifica contra la consulta SQL, no contra un valor fijo. (Sin datos nuevos: aquí solo se verifica que el cobro de la suscripción dada de baja no se cuele en ningún mes ni en los excluidos.)
 
 El seeder cuelga un cobro de **9 999 999 centavos** (casi cien mil pesos) de una suscripción dada de baja, con periodo hace cuatro meses. Es un importe absurdo a propósito: si el filtro fallara, sería imposible no verlo.
 
@@ -246,7 +260,7 @@ Usuario: **A**.
 
 **Endpoint:** `GET /api/platform/metrics/mrr-series?meses=3`
 
-**Response — 200:** `puntos` trae **como máximo 3** elementos y `ventana.hasta` sigue siendo el mes en curso.
+**Response — 200:** `puntos` trae **como máximo 3** elementos y `ventana.hasta` sigue siendo el mes en curso. (Sin datos nuevos: solo se verifica que la historia se recorte a los últimos 3 meses y siga terminando hoy.)
 
 **Endpoint:** `GET /api/platform/metrics/mrr-series?meses=40`
 
@@ -260,6 +274,8 @@ Usuario: **A**.
   "code": "PLT.MET.VAL_INPUT"
 }
 ```
+
+Qué significa cada dato aquí: `title` y `detail` dicen en palabras simples que el número de meses pedido no es válido (solo se vale de 1 a 24); `key` y `code` son las claves cortas del error para reportarlo.
 
 No debe venir ningún punto de serie en esa respuesta.
 
@@ -283,6 +299,8 @@ Usuario: **B** (`qa-mrr-series-sin-marca`).
 }
 ```
 
+Qué significa lo nuevo aquí: `key` dice que el usuario no tiene el pase de plataforma, así que no puede ver esta información; por eso la respuesta no trae ningún importe ni mes. (`title` es el ya explicado en el Escenario 7.)
+
 Verifica que la respuesta **no traiga campo `code`** (es una inconsistencia conocida del guard, no un defecto de esta historia) y que **no revele nada del negocio**: ni importes, ni meses, ni conteos.
 
 Y sin token, sin ningún `Authorization`:
@@ -299,6 +317,8 @@ Usuario: **A**. Llama a los dos endpoints:
 
 - `GET /api/platform/metrics/mrr` → **Response — 200** — devuelve `mrrActualNetoCents`: lo que está **contratado y vigente hoy**.
 - `GET /api/platform/metrics/mrr-series` → **Response — 200** — el último punto devuelve `mrrCobradoNetoCents`: lo que **se cobró** para el mes en curso.
+
+Qué significa lo nuevo aquí: `mrrActualNetoCents` es lo que los clientes tienen contratado hoy aunque todavía no lo paguen. (`mrrCobradoNetoCents` es el ya explicado en el Escenario 1: lo que de verdad ya se cobró.) Son dos fotos distintas y por eso no coinciden.
 
 **Qué debe pasar:** los dos números son **distintos**, y eso es correcto. Lo que se verifica es que la diferencia esté declarada y no escondida:
 
