@@ -118,14 +118,14 @@ LEFT JOIN billing_payments bp
        >= DATE_FORMAT(bp.billing_payment_period_start, '%Y-%m-01')
  AND DATE_FORMAT(DATE_SUB(CURDATE(), INTERVAL meses.n MONTH), '%Y-%m-01')
        < DATE_ADD(DATE_FORMAT(bp.billing_payment_period_start, '%Y-%m-01'), INTERVAL GREATEST(bp.billing_payment_periods_covered, 1) MONTH)
-LEFT JOIN billing_subscriptions bs
-  ON bs.billing_subscription_id = bp.billing_subscription_id
- AND bs.billing_subscription_deleted_at IS NULL
-LEFT JOIN business_units bu
-  ON bu.business_unit_id = bs.business_unit_id
- AND bu.business_unit_deleted_at IS NULL
-WHERE bp.billing_payment_id IS NULL
-   OR (bs.billing_subscription_id IS NOT NULL AND bu.business_unit_id IS NOT NULL)
+ AND EXISTS (
+       SELECT 1
+       FROM billing_subscriptions bs
+       JOIN business_units bu ON bu.business_unit_id = bs.business_unit_id
+       WHERE bs.billing_subscription_id = bp.billing_subscription_id
+         AND bs.billing_subscription_deleted_at IS NULL
+         AND bu.business_unit_deleted_at IS NULL
+     )
 GROUP BY mes
 ORDER BY mes;
 ```
