@@ -5,6 +5,13 @@ import { parseOptionsBody, resolveVersions } from '#modules/adms/parsers/options
 import { attlogLayoutFor } from '#modules/adms/parsers/parser.types'
 import IncidentService from '#modules/adms/raw/incident.service'
 import DeviceProfileRepositoryMysql from './device_profile.repository.mysql.js'
+import {
+  clampBytes,
+  clampProfileTexts,
+  clampText,
+  DESCRIPTOR_TEXT_LIMITS,
+  OPTIONS_RAW_MAX_BYTES,
+} from './device_profile.limits.js'
 import type {
   AccessPointDescriptor,
   DeviceProfilePatch,
@@ -155,17 +162,27 @@ export default class DeviceProfileService {
       accessPointProfileVisualIntercomFunOn: parsed.visualIntercomFunOn,
       accessPointProfileSubcontractingUpgradeFunOn: parsed.subcontractingUpgradeFunOn,
       accessPointProfileVideoProtocol: parsed.videoProtocol,
-      accessPointProfileOptionsRaw: body.length > 0 ? body : null,
+      accessPointProfileOptionsRaw: body.length > 0 ? clampBytes(body, OPTIONS_RAW_MAX_BYTES) : null,
       accessPointProfileOptionsReadAt: device.receivedAt,
     }
-    await this.profiles.applyOptions(device.accessPointId, device.businessUnitId, patch)
+    /**
+     * Recortado al ancho de cada columna. Lo que manda el equipo no lo valida
+     * nadie y un firmware distinto puede traer un valor mas largo del que cabe:
+     * en modo estricto eso no trunca, falla, y el perfil se queda sin
+     * actualizar mientras cada subida levanta un incidente.
+     */
+    await this.profiles.applyOptions(
+      device.accessPointId,
+      device.businessUnitId,
+      clampProfileTexts(patch)
+    )
 
     const descriptor: AccessPointDescriptor = {
-      deviceName: parsed.deviceName,
-      mac: parsed.mac,
-      ip: parsed.ipAddress,
-      firmware: parsed.fwVersion,
-      platform: parsed.platform,
+      deviceName: clampText(parsed.deviceName, DESCRIPTOR_TEXT_LIMITS.deviceName),
+      mac: clampText(parsed.mac, DESCRIPTOR_TEXT_LIMITS.mac),
+      ip: clampText(parsed.ipAddress, DESCRIPTOR_TEXT_LIMITS.ip),
+      firmware: clampText(parsed.fwVersion, DESCRIPTOR_TEXT_LIMITS.firmware),
+      platform: clampText(parsed.platform, DESCRIPTOR_TEXT_LIMITS.platform),
     }
     if (Object.values(descriptor).some((value) => value !== null)) {
       await this.profiles.copyDescriptor(device.accessPointId, descriptor)

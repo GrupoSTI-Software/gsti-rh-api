@@ -182,11 +182,12 @@ test.group('ADMS attlog ingestion', () => {
     assert.equal(result.inserted, 1)
     assert.equal(result.held, 0)
     assert.lengthOf(items, 1)
-    assert.deepEqual(items[0].subject, {
-      kind: 'employeeCode',
-      employeeCode: 'EMP-77',
-      businessUnitId: 1,
-    })
+    /**
+     * Por identificador. El resolutor de PIN ya decidio de quien es la checada;
+     * mandar el codigo obligaria a resolver otra vez, y dos colaboradores con
+     * el mismo codigo se acreditarian el tiempo del otro.
+     */
+    assert.deepEqual(items[0].subject, { kind: 'employeeId', employeeId: 77 })
     assert.equal(items[0].punchTimeUtc.toISO({ suppressMilliseconds: true }), '2026-08-12T14:53:23Z')
     assert.equal(items[0].terminalSn, 'SYZ8252500376')
     assert.equal(items[0].terminalAlias, 'Entrada principal')

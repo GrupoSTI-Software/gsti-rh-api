@@ -144,11 +144,15 @@ export default class AttlogIngestionService {
       }
 
       items.push({
-        subject: {
-          kind: 'employeeCode',
-          employeeCode: resolution.employeeCode,
-          businessUnitId: device.businessUnitId,
-        },
+        /**
+         * Por identificador, no por codigo. El resolutor de PIN ya decidio de
+         * quien es esta checada -- por el pivote del equipo o por el codigo, y
+         * en ese segundo caso ya rechazo los codigos repetidos. Volver a buscar
+         * por codigo aqui repite un trabajo que puede salir distinto: la
+         * resolucion toma el primero que encuentra, asi que dos colaboradores
+         * con el mismo codigo se acreditarian el tiempo del otro.
+         */
+        subject: { kind: 'employeeId', employeeId: resolution.employeeId },
         assistType: null,
         punchTimeUtc: converted.utc,
         geo: { latitude: null, longitude: null, precision: null },
