@@ -1,3 +1,4 @@
+import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import { toBusinessDateString } from '../utils/business_date.js'
 
@@ -30,6 +31,218 @@ export interface PlatformMrrSnapshot {
   monedas: MrrCurrencySlice[]
   /** Fecha de negocio del cálculo, `YYYY-MM-DD`. */
   calculadoAl: string
+}
+
+/**
+ * Por qué un mes de la serie no se puede sostener con los cobros registrados.
+ *
+ * No son grados: son causas. La vista los usa para explicar el hueco, no para
+ * ordenar meses por calidad.
+ */
+export type MrrSeriesLowConfidenceReason =
+  | 'mes-en-curso'
+  | 'sin-pagos-en-el-mes'
+  | 'anterior-al-primer-pago'
+
+/** Un mes de la serie: lo que se cobró para él, cuántos cobros lo sostienen y qué tan firme es. */
+export interface MrrSeriesPoint {
+  /** Mes calendario, `YYYY-MM`. */
+  mes: string
+  /**
+   * Ingreso recurrente COBRADO atribuido al mes, en centavos.
+   *
+   * No es `mrrActualNetoCents`: aquél es lo contratado y vigente hoy, éste es lo
+   * que entró de cobros que cubrieron este mes. El nombre lleva la diferencia
+   * encima a propósito.
+   */
+  mrrCobradoNetoCents: number
+  /** Cobros que aportaron a este mes. Un cobro de tres periodos cuenta en los tres. */
+  pagosConsiderados: number
+  confiabilidad: 'alta' | 'baja'
+  /** `null` cuando la confiabilidad es alta. */
+  motivoBajaConfiabilidad: MrrSeriesLowConfidenceReason | null
+}
+
+/** Meses que la serie alcanza a reconstruir. En `null` cuando no hay ni un cobro con periodo. */
+export interface MrrSeriesWindow {
+  desde: string | null
+  hasta: string | null
+}
+
+/** Serie mensual de MRR cobrado, con su ventana y lo que quedó fuera de ella. */
+export interface PlatformMrrSeries {
+  ventana: MrrSeriesWindow
+  /**
+   * Fuente declarada en el propio payload. Viaja en la respuesta para que nadie
+   * confunda esta serie con la cifra de la franja ejecutiva: son dos métricas
+   * distintas y no se espera que sus números coincidan.
+   */
+  criterio: 'pagos'
+  /** Cobros que no se pudieron ubicar en ningún mes por no tener periodo registrado. */
+  pagosSinPeriodoExcluidos: number
+  /** Cronológico ascendente y sin huecos dentro de la ventana. */
+  puntos: MrrSeriesPoint[]
+}
+
+/** Un cobro con periodo, reducido a lo único que la serie necesita de él. */
+export interface MrrPaymentPeriodRow {
+  /** Importe SIN IVA congelado al momento de cobrar, en centavos. */
+  subtotalCents: number
+  /** Meses que el cobro cubrió. El `0` y el nulo se tratan como `1`. */
+  periodsCovered: number
+  /** Mes calendario en que arranca el periodo cubierto, `YYYY-MM`. */
+  periodStartMonth: string
+}
+
+// ─── Núcleo de la serie (puro) ────────────────────────────────────────────────
+
+/**
+ * Mes `YYYY-MM` desplazado `delta` meses.
+ *
+ * Las claves `YYYY-MM` se comparan como texto en todo el módulo: su orden
+ * lexicográfico es el cronológico, así que no hace falta parsear para ordenar ni
+ * para acotar la ventana.
+ */
+function shiftMonth(month: string, delta: number): string {
+  return DateTime.fromISO(`${month}-01`).plus({ months: delta }).toFormat('yyyy-MM')
+}
+
+/**
+ * Motivo por el que un mes es de baja confiabilidad, o `null` si es firme.
+ *
+ * La precedencia importa y es la del contrato: `mes-en-curso` gana a
+ * `anterior-al-primer-pago`, y ése gana a `sin-pagos-en-el-mes`. Un mes en curso
+ * sin cobros se reporta como en curso, porque ése es el motivo que de verdad
+ * explica el hueco — todavía no termina.
+ *
+ * `anterior-al-primer-pago` no se alcanza hoy desde el endpoint: la ventana se
+ * recorta al mes del primer cobro (regla 8), así que ningún mes puede quedar
+ * antes. Se implementa igual porque es la regla del contrato: el día que alguien
+ * afloje ese recorte, el motivo tiene que salir solo en vez de mentir con
+ * `sin-pagos-en-el-mes`.
+ *
+ * @param month - Mes evaluado, `YYYY-MM`.
+ * @param currentMonth - Mes calendario en curso en zona de negocio, `YYYY-MM`.
+ * @param firstPaidMonth - Mes del primer cobro con periodo registrado, `YYYY-MM`.
+ * @param paymentsConsidered - Cuántos cobros aportaron a este mes.
+ * @returns El motivo, o `null` cuando el mes se sostiene con cobros.
+ */
+export function resolveMonthReliability(
+  month: string,
+  currentMonth: string,
+  firstPaidMonth: string,
+  paymentsConsidered: number
+): MrrSeriesLowConfidenceReason | null {
+  if (month === currentMonth) {
+    return 'mes-en-curso'
+  }
+  if (month < firstPaidMonth) {
+    return 'anterior-al-primer-pago'
+  }
+  if (paymentsConsidered === 0) {
+    return 'sin-pagos-en-el-mes'
+  }
+  return null
+}
+
+/**
+ * Arma la serie mensual a partir de los cobros con periodo.
+ *
+ * Función pura: sin base de datos y sin reloj. El mes en curso entra por
+ * parámetro para que las reglas se puedan fijar en pruebas deterministas en vez
+ * de depender del día en que se corran.
+ *
+ * ## Reparto y residuo
+ *
+ * Cada cobro aporta `floor(subtotalCents / max(periodsCovered, 1))` a cada uno de
+ * los meses que cubrió, arrancando en el mes de su `period_start`. La división es
+ * entera y **el residuo se pierde**: un cobro de 100 centavos repartido en tres
+ * meses aporta 33 a cada uno y deja 1 centavo sin atribuir, hasta
+ * `periodsCovered - 1` centavos por cobro. No se reparte a ojo entre los meses
+ * porque decidir en cuál cae el sobrante sería justo el tipo de relleno que la HU
+ * prohíbe, y el error está acotado a centavos sobre importes de millones.
+ *
+ * ## Lo que esta función NO hace
+ *
+ * No rellena un mes vacío con el anterior, con un promedio ni con estimación
+ * alguna: un mes sin cobros vale cero y sale marcado. Tampoco ubica los cobros
+ * sin periodo — ésos ni siquiera llegan aquí, se cuentan aparte y viajan en
+ * `pagosSinPeriodoExcluidos`.
+ *
+ * @param rows - TODOS los cobros con periodo del universo, no solo los de la ventana: un cobro anterior a ella puede seguir aportando a meses de adentro.
+ * @param options.currentMonth - Mes calendario en curso, `YYYY-MM`.
+ * @param options.months - Ancho de la ventana pedido, ya validado en 1..24.
+ * @param options.paymentsWithoutPeriod - Cobros descartados por no tener periodo registrado.
+ * @returns La serie completa: ventana, criterio, descartados y un punto por mes.
+ */
+export function buildMrrSeries(
+  rows: MrrPaymentPeriodRow[],
+  options: { currentMonth: string; months: number; paymentsWithoutPeriod: number }
+): PlatformMrrSeries {
+  const { currentMonth, months, paymentsWithoutPeriod } = options
+
+  // Sin un solo cobro con periodo la serie sale vacía y la ventana en blanco
+  // (regla 7): una lista de meses en cero se leería como historia real de un
+  // negocio que no facturó, que es exactamente lo contrario de lo que pasa.
+  if (rows.length === 0) {
+    return {
+      ventana: { desde: null, hasta: null },
+      criterio: 'pagos',
+      pagosSinPeriodoExcluidos: paymentsWithoutPeriod,
+      puntos: [],
+    }
+  }
+
+  const firstPaidMonth = rows.reduce(
+    (earliest, row) => (row.periodStartMonth < earliest ? row.periodStartMonth : earliest),
+    rows[0].periodStartMonth
+  )
+
+  const hasta = currentMonth
+  const requested = shiftMonth(currentMonth, -(months - 1))
+  // La ventana no arranca antes del primer cobro (regla 8) ni después del mes en
+  // curso: un primer cobro que paga un periodo por adelantado deja su mes en el
+  // futuro, y sin el segundo tope la ventana saldría al revés.
+  const notBeforeFirstPayment = requested > firstPaidMonth ? requested : firstPaidMonth
+  const desde = notBeforeFirstPayment < hasta ? notBeforeFirstPayment : hasta
+
+  // El orden de inserción del Map es el de la serie: cronológico y sin huecos.
+  const buckets = new Map<string, { cents: number; pagos: number }>()
+  for (let month = desde; month <= hasta; month = shiftMonth(month, 1)) {
+    buckets.set(month, { cents: 0, pagos: 0 })
+  }
+
+  for (const row of rows) {
+    const spread = Math.max(row.periodsCovered, 1)
+    const share = Math.floor(row.subtotalCents / spread)
+    for (let index = 0; index < spread; index += 1) {
+      const bucket = buckets.get(shiftMonth(row.periodStartMonth, index))
+      // Los meses del cobro que caen fuera de la ventana simplemente no aportan.
+      if (!bucket) {
+        continue
+      }
+      bucket.cents += share
+      bucket.pagos += 1
+    }
+  }
+
+  const puntos: MrrSeriesPoint[] = [...buckets.entries()].map(([mes, bucket]) => {
+    const motivo = resolveMonthReliability(mes, currentMonth, firstPaidMonth, bucket.pagos)
+    return {
+      mes,
+      mrrCobradoNetoCents: bucket.cents,
+      pagosConsiderados: bucket.pagos,
+      confiabilidad: motivo === null ? 'alta' : 'baja',
+      motivoBajaConfiabilidad: motivo,
+    }
+  })
+
+  return {
+    ventana: { desde, hasta },
+    criterio: 'pagos',
+    pagosSinPeriodoExcluidos: paymentsWithoutPeriod,
+    puntos,
+  }
 }
 
 // ─── SQL compartido ───────────────────────────────────────────────────────────
