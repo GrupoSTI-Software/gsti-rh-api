@@ -84,6 +84,10 @@ export default class BusinessUnit extends compose(BaseModel, SoftDeletes) {
   @column()
   declare businessUnitHasBiometrics: number
 
+  /** Zona IANA de la sede para convertir la hora local de los checadores (spec ADMS 5.3). */
+  @column()
+  declare businessUnitTimezone: string
+
   @column.dateTime({ autoCreate: true })
   declare businessUnitCreatedAt: DateTime | null
 

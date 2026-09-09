@@ -1,10 +1,16 @@
 import db from '@adonisjs/lucid/services/db'
 import { DateTime } from 'luxon'
 import PlatformDevice from '#models/platform_device'
-import PlatformDeviceAssignment from '#models/platform_device_assignment'
+import PlatformDeviceAssignment, {
+  type PlatformDeviceAssignmentTenureRegime,
+} from '#models/platform_device_assignment'
 import BusinessUnit from '#models/business_unit'
 import { PLATFORM_DEVICE_ERROR_CODES } from '../constants/platform_device_error_codes.js'
 import { PlatformDeviceServiceError } from '../exceptions/platform_device_service_error.js'
+import PlatformDeviceAccessPointService, {
+  type AccessPointPreloadOutcome,
+  type PreloadedAccessPoint,
+} from './platform_device_access_point_service.js'
 
 export interface AssignmentRecord {
   assignmentId: number
@@ -14,6 +20,13 @@ export interface AssignmentRecord {
   deliveredAt: string
   releasedAt: string | null
   deviceStatus: string
+  /** Resultado de la precarga del punto de acceso del tenant (USRH1787189981879). */
+  accessPointOutcome: AccessPointPreloadOutcome
+  accessPoint: PreloadedAccessPoint
+  /** Figura de tenencia bajo la que queda el equipo (USRH1787189981880). */
+  tenureRegime: PlatformDeviceAssignmentTenureRegime
+  salePriceCents: number | null
+  saleCurrency: string
 }
 
 export interface AssignmentListItem {
@@ -26,12 +39,18 @@ export interface AssignmentListItem {
     slug: string
   }
   deliveredAt: string
+  /** Figura de tenencia de esta entrega (USRH1787189981880). */
+  tenureRegime: PlatformDeviceAssignmentTenureRegime
+  salePriceCents: number | null
+  saleCurrency: string
 }
 
 interface CreateAssignmentInput {
   platformDeviceId: number
   tenantPublicId: string
   deliveredAt: Date
+  tenureRegime: PlatformDeviceAssignmentTenureRegime
+  salePriceCents?: number
   createdByUserId?: number
 }
 
@@ -55,13 +74,18 @@ interface ListAssignmentsInput {
  *   1. Resolver tenant por publicId → 404 si no existe.
  *   2. Verificar bandera de biométricos → 422 si apagada.
  *   3. forUpdate sobre platform_devices → 404 si no existe la unidad.
+ *   3.5. Reglas cruzadas régimen↔precio↔origen → 422 (USRH1787189981880).
  *   4. Verificar status = 'disponible' → 422 con nombre del tenant actual.
  *   5. Cinturón: contar asignaciones abiertas → 422 si > 0.
  *   6. Crear asignación con released_at = null.
  *   7. Cambiar status a 'asignada' y guardar.
+ *   8. Precargar (crear o adoptar) el access_point del tenant, amarrado por
+ *      platformDeviceId (USRH1787189981879 · §10 del spec).
  *   Si cualquier paso falla, la transacción hace rollback completo.
  */
 export default class PlatformDeviceAssignmentService {
+  private readonly accessPointService = new PlatformDeviceAccessPointService()
+
   /**
    * Registra la entrega de un aparato disponible a un tenant.
    * Operación atómica: asignación + cambio de estado en una sola transacción.
@@ -107,6 +131,7 @@ export default class PlatformDeviceAssignmentService {
       const device = await PlatformDevice.query({ client: trx })
         .where('platform_device_id', input.platformDeviceId)
         .whereNull('platform_device_deleted_at')
+        .preload('deviceModel')
         .forUpdate()
         .first()
 
@@ -119,6 +144,11 @@ export default class PlatformDeviceAssignmentService {
           'El aparato del inventario no existe o fue dado de baja.'
         )
       }
+
+      // Paso 3.5: reglas cruzadas régimen↔precio↔origen (USRH1787189981880).
+      // Van antes de la verificación de disponibilidad: son errores de forma
+      // sobre el input, independientes de si el aparato está libre o no.
+      this.validateTenureRegime(input.tenureRegime, input.salePriceCents, device.platformDeviceOrigin)
 
       // Paso 4: verificar que el aparato esté disponible (con el lock ya tomado)
       if (device.platformDeviceStockStatus !== 'disponible') {
@@ -169,6 +199,12 @@ export default class PlatformDeviceAssignmentService {
           businessUnitId: tenant.businessUnitId,
           platformDeviceAssignmentDeliveredAt: deliveredAtStr,
           platformDeviceAssignmentReleasedAt: null,
+          platformDeviceAssignmentTenureRegime: input.tenureRegime,
+          platformDeviceAssignmentSalePriceCents: input.salePriceCents ?? null,
+          // Explícita, aunque la columna tenga defaultTo('MXN'): así el
+          // registro devuelto en la misma respuesta no depende de refrescar
+          // el modelo desde BD para reflejar el default.
+          platformDeviceAssignmentSaleCurrency: 'MXN',
           platformDeviceAssignmentCreatedByUserId: input.createdByUserId ?? null,
         },
         { client: trx }
@@ -178,6 +214,17 @@ export default class PlatformDeviceAssignmentService {
       device.useTransaction(trx)
       device.platformDeviceStockStatus = 'asignada'
       await device.save()
+
+      // Paso 8: precargar (crear o adoptar) el access_point del tenant.
+      // Dentro de la misma transacción, después del lock: si falla, revierte
+      // asignación + cambio de status completos (USRH1787189981879 · CA-4).
+      const preload = await this.accessPointService.preload({
+        businessUnitId: tenant.businessUnitId,
+        platformDeviceId: device.platformDeviceId,
+        serialNumber: device.platformDeviceSerialNumber,
+        modelName: device.deviceModel.platformDeviceModelName,
+        trx,
+      })
 
       return {
         assignmentId: assignment.platformDeviceAssignmentId,
@@ -190,8 +237,71 @@ export default class PlatformDeviceAssignmentService {
         deliveredAt: deliveredAtStr,
         releasedAt: null,
         deviceStatus: 'asignada',
+        accessPointOutcome: preload.outcome,
+        accessPoint: preload.accessPoint,
+        tenureRegime: assignment.platformDeviceAssignmentTenureRegime,
+        salePriceCents: assignment.platformDeviceAssignmentSalePriceCents,
+        saleCurrency: assignment.platformDeviceAssignmentSaleCurrency,
       }
     })
+  }
+
+  /**
+   * Reglas cruzadas régimen↔precio↔origen (USRH1787189981880 · reglas 2-5).
+   * Vine solo valida forma (enum, entero positivo); la coherencia de negocio
+   * vive aquí, antes de persistir nada.
+   *
+   * @throws PlatformDeviceServiceError 422 SALE_PRICE_REQUIRED — venta sin precio.
+   * @throws PlatformDeviceServiceError 422 SALE_PRICE_NOT_ALLOWED — precio con régimen que no lo admite.
+   * @throws PlatformDeviceServiceError 422 TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN — régimen incompatible con el origen.
+   */
+  private validateTenureRegime(
+    tenureRegime: PlatformDeviceAssignmentTenureRegime,
+    salePriceCents: number | undefined,
+    origin: PlatformDevice['platformDeviceOrigin']
+  ): void {
+    // Regla 2: precio obligatorio si régimen = venta.
+    if (tenureRegime === 'venta' && (salePriceCents === undefined || salePriceCents === null)) {
+      throw new PlatformDeviceServiceError(
+        'Falta el precio de venta para régimen "venta"',
+        PLATFORM_DEVICE_ERROR_CODES.SALE_PRICE_REQUIRED,
+        422,
+        PLATFORM_DEVICE_ERROR_CODES.SALE_PRICE_REQUIRED,
+        'El precio de venta es obligatorio cuando el régimen de tenencia es venta.'
+      )
+    }
+
+    // Regla 3: precio NO aceptado si régimen ≠ venta. Es error, no se ignora.
+    if (tenureRegime !== 'venta' && salePriceCents !== undefined && salePriceCents !== null) {
+      throw new PlatformDeviceServiceError(
+        `Se envió precio de venta con régimen "${tenureRegime}"`,
+        PLATFORM_DEVICE_ERROR_CODES.SALE_PRICE_NOT_ALLOWED,
+        422,
+        PLATFORM_DEVICE_ERROR_CODES.SALE_PRICE_NOT_ALLOWED,
+        'El precio de venta solo se admite cuando el régimen de tenencia es venta.'
+      )
+    }
+
+    // Reglas 4 y 5: el origen de la unidad restringe qué régimen es admisible.
+    if (origin === 'del_cliente' && tenureRegime !== 'propiedad_cliente') {
+      throw new PlatformDeviceServiceError(
+        `Régimen "${tenureRegime}" no admitido para unidad de origen del_cliente`,
+        PLATFORM_DEVICE_ERROR_CODES.TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN,
+        422,
+        PLATFORM_DEVICE_ERROR_CODES.TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN,
+        'Una unidad cuyo origen es del cliente solo admite el régimen "propiedad del cliente".'
+      )
+    }
+
+    if (origin === 'propia' && tenureRegime === 'propiedad_cliente') {
+      throw new PlatformDeviceServiceError(
+        'Régimen "propiedad_cliente" no admitido para unidad de origen propia',
+        PLATFORM_DEVICE_ERROR_CODES.TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN,
+        422,
+        PLATFORM_DEVICE_ERROR_CODES.TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN,
+        'Una unidad propia de GSTI no admite el régimen "propiedad del cliente"; solo comodato o venta.'
+      )
+    }
   }
 
   /**
@@ -250,6 +360,9 @@ export default class PlatformDeviceAssignmentService {
         slug: a.device.deviceModel.platformDeviceModelSlug,
       },
       deliveredAt: a.platformDeviceAssignmentDeliveredAt,
+      tenureRegime: a.platformDeviceAssignmentTenureRegime,
+      salePriceCents: a.platformDeviceAssignmentSalePriceCents,
+      saleCurrency: a.platformDeviceAssignmentSaleCurrency,
     }))
   }
 }

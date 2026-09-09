@@ -449,3 +449,181 @@ test.group('Perfil profile-photo — tope acordado con el cliente', () => {
     }
   })
 })
+
+function buildCfdiXml(params?: { prologue?: boolean; comment?: boolean; xmlns?: string }): Buffer {
+  const xmlns = params?.xmlns ?? 'http://www.sat.gob.mx/cfd/4'
+  const prologue = params?.prologue === false ? '' : '<?xml version="1.0" encoding="UTF-8"?>\n'
+  const comment = params?.comment ? '<!-- acuse SAT -->\n' : ''
+  return Buffer.from(
+    `${prologue}${comment}<cfdi:Comprobante xmlns:cfdi="${xmlns}" Version="4.0"></cfdi:Comprobante>\n`
+  )
+}
+
+test.group('FileIntakeService — perfil tax-receipt-document (USRH1788288461975)', () => {
+  test('un CFDI XML válido pasa con tax-receipt-document', async ({ assert }) => {
+    const file = await fakeMultipartFile({
+      content: buildCfdiXml(),
+      clientName: 'acuse.xml',
+    })
+
+    const result = await new FileIntakeService().accept(file, 'tax-receipt-document')
+
+    assert.equal(result.mimeType, 'application/xml')
+    assert.isFalse(result.storesPublicly)
+  })
+
+  test('el mismo XML es rechazado en evidence-document', async ({ assert }) => {
+    const file = await fakeMultipartFile({
+      content: buildCfdiXml(),
+      clientName: 'acuse.xml',
+    })
+
+    const error = await expectRejection(file, 'evidence-document')
+
+    assert.equal(error.errorCode, FILE_INTAKE_ERROR_CODES.EXTENSION_BLOCKED)
+  })
+
+  test('el mismo XML es rechazado en complaint-attachment', async ({ assert }) => {
+    const file = await fakeMultipartFile({
+      content: buildCfdiXml(),
+      clientName: 'acuse.xml',
+    })
+
+    const error = await expectRejection(file, 'complaint-attachment')
+
+    assert.equal(error.errorCode, FILE_INTAKE_ERROR_CODES.EXTENSION_BLOCKED)
+  })
+
+  test('el mismo XML es rechazado en employee-record-document', async ({ assert }) => {
+    const file = await fakeMultipartFile({
+      content: buildCfdiXml(),
+      clientName: 'acuse.xml',
+    })
+
+    const error = await expectRejection(file, 'employee-record-document')
+
+    assert.equal(error.errorCode, FILE_INTAKE_ERROR_CODES.EXTENSION_BLOCKED)
+  })
+
+  test('logotipo.svg con branding-asset sigue devolviendo EXTENSION_BLOCKED', async ({
+    assert,
+  }) => {
+    const svg = Buffer.from(
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    )
+    const file = await fakeMultipartFile({ content: svg, clientName: 'logotipo.svg' })
+
+    const error = await expectRejection(file, 'branding-asset')
+
+    assert.equal(error.errorCode, FILE_INTAKE_ERROR_CODES.EXTENSION_BLOCKED)
+  })
+
+  test('acuse.php.xml con tax-receipt-document devuelve EXTENSION_BLOCKED', async ({
+    assert,
+  }) => {
+    const file = await fakeMultipartFile({
+      content: buildCfdiXml(),
+      clientName: 'acuse.php.xml',
+    })
+
+    const error = await expectRejection(file, 'tax-receipt-document')
+
+    assert.equal(error.errorCode, FILE_INTAKE_ERROR_CODES.EXTENSION_BLOCKED)
+  })
+
+  test('un PDF renombrado a .xml con tax-receipt-document es CONTENT_TYPE_INVALID', async ({
+    assert,
+  }) => {
+    const file = await fakeMultipartFile({
+      content: await buildPdf(),
+      clientName: 'acuse.xml',
+    })
+
+    const error = await expectRejection(file, 'tax-receipt-document')
+
+    assert.equal(error.errorCode, FILE_INTAKE_ERROR_CODES.CONTENT_TYPE_INVALID)
+  })
+
+  test('un XML con raíz distinta de Comprobante es CONTENT_TYPE_INVALID', async ({ assert }) => {
+    const file = await fakeMultipartFile({
+      content: Buffer.from(
+        '<?xml version="1.0"?><Nomina xmlns="http://www.sat.gob.mx/cfd/4"></Nomina>\n'
+      ),
+      clientName: 'acuse.xml',
+    })
+
+    const error = await expectRejection(file, 'tax-receipt-document')
+
+    assert.equal(error.errorCode, FILE_INTAKE_ERROR_CODES.CONTENT_TYPE_INVALID)
+  })
+
+  test('un XML con DOCTYPE y ENTITY es CONTENT_TYPE_INVALID', async ({ assert }) => {
+    const file = await fakeMultipartFile({
+      content: Buffer.from(
+        '<!DOCTYPE foo [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>\n<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"></cfdi:Comprobante>\n'
+      ),
+      clientName: 'acuse.xml',
+    })
+
+    const error = await expectRejection(file, 'tax-receipt-document')
+
+    assert.equal(error.errorCode, FILE_INTAKE_ERROR_CODES.CONTENT_TYPE_INVALID)
+  })
+
+  test('un PDF real sigue pasando con tax-receipt-document', async ({ assert }) => {
+    const file = await fakeMultipartFile({
+      content: await buildPdf(),
+      clientName: 'acuse.pdf',
+    })
+
+    const result = await new FileIntakeService().accept(file, 'tax-receipt-document')
+
+    assert.equal(result.mimeType, 'application/pdf')
+  })
+
+  test('un CFDI con BOM UTF-8 pasa', async ({ assert }) => {
+    const file = await fakeMultipartFile({
+      content: Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), buildCfdiXml()]),
+      clientName: 'acuse.xml',
+    })
+
+    const result = await new FileIntakeService().accept(file, 'tax-receipt-document')
+
+    assert.equal(result.mimeType, 'application/xml')
+  })
+
+  test('un CFDI con comentario antes de la raíz pasa', async ({ assert }) => {
+    const file = await fakeMultipartFile({
+      content: buildCfdiXml({ comment: true }),
+      clientName: 'acuse.xml',
+    })
+
+    const result = await new FileIntakeService().accept(file, 'tax-receipt-document')
+
+    assert.equal(result.mimeType, 'application/xml')
+  })
+
+  test('un CFDI 3.3 sin prólogo pasa', async ({ assert }) => {
+    const file = await fakeMultipartFile({
+      content: Buffer.from(
+        '<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/3" Version="3.3"></cfdi:Comprobante>\n'
+      ),
+      clientName: 'acuse.xml',
+    })
+
+    const result = await new FileIntakeService().accept(file, 'tax-receipt-document')
+
+    assert.equal(result.mimeType, 'application/xml')
+  })
+
+  test('un Comprobante con namespace ajeno es CONTENT_TYPE_INVALID', async ({ assert }) => {
+    const file = await fakeMultipartFile({
+      content: buildCfdiXml({ xmlns: 'http://example.com/x' }),
+      clientName: 'acuse.xml',
+    })
+
+    const error = await expectRejection(file, 'tax-receipt-document')
+
+    assert.equal(error.errorCode, FILE_INTAKE_ERROR_CODES.CONTENT_TYPE_INVALID)
+  })
+})

@@ -30,6 +30,25 @@ export const PLATFORM_DEVICE_ERROR_CODES = {
   LIFECYCLE_HAS_OPEN_ASSIGNMENT: 'PLT.DEV.LIFECYCLE_HAS_OPEN_ASSIGNMENT',
   /** La unidad ya fue retirada; el retiro es irreversible (RN4 del spec 1877) */
   LIFECYCLE_ALREADY_RETIRED: 'PLT.DEV.LIFECYCLE_ALREADY_RETIRED',
+  /** La serie ya está viva en un access_point con platformDeviceId poblado de OTRO tenant (colisión real, CA-3 del spec 1879) */
+  SERIAL_TAKEN_BY_OTHER_TENANT: 'PLT.DEV.SERIAL_TAKEN_BY_OTHER_TENANT',
+  /** La serie ya está viva en un access_point sin platformDeviceId de OTRO tenant (probable auto-descubrimiento, CA-10 del spec 1879) */
+  SERIAL_TAKEN_BY_AUTODISCOVERY: 'PLT.DEV.SERIAL_TAKEN_BY_AUTODISCOVERY',
+
+  /** No hay una fila de cuarentena pendiente con esa serie. */
+  QUARANTINE_NOT_FOUND: 'PLT.DEV.QUARANTINE_NOT_FOUND',
+  /** La fila de cuarentena ya se reclamo o se descarto. */
+  QUARANTINE_NOT_PENDING: 'PLT.DEV.QUARANTINE_NOT_PENDING',
+  /** La unidad a precargar no tiene número de serie (defensivo, CA-5 del spec 1879) */
+  DEVICE_SERIAL_MISSING: 'PLT.DEV.DEVICE_SERIAL_MISSING',
+  /** Falló la materialización del punto de acceso del tenant; revierte toda la transacción (CA-4 del spec 1879) */
+  ACCESS_POINT_PRELOAD_FAILED: 'PLT.DEV.ACCESS_POINT_PRELOAD_FAILED',
+  /** Régimen `venta` sin `salePriceCents` (regla 2 del spec 1880) */
+  SALE_PRICE_REQUIRED: 'PLT.DEV.SALE_PRICE_REQUIRED',
+  /** Se envió `salePriceCents` con un régimen que no lo admite (regla 3 del spec 1880) */
+  SALE_PRICE_NOT_ALLOWED: 'PLT.DEV.SALE_PRICE_NOT_ALLOWED',
+  /** El régimen elegido no es compatible con el origen de la unidad (reglas 4 y 5 del spec 1880) */
+  TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN: 'PLT.DEV.TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.DEV.SYS_UNHANDLED',
 } as const
