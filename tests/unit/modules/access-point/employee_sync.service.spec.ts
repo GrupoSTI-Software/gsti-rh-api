@@ -30,6 +30,8 @@ interface Options {
   withTrashed?: AccessPointEmployee | null
   pinHolders?: AccessPointEmployee[]
   takenPins?: string[]
+  /** PIN ocupados con su dueno, para probar que el propio vinculo no cuenta. */
+  pinOwners?: Array<{ pivotId: number; pin: string }>
   live?: AccessPointEmployee[]
   enqueueThrows?: boolean
 }
@@ -53,8 +55,12 @@ function makeService(options: Options = {}) {
     async findByPin() {
       return options.pinHolders ?? []
     },
-    async listTakenPins() {
-      return options.takenPins ?? []
+    async listTakenPins(_accessPointId, exceptPivotId) {
+      const ocupantes =
+        options.pinOwners ?? (options.takenPins ?? []).map((pin) => ({ pivotId: -1, pin }))
+      return ocupantes
+        .filter((ocupante) => ocupante.pivotId !== exceptPivotId)
+        .map((ocupante) => ocupante.pin)
     },
     async listLiveByEmployee() {
       return options.live ?? []
@@ -395,5 +401,46 @@ test.group('PIN correlativo por equipo', () => {
     })
 
     assert.equal(saved[0].accessPointEmployeePin, '55')
+  })
+
+  test('quien vuelve al equipo recupera su propio numero', async ({ assert }) => {
+    const suyo = pivotOf({
+      accessPointEmployeeId: 5,
+      accessPointEmployeePin: '7',
+      accessPointEmployeeSyncStatus: 'revoked',
+    })
+    const { service, saved } = makeService({
+      withTrashed: suyo,
+      // Su vinculo retiene el 7 y otra persona tiene el 1. Sin excluir su
+      // propia fila, el 7 figuraria ocupado y se le daria un numero nuevo.
+      pinOwners: [
+        { pivotId: 5, pin: '7' },
+        { pivotId: 9, pin: '1' },
+      ],
+    })
+
+    await service.assign({
+      accessPointId: 12,
+      businessUnitId: 1,
+      employeeId: 77,
+      actor: ACTOR,
+    })
+
+    assert.equal(saved[0].accessPointEmployeePin, '7')
+  })
+
+  test('el numero que retiene la baja de otro no se reparte', async ({ assert }) => {
+    const { service, saved } = makeService({
+      pinOwners: [{ pivotId: 9, pin: '1' }],
+    })
+
+    await service.assign({
+      accessPointId: 12,
+      businessUnitId: 1,
+      employeeId: 77,
+      actor: ACTOR,
+    })
+
+    assert.equal(saved[0].accessPointEmployeePin, '2')
   })
 })

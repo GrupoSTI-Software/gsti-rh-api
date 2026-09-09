@@ -5,6 +5,7 @@ import AccessPointEmployee, {
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
 } from '#models/access_point_employee'
 import BusinessUnitUser from '#models/business_unit_user'
+import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
 import Employee from '#models/employee'
 import { TenantContext } from '#utils/tenant_context'
 
@@ -100,44 +101,102 @@ test.group('Unicidad del PIN por equipo', (group) => {
     assert.include(String((fallo as { code?: string })?.code ?? fallo), 'ER_DUP_ENTRY')
   })
 
-  test('un vinculo revocado libera su numero', async ({ assert }) => {
+  /** Deja al primer colaborador en el estado que pide la prueba. */
+  const ponerEstado = async (status: (typeof ACCESS_POINT_EMPLOYEE_SYNC_STATUS)[keyof typeof ACCESS_POINT_EMPLOYEE_SYNC_STATUS]): Promise<void> => {
     await TenantContext.run([businessUnitId], async () => {
       const vivo = await AccessPointEmployee.query()
         .where('access_point_id', accessPoint.accessPointId)
         .where('employee_id', primero)
         .firstOrFail()
-      vivo.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
+      vivo.accessPointEmployeeSyncStatus = status
       await vivo.save()
     })
+  }
 
-    // Ahora el numero esta libre y la otra persona si lo puede tomar.
-    const nuevo = await crear(segundo)
-    assert.equal(nuevo.accessPointEmployeePin, PIN)
+  test('una baja confirmada tampoco devuelve el numero al monton', async ({ assert }) => {
+    await ponerEstado(ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+
+    /**
+     * El equipo sube checadas guardadas sin red dias despues: si el numero
+     * cambiara de dueno, esos marcajes se acreditarian a quien no los hizo.
+     */
+    let fallo: unknown = null
+    try {
+      await crear(segundo)
+    } catch (error) {
+      fallo = error
+    }
+
+    assert.isNotNull(fallo)
+    assert.include(String((fallo as { code?: string })?.code ?? fallo), 'ER_DUP_ENTRY')
   })
 
-  test('una baja sin confirmar NO libera el numero', async ({ assert }) => {
-    await TenantContext.run([businessUnitId], async () => {
-      const vivo = await AccessPointEmployee.query()
-        .where('access_point_id', accessPoint.accessPointId)
-        .where('employee_id', segundo)
-        .firstOrFail()
-      vivo.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED
-      await vivo.save()
+  test('una baja sin confirmar tampoco libera el numero', async ({ assert }) => {
+    await ponerEstado(ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED)
 
-      const antes = await AccessPointEmployee.query()
+    let fallo: unknown = null
+    try {
+      await crear(segundo)
+    } catch (error) {
+      fallo = error
+    }
+
+    assert.isNotNull(fallo)
+    assert.include(String((fallo as { code?: string })?.code ?? fallo), 'ER_DUP_ENTRY')
+  })
+
+  test('la lista de numeros ocupados cuenta la baja confirmada', async ({ assert }) => {
+    await ponerEstado(ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+
+    const repository = new EmployeeSyncRepositoryMysql()
+    const ocupados = await TenantContext.run([businessUnitId], async () =>
+      repository.listTakenPins(accessPoint.accessPointId)
+    )
+
+    assert.include(ocupados, PIN)
+  })
+
+  test('el propio vinculo no figura como ocupante de su numero', async ({ assert }) => {
+    await ponerEstado(ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+
+    const repository = new EmployeeSyncRepositoryMysql()
+    const { ocupados, propio } = await TenantContext.run([businessUnitId], async () => {
+      const fila = await AccessPointEmployee.query()
         .where('access_point_id', accessPoint.accessPointId)
         .where('employee_id', primero)
         .firstOrFail()
-      antes.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING
-      // Hasta que el equipo confirme el borrado, ese numero sigue ocupado.
-      let fallo: unknown = null
-      try {
-        await antes.save()
-      } catch (error) {
-        fallo = error
+      return {
+        propio: fila.accessPointEmployeeId,
+        ocupados: await repository.listTakenPins(
+          accessPoint.accessPointId,
+          fila.accessPointEmployeeId
+        ),
       }
-      assert.isNotNull(fallo)
     })
+
+    // Sin esta exclusion nadie recuperaria su numero al volver al equipo.
+    assert.isNumber(propio)
+    assert.notInclude(ocupados, PIN)
+  })
+
+  test('retirar la asignacion con la baja en camino no libera el numero', async ({ assert }) => {
+    await TenantContext.run([businessUnitId], async () => {
+      const vivo = await AccessPointEmployee.query()
+        .where('access_point_id', accessPoint.accessPointId)
+        .where('employee_id', primero)
+        .firstOrFail()
+      vivo.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_SENT
+      await vivo.save()
+      // Borrado logico: el indice deja de verla, la cuarentena no.
+      await vivo.delete()
+    })
+
+    const repository = new EmployeeSyncRepositoryMysql()
+    const ocupados = await TenantContext.run([businessUnitId], async () =>
+      repository.listTakenPins(accessPoint.accessPointId)
+    )
+
+    assert.include(ocupados, PIN)
   })
 })
 

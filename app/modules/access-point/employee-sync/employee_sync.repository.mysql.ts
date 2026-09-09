@@ -88,8 +88,12 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
   }
 
   /**
-   * Quien ocupa ese PIN en el equipo. Incluye las filas en cuarentena: hasta
-   * que el aparato confirme el borrado, ese PIN sigue siendo del anterior.
+   * Quien ocupa ese PIN en el equipo.
+   *
+   * Cuenta toda fila viva -- tambien la de una baja ya confirmada, porque el
+   * numero no se recicla -- y ademas las de cuarentena aunque su asignacion se
+   * haya borrado logicamente, que es cuando el aparato todavia no aplica la
+   * baja.
    */
   async findByPin(accessPointId: number, pin: string): Promise<AccessPointEmployee[]> {
     return AccessPointEmployee.query()
@@ -103,8 +107,8 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
       })
   }
 
-  async listTakenPins(accessPointId: number): Promise<string[]> {
-    const rows = await AccessPointEmployee.query()
+  async listTakenPins(accessPointId: number, exceptPivotId?: number): Promise<string[]> {
+    const query = AccessPointEmployee.query()
       .withTrashed()
       .where('access_point_id', accessPointId)
       .whereNot('access_point_employee_pin', '')
@@ -113,7 +117,13 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
           .whereNull('access_point_employee_deleted_at')
           .orWhereIn('access_point_employee_sync_status', [...PIN_QUARANTINE_STATUSES])
       })
-      .select('access_point_employee_pin')
+
+    /** Su propio vinculo no le quita su numero a nadie, menos a el mismo. */
+    if (exceptPivotId !== undefined) {
+      query.whereNot('access_point_employee_id', exceptPivotId)
+    }
+
+    const rows = await query.select('access_point_employee_pin')
 
     return rows.map((row) => row.accessPointEmployeePin).filter((pin) => pin.length > 0)
   }

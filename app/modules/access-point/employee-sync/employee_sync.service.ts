@@ -74,7 +74,8 @@ export default class EmployeeSyncService {
       const proposedPin = await this.proposePin(
         input.accessPointId,
         input.pin,
-        existing?.accessPointEmployeePin ?? null
+        existing?.accessPointEmployeePin ?? null,
+        existing?.accessPointEmployeeId
       )
       if (proposedPin !== null) {
         await this.assertPinFree(input.accessPointId, proposedPin, existing?.accessPointEmployeeId)
@@ -332,14 +333,17 @@ export default class EmployeeSyncService {
    * bloqueo del equipo, asi que dos altas simultaneas no pueden llevarse el
    * mismo.
    *
-   * "Libre" excluye los PIN de las bajas sin confirmar: hasta que el aparato
-   * dice que borro el registro, ese numero sigue siendo de quien lo tenia y
-   * dárselo a otro haria que sus checadas se acreditaran mal.
+   * "Libre" es estricto: un numero no vuelve al monton aunque su baja este
+   * confirmada. Las checadas que el equipo guardo sin red llegan dias despues,
+   * y si para entonces el numero cambio de dueno se acreditan a quien no las
+   * hizo. El unico vinculo que no cuenta es el del propio colaborador, para
+   * que recupere su numero al volver.
    */
   private async proposePin(
     accessPointId: number,
     pin: string | null | undefined,
-    currentPin: string | null
+    currentPin: string | null,
+    exceptPivotId?: number
   ): Promise<string | null> {
     if (pin && ACCESS_POINT_PIN_PATTERN.test(pin)) return pin
     if (pin) {
@@ -351,7 +355,7 @@ export default class EmployeeSyncService {
       )
     }
 
-    const taken = new Set(await this.repository.listTakenPins(accessPointId))
+    const taken = new Set(await this.repository.listTakenPins(accessPointId, exceptPivotId))
 
     /**
      * Quien vuelve al mismo equipo recupera su numero si sigue libre: las

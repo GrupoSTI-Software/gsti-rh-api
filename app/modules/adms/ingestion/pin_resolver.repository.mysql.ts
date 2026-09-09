@@ -12,10 +12,24 @@ import type {
 
 /** Adaptador Lucid de la resolucion del PIN. */
 export default class PinResolverRepositoryMysql implements PinResolverRepository {
+  /**
+   * De quien es ese numero en ese equipo.
+   *
+   * El orden no es adorno. Un numero no se recicla, asi que lo normal es que
+   * solo haya un vinculo vivo con ese PIN; pero si un dato viejo dejo dos, la
+   * checada es del vinculo vigente y no del revocado, y sin `ORDER BY` la base
+   * puede devolver cualquiera de los dos segun como recorra el indice. El
+   * desempate final por identificador evita que la atribucion dependa del plan
+   * de ejecucion.
+   */
   async findPivot(accessPointId: number, pin: string): Promise<PivotMatch | null> {
     const row = await AccessPointEmployee.query()
       .where('access_point_id', accessPointId)
       .where('access_point_employee_pin', pin)
+      .orderByRaw('CASE WHEN access_point_employee_sync_status = ? THEN 1 ELSE 0 END', [
+        ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+      ])
+      .orderBy('access_point_employee_id', 'desc')
       .preload('employee', (query) => query.withTrashed())
       .first()
     if (!row) return null

@@ -32,7 +32,7 @@ export interface EmployeeAccessPointDto {
    */
   hasPin: boolean
   syncStatus: AccessPointEmployeeSyncStatus
-  /** El PIN no se puede reasignar a otra persona mientras esto sea verdadero. */
+  /** La baja va en camino: el numero sigue reservado para esta persona. */
   pinQuarantined: boolean
   syncRequestedAt: string | null
   syncSentAt: string | null

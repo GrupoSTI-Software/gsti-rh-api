@@ -33,10 +33,17 @@ export interface EmployeeSyncRepository {
   /**
    * PINs que ese equipo ya no puede volver a dar.
    *
-   * Incluye los de las bajas sin confirmar: hasta que el aparato dice que
-   * borro el registro, ese numero sigue siendo de quien lo tenia.
+   * Cuenta toda fila viva sin importar su estado: una baja confirmada NO
+   * devuelve el numero al monton. El equipo sube checadas guardadas cuando
+   * estuvo sin red, asi que un marcaje del dueno anterior puede llegar dias
+   * despues; si para entonces el numero ya es de otra persona, esa checada se
+   * le acredita a quien no la hizo.
+   *
+   * `exceptPivotId` deja fuera una fila concreta -- la del propio colaborador
+   * al que se le esta proponiendo numero. Sin eso nadie podria recuperar el
+   * suyo al volver al equipo: su vinculo anterior figura como ocupante.
    */
-  listTakenPins(accessPointId: number): Promise<string[]>
+  listTakenPins(accessPointId: number, exceptPivotId?: number): Promise<string[]>
   listLiveByEmployee(employeeId: number): Promise<AccessPointEmployee[]>
   save(pivot: AccessPointEmployee): Promise<void>
   recordEvent(input: SyncEventInput): Promise<void>
