@@ -75,7 +75,7 @@ function monthBounds(month: string): { inicio: string; fin: string; diasDelMes: 
   return {
     inicio: start.toFormat('yyyy-MM-dd HH:mm:ss'),
     fin: start.plus({ months: 1 }).toFormat('yyyy-MM-dd HH:mm:ss'),
-    diasDelMes: start.daysInMonth,
+    diasDelMes: start.daysInMonth as number,
   }
 }
 
