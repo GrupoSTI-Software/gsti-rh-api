@@ -14,6 +14,7 @@ import AccessPointEmployee, {
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
 } from '#models/access_point_employee'
 import DeviceCommandService from '../device_command.service.js'
+import RosterReconciliationService from '#modules/access-point/employee-sync/roster_reconciliation.service'
 
 export interface CommandSweepResult {
   taken: number
@@ -21,6 +22,8 @@ export interface CommandSweepResult {
   withoutEvidence: number
   /** Equipos a los que se les volvio a pedir el padron para cerrar una baja. */
   rosterRequested: number
+  /** Bajas cerradas porque el equipo nunca contesto el padron. */
+  revocationsClosed: number
 }
 
 /**
@@ -49,7 +52,8 @@ export default class CommandSweepService {
   constructor(
     private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
     private readonly now: () => DateTime = () => DateTime.utc(),
-    private readonly commands: DeviceCommandService = new DeviceCommandService()
+    private readonly commands: DeviceCommandService = new DeviceCommandService(),
+    private readonly roster: RosterReconciliationService = new RosterReconciliationService()
   ) {}
 
   async run(limit: number = COMMAND_SWEEP_BATCH_SIZE): Promise<CommandSweepResult> {
@@ -115,9 +119,18 @@ export default class CommandSweepService {
       if (failed) withoutEvidence += 1
     }
 
+    /**
+     * Primero se cierra lo que ya tuvo su oportunidad y despues se pide de
+     * nuevo: al reves, el `CHECK` recien encolado reiniciaria la espera de la
+     * baja que estaba a punto de cerrarse.
+     */
+    const revocationsClosed = await TenantContext.runUnscoped(
+      () => this.roster.closeSilentRevocations(now),
+      UNSCOPED_REASON
+    )
     const rosterRequested = await this.requestPendingRosters(now, limit)
 
-    return { taken: stuck.length, timedOut, withoutEvidence, rosterRequested }
+    return { taken: stuck.length, timedOut, withoutEvidence, rosterRequested, revocationsClosed }
   }
 
   /**

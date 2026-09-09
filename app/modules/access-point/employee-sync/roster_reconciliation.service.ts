@@ -7,6 +7,11 @@ import { ACCESS_POINT_EMPLOYEE_EVENT_KIND } from '#models/access_point_employee_
 import IncidentService from '#modules/adms/raw/incident.service'
 import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
+import DeviceCommand from '#models/device_command'
+import {
+  DEVICE_COMMAND_KIND,
+  DEVICE_COMMAND_STATUS,
+} from '#modules/device-commands/device_command.constants'
 import EmployeeSyncRepositoryMysql from './employee_sync.repository.mysql.js'
 import type { EmployeeSyncRepository } from './employee_sync.repository.js'
 
@@ -15,6 +20,13 @@ export interface RosterReconciliationInput {
   businessUnitId: number
   /** PINs que el equipo declaro tener, tal como vinieron en las lineas `USER`. */
   pins: string[]
+  /**
+   * El lote traia huellas.
+   *
+   * Una subida de biometricos no es un padron: puede no llevar una sola linea
+   * `USER` y eso no significa que el equipo se haya quedado sin gente.
+   */
+  hasFingerprints: boolean
   serial: string
   rawMessageId: number | null
   receivedAt: DateTime
@@ -25,6 +37,24 @@ export interface RosterReconciliationResult {
   revoked: number
   revokeFailed: number
 }
+
+/**
+ * Cuanto vale un `CHECK` como contexto de un lote vacio.
+ *
+ * El equipo contesta en segundos; diez minutos es holgado y corto frente al
+ * riesgo de tomar por padron un `OPERLOG` de otra cosa.
+ */
+const ROSTER_ANSWER_MINUTES = 10
+
+/**
+ * Cuanto se espera al padron antes de leer el silencio como respuesta.
+ *
+ * Un equipo sin gente no sube nada al recibir un `CHECK`: acusa la orden y
+ * calla, porque no tiene lineas que mandar. Medido en hardware. Pasado este
+ * plazo, que le pidieramos el padron y no declarara a esa persona es la unica
+ * evidencia que va a haber.
+ */
+const ROSTER_SILENCE_MINUTES = 10
 
 /** Estados de baja en los que ver el PIN significa que el equipo no la aplico. */
 const PENDING_REVOCATION: readonly AccessPointEmployeeSyncStatus[] = [
@@ -58,11 +88,19 @@ export default class RosterReconciliationService {
     const result: RosterReconciliationResult = { confirmed: 0, revoked: 0, revokeFailed: 0 }
 
     /**
-     * Un lote sin una sola linea `USER` no dice nada del padron: puede ser una
-     * subida de huellas o de bitacora. Concluir una baja desde ahi seria
-     * liberar un PIN por no haber preguntado.
+     * Un lote sin una sola linea `USER` casi nunca dice nada del padron: puede
+     * ser una subida de huellas o de bitacora. Pero el padron VACIO existe --
+     * es lo que responde un equipo al que le quitaron a todos -- y descartarlo
+     * dejaba esas bajas sin cerrar para siempre.
+     *
+     * Se distingue por el contexto: si acabamos de pedirle el padron con un
+     * `CHECK` y lo que sube no trae huellas, ese silencio es el padron.
      */
-    if (input.pins.length === 0) return result
+    if (input.pins.length === 0) {
+      if (input.hasFingerprints) return result
+      const respondeAlCheck = await this.wasRosterRequested(input.accessPointId, input.receivedAt)
+      if (!respondeAlCheck) return result
+    }
 
     const declared = new Set(input.pins)
     const pivots = await AccessPointEmployee.query().where(
@@ -105,6 +143,73 @@ export default class RosterReconciliationService {
     return result
   }
 
+  /**
+   * Hay un `CHECK` acusado poco antes de este lote.
+   *
+   * Es lo que convierte un lote vacio en una respuesta: sin la peticion previa,
+   * un `OPERLOG` sin usuarios es ruido de bitacora.
+   */
+  private async wasRosterRequested(accessPointId: number, receivedAt: DateTime): Promise<boolean> {
+    const command = await DeviceCommand.query()
+      .where('access_point_id', accessPointId)
+      .where('device_command_kind', DEVICE_COMMAND_KIND.CHECK)
+      .whereIn('device_command_status', [
+        DEVICE_COMMAND_STATUS.ACKED,
+        DEVICE_COMMAND_STATUS.EXECUTED,
+      ])
+      .where('device_command_acked_at', '>=', receivedAt.minus({ minutes: ROSTER_ANSWER_MINUTES }).toSQL({ includeOffset: false }) ?? '')
+      .first()
+    return command !== null
+  }
+
+  /**
+   * Cierra las bajas que el equipo nunca contesto.
+   *
+   * Se apoya en el silencio, y por eso exige las dos condiciones: que el
+   * `CHECK` sea POSTERIOR a la baja -- si no, no le preguntamos por esto -- y
+   * que haya pasado el plazo. Sin ellas se estaria liberando un numero por no
+   * haber esperado.
+   */
+  async closeSilentRevocations(now: DateTime): Promise<number> {
+    const limite = now.minus({ minutes: ROSTER_SILENCE_MINUTES })
+    const pendientes = await AccessPointEmployee.query().where(
+      'access_point_employee_sync_status',
+      ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED
+    )
+
+    let cerradas = 0
+    for (const pivot of pendientes) {
+      const check = await DeviceCommand.query()
+        .where('access_point_id', pivot.accessPointId)
+        .where('device_command_kind', DEVICE_COMMAND_KIND.CHECK)
+        .whereIn('device_command_status', [
+          DEVICE_COMMAND_STATUS.ACKED,
+          DEVICE_COMMAND_STATUS.EXECUTED,
+        ])
+        .whereNotNull('device_command_acked_at')
+        .where('device_command_acked_at', '<=', limite.toSQL({ includeOffset: false }) ?? '')
+        .where(
+          'device_command_acked_at',
+          '>=',
+          pivot.accessPointEmployeeUpdatedAt.toSQL({ includeOffset: false }) ?? ''
+        )
+        .first()
+      if (!check) continue
+
+      await this.markRevoked(pivot, {
+        accessPointId: pivot.accessPointId,
+        businessUnitId: pivot.businessUnitId,
+        pins: [],
+        hasFingerprints: false,
+        serial: '',
+        rawMessageId: null,
+        receivedAt: now,
+      })
+      cerradas += 1
+    }
+    return cerradas
+  }
+
   private async markConfirmed(
     pivot: AccessPointEmployee,
     input: RosterReconciliationInput
@@ -138,7 +243,7 @@ export default class RosterReconciliationService {
       fromStatus: from,
       toStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
       actorUserId: null,
-      detail: 'El PIN ya no aparece en el padron del equipo',
+      detail: 'El equipo no declara ese PIN tras pedirle su padron',
     })
   }
 

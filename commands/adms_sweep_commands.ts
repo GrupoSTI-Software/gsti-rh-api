@@ -20,12 +20,12 @@ export default class AdmsSweepCommands extends BaseCommand {
       const result = await service.run()
       // Pedir un padron es trabajo aunque no hubiera comandos colgados:
       // callarlo haria pensar que la corrida no hizo nada.
-      if (result.taken === 0 && result.rosterRequested === 0) {
+      if (result.taken === 0 && result.rosterRequested === 0 && result.revocationsClosed === 0) {
         this.logger.info('Barrido de comandos: nada colgado')
         return
       }
       this.logger.info(
-        `Barrido de comandos: ${result.taken} revisado(s), ${result.timedOut} sin acuse, ${result.withoutEvidence} sin evidencia, ${result.rosterRequested} padron(es) pedido(s)`
+        `Barrido de comandos: ${result.taken} revisado(s), ${result.timedOut} sin acuse, ${result.withoutEvidence} sin evidencia, ${result.rosterRequested} padron(es) pedido(s), ${result.revocationsClosed} baja(s) cerrada(s)`
       )
     } catch (error) {
       this.logger.error(

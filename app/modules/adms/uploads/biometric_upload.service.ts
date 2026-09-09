@@ -128,6 +128,7 @@ export default class BiometricUploadService {
       accessPointId: context.device.accessPointId,
       businessUnitId: context.device.businessUnitId,
       pins: parsed.users.map((user) => user.pin),
+      hasFingerprints: parsed.fingerprints.length > 0,
       serial: context.device.serial,
       rawMessageId: context.rawMessageId,
       receivedAt: context.device.receivedAt,

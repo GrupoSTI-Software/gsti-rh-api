@@ -22,7 +22,11 @@ function commandOf(overrides: Partial<DeviceCommand> = {}): DeviceCommand {
   } as DeviceCommand
 }
 
-function makeService(stuck: DeviceCommand[], statusChangedUnderfoot = false) {
+function makeService(
+  stuck: DeviceCommand[],
+  statusChangedUnderfoot = false,
+  closedRevocations = 0
+) {
   const saved: DeviceCommand[] = []
   let asked: Parameters<DeviceCommandRepository['findStuck']>[0] | null = null
   const repository = {
@@ -48,10 +52,28 @@ function makeService(stuck: DeviceCommand[], statusChangedUnderfoot = false) {
       saved.push(command)
     },
   } as unknown as DeviceCommandRepository
+  /**
+   * Dobles de las dos colaboraciones que tocan la base fuera del repositorio:
+   * sin ellas la prueba unitaria acabaria consultando MySQL.
+   */
+  const enqueued: unknown[] = []
+  const commands = {
+    async enqueue(input: unknown) {
+      enqueued.push(input)
+      return { command: { deviceCommandId: 1 }, created: true }
+    },
+  } as never
+  const roster = {
+    async closeSilentRevocations() {
+      return closedRevocations
+    },
+  } as never
+
   return {
-    service: new CommandSweepService(repository, () => NOW),
+    service: new CommandSweepService(repository, () => NOW, commands, roster),
     saved,
     asked: () => asked,
+    enqueued,
   }
 }
 
@@ -130,7 +152,22 @@ test.group('Barrido de comandos colgados', () => {
   test('sin nada colgado no toca nada', async ({ assert }) => {
     const { service, saved } = makeService([])
     const result = await service.run()
-    assert.deepEqual(result, { taken: 0, timedOut: 0, withoutEvidence: 0, rosterRequested: 0 })
+    assert.deepEqual(result, {
+      taken: 0,
+      timedOut: 0,
+      withoutEvidence: 0,
+      rosterRequested: 0,
+      revocationsClosed: 0,
+    })
     assert.lengthOf(saved, 0)
+  })
+
+  test('las bajas cerradas por silencio se cuentan en el resultado', async ({ assert }) => {
+    const { service } = makeService([], false, 2)
+
+    const result = await service.run()
+
+    // Cerrar una baja es trabajo aunque no hubiera comandos colgados.
+    assert.equal(result.revocationsClosed, 2)
   })
 })

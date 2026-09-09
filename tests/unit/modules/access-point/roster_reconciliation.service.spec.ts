@@ -8,6 +8,7 @@ import AccessPointEmployee, {
 } from '#models/access_point_employee'
 import BusinessUnitUser from '#models/business_unit_user'
 import Employee from '#models/employee'
+import DeviceCommand from '#models/device_command'
 import RosterReconciliationService from '#modules/access-point/employee-sync/roster_reconciliation.service'
 
 /**
@@ -82,12 +83,13 @@ test.group('Reconciliacion del padron (rebanada 8.1)', (group) => {
     }, 'limpieza de reconciliacion de padron')
   })
 
-  test('un lote sin lineas USER no concluye nada', async ({ assert }) => {
+  test('un lote sin lineas USER y sin CHECK previo no concluye nada', async ({ assert }) => {
     await TenantContext.run([businessUnitId], async () => {
       const result = await new RosterReconciliationService().reconcile({
         accessPointId: accessPoint.accessPointId,
         businessUnitId,
         pins: [],
+        hasFingerprints: false,
         serial: SERIAL,
         rawMessageId: null,
         receivedAt: DateTime.utc(),
@@ -108,6 +110,7 @@ test.group('Reconciliacion del padron (rebanada 8.1)', (group) => {
         accessPointId: accessPoint.accessPointId,
         businessUnitId,
         pins: [PIN],
+        hasFingerprints: false,
         serial: SERIAL,
         rawMessageId: null,
         receivedAt: DateTime.utc(),
@@ -137,6 +140,7 @@ test.group('Reconciliacion del padron (rebanada 8.1)', (group) => {
         businessUnitId,
         // El equipo declara a alguien mas, pero no a este PIN.
         pins: ['1'],
+        hasFingerprints: false,
         serial: SERIAL,
         rawMessageId: null,
         receivedAt: DateTime.utc().plus({ minutes: 1 }),
@@ -160,6 +164,7 @@ test.group('Reconciliacion del padron (rebanada 8.1)', (group) => {
         accessPointId: accessPoint.accessPointId,
         businessUnitId,
         pins: ['1'],
+        hasFingerprints: false,
         serial: SERIAL,
         rawMessageId: null,
         // El lote se recibio antes de que el pivote se moviera.
@@ -184,6 +189,7 @@ test.group('Reconciliacion del padron (rebanada 8.1)', (group) => {
         accessPointId: accessPoint.accessPointId,
         businessUnitId,
         pins: [PIN],
+        hasFingerprints: false,
         serial: SERIAL,
         rawMessageId: null,
         receivedAt: DateTime.utc(),
@@ -195,5 +201,120 @@ test.group('Reconciliacion del padron (rebanada 8.1)', (group) => {
       AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
     )
     assert.equal(fresh.accessPointEmployeeSyncStatus, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED)
+  })
+
+  test('el padron vacio tras un CHECK cierra la baja', async ({ assert }) => {
+    await TenantContext.run([businessUnitId], async () => {
+      const row = await AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
+      row.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED
+      await row.save()
+
+      /**
+       * Un equipo al que le quitaron a todos responde el `CHECK` con un padron
+       * sin una sola linea `USER`. Ese silencio es la respuesta, no ruido.
+       */
+      const check = new DeviceCommand()
+      check.accessPointId = accessPoint.accessPointId
+      check.businessUnitId = businessUnitId
+      check.deviceCommandKind = 'check'
+      check.deviceCommandStatus = 'acked'
+      check.deviceCommandWireId = Number(`9${STAMP.slice(-6)}`)
+      check.deviceCommandPayload = 'CHECK'
+      check.deviceCommandAckedAt = DateTime.utc()
+      check.deviceCommandAttempts = 1
+      await check.save()
+
+      const result = await new RosterReconciliationService().reconcile({
+        accessPointId: accessPoint.accessPointId,
+        businessUnitId,
+        pins: [],
+        hasFingerprints: false,
+        serial: SERIAL,
+        rawMessageId: null,
+        receivedAt: DateTime.utc().plus({ seconds: 10 }),
+      })
+      assert.equal(result.revoked, 1)
+    })
+
+    const fresh = await TenantContext.run([businessUnitId], () =>
+      AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
+    )
+    assert.equal(fresh.accessPointEmployeeSyncStatus, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+  })
+
+  test('un lote de huellas sin usuarios no se lee como padron vacio', async ({ assert }) => {
+    await TenantContext.run([businessUnitId], async () => {
+      const row = await AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
+      row.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED
+      await row.save()
+
+      const result = await new RosterReconciliationService().reconcile({
+        accessPointId: accessPoint.accessPointId,
+        businessUnitId,
+        pins: [],
+        // Trae biometricos: es una subida, no el padron.
+        hasFingerprints: true,
+        serial: SERIAL,
+        rawMessageId: null,
+        receivedAt: DateTime.utc().plus({ seconds: 20 }),
+      })
+      assert.equal(result.revoked, 0)
+    })
+
+    const fresh = await TenantContext.run([businessUnitId], () =>
+      AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
+    )
+    assert.equal(fresh.accessPointEmployeeSyncStatus, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED)
+  })
+
+  test('el silencio tras el CHECK cierra la baja', async ({ assert }) => {
+    await TenantContext.run([businessUnitId], async () => {
+      const row = await AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
+      row.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED
+      await row.save()
+
+      /**
+       * Un equipo sin gente no sube padron: acusa el `CHECK` y calla. Ese
+       * silencio, pasado el plazo, es la unica evidencia que va a llegar.
+       */
+      const check = new DeviceCommand()
+      check.accessPointId = accessPoint.accessPointId
+      check.businessUnitId = businessUnitId
+      check.deviceCommandKind = 'check'
+      check.deviceCommandStatus = 'acked'
+      check.deviceCommandWireId = Number(`8${STAMP.slice(-6)}`)
+      check.deviceCommandPayload = 'CHECK'
+      check.deviceCommandAckedAt = DateTime.utc()
+      check.deviceCommandAttempts = 1
+      await check.save()
+
+      const cerradas = await new RosterReconciliationService().closeSilentRevocations(
+        DateTime.utc().plus({ minutes: 11 })
+      )
+      assert.isAbove(cerradas, 0)
+    })
+
+    const fresh = await TenantContext.run([businessUnitId], () =>
+      AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
+    )
+    assert.equal(fresh.accessPointEmployeeSyncStatus, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+  })
+
+  test('antes del plazo no se cierra nada: el equipo aun puede contestar', async ({ assert }) => {
+    await TenantContext.run([businessUnitId], async () => {
+      const row = await AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
+      row.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED
+      await row.save()
+
+      const cerradas = await new RosterReconciliationService().closeSilentRevocations(
+        DateTime.utc().plus({ minutes: 1 })
+      )
+      assert.equal(cerradas, 0)
+    })
+
+    const fresh = await TenantContext.run([businessUnitId], () =>
+      AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
+    )
+    assert.equal(fresh.accessPointEmployeeSyncStatus, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED)
   })
 })
