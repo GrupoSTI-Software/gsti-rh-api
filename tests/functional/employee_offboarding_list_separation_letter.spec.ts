@@ -89,16 +89,25 @@ async function destroyFixtures(businessUnitIds: number[], roleIds: number[]): Pr
     if (employees.length > 0) {
       await db
         .from(Employee.table)
-        .whereIn('employee_id', employees.map((row) => Number(row.employee_id)))
+        .whereIn(
+          'employee_id',
+          employees.map((row) => Number(row.employee_id))
+        )
         .delete()
       await db
         .from(Person.table)
-        .whereIn('person_id', employees.map((row) => Number(row.person_id)))
+        .whereIn(
+          'person_id',
+          employees.map((row) => Number(row.person_id))
+        )
         .delete()
     }
   }
   if (roleIds.length > 0) {
-    const users = await db.from(User.table).select('user_id', 'person_id').whereIn('role_id', roleIds)
+    const users = await db
+      .from(User.table)
+      .select('user_id', 'person_id')
+      .whereIn('role_id', roleIds)
     if (users.length > 0) {
       const userIds = users.map((row) => Number(row.user_id))
       await db.from(BusinessUnitUser.table).whereIn('user_id', userIds).delete()
@@ -106,7 +115,10 @@ async function destroyFixtures(businessUnitIds: number[], roleIds: number[]): Pr
       await db.from(User.table).whereIn('user_id', userIds).delete()
       await db
         .from(Person.table)
-        .whereIn('person_id', users.map((row) => Number(row.person_id)))
+        .whereIn(
+          'person_id',
+          users.map((row) => Number(row.person_id))
+        )
         .delete()
     }
     await db.from(RoleSystemPermission.table).whereIn('role_id', roleIds).delete()
@@ -167,12 +179,18 @@ async function findReadPermission(): Promise<SystemPermission> {
     .where('system_permission_slug', 'read')
     .first()
   if (!permission) {
-    throw new Error(`Se requiere el permiso "read" de "${EMPLOYEE_OFFBOARDINGS_MODULE_SLUG}" en BD.`)
+    throw new Error(
+      `Se requiere el permiso "read" de "${EMPLOYEE_OFFBOARDINGS_MODULE_SLUG}" en BD.`
+    )
   }
   return permission
 }
 
-async function createRole(prefix: string, businessUnit: BusinessUnit, withRead: boolean): Promise<Role> {
+async function createRole(
+  prefix: string,
+  businessUnit: BusinessUnit,
+  withRead: boolean
+): Promise<Role> {
   const stamp = uniqueStamp()
   const role = await Role.create({
     roleName: `Constancia listado ${prefix} ${stamp}`,
@@ -335,11 +353,44 @@ async function createDocument(
 
 type ListRow = Record<string, unknown> & { employeeOffboardingId: number }
 
-function rowsOf(body: Record<string, any>): ListRow[] {
-  return body.data.employeeOffboardings.data as ListRow[]
+/** Sobre `employeeOffboardings { meta, data }` de `StandardResponseFormatter` (rama paginada). */
+interface ListBody {
+  data: { employeeOffboardings: { meta: { total: number }; data: ListRow[] } }
 }
 
-function metaOf(body: Record<string, any>): { total: number } {
+/**
+ * Claves EXACTAS del renglón (`EmployeeOffboardingListRowDto`): esta HU
+ * agrega UNA (`hasSeparationLetter`) y ninguna del documento — folio, fecha
+ * de emisión, hash, key de S3, autor ni id (CA-1, confidencialidad).
+ */
+const EXPECTED_ROW_KEYS = [
+  'employeeOffboardingId',
+  'employeeId',
+  'employeeFullName',
+  'employeeCode',
+  'employeePayrollCode',
+  'departmentName',
+  'positionName',
+  'status',
+  'origin',
+  'plannedDate',
+  'terminatedDate',
+  'referenceDate',
+  'terminationExecuted',
+  'itemsTotal',
+  'itemsCompleted',
+  'itemsOpen',
+  'itemsOverdue',
+  'closedAt',
+  'closedByUserId',
+  'hasSeparationLetter',
+]
+
+function rowsOf(body: ListBody): ListRow[] {
+  return body.data.employeeOffboardings.data
+}
+
+function metaOf(body: ListBody): { total: number } {
   return body.data.employeeOffboardings.meta
 }
 
@@ -413,10 +464,11 @@ test.group('Listado de salidas — constancia de separación (USRH1788579938608)
       plannedDate: '2026-08-27',
       items: [EMPLOYEE_OFFBOARDING_ITEM_STATUS.PENDING],
     })
+    // Misma fecha de referencia que `matchesAll`: ejercita el desempate por id
     otherName = await createOffboarding(businessUnit, {
       lastName: 'Lopez',
-      terminatedDate: '2026-08-26',
-      plannedDate: '2026-08-26',
+      terminatedDate: '2026-08-27',
+      plannedDate: '2026-08-27',
       items: [EMPLOYEE_OFFBOARDING_ITEM_STATUS.PENDING],
     })
     closedCase = await createOffboarding(businessUnit, {
@@ -483,11 +535,9 @@ test.group('Listado de salidas — constancia de separación (USRH1788579938608)
     assert.strictEqual(missingRow!.itemsOpen, 2)
     assert.strictEqual(missingRow!.itemsOverdue, 2)
 
-    // Confidencialidad: ningún renglón trae folio, fecha de emisión, hash,
-    // key de S3, autor ni id del documento
+    // Confidencialidad: el renglón gana UN campo y ninguno del documento
     for (const row of rows) {
-      const leaked = Object.keys(row).filter((key) => /document|folio|hash|storage|file/i.test(key))
-      assert.deepEqual(leaked, [])
+      assert.sameMembers(Object.keys(row), EXPECTED_ROW_KEYS)
     }
   })
 
@@ -563,7 +613,8 @@ test.group('Listado de salidas — constancia de separación (USRH1788579938608)
     assert.notExists(findRow(combinedRows, notExecuted))
 
     // Solo el filtro nuevo: todas las faltantes con baja ejecutada, en orden de
-    // fecha de referencia descendente (desempate por id)
+    // fecha de referencia descendente; `otherName` y `matchesAll` comparten
+    // fecha y se desempatan por id descendente (el creado después va primero)
     const onlyFilter = await client
       .get(LIST_PATH)
       .qs({ withoutSeparationLetter: true, limit: 20 })
@@ -574,8 +625,8 @@ test.group('Listado de salidas — constancia de separación (USRH1788579938608)
       rowsOf(onlyFilter.body()).map((row) => row.employeeOffboardingId),
       [
         missing.employeeOffboardingId,
-        matchesAll.employeeOffboardingId,
         otherName.employeeOffboardingId,
+        matchesAll.employeeOffboardingId,
         closedCase.employeeOffboardingId,
       ]
     )
@@ -614,9 +665,10 @@ test.group('Listado de salidas — constancia de separación (USRH1788579938608)
     client,
     assert,
   }) => {
+    // Valor inválido a propósito: el 403 se resuelve ANTES de validar la query
     const forbidden = await client
       .get(LIST_PATH)
-      .qs({ withoutSeparationLetter: true })
+      .qs({ withoutSeparationLetter: 'quizas' })
       .loginAs(noAccessUser)
       .header('X-Business-Unit-Id', businessUnit.businessUnitPublicId)
     forbidden.assertStatus(403)
