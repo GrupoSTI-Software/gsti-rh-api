@@ -65,16 +65,16 @@ function shiftMonth(month: string, delta: number): string {
 }
 
 /**
- * Fronteras semiabiertas `[inicio, fin)` de un mes en zona de negocio, como
- * texto `YYYY-MM-DD HH:mm:ss` listo para comparar columnas TIMESTAMP en SQL,
- * más los días del mes para el rótulo de parcialidad.
+ * Fronteras semiabiertas `[inicioUtc, finUtc)` del mes civil en zona de negocio,
+ * expresadas como instantes UTC (`YYYY-MM-DD HH:mm:ss`) para comparar columnas
+ * TIMESTAMP/DATETIME almacenadas en UTC bajo sesión `timezone: 'Z'`.
  */
-function monthBounds(month: string): { inicio: string; fin: string; diasDelMes: number } {
+function monthBounds(month: string): { inicioUtc: string; finUtc: string; diasDelMes: number } {
   const zone = getBusinessTimeZone()
   const start = DateTime.fromISO(`${month}-01`, { zone }).startOf('day')
   return {
-    inicio: start.toFormat('yyyy-MM-dd HH:mm:ss'),
-    fin: start.plus({ months: 1 }).toFormat('yyyy-MM-dd HH:mm:ss'),
+    inicioUtc: start.toUTC().toFormat('yyyy-MM-dd HH:mm:ss'),
+    finUtc: start.plus({ months: 1 }).toUTC().toFormat('yyyy-MM-dd HH:mm:ss'),
     diasDelMes: start.daysInMonth as number,
   }
 }
@@ -93,9 +93,11 @@ function monthDateBounds(month: string): { inicio: string; fin: string } {
 /**
  * Flujos de suscripción del mes (USRH1788052455656). Solo lectura.
  *
- * Siete consultas, cada una con los dos `whereNull` de borrado lógico a mano
- * (las queries crudas de Knex no pasan por el hook de `SoftDeletes`): cinco de
- * rango que cubren los dos meses con `GROUP BY` mes, más la base de cada mes.
+ * Consultas en paralelo, cada una con los dos `whereNull` de borrado lógico a
+ * mano (las queries crudas de Knex no pasan por el hook de `SoftDeletes`):
+ * altas, cancelaciones y conversiones por primer pago usan un rango UTC por mes
+ * civil de negocio; morosidad y conversiones por reloj agrupan por DATE de corte;
+ * más la base de cada mes.
  * Sin filtro de estado y sin "mejor suscripción por empresa": los agregados
  * suman sobre `billing_subscriptions` con filtro de fecha directo.
  *
@@ -133,33 +135,49 @@ export default class PlatformSubscriptionFlowService {
     }
 
     const mesAnterior = shiftMonth(target, -1)
-    const range = {
-      inicio: monthBounds(mesAnterior).inicio,
-      fin: monthBounds(target).fin,
-    }
+    const targetBounds = monthBounds(target)
+    const anteriorBounds = monthBounds(mesAnterior)
     const dateRange = {
       inicio: monthDateBounds(mesAnterior).inicio,
       fin: monthDateBounds(target).fin,
     }
 
-    const [altas, cancelaciones, morosidad, clockIds, firstPayIds, baseActual, baseAnterior] =
-      await Promise.all([
-        this.loadDistinctCountsByMonth(
-          'bs.billing_subscription_subscribed_at',
-          range.inicio,
-          range.fin
-        ),
-        this.loadDistinctCountsByMonth(
-          'bs.billing_subscription_canceled_at',
-          range.inicio,
-          range.fin
-        ),
-        this.loadDelinquencyCountsByMonth(dateRange.inicio, dateRange.fin),
-        this.loadClockConversionIdsByMonth(dateRange.inicio, dateRange.fin),
-        this.loadFirstPaymentConversionIdsByMonth(range.inicio, range.fin),
-        this.loadBase(monthBounds(target).inicio),
-        this.loadBase(monthBounds(mesAnterior).inicio),
-      ])
+    const [
+      altasActual,
+      altasAnterior,
+      cancelacionesActual,
+      cancelacionesAnterior,
+      morosidad,
+      clockIds,
+      firstPayIdsActual,
+      firstPayIdsAnterior,
+      baseActual,
+      baseAnterior,
+    ] = await Promise.all([
+      this.loadDistinctCountForMonth('bs.billing_subscription_subscribed_at', target),
+      this.loadDistinctCountForMonth('bs.billing_subscription_subscribed_at', mesAnterior),
+      this.loadDistinctCountForMonth('bs.billing_subscription_canceled_at', target),
+      this.loadDistinctCountForMonth('bs.billing_subscription_canceled_at', mesAnterior),
+      this.loadDelinquencyCountsByMonth(dateRange.inicio, dateRange.fin),
+      this.loadClockConversionIdsByMonth(dateRange.inicio, dateRange.fin),
+      this.loadFirstPaymentConversionIdsForMonth(target),
+      this.loadFirstPaymentConversionIdsForMonth(mesAnterior),
+      this.loadBase(targetBounds.inicioUtc),
+      this.loadBase(anteriorBounds.inicioUtc),
+    ])
+
+    const altas = new Map<string, number>([
+      [target, altasActual],
+      [mesAnterior, altasAnterior],
+    ])
+    const cancelaciones = new Map<string, number>([
+      [target, cancelacionesActual],
+      [mesAnterior, cancelacionesAnterior],
+    ])
+    const firstPayIds = new Map<string, string[]>([
+      [target, firstPayIdsActual],
+      [mesAnterior, firstPayIdsAnterior],
+    ])
 
     const actual = this.buildPeriod(
       target,
@@ -211,25 +229,22 @@ export default class PlatformSubscriptionFlowService {
   }
 
   /**
-   * Conteos deduplicados por suscripción y por mes de una columna de fecha de
-   * `billing_subscriptions` (`subscribed_at` o `canceled_at`), sobre el rango
-   * de los dos meses.
-   *
-   * @returns Mapa `YYYY-MM` → conteo. Meses sin filas no aparecen (el armado los pone en 0).
+   * Conteo deduplicado por suscripción de una columna TIMESTAMP de
+   * `billing_subscriptions` (`subscribed_at` o `canceled_at`) en un mes civil
+   * de negocio, comparando contra fronteras UTC del mes.
    */
-  private async loadDistinctCountsByMonth(
+  private async loadDistinctCountForMonth(
     column: 'bs.billing_subscription_subscribed_at' | 'bs.billing_subscription_canceled_at',
-    inicio: string,
-    fin: string
-  ): Promise<Map<string, number>> {
-    const rows = (await this.flowsBaseQuery()
-      .where(column, '>=', inicio)
-      .where(column, '<', fin)
-      .select(db.raw(`DATE_FORMAT(${column}, '%Y-%m') as mes`))
+    month: string
+  ): Promise<number> {
+    const { inicioUtc, finUtc } = monthBounds(month)
+    const row = (await this.flowsBaseQuery()
+      .where(column, '>=', inicioUtc)
+      .where(column, '<', finUtc)
       .select(db.raw('COUNT(DISTINCT bs.billing_subscription_id) as total'))
-      .groupByRaw(`DATE_FORMAT(${column}, '%Y-%m')`)) as Array<Record<string, unknown>>
+      .first()) as Record<string, unknown> | null
 
-    return new Map(rows.map((row) => [String(row.mes), Number(row.total ?? 0)]))
+    return Number(row?.total ?? 0)
   }
 
   /**
@@ -281,7 +296,7 @@ export default class PlatformSubscriptionFlowService {
   private async loadClockConversionIdsByMonth(
     inicio: string,
     fin: string
-  ): Promise<Map<string, number[]>> {
+  ): Promise<Map<string, string[]>> {
     const rows = (await db
       .from('billing_subscription_transitions as bst')
       .join(
@@ -308,16 +323,15 @@ export default class PlatformSubscriptionFlowService {
   }
 
   /**
-   * Conversiones por primer pago y por mes: el pago con
-   * `MIN(billing_payment_id)` de cada suscripción viva, cuando cayó en el rango.
+   * Conversiones por primer pago en un mes civil de negocio: el pago con
+   * `MIN(billing_payment_id)` de cada suscripción viva, cuando cayó en el rango
+   * UTC del mes.
    *
    * `billing_payments` es append-only sin borrado: no lleva filtro de borrado
    * propio; el universo lo acotan la suscripción y la empresa.
    */
-  private async loadFirstPaymentConversionIdsByMonth(
-    inicio: string,
-    fin: string
-  ): Promise<Map<string, number[]>> {
+  private async loadFirstPaymentConversionIdsForMonth(month: string): Promise<string[]> {
+    const { inicioUtc, finUtc } = monthBounds(month)
     const rows = (await db
       .from('billing_payments as bp')
       .join(
@@ -331,14 +345,13 @@ export default class PlatformSubscriptionFlowService {
       .whereRaw(
         'bp.billing_payment_id = (SELECT MIN(bp2.billing_payment_id) FROM billing_payments bp2 WHERE bp2.billing_subscription_id = bp.billing_subscription_id)'
       )
-      .where('bp.billing_payment_paid_at', '>=', inicio)
-      .where('bp.billing_payment_paid_at', '<', fin)
-      .select(db.raw("DATE_FORMAT(bp.billing_payment_paid_at, '%Y-%m') as mes"))
+      .where('bp.billing_payment_paid_at', '>=', inicioUtc)
+      .where('bp.billing_payment_paid_at', '<', finUtc)
       .select('bp.billing_subscription_id as subscriptionId')) as Array<
       Record<string, unknown>
     >
 
-    return this.groupIdsByMonth(rows)
+    return rows.map((row) => String(row.subscriptionId))
   }
 
   /**
@@ -346,26 +359,26 @@ export default class PlatformSubscriptionFlowService {
    */
   private groupIdsByMonth(
     rows: Array<Record<string, unknown>>
-  ): Map<string, number[]> {
-    const grouped = new Map<string, number[]>()
+  ): Map<string, string[]> {
+    const grouped = new Map<string, string[]>()
     for (const row of rows) {
       const month = String(row.mes)
       const ids = grouped.get(month) ?? []
-      ids.push(Number(row.subscriptionId))
+      ids.push(String(row.subscriptionId))
       grouped.set(month, ids)
     }
     return grouped
   }
 
   /**
-   * Base del mes: existían antes del inicio y no estaban canceladas al primer día.
+   * Base del mes: existían antes del inicio UTC y no estaban canceladas al primer día.
    */
-  private async loadBase(inicio: string): Promise<number> {
+  private async loadBase(inicioUtc: string): Promise<number> {
     const row = (await this.flowsBaseQuery()
-      .where('bs.billing_subscription_subscribed_at', '<', inicio)
+      .where('bs.billing_subscription_subscribed_at', '<', inicioUtc)
       .whereRaw(
         '(bs.billing_subscription_canceled_at IS NULL OR bs.billing_subscription_canceled_at >= ?)',
-        [inicio]
+        [inicioUtc]
       )
       .select(db.raw('COUNT(*) as total'))
       .first()) as Record<string, unknown> | null
@@ -382,8 +395,8 @@ export default class PlatformSubscriptionFlowService {
     altas: Map<string, number>,
     cancelaciones: Map<string, number>,
     morosidad: Map<string, number>,
-    clockIds: Map<string, number[]>,
-    firstPayIds: Map<string, number[]>,
+    clockIds: Map<string, string[]>,
+    firstPayIds: Map<string, string[]>,
     base: number
   ): PlatformFlowPeriod {
     const period: PlatformFlowPeriod = {
