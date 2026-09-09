@@ -13,12 +13,19 @@ import type { BadgeRenderContext } from './badge_render.service.js'
 /** Fallback espejo de `magic_link_service.ts` cuando `BACKOFFICE_URL` no está definida. */
 const DEFAULT_BACKOFFICE_URL = 'http://127.0.0.1:3000'
 
+/** Salida de `resolveFolio`: el folio, si sigue vigente hoy, y hasta cuando (fecha civil). */
+interface ResolvedFolio {
+  folioRepse: string | null
+  folioVigente: boolean | null
+  folioVigenteHasta: string | null
+}
+
 /**
  * Servicio de negocio del gafete del trabajador (USRH1784686362321).
  *
  * Arma el `GafeteDto` (E1/E3), resuelve el token de forma perezosa y
- * calcula `vinculoVigente`/`folioRepse`/`folioVigente` en lectura — nada de
- * esto se persiste salvo el token mismo (§10.2 del spec).
+ * calcula `vinculoVigente`/`folioRepse`/`folioVigente`/`folioVigenteHasta` en
+ * lectura — nada de esto se persiste salvo el token mismo (§10.2 del spec).
  */
 export default class BadgeService {
   private readonly repository: BadgeRepository
@@ -83,7 +90,10 @@ export default class BadgeService {
   async buildRenderContext(context: BadgeEmployeeContext): Promise<BadgeRenderContext> {
     const token = await this.repository.resolveOrCreateToken(context.employeeId)
     const urlVerificacion = this.buildVerificationUrl(token)
-    const { folioRepse, folioVigente } = this.resolveFolio(context.repseFolio, context.repseExpiresAt)
+    const { folioRepse, folioVigente } = this.resolveFolio(
+      context.repseFolio,
+      context.repseExpiresAt
+    )
 
     return {
       employeeId: context.employeeId,
@@ -120,7 +130,11 @@ export default class BadgeService {
     const { folioRepse, folioVigente } = this.resolveFolio(row.repseFolio, row.repseExpiresAt)
 
     return {
-      trabajador: this.buildFullName(row.personFirstname, row.personLastname, row.personSecondLastname),
+      trabajador: this.buildFullName(
+        row.personFirstname,
+        row.personLastname,
+        row.personSecondLastname
+      ),
       empresa: row.businessUnitLegalName || row.businessUnitName,
       vinculoVigente,
       folioRepse,
@@ -136,7 +150,10 @@ export default class BadgeService {
     const token = await this.repository.resolveOrCreateToken(context.employeeId)
     const urlVerificacion = this.buildVerificationUrl(token)
     const qrDataUrl = await QRCode.toDataURL(urlVerificacion, { margin: 1, width: 320 })
-    const { folioRepse, folioVigente } = this.resolveFolio(context.repseFolio, context.repseExpiresAt)
+    const { folioRepse, folioVigente, folioVigenteHasta } = this.resolveFolio(
+      context.repseFolio,
+      context.repseExpiresAt
+    )
 
     return {
       empleadoId: context.employeeId,
@@ -146,14 +163,19 @@ export default class BadgeService {
         context.personSecondLastname
       ),
       fotoUrl: this.resolvePhotoUrl(context.employeePhoto),
-      fotoFaltante: this.resolvePhotoUrl(context.employeePhoto) === null,
+      // "No hay fotografía", no "no hay URL pública". Con todo objeto nuevo
+      // privado `resolvePhotoUrl` devuelve null aunque la foto exista, y el
+      // gafete le decía "sin foto" a un empleado que sí la tiene.
+      fotoFaltante: !context.employeePhoto,
       empresa: context.businessUnitLegalName || context.businessUnitName,
       puesto: context.positionName,
       folioRepse,
       folioVigente,
-      // En las superficies de generación el empleado consultable está activo
-      // por construcción (regla 1); viaja igual en el DTO (§10.2).
-      vinculoVigente: true,
+      folioVigenteHasta,
+      // Mismo criterio que la verificación pública (`getVerification`, :119).
+      // Deja de ir hardcodeado: un gafete guardado en el aparato no puede
+      // congelar "vigente" para siempre en el bolsillo de un dado de baja.
+      vinculoVigente: context.employeeActive && context.businessUnitActive,
       urlVerificacion,
       qrDataUrl,
     }
@@ -162,14 +184,17 @@ export default class BadgeService {
   private resolveFolio(
     folio: string | null,
     expiresAt: BadgeEmployeeContext['repseExpiresAt']
-  ): { folioRepse: string | null; folioVigente: boolean | null } {
+  ): ResolvedFolio {
     if (!folio || !expiresAt) {
-      return { folioRepse: null, folioVigente: null }
+      return { folioRepse: null, folioVigente: null, folioVigenteHasta: null }
     }
     const expiresAtIso = expiresAt.toISODate()
     return {
       folioRepse: folio,
       folioVigente: !isBusinessCalendarDateBefore(expiresAtIso, toBusinessDateString()),
+      // Fecha civil, no instante: la columna es `table.date`. Viaja también
+      // cuando el folio ya venció — la app la necesita para recalcular.
+      folioVigenteHasta: expiresAtIso,
     }
   }
 

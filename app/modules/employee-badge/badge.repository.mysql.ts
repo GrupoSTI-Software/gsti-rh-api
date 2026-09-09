@@ -64,9 +64,7 @@ export default class BadgeRepositoryMysql implements BadgeRepository {
       }
     }
 
-    return dedupedIds
-      .filter((id) => byId.has(id))
-      .map((id) => byId.get(id)!)
+    return dedupedIds.filter((id) => byId.has(id)).map((id) => byId.get(id)!)
   }
 
   async findActiveEmployeeByPersonId(
@@ -189,6 +187,12 @@ export default class BadgeRepositoryMysql implements BadgeRepository {
       employeePhoto: employee.employeePhoto,
       businessUnitLegalName: employee.businessUnit.businessUnitLegalName,
       businessUnitName: employee.businessUnit.businessUnitName,
+      // Mismo criterio, literal, que `findPublicByToken` (:156-157). Sin query
+      // nueva: las tres consultas que llaman aqui ya precargan `businessUnit`
+      // sin `select`, asi que las dos columnas ya estan en memoria.
+      employeeActive: !employee.deletedAt && !isTerminated(employee.employeeTerminatedDate),
+      businessUnitActive:
+        Number(employee.businessUnit.businessUnitActive) === 1 && !employee.businessUnit.deletedAt,
       positionName: employee.position?.positionName ?? null,
       repseFolio: registration?.folio ?? null,
       repseExpiresAt: registration?.expiresAt ?? null,
@@ -196,7 +200,9 @@ export default class BadgeRepositoryMysql implements BadgeRepository {
   }
 
   /** Registro REPSE "actual" = activo, no eliminado, más reciente por `registered_at DESC` (regla 12). */
-  private async findActiveRepseRegistration(businessUnitId: number): Promise<RepseRegistration | null> {
+  private async findActiveRepseRegistration(
+    businessUnitId: number
+  ): Promise<RepseRegistration | null> {
     return RepseRegistration.query()
       .where('business_unit_id', businessUnitId)
       .where('repse_registration_status', 'active')

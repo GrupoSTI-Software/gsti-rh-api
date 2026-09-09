@@ -1,9 +1,11 @@
 import { DateTime } from 'luxon'
-import { BaseModel, beforeSave, beforeUpdate, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeSave, beforeUpdate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { DISCOUNT_CODE_ERROR_CODES } from '#constants/discount_code_error_codes'
 import { DiscountCodeServiceError } from '#exceptions/discount_code_service_error'
+import Alliance from '#models/alliance'
 
 export type DiscountCodeKind = 'percent' | 'fixed_amount' | 'unit_price'
 
@@ -89,6 +91,20 @@ export default class DiscountCode extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare discountCodeActive: number
+
+  /**
+   * Dueño opcional. NULL = código del catálogo general.
+   * `serializeAs: null` para no cambiar la forma de las respuestas
+   * del catálogo (regla 12).
+   */
+  @column({ columnName: 'discount_code_alliance_id', serializeAs: null })
+  declare allianceId: number | null
+
+  @belongsTo(() => Alliance, {
+    foreignKey: 'allianceId',
+    localKey: 'allianceId',
+  })
+  declare alliance: BelongsTo<typeof Alliance>
 
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime

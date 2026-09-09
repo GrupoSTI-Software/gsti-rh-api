@@ -1,16 +1,15 @@
 import type { I18n } from '@adonisjs/i18n'
-import RoleService from '#services/role_service'
 import { ACCESS_POINT_EMPLOYEE_ERROR_CODES } from '#constants/access_point_employee_error_codes'
 import AccessPointEmployeeServiceError from '#exceptions/access_point_employee_service_error'
-import {
-  ACCESS_POINT_EMPLOYEE_MODULE_SLUG,
-  ACCESS_POINT_EMPLOYEE_WRITE_ACTION,
-} from './employee_assignment.constants.js'
 import {
   toAccessPointEmployeeDto,
   type AccessPointEmployeeDto,
 } from './dto/employee_assignment.dto.js'
 import EmployeeAssignmentRepositoryMysql from './employee_assignment.repository.mysql.js'
+import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
+import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
+import { canDetachAssignment } from '#modules/access-point/employee-sync/employee_sync_state'
+import Employee from '#models/employee'
 import type EmployeeAssignmentRepository from './employee_assignment.repository.js'
 import type { BusinessUnitScope } from './employee_assignment.repository.js'
 
@@ -24,9 +23,16 @@ export default class EmployeeAssignmentService {
   private readonly i18n: I18n
   private readonly repository: EmployeeAssignmentRepository
 
-  constructor(i18n: I18n, repository?: EmployeeAssignmentRepository) {
+  private readonly sync: EmployeeSyncService
+
+  constructor(
+    i18n: I18n,
+    repository?: EmployeeAssignmentRepository,
+    sync?: EmployeeSyncService
+  ) {
     this.i18n = i18n
     this.repository = repository ?? new EmployeeAssignmentRepositoryMysql()
+    this.sync = sync ?? new EmployeeSyncService()
   }
 
   /** Traduce una clave con el idioma de la petición. */
@@ -34,37 +40,6 @@ export default class EmployeeAssignmentService {
     return this.i18n.formatMessage(key)
   }
 
-  /**
-   * Verifica que el rol pueda escribir sobre biométricos del empleado.
-   *
-   * @param roleId Rol de la sesión.
-   * @throws AccessPointEmployeeServiceError con clave `sin-permiso`.
-   */
-  async assertCanAccess(roleId: number | null | undefined): Promise<void> {
-    const forbidden = () =>
-      new AccessPointEmployeeServiceError({
-        key: 'sin-permiso',
-        errorCode: ACCESS_POINT_EMPLOYEE_ERROR_CODES.FORBIDDEN,
-        httpStatus: 403,
-        title: this.t('access_point_employee_forbidden_title'),
-        detail: this.t('access_point_employee_forbidden_message'),
-      })
-
-    if (!roleId) {
-      throw forbidden()
-    }
-
-    const roleService = new RoleService()
-    const hasAccess = await roleService.hasAccess(
-      roleId,
-      ACCESS_POINT_EMPLOYEE_MODULE_SLUG,
-      ACCESS_POINT_EMPLOYEE_WRITE_ACTION
-    )
-
-    if (!hasAccess) {
-      throw forbidden()
-    }
-  }
 
   /**
    * Comprueba que ambos extremos existan dentro del alcance de la petición.
@@ -107,26 +82,41 @@ export default class EmployeeAssignmentService {
   /**
    * Asigna el empleado al punto de acceso.
    *
-   * La operación no es idempotente a propósito: reasignar algo ya asignado
-   * responde conflicto, para que el backoffice pueda avisar en vez de crear un
-   * duplicado silencioso.
+   * Reasignar a alguien que YA esta dado de alta responde conflicto, para que
+   * el backoffice avise en vez de crear un duplicado silencioso. Un vinculo
+   * `revoked` no cuenta como asignado: ahi el aparato confirmo que la persona
+   * salio, y volver a meterla es una operacion legitima que revive la misma
+   * fila -- partir el historial de ese par en dos filas perderia el rastro de
+   * quien lo dio de baja y cuando.
+   *
+   * El alta se delega en el modulo de sincronizacion, que toma el primer PIN
+   * libre de ese equipo, y en la misma operacion se encola hacia el
+   * aparato: asignar sin enviar dejaba a la persona dada de alta en la pantalla
+   * y desconocida para el checador, que es la diferencia entre poder marcar y
+   * no poder. Sin PIN no se envia nada -- no hay con que identificarla -- y el
+   * vinculo se queda esperando uno.
    *
    * @param accessPointId Punto de acceso destino.
    * @param employeeId Empleado a asignar.
    * @param scope Alcance de unidades de negocio de la petición.
-   * @returns La asignación creada.
+   * @param actorUserId Quien pide el alta, para el historial del pivote.
+   * @returns La asignación creada o revivida.
    * @throws AccessPointEmployeeServiceError si algún extremo no existe o ya estaba asignado.
    */
   async assign(
     accessPointId: number,
     employeeId: number,
-    scope: BusinessUnitScope
+    scope: BusinessUnitScope,
+    actorUserId: number | null = null
   ): Promise<AccessPointEmployeeDto> {
     await this.assertBothExist(accessPointId, employeeId, scope)
 
     const existing = await this.repository.findAssignment(accessPointId, employeeId, scope)
 
-    if (existing) {
+    if (
+      existing &&
+      existing.accessPointEmployeeSyncStatus !== ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
+    ) {
       throw new AccessPointEmployeeServiceError({
         key: 'asignacion-duplicada',
         errorCode: ACCESS_POINT_EMPLOYEE_ERROR_CODES.ALREADY_ASSIGNED,
@@ -136,18 +126,46 @@ export default class EmployeeAssignmentService {
       })
     }
 
-    const created = await this.repository.createAssignment(accessPointId, employeeId)
+    const employee = await Employee.query().where('employee_id', employeeId).firstOrFail()
+    const businessUnitId = employee.businessUnitId as number
+    const actor = { userId: actorUserId }
 
-    return toAccessPointEmployeeDto(created)
+    const pivot = await this.sync.assign({
+      accessPointId,
+      businessUnitId,
+      employeeId,
+      actor,
+    })
+
+    const pin = pivot.accessPointEmployeePin
+    if (!pin || pin.length === 0) return toAccessPointEmployeeDto(pivot)
+
+    const sent = await this.sync.send({
+      accessPointId,
+      businessUnitId,
+      employeeId,
+      employeeName: nameOf(employee),
+      actor,
+    })
+
+    return toAccessPointEmployeeDto(sent)
   }
 
   /**
    * Retira la asignación entre el empleado y el punto de acceso.
    *
+   * Exige que el colaborador ya no esté dentro del aparato. Retirar la fila es
+   * un borrado lógico del lado del servidor y no le dice nada al equipo: si la
+   * persona seguía dada de alta ahí, se quedaría marcando en un checador donde
+   * para nosotros ya no figura, sus checadas entrarían como PIN suelto y su
+   * número se daría por libre para otra persona. Primero la baja, que sí viaja
+   * al aparato; retirar la asignación es el último paso.
+   *
    * @param accessPointId Punto de acceso de origen.
    * @param employeeId Empleado a desasignar.
    * @param scope Alcance de unidades de negocio de la petición.
-   * @throws AccessPointEmployeeServiceError si algún extremo no existe o no había asignación.
+   * @throws AccessPointEmployeeServiceError si algún extremo no existe, no
+   * había asignación, o el colaborador sigue dado de alta en el equipo.
    */
   async remove(
     accessPointId: number,
@@ -168,6 +186,24 @@ export default class EmployeeAssignmentService {
       })
     }
 
+    if (!canDetachAssignment(assignment.accessPointEmployeeSyncStatus)) {
+      throw new AccessPointEmployeeServiceError({
+        key: 'baja-pendiente-en-el-equipo',
+        errorCode: ACCESS_POINT_EMPLOYEE_ERROR_CODES.REVOCATION_REQUIRED,
+        httpStatus: 409,
+        title: this.t('access_point_employee_revocation_required_title'),
+        detail: this.t('access_point_employee_revocation_required_message'),
+      })
+    }
+
     await this.repository.removeAssignment(assignment)
   }
+}
+
+/** Nombre con el que el colaborador queda dado de alta en el aparato. */
+function nameOf(employee: Employee): string {
+  return [employee.employeeFirstName, employee.employeeLastName]
+    .filter((part) => typeof part === 'string' && part.length > 0)
+    .join(' ')
+    .trim()
 }

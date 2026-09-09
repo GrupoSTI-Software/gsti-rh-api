@@ -5,6 +5,7 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import BusinessUnit from './business_unit.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import PlatformDevice from './platform_device.js'
 
 /**
  * @swagger
@@ -22,6 +23,10 @@ import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
  *         businessUnitId:
  *           type: number
  *           description: Business unit id
+ *         platformDeviceId:
+ *           type: number
+ *           nullable: true
+ *           description: Amarre hacia la unidad del inventario de plataforma (USRH1787193625428). Null si no viene de una entrega nuestra.
  *         accessPointActive:
  *           type: number
  *           description: Active status (0 = inactive, 1 = active)
@@ -75,6 +80,15 @@ export default class AccessPoint extends compose(BaseModel, SoftDeletes, withBus
   @column()
   declare businessUnitId: number
 
+  /**
+   * Amarre hacia la unidad física del inventario de plataforma
+   * (USRH1787193625428). NULL para los equipos preexistentes y los que el
+   * cliente da de alta a mano; lo puebla "Precargar el punto de acceso del
+   * tenant al asignar la unidad" (USRH1787189981879).
+   */
+  @column()
+  declare platformDeviceId: number | null
+
   @column()
   declare accessPointActive: number
 
@@ -102,6 +116,24 @@ export default class AccessPoint extends compose(BaseModel, SoftDeletes, withBus
   @column.dateTime()
   declare accessPointLastConnection: DateTime | null
 
+  /** Zona IANA del dispositivo; override de la de la empresa (spec ADMS 5.3). */
+  @column()
+  declare accessPointTimezone: string | null
+
+  /**
+   * CIDR desde los que el canal acepta a este equipo. NULL = sin restriccion.
+   * Fail-closed solo cuando esta configurado (spec ADMS 13, regla 10).
+   */
+  @column({
+    prepare: (value: string[] | null) => (value ? JSON.stringify(value) : null),
+    consume: (value: string | string[] | null) => {
+      if (value === null || value === undefined) return null
+      if (typeof value === 'string') return JSON.parse(value) as string[]
+      return value
+    },
+  })
+  declare accessPointAllowedCidrs: string[] | null
+
   @column.dateTime({ autoCreate: true })
   declare accessPointCreatedAt: DateTime
 
@@ -115,4 +147,9 @@ export default class AccessPoint extends compose(BaseModel, SoftDeletes, withBus
     foreignKey: 'businessUnitId',
   })
   declare businessUnit: BelongsTo<typeof BusinessUnit>
+
+  @belongsTo(() => PlatformDevice, {
+    foreignKey: 'platformDeviceId',
+  })
+  declare platformDevice: BelongsTo<typeof PlatformDevice>
 }
