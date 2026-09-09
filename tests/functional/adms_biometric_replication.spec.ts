@@ -3,6 +3,11 @@ import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
+import EmployeeAssignmentService from '#modules/access-point/employee-assignment/employee_assignment.service'
+import type { I18n } from '@adonisjs/i18n'
+
+/** El i18n real no aporta nada aqui: la prueba mira comandos, no textos. */
+const i18nFake = { formatMessage: (key: string) => key } as unknown as I18n
 import AccessPointProfile from '#models/access_point_profile'
 import BiometricTemplate from '#models/biometric_template'
 import BusinessUnitUser from '#models/business_unit_user'
@@ -235,4 +240,56 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     )
     assert.lengthOf(commands, 1)
   })
+  /**
+   * Lo que motivo el automatismo: al dar de alta a alguien en un equipo nuevo
+   * compatible, sus huellas tienen que viajar solas. La boveda existe para que
+   * nadie vuelva al lector a poner el mismo dedo.
+   */
+  test('dar de alta en un equipo compatible copia los biometricos sin pedirlo', async ({
+    assert,
+  }) => {
+    const nuevo = new AccessPoint()
+    nuevo.accessPointName = 'Checador recien llegado'
+    nuevo.businessUnitId = businessUnitId
+    nuevo.accessPointActive = 1
+    nuevo.accessPointSerialNumber = `TEST-REPL-AUTO-${Date.now()}`
+    nuevo.accessPointStatus = 0
+    await TenantContext.run([businessUnitId], () => nuevo.save())
+
+    const profile = new AccessPointProfile()
+    profile.accessPointId = nuevo.accessPointId
+    profile.businessUnitId = businessUnitId
+    profile.accessPointProfileDialect = 'ta'
+    profile.accessPointProfileLayoutKnown = 1
+    profile.accessPointProfilePlatform = 'ZAM180_TFT'
+    // La misma version mayor que el template guardado: aqui si sirve.
+    profile.accessPointProfileFpVersion = '13'
+    await TenantContext.run([businessUnitId], () => profile.save())
+
+    const service = new EmployeeAssignmentService(i18nFake)
+    await TenantContext.run([businessUnitId], () =>
+      service.assign(nuevo.accessPointId, employee.employeeId, [businessUnitId], userId, {
+        ip: '127.0.0.1',
+      })
+    )
+
+    const copias = await TenantContext.runUnscoped(
+      () =>
+        DeviceCommand.query()
+          .where('access_point_id', nuevo.accessPointId)
+          .where('device_command_kind', 'biodata_write'),
+      'copias hacia el equipo nuevo'
+    )
+
+    assert.isAtLeast(copias.length, 1)
+    assert.equal(copias[0].employeeId, employee.employeeId)
+
+    await TenantContext.runUnscoped(async () => {
+      await DeviceCommand.query().where('access_point_id', nuevo.accessPointId).delete()
+      await AccessPointEmployee.query().where('access_point_id', nuevo.accessPointId).delete()
+      await AccessPointProfile.query().where('access_point_id', nuevo.accessPointId).delete()
+      await AccessPoint.query().where('access_point_id', nuevo.accessPointId).delete()
+    }, 'limpieza del equipo nuevo')
+  })
+
 })

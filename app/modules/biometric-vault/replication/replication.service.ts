@@ -26,7 +26,14 @@ import {
 export interface ReplicationInput {
   employeeId: number
   businessUnitId: number
-  sourceAccessPointId: number
+  /**
+   * Equipo desde el que se pide la copia, solo para no copiar sobre si mismo.
+   *
+   * `null` cuando la copia no sale de una pantalla de un equipo sino de la
+   * boveda: el template es del colaborador y su llave no lleva la serie, asi
+   * que no hace falta un aparato de origen para poder escribirlo en otro.
+   */
+  sourceAccessPointId: number | null
   targetAccessPointIds: number[]
   modalities: ReplicationModality[]
   /** Quien pide la copia. Su IP se asienta con cada lectura de un blob. */
