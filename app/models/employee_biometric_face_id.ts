@@ -110,6 +110,47 @@ export default class EmployeeBiometricFaceId extends compose(
   @column()
   declare employeeBiometricFaceIdQuality: number | null
 
+  /**
+   * Interruptor del uso de la foto en los checadores (spec 7.2).
+   *
+   * Separado del hecho de tener foto: el expediente y la app son un
+   * tratamiento y mandarla a un aparato en sitio es otro. Con nombre y fecha de
+   * quien lo encendio, que es lo que se pide si alguien pregunta.
+   */
+  @column({ consume: (value: number | boolean | null) => Boolean(value) })
+  declare employeeBiometricFaceIdDeviceUse: boolean
+
+  @column()
+  declare employeeBiometricFaceIdDeviceUseByUserId: number | null
+
+  @column.dateTime()
+  declare employeeBiometricFaceIdDeviceUseAt: DateTime | null
+
+  /**
+   * Llave del derivado normalizado en el bucket privado. Cifrada y no
+   * serializable: apunta directo a la cara de una persona.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serializeAs: null,
+  })
+  declare employeeBiometricFaceIdDerivativeKey: string | null
+
+  @column()
+  declare employeeBiometricFaceIdDerivativeVersion: number
+
+  @column()
+  declare employeeBiometricFaceIdDerivativeVerdict: string | null
+
   @column.dateTime({ autoCreate: true })
   declare employeeBiometricFaceIdCreatedAt: DateTime
 

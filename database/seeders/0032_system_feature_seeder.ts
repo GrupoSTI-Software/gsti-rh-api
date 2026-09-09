@@ -435,17 +435,17 @@ export default class extends BaseSeeder {
       },
 
       // ──────────────────────────────────────────────────────────────────────
-      // Puntos de acceso
+      // Dispositivos biométricos
       // ──────────────────────────────────────────────────────────────────────
       {
-        systemModuleSlug: 'puntos-de-acceso',
+        systemModuleSlug: 'biometric-devices',
         systemFeatureName: 'Gestión de puntos de acceso ZKSync',
         systemFeatureSlug: 'access-point-manage',
         systemFeatureDescription: 'Administrar los dispositivos ZKSync conectados al sistema',
         systemFeatureStatus: 'disponible',
       },
       {
-        systemModuleSlug: 'puntos-de-acceso',
+        systemModuleSlug: 'biometric-devices',
         systemFeatureName: 'Sincronización de asistencia ZKSync',
         systemFeatureSlug: 'access-point-sync',
         systemFeatureDescription: 'Sincronizar los registros de asistencia desde dispositivos ZKSync',

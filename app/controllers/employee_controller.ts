@@ -5,6 +5,8 @@ import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeService from '#services/employee_service'
+import CalendarExportService from '#services/calendar_export_service'
+import { CALENDAR_EXPORT_FILE_NAMES } from '#constants/calendar_export'
 import env from '#start/env'
 import { HttpContext } from '@adonisjs/core/http'
 import axios from 'axios'
@@ -1928,7 +1930,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response, i18n }: HttpContext) {
+  async delete({ auth, request, response, i18n }: HttpContext) {
     try {
       const employeeId = request.param('employeeId')
       if (!employeeId) {
@@ -1988,11 +1990,16 @@ export default class EmployeeController {
         }
       }
       const employeeService = new EmployeeService(i18n)
-      const deleteEmployee = await employeeService.delete(currentEmployee, {
-        employeeTerminatedDate,
-        employeeTerminationModality: modality,
-        employeeTerminationType: terminationType,
-      })
+      const deleteEmployee = await employeeService.delete(
+        currentEmployee,
+        {
+          employeeTerminatedDate,
+          employeeTerminationModality: modality,
+          employeeTerminationType: terminationType,
+        },
+        // Quién dio la baja: queda en el historial de la revocación en checadores.
+        auth.user?.userId ?? null
+      )
       if (deleteEmployee) {
         response.status(201)
         return {
@@ -8803,6 +8810,63 @@ export default class EmployeeController {
           employees,
         },
       }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server Error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * Excel de cumpleaños del año con los filtros del calendario unificado.
+   * Reusa el mismo listado que `getBirthday`, así el archivo y la pantalla
+   * coinciden fila por fila.
+   */
+  async getBirthdayExcel(ctx: HttpContext) {
+    return this.sendCalendarExcel(ctx, 'birthdays')
+  }
+
+  /** Excel de aniversarios laborales del año; espejo de `getAnniversary`. */
+  async getAnniversaryExcel(ctx: HttpContext) {
+    return this.sendCalendarExcel(ctx, 'anniversaries')
+  }
+
+  private async sendCalendarExcel(
+    { auth, request, response, i18n, businessUnitScope }: HttpContext,
+    kind: 'birthdays' | 'anniversaries'
+  ) {
+    try {
+      await auth.check()
+      const user = auth.user
+      let userResponsibleId = null
+      if (user) {
+        await user.preload('role')
+        if (user.role.roleSlug !== 'root') {
+          userResponsibleId = user?.userId
+        }
+      }
+      const requestedYear = Number.parseInt(request.input('year'), 10)
+      const year = Number.isFinite(requestedYear) ? requestedYear : new Date().getFullYear()
+      const filters = {
+        search: request.input('search'),
+        departmentId: this.parseIdOrIds(request.input('departmentId')),
+        positionId: this.parseIdOrIds(request.input('positionId')),
+        year,
+        userResponsibleId,
+      } as EmployeeFilterSearchInterface
+      const employeeService = new EmployeeService(i18n)
+      const exportService = new CalendarExportService(i18n)
+      const buffer =
+        kind === 'birthdays'
+          ? await exportService.birthdays(await employeeService.getBirthday(filters, businessUnitScope), year)
+          : await exportService.anniversaries(await employeeService.getAnniversary(filters, businessUnitScope), year)
+      response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+      response.header('Content-Disposition', `attachment; filename=${year}-${CALENDAR_EXPORT_FILE_NAMES[kind]}`)
+      return response.status(200).send(buffer)
     } catch (error) {
       response.status(500)
       return {

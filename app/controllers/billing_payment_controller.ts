@@ -7,20 +7,47 @@ export default class BillingPaymentController {
   private readonly service = new BillingPaymentService()
 
   /**
-   * @index
-   * @summary Histórico de pagos de una suscripción
-   * @description Devuelve el histórico paginado de pagos de una suscripción,\
-   *   ordenado por fecha de pago descendente. Solo lectura.\
-   *   La respuesta nunca incluye la URL pública del comprobante:\
-   *   usa el endpoint de descarga para obtener el enlace temporal firmado.
-   * @tag Billing · Payments
-   * @operationId listBillingPayments
-   * @security [{"bearerAuth": []}]
-   * @paramPath subscriptionId - ID interno de la suscripción - integer
-   * @paramQuery page - Página (default 1) - integer
-   * @paramQuery limit - Resultados por página, máx 100 (default 20) - integer
-   * @responseBody 200 - {"type": "success", "data": [], "meta": {"total": 0, "page": 1, "limit": 20, "lastPage": 1}}
-   * @responseBody 404 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.PAY.SUBSCRIPTION_NOT_FOUND"}
+   * @swagger
+   * /api/platform/billing/subscriptions/{subscriptionId}/payments:
+   *   get:
+   *     tags:
+   *       - Platform Billing
+   *     summary: Histórico de pagos de una suscripción
+   *     description: |
+   *       Devuelve el histórico paginado, ordenado por fecha de pago descendente.
+   *       Cada renglón trae `hasTaxReceipt` (comprobante fiscal vivo) y ningún
+   *       dato fiscal. No incluye la URL del comprobante de pago; usa el endpoint
+   *       de descarga para el enlace temporal.
+   *     operationId: listBillingPayments
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: subscriptionId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: ID interno de la suscripción
+   *       - in: query
+   *         name: page
+   *         schema:
+   *           type: integer
+   *           default: 1
+   *       - in: query
+   *         name: limit
+   *         schema:
+   *           type: integer
+   *           default: 20
+   *           maximum: 100
+   *     responses:
+   *       '200':
+   *         description: Histórico paginado con hasTaxReceipt por renglón
+   *       '401':
+   *         description: Sin sesión
+   *       '403':
+   *         description: Sin permiso de administrador de plataforma
+   *       '404':
+   *         description: Suscripción no encontrada
    */
   async index({ params, request, response }: HttpContext) {
     try {
@@ -63,7 +90,7 @@ export default class BillingPaymentController {
    * @security [{"bearerAuth": []}]
    * @paramPath subscriptionId - ID interno de la suscripción - integer
    * @paramPath paymentId - ID interno del pago - integer
-   * @responseBody 200 - {"type": "success", "data": {"billingPaymentId": 12, "amountCents": 3000000, "method": "transfer", "reference": "SPEI-0099123", "paidAt": "2026-08-05T15:04:00.000-06:00", "periodStart": "2026-08-05", "periodEnd": "2026-11-05", "receiptAvailable": true, "periodsCovered": 3, "isCustomAmount": true, "periodAmountCents": 928000, "creditAppliedCents": 2784000, "debtAppliedCents": 0, "creditBalanceAfterCents": 216000, "breakdownAvailable": true, "breakdown": {"grossCents": 1000000, "discountPercent": 20.00, "discountAmountCents": 200000, "subtotalCents": 800000, "taxRate": 0.16, "taxAmountCents": 128000, "totalCents": 928000, "discountCodeText": "BIENVENIDA15", "discountCodeKind": "percent", "codeDiscountAmountCents": 120000, "discountCodeBenefitPeriodsUsedAfter": 0}}}
+   * @responseBody 200 - {"type": "success", "data": {"billingPaymentId": 12, "amountCents": 3000000, "method": "transfer", "reference": "SPEI-0099123", "paidAt": "2026-08-05T15:04:00.000-06:00", "periodStart": "2026-08-05", "periodEnd": "2026-11-05", "receiptAvailable": true, "periodsCovered": 3, "hasTaxReceipt": false, "isCustomAmount": true, "periodAmountCents": 928000, "creditAppliedCents": 2784000, "debtAppliedCents": 0, "creditBalanceAfterCents": 216000, "breakdownAvailable": true, "breakdown": {"grossCents": 1000000, "discountPercent": 20.00, "discountAmountCents": 200000, "subtotalCents": 800000, "taxRate": 0.16, "taxAmountCents": 128000, "totalCents": 928000, "discountCodeText": "BIENVENIDA15", "discountCodeKind": "percent", "codeDiscountAmountCents": 120000, "discountCodeBenefitPeriodsUsedAfter": 0}}}
    * @responseBody 404 - {"title": "string", "detail": "string", "key": "pago-no-encontrado", "code": "PLT.PAY.NOT_FOUND"}
    */
   async show({ params, response }: HttpContext) {
@@ -377,7 +404,6 @@ export default class BillingPaymentController {
   async store({ params, request, response }: HttpContext) {
     try {
       const data = await request.validateUsing(registerBillingPaymentValidator)
-
       const receipt = request.file('receipt')
       if (!receipt) {
         return response.status(422).json({

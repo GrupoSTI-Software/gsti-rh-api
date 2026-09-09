@@ -15,17 +15,22 @@ import {
   FILE_INTAKE_PDF_MIMES,
   FILE_INTAKE_PROFILES,
   FILE_INTAKE_SPREADSHEET_MIMES,
+  FILE_INTAKE_XML_MIMES,
   type FileIntakeMime,
   type FileIntakeProfile,
   type FileIntakeProfileName,
 } from '#constants/file_intake'
 import { FILE_INTAKE_ERROR_CODES } from '#constants/file_intake_error_codes'
 import { FileIntakeError } from '#exceptions/file_intake_error'
-import { buildStorageFileName, rejectClientFileName } from '#helpers/file_intake_file_name'
+import {
+  buildStorageFileName,
+  extractFileNameExtensions,
+  rejectClientFileName,
+} from '#helpers/file_intake_file_name'
 
 /** Archivo aceptado: contenido ya transformado y listo para persistir. */
 export interface FileIntakeResult {
-  /** Contenido transformado. Nunca es el buffer original tal cual, salvo audio AAC y XLSX. */
+  /** Contenido transformado. Nunca es el buffer original tal cual, salvo audio AAC, XLSX y XML. */
   readonly buffer: Buffer
   /** MIME real de SALIDA. Es el que debe viajar como `ContentType` al bucket. */
   readonly mimeType: FileIntakeMime
@@ -53,6 +58,7 @@ const PDF_MIME_SET: ReadonlySet<string> = new Set(FILE_INTAKE_PDF_MIMES)
 const AUDIO_MIME_SET: ReadonlySet<string> = new Set(FILE_INTAKE_AUDIO_MIMES)
 const MP3_MIME_SET: ReadonlySet<string> = new Set(FILE_INTAKE_MP3_MIMES)
 const SPREADSHEET_MIME_SET: ReadonlySet<string> = new Set(FILE_INTAKE_SPREADSHEET_MIMES)
+const XML_MIME_SET: ReadonlySet<string> = new Set(FILE_INTAKE_XML_MIMES)
 
 /**
  * Puerta única de entrada de archivos.
@@ -86,7 +92,7 @@ export default class FileIntakeService {
     // eso sería castigar al usuario por una decisión nuestra.
     this.assertSizeWithinLimit(profile, inputBuffer.length)
 
-    const mimeType = await this.detectAllowedMime(profile, inputBuffer)
+    const mimeType = await this.detectAllowedMime(profile, inputBuffer, file)
     const transformed = await this.transform(profile, inputBuffer, mimeType)
 
     return {
@@ -169,11 +175,35 @@ export default class FileIntakeService {
    * Determina el formato REAL por magic bytes y lo contrasta con el perfil.
    * Un SVG o un script no producen firma reconocible y caen aquí; un binario
    * disfrazado de imagen cae aquí aunque su nombre y su `Content-Type` mientan.
+   *
+   * El XML no produce firma binaria: `file-type` devuelve undefined sobre él.
+   * Cuando el perfil declara XML se usa la comprobación estructural; el resto
+   * de familias sigue por magic bytes, sin cambio alguno.
    */
   private async detectAllowedMime(
     profile: FileIntakeProfile,
-    inputBuffer: Buffer
+    inputBuffer: Buffer,
+    file: IncomingFile
   ): Promise<FileIntakeMime> {
+    if (this.profileAllowsAnyXmlMime(profile)) {
+      const xmlMime = this.detectCfdiXmlMime(inputBuffer)
+      if (xmlMime) return xmlMime
+
+      // El perfil acepta PDF y XML. Si el cliente declaró `.xml` y la
+      // cabecera no es un CFDI, no se cae a magic bytes: un PDF
+      // renombrado pasaría como `application/pdf` y el acuse mentiría.
+      const extensions = extractFileNameExtensions(file.clientName, file.extname ?? undefined)
+      const finalExtension = extensions[extensions.length - 1]
+      if (finalExtension === 'xml') {
+        throw new FileIntakeError({
+          title: TITLE,
+          detail: `El contenido del archivo no corresponde a ${this.formatExtensions(profile)}.`,
+          key: 'contenido-no-corresponde',
+          errorCode: FILE_INTAKE_ERROR_CODES.CONTENT_TYPE_INVALID,
+        })
+      }
+    }
+
     const detected = await fileType.fromBuffer(inputBuffer)
     const mimeType = detected?.mime
 
@@ -187,6 +217,52 @@ export default class FileIntakeService {
     }
 
     return mimeType
+  }
+
+  /** Cabecera inspeccionada. Un CFDI declara su raíz muy dentro del primer KB. */
+  private static readonly XML_SNIFF_BYTES = 4096
+
+  /**
+   * Reconoce un CFDI por INSPECCIÓN TEXTUAL de su cabecera. No construye árbol
+   * y no usa parser: un parser reintroduciría XXE, expansión de entidades y
+   * SSRF por DTD externo, que es justo lo que este módulo no puede permitirse.
+   *
+   * HONESTIDAD: esto es más débil que un magic byte. El candado real no es esta
+   * heurística — es que el archivo NUNCA se parsea y NUNCA se sirve inline
+   * (se sube con ContentType 'application/octet-stream'). Ver spec §9.2 y §13.
+   *
+   * Devuelve el MIME a registrar, o null si no lo reconoce.
+   */
+  private detectCfdiXmlMime(inputBuffer: Buffer): FileIntakeMime | null {
+    if (inputBuffer.length === 0) return null
+
+    const head = inputBuffer
+      .subarray(0, FileIntakeService.XML_SNIFF_BYTES)
+      .toString('utf8')
+      .replace(/^\uFEFF/, '')
+      .trimStart()
+
+    // Declaración de tipo de documento y entidades: rechazo duro, sin matices.
+    if (/<!DOCTYPE/i.test(head) || /<!ENTITY/i.test(head)) return null
+
+    // Prólogo opcional, comentarios e instrucciones de proceso descartados.
+    const withoutProlog = head
+      .replace(/^<\?xml[^>]*\?>/i, '')
+      .replace(/<!--[\s\S]*?-->/g, '')
+      .replace(/<\?[\s\S]*?\?>/g, '')
+      .trimStart()
+
+    // El primer elemento tiene que ser el comprobante del SAT.
+    if (!/^<(?:[A-Za-z_][\w.-]*:)?Comprobante[\s>]/.test(withoutProlog)) return null
+
+    // Y tiene que declarar el namespace del CFDI, con el prefijo que sea.
+    if (!withoutProlog.includes('http://www.sat.gob.mx/cfd/')) return null
+
+    return 'application/xml'
+  }
+
+  private profileAllowsAnyXmlMime(profile: FileIntakeProfile): boolean {
+    return (profile.allowedMimes as readonly string[]).some((mime) => XML_MIME_SET.has(mime))
   }
 
   private profileAllowsMime(profile: FileIntakeProfile, mime: string): mime is FileIntakeMime {
@@ -213,6 +289,12 @@ export default class FileIntakeService {
     if (SPREADSHEET_MIME_SET.has(mimeType)) {
       // La hoja no se persiste ni se puede reconstruir sin alterar formulas:
       // la garantía aquí es que el contenido ES una hoja OOXML real.
+      return { buffer: inputBuffer, mimeType }
+    }
+
+    if (XML_MIME_SET.has(mimeType)) {
+      // `preserve`: el XML timbrado no se re-encodea ni se reescribe. Alterar
+      // un byte invalida el sello del SAT. Mismo trato que AAC y XLSX.
       return { buffer: inputBuffer, mimeType }
     }
 
