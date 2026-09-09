@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import { resolveBillingTaxReceiptApiError } from '#helpers/billing_tax_receipt_api_error'
 import BillingTaxReceiptService from '#services/billing_tax_receipt_service'
 import {
+  cancelTaxReceiptValidator,
   downloadTaxReceiptFileValidator,
   storeTaxReceiptValidator,
 } from '#validators/billing_tax_receipt.validator'
@@ -29,7 +30,8 @@ export default class BillingTaxReceiptController {
    *       desglose de importes del pago. No recibe RFC ni importes en el body.
    *       `xml` y `pdf` son opcionales: un acuse incompleto no bloquea el alta.
    *       El XML se guarda opaco (`application/octet-stream`); el MIME real
-   *       queda en la fila. `cancellation` sigue reservado (rebanada 7).
+       *       queda en la fila. Tras cancelar, la respuesta incluye `cancellation`
+       *       con motivo, fecha y folio sustituto cuando aplique.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -130,9 +132,9 @@ export default class BillingTaxReceiptController {
    *     description: |
    *       Devuelve el comprobante `issued` del pago, o `data: null` si todavía
    *       no se factura (situación normal, no es 404). El RFC congelado viaja
-   *       en claro para cotejar contra lo timbrado. `xmlAvailable` y
-   *       `pdfAvailable` indican si hay archivo resguardado. `cancellation`
-   *       está reservado (siempre null).
+       *       en claro para cotejar contra lo timbrado. `xmlAvailable` y
+       *       `pdfAvailable` indican si hay archivo resguardado. `cancellation`
+       *       es `null` mientras el comprobante siga vivo.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -156,6 +158,120 @@ export default class BillingTaxReceiptController {
     try {
       const data = await this.service.getLiveByPayment(Number(params.paymentId))
       return response.status(200).json({ type: 'success', data })
+    } catch (error) {
+      const { status, ...body } = resolveBillingTaxReceiptApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/billing/payments/{paymentId}/tax-receipts:
+   *   get:
+   *     tags:
+   *       - Platform Billing
+   *     summary: Consultar la historia fiscal completa de un pago
+   *     description: |
+   *       Devuelve todos los comprobantes del pago —vivo y cancelados— ordenados
+   *       por fecha de timbrado descendente. Cada elemento es el DTO completo.
+   *       Un pago sin comprobantes responde `data: []`.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: paymentId
+   *         required: true
+   *         schema:
+   *           type: integer
+     *     responses:
+     *       '200':
+     *         description: Historia fiscal completa o colección vacía
+     *       '401':
+     *         description: Sin sesión
+     *       '403':
+     *         description: Sin permiso de administrador de plataforma
+     *       '404':
+     *         description: '{"title":"Pago no encontrado","key":"pago-no-encontrado","code":"PLT.TAX.PAYMENT_NOT_FOUND"}'
+   */
+  async index({ params, response }: HttpContext) {
+    try {
+      const data = await this.service.listByPayment(Number(params.paymentId))
+      return response.status(200).json({ type: 'success', data })
+    } catch (error) {
+      const { status, ...body } = resolveBillingTaxReceiptApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/billing/tax-receipts/{taxReceiptId}/cancel:
+   *   post:
+   *     tags:
+   *       - Platform Billing
+   *     summary: Registrar la cancelación de un comprobante fiscal
+   *     description: |
+   *       Refleja en la plataforma que el comprobante ya fue cancelado fuera del
+   *       sistema. No ejecuta cancelación ante el SAT. Libera el lugar del
+   *       comprobante vivo del pago. El folio sustituto es obligatorio solo si
+   *       el motivo del catálogo lo exige (`requiresSubstitute`).
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: taxReceiptId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - cancellationReasonCode
+   *               - cancelledAt
+   *             properties:
+   *               cancellationReasonCode:
+   *                 type: string
+   *                 example: "02"
+   *               cancelledAt:
+   *                 type: string
+   *                 format: date-time
+   *               substituteUuid:
+   *                 type: string
+   *                 nullable: true
+     *     responses:
+     *       '200':
+     *         description: Comprobante cancelado con DTO completo y `cancellation` lleno
+     *       '401':
+     *         description: Sin sesión
+     *       '403':
+     *         description: Sin permiso de administrador de plataforma
+     *       '404':
+     *         description: '{"title":"Comprobante no encontrado","key":"comprobante-no-encontrado","code":"PLT.TAX.TAX_RECEIPT_NOT_FOUND"}'
+     *       '409':
+     *         description: '{"title":"Comprobante ya cancelado","key":"comprobante-ya-cancelado","code":"PLT.TAX.ALREADY_CANCELLED"}'
+     *       '422':
+     *         description: |
+     *           Validación o reglas de negocio. Códigos: PLT.TAX.VAL_INPUT,
+     *           UNKNOWN_CANCELLATION_REASON (motivo-de-cancelacion-desconocido),
+     *           SUBSTITUTE_UUID_REQUIRED (folio-sustituto-requerido),
+     *           SUBSTITUTE_UUID_NOT_ALLOWED (folio-sustituto-no-aplica),
+     *           INVALID_UUID_FORMAT (folio-fiscal-invalido),
+     *           CANCELLED_AT_BEFORE_STAMPED (fecha-de-cancelacion-anterior-al-timbrado).
+   */
+  async cancel({ params, request, response }: HttpContext) {
+    try {
+      const data = await request.validateUsing(cancelTaxReceiptValidator)
+      const receipt = await this.service.cancel(Number(params.taxReceiptId), {
+        cancellationReasonCode: data.cancellationReasonCode,
+        cancelledAt: DateTime.fromISO(data.cancelledAt),
+        substituteUuid: data.substituteUuid ?? null,
+      })
+      const view = await this.service.toView(receipt)
+      return response.status(200).json({ type: 'success', data: view })
     } catch (error) {
       const { status, ...body } = resolveBillingTaxReceiptApiError(error)
       return response.status(status).json(body)

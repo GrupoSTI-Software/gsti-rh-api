@@ -37,7 +37,7 @@ export function resolveBillingTaxReceiptApiError(
 
   if (err?.code === 'E_VALIDATION_ERROR') {
     const first = err.messages?.[0]
-    if (first?.field === 'uuid') {
+    if (first?.field === 'uuid' || first?.field === 'substituteUuid') {
       const invalidUuid = BILLING_TAX_RECEIPT_ERRORS.INVALID_UUID_FORMAT
       return {
         title: invalidUuid.title,

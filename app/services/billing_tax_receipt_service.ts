@@ -1,3 +1,4 @@
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { DateTime } from 'luxon'
 import logger from '@adonisjs/core/services/logger'
 import db from '@adonisjs/lucid/services/db'
@@ -31,6 +32,7 @@ import type { BillingTaxReceiptStatus } from '#models/billing_tax_receipt'
 import BillingPayment from '#models/billing_payment'
 import BillingSubscription from '#models/billing_subscription'
 import BillingTaxReceipt from '#models/billing_tax_receipt'
+import SatCancellationReason from '#models/sat_cancellation_reason'
 import SatCfdiUse from '#models/sat_cfdi_use'
 import SatTaxRegime from '#models/sat_tax_regime'
 import TenantBillingProfile from '#models/tenant_billing_profile'
@@ -44,6 +46,20 @@ export interface CreateTaxReceiptInput {
   series: string | null
   folio: string | null
   stampedAt: DateTime
+}
+
+export interface CancelTaxReceiptInput {
+  cancellationReasonCode: string
+  cancelledAt: DateTime
+  substituteUuid: string | null
+}
+
+export interface TaxReceiptCancellationView {
+  reasonCode: string
+  reasonDescription: string
+  requiresSubstitute: boolean
+  cancelledAt: string
+  substituteUuid: string | null
 }
 
 export interface TaxReceiptFiles {
@@ -84,7 +100,7 @@ export interface TaxReceiptView {
   }
   xmlAvailable: boolean
   pdfAvailable: boolean
-  cancellation: null
+  cancellation: TaxReceiptCancellationView | null
 }
 
 const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
@@ -227,6 +243,103 @@ export default class BillingTaxReceiptService {
   }
 
   /**
+   * Historia fiscal completa del pago: vivos y cancelados, orden
+   * `stampedAt DESC` con desempate por id. Pago inexistente → 404;
+   * pago sin comprobantes → `[]`.
+   */
+  async listByPayment(paymentId: number): Promise<TaxReceiptView[]> {
+    const payment = await BillingPayment.query().where('billingPaymentId', paymentId).first()
+
+    if (!payment) {
+      throw this.fromCatalog(BILLING_TAX_RECEIPT_ERRORS.PAYMENT_NOT_FOUND)
+    }
+
+    const receipts = await BillingTaxReceipt.query()
+      .where('billingPaymentId', paymentId)
+      .orderBy('stampedAt', 'desc')
+      .orderBy('billingTaxReceiptId', 'desc')
+
+    return Promise.all(receipts.map((receipt) => this.toView(receipt)))
+  }
+
+  /**
+   * Registra la cancelación de un comprobante vivo. Reflejo local: no llama
+   * a SAT, Odoo ni PAC. La condición `status = 'issued'` va en el `WHERE` del
+   * UPDATE; 0 filas → 409. `billing_tax_receipt_is_live` nunca se escribe.
+   */
+  async cancel(
+    taxReceiptId: number,
+    input: CancelTaxReceiptInput,
+    trx?: TransactionClientContract
+  ): Promise<BillingTaxReceipt> {
+    const run = async (client: TransactionClientContract) => {
+      const receipt = await BillingTaxReceipt.query({ client })
+        .where('billingTaxReceiptId', taxReceiptId)
+        .forUpdate()
+        .first()
+
+      if (!receipt) {
+        throw this.fromCatalog(BILLING_TAX_RECEIPT_ERRORS.TAX_RECEIPT_NOT_FOUND)
+      }
+
+      const reason = await SatCancellationReason.query({ client })
+        .where('satCancellationReasonCode', input.cancellationReasonCode)
+        .where('satCancellationReasonActive', 1)
+        .first()
+
+      if (!reason) {
+        throw this.fromCatalog(BILLING_TAX_RECEIPT_ERRORS.UNKNOWN_CANCELLATION_REASON)
+      }
+
+      const requiresSubstitute = reason.satCancellationReasonRequiresSubstitute === 1
+      const substituteUuidInput = this.normalizeOptional(input.substituteUuid)
+
+      if (requiresSubstitute) {
+        if (!substituteUuidInput) {
+          throw this.fromCatalog(BILLING_TAX_RECEIPT_ERRORS.SUBSTITUTE_UUID_REQUIRED)
+        }
+      } else if (substituteUuidInput) {
+        throw this.fromCatalog(BILLING_TAX_RECEIPT_ERRORS.SUBSTITUTE_UUID_NOT_ALLOWED)
+      }
+
+      if (input.cancelledAt < receipt.stampedAt) {
+        throw this.fromCatalog(BILLING_TAX_RECEIPT_ERRORS.CANCELLED_AT_BEFORE_STAMPED)
+      }
+
+      const terminalStatus = requiresSubstitute ? 'substituted' : 'cancelled'
+      const substituteUuid = requiresSubstitute
+        ? this.normalizeUuid(substituteUuidInput!)
+        : null
+
+      const affected = await client
+        .from(BillingTaxReceipt.table)
+        .where('billing_tax_receipt_id', taxReceiptId)
+        .where('billing_tax_receipt_status', BILLING_TAX_RECEIPT_LIVE_STATUS)
+        .update({
+          billing_tax_receipt_status: terminalStatus,
+          billing_tax_receipt_cancellation_reason_code: input.cancellationReasonCode,
+          billing_tax_receipt_cancelled_at: input.cancelledAt.toSQL({ includeOffset: false }),
+          billing_tax_receipt_substitute_uuid: substituteUuid,
+          billing_tax_receipt_updated_at: DateTime.now().toSQL({ includeOffset: false }),
+        })
+
+      if (!this.hasAffectedRows(affected)) {
+        throw this.fromCatalog(BILLING_TAX_RECEIPT_ERRORS.ALREADY_CANCELLED)
+      }
+
+      return BillingTaxReceipt.query({ client })
+        .where('billingTaxReceiptId', taxReceiptId)
+        .firstOrFail()
+    }
+
+    if (trx) {
+      return run(trx)
+    }
+
+    return db.transaction(run)
+  }
+
+  /**
    * Enlace firmado de 300 s. El comprobante se resuelve encadenado al pago
    * (nunca `find(id)` a secas). Path nulo u objeto ausente → el mismo 404
    * que un id inexistente en su forma HTTP; `getDownloadLink` no lanza.
@@ -275,17 +388,25 @@ export default class BillingTaxReceiptService {
   /**
    * DTO plano armado a mano. Nunca `.serialize()` del modelo (el RFC no
    * viaja por serialización). `xmlAvailable`/`pdfAvailable`/`cancellation`
-   * se llenan desde las columnas de path; `cancellation` queda reservado.
+   * se llenan desde las columnas de path; `cancellation` se resuelve contra el
+   * catálogo SAT cuando el comprobante ya no está vivo (USRH1788288462019).
    */
   async toView(receipt: BillingTaxReceipt): Promise<TaxReceiptView> {
-    const [taxRegime, cfdiUse] = await Promise.all([
+    const [taxRegime, cfdiUse, cancellationReason] = await Promise.all([
       receipt.taxRegimeCode
         ? SatTaxRegime.query().where('satTaxRegimeCode', receipt.taxRegimeCode).first()
         : Promise.resolve(null),
       receipt.cfdiUseCode
         ? SatCfdiUse.query().where('satCfdiUseCode', receipt.cfdiUseCode).first()
         : Promise.resolve(null),
+      receipt.cancellationReasonCode
+        ? SatCancellationReason.query()
+            .where('satCancellationReasonCode', receipt.cancellationReasonCode)
+            .first()
+        : Promise.resolve(null),
     ])
+
+    const cancellation = this.buildCancellationView(receipt, cancellationReason)
 
     return {
       billingTaxReceiptId: receipt.billingTaxReceiptId,
@@ -315,8 +436,50 @@ export default class BillingTaxReceiptService {
       },
       xmlAvailable: Boolean(receipt.xmlPath),
       pdfAvailable: Boolean(receipt.pdfPath),
-      cancellation: null,
+      cancellation,
     }
+  }
+
+  private buildCancellationView(
+    receipt: BillingTaxReceipt,
+    reason: SatCancellationReason | null
+  ): TaxReceiptCancellationView | null {
+    if (receipt.status === BILLING_TAX_RECEIPT_LIVE_STATUS || !receipt.cancellationReasonCode) {
+      return null
+    }
+
+    return {
+      reasonCode: receipt.cancellationReasonCode,
+      reasonDescription: reason?.satCancellationReasonDescription ?? '',
+      requiresSubstitute: (reason?.satCancellationReasonRequiresSubstitute ?? 0) === 1,
+      cancelledAt: receipt.cancelledAt!.toISO()!,
+      substituteUuid: receipt.substituteUuid,
+    }
+  }
+
+  private normalizeUuid(value: string): string {
+    if (!BILLING_TAX_RECEIPT_UUID_PATTERN.test(value.trim())) {
+      throw this.fromCatalog(BILLING_TAX_RECEIPT_ERRORS.INVALID_UUID_FORMAT)
+    }
+
+    return value.trim().toUpperCase()
+  }
+
+  private hasAffectedRows(affected: unknown): boolean {
+    if (typeof affected === 'number') {
+      return affected > 0
+    }
+
+    if (Array.isArray(affected)) {
+      const first = affected[0] as { affectedRows?: number } | number | undefined
+      if (typeof first === 'number') {
+        return first > 0
+      }
+      return Number(first?.affectedRows ?? 0) > 0
+    }
+
+    const header = affected as { affectedRows?: number; rowCount?: number } | null | undefined
+    return Number(header?.affectedRows ?? header?.rowCount ?? 0) > 0
   }
 
   /**

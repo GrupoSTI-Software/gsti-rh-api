@@ -30,6 +30,16 @@ export const BILLING_TAX_RECEIPT_ERROR_CODES = {
   TAX_RECEIPT_NOT_FOUND: 'PLT.TAX.TAX_RECEIPT_NOT_FOUND',
   /** Path nulo u objeto ausente en el bucket */
   FILE_NOT_AVAILABLE: 'PLT.TAX.FILE_NOT_AVAILABLE',
+  /** Comprobante ya cancelado o carrera perdida en el UPDATE condicionado */
+  ALREADY_CANCELLED: 'PLT.TAX.ALREADY_CANCELLED',
+  /** Motivo con sustituto obligatorio y folio sustituto ausente */
+  SUBSTITUTE_UUID_REQUIRED: 'PLT.TAX.SUBSTITUTE_UUID_REQUIRED',
+  /** Folio sustituto presente en motivo que no lo exige */
+  SUBSTITUTE_UUID_NOT_ALLOWED: 'PLT.TAX.SUBSTITUTE_UUID_NOT_ALLOWED',
+  /** Motivo inexistente o dado de baja en el catálogo SAT */
+  UNKNOWN_CANCELLATION_REASON: 'PLT.TAX.UNKNOWN_CANCELLATION_REASON',
+  /** Fecha de cancelación anterior al timbrado del comprobante */
+  CANCELLED_AT_BEFORE_STAMPED: 'PLT.TAX.CANCELLED_AT_BEFORE_STAMPED',
   /** Error no tipado del módulo */
   SYS_UNHANDLED: 'PLT.TAX.SYS_UNHANDLED',
 } as const
@@ -132,6 +142,41 @@ export const BILLING_TAX_RECEIPT_ERRORS = {
     detail: 'El archivo solicitado no está disponible.',
     code: BILLING_TAX_RECEIPT_ERROR_CODES.FILE_NOT_AVAILABLE,
     status: 404,
+  },
+  ALREADY_CANCELLED: {
+    key: 'comprobante-ya-cancelado',
+    title: 'Comprobante ya cancelado',
+    detail: 'El comprobante fiscal ya fue cancelado y no admite otra cancelación.',
+    code: BILLING_TAX_RECEIPT_ERROR_CODES.ALREADY_CANCELLED,
+    status: 409,
+  },
+  SUBSTITUTE_UUID_REQUIRED: {
+    key: 'folio-sustituto-requerido',
+    title: 'Folio sustituto requerido',
+    detail: 'El motivo de cancelación elegido exige declarar el folio fiscal del sustituto.',
+    code: BILLING_TAX_RECEIPT_ERROR_CODES.SUBSTITUTE_UUID_REQUIRED,
+    status: 422,
+  },
+  SUBSTITUTE_UUID_NOT_ALLOWED: {
+    key: 'folio-sustituto-no-aplica',
+    title: 'Folio sustituto no aplica',
+    detail: 'El motivo de cancelación elegido no admite folio fiscal sustituto.',
+    code: BILLING_TAX_RECEIPT_ERROR_CODES.SUBSTITUTE_UUID_NOT_ALLOWED,
+    status: 422,
+  },
+  UNKNOWN_CANCELLATION_REASON: {
+    key: 'motivo-de-cancelacion-desconocido',
+    title: 'Motivo de cancelación desconocido',
+    detail: 'El motivo de cancelación no existe o no está disponible.',
+    code: BILLING_TAX_RECEIPT_ERROR_CODES.UNKNOWN_CANCELLATION_REASON,
+    status: 422,
+  },
+  CANCELLED_AT_BEFORE_STAMPED: {
+    key: 'fecha-de-cancelacion-anterior-al-timbrado',
+    title: 'Fecha de cancelación inválida',
+    detail: 'La fecha de cancelación no puede ser anterior a la fecha de timbrado.',
+    code: BILLING_TAX_RECEIPT_ERROR_CODES.CANCELLED_AT_BEFORE_STAMPED,
+    status: 422,
   },
   SYS_UNHANDLED: {
     key: 'error-sistema',

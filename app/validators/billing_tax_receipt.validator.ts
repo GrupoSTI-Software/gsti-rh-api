@@ -60,3 +60,22 @@ export const downloadTaxReceiptFileValidator = vine.compile(
     fileType: vine.enum(BILLING_TAX_RECEIPT_FILE_TYPES),
   })
 )
+
+/**
+ * Body JSON de cancelación (USRH1788288462019).
+ * La condicionalidad de `substituteUuid` y la comparación contra `stampedAt`
+ * viven en el servicio: dependen del catálogo SAT y del dato almacenado.
+ */
+export const cancelTaxReceiptValidator = vine.compile(
+  vine.object({
+    cancellationReasonCode: vine.string().trim().fixedLength(2),
+    cancelledAt: vine.string().trim().use(stampedAtNotFutureRule()),
+    substituteUuid: vine
+      .string()
+      .trim()
+      .maxLength(BILLING_TAX_RECEIPT_UUID_LENGTH)
+      .regex(BILLING_TAX_RECEIPT_UUID_PATTERN)
+      .optional()
+      .nullable(),
+  })
+)
