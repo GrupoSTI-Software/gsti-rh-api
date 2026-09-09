@@ -34,6 +34,11 @@ export const PLATFORM_DEVICE_ERROR_CODES = {
   SERIAL_TAKEN_BY_OTHER_TENANT: 'PLT.DEV.SERIAL_TAKEN_BY_OTHER_TENANT',
   /** La serie ya está viva en un access_point sin platformDeviceId de OTRO tenant (probable auto-descubrimiento, CA-10 del spec 1879) */
   SERIAL_TAKEN_BY_AUTODISCOVERY: 'PLT.DEV.SERIAL_TAKEN_BY_AUTODISCOVERY',
+
+  /** No hay una fila de cuarentena pendiente con esa serie. */
+  QUARANTINE_NOT_FOUND: 'PLT.DEV.QUARANTINE_NOT_FOUND',
+  /** La fila de cuarentena ya se reclamo o se descarto. */
+  QUARANTINE_NOT_PENDING: 'PLT.DEV.QUARANTINE_NOT_PENDING',
   /** La unidad a precargar no tiene número de serie (defensivo, CA-5 del spec 1879) */
   DEVICE_SERIAL_MISSING: 'PLT.DEV.DEVICE_SERIAL_MISSING',
   /** Falló la materialización del punto de acceso del tenant; revierte toda la transacción (CA-4 del spec 1879) */
