@@ -2,6 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import vine from '@vinejs/vine'
 import { StandardResponseFormatter } from '#helpers/standard_response_formatter'
 import EmployeeBiometricSummaryService from '#modules/biometric-vault/device-biometrics/employee_biometric_summary.service'
+import { BIOMETRIC_SLOT_STATE } from '#modules/biometric-vault/device-biometrics/biometric_slot_state'
 import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 import {
@@ -223,19 +224,28 @@ export default class EmployeeSyncController {
          */
         const scoped = await summaries.of(employee.employeeId, accessPoint.accessPointId)
         /**
-         * Cuenta lo confirmado y lo que el equipo ya acuso: la copia acusada
-         * esta dentro del aparato aunque su prueba llegue despues, y negarla
-         * mostraba "sin biometricos" en un checador que si tenia la huella.
+         * Dentro del aparato y en camino se cuentan por separado.
+         *
+         * Un acuse dice que el equipo recibio la copia, no que la guardo: hay
+         * plataformas que responden que si y descartan el dato en silencio. Con
+         * las dos cuentas juntas, un checador con cero huellas se anunciaba con
+         * la etiqueta de huella y nadie podia notar la perdida.
          */
-        const present = (state: string) => state === 'here' || state === 'sent'
+        const isHere = (state: string) => state === BIOMETRIC_SLOT_STATE.HERE
+        const isOnTheWay = (state: string) => state === BIOMETRIC_SLOT_STATE.SENT
+        const faceState = scoped.face.state
         rows.push(
           toEmployeeAccessPointDto(
             pivot,
             accessPoint,
             now,
             {
-              fingerprints: scoped.fingers.filter((finger) => present(finger.state)).length,
-              faces: scoped.face.state !== null && present(scoped.face.state) ? 1 : 0,
+              fingerprints: scoped.fingers.filter((finger) => isHere(finger.state)).length,
+              faces: faceState !== null && isHere(faceState) ? 1 : 0,
+              onTheWay: {
+                fingerprints: scoped.fingers.filter((finger) => isOnTheWay(finger.state)).length,
+                faces: faceState !== null && isOnTheWay(faceState) ? 1 : 0,
+              },
             },
             scoped.withheldBy
           )
