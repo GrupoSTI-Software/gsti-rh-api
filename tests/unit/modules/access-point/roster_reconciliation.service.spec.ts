@@ -9,6 +9,8 @@ import AccessPointEmployee, {
 import BusinessUnitUser from '#models/business_unit_user'
 import Employee from '#models/employee'
 import DeviceCommand from '#models/device_command'
+import AdmsIncident from '#models/adms_incident'
+import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
 import RosterReconciliationService from '#modules/access-point/employee-sync/roster_reconciliation.service'
 
 /**
@@ -265,6 +267,45 @@ test.group('Reconciliacion del padron (rebanada 8.1)', (group) => {
       AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
     )
     assert.equal(fresh.accessPointEmployeeSyncStatus, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED)
+  })
+
+  test('el equipo que revive con alguien dado de baja levanta aviso', async ({ assert }) => {
+    /**
+     * El caso de la baja cerrada a mano: se dio el aparato por muerto y volvio
+     * con la persona dentro. No se toca el pivote --`revoked` es terminal-- pero
+     * callarlo dejaria a alguien marcando en una puerta de la que se le retiro.
+     */
+    await TenantContext.run([businessUnitId], async () => {
+      const row = await AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
+      row.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
+      await row.save()
+
+      await new RosterReconciliationService().reconcile({
+        accessPointId: accessPoint.accessPointId,
+        businessUnitId,
+        pins: [PIN],
+        hasFingerprints: false,
+        serial: SERIAL,
+        rawMessageId: null,
+        receivedAt: DateTime.utc(),
+      })
+    })
+
+    const incidente = await TenantContext.runUnscoped(
+      () =>
+        AdmsIncident.query()
+          .where('access_point_id', accessPoint.accessPointId)
+          .where('adms_incident_kind', ADMS_INCIDENT_KIND.REVOKED_STILL_PRESENT)
+          .first(),
+      'lectura del aviso de baja cerrada pero presente'
+    )
+    assert.isNotNull(incidente)
+
+    const fresh = await TenantContext.run([businessUnitId], () =>
+      AccessPointEmployee.findOrFail(pivot.accessPointEmployeeId)
+    )
+    // Volver al camino de alta es un acto de alguien, no el avance de un estado.
+    assert.equal(fresh.accessPointEmployeeSyncStatus, ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
   })
 
   test('el silencio tras el CHECK cierra la baja', async ({ assert }) => {
