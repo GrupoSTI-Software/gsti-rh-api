@@ -14,6 +14,7 @@ import { toDeviceCommandDto } from '#modules/device-commands/dto/device_command.
 import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
+import EmployeeBiometricSummaryService from './employee_biometric_summary.service.js'
 import FingerprintEnrollmentService from '../enrollment/fingerprint_enrollment.service.js'
 import DeviceFaceService from '../photo/device_face.service.js'
 import ReplicationService from '../replication/replication.service.js'
@@ -215,6 +216,54 @@ export default class DeviceBiometricsController {
         ),
         200,
         dryRun ? 'preview' : 'results'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/employees/{employeeId}/device-biometrics:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Biometricos]
+   *     summary: Que biometricos tiene el colaborador, uniendo boveda y conector viejo
+   *     responses:
+   *       200:
+   *         description: Dedos y rostro en data.biometrics
+   */
+  /**
+   * Que dedos tiene registrados el colaborador.
+   *
+   * Existe porque hay dos fuentes vivas --la boveda del canal y la tabla del
+   * conector de BioTime-- y la pantalla de biometricos leia solo la segunda:
+   * una huella capturada por el checador entraba a la boveda y el expediente
+   * seguia mostrando cero.
+   */
+  async summary(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(
+        ctx,
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeBiometrics
+      )
+      const payload = await request.validateUsing(employeeValidator, {
+        data: { params: request.params() },
+      })
+      const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
+
+      const service = new EmployeeBiometricSummaryService()
+      const biometrics = await service.of(employee.employeeId)
+
+      return StandardResponseFormatter.success(
+        response,
+        biometrics,
+        i18n.formatMessage('employee_biometric'),
+        i18n.formatMessage('resource_was_found_successfully'),
+        200,
+        'biometrics'
       )
     } catch (error) {
       return respondAdmsApiError(response, i18n, error)

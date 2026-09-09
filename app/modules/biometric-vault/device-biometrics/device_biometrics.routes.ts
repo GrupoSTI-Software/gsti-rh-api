@@ -16,6 +16,14 @@ router
       '#modules/biometric-vault/device-biometrics/device_biometrics.controller.enrollFingerprint'
     )
     /**
+     * Lectura: que biometricos tiene la persona, vengan del canal o del
+     * conector viejo. Es lo que pinta las palmas del expediente.
+     */
+    router.get(
+      '/:employeeId/device-biometrics',
+      '#modules/biometric-vault/device-biometrics/device_biometrics.controller.summary'
+    )
+    /**
      * Lectura: como va la captura que se pidio. El Backoffice la sondea
      * mientras espera al aparato, asi que responde el comando y nada mas.
      */

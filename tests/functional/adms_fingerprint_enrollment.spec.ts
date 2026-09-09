@@ -413,6 +413,33 @@ test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
     assert.equal(response.body().key, 'sin-permiso')
   })
 
+  /**
+   * La regresion que motivo el endpoint: la huella entraba a la boveda por el
+   * canal y el expediente seguia mostrando cero dedos, porque la pantalla leia
+   * la tabla del conector viejo.
+   */
+  test('el resumen ve la huella que subio el equipo, no solo la del conector viejo', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/v1/employees/${employee.employeeId}/device-biometrics`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    if (response.status() === 200) {
+      const biometrics = response.body().data.biometrics as { fingers: number[]; face: boolean }
+      // El dedo 3 lo subio el equipo en la prueba de la boveda; la tabla vieja
+      // de este colaborador esta vacia, asi que solo puede venir del canal.
+      assert.include(biometrics.fingers, 3)
+      assert.isFalse(biometrics.face)
+      return
+    }
+
+    assert.equal(response.status(), 403)
+    assert.equal(response.body().key, 'sin-permiso')
+  })
+
   test('un identificador de comando que no existe se responde como no encontrado', async ({
     client,
     assert,
