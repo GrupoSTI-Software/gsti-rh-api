@@ -31,23 +31,32 @@ const TAB = '\t'
 /**
  * Plataformas donde la huella NO se escribe con `BIODATA`.
  *
- * Medido en hardware el 2026-09-10 sobre dos SpeedFace V5L (`ZAM180_TFT`) de
- * la misma version de algoritmo: `DATA UPDATE BIODATA Type=1` con el `MajorVer`
- * correcto respondio `Return=0` y el dedo NO quedo dentro del aparato. En esa
- * plataforma la unica escritura de huella medida funcionando es `FINGERTMP`
- * (spike del 2026-08-12, copia entre dos PIN del mismo equipo verificada con
- * una checada).
+ * Es una lista blanca a proposito: solo entra la plataforma cuyo
+ * comportamiento se midio con el dedo puesto. Ante un aparato desconocido se
+ * prefiere `BIODATA`, que al menos falla ruidosamente --responde `-30` si la
+ * version no cuadra-- mientras que `FINGERTMP` descarta en silencio.
  *
- * La regla canonica del spike prohibe `FINGERTMP` porque no lleva `MajorVer` y
- * descarta en silencio al cruzar versiones. Ese riesgo aqui esta cubierto antes
- * del cable: no se encola una copia sin que la boveda confirme que la version
- * del template coincide con la que declara el equipo. La regla se escribio
- * cuando esa comparacion no existia.
+ * `ZAM180` (SpeedFace V5L), medido el 2026-09-10 entre dos equipos de la misma
+ * version: `BIODATA Type=1` con el `MajorVer` correcto respondio `Return=0` y
+ * el dedo NO quedo dentro. Con `FINGERTMP` si entro, verificado marcando.
  *
- * En el mismo V5L, `BIODATA Type=9` SI escribe rostro (medido 2026-08-12), asi
- * que la excepcion es de la huella y no de la tabla.
+ * `ZAM70` (SenseFace 2A), medido el mismo dia con el equipo puesto en VX10
+ * para igualarlo a los V5L: `BIODATA Type=1 MajorVer=10` con un template ajeno
+ * respondio `Return=0`, el aparato reporto `FPCount=0` un segundo despues y el
+ * dedo no marcaba. El control positivo del spike en esa plataforma se habia
+ * hecho con un template PROPIO del equipo, asi que escribirle uno ajeno nunca
+ * se habia probado.
+ *
+ * El riesgo que hizo prohibir `FINGERTMP` --no lleva `MajorVer`, y sin el, al
+ * cruzar versiones el equipo descarta sin avisar-- queda cubierto antes del
+ * cable: no se encola una copia sin que la boveda confirme que la version del
+ * template coincide con la que declara el equipo. Esa comprobacion no existia
+ * cuando la regla se escribio.
+ *
+ * La excepcion es de la huella, no de la tabla: `BIODATA Type=9` SI escribe
+ * rostro en las dos plataformas (medido en el spike).
  */
-const FINGERPRINT_BY_FINGERTMP_PLATFORMS = ['ZAM180']
+const FINGERPRINT_BY_FINGERTMP_PLATFORMS = ['ZAM180', 'ZAM70']
 
 /** Tipo de biometrico de huella en la gramatica del equipo. */
 const BIO_TYPE_FINGERPRINT = 1

@@ -217,11 +217,14 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
   })
 
   /**
-   * Y en el resto de plataformas sigue la regla canonica del spike: `BIODATA`
-   * con `MajorVer`, que falla ruidosamente al cruzar versiones en vez de
-   * descartar el dato en silencio.
+   * El SenseFace tambien escribe la huella por `FINGERTMP`.
+   *
+   * Su control positivo del spike se habia hecho con un template PROPIO del
+   * equipo; escribirle uno ajeno nunca se probo. Medido el 2026-09-10 con el
+   * aparato puesto en VX10 para igualarlo a los V5L: `BIODATA` respondio
+   * `Return=0`, el equipo reporto cero huellas y el dedo no marcaba.
    */
-  test('fuera del V5L la huella sigue viajando por BIODATA con su version', async ({ assert }) => {
+  test('el SenseFace tambien recibe la huella por FINGERTMP', async ({ assert }) => {
     const zam70 = await makeDevice(`TEST-REPL-ZAM70-${STAMP}`, '5150', '13')
     await TenantContext.runUnscoped(async () => {
       const profile = await AccessPointProfile.query()
@@ -243,13 +246,9 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     )
 
     const payload = command.deviceCommandPayload ?? ''
-    assert.include(payload, 'DATA UPDATE BIODATA')
-    assert.include(payload, 'Pin=5150')
-    assert.include(payload, 'MajorVer=13')
-    assert.include(payload, 'MinorVer=2')
-    // El dedo de coaccion se repite del registro: inventarlo cambiaria lo que
-    // significa ese dedo para quien lo usa.
-    assert.include(payload, 'Duress=1')
+    assert.include(payload, 'DATA UPDATE FINGERTMP')
+    assert.include(payload, 'PIN=5150')
+    assert.include(payload, 'Size=')
 
     await TenantContext.runUnscoped(async () => {
       await DeviceCommand.query().where('access_point_id', zam70.accessPointId).delete()
@@ -257,6 +256,49 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
       await AccessPointProfile.query().where('access_point_id', zam70.accessPointId).delete()
       await AccessPoint.query().where('access_point_id', zam70.accessPointId).delete()
     }, 'limpieza del ZAM70')
+  })
+
+  /**
+   * Una plataforma que nadie ha medido conserva la regla canonica: `BIODATA`
+   * con `MajorVer`, que al menos rechaza de frente si la version no cuadra en
+   * vez de tragarse el dato en silencio.
+   */
+  test('una plataforma sin medir conserva BIODATA con su version', async ({ assert }) => {
+    const otra = await makeDevice(`TEST-REPL-OTRA-${STAMP}`, '5151', '13')
+    await TenantContext.runUnscoped(async () => {
+      const profile = await AccessPointProfile.query()
+        .where('access_point_id', otra.accessPointId)
+        .firstOrFail()
+      profile.accessPointProfilePlatform = 'PLATAFORMA_NUEVA'
+      await profile.save()
+    }, 'plataforma sin medir')
+
+    await replicate(false, [otra.accessPointId])
+
+    const command = await TenantContext.runUnscoped(
+      () =>
+        DeviceCommand.query()
+          .where('access_point_id', otra.accessPointId)
+          .where('device_command_kind', 'biodata_write')
+          .firstOrFail(),
+      'comando hacia la plataforma nueva'
+    )
+
+    const payload = command.deviceCommandPayload ?? ''
+    assert.include(payload, 'DATA UPDATE BIODATA')
+    assert.include(payload, 'Pin=5151')
+    assert.include(payload, 'MajorVer=13')
+    assert.include(payload, 'MinorVer=2')
+    // El dedo de coaccion se repite del registro: inventarlo cambiaria lo que
+    // significa ese dedo para quien lo usa.
+    assert.include(payload, 'Duress=1')
+
+    await TenantContext.runUnscoped(async () => {
+      await DeviceCommand.query().where('access_point_id', otra.accessPointId).delete()
+      await AccessPointEmployee.query().where('access_point_id', otra.accessPointId).delete()
+      await AccessPointProfile.query().where('access_point_id', otra.accessPointId).delete()
+      await AccessPoint.query().where('access_point_id', otra.accessPointId).delete()
+    }, 'limpieza de la plataforma nueva')
   })
 
   /**
