@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import vine from '@vinejs/vine'
 import { StandardResponseFormatter } from '#helpers/standard_response_formatter'
+import EmployeeBiometricSummaryService from '#modules/biometric-vault/device-biometrics/employee_biometric_summary.service'
 import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 import {
@@ -208,12 +209,26 @@ export default class EmployeeSyncController {
       const byId = new Map(accessPoints.map((row) => [row.accessPointId, row]))
 
       const now = DateTime.utc()
+      const summaries = new EmployeeBiometricSummaryService()
       const rows: EmployeeAccessPointDto[] = []
       for (const pivot of pivots) {
         const accessPoint = byId.get(pivot.accessPointId)
         /** Un equipo dado de baja deja el pivote huerfano: no hay que pintarlo. */
         if (!accessPoint) continue
-        rows.push(toEmployeeAccessPointDto(pivot, accessPoint, now))
+        /**
+         * Se resuelve equipo por equipo a proposito: lo que la persona puede
+         * usar en un aparato no se deduce de su expediente. Son pocas consultas
+         * porque una persona esta en un puñado de checadores; si esa flota
+         * crece, aqui es donde hay que agrupar.
+         */
+        const scoped = await summaries.of(employee.employeeId, accessPoint.accessPointId)
+        const present = (state: string) => state === 'here'
+        rows.push(
+          toEmployeeAccessPointDto(pivot, accessPoint, now, {
+            fingerprints: scoped.fingers.filter((finger) => present(finger.state)).length,
+            faces: scoped.face.state !== null && present(scoped.face.state) ? 1 : 0,
+          })
+        )
       }
       rows.sort((a, b) => a.name.localeCompare(b.name))
 

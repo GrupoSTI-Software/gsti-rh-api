@@ -29,6 +29,14 @@ export interface TemplateSlot {
   bioNo: number
   majorVer: string | null
   capturedAt: DateTime
+  /**
+   * Equipo donde se capturo.
+   *
+   * La boveda guarda un dato por dedo y version, no uno por aparato, asi que
+   * esta es la unica pista directa de en que equipo esta fisicamente. Los demas
+   * lo tienen solo si se les replico.
+   */
+  sourceAccessPointId: number | null
 }
 
 /**

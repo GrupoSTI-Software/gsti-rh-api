@@ -41,6 +41,14 @@ const replicationValidator = vine.compile(
   })
 )
 
+const summaryValidator = vine.compile(
+  vine.object({
+    params: vine.object({ employeeId: vine.number().positive() }),
+    /** Sin equipo se responde el consolidado del expediente. */
+    accessPointId: vine.number().positive().optional(),
+  })
+)
+
 const enrollmentStatusValidator = vine.compile(
   vine.object({
     params: vine.object({
@@ -235,12 +243,16 @@ export default class DeviceBiometricsController {
    *         description: Dedos y rostro en data.biometrics
    */
   /**
-   * Que dedos tiene registrados el colaborador.
+   * Que biometricos tiene el colaborador.
    *
    * Existe porque hay dos fuentes vivas --la boveda del canal y la tabla del
    * conector de BioTime-- y la pantalla de biometricos leia solo la segunda:
    * una huella capturada por el checador entraba a la boveda y el expediente
    * seguia mostrando cero.
+   *
+   * Con `accessPointId` la respuesta deja de ser del colaborador y pasa a ser
+   * de ese equipo: el mismo dedo puede estar dentro de un aparato y ser
+   * inservible en el de al lado si son de distinta generacion de algoritmo.
    */
   async summary(ctx: HttpContext) {
     const { request, response, i18n } = ctx
@@ -249,13 +261,20 @@ export default class DeviceBiometricsController {
         ctx,
         EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeBiometrics
       )
-      const payload = await request.validateUsing(employeeValidator, {
-        data: { params: request.params() },
+      const payload = await request.validateUsing(summaryValidator, {
+        data: { params: request.params(), accessPointId: request.input('accessPointId') },
       })
       const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
 
+      // El equipo se resuelve con el alcance de la peticion: preguntar por uno
+      // de otra empresa no puede revelar nada de la propia.
+      const accessPoint =
+        payload.accessPointId === undefined
+          ? null
+          : await resolveScopedAccessPoint(ctx, payload.accessPointId)
+
       const service = new EmployeeBiometricSummaryService()
-      const biometrics = await service.of(employee.employeeId)
+      const biometrics = await service.of(employee.employeeId, accessPoint?.accessPointId)
 
       return StandardResponseFormatter.success(
         response,

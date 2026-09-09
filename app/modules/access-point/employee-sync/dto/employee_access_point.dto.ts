@@ -32,6 +32,15 @@ export interface EmployeeAccessPointDto {
    */
   hasPin: boolean
   syncStatus: AccessPointEmployeeSyncStatus
+  /**
+   * Modalidades con las que la persona puede identificarse EN ESTE equipo.
+   *
+   * No es lo que tiene en su expediente: la boveda guarda un dato por dedo y
+   * version, y un template capturado en un aparato no dice nada de lo que hay
+   * dentro de otro. Repetir aqui el consolidado del colaborador es lo que hacia
+   * que dos checadores incompatibles se pintaran igual.
+   */
+  biometrics: { fingerprints: number; faces: number }
   /** La baja va en camino: el numero sigue reservado para esta persona. */
   pinQuarantined: boolean
   syncRequestedAt: string | null
@@ -44,7 +53,8 @@ export interface EmployeeAccessPointDto {
 export function toEmployeeAccessPointDto(
   pivot: AccessPointEmployee,
   accessPoint: AccessPoint,
-  now: DateTime
+  now: DateTime,
+  biometrics: { fingerprints: number; faces: number } = { fingerprints: 0, faces: 0 }
 ): EmployeeAccessPointDto {
   const pin = pivot.accessPointEmployeePin
   return {
@@ -54,6 +64,7 @@ export function toEmployeeAccessPointDto(
     active: accessPoint.accessPointActive === 1,
     connection: statusOf(accessPoint.accessPointLastConnection, now),
     lastSeenAt: accessPoint.accessPointLastConnection?.toISO() ?? null,
+    biometrics,
     hasPin: Boolean(pin && pin.length > 0),
     syncStatus: pivot.accessPointEmployeeSyncStatus,
     pinQuarantined: isPinQuarantined(pivot.accessPointEmployeeSyncStatus),

@@ -20,6 +20,7 @@ function toSlot(row: BiometricTemplate): TemplateSlot {
     bioNo: row.biometricTemplateBioNo,
     majorVer: row.biometricTemplateMajorVer ?? null,
     capturedAt: row.biometricTemplateCapturedAt,
+    sourceAccessPointId: row.sourceAccessPointId ?? null,
   }
 }
 

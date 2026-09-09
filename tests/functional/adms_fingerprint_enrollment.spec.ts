@@ -428,16 +428,50 @@ test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
       .header('X-Business-Unit-Id', publicId)
 
     if (response.status() === 200) {
-      const biometrics = response.body().data.biometrics as { fingers: number[]; face: boolean }
+      const biometrics = response.body().data.biometrics as {
+        fingers: Array<{ fingerId: number; state: string }>
+        face: { registered: boolean }
+        scopedToAccessPointId: number | null
+      }
       // El dedo 3 lo subio el equipo en la prueba de la boveda; la tabla vieja
       // de este colaborador esta vacia, asi que solo puede venir del canal.
-      assert.include(biometrics.fingers, 3)
-      assert.isFalse(biometrics.face)
+      const tres = biometrics.fingers.find((finger) => finger.fingerId === 3)
+      assert.isDefined(tres)
+      assert.equal(tres?.state, 'registered')
+      assert.isNull(biometrics.scopedToAccessPointId)
+      assert.isFalse(biometrics.face.registered)
       return
     }
 
     assert.equal(response.status(), 403)
     assert.equal(response.body().key, 'sin-permiso')
+  })
+
+  /**
+   * El bug que se vio en pantalla: la huella vive en UN equipo, y el expediente
+   * la anunciaba en todos. Preguntando por el aparato donde se capturo tiene que
+   * decir que esta ahi; el mismo dedo en otro equipo es otra respuesta.
+   */
+  test('el resumen contesta por equipo, no por colaborador', async ({ client, assert }) => {
+    const response = await client
+      .get(`/api/v1/employees/${employee.employeeId}/device-biometrics`)
+      .qs({ accessPointId: accessPoint.accessPointId })
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    if (response.status() !== 200) {
+      assert.equal(response.status(), 403)
+      return
+    }
+
+    const biometrics = response.body().data.biometrics as {
+      fingers: Array<{ fingerId: number; state: string }>
+      scopedToAccessPointId: number | null
+    }
+    assert.equal(biometrics.scopedToAccessPointId, accessPoint.accessPointId)
+    // Se capturo en este equipo, asi que aqui esta.
+    const tres = biometrics.fingers.find((finger) => finger.fingerId === 3)
+    assert.equal(tres?.state, 'here')
   })
 
   test('un identificador de comando que no existe se responde como no encontrado', async ({
