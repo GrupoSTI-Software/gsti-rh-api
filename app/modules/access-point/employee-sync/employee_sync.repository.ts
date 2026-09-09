@@ -30,6 +30,13 @@ export interface EmployeeSyncRepository {
   ): Promise<AccessPointEmployee | null>
   /** Filas vivas del dispositivo que ocupan ese PIN, incluidas las de cuarentena. */
   findByPin(accessPointId: number, pin: string): Promise<AccessPointEmployee[]>
+  /**
+   * PINs que ese equipo ya no puede volver a dar.
+   *
+   * Incluye los de las bajas sin confirmar: hasta que el aparato dice que
+   * borro el registro, ese numero sigue siendo de quien lo tenia.
+   */
+  listTakenPins(accessPointId: number): Promise<string[]>
   listLiveByEmployee(employeeId: number): Promise<AccessPointEmployee[]>
   save(pivot: AccessPointEmployee): Promise<void>
   recordEvent(input: SyncEventInput): Promise<void>

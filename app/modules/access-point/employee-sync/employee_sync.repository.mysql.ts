@@ -49,6 +49,21 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
       })
   }
 
+  async listTakenPins(accessPointId: number): Promise<string[]> {
+    const rows = await AccessPointEmployee.query()
+      .withTrashed()
+      .where('access_point_id', accessPointId)
+      .whereNot('access_point_employee_pin', '')
+      .where((group) => {
+        group
+          .whereNull('access_point_employee_deleted_at')
+          .orWhereIn('access_point_employee_sync_status', [...PIN_QUARANTINE_STATUSES])
+      })
+      .select('access_point_employee_pin')
+
+    return rows.map((row) => row.accessPointEmployeePin).filter((pin) => pin.length > 0)
+  }
+
   async listLiveByEmployee(employeeId: number): Promise<AccessPointEmployee[]> {
     return AccessPointEmployee.query().where('employee_id', employeeId)
   }

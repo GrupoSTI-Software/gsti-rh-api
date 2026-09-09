@@ -13,6 +13,13 @@ import EmployeeSyncRepositoryMysql from './employee_sync.repository.mysql.js'
 import { assertTransition } from './employee_sync_state.js'
 import type { EmployeeSyncRepository } from './employee_sync.repository.js'
 
+/**
+ * Tope del correlativo: nueve digitos es lo que acepta el patron del PIN, y
+ * ningun equipo del catalogo llega a esa cantidad de personas. El limite existe
+ * para que la busqueda termine, no porque se espere alcanzarlo.
+ */
+const MAX_CORRELATIVE_PIN = 999_999_999
+
 /** Limite del firmware no medido; nueve digitos es lo que acepta el catalogo. */
 export const ACCESS_POINT_PIN_PATTERN = /^\d{1,9}$/
 
@@ -24,7 +31,6 @@ export interface AssignInput {
   accessPointId: number
   businessUnitId: number
   employeeId: number
-  employeeCode: string | null
   pin?: string | null
   actor: SyncActor
 }
@@ -65,7 +71,11 @@ export default class EmployeeSyncService {
         input.employeeId
       )
 
-      const proposedPin = this.proposePin(input.pin, input.employeeCode)
+      const proposedPin = await this.proposePin(
+        input.accessPointId,
+        input.pin,
+        existing?.accessPointEmployeePin ?? null
+      )
       if (proposedPin !== null) {
         await this.assertPinFree(input.accessPointId, proposedPin, existing?.accessPointEmployeeId)
       }
@@ -80,6 +90,7 @@ export default class EmployeeSyncService {
         existing.deletedAt = null
         existing.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN
         existing.accessPointEmployeePin = proposedPin ?? ''
+        existing.accessPointEmployeePinSource = ACCESS_POINT_EMPLOYEE_PIN_SOURCE.ASSIGNED
         await this.repository.save(existing)
         await this.repository.recordEvent({
           accessPointEmployeeId: existing.accessPointEmployeeId,
@@ -101,9 +112,7 @@ export default class EmployeeSyncService {
       pivot.employeeId = input.employeeId
       pivot.accessPointEmployeePin = proposedPin ?? ''
       pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN
-      pivot.accessPointEmployeePinSource = input.pin
-        ? ACCESS_POINT_EMPLOYEE_PIN_SOURCE.ASSIGNED
-        : ACCESS_POINT_EMPLOYEE_PIN_SOURCE.LEGACY
+      pivot.accessPointEmployeePinSource = ACCESS_POINT_EMPLOYEE_PIN_SOURCE.ASSIGNED
       await this.repository.save(pivot)
 
       return this.applyProposedPin(pivot, proposedPin, input)
@@ -314,8 +323,24 @@ export default class EmployeeSyncService {
     return results
   }
 
-  /** PIN propuesto: el declarado, o el codigo del colaborador si sirve. */
-  private proposePin(pin: string | null | undefined, employeeCode: string | null): string | null {
+  /**
+   * PIN propuesto: el declarado, o el primer numero libre de ese equipo.
+   *
+   * Correlativo por aparato y no el codigo del colaborador: el codigo puede
+   * tener ocho digitos y hay firmwares que no los aceptan, ademas de que nadie
+   * quiere teclear eso frente a la puerta. El numero se busca dentro del
+   * bloqueo del equipo, asi que dos altas simultaneas no pueden llevarse el
+   * mismo.
+   *
+   * "Libre" excluye los PIN de las bajas sin confirmar: hasta que el aparato
+   * dice que borro el registro, ese numero sigue siendo de quien lo tenia y
+   * dárselo a otro haria que sus checadas se acreditaran mal.
+   */
+  private async proposePin(
+    accessPointId: number,
+    pin: string | null | undefined,
+    currentPin: string | null
+  ): Promise<string | null> {
     if (pin && ACCESS_POINT_PIN_PATTERN.test(pin)) return pin
     if (pin) {
       throw new AdmsError(
@@ -325,7 +350,20 @@ export default class EmployeeSyncService {
         'pin-invalido'
       )
     }
-    if (employeeCode && ACCESS_POINT_PIN_PATTERN.test(employeeCode)) return employeeCode
+
+    const taken = new Set(await this.repository.listTakenPins(accessPointId))
+
+    /**
+     * Quien vuelve al mismo equipo recupera su numero si sigue libre: las
+     * checadas viejas de ese PIN son suyas y cambiarselo sin necesidad rompe
+     * la continuidad del historial.
+     */
+    if (currentPin && currentPin.length > 0 && !taken.has(currentPin)) return currentPin
+
+    for (let candidate = 1; candidate <= MAX_CORRELATIVE_PIN; candidate += 1) {
+      const value = String(candidate)
+      if (!taken.has(value)) return value
+    }
     return null
   }
 
@@ -346,7 +384,7 @@ export default class EmployeeSyncService {
       toPin: proposedPin,
       toStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING,
       actorUserId: input.actor.userId,
-      detail: input.pin ? null : 'PIN tomado del codigo del colaborador',
+      detail: input.pin ? null : 'PIN correlativo del equipo',
     })
     return pivot
   }

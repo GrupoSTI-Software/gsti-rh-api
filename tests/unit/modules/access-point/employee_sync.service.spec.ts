@@ -29,6 +29,7 @@ interface Options {
   pivot?: AccessPointEmployee | null
   withTrashed?: AccessPointEmployee | null
   pinHolders?: AccessPointEmployee[]
+  takenPins?: string[]
   live?: AccessPointEmployee[]
   enqueueThrows?: boolean
 }
@@ -51,6 +52,9 @@ function makeService(options: Options = {}) {
     },
     async findByPin() {
       return options.pinHolders ?? []
+    },
+    async listTakenPins() {
+      return options.takenPins ?? []
     },
     async listLiveByEmployee() {
       return options.live ?? []
@@ -329,40 +333,67 @@ test.group('Reasignacion', () => {
       accessPointId: 12,
       businessUnitId: 1,
       employeeId: 77,
-      employeeCode: '9999',
       actor: ACTOR,
     })
     assert.isNull(pivot.deletedAt)
     assert.equal(events[0].kind, 'reassigned')
   })
 
-  test('el codigo del colaborador se propone como PIN si sirve', async ({ assert }) => {
-    const { service, events } = makeService({ withTrashed: null, pivot: null })
+  test('el PIN correlativo queda asentado en el historial', async ({ assert }) => {
+    const { service, events } = makeService({ withTrashed: null, pivot: null, takenPins: ['1'] })
     await service.assign({
       accessPointId: 12,
       businessUnitId: 1,
       employeeId: 77,
-      employeeCode: '4321',
       actor: ACTOR,
     })
     const asignado = events.find((event) => event.kind === 'pin_assigned')
     assert.isDefined(asignado)
-    assert.equal(asignado?.toPin, '4321')
-    assert.equal(asignado?.detail, 'PIN tomado del codigo del colaborador')
+    assert.equal(asignado?.toPin, '2')
+    assert.equal(asignado?.detail, 'PIN correlativo del equipo')
+  })
+})
+
+test.group('PIN correlativo por equipo', () => {
+  test('el primer colaborador del equipo se lleva el 1', async ({ assert }) => {
+    const { service, saved } = makeService({ takenPins: [] })
+
+    await service.assign({
+      accessPointId: 7,
+      businessUnitId: 3,
+      employeeId: 11,
+      actor: { userId: 1 },
+    })
+
+    // El codigo del colaborador ya no manda: ocho digitos no caben en todos
+    // los firmwares y nadie los teclea frente a la puerta.
+    assert.equal(saved[0].accessPointEmployeePin, '1')
   })
 
-  test('un codigo que no sirve como PIN deja la fila esperando uno', async ({ assert }) => {
-    const { service, events } = makeService({ withTrashed: null, pivot: null })
+  test('salta los numeros que ya estan dados en ese equipo', async ({ assert }) => {
+    const { service, saved } = makeService({ takenPins: ['1', '2', '4'] })
+
     await service.assign({
-      accessPointId: 12,
-      businessUnitId: 1,
-      employeeId: 77,
-      employeeCode: 'EMP-77',
-      actor: ACTOR,
+      accessPointId: 7,
+      businessUnitId: 3,
+      employeeId: 11,
+      actor: { userId: 1 },
     })
-    assert.lengthOf(
-      events.filter((event) => event.kind === 'pin_assigned'),
-      0
-    )
+
+    assert.equal(saved[0].accessPointEmployeePin, '3')
+  })
+
+  test('un PIN explicito gana sobre el correlativo', async ({ assert }) => {
+    const { service, saved } = makeService({ takenPins: ['1'] })
+
+    await service.assign({
+      accessPointId: 7,
+      businessUnitId: 3,
+      employeeId: 11,
+      pin: '55',
+      actor: { userId: 1 },
+    })
+
+    assert.equal(saved[0].accessPointEmployeePin, '55')
   })
 })

@@ -88,8 +88,8 @@ export default class EmployeeAssignmentService {
    * fila -- partir el historial de ese par en dos filas perderia el rastro de
    * quien lo dio de baja y cuando.
    *
-   * El alta se delega en el modulo de sincronizacion, que propone el PIN desde
-   * el codigo del colaborador, y en la misma operacion se encola hacia el
+   * El alta se delega en el modulo de sincronizacion, que toma el primer PIN
+   * libre de ese equipo, y en la misma operacion se encola hacia el
    * aparato: asignar sin enviar dejaba a la persona dada de alta en la pantalla
    * y desconocida para el checador, que es la diferencia entre poder marcar y
    * no poder. Sin PIN no se envia nada -- no hay con que identificarla -- y el
@@ -133,7 +133,6 @@ export default class EmployeeAssignmentService {
       accessPointId,
       businessUnitId,
       employeeId,
-      employeeCode: employee.employeeCode !== null ? String(employee.employeeCode) : null,
       actor,
     })
 
