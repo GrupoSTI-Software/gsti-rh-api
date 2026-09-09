@@ -141,7 +141,9 @@ test.group('ADMS matriz empleado por dispositivo (rebanada 7)', (group) => {
       return
     }
     response.assertStatus(200)
-    assert.equal(response.body().data.accessPointEmployee.pin, PIN)
+    // El numero no viaja al cliente: es la credencial con la que se marca.
+    assert.isUndefined(response.body().data.accessPointEmployee.pin)
+    assert.isTrue(response.body().data.accessPointEmployee.hasPin)
     assert.equal(response.body().data.accessPointEmployee.syncStatus, 'pending')
     assert.isFalse(response.body().data.accessPointEmployee.pinQuarantined)
   })
@@ -162,11 +164,10 @@ test.group('ADMS matriz empleado por dispositivo (rebanada 7)', (group) => {
     response.assertStatus(200)
     const payload = response.body().data.employeeDevices as {
       employeeId: number
-      suggestedPin: string | null
       accessPoints: Array<{
         accessPointId: number
         name: string
-        pin: string | null
+        hasPin: boolean
         syncStatus: string
         connection: string
         pinQuarantined: boolean
@@ -175,12 +176,15 @@ test.group('ADMS matriz empleado por dispositivo (rebanada 7)', (group) => {
     }
 
     assert.equal(payload.employeeId, employee.employeeId)
+    // Nada en la carga util lleva el numero del colaborador.
+    assert.notInclude(JSON.stringify(payload), PIN)
     const mio = payload.accessPoints.find(
       (row) => row.accessPointId === accessPoint.accessPointId
     )
     assert.isDefined(mio)
-    // El PIN de la prueba anterior ya vive en el pivote.
-    assert.equal(mio?.pin, PIN)
+    // El PIN de la prueba anterior ya vive en el pivote, pero no sale de aqui.
+    assert.isTrue(mio?.hasPin)
+    assert.notProperty(mio ?? {}, 'pin')
     assert.equal(mio?.syncStatus, 'pending')
     // El equipo del fixture nunca ha llamado: no esta "caido", nunca conecto.
     assert.equal(mio?.connection, 'never')

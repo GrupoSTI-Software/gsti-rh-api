@@ -1,9 +1,6 @@
 import type AccessPoint from '#models/access_point'
 import type AccessPointEmployee from '#models/access_point_employee'
-import type {
-  AccessPointEmployeePinSource,
-  AccessPointEmployeeSyncStatus,
-} from '#models/access_point_employee'
+import type { AccessPointEmployeeSyncStatus } from '#models/access_point_employee'
 import type { DateTime } from 'luxon'
 import type { AdmsHealthStatus } from '#modules/access-point/health/health.constants'
 import { statusOf } from '#modules/access-point/health/health.service'
@@ -26,8 +23,14 @@ export interface EmployeeAccessPointDto {
   /** Estado de conexion del equipo al momento de la consulta. */
   connection: AdmsHealthStatus
   lastSeenAt: string | null
-  pin: string | null
-  pinSource: AccessPointEmployeePinSource
+  /**
+   * Si ya tiene numero en ese equipo, no cual.
+   *
+   * El PIN es la credencial con la que se marca: quien lo conoce puede
+   * teclearlo en el aparato y checar por otro. La pantalla del cliente solo
+   * necesita saber si el alta puede salir, y para eso basta el booleano.
+   */
+  hasPin: boolean
   syncStatus: AccessPointEmployeeSyncStatus
   /** El PIN no se puede reasignar a otra persona mientras esto sea verdadero. */
   pinQuarantined: boolean
@@ -51,8 +54,7 @@ export function toEmployeeAccessPointDto(
     active: accessPoint.accessPointActive === 1,
     connection: statusOf(accessPoint.accessPointLastConnection, now),
     lastSeenAt: accessPoint.accessPointLastConnection?.toISO() ?? null,
-    pin: pin && pin.length > 0 ? pin : null,
-    pinSource: pivot.accessPointEmployeePinSource,
+    hasPin: Boolean(pin && pin.length > 0),
     syncStatus: pivot.accessPointEmployeeSyncStatus,
     pinQuarantined: isPinQuarantined(pivot.accessPointEmployeeSyncStatus),
     syncRequestedAt: pivot.accessPointEmployeeSyncRequestedAt?.toISO() ?? null,
@@ -72,14 +74,6 @@ export interface EmployeeBiometricSummaryDto {
 
 export interface EmployeeDevicesDto {
   employeeId: number
-  /**
-   * PIN que se propone cuando el colaborador entra a un equipo nuevo.
-   *
-   * Es su codigo de empleado: es el numero con el que los equipos ya venian
-   * cargados y el que el canal infiere cuando ve un PIN suelto, asi que
-   * proponer otro obligaria a reconciliar a mano lo que hoy casa solo.
-   */
-  suggestedPin: string | null
   accessPoints: EmployeeAccessPointDto[]
   biometrics: EmployeeBiometricSummaryDto
 }

@@ -215,7 +215,6 @@ export default class EmployeeSyncController {
 
       const payload: EmployeeDevicesDto = {
         employeeId: employee.employeeId,
-        suggestedPin: proposedPinFor(employee.employeeCode),
         accessPoints: rows,
         biometrics: await countBiometrics(employee.employeeId),
       }
@@ -342,18 +341,6 @@ function nameOf(employee: Employee): string {
     .trim()
 }
 
-/**
- * PIN que se propone en un equipo nuevo: el codigo del colaborador.
- *
- * Es el mismo criterio que ya aplica el alta, y el que el canal infiere cuando
- * ve un PIN suelto. Un codigo que no sea numerico no sirve como PIN y se
- * devuelve vacio para que la pantalla pida uno.
- */
-function proposedPinFor(employeeCode: number | string | null): string | null {
-  if (employeeCode === null || employeeCode === undefined) return null
-  const code = String(employeeCode)
-  return /^\d{1,9}$/.test(code) ? code : null
-}
 
 /** Biometricos resguardados del colaborador, por modalidad. */
 async function countBiometrics(employeeId: number): Promise<EmployeeBiometricSummaryDto> {

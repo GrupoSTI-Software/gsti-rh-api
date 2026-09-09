@@ -1,16 +1,19 @@
 import type AccessPointEmployee from '#models/access_point_employee'
-import type {
-  AccessPointEmployeePinSource,
-  AccessPointEmployeeSyncStatus,
-} from '#models/access_point_employee'
+import type { AccessPointEmployeeSyncStatus } from '#models/access_point_employee'
 import { isPinQuarantined } from '../employee_sync_state.js'
 
 export interface EmployeeSyncDto {
   accessPointEmployeeId: number
   accessPointId: number
   employeeId: number
-  pin: string | null
-  pinSource: AccessPointEmployeePinSource
+  /**
+   * Si ya tiene numero en ese equipo, no cual.
+   *
+   * El PIN es la credencial con la que se marca: quien lo conoce puede
+   * teclearlo en el aparato y checar por otro. Ninguna respuesta del cliente lo
+   * lleva; para operar basta saber si el alta puede salir.
+   */
+  hasPin: boolean
   syncStatus: AccessPointEmployeeSyncStatus
   /** El PIN no se puede reasignar mientras esto sea verdadero. */
   pinQuarantined: boolean
@@ -27,8 +30,7 @@ export function toEmployeeSyncDto(pivot: AccessPointEmployee): EmployeeSyncDto {
     accessPointEmployeeId: pivot.accessPointEmployeeId,
     accessPointId: pivot.accessPointId,
     employeeId: pivot.employeeId,
-    pin: pin && pin.length > 0 ? pin : null,
-    pinSource: pivot.accessPointEmployeePinSource,
+    hasPin: Boolean(pin && pin.length > 0),
     syncStatus: pivot.accessPointEmployeeSyncStatus,
     pinQuarantined: isPinQuarantined(pivot.accessPointEmployeeSyncStatus),
     syncRequestedAt: pivot.accessPointEmployeeSyncRequestedAt?.toISO() ?? null,
