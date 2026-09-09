@@ -11,6 +11,9 @@ import {
   resolveScopedEmployee,
 } from '#modules/access-point/access_point_authorization'
 import { toDeviceCommandDto } from '#modules/device-commands/dto/device_command.dto'
+import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
+import { DeviceCommandError } from '#exceptions/device_command_error'
+import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
 import FingerprintEnrollmentService from '../enrollment/fingerprint_enrollment.service.js'
 import DeviceFaceService from '../photo/device_face.service.js'
 import ReplicationService from '../replication/replication.service.js'
@@ -34,6 +37,15 @@ const replicationValidator = vine.compile(
     sourceAccessPointId: vine.number().positive(),
     targetAccessPointIds: vine.array(vine.number().positive()).minLength(1),
     modalities: vine.array(vine.enum(['fingerprint', 'face'] as const)).optional(),
+  })
+)
+
+const enrollmentStatusValidator = vine.compile(
+  vine.object({
+    params: vine.object({
+      employeeId: vine.number().positive(),
+      commandId: vine.number().positive(),
+    }),
   })
 )
 
@@ -203,6 +215,74 @@ export default class DeviceBiometricsController {
         ),
         200,
         dryRun ? 'preview' : 'results'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/employees/{employeeId}/device-biometrics/commands/{commandId}:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Biometricos]
+   *     summary: Estado del comando que se le pidio al checador
+   *     responses:
+   *       200:
+   *         description: El comando en data.command
+   *       404:
+   *         description: El comando no es de ese colaborador (key comando-no-encontrado)
+   */
+  /**
+   * Como va la captura que se pidio.
+   *
+   * Cuelga del colaborador y pide el permiso de LECTURA de su pestaña de
+   * biometricos, no el del catalogo de equipos: quien lanza una captura tiene
+   * que poder ver como termino, y el permiso de la flota es de otro modulo --
+   * exigirlo aqui dejaria al operador de RH mirando una espera que nunca cierra.
+   *
+   * El comando tiene que ser del colaborador del path. Uno de otra persona se
+   * responde como inexistente en vez de negado: quien pregunta no tiene por que
+   * enterarse de que ese identificador existe.
+   */
+  async enrollmentStatus(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(
+        ctx,
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeBiometrics
+      )
+      const payload = await request.validateUsing(enrollmentStatusValidator, {
+        data: { params: request.params() },
+      })
+
+      const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
+
+      const repository = new DeviceCommandRepositoryMysql()
+      const command = await repository.findById(payload.params.commandId)
+      if (!command || command.employeeId !== employee.employeeId) {
+        throw new DeviceCommandError(
+          'El comando no existe o no es de ese colaborador',
+          DEVICE_COMMAND_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+          404,
+          'comando-no-encontrado',
+          'La captura que consultas no existe para este colaborador.'
+        )
+      }
+
+      // El equipo se vuelve a resolver con el alcance de la peticion: la fila
+      // del comando guarda su identificador, no el permiso para verlo.
+      const accessPoint = await resolveScopedAccessPoint(ctx, command.accessPointId)
+
+      return StandardResponseFormatter.success(
+        response,
+        toDeviceCommandDto(command, accessPoint.accessPointLastConnection ?? null, DateTime.utc()),
+        i18n.formatMessage('device_command_title'),
+        i18n.formatMessage('device_command_status_message'),
+        200,
+        'command'
       )
     } catch (error) {
       return respondAdmsApiError(response, i18n, error)

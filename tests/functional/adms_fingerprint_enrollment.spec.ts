@@ -372,4 +372,57 @@ test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
     )
     assert.equal(despues[0].$extras.total, antes[0].$extras.total)
   })
+
+  /**
+   * El Backoffice sondea este endpoint mientras la persona esta frente al
+   * lector: sin el, el modal de espera no tiene como enterarse del desenlace.
+   *
+   * La asercion admite el 403 porque el usuario del fixture no siempre trae el
+   * permiso de la pestaña de biometricos --el mismo criterio que la prueba de
+   * arriba--; lo que se exige en ambos caminos es que la respuesta sea del
+   * canal y no una ruta inexistente.
+   */
+  test('el estado de la captura se consulta desde la pestaña del colaborador', async ({
+    client,
+    assert,
+  }) => {
+    // Se encola por el canal y no por HTTP: aqui se prueba la lectura del
+    // estado, no la puerta del consentimiento --que ya tiene su propia prueba
+    // y que este colaborador, a proposito, no ha cruzado.
+    const encolado = await enqueueEnrollment(4)
+
+    const response = await client
+      .get(
+        `/api/v1/employees/${employee.employeeId}/device-biometrics/commands/${encolado.deviceCommandId}`
+      )
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    if (response.status() === 200) {
+      const command = response.body().data.command as Record<string, unknown>
+      assert.equal(command.id, encolado.deviceCommandId)
+      assert.equal(command.kind, 'enroll_fp')
+      assert.property(command, 'status')
+      assert.property(command, 'stale')
+      // El payload lleva el template del colaborador: nunca sale al cliente.
+      assert.notProperty(command, 'payload')
+      return
+    }
+
+    assert.equal(response.status(), 403)
+    assert.equal(response.body().key, 'sin-permiso')
+  })
+
+  test('un identificador de comando que no existe se responde como no encontrado', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/v1/employees/${employee.employeeId}/device-biometrics/commands/999999999`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    assert.include([403, 404], response.status())
+    assert.include(['sin-permiso', 'comando-no-encontrado'], response.body().key)
+  })
 })

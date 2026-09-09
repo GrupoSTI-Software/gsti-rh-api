@@ -15,6 +15,14 @@ router
       '/:employeeId/device-biometrics/fingerprint-enrollment',
       '#modules/biometric-vault/device-biometrics/device_biometrics.controller.enrollFingerprint'
     )
+    /**
+     * Lectura: como va la captura que se pidio. El Backoffice la sondea
+     * mientras espera al aparato, asi que responde el comando y nada mas.
+     */
+    router.get(
+      '/:employeeId/device-biometrics/commands/:commandId',
+      '#modules/biometric-vault/device-biometrics/device_biometrics.controller.enrollmentStatus'
+    )
     router.post(
       '/:employeeId/device-biometrics/face/enable',
       '#modules/biometric-vault/device-biometrics/device_biometrics.controller.enableFace'

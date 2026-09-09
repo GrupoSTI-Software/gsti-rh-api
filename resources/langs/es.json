@@ -2976,6 +2976,7 @@
   "employee_sync_send_message": "Se encoló el alta del colaborador en el checador",
   "employee_sync_revoke_message": "Se pidió el borrado del colaborador; el PIN queda reservado hasta que el equipo lo confirme",
   "device_command_title": "Comando del checador",
+  "device_command_status_message": "Estado de la captura solicitada al checador",
   "device_clock_title": "Reloj del checador",
   "device_clock_queued_message": "Se encoló el ajuste de la hora; quedará confirmado cuando una checada lo demuestre",
   "device_clock_already_queued_message": "Ya había un ajuste de hora en la cola para este equipo",

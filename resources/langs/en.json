@@ -2973,6 +2973,7 @@
   "employee_sync_send_message": "The employee enrollment was queued for the device",
   "employee_sync_revoke_message": "Removal was requested; the PIN stays reserved until the device confirms",
   "device_command_title": "Device command",
+  "device_command_status_message": "Status of the capture requested from the device",
   "device_clock_title": "Device clock",
   "device_clock_queued_message": "Clock adjustment queued; it stays unconfirmed until a punch proves it",
   "device_clock_already_queued_message": "There was already a clock adjustment queued for this device",
