@@ -65,6 +65,28 @@ export function toEmployeeAccessPointDto(
   }
 }
 
+/**
+ * Un checador al que todavia se puede meter al colaborador.
+ *
+ * Lleva lo que hace falta para reconocerlo al elegirlo: el alias que le puso la
+ * empresa, el nombre que el propio aparato declara y su modelo, que es lo que
+ * resuelve la imagen. La unidad de negocio no distingue nada cuando todos los
+ * equipos son de la misma.
+ */
+export interface EmployeeAvailableAccessPointDto {
+  accessPointId: number
+  name: string
+  deviceName: string | null
+  serialNumber: string | null
+  connection: AdmsHealthStatus
+  model: {
+    platformDeviceModelId: number
+    brand: string
+    name: string
+    slug: string
+  } | null
+}
+
 /** Biometricos que el colaborador tiene resguardados, por modalidad. */
 export interface EmployeeBiometricSummaryDto {
   fingerprints: number
@@ -75,5 +97,7 @@ export interface EmployeeBiometricSummaryDto {
 export interface EmployeeDevicesDto {
   employeeId: number
   accessPoints: EmployeeAccessPointDto[]
+  /** Equipos de la empresa donde la persona todavia no esta dada de alta. */
+  available: EmployeeAvailableAccessPointDto[]
   biometrics: EmployeeBiometricSummaryDto
 }

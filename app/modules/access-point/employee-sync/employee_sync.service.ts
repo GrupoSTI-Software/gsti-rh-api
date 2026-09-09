@@ -51,8 +51,12 @@ export default class EmployeeSyncService {
   ) {}
 
   /**
-   * Asigna al colaborador en el equipo. Si ya estuvo y se revoco, la fila
-   * revive en vez de crear otra: el historial de ese par no se parte en dos.
+   * Asigna al colaborador en el equipo.
+   *
+   * Si ya estuvo y salio, la fila revive en vez de crear otra: el historial de
+   * ese par no se parte en dos. Sale por dos caminos distintos -- el borrado
+   * logico de la asignacion vieja y el `revoked` que deja una baja confirmada
+   * por el aparato -- y los dos vuelven aqui.
    */
   async assign(input: AssignInput): Promise<AccessPointEmployee> {
     return this.repository.withDeviceLock(input.accessPointId, async () => {
@@ -66,7 +70,13 @@ export default class EmployeeSyncService {
         await this.assertPinFree(input.accessPointId, proposedPin, existing?.accessPointEmployeeId)
       }
 
-      if (existing && existing.deletedAt !== null) {
+      const salioDelEquipo =
+        existing !== null &&
+        (existing.deletedAt !== null ||
+          existing.accessPointEmployeeSyncStatus ===
+            ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+
+      if (existing && salioDelEquipo) {
         existing.deletedAt = null
         existing.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN
         existing.accessPointEmployeePin = proposedPin ?? ''

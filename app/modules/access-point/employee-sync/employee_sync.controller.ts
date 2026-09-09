@@ -16,9 +16,13 @@ import { toEmployeeSyncDto } from './dto/employee_sync.dto.js'
 import {
   toEmployeeAccessPointDto,
   type EmployeeAccessPointDto,
+  type EmployeeAvailableAccessPointDto,
   type EmployeeBiometricSummaryDto,
   type EmployeeDevicesDto,
 } from './dto/employee_access_point.dto.js'
+import { statusOf } from '#modules/access-point/health/health.service'
+import { TenantContext } from '#utils/tenant_context'
+import db from '@adonisjs/lucid/services/db'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import AccessPoint from '#models/access_point'
@@ -216,6 +220,11 @@ export default class EmployeeSyncController {
       const payload: EmployeeDevicesDto = {
         employeeId: employee.employeeId,
         accessPoints: rows,
+        available: await availableFor(
+          ctx.businessUnitScope ?? [],
+          new Set(rows.map((row) => row.accessPointId)),
+          now
+        ),
         biometrics: await countBiometrics(employee.employeeId),
       }
 
@@ -360,4 +369,88 @@ async function countBiometrics(employeeId: number): Promise<EmployeeBiometricSum
     faces: byType.get(BIO_TYPE.FACE) ?? 0,
     palms: byType.get(BIO_TYPE.PALM) ?? 0,
   }
+}
+
+/** El catalogo de modelos es de plataforma, no de una empresa. */
+const MODEL_UNSCOPED_REASON =
+  'alta en checador: el catalogo de modelos es de plataforma, no de una empresa'
+
+/**
+ * Checadores del alcance donde la persona todavia no esta.
+ *
+ * Viajan con la ficha y no en su propia llamada porque se usan en el mismo
+ * momento -- al abrir el alta -- y porque asi el permiso es uno solo: el de la
+ * pestaña de biometricos, no el del catalogo de equipos.
+ */
+async function availableFor(
+  businessUnitIds: number[],
+  taken: Set<number>,
+  now: DateTime
+): Promise<EmployeeAvailableAccessPointDto[]> {
+  if (businessUnitIds.length === 0) return []
+
+  const accessPoints = await AccessPoint.query()
+    .whereIn('business_unit_id', businessUnitIds)
+    .where('access_point_active', 1)
+    .orderBy('access_point_name', 'asc')
+
+  const candidates = accessPoints.filter((row) => !taken.has(row.accessPointId))
+  if (candidates.length === 0) return []
+
+  const models = await modelsOf(candidates)
+
+  return candidates.map((accessPoint) => ({
+    accessPointId: accessPoint.accessPointId,
+    name: accessPoint.accessPointName,
+    deviceName: accessPoint.accessPointDeviceName ?? null,
+    serialNumber: accessPoint.accessPointSerialNumber,
+    connection: statusOf(accessPoint.accessPointLastConnection, now),
+    model: models.get(accessPoint.accessPointId) ?? null,
+  }))
+}
+
+/** Modelo de catalogo por equipo, en una sola consulta. */
+async function modelsOf(
+  accessPoints: AccessPoint[]
+): Promise<Map<number, EmployeeAvailableAccessPointDto['model']>> {
+  const byDeviceId = new Map<number, number>()
+  for (const accessPoint of accessPoints) {
+    if (accessPoint.platformDeviceId) {
+      byDeviceId.set(accessPoint.platformDeviceId, accessPoint.accessPointId)
+    }
+  }
+  if (byDeviceId.size === 0) return new Map()
+
+  const rows = await TenantContext.runUnscoped(
+    () =>
+      db
+        .from('platform_devices as d')
+        .innerJoin(
+          'platform_device_models as m',
+          'm.platform_device_model_id',
+          'd.platform_device_model_id'
+        )
+        .whereIn('d.platform_device_id', [...byDeviceId.keys()])
+        .select(
+          'd.platform_device_id',
+          'm.platform_device_model_id',
+          'm.platform_device_model_brand',
+          'm.platform_device_model_name',
+          'm.platform_device_model_slug'
+        ),
+    MODEL_UNSCOPED_REASON
+  )
+
+  const result = new Map<number, EmployeeAvailableAccessPointDto['model']>()
+  for (const row of rows) {
+    const accessPointId = byDeviceId.get(Number(row.platform_device_id))
+    if (!accessPointId) continue
+    result.set(accessPointId, {
+      platformDeviceModelId: Number(row.platform_device_model_id),
+      brand: String(row.platform_device_model_brand),
+      name: String(row.platform_device_model_name),
+      slug: String(row.platform_device_model_slug),
+    })
+  }
+  return result
 }

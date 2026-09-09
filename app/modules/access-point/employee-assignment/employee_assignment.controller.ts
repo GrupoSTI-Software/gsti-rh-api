@@ -63,7 +63,8 @@ export default class EmployeeAssignmentController {
       const assignment = await service.assign(
         params.accessPointId,
         params.employeeId,
-        businessUnitScope
+        businessUnitScope,
+        ctx.auth.user?.userId ?? null
       )
 
       return StandardResponseFormatter.success(

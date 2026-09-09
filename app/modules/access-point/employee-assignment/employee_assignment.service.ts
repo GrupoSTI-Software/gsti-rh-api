@@ -6,6 +6,9 @@ import {
   type AccessPointEmployeeDto,
 } from './dto/employee_assignment.dto.js'
 import EmployeeAssignmentRepositoryMysql from './employee_assignment.repository.mysql.js'
+import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
+import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
+import Employee from '#models/employee'
 import type EmployeeAssignmentRepository from './employee_assignment.repository.js'
 import type { BusinessUnitScope } from './employee_assignment.repository.js'
 
@@ -19,9 +22,16 @@ export default class EmployeeAssignmentService {
   private readonly i18n: I18n
   private readonly repository: EmployeeAssignmentRepository
 
-  constructor(i18n: I18n, repository?: EmployeeAssignmentRepository) {
+  private readonly sync: EmployeeSyncService
+
+  constructor(
+    i18n: I18n,
+    repository?: EmployeeAssignmentRepository,
+    sync?: EmployeeSyncService
+  ) {
     this.i18n = i18n
     this.repository = repository ?? new EmployeeAssignmentRepositoryMysql()
+    this.sync = sync ?? new EmployeeSyncService()
   }
 
   /** Traduce una clave con el idioma de la petición. */
@@ -71,26 +81,39 @@ export default class EmployeeAssignmentService {
   /**
    * Asigna el empleado al punto de acceso.
    *
-   * La operación no es idempotente a propósito: reasignar algo ya asignado
-   * responde conflicto, para que el backoffice pueda avisar en vez de crear un
-   * duplicado silencioso.
+   * Reasignar a alguien que YA esta dado de alta responde conflicto, para que
+   * el backoffice avise en vez de crear un duplicado silencioso. Un vinculo
+   * `revoked` no cuenta como asignado: ahi el aparato confirmo que la persona
+   * salio, y volver a meterla es una operacion legitima que revive la misma
+   * fila -- partir el historial de ese par en dos filas perderia el rastro de
+   * quien lo dio de baja y cuando.
+   *
+   * El alta se delega en el modulo de sincronizacion, que es el que sabe
+   * proponer el PIN desde el codigo del colaborador y dejar el vinculo listo
+   * para enviarse al equipo. Crear la fila pelada aqui dejaba a la persona sin
+   * numero y sin forma de llegar al aparato.
    *
    * @param accessPointId Punto de acceso destino.
    * @param employeeId Empleado a asignar.
    * @param scope Alcance de unidades de negocio de la petición.
-   * @returns La asignación creada.
+   * @param actorUserId Quien pide el alta, para el historial del pivote.
+   * @returns La asignación creada o revivida.
    * @throws AccessPointEmployeeServiceError si algún extremo no existe o ya estaba asignado.
    */
   async assign(
     accessPointId: number,
     employeeId: number,
-    scope: BusinessUnitScope
+    scope: BusinessUnitScope,
+    actorUserId: number | null = null
   ): Promise<AccessPointEmployeeDto> {
     await this.assertBothExist(accessPointId, employeeId, scope)
 
     const existing = await this.repository.findAssignment(accessPointId, employeeId, scope)
 
-    if (existing) {
+    if (
+      existing &&
+      existing.accessPointEmployeeSyncStatus !== ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
+    ) {
       throw new AccessPointEmployeeServiceError({
         key: 'asignacion-duplicada',
         errorCode: ACCESS_POINT_EMPLOYEE_ERROR_CODES.ALREADY_ASSIGNED,
@@ -100,9 +123,16 @@ export default class EmployeeAssignmentService {
       })
     }
 
-    const created = await this.repository.createAssignment(accessPointId, employeeId)
+    const employee = await Employee.query().where('employee_id', employeeId).firstOrFail()
+    const pivot = await this.sync.assign({
+      accessPointId,
+      businessUnitId: employee.businessUnitId as number,
+      employeeId,
+      employeeCode: employee.employeeCode !== null ? String(employee.employeeCode) : null,
+      actor: { userId: actorUserId },
+    })
 
-    return toAccessPointEmployeeDto(created)
+    return toAccessPointEmployeeDto(pivot)
   }
 
   /**

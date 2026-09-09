@@ -45,6 +45,11 @@ const TRANSITIONS: Readonly<
     ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_FAILED,
   ],
   [ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_FAILED]: [ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKING],
+  /**
+   * Terminal por transicion. Se vuelve al camino de alta solo por una
+   * reasignacion explicita, que `assign` hace fuera de esta maquina y con su
+   * propio evento: es un acto de alguien, no el avance de un estado.
+   */
   [ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED]: [],
 }
 

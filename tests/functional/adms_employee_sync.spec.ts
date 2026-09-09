@@ -3,7 +3,9 @@ import { DateTime } from 'luxon'
 import env from '#start/env'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
-import AccessPointEmployee from '#models/access_point_employee'
+import AccessPointEmployee, {
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
+} from '#models/access_point_employee'
 import AccessPointEmployeeEvent from '#models/access_point_employee_event'
 import AccessPointProfile from '#models/access_point_profile'
 import AdmsHeldPunch from '#models/adms_held_punch'
@@ -172,6 +174,12 @@ test.group('ADMS matriz empleado por dispositivo (rebanada 7)', (group) => {
         connection: string
         pinQuarantined: boolean
       }>
+      available: Array<{
+        accessPointId: number
+        name: string
+        deviceName: string | null
+        model: { slug: string } | null
+      }>
       biometrics: { fingerprints: number; faces: number; palms: number }
     }
 
@@ -190,6 +198,10 @@ test.group('ADMS matriz empleado por dispositivo (rebanada 7)', (group) => {
     assert.equal(mio?.connection, 'never')
     assert.isFalse(mio?.pinQuarantined)
     assert.isNumber(payload.biometrics.fingerprints)
+    // Los equipos donde ya esta no se ofrecen para volver a meterlo.
+    assert.isUndefined(
+      payload.available.find((row) => row.accessPointId === accessPoint.accessPointId)
+    )
   })
 
   test('el colaborador de otra empresa responde 404, no 403', async ({ client, assert }) => {
@@ -397,6 +409,65 @@ test.group('ADMS matriz empleado por dispositivo (rebanada 7)', (group) => {
     if (response.status() === 403) return
     response.assertStatus(409)
     assert.equal(response.body().key, 'pin-ocupado')
+  })
+
+  test('volver a dar de alta a quien salio revive la misma fila', async ({ client, assert }) => {
+    const pivotAntes = await TenantContext.run([businessUnitId], () =>
+      AccessPointEmployee.query()
+        .where('access_point_id', accessPoint.accessPointId)
+        .where('employee_id', employee.employeeId)
+        .firstOrFail()
+    )
+
+    // La baja quedo confirmada por el padron del equipo.
+    await TenantContext.run([businessUnitId], async () => {
+      const row = await AccessPointEmployee.findOrFail(pivotAntes.accessPointEmployeeId)
+      row.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
+      await row.save()
+    })
+
+    const response = await client
+      .post(`/api/access-points/${accessPoint.accessPointId}/employee/${employee.employeeId}`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    if (response.status() === 403) {
+      assert.equal(response.body().key, 'sin-permiso')
+      return
+    }
+    response.assertStatus(201)
+
+    const pivotDespues = await TenantContext.run([businessUnitId], () =>
+      AccessPointEmployee.query()
+        .where('access_point_id', accessPoint.accessPointId)
+        .where('employee_id', employee.employeeId)
+        .firstOrFail()
+    )
+    // La misma fila, no una segunda: el historial de ese par no se parte.
+    assert.equal(pivotDespues.accessPointEmployeeId, pivotAntes.accessPointEmployeeId)
+    assert.notEqual(
+      pivotDespues.accessPointEmployeeSyncStatus,
+      ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
+    )
+    // Y vuelve con numero: el alta lo propone desde el codigo del colaborador.
+    assert.isNotEmpty(pivotDespues.accessPointEmployeePin)
+  })
+
+  test('a quien ya esta dado de alta no se le duplica la asignacion', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .post(`/api/access-points/${accessPoint.accessPointId}/employee/${employee.employeeId}`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    if (response.status() === 403) {
+      assert.equal(response.body().key, 'sin-permiso')
+      return
+    }
+    response.assertStatus(409)
+    assert.equal(response.body().key, 'asignacion-duplicada')
   })
 
   test('el historial deja constancia de quien hizo cada cosa', async ({ assert }) => {
