@@ -1,17 +1,60 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import { AdmsError } from '#exceptions/adms_error'
+import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import AccessPointEmployee from '#models/access_point_employee'
 import type { AccessPointEmployeeSyncStatus } from '#models/access_point_employee'
 import AccessPointEmployeeEvent from '#models/access_point_employee_event'
 import { PIN_QUARANTINE_STATUSES } from './employee_sync_state.js'
 import type { EmployeeSyncRepository, SyncEventInput } from './employee_sync.repository.js'
 
+/** Prefijo del cerrojo por equipo. Con nombre, no sobre una fila. */
+const DEVICE_LOCK_PREFIX = 'valanserh:access-point:'
+
+/**
+ * Espera maxima por el cerrojo. Cinco segundos: una alta tarda milisegundos, y
+ * quedarse mas tiempo significa que algo esta atorado, no que haya cola.
+ */
+const DEVICE_LOCK_TIMEOUT_SECONDS = 5
+
 /** Adaptador Lucid del pivote empleado por dispositivo. */
 export default class EmployeeSyncRepositoryMysql implements EmployeeSyncRepository {
+  /**
+   * Serializa las altas de un mismo equipo con un cerrojo con nombre.
+   *
+   * Antes bloqueaba la fila de `access_points` con `FOR UPDATE`. Dejo de
+   * servir cuando `access_point_employees` gano su llave foranea hacia esa
+   * tabla: al insertar el pivote, InnoDB pide un candado compartido sobre la
+   * fila padre, y esa fila la tenia tomada en exclusiva la propia transaccion
+   * del cerrojo. El alta se quedaba esperandose a si misma hasta el tiempo
+   * limite -- no fallaba, se colgaba, que es peor.
+   *
+   * `GET_LOCK` cumple lo mismo sin tocar ninguna fila: es un nombre, no un
+   * registro, asi que ninguna llave foranea lo cruza. La transaccion se
+   * conserva solo para fijar la conexion, porque el cerrojo vive en ella.
+   */
   async withDeviceLock<T>(accessPointId: number, fn: () => Promise<T>): Promise<T> {
+    const name = `${DEVICE_LOCK_PREFIX}${accessPointId}`
     return db.transaction(async (trx) => {
-      await trx.from('access_points').where('access_point_id', accessPointId).forUpdate().first()
-      return fn()
+      const result = await trx.rawQuery('SELECT GET_LOCK(?, ?) AS obtained', [
+        name,
+        DEVICE_LOCK_TIMEOUT_SECONDS,
+      ])
+      const obtained = Number(result?.[0]?.[0]?.obtained ?? 0)
+      if (obtained !== 1) {
+        throw new AdmsError(
+          'El equipo esta ocupado con otra alta',
+          ADMS_ERROR_CODES.SYS_INTERNAL,
+          409,
+          'equipo-ocupado',
+          'Otra operacion sobre este checador sigue en curso. Intenta de nuevo en unos segundos.'
+        )
+      }
+      try {
+        return await fn()
+      } finally {
+        await trx.rawQuery('SELECT RELEASE_LOCK(?)', [name])
+      }
     })
   }
 

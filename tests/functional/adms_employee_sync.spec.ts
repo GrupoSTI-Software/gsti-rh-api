@@ -490,6 +490,52 @@ test.group('ADMS matriz empleado por dispositivo (rebanada 7)', (group) => {
     assert.equal(response.body().key, 'asignacion-duplicada')
   })
 
+  test('dar de alta en un equipo donde nunca estuvo', async ({ client, assert }) => {
+    const otro = await TenantContext.runUnscoped(async () => {
+      const ap = new AccessPoint()
+      ap.accessPointName = `Checador nuevo ${STAMP}`
+      ap.businessUnitId = businessUnitId
+      ap.accessPointActive = 1
+      ap.accessPointSerialNumber = `TEST-ADMS-NEW-${STAMP}`
+      ap.accessPointStatus = 0
+      await ap.save()
+      return ap
+    }, 'equipo nuevo para el alta')
+
+    const response = await client
+      .post(`/api/access-points/${otro.accessPointId}/employee/${employee.employeeId}`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    if (response.status() === 403) {
+      assert.equal(response.body().key, 'sin-permiso')
+      return
+    }
+    if (response.status() !== 201) {
+      // El cuerpo dice que fallo: se muestra para no diagnosticar a ciegas.
+      assert.fail(`status ${response.status()}: ${JSON.stringify(response.body())}`)
+    }
+
+    const pivot = await TenantContext.run([businessUnitId], () =>
+      AccessPointEmployee.query()
+        .where('access_point_id', otro.accessPointId)
+        .where('employee_id', employee.employeeId)
+        .firstOrFail()
+    )
+    // Equipo limpio: el primero se lleva el 1.
+    assert.equal(pivot.accessPointEmployeePin, '1')
+
+    await TenantContext.runUnscoped(async () => {
+      await db.from('access_point_employee_events').whereIn(
+        'access_point_employee_id',
+        [pivot.accessPointEmployeeId]
+      ).delete()
+      await db.from('device_commands').where('access_point_id', otro.accessPointId).delete()
+      await db.from('access_point_employees').where('access_point_id', otro.accessPointId).delete()
+      await db.from('access_points').where('access_point_id', otro.accessPointId).delete()
+    }, 'limpieza del equipo nuevo')
+  })
+
   test('el historial deja constancia de quien hizo cada cosa', async ({ assert }) => {
     const events = await TenantContext.runUnscoped(async () => {
       const pivot = await AccessPointEmployee.query()
