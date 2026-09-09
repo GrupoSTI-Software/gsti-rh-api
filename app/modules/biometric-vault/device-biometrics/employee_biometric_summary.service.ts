@@ -1,3 +1,6 @@
+import AccessPointEmployee, {
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
+} from '#models/access_point_employee'
 import AccessPointProfile from '#models/access_point_profile'
 import DeviceCommand from '#models/device_command'
 import EmployeeBiometric from '#models/employee_biometric'
@@ -27,6 +30,14 @@ export interface EmployeeBiometricSummary {
   face: { registered: boolean; state: BiometricSlotState | null }
   /** Equipo contra el que se resolvieron los estados; `null` si es el consolidado. */
   scopedToAccessPointId: number | null
+  /**
+   * Dedos guardados que no sirven en NINGUN checador asignado al colaborador.
+   *
+   * No estan dentro de ninguno ni son compatibles con ninguno: son dato que se
+   * conserva sin poder usarse. Es lo unico que se puede ofrecer borrar sin
+   * dejar la base diciendo una cosa y un aparato otra.
+   */
+  orphanFingers: number[]
 }
 
 /**
@@ -63,11 +74,13 @@ export default class EmployeeBiometricSummaryService {
     const slots = await this.templates.occupiedSlots(employeeId)
     const legacy = await this.legacyOf(employeeId)
 
+    const orphanFingers = await this.orphansOf(slots, employeeId)
+
     if (accessPointId === undefined) {
-      return this.consolidated(slots, legacy)
+      return { ...this.consolidated(slots, legacy), orphanFingers }
     }
 
-    return this.scoped(slots, legacy, accessPointId)
+    return { ...(await this.scoped(slots, legacy, accessPointId)), orphanFingers }
   }
 
   /** Lo que dejo el conector viejo: que dedos hay, sin plantilla ni equipo. */
@@ -106,7 +119,43 @@ export default class EmployeeBiometricSummaryService {
         .map((fingerId) => ({ fingerId, state: BIOMETRIC_SLOT_STATE.REGISTERED })),
       face: { registered: face, state: face ? BIOMETRIC_SLOT_STATE.REGISTERED : null },
       scopedToAccessPointId: null,
+      orphanFingers: [],
     }
+  }
+
+  /**
+   * Dedos que ya no tienen donde usarse.
+   *
+   * Se pregunta contra TODOS los checadores donde el colaborador esta dado de
+   * alta: basta con que uno lo tenga dentro o pueda recibirlo para que el dato
+   * siga sirviendo. Los que no pasan esa prueba son los unicos que tiene
+   * sentido ofrecer borrar.
+   */
+  private async orphansOf(slots: TemplateSlot[], employeeId: number): Promise<number[]> {
+    const fingerSlots = slots.filter((slot) => slot.bioType === BIO_TYPE.FINGERPRINT)
+    if (fingerSlots.length === 0) return []
+
+    const pivots = await AccessPointEmployee.query()
+      .where('employee_id', employeeId)
+      .whereNot('access_point_employee_sync_status', ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+    const assigned = pivots.map((pivot) => pivot.accessPointId)
+
+    const usable = new Set<number>()
+    for (const accessPointId of assigned) {
+      const scoped = await this.scoped(fingerSlots, { fingers: [], face: false }, accessPointId)
+      for (const finger of scoped.fingers) {
+        if (
+          finger.state === BIOMETRIC_SLOT_STATE.HERE ||
+          finger.state === BIOMETRIC_SLOT_STATE.COPYABLE
+        ) {
+          usable.add(finger.fingerId)
+        }
+      }
+    }
+
+    return [...new Set(fingerSlots.map((slot) => slot.bioNo))]
+      .filter((fingerId) => !usable.has(fingerId))
+      .sort((a, b) => a - b)
   }
 
   /** El expediente contestado desde un equipo concreto. */
@@ -156,6 +205,7 @@ export default class EmployeeBiometricSummaryService {
         .map(([fingerId, state]) => ({ fingerId, state })),
       face: { registered: face !== null, state: face },
       scopedToAccessPointId: accessPointId,
+      orphanFingers: [],
     }
   }
 

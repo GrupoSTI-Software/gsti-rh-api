@@ -15,6 +15,9 @@ import DeviceCommandRepositoryMysql from '#modules/device-commands/device_comman
 import { DeviceCommandError } from '#exceptions/device_command_error'
 import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
 import EmployeeBiometricSummaryService from './employee_biometric_summary.service.js'
+import FingerprintDeletionService from './fingerprint_deletion.service.js'
+import { BiometricVaultError } from '#exceptions/biometric_vault_error'
+import { BIOMETRIC_VAULT_ERROR_CODES } from '#constants/biometric_vault_error_codes'
 import FingerprintEnrollmentService from '../enrollment/fingerprint_enrollment.service.js'
 import DeviceFaceService from '../photo/device_face.service.js'
 import ReplicationService from '../replication/replication.service.js'
@@ -38,6 +41,15 @@ const replicationValidator = vine.compile(
     sourceAccessPointId: vine.number().positive(),
     targetAccessPointIds: vine.array(vine.number().positive()).minLength(1),
     modalities: vine.array(vine.enum(['fingerprint', 'face'] as const)).optional(),
+  })
+)
+
+const deleteFingerprintValidator = vine.compile(
+  vine.object({
+    params: vine.object({
+      employeeId: vine.number().positive(),
+      fingerId: vine.number().min(FINGER_ID_MIN).max(FINGER_ID_MAX),
+    }),
   })
 )
 
@@ -283,6 +295,81 @@ export default class DeviceBiometricsController {
         i18n.formatMessage('resource_was_found_successfully'),
         200,
         'biometrics'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/employees/{employeeId}/device-biometrics/fingerprints/{fingerId}:
+   *   delete:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Biometricos]
+   *     summary: Borra del expediente la huella de un dedo
+   *     responses:
+   *       200:
+   *         description: Cuantas versiones se borraron, en data.deletion
+   *       404:
+   *         description: Ese dedo no tiene huella guardada (key biometrico-no-encontrado)
+   *       409:
+   *         description: Sigue dentro de un checador donde la persona esta dada de alta (key huella-en-uso)
+   */
+  /**
+   * Borra del expediente la huella de un dedo.
+   *
+   * No la saca del aparato: el protocolo no tiene con que retirar un dedo
+   * suelto. Por eso se niega mientras el dato siga dentro de un checador donde
+   * el colaborador puede marcar, y ese rechazo dice el camino -- retirarlo del
+   * equipo primero, que la baja si arrastra sus biometricos.
+   */
+  async deleteFingerprint(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(
+        ctx,
+        EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeBiometric
+      )
+      const payload = await request.validateUsing(deleteFingerprintValidator, {
+        data: { params: request.params() },
+      })
+      const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
+
+      // Sin usuario no hay constancia, y sin constancia no se borra. El
+      // middleware de sesion ya lo garantiza; esto lo hace explicito.
+      const actorUserId = auth.user?.userId
+      if (actorUserId === undefined) {
+        throw new BiometricVaultError(
+          'No hay usuario con quien firmar la supresion',
+          BIOMETRIC_VAULT_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+          403,
+          'sin-permiso',
+          'No fue posible identificar a quien pide el borrado.'
+        )
+      }
+
+      const service = new FingerprintDeletionService()
+      const result = await service.delete({
+        employeeId: employee.employeeId,
+        fingerId: payload.params.fingerId,
+        actor: {
+          userId: actorUserId,
+          businessUnitId: employee.businessUnitId as number,
+          ip: request.ip(),
+          userAgent: request.header('user-agent') ?? null,
+          requestId: request.id() ?? null,
+        },
+      })
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        i18n.formatMessage('employee_biometric'),
+        i18n.formatMessage('biometric_fingerprint_deleted_message'),
+        200,
+        'deletion'
       )
     } catch (error) {
       return respondAdmsApiError(response, i18n, error)

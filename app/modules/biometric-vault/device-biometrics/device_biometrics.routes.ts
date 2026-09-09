@@ -11,6 +11,15 @@ import { middleware } from '#start/kernel'
  */
 router
   .group(() => {
+    /**
+     * Supresion: borra la huella del expediente. No la retira del aparato --el
+     * protocolo no tiene verbo para un dedo suelto-- asi que se niega mientras
+     * siga dentro de un checador con el colaborador dado de alta.
+     */
+    router.delete(
+      '/:employeeId/device-biometrics/fingerprints/:fingerId',
+      '#modules/biometric-vault/device-biometrics/device_biometrics.controller.deleteFingerprint'
+    )
     router.post(
       '/:employeeId/device-biometrics/fingerprint-enrollment',
       '#modules/biometric-vault/device-biometrics/device_biometrics.controller.enrollFingerprint'

@@ -474,6 +474,52 @@ test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
     assert.equal(tres?.state, 'here')
   })
 
+  /**
+   * La supresion no puede dejar la base diciendo una cosa y el aparato otra: el
+   * protocolo no sabe retirar un dedo suelto, asi que mientras la huella siga
+   * dentro de un checador con el colaborador dado de alta, el borrado se niega
+   * y dice por donde ir.
+   */
+  test('no se borra una huella que sigue dentro de un checador asignado', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .delete(`/api/v1/employees/${employee.employeeId}/device-biometrics/fingerprints/3`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    if (response.status() === 403) {
+      assert.equal(response.body().key, 'sin-permiso')
+      return
+    }
+
+    assert.equal(response.status(), 409)
+    assert.equal(response.body().key, 'huella-en-uso')
+
+    // Y sigue ahi: un rechazo no puede borrar a medias.
+    const sigue = await TenantContext.runUnscoped(
+      () =>
+        db
+          .from('biometric_templates')
+          .where('employee_id', employee.employeeId)
+          .where('biometric_template_bio_no', 3)
+          .first(),
+      'la huella no se toco'
+    )
+    assert.isNotNull(sigue)
+  })
+
+  test('un dedo sin huella guardada no se puede borrar', async ({ client, assert }) => {
+    const response = await client
+      .delete(`/api/v1/employees/${employee.employeeId}/device-biometrics/fingerprints/9`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    assert.include([403, 404], response.status())
+    assert.include(['sin-permiso', 'biometrico-no-encontrado'], response.body().key)
+  })
+
   test('un identificador de comando que no existe se responde como no encontrado', async ({
     client,
     assert,
