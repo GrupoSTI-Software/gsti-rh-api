@@ -236,6 +236,13 @@ export default class PlatformDeviceAssignmentController {
    *
    *       La asignación cerrada nunca se borra ni se sobrescribe: conserva
    *       fecha de entrega, fecha de regreso, motivo y figura de tenencia.
+   *
+   *       Además desactiva (nunca borra) el punto de acceso del tenant
+   *       ligado a la unidad (USRH1787189981883). El desenlace se informa
+   *       en `accessPointOutcome`: `desactivado` si existía y se apagó, o
+   *       `ausente` si el cliente ya lo había borrado o nunca se precargó.
+   *       Si la desactivación falla por una causa técnica, toda la
+   *       desasignación se revierte (PLT.DEV.AP_DEACTIVATE_FAILED, 422).
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -281,6 +288,7 @@ export default class PlatformDeviceAssignmentController {
    *                   serialNumber: "AXK9-00001"
    *                   stockStatus: "disponible"
    *                   retireReason: null
+   *                 accessPointOutcome: "desactivado"
    *       '401':
    *         description: Sin autenticar
    *       '403':
@@ -291,7 +299,8 @@ export default class PlatformDeviceAssignmentController {
    *         description: >
    *           PLT.DEV.VAL_INPUT — Body inválido (releaseReason ausente o fuera de catálogo) |
    *           PLT.DEV.NO_OPEN_ASSIGNMENT — La unidad no tiene entrega vigente que cerrar |
-   *           PLT.DEV.RELEASE_DATE_INVALID — Fecha de regreso anterior a la entrega o posterior a hoy
+   *           PLT.DEV.RELEASE_DATE_INVALID — Fecha de regreso anterior a la entrega o posterior a hoy |
+   *           PLT.DEV.AP_DEACTIVATE_FAILED — Falló la desactivación del punto de acceso del tenant; la desasignación se revirtió por completo
    *       '500':
    *         description: PLT.DEV.SYS_UNHANDLED
    */

@@ -48,6 +48,8 @@ export const PLATFORM_DEVICE_ERROR_CODES = {
   NO_OPEN_ASSIGNMENT: 'PLT.DEV.NO_OPEN_ASSIGNMENT',
   /** La fecha de liberación es anterior a la de entrega de esa asignación o posterior a hoy (regla 2 del spec 1881) */
   RELEASE_DATE_INVALID: 'PLT.DEV.RELEASE_DATE_INVALID',
+  /** Falló la desactivación del punto de acceso del cliente al cerrar la entrega; el cierre se revirtió completo (RN5 del spec 1883) */
+  AP_DEACTIVATE_FAILED: 'PLT.DEV.AP_DEACTIVATE_FAILED',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.DEV.SYS_UNHANDLED',
 } as const

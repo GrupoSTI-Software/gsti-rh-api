@@ -15,6 +15,7 @@ import type { PlatformDeviceAssignmentReleaseReason } from '../constants/platfor
 import { toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
 import PlatformDeviceAccessPointService, {
   type AccessPointPreloadOutcome,
+  type AccessPointDeactivateOutcome,
   type PreloadedAccessPoint,
 } from './platform_device_access_point_service.js'
 
@@ -86,6 +87,8 @@ export interface UnassignmentRecord {
     stockStatus: PlatformDeviceStockStatus
     retireReason: PlatformDeviceRetireReason | null
   }
+  /** Desenlace de la desactivación del punto de acceso del tenant (USRH1787189981883). */
+  accessPointOutcome: AccessPointDeactivateOutcome
 }
 
 /**
@@ -380,11 +383,28 @@ export default class PlatformDeviceAssignmentService {
       }
       await device.save()
 
-      // Punto de extensión declarado (§9 del spec): "Desactivar el punto de
-      // acceso del tenant al desasignar la unidad" (USRH1787189981883)
+      // Punto de extensión declarado (§9 del spec 1881): "Desactivar el punto
+      // de acceso del tenant al desasignar la unidad" (USRH1787189981883)
       // engancha aquí, dentro de la misma transacción, después de cerrar la
-      // asignación y antes del commit. Vacío a propósito en este alcance.
-      await this.onAssignmentClosed(assignment, trx)
+      // asignación y antes del commit. Si falla, se traduce a un error de
+      // dominio 422 dentro de esta MISMA transacción para que Lucid revierta
+      // el cierre completo (RN5 del spec 1883, CA-7): un punto de acceso
+      // encendido que nadie detecta es peor que reintentar la desasignación.
+      let accessPointOutcome: AccessPointDeactivateOutcome
+      try {
+        accessPointOutcome = await this.onAssignmentClosed(assignment, trx)
+      } catch (error) {
+        if (error instanceof PlatformDeviceServiceError) {
+          throw error
+        }
+        throw new PlatformDeviceServiceError(
+          `Falló la desactivación del punto de acceso al cerrar la asignación ${assignment.platformDeviceAssignmentId}`,
+          PLATFORM_DEVICE_ERROR_CODES.AP_DEACTIVATE_FAILED,
+          422,
+          PLATFORM_DEVICE_ERROR_CODES.AP_DEACTIVATE_FAILED,
+          'No fue posible desactivar el punto de acceso del cliente. La desasignación se revirtió por completo.'
+        )
+      }
 
       return {
         assignment: {
@@ -401,21 +421,34 @@ export default class PlatformDeviceAssignmentService {
           stockStatus: device.platformDeviceStockStatus,
           retireReason: device.platformDeviceRetireReason,
         },
+        accessPointOutcome,
       }
     })
   }
 
   /**
-   * Punto de extensión para "Desactivar el punto de acceso del tenant al
-   * desasignar la unidad" (USRH1787189981883 · §9 del spec 1881).
-   * Deliberadamente vacío en este alcance — no reimplementar aquí la
-   * desactivación del `access_point`; esa HU rellena este método.
+   * Desactiva el punto de acceso del tenant ligado a la unidad al cerrar su
+   * entrega (USRH1787189981883 · §9 del spec 1881, §10 del spec 1883).
+   *
+   * Delega en `PlatformDeviceAccessPointService.deactivateForDevice`, que
+   * corre bajo `TenantContext.runUnscoped` (el panel de plataforma no tiene
+   * `businessScope` propio) y decide `'desactivado'` vs `'ausente'` por una
+   * lectura previa, nunca por las filas afectadas del `UPDATE` — ver
+   * docblock de ese método para el detalle de las reglas RN1, RN4-RN6, RN9.
+   *
+   * No se envuelve en try/catch aquí: cualquier excepción se propaga a
+   * `unassign()`, que es quien decide cómo traducirla a un error de dominio
+   * y quien controla el `db.transaction` que debe revertirse completo.
    */
   private async onAssignmentClosed(
-    _assignment: PlatformDeviceAssignment,
-    _trx: TransactionClientContract
-  ): Promise<void> {
-    // Sin cuerpo a propósito (ver docblock).
+    assignment: PlatformDeviceAssignment,
+    trx: TransactionClientContract
+  ): Promise<AccessPointDeactivateOutcome> {
+    return this.accessPointService.deactivateForDevice(
+      assignment.platformDeviceId,
+      assignment.businessUnitId,
+      trx
+    )
   }
 
   /**
