@@ -50,6 +50,46 @@ export function assertPositiveAllianceId(allianceId: number): void {
 }
 
 /**
+ * Filtra por pagable según los cinco datos obligatorios del perfil fiscal.
+ * Sin fila de perfil, o con algún obligatorio vacío, no es pagable.
+ */
+function applyPayableFilter(query: ReturnType<typeof Alliance.query>, payable: number): void {
+  if (payable === 1) {
+    query.whereHas('allianceBillingProfile', (profileQuery) => {
+      profileQuery
+        .whereNotNull('alliance_billing_profile_rfc')
+        .whereRaw("TRIM(alliance_billing_profile_legal_name) <> ''")
+        .whereNotNull('alliance_billing_profile_postal_code')
+        .whereRaw("TRIM(alliance_billing_profile_postal_code) <> ''")
+        .whereNotNull('alliance_billing_profile_tax_regime_code')
+        .whereRaw("TRIM(alliance_billing_profile_tax_regime_code) <> ''")
+        .whereNotNull('alliance_billing_profile_cfdi_use_code')
+        .whereRaw("TRIM(alliance_billing_profile_cfdi_use_code) <> ''")
+    })
+    return
+  }
+
+  query.where((builder) => {
+    builder.whereDoesntHave('allianceBillingProfile').orWhereHas(
+      'allianceBillingProfile',
+      (profileQuery) => {
+        profileQuery.where((inner) => {
+          inner
+            .whereNull('alliance_billing_profile_rfc')
+            .orWhereRaw("TRIM(alliance_billing_profile_legal_name) = ''")
+            .orWhereNull('alliance_billing_profile_postal_code')
+            .orWhereRaw("TRIM(alliance_billing_profile_postal_code) = ''")
+            .orWhereNull('alliance_billing_profile_tax_regime_code')
+            .orWhereRaw("TRIM(alliance_billing_profile_tax_regime_code) = ''")
+            .orWhereNull('alliance_billing_profile_cfdi_use_code')
+            .orWhereRaw("TRIM(alliance_billing_profile_cfdi_use_code) = ''")
+        })
+      }
+    )
+  })
+}
+
+/**
  * Rechaza un porcentaje de comisión fuera de 0..100 o con más de dos
  * decimales. Exportable: la HU 06a la reutiliza desde otra entrada.
  */
@@ -212,6 +252,10 @@ export default class AllianceService {
 
     if (filters.active !== undefined) {
       query.where('alliance_active', filters.active)
+    }
+
+    if (filters.payable !== undefined) {
+      applyPayableFilter(query, filters.payable)
     }
 
     const paginated = await query.paginate(page, limit)
