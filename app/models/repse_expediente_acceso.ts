@@ -4,7 +4,7 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import BusinessUnit from '#models/business_unit'
 import RepseExpedienteDocumento from '#models/repse_expediente_documento'
 import User from '#models/user'
-import type { RepseExpedienteAccion } from '#modules/repse-providers/expediente/expediente.constants.js'
+import type { RepseExpedienteAccion } from '#modules/repse-providers/expediente/expediente.constants'
 
 export default class RepseExpedienteAcceso extends BaseModel {
   static table = 'repse_expediente_accesos'
