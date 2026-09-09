@@ -451,6 +451,26 @@ test.group('ADMS matriz empleado por dispositivo (rebanada 7)', (group) => {
     )
     // Y vuelve con numero: el alta lo propone desde el codigo del colaborador.
     assert.isNotEmpty(pivotDespues.accessPointEmployeePin)
+    /**
+     * Ademas sale hacia el aparato sola: asignar sin enviar dejaria a la
+     * persona dada de alta en la pantalla y desconocida para el checador. El
+     * pivote queda `pending` -- pasa a `sent` cuando el equipo recoge la orden
+     * en su sondeo, no al encolarla.
+     */
+    assert.equal(
+      pivotDespues.accessPointEmployeeSyncStatus,
+      ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING
+    )
+    assert.isNotNull(pivotDespues.accessPointEmployeeSyncRequestedAt)
+
+    const encolado = await TenantContext.run([businessUnitId], () =>
+      DeviceCommand.query()
+        .where('access_point_id', accessPoint.accessPointId)
+        .where('device_command_kind', 'user_upsert')
+        .orderBy('device_command_id', 'desc')
+        .first()
+    )
+    assert.isNotNull(encolado)
   })
 
   test('a quien ya esta dado de alta no se le duplica la asignacion', async ({

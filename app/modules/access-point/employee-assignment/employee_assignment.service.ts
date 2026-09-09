@@ -88,10 +88,12 @@ export default class EmployeeAssignmentService {
    * fila -- partir el historial de ese par en dos filas perderia el rastro de
    * quien lo dio de baja y cuando.
    *
-   * El alta se delega en el modulo de sincronizacion, que es el que sabe
-   * proponer el PIN desde el codigo del colaborador y dejar el vinculo listo
-   * para enviarse al equipo. Crear la fila pelada aqui dejaba a la persona sin
-   * numero y sin forma de llegar al aparato.
+   * El alta se delega en el modulo de sincronizacion, que propone el PIN desde
+   * el codigo del colaborador, y en la misma operacion se encola hacia el
+   * aparato: asignar sin enviar dejaba a la persona dada de alta en la pantalla
+   * y desconocida para el checador, que es la diferencia entre poder marcar y
+   * no poder. Sin PIN no se envia nada -- no hay con que identificarla -- y el
+   * vinculo se queda esperando uno.
    *
    * @param accessPointId Punto de acceso destino.
    * @param employeeId Empleado a asignar.
@@ -124,15 +126,29 @@ export default class EmployeeAssignmentService {
     }
 
     const employee = await Employee.query().where('employee_id', employeeId).firstOrFail()
+    const businessUnitId = employee.businessUnitId as number
+    const actor = { userId: actorUserId }
+
     const pivot = await this.sync.assign({
       accessPointId,
-      businessUnitId: employee.businessUnitId as number,
+      businessUnitId,
       employeeId,
       employeeCode: employee.employeeCode !== null ? String(employee.employeeCode) : null,
-      actor: { userId: actorUserId },
+      actor,
     })
 
-    return toAccessPointEmployeeDto(pivot)
+    const pin = pivot.accessPointEmployeePin
+    if (!pin || pin.length === 0) return toAccessPointEmployeeDto(pivot)
+
+    const sent = await this.sync.send({
+      accessPointId,
+      businessUnitId,
+      employeeId,
+      employeeName: nameOf(employee),
+      actor,
+    })
+
+    return toAccessPointEmployeeDto(sent)
   }
 
   /**
@@ -164,4 +180,12 @@ export default class EmployeeAssignmentService {
 
     await this.repository.removeAssignment(assignment)
   }
+}
+
+/** Nombre con el que el colaborador queda dado de alta en el aparato. */
+function nameOf(employee: Employee): string {
+  return [employee.employeeFirstName, employee.employeeLastName]
+    .filter((part) => typeof part === 'string' && part.length > 0)
+    .join(' ')
+    .trim()
 }
