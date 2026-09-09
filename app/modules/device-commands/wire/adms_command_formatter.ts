@@ -20,9 +20,42 @@ export interface DeviceCommandFields {
   template?: string
   url?: string
   dateTime?: string
+  /** Tamano del blob tal como lo declaro el equipo de origen. */
+  size?: number
+  /** Plataforma del equipo destino: decide la gramatica de la huella. */
+  platform?: string
 }
 
 const TAB = '\t'
+
+/**
+ * Plataformas donde la huella NO se escribe con `BIODATA`.
+ *
+ * Medido en hardware el 2026-09-10 sobre dos SpeedFace V5L (`ZAM180_TFT`) de
+ * la misma version de algoritmo: `DATA UPDATE BIODATA Type=1` con el `MajorVer`
+ * correcto respondio `Return=0` y el dedo NO quedo dentro del aparato. En esa
+ * plataforma la unica escritura de huella medida funcionando es `FINGERTMP`
+ * (spike del 2026-08-12, copia entre dos PIN del mismo equipo verificada con
+ * una checada).
+ *
+ * La regla canonica del spike prohibe `FINGERTMP` porque no lleva `MajorVer` y
+ * descarta en silencio al cruzar versiones. Ese riesgo aqui esta cubierto antes
+ * del cable: no se encola una copia sin que la boveda confirme que la version
+ * del template coincide con la que declara el equipo. La regla se escribio
+ * cuando esa comparacion no existia.
+ *
+ * En el mismo V5L, `BIODATA Type=9` SI escribe rostro (medido 2026-08-12), asi
+ * que la excepcion es de la huella y no de la tabla.
+ */
+const FINGERPRINT_BY_FINGERTMP_PLATFORMS = ['ZAM180']
+
+/** Tipo de biometrico de huella en la gramatica del equipo. */
+const BIO_TYPE_FINGERPRINT = 1
+
+function writesFingerprintByFingertmp(platform: string | undefined): boolean {
+  if (!platform) return false
+  return FINGERPRINT_BY_FINGERTMP_PLATFORMS.some((prefix) => platform.startsWith(prefix))
+}
 /** TAB separa campos y el salto de linea separa comandos: ninguno puede venir en un valor. */
 const UNSAFE = /[\t\r\n]/
 
@@ -88,6 +121,19 @@ export function formatDeviceCommand(kind: DeviceCommandKind, fields: DeviceComma
       ].join(TAB)
 
     case DEVICE_COMMAND_KIND.BIODATA_WRITE:
+      if (
+        fields.bioType === BIO_TYPE_FINGERPRINT &&
+        writesFingerprintByFingertmp(fields.platform)
+      ) {
+        return [
+          `DATA UPDATE FINGERTMP PIN=${required(fields, 'pin')}`,
+          `FID=${required(fields, 'bioNo')}`,
+          `Size=${required(fields, 'size')}`,
+          `Valid=${required(fields, 'valid')}`,
+          `TMP=${required(fields, 'template')}`,
+        ].join(TAB)
+      }
+
       return [
         `DATA UPDATE BIODATA Pin=${required(fields, 'pin')}`,
         `No=${required(fields, 'bioNo')}`,

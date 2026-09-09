@@ -54,6 +54,13 @@ export interface TemplateDetail {
   minorVer: string | null
   valid: number
   duress: number
+  /**
+   * Tamano que el propio equipo declaro al subirlo.
+   *
+   * `FINGERTMP` lo exige en la cabecera y no admite inventarlo: se guarda el
+   * valor de origen y se repite tal cual, como el resto de los metadatos.
+   */
+  size: number
 }
 
 /** Puerto de la boveda. El blob solo sale por `findByIdForRead`. */

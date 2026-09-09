@@ -104,6 +104,7 @@ export default class TemplateRepositoryMysql implements TemplateRepository {
       bioNo: row.biometricTemplateBioNo,
       bioIndex: row.biometricTemplateBioIndex,
       bioFormat: row.biometricTemplateBioFormat,
+      size: row.biometricTemplateSize,
       majorVer: row.biometricTemplateMajorVer ?? null,
       minorVer: row.biometricTemplateMinorVer ?? null,
       valid: row.biometricTemplateValid,

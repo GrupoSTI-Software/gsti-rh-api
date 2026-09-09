@@ -153,6 +153,7 @@ export default class ReplicationService {
           pin,
           slots,
           targetVersion: result.fpVersion,
+          platform: profile?.accessPointProfilePlatform ?? null,
         }))
       )
     }
@@ -167,6 +168,7 @@ export default class ReplicationService {
           photoEnabled,
           derivativeVersion: args.derivativeVersion,
           targetVersion: result.faceVersion,
+          platform: profile?.accessPointProfilePlatform ?? null,
           now,
         })
       )
@@ -181,8 +183,9 @@ export default class ReplicationService {
     pin: string
     slots: TemplateSlot[]
     targetVersion: string | null
+    platform: string | null
   }): Promise<ReplicationItem[]> {
-    const { input, pivot, pin, slots, targetVersion } = args
+    const { input, pivot, pin, slots, targetVersion, platform } = args
     const fingers = [...new Set(slots.filter((slot) => slot.bioType === BIO_TYPE.FINGERPRINT).map((slot) => slot.bioNo))]
 
     if (fingers.length === 0) {
@@ -214,6 +217,7 @@ export default class ReplicationService {
           slot: compatible,
           bioType: BIO_TYPE.FINGERPRINT,
           modality: REPLICATION_MODALITY.FINGERPRINT,
+          platform,
         })
       )
     }
@@ -228,9 +232,10 @@ export default class ReplicationService {
     photoEnabled: boolean
     derivativeVersion: number
     targetVersion: string | null
+    platform: string | null
     now: DateTime
   }): Promise<ReplicationItem> {
-    const { input, pivot, pin, slots, photoEnabled, targetVersion, now } = args
+    const { input, pivot, pin, slots, photoEnabled, targetVersion, platform, now } = args
 
     /**
      * La foto va primero: es la referencia que el propio equipo convierte a su
@@ -279,6 +284,7 @@ export default class ReplicationService {
       slot: compatible,
       bioType: BIO_TYPE.FACE,
       modality: REPLICATION_MODALITY.FACE,
+      platform,
     })
   }
 
@@ -297,8 +303,10 @@ export default class ReplicationService {
     slot: TemplateSlot
     bioType: number
     modality: ReplicationModality
+    /** Plataforma del destino: no todas escriben la huella con la misma tabla. */
+    platform: string | null
   }): Promise<ReplicationItem> {
-    const { input, pivot, pin, slot, bioType, modality } = args
+    const { input, pivot, pin, slot, bioType, modality, platform } = args
 
     if (input.dryRun) {
       return { modality, bioNo: slot.bioNo, status: 'queued', majorVer: slot.majorVer }
@@ -332,6 +340,10 @@ export default class ReplicationService {
         minorVer: detail?.minorVer ?? '0',
         valid: detail?.valid ?? 1,
         duress: detail?.duress ?? 0,
+        // El tamano lo declaro el equipo de origen al subirlo; `FINGERTMP` lo
+        // exige en la cabecera y no admite inventarlo.
+        size: detail?.size ?? template.length,
+        platform: platform ?? undefined,
         template,
       },
       employeeId: input.employeeId,

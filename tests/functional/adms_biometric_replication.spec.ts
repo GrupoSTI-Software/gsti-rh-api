@@ -131,13 +131,13 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     }, 'limpieza de la replicacion')
   })
 
-  async function replicate(dryRun: boolean) {
+  async function replicate(dryRun: boolean, targets?: number[]) {
     return TenantContext.run([businessUnitId], () =>
       new ReplicationService().replicate({
         employeeId: employee.employeeId,
         businessUnitId,
         sourceAccessPointId: source.accessPointId,
-        targetAccessPointIds: [compatible.accessPointId, incompatible.accessPointId],
+        targetAccessPointIds: targets ?? [compatible.accessPointId, incompatible.accessPointId],
         modalities: ['fingerprint'],
         actor: {
           userId,
@@ -190,7 +190,15 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     assert.equal(commands[0].deviceCommandPin, PIN_COMPAT)
   })
 
-  test('el blob viaja verbatim y con el PIN del destino en la cabecera', async ({ assert }) => {
+  /**
+   * El fixture corre sobre `ZAM180_TFT`, la plataforma del SpeedFace V5L.
+   *
+   * Ahi la huella NO se escribe con `BIODATA`: medido el 2026-09-10 entre dos
+   * V5L de la misma version, el equipo respondio `Return=0` y el dedo no quedo
+   * dentro. La unica escritura de huella medida funcionando en esa plataforma
+   * es `FINGERTMP`.
+   */
+  test('en el V5L la huella viaja por FINGERTMP, con el PIN del destino', async ({ assert }) => {
     const command = await TenantContext.runUnscoped(
       () =>
         DeviceCommand.query()
@@ -201,14 +209,54 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     )
 
     const payload = command.deviceCommandPayload ?? ''
-    assert.include(payload, `Pin=${PIN_COMPAT}`)
-    assert.include(payload, `Tmp=${TEMPLATE}`)
+    assert.include(payload, 'DATA UPDATE FINGERTMP')
+    assert.include(payload, `PIN=${PIN_COMPAT}`)
+    assert.include(payload, `TMP=${TEMPLATE}`)
+    assert.include(payload, 'Size=')
+    assert.equal(command.biometricTemplateId, templateId)
+  })
+
+  /**
+   * Y en el resto de plataformas sigue la regla canonica del spike: `BIODATA`
+   * con `MajorVer`, que falla ruidosamente al cruzar versiones en vez de
+   * descartar el dato en silencio.
+   */
+  test('fuera del V5L la huella sigue viajando por BIODATA con su version', async ({ assert }) => {
+    const zam70 = await makeDevice(`TEST-REPL-ZAM70-${STAMP}`, '5150', '13')
+    await TenantContext.runUnscoped(async () => {
+      const profile = await AccessPointProfile.query()
+        .where('access_point_id', zam70.accessPointId)
+        .firstOrFail()
+      profile.accessPointProfilePlatform = 'ZAM70_TFT'
+      await profile.save()
+    }, 'plataforma del destino')
+
+    await replicate(false, [zam70.accessPointId])
+
+    const command = await TenantContext.runUnscoped(
+      () =>
+        DeviceCommand.query()
+          .where('access_point_id', zam70.accessPointId)
+          .where('device_command_kind', 'biodata_write')
+          .firstOrFail(),
+      'comando hacia el ZAM70'
+    )
+
+    const payload = command.deviceCommandPayload ?? ''
+    assert.include(payload, 'DATA UPDATE BIODATA')
+    assert.include(payload, 'Pin=5150')
     assert.include(payload, 'MajorVer=13')
     assert.include(payload, 'MinorVer=2')
     // El dedo de coaccion se repite del registro: inventarlo cambiaria lo que
     // significa ese dedo para quien lo usa.
     assert.include(payload, 'Duress=1')
-    assert.equal(command.biometricTemplateId, templateId)
+
+    await TenantContext.runUnscoped(async () => {
+      await DeviceCommand.query().where('access_point_id', zam70.accessPointId).delete()
+      await AccessPointEmployee.query().where('access_point_id', zam70.accessPointId).delete()
+      await AccessPointProfile.query().where('access_point_id', zam70.accessPointId).delete()
+      await AccessPoint.query().where('access_point_id', zam70.accessPointId).delete()
+    }, 'limpieza del ZAM70')
   })
 
   /**
