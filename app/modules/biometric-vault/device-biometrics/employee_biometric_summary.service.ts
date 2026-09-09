@@ -2,6 +2,8 @@ import AccessPointEmployee, {
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
 } from '#models/access_point_employee'
 import AccessPointProfile from '#models/access_point_profile'
+import AdmsIncident from '#models/adms_incident'
+import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
 import DeviceCommand from '#models/device_command'
 import EmployeeBiometric from '#models/employee_biometric'
 import { parseBiometricData } from '#helpers/biometric_data_parser'
@@ -38,6 +40,15 @@ export interface EmployeeBiometricSummary {
    * dejar la base diciendo una cosa y un aparato otra.
    */
   orphanFingers: number[]
+  /**
+   * Incidente que esta reteniendo las copias hacia ese equipo.
+   *
+   * El canal no despacha templates ni fotos mientras una anomalia de IP siga
+   * abierta: la misma serie se presento desde dos direcciones y hasta saber
+   * cual es el aparato no se le manda un biometrico. Sin decirlo, el operador
+   * ve un alta que no copio nada y ninguna explicacion.
+   */
+  withheldBy: { incidentId: number; kind: string; since: string | null } | null
 }
 
 /**
@@ -120,6 +131,7 @@ export default class EmployeeBiometricSummaryService {
       face: { registered: face, state: face ? BIOMETRIC_SLOT_STATE.REGISTERED : null },
       scopedToAccessPointId: null,
       orphanFingers: [],
+      withheldBy: null,
     }
   }
 
@@ -206,6 +218,32 @@ export default class EmployeeBiometricSummaryService {
       face: { registered: face !== null, state: face },
       scopedToAccessPointId: accessPointId,
       orphanFingers: [],
+      withheldBy: await this.withholdingIncident(accessPointId),
+    }
+  }
+
+  /**
+   * Anomalia abierta que retiene los biometricos de ese equipo.
+   *
+   * Se consulta aqui, junto al estado de los dedos, porque es parte de la misma
+   * respuesta: de nada sirve decir que una huella se puede copiar si el canal
+   * no la va a despachar.
+   */
+  private async withholdingIncident(
+    accessPointId: number
+  ): Promise<{ incidentId: number; kind: string; since: string | null } | null> {
+    const incident = await AdmsIncident.query()
+      .where('access_point_id', accessPointId)
+      .where('adms_incident_kind', ADMS_INCIDENT_KIND.IP_ANOMALY)
+      .where('adms_incident_status', 'open')
+      .orderBy('adms_incident_id', 'desc')
+      .first()
+
+    if (!incident) return null
+    return {
+      incidentId: incident.admsIncidentId,
+      kind: incident.admsIncidentKind,
+      since: incident.admsIncidentCreatedAt?.toISO() ?? null,
     }
   }
 
