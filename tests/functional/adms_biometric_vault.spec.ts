@@ -73,7 +73,15 @@ test.group('ADMS boveda de biometricos (rebanada 6)', (group) => {
 
   group.teardown(async () => {
     await TenantContext.runUnscoped(async () => {
-      await BiometricTemplate.query().where('employee_id', employee.employeeId).delete()
+      /**
+       * Solo lo que esta corrida creo. Borrar por colaborador se llevaba por
+       * delante los biometricos que esa persona ya tenia resguardados de
+       * antes -- datos reales, en la base de desarrollo, sin vuelta atras.
+       */
+      await BiometricTemplate.query()
+        .where('employee_id', employee.employeeId)
+        .where('source_access_point_id', accessPoint.accessPointId)
+        .delete()
       await AdmsHeldBiometric.query().where('access_point_id', accessPoint.accessPointId).delete()
       await AdmsUnmappedPin.query().where('access_point_id', accessPoint.accessPointId).delete()
       await AccessPointEmployee.query()

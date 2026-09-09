@@ -139,7 +139,13 @@ test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
 
   group.teardown(async () => {
     await TenantContext.runUnscoped(async () => {
-      await db.from('biometric_templates').where('employee_id', employee.employeeId).delete()
+      // Acotado al equipo de la prueba: por colaborador se llevaba los
+      // biometricos reales que esa persona ya tenia de antes.
+      await db
+        .from('biometric_templates')
+        .where('employee_id', employee.employeeId)
+        .where('source_access_point_id', accessPoint.accessPointId)
+        .delete()
       await DeviceCommand.query().where('access_point_id', accessPoint.accessPointId).delete()
       await db
         .from('access_point_employees')
