@@ -16,6 +16,30 @@ test.group('Situacion de un biometrico frente a un equipo', () => {
     assert.equal(state, BIOMETRIC_SLOT_STATE.HERE)
   })
 
+  test('la copia acusada no se niega ni se da por confirmada', ({ assert }) => {
+    // Una replicacion no hace que el equipo suba nada, asi que su prueba llega
+    // despues. Decir que no esta seria negar una huella que si entro.
+    const state = resolveSlotState({
+      present: false,
+      acknowledged: true,
+      templateMajorVer: '10',
+      deviceVersion: '10',
+    })
+
+    assert.equal(state, BIOMETRIC_SLOT_STATE.SENT)
+  })
+
+  test('lo confirmado pesa mas que lo solo acusado', ({ assert }) => {
+    assert.equal(
+      betterState(BIOMETRIC_SLOT_STATE.SENT, BIOMETRIC_SLOT_STATE.HERE),
+      BIOMETRIC_SLOT_STATE.HERE
+    )
+    assert.equal(
+      betterState(BIOMETRIC_SLOT_STATE.COPYABLE, BIOMETRIC_SLOT_STATE.SENT),
+      BIOMETRIC_SLOT_STATE.SENT
+    )
+  })
+
   test('misma generacion de algoritmo: se puede copiar sin la persona', ({ assert }) => {
     const state = resolveSlotState({
       present: false,

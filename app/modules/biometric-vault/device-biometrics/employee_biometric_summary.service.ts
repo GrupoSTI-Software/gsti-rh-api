@@ -180,6 +180,11 @@ export default class EmployeeBiometricSummaryService {
       .where('access_point_id', accessPointId)
       .first()
     const replicated = await this.replicatedTemplateIds(slots, accessPointId)
+    const acknowledged = await this.replicatedTemplateIds(
+      slots,
+      accessPointId,
+      DEVICE_COMMAND_STATUS.ACKED
+    )
 
     const fingers = new Map<number, BiometricSlotState>()
     let face: BiometricSlotState | null = null
@@ -192,6 +197,7 @@ export default class EmployeeBiometricSummaryService {
       const state = resolveSlotState({
         present:
           slot.sourceAccessPointId === accessPointId || replicated.has(slot.templateId),
+        acknowledged: acknowledged.has(slot.templateId),
         templateMajorVer: slot.majorVer,
         deviceVersion: target ?? null,
       })
@@ -255,7 +261,8 @@ export default class EmployeeBiometricSummaryService {
    */
   private async replicatedTemplateIds(
     slots: TemplateSlot[],
-    accessPointId: number
+    accessPointId: number,
+    status: string = DEVICE_COMMAND_STATUS.EXECUTED
   ): Promise<Set<number>> {
     const templateIds = slots.map((slot) => slot.templateId)
     if (templateIds.length === 0) return new Set()
@@ -263,7 +270,7 @@ export default class EmployeeBiometricSummaryService {
     const rows = await DeviceCommand.query()
       .where('access_point_id', accessPointId)
       .where('device_command_kind', DEVICE_COMMAND_KIND.BIODATA_WRITE)
-      .where('device_command_status', DEVICE_COMMAND_STATUS.EXECUTED)
+      .where('device_command_status', status)
       .whereIn('biometric_template_id', templateIds)
 
     return new Set(

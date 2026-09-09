@@ -222,7 +222,12 @@ export default class EmployeeSyncController {
          * crece, aqui es donde hay que agrupar.
          */
         const scoped = await summaries.of(employee.employeeId, accessPoint.accessPointId)
-        const present = (state: string) => state === 'here'
+        /**
+         * Cuenta lo confirmado y lo que el equipo ya acuso: la copia acusada
+         * esta dentro del aparato aunque su prueba llegue despues, y negarla
+         * mostraba "sin biometricos" en un checador que si tenia la huella.
+         */
+        const present = (state: string) => state === 'here' || state === 'sent'
         rows.push(
           toEmployeeAccessPointDto(
             pivot,

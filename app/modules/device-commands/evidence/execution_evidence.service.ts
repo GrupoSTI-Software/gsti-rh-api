@@ -78,9 +78,19 @@ export default class ExecutionEvidenceService {
 
   /**
    * El contador de huellas del equipo subio respecto al que se guardo al
-   * acusar. Es la prueba mas debil de las tres -- no dice de quien es la huella
-   * -- asi que solo se aplica cuando queda UN enrolamiento vivo: con dos
-   * abiertos no se sabe cual de los dos subio el contador.
+   * acusar. Es la prueba mas debil de las tres -- no dice de QUIEN es la huella
+   * -- asi que solo cierra lo que el alza alcanza a explicar.
+   *
+   * Cubre tambien las copias: una replicacion no hace que el equipo suba nada
+   * --ya tiene el dato-- asi que su unica prueba automatica es este contador.
+   * Sin esto, una copia acusada se quedaba esperando para siempre una evidencia
+   * que nadie iba a mandar, y el expediente decia que el aparato no tenia la
+   * huella que si tenia dentro.
+   *
+   * La atribucion es por cantidad: si el contador subio al menos tanto como
+   * ordenes hay esperando, todas entraron. Si subio menos, no se puede decir
+   * cuales, y se prefiere dejarlas abiertas antes que dar por buena la que no
+   * fue.
    */
   async fromCounters(input: {
     accessPointId: number
@@ -91,14 +101,26 @@ export default class ExecutionEvidenceService {
 
     const commands = await this.repository.findAwaitingEvidence({
       accessPointId: input.accessPointId,
-      kinds: [DEVICE_COMMAND_KIND.ENROLL_FP],
+      kinds: [DEVICE_COMMAND_KIND.ENROLL_FP, DEVICE_COMMAND_KIND.BIODATA_WRITE],
     })
     const acked = commands.filter(
       (command) =>
         command.deviceCommandStatus === DEVICE_COMMAND_STATUS.ACKED &&
         this.countersRose(command, input.counters)
     )
-    if (acked.length !== 1) return 0
+    if (acked.length === 0) return 0
+
+    /**
+     * El alza mas grande entre los pendientes: cada uno guarda su propio
+     * snapshot, y el que acuso primero es el que mide el salto completo.
+     */
+    const rise = Math.max(
+      ...acked.map((command) => {
+        const before = command.deviceCommandCountersSnapshot?.fpCount ?? 0
+        return (input.counters.fpCount ?? 0) - before
+      })
+    )
+    if (rise < acked.length) return 0
 
     return this.markAll(acked, DEVICE_COMMAND_EVIDENCE.COUNTER_UP, input.now)
   }

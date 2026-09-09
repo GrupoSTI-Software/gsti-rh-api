@@ -11,6 +11,15 @@ export const BIOMETRIC_SLOT_STATE = {
   REGISTERED: 'registered',
   /** Esta en ese equipo: se capturo ahi, o se le copio y el equipo lo confirmo. */
   HERE: 'here',
+  /**
+   * La copia salio y el equipo la acuso, pero nadie lo ha confirmado todavia.
+   *
+   * Una replicacion no hace que el aparato suba nada --ya tiene el dato-- asi
+   * que su prueba llega despues, cuando el equipo reporta un contador mayor o
+   * alguien marca con ese dedo. Mientras tanto no es honesto decir que no esta
+   * ni afirmar que si.
+   */
+  SENT: 'sent',
   /** No esta en ese equipo, pero se le puede copiar sin traer a la persona. */
   COPYABLE: 'copyable',
   /** Existe, pero es de otra generacion de algoritmo: hay que capturarlo de nuevo ahi. */
@@ -30,10 +39,11 @@ export type BiometricSlotState = (typeof BIOMETRIC_SLOT_STATE)[keyof typeof BIOM
  */
 const RANK: Readonly<Record<BiometricSlotState, number>> = {
   [BIOMETRIC_SLOT_STATE.HERE]: 0,
-  [BIOMETRIC_SLOT_STATE.COPYABLE]: 1,
-  [BIOMETRIC_SLOT_STATE.UNKNOWN]: 2,
-  [BIOMETRIC_SLOT_STATE.INCOMPATIBLE]: 3,
-  [BIOMETRIC_SLOT_STATE.REGISTERED]: 4,
+  [BIOMETRIC_SLOT_STATE.SENT]: 1,
+  [BIOMETRIC_SLOT_STATE.COPYABLE]: 2,
+  [BIOMETRIC_SLOT_STATE.UNKNOWN]: 3,
+  [BIOMETRIC_SLOT_STATE.INCOMPATIBLE]: 4,
+  [BIOMETRIC_SLOT_STATE.REGISTERED]: 5,
 }
 
 export function betterState(
@@ -57,10 +67,13 @@ export function betterState(
  */
 export function resolveSlotState(input: {
   present: boolean
+  /** La copia salio y el equipo la acuso, sin confirmacion posterior. */
+  acknowledged?: boolean
   templateMajorVer: string | null
   deviceVersion: string | null
 }): BiometricSlotState {
   if (input.present) return BIOMETRIC_SLOT_STATE.HERE
+  if (input.acknowledged === true) return BIOMETRIC_SLOT_STATE.SENT
   if (input.deviceVersion === null || input.templateMajorVer === null) {
     return BIOMETRIC_SLOT_STATE.UNKNOWN
   }

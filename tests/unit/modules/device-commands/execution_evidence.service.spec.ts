@@ -117,6 +117,67 @@ test.group('Evidencia de ejecucion: contadores del equipo', () => {
   })
 
   /**
+   * Una copia no hace que el equipo suba nada --ya tiene el dato-- asi que el
+   * contador es su unica prueba automatica. Sin esto, una replicacion acusada
+   * esperaba para siempre una evidencia que nadie iba a mandar y el expediente
+   * negaba una huella que si estaba dentro del aparato.
+   */
+  test('el contador tambien cierra las copias acusadas', async ({ assert }) => {
+    const snapshot = { fpCount: 1, faceCount: 0, userCount: 1 }
+    const { service, saved } = makeService([
+      commandOf({
+        deviceCommandId: 525,
+        deviceCommandKind: 'biodata_write',
+        deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+        deviceCommandCountersSnapshot: snapshot,
+      }),
+      commandOf({
+        deviceCommandId: 526,
+        deviceCommandKind: 'biodata_write',
+        deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+        deviceCommandCountersSnapshot: snapshot,
+      }),
+    ])
+
+    // Dos ordenes y el contador subio dos: el alza explica a las dos.
+    const marked = await service.fromCounters({
+      accessPointId: 12,
+      counters: { fpCount: 3, faceCount: 0, userCount: 1 },
+      now: NOW,
+    })
+
+    assert.equal(marked, 2)
+    assert.equal(saved[0].deviceCommandExecutionEvidence, 'counter_up')
+  })
+
+  test('un alza que no alcanza para todas no cierra ninguna', async ({ assert }) => {
+    const snapshot = { fpCount: 1, faceCount: 0, userCount: 1 }
+    const { service } = makeService([
+      commandOf({
+        deviceCommandId: 525,
+        deviceCommandKind: 'biodata_write',
+        deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+        deviceCommandCountersSnapshot: snapshot,
+      }),
+      commandOf({
+        deviceCommandId: 526,
+        deviceCommandKind: 'biodata_write',
+        deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+        deviceCommandCountersSnapshot: snapshot,
+      }),
+    ])
+
+    // Dos ordenes y el contador subio una: no se sabe cual entro.
+    const marked = await service.fromCounters({
+      accessPointId: 12,
+      counters: { fpCount: 2, faceCount: 0, userCount: 1 },
+      now: NOW,
+    })
+
+    assert.equal(marked, 0)
+  })
+
+  /**
    * El contador no dice DE QUIEN es la huella nueva. Con dos enrolamientos
    * abiertos, acreditarle el aumento a uno seria adivinar.
    */
