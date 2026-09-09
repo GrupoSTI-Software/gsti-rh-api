@@ -2975,6 +2975,7 @@
   "employee_sync_pin_message": "El PIN del colaborador quedó fijado en el checador",
   "employee_sync_send_message": "Se encoló el alta del colaborador en el checador",
   "employee_sync_revoke_message": "Se pidió el borrado del colaborador; el PIN queda reservado hasta que el equipo lo confirme",
+  "employee_sync_force_revoke_message": "La baja se cerró sin confirmación del equipo",
   "device_command_title": "Comando del checador",
   "device_command_status_message": "Estado de la captura solicitada al checador",
   "biometric_fingerprint_deleted_message": "La huella se borró del expediente",

@@ -365,6 +365,53 @@ export default class EmployeeSyncController {
     }
   }
 
+  /**
+   * Cierra a mano una baja que el equipo nunca confirmo.
+   *
+   * Existe para el aparato que no vuelve: reemplazado, reseteado o muerto. La
+   * espera normal es correcta mientras haya un equipo al que preguntarle; sin
+   * el, esa espera no se cierra sola y el vinculo queda colgado para siempre.
+   *
+   * Pide el mismo permiso que la baja: es la misma decision --sacar a alguien
+   * de un checador-- tomada sin la confirmacion del aparato.
+   */
+  async forceRevoke(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(
+        ctx,
+        EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.removeEmployeeAccessPoint
+      )
+      const { params } = await request.validateUsing(pairValidator, {
+        data: { params: request.params() },
+      })
+      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
+      await resolveScopedEmployee(ctx, params.employeeId)
+
+      const reason = String(request.input('reason') ?? '').trim()
+
+      const service = new EmployeeSyncService()
+      const pivot = await service.forceRevoke({
+        accessPointId: accessPoint.accessPointId,
+        businessUnitId: accessPoint.businessUnitId,
+        employeeId: params.employeeId,
+        reason: reason.length > 0 ? reason.slice(0, 200) : 'el equipo no responde',
+        actor: { userId: auth.user?.userId ?? null },
+      })
+
+      return StandardResponseFormatter.success(
+        response,
+        toEmployeeSyncDto(pivot),
+        i18n.formatMessage('access_point_employee_title'),
+        i18n.formatMessage('employee_sync_force_revoke_message'),
+        200,
+        'accessPointEmployee'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
   /** Un colaborador de otra empresa se comporta como inexistente. */
 }
 

@@ -10,7 +10,7 @@ import DeviceCommandService from '#modules/device-commands/device_command.servic
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
 import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
 import EmployeeSyncRepositoryMysql from './employee_sync.repository.mysql.js'
-import { assertTransition } from './employee_sync_state.js'
+import { assertTransition, REVOKING_STATUSES } from './employee_sync_state.js'
 import type { EmployeeSyncRepository } from './employee_sync.repository.js'
 
 /**
@@ -285,6 +285,66 @@ export default class EmployeeSyncService {
       fromPin: pin,
       actorUserId: input.actor.userId,
       deviceCommandId: result.command.deviceCommandId,
+    })
+
+    return pivot
+  }
+
+  /**
+   * Da la baja por cerrada sin que el equipo la haya confirmado.
+   *
+   * El camino normal espera al aparato: pedir la baja encola un borrado y la
+   * asignacion no se suelta hasta que el equipo dice que lo aplico. Eso protege
+   * de soltar a alguien que sigue dentro del checador pudiendo marcar.
+   *
+   * Pero un equipo que no vuelve --se reemplazo, se reseteo, se murio-- deja
+   * esa espera abierta para siempre, y hoy no habia forma de cerrarla: el
+   * borrado se queda `pending` sin salir, que es un estado que ni el barrido
+   * toca. Esto es la salida, y es deliberadamente manual: quien la usa esta
+   * afirmando que ese aparato ya no va a contestar.
+   *
+   * Lo que NO hace: prometer que el colaborador salio del equipo. Si el
+   * aparato reaparece con el usuario dentro, la conciliacion del padron lo
+   * volvera a levantar. Por eso queda escrito quien lo forzo y con que motivo.
+   */
+  async forceRevoke(input: {
+    accessPointId: number
+    businessUnitId: number
+    employeeId: number
+    reason: string
+    actor: SyncActor
+  }): Promise<AccessPointEmployee> {
+    const pivot = await this.requirePivot(input.accessPointId, input.employeeId)
+    const from = pivot.accessPointEmployeeSyncStatus
+
+    if (!REVOKING_STATUSES.includes(from)) {
+      throw new AdmsError(
+        'Solo se puede cerrar a mano una baja que ya se pidio',
+        ADMS_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+        409,
+        'baja-no-pedida',
+        'Pide primero la baja en el equipo; cerrarla a mano es para cuando el aparato no contesta.'
+      )
+    }
+
+    /**
+     * El borrado que nadie va a recoger se cancela: dejarlo vivo taponaria la
+     * cola de ese equipo si algun dia vuelve, por una orden que ya no aplica.
+     */
+    await this.commands.cancelLiveForPivot(pivot.accessPointEmployeeId, input.actor.userId)
+
+    pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED
+    await this.repository.save(pivot)
+
+    await this.repository.recordEvent({
+      accessPointEmployeeId: pivot.accessPointEmployeeId,
+      businessUnitId: input.businessUnitId,
+      kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.STATUS_CHANGED,
+      fromStatus: from,
+      toStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+      fromPin: pivot.accessPointEmployeePin,
+      actorUserId: input.actor.userId,
+      detail: `Baja cerrada a mano sin confirmacion del equipo: ${input.reason}`,
     })
 
     return pivot

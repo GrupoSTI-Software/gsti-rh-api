@@ -36,6 +36,17 @@ export interface EnqueueCommandResult {
 export interface DeviceCommandPort {
   enqueue(input: EnqueueCommandInput): Promise<EnqueueCommandResult>
   cancel(commandId: number, requestedByUserId: number | null): Promise<DeviceCommand>
+  /**
+   * Cancela lo que siga vivo para ese vinculo.
+   *
+   * Se usa al cerrar a mano una baja que el equipo nunca confirmo: el borrado
+   * pendiente ya no aplica, y dejarlo vivo taponaria la cola de ese aparato si
+   * algun dia vuelve a hablar.
+   */
+  cancelLiveForPivot(
+    accessPointEmployeeId: number,
+    requestedByUserId: number | null
+  ): Promise<number>
   retry(commandId: number, requestedByUserId: number | null): Promise<DeviceCommand>
   listByDevice(accessPointId: number, status?: DeviceCommandStatus): Promise<DeviceCommand[]>
   listByEmployee(employeeId: number): Promise<DeviceCommand[]>

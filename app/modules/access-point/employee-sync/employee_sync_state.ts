@@ -92,6 +92,19 @@ export function isPinQuarantined(status: AccessPointEmployeeSyncStatus): boolean
  * deja a la persona marcando en un aparato donde para nosotros ya no figura:
  * sus checadas entran como PIN suelto y su numero se da por libre.
  */
+/**
+ * Estados en los que la baja ya se pidio y sigue esperando al equipo.
+ *
+ * Son los unicos desde los que tiene sentido cerrarla a mano: antes de pedirla
+ * no hay nada que cerrar, y despues ya esta cerrada.
+ */
+export const REVOKING_STATUSES: readonly AccessPointEmployeeSyncStatus[] = [
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKING,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_SENT,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_FAILED,
+]
+
 export const DETACHABLE_STATUSES: readonly AccessPointEmployeeSyncStatus[] = [
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN,
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,

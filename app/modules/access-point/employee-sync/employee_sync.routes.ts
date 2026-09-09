@@ -34,6 +34,14 @@ router
       '/:accessPointId/employee/:employeeId/revoke',
       '#modules/access-point/employee-sync/employee_sync.controller.revoke'
     )
+    /**
+     * Cierre a mano de una baja que el equipo nunca confirmo. Para el aparato
+     * que ya no va a contestar; con uno vivo, la via es esperar su respuesta.
+     */
+    router.post(
+      '/:accessPointId/employee/:employeeId/revoke/force',
+      '#modules/access-point/employee-sync/employee_sync.controller.forceRevoke'
+    )
   })
   .prefix('/api/access-points')
   .use(middleware.auth())
