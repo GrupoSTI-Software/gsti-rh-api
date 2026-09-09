@@ -28,6 +28,13 @@ export interface DeviceCounters {
  * Nada aqui lanza. La evidencia se descubre mientras se procesa una subida del
  * equipo, y una subida no se puede perder porque no cuadre un comando.
  */
+/** Lo que deja una subida de biometrico: que cerro y quien lo habia pedido. */
+export interface BiometricUploadEvidence {
+  closed: number
+  /** Usuario que pidio la captura, cuando la orden salio del sistema. */
+  requestedByUserId: number | null
+}
+
 export default class ExecutionEvidenceService {
   constructor(
     private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql()
@@ -44,14 +51,27 @@ export default class ExecutionEvidenceService {
     pin: string
     bioNo: number
     now: DateTime
-  }): Promise<number> {
+  }): Promise<BiometricUploadEvidence> {
     const commands = await this.repository.findAwaitingEvidence({
       accessPointId: input.accessPointId,
       kinds: [DEVICE_COMMAND_KIND.ENROLL_FP],
       pin: input.pin,
       bioNo: input.bioNo,
     })
-    return this.markAll(commands, DEVICE_COMMAND_EVIDENCE.BIOMETRIC_UPLOAD, input.now)
+    const closed = await this.markAll(commands, DEVICE_COMMAND_EVIDENCE.BIOMETRIC_UPLOAD, input.now)
+
+    /**
+     * Quien pidio la captura responde tambien por lo que se haga con ella.
+     *
+     * El canal no tiene sesion, y la boveda no deja leer un biometrico sin
+     * saber a nombre de quien: este es el unico humano detras de una huella
+     * que acaba de entrar por una orden del sistema.
+     */
+    const requestedBy =
+      commands.map((command) => command.deviceCommandRequestedByUserId).find((id) => id !== null) ??
+      null
+
+    return { closed, requestedByUserId: requestedBy }
   }
 
   /**

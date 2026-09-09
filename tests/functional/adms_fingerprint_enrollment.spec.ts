@@ -174,6 +174,9 @@ test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
         fields: { pin: PIN, fid: fingerId },
         employeeId: employee.employeeId,
         accessPointEmployeeId: pivotId,
+        // Con solicitante: es a su nombre que se leera el blob si la huella
+        // que suba el equipo hay que copiarla a otros checadores.
+        requestedByUserId: user.userId,
         correlationKey: `enroll_fp:${PIN}:${fingerId}`,
       })
       return result.command

@@ -51,7 +51,7 @@ test.group('Evidencia de ejecucion: huella subida', () => {
       now: NOW,
     })
 
-    assert.equal(marked, 1)
+    assert.equal(marked.closed, 1)
     assert.equal(saved[0].deviceCommandStatus, 'executed')
     assert.equal(saved[0].deviceCommandExecutedAt, NOW)
     assert.equal(saved[0].deviceCommandExecutionEvidence, 'biometric_upload')
@@ -65,8 +65,39 @@ test.group('Evidencia de ejecucion: huella subida', () => {
       bioNo: 7,
       now: NOW,
     })
-    assert.equal(marked, 0)
+    assert.equal(marked.closed, 0)
     assert.lengthOf(saved, 0)
+  })
+
+  /**
+   * La boveda no entrega un biometrico sin saber a nombre de quien se lee, y
+   * el canal no tiene sesion. Quien pidio la captura es el unico humano detras
+   * de esa huella: sin el, el reparto automatico no puede ocurrir.
+   */
+  test('devuelve a quien pidio la captura, para poder repartirla despues', async ({ assert }) => {
+    const { service } = makeService([commandOf({ deviceCommandRequestedByUserId: 77 })])
+
+    const marked = await service.fromBiometricUpload({
+      accessPointId: 12,
+      pin: '1042',
+      bioNo: 3,
+      now: NOW,
+    })
+
+    assert.equal(marked.requestedByUserId, 77)
+  })
+
+  test('una huella capturada a mano en el aparato no trae solicitante', async ({ assert }) => {
+    const { service } = makeService([commandOf({ deviceCommandRequestedByUserId: null })])
+
+    const marked = await service.fromBiometricUpload({
+      accessPointId: 12,
+      pin: '1042',
+      bioNo: 3,
+      now: NOW,
+    })
+
+    assert.isNull(marked.requestedByUserId)
   })
 })
 
