@@ -3008,6 +3008,8 @@
   "access_point_employee_already_assigned_message": "The employee is already assigned to that access point",
   "access_point_employee_assignment_not_found_title": "Assignment not found",
   "access_point_employee_assignment_not_found_message": "The employee is not assigned to that access point",
+  "access_point_employee_revocation_required_title": "Removal pending on the device",
+  "access_point_employee_revocation_required_message": "The employee is still enrolled on the device. Revoke them and wait for the device to confirm before removing the assignment.",
   "access_point_employee_internal_title": "Unexpected error",
   "access_point_employee_internal_message": "The access point operation could not be completed",
   "calendar_export_holidays_sheet": "Holidays",

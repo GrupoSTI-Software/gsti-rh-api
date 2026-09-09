@@ -80,6 +80,29 @@ export function isPinQuarantined(status: AccessPointEmployeeSyncStatus): boolean
 }
 
 /**
+ * Estados en los que retirar la asignacion no deja a nadie dentro del aparato.
+ *
+ * `pending_pin` es el vinculo recien creado: sin numero no se pudo encolar
+ * nada, asi que el equipo nunca supo de esta persona. `revoked` es el otro
+ * extremo: el aparato confirmo que la borro.
+ *
+ * Todo lo demas queda fuera a proposito, `pending` y `failed` incluidos. Un
+ * alta encolada la recoge el equipo en cuanto se conecte, y una que fallo pudo
+ * hacerlo despues de aplicarse. Retirar la fila en cualquiera de esos casos
+ * deja a la persona marcando en un aparato donde para nosotros ya no figura:
+ * sus checadas entran como PIN suelto y su numero se da por libre.
+ */
+export const DETACHABLE_STATUSES: readonly AccessPointEmployeeSyncStatus[] = [
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+]
+
+/** Si se puede retirar la asignacion sin pedirle antes la baja al equipo. */
+export function canDetachAssignment(status: AccessPointEmployeeSyncStatus): boolean {
+  return DETACHABLE_STATUSES.includes(status)
+}
+
+/**
  * Estado en el que una checada con ese PIN es AMBIGUA y se retiene (spec 5.2).
  *
  * Solo `revoke_acked`. Es el unico momento en que no se sabe de quien es la

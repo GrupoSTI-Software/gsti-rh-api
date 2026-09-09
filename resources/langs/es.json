@@ -3011,6 +3011,8 @@
   "access_point_employee_already_assigned_message": "El colaborador ya está asignado a ese punto de acceso",
   "access_point_employee_assignment_not_found_title": "Asignación no encontrada",
   "access_point_employee_assignment_not_found_message": "El colaborador no está asignado a ese punto de acceso",
+  "access_point_employee_revocation_required_title": "Falta darlo de baja en el equipo",
+  "access_point_employee_revocation_required_message": "El colaborador sigue dado de alta en el checador. Dalo de baja y espera a que el equipo lo confirme antes de retirar la asignación.",
   "access_point_employee_internal_title": "Error inesperado",
   "access_point_employee_internal_message": "No se pudo completar la operación sobre el punto de acceso",
   "calendar_export_holidays_sheet": "Festividades",

@@ -8,6 +8,7 @@ import {
 import EmployeeAssignmentRepositoryMysql from './employee_assignment.repository.mysql.js'
 import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
+import { canDetachAssignment } from '#modules/access-point/employee-sync/employee_sync_state'
 import Employee from '#models/employee'
 import type EmployeeAssignmentRepository from './employee_assignment.repository.js'
 import type { BusinessUnitScope } from './employee_assignment.repository.js'
@@ -153,10 +154,18 @@ export default class EmployeeAssignmentService {
   /**
    * Retira la asignación entre el empleado y el punto de acceso.
    *
+   * Exige que el colaborador ya no esté dentro del aparato. Retirar la fila es
+   * un borrado lógico del lado del servidor y no le dice nada al equipo: si la
+   * persona seguía dada de alta ahí, se quedaría marcando en un checador donde
+   * para nosotros ya no figura, sus checadas entrarían como PIN suelto y su
+   * número se daría por libre para otra persona. Primero la baja, que sí viaja
+   * al aparato; retirar la asignación es el último paso.
+   *
    * @param accessPointId Punto de acceso de origen.
    * @param employeeId Empleado a desasignar.
    * @param scope Alcance de unidades de negocio de la petición.
-   * @throws AccessPointEmployeeServiceError si algún extremo no existe o no había asignación.
+   * @throws AccessPointEmployeeServiceError si algún extremo no existe, no
+   * había asignación, o el colaborador sigue dado de alta en el equipo.
    */
   async remove(
     accessPointId: number,
@@ -174,6 +183,16 @@ export default class EmployeeAssignmentService {
         httpStatus: 404,
         title: this.t('access_point_employee_assignment_not_found_title'),
         detail: this.t('access_point_employee_assignment_not_found_message'),
+      })
+    }
+
+    if (!canDetachAssignment(assignment.accessPointEmployeeSyncStatus)) {
+      throw new AccessPointEmployeeServiceError({
+        key: 'baja-pendiente-en-el-equipo',
+        errorCode: ACCESS_POINT_EMPLOYEE_ERROR_CODES.REVOCATION_REQUIRED,
+        httpStatus: 409,
+        title: this.t('access_point_employee_revocation_required_title'),
+        detail: this.t('access_point_employee_revocation_required_message'),
       })
     }
 
