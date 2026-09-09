@@ -5,6 +5,7 @@ import type { ResolvedAdmsDevice } from '#modules/adms/channel/adms_device_resol
 import { parseBiodataBody, type BiodataRow } from '#modules/adms/parsers/biodata.parser'
 import { parseOperlogBody } from '#modules/adms/parsers/operlog.parser'
 import IncidentService from '#modules/adms/raw/incident.service'
+import RosterReconciliationService from '#modules/access-point/employee-sync/roster_reconciliation.service'
 import PinResolverService from '#modules/adms/ingestion/pin_resolver.service'
 import HeldPunchRepositoryMysql from '#modules/adms/ingestion/held_punch.repository.mysql'
 import type { HeldPunchRepository } from '#modules/adms/ingestion/held_punch.repository'
@@ -65,7 +66,8 @@ export default class BiometricUploadService {
     private readonly heldBiometrics: HeldBiometricRepository = new HeldBiometricRepositoryMysql(),
     private readonly heldPunches: HeldPunchRepository = new HeldPunchRepositoryMysql(),
     private readonly incidents: IncidentService = new IncidentService(),
-    private readonly evidence: ExecutionEvidenceService = new ExecutionEvidenceService()
+    private readonly evidence: ExecutionEvidenceService = new ExecutionEvidenceService(),
+    private readonly roster: RosterReconciliationService = new RosterReconciliationService()
   ) {}
 
   /** `table=BIODATA`: la via canonica, con version explicita. */
@@ -116,6 +118,20 @@ export default class BiometricUploadService {
         { dedupeMinutes: OPLOG_DEDUPE_MINUTES }
       )
     }
+
+    /**
+     * El mismo lote de lineas `USER` es el padron que el equipo declara tener.
+     * Es la unica prueba de que un borrado se aplico: el acuse solo dice que
+     * la orden llego.
+     */
+    await this.roster.reconcile({
+      accessPointId: context.device.accessPointId,
+      businessUnitId: context.device.businessUnitId,
+      pins: parsed.users.map((user) => user.pin),
+      serial: context.device.serial,
+      rawMessageId: context.rawMessageId,
+      receivedAt: context.device.receivedAt,
+    })
 
     /**
      * Las lineas `USER` alimentan el nombre del PIN desconocido cuando ese PIN

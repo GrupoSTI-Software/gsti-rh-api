@@ -10,12 +10,28 @@ import {
   DEVICE_COMMAND_STATUS,
 } from '../device_command.constants.js'
 import type { DeviceCommandRepository } from '../device_command.repository.js'
+import AccessPointEmployee, {
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
+} from '#models/access_point_employee'
+import DeviceCommandService from '../device_command.service.js'
 
 export interface CommandSweepResult {
   taken: number
   timedOut: number
   withoutEvidence: number
+  /** Equipos a los que se les volvio a pedir el padron para cerrar una baja. */
+  rosterRequested: number
 }
+
+/**
+ * Cuanto se espera al padron antes de volver a pedirlo.
+ *
+ * El `CHECK` sale al acusar el borrado, pero el equipo pudo estar apagado o el
+ * lote pudo perderse. Un cuarto de hora es holgado para un aparato que sondea
+ * cada pocos segundos y corto frente al costo de no reintentar: mientras la
+ * baja no se cierra, ese PIN queda reservado y sus checadas retenidas.
+ */
+export const ROSTER_RECHECK_MINUTES = 15
 
 export const COMMAND_SWEEP_BATCH_SIZE = 200
 
@@ -32,7 +48,8 @@ const UNSCOPED_REASON =
 export default class CommandSweepService {
   constructor(
     private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
-    private readonly now: () => DateTime = () => DateTime.utc()
+    private readonly now: () => DateTime = () => DateTime.utc(),
+    private readonly commands: DeviceCommandService = new DeviceCommandService()
   ) {}
 
   async run(limit: number = COMMAND_SWEEP_BATCH_SIZE): Promise<CommandSweepResult> {
@@ -98,6 +115,51 @@ export default class CommandSweepService {
       if (failed) withoutEvidence += 1
     }
 
-    return { taken: stuck.length, timedOut, withoutEvidence }
+    const rosterRequested = await this.requestPendingRosters(now, limit)
+
+    return { taken: stuck.length, timedOut, withoutEvidence, rosterRequested }
+  }
+
+  /**
+   * Vuelve a pedir el padron de los equipos con una baja sin cerrar.
+   *
+   * `revoke_acked` es el unico estado en el que la checada de ese PIN se
+   * retiene por ambigua, asi que dejarlo ahi no es neutro: son checadas que
+   * nadie acredita. El `CHECK` lleva clave de correlacion fija, de modo que
+   * varias bajas del mismo equipo dejan un solo comando en la cola.
+   */
+  private async requestPendingRosters(now: DateTime, limit: number): Promise<number> {
+    const pending = await TenantContext.runUnscoped(
+      () =>
+        AccessPointEmployee.query()
+          .where(
+            'access_point_employee_sync_status',
+            ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED
+          )
+          .where(
+            'access_point_employee_updated_at',
+            '<',
+            now.minus({ minutes: ROSTER_RECHECK_MINUTES }).toSQL({ includeOffset: false }) ?? ''
+          )
+          .limit(limit),
+      UNSCOPED_REASON
+    )
+
+    const seen = new Set<number>()
+    for (const pivot of pending) {
+      if (seen.has(pivot.accessPointId)) continue
+      seen.add(pivot.accessPointId)
+      await TenantContext.run([pivot.businessUnitId], () =>
+        this.commands.enqueue({
+          accessPointId: pivot.accessPointId,
+          businessUnitId: pivot.businessUnitId,
+          kind: DEVICE_COMMAND_KIND.CHECK,
+          fields: {},
+          correlationKey: 'check:padron-tras-baja',
+          requestedByUserId: null,
+        })
+      )
+    }
+    return seen.size
   }
 }

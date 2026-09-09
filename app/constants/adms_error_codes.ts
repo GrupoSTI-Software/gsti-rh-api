@@ -44,6 +44,9 @@ export const ADMS_ERROR_CODES = {
   PIN_INVALID: 'ADMS.PIN.003',
   /** PIN pendiente no encontrado. */
   PIN_PENDING_NOT_FOUND: 'ADMS.PIN.004',
+
+  /** El equipo acuso una orden y su propio estado dice que no la aplico. */
+  CMD_NOT_APPLIED: 'ADMS.CMD.001',
   /** Recurso fuera del alcance de la empresa (responde 404). */
   AUTHZ_OUT_OF_SCOPE: 'ADMS.AUTHZ.001',
   AUTHZ_FORBIDDEN: 'ADMS.AUTHZ.002',

@@ -200,6 +200,8 @@ export const ADMS_INCIDENT_KIND = {
   OPLOG: 'oplog',
   /** El equipo pidio una foto y no se le pudo dar (spec 7.3). */
   PHOTO_DOWNLOAD_FAILED: 'photo_download_failed',
+  /** El equipo acuso el borrado pero su padron sigue declarando el PIN (spec 8.1). */
+  REVOKE_NOT_APPLIED: 'revoke_not_applied',
 } as const
 export type AdmsIncidentKind = (typeof ADMS_INCIDENT_KIND)[keyof typeof ADMS_INCIDENT_KIND]
 

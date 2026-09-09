@@ -15,6 +15,7 @@ import type { DeviceCommandRepository } from '../device_command.repository.js'
 import DeviceProfileRepositoryMysql from '#modules/access-point/device-profile/device_profile.repository.mysql'
 import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
 import type { DeviceCommandCountersSnapshot } from '#models/device_command'
+import DeviceCommandService from '../device_command.service.js'
 
 export type AckOutcome =
   | {
@@ -49,7 +50,8 @@ export default class CommandAckService {
   constructor(
     private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
     private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
-    private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql()
+    private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
+    private readonly commands: DeviceCommandService = new DeviceCommandService()
   ) {}
 
   async apply(input: AckInput): Promise<AckOutcome> {
@@ -150,6 +152,31 @@ export default class CommandAckService {
         command.accessPointEmployeeId,
         accepted ? 'revoke_acked' : 'revoke_failed'
       )
+      if (accepted) await this.askForRoster(command)
     }
+  }
+
+  /**
+   * Pide el padron para cerrar la baja.
+   *
+   * El acuse dejo el pivote en `revoke_acked`, que es el unico estado donde la
+   * checada de ese PIN se retiene por ambigua. Sin evidencia se quedaria ahi
+   * para siempre: el numero reservado sin fin y las checadas sin acreditar. El
+   * `CHECK` hace que el equipo suba su padron en `OPERLOG`, y ahi se resuelve
+   * en un sentido o en el otro.
+   *
+   * La clave de correlacion es fija por equipo: diez bajas seguidas dejan un
+   * solo `CHECK` en la cola, no diez.
+   */
+  private async askForRoster(command: DeviceCommand): Promise<void> {
+    if (!command.businessUnitId) return
+    await this.commands.enqueue({
+      accessPointId: command.accessPointId,
+      businessUnitId: command.businessUnitId,
+      kind: DEVICE_COMMAND_KIND.CHECK,
+      fields: {},
+      correlationKey: 'check:padron-tras-baja',
+      requestedByUserId: null,
+    })
   }
 }

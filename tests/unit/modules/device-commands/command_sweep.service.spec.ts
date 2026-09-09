@@ -130,7 +130,7 @@ test.group('Barrido de comandos colgados', () => {
   test('sin nada colgado no toca nada', async ({ assert }) => {
     const { service, saved } = makeService([])
     const result = await service.run()
-    assert.deepEqual(result, { taken: 0, timedOut: 0, withoutEvidence: 0 })
+    assert.deepEqual(result, { taken: 0, timedOut: 0, withoutEvidence: 0, rosterRequested: 0 })
     assert.lengthOf(saved, 0)
   })
 })
