@@ -23,9 +23,9 @@ export interface IncidentRecord {
   createdAt: DateTime
 }
 
-/** Puerto de incidentes. `findOpenSince` sostiene la deduplicacion por ventana. */
+/** Puerto de incidentes. `findRecentSince` sostiene la deduplicacion por ventana. */
 export interface IncidentRepository {
-  findOpenSince(
+  findRecentSince(
     kind: AdmsIncidentKind,
     scope: IncidentScope,
     since: DateTime

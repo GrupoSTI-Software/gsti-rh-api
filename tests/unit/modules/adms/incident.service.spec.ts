@@ -10,7 +10,7 @@ function makeRepository(existing: IncidentRecord[] = []) {
   const inserted: IncidentRecord[] = []
   const resolved: IncidentRecord[] = []
   const repository: IncidentRepository = {
-    async findOpenSince(kind, scope, since) {
+    async findRecentSince(kind, scope, since) {
       return (
         existing.find(
           (row) =>
