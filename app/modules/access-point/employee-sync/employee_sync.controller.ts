@@ -224,10 +224,16 @@ export default class EmployeeSyncController {
         const scoped = await summaries.of(employee.employeeId, accessPoint.accessPointId)
         const present = (state: string) => state === 'here'
         rows.push(
-          toEmployeeAccessPointDto(pivot, accessPoint, now, {
-            fingerprints: scoped.fingers.filter((finger) => present(finger.state)).length,
-            faces: scoped.face.state !== null && present(scoped.face.state) ? 1 : 0,
-          })
+          toEmployeeAccessPointDto(
+            pivot,
+            accessPoint,
+            now,
+            {
+              fingerprints: scoped.fingers.filter((finger) => present(finger.state)).length,
+              faces: scoped.face.state !== null && present(scoped.face.state) ? 1 : 0,
+            },
+            scoped.withheldBy
+          )
         )
       }
       rows.sort((a, b) => a.name.localeCompare(b.name))

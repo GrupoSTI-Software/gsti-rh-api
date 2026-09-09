@@ -41,6 +41,14 @@ export interface EmployeeAccessPointDto {
    * que dos checadores incompatibles se pintaran igual.
    */
   biometrics: { fingerprints: number; faces: number }
+  /**
+   * Incidente que retiene las copias de biometricos hacia este equipo.
+   *
+   * El canal no le despacha templates ni fotos mientras siga abierto. Va en la
+   * ficha del checador porque es ahi donde se da de alta a alguien y donde se
+   * nota que no llego nada.
+   */
+  withheldBy: { incidentId: number; kind: string; since: string | null } | null
   /** La baja va en camino: el numero sigue reservado para esta persona. */
   pinQuarantined: boolean
   syncRequestedAt: string | null
@@ -54,7 +62,8 @@ export function toEmployeeAccessPointDto(
   pivot: AccessPointEmployee,
   accessPoint: AccessPoint,
   now: DateTime,
-  biometrics: { fingerprints: number; faces: number } = { fingerprints: 0, faces: 0 }
+  biometrics: { fingerprints: number; faces: number } = { fingerprints: 0, faces: 0 },
+  withheldBy: { incidentId: number; kind: string; since: string | null } | null = null
 ): EmployeeAccessPointDto {
   const pin = pivot.accessPointEmployeePin
   return {
@@ -65,6 +74,7 @@ export function toEmployeeAccessPointDto(
     connection: statusOf(accessPoint.accessPointLastConnection, now),
     lastSeenAt: accessPoint.accessPointLastConnection?.toISO() ?? null,
     biometrics,
+    withheldBy,
     hasPin: Boolean(pin && pin.length > 0),
     syncStatus: pivot.accessPointEmployeeSyncStatus,
     pinQuarantined: isPinQuarantined(pivot.accessPointEmployeeSyncStatus),
