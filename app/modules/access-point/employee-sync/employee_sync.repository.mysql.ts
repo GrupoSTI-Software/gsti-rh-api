@@ -17,6 +17,17 @@ const DEVICE_LOCK_PREFIX = 'valanserh:access-point:'
  */
 const DEVICE_LOCK_TIMEOUT_SECONDS = 5
 
+/**
+ * El indice unico de la base rechazo el numero.
+ *
+ * Es la red de seguridad frente a la carrera que el cerrojo no cubre: el canal
+ * crea pivotes por su cuenta cuando ve un PIN suelto. Se traduce a un conflicto
+ * legible en lugar de dejar salir un error interno.
+ */
+function isDuplicatePin(error: unknown): boolean {
+  return (error as { code?: string })?.code === 'ER_DUP_ENTRY'
+}
+
 /** Adaptador Lucid del pivote empleado por dispositivo. */
 export default class EmployeeSyncRepositoryMysql implements EmployeeSyncRepository {
   /**
@@ -112,7 +123,19 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
   }
 
   async save(pivot: AccessPointEmployee): Promise<void> {
-    await pivot.save()
+    try {
+      await pivot.save()
+      return
+    } catch (error) {
+      if (!isDuplicatePin(error)) throw error
+      throw new AdmsError(
+        'Ese PIN ya esta ocupado en este equipo',
+        ADMS_ERROR_CODES.PIN_TAKEN,
+        409,
+        'pin-ocupado',
+        'Otra operacion tomo ese numero primero. Intenta de nuevo para que se elija el siguiente libre.'
+      )
+    }
   }
 
   async recordEvent(input: SyncEventInput): Promise<void> {

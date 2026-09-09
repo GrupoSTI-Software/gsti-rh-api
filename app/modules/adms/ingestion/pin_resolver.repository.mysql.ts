@@ -64,6 +64,16 @@ export default class PinResolverRepositoryMysql implements PinResolverRepository
      */
     pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED
     pivot.accessPointEmployeeSyncConfirmedAt = DateTime.utc()
-    await pivot.save()
+    try {
+      await pivot.save()
+    } catch (error) {
+      /**
+       * El numero ya es de otra persona en ese equipo: el indice unico lo
+       * rechaza. La ingesta NO se rompe por esto -- la checada se retiene y la
+       * resuelve quien pueda decidir de quien es -- pero tampoco se inventa un
+       * dueno para el PIN.
+       */
+      if ((error as { code?: string })?.code !== 'ER_DUP_ENTRY') throw error
+    }
   }
 }
