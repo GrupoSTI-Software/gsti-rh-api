@@ -82,7 +82,7 @@ export default class PlatformSubscriptionFlowController {
         messagesProvider: subscriptionFlowsValidatorMessages,
       })
 
-      const data = await this.service.getSubscriptionFlows(mes ?? undefined)
+      const data = await this.service.getSubscriptionFlows(mes)
 
       return response.status(200).json({ type: 'success', data })
     } catch (error) {

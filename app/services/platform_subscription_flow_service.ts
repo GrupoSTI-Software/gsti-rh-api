@@ -75,13 +75,14 @@ function monthBounds(month: string): { inicioUtc: string; finUtc: string; diasDe
   return {
     inicioUtc: start.toUTC().toFormat('yyyy-MM-dd HH:mm:ss'),
     finUtc: start.plus({ months: 1 }).toUTC().toFormat('yyyy-MM-dd HH:mm:ss'),
-    diasDelMes: start.daysInMonth as number,
+    diasDelMes: start.daysInMonth ?? 0,
   }
 }
 
 /** Frontera civil `[inicio, fin)` como fechas `YYYY-MM-DD`, para la columna DATE de corte. */
 function monthDateBounds(month: string): { inicio: string; fin: string } {
-  const start = DateTime.fromISO(`${month}-01`).startOf('day')
+  const zone = getBusinessTimeZone()
+  const start = DateTime.fromISO(`${month}-01`, { zone }).startOf('day')
   return {
     inicio: start.toISODate()!,
     fin: start.plus({ months: 1 }).toISODate()!,
@@ -105,8 +106,9 @@ function monthDateBounds(month: string): { inicio: string; fin: string } {
  * - altas: `billing_subscription_subscribed_at` en el mes.
  * - cancelaciones: `billing_subscription_canceled_at` en el mes.
  * - conversiones: unión deduplicada por suscripción de (a) transiciones
- *   `trial_expired_covered` con `cut_date` en el mes y (b) el primer pago de la
- *   suscripción (`MIN(billing_payment_id)`) con `paid_at` en el mes. El pago que
+ *   `trial_expired_covered` con `cut_date` en el mes y (b) el primer pago
+ *   (el de `paid_at` más temprano) de una suscripción que sí tuvo prueba
+ *   (`contracted_trial_days > 0`) con `paid_at` en el mes. El pago que
  *   activa un `trialing` no deja bitácora: leer solo transitions subcuenta.
  * - morosidad: transiciones `period_expired` / `trial_expired_uncovered` con
  *   `cut_date` en el mes. Cliente vivo, no baja.
@@ -199,7 +201,7 @@ export default class PlatformSubscriptionFlowService {
     )
 
     const parcial = target === currentMonth
-    const diasDelMes = parcial ? monthBounds(target).diasDelMes : null
+    const diasDelMes = parcial ? targetBounds.diasDelMes : null
     const diasTranscurridos = parcial
       ? DateTime.now().setZone(getBusinessTimeZone()).day
       : null
@@ -323,9 +325,14 @@ export default class PlatformSubscriptionFlowService {
   }
 
   /**
-   * Conversiones por primer pago en un mes civil de negocio: el pago con
-   * `MIN(billing_payment_id)` de cada suscripción viva, cuando cayó en el rango
-   * UTC del mes.
+   * Conversiones por primer pago en un mes civil de negocio: el primer pago
+   * (`paid_at` más temprano; a igual instante, el id menor) de cada
+   * suscripción viva que sí tuvo prueba, cuando cayó en el rango UTC del mes.
+   *
+   * Solo cuentan suscripciones con `contracted_trial_days > 0`: una de pago
+   * directo sin prueba es alta, no conversión (el contrato dice "pasó de prueba
+   * a pagando"). La subconsulta se apoya en el índice
+   * `(billing_subscription_id, billing_payment_paid_at)`.
    *
    * `billing_payments` es append-only sin borrado: no lleva filtro de borrado
    * propio; el universo lo acotan la suscripción y la empresa.
@@ -342,8 +349,9 @@ export default class PlatformSubscriptionFlowService {
       .join('business_units as bu', 'bu.business_unit_id', 'bs.business_unit_id')
       .whereNull('bs.billing_subscription_deleted_at')
       .whereNull('bu.business_unit_deleted_at')
+      .where('bs.billing_subscription_contracted_trial_days', '>', 0)
       .whereRaw(
-        'bp.billing_payment_id = (SELECT MIN(bp2.billing_payment_id) FROM billing_payments bp2 WHERE bp2.billing_subscription_id = bp.billing_subscription_id)'
+        'bp.billing_payment_id = (SELECT bp2.billing_payment_id FROM billing_payments bp2 WHERE bp2.billing_subscription_id = bp.billing_subscription_id ORDER BY bp2.billing_payment_paid_at ASC, bp2.billing_payment_id ASC LIMIT 1)'
       )
       .where('bp.billing_payment_paid_at', '>=', inicioUtc)
       .where('bp.billing_payment_paid_at', '<', finUtc)
@@ -380,7 +388,7 @@ export default class PlatformSubscriptionFlowService {
         '(bs.billing_subscription_canceled_at IS NULL OR bs.billing_subscription_canceled_at >= ?)',
         [inicioUtc]
       )
-      .select(db.raw('COUNT(*) as total'))
+      .select(db.raw('COUNT(DISTINCT bs.billing_subscription_id) as total'))
       .first()) as Record<string, unknown> | null
 
     return Number(row?.total ?? 0)
