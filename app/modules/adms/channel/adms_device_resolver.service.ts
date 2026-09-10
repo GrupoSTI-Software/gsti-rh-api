@@ -1,4 +1,4 @@
-import type { DateTime } from 'luxon'
+import { DateTime } from 'luxon'
 import type { AdmsQuarantineHints } from '#models/adms_quarantined_device'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import { TenantContext } from '#utils/tenant_context'
@@ -13,11 +13,14 @@ import IncidentService from '#modules/adms/raw/incident.service'
 import QuarantineService from '#modules/access-point/quarantine/quarantine.service'
 import DeviceProfileRepositoryMysql from '#modules/access-point/device-profile/device_profile.repository.mysql'
 import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
+import env from '#start/env'
 import { ipMatchesCidrList } from './cidr.js'
+import { channelSecretMatches, hostLabelOf } from './channel_secret.js'
 import {
   AccessPointLookupMysql,
   UnknownSerialThrottleMemory,
   type AccessPointLookupPort,
+  type AccessPointLookupRow,
   type UnknownSerialThrottle,
 } from './access_point_lookup.js'
 
@@ -41,6 +44,15 @@ const REJECT_TOO_MANY: DeviceResolution = {
   body: 'TOO MANY REQUESTS',
 }
 const INACTIVE_DEDUPE_MINUTES = 60
+/** Cada cuanto se repite el aviso de direccion que no corresponde. */
+const CHANNEL_SECRET_DEDUPE_MINUTES = 60
+/** El aviso de "te falta migrar" con una vez al dia basta. */
+const SECRET_MISSING_DEDUPE_MINUTES = 24 * 60
+const REJECT_NOT_FOUND: DeviceResolution = {
+  kind: 'reject',
+  status: 404,
+  body: 'NOT FOUND',
+}
 const IP_ANOMALY_DEDUPE_MINUTES = 24 * 60
 
 /**
@@ -63,6 +75,10 @@ export default class AdmsDeviceResolverService {
     ip: string
     now: DateTime
     hints: AdmsQuarantineHints | null
+    /** `Host` de la peticion: de ahi sale la direccion propia del equipo. */
+    host?: string | null
+    /** Dominio comun del canal. Sin el, no se exige direccion propia. */
+    baseDomain?: string | null
   }): Promise<DeviceResolution> {
     if (!isValidDeviceSerial(input.serial)) return REJECT_OK
     const serial = input.serial
@@ -148,6 +164,9 @@ export default class AdmsDeviceResolverService {
       return REJECT_OK
     }
 
+    const direccionAjena = await this.rejectIfWrongAddress(row, serial, input)
+    if (direccionAjena !== null) return direccionAjena
+
     return {
       kind: 'ok',
       device: {
@@ -162,6 +181,99 @@ export default class AdmsDeviceResolverService {
   }
 
   /** Escrituras de contacto. Debe correr dentro de `TenantContext.run([businessUnitId])`. */
+  /**
+   * La direccion por la que llego tiene que ser la suya (spec autenticidad, 4.3).
+   *
+   * Devuelve el rechazo cuando no lo es, o `null` para seguir. La serie va
+   * impresa en el aparato y las de ZKTeco son secuenciales: sin esto, conocerla
+   * bastaba para pedir los comandos en cola, con los templates dentro.
+   *
+   * Un 404 y no un 403: el 403 confirmaria que la serie existe, que es justo lo
+   * que el atacante quiere averiguar.
+   */
+  private async rejectIfWrongAddress(
+    row: AccessPointLookupRow,
+    serial: string,
+    input: {
+      ip: string
+      now: DateTime
+      host?: string | null
+      baseDomain?: string | null
+    }
+  ): Promise<DeviceResolution | null> {
+    const baseDomain = input.baseDomain ?? null
+    /** Sin dominio comun configurado no se exige nada: es la convivencia. */
+    if (baseDomain === null) return null
+
+    const label = hostLabelOf(input.host ?? null, baseDomain)
+
+    if (row.channelSecret !== null) {
+      if (channelSecretMatches(label, row.channelSecret)) return null
+
+      await TenantContext.run([row.businessUnitId], () =>
+        this.incidents.record(
+          {
+            kind: ADMS_INCIDENT_KIND.CHANNEL_SECRET_MISMATCH,
+            severity: 'error',
+            code: ADMS_ERROR_CODES.DEV_CHANNEL_SECRET_MISMATCH,
+            title: 'Usaron la serie de un checador desde otra direccion',
+            detail:
+              'La peticion traia una serie registrada pero no la direccion propia de ese equipo, asi que no se atendio. Si el checador dejo de reportar, revisa que conserve su direccion; si sigue reportando, alguien mas esta usando su serie.',
+            key: 'direccion-no-corresponde',
+            serial,
+            accessPointId: row.accessPointId,
+            businessUnitId: row.businessUnitId,
+            context: { ip: input.ip },
+            now: input.now,
+          },
+          { dedupeMinutes: CHANNEL_SECRET_DEDUPE_MINUTES }
+        )
+      )
+      return REJECT_NOT_FOUND
+    }
+
+    /**
+     * Sin secreto asignado: es un equipo que todavia no migro. Antes de la
+     * fecha de corte se le atiende y queda el aviso; cortarle de golpe deja a
+     * un cliente sin asistencia por un ajuste que nadie le aviso.
+     */
+    if (this.addressEnforced(input.now)) return REJECT_NOT_FOUND
+
+    await TenantContext.run([row.businessUnitId], () =>
+      this.incidents.record(
+        {
+          kind: ADMS_INCIDENT_KIND.CHANNEL_SECRET_MISSING,
+          severity: 'warning',
+          code: ADMS_ERROR_CODES.DEV_CHANNEL_SECRET_MISSING,
+          title: 'Este checador todavia no tiene direccion propia',
+          detail:
+            'Sigue hablando por la direccion comun. Asignale la suya y tecleala en el aparato antes de la fecha de corte, o dejara de reportar.',
+          key: 'checador-sin-direccion-propia',
+          serial,
+          accessPointId: row.accessPointId,
+          businessUnitId: row.businessUnitId,
+          context: { ip: input.ip },
+          now: input.now,
+        },
+        { dedupeMinutes: SECRET_MISSING_DEDUPE_MINUTES }
+      )
+    )
+    return null
+  }
+
+  /**
+   * A partir de esta fecha, un equipo sin direccion propia deja de atenderse.
+   *
+   * Sin valor configurado no se exige: desplegar el codigo no puede tirar el
+   * canal de un cliente que aun no migro.
+   */
+  private addressEnforced(now: DateTime): boolean {
+    const raw = env.get('ADMS_CHANNEL_SECRET_ENFORCED_FROM')
+    if (!raw) return false
+    const from = DateTime.fromISO(String(raw))
+    return from.isValid && now >= from
+  }
+
   async touch(device: ResolvedAdmsDevice): Promise<void> {
     await this.lookup.touchConnection(device.accessPointId, device.ip, device.receivedAt)
     await this.quarantine.claimOnContact(

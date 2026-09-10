@@ -6,6 +6,7 @@ import { ADMS_RATE } from '#modules/adms/adms.constants'
 import { TenantContext } from '#utils/tenant_context'
 import AdmsChannelController, { type AdmsRequest } from './adms_channel.controller.js'
 import AdmsDeviceResolverService from './adms_device_resolver.service.js'
+import env from '#start/env'
 import { sendText } from './adms_text_response.js'
 import { describeError } from './error_summary.js'
 import PhotoDownloadService from '#modules/biometric-vault/photo/photo_download.service'
@@ -184,7 +185,18 @@ export default class AdmsChannelGateway {
        * hace por un desconocido. Si alguna vez se quiere, `sanitizeQuarantineHints`
        * ya esta escrito y espera.
        */
-      const resolution = await this.resolver.resolve({ serial: query.SN, ip, now, hints: null })
+      const resolution = await this.resolver.resolve({
+        serial: query.SN,
+        ip,
+        now,
+        hints: null,
+        /**
+         * La direccion por la que llego. El equipo la teclea una vez en su menu
+         * y la lleva en cada peticion; el canal comprueba que sea la suya.
+         */
+        host: ctx.request.header('host') ?? null,
+        baseDomain: env.get('ADMS_CHANNEL_BASE_DOMAIN') ?? null,
+      })
       if (resolution.kind === 'reject') {
         return sendText(ctx.response, resolution.status, resolution.body)
       }

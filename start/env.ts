@@ -212,6 +212,15 @@ export default await Env.create(new URL('../', import.meta.url), {
   | del minimo no acorta la retencion, se ignora. Un plazo de un dia puesto por
   | error borraria la evidencia con la que se reconstruye una nomina.
   */
+  /**
+   * Dominio comun del canal, sin el subdominio de cada equipo.
+   *
+   * Sin valor no se exige direccion propia: desplegar el codigo no puede tirar
+   * el canal de un cliente que aun no migro.
+   */
+  ADMS_CHANNEL_BASE_DOMAIN: Env.schema.string.optional(),
+  /** Desde cuando un checador sin direccion propia deja de atenderse (ISO). */
+  ADMS_CHANNEL_SECRET_ENFORCED_FROM: Env.schema.string.optional(),
   ADMS_RAW_RETENTION_DAYS: Env.schema.number.optional(),
   ADMS_RAW_FAILED_RETENTION_DAYS: Env.schema.number.optional(),
   ADMS_COMMAND_RETENTION_DAYS: Env.schema.number.optional(),

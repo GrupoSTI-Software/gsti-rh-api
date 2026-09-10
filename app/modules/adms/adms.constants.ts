@@ -236,6 +236,20 @@ export const ADMS_INCIDENT_KIND = {
    * la puerta, porque del lado de aca todo figura confirmado.
    */
   DEVICE_ROSTER_SHRUNK: 'device_roster_shrunk',
+  /**
+   * La direccion por la que llego no corresponde al secreto de esa serie.
+   *
+   * O el checador perdio su direccion --un reset, alguien que la reescribio--
+   * o alguien esta usando su serie desde otro lado. Las dos cosas se atienden
+   * igual: no se le contesta y queda constancia.
+   */
+  CHANNEL_SECRET_MISMATCH: 'channel_secret_mismatch',
+  /** El equipo sigue hablando por el dominio comun: le falta migrar. */
+  CHANNEL_SECRET_MISSING: 'channel_secret_missing',
+  /** Una misma IP prueba direcciones que no son de nadie. */
+  CHANNEL_HOST_PROBE: 'channel_host_probe',
+  /** El aparato declara plataforma o firmware distintos de los guardados. */
+  DEVICE_IDENTITY_CHANGED: 'device_identity_changed',
 } as const
 export type AdmsIncidentKind = (typeof ADMS_INCIDENT_KIND)[keyof typeof ADMS_INCIDENT_KIND]
 
