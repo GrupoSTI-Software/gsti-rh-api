@@ -8,13 +8,15 @@ export class PlatformTenantGroupServiceError extends Error {
   readonly httpStatus: number
   readonly key?: string
   readonly detail?: string
+  readonly title?: string
 
   constructor(
     message: string,
     errorCode: PlatformTenantGroupErrorCode,
     httpStatus: number = 400,
     key?: string,
-    detail?: string
+    detail?: string,
+    title?: string
   ) {
     super(message)
     this.name = 'PlatformTenantGroupServiceError'
@@ -22,5 +24,6 @@ export class PlatformTenantGroupServiceError extends Error {
     this.httpStatus = httpStatus
     this.key = key
     this.detail = detail
+    this.title = title
   }
 }

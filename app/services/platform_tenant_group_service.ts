@@ -3,6 +3,8 @@ import PlatformTenantGroup from '#models/platform_tenant_group'
 import { PLATFORM_TENANT_GROUP_ERROR_CODES } from '../constants/platform_tenant_group_error_codes.js'
 import { PlatformTenantGroupServiceError } from '../exceptions/platform_tenant_group_service_error.js'
 
+const TITULO_NOMBRE_GRUPO_YA_REGISTRADO = 'No fue posible crear el grupo de tenants'
+
 // ─── Tipos de retorno ─────────────────────────────────────────────────────────
 
 export interface TenantGroupMemberItem {
@@ -158,7 +160,8 @@ export default class PlatformTenantGroupService {
         PLATFORM_TENANT_GROUP_ERROR_CODES.NAME_TAKEN,
         422,
         'nombre-de-grupo-ya-registrado',
-        'Ya existe un grupo de tenants registrado con ese nombre.'
+        'Ya existe un grupo de tenants registrado con ese nombre.',
+        TITULO_NOMBRE_GRUPO_YA_REGISTRADO
       )
     }
 
@@ -183,7 +186,8 @@ export default class PlatformTenantGroupService {
           PLATFORM_TENANT_GROUP_ERROR_CODES.NAME_TAKEN,
           422,
           'nombre-de-grupo-ya-registrado',
-          'Ya existe un grupo de tenants registrado con ese nombre.'
+          'Ya existe un grupo de tenants registrado con ese nombre.',
+          TITULO_NOMBRE_GRUPO_YA_REGISTRADO
         )
       }
       throw error
@@ -232,7 +236,8 @@ export default class PlatformTenantGroupService {
           PLATFORM_TENANT_GROUP_ERROR_CODES.NAME_TAKEN,
           422,
           'nombre-de-grupo-ya-registrado',
-          'Ya existe un grupo de tenants registrado con ese nombre.'
+          'Ya existe un grupo de tenants registrado con ese nombre.',
+          TITULO_NOMBRE_GRUPO_YA_REGISTRADO
         )
       }
       grupo.platformTenantGroupName = cambios.nombre.trim()
@@ -252,7 +257,8 @@ export default class PlatformTenantGroupService {
           PLATFORM_TENANT_GROUP_ERROR_CODES.NAME_TAKEN,
           422,
           'nombre-de-grupo-ya-registrado',
-          'Ya existe un grupo de tenants registrado con ese nombre.'
+          'Ya existe un grupo de tenants registrado con ese nombre.',
+          TITULO_NOMBRE_GRUPO_YA_REGISTRADO
         )
       }
       throw error

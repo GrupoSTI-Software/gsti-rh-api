@@ -33,7 +33,7 @@ export function resolveTenantGroupApiError(
 
   if (error instanceof PlatformTenantGroupServiceError) {
     return {
-      title: 'Grupos de tenants de plataforma',
+      title: error.title ?? 'Grupos de tenants de plataforma',
       detail: error.detail ?? error.message,
       key: error.key ?? error.errorCode,
       code: error.errorCode,
