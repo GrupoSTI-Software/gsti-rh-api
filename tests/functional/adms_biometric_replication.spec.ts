@@ -400,13 +400,20 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     assert.equal(logs[0].user_id, userId)
   })
 
+  /**
+   * Mira el template DEL FIXTURE por lo mismo que la prueba de arriba: la
+   * boveda del colaborador es real y le entran dedos de las corridas con
+   * hardware. Uno nuevo compatible con este equipo convertia una copia legitima
+   * en un "comando duplicado" que nadie duplico.
+   */
   test('repetir la copia no duplica el comando', async ({ assert }) => {
     await replicate(false)
     const commands = await TenantContext.runUnscoped(
       () =>
         DeviceCommand.query()
           .where('access_point_id', compatible.accessPointId)
-          .where('device_command_kind', 'biodata_write'),
+          .where('device_command_kind', 'biodata_write')
+          .where('biometric_template_id', templateId),
       'comandos tras repetir'
     )
     assert.lengthOf(commands, 1)

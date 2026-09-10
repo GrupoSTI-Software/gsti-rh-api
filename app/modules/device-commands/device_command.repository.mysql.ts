@@ -1,6 +1,8 @@
 import type { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import DeviceCommand from '#models/device_command'
+import { DeviceCommandError } from '#exceptions/device_command_error'
+import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
 import {
   DEVICE_COMMAND_KIND,
@@ -40,7 +42,30 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
     wireIdCandidates: number[]
   ): Promise<EnqueueIdempotentResult | null> {
     return db.transaction(async (trx) => {
-      await trx.from('access_points').where('access_point_id', input.accessPointId).forUpdate().first()
+      const device = await trx
+        .from('access_points')
+        .where('access_point_id', input.accessPointId)
+        .forUpdate()
+        .first()
+
+      /**
+       * La empresa la dice el EQUIPO, no quien encola.
+       *
+       * `business_unit_id` viaja en la entrada y se escribia tal cual, sin
+       * cotejarlo contra la fila que esta transaccion ya tiene bloqueada. Un
+       * llamador que pasara otra empresa dejaba el comando --y su template--
+       * colgando de una empresa a la que ese checador no pertenece, y el corte
+       * por empresa de todas las lecturas posteriores lo daba por bueno.
+       */
+      const owner = device?.business_unit_id ?? null
+      if (owner === null || owner !== input.businessUnitId) {
+        throw new DeviceCommandError(
+          'El checador no pertenece a esa empresa',
+          DEVICE_COMMAND_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+          404,
+          'punto-acceso-no-encontrado'
+        )
+      }
 
       if (input.correlationKey) {
         const existing = await DeviceCommand.query({ client: trx })
@@ -70,6 +95,7 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
   private fill(command: DeviceCommand, input: CommandInsert, wireId: number): void {
     command.deviceCommandWireId = wireId
     command.accessPointId = input.accessPointId
+    // Ya cotejado contra la fila del equipo dentro de la transaccion.
     command.businessUnitId = input.businessUnitId
     command.deviceCommandKind = input.kind
     command.deviceCommandPin = input.pin
