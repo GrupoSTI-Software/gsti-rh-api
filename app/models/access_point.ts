@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import encryption from '@adonisjs/core/services/encryption'
 import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
@@ -133,6 +134,31 @@ export default class AccessPoint extends compose(BaseModel, SoftDeletes, withBus
     },
   })
   declare accessPointAllowedCidrs: string[] | null
+
+  /**
+   * Secreto que el equipo lleva en la direccion del servidor.
+   *
+   * Cifrado en reposo. `serializeAs: null` para que no salga en ninguna
+   * respuesta por accidente: se entrega por su propia via --al reclamar el
+   * equipo o al rotarlo-- y solo a quien va a teclearlo en el aparato.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serializeAs: null,
+  })
+  declare accessPointChannelSecret: string | null
+
+  @column.dateTime()
+  declare accessPointChannelSecretSetAt: DateTime | null
 
   @column.dateTime({ autoCreate: true })
   declare accessPointCreatedAt: DateTime
