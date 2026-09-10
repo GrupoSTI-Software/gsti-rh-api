@@ -5,6 +5,7 @@ import { parseOptionsBody, resolveVersions } from '#modules/adms/parsers/options
 import { attlogLayoutFor } from '#modules/adms/parsers/parser.types'
 import IncidentService from '#modules/adms/raw/incident.service'
 import logger from '@adonisjs/core/services/logger'
+import type AccessPointProfile from '#models/access_point_profile'
 import ExecutionEvidenceService from '#modules/device-commands/evidence/execution_evidence.service'
 import DeviceCommandService from '#modules/device-commands/device_command.service'
 import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
@@ -45,6 +46,9 @@ const VERSION_CHANGED_DEDUPE_MINUTES = 60
  * sondeo.
  */
 const ROSTER_SHRUNK_DEDUPE_MINUTES = 24 * 60
+
+/** Un aviso al dia basta: el aparato saluda muchas veces con la misma identidad. */
+const IDENTITY_CHANGED_DEDUPE_MINUTES = 24 * 60
 const PLATFORM_DEDUPE_MINUTES = 24 * 60
 
 /**
@@ -90,6 +94,12 @@ export default class DeviceProfileService {
     const parsed = parseOptionsBody(body)
     const versions = resolveVersions(parsed)
     const previous = await this.profiles.ensure(device.accessPointId, device.businessUnitId)
+
+    /**
+     * Se mira ANTES de aplicar el patch: `previous` es la fila viva y en cuanto
+     * se escriben las opciones nuevas ya no queda con que comparar.
+     */
+    await this.checkIdentityChange(device, previous, parsed.platform)
 
     const changes = this.detectVersionChanges(previous, {
       fwVersion: parsed.fwVersion,
@@ -289,6 +299,66 @@ export default class DeviceProfileService {
       layoutKnown,
       changedFields: changes.map((change) => change.field),
       mismatches: versions.mismatches.length,
+    }
+  }
+
+  /**
+   * El aparato dice ser otro.
+   *
+   * Se mira SOLO la plataforma. El firmware tambien cambia --y ese cambio ya lo
+   * cuenta `version_changed`-- pero actualizarlo es una operacion normal; la
+   * plataforma, en cambio, no cambia nunca en un mismo aparato: un SpeedFace no
+   * se convierte en SenseFace actualizandose. Contar los dos daria dos avisos
+   * para la misma señal y uno de ellos seria falso la mayoria de las veces.
+   *
+   * La declara el propio equipo, asi que quien capture una sesion legitima la
+   * replica: esto no es una puerta, es una alarma. Sirve para el atacante torpe
+   * y para el caso real de un aparato reemplazado sin avisar, que deja a una
+   * sede con biometricos que ya no sirven.
+   *
+   * **La excepcion importa:** reclamar un equipo, o rotarle la direccion,
+   * cambia la identidad de forma legitima --es otro aparato ocupando el mismo
+   * punto de acceso--. Si alguien lo configuro despues de la ultima lectura del
+   * perfil, la identidad nueva se adopta como buena. Sin esto, cada alta
+   * naceria con un incidente de seguridad abierto y la gente aprenderia a
+   * ignorarlos.
+   */
+  private async checkIdentityChange(
+    device: ResolvedAdmsDevice,
+    previous: AccessPointProfile,
+    platform: string | null
+  ): Promise<void> {
+    const before = previous.accessPointProfilePlatform
+    if (!before || !platform || before === platform) return
+
+    const readAt = previous.accessPointProfileOptionsReadAt ?? null
+    const configuredAfterLastRead =
+      device.configuredAt !== null && (readAt === null || device.configuredAt > readAt)
+    if (configuredAfterLastRead) return
+
+    try {
+      await this.incidents.record(
+        {
+          kind: ADMS_INCIDENT_KIND.DEVICE_IDENTITY_CHANGED,
+          severity: 'error',
+          code: ADMS_ERROR_CODES.DEV_IDENTITY_CHANGED,
+          title: 'El checador dice ser otro aparato',
+          detail:
+            'Declara una plataforma o un firmware distintos de los registrados, y nadie lo reclamo ni le cambio la direccion en medio. Se retienen sus copias de biometricos hasta que alguien confirme que es el mismo equipo.',
+          key: 'identidad-del-checador-cambio',
+          serial: device.serial,
+          accessPointId: device.accessPointId,
+          businessUnitId: device.businessUnitId,
+          context: { field: 'platform', previous: before, current: platform },
+          now: device.receivedAt,
+        },
+        { dedupeMinutes: IDENTITY_CHANGED_DEDUPE_MINUTES }
+      )
+    } catch (error: unknown) {
+      logger.warn(
+        { accessPointId: device.accessPointId, err: error },
+        'canal ADMS: no se pudo asentar el cambio de identidad del equipo'
+      )
     }
   }
 

@@ -275,6 +275,7 @@ export type AdmsIncidentKind = (typeof ADMS_INCIDENT_KIND)[keyof typeof ADMS_INC
 export const ADMS_COPY_BLOCKING_KINDS: readonly AdmsIncidentKind[] = [
   ADMS_INCIDENT_KIND.IP_ANOMALY,
   ADMS_INCIDENT_KIND.TEMPLATE_VERSION_MISMATCH,
+  ADMS_INCIDENT_KIND.DEVICE_IDENTITY_CHANGED,
 ]
 
 /** Severidad del incidente. */

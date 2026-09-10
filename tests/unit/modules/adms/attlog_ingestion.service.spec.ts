@@ -32,6 +32,7 @@ const DEVICE: ResolvedAdmsDevice = {
   ip: '192.168.1.59',
   timezone: null,
   receivedAt: NOW,
+  configuredAt: null,
 }
 
 const LINE = '9999\t2026-08-12 08:53:23\t0\t15\t0\t0\t0\t255\t0\t0\t'

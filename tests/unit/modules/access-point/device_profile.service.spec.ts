@@ -23,6 +23,7 @@ const DEVICE: ResolvedAdmsDevice = {
   ip: '192.168.1.59',
   timezone: null,
   receivedAt: NOW,
+  configuredAt: null,
 }
 
 const V5L =
@@ -221,6 +222,48 @@ test.group('ADMS device profile service', () => {
     await service.upsertFromOptions(DEVICE, V5L.replace('UserCount=1', 'UserCount=0'), 84)
 
     assert.notExists(incidents.find((incident) => incident.kind === 'device_roster_shrunk'))
+  })
+
+  /**
+   * La plataforma y el firmware los declara el propio aparato, asi que quien
+   * capture una sesion legitima los replica: esto no es una puerta, es una
+   * alarma. Sirve para el aparato reemplazado sin avisar, que deja a una sede
+   * con biometricos que ya no sirven.
+   */
+  test('un aparato que dice ser otro levanta aviso y retiene sus copias', async ({ assert }) => {
+    const { service, incidents } = makeDeps({
+      accessPointProfilePlatform: 'ZAM70_TFT',
+      accessPointProfileOptionsReadAt: NOW.minus({ hours: 2 }),
+    })
+
+    await service.upsertFromOptions(DEVICE, V5L, 92)
+
+    const aviso = incidents.find((incident) => incident.kind === 'device_identity_changed')
+    assert.exists(aviso)
+    assert.equal(aviso?.severity, 'error')
+    assert.equal(aviso?.context?.field, 'platform')
+    assert.equal(aviso?.context?.previous, 'ZAM70_TFT')
+    assert.equal(aviso?.context?.current, 'ZAM180_TFT')
+  })
+
+  /**
+   * Reclamar un equipo cambia su identidad de forma legitima. Sin esta
+   * excepcion, cada alta naceria con un incidente de seguridad abierto y la
+   * gente aprenderia a ignorarlos.
+   */
+  test('la identidad que cambia tras configurar el equipo no levanta nada', async ({ assert }) => {
+    const { service, incidents } = makeDeps({
+      accessPointProfilePlatform: 'ZAM70_TFT',
+      accessPointProfileOptionsReadAt: NOW.minus({ hours: 2 }),
+    })
+
+    await service.upsertFromOptions(
+      { ...DEVICE, configuredAt: NOW.minus({ minutes: 5 }) },
+      V5L,
+      93
+    )
+
+    assert.notExists(incidents.find((incident) => incident.kind === 'device_identity_changed'))
   })
 
   test('plataforma fuera del mapa: layout desconocido e incidente, sin bloquear', async ({

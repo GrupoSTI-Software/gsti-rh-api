@@ -20,6 +20,12 @@ export interface AccessPointLookupRow {
    * atiende y deja el aviso; pasada la fecha de corte, no entra.
    */
   channelSecret: string | null
+  /**
+   * Cuando alguien configuro la direccion de este equipo: al reclamarlo o al
+   * rotarla. Es la marca de la ultima intervencion humana deliberada sobre el
+   * aparato, y por eso sirve para saber si un cambio de identidad fue legitimo.
+   */
+  configuredAt: DateTime | null
 }
 
 /**
@@ -41,6 +47,7 @@ interface AccessPointRawRow {
   access_point_timezone: string | null
   access_point_last_connection: Date | string | null
   access_point_channel_secret: string | null
+  access_point_channel_secret_set_at: Date | string | null
 }
 
 /**
@@ -93,7 +100,8 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
         'access_point_allowed_cidrs',
         'access_point_timezone',
         'access_point_last_connection',
-        'access_point_channel_secret'
+        'access_point_channel_secret',
+        'access_point_channel_secret_set_at'
       )
       .first()
     if (!row) return null
@@ -110,6 +118,10 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
           ? null
           : DateTime.fromJSDate(new Date(typed.access_point_last_connection)),
       channelSecret: decryptSecret(typed.access_point_channel_secret),
+      configuredAt:
+        typed.access_point_channel_secret_set_at === null
+          ? null
+          : DateTime.fromJSDate(new Date(typed.access_point_channel_secret_set_at)),
     }
   }
 

@@ -31,6 +31,8 @@ export interface ResolvedAdmsDevice {
   ip: string
   timezone: string | null
   receivedAt: DateTime
+  /** Ultima vez que alguien configuro la direccion de este equipo. */
+  configuredAt: DateTime | null
 }
 
 export type DeviceResolution =
@@ -176,6 +178,7 @@ export default class AdmsDeviceResolverService {
         ip: input.ip,
         timezone: row.timezone,
         receivedAt: input.now,
+        configuredAt: row.configuredAt,
       },
     }
   }
