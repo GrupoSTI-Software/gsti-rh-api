@@ -294,7 +294,7 @@ test.group('Reclamo de cuarentena desde plataforma', (group) => {
      * cliente, sospecha de filtracion-- y nunca por calendario: rotar significa
      * volver a teclear en el aparato.
      */
-    const rotado = await service.assignChannelSecret(result.accessPointId, DateTime.utc())
+    const rotado = await service.rotateChannelSecret(result.accessPointId, DateTime.utc())
     assert.notEqual(rotado, result.channelSecret)
     assert.lengthOf(rotado, 14)
   })

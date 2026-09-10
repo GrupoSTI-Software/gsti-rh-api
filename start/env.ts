@@ -218,6 +218,14 @@ export default await Env.create(new URL('../', import.meta.url), {
    * Sin valor no se exige direccion propia: desplegar el codigo no puede tirar
    * el canal de un cliente que aun no migro.
    */
+  /**
+   * Token del puente ZK por socket.
+   *
+   * Sin el, los eventos de dispositivo se atienden como hasta ahora y queda
+   * aviso; con el puesto, quien no lo presente no entra. Es lo que separa a un
+   * checador de cualquiera que sepa la direccion del servidor.
+   */
+  ADMS_BRIDGE_TOKEN: Env.schema.string.optional(),
   ADMS_CHANNEL_BASE_DOMAIN: Env.schema.string.optional(),
   /** Desde cuando un checador sin direccion propia deja de atenderse (ISO). */
   ADMS_CHANNEL_SECRET_ENFORCED_FROM: Env.schema.string.optional(),

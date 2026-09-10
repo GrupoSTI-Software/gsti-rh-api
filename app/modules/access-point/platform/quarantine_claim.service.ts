@@ -136,12 +136,15 @@ export default class PlatformQuarantineClaimService {
     }
 
     /**
-     * El equipo nace con su direccion propia.
+     * La direccion propia del equipo, para entregarsela a quien lo instala.
      *
-     * Se genera aqui y no al dar de alta el inventario porque este es el
-     * momento en que alguien tiene el aparato delante para teclearla.
+     * El punto de acceso ya nace con ella --lo pone un hook del modelo, para
+     * que las tres vias de alta la tengan-- asi que aqui solo se lee. Se
+     * genera unicamente si el punto de acceso venia de antes de este cambio y
+     * no tiene: sin eso, ese equipo se quedaria en convivencia para siempre y
+     * sin canal el dia del corte.
      */
-    const channelSecret = await this.assignChannelSecret(
+    const channelSecret = await this.readOrAssignChannelSecret(
       assignment.accessPoint.accessPointId,
       now
     )
@@ -173,16 +176,27 @@ export default class PlatformQuarantineClaimService {
     }
   }
 
+  /** La direccion propia del equipo, generandola si el alta es anterior al hook. */
+  async readOrAssignChannelSecret(accessPointId: number, now: DateTime): Promise<string> {
+    const existing = await TenantContext.runUnscoped(
+      () =>
+        AccessPoint.query().where('access_point_id', accessPointId).first(),
+      UNSCOPED_REASON
+    )
+    if (existing?.accessPointChannelSecret) return existing.accessPointChannelSecret
+
+    return this.rotateChannelSecret(accessPointId, now)
+  }
+
   /**
-   * Le da al equipo la direccion por la que hablara el resto de su vida.
+   * Le da al equipo una direccion nueva.
    *
-   * Tambien sirve para rotar: el spec manda hacerlo por causa --al retirar un
-   * checador de un cliente, o ante sospecha de filtracion-- y nunca por
-   * calendario, porque rotar significa volver a teclear en el aparato y una
-   * rotacion automatica sin nadie enfrente lo deja hablando a una direccion que
-   * ya no existe.
+   * Se llama por causa --al retirar un checador de un cliente, o ante sospecha
+   * de filtracion-- y nunca por calendario: rotar significa volver a teclear en
+   * el aparato, y una rotacion automatica sin nadie enfrente lo deja hablando a
+   * una direccion que ya no existe.
    */
-  async assignChannelSecret(accessPointId: number, now: DateTime): Promise<string> {
+  async rotateChannelSecret(accessPointId: number, now: DateTime): Promise<string> {
     const secret = generateChannelSecret()
     await TenantContext.runUnscoped(async () => {
       const point = await AccessPoint.query()

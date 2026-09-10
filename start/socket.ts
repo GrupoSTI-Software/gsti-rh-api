@@ -7,6 +7,7 @@ import QuarantineService from '#modules/access-point/quarantine/quarantine.servi
 import i18nManager from '@adonisjs/i18n/services/main'
 import { DateTime } from 'luxon'
 import logger from '@adonisjs/core/services/logger'
+import env from '#start/env'
 
 
 Ws.boot()
@@ -17,6 +18,41 @@ Ws.boot()
 if (Ws.io) {
   Ws.io.on('connection', (socket) => {
 
+    /**
+     * Los eventos que solo puede emitir un checador exigen el token del puente.
+     *
+     * Este socket acepta cualquier origen y hasta ahora no pedia nada: con solo
+     * conocer la direccion del servidor se podia dar de alta un equipo,
+     * registrar checadas o mover el estado de un enrolamiento ajeno. El
+     * Backoffice habla por aqui tambien, pero con sesion de usuario y por otros
+     * eventos, asi que la exigencia va por evento y no por conexion.
+     *
+     * Mientras no haya `ADMS_BRIDGE_TOKEN` configurado se atiende igual y queda
+     * el aviso: desplegar esto no puede dejar mudos a los checadores que ya
+     * operan. Con el token puesto, sin el no se entra.
+     */
+    const esPuente = (evento: string): boolean => {
+      if (socket.data?.isBridge === true) return true
+
+      if (!env.get('ADMS_BRIDGE_TOKEN')) {
+        logger.warn(
+          { evento, socketId: socket.id },
+          'socket: evento de dispositivo sin token de puente; se atiende porque ADMS_BRIDGE_TOKEN no esta configurado'
+        )
+        return true
+      }
+
+      logger.warn(
+        { evento, socketId: socket.id, ip: socket.handshake.address },
+        'socket: evento de dispositivo rechazado por falta de token de puente'
+      )
+      socket.emit(`${evento}-ack`, {
+        success: false,
+        error: 'Conexion no autorizada para eventos de dispositivo.',
+      })
+      return false
+    }
+
     socket.on('join-room', (_data) => {
       socket.join(`room-${_data.room}`)
     })
@@ -26,6 +62,7 @@ if (Ws.io) {
      * El cliente debe emitir este evento con { serial_number: string }
      */
     socket.on('zk-device-register', (data) => {
+      if (!esPuente('zk-device-register')) return
       const serialNumber = data?.serial_number || data?.serialNumber
       if (serialNumber) {
         Ws.registerZkDeviceSocket(serialNumber, socket)
@@ -60,6 +97,7 @@ if (Ws.io) {
      * Responde: { success: boolean, uuid?: string, error?: string }
      */
     socket.on('register-assist', async (data) => {
+      if (!esPuente('register-assist')) return
       try {
         // Extraer datos del payload (el cliente envía snake_case, los convertimos a camelCase)
         const employeeSyncId = data.employee_sync_id || data.employeeSyncId
@@ -283,6 +321,7 @@ if (Ws.io) {
      * Responde: { success: boolean, message?: string, error?: string }
      */
     socket.on('biometric-enrollment-status', async (data) => {
+      if (!esPuente('biometric-enrollment-status')) return
       try {
         const employeeId = data.employee_id !== undefined ? data.employee_id : data.employeeId
         const status = data.status || 'completed'
@@ -458,6 +497,7 @@ if (Ws.io) {
       is_online: boolean
       active_employees_count: number
     }) => {
+      if (!esPuente('device-info')) return
       try {
         const serialNumber = (data?.serial_number ?? '').toString().trim()
         if (!serialNumber) {
@@ -582,6 +622,7 @@ if (Ws.io) {
      * Esto permite sincronizar el estado al conectar
      */
     socket.on('device-connected', async (data) => {
+      if (!esPuente('device-connected')) return
       try {
         const employeeId = data?.employee_id !== undefined ? data.employee_id : data?.employeeId
 
