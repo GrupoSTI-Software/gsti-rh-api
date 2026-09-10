@@ -129,6 +129,13 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
     return DeviceCommand.query().where('device_command_id', commandId).first()
   }
 
+  async findByIdForDevice(commandId: number, accessPointId: number): Promise<DeviceCommand | null> {
+    return DeviceCommand.query()
+      .where('device_command_id', commandId)
+      .where('access_point_id', accessPointId)
+      .first()
+  }
+
   async findByWireId(wireId: number): Promise<DeviceCommand | null> {
     return DeviceCommand.query().where('device_command_wire_id', wireId).first()
   }

@@ -56,6 +56,8 @@ export interface DeviceCommandPort {
    * template se descarte dentro del aparato sin decir nada.
    */
   cancelFingerprintWritesFor(accessPointId: number): Promise<number>
+  /** El comando de ESE equipo, o `null`. La pertenencia va en la consulta. */
+  findForDevice(commandId: number, accessPointId: number): Promise<DeviceCommand | null>
   retry(commandId: number, requestedByUserId: number | null): Promise<DeviceCommand>
   listByDevice(accessPointId: number, status?: DeviceCommandStatus): Promise<DeviceCommand[]>
   listByEmployee(employeeId: number): Promise<DeviceCommand[]>

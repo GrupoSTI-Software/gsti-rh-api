@@ -101,6 +101,9 @@ function makeService(options: Options = {}) {
     async listByDevice() {
       return []
     },
+    async findForDevice() {
+      return null
+    },
     async cancelFingerprintWritesFor() {
       return 0
     },

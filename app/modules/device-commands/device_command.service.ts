@@ -151,6 +151,11 @@ export default class DeviceCommandService implements DeviceCommandPort {
     return cancelled
   }
 
+  /** El comando de ESE equipo, o `null`. La pertenencia va en la consulta. */
+  async findForDevice(commandId: number, accessPointId: number): Promise<DeviceCommand | null> {
+    return this.repository.findByIdForDevice(commandId, accessPointId)
+  }
+
   async retry(commandId: number, requestedByUserId: number | null): Promise<DeviceCommand> {
     const command = await this.requireCommand(commandId)
     if (command.deviceCommandStatus !== DEVICE_COMMAND_STATUS.FAILED) {

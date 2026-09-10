@@ -61,6 +61,8 @@ async function grantToRole(roleId: number, slug: string): Promise<number | null>
 
 test.group('ADMS cola de comandos (rebanada 4)', (group) => {
   let accessPoint: AccessPoint
+  /** Otro equipo de la misma empresa, para ejercer la pertenencia. */
+  let vecino: AccessPoint
   let businessUnitId: number
   let publicId: string
   let user: User
@@ -87,6 +89,20 @@ test.group('ADMS cola de comandos (rebanada 4)', (group) => {
       ap.accessPointStatus = 0
       await ap.save()
       accessPoint = ap
+
+      /**
+       * Segundo equipo de la MISMA empresa: es lo que permite probar la
+       * pertenencia de verdad. Con un id inexistente el 404 llega por la rama
+       * de "no existe" y el control de pertenencia queda sin ejercer.
+       */
+      const otro = new AccessPoint()
+      otro.accessPointName = `Checador vecino ${STAMP}`
+      otro.businessUnitId = businessUnitId
+      otro.accessPointActive = 1
+      otro.accessPointSerialNumber = `${SERIAL}-B`
+      otro.accessPointStatus = 0
+      await otro.save()
+      vecino = otro
     }, 'fixture de comandos ADMS')
 
     for (const slug of ['read-health', 'manage-commands']) {
@@ -103,10 +119,11 @@ test.group('ADMS cola de comandos (rebanada 4)', (group) => {
           .whereIn('role_system_permission_id', grantedIds)
           .delete()
       }
-      await DeviceCommand.query().where('access_point_id', accessPoint.accessPointId).delete()
-      await AdmsIncident.query().where('access_point_id', accessPoint.accessPointId).delete()
+      const ids = [accessPoint.accessPointId, vecino.accessPointId]
+      await DeviceCommand.query().whereIn('access_point_id', ids).delete()
+      await AdmsIncident.query().whereIn('access_point_id', ids).delete()
       await db.from('adms_raw_messages').where('adms_raw_message_serial', SERIAL).delete()
-      await db.from('access_points').where('access_point_id', accessPoint.accessPointId).delete()
+      await db.from('access_points').whereIn('access_point_id', ids).delete()
     }, 'limpieza de comandos ADMS')
   })
 
@@ -275,15 +292,51 @@ test.group('ADMS cola de comandos (rebanada 4)', (group) => {
     assert.equal(response.body().key, 'comando-no-cancelable')
   })
 
-  test('un comando de otro punto de acceso responde 404 desde esta ruta', async ({
-    client,
-    assert,
-  }) => {
+  test('un id que no existe responde 404', async ({ client, assert }) => {
     const response = await client
       .post(`/api/v1/access-points/${accessPoint.accessPointId}/commands/99999999/cancel`)
       .loginAs(user)
       .header('X-Business-Unit-Id', publicId)
     response.assertStatus(404)
     assert.equal(response.body().key, 'comando-no-encontrado')
+  })
+
+  /**
+   * La prueba que faltaba: un comando que SI existe, de otro equipo de la misma
+   * empresa. Antes se cancelaba un id inexistente, asi que el 404 llegaba por
+   * la rama de "no existe" y el control de pertenencia habria pasado
+   * igualmente si se borraba.
+   */
+  test('un comando de otro equipo no se toca desde esta ruta', async ({ client, assert }) => {
+    const service = new DeviceCommandService()
+    const ajeno = await TenantContext.run([businessUnitId], () =>
+      service.enqueue({
+        accessPointId: vecino.accessPointId,
+        businessUnitId,
+        kind: DEVICE_COMMAND_KIND.USER_UPSERT,
+        fields: { pin: '7099', name: 'Del vecino' },
+        correlationKey: `user_upsert:7099:${STAMP}`,
+      })
+    )
+
+    const response = await client
+      .post(
+        `/api/v1/access-points/${accessPoint.accessPointId}/commands/${ajeno.command.deviceCommandId}/cancel`
+      )
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    response.assertStatus(404)
+    assert.equal(response.body().key, 'comando-no-encontrado')
+
+    /** Y sigue vivo: un 404 que igual cancela seria peor que no responder. */
+    const relido = await TenantContext.runUnscoped(
+      () =>
+        DeviceCommand.query()
+          .where('device_command_id', ajeno.command.deviceCommandId)
+          .firstOrFail(),
+      'el comando del vecino sigue en pie'
+    )
+    assert.equal(relido.deviceCommandStatus, 'pending')
   })
 })

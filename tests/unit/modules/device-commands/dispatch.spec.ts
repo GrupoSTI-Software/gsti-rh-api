@@ -49,6 +49,9 @@ function makeRepository(options: Options = {}) {
     async findById() {
       return options.byWireId ?? null
     },
+    async findByIdForDevice() {
+      return options.byWireId ?? null
+    },
     async findByWireId() {
       return options.byWireId ?? null
     },

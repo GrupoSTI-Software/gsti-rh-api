@@ -44,6 +44,14 @@ export interface DeviceCommandRepository {
   ): Promise<EnqueueIdempotentResult | null>
   findLiveByCorrelation(accessPointId: number, correlationKey: string): Promise<DeviceCommand | null>
   findById(commandId: number): Promise<DeviceCommand | null>
+  /**
+   * El comando, solo si es de ESE equipo.
+   *
+   * La pertenencia se comprueba en el WHERE y no trayendo la lista del
+   * dispositivo para buscar en memoria: esa lista esta topada, asi que un
+   * comando mas viejo que el tope no se podia ni cancelar ni reintentar.
+   */
+  findByIdForDevice(commandId: number, accessPointId: number): Promise<DeviceCommand | null>
   findByWireId(wireId: number): Promise<DeviceCommand | null>
   /** Primer pendiente por prioridad, excluyendo los tipos que no se pueden despachar ahora. */
   findNextPending(accessPointId: number, excludedKinds: DeviceCommandKind[]): Promise<DeviceCommand | null>

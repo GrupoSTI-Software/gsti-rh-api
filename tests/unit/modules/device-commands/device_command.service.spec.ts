@@ -61,6 +61,9 @@ function makeService(options: Options = {}) {
     async findById() {
       return options.existing ?? null
     },
+    async findByIdForDevice() {
+      return null
+    },
     async findByWireId() {
       return options.existing ?? null
     },
