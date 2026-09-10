@@ -7,6 +7,7 @@ import { middleware } from '../kernel.js'
  *   POST   /api/platform/tenant-groups                        → alta
  *   PUT    /api/platform/tenant-groups/:platformTenantGroupId → renombrar y/o vigencia
  *   DELETE /api/platform/tenant-groups/:platformTenantGroupId → baja lógica + liberación
+ *   PUT    /api/platform/tenant-groups/:platformTenantGroupId/members → reemplazo de cuentas
  *
  * Todos tras guard platformAdmin (auth + is_platform_admin).
  * Ref: USRH1788052455657.
@@ -20,6 +21,12 @@ router
       .where('platformTenantGroupId', router.matchers.number())
     router
       .delete('/:platformTenantGroupId', '#controllers/platform_tenant_group_controller.destroy')
+      .where('platformTenantGroupId', router.matchers.number())
+    router
+      .put(
+        '/:platformTenantGroupId/members',
+        '#controllers/platform_tenant_group_controller.replaceMembers'
+      )
       .where('platformTenantGroupId', router.matchers.number())
   })
   .prefix('/api/platform/tenant-groups')

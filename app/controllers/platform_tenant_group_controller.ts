@@ -3,6 +3,7 @@ import PlatformTenantGroupService from '#services/platform_tenant_group_service'
 import {
   createTenantGroupValidator,
   listTenantGroupsValidator,
+  replaceTenantGroupMembersValidator,
   updateTenantGroupValidator,
 } from '#validators/platform_tenant_group'
 import { resolveTenantGroupApiError } from '../helpers/platform_tenant_group_api_error.js'
@@ -254,6 +255,83 @@ export default class PlatformTenantGroupController {
   async destroy({ params, response }: HttpContext) {
     try {
       const resultado = await this.service.deleteGroup(Number(params.platformTenantGroupId))
+      return response.status(200).json({ type: 'success', data: resultado })
+    } catch (error) {
+      const { status: httpStatus, ...body } = resolveTenantGroupApiError(error)
+      return response.status(httpStatus).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/tenant-groups/{platformTenantGroupId}/members:
+   *   put:
+   *     tags:
+   *       - Platform · TenantGroups
+   *     summary: Reemplazar el conjunto de cuentas de un grupo
+   *     description: |
+   *       Guarda el conjunto completo: lo que llega es exactamente lo que queda en el grupo.
+   *       Las cuentas que no vengan en la lista salen del grupo y quedan sueltas conservando
+   *       toda su información. Una cuenta que ya pertenezca a otro grupo se mueve en la misma
+   *       operación, y la respuesta declara de dónde salió en `movidos`.
+   *       La lista vacía es válida: vacía el grupo.
+   *       Todo o nada: si una cuenta no existe o está dada de baja, no se guarda ningún cambio.
+   *       Un grupo desactivado no admite asignaciones nuevas.
+   *       Requiere sesión válida y is_platform_admin = 1.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: platformTenantGroupId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [businessUnitPublicIds]
+   *             properties:
+   *               businessUnitPublicIds:
+   *                 type: array
+   *                 maxItems: 200
+   *                 items:
+   *                   type: string
+   *                   format: uuid
+   *     responses:
+   *       '200':
+   *         description: Conjunto de cuentas reemplazado
+   *       '404':
+   *         description: Grupo no encontrado o dado de baja
+   *       '422':
+   *         description: Datos inválidos, cuenta no encontrada o grupo desactivado
+   *       '403':
+   *         description: Sin permisos de administrador de plataforma
+   *
+   * @replaceMembers
+   * @summary Reemplazar el conjunto de cuentas de un grupo
+   * @description Guarda el conjunto completo de cuentas del grupo en una sola operación indivisible. Mueve las cuentas que venían de otro grupo y declara su procedencia. La lista vacía vacía el grupo. Requiere sesión válida y marca de administrador de plataforma.
+   * @tag Platform · TenantGroups
+   * @operationId replacePlatformTenantGroupMembers
+   * @security [{"bearerAuth": []}]
+   * @paramPath platformTenantGroupId - Identificador del grupo - integer
+   * @requestBody {"businessUnitPublicIds": ["3f2a1c8e-0b5d-4c7a-9e11-6d2f8a4b0c31"]}
+   * @responseBody 200 - {"type": "success", "data": {"platformTenantGroupId": 7, "asignados": 2, "liberados": 1, "movidos": [{"businessUnitPublicId": "3f2a1c8e-0b5d-4c7a-9e11-6d2f8a4b0c31", "grupoAnteriorId": 9, "grupoAnteriorNombre": "Grupo Norte"}]}}
+   * @responseBody 404 - {"title": "string", "detail": "string", "key": "grupo-no-encontrado", "code": "PLT.GRP.NOT_FOUND"}
+   * @responseBody 422 - {"title": "string", "detail": "string", "key": "tenant-no-encontrado", "code": "PLT.GRP.TENANT_NOT_FOUND"}
+   * @responseBody 403 - {"title": "string", "detail": "string", "key": "AUTH.PLATFORM.FORBIDDEN"}
+   */
+  async replaceMembers({ params, request, response }: HttpContext) {
+    try {
+      const { businessUnitPublicIds } = await request.validateUsing(
+        replaceTenantGroupMembersValidator
+      )
+      const resultado = await this.service.replaceMembers(
+        Number(params.platformTenantGroupId),
+        businessUnitPublicIds
+      )
       return response.status(200).json({ type: 'success', data: resultado })
     } catch (error) {
       const { status: httpStatus, ...body } = resolveTenantGroupApiError(error)
