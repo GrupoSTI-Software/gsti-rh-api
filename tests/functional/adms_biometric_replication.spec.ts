@@ -11,6 +11,7 @@ const i18nFake = { formatMessage: (key: string) => key } as unknown as I18n
 import AccessPointProfile from '#models/access_point_profile'
 import BiometricTemplate from '#models/biometric_template'
 import BusinessUnitUser from '#models/business_unit_user'
+import AdmsIncident from '#models/adms_incident'
 import DeviceCommand from '#models/device_command'
 import Employee from '#models/employee'
 import { TenantContext } from '#utils/tenant_context'
@@ -171,8 +172,30 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
       'conteo tras la vista previa'
     )
     assert.equal(commands[0].$extras.total, 0)
+
+    /**
+     * Una vista previa es una pregunta, no un hecho: si asentara incidentes,
+     * consultar a que equipos cabe una huella ensuciaria la bitacora del
+     * equipo sin que nadie haya intentado copiar nada.
+     */
+    const incidents = await TenantContext.runUnscoped(
+      () =>
+        AdmsIncident.query()
+          .where('access_point_id', incompatible.accessPointId)
+          .where('adms_incident_kind', 'template_version_mismatch'),
+      'incidentes tras la vista previa'
+    )
+    assert.lengthOf(incidents, 0)
   })
 
+  /**
+   * Se mira el template DEL FIXTURE, no todos los del colaborador.
+   *
+   * El spec corre sobre la base de desarrollo y toma al primer colaborador de
+   * la empresa: si alguien enrolo un dedo real con el hardware --paso el
+   * 2026-09-10-- su template queda en la misma boveda y con otra version. El
+   * conteo global convertia ese dato ajeno en un fallo del corte por version.
+   */
   test('el template solo sale hacia el equipo con la misma version mayor', async ({ assert }) => {
     await replicate(false)
 
@@ -180,7 +203,8 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
       () =>
         DeviceCommand.query()
           .whereIn('access_point_id', [compatible.accessPointId, incompatible.accessPointId])
-          .where('device_command_kind', 'biodata_write'),
+          .where('device_command_kind', 'biodata_write')
+          .where('biometric_template_id', templateId),
       'comandos encolados'
     )
 
@@ -188,6 +212,62 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     assert.equal(commands[0].accessPointId, compatible.accessPointId)
     // 13 y 13.2 son la misma version mayor; 10 no.
     assert.equal(commands[0].deviceCommandPin, PIN_COMPAT)
+  })
+
+  /**
+   * Saltarse el equipo incompatible es correcto; callarlo no.
+   *
+   * Sin este asiento, el equipo se queda con gente dada de alta que no puede
+   * identificarse con el dedo y nadie lo sabe hasta que alguien se queda
+   * parado en la puerta.
+   */
+  test('el equipo que no puede recibir ninguna huella queda asentado', async ({ assert }) => {
+    /**
+     * Version inventada a proposito: ningun template, ni del fixture ni de un
+     * enrolamiento real que ande por la boveda, la alcanza. Es la unica forma
+     * de que el escenario sea "no cruzo NADA" corriendo sobre datos vivos.
+     */
+    const ajeno = await makeDevice(`TEST-REPL-VER-${STAMP}`, '5152', '99')
+
+    await replicate(false, [ajeno.accessPointId])
+
+    const incidents = await TenantContext.runUnscoped(
+      () =>
+        AdmsIncident.query()
+          .where('access_point_id', ajeno.accessPointId)
+          .where('adms_incident_kind', 'template_version_mismatch'),
+      'incidentes de version incompatible'
+    )
+
+    assert.lengthOf(incidents, 1)
+    assert.equal(incidents[0].admsIncidentSeverity, 'warning')
+    assert.equal(incidents[0].admsIncidentStatus, 'open')
+    assert.equal(incidents[0].admsIncidentContext?.deviceVersion, '99')
+    assert.include(incidents[0].admsIncidentContext?.vaultVersions ?? '', '13')
+    assert.equal(incidents[0].admsIncidentContext?.modality, 'fingerprint')
+
+    const commands = await TenantContext.runUnscoped(
+      () => DeviceCommand.query().where('access_point_id', ajeno.accessPointId),
+      'comandos hacia el equipo ajeno'
+    )
+    assert.lengthOf(commands, 0)
+
+    /** El equipo que si recibio la copia no tiene por que salir senalado. */
+    const clean = await TenantContext.runUnscoped(
+      () =>
+        AdmsIncident.query()
+          .where('access_point_id', compatible.accessPointId)
+          .where('adms_incident_kind', 'template_version_mismatch'),
+      'incidentes del equipo compatible'
+    )
+    assert.lengthOf(clean, 0)
+
+    await TenantContext.runUnscoped(async () => {
+      await db.from('adms_incidents').where('access_point_id', ajeno.accessPointId).delete()
+      await db.from('access_point_employees').where('access_point_id', ajeno.accessPointId).delete()
+      await AccessPointProfile.query().where('access_point_id', ajeno.accessPointId).delete()
+      await db.from('access_points').where('access_point_id', ajeno.accessPointId).delete()
+    }, 'limpieza del equipo ajeno')
   })
 
   /**

@@ -209,6 +209,16 @@ export const ADMS_INCIDENT_KIND = {
    * marcar en una puerta de la que ya se le retiro.
    */
   REVOKED_STILL_PRESENT: 'revoked_still_present',
+  /**
+   * El equipo declara una version de algoritmo de huella que ningun template
+   * del colaborador alcanza, asi que la copia no se encolo (spec 7.4).
+   *
+   * El corte por version es correcto --un template de otra generacion se
+   * descarta dentro del aparato sin avisar-- pero callarlo deja al equipo con
+   * gente dada de alta que no puede identificarse, y nadie se entera hasta que
+   * alguien no puede entrar.
+   */
+  TEMPLATE_VERSION_MISMATCH: 'template_version_mismatch',
 } as const
 export type AdmsIncidentKind = (typeof ADMS_INCIDENT_KIND)[keyof typeof ADMS_INCIDENT_KIND]
 

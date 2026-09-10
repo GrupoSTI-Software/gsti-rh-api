@@ -10,6 +10,9 @@ import type { DeviceCommandPort } from '#modules/device-commands/device_command_
 import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
 import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
 import type AccessPointEmployee from '#models/access_point_employee'
+import IncidentService from '#modules/adms/raw/incident.service'
+import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
+import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import TemplateService from '../template/template.service.js'
 import type { TemplateSlot } from '../template/template.repository.js'
 import ConsentGate from '../consent/consent_gate.js'
@@ -22,6 +25,15 @@ import {
   type ReplicationResult,
   type ReplicationTargetResult,
 } from './replication.types.js'
+
+/**
+ * Cada cuanto se vuelve a asentar que un equipo no puede recibir huellas.
+ *
+ * La causa es del aparato y no de la persona, asi que un aviso por hora basta:
+ * repetirlo por cada colaborador que pase por ahi convierte la bitacora en
+ * ruido y entrena a la gente a ignorarla.
+ */
+const VERSION_MISMATCH_DEDUPE_MINUTES = 60
 
 export interface ReplicationInput {
   employeeId: number
@@ -65,7 +77,8 @@ export default class ReplicationService {
     private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
     private readonly commands: DeviceCommandPort = new DeviceCommandService(),
     private readonly publications: PhotoPublicationService = new PhotoPublicationService(),
-    private readonly consent: ConsentGate = new ConsentGate()
+    private readonly consent: ConsentGate = new ConsentGate(),
+    private readonly incidents: IncidentService = new IncidentService()
   ) {}
 
   async replicate(input: ReplicationInput): Promise<ReplicationResult> {
@@ -154,6 +167,8 @@ export default class ReplicationService {
           slots,
           targetVersion: result.fpVersion,
           platform: profile?.accessPointProfilePlatform ?? null,
+          serial: accessPoint.accessPointSerialNumber,
+          now,
         }))
       )
     }
@@ -184,15 +199,19 @@ export default class ReplicationService {
     slots: TemplateSlot[]
     targetVersion: string | null
     platform: string | null
+    serial: string | null
+    now: DateTime
   }): Promise<ReplicationItem[]> {
     const { input, pivot, pin, slots, targetVersion, platform } = args
-    const fingers = [...new Set(slots.filter((slot) => slot.bioType === BIO_TYPE.FINGERPRINT).map((slot) => slot.bioNo))]
+    const fingerSlots = slots.filter((slot) => slot.bioType === BIO_TYPE.FINGERPRINT)
+    const fingers = [...new Set(fingerSlots.map((slot) => slot.bioNo))]
 
     if (fingers.length === 0) {
       return [skip(REPLICATION_MODALITY.FINGERPRINT, 0, REPLICATION_SKIP.NOTHING_TO_COPY)]
     }
 
     const items: ReplicationItem[] = []
+    let mismatched = false
     for (const bioNo of fingers.sort((a, b) => a - b)) {
       const compatible = await this.templates.findCompatible(
         input.employeeId,
@@ -201,6 +220,7 @@ export default class ReplicationService {
         targetVersion
       )
       if (!compatible) {
+        mismatched = true
         items.push({
           modality: REPLICATION_MODALITY.FINGERPRINT,
           bioNo,
@@ -221,7 +241,78 @@ export default class ReplicationService {
         })
       )
     }
+
+    /**
+     * Solo cuando NO se pudo copiar ni una.
+     *
+     * Si algun dedo si cruzo, la persona puede identificarse en ese equipo y el
+     * aviso seria falso. Un aviso que exagera se aprende a ignorar, y el dia
+     * que diga la verdad tampoco lo van a leer.
+     */
+    const queued = items.some((item) => item.status !== 'skipped')
+    if (mismatched && !queued && !input.dryRun) {
+      await this.reportVersionMismatch({
+        accessPointId: pivot.accessPointId,
+        businessUnitId: input.businessUnitId,
+        serial: args.serial,
+        deviceVersion: targetVersion,
+        vaultVersions: fingerSlots,
+        now: args.now,
+      })
+    }
     return items
+  }
+
+  /**
+   * Deja constancia de que a ese equipo no se le pudo copiar ninguna huella.
+   *
+   * El corte por version se queda como esta --un template de otra generacion se
+   * descarta DENTRO del aparato sin devolver error, asi que mandarlo seria
+   * peor--. Lo que no puede seguir pasando es que el corte sea mudo: el equipo
+   * se queda con gente dada de alta que no puede identificarse con el dedo y
+   * nadie se entera hasta que alguien se queda parado en la puerta.
+   *
+   * El incidente es del EQUIPO, no del colaborador: la causa es la version que
+   * declara el aparato y es la misma para todos los que pasen por ahi. Por eso
+   * deduplica por equipo y el detalle no nombra a nadie.
+   */
+  private async reportVersionMismatch(args: {
+    accessPointId: number
+    businessUnitId: number
+    serial: string | null
+    deviceVersion: string | null
+    vaultVersions: TemplateSlot[]
+    now: DateTime
+  }): Promise<void> {
+    const versions = [
+      ...new Set(
+        args.vaultVersions
+          .map((slot) => slot.majorVer)
+          .filter((version): version is string => version !== null && version.length > 0)
+      ),
+    ]
+
+    await this.incidents.record(
+      {
+        kind: ADMS_INCIDENT_KIND.TEMPLATE_VERSION_MISMATCH,
+        severity: 'warning',
+        code: ADMS_ERROR_CODES.BIO_VERSION_MISMATCH,
+        title: 'El equipo no puede recibir las huellas guardadas',
+        detail:
+          'El checador declara una version de algoritmo de huella distinta a la de los templates guardados, asi que no se le copio ninguna. Quien este dado de alta ahi no podra identificarse con el dedo hasta que se enrole en ese equipo o se iguale la version del aparato.',
+        key: 'version-de-huella-incompatible',
+        serial: args.serial,
+        accessPointId: args.accessPointId,
+        businessUnitId: args.businessUnitId,
+        context: {
+          modality: REPLICATION_MODALITY.FINGERPRINT,
+          deviceVersion: args.deviceVersion ?? 'sin declarar',
+          vaultVersions: versions.join(', '),
+        },
+        now: args.now,
+      },
+      { dedupeMinutes: VERSION_MISMATCH_DEDUPE_MINUTES }
+    )
   }
 
   private async replicateFace(args: {

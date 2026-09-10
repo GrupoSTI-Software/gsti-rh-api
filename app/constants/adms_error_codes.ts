@@ -47,6 +47,8 @@ export const ADMS_ERROR_CODES = {
 
   /** El equipo acuso una orden y su propio estado dice que no la aplico. */
   CMD_NOT_APPLIED: 'ADMS.CMD.001',
+  /** El equipo declara una version de algoritmo que ningun template guardado alcanza. */
+  BIO_VERSION_MISMATCH: 'ADMS.BIO.001',
   /** Recurso fuera del alcance de la empresa (responde 404). */
   AUTHZ_OUT_OF_SCOPE: 'ADMS.AUTHZ.001',
   AUTHZ_FORBIDDEN: 'ADMS.AUTHZ.002',

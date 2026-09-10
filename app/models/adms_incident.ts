@@ -27,6 +27,10 @@ export interface AdmsIncidentContext {
   modality?: string
   driftSeconds?: number
   reason?: string
+  /** Version de algoritmo que declara el aparato. */
+  deviceVersion?: string
+  /** Versiones que tiene la boveda para esa modalidad, separadas por coma. */
+  vaultVersions?: string
 }
 
 /** Claves permitidas, derivadas del tipo: agregar una obliga a tocar la interfaz. */
