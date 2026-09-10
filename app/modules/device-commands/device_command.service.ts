@@ -14,6 +14,13 @@ import DeviceCommandRepositoryMysql from './device_command.repository.mysql.js'
 import { canTransition } from './device_command.state.js'
 import { formatDeviceCommand } from './wire/adms_command_formatter.js'
 import type { DeviceCommandRepository } from './device_command.repository.js'
+import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
+import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
+import {
+  isPinQuarantined,
+  REVOKING_STATUSES,
+} from '#modules/access-point/employee-sync/employee_sync_state'
+import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import type {
   DeviceCommandPort,
   EnqueueCommandInput,
@@ -31,7 +38,8 @@ export default class DeviceCommandService implements DeviceCommandPort {
   constructor(
     private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
     private readonly now: () => DateTime = () => DateTime.utc(),
-    private readonly clockMillis: () => number = () => Date.now()
+    private readonly clockMillis: () => number = () => Date.now(),
+    private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql()
   ) {}
 
   async enqueue(input: EnqueueCommandInput): Promise<EnqueueCommandResult> {
@@ -194,6 +202,23 @@ export default class DeviceCommandService implements DeviceCommandPort {
         'Revisa el motivo del ultimo fallo antes de volver a intentarlo.'
       )
     }
+    /**
+     * Un comando que apunta a un vinculo no se reintenta a ciegas.
+     *
+     * Dos razones. La primera: si ese vinculo va camino de la baja --o ya se
+     * revoco-- reintentar el alta vuelve a meter en el checador a quien se
+     * acaba de sacar, con su mismo PIN. La segunda: al cerrar un vinculo, lo
+     * que estaba en vuelo queda `failed`, o sea con la misma cara que un
+     * rechazo del aparato; sin esta comprobacion, ese cierre se deshace desde
+     * el boton de reintentar.
+     *
+     * Tambien devuelve el pivote al camino: el comando vuelve a la cola, y el
+     * vinculo tiene que volver a decir que espera salir. Sin eso el despacho
+     * intenta `failed -> sent`, que la maquina no admite, y el vinculo se queda
+     * clavado en `failed` mientras la persona SI entra al aparato.
+     */
+    await this.reseedPivot(command)
+
     this.transition(command, DEVICE_COMMAND_STATUS.PENDING)
     command.deviceCommandAttempts += 1
     command.deviceCommandSentAt = null
@@ -203,6 +228,48 @@ export default class DeviceCommandService implements DeviceCommandPort {
     if (requestedByUserId !== null) command.deviceCommandRequestedByUserId = requestedByUserId
     await this.repository.save(command)
     return command
+  }
+
+  /**
+   * Deja el vinculo listo para que el comando reintentado pueda avanzarlo.
+   *
+   * `pending` para el alta y `revoking` para la baja: las dos estan declaradas
+   * desde `failed` y desde `revoke_failed`. Un comando sin vinculo --un `INFO`,
+   * un `CHECK`, un ajuste de reloj-- no toca a nadie.
+   */
+  private async reseedPivot(command: DeviceCommand): Promise<void> {
+    if (!command.accessPointEmployeeId) return
+
+    const pivot = await this.pivots.findByCommandTarget(command.accessPointEmployeeId)
+    if (!pivot) return
+
+    const status = pivot.accessPointEmployeeSyncStatus
+    const isRevocation = command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_DELETE
+
+    /**
+     * Un vinculo en camino de baja, o ya revocado, no admite que se le
+     * reintente nada del camino de alta.
+     */
+    const enCaminoDeBaja =
+      status === ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED ||
+      isPinQuarantined(status) ||
+      REVOKING_STATUSES.includes(status)
+
+    if (!isRevocation && enCaminoDeBaja) {
+      throw new DeviceCommandError(
+        'El colaborador va camino de la baja en ese equipo',
+        DEVICE_COMMAND_ERROR_CODES.STATE_NOT_RETRYABLE,
+        409,
+        'vinculo-en-baja',
+        'Ese checador esta dando de baja a la persona. Vuelve a asignarla si quieres que entre otra vez.'
+      )
+    }
+
+    const target = isRevocation
+      ? ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKING
+      : ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING
+
+    await this.pivots.updateStatus(command.accessPointEmployeeId, target)
   }
 
   async listByDevice(accessPointId: number, status?: DeviceCommandStatus): Promise<DeviceCommand[]> {

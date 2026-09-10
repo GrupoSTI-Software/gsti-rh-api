@@ -86,7 +86,23 @@ export default class PlatformQuarantineClaimService {
      */
     const revived = await this.reviveDeletedIfAny(serial, tenant.businessUnitId)
 
-    const { device, created } = await this.createOrReuseDevice(serial, input.platformDeviceModelId)
+    /**
+     * Desde aqui hasta la asignacion, cualquier fallo tiene que devolver el
+     * punto de acceso a su baja: la revivificacion ya ocurrio y sin esto queda
+     * vivo y activo en una empresa que nunca llego a reclamarlo. `createOrReuse`
+     * lanza por su cuenta --serie ya tomada, modelo inexistente-- y estaba
+     * fuera de todo try.
+     */
+    let device: PlatformDevice
+    let created: boolean
+    try {
+      const reused = await this.createOrReuseDevice(serial, input.platformDeviceModelId)
+      device = reused.device
+      created = reused.created
+    } catch (error) {
+      if (revived) await this.undoRevive(revived)
+      throw error
+    }
 
     let assignment: Awaited<ReturnType<PlatformDeviceAssignmentService['createAssignment']>>
     try {
