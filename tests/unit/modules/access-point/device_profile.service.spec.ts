@@ -12,6 +12,7 @@ import type { IncidentInput, IncidentOutcome } from '#modules/adms/raw/incident.
 import type { ResolvedAdmsDevice } from '#modules/adms/channel/adms_device_resolver.service'
 import type ExecutionEvidenceService from '#modules/device-commands/evidence/execution_evidence.service'
 import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
+import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
 
@@ -27,7 +28,7 @@ const DEVICE: ResolvedAdmsDevice = {
 const V5L =
   '~DeviceName=SpeedFace-V5L,MAC=00:17:61:13:20:21,UserCount=1,~MaxUserCount=100,FPVersion=10,~MaxFingerCount=60,FPCount=1,FaceVersion=39,~MaxFaceCount=6000,FaceCount=0,IPAddress=192.168.1.59,~Platform=ZAM180_TFT,~OEMVendor=ZKTECO CO., LTD.,FWVersion=ZAM180-NF50VA-Ver3.4.9,PushVersion=Ver 2.0.33S-20220623'
 
-function makeDeps(existing: Partial<AccessPointProfile> = {}) {
+function makeDeps(existing: Partial<AccessPointProfile> = {}, confirmedInside = 0) {
   const incidents: IncidentInput[] = []
   const patches: DeviceProfilePatch[] = []
   const descriptors: AccessPointDescriptor[] = []
@@ -76,11 +77,19 @@ function makeDeps(existing: Partial<AccessPointProfile> = {}) {
     },
   } as unknown as DeviceCommandPort
 
+  /** Cuantos deberian estar dentro del aparato segun el servidor. */
+  const pivotRepository = {
+    async countConfirmedBefore(): Promise<number> {
+      return confirmedInside
+    },
+  } as unknown as EmployeeSyncRepository
+
   const service = new DeviceProfileService(
     repository,
     incidentService,
     evidenceService,
-    commandPort
+    commandPort,
+    pivotRepository
   )
   return { service, incidents, patches, descriptors, cancelledFor, resolved }
 }
@@ -173,6 +182,45 @@ test.group('ADMS device profile service', () => {
     assert.equal(incidents[0].kind, 'version_changed')
     assert.equal(incidents[0].context?.field, 'faceVersion')
     assert.lengthOf(cancelledFor, 0)
+  })
+
+  /**
+   * `UserCount=1` en el saludo contra tres altas confirmadas: el aparato perdio
+   * a dos. Es lo que deja un reset o un cambio de algoritmo de huella, que
+   * borra todo lo que el equipo tenia guardado.
+   */
+  test('el equipo que declara menos gente de la que se le dio de alta queda asentado', async ({
+    assert,
+  }) => {
+    const { service, incidents } = makeDeps({}, 3)
+
+    await service.upsertFromOptions(DEVICE, V5L, 82)
+
+    const aviso = incidents.find((incident) => incident.kind === 'device_roster_shrunk')
+    assert.exists(aviso)
+    assert.equal(aviso?.severity, 'error')
+    assert.equal(aviso?.context?.declared, 1)
+    assert.equal(aviso?.context?.expected, 3)
+  })
+
+  /**
+   * Que el aparato tenga MAS gente de la que sabemos es otra historia --alguien
+   * dado de alta a mano en el teclado-- y no deja a nadie fuera.
+   */
+  test('un equipo con mas gente de la que sabemos no levanta el aviso', async ({ assert }) => {
+    const { service, incidents } = makeDeps({}, 1)
+
+    await service.upsertFromOptions(DEVICE, V5L.replace('UserCount=1', 'UserCount=9'), 83)
+
+    assert.notExists(incidents.find((incident) => incident.kind === 'device_roster_shrunk'))
+  })
+
+  test('sin nadie dado de alta no hay padron que comparar', async ({ assert }) => {
+    const { service, incidents } = makeDeps({}, 0)
+
+    await service.upsertFromOptions(DEVICE, V5L.replace('UserCount=1', 'UserCount=0'), 84)
+
+    assert.notExists(incidents.find((incident) => incident.kind === 'device_roster_shrunk'))
   })
 
   test('plataforma fuera del mapa: layout desconocido e incidente, sin bloquear', async ({

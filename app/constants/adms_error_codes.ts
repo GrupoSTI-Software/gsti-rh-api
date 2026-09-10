@@ -49,6 +49,8 @@ export const ADMS_ERROR_CODES = {
   CMD_NOT_APPLIED: 'ADMS.CMD.001',
   /** El equipo declara una version de algoritmo que ningun template guardado alcanza. */
   BIO_VERSION_MISMATCH: 'ADMS.BIO.001',
+  /** El equipo declara menos gente dentro de la que se le dio de alta. */
+  DEV_ROSTER_SHRUNK: 'ADMS.DEV.005',
   /** Recurso fuera del alcance de la empresa (responde 404). */
   AUTHZ_OUT_OF_SCOPE: 'ADMS.AUTHZ.001',
   AUTHZ_FORBIDDEN: 'ADMS.AUTHZ.002',

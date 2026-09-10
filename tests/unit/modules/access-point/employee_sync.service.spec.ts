@@ -62,6 +62,9 @@ function makeService(options: Options = {}) {
         .filter((ocupante) => ocupante.pivotId !== exceptPivotId)
         .map((ocupante) => ocupante.pin)
     },
+    async countConfirmedBefore() {
+      return 0
+    },
     async listLiveByEmployee() {
       return options.live ?? []
     },

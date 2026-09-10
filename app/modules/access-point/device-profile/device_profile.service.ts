@@ -7,6 +7,8 @@ import IncidentService from '#modules/adms/raw/incident.service'
 import logger from '@adonisjs/core/services/logger'
 import ExecutionEvidenceService from '#modules/device-commands/evidence/execution_evidence.service'
 import DeviceCommandService from '#modules/device-commands/device_command.service'
+import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
+import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
 import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
 import DeviceProfileRepositoryMysql from './device_profile.repository.mysql.js'
 import {
@@ -36,6 +38,13 @@ interface VersionChange {
 }
 
 const VERSION_CHANGED_DEDUPE_MINUTES = 60
+
+/**
+ * El equipo saluda cada pocos segundos. Un dia de silencio basta para que
+ * alguien lo atienda sin que el mismo hecho llene la bitacora sondeo tras
+ * sondeo.
+ */
+const ROSTER_SHRUNK_DEDUPE_MINUTES = 24 * 60
 const PLATFORM_DEDUPE_MINUTES = 24 * 60
 
 /**
@@ -48,7 +57,8 @@ export default class DeviceProfileService {
     private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
     private readonly incidents: IncidentService = new IncidentService(),
     private readonly evidence: ExecutionEvidenceService = new ExecutionEvidenceService(),
-    private readonly commands: DeviceCommandPort = new DeviceCommandService()
+    private readonly commands: DeviceCommandPort = new DeviceCommandService(),
+    private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql()
   ) {}
 
   /**
@@ -272,11 +282,69 @@ export default class DeviceProfileService {
       )
     }
 
+    await this.checkRosterShrunk(device, parsed.userCount)
+
     return {
       platform: parsed.platform,
       layoutKnown,
       changedFields: changes.map((change) => change.field),
       mismatches: versions.mismatches.length,
+    }
+  }
+
+  /**
+   * El equipo declara menos gente dentro de la que se le dio de alta.
+   *
+   * Pasa con un reset de fabrica, con un reemplazo, y --medido el 2026-09-10--
+   * al cambiar la version del algoritmo de huella, que borra todo lo que el
+   * aparato tenia. Del lado de aca todo sigue en `confirmed`: la pantalla dice
+   * que la persona esta registrada y el lector no la conoce. Nadie se entera
+   * hasta que alguien se queda parado en la puerta.
+   *
+   * Se mira el CONTADOR del saludo y no las lineas `USER` de un padron: los
+   * `~Max*Count` son tamanos de lote --el SenseFace manda de 30 en 30-- asi
+   * que un lote nunca declara a todos y leer ausencias ahi daria falsos
+   * positivos en masa. El contador es global.
+   *
+   * Solo cuenta hacia abajo. Que el aparato tenga MAS gente de la que sabemos
+   * es otra historia --alguien dado de alta a mano en el teclado-- y no deja a
+   * nadie fuera.
+   */
+  private async checkRosterShrunk(
+    device: ResolvedAdmsDevice,
+    declared: number | null
+  ): Promise<void> {
+    if (declared === null) return
+
+    try {
+      const expected = await this.pivots.countConfirmedBefore(
+        device.accessPointId,
+        device.receivedAt
+      )
+      if (expected === 0 || declared >= expected) return
+
+      await this.incidents.record(
+        {
+          kind: ADMS_INCIDENT_KIND.DEVICE_ROSTER_SHRUNK,
+          severity: 'error',
+          code: ADMS_ERROR_CODES.DEV_ROSTER_SHRUNK,
+          title: 'El equipo perdio gente que tenia dada de alta',
+          detail:
+            'El checador declara menos personas dentro de las que se le dieron de alta. Suele ser un reset, un reemplazo o un cambio de version de algoritmo de huella, que borra todo lo que el aparato guardaba. Quien falte no podra identificarse hasta que se le vuelva a dar de alta.',
+          key: 'padron-del-equipo-encogido',
+          serial: device.serial,
+          accessPointId: device.accessPointId,
+          businessUnitId: device.businessUnitId,
+          context: { declared, expected },
+          now: device.receivedAt,
+        },
+        { dedupeMinutes: ROSTER_SHRUNK_DEDUPE_MINUTES }
+      )
+    } catch (error: unknown) {
+      logger.warn(
+        { accessPointId: device.accessPointId, err: error },
+        'canal ADMS: no se pudo comparar el padron declarado contra el pivote'
+      )
     }
   }
 

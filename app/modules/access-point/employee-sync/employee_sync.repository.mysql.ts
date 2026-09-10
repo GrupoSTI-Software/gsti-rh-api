@@ -3,7 +3,10 @@ import db from '@adonisjs/lucid/services/db'
 import { AdmsError } from '#exceptions/adms_error'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import AccessPointEmployee from '#models/access_point_employee'
-import type { AccessPointEmployeeSyncStatus } from '#models/access_point_employee'
+import {
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
+  type AccessPointEmployeeSyncStatus,
+} from '#models/access_point_employee'
 import AccessPointEmployeeEvent from '#models/access_point_employee_event'
 import { PIN_QUARANTINE_STATUSES } from './employee_sync_state.js'
 import type { EmployeeSyncRepository, SyncEventInput } from './employee_sync.repository.js'
@@ -105,6 +108,24 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
           .whereNull('access_point_employee_deleted_at')
           .orWhereIn('access_point_employee_sync_status', [...PIN_QUARANTINE_STATUSES])
       })
+  }
+
+  async countConfirmedBefore(accessPointId: number, at: DateTime): Promise<number> {
+    const rows = await AccessPointEmployee.query()
+      .where('access_point_id', accessPointId)
+      .where('access_point_employee_sync_status', ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED)
+      .where((group) => {
+        group
+          .whereNull('access_point_employee_sync_confirmed_at')
+          .orWhere(
+            'access_point_employee_sync_confirmed_at',
+            '<=',
+            at.toSQL({ includeOffset: false }) ?? ''
+          )
+      })
+      .count('* as total')
+
+    return Number(rows[0].$extras.total ?? 0)
   }
 
   async listTakenPins(accessPointId: number, exceptPivotId?: number): Promise<string[]> {

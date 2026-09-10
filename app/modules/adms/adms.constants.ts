@@ -219,6 +219,15 @@ export const ADMS_INCIDENT_KIND = {
    * alguien no puede entrar.
    */
   TEMPLATE_VERSION_MISMATCH: 'template_version_mismatch',
+  /**
+   * El equipo declara menos gente dentro de la que se le dio de alta.
+   *
+   * Un reset de fabrica, un cambio de algoritmo de huella --que borra todo lo
+   * que el aparato tenia-- o un reemplazo dejan al servidor creyendo que la
+   * gente sigue registrada. Nadie lo nota hasta que alguien se queda parado en
+   * la puerta, porque del lado de aca todo figura confirmado.
+   */
+  DEVICE_ROSTER_SHRUNK: 'device_roster_shrunk',
 } as const
 export type AdmsIncidentKind = (typeof ADMS_INCIDENT_KIND)[keyof typeof ADMS_INCIDENT_KIND]
 

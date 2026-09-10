@@ -31,6 +31,10 @@ export interface AdmsIncidentContext {
   deviceVersion?: string
   /** Versiones que tiene la boveda para esa modalidad, separadas por coma. */
   vaultVersions?: string
+  /** Cuantos declara tener el aparato. */
+  declared?: number
+  /** Cuantos deberia tener segun el servidor. */
+  expected?: number
 }
 
 /** Claves permitidas, derivadas del tipo: agregar una obliga a tocar la interfaz. */
