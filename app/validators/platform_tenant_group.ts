@@ -32,3 +32,14 @@ export const listTenantGroupsValidator = vine.compile(
     limit: vine.number().positive().withoutDecimals().max(100).optional(),
   })
 )
+
+/**
+ * Body para `PUT /api/platform/tenant-groups/:platformTenantGroupId/members`.
+ * Conjunto completo de miembros: lo que llegue es exactamente lo que queda.
+ * Puede ir vacío (vacía el grupo, regla 6). Sin duplicados y máximo 200 elementos.
+ */
+export const replaceTenantGroupMembersValidator = vine.compile(
+  vine.object({
+    businessUnitPublicIds: vine.array(vine.string().trim().uuid()).distinct().maxLength(200),
+  })
+)
