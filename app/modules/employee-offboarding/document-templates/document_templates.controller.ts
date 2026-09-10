@@ -8,6 +8,7 @@ import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_se
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
 import { DOCUMENT_TEMPLATE_VERSIONS_DEFAULT_LIMIT } from './document_templates.constants.js'
 import DocumentTemplatesService from './document_templates.service.js'
+import { listDocumentTemplateFieldsValidator } from './validators/list_document_template_fields.validator.js'
 import { listDocumentTemplateVersionsValidator } from './validators/list_document_template_versions.validator.js'
 
 /**
@@ -22,10 +23,11 @@ const TEMPLATE_FALLBACKS: EmployeeOffboardingErrorFallbacks = {
 }
 
 /**
- * Plantillas propias del documento de salida (USRH1788553841100). Errores
- * siempre `{ title, detail, key, code }`. `assertCanAccess` es la PRIMERA
- * sentencia de las cuatro acciones: antes de leer el multipart, de tocar el
- * almacenamiento y de cualquier consulta (CA-10).
+ * Plantillas propias del documento de salida (USRH1788553841100) y catálogo
+ * de campos combinables (USRH1788579938623). Errores siempre
+ * `{ title, detail, key, code }`. `assertCanAccess` es la PRIMERA sentencia
+ * de las cinco acciones: antes de leer el multipart, de tocar el
+ * almacenamiento, de validar la query y de cualquier consulta.
  */
 export default class DocumentTemplatesController {
   /**
@@ -72,6 +74,60 @@ export default class DocumentTemplatesController {
 
   /**
    * @swagger
+   * /api/employee-offboarding-document-templates/fields:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Expediente de salida]
+   *     summary: Catálogo de campos combinables del documento de salida
+   *     description: |
+   *       Lista ÚNICA de los datos que el sistema sabe rellenar en un
+   *       documento de salida, con el nombre exacto que debe llevar cada
+   *       campo del PDF (key), su nombre legible y su pantalla de captura en
+   *       el idioma de la petición (Accept-Language), si es obligatorio en la
+   *       plantilla y en qué tipos aplica. Constante en memoria, idéntica
+   *       para todas las empresas y sin datos de ninguna; orden estable
+   *       empresa → colaborador → sistema. Nunca ofrece RFC, CURP, NSS,
+   *       salario ni importes. No revisa archivos ni emite nada.
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema: { type: string, format: uuid }
+   *         description: UUID público de la razón social activa
+   *       - in: query
+   *         name: documentType
+   *         schema: { type: string, enum: [separation_letter] }
+   *         description: Acota al tipo; ausente devuelve el catálogo completo
+   *     responses:
+   *       200:
+   *         description: data.employeeOffboardingDocumentFields con { key, label, requiredInTemplate, documentTypes, captureTabLabel }
+   *       400:
+   *         description: documentType fuera del conjunto (key datos-invalidos)
+   *       403:
+   *         description: Sin permiso read sobre employee-offboardings (key sin-permiso)
+   */
+  async fields({ auth, request, response, i18n }: HttpContext) {
+    try {
+      const service = new DocumentTemplatesService(i18n)
+      await service.assertCanAccess(auth.user?.roleId, 'read')
+      const filters = await request.validateUsing(listDocumentTemplateFieldsValidator)
+      const employeeOffboardingDocumentFields = service.listFields(filters.documentType)
+      return StandardResponseFormatter.success(
+        response,
+        employeeOffboardingDocumentFields,
+        i18n.formatMessage('employee_offboarding_document_template_resource_title'),
+        i18n.formatMessage('employee_offboarding_document_template_fields_message'),
+        200,
+        'employeeOffboardingDocumentFields'
+      )
+    } catch (error) {
+      return this.respondWithError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
    * /api/employee-offboarding-document-templates/{documentType}/versions:
    *   get:
    *     security:
@@ -83,6 +139,11 @@ export default class DocumentTemplatesController {
    *       reemplazadas y rechazadas — por número de versión descendente,
    *       paginadas (default 50, máximo 100). Ninguna versión se borra.
    *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema: { type: string, format: uuid }
+   *         description: UUID público de la razón social activa
    *       - in: path
    *         name: documentType
    *         required: true
@@ -143,6 +204,11 @@ export default class DocumentTemplatesController {
    *       tope multipart de la plataforma (20 MB) el bodyparser responde
    *       413 antes de llegar aquí; entre 10 y 20 MB rechaza el intake (422).
    *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema: { type: string, format: uuid }
+   *         description: UUID público de la razón social activa
    *       - in: path
    *         name: documentType
    *         required: true
@@ -204,6 +270,11 @@ export default class DocumentTemplatesController {
    *       URL pre-firmada de 300 segundos, nueva en cada petición; no se
    *       persiste ni se loguea. Descargar no cambia el estado de la versión.
    *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema: { type: string, format: uuid }
+   *         description: UUID público de la razón social activa
    *       - in: path
    *         name: documentType
    *         required: true

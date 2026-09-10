@@ -19,6 +19,10 @@ import {
   type EmployeeOffboardingDocumentType,
 } from '../documents/documents.constants.js'
 import {
+  OFFBOARDING_DOCUMENT_FIELDS,
+  fieldsForDocumentType,
+} from '../documents/document_fields.constants.js'
+import {
   DOCUMENT_TEMPLATE_FALLBACK_FILE_NAME,
   DOCUMENT_TEMPLATE_INTAKE_PROFILE,
   DOCUMENT_TEMPLATE_ORIGINAL_FILE_NAME_MAX_LENGTH,
@@ -34,6 +38,10 @@ import {
   type EmployeeOffboardingDocumentTemplateCatalogEntryDto,
   type EmployeeOffboardingDocumentTemplateDto,
 } from './dto/document_templates.dto.js'
+import {
+  toDocumentFieldDto,
+  type OffboardingDocumentFieldDto,
+} from './dto/document_template_fields.dto.js'
 
 /** Acciones del módulo `employee-offboardings` que usa este slice (regla 9). */
 export type EmployeeOffboardingDocumentTemplateAction = 'read' | 'create'
@@ -116,6 +124,18 @@ export default class DocumentTemplatesService {
       })
     }
     return entries
+  }
+
+  /**
+   * Catálogo de campos combinables (USRH1788579938623): la MISMA constante
+   * que después usa el contraste (regla 7), resuelta en el idioma de la
+   * petición. Constante en memoria: cero consultas, cero red. Acotado por
+   * tipo cuando se pide (regla 9). El permiso `read` lo afirma el controller,
+   * como en las demás acciones del slice.
+   */
+  listFields(documentType?: EmployeeOffboardingDocumentType): OffboardingDocumentFieldDto[] {
+    const fields = documentType ? fieldsForDocumentType(documentType) : OFFBOARDING_DOCUMENT_FIELDS
+    return fields.map((field) => toDocumentFieldDto(field, (key) => this.t(key)))
   }
 
   /** Historial completo por versión descendente, incluidas `superseded` y `rejected`. */

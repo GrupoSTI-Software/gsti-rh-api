@@ -19,9 +19,10 @@ const templateUploadRateLimit = limiter.define('offboarding-template-upload', (c
  * Plantillas propias del documento de salida (USRH1788553841100). RBAC
  * granular vía `DocumentTemplatesService.assertCanAccess` en el controller:
  * `read` consulta y firma la descarga, `create` sube. Rutas literales antes
- * que paramétricas. `GET /fields` (catálogo de campos combinables) queda
- * RESERVADA para USRH1788579938623 entre `/` y `/:documentType/versions`: no
- * se declara aquí. No existe `DELETE` ni ruta que mute `status` (regla 5).
+ * que paramétricas: `GET /fields` (catálogo de campos combinables,
+ * USRH1788579938623) va ANTES de `/:documentType/versions`; declarado después
+ * Adonis lo resolvería como valor de `:documentType` y quedaría muerto. No
+ * existe `DELETE` ni ruta que mute `status` (regla 5).
  */
 router
   .group(() => {
@@ -29,7 +30,10 @@ router
       '/',
       '#modules/employee-offboarding/document-templates/document_templates.controller.index'
     )
-    // GET /fields — reservada (USRH1788579938623)
+    router.get(
+      '/fields',
+      '#modules/employee-offboarding/document-templates/document_templates.controller.fields'
+    )
     router.get(
       '/:documentType/versions',
       '#modules/employee-offboarding/document-templates/document_templates.controller.versions'
