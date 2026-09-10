@@ -26,13 +26,21 @@ export interface DispatchInput {
    */
   ipAnomalyOpen: boolean
   /**
+   * El equipo saludo hace poco desde ESTA misma direccion.
+   *
+   * Los comandos que llevan biometrico solo salen con la sesion caliente. Es lo
+   * unico que se puede hacer contra quien conoce la serie: si no ha saludado,
+   * no recibe nada que valga la pena robar.
+   */
+  hotSession: boolean
+  /**
    * Zona del dispositivo. La necesita el ajuste de reloj, que se recalcula en
    * el momento del despacho; sin ella se usa la del servidor.
    */
   deviceZone?: string | null
 }
 
-/** Tipos que se retienen mientras hay una anomalia de IP abierta. */
+/** Tipos que se retienen ante una anomalia de IP o una sesion fria. */
 const SENSITIVE_KINDS: readonly DeviceCommandKind[] = [
   DEVICE_COMMAND_KIND.BIODATA_WRITE,
   DEVICE_COMMAND_KIND.BIOPHOTO_WRITE,
@@ -54,7 +62,7 @@ export default class CommandDispatchService {
   async next(input: DispatchInput): Promise<string> {
     if (await this.repository.hasInFlight(input.accessPointId)) return ADMS_OK
 
-    const excluded = input.ipAnomalyOpen ? [...SENSITIVE_KINDS] : []
+    const excluded = input.ipAnomalyOpen || !input.hotSession ? [...SENSITIVE_KINDS] : []
     const command = await this.repository.findNextPending(input.accessPointId, excluded)
     if (!command) return ADMS_OK
 

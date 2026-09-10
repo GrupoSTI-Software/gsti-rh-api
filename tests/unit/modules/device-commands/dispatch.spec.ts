@@ -114,7 +114,7 @@ test.group('Despacho de comandos', () => {
     const pending = commandOf({ deviceCommandPayload: 'DATA DELETE USERINFO PIN=9999' })
     const { repository, saved } = makeRepository({ pending })
     const service = new CommandDispatchService(repository)
-    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false })
+    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
 
     assert.equal(line, 'C:1788912000000:DATA DELETE USERINFO PIN=9999')
     assert.equal(saved[0].deviceCommandStatus, 'sent')
@@ -124,7 +124,7 @@ test.group('Despacho de comandos', () => {
   test('con uno en vuelo no entrega otro: el equipo perderia el primero', async ({ assert }) => {
     const { repository, saved } = makeRepository({ inFlight: true, pending: commandOf() })
     const service = new CommandDispatchService(repository)
-    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false })
+    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
     assert.equal(line, 'OK')
     assert.lengthOf(saved, 0)
   })
@@ -132,7 +132,7 @@ test.group('Despacho de comandos', () => {
   test('sin nada pendiente responde OK', async ({ assert }) => {
     const { repository } = makeRepository()
     const service = new CommandDispatchService(repository)
-    assert.equal(await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false }), 'OK')
+    assert.equal(await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true }), 'OK')
   })
 
   test('si otro sondeo se lo llevo primero, este no entrega nada', async ({ assert }) => {
@@ -141,7 +141,7 @@ test.group('Despacho de comandos', () => {
     const pending = commandOf({ deviceCommandPayload: 'DATA DELETE USERINFO PIN=9999' })
     const { repository, saved } = makeRepository({ pending, lostRace: true })
     const service = new CommandDispatchService(repository)
-    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false })
+    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
 
     assert.equal(line, 'OK')
     assert.lengthOf(saved, 0)
@@ -157,7 +157,7 @@ test.group('Despacho de comandos', () => {
     const pending = commandOf({ deviceCommandPayload: null })
     const { repository, saved } = makeRepository({ pending })
     const service = new CommandDispatchService(repository)
-    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false })
+    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
 
     assert.equal(line, 'OK')
     assert.equal(saved[0].deviceCommandStatus, 'failed')
@@ -179,20 +179,43 @@ test.group('Despacho de comandos', () => {
       },
     } as unknown as PhotoDispatchPort
     const service = new CommandDispatchService(repository, undefined, photos)
-    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false })
+    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
 
     assert.equal(line, 'OK')
     assert.equal(saved[0].deviceCommandStatus, 'failed')
     assert.equal(saved[0].deviceCommandLastError, 'photo_publication_withdrawn')
   })
 
+  /**
+   * Quien sondee de madrugada con una serie robada no recibe nada, porque no
+   * hay sesion caliente que lo respalde. Es lo unico que se puede hacer contra
+   * quien conoce la serie: reducir el botin.
+   */
+  test('sin saludo reciente no salen los comandos con biometrico', async ({ assert }) => {
+    const { repository, excludedSeen } = makeRepository({ pending: commandOf() })
+    const service = new CommandDispatchService(repository)
+
+    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: false })
+
+    assert.deepEqual(excludedSeen[0], ['biodata_write', 'biophoto_write'])
+  })
+
+  test('con saludo reciente salen todos', async ({ assert }) => {
+    const { repository, excludedSeen } = makeRepository({ pending: commandOf() })
+    const service = new CommandDispatchService(repository)
+
+    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
+
+    assert.deepEqual(excludedSeen[0], [])
+  })
+
   test('con anomalia de IP abierta se retienen los que llevan biometrico', async ({ assert }) => {
     const { repository, excludedSeen } = makeRepository({ pending: commandOf() })
     const service = new CommandDispatchService(repository)
-    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: true })
+    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: true, hotSession: true })
     assert.deepEqual(excludedSeen[0], ['biodata_write', 'biophoto_write'])
 
-    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false })
+    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
     assert.deepEqual(excludedSeen[1], [])
   })
 })

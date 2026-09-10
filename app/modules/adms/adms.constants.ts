@@ -64,6 +64,17 @@ export const ADMS_PHOTO_TOKEN_UNSCOPED_REASON =
 /** Ventana en la que dos IP distintas para la misma serie cuentan como anomalia. */
 export const ADMS_IP_ANOMALY_WINDOW_SECONDS = 300
 
+/**
+ * Cuanto vale el saludo de un equipo como respaldo de su sesion.
+ *
+ * Los comandos que llevan biometrico solo salen si el aparato saludo desde esta
+ * misma direccion dentro de la ventana: quien sondee de madrugada con una serie
+ * robada no recibe nada, porque no hay nada que entregarle. Media hora es
+ * holgado para un equipo que sondea cada pocos segundos, y corto frente al
+ * riesgo de entregarle una huella a quien solo conoce la serie.
+ */
+export const ADMS_HOT_SESSION_MINUTES = 30
+
 /** Limites del canal (spec 4.2 y 4.6). Store del limiter en memoria, por worker. */
 export const ADMS_RATE = {
   devicePerMinute: 300,
