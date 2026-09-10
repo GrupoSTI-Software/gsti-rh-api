@@ -294,6 +294,47 @@ class FaceDescriptorCacheService {
   }
 
   /**
+   * Detecta TODAS las caras de una imagen (spec ADMS 7.2).
+   *
+   * `detectAllFaces` y no `detectSingleFace` a propósito: para decidir si una
+   * foto sirve como referencia hay que saber si hay DOS personas en el cuadro,
+   * y el detector de una sola cara devuelve la mejor sin decir que había otra.
+   *
+   * Las cajas vienen en las coordenadas de la imagen ya redimensionada para
+   * procesar, así que el ancho y el alto que se devuelven son los de ESA
+   * imagen: la proporción del rostro se calcula entre valores del mismo marco.
+   *
+   * Lanza si no se pudo evaluar (modelos ausentes, canvas, memoria). Quien
+   * llama debe distinguir «no se pudo evaluar» de «la foto no sirve».
+   */
+  async detectAllFacesIn(imageBuffer: Buffer): Promise<{
+    faces: number
+    boxes: Array<{ x: number; y: number; width: number; height: number }>
+    width: number
+    height: number
+  }> {
+    await this.ensureModelsLoaded()
+
+    const img = await resizeImageForProcessing(imageBuffer)
+    const options = this.useTinyDetector
+      ? new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 })
+      : new faceapi.SsdMobilenetv1Options({ minConfidence: CONFIG.SSD_MIN_CONFIDENCE })
+
+    const detections = await faceapi.detectAllFaces(img, options)
+    return {
+      faces: detections.length,
+      boxes: detections.map((detection) => ({
+        x: detection.box.x,
+        y: detection.box.y,
+        width: detection.box.width,
+        height: detection.box.height,
+      })),
+      width: img.width,
+      height: img.height,
+    }
+  }
+
+  /**
    * Obtiene descriptor de empleado (desde caché o lo calcula)
    */
   async getEmployeeDescriptor(

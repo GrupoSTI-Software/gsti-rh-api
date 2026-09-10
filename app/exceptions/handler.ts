@@ -33,6 +33,7 @@ import {
   respondAdditionalBusinessUnitRateLimit,
 } from '../helpers/business_unit_request_errors.js'
 import { isFileIntakeError, respondFileIntakeError } from '../helpers/file_intake_api_error.js'
+import { isAdmsChannelUrl } from '#constants/adms_channel'
 
 export default class HttpExceptionHandler extends ExceptionHandler {
   /**
@@ -46,6 +47,22 @@ export default class HttpExceptionHandler extends ExceptionHandler {
    * response to the client
    */
   async handle(error: unknown, ctx: HttpContext) {
+    /**
+     * Canal ADMS (spec 4.6): el checador no entiende JSON ni una pila. La
+     * pasarela ya captura todo; esta rama es la red por si algo escapa.
+     */
+    if (isAdmsChannelUrl(ctx.request.url(false))) {
+      const code = (error as { code?: string; status?: number }).code
+      const status =
+        code === 'E_REQUEST_ENTITY_TOO_LARGE' ? 413 : code === 'E_TOO_MANY_REQUESTS' ? 429 : 500
+      const body =
+        status === 500 ? 'ERROR' : status === 413 ? 'PAYLOAD TOO LARGE' : 'TOO MANY REQUESTS'
+      ctx.response.status(status)
+      ctx.response.header('Content-Type', 'text/plain; charset=utf-8')
+      ctx.response.header('Cache-Control', 'private, no-store')
+      return ctx.response.send(body)
+    }
+
     /**
      * Rechazo de la entrada de archivos. Sin esta rama el error llega al
      * manejador por defecto: responde 500 en vez del 422 que es, y fuera de
