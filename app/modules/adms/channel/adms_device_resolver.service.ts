@@ -4,6 +4,7 @@ import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import { TenantContext } from '#utils/tenant_context'
 import {
   ADMS_INCIDENT_KIND,
+  ADMS_HOT_SESSION_MINUTES,
   ADMS_IP_ANOMALY_WINDOW_SECONDS,
   ADMS_OK,
   ADMS_UNKNOWN_SERIAL_UNSCOPED_REASON,
@@ -302,7 +303,15 @@ export default class AdmsDeviceResolverService {
     return from.isValid && now >= from
   }
 
-  async touch(device: ResolvedAdmsDevice): Promise<void> {
+  /**
+   * Registra el contacto y dice si la sesion venia caliente.
+   *
+   * El veredicto se calcula con el estado ANTERIOR a esta peticion, y por eso
+   * sale de aqui: `touch` corre antes que el handler y escribe la IP de quien
+   * llama, asi que preguntarlo despues devolvia siempre "caliente" --incluida
+   * la primera peticion de un desconocido--. C2 no protegia de nada.
+   */
+  async touch(device: ResolvedAdmsDevice): Promise<{ hotSession: boolean }> {
     await this.lookup.touchConnection(device.accessPointId, device.ip, device.receivedAt)
     await this.quarantine.claimOnContact(
       device.serial,
@@ -340,9 +349,22 @@ export default class AdmsDeviceResolverService {
         { dedupeMinutes: IP_ANOMALY_DEDUPE_MINUTES }
       )
     }
+    /**
+     * Caliente solo si el contacto anterior fue de ESTA misma direccion y
+     * dentro de la ventana. Un primer contacto, o uno desde una IP nueva, sale
+     * frio: los comandos con biometrico esperan al siguiente sondeo.
+     */
+    const hotSession =
+      previousIp !== null &&
+      previousAt !== null &&
+      previousIp === device.ip &&
+      device.receivedAt.diff(previousAt, 'minutes').minutes <= ADMS_HOT_SESSION_MINUTES
+
     await this.profiles.recordIpSeen(device.accessPointId, device.businessUnitId, {
       ip: device.ip,
       seenAt: device.receivedAt,
     })
+
+    return { hotSession }
   }
 }

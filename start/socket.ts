@@ -3,26 +3,11 @@ import AssistsService from '#services/assist_service'
 import EmployeeBiometricService from '#services/employee_biometric_service'
 import AccessPoint from '#models/access_point'
 import AccessPointService from '#services/access_point_service'
-import BusinessUnit from '#models/business_unit'
+import QuarantineService from '#modules/access-point/quarantine/quarantine.service'
 import i18nManager from '@adonisjs/i18n/services/main'
 import { DateTime } from 'luxon'
-import db from '@adonisjs/lucid/services/db'
 import logger from '@adonisjs/core/services/logger'
 
-/**
- * Blindaje de `device-info` contra `uq_access_point_serial_number`
- * (USRH1787193625428). Solo se activa cuando el `create` de la rama de
- * alta choca contra el índice único; nunca se toca la rama de actualización
- * (`:491-521` de esta HU histórica) ni `accessPointName: payload.alias`.
- */
-function isDuplicateSerialError(error: unknown): boolean {
-  const err = error as { code?: string; errno?: number; message?: string } | undefined
-  return (
-    err?.code === 'ER_DUP_ENTRY' ||
-    err?.errno === 1062 ||
-    Boolean(err?.message?.includes('uq_access_point_serial_number'))
-  )
-}
 
 Ws.boot()
 
@@ -539,109 +524,50 @@ if (Ws.io) {
           return
         }
 
-        // Dispositivo nuevo: usar la primera unidad de negocio existente
-        const firstBusinessUnit = await BusinessUnit.query()
-          .whereNull('business_unit_deleted_at')
-          .orderBy('business_unit_id', 'asc')
-          .first()
-        if (!firstBusinessUnit?.businessUnitId) {
-          socket.emit('device-info-ack', {
-            success: false,
-            error: 'No hay unidad de negocio registrada. Regístrela desde la API primero.',
-            serial_number: serialNumber,
-          })
-          return
-        }
-
-        const newAccessPoint = {
-          accessPointName: payload.alias || serialNumber,
-          businessUnitId: firstBusinessUnit.businessUnitId,
-          accessPointActive: 1,
-          accessPointSerialNumber: serialNumber,
-          accessPointDeviceName: payload.device_name,
-          accessPointIp: payload.ip,
-          accessPointMac: payload.mac,
-          accessPointFirmware: payload.firmware,
-          accessPointPlatform: payload.platform,
-          accessPointStatus: 1,
-          accessPointLastConnection: lastConnection,
-        } as AccessPoint
-
-        const verifyInfo = await accessPointService.verifyInfo(newAccessPoint)
-        if (verifyInfo.status !== 200) {
-          socket.emit('device-info-ack', {
-            success: false,
-            error: verifyInfo.message || i18n.formatMessage('entity_was_not_found', { entity: i18n.formatMessage('business_unit') }),
-            serial_number: serialNumber,
-          })
-          return
-        }
-
-        let created: AccessPoint
-        try {
-          created = await accessPointService.create(newAccessPoint)
-        } catch (createError) {
-          if (!isDuplicateSerialError(createError)) {
-            throw createError
-          }
-
-          logger.warn(
-            { serialNumber, index: 'uq_access_point_serial_number' },
-            'device-info: serie ya registrada, resolviendo choque'
-          )
-
-          // `AccessPoint.query()` compone SoftDeletes y filtra bajas por
-          // defecto: se consulta en crudo para poder ver también la fila
-          // muerta que secuestra la serie (CA-12).
-          const occupant = await db
-            .from('access_points')
-            .where('access_point_serial_number', serialNumber)
-            .first()
-
-          if (occupant?.access_point_deleted_at) {
-            // Ocupante muerto: libera la serie y reintenta una sola vez.
-            await db
-              .from('access_points')
-              .where('access_point_id', occupant.access_point_id)
-              .whereNotNull('access_point_deleted_at')
-              .update({ access_point_serial_number: null })
-
-            logger.warn(
-              { serialNumber, freedAccessPointId: occupant.access_point_id },
-              'device-info: serie liberada de una fila dada de baja, reintentando alta'
-            )
-
-            created = await accessPointService.create(newAccessPoint)
-          } else {
-            // Ocupante vivo: no se toca nada. Mensaje propio, nunca el del driver.
-            logger.warn(
-              { serialNumber, businessUnitId: occupant?.business_unit_id ?? null },
-              'device-info: serie ya registrada en un punto de acceso vivo'
-            )
-            socket.emit('device-info-ack', {
-              success: false,
-              error: 'El número de serie ya está registrado en el sistema.',
-              serial_number: serialNumber,
-            })
-            return
-          }
-        }
-
-        if (Ws.io) {
-          Ws.io.emit('device-info-received', {
-            ...payload,
-            accessPointId: created.accessPointId,
-            action: 'created',
-          })
-        }
-        socket.emit('device-info-ack', {
-          success: true,
-          serial_number: serialNumber,
-          action: 'created',
-          accessPointId: created.accessPointId,
+        /**
+         * Una serie desconocida NO se da de alta por aqui: se pone en
+         * cuarentena, como cualquier equipo que aparece solo.
+         *
+         * Este puente creaba el punto de acceso activo en la primera empresa
+         * que encontrara, sin autenticacion de ningun tipo --el socket acepta
+         * cualquier origen-- y sin direccion propia de canal. Con eso, quien
+         * conociera una serie impresa podia fabricar un checador dentro de una
+         * empresa ajena, y ademas evitaba que apareciera en la cola de
+         * cuarentena: la fila ya existia, asi que nadie tenia nada que
+         * reclamar. Anulaba de raiz la autenticidad del canal, donde por el
+         * dominio comun se nace y solo se nace.
+         *
+         * El alta legitima sigue existiendo, por su camino: cuarentena, alguien
+         * la reclama, y el equipo recibe su direccion propia.
+         */
+        await new QuarantineService().recordHit({
+          serial: serialNumber,
+          ip: payload.ip ?? '',
+          hints: {
+            deviceName: payload.device_name ?? undefined,
+            platform: payload.platform ?? undefined,
+            fwVersion: payload.firmware ?? undefined,
+          },
+          now: DateTime.utc(),
         })
-        // Resolver promesa pendiente de updateConnectionStatus si existía
-        Ws.resolveZkDeviceInfo(serialNumber, { success: true, accessPoint: created, action: 'created' })
+
+        logger.warn(
+          { serialNumber, ip: payload.ip },
+          'device-info: serie desconocida; se registra en cuarentena en vez de darla de alta'
+        )
+
+        socket.emit('device-info-ack', {
+          success: false,
+          error:
+            'Ese checador no esta registrado. Quedo en la cola de equipos por reclamar: asignalo a una empresa desde el Backoffice y tecleale la direccion que te entregue.',
+          serial_number: serialNumber,
+        })
+        Ws.resolveZkDeviceInfo(serialNumber, {
+          success: false,
+          error: 'serie_no_registrada',
+        })
+        return
+
       } catch (error) {
         console.error('Error al procesar device-info:', error)
         socket.emit('device-info-ack', {

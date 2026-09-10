@@ -222,14 +222,16 @@ export default class AdmsChannelGateway {
         path,
         query,
         rawQuery: rawQueryOf(ctx),
+        /** Lo decide `touch`, con el estado anterior a esta peticion. */
+        hotSession: false,
       }
       const handler: HandlerName = route === 'unknown_post' ? 'unknownPost' : route.handler
 
       const reply = await TenantContext.run(
         [device.businessUnitId],
         async (): Promise<ChannelReply> => {
-          await this.resolver.touch(device)
-          return this.controller[handler](request)
+          const { hotSession } = await this.resolver.touch(device)
+          return this.controller[handler]({ ...request, hotSession })
         }
       )
       return sendText(ctx.response, reply.status, reply.body)

@@ -70,6 +70,20 @@ test.group('Secreto del canal: comparacion', () => {
     assert.isFalse(channelSecretMatches(secret + 'extra', secret))
   })
 
+  /**
+   * `length` cuenta unidades UTF-16 y `timingSafeEqual` exige bytes: un `Host`
+   * con bytes altos pasaba la guarda y hacia reventar la comparacion. Ese 500,
+   * frente al 200 de una serie desconocida, convertia el canal en un oraculo de
+   * series registradas.
+   */
+  test('una etiqueta con bytes altos no coincide ni revienta', ({ assert }) => {
+    const secret = generateChannelSecret()
+    const mismoLargoOtrosBytes = 'é'.repeat(secret.length)
+
+    assert.equal(mismoLargoOtrosBytes.length, secret.length)
+    assert.isFalse(channelSecretMatches(mismoLargoOtrosBytes, secret))
+  })
+
   test('sin etiqueta o sin secreto nunca coincide', ({ assert }) => {
     assert.isFalse(channelSecretMatches(null, generateChannelSecret()))
     assert.isFalse(channelSecretMatches(generateChannelSecret(), null))

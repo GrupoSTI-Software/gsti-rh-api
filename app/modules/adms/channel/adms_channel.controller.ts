@@ -1,6 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
-import { ADMS_HOT_SESSION_MINUTES,
+import {
   ADMS_CONTENT_TYPE_MAX_LENGTH,
   ADMS_MAX_BODY_BYTES,
   ADMS_OK,
@@ -28,6 +28,14 @@ export interface AdmsRequest {
   path: string
   query: Record<string, string>
   rawQuery: string | null
+  /**
+   * El equipo ya venia hablando desde esta misma direccion.
+   *
+   * Lo decide la pasarela con el estado ANTERIOR a esta peticion: calcularlo
+   * aqui leeria la fila que el propio contacto acaba de escribir y daria
+   * siempre que si.
+   */
+  hotSession: boolean
 }
 
 /**
@@ -95,7 +103,7 @@ export default class AdmsChannelController {
       accessPointId: device.accessPointId,
       now: device.receivedAt,
       ipAnomalyOpen,
-      hotSession: await this.hasHotSession(device),
+      hotSession: request.hotSession,
       /**
        * La zona del EQUIPO, no la del negocio. El ajuste de reloj se recalcula
        * al despachar y sin esto saldria con la zona de la aplicacion: una sede
@@ -167,23 +175,6 @@ export default class AdmsChannelController {
    * Zona del dispositivo, si no la de la empresa, si no la del sistema. Solo
    * para `TimeZone=` del bloque CA.
    */
-  /**
-   * El equipo saludo hace poco desde ESTA misma direccion.
-   *
-   * Se apoya en el perfil, que ya guarda la ultima IP vista y cuando. Sin
-   * lectura previa la sesion esta fria: un equipo del que no sabemos nada no
-   * recibe biometricos, y en el peor caso los recibira en el siguiente sondeo,
-   * unos segundos despues.
-   */
-  private async hasHotSession(device: ResolvedAdmsDevice): Promise<boolean> {
-    const profile = await this.profiles.findByAccessPoint(device.accessPointId)
-    const seenAt = profile?.accessPointProfileLastIpSeenAt ?? null
-    const seenIp = profile?.accessPointProfileLastIpSeen ?? null
-    if (seenAt === null || seenIp === null) return false
-    if (seenIp !== device.ip) return false
-
-    return device.receivedAt.diff(seenAt, 'minutes').minutes <= ADMS_HOT_SESSION_MINUTES
-  }
 
   private async timezoneOffsetHours(device: ResolvedAdmsDevice): Promise<number> {
     let zone = device.timezone

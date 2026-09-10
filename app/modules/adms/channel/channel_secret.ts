@@ -75,7 +75,20 @@ export function channelSecretMatches(
   secret: string | null | undefined
 ): boolean {
   if (!label || !secret) return false
-  if (label.length !== secret.length) return false
 
-  return timingSafeEqual(Buffer.from(label, 'utf8'), Buffer.from(secret, 'utf8'))
+  /**
+   * Se mide en BYTES, no en caracteres.
+   *
+   * `length` cuenta unidades UTF-16 y `timingSafeEqual` exige buffers del mismo
+   * tamano en bytes: un `Host` con un byte alto --que Node decodifica como un
+   * caracter que ocupa dos bytes en utf8-- pasaba la guarda y hacia reventar la
+   * comparacion. Esa excepcion salia como 500, y un 500 frente al 200 de una
+   * serie desconocida convertia el canal en un oraculo: justo lo que se quiso
+   * evitar respondiendo 404 en vez de 403.
+   */
+  const candidate = Buffer.from(label, 'utf8')
+  const expected = Buffer.from(secret, 'utf8')
+  if (candidate.length !== expected.length) return false
+
+  return timingSafeEqual(candidate, expected)
 }

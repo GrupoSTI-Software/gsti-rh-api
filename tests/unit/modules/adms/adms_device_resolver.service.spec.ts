@@ -274,6 +274,44 @@ test.group('ADMS device resolver', () => {
   })
 
   /**
+   * El bug que anulaba C2: `touch` escribe la IP de quien llama, asi que
+   * preguntarlo despues devolvia siempre "caliente", incluida la primera
+   * peticion de un desconocido. El veredicto sale del estado ANTERIOR.
+   */
+  test('el primer contacto de una direccion nueva sale frio', async ({ assert }) => {
+    const { service } = makeDeps(ROW)
+
+    const result = await service.resolve({
+      serial: ROW.serial,
+      ip: '203.0.113.9',
+      now: NOW,
+      hints: null,
+    })
+    assert.equal(result.kind, 'ok')
+    if (result.kind !== 'ok') return
+
+    /** El perfil del fixture trae `10.0.0.1` como ultima vista. */
+    const { hotSession } = await service.touch(result.device)
+    assert.isFalse(hotSession)
+  })
+
+  test('el equipo que ya venia hablando desde su IP sale caliente', async ({ assert }) => {
+    const { service } = makeDeps(ROW)
+
+    const result = await service.resolve({
+      serial: ROW.serial,
+      ip: '10.0.0.1',
+      now: NOW,
+      hints: null,
+    })
+    assert.equal(result.kind, 'ok')
+    if (result.kind !== 'ok') return
+
+    const { hotSession } = await service.touch(result.device)
+    assert.isTrue(hotSession)
+  })
+
+  /**
    * Sin esto, "alguien nos esta probando direcciones" es indistinguible de un
    * checador al que le reescribieron la suya.
    */
