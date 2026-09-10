@@ -250,6 +250,21 @@ export default class ReplicationService {
      * que diga la verdad tampoco lo van a leer.
      */
     const queued = items.some((item) => item.status !== 'skipped')
+
+    /**
+     * Si la copia si salio, el aviso de version dejo de ser cierto.
+     *
+     * Un aviso que se queda abierto para siempre entrena a la gente a
+     * ignorarlos: el que sigue abierto tiene que significar algo.
+     */
+    if (queued && !input.dryRun) {
+      await this.incidents.resolveResolvedCause(
+        ADMS_INCIDENT_KIND.TEMPLATE_VERSION_MISMATCH,
+        pivot.accessPointId,
+        args.now
+      )
+    }
+
     if (mismatched && !queued && !input.dryRun) {
       await this.reportVersionMismatch({
         accessPointId: pivot.accessPointId,

@@ -52,6 +52,13 @@ export interface DeviceCommandRepository {
   listByEmployee(employeeId: number): Promise<DeviceCommand[]>
   /** Lo que sigue vivo --pendiente o en vuelo-- para un vinculo concreto. */
   listLiveForPivot(accessPointEmployeeId: number): Promise<DeviceCommand[]>
+  /**
+   * Escrituras de huella vivas hacia un equipo.
+   *
+   * Se resuelve por el tipo del template al que apunta el comando y no por
+   * `device_command_bio_no`: ahi el dedo 9 y el rostro comparten numero.
+   */
+  listLiveFingerprintWrites(accessPointId: number): Promise<DeviceCommand[]>
   /** Comandos en vuelo o acusados cuyo plazo vencio, para el barrido. */
   findStuck(input: {
     sentBefore: DateTime

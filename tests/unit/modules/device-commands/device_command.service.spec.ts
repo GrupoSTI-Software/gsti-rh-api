@@ -76,6 +76,9 @@ function makeService(options: Options = {}) {
     async listLiveForPivot() {
       return []
     },
+    async listLiveFingerprintWrites() {
+      return []
+    },
     async listByEmployee() {
       return []
     },

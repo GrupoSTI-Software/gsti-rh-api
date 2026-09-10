@@ -222,6 +222,19 @@ export const ADMS_INCIDENT_KIND = {
 } as const
 export type AdmsIncidentKind = (typeof ADMS_INCIDENT_KIND)[keyof typeof ADMS_INCIDENT_KIND]
 
+/**
+ * Incidentes abiertos que explican por que un equipo no tiene las copias.
+ *
+ * Uno las retiene --con una anomalia de IP el canal no despacha nada que lleve
+ * template-- y el otro las impide: si la version no cruza no hay nada que
+ * mandar. Para la matriz del colaborador la pregunta es la misma, "por que no
+ * estan ahi", asi que se responden juntos y el consumidor distingue por `kind`.
+ */
+export const ADMS_COPY_BLOCKING_KINDS: readonly AdmsIncidentKind[] = [
+  ADMS_INCIDENT_KIND.IP_ANOMALY,
+  ADMS_INCIDENT_KIND.TEMPLATE_VERSION_MISMATCH,
+]
+
 /** Severidad del incidente. */
 export const ADMS_INCIDENT_SEVERITY = ['info', 'warning', 'error'] as const
 export type AdmsIncidentSeverity = (typeof ADMS_INCIDENT_SEVERITY)[number]

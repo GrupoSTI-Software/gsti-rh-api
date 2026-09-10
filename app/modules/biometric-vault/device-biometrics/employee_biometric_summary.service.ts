@@ -3,7 +3,7 @@ import AccessPointEmployee, {
 } from '#models/access_point_employee'
 import AccessPointProfile from '#models/access_point_profile'
 import AdmsIncident from '#models/adms_incident'
-import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
+import { ADMS_COPY_BLOCKING_KINDS } from '#modules/adms/adms.constants'
 import DeviceCommand from '#models/device_command'
 import EmployeeBiometric from '#models/employee_biometric'
 import { parseBiometricData } from '#helpers/biometric_data_parser'
@@ -240,7 +240,7 @@ export default class EmployeeBiometricSummaryService {
   ): Promise<{ incidentId: number; kind: string; since: string | null } | null> {
     const incident = await AdmsIncident.query()
       .where('access_point_id', accessPointId)
-      .where('adms_incident_kind', ADMS_INCIDENT_KIND.IP_ANOMALY)
+      .whereIn('adms_incident_kind', [...ADMS_COPY_BLOCKING_KINDS])
       .where('adms_incident_status', 'open')
       .orderBy('adms_incident_id', 'desc')
       .first()

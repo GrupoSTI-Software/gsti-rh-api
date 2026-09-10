@@ -47,6 +47,15 @@ export interface DeviceCommandPort {
     accessPointEmployeeId: number,
     requestedByUserId: number | null
   ): Promise<number>
+  /**
+   * Cancela las copias de huella que siguen vivas hacia un equipo.
+   *
+   * Se usa cuando el aparato cambia de version de algoritmo: lo que este en la
+   * cola lleva un template de la generacion anterior, que ese equipo ya no
+   * sabe leer. Dejarlo vivo solo gasta un turno de despacho para que el
+   * template se descarte dentro del aparato sin decir nada.
+   */
+  cancelFingerprintWritesFor(accessPointId: number): Promise<number>
   retry(commandId: number, requestedByUserId: number | null): Promise<DeviceCommand>
   listByDevice(accessPointId: number, status?: DeviceCommandStatus): Promise<DeviceCommand[]>
   listByEmployee(employeeId: number): Promise<DeviceCommand[]>

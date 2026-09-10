@@ -67,6 +67,9 @@ function makeRepository(options: Options = {}) {
     async listLiveForPivot() {
       return []
     },
+    async listLiveFingerprintWrites() {
+      return []
+    },
     async findStuck() {
       return []
     },

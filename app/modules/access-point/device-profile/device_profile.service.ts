@@ -6,6 +6,8 @@ import { attlogLayoutFor } from '#modules/adms/parsers/parser.types'
 import IncidentService from '#modules/adms/raw/incident.service'
 import logger from '@adonisjs/core/services/logger'
 import ExecutionEvidenceService from '#modules/device-commands/evidence/execution_evidence.service'
+import DeviceCommandService from '#modules/device-commands/device_command.service'
+import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
 import DeviceProfileRepositoryMysql from './device_profile.repository.mysql.js'
 import {
   clampBytes,
@@ -45,7 +47,8 @@ export default class DeviceProfileService {
   constructor(
     private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
     private readonly incidents: IncidentService = new IncidentService(),
-    private readonly evidence: ExecutionEvidenceService = new ExecutionEvidenceService()
+    private readonly evidence: ExecutionEvidenceService = new ExecutionEvidenceService(),
+    private readonly commands: DeviceCommandPort = new DeviceCommandService()
   ) {}
 
   /**
@@ -102,6 +105,23 @@ export default class DeviceProfileService {
         },
         { dedupeMinutes: VERSION_CHANGED_DEDUPE_MINUTES }
       )
+
+      /**
+       * Un cambio de algoritmo de huella deja invalida la cola de ese equipo.
+       *
+       * Lo encolado lleva templates de la generacion anterior y ese aparato ya
+       * no sabe leerlos. Peor: la escritura va por `FINGERTMP`, que no lleva
+       * la version dentro, asi que el equipo contesta `Return=0`, sube su
+       * contador y descarta el dato. El aviso quedaria abierto mientras la
+       * pantalla anuncia una huella que no existe.
+       *
+       * Se cancela en vez de retener porque no es un estado pasajero: ese
+       * template no va a servir para este equipo mas tarde. Lo que si sirve se
+       * vuelve a encolar solo, cuando alguien enrole en la version nueva.
+       */
+      if (change.field === 'fpVersion' && device.accessPointId !== null) {
+        await this.cancelStaleFingerprintWrites(device.accessPointId)
+      }
     }
 
     for (const mismatch of versions.mismatches) {
@@ -257,6 +277,27 @@ export default class DeviceProfileService {
       layoutKnown,
       changedFields: changes.map((change) => change.field),
       mismatches: versions.mismatches.length,
+    }
+  }
+
+  /**
+   * No lanza: el canal esta respondiendo un `options` y una cola que no se pudo
+   * limpiar no puede convertir ese acuse en un error para el aparato.
+   */
+  private async cancelStaleFingerprintWrites(accessPointId: number): Promise<void> {
+    try {
+      const cancelled = await this.commands.cancelFingerprintWritesFor(accessPointId)
+      if (cancelled > 0) {
+        logger.warn(
+          { accessPointId, cancelled },
+          'canal ADMS: el equipo cambio de version de huella; se cancelaron las copias en cola'
+        )
+      }
+    } catch (error: unknown) {
+      logger.warn(
+        { accessPointId, err: error },
+        'canal ADMS: no se pudieron cancelar las copias de huella tras el cambio de version'
+      )
     }
   }
 

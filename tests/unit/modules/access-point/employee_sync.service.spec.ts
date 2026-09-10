@@ -98,6 +98,9 @@ function makeService(options: Options = {}) {
     async listByDevice() {
       return []
     },
+    async cancelFingerprintWritesFor() {
+      return 0
+    },
     async cancelLiveForPivot() {
       return 0
     },

@@ -137,6 +137,20 @@ export default class DeviceCommandService implements DeviceCommandPort {
     return cancelled
   }
 
+  async cancelFingerprintWritesFor(accessPointId: number): Promise<number> {
+    const commands = await this.repository.listLiveFingerprintWrites(accessPointId)
+
+    let cancelled = 0
+    for (const command of commands) {
+      this.transition(command, DEVICE_COMMAND_STATUS.CANCELLED)
+      command.deviceCommandCancelledAt = this.now()
+      command.deviceCommandLastError = 'El equipo cambio de version de algoritmo de huella'
+      await this.repository.save(command)
+      cancelled += 1
+    }
+    return cancelled
+  }
+
   async retry(commandId: number, requestedByUserId: number | null): Promise<DeviceCommand> {
     const command = await this.requireCommand(commandId)
     if (command.deviceCommandStatus !== DEVICE_COMMAND_STATUS.FAILED) {

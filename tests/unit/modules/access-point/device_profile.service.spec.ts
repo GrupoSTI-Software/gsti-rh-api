@@ -10,6 +10,8 @@ import type AccessPointProfile from '#models/access_point_profile'
 import type IncidentService from '#modules/adms/raw/incident.service'
 import type { IncidentInput, IncidentOutcome } from '#modules/adms/raw/incident.service'
 import type { ResolvedAdmsDevice } from '#modules/adms/channel/adms_device_resolver.service'
+import type ExecutionEvidenceService from '#modules/device-commands/evidence/execution_evidence.service'
+import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
 
@@ -51,14 +53,36 @@ function makeDeps(existing: Partial<AccessPointProfile> = {}) {
       descriptors.push(descriptor)
     },
   }
+  /** Avisos que el servicio cerro por si solo, con su causa ya resuelta. */
+  const resolved: string[] = []
   const incidentService = {
     async record(input: IncidentInput): Promise<IncidentOutcome> {
       incidents.push(input)
       return 'created'
     },
+    async resolveResolvedCause(kind: string): Promise<number> {
+      resolved.push(kind)
+      return 0
+    },
   } as unknown as IncidentService
-  const service = new DeviceProfileService(repository, incidentService)
-  return { service, incidents, patches, descriptors }
+  const evidenceService = {} as unknown as ExecutionEvidenceService
+
+  /** A que equipos se les vacio la cola de huella y cuantas veces. */
+  const cancelledFor: number[] = []
+  const commandPort = {
+    async cancelFingerprintWritesFor(accessPointId: number): Promise<number> {
+      cancelledFor.push(accessPointId)
+      return 1
+    },
+  } as unknown as DeviceCommandPort
+
+  const service = new DeviceProfileService(
+    repository,
+    incidentService,
+    evidenceService,
+    commandPort
+  )
+  return { service, incidents, patches, descriptors, cancelledFor, resolved }
 }
 
 test.group('ADMS device profile service', () => {
@@ -111,6 +135,44 @@ test.group('ADMS device profile service', () => {
       current: 'ZAM180-NF50VA-Ver3.4.9',
     })
     assert.equal(patches[0].accessPointProfileFwVersion, 'ZAM180-NF50VA-Ver3.4.9')
+  })
+
+  /**
+   * Medido con el parque el 2026-09-10: el SenseFace deja elegir la version del
+   * algoritmo de huella en su propio menu, y cambiarla borra todo lo que tenia
+   * dentro. Lo que quedara en la cola lleva templates de la generacion vieja.
+   */
+  test('cambiar la version de huella vacia las copias que iban en camino', async ({ assert }) => {
+    const { service, incidents, cancelledFor } = makeDeps({
+      accessPointProfileFwVersion: 'ZAM180-NF50VA-Ver3.4.9',
+      accessPointProfileFpVersion: '13',
+      accessPointProfileFaceVersion: '39',
+    })
+
+    await service.upsertFromOptions(DEVICE, V5L, 80)
+
+    assert.equal(incidents[0].kind, 'version_changed')
+    assert.equal(incidents[0].context?.field, 'fpVersion')
+    assert.deepEqual(cancelledFor, [DEVICE.accessPointId])
+  })
+
+  /**
+   * El rostro NO viaja como template sino como foto, y cada equipo lo fabrica
+   * con su propio algoritmo: un cambio de `FaceVersion` no invalida nada de lo
+   * que va en la cola.
+   */
+  test('un cambio de version de rostro no toca la cola de huella', async ({ assert }) => {
+    const { service, incidents, cancelledFor } = makeDeps({
+      accessPointProfileFwVersion: 'ZAM180-NF50VA-Ver3.4.9',
+      accessPointProfileFpVersion: '10',
+      accessPointProfileFaceVersion: '40',
+    })
+
+    await service.upsertFromOptions(DEVICE, V5L, 81)
+
+    assert.equal(incidents[0].kind, 'version_changed')
+    assert.equal(incidents[0].context?.field, 'faceVersion')
+    assert.lengthOf(cancelledFor, 0)
   })
 
   test('plataforma fuera del mapa: layout desconocido e incidente, sin bloquear', async ({

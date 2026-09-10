@@ -1,6 +1,7 @@
 import type { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import DeviceCommand from '#models/device_command'
+import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
 import {
   DEVICE_COMMAND_KIND,
   DEVICE_COMMAND_STATUS,
@@ -141,6 +142,21 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
     return DeviceCommand.query()
       .where('access_point_employee_id', accessPointEmployeeId)
       .whereIn('device_command_status', [...LIVE_STATUSES])
+      .orderBy('device_command_id', 'asc')
+  }
+
+  async listLiveFingerprintWrites(accessPointId: number): Promise<DeviceCommand[]> {
+    return DeviceCommand.query()
+      .where('access_point_id', accessPointId)
+      .where('device_command_kind', DEVICE_COMMAND_KIND.BIODATA_WRITE)
+      .whereIn('device_command_status', [...LIVE_STATUSES])
+      .whereIn(
+        'biometric_template_id',
+        db
+          .from('biometric_templates')
+          .select('biometric_template_id')
+          .where('biometric_template_bio_type', BIO_TYPE.FINGERPRINT)
+      )
       .orderBy('device_command_id', 'asc')
   }
 
