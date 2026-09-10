@@ -210,6 +210,31 @@ export default class AdmsDeviceResolverService {
     if (row.channelSecret !== null) {
       if (channelSecretMatches(label, row.channelSecret)) return null
 
+      /**
+       * Quien prueba direcciones al azar lo hace muchas veces: sin contarlo,
+       * "alguien nos esta probando" es indistinguible de un checador al que le
+       * reescribieron la direccion.
+       */
+      if ((await this.throttle.countBadAddress(input.ip)) === 'threshold_reached') {
+        await this.incidents.record(
+          {
+            kind: ADMS_INCIDENT_KIND.CHANNEL_HOST_PROBE,
+            severity: 'warning',
+            code: ADMS_ERROR_CODES.DEV_CHANNEL_HOST_UNKNOWN,
+            title: 'Alguien esta probando direcciones del canal',
+            detail:
+              'Una misma IP presento varias direcciones que no corresponden a ningun checador. No se atendio ninguna y queda bloqueada un rato.',
+            key: 'sondeo-de-direcciones',
+            serial: null,
+            accessPointId: null,
+            businessUnitId: null,
+            context: { ip: input.ip },
+            now: input.now,
+          },
+          { dedupeMinutes: CHANNEL_SECRET_DEDUPE_MINUTES }
+        )
+      }
+
       await TenantContext.run([row.businessUnitId], () =>
         this.incidents.record(
           {

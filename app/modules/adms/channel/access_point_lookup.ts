@@ -126,6 +126,13 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
 export interface UnknownSerialThrottle {
   isBlocked(ip: string): Promise<boolean>
   countNewSerial(ip: string): Promise<'ok' | 'threshold_reached'>
+  /**
+   * Cuenta las direcciones que no corresponden a nadie, por IP.
+   *
+   * Llave propia: probar direcciones y probar series son dos ataques distintos
+   * y mezclarlos en un contador haria que uno tapara al otro.
+   */
+  countBadAddress(ip: string): Promise<'ok' | 'threshold_reached'>
 }
 
 export class UnknownSerialThrottleMemory implements UnknownSerialThrottle {
@@ -144,6 +151,19 @@ export class UnknownSerialThrottleMemory implements UnknownSerialThrottle {
   async countNewSerial(ip: string): Promise<'ok' | 'threshold_reached'> {
     const counter = this.counter()
     const key = this.key(ip)
+    const state = await counter.increment(key)
+    if (state.remaining > 0) return 'ok'
+    await counter.block(key, `${ADMS_RATE.unknownSerialBlockMinutes} minutes`)
+    return 'threshold_reached'
+  }
+
+  private badAddressKey(ip: string): string {
+    return `adms-bad-address:${ip}`
+  }
+
+  async countBadAddress(ip: string): Promise<'ok' | 'threshold_reached'> {
+    const counter = this.counter()
+    const key = this.badAddressKey(ip)
     const state = await counter.increment(key)
     if (state.remaining > 0) return 'ok'
     await counter.block(key, `${ADMS_RATE.unknownSerialBlockMinutes} minutes`)

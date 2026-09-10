@@ -14,7 +14,12 @@ import type AccessPointProfile from '#models/access_point_profile'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
 
-function makeDeps(row: AccessPointLookupRow | null, blocked = false, freshProfile = false) {
+function makeDeps(
+  row: AccessPointLookupRow | null,
+  blocked = false,
+  freshProfile = false,
+  badAddressThreshold = false
+) {
   const incidents: IncidentInput[] = []
   const hits: string[] = []
   const claims: string[] = []
@@ -34,6 +39,9 @@ function makeDeps(row: AccessPointLookupRow | null, blocked = false, freshProfil
     },
     async countNewSerial() {
       return 'ok'
+    },
+    async countBadAddress() {
+      return badAddressThreshold ? 'threshold_reached' : 'ok'
     },
   }
   const incidentService = {
@@ -262,6 +270,25 @@ test.group('ADMS device resolver', () => {
 
     assert.equal(result.kind, 'ok')
     assert.equal(incidents[0]?.kind, 'channel_secret_missing')
+  })
+
+  /**
+   * Sin esto, "alguien nos esta probando direcciones" es indistinguible de un
+   * checador al que le reescribieron la suya.
+   */
+  test('probar direcciones ajenas repetidas veces deja aviso', async ({ assert }) => {
+    const { service, incidents } = makeDeps(rowWithSecret('abcdefghjkmnpq'), false, false, true)
+
+    await service.resolve({
+      serial: ROW.serial,
+      ip: '203.0.113.9',
+      now: NOW,
+      hints: null,
+      host: `zzzzzzzzzzzzzz.${BASE_DOMAIN}`,
+      baseDomain: BASE_DOMAIN,
+    })
+
+    assert.isTrue(incidents.some((incident) => incident.kind === 'channel_host_probe'))
   })
 
   /**
