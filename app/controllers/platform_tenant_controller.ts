@@ -106,6 +106,19 @@ export default class PlatformTenantController {
    *                       subscription:
    *                         type: object
    *                         nullable: true
+   *                       grupo:
+   *                         type: object
+   *                         nullable: true
+   *                         description: |
+   *                           Grupo económico al que pertenece la empresa. `null` significa que no
+   *                           pertenece a ningún grupo — estado válido, no un dato faltante.
+   *                         properties:
+   *                           platformTenantGroupId:
+   *                             type: integer
+   *                           nombre:
+   *                             type: string
+   *                           activo:
+   *                             type: boolean
    *                 meta:
    *                   type: object
    *                   properties:
@@ -169,7 +182,7 @@ export default class PlatformTenantController {
    * @paramQuery status - Filtro por estado de suscripción (trialing|active|past_due|canceled) - string
    * @paramQuery page - Página (default 1) - integer
    * @paramQuery limit - Resultados por página, máx 100 (default 20) - integer
-   * @responseBody 200 - {"type": "success", "data": [{"businessUnitPublicId": "uuid", "businessUnitName": "Empresa Demo", "businessUnitLegalName": "Empresa Demo SA de CV", "businessUnitActive": 1, "hasBiometrics": false, "activeEmployees": 12, "billingProfileComplete": false, "missingFields": ["postalCode", "cfdiUseCode"], "subscription": null}], "meta": {"total": 1, "page": 1, "limit": 20, "lastPage": 1}}
+   * @responseBody 200 - {"type": "success", "data": [{"businessUnitPublicId": "uuid", "businessUnitName": "Empresa Demo", "businessUnitLegalName": "Empresa Demo SA de CV", "businessUnitActive": 1, "hasBiometrics": false, "activeEmployees": 12, "billingProfileComplete": false, "missingFields": ["postalCode", "cfdiUseCode"], "subscription": null, "grupo": null}], "meta": {"total": 1, "page": 1, "limit": 20, "lastPage": 1}}
    * @responseBody 422 - {"title": "string", "detail": "string", "key": "string", "code": "PLT.TEN.VAL_INPUT"}
    * @responseBody 403 - {"title": "string", "detail": "string", "key": "AUTH.PLATFORM.FORBIDDEN"}
    */
@@ -347,7 +360,7 @@ export default class PlatformTenantController {
    * @operationId getPlatformTenantDetail
    * @security [{"bearerAuth": []}]
    * @paramPath id - UUID público de la empresa (businessUnitPublicId) - string
-   * @responseBody 200 - {"type": "success", "data": {"businessUnitPublicId": "uuid", "businessUnitName": "Empresa Demo", "businessUnitLegalName": "Empresa Demo SA de CV", "businessUnitActive": 1, "activeEmployees": 12, "billingProfileComplete": true, "missingFields": [], "subscription": null, "billingProfile": {"rfc": "ABC010101AB9", "legalName": "Abc SA de CV", "postalCode": "06600", "taxRegimeCode": "601", "taxRegimeLabel": "General de Ley Personas Morales", "cfdiUseCode": "G03", "cfdiUseLabel": "Gastos en general", "billingEmail": "facturas@empresa.mx", "billingProfileComplete": true, "missingFields": [], "capturedAt": "2026-08-01T12:00:00.000Z", "updatedAt": "2026-08-01T12:00:00.000Z"}}}
+   * @responseBody 200 - {"type": "success", "data": {"businessUnitPublicId": "uuid", "businessUnitName": "Empresa Demo", "businessUnitLegalName": "Empresa Demo SA de CV", "businessUnitActive": 1, "activeEmployees": 12, "billingProfileComplete": true, "missingFields": [], "subscription": null, "grupo": null, "billingProfile": {"rfc": "ABC010101AB9", "legalName": "Abc SA de CV", "postalCode": "06600", "taxRegimeCode": "601", "taxRegimeLabel": "General de Ley Personas Morales", "cfdiUseCode": "G03", "cfdiUseLabel": "Gastos en general", "billingEmail": "facturas@empresa.mx", "billingProfileComplete": true, "missingFields": [], "capturedAt": "2026-08-01T12:00:00.000Z", "updatedAt": "2026-08-01T12:00:00.000Z"}}}
    * @responseBody 404 - {"title": "string", "detail": "string", "key": "tenant-no-encontrado", "code": "PLT.TEN.NOT_FOUND"}
    * @responseBody 403 - {"title": "string", "detail": "string", "key": "AUTH.PLATFORM.FORBIDDEN"}
    */
