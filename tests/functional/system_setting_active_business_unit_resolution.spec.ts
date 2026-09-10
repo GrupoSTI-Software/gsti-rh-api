@@ -7,13 +7,14 @@ import BusinessUnitUser from '#models/business_unit_user'
 import SystemSetting from '#models/system_setting'
 
 /**
- * Tests funcionales — `GET /api/system-settings-active` con resolución por
- * `business_unit_id` (USRH1783712837584).
+ * Tests funcionales — `GET /api/system-settings-active` y
+ * `GET /api/system-settings-get-payroll-config` (USRH1783712837584 +
+ * USRH1789018905983).
  *
- * Cubre el diseño "split por contexto" del controller: con header
- * `X-Business-Unit-Id` (código público UUID) + sesión autenticada, resuelve
- * la configuración de ESA empresa vía `resolveByBusinessUnitId` (fail-closed);
- * sin ellos, conserva el comportamiento global previo (branding pre-login).
+ * Con header `X-Business-Unit-Id` + sesión autenticada, resuelve la
+ * configuración de ESA empresa vía `resolveByBusinessUnitId` (fail-closed).
+ * Sin credencial responde 401. Autenticado sin header devuelve siempre la
+ * ficha base (`business_unit_id` NULL), nunca la de un cliente sembrado.
  *
  * Convenciones: sin transacción de test; identificadores únicos por
  * timestamp; cleanup explícito en `group.teardown`.
@@ -26,18 +27,20 @@ interface TestActor {
   person: Person
 }
 
-async function ensureRootRole(): Promise<Role> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'root').first()
-  if (!role) {
-    throw new Error(
-      'El rol "root" es requerido para este suite. Ejecuta los seeders antes de correr los tests.'
-    )
-  }
-  return role
+async function createLimitedRole(stamp: string): Promise<Role> {
+  return Role.create({
+    roleName: `Active settings isolation ${stamp}`,
+    roleSlug: `active-settings-isolation-${stamp}`,
+    roleDescription: 'Rol temporal sin alcance root para system-settings-active',
+    roleActive: 1,
+  })
 }
 
-async function createActor(email: string, businessUnitId: number): Promise<TestActor> {
-  const role = await ensureRootRole()
+async function createActor(
+  email: string,
+  businessUnitId: number,
+  role: Role
+): Promise<TestActor> {
 
   const person = new Person()
   person.personFirstname = 'Active'
@@ -76,9 +79,11 @@ test.group('GET /api/system-settings-active — resolución por business_unit_id
   let actorA: TestActor | null = null
   let actorB: TestActor | null = null
   let actorWithoutSettings: TestActor | null = null
+  let limitedRole: Role | null = null
 
   group.setup(async () => {
     const stamp = Date.now()
+    limitedRole = await createLimitedRole(String(stamp))
 
     businessUnitA = new BusinessUnit()
     businessUnitA.businessUnitName = `Active Settings BU A ${stamp}`
@@ -119,11 +124,20 @@ test.group('GET /api/system-settings-active — resolución por business_unit_id
     systemSettingB.systemSettingMonthlyConversionFactor = 30.4
     await systemSettingB.save()
 
-    actorA = await createActor(`active-settings-a-${stamp}@gsti-tests.local`, businessUnitA.businessUnitId)
-    actorB = await createActor(`active-settings-b-${stamp}@gsti-tests.local`, businessUnitB.businessUnitId)
+    actorA = await createActor(
+      `active-settings-a-${stamp}@gsti-tests.local`,
+      businessUnitA.businessUnitId,
+      limitedRole
+    )
+    actorB = await createActor(
+      `active-settings-b-${stamp}@gsti-tests.local`,
+      businessUnitB.businessUnitId,
+      limitedRole
+    )
     actorWithoutSettings = await createActor(
       `active-settings-sin-config-${stamp}@gsti-tests.local`,
-      businessUnitWithoutSettings.businessUnitId
+      businessUnitWithoutSettings.businessUnitId,
+      limitedRole
     )
   })
 
@@ -131,6 +145,9 @@ test.group('GET /api/system-settings-active — resolución por business_unit_id
     await cleanupActor(actorA)
     await cleanupActor(actorB)
     await cleanupActor(actorWithoutSettings)
+    if (limitedRole?.roleId) {
+      await Role.query().where('role_id', limitedRole.roleId).delete()
+    }
 
     const businessUnitIds = [
       businessUnitA?.businessUnitId,
@@ -144,15 +161,33 @@ test.group('GET /api/system-settings-active — resolución por business_unit_id
     }
   })
 
-  test('sin header ni sesión (pre-login): responde 200 con el comportamiento global previo', async ({
+  test('sin Authorization: system-settings-active responde 401', async ({ client }) => {
+    const response = await client.get('/api/system-settings-active')
+    response.assertStatus(401)
+  })
+
+  test('sin Authorization: get-payroll-config responde 401', async ({ client }) => {
+    const response = await client.get('/api/system-settings-get-payroll-config')
+    response.assertStatus(401)
+  })
+
+  test('autenticado sin header: devuelve la ficha base, no la de un cliente sembrado', async ({
     client,
     assert,
   }) => {
-    const response = await client.get('/api/system-settings-active')
+    if (!actorA) {
+      assert.fail('El setup del grupo no preparó al actor de la empresa A')
+      return
+    }
+
+    const response = await client.get('/api/system-settings-active').loginAs(actorA.user)
 
     response.assertStatus(200)
     const body = response.body()
     assert.equal(body.type, 'success')
+    assert.isNull(body.data?.systemSetting?.businessUnitId)
+    assert.notEqual(body.data?.systemSetting?.systemSettingId, systemSettingA.systemSettingId)
+    assert.notEqual(body.data?.systemSetting?.systemSettingId, systemSettingB.systemSettingId)
   })
 
   test('con header + sesión de la empresa A: devuelve exactamente la configuración de A', async ({
@@ -195,6 +230,54 @@ test.group('GET /api/system-settings-active — resolución por business_unit_id
     assert.equal(body.type, 'success')
     assert.equal(body.data?.systemSetting?.systemSettingId, systemSettingB.systemSettingId)
     assert.notEqual(body.data?.systemSetting?.systemSettingId, systemSettingA.systemSettingId)
+  })
+
+  test('con header ajeno: system-settings-active responde 404 BU.NOT.001', async ({
+    client,
+    assert,
+  }) => {
+    if (!actorA) {
+      assert.fail('El setup del grupo no preparó al actor de la empresa A')
+      return
+    }
+
+    const response = await client
+      .get('/api/system-settings-active')
+      .loginAs(actorA.user)
+      .header('X-Business-Unit-Id', businessUnitB.businessUnitPublicId)
+
+    response.assertStatus(404)
+    assert.equal(response.body().key, 'BU.NOT.001')
+  })
+
+  test('con header propio: get-payroll-config responde 200', async ({ client, assert }) => {
+    if (!actorA) {
+      assert.fail('El setup del grupo no preparó al actor de la empresa A')
+      return
+    }
+
+    const response = await client
+      .get('/api/system-settings-get-payroll-config')
+      .loginAs(actorA.user)
+      .header('X-Business-Unit-Id', businessUnitA.businessUnitPublicId)
+
+    response.assertStatus(200)
+    assert.equal(response.body().type, 'success')
+  })
+
+  test('con header ajeno: get-payroll-config responde 404 BU.NOT.001', async ({ client, assert }) => {
+    if (!actorA) {
+      assert.fail('El setup del grupo no preparó al actor de la empresa A')
+      return
+    }
+
+    const response = await client
+      .get('/api/system-settings-get-payroll-config')
+      .loginAs(actorA.user)
+      .header('X-Business-Unit-Id', businessUnitB.businessUnitPublicId)
+
+    response.assertStatus(404)
+    assert.equal(response.body().key, 'BU.NOT.001')
   })
 
   test('con header + sesión de una empresa sin configuración propia: responde 404 fail-closed tipado', async ({

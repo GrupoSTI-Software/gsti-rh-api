@@ -2028,29 +2028,26 @@ export default class SystemSettingController {
    * @swagger
    * /api/system-settings-active:
    *   get:
-   *     security: []
+   *     security:
+   *       - bearerAuth: []
    *     tags:
    *       - System Settings
    *     summary: get system setting active
    *     description: >
-   *       Ruta pública (sin `bearerAuth` obligatorio): la consumen tanto
-   *       pantallas SIN usuario (branding de login/registro en gsti-rh-bo)
-   *       como pantallas CON usuario y unidad de negocio ya seleccionada.
+   *       Requiere sesión autenticada (`middleware.auth()`). La consumen
+   *       pantallas del backoffice ya autenticadas con unidad de negocio
+   *       seleccionada.
    *
-   *
-   *       **Resolución "split por contexto" (USRH1783712837584):**
-   *       - **Sin header `X-Business-Unit-Id` o sin sesión autenticada
-   *         válida** (pre-login): devuelve el comportamiento global previo,
-   *         la configuración "activa" del sistema sin filtrar por empresa.
-   *       - **Con header + sesión autenticada, pero la unidad de negocio no
-   *         existe o está fuera del alcance del usuario**: `404` con
-   *         `key: BU.NOT.001`.
-   *       - **Con header + sesión autenticada y unidad de negocio válida**:
-   *         resuelve la configuración de ESA empresa por su
-   *         `business_unit_id` vía `resolveByBusinessUnitId` (fail-closed).
-   *         Si la empresa no tiene su propia configuración: `404` con
-   *         `code: SETTINGS.RESOLVE.NOT_FOUND_TENANT`. Nunca devuelve la
-   *         configuración de otra empresa como sustituto.
+   *       **Resolución "split por contexto" (USRH1783712837584 +
+   *       USRH1789018905983):**
+   *       - **Sin header `X-Business-Unit-Id`**: devuelve la ficha base
+   *         (`business_unit_id` NULL), determinista; nunca la de un cliente.
+   *       - **Con header + sesión, pero la unidad no existe o está fuera del
+   *         alcance del usuario**: `404` con `key: BU.NOT.001`.
+   *       - **Con header + sesión y unidad válida**: resuelve la
+   *         configuración de ESA empresa vía `resolveByBusinessUnitId`
+   *         (fail-closed). Si no tiene ficha propia: `404` con
+   *         `code: SETTINGS.RESOLVE.NOT_FOUND_TENANT`.
    *     produces:
    *       - application/json
    *     parameters:
@@ -2061,17 +2058,16 @@ export default class SystemSettingController {
    *           format: uuid
    *         description: >
    *           Código público (`businessUnitPublicId`) de la unidad de negocio
-   *           seleccionada. Opcional: solo se usa para resolver por empresa
-   *           cuando además hay una sesión autenticada válida; sin sesión se
-   *           ignora y se conserva el comportamiento global (pre-login).
+   *           seleccionada. Opcional: sin header se devuelve la ficha base.
    *         required: false
    *     responses:
+   *       '401':
+   *         description: Sin credencial válida (`middleware.auth()`).
    *       '200':
    *         description: >
    *           Configuración obtenida correctamente. `data.systemSetting` es
-   *           el registro global (sin `businessUnitId`) cuando no hay
-   *           header/sesión, o el registro propio de la empresa del usuario
-   *           cuando sí los hay.
+   *           la ficha base sin header, o el registro propio de la empresa
+   *           del usuario cuando lleva `X-Business-Unit-Id`.
    *         content:
    *           application/json:
    *             schema:
@@ -2123,8 +2119,8 @@ export default class SystemSettingController {
    *                           items:
    *                             type: object
    *             examples:
-   *               sinSesionONoTenant:
-   *                 summary: Pre-login o sin header (comportamiento global)
+   *               sinHeaderConSesion:
+   *                 summary: Autenticado sin header (ficha base)
    *                 value:
    *                   type: success
    *                   title: System settings
@@ -2239,17 +2235,11 @@ export default class SystemSettingController {
    *                   description: Detalle técnico del error inesperado (message de la excepción)
    */
   /**
-   * USRH1783712837584 — "split por contexto": esta ruta (`GET /api/system-settings-active`)
-   * es pública (sin `auth()`/`businessScope()`) porque la consumen tanto páginas
-   * SIN usuario (branding de login/registro en gsti-rh-bo, antes de autenticar)
-   * como pantallas CON usuario y unidad de negocio ya seleccionada.
+   * USRH1783712837584 / USRH1789018905983 — resuelve el tenant opcional desde
+   * el header cuando hay sesión autenticada (la ruta exige `auth()`).
    *
-   * Este helper solo resuelve el tenant si hay evidencia real de sesión + BU
-   * seleccionada (header `X-Business-Unit-Id` + usuario autenticado válido):
-   *  - Sin header → `{ businessUnitId: null }` (pre-login, comportamiento intacto).
-   *  - Header pero sin sesión válida → `{ businessUnitId: null }` (igual que pre-login).
-   *  - Header + sesión, pero unidad fuera de scope/inválida → `{ notInScope: true }`
-   *    (mismo criterio que el middleware `businessScope`, sin distinguir el motivo).
+   *  - Sin header → `{ businessUnitId: null }` (ficha base, determinista).
+   *  - Header + sesión, unidad fuera de scope/inválida → `{ notInScope: true }`.
    *  - Header + sesión + unidad válida → `{ businessUnitId }`.
    */
   private async resolveOptionalTenantBusinessUnitId(
@@ -2317,7 +2307,7 @@ export default class SystemSettingController {
         }
       }
 
-      // Sin tenant resuelto (pre-login o header ausente): comportamiento global intacto.
+      // Sin header: ficha base (`business_unit_id` NULL), determinista.
       const showSystemSetting = await systemSettingService.getActive()
       response.status(200)
       return {
@@ -3146,18 +3136,18 @@ export default class SystemSettingController {
    * @swagger
    * /api/system-settings-get-payroll-config:
    *   get:
-   *     security: []
+   *     security:
+   *       - bearerAuth: []
    *     tags:
    *       - System Settings
    *     summary: get system setting get payroll config
    *     description: >
-   *       Ruta pública. Mismo diseño "split por contexto" que
-   *       `/api/system-settings-active` (USRH1783712837584): con header
-   *       `X-Business-Unit-Id` + sesión válida, resuelve primero el
-   *       System Setting de ESA empresa vía `resolveByBusinessUnitId`
-   *       (fail-closed) y luego su configuración de nómina vigente; sin
-   *       header o sin sesión, conserva el comportamiento global previo
-   *       (`getActive()` sin filtrar por empresa).
+   *       Requiere sesión autenticada. Mismo diseño "split por contexto" que
+   *       `/api/system-settings-active` (USRH1783712837584 +
+   *       USRH1789018905983): con header `X-Business-Unit-Id` + sesión,
+   *       resuelve el System Setting de ESA empresa (fail-closed) y su
+   *       configuración de nómina vigente; sin header, la nómina de la
+   *       ficha base.
    *     produces:
    *       - application/json
    *     parameters:
@@ -3168,10 +3158,11 @@ export default class SystemSettingController {
    *           format: uuid
    *         description: >
    *           Código público (`businessUnitPublicId`) de la unidad de negocio
-   *           seleccionada. Opcional: solo se usa para resolver por empresa
-   *           cuando además hay una sesión autenticada válida.
+   *           seleccionada. Opcional: sin header se usa la ficha base.
    *         required: false
    *     responses:
+   *       '401':
+   *         description: Sin credencial válida (`middleware.auth()`).
    *       '200':
    *         description: >
    *           Configuración de nómina vigente a la fecha (la de
@@ -3305,7 +3296,7 @@ export default class SystemSettingController {
    *                   code: SETTINGS.RESOLVE.NOT_FOUND_TENANT
    *                   data: {}
    *               sinSystemSettingActivo:
-   *                 summary: Sin header/sesión y sin ningún System Setting activo
+   *                 summary: Autenticado sin header y sin ficha base activa
    *                 value:
    *                   type: warning
    *                   title: The system setting was not found
@@ -3332,9 +3323,9 @@ export default class SystemSettingController {
    *                   description: Detalle técnico del error inesperado (message de la excepción)
    */
   /**
-   * USRH1783712837584: mismo diseño "split por contexto" que `getActive()` —
-   * ver el helper `resolveOptionalTenantBusinessUnitId` para el detalle. Esta
-   * ruta tampoco tiene `auth()`/`businessScope()` hoy; se mantiene así.
+   * USRH1783712837584 / USRH1789018905983: mismo diseño "split por contexto"
+   * que `getActive()` — ver `resolveOptionalTenantBusinessUnitId`. Exige
+   * `auth()`; no monta `businessScope()` (decisión de alcance §4 del spec).
    */
   async getPayrollConfig(ctx: HttpContext) {
     const { response } = ctx

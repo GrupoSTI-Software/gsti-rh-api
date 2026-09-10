@@ -1,6 +1,5 @@
 import SystemSetting from '#models/system_setting'
 import SystemSettingPayrollConfig from '#models/system_setting_payroll_config'
-import BusinessUnit from '#models/business_unit'
 import { DateTime } from 'luxon'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
@@ -128,14 +127,17 @@ export default class SystemSettingService {
   }
 
   async getActive(allowedBusinessUnitSlugs: string[] = []) {
-    let slugs = allowedBusinessUnitSlugs
-    if (slugs.length === 0) {
-      const allBus = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereNull('business_unit_deleted_at')
-      slugs = allBus.map((bu) => bu.businessUnitSlug)
+    if (allowedBusinessUnitSlugs.length === 0) {
+      const baseSystemSetting = await SystemSetting.query()
+        .whereNull('system_setting_deleted_at')
+        .where('system_setting_active', 1)
+        .whereNull('business_unit_id')
+        .preload('systemSettingTolerances')
+        .first()
+      return baseSystemSetting ?? null
     }
 
+    const slugs = allowedBusinessUnitSlugs
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_active', 1)

@@ -17,10 +17,10 @@ router
   })
   .prefix('/api/system-settings')
 router.group(() => {
-  router.get('/', '#controllers/system_setting_controller.getActive')
+  router.get('/', '#controllers/system_setting_controller.getActive').use(middleware.auth())
 })
 .prefix('/api/system-settings-active')
 router.group(() => {
-  router.get('/', '#controllers/system_setting_controller.getPayrollConfig')
+  router.get('/', '#controllers/system_setting_controller.getPayrollConfig').use(middleware.auth())
 })
 .prefix('/api/system-settings-get-payroll-config')
