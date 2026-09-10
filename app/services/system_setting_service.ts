@@ -309,10 +309,15 @@ export default class SystemSettingService {
     }
   }
 
-  async updateBirthdayEmailsStatus(systemSettingId: number, birthdayEmailsEnabled: boolean) {
+  async updateBirthdayEmailsStatus(
+    systemSettingId: number,
+    birthdayEmailsEnabled: boolean,
+    businessUnitScope: number[]
+  ) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
       .first()
 
     if (!systemSetting) {
@@ -337,10 +342,15 @@ export default class SystemSettingService {
     }
   }
 
-  async updateAttendanceFaultHrEmailsStatus(systemSettingId: number, enabled: boolean) {
+  async updateAttendanceFaultHrEmailsStatus(
+    systemSettingId: number,
+    enabled: boolean,
+    businessUnitScope: number[]
+  ) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
       .first()
 
     if (!systemSetting) {
@@ -365,10 +375,15 @@ export default class SystemSettingService {
     }
   }
 
-  async updateAnniversaryEmailsStatus(systemSettingId: number, anniversaryEmailsEnabled: boolean) {
+  async updateAnniversaryEmailsStatus(
+    systemSettingId: number,
+    anniversaryEmailsEnabled: boolean,
+    businessUnitScope: number[]
+  ) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
       .first()
 
     if (!systemSetting) {

@@ -38,7 +38,7 @@ test.group('SystemSetting show — rutas con scope obligatorio', () => {
     )
     assert.include(
       content,
-      "router.delete('/:systemSettingId', '#controllers/system_setting_controller.delete').use(middleware.auth())"
+      "router.delete('/:systemSettingId', '#controllers/system_setting_controller.delete').use(middleware.auth()).use(middleware.businessScope())"
     )
   })
 
