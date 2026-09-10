@@ -184,6 +184,14 @@ export const ADMS_INCIDENT_KIND = {
   VERSION_SOURCE_MISMATCH: 'version_source_mismatch',
   /** Acuse de un comando que no existe o que es de otro dispositivo (spec 6.5). */
   ORPHAN_ACK: 'orphan_ack',
+  /**
+   * Acuse sobre un comando que no estaba esperando respuesta (spec 6.2).
+   *
+   * El comando existe y es de ese equipo, pero su estado no admite el acuse:
+   * nunca salio, se cancelo, o el barrido ya lo dio por fallido. Se avisa en
+   * vez de aplicarlo porque acreditarlo marcaria como hecho algo que no paso.
+   */
+  STALE_ACK: 'stale_ack',
   /** Un blob biometrico que no pasa la validacion de la boveda (spec 7.1). */
   INVALID_TEMPLATE: 'invalid_template',
   /** El reloj del equipo esta corrido mas alla del umbral (spec 6.7). */

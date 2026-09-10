@@ -231,6 +231,61 @@ test.group('Acuse de comandos', () => {
     assert.equal(saved[0].deviceCommandExecutionEvidence, 'ack')
   })
 
+  /**
+   * Hasta ahora bastaba con que el identificador de cable existiera: un comando
+   * que nunca salio pasaba a `acked` como si hubiera viajado.
+   */
+  test('un comando que nunca salio no se acredita por un acuse', async ({ assert }) => {
+    const command = commandOf({ deviceCommandStatus: DEVICE_COMMAND_STATUS.PENDING })
+    const { repository, saved } = makeRepository({ byWireId: command })
+    const service = new CommandAckService(repository)
+    const outcome = await service.apply({
+      accessPointId: 12,
+      body: 'ID=1788912000000&Return=0&CMD=DATA',
+      now: NOW,
+    })
+
+    assert.equal(outcome.kind, 'stale')
+    assert.lengthOf(saved, 0)
+    assert.equal(command.deviceCommandStatus, 'pending')
+  })
+
+  test('un comando cancelado tampoco revive con un acuse tardio', async ({ assert }) => {
+    const command = commandOf({ deviceCommandStatus: DEVICE_COMMAND_STATUS.CANCELLED })
+    const { repository, saved } = makeRepository({ byWireId: command })
+    const service = new CommandAckService(repository)
+    const outcome = await service.apply({
+      accessPointId: 12,
+      body: 'ID=1788912000000&Return=0&CMD=DATA',
+      now: NOW,
+    })
+
+    assert.equal(outcome.kind, 'stale')
+    assert.lengthOf(saved, 0)
+  })
+
+  /**
+   * El equipo reenvia el acuse cuando no recibe respuesta. Tratarlo como
+   * anomalia llenaria la bitacora de avisos por un comportamiento normal.
+   */
+  test('el mismo acuse repetido no es anomalia ni reescribe nada', async ({ assert }) => {
+    const command = commandOf({
+      deviceCommandKind: DEVICE_COMMAND_KIND.BIOPHOTO_WRITE,
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+      deviceCommandReturnCode: 0,
+    })
+    const { repository, saved } = makeRepository({ byWireId: command })
+    const service = new CommandAckService(repository)
+    const outcome = await service.apply({
+      accessPointId: 12,
+      body: 'ID=1788912000000&Return=0&CMD=DATA',
+      now: NOW,
+    })
+
+    assert.equal(outcome.kind, 'duplicate')
+    assert.lengthOf(saved, 0)
+  })
+
   test('un codigo negativo del catalogo deja el motivo legible', async ({ assert }) => {
     const command = commandOf({ deviceCommandStatus: DEVICE_COMMAND_STATUS.SENT })
     const { repository, saved } = makeRepository({ byWireId: command })
