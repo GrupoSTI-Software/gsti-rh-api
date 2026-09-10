@@ -137,6 +137,13 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
     return query.orderBy('device_command_id', 'desc').limit(200)
   }
 
+  async listLiveForPivot(accessPointEmployeeId: number): Promise<DeviceCommand[]> {
+    return DeviceCommand.query()
+      .where('access_point_employee_id', accessPointEmployeeId)
+      .whereIn('device_command_status', [...LIVE_STATUSES])
+      .orderBy('device_command_id', 'asc')
+  }
+
   async listByEmployee(employeeId: number): Promise<DeviceCommand[]> {
     return DeviceCommand.query()
       .where('employee_id', employeeId)

@@ -64,3 +64,27 @@ export const mrrSeriesValidatorMessages = new SimpleMessagesProvider({
   'meses.min': 'El número de meses debe estar entre 1 y 24.',
   'meses.max': 'El número de meses debe estar entre 1 y 24.',
 })
+
+/**
+ * Query params de `GET /api/platform/metrics/subscription-flows`.
+ *
+ * `mes` es opcional: ausente significa el mes en curso. El rechazo de meses
+ * futuros vive en el servicio (depende del día de hoy); aquí solo se fija la
+ * forma `YYYY-MM`.
+ */
+export const subscriptionFlowsValidator = vine.compile(
+  vine.object({
+    mes: vine.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/).optional(),
+  })
+)
+
+/**
+ * Mensajes en español de `subscriptionFlowsValidator`.
+ *
+ * Van explícitos porque el provider global de i18n solo se aplica cuando la
+ * llamada no trae el suyo, y sin esto el `detail` del 422 saldría en inglés.
+ */
+export const subscriptionFlowsValidatorMessages = new SimpleMessagesProvider({
+  'mes.string': 'El mes debe tener el formato AAAA-MM.',
+  'mes.regex': 'El mes debe tener el formato AAAA-MM.',
+})

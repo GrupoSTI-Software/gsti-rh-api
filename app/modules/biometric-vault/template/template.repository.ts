@@ -29,6 +29,14 @@ export interface TemplateSlot {
   bioNo: number
   majorVer: string | null
   capturedAt: DateTime
+  /**
+   * Equipo donde se capturo.
+   *
+   * La boveda guarda un dato por dedo y version, no uno por aparato, asi que
+   * esta es la unica pista directa de en que equipo esta fisicamente. Los demas
+   * lo tienen solo si se les replico.
+   */
+  sourceAccessPointId: number | null
 }
 
 /**
@@ -46,6 +54,13 @@ export interface TemplateDetail {
   minorVer: string | null
   valid: number
   duress: number
+  /**
+   * Tamano que el propio equipo declaro al subirlo.
+   *
+   * `FINGERTMP` lo exige en la cabecera y no admite inventarlo: se guarda el
+   * valor de origen y se repite tal cual, como el resto de los metadatos.
+   */
+  size: number
 }
 
 /** Puerto de la boveda. El blob solo sale por `findByIdForRead`. */

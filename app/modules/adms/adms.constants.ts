@@ -202,6 +202,13 @@ export const ADMS_INCIDENT_KIND = {
   PHOTO_DOWNLOAD_FAILED: 'photo_download_failed',
   /** El equipo acuso el borrado pero su padron sigue declarando el PIN (spec 8.1). */
   REVOKE_NOT_APPLIED: 'revoke_not_applied',
+  /**
+   * El equipo declara a alguien cuya baja ya se cerro a mano (spec 8.1).
+   *
+   * Se cerro dando por muerto el aparato y el aparato volvio. La persona puede
+   * marcar en una puerta de la que ya se le retiro.
+   */
+  REVOKED_STILL_PRESENT: 'revoked_still_present',
 } as const
 export type AdmsIncidentKind = (typeof ADMS_INCIDENT_KIND)[keyof typeof ADMS_INCIDENT_KIND]
 

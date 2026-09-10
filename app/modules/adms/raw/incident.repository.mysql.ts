@@ -27,14 +27,22 @@ function toRecord(row: AdmsIncident): IncidentRecord {
  * deduplican por la serie guardada en `context.serial`.
  */
 export default class IncidentRepositoryMysql implements IncidentRepository {
-  async findOpenSince(
+  /**
+   * Ultimo incidente de ese tipo en la ventana, este abierto o resuelto.
+   *
+   * Mirar solo los abiertos hacia inutil la deduplicacion en cuanto alguien
+   * atendia uno: el siguiente latido con la misma causa levantaba otro al
+   * segundo. Con un equipo que sale por dos enlaces, eso convertia "es mi
+   * aparato, liberalo" en un boton que no servia de nada. Que cuente tambien
+   * lo resuelto es lo que hace valer esa respuesta durante la ventana.
+   */
+  async findRecentSince(
     kind: AdmsIncidentKind,
     scope: IncidentScope,
     since: DateTime
   ): Promise<IncidentRecord | null> {
     const query = AdmsIncident.query()
       .where('adms_incident_kind', kind)
-      .where('adms_incident_status', 'open')
       .where('adms_incident_created_at', '>=', since.toFormat('yyyy-MM-dd HH:mm:ss'))
     if (scope.accessPointId !== null) {
       query.where('access_point_id', scope.accessPointId)

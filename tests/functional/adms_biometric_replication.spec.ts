@@ -3,6 +3,11 @@ import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
+import EmployeeAssignmentService from '#modules/access-point/employee-assignment/employee_assignment.service'
+import type { I18n } from '@adonisjs/i18n'
+
+/** El i18n real no aporta nada aqui: la prueba mira comandos, no textos. */
+const i18nFake = { formatMessage: (key: string) => key } as unknown as I18n
 import AccessPointProfile from '#models/access_point_profile'
 import BiometricTemplate from '#models/biometric_template'
 import BusinessUnitUser from '#models/business_unit_user'
@@ -126,13 +131,13 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     }, 'limpieza de la replicacion')
   })
 
-  async function replicate(dryRun: boolean) {
+  async function replicate(dryRun: boolean, targets?: number[]) {
     return TenantContext.run([businessUnitId], () =>
       new ReplicationService().replicate({
         employeeId: employee.employeeId,
         businessUnitId,
         sourceAccessPointId: source.accessPointId,
-        targetAccessPointIds: [compatible.accessPointId, incompatible.accessPointId],
+        targetAccessPointIds: targets ?? [compatible.accessPointId, incompatible.accessPointId],
         modalities: ['fingerprint'],
         actor: {
           userId,
@@ -185,7 +190,15 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     assert.equal(commands[0].deviceCommandPin, PIN_COMPAT)
   })
 
-  test('el blob viaja verbatim y con el PIN del destino en la cabecera', async ({ assert }) => {
+  /**
+   * El fixture corre sobre `ZAM180_TFT`, la plataforma del SpeedFace V5L.
+   *
+   * Ahi la huella NO se escribe con `BIODATA`: medido el 2026-09-10 entre dos
+   * V5L de la misma version, el equipo respondio `Return=0` y el dedo no quedo
+   * dentro. La unica escritura de huella medida funcionando en esa plataforma
+   * es `FINGERTMP`.
+   */
+  test('en el V5L la huella viaja por FINGERTMP, con el PIN del destino', async ({ assert }) => {
     const command = await TenantContext.runUnscoped(
       () =>
         DeviceCommand.query()
@@ -196,14 +209,96 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     )
 
     const payload = command.deviceCommandPayload ?? ''
-    assert.include(payload, `Pin=${PIN_COMPAT}`)
-    assert.include(payload, `Tmp=${TEMPLATE}`)
+    assert.include(payload, 'DATA UPDATE FINGERTMP')
+    assert.include(payload, `PIN=${PIN_COMPAT}`)
+    assert.include(payload, `TMP=${TEMPLATE}`)
+    assert.include(payload, 'Size=')
+    assert.equal(command.biometricTemplateId, templateId)
+  })
+
+  /**
+   * El SenseFace tambien escribe la huella por `FINGERTMP`.
+   *
+   * Su control positivo del spike se habia hecho con un template PROPIO del
+   * equipo; escribirle uno ajeno nunca se probo. Medido el 2026-09-10 con el
+   * aparato puesto en VX10 para igualarlo a los V5L: `BIODATA` respondio
+   * `Return=0`, el equipo reporto cero huellas y el dedo no marcaba.
+   */
+  test('el SenseFace tambien recibe la huella por FINGERTMP', async ({ assert }) => {
+    const zam70 = await makeDevice(`TEST-REPL-ZAM70-${STAMP}`, '5150', '13')
+    await TenantContext.runUnscoped(async () => {
+      const profile = await AccessPointProfile.query()
+        .where('access_point_id', zam70.accessPointId)
+        .firstOrFail()
+      profile.accessPointProfilePlatform = 'ZAM70_TFT'
+      await profile.save()
+    }, 'plataforma del destino')
+
+    await replicate(false, [zam70.accessPointId])
+
+    const command = await TenantContext.runUnscoped(
+      () =>
+        DeviceCommand.query()
+          .where('access_point_id', zam70.accessPointId)
+          .where('device_command_kind', 'biodata_write')
+          .firstOrFail(),
+      'comando hacia el ZAM70'
+    )
+
+    const payload = command.deviceCommandPayload ?? ''
+    assert.include(payload, 'DATA UPDATE FINGERTMP')
+    assert.include(payload, 'PIN=5150')
+    assert.include(payload, 'Size=')
+
+    await TenantContext.runUnscoped(async () => {
+      await DeviceCommand.query().where('access_point_id', zam70.accessPointId).delete()
+      await AccessPointEmployee.query().where('access_point_id', zam70.accessPointId).delete()
+      await AccessPointProfile.query().where('access_point_id', zam70.accessPointId).delete()
+      await AccessPoint.query().where('access_point_id', zam70.accessPointId).delete()
+    }, 'limpieza del ZAM70')
+  })
+
+  /**
+   * Una plataforma que nadie ha medido conserva la regla canonica: `BIODATA`
+   * con `MajorVer`, que al menos rechaza de frente si la version no cuadra en
+   * vez de tragarse el dato en silencio.
+   */
+  test('una plataforma sin medir conserva BIODATA con su version', async ({ assert }) => {
+    const otra = await makeDevice(`TEST-REPL-OTRA-${STAMP}`, '5151', '13')
+    await TenantContext.runUnscoped(async () => {
+      const profile = await AccessPointProfile.query()
+        .where('access_point_id', otra.accessPointId)
+        .firstOrFail()
+      profile.accessPointProfilePlatform = 'PLATAFORMA_NUEVA'
+      await profile.save()
+    }, 'plataforma sin medir')
+
+    await replicate(false, [otra.accessPointId])
+
+    const command = await TenantContext.runUnscoped(
+      () =>
+        DeviceCommand.query()
+          .where('access_point_id', otra.accessPointId)
+          .where('device_command_kind', 'biodata_write')
+          .firstOrFail(),
+      'comando hacia la plataforma nueva'
+    )
+
+    const payload = command.deviceCommandPayload ?? ''
+    assert.include(payload, 'DATA UPDATE BIODATA')
+    assert.include(payload, 'Pin=5151')
     assert.include(payload, 'MajorVer=13')
     assert.include(payload, 'MinorVer=2')
     // El dedo de coaccion se repite del registro: inventarlo cambiaria lo que
     // significa ese dedo para quien lo usa.
     assert.include(payload, 'Duress=1')
-    assert.equal(command.biometricTemplateId, templateId)
+
+    await TenantContext.runUnscoped(async () => {
+      await DeviceCommand.query().where('access_point_id', otra.accessPointId).delete()
+      await AccessPointEmployee.query().where('access_point_id', otra.accessPointId).delete()
+      await AccessPointProfile.query().where('access_point_id', otra.accessPointId).delete()
+      await AccessPoint.query().where('access_point_id', otra.accessPointId).delete()
+    }, 'limpieza de la plataforma nueva')
   })
 
   /**
@@ -235,4 +330,56 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     )
     assert.lengthOf(commands, 1)
   })
+  /**
+   * Lo que motivo el automatismo: al dar de alta a alguien en un equipo nuevo
+   * compatible, sus huellas tienen que viajar solas. La boveda existe para que
+   * nadie vuelva al lector a poner el mismo dedo.
+   */
+  test('dar de alta en un equipo compatible copia los biometricos sin pedirlo', async ({
+    assert,
+  }) => {
+    const nuevo = new AccessPoint()
+    nuevo.accessPointName = 'Checador recien llegado'
+    nuevo.businessUnitId = businessUnitId
+    nuevo.accessPointActive = 1
+    nuevo.accessPointSerialNumber = `TEST-REPL-AUTO-${Date.now()}`
+    nuevo.accessPointStatus = 0
+    await TenantContext.run([businessUnitId], () => nuevo.save())
+
+    const profile = new AccessPointProfile()
+    profile.accessPointId = nuevo.accessPointId
+    profile.businessUnitId = businessUnitId
+    profile.accessPointProfileDialect = 'ta'
+    profile.accessPointProfileLayoutKnown = 1
+    profile.accessPointProfilePlatform = 'ZAM180_TFT'
+    // La misma version mayor que el template guardado: aqui si sirve.
+    profile.accessPointProfileFpVersion = '13'
+    await TenantContext.run([businessUnitId], () => profile.save())
+
+    const service = new EmployeeAssignmentService(i18nFake)
+    await TenantContext.run([businessUnitId], () =>
+      service.assign(nuevo.accessPointId, employee.employeeId, [businessUnitId], userId, {
+        ip: '127.0.0.1',
+      })
+    )
+
+    const copias = await TenantContext.runUnscoped(
+      () =>
+        DeviceCommand.query()
+          .where('access_point_id', nuevo.accessPointId)
+          .where('device_command_kind', 'biodata_write'),
+      'copias hacia el equipo nuevo'
+    )
+
+    assert.isAtLeast(copias.length, 1)
+    assert.equal(copias[0].employeeId, employee.employeeId)
+
+    await TenantContext.runUnscoped(async () => {
+      await DeviceCommand.query().where('access_point_id', nuevo.accessPointId).delete()
+      await AccessPointEmployee.query().where('access_point_id', nuevo.accessPointId).delete()
+      await AccessPointProfile.query().where('access_point_id', nuevo.accessPointId).delete()
+      await AccessPoint.query().where('access_point_id', nuevo.accessPointId).delete()
+    }, 'limpieza del equipo nuevo')
+  })
+
 })

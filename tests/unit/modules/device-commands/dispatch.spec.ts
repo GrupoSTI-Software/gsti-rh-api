@@ -64,6 +64,9 @@ function makeRepository(options: Options = {}) {
     async listByEmployee() {
       return []
     },
+    async listLiveForPivot() {
+      return []
+    },
     async findStuck() {
       return []
     },

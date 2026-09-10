@@ -536,6 +536,108 @@ test.group('ADMS matriz empleado por dispositivo (rebanada 7)', (group) => {
     }, 'limpieza del equipo nuevo')
   })
 
+  test('la baja que el equipo nunca confirma se puede cerrar a mano', async ({
+    client,
+    assert,
+  }) => {
+    // Equipo propio: cerrar a mano es terminal y arrastraria la cadena de esta
+    // suite si se hiciera sobre el pivote principal.
+    const mudo = await TenantContext.runUnscoped(async () => {
+      const ap = new AccessPoint()
+      ap.accessPointName = `Checador mudo ${STAMP}`
+      ap.businessUnitId = businessUnitId
+      ap.accessPointActive = 1
+      ap.accessPointSerialNumber = `TEST-ADMS-MUTE-${STAMP}`
+      ap.accessPointStatus = 0
+      await ap.save()
+      return ap
+    }, 'equipo que dejara de contestar')
+
+    const ruta = `/api/access-points/${mudo.accessPointId}/employee/${employee.employeeId}`
+    const limpiar = async (accessPointEmployeeId: number | null) => {
+      await TenantContext.runUnscoped(async () => {
+        if (accessPointEmployeeId !== null) {
+          await db
+            .from('access_point_employee_events')
+            .where('access_point_employee_id', accessPointEmployeeId)
+            .delete()
+        }
+        await db.from('device_commands').where('access_point_id', mudo.accessPointId).delete()
+        await db.from('access_point_employees').where('access_point_id', mudo.accessPointId).delete()
+        await db.from('access_points').where('access_point_id', mudo.accessPointId).delete()
+      }, 'limpieza del equipo mudo')
+    }
+
+    const alta = await client
+      .post(ruta)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+    if (alta.status() === 403) {
+      await limpiar(null)
+      return
+    }
+    assert.equal(alta.status(), 201)
+
+    // Nadie pidio la baja todavia: el atajo no es una via para saltarse el
+    // borrado en el aparato, asi que aqui debe rechazarse.
+    const prematura = await client
+      .post(`${ruta}/revoke/force`)
+      .json({ reason: 'sin pedir la baja' })
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+    assert.equal(prematura.status(), 409)
+    assert.equal(prematura.body().key, 'baja-no-pedida')
+
+    const baja = await client
+      .post(`${ruta}/revoke`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+    assert.equal(baja.status(), 202)
+
+    const forzada = await client
+      .post(`${ruta}/revoke/force`)
+      .json({ reason: 'el equipo se reemplazo' })
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+    assert.equal(forzada.status(), 200)
+    assert.equal(forzada.body().data.accessPointEmployee.syncStatus, 'revoked')
+
+    const pivot = await TenantContext.runUnscoped(
+      () =>
+        AccessPointEmployee.query()
+          .where('access_point_id', mudo.accessPointId)
+          .where('employee_id', employee.employeeId)
+          .firstOrFail(),
+      'lectura del pivote cerrado a mano'
+    )
+
+    const borrado = await TenantContext.runUnscoped(
+      () =>
+        DeviceCommand.query()
+          .where('access_point_id', mudo.accessPointId)
+          .where('device_command_kind', 'user_delete')
+          .firstOrFail(),
+      'lectura del borrado abandonado'
+    )
+    // Un borrado que nadie va a recoger taponaria la cola de ese equipo si
+    // algun dia vuelve.
+    assert.equal(borrado.deviceCommandStatus, 'cancelled')
+
+    const eventos = await TenantContext.runUnscoped(
+      () =>
+        AccessPointEmployeeEvent.query()
+          .where('access_point_employee_id', pivot.accessPointEmployeeId)
+          .orderBy('access_point_employee_event_id', 'asc'),
+      'lectura del rastro de la baja forzada'
+    )
+    const ultimo = eventos[eventos.length - 1]
+    // El motivo es lo unico que distingue, meses despues, una baja que el
+    // aparato aplico de una que alguien dio por cerrada.
+    assert.include(ultimo.accessPointEmployeeEventDetail ?? '', 'el equipo se reemplazo')
+
+    await limpiar(pivot.accessPointEmployeeId)
+  })
+
   test('el historial deja constancia de quien hizo cada cosa', async ({ assert }) => {
     const events = await TenantContext.runUnscoped(async () => {
       const pivot = await AccessPointEmployee.query()

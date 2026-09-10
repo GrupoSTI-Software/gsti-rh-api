@@ -20,6 +20,7 @@ function toSlot(row: BiometricTemplate): TemplateSlot {
     bioNo: row.biometricTemplateBioNo,
     majorVer: row.biometricTemplateMajorVer ?? null,
     capturedAt: row.biometricTemplateCapturedAt,
+    sourceAccessPointId: row.sourceAccessPointId ?? null,
   }
 }
 
@@ -103,6 +104,7 @@ export default class TemplateRepositoryMysql implements TemplateRepository {
       bioNo: row.biometricTemplateBioNo,
       bioIndex: row.biometricTemplateBioIndex,
       bioFormat: row.biometricTemplateBioFormat,
+      size: row.biometricTemplateSize,
       majorVer: row.biometricTemplateMajorVer ?? null,
       minorVer: row.biometricTemplateMinorVer ?? null,
       valid: row.biometricTemplateValid,

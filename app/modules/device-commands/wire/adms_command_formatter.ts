@@ -20,9 +20,51 @@ export interface DeviceCommandFields {
   template?: string
   url?: string
   dateTime?: string
+  /** Tamano del blob tal como lo declaro el equipo de origen. */
+  size?: number
+  /** Plataforma del equipo destino: decide la gramatica de la huella. */
+  platform?: string
 }
 
 const TAB = '\t'
+
+/**
+ * Plataformas donde la huella NO se escribe con `BIODATA`.
+ *
+ * Es una lista blanca a proposito: solo entra la plataforma cuyo
+ * comportamiento se midio con el dedo puesto. Ante un aparato desconocido se
+ * prefiere `BIODATA`, que al menos falla ruidosamente --responde `-30` si la
+ * version no cuadra-- mientras que `FINGERTMP` descarta en silencio.
+ *
+ * `ZAM180` (SpeedFace V5L), medido el 2026-09-10 entre dos equipos de la misma
+ * version: `BIODATA Type=1` con el `MajorVer` correcto respondio `Return=0` y
+ * el dedo NO quedo dentro. Con `FINGERTMP` si entro, verificado marcando.
+ *
+ * `ZAM70` (SenseFace 2A), medido el mismo dia con el equipo puesto en VX10
+ * para igualarlo a los V5L: `BIODATA Type=1 MajorVer=10` con un template ajeno
+ * respondio `Return=0`, el aparato reporto `FPCount=0` un segundo despues y el
+ * dedo no marcaba. El control positivo del spike en esa plataforma se habia
+ * hecho con un template PROPIO del equipo, asi que escribirle uno ajeno nunca
+ * se habia probado.
+ *
+ * El riesgo que hizo prohibir `FINGERTMP` --no lleva `MajorVer`, y sin el, al
+ * cruzar versiones el equipo descarta sin avisar-- queda cubierto antes del
+ * cable: no se encola una copia sin que la boveda confirme que la version del
+ * template coincide con la que declara el equipo. Esa comprobacion no existia
+ * cuando la regla se escribio.
+ *
+ * La excepcion es de la huella, no de la tabla: `BIODATA Type=9` SI escribe
+ * rostro en las dos plataformas (medido en el spike).
+ */
+const FINGERPRINT_BY_FINGERTMP_PLATFORMS = ['ZAM180', 'ZAM70']
+
+/** Tipo de biometrico de huella en la gramatica del equipo. */
+const BIO_TYPE_FINGERPRINT = 1
+
+function writesFingerprintByFingertmp(platform: string | undefined): boolean {
+  if (!platform) return false
+  return FINGERPRINT_BY_FINGERTMP_PLATFORMS.some((prefix) => platform.startsWith(prefix))
+}
 /** TAB separa campos y el salto de linea separa comandos: ninguno puede venir en un valor. */
 const UNSAFE = /[\t\r\n]/
 
@@ -88,6 +130,19 @@ export function formatDeviceCommand(kind: DeviceCommandKind, fields: DeviceComma
       ].join(TAB)
 
     case DEVICE_COMMAND_KIND.BIODATA_WRITE:
+      if (
+        fields.bioType === BIO_TYPE_FINGERPRINT &&
+        writesFingerprintByFingertmp(fields.platform)
+      ) {
+        return [
+          `DATA UPDATE FINGERTMP PIN=${required(fields, 'pin')}`,
+          `FID=${required(fields, 'bioNo')}`,
+          `Size=${required(fields, 'size')}`,
+          `Valid=${required(fields, 'valid')}`,
+          `TMP=${required(fields, 'template')}`,
+        ].join(TAB)
+      }
+
       return [
         `DATA UPDATE BIODATA Pin=${required(fields, 'pin')}`,
         `No=${required(fields, 'bioNo')}`,

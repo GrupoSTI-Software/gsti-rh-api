@@ -17,7 +17,15 @@ const BLOB = 'A'.repeat(1120)
 const TRX = {} as TransactionClientContract
 
 function slotOf(overrides: Partial<TemplateSlot> = {}): TemplateSlot {
-  return { templateId: 1, bioType: 1, bioNo: 7, majorVer: '13', capturedAt: NOW, ...overrides }
+  return {
+    templateId: 1,
+    bioType: 1,
+    bioNo: 7,
+    majorVer: '13',
+    capturedAt: NOW,
+    sourceAccessPointId: null,
+    ...overrides,
+  }
 }
 
 interface Options {

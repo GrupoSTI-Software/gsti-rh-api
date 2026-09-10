@@ -112,6 +112,31 @@ export default class DeviceCommandService implements DeviceCommandPort {
     return command
   }
 
+  /**
+   * Cierra en bloque lo que siga vivo para un vinculo.
+   *
+   * A diferencia de `cancel`, alcanza tambien a lo que ya salio al equipo: se
+   * usa cuando se da por perdido el aparato, y ahi un comando `sent` no espera
+   * respuesta de nadie. Los estados terminales no se tocan -- lo que ya ocurrio
+   * no se deshace reescribiendo su historia.
+   */
+  async cancelLiveForPivot(
+    accessPointEmployeeId: number,
+    requestedByUserId: number | null
+  ): Promise<number> {
+    const commands = await this.repository.listLiveForPivot(accessPointEmployeeId)
+
+    let cancelled = 0
+    for (const command of commands) {
+      this.transition(command, DEVICE_COMMAND_STATUS.CANCELLED)
+      command.deviceCommandCancelledAt = this.now()
+      if (requestedByUserId !== null) command.deviceCommandRequestedByUserId = requestedByUserId
+      await this.repository.save(command)
+      cancelled += 1
+    }
+    return cancelled
+  }
+
   async retry(commandId: number, requestedByUserId: number | null): Promise<DeviceCommand> {
     const command = await this.requireCommand(commandId)
     if (command.deviceCommandStatus !== DEVICE_COMMAND_STATUS.FAILED) {

@@ -50,6 +50,8 @@ export interface DeviceCommandRepository {
   hasInFlight(accessPointId: number): Promise<boolean>
   listByDevice(accessPointId: number, status?: DeviceCommandStatus): Promise<DeviceCommand[]>
   listByEmployee(employeeId: number): Promise<DeviceCommand[]>
+  /** Lo que sigue vivo --pendiente o en vuelo-- para un vinculo concreto. */
+  listLiveForPivot(accessPointEmployeeId: number): Promise<DeviceCommand[]>
   /** Comandos en vuelo o acusados cuyo plazo vencio, para el barrido. */
   findStuck(input: {
     sentBefore: DateTime

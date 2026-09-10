@@ -11,9 +11,34 @@ import { middleware } from '#start/kernel'
  */
 router
   .group(() => {
+    /**
+     * Supresion: borra la huella del expediente. No la retira del aparato --el
+     * protocolo no tiene verbo para un dedo suelto-- asi que se niega mientras
+     * siga dentro de un checador con el colaborador dado de alta.
+     */
+    router.delete(
+      '/:employeeId/device-biometrics/fingerprints/:fingerId',
+      '#modules/biometric-vault/device-biometrics/device_biometrics.controller.deleteFingerprint'
+    )
     router.post(
       '/:employeeId/device-biometrics/fingerprint-enrollment',
       '#modules/biometric-vault/device-biometrics/device_biometrics.controller.enrollFingerprint'
+    )
+    /**
+     * Lectura: que biometricos tiene la persona, vengan del canal o del
+     * conector viejo. Es lo que pinta las palmas del expediente.
+     */
+    router.get(
+      '/:employeeId/device-biometrics',
+      '#modules/biometric-vault/device-biometrics/device_biometrics.controller.summary'
+    )
+    /**
+     * Lectura: como va la captura que se pidio. El Backoffice la sondea
+     * mientras espera al aparato, asi que responde el comando y nada mas.
+     */
+    router.get(
+      '/:employeeId/device-biometrics/commands/:commandId',
+      '#modules/biometric-vault/device-biometrics/device_biometrics.controller.enrollmentStatus'
     )
     router.post(
       '/:employeeId/device-biometrics/face/enable',

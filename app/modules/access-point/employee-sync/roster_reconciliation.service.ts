@@ -57,6 +57,14 @@ const ROSTER_ANSWER_MINUTES = 10
 const ROSTER_SILENCE_MINUTES = 10
 
 /** Estados de baja en los que ver el PIN significa que el equipo no la aplico. */
+/**
+ * Ventana de silencio del aviso de "dado de baja y sigue dentro".
+ *
+ * El padron se pide seguido; un dia basta para que alguien lo atienda y evita
+ * que el mismo hecho llene la bitacora sondeo tras sondeo.
+ */
+const REVOKED_STILL_PRESENT_DEDUPE_MINUTES = 1440
+
 const PENDING_REVOCATION: readonly AccessPointEmployeeSyncStatus[] = [
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKING,
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_SENT,
@@ -122,6 +130,23 @@ export default class RosterReconciliationService {
         if (status === ACCESS_POINT_EMPLOYEE_SYNC_STATUS.SENT) {
           await this.markConfirmed(pivot, input)
           result.confirmed += 1
+          continue
+        }
+        /**
+         * La baja se cerro y la persona sigue dentro del aparato.
+         *
+         * Pasa cuando alguien cerro la baja a mano dando por muerto un equipo
+         * que despues revivio. No hay falso positivo posible: un PIN no se
+         * recicla --la baja lo deja reservado-- asi que ese numero solo puede
+         * ser de esta persona.
+         *
+         * `revoked` es terminal --volver al camino de alta es un acto de
+         * alguien, no el avance de un estado-- asi que no se mueve el pivote:
+         * se levanta el aviso, que es lo unico que faltaba. Sin el, esa persona
+         * sigue marcando en una puerta de la que se le saco y nadie se entera.
+         */
+        if (status === ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED) {
+          await this.reportRevokedStillPresent(pivot, pin, input)
         }
         continue
       }
@@ -245,6 +270,50 @@ export default class RosterReconciliationService {
       actorUserId: null,
       detail: 'El equipo no declara ese PIN tras pedirle su padron',
     })
+  }
+
+  /**
+   * Avisa que el equipo declara a alguien cuya baja ya se dio por cerrada.
+   *
+   * Solo avisa. El pivote no se toca porque `revoked` es terminal por diseno, y
+   * porque el remedio es una decision: reasignar y pedir la baja de nuevo ahora
+   * que el aparato contesta, o limpiarlo en el equipo. Se deduplica por dia:
+   * el padron se pide seguido y un aviso repetido en cada sondeo entrena a la
+   * gente a ignorarlos.
+   */
+  private async reportRevokedStillPresent(
+    pivot: AccessPointEmployee,
+    pin: string,
+    input: RosterReconciliationInput
+  ): Promise<void> {
+    await this.repository.recordEvent({
+      accessPointEmployeeId: pivot.accessPointEmployeeId,
+      businessUnitId: input.businessUnitId,
+      kind: ACCESS_POINT_EMPLOYEE_EVENT_KIND.STATUS_CHANGED,
+      fromStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+      toStatus: ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,
+      actorUserId: null,
+      detail: 'El equipo volvio a declarar ese numero despues de cerrada la baja',
+    })
+
+    await this.incidents.record(
+      {
+        kind: ADMS_INCIDENT_KIND.REVOKED_STILL_PRESENT,
+        severity: 'warning',
+        code: ADMS_ERROR_CODES.CMD_NOT_APPLIED,
+        title: 'El checador sigue teniendo a alguien dado de baja',
+        detail:
+          'La baja se cerro sin confirmacion del equipo y ahora el aparato declara ese numero en su padron. Esa persona puede marcar en una puerta de la que ya se le retiro.',
+        key: 'baja-cerrada-pero-presente',
+        serial: input.serial,
+        accessPointId: input.accessPointId,
+        businessUnitId: input.businessUnitId,
+        rawMessageId: input.rawMessageId,
+        context: { pin },
+        now: input.receivedAt,
+      },
+      { dedupeMinutes: REVOKED_STILL_PRESENT_DEDUPE_MINUTES }
+    )
   }
 
   /**

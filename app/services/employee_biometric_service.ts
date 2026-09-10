@@ -2,6 +2,7 @@ import EmployeeBiometric from '#models/employee_biometric'
 import Employee from '#models/employee'
 import { I18n } from '@adonisjs/i18n'
 import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'
+import { parseBiometricData } from '#helpers/biometric_data_parser'
 
 export default class EmployeeBiometricService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -36,27 +37,7 @@ export default class EmployeeBiometricService {
    * Formato: "Finger:1, Finger:2, Face" -> { fingers: [1, 2], face: true }
    */
   parseBiometricData(data: string): { fingers: number[], face: boolean } {
-    const fingers: number[] = []
-    let face = false
-
-    if (!data || data.trim() === '') {
-      return { fingers: [], face: false }
-    }
-
-    const parts = data.split(',').map(part => part.trim())
-
-    for (const part of parts) {
-      if (part.startsWith('Finger:')) {
-        const fingerId = Number.parseInt(part.replace('Finger:', ''), 10)
-        if (!Number.isNaN(fingerId) && fingerId >= 0 && fingerId <= 9) {
-          fingers.push(fingerId)
-        }
-      } else if (part === 'Face') {
-        face = true
-      }
-    }
-
-    return { fingers, face }
+    return parseBiometricData(data)
   }
 
   async findByEmployeeId(employeeId: number) {

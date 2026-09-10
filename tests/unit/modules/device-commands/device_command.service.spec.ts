@@ -73,6 +73,9 @@ function makeService(options: Options = {}) {
     async listByDevice() {
       return []
     },
+    async listLiveForPivot() {
+      return []
+    },
     async listByEmployee() {
       return []
     },

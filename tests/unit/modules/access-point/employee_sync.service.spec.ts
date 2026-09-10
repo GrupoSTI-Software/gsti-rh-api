@@ -98,6 +98,9 @@ function makeService(options: Options = {}) {
     async listByDevice() {
       return []
     },
+    async cancelLiveForPivot() {
+      return 0
+    },
     async listByEmployee() {
       return []
     },
@@ -442,5 +445,56 @@ test.group('PIN correlativo por equipo', () => {
     })
 
     assert.equal(saved[0].accessPointEmployeePin, '2')
+  })
+})
+
+/**
+ * Un equipo que no vuelve --reemplazado, reseteado o muerto-- dejaba la baja
+ * esperando para siempre: el borrado se queda `pending` sin salir, que es un
+ * estado que ni el barrido cierra, y el vinculo no se podia soltar.
+ */
+test.group('Cerrar a mano una baja que el equipo no confirma', () => {
+  test('cierra la baja pedida y deja constancia de quien la forzo', async ({ assert }) => {
+    const { service, saved, events } = makeService({
+      pivot: pivotOf({ accessPointEmployeeSyncStatus: 'revoking' as AccessPointEmployeeSyncStatus }),
+    })
+
+    const pivot = await service.forceRevoke({
+      accessPointId: 12,
+      businessUnitId: 1,
+      employeeId: 77,
+      reason: 'el checador se reemplazo',
+      actor: ACTOR,
+    })
+
+    assert.equal(pivot.accessPointEmployeeSyncStatus, 'revoked')
+    assert.equal(saved[0].accessPointEmployeeSyncStatus, 'revoked')
+    assert.equal(events[0].toStatus, 'revoked')
+    assert.equal(events[0].actorUserId, ACTOR.userId)
+    assert.include(events[0].detail ?? '', 'el checador se reemplazo')
+  })
+
+  test('no cierra una baja que nadie ha pedido', async ({ assert }) => {
+    // Con el alta viva la via es pedir la baja: cerrarla a mano aqui dejaria a
+    // la persona dentro del aparato y fuera del sistema, sin que nadie lo sepa.
+    const { service, saved } = makeService({
+      pivot: pivotOf({ accessPointEmployeeSyncStatus: 'confirmed' as AccessPointEmployeeSyncStatus }),
+    })
+
+    let capturado: unknown = null
+    try {
+      await service.forceRevoke({
+        accessPointId: 12,
+        businessUnitId: 1,
+        employeeId: 77,
+        reason: 'sin pedirla',
+        actor: ACTOR,
+      })
+    } catch (error) {
+      capturado = error
+    }
+
+    assert.equal((capturado as { key?: string })?.key, 'baja-no-pedida')
+    assert.lengthOf(saved, 0)
   })
 })

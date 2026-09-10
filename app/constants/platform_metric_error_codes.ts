@@ -74,3 +74,17 @@ export const MRR_SERIES_METRIC_ERROR_TEXTS: PlatformMetricErrorTexts = {
   unhandledTitle: 'Error inesperado al obtener la serie mensual de MRR',
   unhandledKey: 'error-inesperado-al-obtener-la-serie-mensual-de-mrr',
 }
+
+/**
+ * Textos de los flujos de suscripción del mes (USRH1788052455656).
+ *
+ * Juego propio: el título nombra la métrica para que el cliente sepa cuál de
+ * los endpoints del prefijo falló. El `key` es el slug kebab del título; el
+ * `code` (`PLT.MET.*`) es el campo que el cliente consume.
+ */
+export const SUBSCRIPTION_FLOWS_METRIC_ERROR_TEXTS: PlatformMetricErrorTexts = {
+  failureTitle: 'No fue posible obtener los flujos de suscripción',
+  failureKey: 'no-fue-posible-obtener-los-flujos-de-suscripcion',
+  unhandledTitle: 'Error inesperado al obtener los flujos de suscripción',
+  unhandledKey: 'error-inesperado-al-obtener-los-flujos-de-suscripcion',
+}

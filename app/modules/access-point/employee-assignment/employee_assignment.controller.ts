@@ -64,7 +64,14 @@ export default class EmployeeAssignmentController {
         params.accessPointId,
         params.employeeId,
         businessUnitScope,
-        ctx.auth.user?.userId ?? null
+        ctx.auth.user?.userId ?? null,
+        // Copiar un biometrico lo lee, y toda lectura deja constancia con el
+        // origen de la peticion.
+        {
+          ip: request.ip(),
+          userAgent: request.header('user-agent') ?? null,
+          requestId: request.id() ?? null,
+        }
       )
 
       return StandardResponseFormatter.success(
