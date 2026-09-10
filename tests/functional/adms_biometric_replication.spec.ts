@@ -462,4 +462,47 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     }, 'limpieza del equipo nuevo')
   })
 
+  /**
+   * El otro lado del automatismo, y el que costo caro el 2026-09-10: el alta si
+   * entra al equipo aunque la huella no pueda seguirla. La persona queda dada
+   * de alta en un lector donde no puede identificarse.
+   *
+   * El operador esta frente a la pantalla en ese momento: es cuando puede
+   * mandarla al lector, en vez de enterarse el dia que se quede parada en la
+   * puerta.
+   */
+  test('el alta avisa cuando el equipo no puede recibir la huella', async ({ assert }) => {
+    const ajeno = await makeDevice(`TEST-REPL-ALTA-${STAMP}`, '5153', '99')
+    await TenantContext.runUnscoped(
+      () => db.from('access_point_employees').where('access_point_id', ajeno.accessPointId).delete(),
+      'el alta la hace el servicio, no el fixture'
+    )
+
+    const service = new EmployeeAssignmentService(i18nFake)
+    const asignacion = await TenantContext.run([businessUnitId], () =>
+      service.assign(ajeno.accessPointId, employee.employeeId, [businessUnitId], userId, {
+        ip: '127.0.0.1',
+      })
+    )
+
+    assert.isTrue(asignacion.fingerprintVersionMismatch)
+    assert.equal(asignacion.queuedBiometrics, 0)
+
+    /** El alta si viaja: lo que no puede ir es la huella. */
+    const comandos = await TenantContext.runUnscoped(
+      () => DeviceCommand.query().where('access_point_id', ajeno.accessPointId),
+      'comandos del alta ajena'
+    )
+    assert.isAtLeast(comandos.length, 1)
+    assert.isTrue(comandos.every((command) => command.deviceCommandKind !== 'biodata_write'))
+
+    await TenantContext.runUnscoped(async () => {
+      await DeviceCommand.query().where('access_point_id', ajeno.accessPointId).delete()
+      await db.from('adms_incidents').where('access_point_id', ajeno.accessPointId).delete()
+      await AccessPointEmployee.query().where('access_point_id', ajeno.accessPointId).delete()
+      await AccessPointProfile.query().where('access_point_id', ajeno.accessPointId).delete()
+      await AccessPoint.query().where('access_point_id', ajeno.accessPointId).delete()
+    }, 'limpieza del alta ajena')
+  })
+
 })
