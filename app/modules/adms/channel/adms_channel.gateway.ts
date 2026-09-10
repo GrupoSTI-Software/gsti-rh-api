@@ -8,6 +8,7 @@ import AdmsChannelController, { type AdmsRequest } from './adms_channel.controll
 import AdmsDeviceResolverService from './adms_device_resolver.service.js'
 import env from '#start/env'
 import { sendText } from './adms_text_response.js'
+import { hostLabelOf } from './channel_secret.js'
 import { describeError } from './error_summary.js'
 import PhotoDownloadService from '#modules/biometric-vault/photo/photo_download.service'
 import type { ChannelReply } from './adms_channel.service.js'
@@ -116,7 +117,11 @@ export default class AdmsChannelGateway {
     now: DateTime,
     ip: string
   ): Promise<void> {
-    const outcome = await this.photos.resolve(path, now)
+    const baseDomain = env.get('ADMS_CHANNEL_BASE_DOMAIN') ?? null
+    const outcome = await this.photos.resolve(path, now, {
+      label: hostLabelOf(ctx.request.header('host') ?? null, baseDomain),
+      baseDomain,
+    })
     if (outcome.kind !== 'ok') {
       logger.info(
         { reason: outcome.reason, publicationId: outcome.publicationId, ip },

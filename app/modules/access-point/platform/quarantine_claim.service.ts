@@ -10,6 +10,7 @@ import DeviceCommandService from '#modules/device-commands/device_command.servic
 import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
 import { PLATFORM_DEVICE_ERROR_CODES } from '#constants/platform_device_error_codes'
+import { generateChannelSecret } from '#modules/adms/channel/channel_secret'
 import { PlatformDeviceServiceError } from '#exceptions/platform_device_service_error'
 import { TenantContext } from '#utils/tenant_context'
 
@@ -36,6 +37,14 @@ export interface ClaimFromQuarantineResult {
   accessPointOutcome: 'created' | 'adopted'
   /** Verdadero si hubo que revivir una fila dada de baja con esa serie. */
   revivedDeletedAccessPoint: boolean
+  /**
+   * Direccion propia del equipo, la parte secreta.
+   *
+   * Se entrega UNA vez, aqui: quien instala el checador la teclea en el menu
+   * del aparato junto con el resto de la direccion. Despues se consulta desde
+   * la ficha del equipo, que es otra HU.
+   */
+  channelSecret: string
 }
 
 /**
@@ -126,6 +135,17 @@ export default class PlatformQuarantineClaimService {
       throw error
     }
 
+    /**
+     * El equipo nace con su direccion propia.
+     *
+     * Se genera aqui y no al dar de alta el inventario porque este es el
+     * momento en que alguien tiene el aparato delante para teclearla.
+     */
+    const channelSecret = await this.assignChannelSecret(
+      assignment.accessPoint.accessPointId,
+      now
+    )
+
     await this.markClaimed(
       row,
       tenant.businessUnitId,
@@ -149,7 +169,30 @@ export default class PlatformQuarantineClaimService {
       accessPointName: assignment.accessPoint.accessPointName,
       accessPointOutcome: assignment.accessPointOutcome,
       revivedDeletedAccessPoint: revived !== null,
+      channelSecret,
     }
+  }
+
+  /**
+   * Le da al equipo la direccion por la que hablara el resto de su vida.
+   *
+   * Tambien sirve para rotar: el spec manda hacerlo por causa --al retirar un
+   * checador de un cliente, o ante sospecha de filtracion-- y nunca por
+   * calendario, porque rotar significa volver a teclear en el aparato y una
+   * rotacion automatica sin nadie enfrente lo deja hablando a una direccion que
+   * ya no existe.
+   */
+  async assignChannelSecret(accessPointId: number, now: DateTime): Promise<string> {
+    const secret = generateChannelSecret()
+    await TenantContext.runUnscoped(async () => {
+      const point = await AccessPoint.query()
+        .where('access_point_id', accessPointId)
+        .firstOrFail()
+      point.accessPointChannelSecret = secret
+      point.accessPointChannelSecretSetAt = now
+      await point.save()
+    }, UNSCOPED_REASON)
+    return secret
   }
 
   /**

@@ -263,6 +263,43 @@ test.group('Reclamo de cuarentena desde plataforma', (group) => {
   })
 
   /**
+   * Por el dominio comun se nace, y solo se nace: al reclamar, el equipo recibe
+   * su direccion propia y desde ahi habla el resto de su vida.
+   */
+  test('reclamar genera la direccion propia y la entrega una vez', async ({ assert }) => {
+    const serial = `TESTS${STAMP}`.slice(0, 24)
+    const row = await quarantineOf(serial)
+    const service = new PlatformQuarantineClaimService()
+    const result = await service.claim({
+      quarantinedDeviceId: row.admsQuarantinedDeviceId,
+      tenantPublicId: String(tenant.businessUnitPublicId),
+      platformDeviceModelId: modelId,
+      deliveredAt: new Date(),
+      createdByUserId: null,
+    })
+    deviceIds.push(result.platformDeviceId)
+    accessPointIds.push(result.accessPointId)
+
+    assert.lengthOf(result.channelSecret, 14)
+
+    const guardado = await TenantContext.runUnscoped(
+      () => AccessPoint.query().where('access_point_id', result.accessPointId).firstOrFail(),
+      'punto de acceso reclamado'
+    )
+    assert.equal(guardado.accessPointChannelSecret, result.channelSecret)
+    assert.isNotNull(guardado.accessPointChannelSecretSetAt)
+
+    /**
+     * Rotar entrega otra distinta. Se rota por causa --retirar el equipo de un
+     * cliente, sospecha de filtracion-- y nunca por calendario: rotar significa
+     * volver a teclear en el aparato.
+     */
+    const rotado = await service.assignChannelSecret(result.accessPointId, DateTime.utc())
+    assert.notEqual(rotado, result.channelSecret)
+    assert.lengthOf(rotado, 14)
+  })
+
+  /**
    * El mismo caso, pero la fila muerta era de OTRA empresa.
    *
    * Revivirla movia el punto de acceso de empresa y dejaba todas sus filas
