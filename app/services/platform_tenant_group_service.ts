@@ -536,11 +536,20 @@ export default class PlatformTenantGroupService {
 
       return { platformTenantGroupId: id, asignados: buIds.length, liberados, movidos }
     } catch (error) {
-      await trx.rollback()
+      // Si la transacción ya falló (p. ej. deadlock), el rollback puede fallar a
+      // su vez; ese fallo secundario no debe tapar el error original que sí traduce
+      // la lógica de abajo.
+      await trx.rollback().catch(() => {})
       const err = error as { code?: string }
       // Dos operadores guardando la misma cuenta a la vez: una gana, la otra recibe
-      // un error controlado. Nunca un 500 sin traducir.
-      if (err?.code === 'ER_DUP_ENTRY') {
+      // un error controlado. Nunca un 500 sin traducir. Además del duplicado directo,
+      // dos DELETE+INSERT concurrentes sobre la misma tabla con constraint única
+      // pueden chocar como deadlock o timeout de lock en InnoDB — mismo tratamiento.
+      if (
+        err?.code === 'ER_DUP_ENTRY' ||
+        err?.code === 'ER_LOCK_DEADLOCK' ||
+        err?.code === 'ER_LOCK_WAIT_TIMEOUT'
+      ) {
         throw new PlatformTenantGroupServiceError(
           'Colisión de membresía por concurrencia',
           PLATFORM_TENANT_GROUP_ERROR_CODES.VAL_INPUT,
