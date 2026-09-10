@@ -8,6 +8,7 @@ import {
 } from '#modules/device-commands/device_command.constants'
 import type { DeviceCommandRepository } from '#modules/device-commands/device_command.repository'
 import type DeviceCommand from '#models/device_command'
+import type { PhotoDispatchPort } from '#modules/biometric-vault/photo/photo_dispatch.port'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
 
@@ -141,6 +142,45 @@ test.group('Despacho de comandos', () => {
 
     assert.equal(line, 'OK')
     assert.lengthOf(saved, 0)
+  })
+
+  /**
+   * `findNextPending` ordena por prioridad e id: un comando que no se puede
+   * entregar y se queda `pending` vuelve a salir en cada sondeo y ninguna otra
+   * orden de ese equipo se despacha jamas. El checador se queda mudo y desde
+   * el servidor todo se ve normal.
+   */
+  test('un comando sin payload sale de la cola en vez de taponarla', async ({ assert }) => {
+    const pending = commandOf({ deviceCommandPayload: null })
+    const { repository, saved } = makeRepository({ pending })
+    const service = new CommandDispatchService(repository)
+    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false })
+
+    assert.equal(line, 'OK')
+    assert.equal(saved[0].deviceCommandStatus, 'failed')
+    assert.equal(saved[0].deviceCommandLastError, 'payload_unreadable')
+    assert.equal(saved[0].deviceCommandFailedAt, NOW)
+  })
+
+  test('una foto retirada saca su comando de la cola, no lo deja pendiente', async ({ assert }) => {
+    // Retirar una foto es operacion normal --alguien la apago o la cambio-- y
+    // hasta ahora dejaba el comando dando vueltas para siempre.
+    const pending = commandOf({
+      deviceCommandKind: 'biophoto_write',
+      deviceCommandPayload: 'DATA UPDATE BIOPHOTO PIN=9999',
+    })
+    const { repository, saved } = makeRepository({ pending })
+    const photos = {
+      async refreshForDispatch() {
+        return null
+      },
+    } as unknown as PhotoDispatchPort
+    const service = new CommandDispatchService(repository, undefined, photos)
+    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false })
+
+    assert.equal(line, 'OK')
+    assert.equal(saved[0].deviceCommandStatus, 'failed')
+    assert.equal(saved[0].deviceCommandLastError, 'photo_publication_withdrawn')
   })
 
   test('con anomalia de IP abierta se retienen los que llevan biometrico', async ({ assert }) => {

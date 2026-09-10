@@ -1,7 +1,11 @@
 import type { DateTime } from 'luxon'
 import { ADMS_OK } from '#modules/adms/adms.constants'
 import DeviceCommandRepositoryMysql from '../device_command.repository.mysql.js'
-import { DEVICE_COMMAND_KIND, type DeviceCommandKind } from '../device_command.constants.js'
+import {
+  DEVICE_COMMAND_KIND,
+  DEVICE_COMMAND_STATUS,
+  type DeviceCommandKind,
+} from '../device_command.constants.js'
 import { getBusinessTimeZone } from '#utils/business_date'
 import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
 import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
@@ -52,7 +56,19 @@ export default class CommandDispatchService {
 
     const excluded = input.ipAnomalyOpen ? [...SENSITIVE_KINDS] : []
     const command = await this.repository.findNextPending(input.accessPointId, excluded)
-    if (!command || command.deviceCommandPayload === null) return ADMS_OK
+    if (!command) return ADMS_OK
+
+    /**
+     * Un comando sin payload no se puede entregar, y dejarlo `pending` es peor
+     * que perderlo: `findNextPending` ordena por prioridad e id, asi que
+     * devolveria ESA MISMA fila en cada sondeo y ninguna otra orden de ese
+     * equipo saldria jamas. El checador se queda mudo --sin altas, sin bajas,
+     * sin copias-- y desde el servidor todo se ve normal.
+     */
+    if (command.deviceCommandPayload === null) {
+      await this.discard(command, input.now, 'payload_unreadable')
+      return ADMS_OK
+    }
 
     /**
      * El ajuste de reloj se recalcula AQUI y no al encolar (spec 6.3): un
@@ -79,7 +95,16 @@ export default class CommandDispatchService {
      */
     if (command.deviceCommandKind === DEVICE_COMMAND_KIND.BIOPHOTO_WRITE) {
       const refreshed = await this.photos.refreshForDispatch(command, input.now)
-      if (refreshed === null) return ADMS_OK
+      /**
+       * La publicacion se retiro: alguien apago la foto o la cambio. El comando
+       * no debe salir, pero tampoco puede quedarse pendiente -- taponaria la
+       * cola igual que un payload ilegible, y este caso no es un accidente
+       * raro sino operacion normal.
+       */
+      if (refreshed === null) {
+        await this.discard(command, input.now, 'photo_publication_withdrawn')
+        return ADMS_OK
+      }
       payload = refreshed
     }
 
@@ -100,6 +125,23 @@ export default class CommandDispatchService {
     await this.syncPivot(command, 'dispatched')
 
     return formatWireLine(command.deviceCommandWireId, payload)
+  }
+
+  /**
+   * Saca de la cola un comando que no se puede entregar.
+   *
+   * Se falla en vez de cancelarlo: `failed` es el unico estado desde el que un
+   * operador puede reintentar, y ademas deja el motivo escrito. La escritura es
+   * condicional --solo si sigue `pending`-- porque el equipo reintenta el
+   * sondeo y dos peticiones pueden llegar aqui con el mismo comando.
+   */
+  private async discard(command: DeviceCommand, now: DateTime, reason: string): Promise<void> {
+    await this.repository.markFailedIfStill({
+      commandId: command.deviceCommandId,
+      expectedStatus: DEVICE_COMMAND_STATUS.PENDING,
+      failedAt: now,
+      error: reason,
+    })
   }
 
   /**
