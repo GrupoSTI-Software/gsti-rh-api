@@ -1930,7 +1930,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response, i18n }: HttpContext) {
+  async delete({ auth, request, response, i18n }: HttpContext) {
     try {
       const employeeId = request.param('employeeId')
       if (!employeeId) {
@@ -1990,11 +1990,16 @@ export default class EmployeeController {
         }
       }
       const employeeService = new EmployeeService(i18n)
-      const deleteEmployee = await employeeService.delete(currentEmployee, {
-        employeeTerminatedDate,
-        employeeTerminationModality: modality,
-        employeeTerminationType: terminationType,
-      })
+      const deleteEmployee = await employeeService.delete(
+        currentEmployee,
+        {
+          employeeTerminatedDate,
+          employeeTerminationModality: modality,
+          employeeTerminationType: terminationType,
+        },
+        // Quién dio la baja: queda en el historial de la revocación en checadores.
+        auth.user?.userId ?? null
+      )
       if (deleteEmployee) {
         response.status(201)
         return {

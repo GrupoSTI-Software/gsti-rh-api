@@ -1,4 +1,5 @@
 import vine from '@vinejs/vine'
+import { RELEASE_REASONS } from '../constants/platform_device_assignment.js'
 
 /**
  * Régimen de tenencia de la entrega (USRH1787189981880 · §11 del spec).
@@ -40,5 +41,23 @@ export const listDeviceAssignmentsValidator = vine.compile(
   vine.object({
     tenantPublicId: vine.string().trim().uuid(),
     status: vine.enum(['open', 'all'] as const).optional(),
+  })
+)
+
+/**
+ * Body para `POST /api/platform/devices/units/:platformDeviceId/unassign`.
+ * Cierra la entrega vigente de una unidad (USRH1787189981881).
+ *
+ * A propósito **sin** `.beforeOrEqual('today')` en `releasedAt`: el spec
+ * (CA-6, regla 2) exige que tanto "anterior a la entrega" como "posterior a
+ * hoy" respondan el mismo error de negocio `PLT.DEV.RELEASE_DATE_INVALID`,
+ * no el genérico `VAL_INPUT` de forma. Vine aquí solo valida que sea una
+ * fecha civil bien formada; el rango completo (que depende de la fecha de
+ * entrega de la asignación en turno, un dato de BD) se valida en el servicio.
+ */
+export const unassignDeviceValidator = vine.compile(
+  vine.object({
+    releasedAt: vine.date({ formats: ['YYYY-MM-DD'] }),
+    releaseReason: vine.enum(RELEASE_REASONS),
   })
 )

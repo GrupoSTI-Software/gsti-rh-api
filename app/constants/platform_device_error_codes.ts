@@ -34,6 +34,11 @@ export const PLATFORM_DEVICE_ERROR_CODES = {
   SERIAL_TAKEN_BY_OTHER_TENANT: 'PLT.DEV.SERIAL_TAKEN_BY_OTHER_TENANT',
   /** La serie ya está viva en un access_point sin platformDeviceId de OTRO tenant (probable auto-descubrimiento, CA-10 del spec 1879) */
   SERIAL_TAKEN_BY_AUTODISCOVERY: 'PLT.DEV.SERIAL_TAKEN_BY_AUTODISCOVERY',
+
+  /** No hay una fila de cuarentena pendiente con esa serie. */
+  QUARANTINE_NOT_FOUND: 'PLT.DEV.QUARANTINE_NOT_FOUND',
+  /** La fila de cuarentena ya se reclamo o se descarto. */
+  QUARANTINE_NOT_PENDING: 'PLT.DEV.QUARANTINE_NOT_PENDING',
   /** La unidad a precargar no tiene número de serie (defensivo, CA-5 del spec 1879) */
   DEVICE_SERIAL_MISSING: 'PLT.DEV.DEVICE_SERIAL_MISSING',
   /** Falló la materialización del punto de acceso del tenant; revierte toda la transacción (CA-4 del spec 1879) */
@@ -44,6 +49,12 @@ export const PLATFORM_DEVICE_ERROR_CODES = {
   SALE_PRICE_NOT_ALLOWED: 'PLT.DEV.SALE_PRICE_NOT_ALLOWED',
   /** El régimen elegido no es compatible con el origen de la unidad (reglas 4 y 5 del spec 1880) */
   TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN: 'PLT.DEV.TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN',
+  /** La unidad no tiene ninguna entrega vigente que cerrar (regla 8 del spec 1881) */
+  NO_OPEN_ASSIGNMENT: 'PLT.DEV.NO_OPEN_ASSIGNMENT',
+  /** La fecha de liberación es anterior a la de entrega de esa asignación o posterior a hoy (regla 2 del spec 1881) */
+  RELEASE_DATE_INVALID: 'PLT.DEV.RELEASE_DATE_INVALID',
+  /** Falló la desactivación del punto de acceso del cliente al cerrar la entrega; el cierre se revirtió completo (RN5 del spec 1883) */
+  AP_DEACTIVATE_FAILED: 'PLT.DEV.AP_DEACTIVATE_FAILED',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.DEV.SYS_UNHANDLED',
 } as const

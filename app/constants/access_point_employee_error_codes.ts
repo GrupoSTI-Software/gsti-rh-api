@@ -17,6 +17,8 @@ export const ACCESS_POINT_EMPLOYEE_ERROR_CODES = {
   ALREADY_ASSIGNED: 'ACCP.ASSIGN.ALREADY_ASSIGNED',
   /** Se intentó quitar una asignación que no existe — 404. */
   ASSIGNMENT_NOT_FOUND: 'ACCP.ASSIGN.ASSIGNMENT_NOT_FOUND',
+  /** Se intentó retirar la asignación sin darle antes la baja al equipo — 409. */
+  REVOCATION_REQUIRED: 'ACCP.ASSIGN.REVOCATION_REQUIRED',
   /** Sin permiso sobre el módulo de empleados — 403. */
   FORBIDDEN: 'ACCP.ASSIGN.FORBIDDEN',
   /** Fallo no clasificado — 500. */
