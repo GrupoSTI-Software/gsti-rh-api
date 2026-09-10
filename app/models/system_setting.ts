@@ -177,7 +177,7 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
 
   /**
    * Unidad de negocio (tenant) dueña de esta configuración, por relación formal.
-   * No se aplica `withBusinessUnitScope()` a este modelo: los 27 consumidores
+   * No se aplica `withBusinessUnitScope()` a este modelo: los 16 consumidores
    * legacy de `SystemSettingService.getActive()` siguen resolviendo por
    * `system_setting_business_units` (FIND_IN_SET) hasta que las HUs 3 y 4 del
    * set los migren; aplicar el scope aquí cambiaría ese comportamiento en silencio.

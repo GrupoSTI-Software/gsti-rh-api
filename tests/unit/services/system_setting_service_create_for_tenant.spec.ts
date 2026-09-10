@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from '@japa/runner'
 import db from '@adonisjs/lucid/services/db'
 import BusinessUnit from '#models/business_unit'
@@ -220,5 +222,92 @@ test.group('SystemSettingService.createForTenant', (group) => {
 
     const rows = await SystemSetting.query().withTrashed().where('business_unit_id', businessUnit.businessUnitId)
     assert.lengthOf(rows, 1, 'Debe seguir existiendo una sola fila (revivida) para el tenant')
+  })
+})
+
+test.group('SystemSettingService.createForTenant — callers internos (CA-7)', () => {
+  const service = new SystemSettingService()
+
+  test('SignupDraftService.complete sigue invocando createForTenant', ({ assert }) => {
+    const content = readFileSync(join(process.cwd(), 'app/services/signup_draft_service.ts'), 'utf-8')
+    assert.include(content, 'await systemSettingService.createForTenant(')
+  })
+
+  test('AdditionalBusinessUnitService sigue invocando createForTenant', ({ assert }) => {
+    const content = readFileSync(
+      join(process.cwd(), 'app/services/additional_business_unit_service.ts'),
+      'utf-8'
+    )
+    assert.include(content, 'await systemSettingService.createForTenant(')
+  })
+
+  test('camino signup: provisiona con la misma firma que SignupDraftService.complete', async ({
+    assert,
+  }) => {
+    const stamp = Date.now()
+    const businessUnit = await BusinessUnit.create({
+      businessUnitName: `Signup Caller ${stamp}`,
+      businessUnitSlug: `signup-caller-${stamp}`,
+      businessUnitLegalName: `Signup Caller Legal ${stamp}`,
+      businessUnitActive: 1,
+      businessUnitOrigin: 'self_service',
+    })
+
+    try {
+      const created = await db.transaction(async (trx) => {
+        return service.createForTenant(
+          {
+            businessUnitId: businessUnit.businessUnitId,
+            businessUnitSlug: businessUnit.businessUnitSlug,
+            businessUnitName: businessUnit.businessUnitName,
+          },
+          trx
+        )
+      })
+
+      assert.equal(created.businessUnitId, businessUnit.businessUnitId)
+      assert.equal(created.systemSettingTradeName, businessUnit.businessUnitName)
+    } finally {
+      await SystemSetting.query()
+        .withTrashed()
+        .where('business_unit_id', businessUnit.businessUnitId)
+        .delete()
+      await BusinessUnit.query().where('business_unit_id', businessUnit.businessUnitId).delete()
+    }
+  })
+
+  test('camino empresa adicional: provisiona con la misma firma que AdditionalBusinessUnitService', async ({
+    assert,
+  }) => {
+    const stamp = Date.now()
+    const businessUnit = await BusinessUnit.create({
+      businessUnitName: `Additional BU Caller ${stamp}`,
+      businessUnitSlug: `additional-bu-caller-${stamp}`,
+      businessUnitLegalName: `Additional BU Caller Legal ${stamp}`,
+      businessUnitActive: 1,
+      businessUnitOrigin: 'self_service',
+    })
+
+    try {
+      const created = await db.transaction(async (trx) => {
+        return service.createForTenant(
+          {
+            businessUnitId: businessUnit.businessUnitId,
+            businessUnitSlug: businessUnit.businessUnitSlug,
+            businessUnitName: businessUnit.businessUnitName,
+          },
+          trx
+        )
+      })
+
+      assert.equal(created.businessUnitId, businessUnit.businessUnitId)
+      assert.equal(created.systemSettingBusinessUnits, businessUnit.businessUnitSlug)
+    } finally {
+      await SystemSetting.query()
+        .withTrashed()
+        .where('business_unit_id', businessUnit.businessUnitId)
+        .delete()
+      await BusinessUnit.query().where('business_unit_id', businessUnit.businessUnitId).delete()
+    }
   })
 })

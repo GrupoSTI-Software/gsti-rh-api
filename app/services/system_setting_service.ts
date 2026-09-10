@@ -86,7 +86,15 @@ export default class SystemSettingService {
 
   async update(currentSystemSetting: SystemSetting, systemSetting: SystemSetting) {
     currentSystemSetting.systemSettingTradeName = systemSetting.systemSettingTradeName
-    currentSystemSetting.systemSettingSidebarColor = systemSetting.systemSettingSidebarColor
+    // El BO puede omitir el color en multipart cuando solo cambia otros campos;
+    // la columna es NOT NULL — conservar el valor vigente si no viene en el payload.
+    const sidebarColor = systemSetting.systemSettingSidebarColor
+    currentSystemSetting.systemSettingSidebarColor =
+      sidebarColor !== undefined &&
+      sidebarColor !== null &&
+      String(sidebarColor).trim() !== ''
+        ? String(sidebarColor).trim()
+        : currentSystemSetting.systemSettingSidebarColor
     currentSystemSetting.systemSettingLogo = systemSetting.systemSettingLogo
     currentSystemSetting.systemSettingBanner = systemSetting.systemSettingBanner
     currentSystemSetting.systemSettingFavicon = systemSetting.systemSettingFavicon

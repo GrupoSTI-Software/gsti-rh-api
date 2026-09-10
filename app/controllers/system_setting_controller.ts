@@ -666,9 +666,16 @@ export default class SystemSettingController {
    * @swagger
    * /api/system-settings/{systemSettingId}:
    *   put:
+   *     security:
+   *       - bearerAuth: []
    *     tags:
    *       - System Settings
    *     summary: update system setting
+   *     description: >
+   *       Requiere sesión autenticada y header `X-Business-Unit-Id`. Solo
+   *       modifica la ficha que pertenece al scope del usuario; ids ajenos,
+   *       inexistentes o la ficha molde responden con el mismo 404 antes de
+   *       escribir campos o tocar archivos de marca.
    *     produces:
    *       - application/json
    *     parameters:
@@ -678,6 +685,13 @@ export default class SystemSettingController {
    *           type: number
    *         description: System setting id
    *         required: true
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: UUID público de la razón social seleccionada
    *     requestBody:
    *       content:
    *        multipart/form-data:
@@ -826,7 +840,7 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, businessUnitScope, i18n }: HttpContext) {
+  async update({ auth, request, response, businessUnitScope, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const systemSettingId = request.param('systemSettingId')
@@ -892,8 +906,16 @@ export default class SystemSettingController {
       const currentSystemSetting = await SystemSetting.query()
         .whereNull('system_setting_deleted_at')
         .where('system_setting_id', systemSettingId)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
       if (!currentSystemSetting) {
+        await ScopeDeniedLogService.log({
+          domain: 'system_setting',
+          action: 'update',
+          requestedId: systemSettingId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',
