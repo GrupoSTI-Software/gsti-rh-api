@@ -10,6 +10,7 @@
 */
 
 import { Env } from '@adonisjs/core/env'
+import { DateTime } from 'luxon'
 
 export default await Env.create(new URL('../', import.meta.url), {
   NODE_ENV: Env.schema.enum(['development', 'production', 'test'] as const),
@@ -227,8 +228,23 @@ export default await Env.create(new URL('../', import.meta.url), {
    */
   ADMS_BRIDGE_TOKEN: Env.schema.string.optional(),
   ADMS_CHANNEL_BASE_DOMAIN: Env.schema.string.optional(),
-  /** Desde cuando un checador sin direccion propia deja de atenderse (ISO). */
-  ADMS_CHANNEL_SECRET_ENFORCED_FROM: Env.schema.string.optional(),
+  /**
+   * Desde cuando un checador sin direccion propia deja de atenderse.
+   *
+   * Fecha ISO, y se valida al arrancar: un valor que no parsea hacia que el
+   * canal NO exigiera nada mientras el operador creia haber puesto la fecha de
+   * corte. Una proteccion apagada en silencio es peor que no tenerla, asi que
+   * el servidor no arranca con basura aqui.
+   */
+  ADMS_CHANNEL_SECRET_ENFORCED_FROM: (name: string, value?: string) => {
+    if (value === undefined || value.trim() === '') return undefined
+    if (!DateTime.fromISO(value.trim()).isValid) {
+      throw new Error(
+        `${name} tiene que ser una fecha ISO (por ejemplo 2026-10-15T00:00:00Z) y llego "${value}"`
+      )
+    }
+    return value.trim()
+  },
   ADMS_RAW_RETENTION_DAYS: Env.schema.number.optional(),
   ADMS_RAW_FAILED_RETENTION_DAYS: Env.schema.number.optional(),
   ADMS_COMMAND_RETENTION_DAYS: Env.schema.number.optional(),
