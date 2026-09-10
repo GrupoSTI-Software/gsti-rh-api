@@ -93,7 +93,11 @@ Usuario: **A**. Con el grupo del Escenario 1 todavía vigente.
 
 Qué significa lo nuevo aquí: `title` y `detail` dicen en palabras simples que ese nombre ya está ocupado por otro grupo vigente (los espacios de más y las mayúsculas no lo hacen distinto); `key` y `code` son las claves cortas del error para reportarlo. (Los datos de grupo son los ya explicados en el Escenario 1.)
 
-Verifica que no quedó un grupo duplicado a medias: el listado del Escenario 6 sigue trayendo un solo `QA-GRP-Manny`.
+Verifica que no quedó un grupo duplicado a medias: vuelve a listar ahora mismo.
+
+**Endpoint:** `GET /api/platform/tenant-groups?incluirInactivos=true`
+
+**Response — 200:** entre tus grupos `QA-GRP-*` aparece un solo renglón con `nombre: "QA-GRP-Manny"` (puede haber más renglones de otras pruebas, pero ninguno duplicado con ese nombre).
 
 ## 4. Escenario 3 — Renombrar y desactivar sin perder nada
 
@@ -220,21 +224,21 @@ Usuario: **A**.
   "type": "success",
   "data": [
     {
-      "platformTenantGroupId": 1,
-      "nombre": "QA-GRP-Manny Corporativo",
-      "activo": false,
+      "platformTenantGroupId": 3,
+      "nombre": "QA-GRP-Baja",
+      "activo": true,
       "tenantsCount": 0,
       "tenants": []
     },
-    { "...": "un objeto igual por cada grupo vigente" }
+    { "...": "un objeto igual por cada otro grupo vigente y activo" }
   ],
-  "meta": { "total": 2, "page": 1, "limit": 20, "lastPage": 1 }
+  "meta": { "total": 1, "page": 1, "limit": 20, "lastPage": 1 }
 }
 ```
 
 Qué significa lo nuevo aquí:
 
-- `meta.total`: cuántos grupos vigentes hay en total.
+- `meta.total`: cuántos grupos vigentes y activos hay en total (sin el filtro de inactivos).
 - `meta.page`: la página que estás viendo.
 - `meta.limit`: cuántos grupos trae como máximo cada página.
 - `meta.lastPage`: la última página disponible.
@@ -245,7 +249,40 @@ Verifica que:
 
 - Los grupos vienen ordenados por `nombre` de la A a la Z.
 - El grupo dado de baja en el Escenario 4 no aparece.
-- Con `GET /api/platform/tenant-groups?incluirInactivos=true` aparece además `QA-GRP-Manny Corporativo` (que está desactivado); sin ese filtro no aparece.
+- `QA-GRP-Manny Corporativo` (desactivado en el Escenario 3) **no** aparece en este listado sin filtro.
+
+**Endpoint:** `GET /api/platform/tenant-groups?incluirInactivos=true`
+
+**Response — 200:**
+
+```json
+{
+  "type": "success",
+  "data": [
+    {
+      "platformTenantGroupId": 3,
+      "nombre": "QA-GRP-Baja",
+      "activo": true,
+      "tenantsCount": 0,
+      "tenants": []
+    },
+    {
+      "platformTenantGroupId": 1,
+      "nombre": "QA-GRP-Manny Corporativo",
+      "activo": false,
+      "tenantsCount": 0,
+      "tenants": []
+    },
+    { "...": "un objeto igual por cada otro grupo vigente" }
+  ],
+  "meta": { "total": 2, "page": 1, "limit": 20, "lastPage": 1 }
+}
+```
+
+(Los datos de cada grupo y de `meta` son los ya explicados arriba.)
+
+Verifica además que:
+
 - Ningún integrante trae identificadores internos, RFC ni datos fiscales: cada uno trae solo su identificador público y su nombre.
 
 ## 8. Escenario 7 — Sin el marcador de plataforma no se ve ni se toca nada
@@ -264,7 +301,7 @@ Usuario: **B** (`qa-tenant-groups-sin-marca`).
 }
 ```
 
-Qué significa lo nuevo aquí: `key` dice que el usuario no tiene el pase de plataforma, así que no puede ver ni tocar los grupos; por eso la respuesta no trae ningún grupo. (`title` es el ya explicado en el Escenario 5.)
+Qué significa lo nuevo aquí: `title` dice en palabras simples que solo quien tiene el pase de plataforma puede acceder a estos recursos; `key` confirma que este usuario no lo tiene, así que no puede ver ni tocar los grupos y la respuesta no trae ningún grupo.
 
 Verifica que la respuesta **no traiga campo `code`** (es una inconsistencia conocida del guard, no un defecto de esta historia) y repite con `POST`, `PUT` y `DELETE`: los cuatro responden el mismo `403`.
 
