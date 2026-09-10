@@ -203,4 +203,18 @@ export default await Env.create(new URL('../', import.meta.url), {
   DEMO_ALLOWED_HOSTNAME: Env.schema.string.optional(),
   DEMO_ALLOWED_DB_PATTERN: Env.schema.string.optional(),
   DEMO_AUDIT_EMAIL: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
+  | Retencion del canal de checadores (spec ADMS 13.12)
+  |----------------------------------------------------------
+  | Todas opcionales con default en codigo, y con MINIMO: bajarlas por debajo
+  | del minimo no acorta la retencion, se ignora. Un plazo de un dia puesto por
+  | error borraria la evidencia con la que se reconstruye una nomina.
+  */
+  ADMS_RAW_RETENTION_DAYS: Env.schema.number.optional(),
+  ADMS_RAW_FAILED_RETENTION_DAYS: Env.schema.number.optional(),
+  ADMS_COMMAND_RETENTION_DAYS: Env.schema.number.optional(),
+  ADMS_PHOTO_PUBLICATION_RETENTION_DAYS: Env.schema.number.optional(),
+  ADMS_QUARANTINE_RETENTION_DAYS: Env.schema.number.optional(),
 })
