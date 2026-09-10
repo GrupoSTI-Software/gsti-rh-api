@@ -16,6 +16,7 @@ import DeviceCommand from '#models/device_command'
 import Employee from '#models/employee'
 import { TenantContext } from '#utils/tenant_context'
 import ReplicationService from '#modules/biometric-vault/replication/replication.service'
+import EmployeeBiometricSummaryService from '#modules/biometric-vault/device-biometrics/employee_biometric_summary.service'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
 
 /**
@@ -460,6 +461,58 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
       await AccessPointProfile.query().where('access_point_id', nuevo.accessPointId).delete()
       await AccessPoint.query().where('access_point_id', nuevo.accessPointId).delete()
     }, 'limpieza del equipo nuevo')
+  })
+
+  /**
+   * Lo que la ficha anunciaba el 2026-09-10: "Huella en camino" diecisiete
+   * horas despues del acuse, hacia un equipo que se habia reseteado en medio.
+   *
+   * Un acuse solo prueba que la orden llego. Sobre lo que el aparato TIENE
+   * dentro, su contador es la unica palabra que vale.
+   */
+  test('un equipo que declara estar vacio desmiente la copia acusada', async ({ assert }) => {
+    const summaries = new EmployeeBiometricSummaryService()
+    const dedoDelFixture = 3
+
+    const copia = await TenantContext.runUnscoped(
+      () =>
+        DeviceCommand.query()
+          .where('access_point_id', compatible.accessPointId)
+          .where('biometric_template_id', templateId)
+          .firstOrFail(),
+      'la copia hacia el equipo compatible'
+    )
+    copia.deviceCommandStatus = 'acked'
+    copia.deviceCommandAckedAt = DateTime.utc().minus({ hours: 1 })
+    await TenantContext.runUnscoped(() => copia.save(), 'se deja acusada sin confirmar')
+
+    const antes = await TenantContext.run([businessUnitId], () =>
+      summaries.of(employee.employeeId, compatible.accessPointId)
+    )
+    assert.equal(
+      antes.fingers.find((finger) => finger.fingerId === dedoDelFixture)?.state,
+      'sent'
+    )
+
+    /** El equipo saluda despues del acuse y declara que no tiene ni una huella. */
+    const profile = await TenantContext.runUnscoped(
+      () =>
+        AccessPointProfile.query()
+          .where('access_point_id', compatible.accessPointId)
+          .firstOrFail(),
+      'perfil del equipo compatible'
+    )
+    profile.accessPointProfileFpCount = 0
+    profile.accessPointProfileOptionsReadAt = DateTime.utc()
+    await TenantContext.runUnscoped(() => profile.save(), 'el equipo se declara vacio')
+
+    const despues = await TenantContext.run([businessUnitId], () =>
+      summaries.of(employee.employeeId, compatible.accessPointId)
+    )
+    assert.equal(
+      despues.fingers.find((finger) => finger.fingerId === dedoDelFixture)?.state,
+      'copyable'
+    )
   })
 
   /**
