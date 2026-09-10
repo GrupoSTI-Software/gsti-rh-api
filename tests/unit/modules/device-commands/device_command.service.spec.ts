@@ -33,6 +33,8 @@ interface Options {
   live?: DeviceCommand | null
   existing?: DeviceCommand | null
   duplicateWireIds?: number
+  /** Lo que sigue vivo para el vinculo al cerrarlo. */
+  liveForPivot?: DeviceCommand[]
 }
 
 /** Lo que el adaptador habria escrito, con el identificador que le toco. */
@@ -77,7 +79,7 @@ function makeService(options: Options = {}) {
       return []
     },
     async listLiveForPivot() {
-      return []
+      return options.liveForPivot ?? []
     },
     async listLiveFingerprintWrites() {
       return []
@@ -210,6 +212,29 @@ test.group('Cola de comandos: estados', () => {
     }
     assert.instanceOf(capturado, DeviceCommandError)
     assert.equal((capturado as DeviceCommandError).code, 'DCMD.STATE.003')
+  })
+
+  /**
+   * Cerrar el vinculo alcanza tambien a lo que ya salio, y ahi cancelar no es
+   * una opcion: la maquina no admite `sent -> cancelled` (spec 6.2). Antes se
+   * intentaba igual, lanzaba en el primer `sent` y dejaba a medias el cierre
+   * que este metodo promete -- justo cuando se usa para sacar a alguien de un
+   * equipo.
+   */
+  test('cerrar el vinculo cancela lo pendiente y da por fallido lo que ya salio', async ({
+    assert,
+  }) => {
+    const pendiente = commandOf()
+    const enVuelo = commandOf({ deviceCommandStatus: DEVICE_COMMAND_STATUS.SENT })
+    const { service, saved } = makeService({ liveForPivot: [pendiente, enVuelo] })
+
+    const cerrados = await service.cancelLiveForPivot(5, 44)
+
+    assert.equal(cerrados, 2)
+    assert.equal(pendiente.deviceCommandStatus, 'cancelled')
+    assert.equal(enVuelo.deviceCommandStatus, 'failed')
+    assert.isNotNull(enVuelo.deviceCommandLastError)
+    assert.lengthOf(saved, 2)
   })
 
   test('reintentar solo procede sobre un fallido y sube el contador', async ({ assert }) => {

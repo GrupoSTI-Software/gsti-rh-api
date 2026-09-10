@@ -37,11 +37,15 @@ export interface DeviceCommandPort {
   enqueue(input: EnqueueCommandInput): Promise<EnqueueCommandResult>
   cancel(commandId: number, requestedByUserId: number | null): Promise<DeviceCommand>
   /**
-   * Cancela lo que siga vivo para ese vinculo.
+   * Cierra lo que siga vivo para ese vinculo. Devuelve cuantos cerro.
    *
-   * Se usa al cerrar a mano una baja que el equipo nunca confirmo: el borrado
-   * pendiente ya no aplica, y dejarlo vivo taponaria la cola de ese aparato si
-   * algun dia vuelve a hablar.
+   * Se usa al cerrar a mano una baja que el equipo nunca confirmo, y al pedir
+   * una baja mientras el alta sigue en cola: el comando pendiente ya no aplica,
+   * y dejarlo vivo taponaria la cola de ese aparato --o, peor, volveria a dar
+   * de alta a quien se acaba de sacar--.
+   *
+   * Lo `pending` se cancela; lo `sent` se da por fallido, porque ya viajo al
+   * aparato y la maquina no admite cancelarlo (spec 6.2).
    */
   cancelLiveForPivot(
     accessPointEmployeeId: number,

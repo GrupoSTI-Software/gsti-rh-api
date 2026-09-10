@@ -8,7 +8,7 @@ import {
   type AccessPointEmployeeSyncStatus,
 } from '#models/access_point_employee'
 import AccessPointEmployeeEvent from '#models/access_point_employee_event'
-import { PIN_QUARANTINE_STATUSES } from './employee_sync_state.js'
+import { canTransition, PIN_QUARANTINE_STATUSES } from './employee_sync_state.js'
 import type { EmployeeSyncRepository, SyncEventInput } from './employee_sync.repository.js'
 
 /** Prefijo del cerrojo por equipo. Con nombre, no sobre una fila. */
@@ -197,6 +197,24 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
   ): Promise<AccessPointEmployee | null> {
     const pivot = await this.findByCommandTarget(accessPointEmployeeId)
     if (!pivot) return null
+
+    /**
+     * La maquina decide, tambien cuando quien empuja es el canal.
+     *
+     * Esta via la usan el despacho y el acuse, que hasta ahora escribian el
+     * estado a ciegas: un `user_upsert` rezagado --uno que salio antes de la
+     * baja y llego despues-- movia el pivote de `revoked` a `sent` y luego a
+     * `confirmed`, dejando dentro del checador a quien acababa de salir. Un
+     * comando que llega tarde no puede deshacer un estado terminal; se ignora
+     * y quien llama decide si eso merece aviso.
+     */
+    if (
+      pivot.accessPointEmployeeSyncStatus !== status &&
+      !canTransition(pivot.accessPointEmployeeSyncStatus, status)
+    ) {
+      return null
+    }
+
     pivot.accessPointEmployeeSyncStatus = status
     if (status === 'sent') pivot.accessPointEmployeeSyncSentAt = DateTime.utc()
     if (status === 'confirmed') pivot.accessPointEmployeeSyncConfirmedAt = DateTime.utc()

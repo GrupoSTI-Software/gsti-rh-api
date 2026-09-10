@@ -126,15 +126,33 @@ export default class DeviceCommandService implements DeviceCommandPort {
   ): Promise<number> {
     const commands = await this.repository.listLiveForPivot(accessPointEmployeeId)
 
-    let cancelled = 0
+    let closed = 0
     for (const command of commands) {
-      this.transition(command, DEVICE_COMMAND_STATUS.CANCELLED)
-      command.deviceCommandCancelledAt = this.now()
+      /**
+       * Lo que ya salio no se cancela: se da por fallido.
+       *
+       * `sent` significa que el comando viajo al aparato y solo espera su
+       * acuse; la maquina no admite `sent -> cancelled` (spec 6.2) y llamarlo
+       * igual lanzaba, dejando a medias el cierre que este metodo promete. Que
+       * el comando ya no espera respuesta es exactamente lo que dice `failed`.
+       */
+      const target =
+        command.deviceCommandStatus === DEVICE_COMMAND_STATUS.SENT
+          ? DEVICE_COMMAND_STATUS.FAILED
+          : DEVICE_COMMAND_STATUS.CANCELLED
+
+      this.transition(command, target)
+      if (target === DEVICE_COMMAND_STATUS.FAILED) {
+        command.deviceCommandFailedAt = this.now()
+        command.deviceCommandLastError = 'El vinculo con el equipo se cerro mientras estaba en vuelo'
+      } else {
+        command.deviceCommandCancelledAt = this.now()
+      }
       if (requestedByUserId !== null) command.deviceCommandRequestedByUserId = requestedByUserId
       await this.repository.save(command)
-      cancelled += 1
+      closed += 1
     }
-    return cancelled
+    return closed
   }
 
   async cancelFingerprintWritesFor(accessPointId: number): Promise<number> {

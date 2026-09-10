@@ -40,6 +40,8 @@ function makeService(options: Options = {}) {
   const saved: AccessPointEmployee[] = []
   const events: SyncEventInput[] = []
   const enqueued: EnqueueCommandInput[] = []
+  /** Vinculos a los que se les cerro lo vivo antes de pedir la baja. */
+  const cancelledFor: number[] = []
   const statuses: Array<{ id: number; status: string }> = []
 
   const repository: EmployeeSyncRepository = {
@@ -107,7 +109,8 @@ function makeService(options: Options = {}) {
     async cancelFingerprintWritesFor() {
       return 0
     },
-    async cancelLiveForPivot() {
+    async cancelLiveForPivot(accessPointEmployeeId: number) {
+      cancelledFor.push(accessPointEmployeeId)
       return 0
     },
     async listByEmployee() {
@@ -115,7 +118,13 @@ function makeService(options: Options = {}) {
     },
   }
 
-  return { service: new EmployeeSyncService(repository, commands), saved, events, enqueued }
+  return {
+    service: new EmployeeSyncService(repository, commands),
+    saved,
+    events,
+    enqueued,
+    cancelledFor,
+  }
 }
 
 const ACTOR = { userId: 44 }
@@ -293,6 +302,24 @@ test.group('Envio y revocacion', () => {
     assert.equal(enqueued[0].fields.pin, '9999')
     assert.equal(events[0].kind, 'revoke_requested')
     assert.equal(events[0].fromStatus, 'confirmed')
+  })
+
+  /**
+   * El borrado sale con prioridad 1 y el alta con 3: si el alta sigue en la
+   * cola cuando se pide la baja, el equipo aplica primero el borrado y luego
+   * recoge el alta rezagada, que vuelve a meter a la persona con su mismo PIN.
+   */
+  test('revocar cierra antes lo que siga vivo para ese vinculo', async ({ assert }) => {
+    const { service, enqueued, cancelledFor } = makeService({ pivot: pivotOf() })
+    await service.revoke({
+      accessPointId: 12,
+      businessUnitId: 1,
+      employeeId: 77,
+      actor: ACTOR,
+    })
+
+    assert.deepEqual(cancelledFor, [5])
+    assert.equal(enqueued[0].kind, 'user_delete')
   })
 
   test('revocar dos veces no rompe: ya estaba en el camino de baja', async ({ assert }) => {
