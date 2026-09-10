@@ -116,6 +116,24 @@ export default class AccessPoint extends compose(BaseModel, SoftDeletes, withBus
   @column.dateTime()
   declare accessPointLastConnection: DateTime | null
 
+  /** Zona IANA del dispositivo; override de la de la empresa (spec ADMS 5.3). */
+  @column()
+  declare accessPointTimezone: string | null
+
+  /**
+   * CIDR desde los que el canal acepta a este equipo. NULL = sin restriccion.
+   * Fail-closed solo cuando esta configurado (spec ADMS 13, regla 10).
+   */
+  @column({
+    prepare: (value: string[] | null) => (value ? JSON.stringify(value) : null),
+    consume: (value: string | string[] | null) => {
+      if (value === null || value === undefined) return null
+      if (typeof value === 'string') return JSON.parse(value) as string[]
+      return value
+    },
+  })
+  declare accessPointAllowedCidrs: string[] | null
+
   @column.dateTime({ autoCreate: true })
   declare accessPointCreatedAt: DateTime
 

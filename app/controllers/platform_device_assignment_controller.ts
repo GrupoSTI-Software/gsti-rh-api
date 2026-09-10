@@ -3,6 +3,7 @@ import PlatformDeviceAssignmentService from '#services/platform_device_assignmen
 import {
   createDeviceAssignmentValidator,
   listDeviceAssignmentsValidator,
+  unassignDeviceValidator,
 } from '#validators/platform_device_assignment'
 import { resolvePlatformDeviceApiError } from '../helpers/platform_device_api_error.js'
 
@@ -207,6 +208,111 @@ export default class PlatformDeviceAssignmentController {
         status: query.status,
       })
       return response.status(200).json({ type: 'success', data: assignments })
+    } catch (error) {
+      const { status, ...body } = resolvePlatformDeviceApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/devices/units/{platformDeviceId}/unassign:
+   *   post:
+   *     tags:
+   *       - Platform Device Assignments
+   *     summary: Cerrar la entrega vigente de una unidad
+   *     description: >
+   *       Cierra la asignación vigente del aparato con fecha de regreso y
+   *       motivo, y resuelve su destino en una sola transacción con bloqueo
+   *       pesimista (forUpdate) sobre la fila del aparato
+   *       (USRH1787189981881):
+   *
+   *       - Por defecto la unidad vuelve a `disponible`.
+   *       - Si la entrega cerrada era de régimen `venta`, la unidad se
+   *         retira con motivo `vendido` (terminal, no vuelve a disponible).
+   *       - Si el origen de la unidad es `del_cliente`, se retira con motivo
+   *         `del_cliente` cualquiera que sea el motivo de liberación
+   *         capturado (terminal).
+   *
+   *       La asignación cerrada nunca se borra ni se sobrescribe: conserva
+   *       fecha de entrega, fecha de regreso, motivo y figura de tenencia.
+   *
+   *       Además desactiva (nunca borra) el punto de acceso del tenant
+   *       ligado a la unidad (USRH1787189981883). El desenlace se informa
+   *       en `accessPointOutcome`: `desactivado` si existía y se apagó, o
+   *       `ausente` si el cliente ya lo había borrado o nunca se precargó.
+   *       Si la desactivación falla por una causa técnica, toda la
+   *       desasignación se revierte (PLT.DEV.AP_DEACTIVATE_FAILED, 422).
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: platformDeviceId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - releasedAt
+   *               - releaseReason
+   *             properties:
+   *               releasedAt:
+   *                 type: string
+   *                 format: date
+   *                 example: "2026-08-18"
+   *               releaseReason:
+   *                 type: string
+   *                 enum: [devolucion_comodato, cambio_equipo, baja_cliente]
+   *     responses:
+   *       '200':
+   *         description: Entrega cerrada
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: success
+   *               data:
+   *                 assignment:
+   *                   id: 12
+   *                   tenantPublicId: "uuid"
+   *                   deliveredAt: "2026-05-02"
+   *                   releasedAt: "2026-08-18"
+   *                   releaseReason: "devolucion_comodato"
+   *                   tenureRegime: "comodato"
+   *                 device:
+   *                   id: 7
+   *                   serialNumber: "AXK9-00001"
+   *                   stockStatus: "disponible"
+   *                   retireReason: null
+   *                 accessPointOutcome: "desactivado"
+   *       '401':
+   *         description: Sin autenticar
+   *       '403':
+   *         description: AUTH.PLATFORM.FORBIDDEN
+   *       '404':
+   *         description: PLT.DEV.DEVICE_NOT_FOUND
+   *       '422':
+   *         description: >
+   *           PLT.DEV.VAL_INPUT — Body inválido (releaseReason ausente o fuera de catálogo) |
+   *           PLT.DEV.NO_OPEN_ASSIGNMENT — La unidad no tiene entrega vigente que cerrar |
+   *           PLT.DEV.RELEASE_DATE_INVALID — Fecha de regreso anterior a la entrega o posterior a hoy |
+   *           PLT.DEV.AP_DEACTIVATE_FAILED — Falló la desactivación del punto de acceso del tenant; la desasignación se revirtió por completo
+   *       '500':
+   *         description: PLT.DEV.SYS_UNHANDLED
+   */
+  async unassign({ params, request, response }: HttpContext) {
+    try {
+      const data = await request.validateUsing(unassignDeviceValidator)
+      const result = await this.service.unassign(Number(params.platformDeviceId), {
+        releasedAt: data.releasedAt,
+        releaseReason: data.releaseReason,
+      })
+
+      return response.status(200).json({ type: 'success', data: result })
     } catch (error) {
       const { status, ...body } = resolvePlatformDeviceApiError(error)
       return response.status(status).json(body)

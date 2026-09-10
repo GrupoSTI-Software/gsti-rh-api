@@ -6,6 +6,7 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import PlatformDevice from './platform_device.js'
 import BusinessUnit from './business_unit.js'
 import type { TENURE_REGIMES } from '#validators/platform_device_assignment'
+import type { PlatformDeviceAssignmentReleaseReason } from '../constants/platform_device_assignment.js'
 
 /**
  * Figura bajo la que queda un equipo con el cliente (USRH1787189981880).
@@ -46,6 +47,14 @@ export default class PlatformDeviceAssignment extends compose(BaseModel, SoftDel
    */
   @column()
   declare platformDeviceAssignmentReleasedAt: string | null
+
+  /**
+   * Motivo del cierre de la entrega (USRH1787189981881). `null` mientras la
+   * entrega esté vigente; se puebla únicamente al cerrarla y nunca se
+   * sobrescribe después.
+   */
+  @column()
+  declare platformDeviceAssignmentReleaseReason: PlatformDeviceAssignmentReleaseReason | null
 
   /**
    * Figura bajo la que quedó el equipo con el cliente (USRH1787189981880).

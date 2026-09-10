@@ -7,6 +7,14 @@ export type AccessPointEmployeeDto = {
   accessPointEmployeeId: number
   accessPointId: number
   employeeId: number
+  /**
+   * Biometricos que salieron en copia hacia el equipo con esta alta.
+   *
+   * Se informa porque es trabajo que ocurrio sin que nadie lo pidiera: la
+   * pantalla tiene que poder decir que la persona ya no necesita volver al
+   * lector, o que no se copio nada y si tendra que volver.
+   */
+  queuedBiometrics?: number
 }
 
 /**

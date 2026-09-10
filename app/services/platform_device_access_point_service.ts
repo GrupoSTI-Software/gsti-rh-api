@@ -2,7 +2,10 @@ import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import logger from '@adonisjs/core/services/logger'
 import AccessPoint from '#models/access_point'
 import { TenantContext } from '#utils/tenant_context'
-import { PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON } from '../constants/platform_device_access_point.js'
+import {
+  PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON,
+  PLATFORM_DEVICE_ACCESS_POINT_DEACTIVATE_REASON,
+} from '../constants/platform_device_access_point.js'
 import { PLATFORM_DEVICE_ERROR_CODES } from '../constants/platform_device_error_codes.js'
 import { PlatformDeviceServiceError } from '../exceptions/platform_device_service_error.js'
 
@@ -28,6 +31,9 @@ export interface PreloadAccessPointResult {
   outcome: AccessPointPreloadOutcome
   accessPoint: PreloadedAccessPoint
 }
+
+/** Desenlace del apagado al cerrar una entrega (USRH1787189981883 · §6 del spec). */
+export type AccessPointDeactivateOutcome = 'desactivado' | 'ausente'
 
 /**
  * Precarga el punto de acceso del tenant al asignarle una unidad del
@@ -152,6 +158,70 @@ export default class PlatformDeviceAccessPointService {
         accessPointSerialNumber: existing.accessPointSerialNumber,
       },
     }
+  }
+
+  /**
+   * Desactiva (`access_point_active = 0`) el punto de acceso ligado a una
+   * unidad al cerrar su entrega (USRH1787189981883 · §10 del spec).
+   *
+   * **Nunca borra.** Borrar rompería la legibilidad del historial de
+   * asistencia — el renglón del punto de acceso es lo que permite explicar
+   * de qué equipo y de qué puerta vino cada checada vieja (RN1).
+   *
+   * El desenlace se decide por una **lectura previa** dentro de la misma
+   * transacción, no por las filas que afecte el `UPDATE`: un apagado
+   * idempotente (la fila ya estaba inactiva) afecta 0 filas y sigue siendo
+   * `'desactivado'` (RN9, CA-4). Si no existe ninguna fila viva —porque el
+   * cliente la borró (RN4) o porque nunca se precargó— el desenlace es
+   * `'ausente'` y **no se emite ningún `UPDATE`**: un `first()` que
+   * devuelve `null` no es una excepción (distinción RN4 vs RN5 del spec).
+   *
+   * `WHERE` acotado por `platform_device_id` **y** `business_unit_id` **y**
+   * `access_point_deleted_at IS NULL` (RN6, CA-5): aunque `runUnscoped`
+   * abra el bypass de tenant, esta sentencia no puede alcanzar la fila de
+   * otra empresa ni con datos corruptos.
+   *
+   * Cualquier excepción del `UPDATE` (fallo de BD, deadlock, restricción)
+   * se propaga sin capturar a propósito: quien llama (`unassign()`) corre
+   * dentro de una transacción y debe revertir el cierre completo (RN5,
+   * CA-7) — un punto de acceso encendido que nadie detecta es peor que un
+   * cierre que hay que reintentar.
+   *
+   * @throws Error no tipado — el `UPDATE` de Lucid falla (RN5). No se
+   *   envuelve en `PlatformDeviceServiceError` aquí: lo traduce el `catch`
+   *   de `unassign()`, que es quien conoce el contexto de la entrega.
+   */
+  async deactivateForDevice(
+    platformDeviceId: number,
+    businessUnitId: number,
+    trx: TransactionClientContract
+  ): Promise<AccessPointDeactivateOutcome> {
+    return TenantContext.runUnscoped(
+      () => this.deactivateForDeviceWithin(platformDeviceId, businessUnitId, trx),
+      PLATFORM_DEVICE_ACCESS_POINT_DEACTIVATE_REASON
+    )
+  }
+
+  private async deactivateForDeviceWithin(
+    platformDeviceId: number,
+    businessUnitId: number,
+    trx: TransactionClientContract
+  ): Promise<AccessPointDeactivateOutcome> {
+    const existing = await AccessPoint.query({ client: trx })
+      .where('platform_device_id', platformDeviceId)
+      .where('business_unit_id', businessUnitId)
+      .whereNull('access_point_deleted_at')
+      .first()
+
+    if (!existing) {
+      return 'ausente'
+    }
+
+    existing.useTransaction(trx)
+    existing.accessPointActive = 0
+    await existing.save()
+
+    return 'desactivado'
   }
 
   private async createNew(

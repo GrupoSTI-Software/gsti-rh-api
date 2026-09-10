@@ -39,11 +39,20 @@ export const FILE_INTAKE_SPREADSHEET_MIMES = [
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
 ] as const
 
+/**
+ * XML del CFDI timbrado. A diferencia del resto de familias de esta tabla, el
+ * XML NO tiene magic bytes: `file-type` devuelve `undefined` sobre él. Su
+ * validación de contenido es estructural y vive en `FileIntakeService`
+ * (`detectCfdiXmlMime`). Ver spec USRH1788288461975 §9.
+ */
+export const FILE_INTAKE_XML_MIMES = ['application/xml', 'text/xml'] as const
+
 export const FILE_INTAKE_ALLOWED_MIMES = [
   ...FILE_INTAKE_IMAGE_MIMES,
   ...FILE_INTAKE_PDF_MIMES,
   ...FILE_INTAKE_AUDIO_MIMES,
   ...FILE_INTAKE_SPREADSHEET_MIMES,
+  ...FILE_INTAKE_XML_MIMES,
 ] as const
 
 export type FileIntakeMime = (typeof FILE_INTAKE_ALLOWED_MIMES)[number]
@@ -95,6 +104,7 @@ export const FILE_INTAKE_PROFILE_NAMES = [
   'branding-asset',
   'spreadsheet-import',
   'complaint-attachment',
+  'tax-receipt-document',
 ] as const
 
 export type FileIntakeProfileName = (typeof FILE_INTAKE_PROFILE_NAMES)[number]
@@ -196,6 +206,20 @@ export const FILE_INTAKE_PROFILES: Readonly<Record<FileIntakeProfileName, FileIn
     imagePolicy: { kind: 'preserve' },
     storesPublicly: false,
   },
+
+  /**
+   * Acuse del CFDI de membresía: XML timbrado y su representación impresa
+   * (USRH1788288461975). Único perfil del sistema que acepta XML, y lo hace
+   * con validación estructural en lugar de magic bytes. `'xml'` sigue en
+   * `FILE_INTAKE_BLOCKED_EXTENSIONS` para todos los demás perfiles.
+   */
+  'tax-receipt-document': {
+    allowedClientExtensions: ['xml', 'pdf'],
+    allowedMimes: [...FILE_INTAKE_PDF_MIMES, ...FILE_INTAKE_XML_MIMES],
+    maxBytes: 5 * MB,
+    imagePolicy: { kind: 'reject' },
+    storesPublicly: false,
+  },
 }
 
 /** Extensión de almacenamiento según el MIME REAL de salida, nunca la del cliente. */
@@ -210,6 +234,8 @@ export const FILE_INTAKE_STORAGE_EXTENSION_BY_MIME: Readonly<Record<FileIntakeMi
   'audio/mp4': 'm4a',
   'audio/aac': 'aac',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': 'xlsx',
+  'application/xml': 'xml',
+  'text/xml': 'xml',
 }
 
 /**

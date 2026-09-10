@@ -14,6 +14,20 @@ import {
 scheduler.command('sync:assistance').cron('*/5 * * * *')
 
 /**
+ * Barrido de la cola de los checadores (spec ADMS 6.2).
+ *
+ * Cada minuto porque el despacho es de uno a la vez por equipo: un comando que
+ * salio y no recibio acuse no solo se queda colgado, tapona todo lo que venga
+ * detras para ese aparato. El servicio cierra por plazo -- 180 s en vuelo, 120 s
+ * si es un enrolamiento presencial, 30 min acusado sin evidencia -- y sin el
+ * nada devuelve esos comandos a un estado terminal.
+ *
+ * `withoutOverlapping` porque el barrido escribe sobre las mismas filas que el
+ * canal: dos corridas encimadas competirian por ellas.
+ */
+scheduler.command('adms:sweep-commands').everyMinute().withoutOverlapping()
+
+/**
  * Aviso diario a RH cuando un periodo de lactancia está a ≤ 30 días de
  * vencer. Se programa a las 13:00 UTC (07:00 CDMX) para que el correo
  * llegue antes del inicio normal de la jornada de RH y el equipo pueda

@@ -9,9 +9,11 @@ import PlatformDevice, {
 import PlatformDeviceAssignment, {
   type PlatformDeviceAssignmentTenureRegime,
 } from '#models/platform_device_assignment'
-import PlatformDeviceModel from '#models/platform_device_model'
+import PlatformDeviceModel, { type PlatformDeviceModelStatus } from '#models/platform_device_model'
 import { PLATFORM_DEVICE_ERROR_CODES } from '../constants/platform_device_error_codes.js'
 import { PlatformDeviceServiceError } from '../exceptions/platform_device_service_error.js'
+import type { PlatformDeviceAssignmentReleaseReason } from '../constants/platform_device_assignment.js'
+import { toCalendarIsoDate } from '../utils/business_date.js'
 
 /** Forma en que se devuelve el modelo resuelto dentro de un registro de unidad. */
 interface ResolvedDeviceModel {
@@ -19,6 +21,8 @@ interface ResolvedDeviceModel {
   platformDeviceModelBrand: string
   platformDeviceModelName: string
   platformDeviceModelSlug: string
+  /** Solo poblado en el detalle (USRH1787189981884); `undefined` en listado/summary. */
+  platformDeviceModelStatus?: PlatformDeviceModelStatus
 }
 
 /** Empresa que tiene colocado el aparato (disponible desde ticket 1876). */
@@ -50,6 +54,36 @@ export interface DeviceRecord {
    */
   currentTenureRegime: PlatformDeviceAssignmentTenureRegime | null
   model: ResolvedDeviceModel
+  /**
+   * Motivo del retiro definitivo (USRH1787189981877). `null` mientras la
+   * unidad no esté `retirada`. Solo poblado en el detalle (USRH1787189981884);
+   * `undefined` en listado/summary, que no lo necesitan.
+   */
+  platformDeviceRetireReason?: PlatformDeviceRetireReason | null
+}
+
+/**
+ * Un renglón de la línea de tiempo de asignaciones de una unidad
+ * (USRH1787189981884 · §11 del spec). Orden descendente por `deliveredAt`.
+ */
+export interface AssignmentTimelineItem {
+  assignmentId: number
+  /** `null` si el tenant fue borrado lógicamente (SoftDeletes) — la UI debe tolerarlo. */
+  tenantPublicId: string | null
+  tenantName: string | null
+  deliveredAt: string
+  /** `null` mientras la entrega esté vigente (regla 4). */
+  releasedAt: string | null
+  tenureRegime: PlatformDeviceAssignmentTenureRegime
+  releaseReason: PlatformDeviceAssignmentReleaseReason | null
+  /** `true` cuando `releasedAt === null` — a lo más una por unidad. Derivado, nunca persistido. */
+  isCurrent: boolean
+}
+
+/** Respuesta de `GET /api/platform/devices/units/:platformDeviceId` (detalle). */
+export interface DeviceDetailResult {
+  device: DeviceRecord
+  assignments: AssignmentTimelineItem[]
 }
 
 /** Respuesta del listado, con meta de paginación (§11). */
@@ -142,8 +176,25 @@ interface ListDevicesInput {
  * primero el que el operador puede corregir sin consultar nada externo.
  */
 export default class PlatformDeviceService {
-  private serialize(device: PlatformDevice): DeviceRecord {
+  /**
+   * @param includeDetail - `true` solo desde `getById()` (USRH1787189981884):
+   *   agrega `platformDeviceRetireReason` y `model.platformDeviceModelStatus`
+   *   a la respuesta. El listado y el resumen no los necesitan y así no los
+   *   pagan (evita crecer su payload sin razón).
+   *
+   * `assignedTenant`/`currentTenureRegime` se derivan buscando la entrega
+   * con `releasedAt === null`, **nunca** por posición: en `listAll()` el
+   * preload de asignaciones ya viene filtrado a solo la abierta (si existe),
+   * pero en `getById()` ahora trae TODAS ordenadas por fecha de entrega
+   * descendente (USRH1787189981884) — la abierta suele quedar primera por
+   * construcción (regla 8, una sola entrega abierta a la vez), pero buscarla
+   * explícitamente es correcto en ambos casos y no depende de ese orden.
+   */
+  private serialize(device: PlatformDevice, includeDetail = false): DeviceRecord {
     const model = device.deviceModel
+    const currentAssignment = device.assignments?.find(
+      (a) => a.platformDeviceAssignmentReleasedAt === null
+    )
 
     return {
       platformDeviceId: device.platformDeviceId,
@@ -153,15 +204,17 @@ export default class PlatformDeviceService {
       platformDeviceActive: device.platformDeviceActive === 1,
       platformDeviceAcquisitionCostCents: device.platformDeviceAcquisitionCostCents,
       platformDeviceAcquisitionDate: device.platformDeviceAcquisitionDate,
-      assignedTenant: device.assignments?.[0]?.businessUnit
+      assignedTenant: currentAssignment?.businessUnit
         ? {
-            publicId: device.assignments[0].businessUnit.businessUnitPublicId,
-            name: device.assignments[0].businessUnit.businessUnitName,
+            publicId: currentAssignment.businessUnit.businessUnitPublicId,
+            name: currentAssignment.businessUnit.businessUnitName,
           }
         : null,
-      currentTenureRegime: device.assignments?.[0]?.platformDeviceAssignmentTenureRegime ?? null,
+      currentTenureRegime: currentAssignment?.platformDeviceAssignmentTenureRegime ?? null,
+      ...(includeDetail ? { platformDeviceRetireReason: device.platformDeviceRetireReason } : {}),
       model: {
         platformDeviceModelId: model.platformDeviceModelId,
+        ...(includeDetail ? { platformDeviceModelStatus: model.platformDeviceModelStatus } : {}),
         platformDeviceModelBrand: model.platformDeviceModelBrand,
         platformDeviceModelName: model.platformDeviceModelName,
         platformDeviceModelSlug: model.platformDeviceModelSlug,
@@ -394,19 +447,30 @@ export default class PlatformDeviceService {
   }
 
   /**
-   * Devuelve el detalle de una unidad por id.
+   * Devuelve el detalle de una unidad por id, con su ficha y la línea de
+   * tiempo COMPLETA de asignaciones (USRH1787189981884 · §10-11 del spec).
+   *
+   * Una sola consulta con `preload` (sin N+1): trae el modelo y TODAS las
+   * asignaciones —abiertas y cerradas— ordenadas por fecha de entrega
+   * descendente, cada una con su tenant. `platform_devices` es un catálogo
+   * global sin `withBusinessUnitScope`, así que no hay filtro de tenant que
+   * aplicar aquí (§10 del spec).
+   *
+   * Una unidad `retirada` responde 200 con su historia completa — nunca 404
+   * (regla 5, corrige la premisa del esbozo original: salir del parque es
+   * precisamente cuando más se necesita ver el rastro, no un caso de error).
    *
    * @throws PlatformDeviceServiceError 404 si no existe o fue dada de baja.
    */
-  async getById(deviceId: number): Promise<DeviceRecord> {
+  async getById(deviceId: number): Promise<DeviceDetailResult> {
     const device = await PlatformDevice.query()
       .where('platform_device_id', deviceId)
       .whereNull('platform_device_deleted_at')
       .preload('deviceModel')
       .preload('assignments', (q) => {
-        q.whereNull('platform_device_assignment_released_at')
-          .whereNull('platform_device_assignment_deleted_at')
+        q.whereNull('platform_device_assignment_deleted_at')
           .preload('businessUnit')
+          .orderBy('platform_device_assignment_delivered_at', 'desc')
       })
       .first()
 
@@ -420,7 +484,25 @@ export default class PlatformDeviceService {
       )
     }
 
-    return this.serialize(device)
+    return {
+      device: this.serialize(device, true),
+      assignments: (device.assignments ?? []).map((a) => ({
+        assignmentId: a.platformDeviceAssignmentId,
+        // Tenant borrado lógicamente (SoftDeletes) → preload trae `null`;
+        // la UI debe tolerarlo, nunca romper (§10 del spec).
+        tenantPublicId: a.businessUnit?.businessUnitPublicId ?? null,
+        tenantName: a.businessUnit?.businessUnitName ?? null,
+        // El driver mysql2 decodifica las columnas DATE como `Date` de JS, no
+        // como string, aunque el tipo declarado en el modelo diga `string`
+        // (gotcha documentado en business_date.ts:38-46, mismo bug ya
+        // corregido en unassign() — verificado manualmente, ver commit).
+        deliveredAt: toCalendarIsoDate(a.platformDeviceAssignmentDeliveredAt)!,
+        releasedAt: toCalendarIsoDate(a.platformDeviceAssignmentReleasedAt),
+        tenureRegime: a.platformDeviceAssignmentTenureRegime,
+        releaseReason: a.platformDeviceAssignmentReleaseReason,
+        isCurrent: a.platformDeviceAssignmentReleasedAt === null,
+      })),
+    }
   }
 
   /**
