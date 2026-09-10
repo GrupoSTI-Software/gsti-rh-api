@@ -19,6 +19,7 @@ import type {
 import type IncidentService from '#modules/adms/raw/incident.service'
 import type { IncidentInput, IncidentOutcome } from '#modules/adms/raw/incident.service'
 import type { ResolvedAdmsDevice } from '#modules/adms/channel/adms_device_resolver.service'
+import { ASSIST_INGESTION_EMPLOYEE_TERMINATED } from '#modules/assist-ingestion/assist_ingestion.rejections'
 import type DeviceClockService from '#modules/access-point/device-clock/device_clock.service'
 import type DeviceClockSyncService from '#modules/access-point/device-clock/device_clock_sync.service'
 
@@ -51,12 +52,21 @@ function contextOf(overrides: Partial<AttlogIngestionContext> = {}): AttlogInges
 interface ServiceOptions {
   /** Deriva que devuelve el reloj doblado, en segundos. */
   clockMedian?: number
+  /**
+   * Desenlace del doble de `assists`.
+   *
+   * Con `inserted` --el de siempre-- la rama de rescate del rechazo no se
+   * ejerce nunca, y es la que decide si una checada se retiene o se pierde.
+   */
+  ingestOutcome?: 'inserted' | 'rejected'
 }
 
 function makeService(
   resolution: PinResolution | ((pin: string) => PinResolution),
   options: ServiceOptions = {}
 ) {
+  /** Que contesta el doble de `assists`: por defecto, todo entra. */
+  const ingestOutcome = options.ingestOutcome ?? 'inserted'
   const items: AssistIngestionItem[] = []
   const holds: HeldPunchInput[] = []
   const unmapped: string[] = []
@@ -86,20 +96,21 @@ function makeService(
     ): Promise<AssistIngestionResult> {
       items.push(...incoming)
       deferred.push(ingestOptions?.deferCalendarRecalc === true)
+      const rejected = ingestOutcome === 'rejected'
       return {
         results: incoming.map((item, index) => ({
           index,
           clientRef: item.clientRef,
-          outcome: 'inserted' as const,
+          outcome: ingestOutcome,
           assist: null,
-          error: null,
+          error: rejected ? ASSIST_INGESTION_EMPLOYEE_TERMINATED : null,
         })),
         summary: {
           received: incoming.length,
-          inserted: incoming.length,
+          inserted: rejected ? 0 : incoming.length,
           preexisting: 0,
-          rejected: 0,
-          acknowledged: incoming.length,
+          rejected: rejected ? incoming.length : 0,
+          acknowledged: rejected ? 0 : incoming.length,
         },
       }
     },
@@ -290,6 +301,47 @@ test.group('ADMS attlog ingestion', () => {
     await service.ingest(contextOf())
     // El PIN no resolvio, pero la hora si: la muestra sirve igual.
     assert.lengthOf(clockObservations, 1)
+  })
+
+  /**
+   * Una fecha que existe en el regex pero no en el calendario. Es el UNICO
+   * punto de toda la ingesta donde una checada no llega ni a `assists` ni a la
+   * retencion, y no habia una sola prueba que lo ejerciera.
+   *
+   * La linea no se pierde del sistema --el cuerpo crudo se guarda-- pero si del
+   * flujo de checadas, asi que el incidente es lo unico que queda: tiene que
+   * decir de que PIN y de que hora se trata, no solo cuantas fueron.
+   */
+  test('una hora imposible no entra al motor y deja constancia con su PIN', async ({ assert }) => {
+    const { service, items, holds, incidents } = makeService(EMPLOYEE)
+    const result = await service.ingest(
+      contextOf({ body: '9999\t2026-02-30 08:00:00\t0\t15\t0\t0\t0\t255\t0\t0\t\n' })
+    )
+
+    assert.lengthOf(items, 0)
+    assert.lengthOf(holds, 0)
+    assert.equal(result.status, 'partial')
+
+    const aviso = incidents.find((incident) => incident.key === 'hora-ilegible')
+    assert.exists(aviso)
+    assert.equal(aviso?.context?.lines, 1)
+    assert.equal(aviso?.context?.pin, '9999')
+    assert.equal(aviso?.context?.reason, '2026-02-30 08:00:00')
+  })
+
+  /**
+   * El doble de `assists` siempre contestaba `inserted`, asi que la rama de
+   * rescate no se ejercia nunca. Es la que decide si una checada rechazada por
+   * el motor se retiene o se pierde.
+   */
+  test('una checada que el motor rechaza se retiene, no se tira', async ({ assert }) => {
+    const { service, holds } = makeService(EMPLOYEE, { ingestOutcome: 'rejected' })
+    const result = await service.ingest(contextOf())
+
+    assert.lengthOf(holds, 1)
+    assert.equal(holds[0].pin, '9999')
+    assert.equal(holds[0].reason, 'ingestion_rejected')
+    assert.equal(result.held, 1)
   })
 
   test('un cuerpo sin lineas legibles no llama al motor', async ({ assert }) => {
