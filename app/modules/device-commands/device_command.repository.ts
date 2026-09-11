@@ -87,6 +87,17 @@ export interface DeviceCommandRepository {
    */
   markSent(input: { commandId: number; payload: string; sentAt: DateTime }): Promise<boolean>
   /**
+   * Devuelve a la cola los comandos que salieron y nadie acuso.
+   *
+   * Suma un intento a cada uno: el que agote los suyos queda `failed`, para
+   * que una orden que el equipo no puede ejecutar no se reintente eternamente.
+   */
+  requeueStaleInFlight(input: {
+    accessPointId: number
+    sentBefore: DateTime
+    now: DateTime
+  }): Promise<{ requeued: number; failed: number }>
+  /**
    * Falla un comando solo si sigue en el estado en que se leyo.
    *
    * El barrido lee una tanda y la procesa en fila: entre la lectura y la

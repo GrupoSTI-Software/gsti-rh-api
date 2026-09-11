@@ -125,6 +125,22 @@ export const DEVICE_COMMAND_STALE_PENDING_MINUTES = 30
 /** Tope de reintentos. `user_delete` no lo tiene: dejar a un ex-colaborador dentro es un riesgo. */
 export const DEVICE_COMMAND_MAX_ATTEMPTS = 3
 
+/**
+ * Cuanto se espera el acuse de un comando que ya salio, antes de darlo por
+ * perdido y volver a encolarlo.
+ *
+ * El equipo acusa por `devicecmd` en el sondeo siguiente al que recibio la
+ * orden, asi que la respuesta normal llega en segundos. Cinco minutos son
+ * treinta sondeos: si a esas alturas no acuso, o no le llego o se apago en
+ * medio.
+ *
+ * Hace falta porque un comando en vuelo BLOQUEA la cola entera de ese equipo
+ * --solo se despacha uno a la vez-- y nada lo desbloqueaba: un corte de luz
+ * justo despues de recibir una orden dejaba al checador sin recibir nada mas,
+ * para siempre, sin un solo error en el log.
+ */
+export const DEVICE_COMMAND_IN_FLIGHT_TIMEOUT_MINUTES = 5
+
 /** Tope de caracteres del nombre en `USERINFO`. El limite real del firmware no se midio. */
 export const DEVICE_COMMAND_NAME_MAX_LENGTH = 24
 

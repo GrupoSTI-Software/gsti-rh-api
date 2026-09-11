@@ -260,6 +260,48 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
     })
   }
 
+  async requeueStaleInFlight(input: {
+    accessPointId: number
+    sentBefore: DateTime
+    now: DateTime
+  }): Promise<{ requeued: number; failed: number }> {
+    return db.transaction(async (trx) => {
+      const stale = await DeviceCommand.query({ client: trx })
+        .where('access_point_id', input.accessPointId)
+        .where('device_command_status', DEVICE_COMMAND_STATUS.SENT)
+        .where('device_command_sent_at', '<', input.sentBefore.toFormat('yyyy-MM-dd HH:mm:ss'))
+        .forUpdate()
+
+      let requeued = 0
+      let failed = 0
+
+      for (const command of stale) {
+        command.useTransaction(trx)
+        command.deviceCommandAttempts += 1
+
+        /**
+         * `null` en el maximo es "insiste siempre": lo usa la baja de usuario,
+         * donde rendirse deja a alguien con acceso que ya no le toca.
+         */
+        const max = command.deviceCommandMaxAttempts
+        if (max !== null && command.deviceCommandAttempts >= max) {
+          command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
+          command.deviceCommandFailedAt = input.now
+          command.deviceCommandLastError = 'sin acuse tras varios intentos'
+          failed += 1
+        } else {
+          command.deviceCommandStatus = DEVICE_COMMAND_STATUS.PENDING
+          command.deviceCommandSentAt = null
+          requeued += 1
+        }
+
+        await command.save()
+      }
+
+      return { requeued, failed }
+    })
+  }
+
   async markFailedIfStill(input: {
     commandId: number
     expectedStatus: DeviceCommandStatus
