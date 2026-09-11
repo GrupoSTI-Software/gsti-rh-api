@@ -96,6 +96,65 @@ function makeDeps(existing: Partial<AccessPointProfile> = {}, confirmedInside = 
 }
 
 test.group('ADMS device profile service', () => {
+  /**
+   * El caso real del 2026-09-11: un volcado corto dejo la ficha sin firmware,
+   * sin version de rostro y sin conteos. El perfil es "lo ultimo que el equipo
+   * declaro de CADA cosa", no "lo que declaro la ultima vez".
+   */
+  test('un volcado parcial no borra lo que el equipo ya habia declarado', async ({ assert }) => {
+    const { service, patches } = makeDeps({
+      accessPointProfilePlatform: 'ZAM180_TFT',
+      accessPointProfileFwVersion: 'ZAM180-NF50VA-Ver3.4.9',
+      accessPointProfilePushVersion: 'Ver 2.0.33S-20220623',
+      accessPointProfileFaceVersion: '39',
+      accessPointProfilePvVersion: '12',
+      accessPointProfileUserCount: 3,
+      accessPointProfileFpCount: 4,
+    } as Partial<AccessPointProfile>)
+
+    /** Solo tres claves, como el volcado que provoco el borrado. */
+    await service.upsertFromOptions(DEVICE, '~Platform=ZAM180_TFT,FPVersion=10,~MaxUserCount=100', 90)
+
+    const patch = patches[0]
+    assert.equal(patch.accessPointProfileFwVersion, 'ZAM180-NF50VA-Ver3.4.9')
+    assert.equal(patch.accessPointProfilePushVersion, 'Ver 2.0.33S-20220623')
+    assert.equal(patch.accessPointProfileFaceVersion, '39')
+    assert.equal(patch.accessPointProfilePvVersion, '12')
+    assert.equal(patch.accessPointProfileUserCount, 3)
+    assert.equal(patch.accessPointProfileFpCount, 4)
+    assert.equal(patch.accessPointProfileFpVersion, '10', 'lo que SI viene, si pisa')
+  })
+
+  /** Un valor nuevo tiene que poder cambiar el viejo: preservar no es congelar. */
+  test('lo que el equipo declara distinto si reemplaza al anterior', async ({ assert }) => {
+    const { service, patches } = makeDeps({
+      accessPointProfileFwVersion: 'ZAM180-NF50VA-Ver3.4.8',
+    } as Partial<AccessPointProfile>)
+
+    await service.upsertFromOptions(DEVICE, V5L, 91)
+
+    assert.equal(patches[0].accessPointProfileFwVersion, 'ZAM180-NF50VA-Ver3.4.9')
+  })
+
+  /**
+   * Sin plataforma en el mensaje seguimos sabiendo leer sus checadas: la
+   * disposicion se recalcula con la plataforma efectiva, no con la ausente.
+   */
+  test('un mensaje sin plataforma no hace olvidar la disposicion de checadas', async ({
+    assert,
+  }) => {
+    const { service, patches } = makeDeps({
+      accessPointProfilePlatform: 'ZAM180_TFT',
+      accessPointProfileLayoutKnown: 1,
+    } as Partial<AccessPointProfile>)
+
+    const result = await service.upsertFromOptions(DEVICE, 'UserCount=5', 92)
+
+    assert.isTrue(result.layoutKnown)
+    assert.equal(patches[0].accessPointProfileLayoutKnown, 1)
+    assert.equal(patches[0].accessPointProfilePlatform, 'ZAM180_TFT')
+  })
+
   test('primer options llena el perfil, marca layout conocido y copia el descriptor', async ({
     assert,
   }) => {
