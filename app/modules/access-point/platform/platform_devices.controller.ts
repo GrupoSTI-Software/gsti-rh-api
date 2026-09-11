@@ -7,10 +7,12 @@ import { respondAdmsApiError } from '#helpers/adms_api_error'
 import AccessPoint from '#models/access_point'
 import AdmsIncident from '#models/adms_incident'
 import AdmsQuarantinedDevice from '#models/adms_quarantined_device'
+import BusinessUnit from '#models/business_unit'
 import { TenantContext } from '#utils/tenant_context'
 import HealthService from '#modules/access-point/health/health.service'
 import { toIncidentDto } from '#modules/access-point/incidents/incidents.dto'
 import PlatformQuarantineClaimService from './quarantine_claim.service.js'
+import QuarantineInventoryLookupService from './quarantine_inventory_lookup.service.js'
 
 const idValidator = vine.compile(
   vine.object({ params: vine.object({ quarantinedDeviceId: vine.number().positive() }) })
@@ -111,6 +113,23 @@ export default class PlatformDevicesController {
         UNSCOPED_REASON
       )
 
+      /**
+       * El cruce contra inventario y el nombre de la empresa que ya reclamo.
+       *
+       * La serie pelada no le dice al operador si esta confirmando la llegada
+       * de un equipo que compramos o adoptando uno ajeno, y un id de empresa
+       * no es un dato que nadie pueda leer.
+       */
+      const { inventory, claimedTenants } = await TenantContext.runUnscoped(
+        async () => ({
+          inventory: await new QuarantineInventoryLookupService().findBySerials(
+            rows.map((row) => row.admsQuarantinedDeviceSerial)
+          ),
+          claimedTenants: await this.claimedTenantNames(rows),
+        }),
+        UNSCOPED_REASON
+      )
+
       return StandardResponseFormatter.success(
         response,
         rows.map((row) => ({
@@ -122,6 +141,11 @@ export default class PlatformDevicesController {
           lastIp: row.admsQuarantinedDeviceLastIp,
           hints: row.admsQuarantinedDeviceHints,
           claimedBusinessUnitId: row.claimedBusinessUnitId,
+          claimedBusinessUnitName:
+            row.claimedBusinessUnitId === null
+              ? null
+              : (claimedTenants.get(row.claimedBusinessUnitId) ?? null),
+          inventoryUnit: inventory.get(row.admsQuarantinedDeviceSerial) ?? null,
           firstSeenAt: row.admsQuarantinedDeviceFirstSeenAt.toISO(),
           lastSeenAt: row.admsQuarantinedDeviceLastSeenAt.toISO(),
         })),
@@ -390,5 +414,29 @@ export default class PlatformDevicesController {
       404,
       'cuarentena-no-encontrada'
     )
+  }
+
+  /**
+   * Nombre de las empresas que ya reclamaron alguna de estas filas.
+   *
+   * Una consulta para todas: la lista trae hasta 300 filas y pedir el nombre
+   * una por una convertiria la pantalla en un N+1.
+   */
+  private async claimedTenantNames(
+    rows: AdmsQuarantinedDevice[]
+  ): Promise<Map<number, string>> {
+    const names = new Map<number, string>()
+    const ids = [
+      ...new Set(
+        rows
+          .map((row) => row.claimedBusinessUnitId)
+          .filter((id): id is number => typeof id === 'number')
+      ),
+    ]
+    if (ids.length === 0) return names
+
+    const tenants = await BusinessUnit.query().whereIn('business_unit_id', ids)
+    for (const tenant of tenants) names.set(tenant.businessUnitId, tenant.businessUnitName)
+    return names
   }
 }
