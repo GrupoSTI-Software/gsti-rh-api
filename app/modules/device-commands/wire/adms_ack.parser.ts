@@ -27,13 +27,35 @@ export function parseDeviceCmdBody(body: string): ParsedAck | null {
     if (match) fields.set(match[1].toUpperCase(), match[2].trim())
   }
 
-  // Formato por lineas: cada linea siguiente puede ser otro par o el volcado.
+  /**
+   * En el `INFO`, TODO lo que sigue al encabezado es el volcado.
+   *
+   * El equipo lo manda una clave por linea:
+   *
+   *     ID=123&Return=0&CMD=INFO
+   *     ~DeviceName=SpeedFace-V5L
+   *     MAC=00:17:61:13:20:21
+   *     UserCount=4
+   *
+   * Con la regla general --una linea que parece par se guarda como campo del
+   * acuse-- cada renglon del volcado se absorbia en `fields` y el volcado
+   * llegaba vacio al perfil. Medido con el parque el 2026-09-11: el INFO nunca
+   * alimento el perfil, y como el patch de entonces escribia lo ausente como
+   * `null`, cada acuse BORRABA firmware, versiones y conteos. Lo que se veia
+   * en la ficha eran guiones que nadie sabia explicar.
+   *
+   * Los demas comandos conservan la regla: su acuse puede traer pares sueltos
+   * en las lineas siguientes y ahi si son campos, no volcado.
+   */
+  const dumpOnly = fields.get('CMD') === 'INFO'
   const dumpLines: string[] = []
   for (const line of rest) {
-    const match = PAIR.exec(line.trim())
-    if (match && !fields.has(match[1].toUpperCase())) {
-      fields.set(match[1].toUpperCase(), match[2].trim())
-      continue
+    if (!dumpOnly) {
+      const match = PAIR.exec(line.trim())
+      if (match && !fields.has(match[1].toUpperCase())) {
+        fields.set(match[1].toUpperCase(), match[2].trim())
+        continue
+      }
     }
     if (line.trim().length > 0) dumpLines.push(line)
   }
