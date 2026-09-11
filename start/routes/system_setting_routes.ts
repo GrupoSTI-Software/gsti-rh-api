@@ -5,22 +5,22 @@ import { middleware } from '#start/kernel'
 
 router
   .group(() => {
-    router.put('/:systemSettingId/birthday-emails', '#controllers/system_setting_controller.updateBirthdayEmailsStatus').use(middleware.auth())
-    router.put('/:systemSettingId/anniversary-emails', '#controllers/system_setting_controller.updateAnniversaryEmailsStatus').use(middleware.auth())
-    router.put('/:systemSettingId/attendance-fault-hr-emails', '#controllers/system_setting_controller.updateAttendanceFaultHrEmailsStatus').use(middleware.auth())
-    router.post('/:systemSettingId/employee-application-icon', '#controllers/system_setting_controller.uploadEmployeeApplicationIcon').use(middleware.auth())
+    router.put('/:systemSettingId/birthday-emails', '#controllers/system_setting_controller.updateBirthdayEmailsStatus').use(middleware.auth()).use(middleware.businessScope())
+    router.put('/:systemSettingId/anniversary-emails', '#controllers/system_setting_controller.updateAnniversaryEmailsStatus').use(middleware.auth()).use(middleware.businessScope())
+    router.put('/:systemSettingId/attendance-fault-hr-emails', '#controllers/system_setting_controller.updateAttendanceFaultHrEmailsStatus').use(middleware.auth()).use(middleware.businessScope())
+    router.post('/:systemSettingId/employee-application-icon', '#controllers/system_setting_controller.uploadEmployeeApplicationIcon').use(middleware.auth()).use(middleware.businessScope())
     router.get('/', '#controllers/system_setting_controller.index').use(middleware.auth()).use(middleware.businessScope())
     router.post('/', '#controllers/system_setting_controller.store').use(middleware.auth()).use(middleware.businessScope())
     router.put('/:systemSettingId', '#controllers/system_setting_controller.update').use(middleware.auth()).use(middleware.businessScope())
-    router.delete('/:systemSettingId', '#controllers/system_setting_controller.delete').use(middleware.auth())
-    router.get('/:systemSettingId', '#controllers/system_setting_controller.show')
+    router.delete('/:systemSettingId', '#controllers/system_setting_controller.delete').use(middleware.auth()).use(middleware.businessScope())
+    router.get('/:systemSettingId', '#controllers/system_setting_controller.show').use(middleware.auth()).use(middleware.businessScope())
   })
   .prefix('/api/system-settings')
 router.group(() => {
-  router.get('/', '#controllers/system_setting_controller.getActive')
+  router.get('/', '#controllers/system_setting_controller.getActive').use(middleware.auth())
 })
 .prefix('/api/system-settings-active')
 router.group(() => {
-  router.get('/', '#controllers/system_setting_controller.getPayrollConfig')
+  router.get('/', '#controllers/system_setting_controller.getPayrollConfig').use(middleware.auth())
 })
 .prefix('/api/system-settings-get-payroll-config')

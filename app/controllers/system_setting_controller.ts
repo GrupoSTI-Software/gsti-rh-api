@@ -18,6 +18,7 @@ import {
   updateSystemSettingProceedingFileValidator,
 } from '#validators/system_setting_proceeding_file'
 import BusinessAccessScopeService from '#services/business_access_scope_service'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import { resolveSystemSettingApiError } from '../helpers/resolve_system_setting_api_error.js'
 
@@ -665,9 +666,16 @@ export default class SystemSettingController {
    * @swagger
    * /api/system-settings/{systemSettingId}:
    *   put:
+   *     security:
+   *       - bearerAuth: []
    *     tags:
    *       - System Settings
    *     summary: update system setting
+   *     description: >
+   *       Requiere sesión autenticada y header `X-Business-Unit-Id`. Solo
+   *       modifica la ficha que pertenece al scope del usuario; ids ajenos,
+   *       inexistentes o la ficha molde responden con el mismo 404 antes de
+   *       escribir campos o tocar archivos de marca.
    *     produces:
    *       - application/json
    *     parameters:
@@ -677,6 +685,13 @@ export default class SystemSettingController {
    *           type: number
    *         description: System setting id
    *         required: true
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: UUID público de la razón social seleccionada
    *     requestBody:
    *       content:
    *        multipart/form-data:
@@ -825,7 +840,7 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, businessUnitScope, i18n }: HttpContext) {
+  async update({ auth, request, response, businessUnitScope, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const systemSettingId = request.param('systemSettingId')
@@ -891,8 +906,16 @@ export default class SystemSettingController {
       const currentSystemSetting = await SystemSetting.query()
         .whereNull('system_setting_deleted_at')
         .where('system_setting_id', systemSettingId)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
       if (!currentSystemSetting) {
+        await ScopeDeniedLogService.log({
+          domain: 'system_setting',
+          action: 'update',
+          requestedId: systemSettingId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',
@@ -1107,6 +1130,11 @@ export default class SystemSettingController {
    *     tags:
    *       - System Settings
    *     summary: delete system setting
+   *     description: >
+   *       Requiere sesión autenticada y header `X-Business-Unit-Id`. Solo
+   *       borra (soft delete) la ficha que pertenece al scope del usuario; ids
+   *       ajenos, inexistentes o la ficha molde responden con el mismo 404
+   *       antes de invocar el borrado.
    *     produces:
    *       - application/json
    *     parameters:
@@ -1116,6 +1144,13 @@ export default class SystemSettingController {
    *           type: number
    *         description: System setting id
    *         required: true
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: UUID público de la razón social seleccionada
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -1197,7 +1232,7 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const systemSettingId = request.param('systemSettingId')
       if (!systemSettingId) {
@@ -1212,8 +1247,16 @@ export default class SystemSettingController {
       const currentSystemSetting = await SystemSetting.query()
         .whereNull('system_setting_deleted_at')
         .where('system_setting_id', systemSettingId)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
       if (!currentSystemSetting) {
+        await ScopeDeniedLogService.log({
+          domain: 'system_setting',
+          action: 'delete',
+          requestedId: systemSettingId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',
@@ -1821,7 +1864,118 @@ export default class SystemSettingController {
     }
   }
 
-  async show({ request, response }: HttpContext) {
+  /**
+   * @swagger
+   * /api/system-settings/{systemSettingId}:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - System Settings
+   *     summary: get system setting by id
+   *     description: >
+   *       Requiere sesión autenticada y header `X-Business-Unit-Id` con la
+   *       empresa seleccionada. Solo devuelve la ficha de configuración que
+   *       pertenece al scope del usuario; ids ajenos, inexistentes o la ficha
+   *       molde responden con el mismo 404.
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: systemSettingId
+   *         schema:
+   *           type: number
+   *         description: System setting id
+   *         required: true
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: UUID público de la razón social seleccionada
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Processed object
+   *       '404':
+   *         description: Resource not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async show({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const systemSettingId = request.param('systemSettingId')
       if (!systemSettingId) {
@@ -1834,8 +1988,15 @@ export default class SystemSettingController {
         }
       }
       const systemSettingService = new SystemSettingService()
-      const showSystemSetting = await systemSettingService.show(systemSettingId)
+      const showSystemSetting = await systemSettingService.show(systemSettingId, businessUnitScope)
       if (!showSystemSetting) {
+        await ScopeDeniedLogService.log({
+          domain: 'system_setting',
+          action: 'show',
+          requestedId: systemSettingId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',
@@ -1867,29 +2028,26 @@ export default class SystemSettingController {
    * @swagger
    * /api/system-settings-active:
    *   get:
-   *     security: []
+   *     security:
+   *       - bearerAuth: []
    *     tags:
    *       - System Settings
    *     summary: get system setting active
    *     description: >
-   *       Ruta pública (sin `bearerAuth` obligatorio): la consumen tanto
-   *       pantallas SIN usuario (branding de login/registro en gsti-rh-bo)
-   *       como pantallas CON usuario y unidad de negocio ya seleccionada.
+   *       Requiere sesión autenticada (`middleware.auth()`). La consumen
+   *       pantallas del backoffice ya autenticadas con unidad de negocio
+   *       seleccionada.
    *
-   *
-   *       **Resolución "split por contexto" (USRH1783712837584):**
-   *       - **Sin header `X-Business-Unit-Id` o sin sesión autenticada
-   *         válida** (pre-login): devuelve el comportamiento global previo,
-   *         la configuración "activa" del sistema sin filtrar por empresa.
-   *       - **Con header + sesión autenticada, pero la unidad de negocio no
-   *         existe o está fuera del alcance del usuario**: `404` con
-   *         `key: BU.NOT.001`.
-   *       - **Con header + sesión autenticada y unidad de negocio válida**:
-   *         resuelve la configuración de ESA empresa por su
-   *         `business_unit_id` vía `resolveByBusinessUnitId` (fail-closed).
-   *         Si la empresa no tiene su propia configuración: `404` con
-   *         `code: SETTINGS.RESOLVE.NOT_FOUND_TENANT`. Nunca devuelve la
-   *         configuración de otra empresa como sustituto.
+   *       **Resolución "split por contexto" (USRH1783712837584 +
+   *       USRH1789018905983):**
+   *       - **Sin header `X-Business-Unit-Id`**: devuelve la ficha base
+   *         (`business_unit_id` NULL), determinista; nunca la de un cliente.
+   *       - **Con header + sesión, pero la unidad no existe o está fuera del
+   *         alcance del usuario**: `404` con `key: BU.NOT.001`.
+   *       - **Con header + sesión y unidad válida**: resuelve la
+   *         configuración de ESA empresa vía `resolveByBusinessUnitId`
+   *         (fail-closed). Si no tiene ficha propia: `404` con
+   *         `code: SETTINGS.RESOLVE.NOT_FOUND_TENANT`.
    *     produces:
    *       - application/json
    *     parameters:
@@ -1900,17 +2058,16 @@ export default class SystemSettingController {
    *           format: uuid
    *         description: >
    *           Código público (`businessUnitPublicId`) de la unidad de negocio
-   *           seleccionada. Opcional: solo se usa para resolver por empresa
-   *           cuando además hay una sesión autenticada válida; sin sesión se
-   *           ignora y se conserva el comportamiento global (pre-login).
+   *           seleccionada. Opcional: sin header se devuelve la ficha base.
    *         required: false
    *     responses:
+   *       '401':
+   *         description: Sin credencial válida (`middleware.auth()`).
    *       '200':
    *         description: >
    *           Configuración obtenida correctamente. `data.systemSetting` es
-   *           el registro global (sin `businessUnitId`) cuando no hay
-   *           header/sesión, o el registro propio de la empresa del usuario
-   *           cuando sí los hay.
+   *           la ficha base sin header, o el registro propio de la empresa
+   *           del usuario cuando lleva `X-Business-Unit-Id`.
    *         content:
    *           application/json:
    *             schema:
@@ -1962,8 +2119,8 @@ export default class SystemSettingController {
    *                           items:
    *                             type: object
    *             examples:
-   *               sinSesionONoTenant:
-   *                 summary: Pre-login o sin header (comportamiento global)
+   *               sinHeaderConSesion:
+   *                 summary: Autenticado sin header (ficha base)
    *                 value:
    *                   type: success
    *                   title: System settings
@@ -2078,17 +2235,11 @@ export default class SystemSettingController {
    *                   description: Detalle técnico del error inesperado (message de la excepción)
    */
   /**
-   * USRH1783712837584 — "split por contexto": esta ruta (`GET /api/system-settings-active`)
-   * es pública (sin `auth()`/`businessScope()`) porque la consumen tanto páginas
-   * SIN usuario (branding de login/registro en gsti-rh-bo, antes de autenticar)
-   * como pantallas CON usuario y unidad de negocio ya seleccionada.
+   * USRH1783712837584 / USRH1789018905983 — resuelve el tenant opcional desde
+   * el header cuando hay sesión autenticada (la ruta exige `auth()`).
    *
-   * Este helper solo resuelve el tenant si hay evidencia real de sesión + BU
-   * seleccionada (header `X-Business-Unit-Id` + usuario autenticado válido):
-   *  - Sin header → `{ businessUnitId: null }` (pre-login, comportamiento intacto).
-   *  - Header pero sin sesión válida → `{ businessUnitId: null }` (igual que pre-login).
-   *  - Header + sesión, pero unidad fuera de scope/inválida → `{ notInScope: true }`
-   *    (mismo criterio que el middleware `businessScope`, sin distinguir el motivo).
+   *  - Sin header → `{ businessUnitId: null }` (ficha base, determinista).
+   *  - Header + sesión, unidad fuera de scope/inválida → `{ notInScope: true }`.
    *  - Header + sesión + unidad válida → `{ businessUnitId }`.
    */
   private async resolveOptionalTenantBusinessUnitId(
@@ -2156,7 +2307,7 @@ export default class SystemSettingController {
         }
       }
 
-      // Sin tenant resuelto (pre-login o header ausente): comportamiento global intacto.
+      // Sin header: ficha base (`business_unit_id` NULL), determinista.
       const showSystemSetting = await systemSettingService.getActive()
       response.status(200)
       return {
@@ -2185,6 +2336,11 @@ export default class SystemSettingController {
    *     tags:
    *       - System Settings
    *     summary: update birthday emails status for system setting
+   *     description: >
+   *       Requiere sesión autenticada y header `X-Business-Unit-Id`. Solo
+   *       modifica el interruptor de la ficha que pertenece al scope del
+   *       usuario; ids ajenos, inexistentes o la ficha molde responden con el
+   *       mismo 404 sin devolver datos de la ficha ajena.
    *     produces:
    *       - application/json
    *     parameters:
@@ -2194,6 +2350,13 @@ export default class SystemSettingController {
    *           type: number
    *         description: System setting id
    *         required: true
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: UUID público de la razón social seleccionada
    *     requestBody:
    *       content:
    *          application/json:
@@ -2286,7 +2449,7 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
-  async updateBirthdayEmailsStatus({ request, response }: HttpContext) {
+  async updateBirthdayEmailsStatus({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const systemSettingId = request.param('systemSettingId')
       const systemSettingBirthdayEmails = request.input('systemSettingBirthdayEmails')
@@ -2314,8 +2477,19 @@ export default class SystemSettingController {
       const systemSettingService = new SystemSettingService()
       const result = await systemSettingService.updateBirthdayEmailsStatus(
         systemSettingId,
-        systemSettingBirthdayEmails
+        systemSettingBirthdayEmails,
+        businessUnitScope
       )
+
+      if (result.status === 404) {
+        await ScopeDeniedLogService.log({
+          domain: 'system_setting',
+          action: 'updateBirthdayEmailsStatus',
+          requestedId: systemSettingId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+      }
 
       response.status(result.status)
       return {
@@ -2346,6 +2520,11 @@ export default class SystemSettingController {
    *     tags:
    *       - System Settings
    *     summary: update anniversary emails status for system setting
+   *     description: >
+   *       Requiere sesión autenticada y header `X-Business-Unit-Id`. Solo
+   *       modifica el interruptor de la ficha que pertenece al scope del
+   *       usuario; ids ajenos, inexistentes o la ficha molde responden con el
+   *       mismo 404 sin devolver datos de la ficha ajena.
    *     produces:
    *       - application/json
    *     parameters:
@@ -2355,6 +2534,13 @@ export default class SystemSettingController {
    *           type: number
    *         description: System setting id
    *         required: true
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: UUID público de la razón social seleccionada
    *     requestBody:
    *       content:
    *          application/json:
@@ -2447,7 +2633,7 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
-  async updateAnniversaryEmailsStatus({ request, response }: HttpContext) {
+  async updateAnniversaryEmailsStatus({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const systemSettingId = request.param('systemSettingId')
       const systemSettingAnniversaryEmails = request.input('systemSettingAnniversaryEmails')
@@ -2475,8 +2661,19 @@ export default class SystemSettingController {
       const systemSettingService = new SystemSettingService()
       const result = await systemSettingService.updateAnniversaryEmailsStatus(
         systemSettingId,
-        systemSettingAnniversaryEmails
+        systemSettingAnniversaryEmails,
+        businessUnitScope
       )
+
+      if (result.status === 404) {
+        await ScopeDeniedLogService.log({
+          domain: 'system_setting',
+          action: 'updateAnniversaryEmailsStatus',
+          requestedId: systemSettingId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+      }
 
       response.status(result.status)
       return {
@@ -2507,12 +2704,25 @@ export default class SystemSettingController {
    *     tags:
    *       - System Settings
    *     summary: Activar o desactivar correos a RH por falta de registro de asistencia
+   *     description: >
+   *       Requiere sesión autenticada y header `X-Business-Unit-Id`. Solo
+   *       modifica el interruptor de la ficha que pertenece al scope del
+   *       usuario; ids ajenos, inexistentes o la ficha molde responden con el
+   *       mismo 404 sin devolver datos de la ficha ajena. No tiene disparador
+   *       en el backoffice; se verifica por HTTP.
    *     parameters:
    *       - in: path
    *         name: systemSettingId
    *         required: true
    *         schema:
    *           type: integer
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: UUID público de la razón social seleccionada
    *     requestBody:
    *       required: true
    *       content:
@@ -2528,8 +2738,33 @@ export default class SystemSettingController {
    *     responses:
    *       '200':
    *         description: Actualizado correctamente
+   *       '404':
+   *         description: >
+   *           Ficha inexistente, ajena al scope o ficha molde. Mismo cuerpo que
+   *           un id inexistente; no incluye `data.systemSetting`.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                   example: System setting not found
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     systemSettingId:
+   *                       type: number
+   *       '400':
+   *         description: >
+   *           Campo faltante en el body o header `X-Business-Unit-Id` ausente
+   *           (`BU.VAL.000` desde middleware).
    */
-  async updateAttendanceFaultHrEmailsStatus({ request, response }: HttpContext) {
+  async updateAttendanceFaultHrEmailsStatus({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const systemSettingId = request.param('systemSettingId')
       const systemSettingAttendanceFaultHrEmails = request.input('systemSettingAttendanceFaultHrEmails')
@@ -2560,8 +2795,19 @@ export default class SystemSettingController {
       const systemSettingService = new SystemSettingService()
       const result = await systemSettingService.updateAttendanceFaultHrEmailsStatus(
         systemSettingId,
-        systemSettingAttendanceFaultHrEmails
+        systemSettingAttendanceFaultHrEmails,
+        businessUnitScope
       )
+
+      if (result.status === 404) {
+        await ScopeDeniedLogService.log({
+          domain: 'system_setting',
+          action: 'updateAttendanceFaultHrEmailsStatus',
+          requestedId: systemSettingId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+      }
 
       response.status(result.status)
       return {
@@ -2585,13 +2831,18 @@ export default class SystemSettingController {
 
   /**
    * @swagger
-   * /api/system-settings/:systemSettingId/employee-application-icon:
+   * /api/system-settings/{systemSettingId}/employee-application-icon:
    *   post:
    *     security:
    *       - bearerAuth: []
    *     tags:
    *       - System Settings
    *     summary: Upload employee application icon
+   *     description: >
+   *       Requiere sesión autenticada y header `X-Business-Unit-Id`. Solo
+   *       reemplaza el ícono de la ficha que pertenece al scope del usuario;
+   *       ids ajenos, inexistentes o la ficha molde responden con el mismo 404
+   *       antes de borrar el archivo previo o subir uno nuevo.
    *     produces:
    *       - application/json
    *     parameters:
@@ -2601,6 +2852,13 @@ export default class SystemSettingController {
    *           type: number
    *         description: System setting id
    *         required: true
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: UUID público de la razón social seleccionada
    *     requestBody:
    *       content:
    *        multipart/form-data:
@@ -2735,7 +2993,7 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
-  async uploadEmployeeApplicationIcon({ request, response }: HttpContext) {
+  async uploadEmployeeApplicationIcon({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const systemSettingId = request.param('systemSettingId')
       if (!systemSettingId) {
@@ -2751,9 +3009,17 @@ export default class SystemSettingController {
       const currentSystemSetting = await SystemSetting.query()
         .whereNull('system_setting_deleted_at')
         .where('system_setting_id', systemSettingId)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
 
       if (!currentSystemSetting) {
+        await ScopeDeniedLogService.log({
+          domain: 'system_setting',
+          action: 'uploadEmployeeApplicationIcon',
+          requestedId: systemSettingId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',
@@ -2870,18 +3136,18 @@ export default class SystemSettingController {
    * @swagger
    * /api/system-settings-get-payroll-config:
    *   get:
-   *     security: []
+   *     security:
+   *       - bearerAuth: []
    *     tags:
    *       - System Settings
    *     summary: get system setting get payroll config
    *     description: >
-   *       Ruta pública. Mismo diseño "split por contexto" que
-   *       `/api/system-settings-active` (USRH1783712837584): con header
-   *       `X-Business-Unit-Id` + sesión válida, resuelve primero el
-   *       System Setting de ESA empresa vía `resolveByBusinessUnitId`
-   *       (fail-closed) y luego su configuración de nómina vigente; sin
-   *       header o sin sesión, conserva el comportamiento global previo
-   *       (`getActive()` sin filtrar por empresa).
+   *       Requiere sesión autenticada. Mismo diseño "split por contexto" que
+   *       `/api/system-settings-active` (USRH1783712837584 +
+   *       USRH1789018905983): con header `X-Business-Unit-Id` + sesión,
+   *       resuelve el System Setting de ESA empresa (fail-closed) y su
+   *       configuración de nómina vigente; sin header, la nómina de la
+   *       ficha base.
    *     produces:
    *       - application/json
    *     parameters:
@@ -2892,10 +3158,11 @@ export default class SystemSettingController {
    *           format: uuid
    *         description: >
    *           Código público (`businessUnitPublicId`) de la unidad de negocio
-   *           seleccionada. Opcional: solo se usa para resolver por empresa
-   *           cuando además hay una sesión autenticada válida.
+   *           seleccionada. Opcional: sin header se usa la ficha base.
    *         required: false
    *     responses:
+   *       '401':
+   *         description: Sin credencial válida (`middleware.auth()`).
    *       '200':
    *         description: >
    *           Configuración de nómina vigente a la fecha (la de
@@ -3029,7 +3296,7 @@ export default class SystemSettingController {
    *                   code: SETTINGS.RESOLVE.NOT_FOUND_TENANT
    *                   data: {}
    *               sinSystemSettingActivo:
-   *                 summary: Sin header/sesión y sin ningún System Setting activo
+   *                 summary: Autenticado sin header y sin ficha base activa
    *                 value:
    *                   type: warning
    *                   title: The system setting was not found
@@ -3056,9 +3323,9 @@ export default class SystemSettingController {
    *                   description: Detalle técnico del error inesperado (message de la excepción)
    */
   /**
-   * USRH1783712837584: mismo diseño "split por contexto" que `getActive()` —
-   * ver el helper `resolveOptionalTenantBusinessUnitId` para el detalle. Esta
-   * ruta tampoco tiene `auth()`/`businessScope()` hoy; se mantiene así.
+   * USRH1783712837584 / USRH1789018905983: mismo diseño "split por contexto"
+   * que `getActive()` — ver `resolveOptionalTenantBusinessUnitId`. Exige
+   * `auth()`; no monta `businessScope()` (decisión de alcance §4 del spec).
    */
   async getPayrollConfig(ctx: HttpContext) {
     const { response } = ctx

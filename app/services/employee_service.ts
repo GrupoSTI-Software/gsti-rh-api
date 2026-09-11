@@ -99,6 +99,7 @@ import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
 import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
 import EmployeeTeleworkCalculator from './employee_telework_calculator.js'
+import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
 import {
   EMPLOYEE_WORK_SCHEDULE,
   EMPLOYEE_WORK_SCHEDULE_ERROR_CODES,
@@ -995,7 +996,9 @@ export default class EmployeeService {
       employeeTerminatedDate: string | Date
       employeeTerminationModality: string
       employeeTerminationType: string
-    }
+    },
+    /** Quién dio la baja. Queda en el historial de la revocación en checadores. */
+    actorUserId?: number | null
   ) {
     if (baja) {
       currentEmployee.employeeTerminatedDate = baja.employeeTerminatedDate
@@ -1031,6 +1034,37 @@ export default class EmployeeService {
       logger.error(
         { err: error, employeeId: currentEmployee.employeeId },
         'EmployeeService.delete: fallo al abrir el expediente de salida; la baja se completó igual'
+      )
+    }
+
+    /**
+     * Saca al colaborador de los checadores donde estuviera dado de alta
+     * (spec ADMS 8.4).
+     *
+     * En su PROPIO try/catch y después del expediente de salida: un equipo
+     * apagado no puede impedir que alguien quede dado de baja hoy. Lo que no se
+     * pudo revocar queda visible en la matriz para reintentarlo.
+     */
+    try {
+      const employeeSyncService = new EmployeeSyncService()
+      const revocations = await employeeSyncService.revokeAll(
+        currentEmployee.employeeId,
+        actorUserId ?? null
+      )
+      const failed = revocations.filter((row) => !row.ok)
+      if (failed.length > 0) {
+        logger.warn(
+          {
+            employeeId: currentEmployee.employeeId,
+            accessPointIds: failed.map((row) => row.accessPointId),
+          },
+          'EmployeeService.delete: no se pudo revocar en todos los checadores; la baja se completó igual'
+        )
+      }
+    } catch (error) {
+      logger.error(
+        { err: error, employeeId: currentEmployee.employeeId },
+        'EmployeeService.delete: fallo la revocación en checadores; la baja se completó igual'
       )
     }
 

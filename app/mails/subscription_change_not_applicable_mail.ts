@@ -26,6 +26,8 @@ const REASON_LABELS: Record<ApplyIncreaseNotApplicableReason, string> = {
     'La cantidad contratada actual ya no coincide con la base congelada al solicitar el aumento.',
   'plan-no-disponible':
     'El plan de la suscripción ya no está publicado o no tiene precio vigente.',
+  'descuento-desfasado':
+    'El código de descuento congelado al solicitar el aumento ya no coincide con el de la suscripción (se agotó o cambió antes de pagarse).',
 }
 
 /**

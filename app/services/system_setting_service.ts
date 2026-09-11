@@ -1,48 +1,14 @@
 import SystemSetting from '#models/system_setting'
 import SystemSettingPayrollConfig from '#models/system_setting_payroll_config'
-import BusinessUnit from '#models/business_unit'
 import { DateTime } from 'luxon'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
-import { SignupServiceError } from '../exceptions/signup_service_error.js'
-import { SIGNUP_ERROR_CODES } from '../constants/signup_error_codes.js'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import { SYSTEM_SETTING_RESOLUTION_ERROR_CODES } from '../constants/system_setting_resolution_error_codes.js'
-
-/**
- * Id del registro base fundacional de `system_settings` (siembra
- * `0019_system_setting_seeder.ts`), fuente de la copia de contenido para la
- * configuración de cada tenant nuevo (USRH1783712837572).
- */
-const BASE_SYSTEM_SETTING_ID = 1
-
-/**
- * Columnas de contenido que se copian del registro base al crear la
- * configuración de un tenant nuevo. Excluye `systemSettingId`, timestamps,
- * `deletedAt`, `businessUnitId` y `systemSettingBusinessUnits` (estas dos
- * últimas se resuelven para el tenant destino, no se copian del base).
- */
-function cloneBaseContent(base: SystemSetting) {
-  return {
-    systemSettingTradeName: base.systemSettingTradeName,
-    systemSettingLogo: base.systemSettingLogo,
-    systemSettingBanner: base.systemSettingBanner,
-    systemSettingSidebarColor: base.systemSettingSidebarColor,
-    systemSettingFavicon: base.systemSettingFavicon,
-    systemSettingEmployeeAplicationIcon: base.systemSettingEmployeeAplicationIcon,
-    systemSettingActive: base.systemSettingActive,
-    systemSettingToleranceCountPerAbsence: base.systemSettingToleranceCountPerAbsence,
-    systemSettingRestrictFutureVacation: base.systemSettingRestrictFutureVacation,
-    systemSettingBirthdayEmails: base.systemSettingBirthdayEmails,
-    systemSettingAnniversaryEmails: base.systemSettingAnniversaryEmails,
-    systemSettingAttendanceFaultHrEmails: base.systemSettingAttendanceFaultHrEmails,
-    systemSettingMaxAbsencesBeforeAttendanceLock: base.systemSettingMaxAbsencesBeforeAttendanceLock,
-    systemSettingMaxLateArrivalsBeforeAttendanceLock: base.systemSettingMaxLateArrivalsBeforeAttendanceLock,
-    systemSettingPeriodAbsencesBeforeAttendanceLock: base.systemSettingPeriodAbsencesBeforeAttendanceLock,
-    systemSettingPeriodLateArrivalsBeforeAttendanceLock:
-      base.systemSettingPeriodLateArrivalsBeforeAttendanceLock,
-    systemSettingMonthlyConversionFactor: base.systemSettingMonthlyConversionFactor,
-  }
-}
+import {
+  SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT,
+  tenantDefaultContent,
+} from '../constants/system_setting_defaults.js'
+import type { TenantProvisioningTargetInterface } from '../interfaces/tenant_provisioning_target_interface.js'
 
 export default class SystemSettingService {
   /**
@@ -113,12 +79,21 @@ export default class SystemSettingService {
     target.systemSettingMaxLateArrivalsBeforeAttendanceLock = source.systemSettingMaxLateArrivalsBeforeAttendanceLock
     target.systemSettingPeriodAbsencesBeforeAttendanceLock = source.systemSettingPeriodAbsencesBeforeAttendanceLock
     target.systemSettingPeriodLateArrivalsBeforeAttendanceLock = source.systemSettingPeriodLateArrivalsBeforeAttendanceLock
-    target.systemSettingMonthlyConversionFactor = source.systemSettingMonthlyConversionFactor ?? 30.4
+    target.systemSettingMonthlyConversionFactor =
+      source.systemSettingMonthlyConversionFactor ?? SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT
   }
 
   async update(currentSystemSetting: SystemSetting, systemSetting: SystemSetting) {
     currentSystemSetting.systemSettingTradeName = systemSetting.systemSettingTradeName
-    currentSystemSetting.systemSettingSidebarColor = systemSetting.systemSettingSidebarColor
+    // El BO puede omitir el color en multipart cuando solo cambia otros campos;
+    // la columna es NOT NULL — conservar el valor vigente si no viene en el payload.
+    const sidebarColor = systemSetting.systemSettingSidebarColor
+    currentSystemSetting.systemSettingSidebarColor =
+      sidebarColor !== undefined &&
+      sidebarColor !== null &&
+      String(sidebarColor).trim() !== ''
+        ? String(sidebarColor).trim()
+        : currentSystemSetting.systemSettingSidebarColor
     currentSystemSetting.systemSettingLogo = systemSetting.systemSettingLogo
     currentSystemSetting.systemSettingBanner = systemSetting.systemSettingBanner
     currentSystemSetting.systemSettingFavicon = systemSetting.systemSettingFavicon
@@ -141,24 +116,28 @@ export default class SystemSettingService {
     return currentSystemSetting
   }
 
-  async show(systemSettingId: number) {
+  async show(systemSettingId: number, businessUnitScope: number[]) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
       .preload('systemSettingPayrollConfigs')
       .first()
     return systemSetting ? systemSetting : null
   }
 
   async getActive(allowedBusinessUnitSlugs: string[] = []) {
-    let slugs = allowedBusinessUnitSlugs
-    if (slugs.length === 0) {
-      const allBus = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereNull('business_unit_deleted_at')
-      slugs = allBus.map((bu) => bu.businessUnitSlug)
+    if (allowedBusinessUnitSlugs.length === 0) {
+      const baseSystemSetting = await SystemSetting.query()
+        .whereNull('system_setting_deleted_at')
+        .where('system_setting_active', 1)
+        .whereNull('business_unit_id')
+        .preload('systemSettingTolerances')
+        .first()
+      return baseSystemSetting ?? null
     }
 
+    const slugs = allowedBusinessUnitSlugs
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_active', 1)
@@ -332,10 +311,15 @@ export default class SystemSettingService {
     }
   }
 
-  async updateBirthdayEmailsStatus(systemSettingId: number, birthdayEmailsEnabled: boolean) {
+  async updateBirthdayEmailsStatus(
+    systemSettingId: number,
+    birthdayEmailsEnabled: boolean,
+    businessUnitScope: number[]
+  ) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
       .first()
 
     if (!systemSetting) {
@@ -360,10 +344,15 @@ export default class SystemSettingService {
     }
   }
 
-  async updateAttendanceFaultHrEmailsStatus(systemSettingId: number, enabled: boolean) {
+  async updateAttendanceFaultHrEmailsStatus(
+    systemSettingId: number,
+    enabled: boolean,
+    businessUnitScope: number[]
+  ) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
       .first()
 
     if (!systemSetting) {
@@ -388,10 +377,15 @@ export default class SystemSettingService {
     }
   }
 
-  async updateAnniversaryEmailsStatus(systemSettingId: number, anniversaryEmailsEnabled: boolean) {
+  async updateAnniversaryEmailsStatus(
+    systemSettingId: number,
+    anniversaryEmailsEnabled: boolean,
+    businessUnitScope: number[]
+  ) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
       .first()
 
     if (!systemSetting) {
@@ -418,8 +412,14 @@ export default class SystemSettingService {
 
   /**
    * Crea (o revive) de forma idempotente el `system_settings` de un tenant
-   * nuevo, copiando el contenido del registro base fundacional y ligándolo
+   * nuevo, sembrando los defaults de `system_setting_defaults.ts` y ligándolo
    * por `business_unit_id` (relación formal, USRH1783712837572).
+   *
+   * La configuración nace con la identidad de la empresa: el nombre comercial
+   * es el nombre de la unidad de negocio y las imágenes (logo, banner, favicon,
+   * icono de app) quedan vacías. Antes se copiaba el contenido del registro
+   * base fundacional (id 1, GrupoSTI), lo que sembraba la marca de GrupoSTI en
+   * cada empresa nueva; ese acoplamiento con el id 1 ya no existe.
    *
    * Debe invocarse dentro de la transacción del alta self-service
    * (`SignupDraftService.complete()`): si falla, el llamador debe abortar
@@ -429,9 +429,13 @@ export default class SystemSettingService {
    * - Si ya existe un registro **activo** para ese tenant, se devuelve tal
    *   cual (un reintento del registro no duplica ni sobreescribe contenido).
    * - Si existe un registro **soft-deleted**, se revive (`restore()`) y se
-   *   actualiza con el contenido vigente del base — decisión confirmada: un
-   *   tenant puede reprovisionarse tras un soft-delete de su configuración.
-   * - Si no existe, se crea copiando el contenido del registro base.
+   *   reescribe con los defaults — decisión confirmada: un tenant puede
+   *   reprovisionarse tras un soft-delete de su configuración.
+   * - Si no existe, se crea con los defaults.
+   *
+   * Recibe la empresa destino como objeto (`TenantProvisioningTargetInterface`)
+   * y no como parámetros sueltos: slug y nombre son ambos `string` y podían
+   * invertirse sin que el compilador lo notara.
    *
    * `system_setting_business_units` también se puebla con el slug del tenant
    * nuevo (convivencia con los 27 consumidores legacy de `getActive()` que
@@ -439,29 +443,11 @@ export default class SystemSettingService {
    * del set, fuera de alcance aquí).
    */
   async createForTenant(
-    businessUnitId: number,
-    businessUnitSlug: string,
+    target: TenantProvisioningTargetInterface,
     trx: TransactionClientContract
   ): Promise<SystemSetting> {
-    // El registro base es plantilla fundacional: se lee con withTrashed porque
-    // un soft-delete accidental del id 1 no debe bloquear el alta de tenants
-    // (el filtro SoftDeletes ocultaría la fila y fallaría con SGNP.SETTINGS.001).
-    const base = await SystemSetting.query({ client: trx })
-      .withTrashed()
-      .where('system_setting_id', BASE_SYSTEM_SETTING_ID)
-      .first()
-
-    if (!base) {
-      throw new SignupServiceError(
-        'El registro base de system_settings (id 1) no existe; no es posible provisionar la configuración del tenant nuevo',
-        SIGNUP_ERROR_CODES.SETTINGS_PROVISIONING_FAILED,
-        500,
-        'signup-settings-provisioning-failed',
-        'No fue posible crear la configuración base de la empresa nueva'
-      )
-    }
-
-    const content = cloneBaseContent(base)
+    const { businessUnitId, businessUnitSlug, businessUnitName } = target
+    const content = tenantDefaultContent(businessUnitName)
 
     const existing = await SystemSetting.query({ client: trx })
       .withTrashed()
