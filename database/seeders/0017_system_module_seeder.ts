@@ -1,13 +1,30 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
-import SystemModule from '../../app/models/system_module.js'
-import { DateTime } from 'luxon'
 import { resolveSystemModuleGroupIds } from '../../app/helpers/system_module_group_seed_resolver.js'
+import { upsertSystemModuleBySlug } from '../../app/helpers/system_catalog_seed_resolver.js'
 import type { SystemModuleGroupKey } from '../../app/constants/system_module_group_catalog.js'
 
+/**
+ * Siembra el catálogo base de `system_modules`.
+ *
+ * Cada módulo se identifica por su `systemModuleSlug`: ninguna entrada declara
+ * `systemModuleId`, el id lo asigna la BD. La razón está documentada en
+ * `app/helpers/system_catalog_seed_resolver.ts`: mientras los seeders
+ * escribían ids literales, dos que reclamaban el mismo número se pisaban en
+ * silencio vía `updateOrCreate` por id.
+ *
+ * Idempotente: `upsertSystemModuleBySlug` busca con `withTrashed()` y
+ * actualiza la fila existente sin tocar `deletedAt`, así que re-ejecutar el
+ * seeder no duplica filas ni revive módulos dados de baja.
+ */
 export default class extends BaseSeeder {
+  /** Nombre propio, para que los errores de los resolvers digan quién falló. */
+  private readonly seederName = '0017_system_module_seeder'
+
   async run() {
     /**
-     * Cómo declarar el grupo de un módulo nuevo:
+     * Cómo declarar un módulo nuevo:
+     *  - NO escribir `systemModuleId`: la identidad es `systemModuleSlug` y el
+     *    id lo asigna la BD.
      *  - Escribir la clave estable del grupo en `systemModuleGroupKey` (ej. 'empresa').
      *  - Las claves disponibles están en `app/constants/system_module_group_catalog.ts`.
      *  - Para un módulo suelto (sin grupo), usar `systemModuleGroupKey: null` de forma explícita.
@@ -15,7 +32,6 @@ export default class extends BaseSeeder {
      */
     const systemModules = [
       {
-        systemModuleId: 1,
         systemModuleName: 'Empleados',
         systemModuleSlug: 'employees',
         systemModuleDescription: 'employees',
@@ -48,7 +64,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 2,
         systemModuleName: 'Departamentos',
         systemModuleSlug: 'departments',
         systemModuleDescription: 'departments',
@@ -80,7 +95,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 3,
         systemModuleName: 'Puestos',
         systemModuleSlug: 'positions',
         systemModuleDescription: 'positions',
@@ -108,7 +122,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 4,
         systemModuleName: 'Periodos Vacacionales',
         systemModuleSlug: 'vacations',
         systemModuleDescription: 'vacation settings',
@@ -138,7 +151,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 5,
         systemModuleName: 'Usuarios',
         systemModuleSlug: 'users',
         systemModuleDescription: 'users',
@@ -166,7 +178,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 6,
         systemModuleName: 'Asistencia por departamento',
         systemModuleSlug: 'departments-attendance-monitor',
         systemModuleDescription: 'departments attendance monitor',
@@ -194,7 +205,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 7,
         systemModuleName: 'Asistencia por empleados',
         systemModuleSlug: 'employees-attendance-monitor',
         systemModuleDescription: 'employees attendance monitor',
@@ -222,7 +232,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 8,
         systemModuleName: 'Roles y permisos',
         systemModuleSlug: 'roles-and-permissions',
         systemModuleDescription: 'roles and permissions',
@@ -249,7 +258,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 12,
         systemModuleName: 'Turnos',
         systemModuleSlug: 'shifts',
         systemModuleDescription: 'shifts',
@@ -280,7 +288,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 13,
         systemModuleName: 'Festividades',
         systemModuleSlug: 'holidays',
         systemModuleDescription: 'holidays',
@@ -308,7 +315,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 14,
         systemModuleName: 'Ajustes Generales',
         systemModuleSlug: 'system-settings',
         systemModuleDescription: 'system settings',
@@ -341,7 +347,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 19,
         systemModuleName: 'Matriz de vencimientos',
         systemModuleSlug: 'documents-expiration-matrix',
         systemModuleDescription: 'documents expiration matrix',
@@ -368,7 +373,6 @@ export default class extends BaseSeeder {
           </svg>`,
       },
       {
-        systemModuleId: 21,
         systemModuleName: 'Proceeding File Type',
         systemModuleSlug: 'proceeding-file-types',
         systemModuleDescription: 'proceeding file types',
@@ -398,7 +402,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 22,
         systemModuleName: 'Shift Exception Requests',
         systemModuleSlug: 'shift-exception-requests',
         systemModuleDescription: 'Shift exception requests',
@@ -428,7 +431,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 25,
         systemModuleName: 'Organigrama',
         systemModuleSlug: 'organization-chart',
         systemModuleDescription: 'Organization Chart',
@@ -457,7 +459,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 26,
         systemModuleName: 'Cumpleaños',
         systemModuleSlug: 'birthdays-calendar',
         systemModuleDescription: 'birthdays-calendar',
@@ -484,7 +485,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 27,
         systemModuleName: 'Vacaciones',
         systemModuleSlug: 'vacations-calendar',
         systemModuleDescription: 'vacations-calendar',
@@ -514,7 +514,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 28,
         systemModuleName: 'Aniversarios',
         systemModuleSlug: 'work-anniversaries-calendar',
         systemModuleDescription: 'work-anniversaries-calendar',
@@ -544,7 +543,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 29,
         systemModuleName: 'Activos',
         systemModuleSlug: 'supplies',
         systemModuleDescription: 'supplies',
@@ -573,7 +571,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 30,
         systemModuleName: 'Zonas',
         systemModuleSlug: 'zonas',
         systemModuleDescription: 'zonas',
@@ -603,7 +600,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 31,
         systemModuleName: 'Historial de permisos',
         systemModuleSlug: 'permissions-history',
         systemModuleDescription: '',
@@ -628,7 +624,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 32,
         systemModuleName: 'Avisos y noticias',
         systemModuleSlug: 'avisos-y-noticias',
         systemModuleDescription: '',
@@ -656,7 +651,6 @@ export default class extends BaseSeeder {
         `,
       },
       {
-        systemModuleId: 33,
         systemModuleName: 'Dispositivos biométricos',
         systemModuleSlug: 'biometric-devices',
         systemModuleDescription: '',
@@ -685,7 +679,6 @@ export default class extends BaseSeeder {
         `,
       },
       {
-        systemModuleId: 34,
         systemModuleName: 'Sucursales',
         systemModuleSlug: 'sucursales',
         systemModuleDescription: 'Catálogo de sucursales por unidad de negocio',
@@ -715,7 +708,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 35,
         systemModuleName: 'Evaluaciones',
         systemModuleSlug: 'assessment-templates',
         systemModuleDescription: 'Plantillas de evaluación y sus dimensiones',
@@ -735,7 +727,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 36,
         systemModuleName: 'Catálogo de certificaciones',
         systemModuleSlug: 'certifications',
         systemModuleDescription: 'Certificaciones reconocidas por la empresa y alcance por unidad de negocio',
@@ -762,7 +753,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 37,
         systemModuleName: 'Periodos de lactancia',
         systemModuleSlug: 'employee-lactation-periods',
         systemModuleDescription:
@@ -789,7 +779,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 38,
         systemModuleName: 'Repse',
         systemModuleSlug: 'repse-registrations',
         systemModuleDescription:
@@ -817,7 +806,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 42,
         systemModuleName: 'Aplicabilidad',
         systemModuleSlug: 'compliance',
         systemModuleDescription:
@@ -843,7 +831,6 @@ export default class extends BaseSeeder {
         </svg>`,
       },
       {
-        systemModuleId: 46,
         systemModuleName: 'Teletrabajadores',
         systemModuleSlug: 'telework-workers',
         systemModuleDescription:
@@ -876,37 +863,26 @@ export default class extends BaseSeeder {
     // faltante — nunca llega al bucle de escritura (CA4 USRH1788288026045).
     const groupIdByKey = await resolveSystemModuleGroupIds(
       systemModules.map((m) => m.systemModuleGroupKey),
-      '0017_system_module_seeder'
+      this.seederName
     )
 
     for (const systemModule of systemModules) {
-      const { systemModuleId, systemModuleGroupKey, ...systemModuleData } = systemModule
-      const values = {
-        ...systemModuleData,
-        systemModules: String(systemModuleData.systemModules),
-        systemModuleGroupId: systemModuleGroupKey
-          ? (groupIdByKey.get(systemModuleGroupKey) ?? null)
-          : null,
-        systemModuleUpdatedAt: DateTime.now(),
-      }
+      const { systemModuleGroupKey, ...systemModuleData } = systemModule
 
-      // withTrashed: las filas con baja lógica cuentan para la PK pero el
-      // scope de SoftDeletes las oculta de updateOrCreate, lo que provocaba
-      // un INSERT duplicado al re-ejecutar el seeder.
-      const existing = await SystemModule.query()
-        .withTrashed()
-        .where('systemModuleId', systemModuleId)
-        .first()
-
-      if (existing) {
-        // Se actualizan los datos sin tocar deletedAt: un módulo retirado
-        // (baja lógica) no debe revivir por re-ejecutar el seeder.
-        existing.merge(values)
-        await existing.save()
-        continue
-      }
-
-      await SystemModule.create({ systemModuleId, ...values })
+      // La identidad es el slug: el helper busca con withTrashed() —las filas
+      // con baja lógica cuentan para la PK pero el scope de SoftDeletes las
+      // oculta— y actualiza la existente sin tocar deletedAt, así que un
+      // módulo retirado no revive ni se duplica al re-ejecutar el seeder.
+      await upsertSystemModuleBySlug(
+        {
+          ...systemModuleData,
+          systemModules: String(systemModuleData.systemModules),
+          systemModuleGroupId: systemModuleGroupKey
+            ? (groupIdByKey.get(systemModuleGroupKey) ?? null)
+            : null,
+        },
+        this.seederName
+      )
     }
   }
 }

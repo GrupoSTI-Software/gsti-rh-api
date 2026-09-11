@@ -1,87 +1,86 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
-import { DateTime } from 'luxon'
-import SystemModule from '../../app/models/system_module.js'
-import SystemPermission from '../../app/models/system_permission.js'
 import SystemSettingSystemModule from '../../app/models/system_setting_system_module.js'
 import RoleSystemPermission from '../../app/models/role_system_permission.js'
 import { resolveSystemModuleGroupIds } from '../../app/helpers/system_module_group_seed_resolver.js'
+import {
+  resolveRoleIdsBySlug,
+  upsertSystemModuleBySlug,
+  upsertSystemPermissionsBySlug,
+} from '../../app/helpers/system_catalog_seed_resolver.js'
 
 /**
  * Registra en el sistema el módulo de "Buzón de quejas" (NOM-035 §8.1.b).
  *
  * Siembra únicamente configuración de sistema (no datos de negocio):
- *  1. El módulo en `system_modules` (id 41) para que exista en el catálogo.
- *  2. Los 4 permisos read/create/update/delete (ids 169-172) ligados al módulo.
- *  3. El permiso reveal-identity (id 173) ligado al módulo, sin asignación a roles
- *     (se configura manualmente en el sistema).
- *  4. El permiso report (id 174) ligado al módulo, sin asignación a roles
- *     (se configura manualmente en el sistema).
- *  5. El vínculo del módulo con el system_setting activo (id 1) para que aparezca en el menú.
- *  6. La asignación de los 4 permisos CRUD a los roles super-administrador (1) y rh-manager (2).
+ *  1. El módulo en `system_modules`, identificado por su slug `complaints`. No
+ *     declara id: el id literal que usaba (41) lo reclamaba también
+ *     `0038_traumatic_event_registry_module_seeder`, que al correr después
+ *     sobrescribía esta fila y borraba el módulo del catálogo en silencio
+ *     (ver `app/helpers/system_catalog_seed_resolver.ts`).
+ *  2. Los 6 permisos del módulo, identificados por el par (módulo, slug),
+ *     también sin id declarado: los 4 de CRUD read/create/update/delete más
+ *     reveal-identity y report.
+ *  3. El vínculo del módulo con el system_setting activo (id 1) para que
+ *     aparezca en el menú.
+ *  4. La asignación de los 4 permisos CRUD a los roles super-administrador y
+ *     rh-manager, resueltos por slug. `reveal-identity` y `report` solo se
+ *     registran: su asignación se configura manualmente en el sistema.
  *
  * El módulo es confidencial: solo super-administrador y rh-manager tienen acceso;
  * el supervisor directo no accede (criterio NOM-035 buzón confidencial).
- * Idempotente: usa updateOrCreate/firstOrCreate; se puede re-ejecutar sin duplicar.
+ * Idempotente: la identidad es el slug; se puede re-ejecutar sin duplicar.
  */
 export default class extends BaseSeeder {
-  /** Id del módulo (siguiente libre tras el 40 de eventos traumáticos). */
-  private readonly moduleId = 41
+  /** Nombre propio, para que los errores del resolver digan quién falló. */
+  private readonly seederName = '0037_complaints_module_seeder'
+
+  /** Slug del módulo: su identidad. Nunca se declara un id. */
+  private readonly moduleSlug = 'complaints'
 
   /** Id del system_setting activo al que se vincula el módulo. */
   private readonly activeSettingId = 1
 
-  /** Roles que reciben los permisos del módulo (super-administrador y rh-manager). */
-  private readonly roleIds = [1, 2]
+  /** Roles que reciben los permisos CRUD del módulo, por slug estable. */
+  private readonly roleSlugs = ['super-administrador', 'rh-manager']
 
-  /** Permisos CRUD del módulo (ids 169-172); se asignan a roles en el paso 5. */
-  private readonly permissions = [
-    { systemPermissionId: 169, systemPermissionName: 'Read', systemPermissionSlug: 'read' },
-    { systemPermissionId: 170, systemPermissionName: 'Create', systemPermissionSlug: 'create' },
-    { systemPermissionId: 171, systemPermissionName: 'Update', systemPermissionSlug: 'update' },
-    { systemPermissionId: 172, systemPermissionName: 'Delete', systemPermissionSlug: 'delete' },
+  /** Permisos CRUD del módulo; son los únicos que se asignan a roles en el paso 4. */
+  private readonly crudPermissions = [
+    { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+    { systemPermissionName: 'Create', systemPermissionSlug: 'create' },
+    { systemPermissionName: 'Update', systemPermissionSlug: 'update' },
+    { systemPermissionName: 'Delete', systemPermissionSlug: 'delete' },
   ]
 
-  /** Permiso dedicado de revelación de identidad; solo se registra, no se asigna a roles. */
-  private readonly revealIdentityPermission = {
-    systemPermissionId: 173,
-    systemPermissionName: 'Reveal identity',
-    systemPermissionSlug: 'reveal-identity',
-  }
-
-  /** Permiso dedicado del reporte agregado STPS; solo se registra, no se asigna a roles. */
-  private readonly reportPermission = {
-    systemPermissionId: 174,
-    systemPermissionName: 'Report',
-    systemPermissionSlug: 'report',
-  }
+  /**
+   * Permisos dedicados de revelación de identidad y del reporte agregado STPS:
+   * solo se registran, no se asignan a roles (se configura manualmente).
+   */
+  private readonly unassignedPermissions = [
+    { systemPermissionName: 'Reveal identity', systemPermissionSlug: 'reveal-identity' },
+    { systemPermissionName: 'Report', systemPermissionSlug: 'report' },
+  ]
 
   async run() {
-    await this.seedModule()
-    await this.seedPermissions()
-    await this.seedRevealIdentityPermission()
-    await this.seedReportPermission()
-    await this.linkModuleToActiveSetting()
-    await this.assignPermissionsToRoles()
+    const systemModuleId = await this.seedModule()
+    const permissionIdBySlug = await this.seedPermissions(systemModuleId)
+    await this.linkModuleToActiveSetting(systemModuleId)
+    await this.assignPermissionsToRoles(permissionIdBySlug)
   }
 
-  /** 1. Alta del módulo en el catálogo. */
-  private async seedModule() {
-    const groupIdByKey = await resolveSystemModuleGroupIds(
-      ['nom-035'],
-      '0037_complaints_module_seeder'
-    )
-    await SystemModule.updateOrCreate(
-      { systemModuleId: this.moduleId },
+  /** 1. Alta del módulo en el catálogo, identificado por su slug. */
+  private async seedModule(): Promise<number> {
+    const groupIdByKey = await resolveSystemModuleGroupIds(['nom-035'], this.seederName)
+    return upsertSystemModuleBySlug(
       {
         systemModuleName: 'Buzón de quejas',
-        systemModuleSlug: 'complaints',
+        systemModuleSlug: this.moduleSlug,
         systemModuleDescription:
           'Canal confidencial de quejas conforme a NOM-035-STPS-2018 numeral 8.1.b',
         systemModules: '1',
         systemModulePath: '/complaints',
         systemModuleActive: 1,
         systemModuleOrder: 50,
-        systemModuleGroupId: groupIdByKey.get('nom-035'),
+        systemModuleGroupId: groupIdByKey.get('nom-035') ?? null,
         systemModuleIcon: `<svg
           xmlns="http://www.w3.org/2000/svg"
           width="48"
@@ -96,52 +95,39 @@ export default class extends BaseSeeder {
           <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
           <polyline points="22,6 12,13 2,6" />
         </svg>`,
-        systemModuleUpdatedAt: DateTime.now(),
-      }
+      },
+      this.seederName
     )
   }
 
-  /** 2. Alta de los permisos CRUD ligados al módulo. */
-  private async seedPermissions() {
-    for (const permission of this.permissions) {
-      await SystemPermission.updateOrCreate(
-        { systemPermissionId: permission.systemPermissionId },
-        { ...permission, systemModuleId: this.moduleId }
-      )
-    }
-  }
-
-  /** 3. Alta del permiso reveal-identity (sin asignación a roles). */
-  private async seedRevealIdentityPermission() {
-    await SystemPermission.updateOrCreate(
-      { systemPermissionId: this.revealIdentityPermission.systemPermissionId },
-      { ...this.revealIdentityPermission, systemModuleId: this.moduleId }
+  /** 2. Alta de los permisos ligados al módulo: los 4 de CRUD más reveal-identity y report. */
+  private async seedPermissions(systemModuleId: number): Promise<Map<string, number>> {
+    return upsertSystemPermissionsBySlug(
+      systemModuleId,
+      [...this.crudPermissions, ...this.unassignedPermissions],
+      this.seederName
     )
   }
 
-  /** 4. Alta del permiso report (sin asignación a roles). */
-  private async seedReportPermission() {
-    await SystemPermission.updateOrCreate(
-      { systemPermissionId: this.reportPermission.systemPermissionId },
-      { ...this.reportPermission, systemModuleId: this.moduleId }
-    )
-  }
-
-  /** 5. Vínculo del módulo con el system_setting activo (para que salga en el menú). */
-  private async linkModuleToActiveSetting() {
+  /** 3. Vínculo del módulo con el system_setting activo (para que salga en el menú). */
+  private async linkModuleToActiveSetting(systemModuleId: number) {
     await SystemSettingSystemModule.firstOrCreate(
-      { systemSettingId: this.activeSettingId, systemModuleId: this.moduleId },
-      { systemSettingId: this.activeSettingId, systemModuleId: this.moduleId }
+      { systemSettingId: this.activeSettingId, systemModuleId },
+      { systemSettingId: this.activeSettingId, systemModuleId }
     )
   }
 
-  /** 6. Asignación de los permisos CRUD a los roles indicados. */
-  private async assignPermissionsToRoles() {
-    for (const roleId of this.roleIds) {
-      for (const permission of this.permissions) {
+  /** 4. Asignación de los permisos CRUD a los roles indicados. */
+  private async assignPermissionsToRoles(permissionIdBySlug: Map<string, number>) {
+    const roleIdBySlug = await resolveRoleIdsBySlug(this.roleSlugs, this.seederName)
+
+    for (const roleSlug of this.roleSlugs) {
+      const roleId = roleIdBySlug.get(roleSlug)!
+      for (const permission of this.crudPermissions) {
+        const systemPermissionId = permissionIdBySlug.get(permission.systemPermissionSlug)!
         await RoleSystemPermission.firstOrCreate(
-          { roleId, systemPermissionId: permission.systemPermissionId },
-          { roleId, systemPermissionId: permission.systemPermissionId }
+          { roleId, systemPermissionId },
+          { roleId, systemPermissionId }
         )
       }
     }

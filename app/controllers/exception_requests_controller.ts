@@ -16,6 +16,10 @@ import ShiftExceptionService from '#services/shift_exception_service'
 import { DateTime } from 'luxon'
 import Ws from '#services/ws'
 import User from '#models/user'
+import Role from '#models/role'
+
+/** Slug del rol de Recursos Humanos; ver `isRhManager`. */
+const RH_MANAGER_ROLE_SLUG = 'rh-manager'
 import { ExceptionRequestErrorInterface } from '../interfaces/exception_request_error_interface.js'
 import SystemSettingService from '#services/system_setting_service'
 import NotificationEmailService from '#services/notification_email_service'
@@ -529,7 +533,7 @@ export default class ExceptionRequestsController {
                 'An exception request for the same date and time already exists and is not refused',
             })
           } else {
-            const roleId = data.role?.roleId || 0
+            const esRecursosHumanos = await this.isRhManager(data.role?.roleId)
             const exceptionRequestData = {
               employeeId: data.employeeId,
               exceptionTypeId: data.exceptionTypeId,
@@ -539,8 +543,8 @@ export default class ExceptionRequestsController {
               exceptionRequestCheckOutTime: data.exceptionRequestCheckOutTime,
               exceptionRequestPeriodInHours: data.exceptionRequestPeriodInHours,
               requestedDate: currentDate,
-              exceptionRequestRhRead: roleId === 2 ? 1 : 0,
-              exceptionRequestGerencialRead: roleId !== 2 ? 1 : 0,
+              exceptionRequestRhRead: esRecursosHumanos ? 1 : 0,
+              exceptionRequestGerencialRead: esRecursosHumanos ? 0 : 1,
               userId: user.userId,
             }
             delete data.role
@@ -706,10 +710,25 @@ export default class ExceptionRequestsController {
    *         description: Exception request not found
    */
 
+  /**
+   * Distingue una solicitud capturada por Recursos Humanos de una capturada
+   * por gerencia. Se resuelve por SLUG y no por `role_id`: el id es
+   * autoincremental y su valor depende del orden de siembra de cada
+   * instalación, así que comparar contra el literal 2 acertaba solo mientras
+   * los seeders fijaran los ids a mano.
+   */
+  private async isRhManager(roleId: number | undefined): Promise<boolean> {
+    if (!roleId) {
+      return false
+    }
+    const role = await Role.find(roleId)
+    return role?.roleSlug === RH_MANAGER_ROLE_SLUG
+  }
+
   async update({ params, request, response }: HttpContext) {
     const data = await request.validateUsing(updateExceptionRequestValidator)
     const exceptionRequest = await ExceptionRequest.findOrFail(params.id)
-    const roleId = data.role?.roleId || 0
+    const esRecursosHumanos = await this.isRhManager(data.role?.roleId)
     const requestedDate = data.requestedDate.toISODate()
     if (requestedDate) {
       const exceptionRequestData = {
@@ -718,8 +737,8 @@ export default class ExceptionRequestsController {
         exceptionRequestCheckInTime: data.exceptionRequestCheckInTime,
         exceptionRequestCheckOutTime: data.exceptionRequestCheckOutTime,
         requestedDate: requestedDate,
-        exceptionRequestRhRead: roleId === 2 ? 1 : 0,
-        exceptionRequestGerencialRead: roleId !== 2 ? 1 : 0,
+        exceptionRequestRhRead: esRecursosHumanos ? 1 : 0,
+        exceptionRequestGerencialRead: esRecursosHumanos ? 0 : 1,
       }
       delete data.role
       exceptionRequest.merge(exceptionRequestData)

@@ -1,737 +1,339 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
-import SystemPermission from '../../app/models/system_permission.js'
+import {
+  resolveSystemModuleIdsBySlug,
+  upsertSystemPermissionsBySlug,
+  type SystemPermissionSeedValues,
+} from '../../app/helpers/system_catalog_seed_resolver.js'
 
+/**
+ * Siembra los 118 permisos de los módulos que declara `0017_system_module_seeder`.
+ *
+ * La identidad de un permiso es el par (módulo, slug); la del módulo, su slug.
+ * Este seeder no escribe ningún id literal: referencia cada módulo por slug y
+ * los resuelve de una sola vez con `resolveSystemModuleIdsBySlug` antes de
+ * escribir, y el `system_permission_id` lo asigna la BD. Elegir los números a
+ * mano es lo que permitía que dos seeders reclamaran el mismo id y el segundo
+ * sobrescribiera en silencio la fila del primero
+ * (ver `app/helpers/system_catalog_seed_resolver.ts`).
+ *
+ * Si un módulo referenciado no existe, el resolver lanza nombrándolo: un
+ * permiso nunca queda colgado del módulo equivocado ni se omite en silencio.
+ *
+ * Idempotente: `upsertSystemPermissionsBySlug` actualiza el permiso que ya
+ * existe —incluido el dado de baja lógica, sin revivirlo— y crea el que no.
+ */
 export default class extends BaseSeeder {
+  /** Nombre propio, para que los errores del resolver digan quién falló. */
+  private readonly seederName = '0018_system_permission_seeder'
+
+  /**
+   * Permisos agrupados por el módulo dueño, identificado por su slug. El orden
+   * es irrelevante para la identidad: cada fila se ubica por (módulo, slug).
+   */
+  private readonly permissionsByModule: {
+    systemModuleSlug: string
+    permissions: SystemPermissionSeedValues[]
+  }[] = [
+    {
+      systemModuleSlug: 'employees',
+      permissions: [
+        { systemPermissionName: 'Create', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Update', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Delete', systemPermissionSlug: 'delete' },
+        { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+        { systemPermissionName: 'Add exception', systemPermissionSlug: 'add-exception' },
+        { systemPermissionName: 'Manage shift', systemPermissionSlug: 'manage-shift' },
+        { systemPermissionName: 'Manage Vacation', systemPermissionSlug: 'manage-vacation' },
+        { systemPermissionName: 'Exception Request', systemPermissionSlug: 'exception-request' },
+        { systemPermissionName: 'Read Files', systemPermissionSlug: 'read-only-files' },
+        { systemPermissionName: 'Manage Files', systemPermissionSlug: 'manage-files' },
+        {
+          systemPermissionName: 'Read Work Disabilities',
+          systemPermissionSlug: 'read-work-disabilities',
+        },
+        {
+          systemPermissionName: 'Manage Work Disabilities',
+          systemPermissionSlug: 'manage-work-disabilities',
+        },
+        {
+          systemPermissionName: 'Manage Shift Change',
+          systemPermissionSlug: 'manage-shift-change',
+        },
+        {
+          systemPermissionName: 'Manage Responsible Read',
+          systemPermissionSlug: 'manage-responsible-read',
+        },
+        {
+          systemPermissionName: 'Manage Responsible Edit',
+          systemPermissionSlug: 'manage-responsible-edit',
+        },
+        { systemPermissionName: 'Manage BioTime', systemPermissionSlug: 'manage-biotime' },
+        {
+          systemPermissionName: 'Manage Assigned Read',
+          systemPermissionSlug: 'manage-assigned-read',
+        },
+        {
+          systemPermissionName: 'Manage Assigned Edit',
+          systemPermissionSlug: 'manage-assigned-edit',
+        },
+        {
+          systemPermissionName: 'Read Terminated Employees',
+          systemPermissionSlug: 'read-terminated-employees',
+        },
+        { systemPermissionName: 'Update Information', systemPermissionSlug: 'update-information' },
+        {
+          systemPermissionName: 'Remove shift assigned at day',
+          systemPermissionSlug: 'remove-shift-assigned-to-the-day',
+        },
+        {
+          systemPermissionName: 'Full employee assigned',
+          systemPermissionSlug: 'full-employee-assigned',
+        },
+        { systemPermissionName: 'Show face ID', systemPermissionSlug: 'show-face-id' },
+        { systemPermissionName: 'Upload face ID', systemPermissionSlug: 'upload-face-id' },
+        { systemPermissionName: 'Show fingers', systemPermissionSlug: 'show-fingers' },
+        { systemPermissionName: 'Upload fingers', systemPermissionSlug: 'upload-fingers' },
+      ],
+    },
+    {
+      systemModuleSlug: 'vacations',
+      permissions: [
+        { systemPermissionName: 'Create', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Update', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Delete', systemPermissionSlug: 'delete' },
+        { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+      ],
+    },
+    {
+      systemModuleSlug: 'users',
+      permissions: [
+        { systemPermissionName: 'Create', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Update', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Delete', systemPermissionSlug: 'delete' },
+        { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+      ],
+    },
+    {
+      systemModuleSlug: 'departments-attendance-monitor',
+      permissions: [
+        { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+        { systemPermissionName: 'Consecutive Faults', systemPermissionSlug: 'consecutive-faults' },
+      ],
+    },
+    {
+      systemModuleSlug: 'employees-attendance-monitor',
+      permissions: [
+        { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+        { systemPermissionName: 'Read time worked', systemPermissionSlug: 'read-time-worked' },
+        { systemPermissionName: 'Add manual assist', systemPermissionSlug: 'add-assist-manual' },
+        { systemPermissionName: 'Sync Assist', systemPermissionSlug: 'sync-assist' },
+        { systemPermissionName: 'Consecutive Faults', systemPermissionSlug: 'consecutive-faults' },
+        {
+          systemPermissionName: 'Delete check assist',
+          systemPermissionSlug: 'delete-check-assist',
+        },
+        {
+          systemPermissionName: 'Download summary report',
+          systemPermissionSlug: 'download-summary',
+        },
+        {
+          systemPermissionName: 'Display discounts in a summary',
+          systemPermissionSlug: 'display-discounts-summary',
+        },
+        {
+          systemPermissionName: 'Display payments in summary',
+          systemPermissionSlug: 'display-payments-summary',
+        },
+        { systemPermissionName: 'Shift coverage', systemPermissionSlug: 'shift-coverage' },
+        { systemPermissionName: 'See payroll mode', systemPermissionSlug: 'see-payroll' },
+      ],
+    },
+    {
+      systemModuleSlug: 'roles-and-permissions',
+      permissions: [
+        { systemPermissionName: 'Update', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+      ],
+    },
+    {
+      systemModuleSlug: 'shifts',
+      permissions: [
+        { systemPermissionName: 'Create', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Update', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Delete', systemPermissionSlug: 'delete' },
+        { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+      ],
+    },
+    {
+      systemModuleSlug: 'holidays',
+      permissions: [
+        { systemPermissionName: 'Create', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Update', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Delete', systemPermissionSlug: 'delete' },
+        { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+      ],
+    },
+    {
+      systemModuleSlug: 'system-settings',
+      permissions: [
+        { systemPermissionName: 'Create', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Update', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Delete', systemPermissionSlug: 'delete' },
+        { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+        {
+          systemPermissionName: 'Gestionar correos RH por faltas de asistencia',
+          systemPermissionSlug: 'manage-attendance-fault-hr-emails',
+        },
+      ],
+    },
+    {
+      systemModuleSlug: 'documents-expiration-matrix',
+      permissions: [{ systemPermissionName: 'Read', systemPermissionSlug: 'read' }],
+    },
+    {
+      systemModuleSlug: 'proceeding-file-types',
+      permissions: [
+        { systemPermissionName: 'Create', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Update', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Delete', systemPermissionSlug: 'delete' },
+        { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+      ],
+    },
+    {
+      systemModuleSlug: 'shift-exception-requests',
+      permissions: [
+        { systemPermissionName: 'Create', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Update', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Delete', systemPermissionSlug: 'delete' },
+        { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+      ],
+    },
+    {
+      systemModuleSlug: 'organization-chart',
+      permissions: [
+        { systemPermissionName: 'Update', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+        { systemPermissionName: 'Delete', systemPermissionSlug: 'delete' },
+        { systemPermissionName: 'Create', systemPermissionSlug: 'create' },
+      ],
+    },
+    {
+      systemModuleSlug: 'birthdays-calendar',
+      permissions: [{ systemPermissionName: 'read', systemPermissionSlug: 'read' }],
+    },
+    {
+      systemModuleSlug: 'vacations-calendar',
+      permissions: [{ systemPermissionName: 'read', systemPermissionSlug: 'read' }],
+    },
+    {
+      systemModuleSlug: 'work-anniversaries-calendar',
+      permissions: [{ systemPermissionName: 'Ver Aniversarios', systemPermissionSlug: 'read' }],
+    },
+    {
+      systemModuleSlug: 'supplies',
+      permissions: [
+        { systemPermissionName: 'Acceder', systemPermissionSlug: 'read' },
+        { systemPermissionName: 'Crear', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Editar', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Eliminar', systemPermissionSlug: 'delete' },
+      ],
+    },
+    {
+      systemModuleSlug: 'zonas',
+      permissions: [
+        { systemPermissionName: 'Acceder', systemPermissionSlug: 'read' },
+        { systemPermissionName: 'Crear', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Editar', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Eliminar', systemPermissionSlug: 'delete' },
+      ],
+    },
+    {
+      systemModuleSlug: 'permissions-history',
+      permissions: [{ systemPermissionName: 'Acceder', systemPermissionSlug: 'read' }],
+    },
+    {
+      systemModuleSlug: 'avisos-y-noticias',
+      permissions: [
+        { systemPermissionName: 'Acceder', systemPermissionSlug: 'read' },
+        { systemPermissionName: 'Crear', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Editar', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Eliminar', systemPermissionSlug: 'delete' },
+      ],
+    },
+    {
+      systemModuleSlug: 'biometric-devices',
+      permissions: [
+        { systemPermissionName: 'Acceder', systemPermissionSlug: 'read' },
+        { systemPermissionName: 'Crear', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Editar', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Eliminar', systemPermissionSlug: 'delete' },
+      ],
+    },
+    {
+      systemModuleSlug: 'sucursales',
+      permissions: [
+        { systemPermissionName: 'Acceder', systemPermissionSlug: 'read' },
+        { systemPermissionName: 'Crear', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Editar', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Eliminar', systemPermissionSlug: 'delete' },
+      ],
+    },
+    {
+      systemModuleSlug: 'assessment-templates',
+      permissions: [
+        { systemPermissionName: 'Read', systemPermissionSlug: 'read' },
+        { systemPermissionName: 'Create', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Update', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Delete', systemPermissionSlug: 'delete' },
+      ],
+    },
+    {
+      systemModuleSlug: 'certifications',
+      permissions: [
+        { systemPermissionName: 'Acceder', systemPermissionSlug: 'read' },
+        { systemPermissionName: 'Crear', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Editar', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Eliminar', systemPermissionSlug: 'delete' },
+      ],
+    },
+    {
+      systemModuleSlug: 'employee-lactation-periods',
+      permissions: [
+        { systemPermissionName: 'Acceder', systemPermissionSlug: 'read' },
+        { systemPermissionName: 'Crear', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Editar', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Eliminar', systemPermissionSlug: 'delete' },
+      ],
+    },
+    {
+      systemModuleSlug: 'repse-registrations',
+      permissions: [
+        { systemPermissionName: 'Acceder', systemPermissionSlug: 'read' },
+        { systemPermissionName: 'Crear', systemPermissionSlug: 'create' },
+        { systemPermissionName: 'Editar', systemPermissionSlug: 'update' },
+        { systemPermissionName: 'Eliminar', systemPermissionSlug: 'delete' },
+        { systemPermissionName: 'Gestionar', systemPermissionSlug: 'gestion' },
+      ],
+    },
+    {
+      systemModuleSlug: 'compliance',
+      permissions: [{ systemPermissionName: 'Acceder', systemPermissionSlug: 'read' }],
+    },
+    {
+      systemModuleSlug: 'telework-workers',
+      permissions: [{ systemPermissionName: 'Acceder', systemPermissionSlug: 'read' }],
+    },
+  ]
+
   async run() {
-    const systemPermissions = [
-      {
-        systemPermissionId: 1,
-        systemPermissionName: 'Create',
-        systemPermissionSlug: 'create',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 2,
-        systemPermissionName: 'Update',
-        systemPermissionSlug: 'update',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 3,
-        systemPermissionName: 'Delete',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 4,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 70,
-        systemPermissionName: 'Add exception',
-        systemPermissionSlug: 'add-exception',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 71,
-        systemPermissionName: 'Manage shift',
-        systemPermissionSlug: 'manage-shift',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 76,
-        systemPermissionName: 'Manage Vacation',
-        systemPermissionSlug: 'manage-vacation',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 77,
-        systemPermissionName: 'Exception Request',
-        systemPermissionSlug: 'exception-request',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 80,
-        systemPermissionName: 'Read Files',
-        systemPermissionSlug: 'read-only-files',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 81,
-        systemPermissionName: 'Manage Files',
-        systemPermissionSlug: 'manage-files',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 82,
-        systemPermissionName: 'Read Work Disabilities',
-        systemPermissionSlug: 'read-work-disabilities',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 83,
-        systemPermissionName: 'Manage Work Disabilities',
-        systemPermissionSlug: 'manage-work-disabilities',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 92,
-        systemPermissionName: 'Manage Shift Change',
-        systemPermissionSlug: 'manage-shift-change',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 103,
-        systemPermissionName: 'Manage Responsible Read',
-        systemPermissionSlug: 'manage-responsible-read',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 104,
-        systemPermissionName: 'Manage Responsible Edit',
-        systemPermissionSlug: 'manage-responsible-edit',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 106,
-        systemPermissionName: 'Manage BioTime',
-        systemPermissionSlug: 'manage-biotime',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 107,
-        systemPermissionName: 'Manage Assigned Read',
-        systemPermissionSlug: 'manage-assigned-read',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 108,
-        systemPermissionName: 'Manage Assigned Edit',
-        systemPermissionSlug: 'manage-assigned-edit',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 109,
-        systemPermissionName: 'Read Terminated Employees',
-        systemPermissionSlug: 'read-terminated-employees',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 110,
-        systemPermissionName: 'Update Information',
-        systemPermissionSlug: 'update-information',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 111,
-        systemPermissionName: 'Remove shift assigned at day',
-        systemPermissionSlug: 'remove-shift-assigned-to-the-day',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 113,
-        systemPermissionName: 'Full employee assigned',
-        systemPermissionSlug: 'full-employee-assigned',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 13,
-        systemPermissionName: 'Create',
-        systemPermissionSlug: 'create',
-        systemModuleId: 4
-      },
-      {
-        systemPermissionId: 14,
-        systemPermissionName: 'Update',
-        systemPermissionSlug: 'update',
-        systemModuleId: 4
-      },
-      {
-        systemPermissionId: 15,
-        systemPermissionName: 'Delete',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 4
-      },
-      {
-        systemPermissionId: 16,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 4
-      },
-      {
-        systemPermissionId: 17,
-        systemPermissionName: 'Create',
-        systemPermissionSlug: 'create',
-        systemModuleId: 5
-      },
-      {
-        systemPermissionId: 18,
-        systemPermissionName: 'Update',
-        systemPermissionSlug: 'update',
-        systemModuleId: 5
-      },
-      {
-        systemPermissionId: 19,
-        systemPermissionName: 'Delete',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 5
-      },
-      {
-        systemPermissionId: 20,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 5
-      },
-      {
-        systemPermissionId: 21,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 6
-      },
-      {
-        systemPermissionId: 105,
-        systemPermissionName: 'Consecutive Faults',
-        systemPermissionSlug: 'consecutive-faults',
-        systemModuleId: 6
-      },
-      {
-        systemPermissionId: 22,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 7
-      },
-      {
-        systemPermissionId: 78,
-        systemPermissionName: 'Read time worked',
-        systemPermissionSlug: 'read-time-worked',
-        systemModuleId: 7
-      },
-      {
-        systemPermissionId: 79,
-        systemPermissionName: 'Add manual assist',
-        systemPermissionSlug: 'add-assist-manual',
-        systemModuleId: 7
-      },
-      {
-        systemPermissionId: 93,
-        systemPermissionName: 'Sync Assist',
-        systemPermissionSlug: 'sync-assist',
-        systemModuleId: 7
-      },
-      {
-        systemPermissionId: 94,
-        systemPermissionName: 'Consecutive Faults',
-        systemPermissionSlug: 'consecutive-faults',
-        systemModuleId: 7
-      },
-      {
-        systemPermissionId: 112,
-        systemPermissionName: 'Delete check assist',
-        systemPermissionSlug: 'delete-check-assist',
-        systemModuleId: 7
-      },
-      {
-        systemPermissionId: 23,
-        systemPermissionName: 'Update',
-        systemPermissionSlug: 'update',
-        systemModuleId: 8
-      },
-      {
-        systemPermissionId: 24,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 8
-      },
-      {
-        systemPermissionId: 37,
-        systemPermissionName: 'Create',
-        systemPermissionSlug: 'create',
-        systemModuleId: 12
-      },
-      {
-        systemPermissionId: 38,
-        systemPermissionName: 'Update',
-        systemPermissionSlug: 'update',
-        systemModuleId: 12
-      },
-      {
-        systemPermissionId: 39,
-        systemPermissionName: 'Delete',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 12
-      },
-      {
-        systemPermissionId: 40,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 12
-      },
-      {
-        systemPermissionId: 41,
-        systemPermissionName: 'Create',
-        systemPermissionSlug: 'create',
-        systemModuleId: 13
-      },
-      {
-        systemPermissionId: 42,
-        systemPermissionName: 'Update',
-        systemPermissionSlug: 'update',
-        systemModuleId: 13
-      },
-      {
-        systemPermissionId: 43,
-        systemPermissionName: 'Delete',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 13
-      },
-      {
-        systemPermissionId: 44,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 13
-      },
-      {
-        systemPermissionId: 45,
-        systemPermissionName: 'Create',
-        systemPermissionSlug: 'create',
-        systemModuleId: 14
-      },
-      {
-        systemPermissionId: 46,
-        systemPermissionName: 'Update',
-        systemPermissionSlug: 'update',
-        systemModuleId: 14
-      },
-      {
-        systemPermissionId: 47,
-        systemPermissionName: 'Delete',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 14
-      },
-      {
-        systemPermissionId: 48,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 14
-      },
-      {
-        systemPermissionId: 65,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 19
-      },
-      {
-        systemPermissionId: 66,
-        systemPermissionName: 'Create',
-        systemPermissionSlug: 'create',
-        systemModuleId: 21
-      },
-      {
-        systemPermissionId: 67,
-        systemPermissionName: 'Update',
-        systemPermissionSlug: 'update',
-        systemModuleId: 21
-      },
-      {
-        systemPermissionId: 68,
-        systemPermissionName: 'Delete',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 21
-      },
-      {
-        systemPermissionId: 69,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 21
-      },
-      {
-        systemPermissionId: 72,
-        systemPermissionName: 'Create',
-        systemPermissionSlug: 'create',
-        systemModuleId: 22
-      },
-      {
-        systemPermissionId: 73,
-        systemPermissionName: 'Update',
-        systemPermissionSlug: 'update',
-        systemModuleId: 22
-      },
-      {
-        systemPermissionId: 74,
-        systemPermissionName: 'Delete',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 22
-      },
-      {
-        systemPermissionId: 75,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 22
-      },
-      {
-        systemPermissionId: 88,
-        systemPermissionName: 'Update',
-        systemPermissionSlug: 'update',
-        systemModuleId: 25
-      },
-      {
-        systemPermissionId: 89,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 25
-      },
-      {
-        systemPermissionId: 90,
-        systemPermissionName: 'Delete',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 25
-      },
-      {
-        systemPermissionId: 91,
-        systemPermissionName: 'Create',
-        systemPermissionSlug: 'create',
-        systemModuleId: 25
-      },
-      {
-        systemPermissionId: 95,
-        systemPermissionName: 'read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 26
-      },
-      {
-        systemPermissionId: 99,
-        systemPermissionName: 'read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 27
-      },
-      {
-        systemPermissionId: 114,
-        systemPermissionName: 'Ver Aniversarios',
-        systemPermissionSlug: 'read',
-        systemModuleId: 28
-      },
-      {
-        systemPermissionId: 115,
-        systemPermissionName: 'Acceder',
-        systemPermissionSlug: 'read',
-        systemModuleId: 29
-      },
-      {
-        systemPermissionId: 116,
-        systemPermissionName: 'Crear',
-        systemPermissionSlug: 'create',
-        systemModuleId: 29
-      },
-      {
-        systemPermissionId: 117,
-        systemPermissionName: 'Editar',
-        systemPermissionSlug: 'update',
-        systemModuleId: 29
-      },
-      {
-        systemPermissionId: 118,
-        systemPermissionName: 'Eliminar',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 29
-      },
-      {
-        systemPermissionId: 119,
-        systemPermissionName: 'Acceder',
-        systemPermissionSlug: 'read',
-        systemModuleId: 30
-      },
-      {
-        systemPermissionId: 120,
-        systemPermissionName: 'Crear',
-        systemPermissionSlug: 'create',
-        systemModuleId: 30
-      },
-      {
-        systemPermissionId: 121,
-        systemPermissionName: 'Editar',
-        systemPermissionSlug: 'update',
-        systemModuleId: 30
-      },
-      {
-        systemPermissionId: 122,
-        systemPermissionName: 'Eliminar',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 30
-      },
-      {
-        systemPermissionId: 123,
-        systemPermissionName: 'Acceder',
-        systemPermissionSlug: 'read',
-        systemModuleId: 31
-      },
-      {
-        systemPermissionId: 124,
-        systemPermissionName: 'Download summary report',
-        systemPermissionSlug: 'download-summary',
-        systemModuleId: 7
-      },
-      {
-        systemPermissionId: 125,
-        systemPermissionName: 'Display discounts in a summary',
-        systemPermissionSlug: 'display-discounts-summary',
-        systemModuleId: 7
-      },
-      {
-        systemPermissionId: 126,
-        systemPermissionName: 'Display payments in summary',
-        systemPermissionSlug: 'display-payments-summary',
-        systemModuleId: 7
-      },
-      {
-        systemPermissionId: 169,
-        systemPermissionName: 'Shift coverage',
-        systemPermissionSlug: 'shift-coverage',
-        systemModuleId: 7
-      },
-      {
-        systemPermissionId: 206,
-        systemPermissionName: 'See payroll mode',
-        systemPermissionSlug: 'see-payroll',
-        systemModuleId: 7
-      },
-      {
-        systemPermissionId: 127,
-        systemPermissionName: 'Acceder',
-        systemPermissionSlug: 'read',
-        systemModuleId: 32
-      },
-      {
-        systemPermissionId: 128,
-        systemPermissionName: 'Crear',
-        systemPermissionSlug: 'create',
-        systemModuleId: 32
-      },
-      {
-        systemPermissionId: 129,
-        systemPermissionName: 'Editar',
-        systemPermissionSlug: 'update',
-        systemModuleId: 32
-      },
-      {
-        systemPermissionId: 130,
-        systemPermissionName: 'Eliminar',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 32
-      },
-      {
-        systemPermissionId: 131,
-        systemPermissionName: 'Acceder',
-        systemPermissionSlug: 'read',
-        systemModuleId: 33
-      },
-      {
-        systemPermissionId: 132,
-        systemPermissionName: 'Crear',
-        systemPermissionSlug: 'create',
-        systemModuleId: 33
-      },
-      {
-        systemPermissionId: 133,
-        systemPermissionName: 'Editar',
-        systemPermissionSlug: 'update',
-        systemModuleId: 33
-      },
-      {
-        systemPermissionId: 134,
-        systemPermissionName: 'Eliminar',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 33
-      },
-      {
-        systemPermissionId: 135,
-        systemPermissionName: 'Show face ID',
-        systemPermissionSlug: 'show-face-id',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 136,
-        systemPermissionName: 'Upload face ID',
-        systemPermissionSlug: 'upload-face-id',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 137,
-        systemPermissionName: 'Show fingers',
-        systemPermissionSlug: 'show-fingers',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 138,
-        systemPermissionName: 'Upload fingers',
-        systemPermissionSlug: 'upload-fingers',
-        systemModuleId: 1
-      },
-      {
-        systemPermissionId: 139,
-        systemPermissionName: 'Acceder',
-        systemPermissionSlug: 'read',
-        systemModuleId: 34
-      },
-      {
-        systemPermissionId: 140,
-        systemPermissionName: 'Crear',
-        systemPermissionSlug: 'create',
-        systemModuleId: 34
-      },
-      {
-        systemPermissionId: 141,
-        systemPermissionName: 'Editar',
-        systemPermissionSlug: 'update',
-        systemModuleId: 34
-      },
-      {
-        systemPermissionId: 142,
-        systemPermissionName: 'Eliminar',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 34
-      },
-      {
-        systemPermissionId: 143,
-        systemPermissionName: 'Gestionar correos RH por faltas de asistencia',
-        systemPermissionSlug: 'manage-attendance-fault-hr-emails',
-        systemModuleId: 14
-      },
-      {
-        systemPermissionId: 144,
-        systemPermissionName: 'Read',
-        systemPermissionSlug: 'read',
-        systemModuleId: 35
-      },
-      {
-        systemPermissionId: 145,
-        systemPermissionName: 'Create',
-        systemPermissionSlug: 'create',
-        systemModuleId: 35
-      },
-      {
-        systemPermissionId: 146,
-        systemPermissionName: 'Update',
-        systemPermissionSlug: 'update',
-        systemModuleId: 35
-      },
-      {
-        systemPermissionId: 147,
-        systemPermissionName: 'Delete',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 35
-      },
-      {
-        systemPermissionId: 148,
-        systemPermissionName: 'Acceder',
-        systemPermissionSlug: 'read',
-        systemModuleId: 36
-      },
-      {
-        systemPermissionId: 149,
-        systemPermissionName: 'Crear',
-        systemPermissionSlug: 'create',
-        systemModuleId: 36
-      },
-      {
-        systemPermissionId: 150,
-        systemPermissionName: 'Editar',
-        systemPermissionSlug: 'update',
-        systemModuleId: 36
-      },
-      {
-        systemPermissionId: 151,
-        systemPermissionName: 'Eliminar',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 36
-      },
-      {
-        systemPermissionId: 152,
-        systemPermissionName: 'Acceder',
-        systemPermissionSlug: 'read',
-        systemModuleId: 37
-      },
-      {
-        systemPermissionId: 153,
-        systemPermissionName: 'Crear',
-        systemPermissionSlug: 'create',
-        systemModuleId: 37
-      },
-      {
-        systemPermissionId: 154,
-        systemPermissionName: 'Editar',
-        systemPermissionSlug: 'update',
-        systemModuleId: 37
-      },
-      {
-        systemPermissionId: 155,
-        systemPermissionName: 'Eliminar',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 37
-      },
-      {
-        systemPermissionId: 156,
-        systemPermissionName: 'Acceder',
-        systemPermissionSlug: 'read',
-        systemModuleId: 38
-      },
-      {
-        systemPermissionId: 157,
-        systemPermissionName: 'Crear',
-        systemPermissionSlug: 'create',
-        systemModuleId: 38
-      },
-      {
-        systemPermissionId: 158,
-        systemPermissionName: 'Editar',
-        systemPermissionSlug: 'update',
-        systemModuleId: 38
-      },
-      {
-        systemPermissionId: 159,
-        systemPermissionName: 'Eliminar',
-        systemPermissionSlug: 'delete',
-        systemModuleId: 38
-      },
-      {
-        systemPermissionId: 166,
-        systemPermissionName: 'Gestionar',
-        systemPermissionSlug: 'gestion',
-        systemModuleId: 38
-      },
-      {
-        systemPermissionId: 173,
-        systemPermissionName: 'Acceder',
-        systemPermissionSlug: 'read',
-        systemModuleId: 42
-      },
-      {
-        systemPermissionId: 187,
-        systemPermissionName: 'Acceder',
-        systemPermissionSlug: 'read',
-        systemModuleId: 46
-      },
-    ]
+    const moduleIdBySlug = await resolveSystemModuleIdsBySlug(
+      this.permissionsByModule.map((group) => group.systemModuleSlug),
+      this.seederName
+    )
 
-    for (const systemPermission of systemPermissions) {
-      // withTrashed: las filas con baja lógica cuentan para la PK pero el
-      // scope de SoftDeletes las oculta de updateOrCreate, lo que provocaba
-      // un INSERT duplicado al re-ejecutar el seeder.
-      const existing = await SystemPermission.query()
-        .withTrashed()
-        .where('systemPermissionId', systemPermission.systemPermissionId)
-        .first()
-
-      if (existing) {
-        // Se actualizan los datos sin tocar deletedAt: un permiso retirado
-        // (baja lógica) no debe revivir por re-ejecutar el seeder.
-        existing.merge(systemPermission)
-        await existing.save()
-        continue
-      }
-
-      await SystemPermission.create(systemPermission)
+    for (const group of this.permissionsByModule) {
+      const systemModuleId = moduleIdBySlug.get(group.systemModuleSlug)!
+      await upsertSystemPermissionsBySlug(systemModuleId, group.permissions, this.seederName)
     }
   }
 }

@@ -1,9 +1,15 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
 import User from '../../app/models/user.js'
 import BusinessUnit from '../../app/models/business_unit.js'
+import { resolveRoleIdsBySlug } from '../../app/helpers/system_catalog_seed_resolver.js'
 
 export default class extends BaseSeeder {
+  /** Rol del usuario de plataforma, por slug: el id depende del orden de siembra. */
+  private readonly roleSlug = 'root'
+
   async run() {
+    const roleIdBySlug = await resolveRoleIdsBySlug([this.roleSlug], '0008_user_seeder')
+
     const users = [
       {
         userEmail: 'desarrollo-software@gruposti.com',
@@ -11,7 +17,7 @@ export default class extends BaseSeeder {
         userPassword: 'GrupoSTI',
         userActive: 1,
         personId: 1,
-        roleId: 3,
+        roleId: roleIdBySlug.get(this.roleSlug)!,
         businessUnitIds: [1],
         isPlatformAdmin: true,
       },

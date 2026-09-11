@@ -596,7 +596,13 @@ export default class DemoFactoryService {
         .first()
       if (existingUser) continue
 
-      let roleId: number = roleEmployee?.roleId ?? 3
+      if (!roleEmployee) {
+        throw new Error(
+          `[demo_factory_service] Rol no encontrado por slug: ${DEMO_ROLE_RULES.roles.employee}. ` +
+            'Verifica que 0006_role_seeder haya corrido antes de generar la demo.'
+        )
+      }
+      let roleId: number = roleEmployee.roleId
 
       if (directorPos && emp.positionId === directorPos.positionId) {
         roleId = roleDirector?.roleId ?? roleId
@@ -619,6 +625,13 @@ export default class DemoFactoryService {
 
     // --- 6b. Usuarios root extra + empleados root ---------------------------
     const rootRole = await Role.query().where('role_slug', DEMO_ROLE_RULES.roles.root).first()
+    if (!rootRole) {
+      throw new Error(
+        `[demo_factory_service] Rol no encontrado por slug: ${DEMO_ROLE_RULES.roles.root}. ` +
+          'Verifica que 0006_role_seeder haya corrido antes de generar la demo.'
+      )
+    }
+    const rootRoleId = rootRole.roleId
 
     for (const [index, rootData] of DEMO_ROOT_USERS.entries()) {
       const existingUser = await User.query()
@@ -648,7 +661,7 @@ export default class DemoFactoryService {
       const rootDemoUser = await UserFactory.merge({
         userEmail: rootData.email,
         userPassword: DEMO_DEFAULT_PASSWORD,
-        roleId: rootRole?.roleId ?? 1,
+        roleId: rootRoleId,
         personId: rootPerson.personId,
       }).create()
 
