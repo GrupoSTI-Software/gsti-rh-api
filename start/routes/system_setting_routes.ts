@@ -13,7 +13,7 @@ router
     router.post('/', '#controllers/system_setting_controller.store').use(middleware.auth()).use(middleware.businessScope())
     router.put('/:systemSettingId', '#controllers/system_setting_controller.update').use(middleware.auth()).use(middleware.businessScope())
     router.delete('/:systemSettingId', '#controllers/system_setting_controller.delete').use(middleware.auth())
-    router.get('/:systemSettingId', '#controllers/system_setting_controller.show')
+    router.get('/:systemSettingId', '#controllers/system_setting_controller.show').use(middleware.auth()).use(middleware.businessScope())
   })
   .prefix('/api/system-settings')
 router.group(() => {

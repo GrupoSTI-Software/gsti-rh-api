@@ -16,6 +16,7 @@ import DeviceProfileRepositoryMysql from '#modules/access-point/device-profile/d
 import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
 import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 import DeviceCommandService from '../device_command.service.js'
+import { canTransition } from '../device_command.state.js'
 
 export type AckOutcome =
   | {
@@ -30,6 +31,21 @@ export type AckOutcome =
       infoDump: string | null
     }
   | { kind: 'orphan'; wireId: number | null }
+  /**
+   * El comando existe pero no estaba esperando acuse.
+   *
+   * Un `pending` nunca salio, un `cancelled` se retiro y un `failed` ya lo dio
+   * por muerto el barrido. Aplicarles el acuse acreditaria como hecho algo que
+   * no paso, asi que la fila no se toca y queda el aviso.
+   */
+  | { kind: 'stale'; commandId: number; status: string; returnCode: number | null }
+  /**
+   * El mismo acuse otra vez: el equipo repite cuando no recibe respuesta.
+   *
+   * No es un error ni hay nada que escribir --el resultado ya esta guardado y
+   * es identico-- asi que no levanta aviso.
+   */
+  | { kind: 'duplicate'; commandId: number; status: string; returnCode: number | null }
   | { kind: 'unreadable' }
 
 export interface AckInput {
@@ -67,14 +83,54 @@ export default class CommandAckService {
       return { kind: 'orphan', wireId: parsed.id }
     }
 
+    /**
+     * A donde llevaria este acuse, ANTES de tocar la fila.
+     *
+     * El estado lo decide la maquina (spec 6.2) y no el acuse: hasta ahora
+     * bastaba con que el identificador de cable existiera para reescribir el
+     * estado, asi que un comando `pending` --que nunca salio--, uno cancelado o
+     * uno que el barrido dio por fallido pasaban a `acked` o `executed` sin
+     * haber viajado nunca.
+     */
+    const executed =
+      parsed.returnCode === 0 && command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_UPSERT
+    const target =
+      parsed.returnCode !== 0
+        ? DEVICE_COMMAND_STATUS.FAILED
+        : executed
+          ? DEVICE_COMMAND_STATUS.EXECUTED
+          : DEVICE_COMMAND_STATUS.ACKED
+
+    /**
+     * El equipo reenvia el acuse si no recibe respuesta. Repetir el mismo
+     * resultado sobre el mismo comando no es una anomalia: se contesta y ya.
+     */
+    if (
+      command.deviceCommandStatus === target &&
+      command.deviceCommandReturnCode === parsed.returnCode
+    ) {
+      return {
+        kind: 'duplicate',
+        commandId: command.deviceCommandId,
+        status: command.deviceCommandStatus,
+        returnCode: parsed.returnCode,
+      }
+    }
+
+    if (!canTransition(command.deviceCommandStatus, target)) {
+      return {
+        kind: 'stale',
+        commandId: command.deviceCommandId,
+        status: command.deviceCommandStatus,
+        returnCode: parsed.returnCode,
+      }
+    }
+
     command.deviceCommandReturnCode = parsed.returnCode
     command.deviceCommandReturnRaw = parsed.dump ? parsed.dump.slice(0, 2000) : null
 
     if (parsed.returnCode === 0) {
-      const executed = command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_UPSERT
-      command.deviceCommandStatus = executed
-        ? DEVICE_COMMAND_STATUS.EXECUTED
-        : DEVICE_COMMAND_STATUS.ACKED
+      command.deviceCommandStatus = target
       command.deviceCommandAckedAt = input.now
       if (executed) {
         command.deviceCommandExecutedAt = input.now
@@ -88,7 +144,7 @@ export default class CommandAckService {
         command.deviceCommandCountersSnapshot = await this.readCounters(command.accessPointId)
       }
     } else {
-      command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
+      command.deviceCommandStatus = target
       command.deviceCommandFailedAt = input.now
       command.deviceCommandLastError =
         parsed.returnCode !== null && DEVICE_COMMAND_RETURN_CODES[parsed.returnCode] !== undefined

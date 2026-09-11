@@ -75,22 +75,44 @@ test.group('Reclamo de cuarentena desde plataforma', (group) => {
 
   group.teardown(async () => {
     await TenantContext.runUnscoped(async () => {
+      /**
+       * De las hijas hacia el padre.
+       *
+       * Los puntos de acceso se borraban primero y MySQL lo rechazaba por la
+       * llave foranea: reclamar deja una cuarentena apuntando al punto de
+       * acceso y un `INFO` en la cola. El teardown fallaba en silencio --japa lo
+       * reporta aparte del conteo de pruebas-- y cada corrida dejaba sus filas
+       * de prueba en la base.
+       */
       if (accessPointIds.length > 0) {
-        await db.from('access_points').whereIn('access_point_id', accessPointIds).delete()
-      }
-      if (deviceIds.length > 0) {
-        await db.from('platform_device_assignments').whereIn('platform_device_id', deviceIds).delete()
-        await db.from('platform_devices').whereIn('platform_device_id', deviceIds).delete()
-      }
-      if (!biometricsWasEnabled && tenant) {
-        tenant.businessUnitHasBiometrics = 0
-        await tenant.save()
+        await db.from('device_commands').whereIn('access_point_id', accessPointIds).delete()
+        await db
+          .from('adms_quarantined_devices')
+          .whereIn('claimed_access_point_id', accessPointIds)
+          .delete()
+        await db.from('access_point_profiles').whereIn('access_point_id', accessPointIds).delete()
+        await db.from('access_point_stamps').whereIn('access_point_id', accessPointIds).delete()
+        await db.from('adms_incidents').whereIn('access_point_id', accessPointIds).delete()
+        await db.from('adms_raw_messages').whereIn('access_point_id', accessPointIds).delete()
       }
       if (quarantineIds.length > 0) {
         await db
           .from('adms_quarantined_devices')
           .whereIn('adms_quarantined_device_id', quarantineIds)
           .delete()
+      }
+      if (deviceIds.length > 0) {
+        await db.from('platform_device_assignments').whereIn('platform_device_id', deviceIds).delete()
+      }
+      if (accessPointIds.length > 0) {
+        await db.from('access_points').whereIn('access_point_id', accessPointIds).delete()
+      }
+      if (deviceIds.length > 0) {
+        await db.from('platform_devices').whereIn('platform_device_id', deviceIds).delete()
+      }
+      if (!biometricsWasEnabled && tenant) {
+        tenant.businessUnitHasBiometrics = 0
+        await tenant.save()
       }
     }, 'limpieza del reclamo')
   })
@@ -238,6 +260,106 @@ test.group('Reclamo de cuarentena desde plataforma', (group) => {
     )
     assert.isNull(revivido.deletedAt)
     assert.equal(revivido.platformDeviceId, result.platformDeviceId)
+  })
+
+  /**
+   * Por el dominio comun se nace, y solo se nace: al reclamar, el equipo recibe
+   * su direccion propia y desde ahi habla el resto de su vida.
+   */
+  test('reclamar genera la direccion propia y la entrega una vez', async ({ assert }) => {
+    const serial = `TESTS${STAMP}`.slice(0, 24)
+    const row = await quarantineOf(serial)
+    const service = new PlatformQuarantineClaimService()
+    const result = await service.claim({
+      quarantinedDeviceId: row.admsQuarantinedDeviceId,
+      tenantPublicId: String(tenant.businessUnitPublicId),
+      platformDeviceModelId: modelId,
+      deliveredAt: new Date(),
+      createdByUserId: null,
+    })
+    deviceIds.push(result.platformDeviceId)
+    accessPointIds.push(result.accessPointId)
+
+    assert.lengthOf(result.channelSecret, 14)
+
+    const guardado = await TenantContext.runUnscoped(
+      () => AccessPoint.query().where('access_point_id', result.accessPointId).firstOrFail(),
+      'punto de acceso reclamado'
+    )
+    assert.equal(guardado.accessPointChannelSecret, result.channelSecret)
+    assert.isNotNull(guardado.accessPointChannelSecretSetAt)
+
+    /**
+     * Rotar entrega otra distinta. Se rota por causa --retirar el equipo de un
+     * cliente, sospecha de filtracion-- y nunca por calendario: rotar significa
+     * volver a teclear en el aparato.
+     */
+    const rotado = await service.rotateChannelSecret(result.accessPointId, DateTime.utc())
+    assert.notEqual(rotado, result.channelSecret)
+    assert.lengthOf(rotado, 14)
+  })
+
+  /**
+   * El mismo caso, pero la fila muerta era de OTRA empresa.
+   *
+   * Revivirla movia el punto de acceso de empresa y dejaba todas sus filas
+   * hijas --checadas, padron, comandos, incidentes-- apuntando a la anterior:
+   * las checadas de una empresa colgando de un checador de otra. Un aparato que
+   * cambia de dueno se retira del inventario primero.
+   */
+  test('una serie que pertenecio a otra empresa no se reclama en silencio', async ({ assert }) => {
+    const serial = `TESTO${STAMP}`.slice(0, 24)
+    const otra = await TenantContext.runUnscoped(
+      () =>
+        BusinessUnit.query()
+          .whereNull('business_unit_deleted_at')
+          .whereNot('business_unit_id', tenant.businessUnitId)
+          .firstOrFail(),
+      'segunda empresa para el aislamiento'
+    )
+
+    const muerto = await TenantContext.runUnscoped(async () => {
+      const ap = new AccessPoint()
+      ap.accessPointName = 'Checador de la otra empresa'
+      ap.businessUnitId = otra.businessUnitId
+      ap.accessPointActive = 1
+      ap.accessPointSerialNumber = serial
+      ap.accessPointStatus = 0
+      await ap.save()
+      accessPointIds.push(ap.accessPointId)
+      await ap.delete()
+      return ap
+    }, 'punto de acceso de otra empresa dado de baja')
+
+    const row = await quarantineOf(serial)
+    const service = new PlatformQuarantineClaimService()
+
+    let capturado: unknown = null
+    try {
+      await service.claim({
+        quarantinedDeviceId: row.admsQuarantinedDeviceId,
+        tenantPublicId: String(tenant.businessUnitPublicId),
+        platformDeviceModelId: modelId,
+        deliveredAt: new Date(),
+        createdByUserId: null,
+      })
+    } catch (error) {
+      capturado = error
+    }
+
+    assert.isNotNull(capturado)
+
+    /** Y sigue muerto y en su empresa: el reclamo no dejo rastro. */
+    const intacto = await TenantContext.runUnscoped(
+      () =>
+        AccessPoint.query()
+          .withTrashed()
+          .where('access_point_id', muerto.accessPointId)
+          .firstOrFail(),
+      'el punto de acceso ajeno no se toco'
+    )
+    assert.isNotNull(intacto.deletedAt)
+    assert.equal(intacto.businessUnitId, otra.businessUnitId)
   })
 
   /**
