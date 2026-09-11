@@ -10,6 +10,7 @@ import DeviceCommandService from '#modules/device-commands/device_command.servic
 import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
 import { PLATFORM_DEVICE_ERROR_CODES } from '#constants/platform_device_error_codes'
+import { generateChannelSecret } from '#modules/adms/channel/channel_secret'
 import { PlatformDeviceServiceError } from '#exceptions/platform_device_service_error'
 import { TenantContext } from '#utils/tenant_context'
 
@@ -36,6 +37,14 @@ export interface ClaimFromQuarantineResult {
   accessPointOutcome: 'created' | 'adopted'
   /** Verdadero si hubo que revivir una fila dada de baja con esa serie. */
   revivedDeletedAccessPoint: boolean
+  /**
+   * Direccion propia del equipo, la parte secreta.
+   *
+   * Se entrega UNA vez, aqui: quien instala el checador la teclea en el menu
+   * del aparato junto con el resto de la direccion. Despues se consulta desde
+   * la ficha del equipo, que es otra HU.
+   */
+  channelSecret: string
 }
 
 /**
@@ -52,6 +61,13 @@ export interface ClaimFromQuarantineResult {
  * como existencia colocable, su regimen es `propiedad_cliente` y al devolverlo
  * se retira solo en vez de volver a nuestras existencias.
  */
+/** Estado en el que estaba el punto de acceso antes de revivirlo. */
+interface RevivedAccessPoint {
+  accessPointId: number
+  deletedAt: DateTime | null
+  active: number
+}
+
 export default class PlatformQuarantineClaimService {
   constructor(
     private readonly devices: PlatformDeviceService = new PlatformDeviceService(),
@@ -79,7 +95,23 @@ export default class PlatformQuarantineClaimService {
      */
     const revived = await this.reviveDeletedIfAny(serial, tenant.businessUnitId)
 
-    const { device, created } = await this.createOrReuseDevice(serial, input.platformDeviceModelId)
+    /**
+     * Desde aqui hasta la asignacion, cualquier fallo tiene que devolver el
+     * punto de acceso a su baja: la revivificacion ya ocurrio y sin esto queda
+     * vivo y activo en una empresa que nunca llego a reclamarlo. `createOrReuse`
+     * lanza por su cuenta --serie ya tomada, modelo inexistente-- y estaba
+     * fuera de todo try.
+     */
+    let device: PlatformDevice
+    let created: boolean
+    try {
+      const reused = await this.createOrReuseDevice(serial, input.platformDeviceModelId)
+      device = reused.device
+      created = reused.created
+    } catch (error) {
+      if (revived) await this.undoRevive(revived)
+      throw error
+    }
 
     let assignment: Awaited<ReturnType<PlatformDeviceAssignmentService['createAssignment']>>
     try {
@@ -99,8 +131,23 @@ export default class PlatformQuarantineClaimService {
        * `del_cliente` sin cliente contradice la regla de existencias.
        */
       await this.compensate(device, input.createdByUserId, created)
+      if (revived) await this.undoRevive(revived)
       throw error
     }
+
+    /**
+     * La direccion propia del equipo, para entregarsela a quien lo instala.
+     *
+     * El punto de acceso ya nace con ella --lo pone un hook del modelo, para
+     * que las tres vias de alta la tengan-- asi que aqui solo se lee. Se
+     * genera unicamente si el punto de acceso venia de antes de este cambio y
+     * no tiene: sin eso, ese equipo se quedaria en convivencia para siempre y
+     * sin canal el dia del corte.
+     */
+    const channelSecret = await this.readOrAssignChannelSecret(
+      assignment.accessPoint.accessPointId,
+      now
+    )
 
     await this.markClaimed(
       row,
@@ -124,8 +171,42 @@ export default class PlatformQuarantineClaimService {
       accessPointId: assignment.accessPoint.accessPointId,
       accessPointName: assignment.accessPoint.accessPointName,
       accessPointOutcome: assignment.accessPointOutcome,
-      revivedDeletedAccessPoint: revived,
+      revivedDeletedAccessPoint: revived !== null,
+      channelSecret,
     }
+  }
+
+  /** La direccion propia del equipo, generandola si el alta es anterior al hook. */
+  async readOrAssignChannelSecret(accessPointId: number, now: DateTime): Promise<string> {
+    const existing = await TenantContext.runUnscoped(
+      () =>
+        AccessPoint.query().where('access_point_id', accessPointId).first(),
+      UNSCOPED_REASON
+    )
+    if (existing?.accessPointChannelSecret) return existing.accessPointChannelSecret
+
+    return this.rotateChannelSecret(accessPointId, now)
+  }
+
+  /**
+   * Le da al equipo una direccion nueva.
+   *
+   * Se llama por causa --al retirar un checador de un cliente, o ante sospecha
+   * de filtracion-- y nunca por calendario: rotar significa volver a teclear en
+   * el aparato, y una rotacion automatica sin nadie enfrente lo deja hablando a
+   * una direccion que ya no existe.
+   */
+  async rotateChannelSecret(accessPointId: number, now: DateTime): Promise<string> {
+    const secret = generateChannelSecret()
+    await TenantContext.runUnscoped(async () => {
+      const point = await AccessPoint.query()
+        .where('access_point_id', accessPointId)
+        .firstOrFail()
+      point.accessPointChannelSecret = secret
+      point.accessPointChannelSecretSetAt = now
+      await point.save()
+    }, UNSCOPED_REASON)
+    return secret
   }
 
   /**
@@ -221,31 +302,88 @@ export default class PlatformQuarantineClaimService {
     )
   }
 
-  /** Ver el comentario del llamador: la UNIQUE de serie no sabe de bajas. */
-  private async reviveDeletedIfAny(serial: string, businessUnitId: number): Promise<boolean> {
+  /**
+   * Ver el comentario del llamador: la UNIQUE de serie no sabe de bajas.
+   *
+   * Solo revive lo que era de ESTA empresa. La fila muerta arrastra todo lo que
+   * ese aparato registro --checadas, padron, comandos, incidentes, avance de
+   * subida-- y esas filas hijas llevan su propia empresa: cambiarle la empresa
+   * al punto de acceso las dejaba a todas apuntando a la anterior, con las
+   * checadas de una empresa colgando de un checador de otra. Un aparato que
+   * cambia de dueno se retira del inventario primero; aqui se rechaza de frente
+   * en vez de reasignarlo en silencio.
+   */
+  private async reviveDeletedIfAny(
+    serial: string,
+    businessUnitId: number
+  ): Promise<RevivedAccessPoint | null> {
     return TenantContext.runUnscoped(async () => {
       const dead = await AccessPoint.query()
         .withTrashed()
         .whereNotNull('access_point_deleted_at')
         .where('access_point_serial_number', serial)
         .first()
-      if (!dead) return false
+      if (!dead) return null
+
+      if (dead.businessUnitId !== businessUnitId) {
+        throw new PlatformDeviceServiceError(
+          `La serie ${serial} pertenecio a otra empresa`,
+          PLATFORM_DEVICE_ERROR_CODES.SERIAL_TAKEN_BY_OTHER_TENANT,
+          409,
+          PLATFORM_DEVICE_ERROR_CODES.SERIAL_TAKEN_BY_OTHER_TENANT,
+          'Ese checador estuvo dado de alta en otra empresa y conserva su historial. Retiralo del inventario de esa empresa antes de entregarlo a esta.'
+        )
+      }
 
       logger.info(
         {
           serialNumber: serial,
           accessPointId: dead.accessPointId,
-          previousBusinessUnitId: dead.businessUnitId,
           businessUnitId,
         },
         'Reclamo de cuarentena: se revive el punto de acceso dado de baja que tenia esa serie'
       )
+      const previous = {
+        accessPointId: dead.accessPointId,
+        deletedAt: dead.deletedAt,
+        active: dead.accessPointActive,
+      }
       dead.deletedAt = null
-      dead.businessUnitId = businessUnitId
       dead.accessPointActive = 1
       await dead.save()
-      return true
+      return previous
     }, UNSCOPED_REASON)
+  }
+
+  /**
+   * Devuelve a su baja el punto de acceso que se revivio.
+   *
+   * Se revive ANTES de crear la unidad y la asignacion --si no, el alta choca
+   * contra la UNIQUE de la serie con un 500 que no explica nada-- asi que un
+   * fallo posterior lo dejaba vivo y activo en una empresa que nunca llego a
+   * reclamarlo.
+   */
+  private async undoRevive(revived: RevivedAccessPoint): Promise<void> {
+    try {
+      await TenantContext.runUnscoped(async () => {
+        const row = await AccessPoint.query()
+          .withTrashed()
+          .where('access_point_id', revived.accessPointId)
+          .first()
+        if (!row) return
+        row.deletedAt = revived.deletedAt
+        row.accessPointActive = revived.active
+        await row.save()
+      }, UNSCOPED_REASON)
+    } catch (error) {
+      logger.error(
+        {
+          accessPointId: revived.accessPointId,
+          error: (error as Error).message.slice(0, 200),
+        },
+        'Reclamo de cuarentena: no se pudo devolver a su baja el punto de acceso revivido'
+      )
+    }
   }
 
   /**

@@ -109,10 +109,11 @@ export default class SystemSettingService {
     return currentSystemSetting
   }
 
-  async show(systemSettingId: number) {
+  async show(systemSettingId: number, businessUnitScope: number[]) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
       .preload('systemSettingPayrollConfigs')
       .first()
     return systemSetting ? systemSetting : null

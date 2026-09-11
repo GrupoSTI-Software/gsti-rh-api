@@ -1,3 +1,4 @@
+import type { DateTime } from 'luxon'
 import type AccessPointEmployee from '#models/access_point_employee'
 import type { AccessPointEmployeeSyncStatus } from '#models/access_point_employee'
 import type { AccessPointEmployeeEventKind } from '#models/access_point_employee_event'
@@ -45,6 +46,14 @@ export interface EmployeeSyncRepository {
    */
   listTakenPins(accessPointId: number, exceptPivotId?: number): Promise<string[]>
   listLiveByEmployee(employeeId: number): Promise<AccessPointEmployee[]>
+  /**
+   * Cuantos deberian estar DENTRO del aparato a una hora dada.
+   *
+   * Solo los confirmados, y solo si su confirmacion es anterior a esa hora: un
+   * alta que salio despues de que el equipo declaro sus contadores todavia no
+   * podia estar contada.
+   */
+  countConfirmedBefore(accessPointId: number, at: DateTime): Promise<number>
   save(pivot: AccessPointEmployee): Promise<void>
   recordEvent(input: SyncEventInput): Promise<void>
   findByCommandTarget(accessPointEmployeeId: number): Promise<AccessPointEmployee | null>

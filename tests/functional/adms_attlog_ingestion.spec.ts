@@ -28,14 +28,20 @@ const STAMP = `${Date.now()}`
 const SERIAL = `TEST-ADMS-I-${STAMP}`
 const UNKNOWN_PIN = '8999123'
 
+/**
+ * Base de la corrida, leida UNA vez.
+ *
+ * Antes cada llamada releia el reloj, asi que "el mismo instante" solo era el
+ * mismo si los dos tests que lo pedian no cruzaban un borde de segundo. La
+ * llave natural de la checada incluye el instante y la UNIQUE de la retencion
+ * tambien: un segundo de diferencia crea fila nueva, y la prueba del reenvio
+ * identico pasaba a comprobar otra cosa sin avisar.
+ */
+const RUN_BASE = DateTime.utc().minus({ hours: 2 }).startOf('second')
+
 /** Instante irrepetible por corrida, en hora local del equipo. */
 function localTimeFor(offsetSeconds: number, zone: string): string {
-  return DateTime.utc()
-    .minus({ hours: 2 })
-    .plus({ seconds: offsetSeconds })
-    .startOf('second')
-    .setZone(zone)
-    .toFormat('yyyy-MM-dd HH:mm:ss')
+  return RUN_BASE.plus({ seconds: offsetSeconds }).setZone(zone).toFormat('yyyy-MM-dd HH:mm:ss')
 }
 
 async function postAttlog(body: string): Promise<Response> {
