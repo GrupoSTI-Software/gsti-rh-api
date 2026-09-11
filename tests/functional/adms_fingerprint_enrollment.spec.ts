@@ -1,6 +1,5 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import env from '#start/env'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
@@ -11,6 +10,7 @@ import DeviceCommand from '#models/device_command'
 import Employee from '#models/employee'
 import User from '#models/user'
 import { TenantContext } from '#utils/tenant_context'
+import { admsChannelGet, admsChannelPost } from '#tests/helpers/adms_channel_request'
 import DeviceCommandService from '#modules/device-commands/device_command.service'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
 import FingerprintEnrollmentService from '#modules/biometric-vault/enrollment/fingerprint_enrollment.service'
@@ -23,20 +23,11 @@ import type { BiometricVaultError } from '#exceptions/biometric_vault_error'
  * acuse. `Return=0` significa recibido; la prueba de que la huella entro es que
  * el equipo la suba o que alguien marque con ella.
  */
-const BASE = `http://${env.get('HOST')}:${env.get('PORT')}`
 const STAMP = `${Date.now()}`
 const SERIAL = `TEST-ADMS-E-${STAMP}`
 const PIN = '667788'
 /** Base64 de 700 caracteres: dentro de la banda de huella (512 a 4096). */
 const TEMPLATE = 'A'.repeat(700)
-
-async function get(path: string): Promise<Response> {
-  return fetch(`${BASE}${path}`, { method: 'GET' })
-}
-
-async function postText(path: string, body: string, type = 'text/plain'): Promise<Response> {
-  return fetch(`${BASE}${path}`, { method: 'POST', headers: { 'content-type': type }, body })
-}
 
 test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
   let accessPoint: AccessPoint
@@ -46,6 +37,13 @@ test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
   let user: User
   let pivotId: number
   let currentLegalDocumentId: number
+
+  /** Toda peticion del canal viaja por la direccion propia del equipo de la fixture. */
+  const get = (path: string): Promise<Response> =>
+    admsChannelGet(path, accessPoint.accessPointChannelSecret)
+
+  const postText = (path: string, body: string, type = 'text/plain'): Promise<Response> =>
+    admsChannelPost(path, body, accessPoint.accessPointChannelSecret, type)
 
   group.setup(async () => {
     await TenantContext.runUnscoped(async () => {

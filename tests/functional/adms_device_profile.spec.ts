@@ -1,6 +1,5 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import env from '#start/env'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import AccessPointProfile from '#models/access_point_profile'
@@ -13,6 +12,7 @@ import Person from '#models/person'
 import Role from '#models/role'
 import User from '#models/user'
 import { TenantContext } from '#utils/tenant_context'
+import { admsChannelPost } from '#tests/helpers/adms_channel_request'
 
 /**
  * Rebanada 2 (spec 9.1, 4.4 y 11): options al perfil, endpoints de perfil y
@@ -20,21 +20,12 @@ import { TenantContext } from '#utils/tenant_context'
  * BD real; fixture propio `TEST-ADMS-P-<stamp>`; las concesiones de permiso que
  * hace la prueba se retiran por id en el teardown.
  */
-const BASE = `http://${env.get('HOST')}:${env.get('PORT')}`
 const STAMP = `${Date.now()}`
 const SERIAL = `TEST-ADMS-P-${STAMP}`
 const GRANT_MARK = '2000-01-02 00:00:00'
 
 const V5L =
   '~DeviceName=SpeedFace-V5L,MAC=00:17:61:13:20:21,UserCount=1,~MaxUserCount=100,FPVersion=10,~MaxFingerCount=60,FPCount=1,FaceVersion=39,~MaxFaceCount=6000,FaceCount=0,IPAddress=192.168.1.59,~Platform=ZAM180_TFT,~OEMVendor=ZKTECO CO., LTD.,FWVersion=ZAM180-NF50VA-Ver3.4.9,PushVersion=Ver 2.0.33S-20220623'
-
-async function postOptions(serial: string, body: string): Promise<Response> {
-  return fetch(`${BASE}/iclock/cdata?SN=${serial}&table=options`, {
-    method: 'POST',
-    headers: { 'content-type': 'text/plain' },
-    body,
-  })
-}
 
 interface FixtureUnit {
   businessUnitId: number
@@ -162,6 +153,14 @@ test.group('ADMS device profile y upload progress (rebanada 2)', (group) => {
   const grantedIds: number[] = []
   let outsider: Outsider
 
+  /** El `options` viaja por la direccion propia del equipo, como lo manda el aparato. */
+  const postOptions = (body: string): Promise<Response> =>
+    admsChannelPost(
+      `/iclock/cdata?SN=${SERIAL}&table=options`,
+      body,
+      accessPoint.accessPointChannelSecret
+    )
+
   group.setup(async () => {
     fixture = await resolveFixture()
     accessPoint = await TenantContext.runUnscoped(async () => {
@@ -202,7 +201,7 @@ test.group('ADMS device profile y upload progress (rebanada 2)', (group) => {
   test('options llena el perfil, copia la identidad al punto de acceso y se acusa', async ({
     assert,
   }) => {
-    const response = await postOptions(SERIAL, V5L)
+    const response = await postOptions(V5L)
     assert.equal(response.status, 200)
     assert.equal(await response.text(), 'OK: 1')
     const profile = await TenantContext.runUnscoped(
@@ -244,10 +243,7 @@ test.group('ADMS device profile y upload progress (rebanada 2)', (group) => {
   test('cambio de firmware y plataforma desconocida dejan incidentes sin bloquear', async ({
     assert,
   }) => {
-    await postOptions(
-      SERIAL,
-      V5L.replace('Ver3.4.9', 'Ver3.5.0').replace('ZAM180_TFT', 'ZMM220_TFT')
-    )
+    await postOptions(V5L.replace('Ver3.4.9', 'Ver3.5.0').replace('ZAM180_TFT', 'ZMM220_TFT'))
     const kinds = await TenantContext.runUnscoped(async () => {
       const rows = await AdmsIncident.query().where('access_point_id', accessPoint.accessPointId)
       return rows.map((row) => row.admsIncidentKind)

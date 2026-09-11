@@ -1,5 +1,4 @@
 import { test } from '@japa/runner'
-import env from '#start/env'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
@@ -10,13 +9,13 @@ import AdmsUnmappedPin from '#models/adms_unmapped_pin'
 import BiometricTemplate from '#models/biometric_template'
 import Employee from '#models/employee'
 import { TenantContext } from '#utils/tenant_context'
+import { admsChannelPost } from '#tests/helpers/adms_channel_request'
 
 /**
  * Rebanada 6 de extremo a extremo: el biometrico que el equipo captura queda
  * custodiado, versionado y cifrado, y lo que no se puede atribuir se conserva
  * en vez de perderse. Volver a pedirle el dedo a alguien cuesta una visita.
  */
-const BASE = `http://${env.get('HOST')}:${env.get('PORT')}`
 const STAMP = `${Date.now()}`
 const SERIAL = `TEST-ADMS-B-${STAMP}`
 const UNKNOWN_PIN = '8991234'
@@ -25,19 +24,19 @@ const FINGER_BLOB = 'A'.repeat(1120)
 const FINGER_BLOB_V10 = 'C'.repeat(1120)
 const FACE_BLOB = 'B'.repeat(1400)
 
-async function postTable(table: string, body: string): Promise<Response> {
-  return fetch(`${BASE}/iclock/cdata?SN=${SERIAL}&table=${table}&Stamp=9999`, {
-    method: 'POST',
-    headers: { 'content-type': 'text/plain' },
-    body,
-  })
-}
-
 test.group('ADMS boveda de biometricos (rebanada 6)', (group) => {
   let accessPoint: AccessPoint
   let employee: Employee
   let businessUnitId: number
   let pin: string
+
+  /** La subida viaja por la direccion propia del equipo, como la manda el aparato. */
+  const postTable = (table: string, body: string): Promise<Response> =>
+    admsChannelPost(
+      `/iclock/cdata?SN=${SERIAL}&table=${table}&Stamp=9999`,
+      body,
+      accessPoint.accessPointChannelSecret
+    )
 
   group.setup(async () => {
     await TenantContext.runUnscoped(async () => {

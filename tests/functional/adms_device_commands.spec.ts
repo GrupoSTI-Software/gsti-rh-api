@@ -1,5 +1,4 @@
 import { test } from '@japa/runner'
-import env from '#start/env'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import AdmsIncident from '#models/adms_incident'
@@ -10,28 +9,16 @@ import User from '#models/user'
 import DeviceCommandService from '#modules/device-commands/device_command.service'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
 import { TenantContext } from '#utils/tenant_context'
+import { admsChannelGet, admsChannelPost } from '#tests/helpers/adms_channel_request'
 
 /**
  * Rebanada 4 de extremo a extremo: encolar, entregar por `getrequest` en orden
  * de prioridad, acusar por `devicecmd` y consultar desde el Backoffice sin que
  * el payload salga nunca.
  */
-const BASE = `http://${env.get('HOST')}:${env.get('PORT')}`
 const STAMP = `${Date.now()}`
 const SERIAL = `TEST-ADMS-C-${STAMP}`
 const GRANT_MARK = '2000-01-03 00:00:00'
-
-async function get(path: string): Promise<Response> {
-  return fetch(`${BASE}${path}`, { method: 'GET' })
-}
-
-async function postText(path: string, body: string): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/octet-stream' },
-    body,
-  })
-}
 
 async function grantToRole(roleId: number, slug: string): Promise<number | null> {
   const permission = await db
@@ -67,6 +54,13 @@ test.group('ADMS cola de comandos (rebanada 4)', (group) => {
   let publicId: string
   let user: User
   const grantedIds: number[] = []
+
+  /** Toda peticion del canal viaja por la direccion propia del equipo de la fixture. */
+  const get = (path: string): Promise<Response> =>
+    admsChannelGet(path, accessPoint.accessPointChannelSecret)
+
+  const postText = (path: string, body: string): Promise<Response> =>
+    admsChannelPost(path, body, accessPoint.accessPointChannelSecret, 'application/octet-stream')
 
   group.setup(async () => {
     await TenantContext.runUnscoped(async () => {

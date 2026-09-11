@@ -1,6 +1,5 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import env from '#start/env'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
@@ -14,6 +13,7 @@ import DeviceCommand from '#models/device_command'
 import Employee from '#models/employee'
 import { TenantContext } from '#utils/tenant_context'
 import { generatePhotoToken, hashPhotoToken } from '#modules/biometric-vault/photo/photo_token'
+import { admsChannelGet } from '#tests/helpers/adms_channel_request'
 
 /**
  * Rebanada 9: la puerta de la foto.
@@ -22,20 +22,22 @@ import { generatePhotoToken, hashPhotoToken } from '#modules/biometric-vault/pho
  * sesion detras. Lo que se prueba aqui es que TODO lo que no sea un token vivo
  * responde 404, y que nada en la respuesta distingue un caso de otro.
  */
-const BASE = `http://${env.get('HOST')}:${env.get('PORT')}`
 const STAMP = `${Date.now()}`
 const SERIAL = `TEST-ADMS-F-${STAMP}`
 const PIN = '556677'
-
-async function get(path: string): Promise<Response> {
-  return fetch(`${BASE}${path}`, { method: 'GET' })
-}
 
 test.group('ADMS foto por token (rebanada 9)', (group) => {
   let accessPoint: AccessPoint
   let employee: Employee
   let businessUnitId: number
   const publicationIds: number[] = []
+
+  /**
+   * La descarga tambien se comprueba contra la direccion propia del equipo al
+   * que va la publicacion, asi que la peticion viaja por ella.
+   */
+  const get = (path: string): Promise<Response> =>
+    admsChannelGet(path, accessPoint.accessPointChannelSecret)
 
   group.setup(async () => {
     await TenantContext.runUnscoped(async () => {

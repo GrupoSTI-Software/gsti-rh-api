@@ -1,6 +1,5 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import env from '#start/env'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee, {
@@ -17,24 +16,16 @@ import DeviceCommand from '#models/device_command'
 import Employee from '#models/employee'
 import User from '#models/user'
 import { TenantContext } from '#utils/tenant_context'
+import { admsChannelGet, admsChannelPost } from '#tests/helpers/adms_channel_request'
 
 /**
  * Rebanada 7 de extremo a extremo. Lo que importa demostrar aqui es la
  * cuarentena del PIN: mientras el equipo no confirme el borrado, ese numero no
  * se le da a nadie mas y las checadas que lleguen con el se retienen.
  */
-const BASE = `http://${env.get('HOST')}:${env.get('PORT')}`
 const STAMP = `${Date.now()}`
 const SERIAL = `TEST-ADMS-S-${STAMP}`
 const PIN = '778899'
-
-async function get(path: string): Promise<Response> {
-  return fetch(`${BASE}${path}`, { method: 'GET' })
-}
-
-async function postText(path: string, body: string, type = 'text/plain'): Promise<Response> {
-  return fetch(`${BASE}${path}`, { method: 'POST', headers: { 'content-type': type }, body })
-}
 
 test.group('ADMS matriz empleado por dispositivo (rebanada 7)', (group) => {
   let accessPoint: AccessPoint
@@ -42,6 +33,13 @@ test.group('ADMS matriz empleado por dispositivo (rebanada 7)', (group) => {
   let businessUnitId: number
   let publicId: string
   let user: User
+
+  /** Toda peticion del canal viaja por la direccion propia del equipo de la fixture. */
+  const get = (path: string): Promise<Response> =>
+    admsChannelGet(path, accessPoint.accessPointChannelSecret)
+
+  const postText = (path: string, body: string, type = 'text/plain'): Promise<Response> =>
+    admsChannelPost(path, body, accessPoint.accessPointChannelSecret, type)
 
   group.setup(async () => {
     await TenantContext.runUnscoped(async () => {
