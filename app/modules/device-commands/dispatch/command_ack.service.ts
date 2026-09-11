@@ -2,10 +2,9 @@ import type { DateTime } from 'luxon'
 import DeviceCommandRepositoryMysql from '../device_command.repository.mysql.js'
 import {
   DEVICE_COMMAND_KIND,
-  DEVICE_COMMAND_RETURN_CODES,
   DEVICE_COMMAND_STATUS,
-  DEVICE_COMMAND_UNKNOWN_RETURN,
   DEVICE_COMMAND_EVIDENCE,
+  returnCodeLabel,
 } from '../device_command.constants.js'
 import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
 import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
@@ -146,10 +145,7 @@ export default class CommandAckService {
     } else {
       command.deviceCommandStatus = target
       command.deviceCommandFailedAt = input.now
-      command.deviceCommandLastError =
-        parsed.returnCode !== null && DEVICE_COMMAND_RETURN_CODES[parsed.returnCode] !== undefined
-          ? DEVICE_COMMAND_RETURN_CODES[parsed.returnCode]
-          : DEVICE_COMMAND_UNKNOWN_RETURN
+      command.deviceCommandLastError = returnCodeLabel(parsed.returnCode)
     }
 
     await this.repository.save(command)

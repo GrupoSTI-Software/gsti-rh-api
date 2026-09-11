@@ -13,6 +13,23 @@ export interface OccupancySlot {
   ratio: number | null
 }
 
+/**
+ * El ultimo desenlace malo de la cola de este equipo.
+ *
+ * `failed: 3` dice que algo se rompio pero no que fue: quien mira la ficha
+ * tiene que ir a la base a averiguarlo. El codigo de retorno es el dato que
+ * cierra el diagnostico, porque `Return` es lo unico que el aparato dice de si
+ * mismo cuando rechaza una orden.
+ */
+export interface QueueFailureDto {
+  kind: string
+  /** `Return` tal como lo acuso el equipo. Un fallo del servidor no lo tiene. */
+  returnCode: number | null
+  /** Nombre medido del codigo, o `unknown_return_code:<codigo>`. */
+  error: string | null
+  failedAt: string | null
+}
+
 export interface QueueHealth {
   pending: number
   inFlight: number
@@ -21,6 +38,8 @@ export interface QueueHealth {
   stale: number
   /** Antiguedad del pendiente mas viejo, en segundos. */
   oldestPendingSeconds: number | null
+  /** Ultimo fallo, aunque ya se haya reintentado con exito despues. */
+  lastFailure: QueueFailureDto | null
 }
 
 export interface ClockHealth {

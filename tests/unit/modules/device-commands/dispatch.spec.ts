@@ -347,7 +347,7 @@ test.group('Acuse de comandos', () => {
     assert.equal(saved[0].deviceCommandLastError, 'template_version_mismatch')
   })
 
-  test('un codigo fuera del catalogo se marca como desconocido, no se ignora', async ({
+  test('un codigo fuera del catalogo se marca como desconocido con su numero', async ({
     assert,
   }) => {
     const command = commandOf({ deviceCommandStatus: DEVICE_COMMAND_STATUS.SENT })
@@ -358,7 +358,13 @@ test.group('Acuse de comandos', () => {
       body: 'ID=1788912000000&Return=-77&CMD=DATA',
       now: NOW,
     })
-    assert.equal(saved[0].deviceCommandLastError, 'unknown_return_code')
+    /**
+     * El numero va pegado: sin el, todos los codigos no medidos dicen lo mismo
+     * y el siguiente que lea la fila no tiene con que buscar. Se midio `-1005`
+     * en `enroll_fp` justo asi, indistinguible de cualquier otro.
+     */
+    assert.equal(saved[0].deviceCommandLastError, 'unknown_return_code:-77')
+    assert.equal(saved[0].deviceCommandReturnCode, -77)
   })
 
   test('un acuse de otro dispositivo no se aplica', async ({ assert }) => {

@@ -230,6 +230,17 @@ export default class HealthService {
       .orderBy('device_command_id', 'asc')
       .first()
 
+    /**
+     * Se busca por `failed_at`, no por estado: un comando que fallo y luego se
+     * reencolo y paso ya no esta en `failed`, pero su codigo de retorno sigue
+     * siendo la pista de lo que le pasa al equipo.
+     */
+    const lastFailed = await DeviceCommand.query()
+      .where('access_point_id', accessPoint.accessPointId)
+      .whereNotNull('device_command_failed_at')
+      .orderBy('device_command_failed_at', 'desc')
+      .first()
+
     const pending = byStatus.get(DEVICE_COMMAND_STATUS.PENDING) ?? 0
     const lastSeen = accessPoint.accessPointLastConnection
     const staleSince = now.minus({ minutes: DEVICE_COMMAND_STALE_PENDING_MINUTES })
@@ -244,6 +255,14 @@ export default class HealthService {
         oldest?.deviceCommandCreatedAt !== undefined && oldest.deviceCommandCreatedAt !== null
           ? Math.max(0, Math.round(now.diff(oldest.deviceCommandCreatedAt, 'seconds').seconds))
           : null,
+      lastFailure: lastFailed
+        ? {
+            kind: lastFailed.deviceCommandKind,
+            returnCode: lastFailed.deviceCommandReturnCode ?? null,
+            error: lastFailed.deviceCommandLastError ?? null,
+            failedAt: lastFailed.deviceCommandFailedAt?.toISO() ?? null,
+          }
+        : null,
     }
   }
 
