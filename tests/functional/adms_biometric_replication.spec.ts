@@ -11,10 +11,12 @@ const i18nFake = { formatMessage: (key: string) => key } as unknown as I18n
 import AccessPointProfile from '#models/access_point_profile'
 import BiometricTemplate from '#models/biometric_template'
 import BusinessUnitUser from '#models/business_unit_user'
+import AdmsIncident from '#models/adms_incident'
 import DeviceCommand from '#models/device_command'
 import Employee from '#models/employee'
 import { TenantContext } from '#utils/tenant_context'
 import ReplicationService from '#modules/biometric-vault/replication/replication.service'
+import EmployeeBiometricSummaryService from '#modules/biometric-vault/device-biometrics/employee_biometric_summary.service'
 import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
 
 /**
@@ -171,8 +173,30 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
       'conteo tras la vista previa'
     )
     assert.equal(commands[0].$extras.total, 0)
+
+    /**
+     * Una vista previa es una pregunta, no un hecho: si asentara incidentes,
+     * consultar a que equipos cabe una huella ensuciaria la bitacora del
+     * equipo sin que nadie haya intentado copiar nada.
+     */
+    const incidents = await TenantContext.runUnscoped(
+      () =>
+        AdmsIncident.query()
+          .where('access_point_id', incompatible.accessPointId)
+          .where('adms_incident_kind', 'template_version_mismatch'),
+      'incidentes tras la vista previa'
+    )
+    assert.lengthOf(incidents, 0)
   })
 
+  /**
+   * Se mira el template DEL FIXTURE, no todos los del colaborador.
+   *
+   * El spec corre sobre la base de desarrollo y toma al primer colaborador de
+   * la empresa: si alguien enrolo un dedo real con el hardware --paso el
+   * 2026-09-10-- su template queda en la misma boveda y con otra version. El
+   * conteo global convertia ese dato ajeno en un fallo del corte por version.
+   */
   test('el template solo sale hacia el equipo con la misma version mayor', async ({ assert }) => {
     await replicate(false)
 
@@ -180,7 +204,8 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
       () =>
         DeviceCommand.query()
           .whereIn('access_point_id', [compatible.accessPointId, incompatible.accessPointId])
-          .where('device_command_kind', 'biodata_write'),
+          .where('device_command_kind', 'biodata_write')
+          .where('biometric_template_id', templateId),
       'comandos encolados'
     )
 
@@ -188,6 +213,62 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     assert.equal(commands[0].accessPointId, compatible.accessPointId)
     // 13 y 13.2 son la misma version mayor; 10 no.
     assert.equal(commands[0].deviceCommandPin, PIN_COMPAT)
+  })
+
+  /**
+   * Saltarse el equipo incompatible es correcto; callarlo no.
+   *
+   * Sin este asiento, el equipo se queda con gente dada de alta que no puede
+   * identificarse con el dedo y nadie lo sabe hasta que alguien se queda
+   * parado en la puerta.
+   */
+  test('el equipo que no puede recibir ninguna huella queda asentado', async ({ assert }) => {
+    /**
+     * Version inventada a proposito: ningun template, ni del fixture ni de un
+     * enrolamiento real que ande por la boveda, la alcanza. Es la unica forma
+     * de que el escenario sea "no cruzo NADA" corriendo sobre datos vivos.
+     */
+    const ajeno = await makeDevice(`TEST-REPL-VER-${STAMP}`, '5152', '99')
+
+    await replicate(false, [ajeno.accessPointId])
+
+    const incidents = await TenantContext.runUnscoped(
+      () =>
+        AdmsIncident.query()
+          .where('access_point_id', ajeno.accessPointId)
+          .where('adms_incident_kind', 'template_version_mismatch'),
+      'incidentes de version incompatible'
+    )
+
+    assert.lengthOf(incidents, 1)
+    assert.equal(incidents[0].admsIncidentSeverity, 'warning')
+    assert.equal(incidents[0].admsIncidentStatus, 'open')
+    assert.equal(incidents[0].admsIncidentContext?.deviceVersion, '99')
+    assert.include(incidents[0].admsIncidentContext?.vaultVersions ?? '', '13')
+    assert.equal(incidents[0].admsIncidentContext?.modality, 'fingerprint')
+
+    const commands = await TenantContext.runUnscoped(
+      () => DeviceCommand.query().where('access_point_id', ajeno.accessPointId),
+      'comandos hacia el equipo ajeno'
+    )
+    assert.lengthOf(commands, 0)
+
+    /** El equipo que si recibio la copia no tiene por que salir senalado. */
+    const clean = await TenantContext.runUnscoped(
+      () =>
+        AdmsIncident.query()
+          .where('access_point_id', compatible.accessPointId)
+          .where('adms_incident_kind', 'template_version_mismatch'),
+      'incidentes del equipo compatible'
+    )
+    assert.lengthOf(clean, 0)
+
+    await TenantContext.runUnscoped(async () => {
+      await db.from('adms_incidents').where('access_point_id', ajeno.accessPointId).delete()
+      await db.from('access_point_employees').where('access_point_id', ajeno.accessPointId).delete()
+      await AccessPointProfile.query().where('access_point_id', ajeno.accessPointId).delete()
+      await db.from('access_points').where('access_point_id', ajeno.accessPointId).delete()
+    }, 'limpieza del equipo ajeno')
   })
 
   /**
@@ -319,13 +400,20 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
     assert.equal(logs[0].user_id, userId)
   })
 
+  /**
+   * Mira el template DEL FIXTURE por lo mismo que la prueba de arriba: la
+   * boveda del colaborador es real y le entran dedos de las corridas con
+   * hardware. Uno nuevo compatible con este equipo convertia una copia legitima
+   * en un "comando duplicado" que nadie duplico.
+   */
   test('repetir la copia no duplica el comando', async ({ assert }) => {
     await replicate(false)
     const commands = await TenantContext.runUnscoped(
       () =>
         DeviceCommand.query()
           .where('access_point_id', compatible.accessPointId)
-          .where('device_command_kind', 'biodata_write'),
+          .where('device_command_kind', 'biodata_write')
+          .where('biometric_template_id', templateId),
       'comandos tras repetir'
     )
     assert.lengthOf(commands, 1)
@@ -380,6 +468,101 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
       await AccessPointProfile.query().where('access_point_id', nuevo.accessPointId).delete()
       await AccessPoint.query().where('access_point_id', nuevo.accessPointId).delete()
     }, 'limpieza del equipo nuevo')
+  })
+
+  /**
+   * Lo que la ficha anunciaba el 2026-09-10: "Huella en camino" diecisiete
+   * horas despues del acuse, hacia un equipo que se habia reseteado en medio.
+   *
+   * Un acuse solo prueba que la orden llego. Sobre lo que el aparato TIENE
+   * dentro, su contador es la unica palabra que vale.
+   */
+  test('un equipo que declara estar vacio desmiente la copia acusada', async ({ assert }) => {
+    const summaries = new EmployeeBiometricSummaryService()
+    const dedoDelFixture = 3
+
+    const copia = await TenantContext.runUnscoped(
+      () =>
+        DeviceCommand.query()
+          .where('access_point_id', compatible.accessPointId)
+          .where('biometric_template_id', templateId)
+          .firstOrFail(),
+      'la copia hacia el equipo compatible'
+    )
+    copia.deviceCommandStatus = 'acked'
+    copia.deviceCommandAckedAt = DateTime.utc().minus({ hours: 1 })
+    await TenantContext.runUnscoped(() => copia.save(), 'se deja acusada sin confirmar')
+
+    const antes = await TenantContext.run([businessUnitId], () =>
+      summaries.of(employee.employeeId, compatible.accessPointId)
+    )
+    assert.equal(
+      antes.fingers.find((finger) => finger.fingerId === dedoDelFixture)?.state,
+      'sent'
+    )
+
+    /** El equipo saluda despues del acuse y declara que no tiene ni una huella. */
+    const profile = await TenantContext.runUnscoped(
+      () =>
+        AccessPointProfile.query()
+          .where('access_point_id', compatible.accessPointId)
+          .firstOrFail(),
+      'perfil del equipo compatible'
+    )
+    profile.accessPointProfileFpCount = 0
+    profile.accessPointProfileOptionsReadAt = DateTime.utc()
+    await TenantContext.runUnscoped(() => profile.save(), 'el equipo se declara vacio')
+
+    const despues = await TenantContext.run([businessUnitId], () =>
+      summaries.of(employee.employeeId, compatible.accessPointId)
+    )
+    assert.equal(
+      despues.fingers.find((finger) => finger.fingerId === dedoDelFixture)?.state,
+      'copyable'
+    )
+  })
+
+  /**
+   * El otro lado del automatismo, y el que costo caro el 2026-09-10: el alta si
+   * entra al equipo aunque la huella no pueda seguirla. La persona queda dada
+   * de alta en un lector donde no puede identificarse.
+   *
+   * El operador esta frente a la pantalla en ese momento: es cuando puede
+   * mandarla al lector, en vez de enterarse el dia que se quede parada en la
+   * puerta.
+   */
+  test('el alta avisa cuando el equipo no puede recibir la huella', async ({ assert }) => {
+    const ajeno = await makeDevice(`TEST-REPL-ALTA-${STAMP}`, '5153', '99')
+    await TenantContext.runUnscoped(
+      () => db.from('access_point_employees').where('access_point_id', ajeno.accessPointId).delete(),
+      'el alta la hace el servicio, no el fixture'
+    )
+
+    const service = new EmployeeAssignmentService(i18nFake)
+    const asignacion = await TenantContext.run([businessUnitId], () =>
+      service.assign(ajeno.accessPointId, employee.employeeId, [businessUnitId], userId, {
+        ip: '127.0.0.1',
+      })
+    )
+
+    assert.isTrue(asignacion.fingerprintVersionMismatch)
+    assert.equal(asignacion.queuedBiometrics, 0)
+
+    /** El alta si viaja: lo que no puede ir es la huella. */
+    const comandos = await TenantContext.runUnscoped(
+      () => DeviceCommand.query().where('access_point_id', ajeno.accessPointId),
+      'comandos del alta ajena'
+    )
+    assert.isAtLeast(comandos.length, 1)
+    assert.isTrue(comandos.every((command) => command.deviceCommandKind !== 'biodata_write'))
+
+    await TenantContext.runUnscoped(async () => {
+      await DeviceCommand.query().where('access_point_id', ajeno.accessPointId).delete()
+      await db.from('adms_incidents').where('access_point_id', ajeno.accessPointId).delete()
+      await AccessPointEmployee.query().where('access_point_id', ajeno.accessPointId).delete()
+      await AccessPointProfile.query().where('access_point_id', ajeno.accessPointId).delete()
+      await AccessPoint.query().where('access_point_id', ajeno.accessPointId).delete()
+    }, 'limpieza del alta ajena')
   })
 
 })

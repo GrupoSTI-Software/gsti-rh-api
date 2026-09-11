@@ -9,9 +9,9 @@ import AdmsIncident from '#models/adms_incident'
 import AdmsRawMessage from '#models/adms_raw_message'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
+import Person from '#models/person'
+import Role from '#models/role'
 import User from '#models/user'
-import PermissionGateService from '#services/permission_gate_service'
-import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import { TenantContext } from '#utils/tenant_context'
 
 /**
@@ -45,6 +45,57 @@ interface FixtureUnit {
 interface Fixture {
   own: FixtureUnit
   foreign: FixtureUnit | null
+}
+
+/** Usuario recien creado con un rol propio y sin una sola concesion. */
+interface Outsider {
+  user: User
+  person: Person
+  role: Role
+  pivotId: number
+}
+
+/**
+ * Crea un usuario sin permisos en la empresa dada.
+ *
+ * Hace falta uno propio: el usuario del fixture es el primer pivote de
+ * `business_unit_users`, tipicamente owner, y ese cae en el bypass del gate.
+ * Con el, la rama del 403 no se ejecuta nunca y la prueba de denegacion no
+ * prueba nada.
+ */
+async function createOutsider(businessUnitId: number): Promise<Outsider> {
+  return TenantContext.runUnscoped(async () => {
+    const role = new Role()
+    role.roleName = `Sin permisos ADMS ${STAMP}`
+    role.roleSlug = `adms-sin-permisos-${STAMP}`
+    role.roleDescription = 'Rol de prueba sin concesiones sobre biometric-devices'
+    role.roleActive = 1
+    role.roleBusinessAccess = 'assigned'
+    await role.save()
+
+    const person = new Person()
+    person.personFirstname = 'Sin'
+    person.personLastname = 'Permisos'
+    person.personSecondLastname = STAMP
+    person.personEmail = `adms-sin-permisos-${STAMP}@gsti-tests.local`
+    await person.save()
+
+    const user = new User()
+    user.userEmail = person.personEmail
+    user.userPassword = 'AdmsSinPermisos123!'
+    user.userActive = 1
+    user.roleId = role.roleId
+    user.personId = person.personId
+    user.userEmailType = 'institutional'
+    await user.save()
+
+    const pivot = new BusinessUnitUser()
+    pivot.businessUnitId = businessUnitId
+    pivot.userId = user.userId
+    await pivot.save()
+
+    return { user, person, role, pivotId: pivot.businessUnitUserId }
+  }, 'usuario sin permisos para la prueba de denegacion')
 }
 
 async function resolveFixture(): Promise<Fixture> {
@@ -109,6 +160,7 @@ test.group('ADMS device profile y upload progress (rebanada 2)', (group) => {
   let fixture: Fixture
   let accessPoint: AccessPoint
   const grantedIds: number[] = []
+  let outsider: Outsider
 
   group.setup(async () => {
     fixture = await resolveFixture()
@@ -122,6 +174,8 @@ test.group('ADMS device profile y upload progress (rebanada 2)', (group) => {
       await ap.save()
       return ap
     }, 'alta del punto de acceso de prueba')
+
+    outsider = await createOutsider(fixture.own.businessUnitId)
   })
 
   group.teardown(async () => {
@@ -137,6 +191,11 @@ test.group('ADMS device profile y upload progress (rebanada 2)', (group) => {
       await AccessPointStamp.query().where('access_point_id', accessPoint.accessPointId).delete()
       await AccessPointProfile.query().where('access_point_id', accessPoint.accessPointId).delete()
       await db.from('access_points').where('access_point_id', accessPoint.accessPointId).delete()
+
+      await db.from('business_unit_users').where('business_unit_user_id', outsider.pivotId).delete()
+      await User.query().where('user_id', outsider.user.userId).delete()
+      await Person.query().where('person_id', outsider.person.personId).delete()
+      await Role.query().where('role_id', outsider.role.roleId).delete()
     }, 'limpieza del perfil ADMS')
   })
 
@@ -205,26 +264,34 @@ test.group('ADMS device profile y upload progress (rebanada 2)', (group) => {
     assert.equal(profile.accessPointProfileFwVersion, 'ZAM180-NF50VA-Ver3.5.0')
   })
 
-  test('sin permiso read-health el perfil responde 403 (salvo bypass documentado del rol)', async ({
-    client,
-    assert,
-  }) => {
-    const decision = await new PermissionGateService().evaluateEnforced(
-      fixture.own.user,
-      ACCESS_POINT_PERMISSION_DECLARATIONS.readHealth
-    )
+  /**
+   * Sin condicionales y con un usuario propio.
+   *
+   * Antes la prueba le preguntaba al mismo gate que estaba probando: si
+   * respondia `allowed`, assertaba 200 y se iba. Con eso, un gate que
+   * autorizara a cualquiera la habria dejado igual de verde. Y el usuario del
+   * fixture suele ser owner, que cae en bypass, asi que la rama del 403 casi
+   * nunca corria.
+   */
+  test('sin permiso read-health el perfil responde 403', async ({ client, assert }) => {
     const response = await client
       .get(`/api/v1/access-points/${accessPoint.accessPointId}/profile`)
-      .loginAs(fixture.own.user)
+      .loginAs(outsider.user)
       .header('X-Business-Unit-Id', fixture.own.publicId)
-    if (decision.allowed) {
-      assert.oneOf(decision.reason, ['bypass', 'granted'])
-      response.assertStatus(200)
-      return
-    }
+
     response.assertStatus(403)
     assert.equal(response.body().key, 'sin-permiso')
     assert.equal(response.body().code, 'ADMS.AUTHZ.002')
+  })
+
+  test('sin permiso tampoco se puede reiniciar el avance de subida', async ({ client, assert }) => {
+    const response = await client
+      .post(`/api/v1/access-points/${accessPoint.accessPointId}/upload-progress/reset`)
+      .loginAs(outsider.user)
+      .header('X-Business-Unit-Id', fixture.own.publicId)
+
+    response.assertStatus(403)
+    assert.equal(response.body().key, 'sin-permiso')
   })
 
   test('con permiso el perfil y el avance responden; el reset pone todo en cero', async ({
@@ -281,11 +348,13 @@ test.group('ADMS device profile y upload progress (rebanada 2)', (group) => {
   })
 
   test('un usuario de otra empresa recibe 404 sobre el mismo id', async ({ client, assert }) => {
+    /**
+     * Sin segunda empresa no hay nada que comprobar, y decirlo en verde es
+     * peor que no tener la prueba: el aislamiento es prioridad del dominio y
+     * quedaba condicionado a los datos que casualmente tuviera la base.
+     */
     if (!fixture.foreign) {
-      assert.isNull(
-        fixture.foreign,
-        'solo hay una empresa con usuario; el aislamiento no es comprobable aqui'
-      )
+      assert.fail('el fixture requiere dos empresas con usuario para probar el aislamiento')
       return
     }
     const id = await grantToRole(fixture.foreign.user.roleId, 'read-health')

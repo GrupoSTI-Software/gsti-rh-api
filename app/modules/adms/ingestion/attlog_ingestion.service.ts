@@ -121,11 +121,21 @@ export default class AttlogIngestionService {
     const clockSamples: number[] = []
     let heldCount = 0
     let invalidTime = 0
+    /**
+     * La primera hora que no se pudo convertir, con su PIN.
+     *
+     * Es el unico punto de la ingesta donde una checada no llega ni a `assists`
+     * ni a la retencion: la linea sigue en el cuerpo crudo, pero fuera del
+     * flujo. Un aviso que solo diga "hubo 3" no permite ir a buscarla, asi que
+     * se guarda una muestra concreta.
+     */
+    let firstInvalid: { pin: string; localTime: string } | null = null
 
     for (const row of parsed.rows) {
       const converted = this.time.toUtc(row.localTime, zone.zone)
       if (!converted.ok) {
         invalidTime += 1
+        firstInvalid = firstInvalid ?? { pin: row.pin, localTime: row.localTime }
         continue
       }
 
@@ -175,10 +185,14 @@ export default class AttlogIngestionService {
         code: ADMS_ERROR_CODES.VAL_LINE_UNPARSEABLE,
         title: 'Horas de checada no interpretables',
         detail:
-          'Una o mas checadas traen una hora que no se pudo convertir con la zona configurada.',
+          'Una o mas checadas traen una hora que no se pudo convertir con la zona configurada. Esas lineas no entraron ni al calendario ni a la retencion: quedan solo en el mensaje crudo del equipo.',
         key: 'hora-ilegible',
         dedupeMinutes: PARSE_ERROR_DEDUPE_MINUTES,
-        context: { lines: invalidTime },
+        context: {
+          lines: invalidTime,
+          pin: firstInvalid?.pin,
+          reason: firstInvalid?.localTime,
+        },
       })
     }
 
@@ -356,7 +370,8 @@ export default class AttlogIngestionService {
       detail: string
       key: string
       dedupeMinutes: number
-      context?: { lines?: number; platform?: string }
+      /** Claves de la lista blanca de incidentes que esta ingesta usa. */
+      context?: { lines?: number; platform?: string; pin?: string; reason?: string }
     }
   ): Promise<void> {
     await this.incidents.record(

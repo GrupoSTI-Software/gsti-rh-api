@@ -1,5 +1,7 @@
 import { Server, Socket } from 'socket.io'
 import AdonisServer from '@adonisjs/core/services/server'
+import { timingSafeEqual } from 'node:crypto'
+import env from '#start/env'
 
 /** Promesa pendiente de respuesta de info de dispositivo ZK (serial_number → resolve/reject) */
 type PendingZkDeviceInfo = {
@@ -172,7 +174,40 @@ class Ws {
         origin: '*',
       },
     })
+
+    /**
+     * Quien se conecta con el token del puente queda marcado como tal.
+     *
+     * No se rechaza la conexion sin token: por este mismo socket habla tambien
+     * el Backoffice, que es una sesion de usuario y no lleva este secreto. Lo
+     * que se marca aqui lo exigen despues los eventos que solo puede emitir un
+     * checador --dar de alta un equipo, registrar una checada-- y que hasta
+     * ahora aceptaba cualquiera que supiera la direccion del servidor.
+     */
+    this.io.use((socket, next) => {
+      const offered = socket.handshake.auth?.token
+      socket.data.isBridge = isBridgeToken(typeof offered === 'string' ? offered : null)
+      next()
+    })
   }
+}
+
+/**
+ * El token del puente, comparado sin filtrar por temporizacion.
+ *
+ * Sin `ADMS_BRIDGE_TOKEN` configurado nadie es puente: los eventos de
+ * dispositivo deciden por su cuenta si eso los frena o solo los avisa, porque
+ * desplegar no puede dejar mudos a los checadores que ya operan.
+ */
+function isBridgeToken(offered: string | null): boolean {
+  const expected = env.get('ADMS_BRIDGE_TOKEN')
+  if (!expected || !offered) return false
+
+  const a = Buffer.from(offered, 'utf8')
+  const b = Buffer.from(String(expected), 'utf8')
+  if (a.length !== b.length) return false
+
+  return timingSafeEqual(a, b)
 }
 
 export default new Ws()
