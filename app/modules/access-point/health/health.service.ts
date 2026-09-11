@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import { TenantContext } from '#utils/tenant_context'
+import { getBusinessTimeZone } from '#utils/business_date'
 import AccessPointProfile from '#models/access_point_profile'
 import AccessPointEmployee, {
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
@@ -136,6 +137,7 @@ export default class HealthService {
         measuredAt: profile?.accessPointProfileClockMeasuredAt?.toISO() ?? null,
         syncedAt: profile?.accessPointProfileClockSyncedAt?.toISO() ?? null,
         status: profile?.accessPointProfileClockSyncStatus ?? null,
+        timezone: timezoneOf(accessPoint.accessPointTimezone ?? null),
       },
       occupancy: occupancyOf(profile, catalogModel?.capacity ?? null),
       enrollment,
@@ -332,6 +334,25 @@ export default class HealthService {
       .first()
     return row !== null && row !== undefined
   }
+}
+
+/**
+ * Zona con la que se leen las checadas de un equipo, y de donde sale.
+ *
+ * La del equipo manda sobre la de la empresa: una sede no siempre esta en la
+ * misma franja, y usar la de la empresa para todas manda las checadas de las
+ * demas al dia equivocado.
+ *
+ * @param deviceZone - Zona IANA propia del equipo, o `null` si no tiene.
+ * @returns La zona efectiva y su procedencia.
+ */
+export function timezoneOf(deviceZone: string | null): {
+  zone: string
+  source: 'device' | 'business'
+} {
+  return deviceZone
+    ? { zone: deviceZone, source: 'device' }
+    : { zone: getBusinessTimeZone(), source: 'business' }
 }
 
 /** Un equipo que nunca llamo no esta "caido": casi siempre es red o alta mal hecha. */

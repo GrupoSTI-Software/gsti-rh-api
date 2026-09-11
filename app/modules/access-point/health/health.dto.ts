@@ -28,6 +28,15 @@ export interface ClockHealth {
   measuredAt: string | null
   syncedAt: string | null
   status: AccessPointClockSyncStatus | null
+  /**
+   * Zona con la que se leen las checadas de este equipo.
+   *
+   * `device` es la suya propia, configurada aparte porque una sede no siempre
+   * esta en la misma franja que la empresa; `business` es la de la empresa,
+   * que es lo que se usa cuando el equipo no declara una. Sin el origen, una
+   * sede en Tijuana y otra en Ciudad de Mexico se ven igual en la ficha.
+   */
+  timezone: { zone: string; source: 'device' | 'business' }
 }
 
 export interface HardeningHealth {
