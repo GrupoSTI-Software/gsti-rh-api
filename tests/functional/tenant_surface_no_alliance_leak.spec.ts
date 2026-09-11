@@ -79,5 +79,7 @@ test.group('GET /api/billing/subscription/me — no-fuga de alianza', (group) =>
     assert.notInclude(raw, 'discountCodeAllianceId')
     assert.notInclude(raw, 'alliance_qr_storage_key')
     assert.notInclude(raw, 'allianceQrStorageKey')
+    assert.notInclude(raw, 'allianceAttribution')
+    assert.notInclude(raw, 'alliance_attribution')
   })
 })

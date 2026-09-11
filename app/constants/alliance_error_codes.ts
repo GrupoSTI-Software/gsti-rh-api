@@ -39,6 +39,16 @@ export const ALLIANCE_ERROR_CODES = {
   CODE_GENERATION_EXHAUSTED: 'PLT.ALL.CODE_GENERATION_EXHAUSTED',
   /** El almacenamiento no entregó la imagen del QR */
   QR_UNAVAILABLE: 'PLT.ALL.QR_UNAVAILABLE',
+  /** El cliente ya tiene una atribución viva */
+  ATTRIBUTION_ALREADY_LIVE: 'PLT.ALL.ATTRIBUTION_ALREADY_LIVE',
+  /** Empresa cliente no encontrada o retirada con soft delete */
+  BUSINESS_UNIT_NOT_FOUND: 'PLT.ALL.BUSINESS_UNIT_NOT_FOUND',
+  /** Atribución no encontrada */
+  ATTRIBUTION_NOT_FOUND: 'PLT.ALL.ATTRIBUTION_NOT_FOUND',
+  /** Se intentó atribuir un cliente a una alianza inactiva */
+  INACTIVE: 'PLT.ALL.INACTIVE',
+  /** La fecha de inicio de la atribución es posterior a hoy */
+  ATTRIBUTION_START_IN_FUTURE: 'PLT.ALL.ATTRIBUTION_START_IN_FUTURE',
   /** Error no tipado del módulo */
   SYS_UNHANDLED: 'PLT.ALL.SYS_UNHANDLED',
 } as const
@@ -169,6 +179,42 @@ export const ALLIANCE_ERRORS = {
     detail: 'No se pudo obtener la imagen del código ahora. Inténtalo de nuevo.',
     code: ALLIANCE_ERROR_CODES.QR_UNAVAILABLE,
     status: 503,
+  },
+  ATTRIBUTION_ALREADY_LIVE: {
+    key: 'el-cliente-ya-tiene-atribucion-viva',
+    title: 'Alianzas',
+    detail:
+      'Esta empresa cliente ya le corresponde a una alianza. Cierra la atribución actual antes de crear otra.',
+    code: ALLIANCE_ERROR_CODES.ATTRIBUTION_ALREADY_LIVE,
+    status: 409,
+  },
+  BUSINESS_UNIT_NOT_FOUND: {
+    key: 'empresa-cliente-no-encontrada',
+    title: 'Alianzas',
+    detail: 'La empresa cliente no fue encontrada.',
+    code: ALLIANCE_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND,
+    status: 404,
+  },
+  ATTRIBUTION_NOT_FOUND: {
+    key: 'atribucion-no-encontrada',
+    title: 'Alianzas',
+    detail: 'La atribución no fue encontrada.',
+    code: ALLIANCE_ERROR_CODES.ATTRIBUTION_NOT_FOUND,
+    status: 404,
+  },
+  INACTIVE: {
+    key: 'alianza-inactiva',
+    title: 'Alianzas',
+    detail: 'Solo se puede atribuir un cliente a una alianza activa.',
+    code: ALLIANCE_ERROR_CODES.INACTIVE,
+    status: 422,
+  },
+  ATTRIBUTION_START_IN_FUTURE: {
+    key: 'fecha-de-inicio-en-el-futuro',
+    title: 'Alianzas',
+    detail: 'La fecha desde la que aplica no puede ser posterior a hoy.',
+    code: ALLIANCE_ERROR_CODES.ATTRIBUTION_START_IN_FUTURE,
+    status: 422,
   },
   SYS_UNHANDLED: {
     key: 'error-sistema',

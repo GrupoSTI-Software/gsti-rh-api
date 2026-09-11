@@ -6,9 +6,11 @@ import { middleware } from '../kernel.js'
  *   GET  /api/platform/tenants              → listado paginado + filtros
  *   GET  /api/platform/tenants/:id          → detalle por businessUnitPublicId
  *   PUT  /api/platform/tenants/:id/biometrics → encender/apagar biométricos
+ *   GET  /api/platform/tenants/:businessUnitPublicId/alliance-attributions
+ *        → histórico de atribuciones (declarado en platform_alliance_attribution_routes.ts)
  *
  *   Todos tras guard platformAdmin (auth + is_platform_admin).
- *   Refs: USRH1784574994924, USRH1787189981872.
+ *   Refs: USRH1784574994924, USRH1787189981872, USRH1789099318034.
  */
 router
   .group(() => {
