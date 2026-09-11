@@ -17,7 +17,7 @@ test.group('SystemSetting show — rutas con scope obligatorio', () => {
     assert.include(content, "prefix('/api/system-settings')")
     assert.include(
       content,
-      "router.get('/:systemSettingId', '#controllers/system_setting_controller.show').use(middleware.auth()).use(middleware.businessScope())"
+      "router.get('/:systemSettingId', '#controllers/system_setting_controller.show').use(middleware.auth()).use(middleware.businessScope()).use(middleware.permissionGate(SYSTEM_SETTINGS_READ_PERMISSION_DECLARATIONS.show))"
     )
   })
 
@@ -26,19 +26,19 @@ test.group('SystemSetting show — rutas con scope obligatorio', () => {
 
     assert.include(
       content,
-      "router.get('/', '#controllers/system_setting_controller.index').use(middleware.auth()).use(middleware.businessScope())"
+      "router.get('/', '#controllers/system_setting_controller.index').use(middleware.auth()).use(middleware.businessScope()).use(middleware.permissionGate(SYSTEM_SETTINGS_READ_PERMISSION_DECLARATIONS.index))"
     )
     assert.include(
       content,
-      "router.post('/', '#controllers/system_setting_controller.store').use(middleware.auth()).use(middleware.businessScope())"
+      "router.post('/', '#controllers/system_setting_controller.store').use(middleware.auth()).use(middleware.businessScope()).use(middleware.permissionGate(SYSTEM_SETTINGS_WRITE_PERMISSION_DECLARATIONS.store))"
     )
     assert.include(
       content,
-      "router.put('/:systemSettingId', '#controllers/system_setting_controller.update').use(middleware.auth()).use(middleware.businessScope())"
+      "router.put('/:systemSettingId', '#controllers/system_setting_controller.update').use(middleware.auth()).use(middleware.businessScope()).use(middleware.permissionGate(SYSTEM_SETTINGS_WRITE_PERMISSION_DECLARATIONS.update))"
     )
     assert.include(
       content,
-      "router.delete('/:systemSettingId', '#controllers/system_setting_controller.delete').use(middleware.auth()).use(middleware.businessScope())"
+      "router.delete('/:systemSettingId', '#controllers/system_setting_controller.delete').use(middleware.auth()).use(middleware.businessScope()).use(middleware.permissionGate(SYSTEM_SETTINGS_DELETE_PERMISSION_DECLARATIONS.delete))"
     )
   })
 
