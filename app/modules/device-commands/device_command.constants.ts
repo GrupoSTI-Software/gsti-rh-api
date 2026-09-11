@@ -65,6 +65,15 @@ export const DEVICE_COMMAND_RETURN_CODES: Readonly<Record<number, string>> = {
   [-1]: 'table_rejected',
   [-30]: 'template_version_mismatch',
   [-629]: 'dialect_mismatch',
+  /**
+   * Nadie completo la captura: el aparato abrio la sesion de enrolamiento y la
+   * cerro solo a los ~65 s. Es el desenlace mas comun de un enrolamiento que no
+   * sale, y sin nombre propio quedaba como codigo desconocido, indistinguible
+   * de un fallo real frente a quien espera con la persona enfrente.
+   */
+  [-725]: 'enroll_timeout',
+  /** Verbo del dialecto equivocado; ademas deja un usuario fantasma en el equipo. */
+  [-1003]: 'wrong_dialect_verb',
   [-1004]: 'invalid_table',
 }
 

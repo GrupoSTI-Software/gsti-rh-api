@@ -15,6 +15,10 @@ import HeldBiometricRepositoryMysql from './held_biometric.repository.mysql.js'
 import type { HeldBiometricRepository } from './held_biometric.repository.js'
 import logger from '@adonisjs/core/services/logger'
 import ExecutionEvidenceService from '#modules/device-commands/evidence/execution_evidence.service'
+import ReplicationService from '#modules/biometric-vault/replication/replication.service'
+import AccessPointEmployee, {
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
+} from '#models/access_point_employee'
 
 /** Una captura biometrica ya normalizada, venga de donde venga. */
 export interface NormalizedBiometric {
@@ -67,6 +71,7 @@ export default class BiometricUploadService {
     private readonly heldPunches: HeldPunchRepository = new HeldPunchRepositoryMysql(),
     private readonly incidents: IncidentService = new IncidentService(),
     private readonly evidence: ExecutionEvidenceService = new ExecutionEvidenceService(),
+    private readonly replication: ReplicationService = new ReplicationService(),
     private readonly roster: RosterReconciliationService = new RosterReconciliationService()
   ) {}
 
@@ -231,7 +236,6 @@ export default class BiometricUploadService {
         held += 1
         continue
       }
-
       const result = await this.templates.store({
         employeeId: resolution.employeeId,
         businessUnitId: device.businessUnitId,
@@ -260,18 +264,44 @@ export default class BiometricUploadService {
        * 6.6). Va en su propio try/catch: cerrar un comando es contabilidad y no
        * puede tumbar la subida de un biometrico que ya esta a salvo.
        */
+      let requestedByUserId: number | null = null
       try {
-        await this.evidence.fromBiometricUpload({
+        const evidence = await this.evidence.fromBiometricUpload({
           accessPointId: device.accessPointId,
           pin: row.pin,
           bioNo: row.bioNo,
+          bioType: row.bioType,
           now: device.receivedAt,
         })
+        requestedByUserId = evidence.requestedByUserId
       } catch (error) {
         logger.warn(
           { accessPointId: device.accessPointId, error: (error as Error).message.slice(0, 200) },
           'canal ADMS: el biometrico se guardo pero no se pudo cerrar su comando'
         )
+      }
+
+      /**
+       * La huella recien capturada viaja sola al resto de los checadores donde
+       * la persona esta dada de alta y que puedan usarla.
+       *
+       * Sin esto, enrolar en una puerta dejaba a la persona sin poder marcar en
+       * las demas hasta que alguien se acordara de copiarla: la boveda existe
+       * justo para que ese segundo viaje al lector no ocurra.
+       *
+       * Solo cuando el template es NUEVO. Un blob que ya estaba guardado llega
+       * aqui cuando el equipo lo vuelve a subir, y repetir el reparto en cada
+       * subida encolaria trabajo por un dato que no cambio.
+       */
+      if (result.created) {
+        try {
+          await this.spreadToPeers(device, resolution.employeeId, requestedByUserId)
+        } catch (error) {
+          logger.warn(
+            { accessPointId: device.accessPointId, error: (error as Error).message.slice(0, 200) },
+            'canal ADMS: el biometrico se guardo pero no se pudo repartir a los demas equipos'
+          )
+        }
       }
     }
 
@@ -284,6 +314,56 @@ export default class BiometricUploadService {
       invalid,
       unparsed,
     }
+  }
+
+  /**
+   * Reparte un biometrico recien guardado a los demas equipos del colaborador.
+   *
+   * El equipo de origen queda fuera --ya lo tiene-- y el servicio de copia
+   * decide por version cuales pueden recibirlo. Va en la ingesta y no en un
+   * proceso aparte porque el momento importa: la persona todavia esta frente al
+   * lector, y si algo no se puede copiar es cuando conviene saberlo.
+   *
+   * La lectura de cada blob queda asentada a nombre de quien pidio la captura,
+   * con la IP del aparato que la subio: es el humano que puso en marcha todo
+   * esto, y la boveda no entrega un biometrico sin saber a nombre de quien.
+   */
+  private async spreadToPeers(
+    device: ResolvedAdmsDevice,
+    employeeId: number,
+    requestedByUserId: number | null
+  ): Promise<void> {
+    /**
+     * Sin nadie a quien asentar la lectura no se reparte.
+     *
+     * La boveda no entrega un biometrico sin saber a nombre de quien --toda
+     * lectura queda asentada-- y una huella capturada a mano en el aparato, sin
+     * orden del sistema, no tiene ese responsable. Se prefiere no copiarla a
+     * inventar un actor.
+     */
+    if (requestedByUserId === null) return
+
+    const peers = await AccessPointEmployee.query()
+      .where('employee_id', employeeId)
+      .whereNot('access_point_id', device.accessPointId)
+      .whereNot('access_point_employee_sync_status', ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED)
+    if (peers.length === 0) return
+
+    await this.replication.replicate({
+      employeeId,
+      businessUnitId: device.businessUnitId,
+      sourceAccessPointId: device.accessPointId,
+      targetAccessPointIds: peers.map((pivot) => pivot.accessPointId),
+      modalities: [],
+      actor: {
+        userId: requestedByUserId,
+        ip: device.ip,
+        userAgent: null,
+        requestId: null,
+      },
+      dryRun: false,
+      now: device.receivedAt,
+    })
   }
 
   private async recordInvalid(

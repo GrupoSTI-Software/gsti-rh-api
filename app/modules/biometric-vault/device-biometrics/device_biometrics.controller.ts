@@ -11,6 +11,13 @@ import {
   resolveScopedEmployee,
 } from '#modules/access-point/access_point_authorization'
 import { toDeviceCommandDto } from '#modules/device-commands/dto/device_command.dto'
+import DeviceCommandRepositoryMysql from '#modules/device-commands/device_command.repository.mysql'
+import { DeviceCommandError } from '#exceptions/device_command_error'
+import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
+import EmployeeBiometricSummaryService from './employee_biometric_summary.service.js'
+import FingerprintDeletionService from './fingerprint_deletion.service.js'
+import { BiometricVaultError } from '#exceptions/biometric_vault_error'
+import { BIOMETRIC_VAULT_ERROR_CODES } from '#constants/biometric_vault_error_codes'
 import FingerprintEnrollmentService from '../enrollment/fingerprint_enrollment.service.js'
 import DeviceFaceService from '../photo/device_face.service.js'
 import ReplicationService from '../replication/replication.service.js'
@@ -34,6 +41,32 @@ const replicationValidator = vine.compile(
     sourceAccessPointId: vine.number().positive(),
     targetAccessPointIds: vine.array(vine.number().positive()).minLength(1),
     modalities: vine.array(vine.enum(['fingerprint', 'face'] as const)).optional(),
+  })
+)
+
+const deleteFingerprintValidator = vine.compile(
+  vine.object({
+    params: vine.object({
+      employeeId: vine.number().positive(),
+      fingerId: vine.number().min(FINGER_ID_MIN).max(FINGER_ID_MAX),
+    }),
+  })
+)
+
+const summaryValidator = vine.compile(
+  vine.object({
+    params: vine.object({ employeeId: vine.number().positive() }),
+    /** Sin equipo se responde el consolidado del expediente. */
+    accessPointId: vine.number().positive().optional(),
+  })
+)
+
+const enrollmentStatusValidator = vine.compile(
+  vine.object({
+    params: vine.object({
+      employeeId: vine.number().positive(),
+      commandId: vine.number().positive(),
+    }),
   })
 )
 
@@ -203,6 +236,208 @@ export default class DeviceBiometricsController {
         ),
         200,
         dryRun ? 'preview' : 'results'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/employees/{employeeId}/device-biometrics:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Biometricos]
+   *     summary: Que biometricos tiene el colaborador, uniendo boveda y conector viejo
+   *     responses:
+   *       200:
+   *         description: Dedos y rostro en data.biometrics
+   */
+  /**
+   * Que biometricos tiene el colaborador.
+   *
+   * Existe porque hay dos fuentes vivas --la boveda del canal y la tabla del
+   * conector de BioTime-- y la pantalla de biometricos leia solo la segunda:
+   * una huella capturada por el checador entraba a la boveda y el expediente
+   * seguia mostrando cero.
+   *
+   * Con `accessPointId` la respuesta deja de ser del colaborador y pasa a ser
+   * de ese equipo: el mismo dedo puede estar dentro de un aparato y ser
+   * inservible en el de al lado si son de distinta generacion de algoritmo.
+   */
+  async summary(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(
+        ctx,
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeBiometrics
+      )
+      const payload = await request.validateUsing(summaryValidator, {
+        data: { params: request.params(), accessPointId: request.input('accessPointId') },
+      })
+      const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
+
+      // El equipo se resuelve con el alcance de la peticion: preguntar por uno
+      // de otra empresa no puede revelar nada de la propia.
+      const accessPoint =
+        payload.accessPointId === undefined
+          ? null
+          : await resolveScopedAccessPoint(ctx, payload.accessPointId)
+
+      const service = new EmployeeBiometricSummaryService()
+      const biometrics = await service.of(employee.employeeId, accessPoint?.accessPointId)
+
+      return StandardResponseFormatter.success(
+        response,
+        biometrics,
+        i18n.formatMessage('employee_biometric'),
+        i18n.formatMessage('resource_was_found_successfully'),
+        200,
+        'biometrics'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/employees/{employeeId}/device-biometrics/fingerprints/{fingerId}:
+   *   delete:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Biometricos]
+   *     summary: Borra del expediente la huella de un dedo
+   *     responses:
+   *       200:
+   *         description: Cuantas versiones se borraron, en data.deletion
+   *       404:
+   *         description: Ese dedo no tiene huella guardada (key biometrico-no-encontrado)
+   *       409:
+   *         description: Sigue dentro de un checador donde la persona esta dada de alta (key huella-en-uso)
+   */
+  /**
+   * Borra del expediente la huella de un dedo.
+   *
+   * No la saca del aparato: el protocolo no tiene con que retirar un dedo
+   * suelto. Por eso se niega mientras el dato siga dentro de un checador donde
+   * el colaborador puede marcar, y ese rechazo dice el camino -- retirarlo del
+   * equipo primero, que la baja si arrastra sus biometricos.
+   */
+  async deleteFingerprint(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(
+        ctx,
+        EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeBiometric
+      )
+      const payload = await request.validateUsing(deleteFingerprintValidator, {
+        data: { params: request.params() },
+      })
+      const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
+
+      // Sin usuario no hay constancia, y sin constancia no se borra. El
+      // middleware de sesion ya lo garantiza; esto lo hace explicito.
+      const actorUserId = auth.user?.userId
+      if (actorUserId === undefined) {
+        throw new BiometricVaultError(
+          'No hay usuario con quien firmar la supresion',
+          BIOMETRIC_VAULT_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+          403,
+          'sin-permiso',
+          'No fue posible identificar a quien pide el borrado.'
+        )
+      }
+
+      const service = new FingerprintDeletionService()
+      const result = await service.delete({
+        employeeId: employee.employeeId,
+        fingerId: payload.params.fingerId,
+        actor: {
+          userId: actorUserId,
+          businessUnitId: employee.businessUnitId as number,
+          ip: request.ip(),
+          userAgent: request.header('user-agent') ?? null,
+          requestId: request.id() ?? null,
+        },
+      })
+
+      return StandardResponseFormatter.success(
+        response,
+        result,
+        i18n.formatMessage('employee_biometric'),
+        i18n.formatMessage('biometric_fingerprint_deleted_message'),
+        200,
+        'deletion'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/employees/{employeeId}/device-biometrics/commands/{commandId}:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Biometricos]
+   *     summary: Estado del comando que se le pidio al checador
+   *     responses:
+   *       200:
+   *         description: El comando en data.command
+   *       404:
+   *         description: El comando no es de ese colaborador (key comando-no-encontrado)
+   */
+  /**
+   * Como va la captura que se pidio.
+   *
+   * Cuelga del colaborador y pide el permiso de LECTURA de su pestaña de
+   * biometricos, no el del catalogo de equipos: quien lanza una captura tiene
+   * que poder ver como termino, y el permiso de la flota es de otro modulo --
+   * exigirlo aqui dejaria al operador de RH mirando una espera que nunca cierra.
+   *
+   * El comando tiene que ser del colaborador del path. Uno de otra persona se
+   * responde como inexistente en vez de negado: quien pregunta no tiene por que
+   * enterarse de que ese identificador existe.
+   */
+  async enrollmentStatus(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(
+        ctx,
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeBiometrics
+      )
+      const payload = await request.validateUsing(enrollmentStatusValidator, {
+        data: { params: request.params() },
+      })
+
+      const employee = await resolveScopedEmployee(ctx, payload.params.employeeId)
+
+      const repository = new DeviceCommandRepositoryMysql()
+      const command = await repository.findById(payload.params.commandId)
+      if (!command || command.employeeId !== employee.employeeId) {
+        throw new DeviceCommandError(
+          'El comando no existe o no es de ese colaborador',
+          DEVICE_COMMAND_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+          404,
+          'comando-no-encontrado',
+          'La captura que consultas no existe para este colaborador.'
+        )
+      }
+
+      // El equipo se vuelve a resolver con el alcance de la peticion: la fila
+      // del comando guarda su identificador, no el permiso para verlo.
+      const accessPoint = await resolveScopedAccessPoint(ctx, command.accessPointId)
+
+      return StandardResponseFormatter.success(
+        response,
+        toDeviceCommandDto(command, accessPoint.accessPointLastConnection ?? null, DateTime.utc()),
+        i18n.formatMessage('device_command_title'),
+        i18n.formatMessage('device_command_status_message'),
+        200,
+        'command'
       )
     } catch (error) {
       return respondAdmsApiError(response, i18n, error)

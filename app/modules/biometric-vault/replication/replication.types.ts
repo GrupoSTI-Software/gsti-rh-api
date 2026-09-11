@@ -51,6 +51,7 @@ export interface ReplicationTargetResult {
 }
 
 export interface ReplicationResult {
-  sourceAccessPointId: number
+  /** Equipo de origen, o `null` cuando la copia sale de la boveda. */
+  sourceAccessPointId: number | null
   targets: ReplicationTargetResult[]
 }

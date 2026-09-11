@@ -235,7 +235,32 @@ export default class AdmsChannelService {
       }
     }
 
-    if (outcome.kind !== 'applied') {
+    /**
+     * Un acuse repetido no es una anomalia: el equipo reenvia cuando no recibe
+     * respuesta y el resultado guardado ya es ese. Se contesta y no se avisa.
+     */
+    const settled = outcome.kind === 'applied' || outcome.kind === 'duplicate'
+
+    if (outcome.kind === 'stale') {
+      await this.incidents.record(
+        {
+          kind: ADMS_INCIDENT_KIND.STALE_ACK,
+          severity: 'warning',
+          code: ADMS_ERROR_CODES.CMD_NOT_APPLIED,
+          title: 'Acuse de un comando que no lo esperaba',
+          detail:
+            'El equipo acuso una orden que no estaba en vuelo: nunca salio, se cancelo, o ya se habia dado por fallida. No se aplica, porque acreditarla marcaria como hecho algo que no paso.',
+          key: 'acuse-fuera-de-tiempo',
+          serial: input.device.serial,
+          accessPointId: input.device.accessPointId,
+          businessUnitId: input.device.businessUnitId,
+          rawMessageId,
+          context: { reason: outcome.status, returnCode: outcome.returnCode ?? undefined },
+          now,
+        },
+        { dedupeMinutes: ORPHAN_ACK_DEDUPE_MINUTES }
+      )
+    } else if (!settled) {
       await this.incidents.record(
         {
           kind: ADMS_INCIDENT_KIND.ORPHAN_ACK,
@@ -257,9 +282,9 @@ export default class AdmsChannelService {
     }
 
     await this.rawMessages.finish(rawMessageId, {
-      status: outcome.kind === 'applied' ? ADMS_RAW_STATUS.PROCESSED : ADMS_RAW_STATUS.UNPARSED,
+      status: settled ? ADMS_RAW_STATUS.PROCESSED : ADMS_RAW_STATUS.UNPARSED,
       ack: ADMS_OK,
-      error: outcome.kind === 'applied' ? null : outcome.kind,
+      error: settled ? null : outcome.kind,
       processedAt: now,
     })
     return { status: 200, body: ADMS_OK }

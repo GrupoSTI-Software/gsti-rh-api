@@ -48,6 +48,10 @@ const CONTEXT_WHITELIST: ReadonlyArray<AdmsIncidentContextKey> = [
   'modality',
   'driftSeconds',
   'reason',
+  'deviceVersion',
+  'vaultVersions',
+  'declared',
+  'expected',
 ]
 
 const CONTEXT_VALUE_MAX_LENGTH = 200
@@ -72,8 +76,8 @@ function sanitizeContext(
 
 /**
  * Registra incidentes del canal con deduplicacion opcional por ventana: el mismo
- * `kind` abierto para el mismo dispositivo (o serie) dentro de `dedupeMinutes`
- * no se repite. Nunca lanza hacia el canal: un incidente que no se pudo
+ * `kind` para el mismo dispositivo (o serie) dentro de `dedupeMinutes` no se
+ * repite, este abierto o ya atendido. Nunca lanza hacia el canal: un incidente que no se pudo
  * escribir no debe convertir un acuse en error.
  *
  * La serie solo se copia al contexto cuando el incidente es global (sin punto
@@ -121,7 +125,11 @@ export default class IncidentService {
 
     if (options.dedupeMinutes && options.dedupeMinutes > 0) {
       const since = input.now.minus({ minutes: options.dedupeMinutes })
-      const existing = await this.repository.findOpenSince(input.kind, scope, since)
+      /**
+       * Cuenta lo resuelto tambien: si alguien acaba de decir que ese aparato
+       * es suyo, no se le vuelve a preguntar lo mismo hasta pasada la ventana.
+       */
+      const existing = await this.repository.findRecentSince(input.kind, scope, since)
       if (existing) return 'deduped'
     }
 

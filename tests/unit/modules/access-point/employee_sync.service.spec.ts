@@ -40,6 +40,8 @@ function makeService(options: Options = {}) {
   const saved: AccessPointEmployee[] = []
   const events: SyncEventInput[] = []
   const enqueued: EnqueueCommandInput[] = []
+  /** Vinculos a los que se les cerro lo vivo antes de pedir la baja. */
+  const cancelledFor: number[] = []
   const statuses: Array<{ id: number; status: string }> = []
 
   const repository: EmployeeSyncRepository = {
@@ -61,6 +63,9 @@ function makeService(options: Options = {}) {
       return ocupantes
         .filter((ocupante) => ocupante.pivotId !== exceptPivotId)
         .map((ocupante) => ocupante.pin)
+    },
+    async countConfirmedBefore() {
+      return 0
     },
     async listLiveByEmployee() {
       return options.live ?? []
@@ -98,12 +103,28 @@ function makeService(options: Options = {}) {
     async listByDevice() {
       return []
     },
+    async findForDevice() {
+      return null
+    },
+    async cancelFingerprintWritesFor() {
+      return 0
+    },
+    async cancelLiveForPivot(accessPointEmployeeId: number) {
+      cancelledFor.push(accessPointEmployeeId)
+      return 0
+    },
     async listByEmployee() {
       return []
     },
   }
 
-  return { service: new EmployeeSyncService(repository, commands), saved, events, enqueued }
+  return {
+    service: new EmployeeSyncService(repository, commands),
+    saved,
+    events,
+    enqueued,
+    cancelledFor,
+  }
 }
 
 const ACTOR = { userId: 44 }
@@ -283,6 +304,24 @@ test.group('Envio y revocacion', () => {
     assert.equal(events[0].fromStatus, 'confirmed')
   })
 
+  /**
+   * El borrado sale con prioridad 1 y el alta con 3: si el alta sigue en la
+   * cola cuando se pide la baja, el equipo aplica primero el borrado y luego
+   * recoge el alta rezagada, que vuelve a meter a la persona con su mismo PIN.
+   */
+  test('revocar cierra antes lo que siga vivo para ese vinculo', async ({ assert }) => {
+    const { service, enqueued, cancelledFor } = makeService({ pivot: pivotOf() })
+    await service.revoke({
+      accessPointId: 12,
+      businessUnitId: 1,
+      employeeId: 77,
+      actor: ACTOR,
+    })
+
+    assert.deepEqual(cancelledFor, [5])
+    assert.equal(enqueued[0].kind, 'user_delete')
+  })
+
   test('revocar dos veces no rompe: ya estaba en el camino de baja', async ({ assert }) => {
     const { service } = makeService({
       pivot: pivotOf({ accessPointEmployeeSyncStatus: 'revoking' }),
@@ -442,5 +481,56 @@ test.group('PIN correlativo por equipo', () => {
     })
 
     assert.equal(saved[0].accessPointEmployeePin, '2')
+  })
+})
+
+/**
+ * Un equipo que no vuelve --reemplazado, reseteado o muerto-- dejaba la baja
+ * esperando para siempre: el borrado se queda `pending` sin salir, que es un
+ * estado que ni el barrido cierra, y el vinculo no se podia soltar.
+ */
+test.group('Cerrar a mano una baja que el equipo no confirma', () => {
+  test('cierra la baja pedida y deja constancia de quien la forzo', async ({ assert }) => {
+    const { service, saved, events } = makeService({
+      pivot: pivotOf({ accessPointEmployeeSyncStatus: 'revoking' as AccessPointEmployeeSyncStatus }),
+    })
+
+    const pivot = await service.forceRevoke({
+      accessPointId: 12,
+      businessUnitId: 1,
+      employeeId: 77,
+      reason: 'el checador se reemplazo',
+      actor: ACTOR,
+    })
+
+    assert.equal(pivot.accessPointEmployeeSyncStatus, 'revoked')
+    assert.equal(saved[0].accessPointEmployeeSyncStatus, 'revoked')
+    assert.equal(events[0].toStatus, 'revoked')
+    assert.equal(events[0].actorUserId, ACTOR.userId)
+    assert.include(events[0].detail ?? '', 'el checador se reemplazo')
+  })
+
+  test('no cierra una baja que nadie ha pedido', async ({ assert }) => {
+    // Con el alta viva la via es pedir la baja: cerrarla a mano aqui dejaria a
+    // la persona dentro del aparato y fuera del sistema, sin que nadie lo sepa.
+    const { service, saved } = makeService({
+      pivot: pivotOf({ accessPointEmployeeSyncStatus: 'confirmed' as AccessPointEmployeeSyncStatus }),
+    })
+
+    let capturado: unknown = null
+    try {
+      await service.forceRevoke({
+        accessPointId: 12,
+        businessUnitId: 1,
+        employeeId: 77,
+        reason: 'sin pedirla',
+        actor: ACTOR,
+      })
+    } catch (error) {
+      capturado = error
+    }
+
+    assert.equal((capturado as { key?: string })?.key, 'baja-no-pedida')
+    assert.lengthOf(saved, 0)
   })
 })

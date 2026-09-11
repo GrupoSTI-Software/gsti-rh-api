@@ -10,6 +10,9 @@ import type { DeviceCommandPort } from '#modules/device-commands/device_command_
 import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
 import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
 import type AccessPointEmployee from '#models/access_point_employee'
+import IncidentService from '#modules/adms/raw/incident.service'
+import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
+import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import TemplateService from '../template/template.service.js'
 import type { TemplateSlot } from '../template/template.repository.js'
 import ConsentGate from '../consent/consent_gate.js'
@@ -23,10 +26,26 @@ import {
   type ReplicationTargetResult,
 } from './replication.types.js'
 
+/**
+ * Cada cuanto se vuelve a asentar que un equipo no puede recibir huellas.
+ *
+ * La causa es del aparato y no de la persona, asi que un aviso por hora basta:
+ * repetirlo por cada colaborador que pase por ahi convierte la bitacora en
+ * ruido y entrena a la gente a ignorarla.
+ */
+const VERSION_MISMATCH_DEDUPE_MINUTES = 60
+
 export interface ReplicationInput {
   employeeId: number
   businessUnitId: number
-  sourceAccessPointId: number
+  /**
+   * Equipo desde el que se pide la copia, solo para no copiar sobre si mismo.
+   *
+   * `null` cuando la copia no sale de una pantalla de un equipo sino de la
+   * boveda: el template es del colaborador y su llave no lleva la serie, asi
+   * que no hace falta un aparato de origen para poder escribirlo en otro.
+   */
+  sourceAccessPointId: number | null
   targetAccessPointIds: number[]
   modalities: ReplicationModality[]
   /** Quien pide la copia. Su IP se asienta con cada lectura de un blob. */
@@ -58,7 +77,8 @@ export default class ReplicationService {
     private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
     private readonly commands: DeviceCommandPort = new DeviceCommandService(),
     private readonly publications: PhotoPublicationService = new PhotoPublicationService(),
-    private readonly consent: ConsentGate = new ConsentGate()
+    private readonly consent: ConsentGate = new ConsentGate(),
+    private readonly incidents: IncidentService = new IncidentService()
   ) {}
 
   async replicate(input: ReplicationInput): Promise<ReplicationResult> {
@@ -146,6 +166,9 @@ export default class ReplicationService {
           pin,
           slots,
           targetVersion: result.fpVersion,
+          platform: profile?.accessPointProfilePlatform ?? null,
+          serial: accessPoint.accessPointSerialNumber,
+          now,
         }))
       )
     }
@@ -160,6 +183,7 @@ export default class ReplicationService {
           photoEnabled,
           derivativeVersion: args.derivativeVersion,
           targetVersion: result.faceVersion,
+          platform: profile?.accessPointProfilePlatform ?? null,
           now,
         })
       )
@@ -174,15 +198,20 @@ export default class ReplicationService {
     pin: string
     slots: TemplateSlot[]
     targetVersion: string | null
+    platform: string | null
+    serial: string | null
+    now: DateTime
   }): Promise<ReplicationItem[]> {
-    const { input, pivot, pin, slots, targetVersion } = args
-    const fingers = [...new Set(slots.filter((slot) => slot.bioType === BIO_TYPE.FINGERPRINT).map((slot) => slot.bioNo))]
+    const { input, pivot, pin, slots, targetVersion, platform } = args
+    const fingerSlots = slots.filter((slot) => slot.bioType === BIO_TYPE.FINGERPRINT)
+    const fingers = [...new Set(fingerSlots.map((slot) => slot.bioNo))]
 
     if (fingers.length === 0) {
       return [skip(REPLICATION_MODALITY.FINGERPRINT, 0, REPLICATION_SKIP.NOTHING_TO_COPY)]
     }
 
     const items: ReplicationItem[] = []
+    let mismatched = false
     for (const bioNo of fingers.sort((a, b) => a - b)) {
       const compatible = await this.templates.findCompatible(
         input.employeeId,
@@ -191,6 +220,7 @@ export default class ReplicationService {
         targetVersion
       )
       if (!compatible) {
+        mismatched = true
         items.push({
           modality: REPLICATION_MODALITY.FINGERPRINT,
           bioNo,
@@ -207,10 +237,97 @@ export default class ReplicationService {
           slot: compatible,
           bioType: BIO_TYPE.FINGERPRINT,
           modality: REPLICATION_MODALITY.FINGERPRINT,
+          platform,
         })
       )
     }
+
+    /**
+     * Solo cuando NO se pudo copiar ni una.
+     *
+     * Si algun dedo si cruzo, la persona puede identificarse en ese equipo y el
+     * aviso seria falso. Un aviso que exagera se aprende a ignorar, y el dia
+     * que diga la verdad tampoco lo van a leer.
+     */
+    const queued = items.some((item) => item.status !== 'skipped')
+
+    /**
+     * Si la copia si salio, el aviso de version dejo de ser cierto.
+     *
+     * Un aviso que se queda abierto para siempre entrena a la gente a
+     * ignorarlos: el que sigue abierto tiene que significar algo.
+     */
+    if (queued && !input.dryRun) {
+      await this.incidents.resolveResolvedCause(
+        ADMS_INCIDENT_KIND.TEMPLATE_VERSION_MISMATCH,
+        pivot.accessPointId,
+        args.now
+      )
+    }
+
+    if (mismatched && !queued && !input.dryRun) {
+      await this.reportVersionMismatch({
+        accessPointId: pivot.accessPointId,
+        businessUnitId: input.businessUnitId,
+        serial: args.serial,
+        deviceVersion: targetVersion,
+        vaultVersions: fingerSlots,
+        now: args.now,
+      })
+    }
     return items
+  }
+
+  /**
+   * Deja constancia de que a ese equipo no se le pudo copiar ninguna huella.
+   *
+   * El corte por version se queda como esta --un template de otra generacion se
+   * descarta DENTRO del aparato sin devolver error, asi que mandarlo seria
+   * peor--. Lo que no puede seguir pasando es que el corte sea mudo: el equipo
+   * se queda con gente dada de alta que no puede identificarse con el dedo y
+   * nadie se entera hasta que alguien se queda parado en la puerta.
+   *
+   * El incidente es del EQUIPO, no del colaborador: la causa es la version que
+   * declara el aparato y es la misma para todos los que pasen por ahi. Por eso
+   * deduplica por equipo y el detalle no nombra a nadie.
+   */
+  private async reportVersionMismatch(args: {
+    accessPointId: number
+    businessUnitId: number
+    serial: string | null
+    deviceVersion: string | null
+    vaultVersions: TemplateSlot[]
+    now: DateTime
+  }): Promise<void> {
+    const versions = [
+      ...new Set(
+        args.vaultVersions
+          .map((slot) => slot.majorVer)
+          .filter((version): version is string => version !== null && version.length > 0)
+      ),
+    ]
+
+    await this.incidents.record(
+      {
+        kind: ADMS_INCIDENT_KIND.TEMPLATE_VERSION_MISMATCH,
+        severity: 'warning',
+        code: ADMS_ERROR_CODES.BIO_VERSION_MISMATCH,
+        title: 'El equipo no puede recibir las huellas guardadas',
+        detail:
+          'El checador declara una version de algoritmo de huella distinta a la de los templates guardados, asi que no se le copio ninguna. Quien este dado de alta ahi no podra identificarse con el dedo hasta que se enrole en ese equipo o se iguale la version del aparato.',
+        key: 'version-de-huella-incompatible',
+        serial: args.serial,
+        accessPointId: args.accessPointId,
+        businessUnitId: args.businessUnitId,
+        context: {
+          modality: REPLICATION_MODALITY.FINGERPRINT,
+          deviceVersion: args.deviceVersion ?? 'sin declarar',
+          vaultVersions: versions.join(', '),
+        },
+        now: args.now,
+      },
+      { dedupeMinutes: VERSION_MISMATCH_DEDUPE_MINUTES }
+    )
   }
 
   private async replicateFace(args: {
@@ -221,9 +338,10 @@ export default class ReplicationService {
     photoEnabled: boolean
     derivativeVersion: number
     targetVersion: string | null
+    platform: string | null
     now: DateTime
   }): Promise<ReplicationItem> {
-    const { input, pivot, pin, slots, photoEnabled, targetVersion, now } = args
+    const { input, pivot, pin, slots, photoEnabled, targetVersion, platform, now } = args
 
     /**
      * La foto va primero: es la referencia que el propio equipo convierte a su
@@ -272,6 +390,7 @@ export default class ReplicationService {
       slot: compatible,
       bioType: BIO_TYPE.FACE,
       modality: REPLICATION_MODALITY.FACE,
+      platform,
     })
   }
 
@@ -290,8 +409,10 @@ export default class ReplicationService {
     slot: TemplateSlot
     bioType: number
     modality: ReplicationModality
+    /** Plataforma del destino: no todas escriben la huella con la misma tabla. */
+    platform: string | null
   }): Promise<ReplicationItem> {
-    const { input, pivot, pin, slot, bioType, modality } = args
+    const { input, pivot, pin, slot, bioType, modality, platform } = args
 
     if (input.dryRun) {
       return { modality, bioNo: slot.bioNo, status: 'queued', majorVer: slot.majorVer }
@@ -325,6 +446,10 @@ export default class ReplicationService {
         minorVer: detail?.minorVer ?? '0',
         valid: detail?.valid ?? 1,
         duress: detail?.duress ?? 0,
+        // El tamano lo declaro el equipo de origen al subirlo; `FINGERTMP` lo
+        // exige en la cabecera y no admite inventarlo.
+        size: detail?.size ?? template.length,
+        platform: platform ?? undefined,
         template,
       },
       employeeId: input.employeeId,

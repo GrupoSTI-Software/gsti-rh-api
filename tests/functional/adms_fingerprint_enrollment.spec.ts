@@ -174,6 +174,9 @@ test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
         fields: { pin: PIN, fid: fingerId },
         employeeId: employee.employeeId,
         accessPointEmployeeId: pivotId,
+        // Con solicitante: es a su nombre que se leera el blob si la huella
+        // que suba el equipo hay que copiarla a otros checadores.
+        requestedByUserId: user.userId,
         correlationKey: `enroll_fp:${PIN}:${fingerId}`,
       })
       return result.command
@@ -371,5 +374,165 @@ test.group('ADMS enrolamiento remoto de huella (rebanada 8)', (group) => {
       'conteo posterior'
     )
     assert.equal(despues[0].$extras.total, antes[0].$extras.total)
+  })
+
+  /**
+   * El Backoffice sondea este endpoint mientras la persona esta frente al
+   * lector: sin el, el modal de espera no tiene como enterarse del desenlace.
+   *
+   * La asercion admite el 403 porque el usuario del fixture no siempre trae el
+   * permiso de la pestaña de biometricos --el mismo criterio que la prueba de
+   * arriba--; lo que se exige en ambos caminos es que la respuesta sea del
+   * canal y no una ruta inexistente.
+   */
+  test('el estado de la captura se consulta desde la pestaña del colaborador', async ({
+    client,
+    assert,
+  }) => {
+    // Se encola por el canal y no por HTTP: aqui se prueba la lectura del
+    // estado, no la puerta del consentimiento --que ya tiene su propia prueba
+    // y que este colaborador, a proposito, no ha cruzado.
+    const encolado = await enqueueEnrollment(4)
+
+    const response = await client
+      .get(
+        `/api/v1/employees/${employee.employeeId}/device-biometrics/commands/${encolado.deviceCommandId}`
+      )
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    if (response.status() === 200) {
+      const command = response.body().data.command as Record<string, unknown>
+      assert.equal(command.id, encolado.deviceCommandId)
+      assert.equal(command.kind, 'enroll_fp')
+      assert.property(command, 'status')
+      assert.property(command, 'stale')
+      // El payload lleva el template del colaborador: nunca sale al cliente.
+      assert.notProperty(command, 'payload')
+      return
+    }
+
+    assert.equal(response.status(), 403)
+    assert.equal(response.body().key, 'sin-permiso')
+  })
+
+  /**
+   * La regresion que motivo el endpoint: la huella entraba a la boveda por el
+   * canal y el expediente seguia mostrando cero dedos, porque la pantalla leia
+   * la tabla del conector viejo.
+   */
+  test('el resumen ve la huella que subio el equipo, no solo la del conector viejo', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/v1/employees/${employee.employeeId}/device-biometrics`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    if (response.status() === 200) {
+      const biometrics = response.body().data.biometrics as {
+        fingers: Array<{ fingerId: number; state: string }>
+        face: { registered: boolean }
+        scopedToAccessPointId: number | null
+      }
+      // El dedo 3 lo subio el equipo en la prueba de la boveda; la tabla vieja
+      // de este colaborador esta vacia, asi que solo puede venir del canal.
+      const tres = biometrics.fingers.find((finger) => finger.fingerId === 3)
+      assert.isDefined(tres)
+      assert.equal(tres?.state, 'registered')
+      assert.isNull(biometrics.scopedToAccessPointId)
+      assert.isFalse(biometrics.face.registered)
+      return
+    }
+
+    assert.equal(response.status(), 403)
+    assert.equal(response.body().key, 'sin-permiso')
+  })
+
+  /**
+   * El bug que se vio en pantalla: la huella vive en UN equipo, y el expediente
+   * la anunciaba en todos. Preguntando por el aparato donde se capturo tiene que
+   * decir que esta ahi; el mismo dedo en otro equipo es otra respuesta.
+   */
+  test('el resumen contesta por equipo, no por colaborador', async ({ client, assert }) => {
+    const response = await client
+      .get(`/api/v1/employees/${employee.employeeId}/device-biometrics`)
+      .qs({ accessPointId: accessPoint.accessPointId })
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    if (response.status() !== 200) {
+      assert.equal(response.status(), 403)
+      return
+    }
+
+    const biometrics = response.body().data.biometrics as {
+      fingers: Array<{ fingerId: number; state: string }>
+      scopedToAccessPointId: number | null
+    }
+    assert.equal(biometrics.scopedToAccessPointId, accessPoint.accessPointId)
+    // Se capturo en este equipo, asi que aqui esta.
+    const tres = biometrics.fingers.find((finger) => finger.fingerId === 3)
+    assert.equal(tres?.state, 'here')
+  })
+
+  /**
+   * La supresion no puede dejar la base diciendo una cosa y el aparato otra: el
+   * protocolo no sabe retirar un dedo suelto, asi que mientras la huella siga
+   * dentro de un checador con el colaborador dado de alta, el borrado se niega
+   * y dice por donde ir.
+   */
+  test('no se borra una huella que sigue dentro de un checador asignado', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .delete(`/api/v1/employees/${employee.employeeId}/device-biometrics/fingerprints/3`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    if (response.status() === 403) {
+      assert.equal(response.body().key, 'sin-permiso')
+      return
+    }
+
+    assert.equal(response.status(), 409)
+    assert.equal(response.body().key, 'huella-en-uso')
+
+    // Y sigue ahi: un rechazo no puede borrar a medias.
+    const sigue = await TenantContext.runUnscoped(
+      () =>
+        db
+          .from('biometric_templates')
+          .where('employee_id', employee.employeeId)
+          .where('biometric_template_bio_no', 3)
+          .first(),
+      'la huella no se toco'
+    )
+    assert.isNotNull(sigue)
+  })
+
+  test('un dedo sin huella guardada no se puede borrar', async ({ client, assert }) => {
+    const response = await client
+      .delete(`/api/v1/employees/${employee.employeeId}/device-biometrics/fingerprints/9`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    assert.include([403, 404], response.status())
+    assert.include(['sin-permiso', 'biometrico-no-encontrado'], response.body().key)
+  })
+
+  test('un identificador de comando que no existe se responde como no encontrado', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/v1/employees/${employee.employeeId}/device-biometrics/commands/999999999`)
+      .loginAs(user)
+      .header('X-Business-Unit-Id', publicId)
+
+    assert.include([403, 404], response.status())
+    assert.include(['sin-permiso', 'comando-no-encontrado'], response.body().key)
   })
 })

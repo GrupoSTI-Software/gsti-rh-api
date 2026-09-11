@@ -33,6 +33,10 @@ interface Options {
   live?: DeviceCommand | null
   existing?: DeviceCommand | null
   duplicateWireIds?: number
+  /** Lo que sigue vivo para el vinculo al cerrarlo. */
+  liveForPivot?: DeviceCommand[]
+  /** Estado del vinculo al que apunta el comando, si apunta a alguno. */
+  pivotStatus?: string
 }
 
 /** Lo que el adaptador habria escrito, con el identificador que le toco. */
@@ -61,6 +65,9 @@ function makeService(options: Options = {}) {
     async findById() {
       return options.existing ?? null
     },
+    async findByIdForDevice() {
+      return null
+    },
     async findByWireId() {
       return options.existing ?? null
     },
@@ -71,6 +78,12 @@ function makeService(options: Options = {}) {
       return false
     },
     async listByDevice() {
+      return []
+    },
+    async listLiveForPivot() {
+      return options.liveForPivot ?? []
+    },
+    async listLiveFingerprintWrites() {
       return []
     },
     async listByEmployee() {
@@ -93,12 +106,29 @@ function makeService(options: Options = {}) {
     },
   }
 
+  /** A que estado se devolvio el vinculo al reintentar. */
+  const reseeded: Array<{ pivotId: number; status: string }> = []
+  const pivots = {
+    async findByCommandTarget(pivotId: number) {
+      if (!options.pivotStatus) return null
+      return {
+        accessPointEmployeeId: pivotId,
+        accessPointEmployeeSyncStatus: options.pivotStatus,
+      }
+    },
+    async updateStatus(pivotId: number, status: string) {
+      reseeded.push({ pivotId, status })
+      return null
+    },
+  } as never
+
   const service = new DeviceCommandService(
     repository,
     () => NOW,
-    () => 1788912000000
+    () => 1788912000000,
+    pivots
   )
-  return { service, inserted, saved }
+  return { service, inserted, saved, reseeded }
 }
 
 test.group('Cola de comandos: encolado', () => {
@@ -203,6 +233,29 @@ test.group('Cola de comandos: estados', () => {
     assert.equal((capturado as DeviceCommandError).code, 'DCMD.STATE.003')
   })
 
+  /**
+   * Cerrar el vinculo alcanza tambien a lo que ya salio, y ahi cancelar no es
+   * una opcion: la maquina no admite `sent -> cancelled` (spec 6.2). Antes se
+   * intentaba igual, lanzaba en el primer `sent` y dejaba a medias el cierre
+   * que este metodo promete -- justo cuando se usa para sacar a alguien de un
+   * equipo.
+   */
+  test('cerrar el vinculo cancela lo pendiente y da por fallido lo que ya salio', async ({
+    assert,
+  }) => {
+    const pendiente = commandOf()
+    const enVuelo = commandOf({ deviceCommandStatus: DEVICE_COMMAND_STATUS.SENT })
+    const { service, saved } = makeService({ liveForPivot: [pendiente, enVuelo] })
+
+    const cerrados = await service.cancelLiveForPivot(5, 44)
+
+    assert.equal(cerrados, 2)
+    assert.equal(pendiente.deviceCommandStatus, 'cancelled')
+    assert.equal(enVuelo.deviceCommandStatus, 'failed')
+    assert.isNotNull(enVuelo.deviceCommandLastError)
+    assert.lengthOf(saved, 2)
+  })
+
   test('reintentar solo procede sobre un fallido y sube el contador', async ({ assert }) => {
     const fallido = commandOf({
       deviceCommandStatus: DEVICE_COMMAND_STATUS.FAILED,
@@ -214,6 +267,72 @@ test.group('Cola de comandos: estados', () => {
     assert.equal(reintentado.deviceCommandStatus, 'pending')
     assert.equal(reintentado.deviceCommandAttempts, 2)
     assert.isNull(reintentado.deviceCommandLastError)
+  })
+
+  /**
+   * El reintento devuelve el comando a la cola; si el vinculo se queda en
+   * `failed`, el despacho intenta `failed -> sent`, la maquina no lo admite y
+   * el vinculo se clava mientras la persona SI entra al aparato.
+   */
+  test('reintentar un alta devuelve tambien el vinculo al camino', async ({ assert }) => {
+    const fallido = commandOf({
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.FAILED,
+      accessPointEmployeeId: 5,
+    })
+    const { service, reseeded } = makeService({ existing: fallido, pivotStatus: 'failed' })
+
+    await service.retry(1, 44)
+
+    assert.deepEqual(reseeded, [{ pivotId: 5, status: 'pending' }])
+  })
+
+  test('reintentar una baja devuelve el vinculo al camino de baja', async ({ assert }) => {
+    const fallido = commandOf({
+      deviceCommandKind: DEVICE_COMMAND_KIND.USER_DELETE,
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.FAILED,
+      accessPointEmployeeId: 5,
+    })
+    const { service, reseeded } = makeService({ existing: fallido, pivotStatus: 'revoke_failed' })
+
+    await service.retry(1, 44)
+
+    assert.deepEqual(reseeded, [{ pivotId: 5, status: 'revoking' }])
+  })
+
+  /**
+   * Al cerrar un vinculo, lo que estaba en vuelo queda `failed`: la misma cara
+   * que un rechazo del aparato. Sin este corte, el boton de reintentar deshace
+   * la baja y mete otra vez en el checador a quien se acaba de sacar.
+   */
+  test('no se reintenta el alta de alguien que va camino de la baja', async ({ assert }) => {
+    const fallido = commandOf({
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.FAILED,
+      accessPointEmployeeId: 5,
+    })
+    const { service, saved } = makeService({ existing: fallido, pivotStatus: 'revoked' })
+
+    let capturado: unknown = null
+    try {
+      await service.retry(1, 44)
+    } catch (error) {
+      capturado = error
+    }
+
+    assert.instanceOf(capturado, DeviceCommandError)
+    assert.equal((capturado as DeviceCommandError).key, 'vinculo-en-baja')
+    assert.lengthOf(saved, 0)
+  })
+
+  test('un comando sin vinculo se reintenta sin tocar a nadie', async ({ assert }) => {
+    const fallido = commandOf({
+      deviceCommandKind: DEVICE_COMMAND_KIND.INFO,
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.FAILED,
+    })
+    const { service, reseeded } = makeService({ existing: fallido })
+
+    await service.retry(1, 44)
+
+    assert.lengthOf(reseeded, 0)
   })
 
   test('un comando que agoto sus intentos no se reintenta', async ({ assert }) => {

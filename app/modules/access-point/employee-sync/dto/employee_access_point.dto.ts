@@ -7,6 +7,44 @@ import { statusOf } from '#modules/access-point/health/health.service'
 import { isPinQuarantined } from '../employee_sync_state.js'
 
 /**
+ * Con que puede identificarse la persona EN ESE equipo, y con que todavia no.
+ *
+ * `fingerprints` y `faces` cuentan solo lo que consta dentro del aparato. Lo
+ * acusado va aparte en `onTheWay`: el equipo dijo haber recibido la copia pero
+ * la prueba de que quedo guardada llega despues --un contador que sube, una
+ * checada con ese dedo-- y a veces no llega nunca. Contarlo como presente es lo
+ * que hacia que un checador con cero huellas se anunciara con la etiqueta de
+ * huella.
+ */
+export interface EmployeeAccessPointBiometricsDto {
+  fingerprints: number
+  faces: number
+  /** Copias acusadas por el equipo, sin prueba de que quedaran dentro. */
+  onTheWay: { fingerprints: number; faces: number }
+  /**
+   * Guardados en la boveda que NO sirven en este equipo.
+   *
+   * Su version de algoritmo no coincide con la que declara el aparato, y un
+   * template de otra generacion se descarta dentro del equipo sin devolver
+   * error. No es "todavia no llego": no va a llegar. La unica salida es
+   * capturar el biometrico en ese lector o igualar la version del aparato.
+   *
+   * Va aparte de las otras dos cuentas porque la pantalla tiene que poder
+   * decirlo: sin esto, un equipo con la huella guardada y sin poder recibirla
+   * se anuncia igual que uno donde nunca se registro nada.
+   */
+  incompatible: { fingerprints: number; faces: number }
+}
+
+/** Equipo sin nada: ni dentro, ni en camino, ni incompatible. */
+export const EMPTY_DEVICE_BIOMETRICS: EmployeeAccessPointBiometricsDto = {
+  fingerprints: 0,
+  faces: 0,
+  onTheWay: { fingerprints: 0, faces: 0 },
+  incompatible: { fingerprints: 0, faces: 0 },
+}
+
+/**
  * Un checador desde la mirada del colaborador.
  *
  * La pantalla de biometricos pregunta al reves que la de equipos: no "quien
@@ -32,6 +70,23 @@ export interface EmployeeAccessPointDto {
    */
   hasPin: boolean
   syncStatus: AccessPointEmployeeSyncStatus
+  /**
+   * Modalidades con las que la persona puede identificarse EN ESTE equipo.
+   *
+   * No es lo que tiene en su expediente: la boveda guarda un dato por dedo y
+   * version, y un template capturado en un aparato no dice nada de lo que hay
+   * dentro de otro. Repetir aqui el consolidado del colaborador es lo que hacia
+   * que dos checadores incompatibles se pintaran igual.
+   */
+  biometrics: EmployeeAccessPointBiometricsDto
+  /**
+   * Incidente que retiene las copias de biometricos hacia este equipo.
+   *
+   * El canal no le despacha templates ni fotos mientras siga abierto. Va en la
+   * ficha del checador porque es ahi donde se da de alta a alguien y donde se
+   * nota que no llego nada.
+   */
+  withheldBy: { incidentId: number; kind: string; since: string | null } | null
   /** La baja va en camino: el numero sigue reservado para esta persona. */
   pinQuarantined: boolean
   syncRequestedAt: string | null
@@ -44,7 +99,9 @@ export interface EmployeeAccessPointDto {
 export function toEmployeeAccessPointDto(
   pivot: AccessPointEmployee,
   accessPoint: AccessPoint,
-  now: DateTime
+  now: DateTime,
+  biometrics: EmployeeAccessPointBiometricsDto = EMPTY_DEVICE_BIOMETRICS,
+  withheldBy: { incidentId: number; kind: string; since: string | null } | null = null
 ): EmployeeAccessPointDto {
   const pin = pivot.accessPointEmployeePin
   return {
@@ -54,6 +111,8 @@ export function toEmployeeAccessPointDto(
     active: accessPoint.accessPointActive === 1,
     connection: statusOf(accessPoint.accessPointLastConnection, now),
     lastSeenAt: accessPoint.accessPointLastConnection?.toISO() ?? null,
+    biometrics,
+    withheldBy,
     hasPin: Boolean(pin && pin.length > 0),
     syncStatus: pivot.accessPointEmployeeSyncStatus,
     pinQuarantined: isPinQuarantined(pivot.accessPointEmployeeSyncStatus),

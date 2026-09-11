@@ -23,9 +23,21 @@ const TRANSITIONS: Readonly<
     ACCESS_POINT_EMPLOYEE_SYNC_STATUS.SENT,
     ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKING,
   ],
+  /**
+   * `revoking` desde aqui: dar de baja a alguien cuya alta va en vuelo es
+   * legitimo y pasa todos los dias --se envia el alta, el equipo esta apagado,
+   * y en esa ventana RH da de baja al colaborador--. Sin esta transicion,
+   * `revoke()` respondia 409, `revokeAll` lo anotaba como fallido, la baja del
+   * colaborador se completaba igual y nadie reintentaba: el equipo recogia el
+   * alta despues y esa persona quedaba dentro del checador, marcando.
+   *
+   * Es seguro porque `revoke()` cierra primero lo que este vivo para ese
+   * vinculo: el alta en vuelo se da por fallida antes de encolar el borrado.
+   */
   [ACCESS_POINT_EMPLOYEE_SYNC_STATUS.SENT]: [
     ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED,
     ACCESS_POINT_EMPLOYEE_SYNC_STATUS.FAILED,
+    ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKING,
   ],
   [ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED]: [
     ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING,
@@ -92,6 +104,19 @@ export function isPinQuarantined(status: AccessPointEmployeeSyncStatus): boolean
  * deja a la persona marcando en un aparato donde para nosotros ya no figura:
  * sus checadas entran como PIN suelto y su numero se da por libre.
  */
+/**
+ * Estados en los que la baja ya se pidio y sigue esperando al equipo.
+ *
+ * Son los unicos desde los que tiene sentido cerrarla a mano: antes de pedirla
+ * no hay nada que cerrar, y despues ya esta cerrada.
+ */
+export const REVOKING_STATUSES: readonly AccessPointEmployeeSyncStatus[] = [
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKING,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_SENT,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED,
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_FAILED,
+]
+
 export const DETACHABLE_STATUSES: readonly AccessPointEmployeeSyncStatus[] = [
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS.PENDING_PIN,
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKED,

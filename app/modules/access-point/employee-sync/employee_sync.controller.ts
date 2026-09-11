@@ -1,6 +1,8 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import vine from '@vinejs/vine'
 import { StandardResponseFormatter } from '#helpers/standard_response_formatter'
+import EmployeeBiometricSummaryService from '#modules/biometric-vault/device-biometrics/employee_biometric_summary.service'
+import { BIOMETRIC_SLOT_STATE } from '#modules/biometric-vault/device-biometrics/biometric_slot_state'
 import { respondAdmsApiError } from '#helpers/adms_api_error'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 import {
@@ -172,7 +174,13 @@ export default class EmployeeSyncController {
    *       propondria en un equipo nuevo y los biometricos resguardados.
    *     responses:
    *       200:
-   *         description: Equipos en data.employeeDevices
+   *         description: >
+   *           Equipos en data.employeeDevices. En cada uno, `biometrics` separa
+   *           lo que consta dentro del aparato (`fingerprints`, `faces`), lo
+   *           acusado sin prueba de haber quedado guardado (`onTheWay`) y lo
+   *           que existe en la boveda pero su version de algoritmo no admite
+   *           (`incompatible`): eso ultimo no va a llegar nunca, hay que
+   *           capturarlo en ese lector.
    *       404:
    *         description: El colaborador no esta en el alcance
    */
@@ -208,12 +216,56 @@ export default class EmployeeSyncController {
       const byId = new Map(accessPoints.map((row) => [row.accessPointId, row]))
 
       const now = DateTime.utc()
+      const summaries = new EmployeeBiometricSummaryService()
       const rows: EmployeeAccessPointDto[] = []
       for (const pivot of pivots) {
         const accessPoint = byId.get(pivot.accessPointId)
         /** Un equipo dado de baja deja el pivote huerfano: no hay que pintarlo. */
         if (!accessPoint) continue
-        rows.push(toEmployeeAccessPointDto(pivot, accessPoint, now))
+        /**
+         * Se resuelve equipo por equipo a proposito: lo que la persona puede
+         * usar en un aparato no se deduce de su expediente. Son pocas consultas
+         * porque una persona esta en un puñado de checadores; si esa flota
+         * crece, aqui es donde hay que agrupar.
+         */
+        const scoped = await summaries.of(employee.employeeId, accessPoint.accessPointId)
+        /**
+         * Dentro del aparato y en camino se cuentan por separado.
+         *
+         * Un acuse dice que el equipo recibio la copia, no que la guardo: hay
+         * plataformas que responden que si y descartan el dato en silencio. Con
+         * las dos cuentas juntas, un checador con cero huellas se anunciaba con
+         * la etiqueta de huella y nadie podia notar la perdida.
+         */
+        const isHere = (state: string) => state === BIOMETRIC_SLOT_STATE.HERE
+        const isOnTheWay = (state: string) => state === BIOMETRIC_SLOT_STATE.SENT
+        /**
+         * Guardado y sin poder llegar: la version del equipo no lo admite. No
+         * es una espera, es un callejon, y la pantalla necesita distinguirlos.
+         */
+        const isIncompatible = (state: string) => state === BIOMETRIC_SLOT_STATE.INCOMPATIBLE
+        const faceState = scoped.face.state
+        rows.push(
+          toEmployeeAccessPointDto(
+            pivot,
+            accessPoint,
+            now,
+            {
+              fingerprints: scoped.fingers.filter((finger) => isHere(finger.state)).length,
+              faces: faceState !== null && isHere(faceState) ? 1 : 0,
+              onTheWay: {
+                fingerprints: scoped.fingers.filter((finger) => isOnTheWay(finger.state)).length,
+                faces: faceState !== null && isOnTheWay(faceState) ? 1 : 0,
+              },
+              incompatible: {
+                fingerprints: scoped.fingers.filter((finger) => isIncompatible(finger.state))
+                  .length,
+                faces: faceState !== null && isIncompatible(faceState) ? 1 : 0,
+              },
+            },
+            scoped.withheldBy
+          )
+        )
       }
       rows.sort((a, b) => a.name.localeCompare(b.name))
 
@@ -332,6 +384,53 @@ export default class EmployeeSyncController {
         i18n.formatMessage('access_point_employee_title'),
         i18n.formatMessage('employee_sync_revoke_message'),
         202,
+        'accessPointEmployee'
+      )
+    } catch (error) {
+      return respondAdmsApiError(response, i18n, error)
+    }
+  }
+
+  /**
+   * Cierra a mano una baja que el equipo nunca confirmo.
+   *
+   * Existe para el aparato que no vuelve: reemplazado, reseteado o muerto. La
+   * espera normal es correcta mientras haya un equipo al que preguntarle; sin
+   * el, esa espera no se cierra sola y el vinculo queda colgado para siempre.
+   *
+   * Pide el mismo permiso que la baja: es la misma decision --sacar a alguien
+   * de un checador-- tomada sin la confirmacion del aparato.
+   */
+  async forceRevoke(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
+    try {
+      await ensureAccessPointPermission(
+        ctx,
+        EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.removeEmployeeAccessPoint
+      )
+      const { params } = await request.validateUsing(pairValidator, {
+        data: { params: request.params() },
+      })
+      const accessPoint = await resolveScopedAccessPoint(ctx, params.accessPointId)
+      await resolveScopedEmployee(ctx, params.employeeId)
+
+      const reason = String(request.input('reason') ?? '').trim()
+
+      const service = new EmployeeSyncService()
+      const pivot = await service.forceRevoke({
+        accessPointId: accessPoint.accessPointId,
+        businessUnitId: accessPoint.businessUnitId,
+        employeeId: params.employeeId,
+        reason: reason.length > 0 ? reason.slice(0, 200) : 'el equipo no responde',
+        actor: { userId: auth.user?.userId ?? null },
+      })
+
+      return StandardResponseFormatter.success(
+        response,
+        toEmployeeSyncDto(pivot),
+        i18n.formatMessage('access_point_employee_title'),
+        i18n.formatMessage('employee_sync_force_revoke_message'),
+        200,
         'accessPointEmployee'
       )
     } catch (error) {

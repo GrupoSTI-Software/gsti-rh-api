@@ -10,8 +10,32 @@ import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sy
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import { canDetachAssignment } from '#modules/access-point/employee-sync/employee_sync_state'
 import Employee from '#models/employee'
+import logger from '@adonisjs/core/services/logger'
+import ReplicationService from '#modules/biometric-vault/replication/replication.service'
+import {
+  REPLICATION_MODALITY,
+  REPLICATION_SKIP,
+} from '#modules/biometric-vault/replication/replication.types'
+import type { ReplicationInput } from '#modules/biometric-vault/replication/replication.service'
+import type { ReplicationResult } from '#modules/biometric-vault/replication/replication.types'
 import type EmployeeAssignmentRepository from './employee_assignment.repository.js'
 import type { BusinessUnitScope } from './employee_assignment.repository.js'
+
+/**
+ * De donde viene la peticion, para la constancia de lectura de cada biometrico.
+ *
+ * Copiar una huella la lee, y toda lectura de un dato biometrico deja rastro.
+ */
+/** Lo unico que la asignacion necesita de la copia de biometricos. */
+export interface BiometricReplicationPort {
+  replicate(input: ReplicationInput): Promise<ReplicationResult>
+}
+
+export interface AssignmentTrace {
+  ip?: string
+  userAgent?: string | null
+  requestId?: string | null
+}
 
 /**
  * Reglas de negocio de la asignación de empleados a puntos de acceso.
@@ -25,14 +49,19 @@ export default class EmployeeAssignmentService {
 
   private readonly sync: EmployeeSyncService
 
+  /** Copia de biometricos al equipo nuevo. Inyectable para poder probarla. */
+  private readonly replication: BiometricReplicationPort
+
   constructor(
     i18n: I18n,
     repository?: EmployeeAssignmentRepository,
-    sync?: EmployeeSyncService
+    sync?: EmployeeSyncService,
+    replication?: BiometricReplicationPort
   ) {
     this.i18n = i18n
     this.repository = repository ?? new EmployeeAssignmentRepositoryMysql()
     this.sync = sync ?? new EmployeeSyncService()
+    this.replication = replication ?? new ReplicationService()
   }
 
   /** Traduce una clave con el idioma de la petición. */
@@ -107,7 +136,8 @@ export default class EmployeeAssignmentService {
     accessPointId: number,
     employeeId: number,
     scope: BusinessUnitScope,
-    actorUserId: number | null = null
+    actorUserId: number | null = null,
+    trace: AssignmentTrace = {}
   ): Promise<AccessPointEmployeeDto> {
     await this.assertBothExist(accessPointId, employeeId, scope)
 
@@ -148,7 +178,19 @@ export default class EmployeeAssignmentService {
       actor,
     })
 
-    return toAccessPointEmployeeDto(sent)
+    const copies = await this.replicateInto({
+      accessPointId,
+      businessUnitId,
+      employeeId,
+      actorUserId,
+      trace,
+    })
+
+    return {
+      ...toAccessPointEmployeeDto(sent),
+      queuedBiometrics: copies.queued,
+      fingerprintVersionMismatch: copies.fingerprintVersionMismatch,
+    }
   }
 
   /**
@@ -197,6 +239,67 @@ export default class EmployeeAssignmentService {
     }
 
     await this.repository.removeAssignment(assignment)
+  }
+
+  /**
+   * Copia al equipo nuevo los biometricos que ya sirven ahi.
+   *
+   * Es la razon de ser de la boveda: alguien que ya puso el dedo en una puerta
+   * no tiene por que volver a ponerlo en la siguiente. Solo viaja lo compatible
+   * --el servicio compara la version de algoritmo del template con la que
+   * declara el aparato-- y el alta sale antes por prioridad de cola, asi que el
+   * usuario existe en el equipo cuando llega su biometrico.
+   *
+   * En su PROPIO try/catch y despues del alta: un consentimiento que falta, o
+   * un blob que no se pudo leer, no pueden impedir que la persona quede dada de
+   * alta hoy. Lo que no se copio se ve en la matriz y se reintenta.
+   */
+  private async replicateInto(input: {
+    accessPointId: number
+    businessUnitId: number
+    employeeId: number
+    actorUserId: number | null
+    trace: AssignmentTrace
+  }): Promise<{ queued: number; fingerprintVersionMismatch: boolean }> {
+    try {
+      const result = await this.replication.replicate({
+        employeeId: input.employeeId,
+        businessUnitId: input.businessUnitId,
+        // Sin equipo de origen: el dato sale de la boveda, no de otra pantalla.
+        sourceAccessPointId: null,
+        targetAccessPointIds: [input.accessPointId],
+        modalities: [],
+        actor: {
+          userId: input.actorUserId,
+          ip: input.trace.ip ?? '',
+          userAgent: input.trace.userAgent ?? null,
+          requestId: input.trace.requestId ?? null,
+        },
+        dryRun: false,
+      })
+
+      const items = result.targets.flatMap((target) => target.items)
+      const fingers = items.filter(
+        (item) => item.modality === REPLICATION_MODALITY.FINGERPRINT
+      )
+
+      return {
+        queued: items.filter((item) => item.status === 'queued').length,
+        /**
+         * Solo cuando la version tumbo TODOS los dedos. Si alguno cruzo, la
+         * persona ya puede identificarse ahi y avisar seria alarmar de mas.
+         */
+        fingerprintVersionMismatch:
+          fingers.length > 0 &&
+          fingers.every((item) => item.reason === REPLICATION_SKIP.NOT_REPLICABLE_VERSION),
+      }
+    } catch (error: unknown) {
+      logger.warn(
+        { err: error, accessPointId: input.accessPointId, employeeId: input.employeeId },
+        'EmployeeAssignmentService.assign: no se pudieron copiar los biometricos; el alta se completo igual'
+      )
+      return { queued: 0, fingerprintVersionMismatch: false }
+    }
   }
 }
 

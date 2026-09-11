@@ -6,6 +6,7 @@ import {
   DEVICE_COMMAND_STATUS,
 } from '#modules/device-commands/device_command.constants'
 import type { DeviceCommandRepository } from '#modules/device-commands/device_command.repository'
+import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
 import type DeviceCommand from '#models/device_command'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
@@ -48,10 +49,11 @@ test.group('Evidencia de ejecucion: huella subida', () => {
       accessPointId: 12,
       pin: '1042',
       bioNo: 3,
+      bioType: BIO_TYPE.FINGERPRINT,
       now: NOW,
     })
 
-    assert.equal(marked, 1)
+    assert.equal(marked.closed, 1)
     assert.equal(saved[0].deviceCommandStatus, 'executed')
     assert.equal(saved[0].deviceCommandExecutedAt, NOW)
     assert.equal(saved[0].deviceCommandExecutionEvidence, 'biometric_upload')
@@ -63,10 +65,66 @@ test.group('Evidencia de ejecucion: huella subida', () => {
       accessPointId: 12,
       pin: '1042',
       bioNo: 7,
+      bioType: BIO_TYPE.FINGERPRINT,
       now: NOW,
     })
-    assert.equal(marked, 0)
+    assert.equal(marked.closed, 0)
     assert.lengthOf(saved, 0)
+  })
+
+  /**
+   * El equipo numera el rostro con el `No` que declare --el SenseFace sube
+   * `No=0`-- asi que un rostro coincidia en PIN y numero con un enrolamiento
+   * del dedo 0 y lo cerraba como ejecutado: el operador leia "captura
+   * completada" y en la boveda no habia una sola huella.
+   */
+  test('un rostro no cierra el enrolamiento de huella del mismo numero', async ({ assert }) => {
+    const { service, saved } = makeService([commandOf({ deviceCommandBioNo: 0 })])
+
+    const marked = await service.fromBiometricUpload({
+      accessPointId: 12,
+      pin: '1042',
+      bioNo: 0,
+      bioType: BIO_TYPE.FACE,
+      now: NOW,
+    })
+
+    assert.equal(marked.closed, 0)
+    assert.isNull(marked.requestedByUserId)
+    assert.lengthOf(saved, 0)
+  })
+
+  /**
+   * La boveda no entrega un biometrico sin saber a nombre de quien se lee, y
+   * el canal no tiene sesion. Quien pidio la captura es el unico humano detras
+   * de esa huella: sin el, el reparto automatico no puede ocurrir.
+   */
+  test('devuelve a quien pidio la captura, para poder repartirla despues', async ({ assert }) => {
+    const { service } = makeService([commandOf({ deviceCommandRequestedByUserId: 77 })])
+
+    const marked = await service.fromBiometricUpload({
+      accessPointId: 12,
+      pin: '1042',
+      bioNo: 3,
+      bioType: BIO_TYPE.FINGERPRINT,
+      now: NOW,
+    })
+
+    assert.equal(marked.requestedByUserId, 77)
+  })
+
+  test('una huella capturada a mano en el aparato no trae solicitante', async ({ assert }) => {
+    const { service } = makeService([commandOf({ deviceCommandRequestedByUserId: null })])
+
+    const marked = await service.fromBiometricUpload({
+      accessPointId: 12,
+      pin: '1042',
+      bioNo: 3,
+      bioType: BIO_TYPE.FINGERPRINT,
+      now: NOW,
+    })
+
+    assert.isNull(marked.requestedByUserId)
   })
 })
 
@@ -114,6 +172,67 @@ test.group('Evidencia de ejecucion: contadores del equipo', () => {
     })
     assert.equal(marked, 1)
     assert.equal(saved[0].deviceCommandExecutionEvidence, 'counter_up')
+  })
+
+  /**
+   * Una copia no hace que el equipo suba nada --ya tiene el dato-- asi que el
+   * contador es su unica prueba automatica. Sin esto, una replicacion acusada
+   * esperaba para siempre una evidencia que nadie iba a mandar y el expediente
+   * negaba una huella que si estaba dentro del aparato.
+   */
+  test('el contador tambien cierra las copias acusadas', async ({ assert }) => {
+    const snapshot = { fpCount: 1, faceCount: 0, userCount: 1 }
+    const { service, saved } = makeService([
+      commandOf({
+        deviceCommandId: 525,
+        deviceCommandKind: 'biodata_write',
+        deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+        deviceCommandCountersSnapshot: snapshot,
+      }),
+      commandOf({
+        deviceCommandId: 526,
+        deviceCommandKind: 'biodata_write',
+        deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+        deviceCommandCountersSnapshot: snapshot,
+      }),
+    ])
+
+    // Dos ordenes y el contador subio dos: el alza explica a las dos.
+    const marked = await service.fromCounters({
+      accessPointId: 12,
+      counters: { fpCount: 3, faceCount: 0, userCount: 1 },
+      now: NOW,
+    })
+
+    assert.equal(marked, 2)
+    assert.equal(saved[0].deviceCommandExecutionEvidence, 'counter_up')
+  })
+
+  test('un alza que no alcanza para todas no cierra ninguna', async ({ assert }) => {
+    const snapshot = { fpCount: 1, faceCount: 0, userCount: 1 }
+    const { service } = makeService([
+      commandOf({
+        deviceCommandId: 525,
+        deviceCommandKind: 'biodata_write',
+        deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+        deviceCommandCountersSnapshot: snapshot,
+      }),
+      commandOf({
+        deviceCommandId: 526,
+        deviceCommandKind: 'biodata_write',
+        deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+        deviceCommandCountersSnapshot: snapshot,
+      }),
+    ])
+
+    // Dos ordenes y el contador subio una: no se sabe cual entro.
+    const marked = await service.fromCounters({
+      accessPointId: 12,
+      counters: { fpCount: 2, faceCount: 0, userCount: 1 },
+      now: NOW,
+    })
+
+    assert.equal(marked, 0)
   })
 
   /**
