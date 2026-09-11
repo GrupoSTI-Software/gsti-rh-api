@@ -130,11 +130,20 @@ export interface OffboardingsRepository {
   findEmployeeWithTrashed(employeeId: number): Promise<Employee | null>
 }
 
-/** Filtros del listado de salidas (§6.1): exactamente estos, nada más. */
+/**
+ * Filtros del listado de salidas (§6.1 de USRH1786568279596 más el cuarto
+ * filtro de USRH1788579938608): exactamente estos, nada más.
+ */
 export interface OffboardingListFilters {
   page: number
   limit: number
   search?: string
   status?: string
   overdueOnly?: boolean
+  /**
+   * Solo salidas con la baja ejecutada y SIN constancia de separación vigente
+   * (USRH1788579938608, regla 3). Ausente o `false` no altera la consulta; se
+   * combina con los demás filtros sin anularlos (regla 4).
+   */
+  withoutSeparationLetter?: boolean
 }

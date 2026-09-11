@@ -15,6 +15,9 @@ import AccessPointEmployee, {
 } from '#models/access_point_employee'
 import DeviceCommandService from '../device_command.service.js'
 import RosterReconciliationService from '#modules/access-point/employee-sync/roster_reconciliation.service'
+import EmployeeSyncRepositoryMysql from '#modules/access-point/employee-sync/employee_sync.repository.mysql'
+import type { EmployeeSyncRepository } from '#modules/access-point/employee-sync/employee_sync.repository'
+import type DeviceCommand from '#models/device_command'
 
 export interface CommandSweepResult {
   taken: number
@@ -53,7 +56,8 @@ export default class CommandSweepService {
     private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
     private readonly now: () => DateTime = () => DateTime.utc(),
     private readonly commands: DeviceCommandService = new DeviceCommandService(),
-    private readonly roster: RosterReconciliationService = new RosterReconciliationService()
+    private readonly roster: RosterReconciliationService = new RosterReconciliationService(),
+    private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql()
   ) {}
 
   async run(limit: number = COMMAND_SWEEP_BATCH_SIZE): Promise<CommandSweepResult> {
@@ -87,7 +91,10 @@ export default class CommandSweepService {
           failedAt: now,
           error: DEVICE_COMMAND_FAILURE.INFLIGHT_TIMEOUT,
         })
-        if (failed) timedOut += 1
+        if (failed) {
+          timedOut += 1
+          await this.releasePivot(command)
+        }
         continue
       }
 
@@ -141,6 +148,39 @@ export default class CommandSweepService {
    * nadie acredita. El `CHECK` lleva clave de correlacion fija, de modo que
    * varias bajas del mismo equipo dejan un solo comando en la cola.
    */
+  /**
+   * Suelta el vinculo que ese comando dejo esperando.
+   *
+   * El barrido cerraba el COMANDO y no tocaba el pivote, asi que un equipo que
+   * recogio el alta y se apago antes de acusar dejaba la fila en `sent` para
+   * siempre. Desde ahi la maquina solo admite `confirmed` y `failed`, y las dos
+   * dependen de que el aparato vuelva a hablar: no se podia revocar, ni
+   * reenviar, ni retirar la asignacion. La persona quedaba dentro del checador
+   * sin una sola via para sacarla.
+   *
+   * `failed` --o `revoke_failed` si lo que se perdio era la baja-- es la
+   * verdad: la orden salio, nadie contesto y hay que volver a intentarlo. Las
+   * dos tienen salida hacia el camino de alta y hacia el de baja.
+   */
+  private async releasePivot(command: DeviceCommand): Promise<void> {
+    if (!command.accessPointEmployeeId) return
+
+    const target =
+      command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_DELETE
+        ? ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_FAILED
+        : ACCESS_POINT_EMPLOYEE_SYNC_STATUS.FAILED
+
+    /**
+     * Sin corte por empresa, como el resto del barrido, y sin lanzar: el pivote
+     * puede estar en un estado que no admita la transicion --el acuse entro
+     * entre la lectura y esta escritura-- y `updateStatus` lo ignora sin ruido.
+     */
+    await TenantContext.runUnscoped(
+      () => this.pivots.updateStatus(command.accessPointEmployeeId as number, target),
+      UNSCOPED_REASON
+    )
+  }
+
   private async requestPendingRosters(now: DateTime, limit: number): Promise<number> {
     const pending = await TenantContext.runUnscoped(
       () =>

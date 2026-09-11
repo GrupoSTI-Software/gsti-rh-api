@@ -15,6 +15,19 @@ export type AccessPointEmployeeDto = {
    * lector, o que no se copio nada y si tendra que volver.
    */
   queuedBiometrics?: number
+  /**
+   * El equipo no puede recibir ninguna de las huellas guardadas.
+   *
+   * Su version de algoritmo no coincide con la de los templates de la boveda, y
+   * un template de otra generacion se descarta DENTRO del aparato sin devolver
+   * error. La persona queda dada de alta pero no podra identificarse con el
+   * dedo ahi hasta que se enrole en ese equipo.
+   *
+   * Se informa en el alta y no solo en la bitacora porque el operador esta
+   * frente a la pantalla en ese momento: es cuando puede mandar a la persona al
+   * lector en vez de enterarse el dia que se quede parada en la puerta.
+   */
+  fingerprintVersionMismatch?: boolean
 }
 
 /**
