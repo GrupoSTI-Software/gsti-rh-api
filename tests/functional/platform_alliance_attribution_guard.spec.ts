@@ -9,14 +9,14 @@ import BusinessUnit from '#models/business_unit'
 /**
  * Guard de atribuciones (USRH1789099318034). Table-driven: si se agrega
  * un endpoint al grupo y no a esta tabla, el spec falla por conteo.
- * El contrato declara tres operaciones (alta, consulta por id, histórico).
+ * El contrato declara cinco operaciones (alta, consulta, histórico, ajuste, cierre).
  */
 
 const TEST_PASSWORD = 'AllianceAttributionGuard123!'
-const ATTRIBUTION_AREA_ROUTE_COUNT = 3
+const ATTRIBUTION_AREA_ROUTE_COUNT = 5
 const SAMPLE_PUBLIC_ID = '00000000-0000-4000-8000-000000000001'
 
-type AttributionHttpMethod = 'get' | 'post'
+type AttributionHttpMethod = 'get' | 'post' | 'patch'
 
 const ATTRIBUTION_AREA_ROUTES: Array<{ method: AttributionHttpMethod; path: string }> = [
   { method: 'post', path: '/api/platform/alliance-attributions' },
@@ -25,6 +25,8 @@ const ATTRIBUTION_AREA_ROUTES: Array<{ method: AttributionHttpMethod; path: stri
     method: 'get',
     path: `/api/platform/tenants/${SAMPLE_PUBLIC_ID}/alliance-attributions`,
   },
+  { method: 'patch', path: '/api/platform/alliance-attributions/1' },
+  { method: 'post', path: '/api/platform/alliance-attributions/1/close' },
 ]
 
 interface TestActor {
@@ -74,7 +76,7 @@ async function cleanupActor(actor: TestActor | null) {
 }
 
 test.group('Guard /api/platform/alliance-attributions — conteo', () => {
-  test('el área declara exactamente 3 rutas de atribución', ({ assert }) => {
+  test('el área declara exactamente 5 rutas de atribución', ({ assert }) => {
     assert.equal(ATTRIBUTION_AREA_ROUTES.length, ATTRIBUTION_AREA_ROUTE_COUNT)
   })
 
@@ -116,11 +118,20 @@ test.group('Guard /api/platform/alliance-attributions — 403 sin platformAdmin'
       assert,
     }) => {
       const request = client[route.method](route.path).loginAs(tenant!.user)
-      if (route.method === 'post') {
+      if (route.method === 'post' && route.path === '/api/platform/alliance-attributions') {
         request.json({
           allianceId: 1,
           businessUnitPublicId: SAMPLE_PUBLIC_ID,
           allianceAttributionStartsAt: '2026-01-01',
+        })
+      }
+      if (route.method === 'patch') {
+        request.json({ allianceAttributionCommissionPercent: 12 })
+      }
+      if (route.method === 'post' && route.path.endsWith('/close')) {
+        request.json({
+          allianceAttributionClosedAt: '2026-01-01',
+          allianceAttributionCloseReason: 'Fin del acuerdo',
         })
       }
 

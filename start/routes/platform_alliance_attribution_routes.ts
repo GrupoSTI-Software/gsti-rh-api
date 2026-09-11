@@ -7,9 +7,11 @@ import { middleware } from '../kernel.js'
  * Todas protegidas por `auth` + `platformAdmin` en el grupo — dato de
  * plataforma, sin scope de tenant. Prefijo: /api/platform
  *
- *   POST /api/platform/alliance-attributions
- *   GET  /api/platform/alliance-attributions/:allianceAttributionId
- *   GET  /api/platform/tenants/:businessUnitPublicId/alliance-attributions
+ *   POST   /api/platform/alliance-attributions
+ *   GET    /api/platform/alliance-attributions/:allianceAttributionId
+ *   GET    /api/platform/tenants/:businessUnitPublicId/alliance-attributions
+ *   PATCH  /api/platform/alliance-attributions/:allianceAttributionId
+ *   POST   /api/platform/alliance-attributions/:allianceAttributionId/close
  *
  * La tercera vive bajo /tenants pero se declara aquí. Ver la referencia
  * cruzada en `platform_tenant_routes.ts`.
@@ -27,6 +29,14 @@ router
     router.get(
       '/tenants/:businessUnitPublicId/alliance-attributions',
       '#controllers/alliance_attribution_controller.indexByTenant'
+    )
+    router.patch(
+      '/alliance-attributions/:allianceAttributionId',
+      '#controllers/alliance_attribution_controller.update'
+    )
+    router.post(
+      '/alliance-attributions/:allianceAttributionId/close',
+      '#controllers/alliance_attribution_controller.close'
     )
   })
   .prefix('/api/platform')

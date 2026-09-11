@@ -32,3 +32,20 @@ export interface CreateAllianceAttributionInput {
   allianceAttributionCommissionPercent?: number
   allianceAttributionTermPeriods?: number | null
 }
+
+/**
+ * Ajuste de una atribución viva. Ausente conserva lo persistido.
+ * `termPeriods: null` pasa el plazo a indeterminado. No acepta
+ * alianza ni empresa cliente.
+ */
+export interface UpdateAllianceAttributionInput {
+  allianceAttributionCommissionPercent?: number
+  allianceAttributionTermPeriods?: number | null
+  allianceAttributionStartsAt?: string
+}
+
+/** Cierre de una atribución viva. Fecha y motivo son obligatorios. */
+export interface CloseAllianceAttributionInput {
+  allianceAttributionClosedAt: string
+  allianceAttributionCloseReason: string
+}

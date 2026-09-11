@@ -49,6 +49,12 @@ export const ALLIANCE_ERROR_CODES = {
   INACTIVE: 'PLT.ALL.INACTIVE',
   /** La fecha de inicio de la atribución es posterior a hoy */
   ATTRIBUTION_START_IN_FUTURE: 'PLT.ALL.ATTRIBUTION_START_IN_FUTURE',
+  /** Se intentó ajustar una atribución ya cerrada */
+  ATTRIBUTION_CLOSED_IMMUTABLE: 'PLT.ALL.ATTRIBUTION_CLOSED_IMMUTABLE',
+  /** Se intentó cerrar una atribución que ya está cerrada */
+  ATTRIBUTION_ALREADY_CLOSED: 'PLT.ALL.ATTRIBUTION_ALREADY_CLOSED',
+  /** La fecha de cierre es anterior a startsAt o posterior a hoy */
+  ATTRIBUTION_CLOSE_DATE_INVALID: 'PLT.ALL.ATTRIBUTION_CLOSE_DATE_INVALID',
   /** Error no tipado del módulo */
   SYS_UNHANDLED: 'PLT.ALL.SYS_UNHANDLED',
 } as const
@@ -214,6 +220,28 @@ export const ALLIANCE_ERRORS = {
     title: 'Alianzas',
     detail: 'La fecha desde la que aplica no puede ser posterior a hoy.',
     code: ALLIANCE_ERROR_CODES.ATTRIBUTION_START_IN_FUTURE,
+    status: 422,
+  },
+  ATTRIBUTION_CLOSED_IMMUTABLE: {
+    key: 'atribucion-cerrada-inmutable',
+    title: 'Alianzas',
+    detail: 'Esta atribución ya está cerrada. No se puede ajustar.',
+    code: ALLIANCE_ERROR_CODES.ATTRIBUTION_CLOSED_IMMUTABLE,
+    status: 409,
+  },
+  ATTRIBUTION_ALREADY_CLOSED: {
+    key: 'atribucion-ya-cerrada',
+    title: 'Alianzas',
+    detail: 'Esta atribución ya está cerrada.',
+    code: ALLIANCE_ERROR_CODES.ATTRIBUTION_ALREADY_CLOSED,
+    status: 422,
+  },
+  ATTRIBUTION_CLOSE_DATE_INVALID: {
+    key: 'fecha-de-cierre-invalida',
+    title: 'Alianzas',
+    detail:
+      'La fecha de cierre no puede ser anterior a la fecha desde la que aplica ni posterior a hoy.',
+    code: ALLIANCE_ERROR_CODES.ATTRIBUTION_CLOSE_DATE_INVALID,
     status: 422,
   },
   SYS_UNHANDLED: {

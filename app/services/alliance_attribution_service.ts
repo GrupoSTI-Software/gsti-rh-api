@@ -14,7 +14,9 @@ import {
 import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
 import type {
   AllianceAttributionView,
+  CloseAllianceAttributionInput,
   CreateAllianceAttributionInput,
+  UpdateAllianceAttributionInput,
 } from '../interfaces/alliance_attribution_interface.js'
 
 const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
@@ -28,6 +30,11 @@ const CREATE_NUMERIC_KEYS = [
   'allianceAttributionCommissionPercent',
   'allianceAttributionTermPeriods',
 ] as const
+const PATCH_NUMERIC_KEYS = [
+  'allianceAttributionCommissionPercent',
+  'allianceAttributionTermPeriods',
+] as const
+const PATCH_OWNER_KEYS = ['allianceId', 'businessUnitPublicId'] as const
 
 function throwFromCatalog(
   catalog: (typeof ALLIANCE_ERRORS)[keyof typeof ALLIANCE_ERRORS]
@@ -53,6 +60,39 @@ function assertCreateNumericFieldsAreScalar(body: unknown): void {
 
   const record = body as Record<string, unknown>
   for (const key of CREATE_NUMERIC_KEYS) {
+    if (!Object.prototype.hasOwnProperty.call(record, key)) {
+      continue
+    }
+    const value = record[key]
+    if (value === null) {
+      continue
+    }
+    if (typeof value === 'boolean' || Array.isArray(value) || typeof value === 'object') {
+      throwFromCatalog(ALLIANCE_ERRORS.VAL_INPUT)
+    }
+  }
+}
+
+function assertPatchDoesNotRewriteOwner(body: unknown): void {
+  if (body === null || body === undefined || typeof body !== 'object' || Array.isArray(body)) {
+    return
+  }
+
+  const record = body as Record<string, unknown>
+  for (const key of PATCH_OWNER_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(record, key)) {
+      throwFromCatalog(ALLIANCE_ERRORS.VAL_INPUT)
+    }
+  }
+}
+
+function assertPatchNumericFieldsAreScalar(body: unknown): void {
+  if (body === null || body === undefined || typeof body !== 'object' || Array.isArray(body)) {
+    return
+  }
+
+  const record = body as Record<string, unknown>
+  for (const key of PATCH_NUMERIC_KEYS) {
     if (!Object.prototype.hasOwnProperty.call(record, key)) {
       continue
     }
@@ -146,7 +186,7 @@ function toAllianceAttributionView(
 
 /**
  * Atribución de una empresa cliente a una alianza comercial
- * (USRH1789099318034). Crea y consulta; no ajusta ni cierra.
+ * (USRH1789099318034 / USRH1789099318113). Crea, consulta, ajusta y cierra.
  *
  * La unicidad de la atribución viva se sostiene con `forUpdate` sobre
  * `business_units` (la fila padre siempre existe) y con el UNIQUE de
@@ -164,6 +204,15 @@ export default class AllianceAttributionService {
    */
   assertCreatePayloadScalars(body: unknown): void {
     assertCreateNumericFieldsAreScalar(body)
+  }
+
+  /**
+   * Rechaza cambiar de dueño en el PATCH y los mismos tipos hostiles
+   * del alta en porcentaje y plazo.
+   */
+  assertUpdatePayloadScalars(body: unknown): void {
+    assertPatchDoesNotRewriteOwner(body)
+    assertPatchNumericFieldsAreScalar(body)
   }
 
   async createAttribution(
@@ -225,6 +274,110 @@ export default class AllianceAttributionService {
   }
 
   /**
+   * Ajusta porcentaje, plazo o fecha de inicio de una atribución viva.
+   * No toca alianza, empresa ni el acuerdo general.
+   */
+  async updateAllianceAttribution(
+    allianceAttributionId: number | string,
+    input: UpdateAllianceAttributionInput
+  ): Promise<AllianceAttributionView> {
+    const id = parseAttributionId(allianceAttributionId)
+
+    if (input.allianceAttributionStartsAt !== undefined) {
+      this.assertStartsAtCalendarDate(input.allianceAttributionStartsAt)
+    }
+    if (input.allianceAttributionCommissionPercent !== undefined) {
+      assertCommissionPercent(input.allianceAttributionCommissionPercent)
+    }
+    if (input.allianceAttributionTermPeriods !== undefined) {
+      assertTermPeriods(input.allianceAttributionTermPeriods)
+      if (
+        typeof input.allianceAttributionTermPeriods === 'number' &&
+        (input.allianceAttributionTermPeriods > MYSQL_UNSIGNED_INT_MAX ||
+          !Number.isSafeInteger(input.allianceAttributionTermPeriods))
+      ) {
+        throwFromCatalog(ALLIANCE_ERRORS.TERM_PERIODS_INVALID)
+      }
+    }
+
+    await db.transaction(async (trx) => {
+      const row = await AllianceAttribution.query({ client: trx })
+        .where('alliance_attribution_id', id)
+        .forUpdate()
+        .first()
+
+      if (!row) {
+        throwFromCatalog(ALLIANCE_ERRORS.ATTRIBUTION_NOT_FOUND)
+      }
+
+      if (row.allianceAttributionClosedAt) {
+        throwFromCatalog(ALLIANCE_ERRORS.ATTRIBUTION_CLOSED_IMMUTABLE)
+      }
+
+      if (input.allianceAttributionCommissionPercent !== undefined) {
+        row.allianceAttributionCommissionPercent = input.allianceAttributionCommissionPercent
+      }
+      if (input.allianceAttributionTermPeriods !== undefined) {
+        row.allianceAttributionTermPeriods = input.allianceAttributionTermPeriods
+      }
+      if (input.allianceAttributionStartsAt !== undefined) {
+        row.allianceAttributionStartsAt = DateTime.fromISO(input.allianceAttributionStartsAt, {
+          zone: 'utc',
+        })
+      }
+
+      await row.save()
+    })
+
+    return this.getAttribution(id)
+  }
+
+  /**
+   * Cierra una atribución viva. Corta hacia adelante: solo escribe
+   * closed_at, close_reason y updated_at. forUpdate sobre la propia fila.
+   */
+  async closeAllianceAttribution(
+    allianceAttributionId: number | string,
+    input: CloseAllianceAttributionInput
+  ): Promise<AllianceAttributionView> {
+    const id = parseAttributionId(allianceAttributionId)
+    this.assertCloseDateCalendar(input.allianceAttributionClosedAt)
+
+    await db.transaction(async (trx) => {
+      const row = await AllianceAttribution.query({ client: trx })
+        .where('alliance_attribution_id', id)
+        .forUpdate()
+        .first()
+
+      if (!row) {
+        throwFromCatalog(ALLIANCE_ERRORS.ATTRIBUTION_NOT_FOUND)
+      }
+
+      if (row.allianceAttributionClosedAt) {
+        throwFromCatalog(ALLIANCE_ERRORS.ATTRIBUTION_ALREADY_CLOSED)
+      }
+
+      const startsAt = toCalendarIsoDate(row.allianceAttributionStartsAt)
+      const today = toBusinessDateString()
+      if (
+        !startsAt ||
+        input.allianceAttributionClosedAt < startsAt ||
+        input.allianceAttributionClosedAt > today
+      ) {
+        throwFromCatalog(ALLIANCE_ERRORS.ATTRIBUTION_CLOSE_DATE_INVALID)
+      }
+
+      row.allianceAttributionClosedAt = DateTime.fromISO(input.allianceAttributionClosedAt, {
+        zone: 'utc',
+      }).startOf('day')
+      row.allianceAttributionCloseReason = input.allianceAttributionCloseReason.trim()
+      await row.save()
+    })
+
+    return this.getAttribution(id)
+  }
+
+  /**
    * Consulta por id. 404 tipado si no existe, el id es inválido o está
    * retirada con soft delete.
    */
@@ -275,6 +428,13 @@ export default class AllianceAttributionService {
 
     if (startsAt > toBusinessDateString()) {
       throwFromCatalog(ALLIANCE_ERRORS.ATTRIBUTION_START_IN_FUTURE)
+    }
+  }
+
+  private assertCloseDateCalendar(closedAt: string): void {
+    const parsed = DateTime.fromISO(closedAt, { zone: 'utc' })
+    if (!parsed.isValid || parsed.toISODate() !== closedAt) {
+      throwFromCatalog(ALLIANCE_ERRORS.VAL_INPUT)
     }
   }
 

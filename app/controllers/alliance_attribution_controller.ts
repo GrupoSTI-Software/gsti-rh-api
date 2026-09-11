@@ -1,13 +1,16 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import AllianceAttributionService from '#services/alliance_attribution_service'
-import { createAllianceAttributionValidator } from '#validators/alliance_attribution'
+import {
+  closeAllianceAttributionValidator,
+  createAllianceAttributionValidator,
+  updateAllianceAttributionValidator,
+} from '#validators/alliance_attribution'
 import { resolveAllianceApiError } from '../helpers/alliance_api_error.js'
 
 /**
  * Controlador de atribuciones alianza↔cliente (USRH1789099318034).
  * Todos los endpoints requieren `auth` + `platformAdmin`: es dato de
- * plataforma, no de la empresa cliente. Alta y lectura; ajustar y
- * cerrar son la HU 06b.
+ * plataforma, no de la empresa cliente. Alta, lectura, ajuste y cierre.
  */
 export default class AllianceAttributionController {
   private readonly service = new AllianceAttributionService()
@@ -136,6 +139,122 @@ export default class AllianceAttributionController {
     try {
       const views = await this.service.listAttributionsByTenant(params.businessUnitPublicId)
       return response.status(200).json({ type: 'success', data: views })
+    } catch (error) {
+      const { status, ...body } = resolveAllianceApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/alliance-attributions/{allianceAttributionId}:
+   *   patch:
+   *     tags:
+   *       - Platform Alliances
+   *     summary: Ajustar las condiciones de una atribución viva
+   *     description: >
+   *       Cambia porcentaje, plazo o fecha de inicio de ese cliente.
+   *       No acepta alianza ni empresa. Una atribución cerrada no se ajusta.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: allianceAttributionId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               allianceAttributionCommissionPercent:
+   *                 type: number
+   *               allianceAttributionTermPeriods:
+   *                 type: integer
+   *                 nullable: true
+   *               allianceAttributionStartsAt:
+   *                 type: string
+   *                 format: date
+   *     responses:
+   *       '200':
+   *         description: Atribución ajustada
+   *       '404':
+   *         description: Atribución no encontrada (PLT.ALL.ATTRIBUTION_NOT_FOUND)
+   *       '409':
+   *         description: Atribución cerrada (PLT.ALL.ATTRIBUTION_CLOSED_IMMUTABLE)
+   *       '422':
+   *         description: >
+   *           Datos inválidos, comisión o plazo fuera de rango, o fecha
+   *           de inicio en el futuro
+   */
+  async update({ params, request, response }: HttpContext) {
+    try {
+      this.service.assertUpdatePayloadScalars(request.body())
+      const data = await request.validateUsing(updateAllianceAttributionValidator)
+      const view = await this.service.updateAllianceAttribution(
+        String(params.allianceAttributionId),
+        data
+      )
+      return response.status(200).json({ type: 'success', data: view })
+    } catch (error) {
+      const { status, ...body } = resolveAllianceApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/alliance-attributions/{allianceAttributionId}/close:
+   *   post:
+   *     tags:
+   *       - Platform Alliances
+   *     summary: Cerrar una atribución viva
+   *     description: >
+   *       Exige fecha y motivo. Corta hacia adelante: no borra ni
+   *       recalcula lo anterior. Libera el slot para otra atribución.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: allianceAttributionId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - allianceAttributionClosedAt
+   *               - allianceAttributionCloseReason
+   *             properties:
+   *               allianceAttributionClosedAt:
+   *                 type: string
+   *                 format: date
+   *               allianceAttributionCloseReason:
+   *                 type: string
+   *     responses:
+   *       '200':
+   *         description: Atribución cerrada
+   *       '404':
+   *         description: Atribución no encontrada (PLT.ALL.ATTRIBUTION_NOT_FOUND)
+   *       '422':
+   *         description: >
+   *           Sin motivo, ya cerrada o fecha de cierre fuera de rango
+   */
+  async close({ params, request, response }: HttpContext) {
+    try {
+      const data = await request.validateUsing(closeAllianceAttributionValidator)
+      const view = await this.service.closeAllianceAttribution(
+        String(params.allianceAttributionId),
+        data
+      )
+      return response.status(200).json({ type: 'success', data: view })
     } catch (error) {
       const { status, ...body } = resolveAllianceApiError(error)
       return response.status(status).json(body)

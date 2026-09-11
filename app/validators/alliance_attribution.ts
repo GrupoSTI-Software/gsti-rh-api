@@ -19,3 +19,27 @@ export const createAllianceAttributionValidator = vine.compile(
     allianceAttributionTermPeriods: vine.number().withoutDecimals().optional().nullable(),
   })
 )
+
+/**
+ * Body para `PATCH /api/platform/alliance-attributions/:id`.
+ * Solo condiciones. `allianceId` y `businessUnitPublicId` se rechazan
+ * en el servicio sobre el JSON crudo (regla 3).
+ */
+export const updateAllianceAttributionValidator = vine.compile(
+  vine.object({
+    allianceAttributionCommissionPercent: vine.number().optional(),
+    allianceAttributionTermPeriods: vine.number().withoutDecimals().optional().nullable(),
+    allianceAttributionStartsAt: vine.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  })
+)
+
+/**
+ * Body para `POST /api/platform/alliance-attributions/:id/close`.
+ * Motivo obligatorio. El rango de la fecha lo afirma el servicio.
+ */
+export const closeAllianceAttributionValidator = vine.compile(
+  vine.object({
+    allianceAttributionClosedAt: vine.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/),
+    allianceAttributionCloseReason: vine.string().trim().minLength(1).maxLength(500),
+  })
+)
