@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
+import env from '#start/env'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import BusinessUnit from '#models/business_unit'
@@ -123,6 +124,17 @@ test.group('Direccion del canal de una unidad', (group) => {
     assert.isTrue(address.hasSecret, 'todo punto de acceso nace con su direccion propia')
     assert.isNotNull(address.secret)
     assert.isNotEmpty(address.secret!)
+
+    /**
+     * Lo que se teclea en el aparato es el nombre completo, no el secreto
+     * pelon: sin el dominio comun detras, el checador no resuelve nada.
+     */
+    const baseDomain = env.get('ADMS_CHANNEL_BASE_DOMAIN')
+    if (baseDomain) {
+      assert.equal(address.address, `${address.secret}.${baseDomain}`.toLowerCase())
+    } else {
+      assert.isNull(address.address, 'sin dominio comun no hay direccion que dar')
+    }
   })
 
   test('la direccion es la misma en dos consultas: leer no rota', async ({ assert }) => {
@@ -160,6 +172,7 @@ test.group('Direccion del canal de una unidad', (group) => {
 
     assert.isFalse(address.hasSecret, 'el legado en convivencia no tiene direccion que teclear')
     assert.isNull(address.secret)
+    assert.isNull(address.address)
   })
 
   test('una unidad sin entrega vigente responde 422, no una direccion vacia', async ({

@@ -27,6 +27,31 @@ export function generateChannelSecret(): string {
 }
 
 /**
+ * La direccion completa que se teclea en el menu del checador.
+ *
+ * El secreto no se teclea solo: va como etiqueta delante del dominio comun, y
+ * eso es lo que el aparato resuelve por DNS. Mostrarle al operador los 14
+ * caracteres pelones lo obliga a saberse el formato de memoria -- y a
+ * inventarselo mal cuando no se lo sabe.
+ *
+ * Devuelve `null` sin dominio base configurado: ahi no hay direccion que dar,
+ * porque el canal todavia atiende por el dominio comun.
+ *
+ * @param secret - Secreto del punto de acceso, o `null` en un equipo anterior al canal.
+ * @param baseDomain - Dominio comun del canal (`ADMS_CHANNEL_BASE_DOMAIN`).
+ * @returns El nombre completo del host, o `null` si no hay direccion propia que teclear.
+ */
+export function channelAddressOf(
+  secret: string | null | undefined,
+  baseDomain: string | null | undefined
+): string | null {
+  if (!secret || !baseDomain) return null
+  const base = baseDomain.trim().toLowerCase()
+  if (base.length === 0) return null
+  return `${secret.trim().toLowerCase()}.${base}`
+}
+
+/**
  * La etiqueta propia del `Host`, o `null` si la peticion llego al dominio comun.
  *
  * Hace falta el dominio base para distinguir `<secreto>.adms.valanserh.com` de

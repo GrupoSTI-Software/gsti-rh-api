@@ -10,7 +10,8 @@ import DeviceCommandService from '#modules/device-commands/device_command.servic
 import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
 import { PLATFORM_DEVICE_ERROR_CODES } from '#constants/platform_device_error_codes'
-import { generateChannelSecret } from '#modules/adms/channel/channel_secret'
+import env from '#start/env'
+import { channelAddressOf, generateChannelSecret } from '#modules/adms/channel/channel_secret'
 import { PlatformDeviceServiceError } from '#exceptions/platform_device_service_error'
 import { TenantContext } from '#utils/tenant_context'
 
@@ -45,6 +46,11 @@ export interface ClaimFromQuarantineResult {
    * la ficha del equipo, que es otra HU.
    */
   channelSecret: string
+  /**
+   * La direccion completa, que es lo que se teclea. El secreto solo no sirve:
+   * va como etiqueta delante del dominio comun del canal.
+   */
+  channelAddress: string | null
 }
 
 /**
@@ -173,6 +179,7 @@ export default class PlatformQuarantineClaimService {
       accessPointOutcome: assignment.accessPointOutcome,
       revivedDeletedAccessPoint: revived !== null,
       channelSecret,
+      channelAddress: channelAddressOf(channelSecret, env.get('ADMS_CHANNEL_BASE_DOMAIN')),
     }
   }
 

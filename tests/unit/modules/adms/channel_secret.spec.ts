@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import {
+  channelAddressOf,
   channelSecretMatches,
   generateChannelSecret,
   hostLabelOf,
@@ -88,5 +89,48 @@ test.group('Secreto del canal: comparacion', () => {
     assert.isFalse(channelSecretMatches(null, generateChannelSecret()))
     assert.isFalse(channelSecretMatches(generateChannelSecret(), null))
     assert.isFalse(channelSecretMatches(null, null))
+  })
+})
+
+test.group('Secreto del canal: direccion que se teclea', () => {
+  test('el secreto va como etiqueta delante del dominio comun', ({ assert }) => {
+    assert.equal(
+      channelAddressOf('37htrxq38vtrms', 'adms-dev.valanserh.app'),
+      '37htrxq38vtrms.adms-dev.valanserh.app'
+    )
+  })
+
+  /**
+   * El DNS no distingue mayusculas, pero quien teclea si: una direccion
+   * mostrada en mayusculas se copia en mayusculas al menu del aparato y
+   * despues no cuadra con lo que la pantalla dice.
+   */
+  test('normaliza a minusculas y recorta los espacios de los extremos', ({ assert }) => {
+    assert.equal(
+      channelAddressOf('  ABCDEF1234  ', '  ADMS.VALANSERH.APP '),
+      'abcdef1234.adms.valanserh.app'
+    )
+  })
+
+  test('sin dominio comun no hay direccion que dar', ({ assert }) => {
+    assert.isNull(channelAddressOf('37htrxq38vtrms', null))
+    assert.isNull(channelAddressOf('37htrxq38vtrms', ''))
+    assert.isNull(channelAddressOf('37htrxq38vtrms', '   '))
+  })
+
+  test('un equipo anterior al canal no tiene direccion propia', ({ assert }) => {
+    assert.isNull(channelAddressOf(null, 'adms-dev.valanserh.app'))
+  })
+
+  /** La direccion que se muestra tiene que ser la que el canal despues acepta. */
+  test('lo que se teclea es lo que el canal reconoce como etiqueta propia', ({ assert }) => {
+    const secret = generateChannelSecret()
+    const base = 'adms-dev.valanserh.app'
+
+    const address = channelAddressOf(secret, base)
+
+    assert.isNotNull(address)
+    assert.equal(hostLabelOf(address, base), secret)
+    assert.isTrue(channelSecretMatches(hostLabelOf(address, base), secret))
   })
 })

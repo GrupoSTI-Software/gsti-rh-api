@@ -1,3 +1,4 @@
+import env from '#start/env'
 import AccessPoint from '#models/access_point'
 import BusinessUnit from '#models/business_unit'
 import PlatformDevice from '#models/platform_device'
@@ -5,6 +6,7 @@ import PlatformDeviceAssignment from '#models/platform_device_assignment'
 import { PLATFORM_DEVICE_ERROR_CODES } from '#constants/platform_device_error_codes'
 import { PlatformDeviceServiceError } from '#exceptions/platform_device_service_error'
 import { TenantContext } from '#utils/tenant_context'
+import { channelAddressOf } from '#modules/adms/channel/channel_secret'
 
 const UNSCOPED_REASON =
   'direccion del canal: plataforma consulta el punto de acceso de cualquier empresa'
@@ -26,6 +28,12 @@ export interface DeviceChannelAddress {
    */
   hasSecret: boolean
   secret: string | null
+  /**
+   * Lo que de verdad se teclea en el menu del checador: el secreto como
+   * etiqueta delante del dominio comun. `null` cuando no hay dominio
+   * configurado, que es cuando el canal todavia atiende solo por el comun.
+   */
+  address: string | null
   secretSetAt: string | null
 }
 
@@ -126,6 +134,10 @@ export default class DeviceChannelSecretService {
         businessUnitName: tenant?.businessUnitName ?? null,
         hasSecret: accessPoint.accessPointChannelSecret !== null,
         secret: accessPoint.accessPointChannelSecret,
+        address: channelAddressOf(
+          accessPoint.accessPointChannelSecret,
+          env.get('ADMS_CHANNEL_BASE_DOMAIN')
+        ),
         secretSetAt: accessPoint.accessPointChannelSecretSetAt?.toISO() ?? null,
       }
     }, UNSCOPED_REASON)
