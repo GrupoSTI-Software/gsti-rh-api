@@ -12,7 +12,9 @@ import { TenantContext } from '#utils/tenant_context'
 import HealthService from '#modules/access-point/health/health.service'
 import { toIncidentDto } from '#modules/access-point/incidents/incidents.dto'
 import PlatformQuarantineClaimService from './quarantine_claim.service.js'
-import QuarantineInventoryLookupService from './quarantine_inventory_lookup.service.js'
+import QuarantineInventoryLookupService, {
+  quarantineSerialKey,
+} from './quarantine_inventory_lookup.service.js'
 
 const idValidator = vine.compile(
   vine.object({ params: vine.object({ quarantinedDeviceId: vine.number().positive() }) })
@@ -145,7 +147,7 @@ export default class PlatformDevicesController {
             row.claimedBusinessUnitId === null
               ? null
               : (claimedTenants.get(row.claimedBusinessUnitId) ?? null),
-          inventoryUnit: inventory.get(row.admsQuarantinedDeviceSerial) ?? null,
+          inventoryUnit: inventory.get(quarantineSerialKey(row.admsQuarantinedDeviceSerial)) ?? null,
           firstSeenAt: row.admsQuarantinedDeviceFirstSeenAt.toISO(),
           lastSeenAt: row.admsQuarantinedDeviceLastSeenAt.toISO(),
         })),

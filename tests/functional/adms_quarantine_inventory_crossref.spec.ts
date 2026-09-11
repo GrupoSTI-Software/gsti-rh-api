@@ -20,12 +20,15 @@ const STAMP = `${Date.now()}`
 const SERIAL_EN_INVENTARIO = `TESTI${STAMP}`.slice(0, 24)
 const SERIAL_ENTREGADO = `TESTE${STAMP}`.slice(0, 24)
 const SERIAL_DESCONOCIDO = `TESTX${STAMP}`.slice(0, 24)
+const SERIAL_MODELO_BORRADO = `TESTM${STAMP}`.slice(0, 24)
+const SERIAL_MINUSCULAS = `testk${STAMP}`.slice(0, 24)
 
 test.group('Cruce de cuarentena contra inventario', (group) => {
   let tenant: BusinessUnit
   let modelId: number
   const deviceIds: number[] = []
   const assignmentIds: number[] = []
+  const modelIds: number[] = []
 
   group.setup(async () => {
     await TenantContext.runUnscoped(async () => {
@@ -52,6 +55,9 @@ test.group('Cruce de cuarentena contra inventario', (group) => {
       }
       if (deviceIds.length > 0) {
         await db.from('platform_devices').whereIn('platform_device_id', deviceIds).delete()
+      }
+      if (modelIds.length > 0) {
+        await db.from('platform_device_models').whereIn('platform_device_model_id', modelIds).delete()
       }
     }, 'limpieza del cruce de inventario')
   })
@@ -124,6 +130,81 @@ test.group('Cruce de cuarentena contra inventario', (group) => {
       unit!.assignedTenantName,
       tenant.businessUnitName,
       'el 409 del reclamo tiene que poder decir a quien esta entregada'
+    )
+  })
+
+  test('un modelo dado de baja no tumba la lista entera', async ({ assert }) => {
+    /**
+     * El catalogo da de baja modelos sin mirar si alguna unidad los usa. Si el
+     * cruce no los precarga con `withTrashed`, Lucid deja la relacion en null
+     * y el acceso al nombre revienta la respuesta completa -- las 300 filas,
+     * no solo la afectada.
+     */
+    const modelo = await TenantContext.runUnscoped(async () => {
+      const nuevo = await PlatformDeviceModel.create({
+        platformDeviceModelBrand: 'ZKTeco',
+        platformDeviceModelName: `Retirado ${STAMP}`,
+        platformDeviceModelSlug: `retirado-${STAMP}`,
+        platformDeviceModelStatus: 'vigente',
+        platformDeviceModelActive: 1,
+      })
+      modelIds.push(nuevo.platformDeviceModelId)
+      return nuevo
+    }, 'alta de modelo de prueba')
+
+    const device = await TenantContext.runUnscoped(async () => {
+      const nuevo = await PlatformDevice.create({
+        platformDeviceModelId: modelo.platformDeviceModelId,
+        platformDeviceSerialNumber: SERIAL_MODELO_BORRADO,
+        platformDeviceOrigin: 'propia',
+        platformDeviceStockStatus: 'disponible',
+        platformDeviceActive: 1,
+      })
+      deviceIds.push(nuevo.platformDeviceId)
+      return nuevo
+    }, 'alta de unidad con modelo que se borrara')
+
+    await TenantContext.runUnscoped(
+      () =>
+        db
+          .from('platform_device_models')
+          .where('platform_device_model_id', modelo.platformDeviceModelId)
+          .update({ platform_device_model_deleted_at: DateTime.utc().toFormat('yyyy-MM-dd HH:mm:ss') }),
+      'dar de baja el modelo de prueba'
+    )
+
+    const found = await new QuarantineInventoryLookupService().findBySerials([
+      SERIAL_MODELO_BORRADO,
+      SERIAL_EN_INVENTARIO,
+    ])
+
+    const unit = found.get(SERIAL_MODELO_BORRADO)
+    assert.isDefined(unit, 'la unidad sigue existiendo aunque su modelo ya no se ofrezca')
+    assert.equal(unit!.platformDeviceId, device.platformDeviceId)
+    assert.equal(
+      unit!.modelName,
+      `Retirado ${STAMP}`,
+      'el operador necesita saber que aparato es, aunque el catalogo lo haya retirado'
+    )
+  })
+
+  test('la serie cruza sin importar mayusculas ni espacios', async ({ assert }) => {
+    await TenantContext.runUnscoped(async () => {
+      const nuevo = await PlatformDevice.create({
+        platformDeviceModelId: modelId,
+        platformDeviceSerialNumber: SERIAL_MINUSCULAS,
+        platformDeviceOrigin: 'propia',
+        platformDeviceStockStatus: 'disponible',
+        platformDeviceActive: 1,
+      })
+      deviceIds.push(nuevo.platformDeviceId)
+    }, 'alta de unidad con serie en minusculas')
+
+    const found = await new QuarantineInventoryLookupService().findBySerials([SERIAL_MINUSCULAS])
+
+    assert.isTrue(
+      found.has(SERIAL_MINUSCULAS.toUpperCase()),
+      'la serie del inventario la teclea un humano y la del canal la manda el aparato: es el mismo equipo'
     )
   })
 

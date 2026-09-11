@@ -44,9 +44,18 @@ export default class DeviceChannelSecretController {
    *       '404':
    *         description: PLT.DEV.DEVICE_NOT_FOUND
    *       '409':
+   *         description: PLT.DEV.ACCESS_POINT_ABSENT
+   *       '422':
    *         description: PLT.DEV.NO_OPEN_ASSIGNMENT
    */
   async show({ params, response }: HttpContext) {
+    /**
+     * El secreto no se guarda en ningun cache intermedio ni en el del
+     * navegador: es la credencial del equipo y viaja en claro por definicion
+     * (misma convencion que los gafetes, `badge.controller.ts:251`).
+     */
+    response.header('Cache-Control', 'private, no-store')
+
     try {
       const deviceChannel = await this.service.show(Number(params.platformDeviceId))
       return response.status(200).json({ type: 'success', data: { deviceChannel } })

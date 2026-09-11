@@ -51,6 +51,8 @@ export const PLATFORM_DEVICE_ERROR_CODES = {
   TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN: 'PLT.DEV.TENURE_REGIME_NOT_ALLOWED_FOR_ORIGIN',
   /** La unidad no tiene ninguna entrega vigente que cerrar (regla 8 del spec 1881) */
   NO_OPEN_ASSIGNMENT: 'PLT.DEV.NO_OPEN_ASSIGNMENT',
+  /** La unidad esta entregada pero su punto de acceso ya no existe: el cliente lo borro desde el Backoffice */
+  ACCESS_POINT_ABSENT: 'PLT.DEV.ACCESS_POINT_ABSENT',
   /** La fecha de liberación es anterior a la de entrega de esa asignación o posterior a hoy (regla 2 del spec 1881) */
   RELEASE_DATE_INVALID: 'PLT.DEV.RELEASE_DATE_INVALID',
   /** Falló la desactivación del punto de acceso del cliente al cerrar la entrega; el cierre se revirtió completo (RN5 del spec 1883) */

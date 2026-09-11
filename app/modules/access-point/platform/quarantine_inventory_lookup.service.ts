@@ -27,6 +27,20 @@ export interface QuarantineInventoryUnit {
   assignedTenantName: string | null
 }
 
+/**
+ * Clave con la que se cruza una serie.
+ *
+ * La serie del inventario la teclea un humano al dar de alta la unidad y la
+ * del canal la manda el aparato: `syz8252500376` y `SYZ8252500376` son el
+ * mismo equipo, y sin normalizar la pantalla dice "nadie la compro" mientras
+ * el reclamo si encuentra la unidad y la reusa. Dos verdades distintas para el
+ * mismo aparato es peor que no cruzar nada.
+ *
+ * @param serial - Serie tal como la guarda el inventario o la manda el equipo.
+ * @returns La serie en mayusculas y sin espacios de los extremos.
+ */
+export const quarantineSerialKey = (serial: string): string => serial.trim().toUpperCase()
+
 /** Cruce de las series en cuarentena contra el inventario de plataforma. */
 export default class QuarantineInventoryLookupService {
   /**
@@ -45,7 +59,18 @@ export default class QuarantineInventoryLookupService {
     const devices = await PlatformDevice.query()
       .whereIn('platform_device_serial_number', serials)
       .whereNull('platform_device_deleted_at')
-      .preload('deviceModel')
+      /**
+       * `withTrashed` no es una licencia: es el unico modo de que esto no
+       * reviente. El catalogo da de baja modelos sin mirar si alguna unidad
+       * los usa, y un modelo borrado hace que el preload deje la relacion en
+       * null --Lucid corre el hook de borrado logico tambien al precargar--.
+       * Sin esto, una sola unidad con modelo retirado tumba la lista entera
+       * de cuarentena con un 500, incluidas las filas sanas.
+       *
+       * Ademas es el dato correcto: quien mira la pantalla necesita saber que
+       * aparato es, aunque el catalogo ya no lo ofrezca.
+       */
+      .preload('deviceModel', (query) => query.withTrashed())
 
     if (devices.length === 0) return found
 
@@ -54,11 +79,17 @@ export default class QuarantineInventoryLookupService {
     )
 
     for (const device of devices) {
-      found.set(device.platformDeviceSerialNumber, {
+      /**
+       * El modelo puede no venir pese a `withTrashed` si la unidad apunta a
+       * una fila que ya no existe. No vale la pena tumbar la lista por eso:
+       * se degrada el nombre y el operador sigue viendo el resto.
+       */
+      const model = device.deviceModel
+      found.set(quarantineSerialKey(device.platformDeviceSerialNumber), {
         platformDeviceId: device.platformDeviceId,
         modelId: device.platformDeviceModelId,
-        modelBrand: device.deviceModel.platformDeviceModelBrand,
-        modelName: device.deviceModel.platformDeviceModelName,
+        modelBrand: model?.platformDeviceModelBrand ?? '',
+        modelName: model?.platformDeviceModelName ?? '',
         origin: device.platformDeviceOrigin,
         stockStatus: device.platformDeviceStockStatus,
         assignedTenantName: tenantByDeviceId.get(device.platformDeviceId) ?? null,
