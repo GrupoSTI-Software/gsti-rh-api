@@ -59,6 +59,17 @@ router
         '#modules/access-point/platform/device_health.controller.show'
       )
       .where('platformDeviceId', router.matchers.number())
+    /**
+     * Pedirle al equipo que se presente. No es una consulta: deja un `INFO` en
+     * su cola y espera a que pase a recogerlo, porque con ADMS el aparato
+     * pregunta y el servidor contesta -- nunca al contrario.
+     */
+    router
+      .post(
+        '/:platformDeviceId/sync',
+        '#modules/access-point/platform/device_health.controller.sync'
+      )
+      .where('platformDeviceId', router.matchers.number())
   })
   .prefix('/api/platform/devices/units')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])
