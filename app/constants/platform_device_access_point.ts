@@ -22,3 +22,16 @@ export const PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON =
  */
 export const PLATFORM_DEVICE_ACCESS_POINT_DEACTIVATE_REASON =
   'Desasignación de unidad de inventario: desactivar el punto de acceso del tenant'
+
+/**
+ * Motivo auditado para `TenantContext.runUnscoped` al calcular el tablero de
+ * discrepancias entre el inventario de plataforma y los puntos de acceso de
+ * TODOS los tenants (USRH1787195527841 · §13).
+ *
+ * Las cuatro consultas van por constructor crudo (`db.from(...)`), que nunca
+ * pasa por el mixin `withBusinessUnitScope` — el bypass no abre ningún
+ * filtro adicional, solo deja rastro auditable de que el panel leyó datos
+ * cruzados de todas las empresas a propósito.
+ */
+export const PLATFORM_DEVICE_DISCREPANCY_RUN_UNSCOPED_REASON =
+  'Tablero de discrepancias de plataforma: lectura cruzada de puntos de acceso de todos los tenants'

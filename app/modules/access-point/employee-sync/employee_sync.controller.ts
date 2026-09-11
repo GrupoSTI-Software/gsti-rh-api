@@ -174,7 +174,13 @@ export default class EmployeeSyncController {
    *       propondria en un equipo nuevo y los biometricos resguardados.
    *     responses:
    *       200:
-   *         description: Equipos en data.employeeDevices
+   *         description: >
+   *           Equipos en data.employeeDevices. En cada uno, `biometrics` separa
+   *           lo que consta dentro del aparato (`fingerprints`, `faces`), lo
+   *           acusado sin prueba de haber quedado guardado (`onTheWay`) y lo
+   *           que existe en la boveda pero su version de algoritmo no admite
+   *           (`incompatible`): eso ultimo no va a llegar nunca, hay que
+   *           capturarlo en ese lector.
    *       404:
    *         description: El colaborador no esta en el alcance
    */
@@ -233,6 +239,11 @@ export default class EmployeeSyncController {
          */
         const isHere = (state: string) => state === BIOMETRIC_SLOT_STATE.HERE
         const isOnTheWay = (state: string) => state === BIOMETRIC_SLOT_STATE.SENT
+        /**
+         * Guardado y sin poder llegar: la version del equipo no lo admite. No
+         * es una espera, es un callejon, y la pantalla necesita distinguirlos.
+         */
+        const isIncompatible = (state: string) => state === BIOMETRIC_SLOT_STATE.INCOMPATIBLE
         const faceState = scoped.face.state
         rows.push(
           toEmployeeAccessPointDto(
@@ -245,6 +256,11 @@ export default class EmployeeSyncController {
               onTheWay: {
                 fingerprints: scoped.fingers.filter((finger) => isOnTheWay(finger.state)).length,
                 faces: faceState !== null && isOnTheWay(faceState) ? 1 : 0,
+              },
+              incompatible: {
+                fingerprints: scoped.fingers.filter((finger) => isIncompatible(finger.state))
+                  .length,
+                faces: faceState !== null && isIncompatible(faceState) ? 1 : 0,
               },
             },
             scoped.withheldBy
