@@ -49,6 +49,16 @@ router
         '#modules/access-point/platform/device_channel_secret.controller.show'
       )
       .where('platformDeviceId', router.matchers.number())
+    /**
+     * Estado de conexion de esta unidad. `/health` del tablero recorre el
+     * parque entero; aqui se pregunta por el equipo que se esta viendo.
+     */
+    router
+      .get(
+        '/:platformDeviceId/health',
+        '#modules/access-point/platform/device_health.controller.show'
+      )
+      .where('platformDeviceId', router.matchers.number())
   })
   .prefix('/api/platform/devices/units')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])
