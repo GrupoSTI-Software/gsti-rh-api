@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import {
+  assertChannelBaseDomain,
   channelAddressOf,
   channelSecretMatches,
   generateChannelSecret,
@@ -132,5 +133,62 @@ test.group('Secreto del canal: direccion que se teclea', () => {
     assert.isNotNull(address)
     assert.equal(hostLabelOf(address, base), secret)
     assert.isTrue(channelSecretMatches(hostLabelOf(address, base), secret))
+  })
+})
+
+test.group('Secreto del canal: validacion del dominio comun', () => {
+  test('acepta un dominio de dos y de tres etiquetas', ({ assert }) => {
+    assert.equal(assertChannelBaseDomain('VAR', 'valanserh.app'), 'valanserh.app')
+    assert.equal(
+      assertChannelBaseDomain('VAR', 'adms-dev.valanserh.app'),
+      'adms-dev.valanserh.app'
+    )
+  })
+
+  test('vacio significa convivencia, no error', ({ assert }) => {
+    assert.isUndefined(assertChannelBaseDomain('VAR', ''))
+    assert.isUndefined(assertChannelBaseDomain('VAR', '   '))
+    assert.isUndefined(assertChannelBaseDomain('VAR', undefined))
+  })
+
+  test('normaliza mayusculas y espacios de los extremos', ({ assert }) => {
+    assert.equal(assertChannelBaseDomain('VAR', '  ADMS.Valanserh.App  '), 'adms.valanserh.app')
+  })
+
+  /**
+   * El caso real del 2026-09-11: con el comodin puesto, el sufijo que busca
+   * `hostLabelOf` pasa a ser `.*.valanserh.app` y ningun `Host` termina asi,
+   * asi que el canal rechaza a toda la flota sin decir nada.
+   */
+  test('rechaza el comodin, que es sintaxis de DNS y no de esta variable', ({ assert }) => {
+    assert.throws(
+      () => assertChannelBaseDomain('ADMS_CHANNEL_BASE_DOMAIN', '*.valanserh.app'),
+      /comodin va en el registro DNS/
+    )
+  })
+
+  test('rechaza esquema, ruta y puerto', ({ assert }) => {
+    assert.throws(() => assertChannelBaseDomain('VAR', 'https://valanserh.app'), /esquema/)
+    assert.throws(() => assertChannelBaseDomain('VAR', 'valanserh.app/iclock'), /ruta/)
+    assert.throws(() => assertChannelBaseDomain('VAR', 'valanserh.app:443'), /puerto/)
+  })
+
+  test('rechaza un valor que no puede ser dominio', ({ assert }) => {
+    assert.throws(() => assertChannelBaseDomain('VAR', 'localhost'), /falta al menos un punto/)
+    assert.throws(() => assertChannelBaseDomain('VAR', '.valanserh.app'), /punto de los extremos/)
+    assert.throws(() => assertChannelBaseDomain('VAR', 'valanserh.app.'), /punto de los extremos/)
+    assert.throws(() => assertChannelBaseDomain('VAR', 'adms..valanserh.app'), /no es valida para DNS/)
+    assert.throws(() => assertChannelBaseDomain('VAR', 'adms dev.valanserh.app'), /espacios/)
+    assert.throws(() => assertChannelBaseDomain('VAR', '-adms.valanserh.app'), /no es valida para DNS/)
+  })
+
+  /** Lo validado tiene que servirle despues a las dos funciones del canal. */
+  test('lo que pasa la validacion funciona en el resto del canal', ({ assert }) => {
+    const base = assertChannelBaseDomain('VAR', 'ADMS-Dev.Valanserh.App')!
+    const secret = generateChannelSecret()
+
+    const address = channelAddressOf(secret, base)
+
+    assert.equal(hostLabelOf(address, base), secret)
   })
 })

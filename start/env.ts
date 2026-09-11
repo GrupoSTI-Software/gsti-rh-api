@@ -10,6 +10,7 @@
 */
 
 import { Env } from '@adonisjs/core/env'
+import { assertChannelBaseDomain } from '#modules/adms/channel/channel_secret'
 import { DateTime } from 'luxon'
 
 export default await Env.create(new URL('../', import.meta.url), {
@@ -227,7 +228,17 @@ export default await Env.create(new URL('../', import.meta.url), {
    * checador de cualquiera que sepa la direccion del servidor.
    */
   ADMS_BRIDGE_TOKEN: Env.schema.string.optional(),
-  ADMS_CHANNEL_BASE_DOMAIN: Env.schema.string.optional(),
+  /**
+   * Dominio comun del canal: lo que va DETRAS del secreto en la direccion que
+   * teclea el instalador (`<secreto>.<este-dominio>`).
+   *
+   * Se valida al arrancar por la misma razon que la fecha de abajo: un valor
+   * mal escrito no falla, engaña. `hostLabelOf` deja de recortar la etiqueta,
+   * ningun equipo con secreto coincide, y el canal responde 404 a toda la
+   * flota sin un solo error en el log.
+   */
+  ADMS_CHANNEL_BASE_DOMAIN: (name: string, value?: string) =>
+    assertChannelBaseDomain(name, value),
   /**
    * Desde cuando un checador sin direccion propia deja de atenderse.
    *
