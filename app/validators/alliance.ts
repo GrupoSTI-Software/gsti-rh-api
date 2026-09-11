@@ -39,6 +39,7 @@ export const listAlliancesValidator = vine.compile(
   vine.object({
     search: vine.string().trim().optional(),
     active: vine.number().min(0).max(1).withoutDecimals().optional(),
+    payable: vine.number().min(0).max(1).withoutDecimals().optional(),
     page: vine.number().positive().withoutDecimals().optional(),
     limit: vine.number().positive().withoutDecimals().max(100).optional(),
   })

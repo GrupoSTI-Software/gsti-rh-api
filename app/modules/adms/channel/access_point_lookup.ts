@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import limiter from '@adonisjs/limiter/services/main'
+import encryption from '@adonisjs/core/services/encryption'
 import { ADMS_RATE } from '#modules/adms/adms.constants'
 
 export interface AccessPointLookupRow {
@@ -11,6 +12,20 @@ export interface AccessPointLookupRow {
   allowedCidrs: string[] | null
   timezone: string | null
   lastConnectionAt: DateTime | null
+  /**
+   * Secreto que el equipo debe llevar en su direccion. `null` si aun no migro.
+   *
+   * Un secreto que no descifra tambien llega como `null`: un dato ilegible es
+   * un equipo sin direccion propia, no una barra libre. La convivencia lo
+   * atiende y deja el aviso; pasada la fecha de corte, no entra.
+   */
+  channelSecret: string | null
+  /**
+   * Cuando alguien configuro la direccion de este equipo: al reclamarlo o al
+   * rotarla. Es la marca de la ultima intervencion humana deliberada sobre el
+   * aparato, y por eso sirve para saber si un cambio de identidad fue legitimo.
+   */
+  configuredAt: DateTime | null
 }
 
 /**
@@ -31,6 +46,8 @@ interface AccessPointRawRow {
   access_point_allowed_cidrs: string | string[] | null
   access_point_timezone: string | null
   access_point_last_connection: Date | string | null
+  access_point_channel_secret: string | null
+  access_point_channel_secret_set_at: Date | string | null
 }
 
 /**
@@ -52,6 +69,23 @@ function parseCidrs(value: string | string[] | null): string[] | null {
   }
 }
 
+/**
+ * El secreto en claro, o `null` si no hay o no descifra.
+ *
+ * Se lee por query builder --sin modelo, para no arrastrar el mixin de
+ * tenant-- asi que el descifrado no lo hace Lucid y va aqui. Un valor
+ * ilegible se trata como ausente: fail-closed hacia la convivencia, nunca
+ * hacia dejar pasar a cualquiera.
+ */
+function decryptSecret(value: string | null): string | null {
+  if (value === null || value === undefined) return null
+  try {
+    return encryption.decrypt<string>(value)
+  } catch {
+    return null
+  }
+}
+
 export class AccessPointLookupMysql implements AccessPointLookupPort {
   async findBySerial(serial: string): Promise<AccessPointLookupRow | null> {
     const row = await db
@@ -65,7 +99,9 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
         'access_point_active',
         'access_point_allowed_cidrs',
         'access_point_timezone',
-        'access_point_last_connection'
+        'access_point_last_connection',
+        'access_point_channel_secret',
+        'access_point_channel_secret_set_at'
       )
       .first()
     if (!row) return null
@@ -81,6 +117,11 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
         typed.access_point_last_connection === null
           ? null
           : DateTime.fromJSDate(new Date(typed.access_point_last_connection)),
+      channelSecret: decryptSecret(typed.access_point_channel_secret),
+      configuredAt:
+        typed.access_point_channel_secret_set_at === null
+          ? null
+          : DateTime.fromJSDate(new Date(typed.access_point_channel_secret_set_at)),
     }
   }
 
@@ -97,6 +138,13 @@ export class AccessPointLookupMysql implements AccessPointLookupPort {
 export interface UnknownSerialThrottle {
   isBlocked(ip: string): Promise<boolean>
   countNewSerial(ip: string): Promise<'ok' | 'threshold_reached'>
+  /**
+   * Cuenta las direcciones que no corresponden a nadie, por IP.
+   *
+   * Llave propia: probar direcciones y probar series son dos ataques distintos
+   * y mezclarlos en un contador haria que uno tapara al otro.
+   */
+  countBadAddress(ip: string): Promise<'ok' | 'threshold_reached'>
 }
 
 export class UnknownSerialThrottleMemory implements UnknownSerialThrottle {
@@ -115,6 +163,19 @@ export class UnknownSerialThrottleMemory implements UnknownSerialThrottle {
   async countNewSerial(ip: string): Promise<'ok' | 'threshold_reached'> {
     const counter = this.counter()
     const key = this.key(ip)
+    const state = await counter.increment(key)
+    if (state.remaining > 0) return 'ok'
+    await counter.block(key, `${ADMS_RATE.unknownSerialBlockMinutes} minutes`)
+    return 'threshold_reached'
+  }
+
+  private badAddressKey(ip: string): string {
+    return `adms-bad-address:${ip}`
+  }
+
+  async countBadAddress(ip: string): Promise<'ok' | 'threshold_reached'> {
+    const counter = this.counter()
+    const key = this.badAddressKey(ip)
     const state = await counter.increment(key)
     if (state.remaining > 0) return 'ok'
     await counter.block(key, `${ADMS_RATE.unknownSerialBlockMinutes} minutes`)

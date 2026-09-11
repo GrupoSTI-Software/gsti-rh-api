@@ -12,6 +12,10 @@ import { canDetachAssignment } from '#modules/access-point/employee-sync/employe
 import Employee from '#models/employee'
 import logger from '@adonisjs/core/services/logger'
 import ReplicationService from '#modules/biometric-vault/replication/replication.service'
+import {
+  REPLICATION_MODALITY,
+  REPLICATION_SKIP,
+} from '#modules/biometric-vault/replication/replication.types'
 import type { ReplicationInput } from '#modules/biometric-vault/replication/replication.service'
 import type { ReplicationResult } from '#modules/biometric-vault/replication/replication.types'
 import type EmployeeAssignmentRepository from './employee_assignment.repository.js'
@@ -174,7 +178,7 @@ export default class EmployeeAssignmentService {
       actor,
     })
 
-    const replicated = await this.replicateInto({
+    const copies = await this.replicateInto({
       accessPointId,
       businessUnitId,
       employeeId,
@@ -182,7 +186,11 @@ export default class EmployeeAssignmentService {
       trace,
     })
 
-    return { ...toAccessPointEmployeeDto(sent), queuedBiometrics: replicated }
+    return {
+      ...toAccessPointEmployeeDto(sent),
+      queuedBiometrics: copies.queued,
+      fingerprintVersionMismatch: copies.fingerprintVersionMismatch,
+    }
   }
 
   /**
@@ -252,7 +260,7 @@ export default class EmployeeAssignmentService {
     employeeId: number
     actorUserId: number | null
     trace: AssignmentTrace
-  }): Promise<number> {
+  }): Promise<{ queued: number; fingerprintVersionMismatch: boolean }> {
     try {
       const result = await this.replication.replicate({
         employeeId: input.employeeId,
@@ -270,15 +278,27 @@ export default class EmployeeAssignmentService {
         dryRun: false,
       })
 
-      return result.targets
-        .flatMap((target) => target.items)
-        .filter((item) => item.status === 'queued').length
+      const items = result.targets.flatMap((target) => target.items)
+      const fingers = items.filter(
+        (item) => item.modality === REPLICATION_MODALITY.FINGERPRINT
+      )
+
+      return {
+        queued: items.filter((item) => item.status === 'queued').length,
+        /**
+         * Solo cuando la version tumbo TODOS los dedos. Si alguno cruzo, la
+         * persona ya puede identificarse ahi y avisar seria alarmar de mas.
+         */
+        fingerprintVersionMismatch:
+          fingers.length > 0 &&
+          fingers.every((item) => item.reason === REPLICATION_SKIP.NOT_REPLICABLE_VERSION),
+      }
     } catch (error: unknown) {
       logger.warn(
         { err: error, accessPointId: input.accessPointId, employeeId: input.employeeId },
         'EmployeeAssignmentService.assign: no se pudieron copiar los biometricos; el alta se completo igual'
       )
-      return 0
+      return { queued: 0, fingerprintVersionMismatch: false }
     }
   }
 }

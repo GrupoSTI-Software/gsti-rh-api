@@ -97,6 +97,7 @@ export interface UpdateAllianceInput {
 export interface ListAlliancesFilters {
   search?: string
   active?: number
+  payable?: number
   page?: number
   limit?: number
 }

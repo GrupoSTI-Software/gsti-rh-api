@@ -28,6 +28,14 @@ export interface AdmsRequest {
   path: string
   query: Record<string, string>
   rawQuery: string | null
+  /**
+   * El equipo ya venia hablando desde esta misma direccion.
+   *
+   * Lo decide la pasarela con el estado ANTERIOR a esta peticion: calcularlo
+   * aqui leeria la fila que el propio contacto acaba de escribir y daria
+   * siempre que si.
+   */
+  hotSession: boolean
 }
 
 /**
@@ -95,6 +103,7 @@ export default class AdmsChannelController {
       accessPointId: device.accessPointId,
       now: device.receivedAt,
       ipAnomalyOpen,
+      hotSession: request.hotSession,
       /**
        * La zona del EQUIPO, no la del negocio. El ajuste de reloj se recalcula
        * al despachar y sin esto saldria con la zona de la aplicacion: una sede
@@ -166,6 +175,7 @@ export default class AdmsChannelController {
    * Zona del dispositivo, si no la de la empresa, si no la del sistema. Solo
    * para `TimeZone=` del bloque CA.
    */
+
   private async timezoneOffsetHours(device: ResolvedAdmsDevice): Promise<number> {
     let zone = device.timezone
     if (!zone) {

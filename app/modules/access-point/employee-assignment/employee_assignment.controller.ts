@@ -37,7 +37,12 @@ export default class EmployeeAssignmentController {
    *         description: Id del empleado
    *     responses:
    *       201:
-   *         description: Asignación creada, en data.accessPointEmployee
+   *         description: >
+   *           Asignación creada, en data.accessPointEmployee. Incluye
+   *           queuedBiometrics (copias que salieron hacia el equipo) y
+   *           fingerprintVersionMismatch (el equipo declara otra versión de
+   *           algoritmo de huella y no puede recibir ninguna de las guardadas:
+   *           la persona tendrá que enrolarse en ese lector).
    *       400:
    *         description: Parámetros de ruta no numéricos (key datos-invalidos)
    *       403:

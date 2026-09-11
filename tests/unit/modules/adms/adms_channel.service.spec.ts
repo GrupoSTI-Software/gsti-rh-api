@@ -29,6 +29,7 @@ const DEVICE: ResolvedAdmsDevice = {
   ip: '192.168.1.59',
   timezone: null,
   receivedAt: NOW,
+  configuredAt: null,
 }
 
 function uploadOf(overrides: Partial<UploadInput> = {}): UploadInput {
