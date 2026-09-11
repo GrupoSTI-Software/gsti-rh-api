@@ -10,14 +10,14 @@ import {
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
-  // 156 tras integrar multitenant en la rama de gafetes: a las 147 del ancestro
-  // comun se suman las 4 que aporta esta rama (showEmployeeBadge,
-  // getEmployeeBadgePng, getEmployeeBadgePdf, bulkEmployeeBadges) y las 5 que
-  // traia multitenant (assignEmployeeAccessPoint, removeEmployeeAccessPoint y
-  // las tres de propiedades del tipo de expediente).
-  test('declara exactamente 156 operaciones con module employees y bypass standard', ({ assert }) => {
+  // 157: a las 156 que dejo la integracion de multitenant en la rama de gafetes
+  // se suma `useEmployeeFaceIdAsPhoto`, la copia del rostro biometrico a la foto
+  // de perfil. Esa declaracion cubre SOLO el lado de escritura de la foto; el
+  // permiso de lectura biometrica que tambien exige lo evalua el controlador,
+  // porque un arreglo de acciones aqui se resolveria en OR.
+  test('declara exactamente 157 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 156)
+    assert.equal(keys.length, 157)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 

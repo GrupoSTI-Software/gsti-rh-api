@@ -29,8 +29,16 @@ export default class EmployeeBiometricFaceIdService {
 
   /**
    * Crea un nuevo registro de foto biométrica o reactiva uno eliminado si existe
+   *
+   * @param quality Confianza de detección facial (0-100) medida por el cliente
+   *   al capturar. `null` cuando la petición no la envía: el registro queda sin
+   *   medición en vez de con un valor supuesto.
    */
-  async create(employeeId: number, photoUrl: string): Promise<EmployeeBiometricFaceId> {
+  async create(
+    employeeId: number,
+    photoUrl: string,
+    quality: number | null = null
+  ): Promise<EmployeeBiometricFaceId> {
     // Verificar si existe un registro eliminado (soft delete)
     const deletedRecord = await this.findByEmployeeIdWithTrashed(employeeId)
 
@@ -38,6 +46,7 @@ export default class EmployeeBiometricFaceIdService {
       // Reactivar el registro eliminado
       deletedRecord.deletedAt = null
       deletedRecord.employeeBiometricFaceIdPhotoUrl = photoUrl
+      deletedRecord.employeeBiometricFaceIdQuality = quality
       await deletedRecord.save()
       return deletedRecord
     }
@@ -46,6 +55,7 @@ export default class EmployeeBiometricFaceIdService {
     const biometricFaceId = new EmployeeBiometricFaceId()
     biometricFaceId.employeeId = employeeId
     biometricFaceId.employeeBiometricFaceIdPhotoUrl = photoUrl
+    biometricFaceId.employeeBiometricFaceIdQuality = quality
 
     await biometricFaceId.save()
     return biometricFaceId
@@ -53,12 +63,18 @@ export default class EmployeeBiometricFaceIdService {
 
   /**
    * Actualiza la foto biométrica de un empleado
+   *
+   * La calidad viaja siempre junto a la imagen: si la nueva captura no trae
+   * medición se limpia la anterior, porque describía a la foto que se acaba
+   * de reemplazar.
    */
   async update(
     biometricFaceId: EmployeeBiometricFaceId,
-    photoUrl: string
+    photoUrl: string,
+    quality: number | null = null
   ): Promise<EmployeeBiometricFaceId> {
     biometricFaceId.employeeBiometricFaceIdPhotoUrl = photoUrl
+    biometricFaceId.employeeBiometricFaceIdQuality = quality
     await biometricFaceId.save()
     return biometricFaceId
   }
@@ -124,7 +140,8 @@ export default class EmployeeBiometricFaceIdService {
   async replacePhoto(
     employeeId: number,
     newPhotoUrl: string,
-    uploadService: UploadService
+    uploadService: UploadService,
+    quality: number | null = null
   ): Promise<{ status: number; type: string; title: string; message: string; data: any }> {
     try {
       const existingRecord = await this.findByEmployeeId(employeeId)
@@ -133,7 +150,7 @@ export default class EmployeeBiometricFaceIdService {
         // Guardar primero, borrar después: si `update` lanza por falta de permiso
         // de categoría sensible, la foto anterior en S3 no debe perderse.
         const oldPhotoUrl = existingRecord.employeeBiometricFaceIdPhotoUrl
-        const updated = await this.update(existingRecord, newPhotoUrl)
+        const updated = await this.update(existingRecord, newPhotoUrl, quality)
 
         if (oldPhotoUrl) {
           // Nota: si el borrado del objeto anterior en S3 falla aquí, el registro ya
@@ -151,7 +168,7 @@ export default class EmployeeBiometricFaceIdService {
         }
       } else {
         // Si no existe, crear un nuevo registro
-        const created = await this.create(employeeId, newPhotoUrl)
+        const created = await this.create(employeeId, newPhotoUrl, quality)
         return {
           status: 201,
           type: 'success',

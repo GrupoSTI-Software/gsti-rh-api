@@ -7,7 +7,7 @@ import BusinessUnit from '#models/business_unit'
 import ProveedorRepse from '#models/proveedor_repse'
 import User from '#models/user'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
-import type { RepseExpedienteDocumentoTipo } from '#modules/repse-providers/expediente/expediente.constants.js'
+import type { RepseExpedienteDocumentoTipo } from '#modules/repse-providers/expediente/expediente.constants'
 
 /**
  * @swagger

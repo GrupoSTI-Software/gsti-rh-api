@@ -1,6 +1,7 @@
 import scheduler from 'adonisjs-scheduler/services/main'
 import { LACTATION_NOTIFY_EXPIRING_COMMAND } from '#constants/employee_lactation_notification'
 import { REPSE_NOTIFY_FOLIO_EXPIRING_COMMAND } from '#constants/repse_folio_aviso'
+import { NOTICE_SEND_SCHEDULED_COMMAND } from '#constants/notice'
 import {
   ANNIVERSARY_DAY_EMAIL_COMMAND,
   ANNIVERSARY_REMINDER_EMAIL_COMMAND,
@@ -11,6 +12,49 @@ import {
 
 // scheduler.command('inspire').everyFiveSeconds()
 scheduler.command('sync:assistance').cron('*/5 * * * *')
+
+/**
+ * Barrido de la cola de los checadores (spec ADMS 6.2).
+ *
+ * Cada minuto porque el despacho es de uno a la vez por equipo: un comando que
+ * salio y no recibio acuse no solo se queda colgado, tapona todo lo que venga
+ * detras para ese aparato. El servicio cierra por plazo -- 180 s en vuelo, 120 s
+ * si es un enrolamiento presencial, 30 min acusado sin evidencia -- y sin el
+ * nada devuelve esos comandos a un estado terminal.
+ *
+ * `withoutOverlapping` porque el barrido escribe sobre las mismas filas que el
+ * canal: dos corridas encimadas competirian por ellas.
+ */
+scheduler.command('adms:sweep-commands').everyMinute().withoutOverlapping()
+
+/**
+ * Consume la cola de recalculo que deja la ingesta del checador (spec 5.4).
+ *
+ * El canal NO recalcula dentro de la peticion: el aparato reintenta cada pocos
+ * segundos si no recibe acuse, y un recalculo puede tardar mas que eso. Por eso
+ * cada checada deja un trabajo en cola... que hasta ahora nadie consumia. El
+ * comando existia, el modelo y la migracion lo citaban por nombre, y no estaba
+ * agendado: al 2026-09-10 habia 40 trabajos `pending`, el mas viejo de mas de
+ * un dia. Es decir, las checadas entraban a `assists` y el calendario que ve RH
+ * --y lo que llega a nomina-- no se rehacia nunca.
+ *
+ * Cada minuto, que es la cadencia que el propio servicio asume para dimensionar
+ * su lote. `withoutOverlapping` porque el consumidor reclama trabajos con su
+ * identificador de corrida y dos tandas encimadas competirian por las mismas
+ * filas de calendario.
+ */
+scheduler.command('adms:recalc-calendars').everyMinute().withoutOverlapping()
+
+/**
+ * Borra por plazo lo que cumplio su retencion (spec 13.12): crudos, comandos,
+ * publicaciones de foto y cuarentenas.
+ *
+ * Tampoco estaba agendado. El cuerpo crudo de cada subida guarda el mensaje
+ * completo del equipo --templates biometricos incluidos-- y su plazo declarado
+ * es de 180 dias: sin esta linea, ese plazo no se cumplia y la tabla crecia sin
+ * fin. De madrugada porque borra en tandas y no compite con la operacion.
+ */
+scheduler.command('adms:purge-retention').cron('0 8 * * *').withoutOverlapping()
 
 /**
  * Aviso diario a RH cuando un periodo de lactancia está a ≤ 30 días de
@@ -87,3 +131,10 @@ scheduler.command('onboarding:purge-abandoned-demo').cron('0 13 * * *')
  * los jobs atorados se recuperen con latencia razonable sin sobrecargar la BD.
  */
 scheduler.command('report-jobs:cleanup').cron('0 * * * *')
+
+/**
+ * Avisos programados (Avisos y noticias v2): cada minuto envía los que ya
+ * alcanzaron su hora. `withoutOverlapping` evita que dos corridas tomen el
+ * mismo aviso si un envío masivo tarda más de un minuto.
+ */
+scheduler.command(NOTICE_SEND_SCHEDULED_COMMAND).everyMinute().withoutOverlapping()

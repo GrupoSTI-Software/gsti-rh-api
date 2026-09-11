@@ -4,6 +4,12 @@ import {
   toBusinessDateString,
   toCalendarIsoDate,
 } from '../utils/business_date.js'
+import {
+  PENDING_INCREASE_AMOUNT_COLUMN,
+  PENDING_INCREASE_CHANGES_TABLE,
+  pendingIncreaseChangeConditionSql,
+  pendingIncreaseDebtConditionSql,
+} from '../helpers/billing_pending_increase_change_filter.js'
 
 // ─── Tipos de retorno ─────────────────────────────────────────────────────────
 
@@ -30,30 +36,63 @@ export interface ReceivableBucketSlice {
 export interface ReceivablesSummary {
   /** Suma de los importes con IVA de toda la cartera, en centavos enteros. */
   totalVencidoCents: number
-  /** Cuántas empresas están en `past_due`. Es también el `meta.total`. */
+  /**
+   * Cuántas empresas están en `past_due`. **Ya no** es `meta.total`
+   * (USRH1788052455652): `meta.total` —calculado en `countReceivableRows()`,
+   * junto a `tenants[]` más abajo en este archivo— cuenta el universo más
+   * ancho del detalle, que además de los morosos suma a los clientes al
+   * corriente con adeudo por aumento de asientos pendiente. Antes de esta
+   * historia los dos números coincidían porque el detalle solo traía morosos;
+   * ya no.
+   */
   tenantsVencidos: number
   /** Saldo a favor agregado. Informativo: NUNCA se resta del adeudo (regla 6). */
   saldoAFavorCents: number
   porBucket: Record<ReceivableBucket, ReceivableBucketSlice>
   /** Fecha de negocio del cálculo, `YYYY-MM-DD`. */
   calculadoAl: string
+  /**
+   * Suma del adeudo por aumento de asientos de **toda** la cartera, en centavos
+   * (regla 6). Es facturación pendiente, no cobranza: **nunca** se suma a
+   * `totalVencidoCents` ni se publica junto con él como una sola cifra (regla 1).
+   */
+  totalAdeudoPorAumentoCents: number
+  /** Cuántas empresas tienen adeudo por aumento mayor a cero. No es un subconjunto de `tenantsVencidos`. */
+  tenantsConAdeudoPorAumento: number
 }
 
-/** Una empresa morosa tal como viaja en el contrato. Sin identificadores internos. */
+/**
+ * Una empresa morosa tal como viaja en el contrato. Sin identificadores internos.
+ *
+ * Desde USRH1788052455652 el nombre queda corto: la fila también representa a
+ * un cliente al corriente con adeudo por aumento de asientos pendiente, que no
+ * es moroso. `montoVencidoCents`, `diasAtraso` y `bucket` distinguen ambos
+ * casos (ver sus docblocks).
+ */
 export interface ReceivableTenantItem {
   businessUnitPublicId: string
   businessUnitName: string
   /** `0` cuando la empresa está desactivada. La vista lo marca; no filtra (regla 8). */
   businessUnitActive: number
   planName: string | null
-  /** `contracted_total` (CON IVA) en centavos enteros. Un solo periodo (regla 3). */
+  /** `contracted_total` (CON IVA) en centavos enteros. Un solo periodo (regla 3). `0` en las filas que entran solo por adeudo por aumento. */
   montoVencidoCents: number
-  diasAtraso: number
-  bucket: ReceivableBucket
+  /** `null` en las filas que entran solo por adeudo por aumento: la antigüedad es propia del vencido (regla 5). */
+  diasAtraso: number | null
+  /** `null` en las filas que entran solo por adeudo por aumento: el adeudo no se reparte en tramos (regla 5). */
+  bucket: ReceivableBucket | null
   /** `current_period_end` recortado a `YYYY-MM-DD`. */
   periodoFin: string
   /** Saldo a favor de la empresa. Viaja aparte y no se netea (regla 6). */
   saldoAFavorCents: number
+  /**
+   * Adeudo por aumento de asientos de la empresa, en centavos: la suma de todos
+   * sus aumentos pendientes de pago (regla 3). `0` cuando no tiene ninguno.
+   *
+   * Es facturación pendiente y viaja aparte de `montoVencidoCents` a propósito:
+   * sumarlos convertiría a un cliente que creció en un moroso (regla 1).
+   */
+  adeudoPorAumentoCents: number
 }
 
 /**
@@ -91,6 +130,12 @@ export interface ListReceivablesFilters {
 export interface ListReceivablesResult {
   data: {
     resumen: ReceivablesSummary
+    /**
+     * Página del detalle de cartera: los morosos y los clientes al corriente con
+     * adeudo por aumento de asientos (USRH1788052455652). Los primeros van
+     * arriba. `meta.total` cuenta este universo, que es más ancho que
+     * `resumen.tenantsVencidos`.
+     */
     tenants: ReceivableTenantItem[]
     /**
      * Canceladas con adeudo (regla 6). Conjunto **ajeno** a `tenants[]` y a
@@ -144,10 +189,50 @@ const BUCKET_CASE_SQL = `
     ELSE 'mas60'
   END`
 
+/**
+ * Adeudo por aumento de la suscripción de la fila, en centavos.
+ *
+ * Va como escalar correlacionado y no como `LEFT JOIN` agrupado porque el
+ * universo de filas ya está definido por su propio `WHERE`: un join agregado
+ * obligaría a agrupar toda la consulta paginada por suscripción para no
+ * multiplicar filas cuando hay más de un aumento pendiente (regla 3).
+ *
+ * `COALESCE` a `0` porque la ausencia de aumentos es un cero explícito, no un
+ * nulo: la columna del tablero no desaparece cuando no hay adeudo (regla 8).
+ *
+ * No se multiplica por 100: la columna del prorrateo ya está en centavos.
+ */
+const PENDING_INCREASE_DEBT_CENTS_SQL = `COALESCE((
+    SELECT SUM(pic.${PENDING_INCREASE_AMOUNT_COLUMN})
+    FROM ${PENDING_INCREASE_CHANGES_TABLE} as pic
+    WHERE pic.billing_subscription_id = bs.billing_subscription_id
+      AND ${pendingIncreaseChangeConditionSql('pic')}
+  ), 0)`
+
+/**
+ * ¿La suscripción de la fila tiene algún aumento pendiente con importe?
+ *
+ * Es el segundo miembro del universo de filas del detalle. Mide el importe
+ * (`> 0`) a propósito: un aumento pedido en prueba deja el prorrateo en cero, y
+ * esa fila entraría con cero en las dos columnas de dinero.
+ */
+const HAS_PENDING_INCREASE_DEBT_SQL = `EXISTS (
+    SELECT 1
+    FROM ${PENDING_INCREASE_CHANGES_TABLE} as pid
+    WHERE pid.billing_subscription_id = bs.billing_subscription_id
+      AND ${pendingIncreaseDebtConditionSql('pid')}
+  )`
+
 // ─── Servicio ─────────────────────────────────────────────────────────────────
 
 /**
- * Cartera vencida de la plataforma (USRH1788052455651).
+ * Cartera de la plataforma: el vencido y el adeudo por aumento de asientos
+ * (USRH1788052455651 + USRH1788052455652).
+ *
+ * Son **dos números independientes** y así viajan: el vencido es cobranza, el
+ * adeudo por aumento es facturación pendiente. Ningún campo de este servicio es
+ * —ni podrá ser— su suma (regla 1). La antigüedad y los tramos son propios del
+ * vencido: el adeudo por aumento no tiene edad (regla 5).
  *
  * Solo lectura: no escribe, no abre transacción y no tiene efectos secundarios.
  * No recalcula la morosidad — lee el estado `past_due` que el reloj de cobranza
@@ -174,11 +259,13 @@ export default class PlatformReceivableService {
     const businessDate = toBusinessDateString()
 
     const resumen = await this.loadSummary(businessDate)
+    // `meta.total` sale de su propio conteo y no de `resumen.tenantsVencidos`:
+    // el detalle incluye a los clientes al corriente con adeudo por aumento, que
+    // no son morosos y no cuentan en el resumen del vencido (regla 4).
+    const total = await this.countReceivableRows()
     const tenants = await this.loadPage(businessDate, offset, limit)
     const canceladas = await this.loadCanceled()
 
-    // El total sale del conteo agregado, no del largo del arreglo paginado (regla 9).
-    const total = resumen.tenantsVencidos
     const lastPage = Math.max(1, Math.ceil(total / limit))
 
     return { data: { resumen, tenants, canceladas }, meta: { total, page, limit, lastPage } }
@@ -200,6 +287,63 @@ export default class PlatformReceivableService {
       .where('bs.billing_subscription_status', 'past_due')
       .whereNull('bs.billing_subscription_deleted_at')
       .whereNull('bu.business_unit_deleted_at')
+  }
+
+  /**
+   * Universo de filas del detalle de cartera (USRH1788052455652): suscripciones
+   * vivas de empresas vivas que **o** están en `past_due` **o** tienen al menos
+   * un aumento de asientos pendiente de pago.
+   *
+   * Es más ancho que `overdueQuery` a propósito: el cliente que creció a media
+   * suscripción y todavía no se le factura no es un moroso, pero sí es un
+   * renglón del detalle — y sin él, quien cobra tendría que abrir cliente por
+   * cliente para encontrarlo (regla 4).
+   *
+   * `overdueQuery` **no se toca**: el total vencido, `tenantsVencidos` y los tres
+   * tramos siguen calculándose sobre `past_due` y nada más (regla 5). Las dos
+   * consultas conviven porque son dos preguntas distintas, no dos versiones de
+   * la misma.
+   *
+   * `canceled` queda fuera con un filtro explícito: una baja con adeudo se
+   * reporta en `canceladas[]`, que es gestión manual, y meterla aquí la
+   * presentaría como cobranza recurrente.
+   *
+   * Los dos `whereNull` van a mano porque las queries crudas de Knex no pasan por
+   * el hook de `SoftDeletes`. `business_unit_active = 0` NO excluye: la
+   * desactivación no perdona la deuda (regla 7).
+   */
+  private receivableRowsQuery() {
+    return db
+      .from('billing_subscriptions as bs')
+      .join('business_units as bu', 'bu.business_unit_id', 'bs.business_unit_id')
+      .whereNot('bs.billing_subscription_status', 'canceled')
+      .whereNull('bs.billing_subscription_deleted_at')
+      .whereNull('bu.business_unit_deleted_at')
+      .where((builder) => {
+        builder
+          .where('bs.billing_subscription_status', 'past_due')
+          .orWhereRaw(HAS_PENDING_INCREASE_DEBT_SQL)
+      })
+  }
+
+  /**
+   * Cuántas filas tiene el universo del detalle. Es el `meta.total`, y por lo
+   * tanto lo que decide `lastPage`.
+   *
+   * **No** es `resumen.tenantsVencidos`. Antes de esta historia coincidían
+   * porque el detalle solo traía morosos; ahora el detalle es más ancho, y si el
+   * total siguiera contando solo `past_due`, la última página se cortaría antes
+   * de las filas que entran por adeudo y ese dinero quedaría inalcanzable.
+   *
+   * @returns Filas del universo completo, sin paginar.
+   */
+  private async countReceivableRows(): Promise<number> {
+    const row = (await this.receivableRowsQuery().count('* as total').first()) as Record<
+      string,
+      unknown
+    > | null
+
+    return Number(row?.total ?? 0)
   }
 
   /**
@@ -290,18 +434,87 @@ export default class PlatformReceivableService {
       saldoAFavorCents += Number(row.saldoCents ?? 0)
     }
 
+    const pendingIncrease = await this.loadPendingIncreaseTotals()
+
     return {
       totalVencidoCents,
       tenantsVencidos,
       saldoAFavorCents,
       porBucket,
       calculadoAl: businessDate,
+      totalAdeudoPorAumentoCents: pendingIncrease.totalCents,
+      tenantsConAdeudoPorAumento: pendingIncrease.tenants,
     }
   }
 
   /**
-   * Página de morosos en el orden fijo del contrato: más atrasados primero,
-   * luego los de mayor importe, y el nombre comercial como desempate final.
+   * Los dos totales del adeudo por aumento, sobre **toda** la cartera (regla 6).
+   *
+   * Consulta propia y no un campo más del resumen del vencido: el universo del
+   * adeudo no es el del vencido — incluye a las empresas al corriente — y
+   * mezclarlos en un solo `GROUP BY bucket` habría metido el adeudo a los tramos
+   * de antigüedad, que son propios del vencido (regla 5).
+   *
+   * Agrupa por suscripción y no por empresa para que un aumento pendiente que
+   * cuelga de una suscripción cancelada o borrada no se le atribuya a la
+   * suscripción viva de la misma empresa. El candado
+   * `billing_subscription_live_business_unit_id` (UNIQUE) garantiza a lo más una
+   * suscripción viva por empresa, así que contar suscripciones con adeudo es
+   * contar empresas con adeudo.
+   *
+   * La suma y el conteo se cierran en JavaScript sobre las filas agrupadas —y no
+   * con un `HAVING` dentro de una subconsulta— porque los aumentos pendientes de
+   * la plataforma son unidades: el arreglo intermedio es minúsculo y la
+   * intención queda legible. `canceled` queda fuera: sus adeudos son materia de
+   * `canceladas[]`, no de este número.
+   *
+   * Los tres `whereNull` van a mano porque las queries crudas de Knex no pasan
+   * por el hook de `SoftDeletes`. `business_unit_active = 0` NO excluye: la
+   * desactivación no perdona la deuda (regla 7).
+   *
+   * @returns Total en centavos y cuántas empresas tienen adeudo mayor a cero.
+   */
+  private async loadPendingIncreaseTotals(): Promise<{ totalCents: number; tenants: number }> {
+    const rows = (await db
+      .from(`${PENDING_INCREASE_CHANGES_TABLE} as pic`)
+      .join(
+        'billing_subscriptions as bs',
+        'bs.billing_subscription_id',
+        'pic.billing_subscription_id'
+      )
+      .join('business_units as bu', 'bu.business_unit_id', 'bs.business_unit_id')
+      .whereRaw(pendingIncreaseChangeConditionSql('pic'))
+      .whereNot('bs.billing_subscription_status', 'canceled')
+      .whereNull('bs.billing_subscription_deleted_at')
+      .whereNull('bu.business_unit_deleted_at')
+      .groupBy('bs.billing_subscription_id')
+      .select(
+        db.raw(`COALESCE(SUM(pic.${PENDING_INCREASE_AMOUNT_COLUMN}), 0) as adeudoCents`)
+      )) as Array<Record<string, unknown>>
+
+    let totalCents = 0
+    let tenants = 0
+
+    for (const row of rows) {
+      const adeudoCents = Number(row.adeudoCents ?? 0)
+      // Un prorrateo de cero (un aumento pedido en prueba) no es adeudo: suma
+      // cero y no cuenta como empresa con adeudo. Mismo umbral que el helper.
+      if (adeudoCents <= 0) continue
+      totalCents += adeudoCents
+      tenants += 1
+    }
+
+    return { totalCents, tenants }
+  }
+
+  /**
+   * Página del detalle de cartera en el orden fijo del contrato: primero los
+   * vencidos —del más atrasado al menos, luego los de mayor importe—, y después
+   * los clientes al corriente con adeudo por aumento.
+   *
+   * Los vencidos encabezan porque la tabla es, antes que nada, la lista de a
+   * quién llamar hoy: quien cobra abre esto para ordenar sus llamadas de
+   * cobranza, y las de facturación pueden esperar el renglón siguiente.
    *
    * `diasAtraso DESC` se traduce a `DATE(current_period_end) ASC` para que el
    * orden lo resuelva la base y la paginación sea real. Se ordena por la fecha
@@ -318,7 +531,7 @@ export default class PlatformReceivableService {
     offset: number,
     limit: number
   ): Promise<ReceivableTenantItem[]> {
-    const rows = (await this.overdueQuery()
+    const rows = (await this.receivableRowsQuery()
       // Excepción deliberada al whereNull de cada tabla tocada: se muestra el nombre del plan aunque esté dado de baja (mismo criterio que platform_tenant_service).
       .leftJoin('billing_plans as bp', 'bp.billing_plan_id', 'bs.billing_plan_id')
       .select([
@@ -328,8 +541,16 @@ export default class PlatformReceivableService {
         'bp.billing_plan_name as planName',
         'bs.billing_subscription_current_period_end as periodoFin',
         'bs.billing_subscription_credit_balance_cents as saldoAFavorCents',
+        // Solo para que el DTO decida si la fila lleva atraso y tramo. No se
+        // publica: el estado de la suscripción no es parte de este contrato.
+        'bs.billing_subscription_status as subscriptionStatus',
       ])
       .select(db.raw(`${CONTRACTED_TOTAL_CENTS_SQL} as montoVencidoCents`))
+      .select(db.raw(`${PENDING_INCREASE_DEBT_CENTS_SQL} as adeudoPorAumentoCents`))
+      // Los vencidos primero: en MySQL la comparación rinde 1/0 y `desc` deja el
+      // 1 arriba. Sin esto, un cliente al corriente con adeudo podría caer entre
+      // dos morosos y romper la lectura de la lista de llamadas.
+      .orderByRaw("bs.billing_subscription_status = 'past_due' desc")
       // Misma red que el DTO: periodo nulo se ordena como si venciera hoy.
       .orderByRaw('COALESCE(DATE(bs.billing_subscription_current_period_end), ?) asc', [
         businessDate,
@@ -346,27 +567,42 @@ export default class PlatformReceivableService {
    * DTO plano de una fila, armado campo por campo con casteo explícito. No sale
    * de aquí ningún identificador interno ni ningún dato fiscal.
    *
+   * Las marcas de morosidad —importe vencido, días de atraso y tramo— se emiten
+   * **solo** si la suscripción está en `past_due`. Una fila que entra únicamente
+   * por adeudo por aumento sale con el vencido en cero y los otros dos en nulo:
+   * heredarle esas marcas convertiría a un cliente que creció en un moroso, que
+   * es el daño comercial que esta historia viene a evitar (regla 4).
+   *
+   * `montoVencidoCents` se fuerza a cero en vez de omitir la columna del
+   * `select` porque el importe contratado existe para toda suscripción; lo que
+   * no existe es la deuda vencida.
+   *
    * @param row - Fila cruda de la consulta paginada.
    * @param businessDate - Fecha de negocio de hoy, `YYYY-MM-DD`.
-   * @returns La empresa morosa tal como la publica el contrato.
+   * @returns La empresa tal como la publica el contrato.
    */
   private toTenantItem(row: Record<string, unknown>, businessDate: string): ReceivableTenantItem {
     // `current_period_end` se siembra al alta y nunca queda vacío
     // (`billing_subscription_service.ts:459-460,514`). El `?? businessDate` es la
-    // red que garantiza la regla 4: los días de atraso siempre son un número.
+    // red que garantiza la regla 4: `periodoFin` siempre es una fecha, aunque la
+    // fila entre solo por adeudo por aumento y `diasAtraso` salga `null`.
     const periodoFin = toCalendarIsoDate(row.periodoFin) ?? businessDate
-    const diasAtraso = Math.max(0, daysBetweenBusinessDates(periodoFin, businessDate))
+    const isOverdue = row.subscriptionStatus === 'past_due'
+    const diasAtraso = isOverdue
+      ? Math.max(0, daysBetweenBusinessDates(periodoFin, businessDate))
+      : null
 
     return {
       businessUnitPublicId: row.businessUnitPublicId as string,
       businessUnitName: row.businessUnitName as string,
       businessUnitActive: Number(row.businessUnitActive ?? 0),
       planName: (row.planName as string | null) ?? null,
-      montoVencidoCents: Number(row.montoVencidoCents ?? 0),
+      montoVencidoCents: isOverdue ? Number(row.montoVencidoCents ?? 0) : 0,
       diasAtraso,
-      bucket: resolveReceivableBucket(diasAtraso),
+      bucket: diasAtraso === null ? null : resolveReceivableBucket(diasAtraso),
       periodoFin,
       saldoAFavorCents: Number(row.saldoAFavorCents ?? 0),
+      adeudoPorAumentoCents: Number(row.adeudoPorAumentoCents ?? 0),
     }
   }
 

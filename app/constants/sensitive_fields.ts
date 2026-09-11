@@ -131,6 +131,41 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   { model: 'EmployeeBiometricFaceId', column: 'employeeBiometricFaceIdToken', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: false },
   { model: 'EmployeeBiometricFaceId', column: 'employeeBiometricFaceIdPhotoUrl', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
 
+  // ─── AdmsRawMessage: biométrico ───────────────────────────────────────────
+  // admsRawMessageBody — cuerpo íntegro de una subida del checador; puede llevar
+  // templates de huella y rostro y nombres. Nunca se serializa ni se busca en SQL.
+  // Ancla: app/models/adms_raw_message.ts
+  { model: 'AdmsRawMessage', column: 'admsRawMessageBody', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
+  // ─── BiometricTemplate: biométrico ────────────────────────────────────────
+  // biometricTemplateTemplate — la huella o el rostro del colaborador, tal como
+  // los produjo el algoritmo del equipo. Es el dato biométrico en sí. No se
+  // busca en SQL, no se serializa y solo se lee por TemplateService, que asienta
+  // el acceso en la bitácora de datos sensibles.
+  // Ancla: app/models/biometric_template.ts
+  { model: 'BiometricTemplate', column: 'biometricTemplateTemplate', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
+  // ─── AdmsHeldBiometric: biométrico ────────────────────────────────────────
+  // admsHeldBiometricTemplate — el mismo dato, capturado para un PIN que aún no
+  // corresponde a ningún colaborador. Se conserva porque volver a pedir el dedo
+  // cuesta una visita; se traslada a la bóveda al conciliar.
+  // Ancla: app/models/adms_held_biometric.ts
+  { model: 'AdmsHeldBiometric', column: 'admsHeldBiometricTemplate', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
+  // ─── DeviceCommand: biométrico ────────────────────────────────────────────
+  // deviceCommandPayload — línea literal que se manda al checador. En un
+  // `biodata_write` lleva el template de huella o rostro completo. No se busca
+  // en SQL y nunca se serializa hacia el Backoffice.
+  // Ancla: app/models/device_command.ts
+  { model: 'DeviceCommand', column: 'deviceCommandPayload', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
+  // ─── AdmsUnmappedPin: identificación ──────────────────────────────────────
+  // admsUnmappedPinName — nombre que el checador declara para un PIN que no
+  // corresponde a ningún colaborador. Identifica a una persona antes de que
+  // exista en el sistema. No se busca en SQL; se borra al conciliar o descartar.
+  // Ancla: app/models/adms_unmapped_pin.ts
+  { model: 'AdmsUnmappedPin', column: 'admsUnmappedPinName', legalCategory: 'identificacion', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+
   // ─── EmployeeMedicalCondition: salud (sensible reforzado) ─────────────────
   // No se buscan en SQL; contienen información clínica individual.
   // Ancla: app/models/employee_medical_condition.ts
@@ -188,6 +223,19 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
     column: 'rfc',
     legalCategory: 'identificacion',
     treatment: 'cifrar-buscable',
+    encrypted: true,
+  },
+
+  // ─── BillingTaxReceipt: identificación (USRH1788288461952) ────────────────
+  // RFC del receptor congelado en el comprobante. Cifrado AES; SIN blind index
+  // (nadie busca comprobantes por RFC en este set). treatment 'cifrar', no
+  // 'cifrar-buscable': esa marca declararía una capacidad que no existe.
+  // Ancla: app/models/billing_tax_receipt.ts (columna `rfc`)
+  {
+    model: 'BillingTaxReceipt',
+    column: 'rfc',
+    legalCategory: 'identificacion',
+    treatment: 'cifrar',
     encrypted: true,
   },
 
