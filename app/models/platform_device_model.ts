@@ -36,6 +36,25 @@ export default class PlatformDeviceModel extends compose(BaseModel, SoftDeletes)
   @column()
   declare platformDeviceModelActive: number
 
+  /**
+   * Capacidad de la ficha tecnica, tecleada por GSTI.
+   *
+   * Gana sobre lo que el equipo declara: lo declarado por el firmware suele
+   * ser un tope por lote y no lo que cabe en el aparato. `null` significa que
+   * nadie la capturo, y entonces no se muestra ningun maximo.
+   */
+  @column()
+  declare platformDeviceModelMaxUserCount: number | null
+
+  @column()
+  declare platformDeviceModelMaxFingerCount: number | null
+
+  @column()
+  declare platformDeviceModelMaxFaceCount: number | null
+
+  @column()
+  declare platformDeviceModelMaxAttLogCount: number | null
+
   @column.dateTime({ autoCreate: true })
   declare platformDeviceModelCreatedAt: DateTime
 

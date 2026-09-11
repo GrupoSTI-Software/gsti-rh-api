@@ -25,12 +25,21 @@ export type AdmsHealthStatus = (typeof ADMS_HEALTH_STATUS)[keyof typeof ADMS_HEA
 /**
  * De donde sale la capacidad que se muestra.
  *
- * `declared` la dijo el equipo en `options`; `unknown` es que no la dijo. No se
- * inventa un maximo por modelo: mostrar una capacidad falsa haria que alguien
- * planeara altas que no caben.
+ * `declared` la dijo el equipo en `options`; `catalog` la tecleo GSTI desde la
+ * ficha tecnica del modelo; `unknown` es que no hay ninguna de las dos.
+ *
+ * La regla original sigue en pie --no se INVENTA un maximo por modelo, porque
+ * una capacidad falsa haria que alguien planeara altas que no caben-- y por eso
+ * el origen viaja siempre: un numero curado por GSTI no es lo mismo que uno que
+ * dijo el aparato, y quien mira la pantalla tiene derecho a saber cual esta
+ * viendo.
+ *
+ * El catalogo gana sobre lo declarado porque el firmware suele anunciar topes
+ * por lote: el V5L del parque dice 20 checadas, que no es lo que le cabe.
  */
 export const ADMS_CAPACITY_SOURCE = {
   DECLARED: 'declared',
+  CATALOG: 'catalog',
   UNKNOWN: 'unknown',
 } as const
 
