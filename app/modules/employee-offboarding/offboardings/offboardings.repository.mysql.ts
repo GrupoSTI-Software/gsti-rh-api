@@ -11,6 +11,7 @@ import {
   EMPLOYEE_OFFBOARDING_STATUS,
   EMPLOYEE_OFFBOARDING_ITEM_STATUS,
 } from './offboardings.constants.js'
+import { EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE } from '../documents/documents.constants.js'
 import type {
   EmployeeOffboardingCreateData,
   EmployeeOffboardingItemCreateData,
@@ -33,6 +34,22 @@ const OVERDUE_EXPRESSION =
   "AND eo.employee_offboarding_status = 'open' " +
   'AND COALESCE(e.employee_terminated_date, eo.employee_offboarding_planned_date) IS NOT NULL ' +
   'AND DATE(COALESCE(e.employee_terminated_date, eo.employee_offboarding_planned_date)) < ? THEN 1 ELSE 0 END), 0)'
+
+/**
+ * Constancia de separación VIGENTE y viva del expediente (USRH1788579938608,
+ * reglas 1 y 2). Correlaciona ÚNICAMENTE por `eo.employee_offboarding_id`,
+ * que el agregado ya acotó por empresa (regla 5); el tipo entra como binding
+ * `?` y ataca `idx_emp_offb_doc_offb` por su prefijo. Va como `EXISTS`
+ * escalar en el `select` y negado en el `where` del filtro — NUNCA como
+ * segundo `leftJoin` (multiplicaría los COUNT/SUM de pendientes) ni como
+ * HAVING (§7 del spec, desviación declarada del addendum C-9).
+ */
+const SEPARATION_LETTER_EXISTS_SUBQUERY =
+  'SELECT 1 FROM employee_offboarding_documents eod ' +
+  'WHERE eod.employee_offboarding_id = eo.employee_offboarding_id ' +
+  'AND eod.employee_offboarding_document_type = ? ' +
+  'AND eod.employee_offboarding_document_is_current = 1 ' +
+  'AND eod.employee_offboarding_document_deleted_at IS NULL'
 
 /**
  * Adaptador MySQL del expediente de salida (USRH1786568279587). Único punto
@@ -190,8 +207,10 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
    * Consulta agregada del listado (§5.1, molde
    * `questionnaire_application_service.baseListAggregatedQuery`). Query
    * builder crudo a propósito: NO aplica el scope de SoftDeletes de Lucid,
-   * así los colaboradores dados de baja entran por diseño — nunca se filtra
-   * `e.employee_deleted_at` (ni el alcance por la empresa del colaborador).
+   * así los colaboradores dados de baja entran por diseño — nunca se excluye
+   * por `e.employee_deleted_at` (ni se acota por la empresa del colaborador).
+   * El filtro "solo sin constancia" lo usa al revés, como criterio de
+   * INCLUSIÓN: exige la baja ejecutada (USRH1788579938608, regla 3).
    */
   private baseAggregatedQuery(
     filters: OffboardingListFilters,
@@ -228,6 +247,15 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
             .orWhereRaw('UPPER(e.employee_payroll_code) = ?', [searchUpper])
         })
       })
+      .if(!!filters.withoutSeparationLetter, (query) => {
+        // Regla 3: sin baja ejecutada no hay faltante; regla 1: la misma
+        // subconsulta del select, negada — el filtro y la marca no divergen
+        query
+          .whereNotNull('e.employee_deleted_at')
+          .whereRaw(`NOT EXISTS (${SEPARATION_LETTER_EXISTS_SUBQUERY})`, [
+            EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.SEPARATION_LETTER,
+          ])
+      })
       .select(
         'eo.employee_offboarding_id as employeeOffboardingId',
         'eo.employee_id as employeeId',
@@ -250,7 +278,12 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
         db.raw(
           "COALESCE(SUM(CASE WHEN eoi.employee_offboarding_item_status = 'pending' THEN 1 ELSE 0 END), 0) as itemsOpen"
         ),
-        db.raw(`${OVERDUE_EXPRESSION} as itemsOverdue`, [todayIso])
+        db.raw(`${OVERDUE_EXPRESSION} as itemsOverdue`, [todayIso]),
+        // Marca derivada, nunca persistida (USRH1788579938608): depende solo de
+        // `eo.employee_offboarding_id`, columna del GROUP BY (ONLY_FULL_GROUP_BY)
+        db.raw(`EXISTS (${SEPARATION_LETTER_EXISTS_SUBQUERY}) as hasSeparationLetter`, [
+          EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.SEPARATION_LETTER,
+        ])
       )
       // ONLY_FULL_GROUP_BY: todas las columnas no agregadas, una por una
       .groupBy(

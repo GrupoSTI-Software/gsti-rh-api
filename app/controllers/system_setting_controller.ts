@@ -18,6 +18,7 @@ import {
   updateSystemSettingProceedingFileValidator,
 } from '#validators/system_setting_proceeding_file'
 import BusinessAccessScopeService from '#services/business_access_scope_service'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import { resolveSystemSettingApiError } from '../helpers/resolve_system_setting_api_error.js'
 
@@ -1821,7 +1822,118 @@ export default class SystemSettingController {
     }
   }
 
-  async show({ request, response }: HttpContext) {
+  /**
+   * @swagger
+   * /api/system-settings/{systemSettingId}:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - System Settings
+   *     summary: get system setting by id
+   *     description: >
+   *       Requiere sesión autenticada y header `X-Business-Unit-Id` con la
+   *       empresa seleccionada. Solo devuelve la ficha de configuración que
+   *       pertenece al scope del usuario; ids ajenos, inexistentes o la ficha
+   *       molde responden con el mismo 404.
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: systemSettingId
+   *         schema:
+   *           type: number
+   *         description: System setting id
+   *         required: true
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: UUID público de la razón social seleccionada
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Processed object
+   *       '404':
+   *         description: Resource not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '400':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Error message obtained
+   *                   properties:
+   *                     error:
+   *                       type: string
+   */
+  async show({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const systemSettingId = request.param('systemSettingId')
       if (!systemSettingId) {
@@ -1834,8 +1946,15 @@ export default class SystemSettingController {
         }
       }
       const systemSettingService = new SystemSettingService()
-      const showSystemSetting = await systemSettingService.show(systemSettingId)
+      const showSystemSetting = await systemSettingService.show(systemSettingId, businessUnitScope)
       if (!showSystemSetting) {
+        await ScopeDeniedLogService.log({
+          domain: 'system_setting',
+          action: 'show',
+          requestedId: systemSettingId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',

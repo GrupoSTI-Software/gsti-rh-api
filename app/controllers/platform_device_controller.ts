@@ -165,7 +165,14 @@ export default class PlatformDeviceController {
    *   get:
    *     tags:
    *       - Platform Device Inventory
-   *     summary: Obtener el detalle de una unidad del inventario
+   *     summary: Obtener el detalle de una unidad y su línea de tiempo de asignaciones
+   *     description: >
+   *       Ficha de la unidad + línea de tiempo COMPLETA de sus asignaciones
+   *       (USRH1787189981884), ordenadas por fecha de entrega descendente.
+   *       Una sola consulta con preload, sin N+1. Una unidad `retirada`
+   *       responde 200 con su historia completa — nunca 404 (regla 5): salir
+   *       del parque es justo cuando más se necesita ver el rastro.
+   *       `assignments: []` es un estado válido (unidad nunca entregada), no error.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -176,7 +183,38 @@ export default class PlatformDeviceController {
    *           type: integer
    *     responses:
    *       '200':
-   *         description: Detalle de la unidad
+   *         description: Detalle de la unidad con su historial de asignaciones
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: success
+   *               data:
+   *                 device:
+   *                   platformDeviceId: 7
+   *                   platformDeviceSerialNumber: "AXK1234"
+   *                   platformDeviceOrigin: "propia"
+   *                   platformDeviceStockStatus: "retirada"
+   *                   platformDeviceActive: true
+   *                   platformDeviceAcquisitionCostCents: 485000
+   *                   platformDeviceAcquisitionDate: "2026-03-11"
+   *                   platformDeviceRetireReason: "vendido"
+   *                   assignedTenant: null
+   *                   currentTenureRegime: null
+   *                   model:
+   *                     platformDeviceModelId: 2
+   *                     platformDeviceModelBrand: "ZKTeco"
+   *                     platformDeviceModelName: "SpeedFace V5L"
+   *                     platformDeviceModelSlug: "zkteco-speedface-v5l"
+   *                     platformDeviceModelStatus: "vigente"
+   *                 assignments:
+   *                   - assignmentId: 31
+   *                     tenantPublicId: "6bc18b8e-a604-464b-9441-a0fbe678765d"
+   *                     tenantName: "Acme SA de CV"
+   *                     deliveredAt: "2026-05-02"
+   *                     releasedAt: "2026-08-18"
+   *                     tenureRegime: "comodato"
+   *                     releaseReason: "devolucion_comodato"
+   *                     isCurrent: false
    *       '401':
    *         description: Sin autenticar
    *       '403':
@@ -186,8 +224,8 @@ export default class PlatformDeviceController {
    */
   async show({ params, response }: HttpContext) {
     try {
-      const device = await this.service.getById(Number(params.platformDeviceId))
-      return response.status(200).json({ type: 'success', data: { device } })
+      const { device, assignments } = await this.service.getById(Number(params.platformDeviceId))
+      return response.status(200).json({ type: 'success', data: { device, assignments } })
     } catch (error) {
       const { status, ...body } = resolvePlatformDeviceApiError(error)
       return response.status(status).json(body)

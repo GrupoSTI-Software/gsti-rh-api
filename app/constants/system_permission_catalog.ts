@@ -2,6 +2,7 @@ import { SYSTEM_MODULES_CATALOG } from '#constants/system_modules_catalog'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 import { POSITIONS_PERMISSION_CATALOG } from '#constants/positions_permission_catalog'
 import { ATTENDANCE_MONITOR_PERMISSION_CATALOG } from '#constants/attendance_monitor_permission_catalog'
+import { ACCESS_POINT_PERMISSION_CATALOG } from '#constants/access_point_permission_catalog'
 import { SystemPermissionCatalogError } from '#exceptions/system_permission_catalog_error'
 import type {
   ActionCatalogEntry,
@@ -15,6 +16,14 @@ export { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_ca
 export type { EmployeesSection, EmployeeActionSlug } from '#constants/employees_permission_catalog'
 export { POSITIONS_PERMISSION_CATALOG } from '#constants/positions_permission_catalog'
 export type { PositionsSection, PositionActionSlug } from '#constants/positions_permission_catalog'
+export {
+  ACCESS_POINT_PERMISSION_CATALOG,
+  ACCESS_POINT_MODULE_SLUG,
+} from '#constants/access_point_permission_catalog'
+export type {
+  AccessPointSection,
+  AccessPointActionSlug,
+} from '#constants/access_point_permission_catalog'
 export { ATTENDANCE_MONITOR_PERMISSION_CATALOG } from '#constants/attendance_monitor_permission_catalog'
 export type {
   AttendanceMonitorSection,
@@ -43,6 +52,7 @@ export const SYSTEM_PERMISSION_CATALOG: SystemPermissionCatalog = {
     employees: EMPLOYEES_PERMISSION_CATALOG,
     positions: POSITIONS_PERMISSION_CATALOG,
     'employees-attendance-monitor': ATTENDANCE_MONITOR_PERMISSION_CATALOG,
+    'biometric-devices': ACCESS_POINT_PERMISSION_CATALOG,
   },
 }
 

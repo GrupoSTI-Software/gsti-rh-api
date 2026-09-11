@@ -13,6 +13,12 @@ export const ASSIST_ORIGIN = {
   MANUAL: 'manual',
   /** Reservado: kiosco por WebSocket; hoy sin bitácora. */
   DEVICE: 'device',
+  /**
+   * Checador fisico por el canal ADMS. Sin migracion: la columna es varchar.
+   * No necesita centinela de canal en la llave natural porque este origen
+   * SIEMPRE trae la serie real del equipo.
+   */
+  ADMS: 'adms',
 } as const
 
 export type AssistCreateFrom = (typeof ASSIST_ORIGIN)[keyof typeof ASSIST_ORIGIN]
