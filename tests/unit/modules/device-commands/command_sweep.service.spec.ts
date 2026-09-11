@@ -69,11 +69,21 @@ function makeService(
     },
   } as never
 
+  /** A que estado se solto cada vinculo que el barrido cerro. */
+  const released: Array<{ pivotId: number; status: string }> = []
+  const pivots = {
+    async updateStatus(pivotId: number, status: string) {
+      released.push({ pivotId, status })
+      return null
+    },
+  } as never
+
   return {
-    service: new CommandSweepService(repository, () => NOW, commands, roster),
+    service: new CommandSweepService(repository, () => NOW, commands, roster, pivots),
     saved,
     asked: () => asked,
     enqueued,
+    released,
   }
 }
 
@@ -85,6 +95,45 @@ test.group('Barrido de comandos colgados', () => {
     assert.equal(saved[0].deviceCommandStatus, 'failed')
     assert.equal(saved[0].deviceCommandLastError, 'inflight_timeout')
     assert.equal(saved[0].deviceCommandFailedAt, NOW)
+  })
+
+  /**
+   * El barrido cerraba el COMANDO y dejaba el pivote en `sent`. Desde ahi la
+   * maquina solo admite `confirmed` y `failed`, las dos condicionadas a que el
+   * aparato vuelva a hablar: si el equipo recogio el alta y se apago, no habia
+   * forma de revocar, reenviar ni retirar. La persona quedaba dentro del
+   * checador sin una sola via para sacarla.
+   */
+  test('el alta en vuelo que nadie acusa suelta tambien el vinculo', async ({ assert }) => {
+    const { service, released } = makeService([
+      commandOf({
+        deviceCommandKind: DEVICE_COMMAND_KIND.USER_UPSERT,
+        accessPointEmployeeId: 5,
+      }),
+    ])
+
+    await service.run()
+
+    assert.deepEqual(released, [{ pivotId: 5, status: 'failed' }])
+  })
+
+  test('si lo que se perdio era la baja, el vinculo queda en revoke_failed', async ({ assert }) => {
+    const { service, released } = makeService([
+      commandOf({
+        deviceCommandKind: DEVICE_COMMAND_KIND.USER_DELETE,
+        accessPointEmployeeId: 5,
+      }),
+    ])
+
+    await service.run()
+
+    assert.deepEqual(released, [{ pivotId: 5, status: 'revoke_failed' }])
+  })
+
+  test('un comando suelto no le cambia el estado a nadie', async ({ assert }) => {
+    const { service, released } = makeService([commandOf()])
+    await service.run()
+    assert.lengthOf(released, 0)
   })
 
   test('si el acuse llego entre la lectura y la escritura, no se marca fallido', async ({

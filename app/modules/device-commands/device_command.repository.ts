@@ -44,6 +44,14 @@ export interface DeviceCommandRepository {
   ): Promise<EnqueueIdempotentResult | null>
   findLiveByCorrelation(accessPointId: number, correlationKey: string): Promise<DeviceCommand | null>
   findById(commandId: number): Promise<DeviceCommand | null>
+  /**
+   * El comando, solo si es de ESE equipo.
+   *
+   * La pertenencia se comprueba en el WHERE y no trayendo la lista del
+   * dispositivo para buscar en memoria: esa lista esta topada, asi que un
+   * comando mas viejo que el tope no se podia ni cancelar ni reintentar.
+   */
+  findByIdForDevice(commandId: number, accessPointId: number): Promise<DeviceCommand | null>
   findByWireId(wireId: number): Promise<DeviceCommand | null>
   /** Primer pendiente por prioridad, excluyendo los tipos que no se pueden despachar ahora. */
   findNextPending(accessPointId: number, excludedKinds: DeviceCommandKind[]): Promise<DeviceCommand | null>
@@ -52,6 +60,13 @@ export interface DeviceCommandRepository {
   listByEmployee(employeeId: number): Promise<DeviceCommand[]>
   /** Lo que sigue vivo --pendiente o en vuelo-- para un vinculo concreto. */
   listLiveForPivot(accessPointEmployeeId: number): Promise<DeviceCommand[]>
+  /**
+   * Escrituras de huella vivas hacia un equipo.
+   *
+   * Se resuelve por el tipo del template al que apunta el comando y no por
+   * `device_command_bio_no`: ahi el dedo 9 y el rostro comparten numero.
+   */
+  listLiveFingerprintWrites(accessPointId: number): Promise<DeviceCommand[]>
   /** Comandos en vuelo o acusados cuyo plazo vencio, para el barrido. */
   findStuck(input: {
     sentBefore: DateTime

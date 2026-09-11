@@ -9,6 +9,7 @@ import {
 } from '../device_command.constants.js'
 import type { DeviceCommandRepository } from '../device_command.repository.js'
 import type DeviceCommand from '#models/device_command'
+import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
 
 /** Contadores que el equipo declara en `options`, para comparar con el snapshot. */
 export interface DeviceCounters {
@@ -50,8 +51,24 @@ export default class ExecutionEvidenceService {
     accessPointId: number
     pin: string
     bioNo: number
+    /** Modalidad de lo que subio el equipo (`BIO_TYPE`). */
+    bioType: number
     now: DateTime
   }): Promise<BiometricUploadEvidence> {
+    /**
+     * Solo una huella cierra un enrolamiento de huella.
+     *
+     * El equipo numera el rostro con el `No` que declare --el SenseFace sube
+     * `No=0`-- asi que un rostro entrante coincidia en PIN y en numero con un
+     * `ENROLL_FP` del dedo 0 pendiente y lo cerraba como ejecutado. El operador
+     * leia "captura completada", la persona se iba, y en la boveda no habia una
+     * sola huella. Es el mismo patron del acuse que se contaba como biometrico
+     * presente.
+     */
+    if (input.bioType !== BIO_TYPE.FINGERPRINT) {
+      return { closed: 0, requestedByUserId: null }
+    }
+
     const commands = await this.repository.findAwaitingEvidence({
       accessPointId: input.accessPointId,
       kinds: [DEVICE_COMMAND_KIND.ENROLL_FP],
