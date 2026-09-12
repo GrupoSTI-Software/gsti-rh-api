@@ -443,27 +443,41 @@ const MRR_STATUSES = ['active', 'trialing'] as const
  *    suscripciones vivas (regla 5). La aparente inconsistencia con el listado es
  *    deliberada.
  *
- * ## Forma pensada para la orden 16
+ * ## Reparto por grupo económico (orden 16, USRH1788052455659)
  *
- * El universo y sus filtros (`mrrBaseQuery`) están aislados de la proyección del
- * resultado (`getMrrSnapshot`), de modo que "Ver la concentración de MRR por
- * grupo económico" pueda agregar un `groupBy` sobre la misma pasada sin duplicar
- * la regla del neto ni la de estados. Esta rebanada **no** crea el desglose.
+ * El universo y sus filtros (`mrrBaseQuery`) siguen aislados de la proyección.
+ * La orden 16 los aprovechó agregando un `GROUP BY` **sobre la misma pasada**:
+ * el actual neto, su conteo y el desglose se pliegan de una sola consulta, así
+ * que la suma del desglose es igual a la cifra de la franja por construcción.
+ * Ese es el invariante que define la lectura: dos consultas con dos cortes lo
+ * romperían aunque los números coincidieran hoy.
  */
 export default class PlatformMrrService {
   /**
-   * Las dos cifras de ingreso recurrente, calculadas al momento.
+   * Las dos cifras de ingreso recurrente y el reparto del actual, al momento.
    *
-   * Una sola lectura del reloj para las tres consultas: el actual, el proyectado
-   * y el reparto por moneda tienen que hablar del mismo día aunque el proceso
-   * cruce la medianoche.
+   * Una sola lectura del reloj para todas las consultas: el actual, el
+   * proyectado, el reparto y las monedas tienen que hablar del mismo día aunque
+   * el proceso cruce la medianoche.
    *
-   * @returns Actual neto, proyectado de pruebas, sus conteos, monedas y la fecha del cálculo.
+   * El actual neto, su conteo y el desglose salen del **mismo** pliegue de la
+   * misma consulta agrupada (`loadConcentrationRows`). No hay una segunda
+   * consulta del total: si la hubiera, una suscripción activada entre las dos
+   * haría que la suma del desglose difiriera de la cifra de la franja, que es el
+   * peor defecto posible de esta lectura (CA-3).
+   *
+   * El proyectado de pruebas conserva su propia consulta: **no** se reparte
+   * (regla 8) y comparte cero ramificación con el actual.
+   *
+   * @returns Actual neto, proyectado, sus conteos, monedas, el reparto y la fecha.
    */
   async getMrrSnapshot(): Promise<PlatformMrrSnapshot> {
     const businessDate = toBusinessDateString()
 
-    const activas = await this.loadStatusTotals('active')
+    const concentrationRows = await this.loadConcentrationRows()
+    const gruposVivos = await this.countLiveTenantGroups()
+    const activas: MrrConcentrationTotals = buildMrrConcentration(concentrationRows, gruposVivos)
+
     const enPrueba = await this.loadStatusTotals('trialing')
     const monedas = await this.loadCurrencies()
 
@@ -473,6 +487,7 @@ export default class PlatformMrrService {
       mrrProyectadoTrialCents: enPrueba.netoCents,
       suscripcionesEnPrueba: enPrueba.suscripciones,
       monedas,
+      concentracion: activas.concentracion,
       calculadoAl: businessDate,
     }
   }
@@ -498,9 +513,11 @@ export default class PlatformMrrService {
   /**
    * Suma del subtotal congelado y conteo de suscripciones de un estado.
    *
-   * Una consulta por estado, y no un `GROUP BY status`, para que sea imposible
-   * que el proyectado se cuele en el actual: cada cifra tiene su propia llamada
-   * y su propio filtro (regla 3).
+   * Hoy la usa solo el proyectado de pruebas: el actual neto se pliega del
+   * desglose por grupo, que sale de la misma consulta agrupada
+   * (`loadConcentrationRows`). Se conserva genérica a propósito —recibe el
+   * estado por parámetro— porque es la forma que garantiza que el proyectado
+   * jamás comparta una ramificación con el actual (regla 3).
    *
    * `COALESCE` porque MySQL devuelve NULL —no 0— cuando el universo está vacío,
    * y `Number(...)` porque `SUM()` sobre `DECIMAL` llega como string por Knex.
@@ -521,6 +538,86 @@ export default class PlatformMrrService {
       netoCents: Number(row?.netoCents ?? 0),
       suscripciones: Number(row?.suscripciones ?? 0),
     }
+  }
+
+  /**
+   * Universo `active` agregado por grupo económico, en **una sola** consulta.
+   *
+   * Es la misma pasada que produce la cifra de la franja: el universo
+   * (`mrrBaseQuery`), el filtro de estado y la expresión del neto son los de la
+   * orden 8, y lo único que se agrega es el `GROUP BY`. Por eso
+   * `SUM(unidades) === mrrActualNetoCents` es invariante por construcción y no
+   * por coincidencia (CA-3).
+   *
+   * Los dos `LEFT JOIN` no pueden perder ni duplicar filas: el pivote tiene
+   * `UNIQUE(business_unit_id)` —a lo más un grupo por cliente— y el segundo une
+   * por llave primaria.
+   *
+   * **El filtro de la baja lógica del grupo va en el `ON`, no en el `WHERE`.**
+   * En el `WHERE`, `g.platform_tenant_group_deleted_at IS NULL` dejaría pasar a
+   * los sin membresía (su `g.*` llega nulo) pero **borraría del resultado** a los
+   * clientes cuyo grupo fue dado de baja: su ingreso desaparecería del desglose
+   * sin desaparecer del total y CA-4 fallaría en silencio. En el `ON`, esa
+   * membresía huérfana cae en la bolsa "sin-grupo", que es la regla 4.
+   *
+   * `platform_tenant_group_active` **no** filtra: un grupo apagado con clientes
+   * activos sigue concentrando ingreso (regla 4 del contrato).
+   *
+   * @returns Una fila por grupo con MRR, más la fila del nulo con todos los demás.
+   */
+  private async loadConcentrationRows(): Promise<MrrConcentrationRow[]> {
+    const rows = (await this.mrrBaseQuery()
+      .where('bs.billing_subscription_status', 'active')
+      .leftJoin(
+        'platform_tenant_group_members as m',
+        'm.business_unit_id',
+        'bs.business_unit_id'
+      )
+      .leftJoin('platform_tenant_groups as g', (join) => {
+        join
+          .on('g.platform_tenant_group_id', '=', 'm.platform_tenant_group_id')
+          .andOnNull('g.platform_tenant_group_deleted_at')
+      })
+      .select('g.platform_tenant_group_id as platformTenantGroupId')
+      .select('g.platform_tenant_group_name as nombre')
+      .select(db.raw('COUNT(DISTINCT bs.business_unit_id) as tenants'))
+      .select(db.raw('COUNT(*) as suscripciones'))
+      .select(db.raw(`COALESCE(SUM(${CONTRACTED_SUBTOTAL_CENTS_SQL}), 0) as mrrNetoCents`))
+      .groupBy('g.platform_tenant_group_id', 'g.platform_tenant_group_name')) as Array<
+      Record<string, unknown>
+    >
+
+    return rows.map((row) => ({
+      platformTenantGroupId:
+        row.platformTenantGroupId === null ? null : Number(row.platformTenantGroupId),
+      nombre: row.nombre === null ? null : String(row.nombre),
+      tenants: Number(row.tenants ?? 0),
+      suscripciones: Number(row.suscripciones ?? 0),
+      // `SUM()` sobre DECIMAL llega como string por Knex: el Number va explícito.
+      mrrNetoCents: Number(row.mrrNetoCents ?? 0),
+    }))
+  }
+
+  /**
+   * Cuántos grupos económicos vivos hay en la plataforma.
+   *
+   * Sirve solo para `gruposOmitidosSinMrr`: es un conteo de catálogo, no de
+   * dinero, así que va aparte sin tocar el invariante del cuadre. Un grupo que no
+   * aparece en el desglose es un grupo sin MRR activo, y esta cifra dice cuántos
+   * son en lugar de dejar la ausencia sin explicación (regla 9).
+   *
+   * `deleted_at IS NULL` explícito: la consulta cruda no pasa por `SoftDeletes`.
+   *
+   * @returns Total de grupos sin baja lógica, activos o apagados.
+   */
+  private async countLiveTenantGroups(): Promise<number> {
+    const row = (await db
+      .from('platform_tenant_groups')
+      .whereNull('platform_tenant_group_deleted_at')
+      .count('* as total')
+      .first()) as Record<string, unknown> | null
+
+    return Number(row?.total ?? 0)
   }
 
   /**
