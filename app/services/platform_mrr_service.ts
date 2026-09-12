@@ -11,6 +11,68 @@ export interface MrrCurrencySlice {
   suscripciones: number
 }
 
+/** Qué es una unidad del reparto: un grupo económico, o la bolsa de los que no tienen. */
+export type MrrConcentrationUnitKind = 'grupo' | 'sin-grupo'
+
+/**
+ * Fila del desglose tal como la devuelve la base: ya agregada por grupo, con el
+ * grupo en `null` cuando la suscripción no pertenece a ninguno vivo.
+ *
+ * Es la frontera entre SQL y la pura: la consulta agrupa y suma, la pura nombra,
+ * ordena y calcula participaciones.
+ */
+export interface MrrConcentrationRow {
+  /** `null` = sin membresía, o membresía apuntando a un grupo dado de baja. */
+  platformTenantGroupId: number | null
+  /** Nombre del grupo; `null` en la fila de los que no tienen grupo. */
+  nombre: string | null
+  /** Clientes distintos con MRR activo dentro de la unidad. */
+  tenants: number
+  /** Suscripciones activas de la unidad. No colapsa por cliente (regla 5 de la orden 8). */
+  suscripciones: number
+  /** Suma del subtotal congelado de la unidad, en centavos. */
+  mrrNetoCents: number
+}
+
+/** Una unidad del reparto, ya nombrada y con su participación derivada. */
+export interface MrrConcentrationUnit {
+  tipo: MrrConcentrationUnitKind
+  /** `null` cuando `tipo = 'sin-grupo'`. */
+  platformTenantGroupId: number | null
+  /** Nombre del grupo, o el nombre único de la bolsa. */
+  nombre: string
+  tenants: number
+  mrrNetoCents: number
+  /** Parte del total que le toca, con un decimal. Se deriva del importe, nunca al revés. */
+  participacionPct: number
+}
+
+/**
+ * Reparto del MRR actual neto entre grupos económicos.
+ *
+ * `base` declara en el propio payload sobre qué cifra se reparte, para que nadie
+ * lo confunda con el proyectado de pruebas, que **no** se reparte (regla 8).
+ */
+export interface MrrConcentration {
+  base: 'mrr-actual-neto'
+  /** Ordenadas por importe descendente, desempate por nombre. Vacío si no hay MRR activo. */
+  unidades: MrrConcentrationUnit[]
+  /** Grupos vivos que no listaron unidad por no tener MRR activo (regla 9). */
+  gruposOmitidosSinMrr: number
+}
+
+/**
+ * Las tres lecturas del universo `active`, plegadas de las mismas filas.
+ *
+ * Viajan juntas a propósito: que el total salga del mismo pliegue que el
+ * desglose es lo que hace imposible que difieran (CA-3).
+ */
+export interface MrrConcentrationTotals {
+  concentracion: MrrConcentration
+  netoCents: number
+  suscripciones: number
+}
+
 /**
  * Las dos cifras de ingreso recurrente de la plataforma, cada una con su
  * conteo, más el reparto por moneda y la fecha de negocio del cálculo.
@@ -29,6 +91,12 @@ export interface PlatformMrrSnapshot {
   suscripcionesEnPrueba: number
   /** Honestidad multimoneda: más de un elemento significa que la suma cruza monedas. */
   monedas: MrrCurrencySlice[]
+  /**
+   * Reparto del actual neto por grupo económico. `SUM(unidades[].mrrNetoCents)`
+   * es exactamente `mrrActualNetoCents`: las dos cifras se pliegan de la misma
+   * consulta (USRH1788052455659).
+   */
+  concentracion: MrrConcentration
   /** Fecha de negocio del cálculo, `YYYY-MM-DD`. */
   calculadoAl: string
 }
@@ -242,6 +310,81 @@ export function buildMrrSeries(
     criterio: 'pagos',
     pagosSinPeriodoExcluidos: paymentsWithoutPeriod,
     puntos,
+  }
+}
+
+// ─── Núcleo del reparto por grupo (puro) ──────────────────────────────────────
+
+/**
+ * Nombre único de la bolsa que agrupa a los clientes sin grupo económico.
+ *
+ * Lo emite el servicio y no la vista, para que sea uno solo y traducible en un
+ * solo lugar (regla 5 del contrato).
+ */
+export const SIN_GRUPO_NOMBRE = 'Sin grupo'
+
+/**
+ * Arma el reparto y, de las mismas filas, el total y el conteo del universo activo.
+ *
+ * Es puro: no consulta, no lee el reloj y no toca `db`. Tres reglas que se
+ * prestan a que alguien las "corrija":
+ *
+ * 1. **El total se pliega de estas filas**, no de una segunda consulta. Es lo
+ *    que vuelve imposible que la suma del desglose difiera de la cifra de la
+ *    franja (CA-3). Si algún día alguien recalcula el total aparte, el
+ *    invariante pasa a depender de la suerte.
+ * 2. **La participación se deriva del importe**, redondeada a un decimal, y la
+ *    suma de porcentajes **puede no dar 100.0**. No se ajusta ninguna unidad:
+ *    forzar el cuadre falsearía un dato para maquillar un redondeo (CA-5).
+ * 3. **Las unidades en cero no se listan** y se informa cuántos grupos quedaron
+ *    fuera por eso (regla 9). La bolsa "Sin grupo" se omite igual si vale cero.
+ *
+ * @param rows - Filas ya agrupadas por grupo económico, con el nulo como bolsa.
+ * @param liveGroupsCount - Grupos vivos en la plataforma, para el conteo de omitidos.
+ * @returns El reparto, el total en centavos y el conteo de suscripciones activas.
+ */
+export function buildMrrConcentration(
+  rows: MrrConcentrationRow[],
+  liveGroupsCount: number
+): MrrConcentrationTotals {
+  const netoCents = rows.reduce((total, row) => total + row.mrrNetoCents, 0)
+  const suscripciones = rows.reduce((total, row) => total + row.suscripciones, 0)
+
+  const unidades: MrrConcentrationUnit[] = rows
+    .filter((row) => row.mrrNetoCents > 0)
+    .map((row) => {
+      const esGrupo = row.platformTenantGroupId !== null
+
+      return {
+        tipo: esGrupo ? ('grupo' as const) : ('sin-grupo' as const),
+        platformTenantGroupId: row.platformTenantGroupId,
+        // El nombre nulo de un grupo no existe (la columna es NOT NULL), pero el
+        // fallback evita publicar una cadena vacía si algún día lo fuera.
+        nombre: esGrupo ? (row.nombre ?? SIN_GRUPO_NOMBRE) : SIN_GRUPO_NOMBRE,
+        tenants: row.tenants,
+        mrrNetoCents: row.mrrNetoCents,
+        // Guarda explícita de la división entre cero: con total en cero no hay
+        // unidades que listar, así que esta rama no se alcanza desde el endpoint.
+        participacionPct:
+          netoCents > 0 ? Math.round((row.mrrNetoCents / netoCents) * 1000) / 10 : 0,
+      }
+    })
+    .sort(
+      (a, b) => b.mrrNetoCents - a.mrrNetoCents || a.nombre.localeCompare(b.nombre, 'es')
+    )
+
+  const gruposListados = unidades.filter((unidad) => unidad.tipo === 'grupo').length
+
+  return {
+    concentracion: {
+      base: 'mrr-actual-neto',
+      unidades,
+      // `Math.max` porque el conteo de grupos vivos y el desglose son dos
+      // lecturas: una alta entre ambas no puede producir un negativo.
+      gruposOmitidosSinMrr: Math.max(liveGroupsCount - gruposListados, 0),
+    },
+    netoCents,
+    suscripciones,
   }
 }
 
