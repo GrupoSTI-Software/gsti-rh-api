@@ -185,6 +185,10 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
       )
       .orderBy('e.employee_first_name', 'asc')
       .orderBy('e.employee_last_name', 'asc')
+      // Desempate determinista entre homónimos y entre las filas de un colaborador
+      // con varias sucursales base activas; no cambia el orden por nombre.
+      .orderBy('e.employee_id', 'asc')
+      .orderBy('bo.branch_office_id', 'asc')
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return rows.map((r: any) => {
@@ -661,7 +665,7 @@ ORDER BY sfd_full.employee_id, sfd_full.day
       )
     }
 
-    // Construir exceptions mínimas para que `aggregateCalendar` del service detecte
+    // Construir exceptions mínimas para que `aggregateCalendar` (attendance-stats.rules) detecte
     // contadores informativos. El service usa exception_type.exception_type_slug.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const exceptions: any[] = []
@@ -885,6 +889,10 @@ ORDER BY sfd_full.employee_id, sfd_full.day
         'eta.destination_shift_id AS destination_shift_id',
         'eta.reason AS reason'
       )
+      // Con varios préstamos vigentes, la cobertura se queda con el primero por
+      // colaborador: el mismo desempate que selectLoanForDay.
+      .orderBy('eta.start_date', 'desc')
+      .orderBy('eta.employee_temporary_assignment_id', 'desc')
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return rows.map((r: any) => ({

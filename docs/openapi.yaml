@@ -8101,7 +8101,10 @@ paths:
         - name: branchOfficeIds
           in: query
           required: false
-          description: CSV de IDs de sitios; se intersecta con los sitios de la empresa contratante.
+          description: |
+            CSV de IDs de sitios (enteros >= 1); se intersecta con los sitios de la empresa contratante.
+            Si trae valor y alguna pieza no es un entero >= 1 (`abc`, `0`, `1.5`, vacío) responde 400
+            `entrada-invalida` con `details`; nunca se ignora para ampliar la consulta a todos los sitios.
           schema:
             type: string
             example: "5,7"
@@ -8173,7 +8176,10 @@ paths:
                         vacations: 0
                         holidays: 0
         '400':
-          description: Entrada inválida, rango inválido o rango de más de 62 días
+          description: |
+            Entrada inválida, rango inválido o rango de más de 62 días. `entrada-invalida` trae `details` con el
+            campo y la regla: fecha con formato válido pero inexistente (`2026-02-31`, regla `existingIsoDay`) o
+            `branchOfficeIds` con alguna pieza que no es entero >= 1.
           content:
             application/json:
               schema:
@@ -8187,6 +8193,10 @@ paths:
                     message: Invalid request parameters
                     detail: Invalid request parameters
                     key: entrada-invalida
+                    details:
+                      - message: La fecha startDay no existe en el calendario.
+                        rule: existingIsoDay
+                        field: startDay
                 rangoInvalido:
                   summary: key rango-invalido
                   value:

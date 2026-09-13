@@ -1,5 +1,5 @@
 import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
-import { isEvaluableDay } from './attendance-stats.service.js'
+import { isEvaluableDay } from './attendance-stats.rules.js'
 import type {
   CoverageActiveLoanRow,
   CoverageCandidate,
@@ -39,9 +39,12 @@ export function buildEmployeeDisplayName(employee: EmployeeInfo): string {
 }
 
 /**
- * Sucursal efectiva del colaborador: el destino del préstamo que lo mueve ese
- * día o, sin préstamo, su sucursal base. Única implementación de la regla; la
- * usan la cobertura del día y las faltas por sitio.
+ * Sucursal efectiva del colaborador dado el préstamo que lo mueve ese día: el
+ * destino del préstamo o, sin préstamo, su sucursal base. Solo resuelve la
+ * sucursal; elegir el préstamo cuando hay varios vigentes le toca al llamador,
+ * con el mismo desempate en los dos (start_date más reciente y, empatando, id
+ * mayor): la cobertura del día toma el primero en el orden de
+ * `getActiveLoansForDay` y las faltas por sitio usan `selectLoanForDay`.
  */
 export function resolveEffectiveBranchId(
   homeBranchId: number | null | undefined,
@@ -84,6 +87,10 @@ export interface BuildCoverageInput {
   day: string
   sites: CoverageSiteRef[]
   quotas: CoverageShiftQuotaRow[]
+  /**
+   * Préstamos vigentes del día en el orden de `getActiveLoansForDay` (start_date
+   * e id descendentes). Por colaborador cuenta el primero.
+   */
   loans: CoverageActiveLoanRow[]
   bundles: EmployeeCalendarBundle[]
   branchOfficeNamesById: Map<number, string>
@@ -114,9 +121,11 @@ export function buildCoverageResponse(input: BuildCoverageInput): CoverageRespon
   const { day, sites, quotas, loans, bundles, branchOfficeNamesById, visibleEmployeeIds } = input
 
   const companySiteIds = new Set(sites.map((s) => s.branchOfficeId))
+  // Con varios préstamos vigentes gana el primero: `loans` viene por start_date e
+  // id descendentes, el mismo desempate que `selectLoanForDay`.
   const loansByEmployee = new Map<number, CoverageActiveLoanRow>()
   for (const loan of loans) {
-    loansByEmployee.set(loan.employeeId, loan)
+    if (!loansByEmployee.has(loan.employeeId)) loansByEmployee.set(loan.employeeId, loan)
   }
 
   const quotaByKey = new Map<SiteShiftKey, CoverageShiftQuotaRow>()

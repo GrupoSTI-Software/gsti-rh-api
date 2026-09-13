@@ -6,7 +6,7 @@ import {
   enumerateDays,
   isEvaluableDay,
   toStatistics,
-} from './attendance-stats.service.js'
+} from './attendance-stats.rules.js'
 import type {
   CoverageAbsencesDay,
   CoverageAbsencesResponse,
@@ -40,7 +40,8 @@ export function countRangeDaysInclusive(startDay: string, endDay: string): numbe
  * (start_date <= día <= end_date) y sin cancelar a esa fecha (cancelled_at nulo
  * o posterior al día, el mismo criterio que `getActiveLoansForDay`). Con varios
  * vigentes gana el de start_date más reciente y, empatando, el de id mayor, sin
- * importar el orden de entrada.
+ * importar el orden de entrada. Es el mismo desempate que la cobertura del día
+ * obtiene del orden de `getActiveLoansForDay` al quedarse con el primero.
  */
 export function selectLoanForDay(
   loans: readonly CoverageRangeLoanRow[],
@@ -67,7 +68,10 @@ export interface BuildCoverageAbsencesInput {
   sites: CoverageSiteRef[]
   /** Préstamos de los colaboradores que intersectan el periodo. */
   loans: CoverageRangeLoanRow[]
-  /** Calendarios del periodo; `employee.branchOfficeId` es la sucursal base activa hoy. */
+  /**
+   * Calendarios del periodo; `employee.branchOfficeId` es la sucursal base
+   * activa hoy. Un colaborador con varias bases activas llega en varias filas.
+   */
   bundles: EmployeeCalendarBundle[]
   /**
    * Colaboradores que el usuario puede ver. Se recorta antes de contar: los
@@ -96,6 +100,44 @@ function groupLoansByEmployee(
   return byEmployee
 }
 
+/** Filas del calendario agrupadas por colaborador, en orden de primera aparición. */
+function groupBundlesByEmployee(
+  bundles: readonly EmployeeCalendarBundle[]
+): Map<number, EmployeeCalendarBundle[]> {
+  const byEmployee = new Map<number, EmployeeCalendarBundle[]>()
+  for (const bundle of bundles) {
+    const employeeBundles = byEmployee.get(bundle.employee.employeeId)
+    if (employeeBundles) employeeBundles.push(bundle)
+    else byEmployee.set(bundle.employee.employeeId, [bundle])
+  }
+  return byEmployee
+}
+
+/**
+ * Fila que representa al colaborador: define su sucursal base para atribuir
+ * los días sin préstamo y el `employee` que se lista en `employees`.
+ *
+ * Con varias sucursales base activas (dato inconsistente: el modelo prevé una
+ * sola) gana la base que está entre `siteIds` y, si hay varias, la de
+ * `branchOfficeId` menor, sin depender del orden en que llegan las filas. Si
+ * ninguna base está entre los sitios se toma la primera fila: sin préstamo
+ * esas faltas no caen en ningún sitio, sea cual sea la base.
+ */
+function resolveHomeBundle(
+  employeeBundles: readonly EmployeeCalendarBundle[],
+  siteIds: ReadonlySet<number>
+): EmployeeCalendarBundle {
+  let home: { bundle: EmployeeCalendarBundle; branchOfficeId: number } | undefined
+  for (const bundle of employeeBundles) {
+    const branchOfficeId = bundle.employee.branchOfficeId
+    if (branchOfficeId === null || branchOfficeId === undefined || !siteIds.has(branchOfficeId)) {
+      continue
+    }
+    if (!home || branchOfficeId < home.branchOfficeId) home = { bundle, branchOfficeId }
+  }
+  return home?.bundle ?? employeeBundles[0]
+}
+
 /**
  * Faltas por sitio de servicio y por día de una empresa contratante.
  *
@@ -105,8 +147,10 @@ function groupLoansByEmployee(
  * préstamo, la sucursal base activa HOY: para periodos pasados no se reconstruye
  * la asignación histórica.
  *
- * Un colaborador con dos sucursales base activas llega duplicado del
- * calendario; cuenta una sola vez con la primera fila.
+ * Un colaborador con varias sucursales base activas llega en varias filas del
+ * calendario y cuenta una sola vez: sin préstamo se atribuye a la base que está
+ * entre los sitios de la respuesta (los de la empresa tras el filtro) y, si hay
+ * varias, a la de `branchOfficeId` menor (`resolveHomeBundle`).
  */
 export function buildCoverageAbsencesResponse(
   input: BuildCoverageAbsencesInput
@@ -120,14 +164,12 @@ export function buildCoverageAbsencesResponse(
   const absencesByDay = new Map<string, Map<number, Set<number>>>()
   /** Colaboradores con al menos una falta en los sitios, en orden de aparición. */
   const absentees = new Map<number, EmployeeCalendarBundle>()
-  const processed = new Set<number>()
 
-  for (const bundle of bundles) {
-    const { employeeId } = bundle.employee
+  for (const [employeeId, employeeBundles] of groupBundlesByEmployee(bundles)) {
     // Recorte por alcance antes de contar.
-    if (!visibleEmployeeIds.has(employeeId) || processed.has(employeeId)) continue
-    processed.add(employeeId)
+    if (!visibleEmployeeIds.has(employeeId)) continue
 
+    const bundle = resolveHomeBundle(employeeBundles, siteIds)
     const homeBranchId = bundle.employee.branchOfficeId ?? null
     const employeeLoans = loansByEmployee.get(employeeId) ?? []
 

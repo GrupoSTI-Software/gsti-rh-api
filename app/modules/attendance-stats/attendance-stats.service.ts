@@ -4,6 +4,7 @@ import SystemSetting from '#models/system_setting'
 import { findEmpresaContratanteInTenantOrFail } from '../../helpers/repse_tenant_scope.js'
 import { EmpresaContratanteError } from '../../exceptions/empresa_contratante_error.js'
 import { resolveEmployeeRoleScope } from '../../helpers/resolve_employee_role_scope.js'
+import type { EmployeeRoleScope } from '../../helpers/resolve_employee_role_scope.js'
 import AttendanceStatsRepositoryMysql from './attendance-stats.repository.mysql.js'
 import { buildCoverageResponse } from './attendance-stats.coverage.js'
 import {
@@ -11,11 +12,20 @@ import {
   countRangeDaysInclusive,
   COVERAGE_ABSENCES_MAX_RANGE_DAYS,
 } from './attendance-stats.coverage-absences.js'
-import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
-import type { ShiftExceptionInterface } from '../../interfaces/shift_exception_interface.js'
+import {
+  addClean,
+  addInformational,
+  aggregateCalendar,
+  classifyDay,
+  emptyClean,
+  emptyInformational,
+  enumerateDays,
+  isEvaluableDay,
+  toOverviewStatistics,
+  toStatistics,
+} from './attendance-stats.rules.js'
 import type { AttendanceStatsRepository } from './attendance-stats.repository.js'
 import type {
-  AttendanceStatistics,
   AttendanceStatsFilters,
   AttendanceStatsGranularity,
   CleanCounters,
@@ -46,6 +56,23 @@ export interface ServiceResult<T> {
 }
 
 /**
+ * Colaboradores del service que consultan la BD por fuera del repositorio.
+ * Producción usa las implementaciones reales; las pruebas pasan dobles para
+ * ejercitar la orquestación sin BD.
+ */
+export interface AttendanceStatsServiceDependencies {
+  /** Lanza `EmpresaContratanteError` si la empresa no existe o no pertenece al tenant. */
+  findEmpresaContratanteInTenantOrFail: (
+    empresaContratanteId: number,
+    notFoundKey: string
+  ) => Promise<unknown>
+  /** Alcance de colaboradores del usuario; `null` si el usuario ya no existe. */
+  resolveEmployeeRoleScope: (userId: number, i18n: I18n) => Promise<EmployeeRoleScope | null>
+  /** Tolerancias de retardo y falta vigentes. */
+  loadToleranceThresholds: () => Promise<ToleranceThresholds>
+}
+
+/**
  * Defaults usados cuando no hay tolerancias configuradas en SystemSetting.
  * Replica los defaults de sync_assists_service.ts:1049-1050 para mantener paridad.
  */
@@ -64,16 +91,35 @@ const DEFAULT_TOLERANCE_FAULT_MINUTES = 30
  * 3. Decide si earlyOut cuenta considerando permisos `early-departure`.
  * 4. Suma a counters limpios + counters informativos.
  * 5. Calcula porcentajes con cierre 100% (faults absorbe residuo de redondeo).
+ *
+ * Las reglas de los pasos 1 a 5 viven en `attendance-stats.rules.ts`.
  */
 export default class AttendanceStatsService {
   private t: (key: string, params?: { [k: string]: string | number }) => string
   private i18n: I18n
   private repo: AttendanceStatsRepository
+  private dependencies: AttendanceStatsServiceDependencies
 
-  constructor(i18n: I18n, repo?: AttendanceStatsRepository) {
+  /**
+   * @param repo - Repositorio de lectura; por defecto el de MySQL.
+   * @param dependencies - Sustitutos de las consultas que no pasan por el
+   *   repositorio; lo que no se indique usa la implementación real.
+   */
+  constructor(
+    i18n: I18n,
+    repo?: AttendanceStatsRepository,
+    dependencies: Partial<AttendanceStatsServiceDependencies> = {}
+  ) {
     this.t = i18n.formatMessage.bind(i18n)
     this.i18n = i18n
     this.repo = repo ?? new AttendanceStatsRepositoryMysql(i18n)
+    this.dependencies = {
+      findEmpresaContratanteInTenantOrFail:
+        dependencies.findEmpresaContratanteInTenantOrFail ?? findEmpresaContratanteInTenantOrFail,
+      resolveEmployeeRoleScope: dependencies.resolveEmployeeRoleScope ?? resolveEmployeeRoleScope,
+      loadToleranceThresholds:
+        dependencies.loadToleranceThresholds ?? loadToleranceThresholdsFromSettings,
+    }
   }
 
   validateRange(filters: AttendanceStatsFilters): ServiceResult<null> | null {
@@ -166,7 +212,7 @@ export default class AttendanceStatsService {
     bundles: EmployeeCalendarBundle[],
     allowedBusinessUnitIds: number[]
   ): Promise<Set<number>> {
-    const roleScope = await resolveEmployeeRoleScope(userId, this.i18n)
+    const roleScope = await this.dependencies.resolveEmployeeRoleScope(userId, this.i18n)
     if (!roleScope) return new Set()
 
     if (roleScope.userResponsibleId !== null) {
@@ -361,7 +407,7 @@ export default class AttendanceStatsService {
         allowedBusinessUnitIds
       ),
       this.repo.getLoansForRange(employeeIds, startDay, endDay, allowedBusinessUnitIds),
-      this.loadToleranceThresholds(),
+      this.dependencies.loadToleranceThresholds(),
     ])
     const visibleEmployeeIds = await this.resolveVisibleEmployeeIds(
       userId,
@@ -385,6 +431,9 @@ export default class AttendanceStatsService {
   /**
    * Fechas existentes, rango ordenado y tope de días de coverage/absences.
    * Devuelve el error a responder o `null` si el periodo es válido.
+   *
+   * Por HTTP el validador ya rechaza una fecha inexistente con `details`; esta
+   * revisión queda como guarda para quien llame al service directo.
    */
   private validateCoverageAbsencesRange<T>(
     filters: CoverageAbsencesFilters
@@ -427,7 +476,7 @@ export default class AttendanceStatsService {
     empresaContratanteId: number
   ): Promise<ServiceResult<T> | null> {
     try {
-      await findEmpresaContratanteInTenantOrFail(
+      await this.dependencies.findEmpresaContratanteInTenantOrFail(
         empresaContratanteId,
         'empresa-contratante-no-encontrada'
       )
@@ -467,7 +516,7 @@ export default class AttendanceStatsService {
 
     const [bundles, thresholds] = await Promise.all([
       this.repo.getEmployeeCalendars(filters, scope.allowedBusinessUnitIds),
-      this.loadToleranceThresholds(),
+      this.dependencies.loadToleranceThresholds(),
     ])
 
     return {
@@ -495,7 +544,7 @@ export default class AttendanceStatsService {
 
     const [bundles, thresholds] = await Promise.all([
       this.repo.getEmployeeCalendars(filters, scope.allowedBusinessUnitIds),
-      this.loadToleranceThresholds(),
+      this.dependencies.loadToleranceThresholds(),
     ])
 
     const byDept = new Map<
@@ -557,7 +606,7 @@ export default class AttendanceStatsService {
 
     const [bundles, thresholds] = await Promise.all([
       this.repo.getEmployeeCalendars(filters, scope.allowedBusinessUnitIds),
-      this.loadToleranceThresholds(),
+      this.dependencies.loadToleranceThresholds(),
     ])
 
     const data: EmployeeRow[] = bundles.map((bundle) => {
@@ -577,30 +626,6 @@ export default class AttendanceStatsService {
     }
   }
 
-  private async loadToleranceThresholds(): Promise<ToleranceThresholds> {
-    const setting = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_active', 1)
-      .preload('systemSettingTolerances')
-      .first()
-
-    if (!setting) {
-      return {
-        delayMinutes: DEFAULT_TOLERANCE_DELAY_MINUTES,
-        faultMinutes: DEFAULT_TOLERANCE_FAULT_MINUTES,
-      }
-    }
-
-    const tolerances = setting.systemSettingTolerances
-    const delay = tolerances.find((t) => t.toleranceName === 'Delay')
-    const fault = tolerances.find((t) => t.toleranceName === 'Fault')
-
-    return {
-      delayMinutes: delay?.toleranceMinutes ?? DEFAULT_TOLERANCE_DELAY_MINUTES,
-      faultMinutes: fault?.toleranceMinutes ?? DEFAULT_TOLERANCE_FAULT_MINUTES,
-    }
-  }
-
   private forbidden<T = null>(): ServiceResult<T> {
     return {
       status: 403,
@@ -613,97 +638,32 @@ export default class AttendanceStatsService {
   }
 }
 
-function emptyClean(): CleanCounters {
-  return { assists: 0, tolerances: 0, delays: 0, earlyOuts: 0, faults: 0 }
-}
-
-function emptyInformational(): InformationalCounters {
-  return { justifiedAbsences: 0, vacations: 0, holidays: 0 }
-}
-
-function addClean(dst: CleanCounters, src: CleanCounters): void {
-  dst.assists += src.assists
-  dst.tolerances += src.tolerances
-  dst.delays += src.delays
-  dst.earlyOuts += src.earlyOuts
-  dst.faults += src.faults
-}
-
-function addInformational(dst: InformationalCounters, src: InformationalCounters): void {
-  dst.justifiedAbsences += src.justifiedAbsences
-  dst.vacations += src.vacations
-  dst.holidays += src.holidays
-}
-
 /**
- * Cierre 100%: ontime + tolerance + delay + fault === 100. El residuo de
- * redondeo lo absorbe el bucket con MAYOR count (no siempre fault — si faults=0
- * y el residuo es negativo, daría un porcentaje negativo). earlyOutPercentage
- * es independiente. Si totalAvailable=0, todos los % son 0.
- *
- * Única implementación de la regla: la usan by-employee y coverage/absences
- * directo y, vía `toOverviewStatistics`, overview (statistics, daily, monthly)
- * y by-department.
+ * Tolerancias de retardo y falta de la configuración activa de SystemSetting;
+ * sin configuración o sin la tolerancia, los defaults del módulo.
  */
-export function toStatistics(c: CleanCounters, info: InformationalCounters): AttendanceStatistics {
-  const totalAvailable = c.assists + c.tolerances + c.delays + c.faults
-  if (totalAvailable === 0) {
+async function loadToleranceThresholdsFromSettings(): Promise<ToleranceThresholds> {
+  const setting = await SystemSetting.query()
+    .whereNull('system_setting_deleted_at')
+    .where('system_setting_active', 1)
+    .preload('systemSettingTolerances')
+    .first()
+
+  if (!setting) {
     return {
-      assists: 0,
-      tolerances: 0,
-      delays: 0,
-      earlyOuts: c.earlyOuts,
-      faults: 0,
-      totalAvailable: 0,
-      ontimePercentage: 0,
-      tolerancePercentage: 0,
-      delayPercentage: 0,
-      earlyOutPercentage: 0,
-      faultPercentage: 0,
-      ...info,
+      delayMinutes: DEFAULT_TOLERANCE_DELAY_MINUTES,
+      faultMinutes: DEFAULT_TOLERANCE_FAULT_MINUTES,
     }
   }
-  let ontimePercentage = Math.round((c.assists / totalAvailable) * 100)
-  let tolerancePercentage = Math.round((c.tolerances / totalAvailable) * 100)
-  let delayPercentage = Math.round((c.delays / totalAvailable) * 100)
-  let faultPercentage = Math.round((c.faults / totalAvailable) * 100)
-  const earlyOutPercentage = Math.round((c.earlyOuts / totalAvailable) * 100)
 
-  // Cierre: el residuo de redondeo (típicamente ±1-2) lo absorbe el bucket con
-  // mayor count. Garantiza suma === 100 sin producir porcentajes negativos.
-  const residual = 100 - ontimePercentage - tolerancePercentage - delayPercentage - faultPercentage
-  const maxCount = Math.max(c.assists, c.tolerances, c.delays, c.faults)
-  if (c.assists === maxCount) ontimePercentage += residual
-  else if (c.tolerances === maxCount) tolerancePercentage += residual
-  else if (c.delays === maxCount) delayPercentage += residual
-  else faultPercentage += residual
+  const tolerances = setting.systemSettingTolerances
+  const delay = tolerances.find((t) => t.toleranceName === 'Delay')
+  const fault = tolerances.find((t) => t.toleranceName === 'Fault')
 
   return {
-    assists: c.assists,
-    tolerances: c.tolerances,
-    delays: c.delays,
-    earlyOuts: c.earlyOuts,
-    faults: c.faults,
-    totalAvailable,
-    ontimePercentage,
-    tolerancePercentage,
-    delayPercentage,
-    earlyOutPercentage,
-    faultPercentage,
-    ...info,
+    delayMinutes: delay?.toleranceMinutes ?? DEFAULT_TOLERANCE_DELAY_MINUTES,
+    faultMinutes: fault?.toleranceMinutes ?? DEFAULT_TOLERANCE_FAULT_MINUTES,
   }
-}
-
-/**
- * Estadísticas base más `employeesQty` (empleados evaluados). La usan overview
- * y by-department; by-employee no expone este conteo.
- */
-function toOverviewStatistics(
-  c: CleanCounters,
-  info: InformationalCounters,
-  employeesQty: number
-): OverviewStatistics {
-  return { ...toStatistics(c, info), employeesQty }
 }
 
 /** Entrada de `buildOverviewResponse`: calendarios ya cargados y el período pedido. */
@@ -821,88 +781,6 @@ export function buildOverviewResponse(input: BuildOverviewInput): OverviewRespon
 }
 
 /**
- * Clasifica UN día-empleado en sus counters (clean + informational). Unidad
- * atómica de agregación reutilizada por `aggregateCalendar` (suma sobre el
- * calendario de un empleado) y por `getOverview` (agrupa por fecha para el
- * desglose diario).
- * - Aplica el filtro evaluable (rest, vacation, holiday, work disability, excepciones no-generales).
- * - Para días con permiso late-arrival, recompute check_in_status contra la hora autorizada.
- * - Para días con permiso early-departure, neutraliza el earlyOut si la salida fue posterior a la hora autorizada.
- * - Suma a contadores informativos (vacaciones, festivos, faltas justificadas) en paralelo.
- */
-export function classifyDay(
-  day: AssistDayInterface,
-  thresholds: ToleranceThresholds
-): { clean: CleanCounters; informational: InformationalCounters } {
-  const clean = emptyClean()
-  const info = emptyInformational()
-
-  // Contadores informativos (independientes del cierre 100%).
-  if (day.assist.isVacationDate) info.vacations += 1
-  if (day.assist.isHoliday) info.holidays += 1
-  if (hasJustifiedAbsenceException(day.assist.exceptions)) info.justifiedAbsences += 1
-
-  // Filtro evaluable.
-  if (!isEvaluableDay(day)) return { clean, informational: info }
-
-  const lateArrival = findException(day.assist.exceptions, 'late-arrival')
-  const earlyDeparture = findException(day.assist.exceptions, 'early-departure')
-
-  // Recompute check_in_status si hay permiso de llegada tarde.
-  const effectiveStatus = lateArrival
-    ? computeCheckInStatusWithPermission(day, lateArrival, thresholds)
-    : mapStoredStatus(day.assist.checkInStatus)
-
-  if (effectiveStatus === 'ontime') clean.assists += 1
-  else if (effectiveStatus === 'tolerance') clean.tolerances += 1
-  else if (effectiveStatus === 'delay') clean.delays += 1
-  else if (effectiveStatus === 'fault') clean.faults += 1
-
-  // earlyOut: solo cuenta si check_out_status='delay' Y no hay permiso que lo neutralice.
-  if (day.assist.checkOutStatus === 'delay') {
-    if (!earlyDeparture || isStillEarlyAfterPermission(day, earlyDeparture, thresholds)) {
-      clean.earlyOuts += 1
-    }
-  }
-
-  return { clean, informational: info }
-}
-
-/**
- * Recorre el calendario en-memoria de UN empleado y produce sus counters
- * sumando `classifyDay` sobre cada día.
- */
-export function aggregateCalendar(
-  calendar: AssistDayInterface[],
-  thresholds: ToleranceThresholds
-): { clean: CleanCounters; informational: InformationalCounters } {
-  const clean = emptyClean()
-  const info = emptyInformational()
-  for (const day of calendar) {
-    const r = classifyDay(day, thresholds)
-    addClean(clean, r.clean)
-    addInformational(info, r.informational)
-  }
-  return { clean, informational: info }
-}
-
-/**
- * Enumera todos los días [startDay, endDay] inclusive en formato yyyy-MM-dd.
- * Comparación por fecha pura (sin componente horario): las fechas son días
- * laborales del huso México y el servidor corre en UTC.
- */
-export function enumerateDays(startDay: string, endDay: string): string[] {
-  const days: string[] = []
-  let cursor = DateTime.fromISO(startDay)
-  const end = DateTime.fromISO(endDay)
-  while (cursor.isValid && cursor <= end) {
-    days.push(cursor.toFormat('yyyy-MM-dd'))
-    cursor = cursor.plus({ days: 1 })
-  }
-  return days
-}
-
-/**
  * Enumera los meses calendario que toca [startDay, endDay] inclusive, en
  * formato yyyy-MM. Mismo criterio de fecha pura que `enumerateDays`.
  */
@@ -915,105 +793,4 @@ function enumerateMonths(startDay: string, endDay: string): string[] {
     cursor = cursor.plus({ months: 1 })
   }
   return months
-}
-
-/**
- * Día que entra a los contadores de asistencia: excluye día futuro, descanso,
- * vacaciones, festivo, incapacidad y excepciones no generales. Única
- * implementación; la usan las estadísticas, la cobertura y las faltas por sitio.
- */
-export function isEvaluableDay(day: AssistDayInterface): boolean {
-  if (day.assist.isFutureDay) return false
-  if (day.assist.isRestDay) return false
-  if (day.assist.isVacationDate) return false
-  if (day.assist.isHoliday) return false
-  if (day.assist.isWorkDisabilityDate) return false
-  if (hasNonGeneralException(day.assist.exceptions)) return false
-  return true
-}
-
-function hasNonGeneralException(exceptions: ShiftExceptionInterface[]): boolean {
-  return exceptions.some(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (e) => (e.exceptionType as any)?.exceptionTypeIsGeneral === 0
-  )
-}
-
-function hasJustifiedAbsenceException(exceptions: ShiftExceptionInterface[]): boolean {
-  return exceptions.some((e) => {
-    const slug = e.exceptionType?.exceptionTypeSlug
-    return slug === 'absence-from-work' || slug === 'nuevo-ingreso'
-  })
-}
-
-function findException(
-  exceptions: ShiftExceptionInterface[],
-  slug: 'late-arrival' | 'early-departure'
-): ShiftExceptionInterface | undefined {
-  return exceptions.find((e) => e.exceptionType?.exceptionTypeSlug === slug)
-}
-
-function mapStoredStatus(stored: string | null | undefined): 'ontime' | 'tolerance' | 'delay' | 'fault' | null {
-  if (stored === 'ontime' || stored === 'tolerance' || stored === 'delay' || stored === 'fault') {
-    return stored
-  }
-  return null
-}
-
-/**
- * Recomputa check_in_status contra la hora autorizada por el permiso late-arrival.
- * Replica la lógica de sync_assists_service.ts:1932-1965.
- */
-function computeCheckInStatusWithPermission(
-  day: AssistDayInterface,
-  lateArrival: ShiftExceptionInterface,
-  thresholds: ToleranceThresholds
-): 'ontime' | 'tolerance' | 'delay' | 'fault' | null {
-  const punch = day.assist.checkIn?.assistPunchTimeUtc
-  if (!punch) return 'fault'
-
-  const authorizedTime = lateArrival.shiftExceptionCheckInTime
-  if (!authorizedTime) return mapStoredStatus(day.assist.checkInStatus)
-
-  const minutes = minutesLateAgainst(day.day, String(authorizedTime), String(punch))
-  if (minutes === null) return mapStoredStatus(day.assist.checkInStatus)
-
-  if (minutes > thresholds.faultMinutes) return 'fault'
-  if (minutes > thresholds.delayMinutes) return 'delay'
-  if (minutes <= 0) return 'ontime'
-  return 'tolerance'
-}
-
-/**
- * Cuando hay permiso early-departure: cuenta como earlyOut solo si la salida real
- * fue ANTES de la hora autorizada por más de `delayMinutes`.
- */
-function isStillEarlyAfterPermission(
-  day: AssistDayInterface,
-  earlyDeparture: ShiftExceptionInterface,
-  thresholds: ToleranceThresholds
-): boolean {
-  const punch = day.assist.checkOut?.assistPunchTimeUtc
-  if (!punch) return false
-
-  const authorizedTime = earlyDeparture.shiftExceptionCheckOutTime
-  if (!authorizedTime) return true
-
-  const minutesEarly = minutesEarlyAgainst(day.day, String(authorizedTime), String(punch))
-  if (minutesEarly === null) return true
-  return minutesEarly > thresholds.delayMinutes
-}
-
-function minutesLateAgainst(day: string, hhmmss: string, punchUtc: string): number | null {
-  const expected = DateTime.fromISO(`${day}T${hhmmss}`, { zone: 'UTC-6' })
-  const actual = DateTime.fromISO(punchUtc, { setZone: true }).setZone('UTC-6')
-  if (!expected.isValid || !actual.isValid) return null
-  return actual.diff(expected, 'minutes').minutes
-}
-
-function minutesEarlyAgainst(day: string, hhmmss: string, punchUtc: string): number | null {
-  const expected = DateTime.fromISO(`${day}T${hhmmss}`, { zone: 'UTC-6' })
-  const actual = DateTime.fromISO(punchUtc, { setZone: true }).setZone('UTC-6')
-  if (!expected.isValid || !actual.isValid) return null
-  return expected.diff(actual, 'minutes').minutes
 }

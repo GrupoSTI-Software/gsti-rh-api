@@ -8,6 +8,7 @@ import { getAttendanceCoverageValidator } from '../../../app/modules/attendance-
 import AttendanceStatsRepositoryMysql from '../../../app/modules/attendance-stats/attendance-stats.repository.mysql.js'
 import type { AssistDayInterface } from '../../../app/interfaces/assist_day_interface.js'
 import type {
+  CoverageActiveLoanRow,
   CoverageResponse,
   CoverageShift,
   EmployeeCalendarBundle,
@@ -31,6 +32,7 @@ const REPO_FILE = join(
 const DAY = '2026-06-15'
 const SITE_ID = 10
 const OTHER_SITE_ID = 20
+const THIRD_SITE_ID = 30
 const SHIFT_ID = 1
 
 /** Día mínimo evaluable por la cobertura; solo se llenan los campos que lee. */
@@ -192,6 +194,53 @@ test.group('Attendance-stats — cobertura por empresaContratanteId con permiso 
     assert.equal(shift.status, 'amber')
   })
 
+  test('buildCoverageResponse con varios préstamos vigentes se queda con el primero del orden del repositorio', ({ assert }) => {
+    // getActiveLoansForDay los entrega por start_date e id descendentes: el primero es el que mueve al colaborador.
+    const toSite: CoverageActiveLoanRow = {
+      assignmentId: 9,
+      employeeId: 4,
+      sourceBranchId: OTHER_SITE_ID,
+      targetBranchId: SITE_ID,
+    }
+    const toThirdSite: CoverageActiveLoanRow = {
+      assignmentId: 3,
+      employeeId: 4,
+      sourceBranchId: OTHER_SITE_ID,
+      targetBranchId: THIRD_SITE_ID,
+    }
+    const everyone = new Set([1, 2, 3, 4, 5])
+
+    const lentToSite = siteShift(
+      buildCoverageResponse({ ...buildInput(everyone), loans: [toSite, toThirdSite] })
+    )
+    assert.deepEqual(semaphore(lentToSite), {
+      required: 3,
+      min: 2,
+      assigned: 3,
+      present: 3,
+      missing: 0,
+      status: 'green',
+    })
+
+    const lentElsewhere = siteShift(
+      buildCoverageResponse({ ...buildInput(everyone), loans: [toThirdSite, toSite] })
+    )
+    assert.deepEqual(semaphore(lentElsewhere), {
+      required: 3,
+      min: 2,
+      assigned: 2,
+      present: 2,
+      missing: 1,
+      status: 'amber',
+    })
+    assert.deepEqual(
+      lentElsewhere.candidates
+        .filter((candidate) => candidate.employeeId === 4)
+        .map((candidate) => candidate.originBranchOfficeId),
+      [THIRD_SITE_ID]
+    )
+  })
+
   test('el validador acepta empresaContratanteId', async ({ assert }) => {
     const validated = await getAttendanceCoverageValidator.validate({
       startDay: DAY,
@@ -257,11 +306,13 @@ test.group('Attendance-stats — cobertura por empresaContratanteId con permiso 
     assert.include(names, "whereIn('bo.business_unit_id', allowedBusinessUnitIds)")
   })
 
-  test('censo: préstamos exigen origen y destino dentro de la empresa', ({ assert }) => {
+  test('censo: préstamos del día exigen origen y destino dentro de la empresa y salen ordenados para el desempate', ({ assert }) => {
     const loans = methodBody(readFileSync(REPO_FILE, 'utf-8'), 'async getActiveLoansForDay(')
 
     assert.include(loans, "whereIn('source_bo.business_unit_id', allowedBusinessUnitIds)")
     assert.include(loans, "whereIn('target_bo.business_unit_id', allowedBusinessUnitIds)")
+    assert.include(loans, "orderBy('eta.start_date', 'desc')")
+    assert.include(loans, "orderBy('eta.employee_temporary_assignment_id', 'desc')")
   })
 
   test('censo: la sucursal base sale del join acotado por empresa', ({ assert }) => {

@@ -4,7 +4,10 @@ import RoleService from '#services/role_service'
 import AttendanceStatsService from './attendance-stats.service.js'
 import { getAttendanceStatsValidator } from './validators/get-attendance-stats.validator.js'
 import { getAttendanceCoverageValidator } from './validators/get-attendance-coverage.validator.js'
-import { getAttendanceCoverageAbsencesValidator } from './validators/get-attendance-coverage-absences.validator.js'
+import {
+  getAttendanceCoverageAbsencesValidator,
+  splitBranchOfficeIdsQuery,
+} from './validators/get-attendance-coverage-absences.validator.js'
 import type {
   AttendanceStatsFilters,
   CoverageAbsencesFilters,
@@ -354,7 +357,7 @@ export default class AttendanceStatsController {
    *         schema: { type: string, format: date, example: "2026-09-15" }
    *       - name: branchOfficeIds
    *         in: query
-   *         description: CSV de IDs de sitios; se intersecta con los sitios de la empresa contratante.
+   *         description: CSV de IDs de sitios (enteros >= 1); se intersecta con los sitios de la empresa contratante. Si trae valor y alguna pieza no es un entero >= 1 responde 400 entrada-invalida con details, nunca se ignora.
    *         schema: { type: string, example: "5,7" }
    *       - name: payrollBusinessUnitId
    *         in: query
@@ -367,7 +370,7 @@ export default class AttendanceStatsController {
    *             schema:
    *               $ref: '#/components/schemas/AttendanceCoverageAbsencesSuccess'
    *       '400':
-   *         description: Entrada inválida (entrada-invalida), rango inválido (rango-invalido) o de más de 62 días (rango-maximo-excedido)
+   *         description: Entrada inválida (entrada-invalida, con details por campo; incluye fecha inexistente y branchOfficeIds inválido), rango inválido (rango-invalido) o de más de 62 días (rango-maximo-excedido)
    *         content:
    *           application/json:
    *             schema:
@@ -417,7 +420,8 @@ export default class AttendanceStatsController {
         startDay: request.input('startDay'),
         endDay: request.input('endDay'),
         empresaContratanteId: this.parseId(request.input('empresaContratanteId')),
-        branchOfficeIds: this.parseIdList(request.input('branchOfficeIds')),
+        // Sin parseIdList: un id inválido responde 400 en vez de quitar el filtro de sitios.
+        branchOfficeIds: splitBranchOfficeIdsQuery(request.input('branchOfficeIds')),
         payrollBusinessUnitId: this.parseId(request.input('payrollBusinessUnitId')),
       }
 

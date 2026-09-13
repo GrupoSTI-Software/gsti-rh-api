@@ -43,7 +43,9 @@ export interface AttendanceStatsRepository {
   /**
    * Préstamos temporales vigentes en una fecha ISO yyyy-MM-dd. Descarta los
    * préstamos cuya sucursal de origen o destino no pertenece a las unidades
-   * de negocio permitidas.
+   * de negocio permitidas. Orden: start_date descendente y, empatando, id
+   * descendente; con varios vigentes por colaborador, el primero es el que
+   * lo mueve ese día.
    */
   getActiveLoansForDay(day: string, allowedBusinessUnitIds: number[]): Promise<CoverageActiveLoanRow[]>
 
