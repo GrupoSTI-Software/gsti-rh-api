@@ -338,8 +338,15 @@ test.group('Attendance-stats — serie mensual del overview para el modo anual',
     await assert.rejects(() => getAttendanceStatsValidator.validate({ ...base, granularity: 'year' }))
   })
 
-  test('censo: el handler pasa granularity y overview usa day por default', ({ assert }) => {
-    assert.include(readFileSync(CONTROLLER_FILE, 'utf-8'), "granularity: request.input('granularity')")
+  test('censo: el handler pasa granularity solo en overview, el vacío cae al default day', ({ assert }) => {
+    const controller = readFileSync(CONTROLLER_FILE, 'utf-8')
+
+    // by-department y by-employee no lo validan: un valor cualquiera no les da 400.
+    assert.include(
+      controller,
+      "...(op === 'overview' ? { granularity: request.input('granularity') || undefined } : {})"
+    )
+    assert.lengthOf(controller.split("request.input('granularity')"), 2)
     assert.include(readFileSync(SERVICE_FILE, 'utf-8'), "granularity: filters.granularity ?? 'day'")
   })
 })
