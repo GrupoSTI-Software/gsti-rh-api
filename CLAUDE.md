@@ -53,4 +53,5 @@ Nada se borra ni se renombra con prefijo. Todo archivo o carpeta que se retira d
 - Si el archivo está versionado, se mueve con `git mv` para conservar su historial. Si ya existe algo en el destino, se agrega un sufijo numérico (`-2`, `-3`).
 - Antes de moverlo se cortan todos sus imports y referencias vivas. Nada dentro de `__TO_DELETE__/` se importa, se compila, se lintea ni se prueba: la carpeta está excluida de la herramienta del repo.
 - Una carpeta que queda vacía por el retiro se mueve también.
-- El prefijo `__DELETED__` queda obsoleto: no se usa en código nuevo. La herramienta todavía lo excluye mientras otras ramas lo traigan; al integrarlas, sus archivos `__DELETED__` se mueven aquí.
+- El prefijo `__DELETED__` queda obsoleto: no se usa en código nuevo. Si una rama integrada trae archivos `__DELETED__`, se mueven aquí al integrarla.
+- La regla aplica a archivos y carpetas completos. Quitar código muerto dentro de un archivo que sigue en uso no es un retiro.
