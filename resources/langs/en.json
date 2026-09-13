@@ -1391,6 +1391,8 @@
   "attendance_stats_invalid_input": "Invalid request parameters",
   "attendance_stats_coverage_single_day_required": "Coverage requires a single day: startDay must equal endDay",
   "attendance_stats_scope_required": "User has no business units assigned to query attendance statistics",
+  "attendance_stats_coverage_forbidden_title": "Permission denied",
+  "attendance_stats_coverage_forbidden_detail": "You do not have permission to view shift coverage.",
   "forbidden": "Forbidden",
   "unauthenticated": "Unauthenticated",
   "signup_invalid_data": "The provided data is not valid",

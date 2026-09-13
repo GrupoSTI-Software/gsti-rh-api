@@ -169,9 +169,15 @@ export interface EmployeeCalendarBundle {
   calendar: AssistDayInterface[]
 }
 
-/** Filtros del endpoint coverage (empresa contratante obligatoria). */
+/**
+ * Filtros del endpoint coverage (empresa contratante obligatoria).
+ *
+ * El parámetro se llama `empresaContratanteId` y no `companyId`: el middleware
+ * `businessScope` reserva `companyId` como alias legacy de unidad de negocio y
+ * respondería 404 antes de llegar al controller.
+ */
 export interface CoverageFilters extends AttendanceStatsFilters {
-  companyId: number
+  empresaContratanteId: number
 }
 
 export type CoverageShiftStatus = 'green' | 'amber' | 'red' | 'no_quota'

@@ -3,6 +3,7 @@ import { DateTime } from 'luxon'
 import SystemSetting from '#models/system_setting'
 import { findEmpresaContratanteInTenantOrFail } from '../../helpers/repse_tenant_scope.js'
 import { EmpresaContratanteError } from '../../exceptions/empresa_contratante_error.js'
+import { resolveEmployeeRoleScope } from '../../helpers/resolve_employee_role_scope.js'
 import AttendanceStatsRepositoryMysql from './attendance-stats.repository.mysql.js'
 import { buildCoverageResponse } from './attendance-stats.coverage.js'
 import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
@@ -58,10 +59,12 @@ const DEFAULT_TOLERANCE_FAULT_MINUTES = 30
  */
 export default class AttendanceStatsService {
   private t: (key: string, params?: { [k: string]: string | number }) => string
+  private i18n: I18n
   private repo: AttendanceStatsRepository
 
   constructor(i18n: I18n, repo?: AttendanceStatsRepository) {
     this.t = i18n.formatMessage.bind(i18n)
+    this.i18n = i18n
     this.repo = repo ?? new AttendanceStatsRepositoryMysql(i18n)
   }
 
@@ -111,7 +114,8 @@ export default class AttendanceStatsService {
   private async resolveBranchOfficeNamesById(
     sites: CoverageSiteRef[],
     bundles: EmployeeCalendarBundle[],
-    loans: CoverageActiveLoanRow[]
+    loans: CoverageActiveLoanRow[],
+    allowedBusinessUnitIds: number[]
   ): Promise<Map<number, string>> {
     const namesById = new Map<number, string>()
     for (const site of sites) {
@@ -131,7 +135,10 @@ export default class AttendanceStatsService {
     }
 
     if (missingIds.size > 0) {
-      const resolved = await this.repo.getBranchOfficeNamesByIds([...missingIds])
+      const resolved = await this.repo.getBranchOfficeNamesByIds(
+        [...missingIds],
+        allowedBusinessUnitIds
+      )
       for (const [id, name] of resolved) {
         namesById.set(id, name)
       }
@@ -140,9 +147,51 @@ export default class AttendanceStatsService {
     return namesById
   }
 
+  /**
+   * Colaboradores de `bundles` que el usuario puede ver, con la regla del
+   * listado de empleados: sin acceso completo a la plantilla, solo los que
+   * tiene a cargo y él mismo; con acceso completo, los de los departamentos
+   * visibles para su rol. Si el usuario ya no existe, nadie (fail-closed).
+   */
+  private async resolveVisibleEmployeeIds(
+    userId: number,
+    bundles: EmployeeCalendarBundle[],
+    allowedBusinessUnitIds: number[]
+  ): Promise<Set<number>> {
+    const roleScope = await resolveEmployeeRoleScope(userId, this.i18n)
+    if (!roleScope) return new Set()
+
+    if (roleScope.userResponsibleId !== null) {
+      const responsibleIds = await this.repo.getEmployeeIdsInResponsibleScope(
+        roleScope.userResponsibleId,
+        bundles.map((bundle) => bundle.employee.employeeId),
+        allowedBusinessUnitIds
+      )
+      return new Set(responsibleIds)
+    }
+
+    const visibleDepartments = new Set(roleScope.departmentsList)
+    return new Set(
+      bundles
+        .filter(
+          (bundle) =>
+            bundle.employee.departmentId !== null &&
+            visibleDepartments.has(bundle.employee.departmentId)
+        )
+        .map((bundle) => bundle.employee.employeeId)
+    )
+  }
+
+  /**
+   * Cobertura de plantilla por sitio y turno de una empresa contratante.
+   *
+   * @param userId - Usuario que consulta; recorta los candidatos a los
+   *   colaboradores que puede ver. Los conteos no se recortan.
+   */
   async getCoverage(
     filters: CoverageFilters,
-    scope: ResolvedScope
+    scope: ResolvedScope,
+    userId: number
   ): Promise<ServiceResult<CoverageResponse>> {
     if (scope.allowedBusinessUnitIds.length === 0) {
       return this.forbidden()
@@ -161,7 +210,10 @@ export default class AttendanceStatsService {
     }
 
     try {
-      await findEmpresaContratanteInTenantOrFail(filters.companyId, 'empresa-contratante-no-encontrada')
+      await findEmpresaContratanteInTenantOrFail(
+        filters.empresaContratanteId,
+        'empresa-contratante-no-encontrada'
+      )
     } catch (error) {
       if (error instanceof EmpresaContratanteError) {
         return {
@@ -177,7 +229,7 @@ export default class AttendanceStatsService {
     }
 
     const sites = await this.repo.getSitesByCompany(
-      filters.companyId,
+      filters.empresaContratanteId,
       scope.allowedBusinessUnitIds,
       filters.branchOfficeIds
     )
@@ -209,8 +261,21 @@ export default class AttendanceStatsService {
     }
 
     const quotaBranchIds = [...new Set([...companySiteIds, ...extraBranchIds])]
-    const quotas = await this.repo.getShiftQuotasByBranchIds(quotaBranchIds)
-    const branchOfficeNamesById = await this.resolveBranchOfficeNamesById(sites, bundles, loans)
+    const quotas = await this.repo.getShiftQuotasByBranchIds(
+      quotaBranchIds,
+      scope.allowedBusinessUnitIds
+    )
+    const branchOfficeNamesById = await this.resolveBranchOfficeNamesById(
+      sites,
+      bundles,
+      loans,
+      scope.allowedBusinessUnitIds
+    )
+    const visibleEmployeeIds = await this.resolveVisibleEmployeeIds(
+      userId,
+      bundles,
+      scope.allowedBusinessUnitIds
+    )
 
     const data = buildCoverageResponse({
       day: filters.startDay,
@@ -219,6 +284,7 @@ export default class AttendanceStatsService {
       loans,
       bundles,
       branchOfficeNamesById,
+      visibleEmployeeIds,
     })
 
     return {

@@ -1,8 +1,14 @@
 import { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
+import RoleService from '#services/role_service'
 import AttendanceStatsService from './attendance-stats.service.js'
 import { getAttendanceStatsValidator } from './validators/get-attendance-stats.validator.js'
 import { getAttendanceCoverageValidator } from './validators/get-attendance-coverage.validator.js'
 import type { AttendanceStatsFilters, ResolvedScope } from './dto/attendance-stats.dto.js'
+
+/** Módulo y permiso que exige el drawer de cobertura (sembrados en el catálogo). */
+const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
+const SHIFT_COVERAGE_PERMISSION_SLUG = 'shift-coverage'
 
 /**
  * Controller del módulo attendance-stats.
@@ -128,7 +134,15 @@ export default class AttendanceStatsController {
    *     summary: Cobertura de plantilla por sitio y turno
    *     description: |
    *       Compara presentes contra cuota por sitio de servicio y turno del día.
-   *       Requiere día único (startDay igual a endDay) y companyId.
+   *       Requiere día único (startDay igual a endDay) y empresaContratanteId.
+   *
+   *       Exige el permiso `shift-coverage` del módulo `employees-attendance-monitor`
+   *       (root y owner pasan). Los conteos del semáforo son de la plantilla completa
+   *       del sitio; los candidatos solo incluyen colaboradores visibles para el usuario
+   *       con la regla del listado de empleados.
+   *
+   *       No acepta `companyId`: el middleware de alcance lo trata como alias legacy de
+   *       unidad de negocio.
    *     security:
    *       - bearerAuth: []
    *     tags: [AttendanceStats]
@@ -136,7 +150,8 @@ export default class AttendanceStatsController {
    *       - name: X-Business-Unit-Id
    *         in: header
    *         required: true
-   *         schema: { type: integer, example: 1 }
+   *         description: Código público (UUID v4) de la unidad de negocio activa.
+   *         schema: { type: string, format: uuid }
    *       - name: startDay
    *         in: query
    *         required: true
@@ -145,10 +160,10 @@ export default class AttendanceStatsController {
    *         in: query
    *         required: true
    *         schema: { type: string, format: date, example: "2026-06-14" }
-   *       - name: companyId
+   *       - name: empresaContratanteId
    *         in: query
    *         required: true
-   *         description: ID de empresa contratante.
+   *         description: ID de la empresa contratante cuyos sitios de servicio se evalúan.
    *         schema: { type: integer, minimum: 1, example: 1 }
    *       - name: branchOfficeIds
    *         in: query
@@ -179,11 +194,22 @@ export default class AttendanceStatsController {
    *             schema:
    *               $ref: '#/components/schemas/AttendanceCoverageApiError'
    *       '403':
-   *         description: Scope insuficiente
+   *         description: Sin permiso shift-coverage (key sin-permiso, cuerpo title/detail/key) o scope insuficiente (key scope-insuficiente)
    *         content:
    *           application/json:
    *             schema:
-   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
+   *               oneOf:
+   *                 - $ref: '#/components/schemas/AttendanceCoverageApiError'
+   *                 - type: object
+   *                   required: [title, detail, key]
+   *                   properties:
+   *                     title: { type: string }
+   *                     detail: { type: string }
+   *                     key: { type: string, enum: [sin-permiso] }
+   *             example:
+   *               title: Sin permiso
+   *               detail: No tienes permiso para consultar la cobertura de plantilla.
+   *               key: sin-permiso
    *       '404':
    *         description: Empresa contratante no encontrada
    *         content:
@@ -198,14 +224,29 @@ export default class AttendanceStatsController {
    *               $ref: '#/components/schemas/AttendanceCoverageApiError'
    */
   async coverage(ctx: HttpContext) {
-    const { request, response, i18n, businessUnitScope } = ctx
+    const { request, response, i18n, businessUnitScope, auth } = ctx
     const t = i18n.formatMessage.bind(i18n)
 
     try {
+      // Antes de validar: sin permiso no se revela qué parámetros espera.
+      const user = auth.getUserOrFail()
+      const canSeeCoverage = await new RoleService().hasAccess(
+        user.roleId,
+        ATTENDANCE_MONITOR_MODULE_SLUG,
+        SHIFT_COVERAGE_PERMISSION_SLUG
+      )
+      if (!canSeeCoverage) {
+        return response.status(403).json({
+          title: t('attendance_stats_coverage_forbidden_title'),
+          detail: t('attendance_stats_coverage_forbidden_detail'),
+          key: 'sin-permiso',
+        })
+      }
+
       const raw = {
         startDay: request.input('startDay'),
         endDay: request.input('endDay'),
-        companyId: this.parseId(request.input('companyId')),
+        empresaContratanteId: this.parseId(request.input('empresaContratanteId')),
         departmentIds: this.parseIdList(request.input('departmentIds')),
         employeeIds: this.parseIdList(request.input('employeeIds')),
         businessUnitId: this.parseId(request.input('businessUnitId')),
@@ -232,7 +273,7 @@ export default class AttendanceStatsController {
       const filters = validated
       const service = new AttendanceStatsService(i18n)
       const scope: ResolvedScope = { allowedBusinessUnitIds: businessUnitScope }
-      const result = await service.getCoverage(filters, scope)
+      const result = await service.getCoverage(filters, scope, user.userId)
 
       return response.status(result.status).json({
         type: result.type,
@@ -242,12 +283,12 @@ export default class AttendanceStatsController {
         data: result.data,
       })
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error)
+      // El detalle va al log, nunca a la respuesta: puede traer SQL o rutas internas.
+      logger.error({ err: error }, 'attendance-stats: error inesperado al calcular la cobertura')
       return response.status(500).json({
         type: 'error',
         title: t('server_error'),
         message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: message,
       })
     }
   }
@@ -319,12 +360,11 @@ export default class AttendanceStatsController {
         data: result.data,
       })
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error)
+      logger.error({ err: error, op }, 'attendance-stats: error inesperado al calcular estadísticas')
       return response.status(500).json({
         type: 'error',
         title: t('server_error'),
         message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: message,
       })
     }
   }

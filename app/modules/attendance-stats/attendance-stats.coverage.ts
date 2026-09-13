@@ -92,6 +92,12 @@ export interface BuildCoverageInput {
   loans: CoverageActiveLoanRow[]
   bundles: EmployeeCalendarBundle[]
   branchOfficeNamesById: Map<number, string>
+  /**
+   * Colaboradores que el usuario puede ver. Solo recorta los candidatos (sus
+   * nombres); los conteos del semáforo siguen siendo de la plantilla completa
+   * del sitio. Es obligatorio para que omitirlo no exponga a toda la plantilla.
+   */
+  visibleEmployeeIds: ReadonlySet<number>
 }
 
 type EmployeeDayContext = {
@@ -107,9 +113,10 @@ type EmployeeDayContext = {
 
 /**
  * Agrega métricas de cobertura y candidatos por sitio → turno para un día.
+ * Los candidatos se limitan a `visibleEmployeeIds`; los conteos no.
  */
 export function buildCoverageResponse(input: BuildCoverageInput): CoverageResponse {
-  const { day, sites, quotas, loans, bundles, branchOfficeNamesById } = input
+  const { day, sites, quotas, loans, bundles, branchOfficeNamesById, visibleEmployeeIds } = input
 
   const companySiteIds = new Set(sites.map((s) => s.branchOfficeId))
   const loansByEmployee = new Map<number, CoverageActiveLoanRow>()
@@ -215,6 +222,7 @@ export function buildCoverageResponse(input: BuildCoverageInput): CoverageRespon
                 presentCounts,
                 quotaByKey,
                 branchOfficeNamesById,
+                visibleEmployeeIds,
               })
             : []
 
@@ -248,6 +256,7 @@ function buildCandidates(params: {
   presentCounts: Map<SiteShiftKey, number>
   quotaByKey: Map<SiteShiftKey, CoverageShiftQuotaRow>
   branchOfficeNamesById: Map<number, string>
+  visibleEmployeeIds: ReadonlySet<number>
 }): CoverageCandidate[] {
   const {
     targetSiteId,
@@ -256,6 +265,7 @@ function buildCandidates(params: {
     presentCounts,
     quotaByKey,
     branchOfficeNamesById,
+    visibleEmployeeIds,
   } = params
 
   const candidates: CoverageCandidate[] = []
@@ -263,6 +273,7 @@ function buildCandidates(params: {
 
   for (const ctx of employeeContexts) {
     if (added.has(ctx.employee.employeeId)) continue
+    if (!visibleEmployeeIds.has(ctx.employee.employeeId)) continue
 
     const name = buildEmployeeDisplayName(ctx.employee)
     if (!name) continue

@@ -7340,8 +7340,16 @@ paths:
       summary: Cobertura de plantilla por sitio y turno
       description: |
         Compara presentes contra cuota (requerida/mínimo) por sitio de servicio REPSE y turno del día.
-        Requiere un único día (`startDay` = `endDay`) y `companyId` (empresa contratante).
+        Requiere un único día (`startDay` = `endDay`) y `empresaContratanteId`.
         Incluye candidatos de cobertura para turnos en semáforo amarillo o rojo.
+
+        **Permiso**: exige `shift-coverage` del módulo `employees-attendance-monitor` (root y owner pasan).
+
+        **Alcance**: los conteos del semáforo (`required`, `min`, `assigned`, `present`, `missing`, `status`)
+        son de la plantilla completa del sitio; los candidatos solo incluyen colaboradores que el usuario
+        puede ver con la regla del listado de empleados.
+
+        **`companyId` no se acepta**: el middleware de alcance lo trata como alias legacy de unidad de negocio.
       tags: [AttendanceStats]
       security:
         - bearerAuth: []
@@ -7349,8 +7357,10 @@ paths:
         - name: X-Business-Unit-Id
           in: header
           required: true
+          description: Código público (UUID v4) de la unidad de negocio activa.
           schema:
-            type: integer
+            type: string
+            format: uuid
         - name: startDay
           in: query
           required: true
@@ -7365,10 +7375,10 @@ paths:
             type: string
             format: date
             example: "2026-06-15"
-        - name: companyId
+        - name: empresaContratanteId
           in: query
           required: true
-          description: ID de empresa contratante (empresaContratanteId).
+          description: ID de la empresa contratante cuyos sitios de servicio se evalúan.
           schema:
             type: integer
             minimum: 1
@@ -7483,17 +7493,26 @@ paths:
                 message: Unauthorized access
                 data: null
         '403':
-          description: Scope insuficiente (key scope-insuficiente)
+          description: Sin permiso shift-coverage (key sin-permiso) o scope insuficiente (key scope-insuficiente)
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
-              example:
-                type: error
-                title: Forbidden
-                message: User has no business units assigned
-                key: scope-insuficiente
-                data: null
+              examples:
+                sinPermiso:
+                  summary: key sin-permiso
+                  value:
+                    title: Sin permiso
+                    detail: No tienes permiso para consultar la cobertura de plantilla.
+                    key: sin-permiso
+                scopeInsuficiente:
+                  summary: key scope-insuficiente
+                  value:
+                    type: error
+                    title: Forbidden
+                    message: User has no business units assigned
+                    key: scope-insuficiente
+                    data: null
         '404':
           description: Empresa contratante no encontrada (key empresa-contratante-no-encontrada)
           content:
