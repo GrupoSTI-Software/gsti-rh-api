@@ -12,6 +12,7 @@ import type { AttendanceStatsRepository } from './attendance-stats.repository.js
 import type {
   AttendanceStatistics,
   AttendanceStatsFilters,
+  AttendanceStatsGranularity,
   CleanCounters,
   CoverageFilters,
   CoverageResponse,
@@ -309,68 +310,18 @@ export default class AttendanceStatsService {
       this.loadToleranceThresholds(),
     ])
 
-    const totalClean = emptyClean()
-    const totalInfo = emptyInformational()
-    // Empleados con al menos un día evaluable en todo el período (conteo global).
-    let evaluatedEmployees = 0
-    // Acumuladores por fecha (yyyy-MM-dd) para el desglose diario. `employeesQty`
-    // cuenta los empleados con día evaluable en esa fecha.
-    const byDay = new Map<
-      string,
-      { clean: CleanCounters; informational: InformationalCounters; employeesQty: number }
-    >()
-
-    for (const bundle of bundles) {
-      // Cada bundle es un empleado distinto, con a lo más una fila por fecha.
-      let hasEvaluableDay = false
-      for (const day of bundle.calendar) {
-        const { clean, informational } = classifyDay(day, thresholds)
-        addClean(totalClean, clean)
-        addInformational(totalInfo, informational)
-
-        let acc = byDay.get(day.day)
-        if (!acc) {
-          acc = { clean: emptyClean(), informational: emptyInformational(), employeesQty: 0 }
-          byDay.set(day.day, acc)
-        }
-        addClean(acc.clean, clean)
-        addInformational(acc.informational, informational)
-
-        if (isEvaluableDay(day)) {
-          hasEvaluableDay = true
-          acc.employeesQty += 1
-        }
-      }
-      if (hasEvaluableDay) evaluatedEmployees += 1
-    }
-
-    const statistics = this.toOverviewStatistics(totalClean, totalInfo, evaluatedEmployees)
-
-    // Todos los días del rango, incluso los que no tienen registros evaluables.
-    const daily: DailyStatsRow[] = enumerateDays(filters.startDay, filters.endDay).map((d) => {
-      const acc = byDay.get(d)
-      return {
-        day: d,
-        statistics: acc
-          ? this.toOverviewStatistics(acc.clean, acc.informational, acc.employeesQty)
-          : this.toOverviewStatistics(emptyClean(), emptyInformational(), 0),
-      }
-    })
-
     return {
       status: 200,
       type: 'success',
       title: this.t('resources'),
       message: this.t('resources_were_found_successfully'),
-      data: {
-        statistics,
-        period: {
-          startDay: filters.startDay,
-          endDay: filters.endDay,
-          evaluableDays: statistics.totalAvailable,
-        },
-        daily,
-      },
+      data: buildOverviewResponse({
+        bundles,
+        thresholds,
+        startDay: filters.startDay,
+        endDay: filters.endDay,
+        granularity: filters.granularity ?? 'day',
+      }),
     }
   }
 
@@ -423,7 +374,7 @@ export default class AttendanceStatsService {
     const data: DepartmentRow[] = Array.from(byDept.entries())
       .map(([deptId, agg]) => ({
         department: { departmentId: deptId, departmentName: agg.name },
-        statistics: this.toOverviewStatistics(agg.clean, agg.informational, agg.employeesQty),
+        statistics: toOverviewStatistics(agg.clean, agg.informational, agg.employeesQty),
       }))
       .sort((a, b) => a.department.departmentName.localeCompare(b.department.departmentName))
 
@@ -453,7 +404,7 @@ export default class AttendanceStatsService {
       const { clean, informational } = aggregateCalendar(bundle.calendar, thresholds)
       return {
         employee: bundle.employee,
-        statistics: this.toStatistics(clean, informational),
+        statistics: toStatistics(clean, informational),
       }
     })
 
@@ -490,74 +441,6 @@ export default class AttendanceStatsService {
     }
   }
 
-  /**
-   * Cierre 100%: ontime + tolerance + delay + fault === 100. El residuo de
-   * redondeo lo absorbe el bucket con MAYOR count (no siempre fault — si faults=0
-   * y el residuo es negativo, daría un porcentaje negativo). earlyOutPercentage
-   * es independiente. Si totalAvailable=0, todos los % son 0.
-   */
-  private toStatistics(c: CleanCounters, info: InformationalCounters): AttendanceStatistics {
-    const totalAvailable = c.assists + c.tolerances + c.delays + c.faults
-    if (totalAvailable === 0) {
-      return {
-        assists: 0,
-        tolerances: 0,
-        delays: 0,
-        earlyOuts: c.earlyOuts,
-        faults: 0,
-        totalAvailable: 0,
-        ontimePercentage: 0,
-        tolerancePercentage: 0,
-        delayPercentage: 0,
-        earlyOutPercentage: 0,
-        faultPercentage: 0,
-        ...info,
-      }
-    }
-    let ontimePercentage = Math.round((c.assists / totalAvailable) * 100)
-    let tolerancePercentage = Math.round((c.tolerances / totalAvailable) * 100)
-    let delayPercentage = Math.round((c.delays / totalAvailable) * 100)
-    let faultPercentage = Math.round((c.faults / totalAvailable) * 100)
-    const earlyOutPercentage = Math.round((c.earlyOuts / totalAvailable) * 100)
-
-    // Cierre: el residuo de redondeo (típicamente ±1-2) lo absorbe el bucket con
-    // mayor count. Garantiza suma === 100 sin producir porcentajes negativos.
-    const residual = 100 - ontimePercentage - tolerancePercentage - delayPercentage - faultPercentage
-    const maxCount = Math.max(c.assists, c.tolerances, c.delays, c.faults)
-    if (c.assists === maxCount) ontimePercentage += residual
-    else if (c.tolerances === maxCount) tolerancePercentage += residual
-    else if (c.delays === maxCount) delayPercentage += residual
-    else faultPercentage += residual
-
-    return {
-      assists: c.assists,
-      tolerances: c.tolerances,
-      delays: c.delays,
-      earlyOuts: c.earlyOuts,
-      faults: c.faults,
-      totalAvailable,
-      ontimePercentage,
-      tolerancePercentage,
-      delayPercentage,
-      earlyOutPercentage,
-      faultPercentage,
-      ...info,
-    }
-  }
-
-  /**
-   * Variante del overview: añade `employeesQty` (empleados evaluados) a las
-   * estadísticas base. `toStatistics` se mantiene intacto para by-department
-   * y by-employee, que no exponen este conteo.
-   */
-  private toOverviewStatistics(
-    c: CleanCounters,
-    info: InformationalCounters,
-    employeesQty: number
-  ): OverviewStatistics {
-    return { ...this.toStatistics(c, info), employeesQty }
-  }
-
   private forbidden<T = null>(): ServiceResult<T> {
     return {
       status: 403,
@@ -590,6 +473,190 @@ function addInformational(dst: InformationalCounters, src: InformationalCounters
   dst.justifiedAbsences += src.justifiedAbsences
   dst.vacations += src.vacations
   dst.holidays += src.holidays
+}
+
+/**
+ * Cierre 100%: ontime + tolerance + delay + fault === 100. El residuo de
+ * redondeo lo absorbe el bucket con MAYOR count (no siempre fault — si faults=0
+ * y el residuo es negativo, daría un porcentaje negativo). earlyOutPercentage
+ * es independiente. Si totalAvailable=0, todos los % son 0.
+ *
+ * Única implementación de la regla: la usan by-employee directo y, vía
+ * `toOverviewStatistics`, overview (statistics, daily, monthly) y by-department.
+ */
+function toStatistics(c: CleanCounters, info: InformationalCounters): AttendanceStatistics {
+  const totalAvailable = c.assists + c.tolerances + c.delays + c.faults
+  if (totalAvailable === 0) {
+    return {
+      assists: 0,
+      tolerances: 0,
+      delays: 0,
+      earlyOuts: c.earlyOuts,
+      faults: 0,
+      totalAvailable: 0,
+      ontimePercentage: 0,
+      tolerancePercentage: 0,
+      delayPercentage: 0,
+      earlyOutPercentage: 0,
+      faultPercentage: 0,
+      ...info,
+    }
+  }
+  let ontimePercentage = Math.round((c.assists / totalAvailable) * 100)
+  let tolerancePercentage = Math.round((c.tolerances / totalAvailable) * 100)
+  let delayPercentage = Math.round((c.delays / totalAvailable) * 100)
+  let faultPercentage = Math.round((c.faults / totalAvailable) * 100)
+  const earlyOutPercentage = Math.round((c.earlyOuts / totalAvailable) * 100)
+
+  // Cierre: el residuo de redondeo (típicamente ±1-2) lo absorbe el bucket con
+  // mayor count. Garantiza suma === 100 sin producir porcentajes negativos.
+  const residual = 100 - ontimePercentage - tolerancePercentage - delayPercentage - faultPercentage
+  const maxCount = Math.max(c.assists, c.tolerances, c.delays, c.faults)
+  if (c.assists === maxCount) ontimePercentage += residual
+  else if (c.tolerances === maxCount) tolerancePercentage += residual
+  else if (c.delays === maxCount) delayPercentage += residual
+  else faultPercentage += residual
+
+  return {
+    assists: c.assists,
+    tolerances: c.tolerances,
+    delays: c.delays,
+    earlyOuts: c.earlyOuts,
+    faults: c.faults,
+    totalAvailable,
+    ontimePercentage,
+    tolerancePercentage,
+    delayPercentage,
+    earlyOutPercentage,
+    faultPercentage,
+    ...info,
+  }
+}
+
+/**
+ * Estadísticas base más `employeesQty` (empleados evaluados). La usan overview
+ * y by-department; by-employee no expone este conteo.
+ */
+function toOverviewStatistics(
+  c: CleanCounters,
+  info: InformationalCounters,
+  employeesQty: number
+): OverviewStatistics {
+  return { ...toStatistics(c, info), employeesQty }
+}
+
+/** Entrada de `buildOverviewResponse`: calendarios ya cargados y el período pedido. */
+export interface BuildOverviewInput {
+  bundles: EmployeeCalendarBundle[]
+  thresholds: ToleranceThresholds
+  startDay: string
+  endDay: string
+  granularity: AttendanceStatsGranularity
+}
+
+/** Contadores acumulados de un día o de un mes, con los empleados evaluados en él. */
+interface StatsBucket {
+  clean: CleanCounters
+  informational: InformationalCounters
+  employeesQty: number
+}
+
+function bucketOf(buckets: Map<string, StatsBucket>, key: string): StatsBucket {
+  let bucket = buckets.get(key)
+  if (!bucket) {
+    bucket = { clean: emptyClean(), informational: emptyInformational(), employeesQty: 0 }
+    buckets.set(key, bucket)
+  }
+  return bucket
+}
+
+/** Estadísticas de un día o mes; sin acumulador (sin registros) van en cero. */
+function bucketStatistics(bucket: StatsBucket | undefined): OverviewStatistics {
+  return bucket
+    ? toOverviewStatistics(bucket.clean, bucket.informational, bucket.employeesQty)
+    : toOverviewStatistics(emptyClean(), emptyInformational(), 0)
+}
+
+/**
+ * Arma la respuesta del overview a partir de los calendarios en memoria, sin
+ * tocar BD. En una sola pasada acumula el total del período, el desglose por
+ * día y, con `granularity=month`, el desglose por mes calendario.
+ *
+ * `employeesQty` cuenta empleados con al menos un día evaluable: en el período
+ * para `statistics`, en esa fecha para `daily` y en ese mes para `monthly`.
+ * Con `granularity=day` la respuesta no trae `monthly`.
+ */
+export function buildOverviewResponse(input: BuildOverviewInput): OverviewResponse {
+  const { bundles, thresholds, startDay, endDay, granularity } = input
+  const withMonthly = granularity === 'month'
+  const totalClean = emptyClean()
+  const totalInfo = emptyInformational()
+  // Empleados con al menos un día evaluable en todo el período (conteo global).
+  let evaluatedEmployees = 0
+  // Acumuladores por fecha (yyyy-MM-dd) y por mes (yyyy-MM).
+  const byDay = new Map<string, StatsBucket>()
+  const byMonth = new Map<string, StatsBucket>()
+
+  for (const bundle of bundles) {
+    // Cada bundle es un empleado distinto, con a lo más una fila por fecha.
+    let hasEvaluableDay = false
+    const evaluableMonths = new Set<string>()
+    for (const day of bundle.calendar) {
+      const { clean, informational } = classifyDay(day, thresholds)
+      addClean(totalClean, clean)
+      addInformational(totalInfo, informational)
+
+      const dayBucket = bucketOf(byDay, day.day)
+      addClean(dayBucket.clean, clean)
+      addInformational(dayBucket.informational, informational)
+
+      const month = day.day.slice(0, 7)
+      if (withMonthly) {
+        const monthBucket = bucketOf(byMonth, month)
+        addClean(monthBucket.clean, clean)
+        addInformational(monthBucket.informational, informational)
+      }
+
+      if (isEvaluableDay(day)) {
+        hasEvaluableDay = true
+        dayBucket.employeesQty += 1
+        if (withMonthly) evaluableMonths.add(month)
+      }
+    }
+    if (hasEvaluableDay) evaluatedEmployees += 1
+    // Una vez por mes aunque el empleado tenga varios días evaluables en él.
+    for (const month of evaluableMonths) {
+      bucketOf(byMonth, month).employeesQty += 1
+    }
+  }
+
+  const statistics = toOverviewStatistics(totalClean, totalInfo, evaluatedEmployees)
+
+  // Todos los días del rango, incluso los que no tienen registros evaluables.
+  const daily: DailyStatsRow[] = enumerateDays(startDay, endDay).map((d) => ({
+    day: d,
+    statistics: bucketStatistics(byDay.get(d)),
+  }))
+
+  const response: OverviewResponse = {
+    statistics,
+    period: {
+      startDay,
+      endDay,
+      evaluableDays: statistics.totalAvailable,
+    },
+    daily,
+  }
+
+  if (withMonthly) {
+    // Todos los meses del rango, incluso los que no tienen registros.
+    response.monthly = enumerateMonths(startDay, endDay).map((month) => ({
+      month,
+      statistics: bucketStatistics(byMonth.get(month)),
+    }))
+  }
+
+  return response
 }
 
 /**
@@ -672,6 +739,21 @@ function enumerateDays(startDay: string, endDay: string): string[] {
     cursor = cursor.plus({ days: 1 })
   }
   return days
+}
+
+/**
+ * Enumera los meses calendario que toca [startDay, endDay] inclusive, en
+ * formato yyyy-MM. Mismo criterio de fecha pura que `enumerateDays`.
+ */
+function enumerateMonths(startDay: string, endDay: string): string[] {
+  const months: string[] = []
+  let cursor = DateTime.fromISO(startDay).startOf('month')
+  const end = DateTime.fromISO(endDay).startOf('month')
+  while (cursor.isValid && cursor <= end) {
+    months.push(cursor.toFormat('yyyy-MM'))
+    cursor = cursor.plus({ months: 1 })
+  }
+  return months
 }
 
 function isEvaluableDay(day: AssistDayInterface): boolean {

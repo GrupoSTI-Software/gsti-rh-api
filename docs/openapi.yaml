@@ -2587,6 +2587,137 @@ components:
         data:
           $ref: '#/components/schemas/AttendanceCoverageData'
 
+    AttendanceOverviewStatistics:
+      type: object
+      description: |
+        Contadores y porcentajes. `ontimePercentage + tolerancePercentage + delayPercentage + faultPercentage`
+        cierran en 100 cuando `totalAvailable > 0` (el residuo de redondeo lo absorbe el bucket con mayor
+        conteo); `earlyOutPercentage` es independiente. Con `totalAvailable = 0` todos los porcentajes son 0.
+      required:
+        - assists
+        - tolerances
+        - delays
+        - earlyOuts
+        - faults
+        - totalAvailable
+        - ontimePercentage
+        - tolerancePercentage
+        - delayPercentage
+        - earlyOutPercentage
+        - faultPercentage
+        - justifiedAbsences
+        - vacations
+        - holidays
+        - employeesQty
+      properties:
+        assists:
+          type: integer
+        tolerances:
+          type: integer
+        delays:
+          type: integer
+        earlyOuts:
+          type: integer
+        faults:
+          type: integer
+        totalAvailable:
+          type: integer
+          description: Registros empleado-día evaluables (assists + tolerances + delays + faults).
+        ontimePercentage:
+          type: integer
+        tolerancePercentage:
+          type: integer
+        delayPercentage:
+          type: integer
+        earlyOutPercentage:
+          type: integer
+        faultPercentage:
+          type: integer
+        justifiedAbsences:
+          type: integer
+          description: Informativo; no entra al cierre al 100%.
+        vacations:
+          type: integer
+          description: Informativo; no entra al cierre al 100%.
+        holidays:
+          type: integer
+          description: Informativo; no entra al cierre al 100%.
+        employeesQty:
+          type: integer
+          description: |
+            Empleados con al menos un día evaluable: en el período para `statistics`, en esa fecha
+            para `daily[]` y en ese mes para `monthly[]`.
+
+    AttendanceOverviewDailyRow:
+      type: object
+      required: [day, statistics]
+      properties:
+        day:
+          type: string
+          format: date
+          description: Día laboral (yyyy-MM-dd, huso México).
+          example: "2026-03-15"
+        statistics:
+          $ref: '#/components/schemas/AttendanceOverviewStatistics'
+
+    AttendanceOverviewMonthlyRow:
+      type: object
+      required: [month, statistics]
+      properties:
+        month:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+          description: Mes calendario (yyyy-MM).
+          example: "2026-03"
+        statistics:
+          $ref: '#/components/schemas/AttendanceOverviewStatistics'
+
+    AttendanceOverviewData:
+      type: object
+      required: [statistics, period, daily]
+      properties:
+        statistics:
+          $ref: '#/components/schemas/AttendanceOverviewStatistics'
+        period:
+          type: object
+          required: [startDay, endDay, evaluableDays]
+          properties:
+            startDay:
+              type: string
+              format: date
+            endDay:
+              type: string
+              format: date
+            evaluableDays:
+              type: integer
+              description: Registros empleado-día evaluables del período; igual a `statistics.totalAvailable`.
+        daily:
+          type: array
+          description: Un elemento por cada día del rango `[startDay, endDay]` inclusive, ascendente.
+          items:
+            $ref: '#/components/schemas/AttendanceOverviewDailyRow'
+        monthly:
+          type: array
+          description: |
+            Solo con `granularity=month`. Un elemento por cada mes calendario entre `startDay` y `endDay`
+            inclusive, ascendente; los meses sin registros vienen en cero.
+          items:
+            $ref: '#/components/schemas/AttendanceOverviewMonthlyRow'
+
+    AttendanceOverviewSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/AttendanceOverviewData'
+
     EmployeeTemporaryAssignmentResource:
       type: object
       properties:
@@ -7333,6 +7464,153 @@ paths:
                 detail: "El item 1 (turno 3): el mínimo no puede superar la plantilla requerida y ambos deben ser al menos 1"
                 key: cuota-invalida
                 errorCode: BRCH.SQ.VAL.QUOTA.001
+                data: null
+
+  /api/v1/attendance-stats/overview:
+    get:
+      summary: Estadísticas agregadas globales del período
+      description: |
+        Contadores y porcentajes (ontime, tolerance, delay, fault, early-out) agregados sobre los empleados
+        del scope del usuario, filtrables por departamento, empleado, unidad de negocio y sucursal.
+
+        `daily` trae las mismas estadísticas por cada día del rango `[startDay, endDay]` inclusive, ascendente;
+        los días sin registros evaluables aparecen con `totalAvailable: 0`.
+
+        **Serie mensual** (modo anual del monitor): con `granularity=month` agrega `monthly`, una entrada
+        `{ month: 'yyyy-MM', statistics }` por cada mes calendario entre `startDay` y `endDay` inclusive,
+        ascendente. Cada mes suma los contadores de sus días con el mismo cierre al 100% que `statistics`;
+        `employeesQty` cuenta los empleados con al menos un día evaluable en ese mes. Los meses sin registros
+        aparecen en cero. Con `granularity=day` o sin el parámetro la respuesta no trae `monthly`;
+        `statistics` y `daily` no cambian en ningún caso.
+
+        **Huso horario**: `startDay`/`endDay` se interpretan como días laborales en huso México (UTC-6).
+      tags: [AttendanceStats]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          description: Código público (UUID v4) de la unidad de negocio activa.
+          schema:
+            type: string
+            format: uuid
+        - name: startDay
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-01-01"
+        - name: endDay
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-12-31"
+        - name: departmentIds
+          in: query
+          required: false
+          description: IDs separados por coma.
+          schema:
+            type: string
+            example: "1,2,3"
+        - name: employeeIds
+          in: query
+          required: false
+          description: IDs separados por coma.
+          schema:
+            type: string
+            example: "10,11,12"
+        - name: businessUnitId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: payrollBusinessUnitId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: branchOfficeIds
+          in: query
+          required: false
+          description: IDs separados por coma.
+          schema:
+            type: string
+            example: "5,7"
+        - name: granularity
+          in: query
+          required: false
+          description: Serie adicional. `day` (default) solo trae `daily`; `month` agrega `monthly`.
+          schema:
+            type: string
+            enum: [day, month]
+            default: day
+      responses:
+        '200':
+          description: Estadísticas calculadas correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceOverviewSuccess'
+        '400':
+          description: Entrada inválida (incluye `granularity` fuera de `day`/`month`) o rango inválido
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                entradaInvalida:
+                  summary: key entrada-invalida
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Invalid request parameters
+                    key: entrada-invalida
+                    data: null
+                rangoInvalido:
+                  summary: key rango-invalido
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Invalid date range
+                    key: rango-invalido
+                    data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Error
+                message: Unauthorized access
+                data: null
+        '403':
+          description: Scope insuficiente (key scope-insuficiente)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Forbidden
+                message: User has no business units assigned
+                key: scope-insuficiente
+                data: null
+        '500':
+          description: Error interno del servidor
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Server error
+                message: An unexpected error has occurred on the server
                 data: null
 
   /api/v1/attendance-stats/coverage:

@@ -11,6 +11,15 @@
 
 import type { AssistDayInterface } from '../../../interfaces/assist_day_interface.js'
 
+/** Valores aceptados por el query `granularity` del overview. */
+export const ATTENDANCE_STATS_GRANULARITIES = ['day', 'month'] as const
+
+/**
+ * Serie que acompaña al overview: `day` solo trae `daily`; `month` agrega
+ * además `monthly` (modo anual del monitor).
+ */
+export type AttendanceStatsGranularity = (typeof ATTENDANCE_STATS_GRANULARITIES)[number]
+
 export interface AttendanceStatsFilters {
   startDay: string
   endDay: string
@@ -19,6 +28,8 @@ export interface AttendanceStatsFilters {
   businessUnitId?: number
   payrollBusinessUnitId?: number
   branchOfficeIds?: number[]
+  /** Solo lo lee overview; by-department y by-employee lo ignoran. Default `day`. */
+  granularity?: AttendanceStatsGranularity
 }
 
 /** Contadores de asistencia que entran al cierre 100% (+ earlyOuts independiente). */
@@ -57,7 +68,8 @@ export interface OverviewStatistics extends AttendanceStatistics {
    * (excluye descanso, vacaciones, festivos, incapacidad, día futuro y
    * excepciones no-generales). En `statistics` global se cuenta sobre todo el
    * período; en `daily[].statistics` solo los empleados con día evaluable en
-   * esa fecha.
+   * esa fecha, y en `monthly[].statistics` los que tienen al menos un día
+   * evaluable en ese mes.
    */
   employeesQty: number
 }
@@ -68,6 +80,15 @@ export interface OverviewStatistics extends AttendanceStatistics {
  */
 export interface DailyStatsRow {
   day: string
+  statistics: OverviewStatistics
+}
+
+/**
+ * Estadísticas de UN mes calendario del período (modo anual del monitor),
+ * agregadas sobre todos los empleados del scope. `month` en formato yyyy-MM.
+ */
+export interface MonthlyStatsRow {
+  month: string
   statistics: OverviewStatistics
 }
 
@@ -88,6 +109,12 @@ export interface OverviewResponse {
    * totalAvailable=0 (puede traer informativos como holidays/vacations > 0).
    */
   daily: DailyStatsRow[]
+  /**
+   * Solo con `granularity=month`: una entrada por cada mes calendario del rango
+   * [startDay, endDay] inclusive, ordenadas ascendente. Un mes sin registros
+   * aparece en cero. Sin el parámetro o con `day` la propiedad no viene.
+   */
+  monthly?: MonthlyStatsRow[]
 }
 
 export interface DepartmentInfo {

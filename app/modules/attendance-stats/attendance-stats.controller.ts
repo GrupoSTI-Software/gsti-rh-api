@@ -28,6 +28,8 @@ export default class AttendanceStatsController {
    *
    *       Incluye además `daily`: un arreglo con las mismas estadísticas desglosadas por cada día del rango `[startDay, endDay]` inclusive, ordenado ascendente. Los días sin registros evaluables aparecen con `totalAvailable: 0`.
    *
+   *       **Serie mensual** (modo anual del monitor): con `granularity=month` agrega `monthly`, un arreglo `{ month: 'yyyy-MM', statistics }` con una entrada por cada mes calendario entre `startDay` y `endDay` inclusive, ordenado ascendente. Cada mes suma los contadores de sus días con el mismo cierre al 100% que `statistics`; `employeesQty` cuenta los empleados con al menos un día evaluable en ese mes. Los meses sin registros aparecen en cero. Con `granularity=day` o sin el parámetro la respuesta no trae `monthly`; `statistics` y `daily` no cambian en ningún caso.
+   *
    *       **Huso horario**: `startDay`/`endDay` se interpretan como días laborales en huso México (UTC-6). El servidor no acepta `Timezone` header; el cliente es responsable de enviar la fecha mexicana correcta (no la fecha local del cliente si está fuera de México).
    *     security:
    *       - bearerAuth: []
@@ -56,6 +58,11 @@ export default class AttendanceStatsController {
    *       - name: branchOfficeIds
    *         in: query
    *         schema: { type: string, example: "5,7" }
+   *       - name: granularity
+   *         in: query
+   *         required: false
+   *         description: Serie adicional. `day` (default) solo trae `daily`; `month` agrega `monthly`.
+   *         schema: { type: string, enum: [day, month], default: day }
    *     responses:
    *       200: { description: OK }
    *       400: { description: Validation error }
@@ -315,6 +322,7 @@ export default class AttendanceStatsController {
         branchOfficeIds: this.parseIdList(
           request.input('branchOfficeIds') ?? request.input('branchNameIds')
         ),
+        granularity: request.input('granularity'),
       }
 
       let validated
