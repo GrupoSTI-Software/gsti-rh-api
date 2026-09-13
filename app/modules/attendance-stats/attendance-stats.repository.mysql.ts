@@ -2,7 +2,9 @@ import db from '@adonisjs/lucid/services/db'
 import { DateTime } from 'luxon'
 import { I18n } from '@adonisjs/i18n'
 import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
+import { toAbsencesBranch } from './attendance-stats.absences.js'
 import type {
+  AbsencesBranch,
   AttendanceStatsFilters,
   CoverageActiveLoanRow,
   CoverageRangeLoanRow,
@@ -173,8 +175,10 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
         'e.employee_photo AS employee_photo',
         'e.department_id AS department_id',
         'd.department_name AS department_name',
+        'd.department_alias AS department_alias',
         'e.position_id AS position_id',
         'p.position_name AS position_name',
+        'p.position_alias AS position_alias',
         'e.business_unit_id AS business_unit_id',
         'bu.business_unit_name AS business_unit_name',
         'e.payroll_business_unit_id AS payroll_business_unit_id',
@@ -218,6 +222,8 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
           payrollBusinessUnitId: Number(r.payroll_business_unit_id),
           branchOfficeId,
           branchOfficeName: r.branch_office_name ?? null,
+          departmentAlias: r.department_alias ?? null,
+          positionAlias: r.position_alias ?? null,
           department: departmentId !== null ? { departmentId, departmentName } : null,
           position:
             positionId !== null
@@ -905,31 +911,33 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     }))
   }
 
-  async getCoverageAbsencesEmployeeIds(
-    siteIds: number[],
+  async getAbsencesEmployeeIds(
     startDay: string,
     endDay: string,
-    allowedBusinessUnitIds: number[]
+    allowedBusinessUnitIds: number[],
+    branchOfficeIds?: number[]
   ): Promise<number[]> {
-    const uniqueSiteIds = [...new Set(siteIds)]
-    if (uniqueSiteIds.length === 0 || allowedBusinessUnitIds.length === 0) return []
+    if (allowedBusinessUnitIds.length === 0) return []
 
     // db.from salta el mixin de tenant: el corte por empresa va explícito. Mismo
     // criterio de plantilla que resolveEmployeesInScope (no borrados, sin
-    // discriminador de asistencia = 1).
-    const rows: Array<{ employee_id: number | string }> = await db
+    // discriminador de asistencia = 1). Sin join a sucursales: un id por colaborador.
+    const query = db
       .from('employees AS e')
       .whereNull('e.employee_deleted_at')
       .whereRaw('COALESCE(e.employee_assist_discriminator, 0) <> 1')
       .whereIn('e.business_unit_id', allowedBusinessUnitIds)
-      .where((universe) => {
+
+    const uniqueBranchIds = [...new Set(branchOfficeIds ?? [])]
+    if (uniqueBranchIds.length > 0) {
+      query.where((universe) => {
         universe
           .whereExists((base) => {
             base
               .from('employee_branch_offices AS ebo')
               .whereRaw('ebo.employee_id = e.employee_id')
               .where('ebo.employee_branch_office_active', 1)
-              .whereIn('ebo.branch_office_id', uniqueSiteIds)
+              .whereIn('ebo.branch_office_id', uniqueBranchIds)
           })
           .orWhereExists((loan) => {
             loan
@@ -937,7 +945,7 @@ ORDER BY sfd_full.employee_id, sfd_full.day
               .innerJoin('branch_offices AS source_bo', 'source_bo.branch_office_id', 'eta.source_branch_id')
               .whereRaw('eta.employee_id = e.employee_id')
               .whereIn('source_bo.business_unit_id', allowedBusinessUnitIds)
-              .whereIn('eta.target_branch_id', uniqueSiteIds)
+              .whereIn('eta.target_branch_id', uniqueBranchIds)
               .whereNull('eta.employee_temporary_assignment_deleted_at')
               .where('eta.start_date', '<=', endDay)
               .where('eta.end_date', '>=', startDay)
@@ -946,9 +954,65 @@ ORDER BY sfd_full.employee_id, sfd_full.day
               })
           })
       })
+    }
+
+    const rows: Array<{ employee_id: number | string }> = await query
       .select('e.employee_id AS employee_id')
+      .orderBy('e.employee_id', 'asc')
 
     return rows.map((row) => Number(row.employee_id))
+  }
+
+  async getAbsencesBranches(
+    branchOfficeIds: number[],
+    allowedBusinessUnitIds: number[]
+  ): Promise<AbsencesBranch[]> {
+    const uniqueIds = [...new Set(branchOfficeIds)]
+    if (uniqueIds.length === 0 || allowedBusinessUnitIds.length === 0) return []
+
+    // db.from salta el mixin de tenant: el corte por empresa va explícito sobre
+    // la sucursal. La empresa contratante se lee cruda y `toAbsencesBranch`
+    // decide si está viva y es del tenant.
+    const rows: Array<{
+      branch_office_id: number | string
+      branch_office_name: string | null
+      empresa_contratante_id: number | string | null
+      empresa_contratante_razon_social: string | null
+      empresa_contratante_business_unit_id: number | string | null
+      empresa_contratante_deleted_at: Date | string | null
+    }> = await db
+      .from('branch_offices AS bo')
+      .leftJoin('empresas_contratantes AS ec', 'ec.empresa_contratante_id', 'bo.empresa_contratante_id')
+      .whereIn('bo.branch_office_id', uniqueIds)
+      .whereNull('bo.branch_office_deleted_at')
+      .whereIn('bo.business_unit_id', allowedBusinessUnitIds)
+      .select(
+        'bo.branch_office_id AS branch_office_id',
+        'bo.branch_office_name AS branch_office_name',
+        'ec.empresa_contratante_id AS empresa_contratante_id',
+        'ec.empresa_contratante_razon_social AS empresa_contratante_razon_social',
+        'ec.business_unit_id AS empresa_contratante_business_unit_id',
+        'ec.empresa_contratante_deleted_at AS empresa_contratante_deleted_at'
+      )
+
+    return rows.map((row) =>
+      toAbsencesBranch(
+        {
+          branchOfficeId: Number(row.branch_office_id),
+          name: String(row.branch_office_name ?? ''),
+          empresaContratante:
+            row.empresa_contratante_id === null
+              ? null
+              : {
+                  empresaContratanteId: Number(row.empresa_contratante_id),
+                  razonSocial: String(row.empresa_contratante_razon_social ?? ''),
+                  businessUnitId: Number(row.empresa_contratante_business_unit_id),
+                  isDeleted: row.empresa_contratante_deleted_at !== null,
+                },
+        },
+        allowedBusinessUnitIds
+      )
+    )
   }
 
   async getLoansForRange(

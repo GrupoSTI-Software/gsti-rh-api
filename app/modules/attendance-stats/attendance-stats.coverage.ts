@@ -44,7 +44,7 @@ export function buildEmployeeDisplayName(employee: EmployeeInfo): string {
  * sucursal; elegir el préstamo cuando hay varios vigentes le toca al llamador,
  * con el mismo desempate en los dos (start_date más reciente y, empatando, id
  * mayor): la cobertura del día toma el primero en el orden de
- * `getActiveLoansForDay` y las faltas por sitio usan `selectLoanForDay`.
+ * `getActiveLoansForDay` y las ausencias por día usan `selectLoanForDay`.
  */
 export function resolveEffectiveBranchId(
   homeBranchId: number | null | undefined,

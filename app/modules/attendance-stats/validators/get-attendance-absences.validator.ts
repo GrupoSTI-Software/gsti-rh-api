@@ -25,13 +25,13 @@ const existingIsoDayRule = vine.createRule(
 
 /**
  * Piezas crudas del query `branchOfficeIds` (CSV o parámetro repetido) para
- * que las valide `getAttendanceCoverageAbsencesValidator`. No descarta
- * ninguna: un token que no sea entero >= 1 (`abc`, `0`, `1.5`, vacío) hace
- * fallar la validación con 400 `entrada-invalida` y `details`, en lugar de
- * convertirse en "sin filtro" y ampliar la consulta a todos los sitios.
+ * que las valide `getAttendanceAbsencesValidator`. No descarta ninguna: un
+ * token que no sea entero >= 1 (`abc`, `0`, `1.5`, vacío) hace fallar la
+ * validación con 400 `entrada-invalida` y `details`, en lugar de convertirse
+ * en "sin filtro" y ampliar la consulta a toda la plantilla.
  *
  * @returns `undefined` si el parámetro no trae valor (ausente, en blanco o
- *   arreglo vacío): sin filtro de sitios.
+ *   arreglo vacío): sin filtro de sucursales.
  */
 export function splitBranchOfficeIdsQuery(value: unknown): unknown[] | undefined {
   if (value === undefined || value === null) return undefined
@@ -45,26 +45,20 @@ export function splitBranchOfficeIdsQuery(value: unknown): unknown[] | undefined
 }
 
 /**
- * Validador del endpoint GET /attendance-stats/coverage/absences.
+ * Validador del endpoint GET /attendance-stats/absences.
  *
  * - `startDay` / `endDay`: requeridos, formato yyyy-MM-dd y fecha existente.
  *   El orden del rango y el tope de días los valida el service.
- * - `empresaContratanteId`: entero positivo requerido. No acepta `companyId`:
- *   ese nombre lo intercepta el middleware `businessScope`.
  * - `branchOfficeIds`: el controller parte el CSV con `splitBranchOfficeIdsQuery`
  *   y cada pieza debe ser un entero >= 1.
+ * - `payrollBusinessUnitId`: el controller lo parsea como el resto del módulo.
  * - Los ids usan `min(1)` y no `positive()`: en VineJS `positive()` acepta el 0.
  */
-export const getAttendanceCoverageAbsencesValidator = vine.compile(
+export const getAttendanceAbsencesValidator = vine.compile(
   vine.object({
     startDay: vine.string().trim().regex(ISO_DAY_PATTERN).use(existingIsoDayRule()),
     endDay: vine.string().trim().regex(ISO_DAY_PATTERN).use(existingIsoDayRule()),
-    empresaContratanteId: vine.number().withoutDecimals().min(1),
     branchOfficeIds: vine.array(vine.number().withoutDecimals().min(1)).optional(),
     payrollBusinessUnitId: vine.number().withoutDecimals().min(1).optional(),
   })
 )
-
-export type GetAttendanceCoverageAbsencesInput = Awaited<
-  ReturnType<typeof getAttendanceCoverageAbsencesValidator.validate>
->

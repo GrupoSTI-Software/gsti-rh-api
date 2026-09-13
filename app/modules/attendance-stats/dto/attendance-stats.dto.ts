@@ -164,6 +164,9 @@ export interface EmployeeInfo {
   /** Sucursal base activa (employee_branch_offices). Aditivo; opcional para consumidores legacy. */
   branchOfficeId?: number | null
   branchOfficeName?: string | null
+  /** Alias del departamento y del puesto; las ausencias los prefieren al nombre. Aditivos. */
+  departmentAlias?: string | null
+  positionAlias?: string | null
   // Objetos anidados con el nombre resuelto vía join. `null` cuando el empleado
   // no tiene la relación asignada (department/position pueden faltar).
   department: DepartmentRef | null
@@ -285,19 +288,6 @@ export interface CoverageActiveLoanRow {
 }
 
 /**
- * Filtros del endpoint coverage/absences: periodo, empresa contratante y, de
- * forma opcional, los sitios a incluir y la unidad de negocio de nómina.
- */
-export interface CoverageAbsencesFilters {
-  startDay: string
-  endDay: string
-  empresaContratanteId: number
-  /** Se intersecta con los sitios de la empresa contratante. */
-  branchOfficeIds?: number[]
-  payrollBusinessUnitId?: number
-}
-
-/**
  * Préstamo temporal que intersecta un rango, con sus fechas en yyyy-MM-dd para
  * resolver en memoria si mueve al colaborador un día concreto.
  */
@@ -308,37 +298,82 @@ export interface CoverageRangeLoanRow extends CoverageActiveLoanRow {
   cancelledAt: string | null
 }
 
-/** Sitio de servicio de la empresa contratante tras el filtro de sitios. */
-export interface CoverageAbsencesSite {
+/**
+ * Filtros del endpoint absences: periodo y, de forma opcional, las sucursales
+ * que acotan el universo y la unidad de negocio de nómina.
+ */
+export interface AbsencesFilters {
+  startDay: string
+  endDay: string
+  /**
+   * Acota el universo a quienes tienen base activa en estas sucursales o un
+   * préstamo hacia ellas en el periodo. No filtra las entradas: sus faltas
+   * salen con la sucursal efectiva de cada día.
+   */
+  branchOfficeIds?: number[]
+  payrollBusinessUnitId?: number
+}
+
+/**
+ * Sucursal viva del tenant tal como la lee el repositorio, con la empresa
+ * contratante del join todavía sin filtrar (`toAbsencesBranch` decide si se expone).
+ */
+export interface AbsencesBranchRow {
   branchOfficeId: number
   name: string
+  /** `null` si la sucursal no apunta a ninguna empresa contratante existente. */
+  empresaContratante: {
+    empresaContratanteId: number
+    razonSocial: string
+    businessUnitId: number
+    isDeleted: boolean
+  } | null
 }
 
-/** Colaboradores que faltaron un día estando asignados a un sitio. */
-export interface CoverageAbsencesDaySite {
+/** Sucursal referenciada por alguna entrada de ausencias. */
+export interface AbsencesBranch {
   branchOfficeId: number
-  /** Ordenados por nombre del colaborador. */
-  employeeIds: number[]
+  name: string
+  /** Solo si la empresa contratante está viva y es del tenant; si no, `null`. */
+  empresaContratanteId: number | null
+  empresaContratanteName: string | null
 }
 
-/** Faltas de un día del periodo, agrupadas por sitio. */
-export interface CoverageAbsencesDay {
+/** Colaborador que aparece en alguna entrada de ausencias. */
+export interface AbsencesEmployee {
+  employeeId: number
+  firstName: string
+  lastName: string | null
+  secondLastName: string | null
+  photo: string | null
+  /** Alias del puesto si lo tiene; si no, su nombre. */
+  positionName: string | null
+  departmentId: number | null
+  /** Alias del departamento si lo tiene; si no, su nombre. */
+  departmentName: string | null
+}
+
+/** Falta de un colaborador en un día, con su sucursal efectiva. */
+export interface AbsencesEntry {
+  employeeId: number
+  /** Sucursal efectiva del día; `null` si no tiene base ni préstamo vigente. */
+  branchOfficeId: number | null
+}
+
+/** Faltas de un día del periodo. */
+export interface AbsencesDay {
   day: string
-  /** Total de faltas visibles del día; igual a la suma de `employeeIds` de sus sitios. */
-  faults: number
-  /** Solo sitios con faltas ese día, ordenados por nombre del sitio. */
-  sites: CoverageAbsencesDaySite[]
+  /** Ordenadas por nombre completo del colaborador y, empatando, por id. */
+  entries: AbsencesEntry[]
 }
 
-/** Respuesta de coverage/absences. */
-export interface CoverageAbsencesResponse {
+/** Respuesta de absences. */
+export interface AbsencesResponse {
   period: { startDay: string; endDay: string }
-  sites: CoverageAbsencesSite[]
+  /** Solo las sucursales referenciadas por alguna entrada. */
+  branches: AbsencesBranch[]
+  /** Cada colaborador que aparece en `days`, una sola vez. */
+  employees: AbsencesEmployee[]
   /** Todos los días del periodo en orden ascendente, incluso los que no tienen faltas. */
-  days: CoverageAbsencesDay[]
-  /**
-   * Colaboradores que aparecen en `days`, una sola vez cada uno, con las
-   * estadísticas de todo el periodo (no solo de los días en el sitio).
-   */
-  employees: EmployeeRow[]
+  days: AbsencesDay[]
 }

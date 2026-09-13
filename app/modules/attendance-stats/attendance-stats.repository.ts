@@ -1,4 +1,5 @@
 import type {
+  AbsencesBranch,
   AttendanceStatsFilters,
   CoverageActiveLoanRow,
   CoverageRangeLoanRow,
@@ -50,19 +51,29 @@ export interface AttendanceStatsRepository {
   getActiveLoansForDay(day: string, allowedBusinessUnitIds: number[]): Promise<CoverageActiveLoanRow[]>
 
   /**
-   * Colaboradores que pueden tener faltas en `siteIds` dentro de [startDay, endDay]:
-   * los de las unidades de negocio permitidas (no borrados ni discriminados de
-   * asistencia) con sucursal base activa en alguno de los sitios o con un
-   * préstamo hacia ellos que intersecta el rango. Es un pre-filtro: la
-   * atribución exacta por día la resuelve la construcción de la respuesta. Sin
-   * sitios o sin unidades de negocio no devuelve nada.
+   * Universo de ausencias: la plantilla de las unidades de negocio permitidas
+   * (no borrados ni discriminados de asistencia), un id por colaborador. Con
+   * `branchOfficeIds` (no vacío) solo quienes tienen sucursal base activa en
+   * ellas o un préstamo hacia ellas que intersecta [startDay, endDay]. Sin
+   * unidades de negocio no devuelve nada.
    */
-  getCoverageAbsencesEmployeeIds(
-    siteIds: number[],
+  getAbsencesEmployeeIds(
     startDay: string,
     endDay: string,
-    allowedBusinessUnitIds: number[]
+    allowedBusinessUnitIds: number[],
+    branchOfficeIds?: number[]
   ): Promise<number[]>
+
+  /**
+   * Catálogo de sucursales para ausencias: las de `branchOfficeIds` vivas y de
+   * las unidades de negocio permitidas, con su empresa contratante solo si está
+   * viva y es del tenant (`toAbsencesBranch`). Sin ids o sin unidades de
+   * negocio no devuelve nada.
+   */
+  getAbsencesBranches(
+    branchOfficeIds: number[],
+    allowedBusinessUnitIds: number[]
+  ): Promise<AbsencesBranch[]>
 
   /**
    * Préstamos de `employeeIds` que intersectan [startDay, endDay], hacia

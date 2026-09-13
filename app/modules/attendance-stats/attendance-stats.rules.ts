@@ -14,7 +14,7 @@ import type {
  * agregación de contadores y porcentajes con cierre 100%.
  *
  * Módulo puro: no importa BD, modelos, repositorios ni el service. Lo usan el
- * service y los constructores de respuesta (cobertura y faltas por sitio) sin
+ * service y los constructores de respuesta (cobertura y ausencias por día) sin
  * formar un ciclo de imports.
  */
 
@@ -46,9 +46,8 @@ export function addInformational(dst: InformationalCounters, src: InformationalC
  * y el residuo es negativo, daría un porcentaje negativo). earlyOutPercentage
  * es independiente. Si totalAvailable=0, todos los % son 0.
  *
- * Única implementación de la regla: la usan by-employee y coverage/absences
- * directo y, vía `toOverviewStatistics`, overview (statistics, daily, monthly)
- * y by-department.
+ * Única implementación de la regla: la usa by-employee directo y, vía
+ * `toOverviewStatistics`, overview (statistics, daily, monthly) y by-department.
  */
 export function toStatistics(c: CleanCounters, info: InformationalCounters): AttendanceStatistics {
   const totalAvailable = c.assists + c.tolerances + c.delays + c.faults
@@ -196,7 +195,7 @@ export function enumerateDays(startDay: string, endDay: string): string[] {
 /**
  * Día que entra a los contadores de asistencia: excluye día futuro, descanso,
  * vacaciones, festivo, incapacidad y excepciones no generales. Única
- * implementación; la usan las estadísticas, la cobertura y las faltas por sitio.
+ * implementación; la usan las estadísticas, la cobertura y las ausencias por día.
  */
 export function isEvaluableDay(day: AssistDayInterface): boolean {
   if (day.assist.isFutureDay) return false

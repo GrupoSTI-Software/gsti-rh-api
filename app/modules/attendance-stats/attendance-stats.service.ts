@@ -8,10 +8,11 @@ import type { EmployeeRoleScope } from '../../helpers/resolve_employee_role_scop
 import AttendanceStatsRepositoryMysql from './attendance-stats.repository.mysql.js'
 import { buildCoverageResponse } from './attendance-stats.coverage.js'
 import {
-  buildCoverageAbsencesResponse,
+  ABSENCES_MAX_RANGE_DAYS,
+  buildAbsencesResponse,
+  collectCandidateBranchIds,
   countRangeDaysInclusive,
-  COVERAGE_ABSENCES_MAX_RANGE_DAYS,
-} from './attendance-stats.coverage-absences.js'
+} from './attendance-stats.absences.js'
 import {
   addClean,
   addInformational,
@@ -26,11 +27,11 @@ import {
 } from './attendance-stats.rules.js'
 import type { AttendanceStatsRepository } from './attendance-stats.repository.js'
 import type {
+  AbsencesFilters,
+  AbsencesResponse,
   AttendanceStatsFilters,
   AttendanceStatsGranularity,
   CleanCounters,
-  CoverageAbsencesFilters,
-  CoverageAbsencesResponse,
   CoverageFilters,
   CoverageResponse,
   CoverageActiveLoanRow,
@@ -337,54 +338,45 @@ export default class AttendanceStatsService {
   }
 
   /**
-   * Faltas por sitio de servicio de una empresa contratante, día por día del
-   * periodo (máximo `COVERAGE_ABSENCES_MAX_RANGE_DAYS` días inclusive).
+   * Ausencias día por día del periodo (máximo `ABSENCES_MAX_RANGE_DAYS` días
+   * inclusive) con la sucursal efectiva y la empresa contratante de cada falta.
+   * Es el motor único de las vistas Organigrama, Sucursales y Clientes REPSE.
    *
-   * Solo calcula calendarios del universo de colaboradores que pueden tener
-   * faltas en los sitios (sucursal base activa en ellos o préstamo hacia ellos
-   * en el periodo). Conteos y listas se recortan a los colaboradores que el
-   * usuario puede ver, antes de contar.
+   * El universo es la plantilla del tenant (acotada por `branchOfficeIds` si
+   * viene); con universo vacío no se corre el SQL de calendarios. Días,
+   * empleados y sucursales se recortan a los colaboradores que el usuario puede
+   * ver, antes de contar.
    *
    * @param userId - Usuario que consulta; define el alcance de colaboradores.
    */
-  async getCoverageAbsences(
-    filters: CoverageAbsencesFilters,
+  async getAbsences(
+    filters: AbsencesFilters,
     scope: ResolvedScope,
     userId: number
-  ): Promise<ServiceResult<CoverageAbsencesResponse>> {
+  ): Promise<ServiceResult<AbsencesResponse>> {
     if (scope.allowedBusinessUnitIds.length === 0) {
       return this.forbidden()
     }
 
-    const rangeError = this.validateCoverageAbsencesRange<CoverageAbsencesResponse>(filters)
+    const rangeError = this.validateAbsencesRange<AbsencesResponse>(filters)
     if (rangeError) return rangeError
-
-    const empresaError = await this.findEmpresaContratanteError<CoverageAbsencesResponse>(
-      filters.empresaContratanteId
-    )
-    if (empresaError) return empresaError
 
     const { startDay, endDay } = filters
     const allowedBusinessUnitIds = scope.allowedBusinessUnitIds
-    const sites = await this.repo.getSitesByCompany(
-      filters.empresaContratanteId,
+    const employeeIds = await this.repo.getAbsencesEmployeeIds(
+      startDay,
+      endDay,
       allowedBusinessUnitIds,
       filters.branchOfficeIds
     )
-    const employeeIds = await this.repo.getCoverageAbsencesEmployeeIds(
-      sites.map((site) => site.branchOfficeId),
-      startDay,
-      endDay,
-      allowedBusinessUnitIds
-    )
 
     if (employeeIds.length === 0) {
-      // Sin colaboradores posibles no se corre el SQL de calendarios: todos los días en cero.
+      // Sin colaboradores posibles no se corre el SQL de calendarios: todos los días vacíos.
       return this.found(
-        buildCoverageAbsencesResponse({
+        buildAbsencesResponse({
           startDay,
           endDay,
-          sites,
+          branches: [],
           loans: [],
           bundles: [],
           visibleEmployeeIds: new Set(),
@@ -409,17 +401,19 @@ export default class AttendanceStatsService {
       this.repo.getLoansForRange(employeeIds, startDay, endDay, allowedBusinessUnitIds),
       this.dependencies.loadToleranceThresholds(),
     ])
-    const visibleEmployeeIds = await this.resolveVisibleEmployeeIds(
-      userId,
-      bundles,
-      allowedBusinessUnitIds
-    )
+    const [visibleEmployeeIds, branches] = await Promise.all([
+      this.resolveVisibleEmployeeIds(userId, bundles, allowedBusinessUnitIds),
+      this.repo.getAbsencesBranches(
+        collectCandidateBranchIds(bundles, loans),
+        allowedBusinessUnitIds
+      ),
+    ])
 
     return this.found(
-      buildCoverageAbsencesResponse({
+      buildAbsencesResponse({
         startDay,
         endDay,
-        sites,
+        branches,
         loans,
         bundles,
         visibleEmployeeIds,
@@ -429,15 +423,13 @@ export default class AttendanceStatsService {
   }
 
   /**
-   * Fechas existentes, rango ordenado y tope de días de coverage/absences.
-   * Devuelve el error a responder o `null` si el periodo es válido.
+   * Fechas existentes, rango ordenado y tope de días de absences. Devuelve el
+   * error a responder o `null` si el periodo es válido.
    *
    * Por HTTP el validador ya rechaza una fecha inexistente con `details`; esta
    * revisión queda como guarda para quien llame al service directo.
    */
-  private validateCoverageAbsencesRange<T>(
-    filters: CoverageAbsencesFilters
-  ): ServiceResult<T> | null {
+  private validateAbsencesRange<T>(filters: AbsencesFilters): ServiceResult<T> | null {
     const rangeDays = countRangeDaysInclusive(filters.startDay, filters.endDay)
     if (rangeDays === null) {
       return {
@@ -453,13 +445,13 @@ export default class AttendanceStatsService {
     const rangeError = this.validateRange(filters)
     if (rangeError) return { ...rangeError, data: null }
 
-    if (rangeDays > COVERAGE_ABSENCES_MAX_RANGE_DAYS) {
+    if (rangeDays > ABSENCES_MAX_RANGE_DAYS) {
       return {
         status: 400,
         type: 'error',
-        title: this.t('attendance_stats_coverage_absences_range_exceeded_title'),
-        message: this.t('attendance_stats_coverage_absences_range_exceeded_detail', {
-          maxDays: COVERAGE_ABSENCES_MAX_RANGE_DAYS,
+        title: this.t('attendance_stats_absences_range_exceeded_title'),
+        message: this.t('attendance_stats_absences_range_exceeded_detail', {
+          maxDays: ABSENCES_MAX_RANGE_DAYS,
         }),
         key: 'rango-maximo-excedido',
         data: null,

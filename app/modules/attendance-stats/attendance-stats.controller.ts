@@ -5,12 +5,12 @@ import AttendanceStatsService from './attendance-stats.service.js'
 import { getAttendanceStatsValidator } from './validators/get-attendance-stats.validator.js'
 import { getAttendanceCoverageValidator } from './validators/get-attendance-coverage.validator.js'
 import {
-  getAttendanceCoverageAbsencesValidator,
+  getAttendanceAbsencesValidator,
   splitBranchOfficeIdsQuery,
-} from './validators/get-attendance-coverage-absences.validator.js'
+} from './validators/get-attendance-absences.validator.js'
 import type {
+  AbsencesFilters,
   AttendanceStatsFilters,
-  CoverageAbsencesFilters,
   ResolvedScope,
 } from './dto/attendance-stats.dto.js'
 
@@ -310,28 +310,34 @@ export default class AttendanceStatsController {
 
   /**
    * @swagger
-   * /api/v1/attendance-stats/coverage/absences:
+   * /api/v1/attendance-stats/absences:
    *   get:
-   *     summary: Faltas por sitio de servicio REPSE en un periodo
+   *     summary: Ausencias por día con sucursal efectiva y empresa contratante
    *     description: |
-   *       Faltas de los sitios de servicio (sucursales) de una empresa contratante, día por día del
-   *       periodo `[startDay, endDay]` inclusive (máximo 62 días).
+   *       Motor único del drawer de Ausencias del monitor: quién faltó cada día del periodo
+   *       `[startDay, endDay]` inclusive (máximo 62 días) y en qué sucursal efectiva. El cliente agrupa
+   *       las mismas entradas en Organigrama (por departamento), Sucursales (sucursal sin empresa
+   *       contratante o sin sucursal) y Clientes REPSE (sucursal con empresa contratante).
    *
-   *       Un colaborador faltó el día D en el sitio S cuando D es evaluable (no es futuro, descanso,
-   *       vacaciones, festivo, incapacidad ni excepción no general), el día cuenta exactamente una falta
-   *       y su sucursal efectiva ese día es S. La sucursal efectiva es el destino del préstamo temporal
-   *       vigente ese día (no borrado, sin cancelar a esa fecha, origen y destino de la empresa; con
-   *       varios gana el de inicio más reciente y, empatando, el de id mayor) o, sin préstamo, la
-   *       sucursal base activa HOY: para periodos pasados no se reconstruye la asignación histórica.
+   *       Un colaborador faltó el día D cuando D es evaluable (no es futuro, descanso, vacaciones,
+   *       festivo, incapacidad ni excepción no general) y el día cuenta exactamente una falta. La
+   *       sucursal efectiva es el destino del préstamo temporal vigente ese día (no borrado, sin
+   *       cancelar a esa fecha, origen y destino del tenant; con varios gana el de inicio más reciente
+   *       y, empatando, el de id mayor) o, sin préstamo, la sucursal base activa HOY (con varias, la de
+   *       id menor); `null` si no tiene ninguna. Para periodos pasados no se reconstruye la asignación
+   *       histórica.
    *
-   *       Exige el permiso `shift-coverage` del módulo `employees-attendance-monitor` (root y owner
-   *       pasan), revisado antes de validar. Conteos y listas solo incluyen colaboradores que el usuario
-   *       puede ver con la regla del listado de empleados.
+   *       Universo: la plantilla del tenant (no borrados, sin discriminador de asistencia). Con
+   *       `branchOfficeIds`, solo quien tiene base activa en esas sucursales o un préstamo hacia ellas
+   *       en el periodo; sus faltas salen con la sucursal efectiva de cada día aunque sea otra.
    *
-   *       `days` trae todos los días del periodo (con `faults: 0` si no hubo faltas); `days[].sites`
-   *       solo los sitios con faltas, ordenados por nombre; `employeeIds` ordenados por nombre del
-   *       colaborador. `employees` lista una vez a cada colaborador que aparece en `days`, con sus
-   *       estadísticas de todo el periodo.
+   *       Sin permiso propio (paridad con el drawer). Días, empleados y sucursales solo incluyen
+   *       colaboradores que el usuario puede ver con la regla del listado de empleados.
+   *
+   *       `days` trae todos los días del periodo (con `entries` vacío si nadie faltó); `entries` va
+   *       ordenado por nombre completo y, empatando, por id. `employees` lista una vez a cada
+   *       colaborador de `days`, con alias de puesto y departamento cuando existe. `branches` solo
+   *       trae las sucursales referenciadas; la empresa contratante solo si está viva y es del tenant.
    *
    *       Los errores traen `title`, `detail` y `key`.
    *     security:
@@ -343,10 +349,6 @@ export default class AttendanceStatsController {
    *         required: true
    *         description: Código público (UUID v4) de la unidad de negocio activa.
    *         schema: { type: string, format: uuid }
-   *       - name: empresaContratanteId
-   *         in: query
-   *         required: true
-   *         schema: { type: integer, minimum: 1, example: 1 }
    *       - name: startDay
    *         in: query
    *         required: true
@@ -357,18 +359,18 @@ export default class AttendanceStatsController {
    *         schema: { type: string, format: date, example: "2026-09-15" }
    *       - name: branchOfficeIds
    *         in: query
-   *         description: CSV de IDs de sitios (enteros >= 1); se intersecta con los sitios de la empresa contratante. Si trae valor y alguna pieza no es un entero >= 1 responde 400 entrada-invalida con details, nunca se ignora.
+   *         description: CSV de IDs de sucursales (enteros >= 1) que acotan el universo. Si trae valor y alguna pieza no es un entero >= 1 responde 400 entrada-invalida con details, nunca se ignora.
    *         schema: { type: string, example: "5,7" }
    *       - name: payrollBusinessUnitId
    *         in: query
    *         schema: { type: integer }
    *     responses:
    *       '200':
-   *         description: Faltas calculadas correctamente
+   *         description: Ausencias calculadas correctamente
    *         content:
    *           application/json:
    *             schema:
-   *               $ref: '#/components/schemas/AttendanceCoverageAbsencesSuccess'
+   *               $ref: '#/components/schemas/AttendanceAbsencesSuccess'
    *       '400':
    *         description: Entrada inválida (entrada-invalida, con details por campo; incluye fecha inexistente y branchOfficeIds inválido), rango inválido (rango-invalido) o de más de 62 días (rango-maximo-excedido)
    *         content:
@@ -378,13 +380,7 @@ export default class AttendanceStatsController {
    *       '401':
    *         description: No autenticado
    *       '403':
-   *         description: Sin permiso shift-coverage (sin-permiso) o scope insuficiente (scope-insuficiente)
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/ApiError'
-   *       '404':
-   *         description: Empresa contratante no encontrada (empresa-contratante-no-encontrada)
+   *         description: Scope insuficiente (scope-insuficiente)
    *         content:
    *           application/json:
    *             schema:
@@ -396,38 +392,23 @@ export default class AttendanceStatsController {
    *             schema:
    *               $ref: '#/components/schemas/ApiError'
    */
-  async coverageAbsences(ctx: HttpContext) {
+  async absences(ctx: HttpContext) {
     const { request, response, i18n, businessUnitScope, auth } = ctx
     const t = i18n.formatMessage.bind(i18n)
 
     try {
-      // Antes de validar: sin permiso no se revela qué parámetros espera.
       const user = auth.getUserOrFail()
-      const canSeeCoverage = await new RoleService().hasAccess(
-        user.roleId,
-        ATTENDANCE_MONITOR_MODULE_SLUG,
-        SHIFT_COVERAGE_PERMISSION_SLUG
-      )
-      if (!canSeeCoverage) {
-        return response.status(403).json({
-          title: t('attendance_stats_coverage_forbidden_title'),
-          detail: t('attendance_stats_coverage_forbidden_detail'),
-          key: 'sin-permiso',
-        })
-      }
-
       const raw = {
         startDay: request.input('startDay'),
         endDay: request.input('endDay'),
-        empresaContratanteId: this.parseId(request.input('empresaContratanteId')),
-        // Sin parseIdList: un id inválido responde 400 en vez de quitar el filtro de sitios.
+        // Sin parseIdList: un id inválido responde 400 en vez de quitar el filtro de sucursales.
         branchOfficeIds: splitBranchOfficeIdsQuery(request.input('branchOfficeIds')),
         payrollBusinessUnitId: this.parseId(request.input('payrollBusinessUnitId')),
       }
 
-      let filters: CoverageAbsencesFilters
+      let filters: AbsencesFilters
       try {
-        filters = await getAttendanceCoverageAbsencesValidator.validate(raw)
+        filters = await getAttendanceAbsencesValidator.validate(raw)
       } catch (e: unknown) {
         const messages = (e as { messages?: unknown })?.messages
         return response.status(400).json({
@@ -442,7 +423,7 @@ export default class AttendanceStatsController {
 
       const service = new AttendanceStatsService(i18n)
       const scope: ResolvedScope = { allowedBusinessUnitIds: businessUnitScope }
-      const result = await service.getCoverageAbsences(filters, scope, user.userId)
+      const result = await service.getAbsences(filters, scope, user.userId)
       const isError = result.status >= 400
 
       return response.status(result.status).json({
@@ -456,7 +437,7 @@ export default class AttendanceStatsController {
       })
     } catch (error: unknown) {
       // El detalle va al log, nunca a la respuesta: puede traer SQL o rutas internas.
-      logger.error({ err: error }, 'attendance-stats: error inesperado al calcular las faltas por sitio')
+      logger.error({ err: error }, 'attendance-stats: error inesperado al calcular las ausencias por día')
       return response.status(500).json({
         type: 'error',
         title: t('server_error'),
