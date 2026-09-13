@@ -5,6 +5,7 @@ import type { AssistDayInterface } from '../../interfaces/assist_day_interface.j
 import type {
   AttendanceStatsFilters,
   CoverageActiveLoanRow,
+  CoverageRangeLoanRow,
   CoverageShiftQuotaRow,
   CoverageSiteRef,
   EmployeeCalendarBundle,
@@ -893,6 +894,113 @@ ORDER BY sfd_full.employee_id, sfd_full.day
       targetBranchId: Number(r.target_branch_id),
       destinationShiftId: r.destination_shift_id === null ? null : Number(r.destination_shift_id),
       reason: typeof r.reason === 'string' ? r.reason : null,
+    }))
+  }
+
+  async getCoverageAbsencesEmployeeIds(
+    siteIds: number[],
+    startDay: string,
+    endDay: string,
+    allowedBusinessUnitIds: number[]
+  ): Promise<number[]> {
+    const uniqueSiteIds = [...new Set(siteIds)]
+    if (uniqueSiteIds.length === 0 || allowedBusinessUnitIds.length === 0) return []
+
+    // db.from salta el mixin de tenant: el corte por empresa va explícito. Mismo
+    // criterio de plantilla que resolveEmployeesInScope (no borrados, sin
+    // discriminador de asistencia = 1).
+    const rows: Array<{ employee_id: number | string }> = await db
+      .from('employees AS e')
+      .whereNull('e.employee_deleted_at')
+      .whereRaw('COALESCE(e.employee_assist_discriminator, 0) <> 1')
+      .whereIn('e.business_unit_id', allowedBusinessUnitIds)
+      .where((universe) => {
+        universe
+          .whereExists((base) => {
+            base
+              .from('employee_branch_offices AS ebo')
+              .whereRaw('ebo.employee_id = e.employee_id')
+              .where('ebo.employee_branch_office_active', 1)
+              .whereIn('ebo.branch_office_id', uniqueSiteIds)
+          })
+          .orWhereExists((loan) => {
+            loan
+              .from('employee_temporary_assignments AS eta')
+              .innerJoin('branch_offices AS source_bo', 'source_bo.branch_office_id', 'eta.source_branch_id')
+              .whereRaw('eta.employee_id = e.employee_id')
+              .whereIn('source_bo.business_unit_id', allowedBusinessUnitIds)
+              .whereIn('eta.target_branch_id', uniqueSiteIds)
+              .whereNull('eta.employee_temporary_assignment_deleted_at')
+              .where('eta.start_date', '<=', endDay)
+              .where('eta.end_date', '>=', startDay)
+              .where((cancel) => {
+                cancel.whereNull('eta.cancelled_at').orWhere('eta.cancelled_at', '>', startDay)
+              })
+          })
+      })
+      .select('e.employee_id AS employee_id')
+
+    return rows.map((row) => Number(row.employee_id))
+  }
+
+  async getLoansForRange(
+    employeeIds: number[],
+    startDay: string,
+    endDay: string,
+    allowedBusinessUnitIds: number[]
+  ): Promise<CoverageRangeLoanRow[]> {
+    const uniqueEmployeeIds = [...new Set(employeeIds)]
+    if (uniqueEmployeeIds.length === 0 || allowedBusinessUnitIds.length === 0) return []
+
+    const rows: Array<{
+      assignment_id: number | string
+      employee_id: number | string
+      source_branch_id: number | string
+      target_branch_id: number | string
+      start_date: string
+      end_date: string
+      cancelled_at: string | null
+    }> = await db
+      .from('employee_temporary_assignments AS eta')
+      .innerJoin('employees AS e', 'e.employee_id', 'eta.employee_id')
+      // Origen y destino deben ser sucursales de la empresa: un préstamo que
+      // apunte a otra no puede mover al colaborador.
+      .innerJoin('branch_offices AS source_bo', 'source_bo.branch_office_id', 'eta.source_branch_id')
+      .innerJoin('branch_offices AS target_bo', 'target_bo.branch_office_id', 'eta.target_branch_id')
+      .whereIn('source_bo.business_unit_id', allowedBusinessUnitIds)
+      .whereIn('target_bo.business_unit_id', allowedBusinessUnitIds)
+      .whereIn('e.business_unit_id', allowedBusinessUnitIds)
+      .whereNull('e.employee_deleted_at')
+      .whereIn('eta.employee_id', uniqueEmployeeIds)
+      .whereNull('eta.employee_temporary_assignment_deleted_at')
+      .where('eta.start_date', '<=', endDay)
+      .where('eta.end_date', '>=', startDay)
+      // Cancelado a más tardar en startDay no mueve a nadie en el rango; la
+      // vigencia exacta por día se resuelve en memoria con cancelled_at.
+      .where((cancel) => {
+        cancel.whereNull('eta.cancelled_at').orWhere('eta.cancelled_at', '>', startDay)
+      })
+      .select(
+        'eta.employee_temporary_assignment_id AS assignment_id',
+        'eta.employee_id AS employee_id',
+        'eta.source_branch_id AS source_branch_id',
+        'eta.target_branch_id AS target_branch_id',
+        // Fechas como texto: sin conversión de zona horaria del driver.
+        db.raw("DATE_FORMAT(eta.start_date, '%Y-%m-%d') AS start_date"),
+        db.raw("DATE_FORMAT(eta.end_date, '%Y-%m-%d') AS end_date"),
+        db.raw("DATE_FORMAT(eta.cancelled_at, '%Y-%m-%d') AS cancelled_at")
+      )
+      .orderBy('eta.start_date', 'desc')
+      .orderBy('eta.employee_temporary_assignment_id', 'desc')
+
+    return rows.map((row) => ({
+      assignmentId: Number(row.assignment_id),
+      employeeId: Number(row.employee_id),
+      sourceBranchId: Number(row.source_branch_id),
+      targetBranchId: Number(row.target_branch_id),
+      startDate: row.start_date,
+      endDate: row.end_date,
+      cancelledAt: row.cancelled_at,
     }))
   }
 

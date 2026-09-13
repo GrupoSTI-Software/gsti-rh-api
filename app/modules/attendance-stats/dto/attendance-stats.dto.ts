@@ -283,3 +283,62 @@ export interface CoverageActiveLoanRow {
   destinationShiftId?: number | null
   reason?: string | null
 }
+
+/**
+ * Filtros del endpoint coverage/absences: periodo, empresa contratante y, de
+ * forma opcional, los sitios a incluir y la unidad de negocio de nómina.
+ */
+export interface CoverageAbsencesFilters {
+  startDay: string
+  endDay: string
+  empresaContratanteId: number
+  /** Se intersecta con los sitios de la empresa contratante. */
+  branchOfficeIds?: number[]
+  payrollBusinessUnitId?: number
+}
+
+/**
+ * Préstamo temporal que intersecta un rango, con sus fechas en yyyy-MM-dd para
+ * resolver en memoria si mueve al colaborador un día concreto.
+ */
+export interface CoverageRangeLoanRow extends CoverageActiveLoanRow {
+  startDate: string
+  endDate: string
+  /** Fecha de cancelación; desde ese día el préstamo deja de mover al colaborador. */
+  cancelledAt: string | null
+}
+
+/** Sitio de servicio de la empresa contratante tras el filtro de sitios. */
+export interface CoverageAbsencesSite {
+  branchOfficeId: number
+  name: string
+}
+
+/** Colaboradores que faltaron un día estando asignados a un sitio. */
+export interface CoverageAbsencesDaySite {
+  branchOfficeId: number
+  /** Ordenados por nombre del colaborador. */
+  employeeIds: number[]
+}
+
+/** Faltas de un día del periodo, agrupadas por sitio. */
+export interface CoverageAbsencesDay {
+  day: string
+  /** Total de faltas visibles del día; igual a la suma de `employeeIds` de sus sitios. */
+  faults: number
+  /** Solo sitios con faltas ese día, ordenados por nombre del sitio. */
+  sites: CoverageAbsencesDaySite[]
+}
+
+/** Respuesta de coverage/absences. */
+export interface CoverageAbsencesResponse {
+  period: { startDay: string; endDay: string }
+  sites: CoverageAbsencesSite[]
+  /** Todos los días del periodo en orden ascendente, incluso los que no tienen faltas. */
+  days: CoverageAbsencesDay[]
+  /**
+   * Colaboradores que aparecen en `days`, una sola vez cada uno, con las
+   * estadísticas de todo el periodo (no solo de los días en el sitio).
+   */
+  employees: EmployeeRow[]
+}

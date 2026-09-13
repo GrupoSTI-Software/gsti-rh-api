@@ -6,6 +6,11 @@ import { EmpresaContratanteError } from '../../exceptions/empresa_contratante_er
 import { resolveEmployeeRoleScope } from '../../helpers/resolve_employee_role_scope.js'
 import AttendanceStatsRepositoryMysql from './attendance-stats.repository.mysql.js'
 import { buildCoverageResponse } from './attendance-stats.coverage.js'
+import {
+  buildCoverageAbsencesResponse,
+  countRangeDaysInclusive,
+  COVERAGE_ABSENCES_MAX_RANGE_DAYS,
+} from './attendance-stats.coverage-absences.js'
 import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
 import type { ShiftExceptionInterface } from '../../interfaces/shift_exception_interface.js'
 import type { AttendanceStatsRepository } from './attendance-stats.repository.js'
@@ -14,6 +19,8 @@ import type {
   AttendanceStatsFilters,
   AttendanceStatsGranularity,
   CleanCounters,
+  CoverageAbsencesFilters,
+  CoverageAbsencesResponse,
   CoverageFilters,
   CoverageResponse,
   CoverageActiveLoanRow,
@@ -210,24 +217,10 @@ export default class AttendanceStatsService {
       }
     }
 
-    try {
-      await findEmpresaContratanteInTenantOrFail(
-        filters.empresaContratanteId,
-        'empresa-contratante-no-encontrada'
-      )
-    } catch (error) {
-      if (error instanceof EmpresaContratanteError) {
-        return {
-          status: error.httpStatus,
-          type: 'error',
-          title: this.t('validation_error'),
-          message: error.message,
-          key: error.key,
-          data: null,
-        }
-      }
-      throw error
-    }
+    const empresaError = await this.findEmpresaContratanteError<CoverageResponse>(
+      filters.empresaContratanteId
+    )
+    if (empresaError) return empresaError
 
     const sites = await this.repo.getSitesByCompany(
       filters.empresaContratanteId,
@@ -288,6 +281,173 @@ export default class AttendanceStatsService {
       visibleEmployeeIds,
     })
 
+    return {
+      status: 200,
+      type: 'success',
+      title: this.t('resources'),
+      message: this.t('resources_were_found_successfully'),
+      data,
+    }
+  }
+
+  /**
+   * Faltas por sitio de servicio de una empresa contratante, día por día del
+   * periodo (máximo `COVERAGE_ABSENCES_MAX_RANGE_DAYS` días inclusive).
+   *
+   * Solo calcula calendarios del universo de colaboradores que pueden tener
+   * faltas en los sitios (sucursal base activa en ellos o préstamo hacia ellos
+   * en el periodo). Conteos y listas se recortan a los colaboradores que el
+   * usuario puede ver, antes de contar.
+   *
+   * @param userId - Usuario que consulta; define el alcance de colaboradores.
+   */
+  async getCoverageAbsences(
+    filters: CoverageAbsencesFilters,
+    scope: ResolvedScope,
+    userId: number
+  ): Promise<ServiceResult<CoverageAbsencesResponse>> {
+    if (scope.allowedBusinessUnitIds.length === 0) {
+      return this.forbidden()
+    }
+
+    const rangeError = this.validateCoverageAbsencesRange<CoverageAbsencesResponse>(filters)
+    if (rangeError) return rangeError
+
+    const empresaError = await this.findEmpresaContratanteError<CoverageAbsencesResponse>(
+      filters.empresaContratanteId
+    )
+    if (empresaError) return empresaError
+
+    const { startDay, endDay } = filters
+    const allowedBusinessUnitIds = scope.allowedBusinessUnitIds
+    const sites = await this.repo.getSitesByCompany(
+      filters.empresaContratanteId,
+      allowedBusinessUnitIds,
+      filters.branchOfficeIds
+    )
+    const employeeIds = await this.repo.getCoverageAbsencesEmployeeIds(
+      sites.map((site) => site.branchOfficeId),
+      startDay,
+      endDay,
+      allowedBusinessUnitIds
+    )
+
+    if (employeeIds.length === 0) {
+      // Sin colaboradores posibles no se corre el SQL de calendarios: todos los días en cero.
+      return this.found(
+        buildCoverageAbsencesResponse({
+          startDay,
+          endDay,
+          sites,
+          loans: [],
+          bundles: [],
+          visibleEmployeeIds: new Set(),
+          thresholds: {
+            delayMinutes: DEFAULT_TOLERANCE_DELAY_MINUTES,
+            faultMinutes: DEFAULT_TOLERANCE_FAULT_MINUTES,
+          },
+        })
+      )
+    }
+
+    const [bundles, loans, thresholds] = await Promise.all([
+      this.repo.getEmployeeCalendars(
+        {
+          startDay,
+          endDay,
+          employeeIds,
+          payrollBusinessUnitId: filters.payrollBusinessUnitId,
+        },
+        allowedBusinessUnitIds
+      ),
+      this.repo.getLoansForRange(employeeIds, startDay, endDay, allowedBusinessUnitIds),
+      this.loadToleranceThresholds(),
+    ])
+    const visibleEmployeeIds = await this.resolveVisibleEmployeeIds(
+      userId,
+      bundles,
+      allowedBusinessUnitIds
+    )
+
+    return this.found(
+      buildCoverageAbsencesResponse({
+        startDay,
+        endDay,
+        sites,
+        loans,
+        bundles,
+        visibleEmployeeIds,
+        thresholds,
+      })
+    )
+  }
+
+  /**
+   * Fechas existentes, rango ordenado y tope de días de coverage/absences.
+   * Devuelve el error a responder o `null` si el periodo es válido.
+   */
+  private validateCoverageAbsencesRange<T>(
+    filters: CoverageAbsencesFilters
+  ): ServiceResult<T> | null {
+    const rangeDays = countRangeDaysInclusive(filters.startDay, filters.endDay)
+    if (rangeDays === null) {
+      return {
+        status: 400,
+        type: 'error',
+        title: this.t('validation_error'),
+        message: this.t('attendance_stats_invalid_input'),
+        key: 'entrada-invalida',
+        data: null,
+      }
+    }
+
+    const rangeError = this.validateRange(filters)
+    if (rangeError) return { ...rangeError, data: null }
+
+    if (rangeDays > COVERAGE_ABSENCES_MAX_RANGE_DAYS) {
+      return {
+        status: 400,
+        type: 'error',
+        title: this.t('attendance_stats_coverage_absences_range_exceeded_title'),
+        message: this.t('attendance_stats_coverage_absences_range_exceeded_detail', {
+          maxDays: COVERAGE_ABSENCES_MAX_RANGE_DAYS,
+        }),
+        key: 'rango-maximo-excedido',
+        data: null,
+      }
+    }
+    return null
+  }
+
+  /**
+   * Error a responder si la empresa contratante no existe o no pertenece al
+   * tenant; `null` si pertenece.
+   */
+  private async findEmpresaContratanteError<T>(
+    empresaContratanteId: number
+  ): Promise<ServiceResult<T> | null> {
+    try {
+      await findEmpresaContratanteInTenantOrFail(
+        empresaContratanteId,
+        'empresa-contratante-no-encontrada'
+      )
+      return null
+    } catch (error) {
+      if (error instanceof EmpresaContratanteError) {
+        return {
+          status: error.httpStatus,
+          type: 'error',
+          title: this.t('validation_error'),
+          message: error.message,
+          key: error.key,
+          data: null,
+        }
+      }
+      throw error
+    }
+  }
+
+  private found<T>(data: T): ServiceResult<T> {
     return {
       status: 200,
       type: 'success',
@@ -481,10 +641,11 @@ function addInformational(dst: InformationalCounters, src: InformationalCounters
  * y el residuo es negativo, daría un porcentaje negativo). earlyOutPercentage
  * es independiente. Si totalAvailable=0, todos los % son 0.
  *
- * Única implementación de la regla: la usan by-employee directo y, vía
- * `toOverviewStatistics`, overview (statistics, daily, monthly) y by-department.
+ * Única implementación de la regla: la usan by-employee y coverage/absences
+ * directo y, vía `toOverviewStatistics`, overview (statistics, daily, monthly)
+ * y by-department.
  */
-function toStatistics(c: CleanCounters, info: InformationalCounters): AttendanceStatistics {
+export function toStatistics(c: CleanCounters, info: InformationalCounters): AttendanceStatistics {
   const totalAvailable = c.assists + c.tolerances + c.delays + c.faults
   if (totalAvailable === 0) {
     return {
@@ -730,7 +891,7 @@ export function aggregateCalendar(
  * Comparación por fecha pura (sin componente horario): las fechas son días
  * laborales del huso México y el servidor corre en UTC.
  */
-function enumerateDays(startDay: string, endDay: string): string[] {
+export function enumerateDays(startDay: string, endDay: string): string[] {
   const days: string[] = []
   let cursor = DateTime.fromISO(startDay)
   const end = DateTime.fromISO(endDay)
@@ -756,7 +917,12 @@ function enumerateMonths(startDay: string, endDay: string): string[] {
   return months
 }
 
-function isEvaluableDay(day: AssistDayInterface): boolean {
+/**
+ * Día que entra a los contadores de asistencia: excluye día futuro, descanso,
+ * vacaciones, festivo, incapacidad y excepciones no generales. Única
+ * implementación; la usan las estadísticas, la cobertura y las faltas por sitio.
+ */
+export function isEvaluableDay(day: AssistDayInterface): boolean {
   if (day.assist.isFutureDay) return false
   if (day.assist.isRestDay) return false
   if (day.assist.isVacationDate) return false

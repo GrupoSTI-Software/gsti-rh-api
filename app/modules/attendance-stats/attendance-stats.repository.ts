@@ -1,6 +1,7 @@
 import type {
   AttendanceStatsFilters,
   CoverageActiveLoanRow,
+  CoverageRangeLoanRow,
   CoverageShiftQuotaRow,
   CoverageSiteRef,
   EmployeeCalendarBundle,
@@ -45,6 +46,36 @@ export interface AttendanceStatsRepository {
    * de negocio permitidas.
    */
   getActiveLoansForDay(day: string, allowedBusinessUnitIds: number[]): Promise<CoverageActiveLoanRow[]>
+
+  /**
+   * Colaboradores que pueden tener faltas en `siteIds` dentro de [startDay, endDay]:
+   * los de las unidades de negocio permitidas (no borrados ni discriminados de
+   * asistencia) con sucursal base activa en alguno de los sitios o con un
+   * préstamo hacia ellos que intersecta el rango. Es un pre-filtro: la
+   * atribución exacta por día la resuelve la construcción de la respuesta. Sin
+   * sitios o sin unidades de negocio no devuelve nada.
+   */
+  getCoverageAbsencesEmployeeIds(
+    siteIds: number[],
+    startDay: string,
+    endDay: string,
+    allowedBusinessUnitIds: number[]
+  ): Promise<number[]>
+
+  /**
+   * Préstamos de `employeeIds` que intersectan [startDay, endDay], hacia
+   * cualquier sucursal: uno hacia fuera de los sitios también mueve al
+   * colaborador. Descarta los borrados, los cancelados a más tardar en
+   * `startDay` y los que tienen origen o destino fuera de las unidades de
+   * negocio permitidas. Orden: start_date descendente y, empatando, id
+   * descendente. Sin colaboradores o sin unidades de negocio no devuelve nada.
+   */
+  getLoansForRange(
+    employeeIds: number[],
+    startDay: string,
+    endDay: string,
+    allowedBusinessUnitIds: number[]
+  ): Promise<CoverageRangeLoanRow[]>
 
   /**
    * Nombres de sucursales por id (lectura bulk para candidatos de cobertura).

@@ -1,4 +1,5 @@
 import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
+import { isEvaluableDay } from './attendance-stats.service.js'
 import type {
   CoverageActiveLoanRow,
   CoverageCandidate,
@@ -18,20 +19,8 @@ function siteShiftKey(branchOfficeId: number, shiftId: number): SiteShiftKey {
   return `${branchOfficeId}:${shiftId}`
 }
 
-function coverageIsEvaluableDay(day: AssistDayInterface): boolean {
-  if (day.assist.isFutureDay) return false
-  if (day.assist.isRestDay) return false
-  if (day.assist.isVacationDate) return false
-  if (day.assist.isHoliday) return false
-  if (day.assist.isWorkDisabilityDate) return false
-  return !day.assist.exceptions.some(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (e) => (e.exceptionType as any)?.exceptionTypeIsGeneral === 0
-  )
-}
-
 function coverageIsPresent(day: AssistDayInterface): boolean {
-  if (!coverageIsEvaluableDay(day)) return false
+  if (!isEvaluableDay(day)) return false
   const status = day.assist.checkInStatus
   return status === 'ontime' || status === 'tolerance' || status === 'delay'
 }
@@ -41,14 +30,20 @@ function getDayShiftId(day: AssistDayInterface): number | null {
   return shiftId !== null && shiftId !== undefined ? Number(shiftId) : null
 }
 
-function buildEmployeeDisplayName(employee: EmployeeInfo): string {
+/** Nombre completo del colaborador (nombre y apellidos presentes, separados por espacio). */
+export function buildEmployeeDisplayName(employee: EmployeeInfo): string {
   return [employee.employeeFirstName, employee.employeeLastName, employee.employeeSecondLastName]
     .filter((part) => part && part.trim().length > 0)
     .join(' ')
     .trim()
 }
 
-function resolveEffectiveBranchId(
+/**
+ * Sucursal efectiva del colaborador: el destino del préstamo que lo mueve ese
+ * día o, sin préstamo, su sucursal base. Única implementación de la regla; la
+ * usan la cobertura del día y las faltas por sitio.
+ */
+export function resolveEffectiveBranchId(
   homeBranchId: number | null | undefined,
   loan: CoverageActiveLoanRow | undefined
 ): number | null {
@@ -146,7 +141,7 @@ export function buildCoverageResponse(input: BuildCoverageInput): CoverageRespon
     const activeLoan = loansByEmployee.get(bundle.employee.employeeId)
     const effectiveBranchId = resolveEffectiveBranchId(homeBranchId, activeLoan)
     const shiftId = getDayShiftId(daySlice)
-    const isEvaluable = coverageIsEvaluableDay(daySlice)
+    const isEvaluable = isEvaluableDay(daySlice)
     const isPresent = coverageIsPresent(daySlice)
 
     employeeContexts.push({

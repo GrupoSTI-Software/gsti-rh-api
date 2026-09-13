@@ -7,6 +7,10 @@ router
     router.get('/by-department', '#modules/attendance-stats/attendance-stats.controller.byDepartment')
     router.get('/by-employee', '#modules/attendance-stats/attendance-stats.controller.byEmployee')
     router.get('/coverage', '#modules/attendance-stats/attendance-stats.controller.coverage')
+    router.get(
+      '/coverage/absences',
+      '#modules/attendance-stats/attendance-stats.controller.coverageAbsences'
+    )
   })
   .prefix('/api/v1/attendance-stats')
   .use(middleware.auth())

@@ -2587,6 +2587,231 @@ components:
         data:
           $ref: '#/components/schemas/AttendanceCoverageData'
 
+    AttendanceEmployeeStatistics:
+      type: object
+      description: |
+        Contadores y porcentajes de un colaborador en el periodo. `ontimePercentage + tolerancePercentage +
+        delayPercentage + faultPercentage` cierran en 100 cuando `totalAvailable > 0`; `earlyOutPercentage`
+        es independiente. Con `totalAvailable = 0` todos los porcentajes son 0.
+      required:
+        - assists
+        - tolerances
+        - delays
+        - earlyOuts
+        - faults
+        - totalAvailable
+        - ontimePercentage
+        - tolerancePercentage
+        - delayPercentage
+        - earlyOutPercentage
+        - faultPercentage
+        - justifiedAbsences
+        - vacations
+        - holidays
+      properties:
+        assists:
+          type: integer
+        tolerances:
+          type: integer
+        delays:
+          type: integer
+        earlyOuts:
+          type: integer
+        faults:
+          type: integer
+        totalAvailable:
+          type: integer
+          description: Días evaluables del colaborador (assists + tolerances + delays + faults).
+        ontimePercentage:
+          type: integer
+        tolerancePercentage:
+          type: integer
+        delayPercentage:
+          type: integer
+        earlyOutPercentage:
+          type: integer
+        faultPercentage:
+          type: integer
+        justifiedAbsences:
+          type: integer
+          description: Informativo; no entra al cierre al 100%.
+        vacations:
+          type: integer
+          description: Informativo; no entra al cierre al 100%.
+        holidays:
+          type: integer
+          description: Informativo; no entra al cierre al 100%.
+
+    AttendanceEmployeeInfo:
+      type: object
+      required:
+        - employeeId
+        - employeeCode
+        - employeePayrollCode
+        - employeeFirstName
+        - employeeLastName
+        - employeeSecondLastName
+        - employeePhoto
+        - departmentId
+        - positionId
+        - businessUnitId
+        - payrollBusinessUnitId
+        - department
+        - position
+        - businessUnit
+      properties:
+        employeeId:
+          type: integer
+        employeeCode:
+          type: string
+          nullable: true
+        employeePayrollCode:
+          type: string
+          nullable: true
+        employeeFirstName:
+          type: string
+          nullable: true
+        employeeLastName:
+          type: string
+          nullable: true
+        employeeSecondLastName:
+          type: string
+          nullable: true
+        employeePhoto:
+          type: string
+          nullable: true
+        departmentId:
+          type: integer
+          nullable: true
+        positionId:
+          type: integer
+          nullable: true
+        businessUnitId:
+          type: integer
+        payrollBusinessUnitId:
+          type: integer
+        branchOfficeId:
+          type: integer
+          nullable: true
+          description: Sucursal base activa hoy (no la del periodo).
+        branchOfficeName:
+          type: string
+          nullable: true
+        department:
+          type: object
+          nullable: true
+          properties:
+            departmentId:
+              type: integer
+            departmentName:
+              type: string
+              nullable: true
+        position:
+          type: object
+          nullable: true
+          properties:
+            positionId:
+              type: integer
+            positionName:
+              type: string
+              nullable: true
+        businessUnit:
+          type: object
+          nullable: true
+          properties:
+            businessUnitId:
+              type: integer
+            businessUnitName:
+              type: string
+              nullable: true
+
+    AttendanceCoverageAbsencesDaySite:
+      type: object
+      required: [branchOfficeId, employeeIds]
+      properties:
+        branchOfficeId:
+          type: integer
+        employeeIds:
+          type: array
+          description: Colaboradores que faltaron ese día asignados al sitio, ordenados por nombre.
+          items:
+            type: integer
+
+    AttendanceCoverageAbsencesDay:
+      type: object
+      required: [day, faults, sites]
+      properties:
+        day:
+          type: string
+          format: date
+          description: Día del periodo (yyyy-MM-dd, huso México).
+        faults:
+          type: integer
+          description: Total de faltas visibles del día; igual a la suma de `employeeIds` de sus sitios.
+        sites:
+          type: array
+          description: Solo sitios con faltas ese día, ordenados por nombre del sitio.
+          items:
+            $ref: '#/components/schemas/AttendanceCoverageAbsencesDaySite'
+
+    AttendanceCoverageAbsencesData:
+      type: object
+      required: [period, sites, days, employees]
+      properties:
+        period:
+          type: object
+          required: [startDay, endDay]
+          properties:
+            startDay:
+              type: string
+              format: date
+            endDay:
+              type: string
+              format: date
+        sites:
+          type: array
+          description: Sitios de la empresa contratante tras el filtro `branchOfficeIds`, ordenados por nombre.
+          items:
+            type: object
+            required: [branchOfficeId, name]
+            properties:
+              branchOfficeId:
+                type: integer
+              name:
+                type: string
+        days:
+          type: array
+          description: Todos los días del periodo en orden ascendente, incluso los que no tienen faltas.
+          items:
+            $ref: '#/components/schemas/AttendanceCoverageAbsencesDay'
+        employees:
+          type: array
+          description: |
+            Cada colaborador que aparece en `days`, una sola vez, con las estadísticas de todo el periodo
+            (no solo de los días en el sitio).
+          items:
+            type: object
+            required: [employee, statistics]
+            properties:
+              employee:
+                $ref: '#/components/schemas/AttendanceEmployeeInfo'
+              statistics:
+                $ref: '#/components/schemas/AttendanceEmployeeStatistics'
+
+    AttendanceCoverageAbsencesSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/AttendanceCoverageAbsencesData'
+
     AttendanceOverviewStatistics:
       type: object
       description: |
@@ -7814,6 +8039,225 @@ paths:
                 title: Server error
                 message: An unexpected error has occurred on the server
                 data: null
+
+  /api/v1/attendance-stats/coverage/absences:
+    get:
+      summary: Faltas por sitio de servicio REPSE en un periodo
+      description: |
+        Faltas de los sitios de servicio (sucursales) de una empresa contratante, día por día del periodo
+        `[startDay, endDay]` inclusive, con un máximo de 62 días.
+
+        **Regla**: un colaborador faltó el día D en el sitio S cuando D es evaluable (no es futuro, descanso,
+        vacaciones, festivo, incapacidad ni excepción no general), el día cuenta exactamente una falta y su
+        sucursal efectiva ese día es S.
+
+        **Sucursal efectiva**: el destino del préstamo temporal vigente ese día (no borrado, sin cancelar a esa
+        fecha, con origen y destino de la empresa; con varios vigentes gana el de inicio más reciente y,
+        empatando, el de id mayor). Sin préstamo, la sucursal base activa HOY: para periodos pasados no se
+        reconstruye la asignación histórica.
+
+        **Permiso**: exige `shift-coverage` del módulo `employees-attendance-monitor` (root y owner pasan),
+        revisado antes de validar la entrada.
+
+        **Alcance**: conteos y listas solo incluyen colaboradores que el usuario puede ver con la regla del
+        listado de empleados; `days[].faults` siempre cuadra con la suma de `employeeIds` del día.
+
+        **Errores**: traen `title`, `detail` y `key` (además de `type` y `message` del envoltorio del módulo).
+
+        **`companyId` no se acepta**: el middleware de alcance lo trata como alias legacy de unidad de negocio.
+      tags: [AttendanceStats]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          description: Código público (UUID v4) de la unidad de negocio activa.
+          schema:
+            type: string
+            format: uuid
+        - name: empresaContratanteId
+          in: query
+          required: true
+          description: ID de la empresa contratante cuyos sitios de servicio se evalúan.
+          schema:
+            type: integer
+            minimum: 1
+            example: 1
+        - name: startDay
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-09-01"
+        - name: endDay
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-09-15"
+        - name: branchOfficeIds
+          in: query
+          required: false
+          description: CSV de IDs de sitios; se intersecta con los sitios de la empresa contratante.
+          schema:
+            type: string
+            example: "5,7"
+        - name: payrollBusinessUnitId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Faltas calculadas correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceCoverageAbsencesSuccess'
+              example:
+                type: success
+                title: Resources
+                message: Resources were found successfully
+                data:
+                  period:
+                    startDay: "2026-09-01"
+                    endDay: "2026-09-02"
+                  sites:
+                    - branchOfficeId: 5
+                      name: Planta Monterrey
+                    - branchOfficeId: 7
+                      name: Planta Saltillo
+                  days:
+                    - day: "2026-09-01"
+                      faults: 2
+                      sites:
+                        - branchOfficeId: 5
+                          employeeIds: [88, 42]
+                    - day: "2026-09-02"
+                      faults: 0
+                      sites: []
+                  employees:
+                    - employee:
+                        employeeId: 88
+                        employeeCode: "0088"
+                        employeePayrollCode: null
+                        employeeFirstName: Ana
+                        employeeLastName: López
+                        employeeSecondLastName: null
+                        employeePhoto: null
+                        departmentId: 3
+                        positionId: 9
+                        businessUnitId: 1
+                        payrollBusinessUnitId: 1
+                        branchOfficeId: 5
+                        branchOfficeName: Planta Monterrey
+                        department: { departmentId: 3, departmentName: Operaciones }
+                        position: { positionId: 9, positionName: Guardia }
+                        businessUnit: { businessUnitId: 1, businessUnitName: Servicios Norte }
+                      statistics:
+                        assists: 1
+                        tolerances: 0
+                        delays: 0
+                        earlyOuts: 0
+                        faults: 1
+                        totalAvailable: 2
+                        ontimePercentage: 50
+                        tolerancePercentage: 0
+                        delayPercentage: 0
+                        earlyOutPercentage: 0
+                        faultPercentage: 50
+                        justifiedAbsences: 0
+                        vacations: 0
+                        holidays: 0
+        '400':
+          description: Entrada inválida, rango inválido o rango de más de 62 días
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                entradaInvalida:
+                  summary: key entrada-invalida
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Invalid request parameters
+                    detail: Invalid request parameters
+                    key: entrada-invalida
+                rangoInvalido:
+                  summary: key rango-invalido
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Invalid date range
+                    detail: Invalid date range
+                    key: rango-invalido
+                    data: null
+                rangoMaximoExcedido:
+                  summary: key rango-maximo-excedido
+                  value:
+                    type: error
+                    title: Rango máximo excedido
+                    message: El periodo no puede abarcar más de 62 días.
+                    detail: El periodo no puede abarcar más de 62 días.
+                    key: rango-maximo-excedido
+                    data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Sin permiso shift-coverage (key sin-permiso) o scope insuficiente (key scope-insuficiente)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                sinPermiso:
+                  summary: key sin-permiso
+                  value:
+                    title: Sin permiso
+                    detail: No tienes permiso para consultar la cobertura de plantilla.
+                    key: sin-permiso
+                scopeInsuficiente:
+                  summary: key scope-insuficiente
+                  value:
+                    type: error
+                    title: Forbidden
+                    message: User has no business units assigned
+                    detail: User has no business units assigned
+                    key: scope-insuficiente
+                    data: null
+        '404':
+          description: Empresa contratante no encontrada (key empresa-contratante-no-encontrada)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Validation error
+                message: La empresa contratante no existe o no pertenece al tenant actual.
+                detail: La empresa contratante no existe o no pertenece al tenant actual.
+                key: empresa-contratante-no-encontrada
+                data: null
+        '500':
+          description: Error interno del servidor; el detalle solo va al log
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Server error
+                message: An unexpected error has occurred on the server
+                detail: An unexpected error has occurred on the server
+                key: error-inesperado
 
   /api/nom035/questionnaire-applicability:
     get:

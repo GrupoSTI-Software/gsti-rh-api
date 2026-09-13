@@ -4,7 +4,12 @@ import RoleService from '#services/role_service'
 import AttendanceStatsService from './attendance-stats.service.js'
 import { getAttendanceStatsValidator } from './validators/get-attendance-stats.validator.js'
 import { getAttendanceCoverageValidator } from './validators/get-attendance-coverage.validator.js'
-import type { AttendanceStatsFilters, ResolvedScope } from './dto/attendance-stats.dto.js'
+import { getAttendanceCoverageAbsencesValidator } from './validators/get-attendance-coverage-absences.validator.js'
+import type {
+  AttendanceStatsFilters,
+  CoverageAbsencesFilters,
+  ResolvedScope,
+} from './dto/attendance-stats.dto.js'
 
 /** Módulo y permiso que exige el drawer de cobertura (sembrados en el catálogo). */
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
@@ -296,6 +301,164 @@ export default class AttendanceStatsController {
         type: 'error',
         title: t('server_error'),
         message: t('an_unexpected_error_has_occurred_on_the_server'),
+      })
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/v1/attendance-stats/coverage/absences:
+   *   get:
+   *     summary: Faltas por sitio de servicio REPSE en un periodo
+   *     description: |
+   *       Faltas de los sitios de servicio (sucursales) de una empresa contratante, día por día del
+   *       periodo `[startDay, endDay]` inclusive (máximo 62 días).
+   *
+   *       Un colaborador faltó el día D en el sitio S cuando D es evaluable (no es futuro, descanso,
+   *       vacaciones, festivo, incapacidad ni excepción no general), el día cuenta exactamente una falta
+   *       y su sucursal efectiva ese día es S. La sucursal efectiva es el destino del préstamo temporal
+   *       vigente ese día (no borrado, sin cancelar a esa fecha, origen y destino de la empresa; con
+   *       varios gana el de inicio más reciente y, empatando, el de id mayor) o, sin préstamo, la
+   *       sucursal base activa HOY: para periodos pasados no se reconstruye la asignación histórica.
+   *
+   *       Exige el permiso `shift-coverage` del módulo `employees-attendance-monitor` (root y owner
+   *       pasan), revisado antes de validar. Conteos y listas solo incluyen colaboradores que el usuario
+   *       puede ver con la regla del listado de empleados.
+   *
+   *       `days` trae todos los días del periodo (con `faults: 0` si no hubo faltas); `days[].sites`
+   *       solo los sitios con faltas, ordenados por nombre; `employeeIds` ordenados por nombre del
+   *       colaborador. `employees` lista una vez a cada colaborador que aparece en `days`, con sus
+   *       estadísticas de todo el periodo.
+   *
+   *       Los errores traen `title`, `detail` y `key`.
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [AttendanceStats]
+   *     parameters:
+   *       - name: X-Business-Unit-Id
+   *         in: header
+   *         required: true
+   *         description: Código público (UUID v4) de la unidad de negocio activa.
+   *         schema: { type: string, format: uuid }
+   *       - name: empresaContratanteId
+   *         in: query
+   *         required: true
+   *         schema: { type: integer, minimum: 1, example: 1 }
+   *       - name: startDay
+   *         in: query
+   *         required: true
+   *         schema: { type: string, format: date, example: "2026-09-01" }
+   *       - name: endDay
+   *         in: query
+   *         required: true
+   *         schema: { type: string, format: date, example: "2026-09-15" }
+   *       - name: branchOfficeIds
+   *         in: query
+   *         description: CSV de IDs de sitios; se intersecta con los sitios de la empresa contratante.
+   *         schema: { type: string, example: "5,7" }
+   *       - name: payrollBusinessUnitId
+   *         in: query
+   *         schema: { type: integer }
+   *     responses:
+   *       '200':
+   *         description: Faltas calculadas correctamente
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/AttendanceCoverageAbsencesSuccess'
+   *       '400':
+   *         description: Entrada inválida (entrada-invalida), rango inválido (rango-invalido) o de más de 62 días (rango-maximo-excedido)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ApiError'
+   *       '401':
+   *         description: No autenticado
+   *       '403':
+   *         description: Sin permiso shift-coverage (sin-permiso) o scope insuficiente (scope-insuficiente)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ApiError'
+   *       '404':
+   *         description: Empresa contratante no encontrada (empresa-contratante-no-encontrada)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ApiError'
+   *       '500':
+   *         description: Error interno del servidor
+   *         content:
+   *           application/json:
+   *             schema:
+   *               $ref: '#/components/schemas/ApiError'
+   */
+  async coverageAbsences(ctx: HttpContext) {
+    const { request, response, i18n, businessUnitScope, auth } = ctx
+    const t = i18n.formatMessage.bind(i18n)
+
+    try {
+      // Antes de validar: sin permiso no se revela qué parámetros espera.
+      const user = auth.getUserOrFail()
+      const canSeeCoverage = await new RoleService().hasAccess(
+        user.roleId,
+        ATTENDANCE_MONITOR_MODULE_SLUG,
+        SHIFT_COVERAGE_PERMISSION_SLUG
+      )
+      if (!canSeeCoverage) {
+        return response.status(403).json({
+          title: t('attendance_stats_coverage_forbidden_title'),
+          detail: t('attendance_stats_coverage_forbidden_detail'),
+          key: 'sin-permiso',
+        })
+      }
+
+      const raw = {
+        startDay: request.input('startDay'),
+        endDay: request.input('endDay'),
+        empresaContratanteId: this.parseId(request.input('empresaContratanteId')),
+        branchOfficeIds: this.parseIdList(request.input('branchOfficeIds')),
+        payrollBusinessUnitId: this.parseId(request.input('payrollBusinessUnitId')),
+      }
+
+      let filters: CoverageAbsencesFilters
+      try {
+        filters = await getAttendanceCoverageAbsencesValidator.validate(raw)
+      } catch (e: unknown) {
+        const messages = (e as { messages?: unknown })?.messages
+        return response.status(400).json({
+          type: 'error',
+          title: t('validation_error'),
+          message: t('attendance_stats_invalid_input'),
+          detail: t('attendance_stats_invalid_input'),
+          key: 'entrada-invalida',
+          details: messages,
+        })
+      }
+
+      const service = new AttendanceStatsService(i18n)
+      const scope: ResolvedScope = { allowedBusinessUnitIds: businessUnitScope }
+      const result = await service.getCoverageAbsences(filters, scope, user.userId)
+      const isError = result.status >= 400
+
+      return response.status(result.status).json({
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        // Los errores de este endpoint llevan title/detail/key; message se conserva por el envoltorio del módulo.
+        ...(isError ? { detail: result.message } : {}),
+        key: result.key,
+        data: result.data,
+      })
+    } catch (error: unknown) {
+      // El detalle va al log, nunca a la respuesta: puede traer SQL o rutas internas.
+      logger.error({ err: error }, 'attendance-stats: error inesperado al calcular las faltas por sitio')
+      return response.status(500).json({
+        type: 'error',
+        title: t('server_error'),
+        message: t('an_unexpected_error_has_occurred_on_the_server'),
+        detail: t('an_unexpected_error_has_occurred_on_the_server'),
+        key: 'error-inesperado',
       })
     }
   }
