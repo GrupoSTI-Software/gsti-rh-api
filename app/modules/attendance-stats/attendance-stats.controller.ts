@@ -356,7 +356,7 @@ export default class AttendanceStatsController {
    *         schema: { type: string, format: date, example: "2026-09-15" }
    *       - name: branchOfficeIds
    *         in: query
-   *         description: CSV de IDs de sucursales (enteros >= 1) que acotan el universo. Si trae valor y alguna pieza no es un entero >= 1 responde 400 entrada-invalida con details, nunca se ignora.
+   *         description: CSV de IDs de sucursales que acotan el universo. Cada pieza debe ser un entero decimal sin signo ni ceros a la izquierda (1 a Number.MAX_SAFE_INTEGER); notaciones como 0x10, 1e3 o 5.0 responden 400 entrada-invalida con details, nunca se ignoran.
    *         schema: { type: string, example: "5,7" }
    *       - name: payrollBusinessUnitId
    *         in: query
