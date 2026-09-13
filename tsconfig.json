@@ -12,5 +12,5 @@
       "#modules/*": ["./app/modules/*"]
     }
   },
-  "exclude": ["database/seeders/_tmp_do_not_commit_qa_seeder.ts"]
+  "exclude": ["database/seeders/_tmp_do_not_commit_qa_seeder.ts", "__TO_DELETE__"]
 }

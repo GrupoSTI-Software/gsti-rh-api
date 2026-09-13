@@ -58,6 +58,8 @@ const EXCLUDED_DIRS = new Set([
   'docs',
   '.github',
   '.gsti-kg',
+  // Archivos retirados del código: no se revisan (ver regla en CLAUDE.md).
+  '__TO_DELETE__',
 ])
 
 const EXCLUDED_FILES = new Set([
