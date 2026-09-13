@@ -190,4 +190,18 @@ test.group('buildMrrConcentration', () => {
 
     assert.equal(concentracion.base, 'mrr-actual-neto')
   })
+
+  test('regla 9 — gruposOmitidosSinMrr nunca es negativo aunque liveGroupsCount llegue mas bajo que los grupos listados', ({
+    assert,
+  }) => {
+    const { concentracion } = buildMrrConcentration(
+      [
+        fila({ platformTenantGroupId: 7, nombre: 'Grupo A', mrrNetoCents: 50_000 }),
+        fila({ platformTenantGroupId: 8, nombre: 'Grupo B', mrrNetoCents: 30_000 }),
+      ],
+      0
+    )
+
+    assert.equal(concentracion.gruposOmitidosSinMrr, 0)
+  })
 })

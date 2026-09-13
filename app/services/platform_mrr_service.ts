@@ -338,6 +338,10 @@ export const SIN_GRUPO_NOMBRE = 'Sin grupo'
  *    forzar el cuadre falsearía un dato para maquillar un redondeo (CA-5).
  * 3. **Las unidades en cero no se listan** y se informa cuántos grupos quedaron
  *    fuera por eso (regla 9). La bolsa "Sin grupo" se omite igual si vale cero.
+ *    Se asume que `mrrNetoCents` no es nunca negativo para fila alguna (la
+ *    columna es precio contratado, no ajuste ni crédito); si fuera, el filtro
+ *    `> 0` sobre `unidades` combinado con que `netoCents` suma TODOS (incl.
+ *    negativos) rompiría el invariante `SUM(unidades[].mrrNetoCents) === netoCents`.
  *
  * @param rows - Filas ya agrupadas por grupo económico, con el nulo como bolsa.
  * @param liveGroupsCount - Grupos vivos en la plataforma, para el conteo de omitidos.
@@ -359,7 +363,7 @@ export function buildMrrConcentration(
         tipo: esGrupo ? ('grupo' as const) : ('sin-grupo' as const),
         platformTenantGroupId: row.platformTenantGroupId,
         // El nombre nulo de un grupo no existe (la columna es NOT NULL), pero el
-        // fallback evita publicar una cadena vacía si algún día lo fuera.
+        // fallback evita publicar null/undefined si algún día lo fuera (ej. un borde SQL).
         nombre: esGrupo ? (row.nombre ?? SIN_GRUPO_NOMBRE) : SIN_GRUPO_NOMBRE,
         tenants: row.tenants,
         mrrNetoCents: row.mrrNetoCents,
