@@ -117,7 +117,26 @@ export interface BuildAbsencesInput {
    * omitirlo no exponga a toda la plantilla.
    */
   visibleEmployeeIds: ReadonlySet<number>
+  /**
+   * Si el usuario tiene `shift-coverage`. Sin él, las sucursales conservan id y
+   * nombre pero van sin empresa contratante. Es obligatorio para que omitirlo no
+   * exponga la razón social de los clientes REPSE.
+   */
+  canSeeContractingCompany: boolean
   thresholds: ToleranceThresholds
+}
+
+/**
+ * Sucursal del catálogo según el permiso `shift-coverage` del usuario: con él,
+ * tal cual; sin él, la misma forma con `empresaContratanteId` y
+ * `empresaContratanteName` en `null`.
+ */
+export function applyContractingCompanyVisibility(
+  branch: AbsencesBranch,
+  canSeeContractingCompany: boolean
+): AbsencesBranch {
+  if (canSeeContractingCompany) return branch
+  return { ...branch, empresaContratanteId: null, empresaContratanteName: null }
 }
 
 function compareBranches(a: AbsencesBranch, b: AbsencesBranch): number {
@@ -200,8 +219,14 @@ function toAbsencesEmployee(employee: EmployeeInfo): AbsencesEmployee {
  * calendario y cuenta una sola vez, con la base de `branchOfficeId` menor.
  */
 export function buildAbsencesResponse(input: BuildAbsencesInput): AbsencesResponse {
-  const { startDay, endDay, loans, bundles, visibleEmployeeIds, thresholds } = input
-  const catalog = new Map(input.branches.map((branch) => [branch.branchOfficeId, branch]))
+  const { startDay, endDay, loans, bundles, visibleEmployeeIds, canSeeContractingCompany, thresholds } =
+    input
+  const catalog = new Map(
+    input.branches.map((branch) => [
+      branch.branchOfficeId,
+      applyContractingCompanyVisibility(branch, canSeeContractingCompany),
+    ])
+  )
   const loansByEmployee = groupLoansByEmployee(loans)
 
   /** Día → colaborador que faltó → sucursal efectiva ese día. */

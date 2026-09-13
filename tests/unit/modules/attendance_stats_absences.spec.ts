@@ -4,6 +4,7 @@ import { test } from '@japa/runner'
 import type { I18n } from '@adonisjs/i18n'
 import {
   ABSENCES_MAX_RANGE_DAYS,
+  applyContractingCompanyVisibility,
   buildAbsencesResponse,
   collectCandidateBranchIds,
   countRangeDaysInclusive,
@@ -27,6 +28,7 @@ import type {
   AbsencesBranchRow,
   AbsencesFilters,
   AbsencesResponse,
+  AttendanceStatsViewer,
   CoverageRangeLoanRow,
   EmployeeCalendarBundle,
 } from '../../../app/modules/attendance-stats/dto/attendance-stats.dto.js'
@@ -182,7 +184,10 @@ function buildLoan(params: {
   }
 }
 
-/** Periodo del 1 al 5 de septiembre, catálogo A/B/C y todos los colaboradores visibles salvo que se indique. */
+/**
+ * Periodo del 1 al 5 de septiembre, catálogo A/B/C, todos los colaboradores
+ * visibles y usuario con `shift-coverage`, salvo que se indique.
+ */
 function build(
   input: Partial<BuildAbsencesInput> & Pick<BuildAbsencesInput, 'bundles'>
 ): AbsencesResponse {
@@ -192,6 +197,7 @@ function build(
     branches: CATALOG,
     loans: [],
     visibleEmployeeIds: new Set(input.bundles.map((bundle) => bundle.employee.employeeId)),
+    canSeeContractingCompany: true,
     thresholds: THRESHOLDS,
     ...input,
   })
@@ -288,12 +294,15 @@ const ORCHESTRATOR_FILTERS: AbsencesFilters = {
 }
 const ORCHESTRATOR_SCOPE = { allowedBusinessUnitIds: [4, 5] }
 const USER_ID = 30
+const ROLE_ID = 12
+const VIEWER: AttendanceStatsViewer = { userId: USER_ID, roleId: ROLE_ID }
 
 /**
  * Service con dobles: el repositorio entrega el universo, los calendarios, los
- * préstamos y el catálogo indicados; las dependencias resuelven el alcance y
- * las tolerancias sin BD. Cada doble registra sus argumentos; las consultas que
- * el caso no prepara fallan como en `failingRepo`.
+ * préstamos y el catálogo indicados; las dependencias resuelven el alcance, las
+ * tolerancias y el permiso `shift-coverage` (concedido salvo que se indique)
+ * sin BD. Cada doble registra sus argumentos; las consultas que el caso no
+ * prepara fallan como en `failingRepo`.
  */
 function orchestrator(params: {
   universe: number[]
@@ -301,6 +310,7 @@ function orchestrator(params: {
   loans?: CoverageRangeLoanRow[]
   roleScope?: EmployeeRoleScope | null
   responsibleIds?: number[]
+  canSeeContractingCompany?: boolean
 }): { service: AttendanceStatsService; calls: RecordedCall[] } {
   const calls: RecordedCall[] = []
   const answer =
@@ -327,6 +337,10 @@ function orchestrator(params: {
       params.roleScope === undefined ? FULL_ROLE_SCOPE : params.roleScope
     ),
     loadToleranceThresholds: answer('loadToleranceThresholds', THRESHOLDS),
+    hasShiftCoverageAccess: answer(
+      'hasShiftCoverageAccess',
+      params.canSeeContractingCompany === undefined ? true : params.canSeeContractingCompany
+    ),
   }
   return { service: new AttendanceStatsService(I18N_STUB, repo, dependencies), calls }
 }
@@ -456,6 +470,32 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     assert.deepEqual(toAbsencesBranch(row({ ...empresa, businessUnitId: 6 }), allowed), withoutEmpresa)
     assert.deepEqual(toAbsencesBranch(row(null), allowed), withoutEmpresa)
     assert.deepEqual(toAbsencesBranch(row(empresa), []), withoutEmpresa)
+  })
+
+  test('sin shift-coverage las sucursales van sin empresa contratante, con la misma forma y las mismas entradas', ({ assert }) => {
+    const bundles = [
+      buildBundle({ employeeId: 1, firstName: 'Ana', homeBranchId: BRANCH_A, calendar: [faultOn('2026-09-01')] }),
+      buildBundle({ employeeId: 2, firstName: 'Beto', homeBranchId: BRANCH_B, calendar: [faultOn('2026-09-02')] }),
+    ]
+    const hiddenB: AbsencesBranch = { ...BRANCH_REFS.b, empresaContratanteId: null, empresaContratanteName: null }
+
+    const allowed = build({ bundles, canSeeContractingCompany: true })
+    const denied = build({ bundles, canSeeContractingCompany: false })
+
+    assert.deepEqual(allowed.branches, [BRANCH_REFS.a, BRANCH_REFS.b])
+    assert.deepEqual(denied.branches, [BRANCH_REFS.a, hiddenB])
+    for (const branch of denied.branches) {
+      assert.sameMembers(Object.keys(branch), Object.keys(BRANCH_REFS.b))
+    }
+    assert.deepEqual(denied.period, allowed.period)
+    assert.deepEqual(denied.days, allowed.days)
+    assert.deepEqual(denied.employees, allowed.employees)
+
+    // El mapeo es puro: no muta la sucursal de entrada.
+    assert.deepEqual(applyContractingCompanyVisibility(BRANCH_REFS.b, true), BRANCH_REFS.b)
+    assert.deepEqual(applyContractingCompanyVisibility(BRANCH_REFS.b, false), hiddenB)
+    assert.equal(BRANCH_REFS.b.empresaContratanteId, 7)
+    assert.equal(BRANCH_REFS.b.empresaContratanteName, 'Cliente Uno SA')
   })
 
   test('las sucursales candidatas son las bases de los calendarios y los destinos de los préstamos, sin repetir', ({ assert }) => {
@@ -666,7 +706,7 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     const scope = { allowedBusinessUnitIds: [1] }
     const request = (startDay: string, endDay: string): AbsencesFilters => ({ startDay, endDay })
 
-    const exceeded = await service.getAbsences(request('2026-09-01', '2026-11-02'), scope, 1)
+    const exceeded = await service.getAbsences(request('2026-09-01', '2026-11-02'), scope, VIEWER)
     assert.include(exceeded, {
       status: 400,
       key: 'rango-maximo-excedido',
@@ -674,19 +714,19 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
       message: 'attendance_stats_absences_range_exceeded_detail',
     })
 
-    const inverted = await service.getAbsences(request('2026-09-05', '2026-09-01'), scope, 1)
+    const inverted = await service.getAbsences(request('2026-09-05', '2026-09-01'), scope, VIEWER)
     assert.include(inverted, { status: 400, key: 'rango-invalido' })
 
-    const nonexistent = await service.getAbsences(request('2026-02-31', '2026-03-01'), scope, 1)
+    const nonexistent = await service.getAbsences(request('2026-02-31', '2026-03-01'), scope, VIEWER)
     assert.include(nonexistent, { status: 400, key: 'entrada-invalida' })
 
-    const noScope = await service.getAbsences(request(START_DAY, END_DAY), { allowedBusinessUnitIds: [] }, 1)
+    const noScope = await service.getAbsences(request(START_DAY, END_DAY), { allowedBusinessUnitIds: [] }, VIEWER)
     assert.include(noScope, { status: 403, key: 'scope-insuficiente' })
 
     assert.deepEqual(calls, [])
 
     const atLimit = orchestrator({ universe: [] })
-    const result = await atLimit.service.getAbsences(request('2026-09-01', '2026-11-01'), scope, 1)
+    const result = await atLimit.service.getAbsences(request('2026-09-01', '2026-11-01'), scope, VIEWER)
     assert.equal(result.status, 200)
     assert.lengthOf(result.data?.days ?? [], 62)
   })
@@ -694,7 +734,7 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
   test('orquestador: con universo vacío no calcula calendarios, préstamos, tolerancias, alcance ni catálogo', async ({ assert }) => {
     const { service, calls } = orchestrator({ universe: [] })
 
-    const result = await service.getAbsences(ORCHESTRATOR_FILTERS, ORCHESTRATOR_SCOPE, USER_ID)
+    const result = await service.getAbsences(ORCHESTRATOR_FILTERS, ORCHESTRATOR_SCOPE, VIEWER)
 
     assert.equal(result.status, 200)
     assert.deepEqual(argsOf(calls, 'getAbsencesEmployeeIds'), [
@@ -724,7 +764,7 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
       ],
     })
 
-    const result = await service.getAbsences(ORCHESTRATOR_FILTERS, ORCHESTRATOR_SCOPE, USER_ID)
+    const result = await service.getAbsences(ORCHESTRATOR_FILTERS, ORCHESTRATOR_SCOPE, VIEWER)
 
     assert.equal(result.status, 200)
     assert.deepEqual(
@@ -736,6 +776,7 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
         'loadToleranceThresholds',
         'resolveEmployeeRoleScope',
         'getAbsencesBranches',
+        'hasShiftCoverageAccess',
       ]
     )
     assert.deepEqual(argsOf(calls, 'getEmployeeCalendars'), [
@@ -743,6 +784,7 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     ])
     assert.deepEqual(argsOf(calls, 'getLoansForRange'), [[[1, 2], START_DAY, END_DAY, [4, 5]]])
     assert.deepEqual(argsOf(calls, 'getAbsencesBranches'), [[[BRANCH_A, BRANCH_B, BRANCH_C], [4, 5]]])
+    assert.deepEqual(argsOf(calls, 'hasShiftCoverageAccess'), [[ROLE_ID]])
     assert.deepEqual(
       result.data?.days.map((day) => day.entries),
       [
@@ -763,7 +805,7 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     ]
     const run = async (roleScope: EmployeeRoleScope | null, responsibleIds?: number[]) => {
       const fixture = orchestrator({ universe: [1, 2], bundles, roleScope, responsibleIds })
-      const result = await fixture.service.getAbsences(ORCHESTRATOR_FILTERS, ORCHESTRATOR_SCOPE, USER_ID)
+      const result = await fixture.service.getAbsences(ORCHESTRATOR_FILTERS, ORCHESTRATOR_SCOPE, VIEWER)
       return { result, calls: fixture.calls }
     }
 
@@ -800,11 +842,42 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     assert.deepEqual(nobody.result.data?.branches, [])
   })
 
+  test('orquestador: consulta shift-coverage con el rol del usuario y sin él oculta la empresa contratante', async ({ assert }) => {
+    const bundles = [
+      buildBundle({ employeeId: 1, firstName: 'Ana', homeBranchId: BRANCH_A, calendar: [faultOn('2026-09-01')] }),
+      buildBundle({ employeeId: 2, firstName: 'Beto', homeBranchId: BRANCH_B, calendar: [faultOn('2026-09-01')] }),
+    ]
+    const run = async (canSeeContractingCompany: boolean) => {
+      const fixture = orchestrator({ universe: [1, 2], bundles, canSeeContractingCompany })
+      const result = await fixture.service.getAbsences(ORCHESTRATOR_FILTERS, ORCHESTRATOR_SCOPE, VIEWER)
+      return { result, calls: fixture.calls }
+    }
+
+    const allowed = await run(true)
+    const denied = await run(false)
+
+    for (const { result, calls } of [allowed, denied]) {
+      assert.equal(result.status, 200)
+      assert.deepEqual(argsOf(calls, 'hasShiftCoverageAccess'), [[ROLE_ID]])
+      assert.deepEqual(
+        argsOf(calls, 'resolveEmployeeRoleScope').map(([userId]) => userId),
+        [USER_ID]
+      )
+    }
+    assert.deepEqual(allowed.result.data?.branches, [BRANCH_REFS.a, BRANCH_REFS.b])
+    assert.deepEqual(denied.result.data?.branches, [
+      BRANCH_REFS.a,
+      { ...BRANCH_REFS.b, empresaContratanteId: null, empresaContratanteName: null },
+    ])
+    assert.deepEqual(denied.result.data?.days, allowed.result.data?.days)
+    assert.deepEqual(denied.result.data?.employees, allowed.result.data?.employees)
+  })
+
   test('el validador exige fechas yyyy-MM-dd y no pide empresa contratante', async ({ assert }) => {
     const minimal = { startDay: START_DAY, endDay: END_DAY }
     const validated = await getAttendanceAbsencesValidator.validate({
       ...minimal,
-      branchOfficeIds: [BRANCH_A, BRANCH_B],
+      branchOfficeIds: [String(BRANCH_A), String(BRANCH_B)],
       payrollBusinessUnitId: 3,
     })
     assert.deepEqual(validated, { ...minimal, branchOfficeIds: [BRANCH_A, BRANCH_B], payrollBusinessUnitId: 3 })
@@ -813,7 +886,7 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     assert.deepEqual(await getAttendanceAbsencesValidator.validate({ ...minimal, empresaContratanteId: 7 }), minimal)
     assert.isTrue(await validationFails({ startDay: START_DAY }))
     assert.isTrue(await validationFails({ ...minimal, startDay: '2026-9-1' }))
-    assert.isTrue(await validationFails({ ...minimal, branchOfficeIds: [0] }))
+    assert.isTrue(await validationFails({ ...minimal, branchOfficeIds: ['0'] }))
     assert.isTrue(await validationFails({ ...minimal, payrollBusinessUnitId: 1.5 }))
   })
 
@@ -835,7 +908,7 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     )
   })
 
-  test('branchOfficeIds con una pieza que no es entero >= 1 falla la validación en lugar de quitar el filtro', async ({ assert }) => {
+  test('branchOfficeIds con una pieza que no es entero decimal de 1 a MAX_SAFE_INTEGER falla la validación en lugar de quitar el filtro', async ({ assert }) => {
     const minimal = { startDay: START_DAY, endDay: END_DAY }
 
     for (const blank of [undefined, null, '', '   ', []]) {
@@ -855,7 +928,46 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     })
     assert.isUndefined(unfiltered.branchOfficeIds)
 
-    for (const invalid of ['0', 'abc', '5,abc', '1.5', '5,', '-3']) {
+    // El tope es Number.MAX_SAFE_INTEGER inclusive.
+    const maxSafe = await getAttendanceAbsencesValidator.validate({
+      ...minimal,
+      branchOfficeIds: splitBranchOfficeIdsQuery('9007199254740991'),
+    })
+    assert.deepEqual(maxSafe.branchOfficeIds, [Number.MAX_SAFE_INTEGER])
+
+    // Por encima, Number() redondearía en silencio a otro entero: falla con su propia regla.
+    const overflow = await validationMessages({
+      ...minimal,
+      branchOfficeIds: splitBranchOfficeIdsQuery('5,9007199254740993'),
+    })
+    assert.deepEqual(
+      overflow.map(({ field, rule }) => ({ field, rule })),
+      [{ field: 'branchOfficeIds.1', rule: 'maxSafeId' }]
+    )
+
+    // Un número crudo no pasa: el query siempre trae texto y la conversión la hace el validador.
+    assert.isTrue(await validationFails({ ...minimal, branchOfficeIds: [5] }))
+
+    // Number() aceptaría estas notaciones; el validador revisa el texto antes de convertir.
+    const invalidTokens = [
+      '0',
+      'abc',
+      '5,abc',
+      '1.5',
+      '5,',
+      '-3',
+      '0x10',
+      '1e3',
+      '0b11',
+      '0o7',
+      '+5',
+      '5.0',
+      '007',
+      'Infinity',
+      '9007199254740992',
+      '9007199254740993',
+    ]
+    for (const invalid of invalidTokens) {
       const messages = await validationMessages({
         ...minimal,
         branchOfficeIds: splitBranchOfficeIdsQuery(invalid),
@@ -872,8 +984,14 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     const controller = readFileSync(CONTROLLER_FILE, 'utf-8')
     const body = methodBody(controller, 'async absences(')
 
+    // Sin permiso propio: nunca 403 por permiso. shift-coverage solo oculta la empresa, y eso lo decide el service.
     assert.notInclude(body, 'hasAccess(')
-    assert.notInclude(body, 'SHIFT_COVERAGE_PERMISSION_SLUG')
+    assert.notInclude(body, 'hasShiftCoverageAccess(')
+    assert.notInclude(body, "key: 'sin-permiso'")
+    assert.include(body, 'roleId: user.roleId')
+    const service = readFileSync(join(MODULE_DIR, 'attendance-stats.service.ts'), 'utf-8')
+    assert.include(service, "import { hasShiftCoverageAccess } from './attendance-stats.permissions.js'")
+    assert.include(service, 'hasShiftCoverageAccess: dependencies.hasShiftCoverageAccess ?? hasShiftCoverageAccess')
     assert.include(body, 'getAttendanceAbsencesValidator.validate(')
     // branchOfficeIds llega crudo al validador: el parseo permisivo lo convertiría en "sin filtro".
     assert.include(body, "splitBranchOfficeIdsQuery(request.input('branchOfficeIds'))")

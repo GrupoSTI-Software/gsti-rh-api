@@ -28,6 +28,10 @@ const REPO_FILE = join(
   process.cwd(),
   'app/modules/attendance-stats/attendance-stats.repository.mysql.ts'
 )
+const PERMISSIONS_FILE = join(
+  process.cwd(),
+  'app/modules/attendance-stats/attendance-stats.permissions.ts'
+)
 
 const DAY = '2026-06-15'
 const SITE_ID = 10
@@ -279,12 +283,17 @@ test.group('Attendance-stats — cobertura por empresaContratanteId con permiso 
   test('censo: coverage exige shift-coverage antes de validar', ({ assert }) => {
     const content = readFileSync(CONTROLLER_FILE, 'utf-8')
     const coverage = methodBody(content, 'async coverage(')
+    const permissions = readFileSync(PERMISSIONS_FILE, 'utf-8')
 
-    assert.include(content, "const SHIFT_COVERAGE_PERMISSION_SLUG = 'shift-coverage'")
-    assert.include(coverage, 'SHIFT_COVERAGE_PERMISSION_SLUG')
+    // La regla vive en un solo módulo; coverage y absences la consumen de ahí.
+    assert.include(permissions, "export const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'")
+    assert.include(permissions, "export const SHIFT_COVERAGE_PERMISSION_SLUG = 'shift-coverage'")
+    assert.include(permissions, 'new RoleService().hasAccess(')
+    assert.notInclude(content, "'shift-coverage'")
     assert.include(coverage, "key: 'sin-permiso'")
+    assert.isAbove(coverage.indexOf('hasShiftCoverageAccess(user.roleId)'), -1)
     assert.isBelow(
-      coverage.indexOf('hasAccess('),
+      coverage.indexOf('hasShiftCoverageAccess(user.roleId)'),
       coverage.indexOf('getAttendanceCoverageValidator.validate(')
     )
   })

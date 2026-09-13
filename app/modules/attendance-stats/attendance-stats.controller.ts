@@ -1,7 +1,7 @@
 import { HttpContext } from '@adonisjs/core/http'
 import logger from '@adonisjs/core/services/logger'
-import RoleService from '#services/role_service'
 import AttendanceStatsService from './attendance-stats.service.js'
+import { hasShiftCoverageAccess } from './attendance-stats.permissions.js'
 import { getAttendanceStatsValidator } from './validators/get-attendance-stats.validator.js'
 import { getAttendanceCoverageValidator } from './validators/get-attendance-coverage.validator.js'
 import {
@@ -13,10 +13,6 @@ import type {
   AttendanceStatsFilters,
   ResolvedScope,
 } from './dto/attendance-stats.dto.js'
-
-/** Módulo y permiso que exige el drawer de cobertura (sembrados en el catálogo). */
-const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
-const SHIFT_COVERAGE_PERMISSION_SLUG = 'shift-coverage'
 
 /**
  * Controller del módulo attendance-stats.
@@ -245,11 +241,7 @@ export default class AttendanceStatsController {
     try {
       // Antes de validar: sin permiso no se revela qué parámetros espera.
       const user = auth.getUserOrFail()
-      const canSeeCoverage = await new RoleService().hasAccess(
-        user.roleId,
-        ATTENDANCE_MONITOR_MODULE_SLUG,
-        SHIFT_COVERAGE_PERMISSION_SLUG
-      )
+      const canSeeCoverage = await hasShiftCoverageAccess(user.roleId)
       if (!canSeeCoverage) {
         return response.status(403).json({
           title: t('attendance_stats_coverage_forbidden_title'),
@@ -331,13 +323,18 @@ export default class AttendanceStatsController {
    *       `branchOfficeIds`, solo quien tiene base activa en esas sucursales o un préstamo hacia ellas
    *       en el periodo; sus faltas salen con la sucursal efectiva de cada día aunque sea otra.
    *
-   *       Sin permiso propio (paridad con el drawer). Días, empleados y sucursales solo incluyen
-   *       colaboradores que el usuario puede ver con la regla del listado de empleados.
+   *       Sin permiso propio (paridad con el drawer): nunca responde 403 por permiso. Días, empleados
+   *       y sucursales solo incluyen colaboradores que el usuario puede ver con la regla del listado
+   *       de empleados.
    *
    *       `days` trae todos los días del periodo (con `entries` vacío si nadie faltó); `entries` va
    *       ordenado por nombre completo y, empatando, por id. `employees` lista una vez a cada
    *       colaborador de `days`, con alias de puesto y departamento cuando existe. `branches` solo
    *       trae las sucursales referenciadas; la empresa contratante solo si está viva y es del tenant.
+   *
+   *       La empresa contratante exige además el permiso `shift-coverage` del módulo
+   *       `employees-attendance-monitor` (root y owner pasan). Sin él, `empresaContratanteId` y
+   *       `empresaContratanteName` van en `null` en todas las sucursales, con la misma forma de `data`.
    *
    *       Los errores traen `title`, `detail` y `key`.
    *     security:
@@ -423,7 +420,10 @@ export default class AttendanceStatsController {
 
       const service = new AttendanceStatsService(i18n)
       const scope: ResolvedScope = { allowedBusinessUnitIds: businessUnitScope }
-      const result = await service.getAbsences(filters, scope, user.userId)
+      const result = await service.getAbsences(filters, scope, {
+        userId: user.userId,
+        roleId: user.roleId,
+      })
       const isError = result.status >= 400
 
       return response.status(result.status).json({

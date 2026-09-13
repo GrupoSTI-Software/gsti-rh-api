@@ -334,9 +334,18 @@ export interface AbsencesBranchRow {
 export interface AbsencesBranch {
   branchOfficeId: number
   name: string
-  /** Solo si la empresa contratante está viva y es del tenant; si no, `null`. */
+  /**
+   * Solo si la empresa contratante está viva, es del tenant y el usuario tiene
+   * `shift-coverage`; si no, `null`.
+   */
   empresaContratanteId: number | null
   empresaContratanteName: string | null
+}
+
+/** Usuario que consulta absences: define el alcance de colaboradores y el permiso `shift-coverage`. */
+export interface AttendanceStatsViewer {
+  userId: number
+  roleId: number
 }
 
 /** Colaborador que aparece en alguna entrada de ausencias. */

@@ -2600,8 +2600,9 @@ components:
           type: integer
           nullable: true
           description: |
-            Empresa contratante (cliente REPSE) de la sucursal. `null` si la sucursal no tiene empresa o si la
-            empresa está borrada o fuera del tenant.
+            Empresa contratante (cliente REPSE) de la sucursal. `null` si la sucursal no tiene empresa, si la
+            empresa está borrada o fuera del tenant, o si el usuario no tiene el permiso `shift-coverage` del
+            módulo `employees-attendance-monitor` (en ese caso va `null` en todas las sucursales).
         empresaContratanteName:
           type: string
           nullable: true
@@ -7966,11 +7967,14 @@ paths:
         `branchOfficeIds`, solo quien tiene base activa en esas sucursales o un préstamo hacia ellas que
         intersecta el periodo; sus faltas salen con la sucursal efectiva de cada día aunque sea otra.
 
-        **Permiso**: ninguno propio (paridad con el drawer de Ausencias). **Alcance**: días, empleados y
-        sucursales solo incluyen colaboradores que el usuario puede ver con la regla del listado de empleados.
+        **Permiso**: ninguno propio (paridad con el drawer de Ausencias); nunca responde 403 por permiso.
+        **Alcance**: días, empleados y sucursales solo incluyen colaboradores que el usuario puede ver con la regla
+        del listado de empleados.
 
         **Empresa contratante**: `branches[].empresaContratanteId` y `empresaContratanteName` solo si la empresa
-        está viva y pertenece al tenant; si no, `null`.
+        está viva y pertenece al tenant, y el usuario tiene el permiso `shift-coverage` del módulo
+        `employees-attendance-monitor` (root y owner pasan). Sin ese permiso ambos van en `null` en todas las
+        sucursales; `data` conserva la misma forma y `days` las mismas entradas.
 
         **Errores**: traen `title`, `detail` y `key` (además de `type` y `message` del envoltorio del módulo).
       tags: [AttendanceStats]
@@ -8002,9 +8006,10 @@ paths:
           in: query
           required: false
           description: |
-            CSV de IDs de sucursales (enteros >= 1) que acotan el universo. Si trae valor y alguna pieza no es un
-            entero >= 1 (`abc`, `0`, `1.5`, vacío) responde 400 `entrada-invalida` con `details`; nunca se ignora
-            para ampliar la consulta a toda la plantilla.
+            CSV de IDs de sucursales que acotan el universo. Cada pieza debe ser un entero decimal sin signo ni
+            ceros a la izquierda, de 1 a 9007199254740991 (`Number.MAX_SAFE_INTEGER`). Si trae valor y alguna pieza
+            no cumple (`abc`, `0`, `1.5`, `5.0`, `+5`, `0x10`, `0b11`, `1e3`, `9007199254740993`, vacío) responde 400
+            `entrada-invalida` con `details`; nunca se ignora para ampliar la consulta a toda la plantilla.
           schema:
             type: string
             example: "5,7"

@@ -6,6 +6,7 @@ import { EmpresaContratanteError } from '../../exceptions/empresa_contratante_er
 import { resolveEmployeeRoleScope } from '../../helpers/resolve_employee_role_scope.js'
 import type { EmployeeRoleScope } from '../../helpers/resolve_employee_role_scope.js'
 import AttendanceStatsRepositoryMysql from './attendance-stats.repository.mysql.js'
+import { hasShiftCoverageAccess } from './attendance-stats.permissions.js'
 import { buildCoverageResponse } from './attendance-stats.coverage.js'
 import {
   ABSENCES_MAX_RANGE_DAYS,
@@ -31,6 +32,7 @@ import type {
   AbsencesResponse,
   AttendanceStatsFilters,
   AttendanceStatsGranularity,
+  AttendanceStatsViewer,
   CleanCounters,
   CoverageFilters,
   CoverageResponse,
@@ -71,6 +73,8 @@ export interface AttendanceStatsServiceDependencies {
   resolveEmployeeRoleScope: (userId: number, i18n: I18n) => Promise<EmployeeRoleScope | null>
   /** Tolerancias de retardo y falta vigentes. */
   loadToleranceThresholds: () => Promise<ToleranceThresholds>
+  /** Si el rol tiene `shift-coverage` del monitor (root y owner pasan). */
+  hasShiftCoverageAccess: (roleId: number) => Promise<boolean>
 }
 
 /**
@@ -120,6 +124,7 @@ export default class AttendanceStatsService {
       resolveEmployeeRoleScope: dependencies.resolveEmployeeRoleScope ?? resolveEmployeeRoleScope,
       loadToleranceThresholds:
         dependencies.loadToleranceThresholds ?? loadToleranceThresholdsFromSettings,
+      hasShiftCoverageAccess: dependencies.hasShiftCoverageAccess ?? hasShiftCoverageAccess,
     }
   }
 
@@ -347,12 +352,17 @@ export default class AttendanceStatsService {
    * empleados y sucursales se recortan a los colaboradores que el usuario puede
    * ver, antes de contar.
    *
-   * @param userId - Usuario que consulta; define el alcance de colaboradores.
+   * La empresa contratante de las sucursales solo se expone si el rol tiene
+   * `shift-coverage`; sin él va `null` en todas, con la misma forma de `data`.
+   * No responde 403 por permiso.
+   *
+   * @param viewer - Usuario que consulta: `userId` define el alcance de
+   *   colaboradores y `roleId` el permiso `shift-coverage`.
    */
   async getAbsences(
     filters: AbsencesFilters,
     scope: ResolvedScope,
-    userId: number
+    viewer: AttendanceStatsViewer
   ): Promise<ServiceResult<AbsencesResponse>> {
     if (scope.allowedBusinessUnitIds.length === 0) {
       return this.forbidden()
@@ -380,6 +390,8 @@ export default class AttendanceStatsService {
           loans: [],
           bundles: [],
           visibleEmployeeIds: new Set(),
+          // Sin sucursales no hay empresa que mostrar: no se consulta el permiso.
+          canSeeContractingCompany: false,
           thresholds: {
             delayMinutes: DEFAULT_TOLERANCE_DELAY_MINUTES,
             faultMinutes: DEFAULT_TOLERANCE_FAULT_MINUTES,
@@ -401,12 +413,13 @@ export default class AttendanceStatsService {
       this.repo.getLoansForRange(employeeIds, startDay, endDay, allowedBusinessUnitIds),
       this.dependencies.loadToleranceThresholds(),
     ])
-    const [visibleEmployeeIds, branches] = await Promise.all([
-      this.resolveVisibleEmployeeIds(userId, bundles, allowedBusinessUnitIds),
+    const [visibleEmployeeIds, branches, canSeeContractingCompany] = await Promise.all([
+      this.resolveVisibleEmployeeIds(viewer.userId, bundles, allowedBusinessUnitIds),
       this.repo.getAbsencesBranches(
         collectCandidateBranchIds(bundles, loans),
         allowedBusinessUnitIds
       ),
+      this.dependencies.hasShiftCoverageAccess(viewer.roleId),
     ])
 
     return this.found(
@@ -417,6 +430,7 @@ export default class AttendanceStatsService {
         loans,
         bundles,
         visibleEmployeeIds,
+        canSeeContractingCompany,
         thresholds,
       })
     )
