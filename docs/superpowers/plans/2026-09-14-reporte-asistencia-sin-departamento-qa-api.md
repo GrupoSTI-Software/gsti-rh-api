@@ -40,12 +40,12 @@ Deja listos los dos usuarios y los cuatro colaboradores de esta prueba.
 | **A** | `qa-reporte-estructura-supervisor@gsti-tests.local` | `password` | Supervisor de la empresa de prueba, con permiso de descarga |
 | **B** | `qa-reporte-estructura-otra-empresa@gsti-tests.local` | `password` | Usuario de otra empresa, con el mismo permiso de descarga |
 
-| Código de nómina | Estructura |
-|---|---|
-| `QA-EST-01` | Sin departamento y sin puesto |
-| `QA-EST-02` | Con departamento y puesto dados de baja del organigrama |
-| `QA-EST-03` | Con departamento y puesto con alias (nombre corto) capturado |
-| `QA-EST-04` | Con departamento y puesto sin alias |
+| Código de nómina | Nombre en el archivo | Estructura |
+|---|---|---|
+| `QA-EST-01` | `Estructura Uno QA` | Sin departamento y sin puesto |
+| `QA-EST-02` | `Estructura Dos QA` | Con departamento y puesto dados de baja del organigrama |
+| `QA-EST-03` | `Estructura Tres QA` | Con departamento y puesto con alias (nombre corto) capturado |
+| `QA-EST-04` | `Estructura Cuatro QA` | Con departamento y puesto sin alias |
 
 Los identificadores que van en las peticiones no se inventan ni se hardcodean: resuélvelos con estas consultas. Cada vez que un escenario pida `<id de QA-EST-0X, resuelto en Preparar>`, sustitúyelo por el número que te devuelva esta consulta para ese código de nómina — nunca un número inventado.
 
@@ -72,10 +72,15 @@ SELECT bu.business_unit_public_id AS empresaId
 FROM business_unit_users buu
 JOIN business_units bu ON bu.business_unit_id = buu.business_unit_id
 JOIN users u ON u.user_id = buu.user_id
-WHERE u.user_email = 'qa-reporte-estructura-otra-empresa@gsti-tests.local';
+WHERE u.user_email = 'qa-reporte-estructura-otra-empresa@gsti-tests.local'
+  AND buu.business_unit_user_deleted_at IS NULL;
 ```
 
 Fechas de prueba: usa siempre `"date": "2026-09-01"` y `"date-end": "2026-09-14"` en los pasos que las piden. Corre el seeder cerca de la fecha en la que vayas a probar este manual: si lo corres varias semanas después, adelanta ambas fechas al mismo rango de 14 días, terminando cerca de hoy.
+
+**Límite de peticiones.** Cada usuario solo puede pedir 10 reportes en un lapso de 10 minutos. Si repites este manual varias veces seguidas con el mismo usuario, o reintentas un escenario muchas veces, puedes agotar esa cuota: la siguiente petición de `POST /api/v1/assists/reports` responde `429` con `{"errors": [{"message": "Too many requests", "retryAfter": <segundos que faltan para volver a intentar>}]}` en vez del `202` esperado. No es un defecto: espera los segundos que indica `retryAfter` y vuelve a intentar.
+
+**Este manual asume español.** Los encabezados de las columnas del archivo y su nombre de descarga salen en el idioma que pida el cliente. Todos los pasos de abajo se describen en español, que es el idioma con el que nace toda petición si el cliente no pide otro explícitamente. Si tu cliente pide inglés, verás encabezados y nombre de archivo distintos a los que este manual documenta.
 
 ## 2. Escenario 1 — Sin departamento ni puesto: el archivo llega y las columnas quedan vacías
 
@@ -245,16 +250,21 @@ Usuario: **A**. Sin `employeeId`: este reporte no es de un colaborador, es de to
 
 **Response — 202:** igual al Escenario 1. (Los datos son los ya explicados en el Escenario 1.)
 
-**Endpoint:** `GET /api/v1/assists/reports/:id/status` → **Response — 200 una vez `completed`:** igual al Escenario 1, con una sola diferencia:
+**Endpoint:** `GET /api/v1/assists/reports/:id/status` → **Response — 200 una vez `completed`:** parecido al Escenario 1, pero con dos diferencias — el nombre del archivo y el avance:
 
 ```json
 {
   "...": "los demás datos son los ya explicados en el Escenario 1",
+  "progressCurrent": 9,
+  "progressTotal": 9,
   "fileName": "datos.xlsx"
 }
 ```
 
-Qué significa lo nuevo aquí: `fileName` cambia de nombre según qué reporte pediste — aquí es `datos.xlsx` porque es la exportación de toda la empresa, no el reporte de un solo colaborador.
+Qué significa lo nuevo aquí:
+
+- `fileName`: cambia de nombre según qué reporte pediste — aquí es `datos.xlsx` porque es la exportación de toda la empresa, no el reporte de un solo colaborador.
+- `progressCurrent` / `progressTotal`: en este reporte cuentan colaboradores, no archivos. Aquí traen el número real de colaboradores que la exportación recorrió en la empresa de prueba — el `9` de arriba es solo un ejemplo, el tuyo puede salir distinto según cuántos colaboradores tenga sembrados la empresa al momento de correr el manual —, nunca `1` como en el reporte de un solo colaborador de los Escenarios 1 a 4.
 
 **Endpoint:** `GET /api/v1/assists/reports/:id/download` → **Response — 200:** mismo tipo de contenido que el Escenario 1, con nombre sugerido `datos.xlsx`.
 
