@@ -422,6 +422,8 @@
   "assist": "Assist",
   "assist_register": "assist register",
   "report_type": "Report type",
+  "report_job_dates_required_title": "Dates required",
+  "report_job_dates_required_message": "The date and date-end fields are required in the request",
   "date": "Date",
   "name": "Name",
   "email": "Email",

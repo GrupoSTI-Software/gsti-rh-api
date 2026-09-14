@@ -2760,11 +2760,13 @@ export default class AssistsService {
       }
       const department = resolveOrgAliasDisplay(
         employee.department?.departmentAlias,
-        employee.department?.departmentName
+        employee.department?.departmentName,
+        Boolean(employee.department?.deletedAt)
       )
       const position = resolveOrgAliasDisplay(
         employee.position?.positionAlias,
-        employee.position?.positionName
+        employee.position?.positionName,
+        Boolean(employee.position?.deletedAt)
       )
       let shiftName = ''
       let shiftStartDate = ''
@@ -3012,7 +3014,8 @@ export default class AssistsService {
     const rows = [] as AssistIncidentExcelRowInterface[]
     const department = resolveOrgAliasDisplay(
       filters.employee.department?.departmentAlias,
-      filters.employee.department?.departmentName
+      filters.employee.department?.departmentName,
+      Boolean(filters.employee.department?.deletedAt)
     )
     let daysWorked = 0
     let daysOnTime = 0

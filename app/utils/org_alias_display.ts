@@ -4,23 +4,31 @@
  *
  * Se muestra el alias cuando la empresa lo capturó y el nombre cuando no hay
  * alias (USRH1788466831291, regla 3). Cuando no hay ninguno de los dos —el
- * empleado no tiene departamento o puesto asignado, o su registro fue
- * eliminado del organigrama y ya no se carga— la celda queda vacía, sin
+ * empleado no tiene departamento o puesto asignado— o cuando el registro del
+ * organigrama está dado de baja (`isSoftDeleted`), la celda queda vacía, sin
  * texto de relleno (regla 2).
  *
  * Los parámetros aceptan `null` y `undefined` a propósito: el departamento y
- * el puesto del empleado son opcionales, y el preload los deja sin valor
- * cuando el registro ya no existe. Quien llama pasa el acceso con `?.` y esta
- * funcion se encarga del resto.
+ * el puesto del empleado son opcionales. Quien llama pasa el acceso con `?.`
+ * y esta función se encarga del resto.
+ *
+ * `isSoftDeleted` existe porque el `belongsTo` de Employee carga departamento
+ * y puesto con `withTrashed()` (reactivación y otros flujos). El reporte no
+ * debe imprimir esos nombres dados de baja aunque la relación los traiga.
  *
  * @param alias Alias capturado por la empresa para el registro.
  * @param name Nombre del registro.
+ * @param isSoftDeleted `true` si el registro del organigrama está soft-deleted.
  * @returns El alias, el nombre, o cadena vacía. Nunca `null` ni `undefined`.
  */
 export function resolveOrgAliasDisplay(
   alias?: string | null,
-  name?: string | null
+  name?: string | null,
+  isSoftDeleted: boolean = false
 ): string {
+  if (isSoftDeleted) {
+    return ''
+  }
   if (alias) {
     return alias
   }

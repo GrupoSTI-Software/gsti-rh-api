@@ -34,4 +34,16 @@ test.group('Estructura — etiqueta de departamento y puesto (USRH1788466831291)
   test('con alias y nombre vacios devuelve cadena vacia', ({ assert }) => {
     assert.equal(resolveOrgAliasDisplay('', ''), '')
   })
+
+  test('con registro soft-deleted devuelve cadena vacia aunque traiga nombre', ({ assert }) => {
+    assert.equal(
+      resolveOrgAliasDisplay('QA-EST-ALIAS-DEPTO', 'QA Departamento Estructura DELETED', true),
+      ''
+    )
+  })
+
+  test('sin soft-delete sigue mostrando alias o nombre', ({ assert }) => {
+    assert.equal(resolveOrgAliasDisplay('RRHH', 'Recursos Humanos', false), 'RRHH')
+    assert.equal(resolveOrgAliasDisplay('', 'Recursos Humanos', false), 'Recursos Humanos')
+  })
 })

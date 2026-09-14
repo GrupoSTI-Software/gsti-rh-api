@@ -422,6 +422,8 @@
   "assist": "Asistencia",
   "assist_register": "registro de asistencia",
   "report_type": "Tipo de reporte",
+  "report_job_dates_required_title": "Fechas requeridas",
+  "report_job_dates_required_message": "Los campos date y date-end son obligatorios en la solicitud",
   "date": "Fecha",
   "name": "Nombre",
   "email": "Correo electrónico",
