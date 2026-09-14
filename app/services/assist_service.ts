@@ -3008,11 +3008,10 @@ export default class AssistsService {
     filters: AssistIncidentSummaryCalendarExcelFilterInterface
   ) {
     const rows = [] as AssistIncidentExcelRowInterface[]
-    let department = filters.employee.department.departmentAlias ? filters.employee.department.departmentAlias : ''
-    department =
-      department === '' && filters.employee.department?.departmentName
-        ? filters.employee.department.departmentName
-        : ''
+    const department = resolveOrgAliasDisplay(
+      filters.employee.department?.departmentAlias,
+      filters.employee.department?.departmentName
+    )
     let daysWorked = 0
     let daysOnTime = 0
     let tolerances = 0
