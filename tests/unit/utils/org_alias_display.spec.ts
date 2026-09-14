@@ -15,6 +15,14 @@ test.group('Estructura — etiqueta de departamento y puesto (USRH1788466831291)
     assert.equal(resolveOrgAliasDisplay('', 'Recursos Humanos'), 'Recursos Humanos')
   })
 
+  test('con alias nulo en base de datos devuelve el nombre', ({ assert }) => {
+    assert.equal(resolveOrgAliasDisplay(null, 'Recursos Humanos'), 'Recursos Humanos')
+  })
+
+  test('con alias undefined devuelve el nombre', ({ assert }) => {
+    assert.equal(resolveOrgAliasDisplay(undefined, 'Recursos Humanos'), 'Recursos Humanos')
+  })
+
   test('sin departamento asignado devuelve cadena vacia', ({ assert }) => {
     assert.equal(resolveOrgAliasDisplay(undefined, undefined), '')
   })
