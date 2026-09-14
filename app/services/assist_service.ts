@@ -22,6 +22,7 @@ import { LogAssist } from '../interfaces/MongoDB/log_assist.js'
 import BusinessUnit from '#models/business_unit'
 import env from '#start/env'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { resolveOrgAliasDisplay } from '#utils/org_alias_display'
 import SystemSettingService from './system_setting_service.js'
 import SystemSetting from '#models/system_setting'
 import { AssistIncidentPayrollExcelRowInterface } from '../interfaces/assist_incident_payroll_excel_row_interface.js'
@@ -2755,16 +2756,14 @@ export default class AssistsService {
       if (!calendar.assist.dateShift) {
         status = ''
       }
-      let department = employee.department.departmentAlias
-        ? employee.department.departmentAlias
-        : ''
-      department =
-        department === '' && employee.department?.departmentName
-          ? employee.department.departmentName
-          : ''
-      let position = employee.position.positionAlias ? employee.position.positionAlias : ''
-      position =
-        position === '' && employee.position?.positionName ? employee.position.positionName : ''
+      const department = resolveOrgAliasDisplay(
+        employee.department?.departmentAlias,
+        employee.department?.departmentName
+      )
+      const position = resolveOrgAliasDisplay(
+        employee.position?.positionAlias,
+        employee.position?.positionName
+      )
       let shiftName = ''
       let shiftStartDate = ''
       let shiftEndsDate = ''
