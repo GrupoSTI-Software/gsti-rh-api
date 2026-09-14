@@ -1435,6 +1435,8 @@ export default class AssistsService {
   private buildIncidentSummaryRow(
     filters: AssistIncidentSummaryV2CalendarExcelFilterInterface
   ): AssistIncidentSummaryV2ExcelRowInterface {
+    // TODO(USRH1788466831291): misma regla que #utils/org_alias_display.
+    // Converger al helper cuando se toque este reporte.
     let department = filters.employee.department?.departmentAlias
       ? filters.employee.department.departmentAlias
       : ''
@@ -4124,6 +4126,8 @@ export default class AssistsService {
    filters: AssistIncidentPayrollCalendarExcelFilterInterface
   ) {
     const rows = [] as AssistIncidentPayrollExcelRowInterface[]
+    // TODO(USRH1788466831291): misma regla que #utils/org_alias_display.
+    // Converger al helper cuando se toque este reporte.
     let department = filters.employee.department?.departmentAlias ? filters.employee.department.departmentAlias : ''
     department =
       department === '' && filters.employee.department?.departmentName
