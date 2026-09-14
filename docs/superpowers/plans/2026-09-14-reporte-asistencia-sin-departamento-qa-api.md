@@ -47,7 +47,7 @@ Deja listos los dos usuarios y los cuatro colaboradores de esta prueba.
 | `QA-EST-03` | Con departamento y puesto con alias (nombre corto) capturado |
 | `QA-EST-04` | Con departamento y puesto sin alias |
 
-Los identificadores que van en las peticiones no se inventan ni se hardcodean: resuélvelos con estas consultas.
+Los identificadores que van en las peticiones no se inventan ni se hardcodean: resuélvelos con estas consultas. Cada vez que un escenario pida `<id de QA-EST-0X, resuelto en Preparar>`, sustitúyelo por el número que te devuelva esta consulta para ese código de nómina — nunca un número inventado.
 
 El `id` de cada colaborador (sustituye el código de nómina de la tabla de arriba):
 
@@ -79,7 +79,7 @@ Fechas de prueba: usa siempre `"date": "2026-09-01"` y `"date-end": "2026-09-14"
 
 ## 2. Escenario 1 — Sin departamento ni puesto: el archivo llega y las columnas quedan vacías
 
-Usuario: **A**. Colaborador: `QA-EST-01` (usa el `id` resuelto en Preparar).
+Usuario: **A**. Colaborador: `QA-EST-01`.
 
 **Endpoint:** `POST /api/v1/assists/reports`
 
@@ -90,7 +90,7 @@ Headers: `Authorization: Bearer <token de A>`, `X-Business-Unit-Id: <empresaId d
   "date": "2026-09-01",
   "date-end": "2026-09-14",
   "reportType": "assistance_employee",
-  "employeeId": 1001
+  "employeeId": <id de QA-EST-01, resuelto en Preparar>
 }
 ```
 
@@ -167,7 +167,7 @@ Usuario: **A**. Colaborador: `QA-EST-02`.
   "date": "2026-09-01",
   "date-end": "2026-09-14",
   "reportType": "assistance_employee",
-  "employeeId": 1002
+  "employeeId": <id de QA-EST-02, resuelto en Preparar>
 }
 ```
 
@@ -192,7 +192,7 @@ Usuario: **A**. Colaborador: `QA-EST-03`.
   "date": "2026-09-01",
   "date-end": "2026-09-14",
   "reportType": "assistance_employee",
-  "employeeId": 1003
+  "employeeId": <id de QA-EST-03, resuelto en Preparar>
 }
 ```
 
@@ -217,7 +217,7 @@ Usuario: **A**. Colaborador: `QA-EST-04`.
   "date": "2026-09-01",
   "date-end": "2026-09-14",
   "reportType": "assistance_employee",
-  "employeeId": 1004
+  "employeeId": <id de QA-EST-04, resuelto en Preparar>
 }
 ```
 
@@ -275,7 +275,7 @@ Headers: `Authorization: Bearer <token de B>`, `X-Business-Unit-Id: <empresaId d
   "date": "2026-09-01",
   "date-end": "2026-09-14",
   "reportType": "assistance_employee",
-  "employeeId": 1001
+  "employeeId": <id de QA-EST-01, el mismo resuelto en Preparar y usado en el Escenario 1>
 }
 ```
 
