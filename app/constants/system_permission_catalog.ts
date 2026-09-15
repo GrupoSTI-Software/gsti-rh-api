@@ -1,8 +1,5 @@
 import { SYSTEM_MODULES_CATALOG } from '#constants/system_modules_catalog'
-import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
-import { POSITIONS_PERMISSION_CATALOG } from '#constants/positions_permission_catalog'
-import { ATTENDANCE_MONITOR_PERMISSION_CATALOG } from '#constants/attendance_monitor_permission_catalog'
-import { ACCESS_POINT_PERMISSION_CATALOG } from '#constants/access_point_permission_catalog'
+import { SYSTEM_MODULE_ACTION_CATALOGS } from '#constants/system_modules_menu/system_modules.constant'
 import { SystemPermissionCatalogError } from '#exceptions/system_permission_catalog_error'
 import type {
   ActionCatalogEntry,
@@ -31,11 +28,10 @@ export type {
 } from '#constants/attendance_monitor_permission_catalog'
 
 /**
- * Índice maestro único (USRH1785766406720): agrega el catálogo de módulos y
- * las acciones enumeradas por módulo. Cualquier otra lista de
- * módulos/permisos que exista en el código o en los seeders es copia y no
- * manda (regla 1) — este archivo es la fuente de verdad de la que se deriva
- * la sincronización hacia `system_modules` / `system_permissions`.
+ * Índice de permisos (USRH1785766406720): agrega el catálogo de módulos y las
+ * acciones enumeradas por módulo. Ambos se derivan de
+ * `app/constants/system_modules_menu/system_modules.constant.ts`, la fuente
+ * única del catálogo; aquí no se declara ningún módulo ni permiso a mano.
  *
  * `actionsByModule` está indexado por el `slug` del módulo en vez de tener un
  * campo fijo por módulo (ej. `employees`): así, cuando se enumere un segundo
@@ -48,12 +44,7 @@ export interface SystemPermissionCatalog {
 
 export const SYSTEM_PERMISSION_CATALOG: SystemPermissionCatalog = {
   modules: SYSTEM_MODULES_CATALOG,
-  actionsByModule: {
-    employees: EMPLOYEES_PERMISSION_CATALOG,
-    positions: POSITIONS_PERMISSION_CATALOG,
-    'employees-attendance-monitor': ATTENDANCE_MONITOR_PERMISSION_CATALOG,
-    'biometric-devices': ACCESS_POINT_PERMISSION_CATALOG,
-  },
+  actionsByModule: SYSTEM_MODULE_ACTION_CATALOGS,
 }
 
 /**

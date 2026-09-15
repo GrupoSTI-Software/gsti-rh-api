@@ -50,6 +50,7 @@ export interface SystemModuleSeedValues {
   systemModuleActive: number
   systemModuleOrder: number
   systemModuleGroupId: number | null
+  systemModulePermissionEnforcementActive: boolean
   systemModuleIcon: string
 }
 
@@ -96,10 +97,7 @@ export async function upsertRoleBySlug(
  * @param seederName  Nombre del seeder llamador, para que con 17 llamadores el
  *                    mensaje de error diga de inmediato quién falló.
  */
-export async function upsertSystemModuleBySlug(
-  values: SystemModuleSeedValues,
-  seederName: string
-): Promise<number> {
+export async function upsertSystemModuleBySlug(values: SystemModuleSeedValues, seederName: string): Promise<number> {
   if (!values.systemModuleSlug) {
     throw new Error(`[${seederName}] Un módulo no puede sembrarse sin slug.`)
   }
@@ -119,6 +117,23 @@ export async function upsertSystemModuleBySlug(
 
   const created = await SystemModule.create(values)
   return created.systemModuleId
+}
+
+/**
+ * Da de baja lógica un módulo que la constante declara retirado. Si ya estaba
+ * dado de baja no hace nada: re-ejecutar el seeder no mueve la fecha de baja.
+ */
+export async function retireSystemModule(systemModuleId: number): Promise<void> {
+  const systemModule = await SystemModule.query()
+    .withTrashed()
+    .where('systemModuleId', systemModuleId)
+    .firstOrFail()
+
+  if (systemModule.deletedAt) {
+    return
+  }
+
+  await systemModule.delete()
 }
 
 /**
@@ -188,7 +203,7 @@ export async function resolveRoleIdsBySlug(
   if (missingSlugs.length > 0) {
     throw new Error(
       `[${seederName}] Rol(es) no encontrado(s) por slug: ${missingSlugs.sort().join(', ')}. ` +
-        'Verifica que 0006_role_seeder haya corrido antes.'
+      'Verifica que 0006_role_seeder haya corrido antes.'
     )
   }
 
@@ -216,7 +231,7 @@ export async function resolveSystemModuleIdsBySlug(
   if (missingSlugs.length > 0) {
     throw new Error(
       `[${seederName}] Módulo(s) no encontrado(s) por slug: ${missingSlugs.sort().join(', ')}. ` +
-        'Verifica que el seeder que los declara haya corrido antes.'
+      'Verifica que el seeder que los declara haya corrido antes.'
     )
   }
 
