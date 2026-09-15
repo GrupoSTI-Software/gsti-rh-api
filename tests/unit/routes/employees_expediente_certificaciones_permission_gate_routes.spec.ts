@@ -59,26 +59,18 @@ test.group('employee_proceeding_file_routes — PermissionGate Expediente', () =
   })
 })
 
-test.group('certifications_routes — PermissionGate', () => {
-  test('escrituras del catálogo declaran permissionGate; lecturas no', async ({ assert }) => {
+test.group('certifications_routes — el catálogo ya no cuelga de Empleados', () => {
+  test('las escrituras del catálogo declaran su propio módulo, no permisos de Empleados', async ({
+    assert,
+  }) => {
+    // La protección vigente por ruta se afirma en
+    // `assessment_templates_certifications_competencies_permission_gate_routes.spec.ts`.
+    // Aquí se cuida que no regrese el gate de la pestaña del empleado, que dejaba
+    // la casilla de roles del catálogo sin efecto en el API.
     const content = await readFile(join(process.cwd(), 'start/routes/certifications_routes.ts'), 'utf8')
-    assert.include(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
-    assert.include(
-      compact(content),
-      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createCertification)'
-    )
-    assert.include(
-      compact(content),
-      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateCertification)'
-    )
-    assert.include(
-      compact(content),
-      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteCertification)'
-    )
-    const matches =
-      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
-      []
-    assert.equal(matches.length, 3)
+    assert.include(content, 'CERTIFICATIONS_PERMISSION_DECLARATIONS')
+    assert.notInclude(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+    assert.notInclude(content, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS')
   })
 })
 

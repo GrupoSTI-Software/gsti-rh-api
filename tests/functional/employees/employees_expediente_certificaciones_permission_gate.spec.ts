@@ -16,7 +16,6 @@ import Certification from '#models/certification'
 import EmployeeCertification from '#models/employee_certification'
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
 import EmployeeProceedingFileService from '#services/employee_proceeding_file_service'
-import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'EmployeesExpedienteCertificacionesSoftRollout123!'
 
@@ -38,13 +37,6 @@ interface EmployeeFixture {
   person: Person
   departmentId: number
   positionId: number
-}
-
-interface SystemActor {
-  user: User
-  person: Person
-  businessUnit: BusinessUnit
-  roleId: number
 }
 
 async function permissionId(moduleSlug: string, permissionSlug: string): Promise<number> {
@@ -118,67 +110,6 @@ async function cleanupActor(actor: TenantActor | null) {
   await Person.query().where('person_id', actor.person.personId).delete()
   await Role.query().where('role_id', actor.role.roleId).delete()
   await BusinessUnit.query().where('business_unit_id', actor.businessUnit.businessUnitId).delete()
-}
-
-async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<SystemActor> {
-  const role = await ensureRole(roleSlug)
-  const businessUnit = await BusinessUnit.query()
-    .whereNull('business_unit_deleted_at')
-    .where('business_unit_active', 1)
-    .firstOrFail()
-  const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
-  const email = `${emailPrefix}-${stamp}@gsti-tests.local`
-  const person = await Person.create({
-    personFirstname: 'ExpedienteCertificaciones',
-    personLastname: 'Sistema',
-    personSecondLastname: emailPrefix,
-    personEmail: email,
-  })
-  const user = await User.create({
-    userEmail: email,
-    userPassword: TEST_PASSWORD,
-    userActive: 1,
-    roleId: role.roleId,
-    personId: person.personId,
-    userEmailType: 'institutional',
-  })
-
-  await user.related('businessUnits').attach([businessUnit.businessUnitId])
-  return { user, person, businessUnit, roleId: role.roleId }
-}
-
-async function cleanupSystemActor(actor: SystemActor | null) {
-  if (!actor) return
-  await BusinessUnitUser.query().where('user_id', actor.user.userId).delete()
-  await User.query().where('user_id', actor.user.userId).delete()
-  await Person.query().where('person_id', actor.person.personId).delete()
-}
-
-async function activeEmployeesGrants(roleId: number) {
-  return RoleSystemPermission.query()
-    .where('role_id', roleId)
-    .whereNull('role_system_permission_deleted_at')
-    .whereHas('systemPermissions', (permissionQuery) =>
-      permissionQuery
-        .whereNull('system_permission_deleted_at')
-        .whereHas('systemModule', (moduleQuery) =>
-          moduleQuery.whereNull('system_module_deleted_at').where('system_module_slug', 'employees')
-        )
-    )
-}
-
-async function snapshotAndClearEmployeesGrants(roleId: number) {
-  const grants = await activeEmployeesGrants(roleId)
-  for (const grant of grants) {
-    await grant.delete()
-  }
-  return grants
-}
-
-async function restoreEmployeesGrants(grants: RoleSystemPermission[]) {
-  for (const grant of grants) {
-    await grant.restore()
-  }
 }
 
 async function createEmployeeFixture(businessUnitId: number, prefix: string): Promise<EmployeeFixture> {
@@ -313,10 +244,8 @@ test.group('Expediente/Certificaciones — PermissionGate soft-rollout', (group)
   let fixture: EmployeeFixture | null = null
   let employeesModule: SystemModule
   let recordProperty: EmployeeRecordProperty
-  let certificationCategory: CertificationCategory
   let employeeProceedingFileTypeId: number
   const createdProceedingFileTypeIds: number[] = []
-  let createdCertificationId: number | null = null
 
   group.setup(async () => {
     employeesModule = await SystemModule.query()
@@ -329,7 +258,6 @@ test.group('Expediente/Certificaciones — PermissionGate soft-rollout', (group)
     actor = await createActor('employees-expediente-cert-soft')
     fixture = await createEmployeeFixture(actor.businessUnit.businessUnitId, 'soft')
     recordProperty = await ensureEmployeeRecordProperty()
-    certificationCategory = await ensureCertificationCategory()
     employeeProceedingFileTypeId = await createProceedingFileTypeForArea('employee')
     createdProceedingFileTypeIds.push(employeeProceedingFileTypeId)
   })
@@ -346,13 +274,6 @@ test.group('Expediente/Certificaciones — PermissionGate soft-rollout', (group)
           .from('proceeding_file_types')
           .whereIn('proceeding_file_type_id', createdProceedingFileTypeIds)
           .delete()
-      }
-      if (createdCertificationId) {
-        await db
-          .from('business_unit_certifications')
-          .where('certification_id', createdCertificationId)
-          .delete()
-        await db.from('certifications').where('certification_id', createdCertificationId).delete()
       }
       await cleanupEmployeeFixture(fixture)
       await cleanupActor(actor)
@@ -383,23 +304,6 @@ test.group('Expediente/Certificaciones — PermissionGate soft-rollout', (group)
         employeeRecordValue: 'soft-rollout',
         employeeRecordActive: true,
       })
-    assert.notEqual(response.body()?.key, 'PERM.DENIED')
-    assert.notEqual(response.body()?.key, 'PERM.UNRESOLVED')
-  })
-
-  test('con exigencia apagada, POST certifications no responde PERM.DENIED', async ({
-    client,
-    assert,
-  }) => {
-    await grantOnly(actor!.role.roleId, [])
-    const response = await client.post('/api/certifications').loginAs(actor!.user).json({
-      name: `Cert soft ${Date.now()}`,
-      categoryId: certificationCategory.certificationCategoryId,
-      isExternal: false,
-      renewalPeriodDays: 365,
-      businessUnitIds: [actor!.businessUnit.businessUnitId],
-    })
-    createdCertificationId = response.body()?.data?.certification?.id ?? null
     assert.notEqual(response.body()?.key, 'PERM.DENIED')
     assert.notEqual(response.body()?.key, 'PERM.UNRESOLVED')
   })
@@ -691,44 +595,7 @@ test.group('Expediente/Certificaciones — PermissionGate exigencia ON', (group)
     assert.match(JSON.stringify(response.body()), /más reciente/i)
   })
 
-  test('owner y root evaden el gate estándar sin grants', async ({ client, assert }) => {
-    const owner = await createSystemActor('owner', 'employees-expediente-owner')
-    const root = await createSystemActor('root', 'employees-expediente-root')
-    let ownerGrants: RoleSystemPermission[] = []
-    let rootGrants: RoleSystemPermission[] = []
-    const createdCertificationIds: number[] = []
-    try {
-      ownerGrants = await snapshotAndClearEmployeesGrants(owner.roleId)
-      rootGrants = await snapshotAndClearEmployeesGrants(root.roleId)
-      for (const systemActor of [owner, root]) {
-        const response = await client
-          .post('/api/certifications')
-          .loginAs(systemActor.user)
-          .json({
-            name: `Cert bypass ${systemActor.user.userEmail}`,
-            categoryId: certificationCategory.certificationCategoryId,
-            isExternal: false,
-            renewalPeriodDays: 365,
-            businessUnitIds: [systemActor.businessUnit.businessUnitId],
-          })
-        assert.notEqual(response.body()?.key, 'PERM.DENIED')
-        const createdId: number | null = response.body()?.data?.certification?.id ?? null
-        if (createdId) {
-          createdCertificationIds.push(createdId)
-        }
-      }
-    } finally {
-      if (createdCertificationIds.length) {
-        await db
-          .from('business_unit_certifications')
-          .whereIn('certification_id', createdCertificationIds)
-          .delete()
-        await db.from('certifications').whereIn('certification_id', createdCertificationIds).delete()
-      }
-      await restoreEmployeesGrants(ownerGrants)
-      await restoreEmployeesGrants(rootGrants)
-      await cleanupSystemActor(root)
-      await cleanupSystemActor(owner)
-    }
-  })
+  // El bypass de owner y root sobre el alta del catálogo se prueba en
+  // `tests/functional/certifications_permission_gate.spec.ts`: el catálogo ya no
+  // cuelga de Empleados y este spec solo cubre la pestaña del empleado.
 })

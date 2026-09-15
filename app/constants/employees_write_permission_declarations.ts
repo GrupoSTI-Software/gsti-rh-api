@@ -104,9 +104,9 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   storeProceedingFileTypeProperty: employeesStandard('tab-expediente-write'),
   storeMultipleProceedingFileTypeProperties: employeesStandard('tab-expediente-write'),
   deleteProceedingFileTypeProperty: employeesStandard('tab-expediente-delete'),
-  createCertification: employeesStandard('tab-certificaciones-write'),
-  updateCertification: employeesStandard('tab-certificaciones-write'),
-  deleteCertification: employeesStandard('tab-certificaciones-delete'),
+  // El CRUD del catálogo de certificaciones pasó a su módulo propio
+  // (`certifications_permission_declarations.ts`): la pestaña del empleado solo
+  // gobierna la carga y baja de cumplimientos.
   createEmployeeCertificationUpload: employeesStandard('tab-certificaciones-write'),
   deleteEmployeeCertificationUpload: employeesStandard('tab-certificaciones-delete'),
   createEmployeeShift: employeesStandard('manage-shift'),

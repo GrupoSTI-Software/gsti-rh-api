@@ -834,7 +834,7 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModulePath: '/certifications',
         systemModuleOrder: 4,
         systemModuleActive: 1,
-        systemModulePermissionEnforcementActive: false,
+        systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M5 8v-3a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2h-5"/><path d="M6 14m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0"/><path d="M4.5 17l-1.5 5l3 -1.5l3 1.5l-1.5 -5"/></svg>',
@@ -856,7 +856,7 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModulePath: '/competencies',
         systemModuleOrder: 5,
         systemModuleActive: 1,
-        systemModulePermissionEnforcementActive: false,
+        systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9a6 6 0 1 0 12 0a6 6 0 1 0 -12 0"/><path d="M12 15l3.4 5.89l1.598 -3.233l3.598 .232l-3.4 -5.889"/><path d="M6.802 12l-3.4 5.89l3.598 -.233l1.598 3.232l3.4 -5.889"/></svg>',

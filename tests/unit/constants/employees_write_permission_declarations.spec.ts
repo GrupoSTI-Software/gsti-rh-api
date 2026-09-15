@@ -15,9 +15,11 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
   // de perfil. Esa declaracion cubre SOLO el lado de escritura de la foto; el
   // permiso de lectura biometrica que tambien exige lo evalua el controlador,
   // porque un arreglo de acciones aqui se resolveria en OR.
-  test('declara exactamente 157 operaciones con module employees y bypass standard', ({ assert }) => {
+  // 154: salen createCertification, updateCertification y deleteCertification,
+  // que ahora declara el modulo Catalogo de certificaciones.
+  test('declara exactamente 154 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 157)
+    assert.equal(keys.length, 154)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 
@@ -103,9 +105,10 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.storeProceedingFileTypeProperty.action, 'tab-expediente-write')
     assert.equal(d.storeMultipleProceedingFileTypeProperties.action, 'tab-expediente-write')
     assert.equal(d.deleteProceedingFileTypeProperty.action, 'tab-expediente-delete')
-    assert.equal(d.createCertification.action, 'tab-certificaciones-write')
-    assert.equal(d.updateCertification.action, 'tab-certificaciones-write')
-    assert.equal(d.deleteCertification.action, 'tab-certificaciones-delete')
+    // El CRUD del catálogo ya no es de Empleados: lo declara `certifications`.
+    assert.notProperty(d, 'createCertification')
+    assert.notProperty(d, 'updateCertification')
+    assert.notProperty(d, 'deleteCertification')
     assert.equal(d.createEmployeeCertificationUpload.action, 'tab-certificaciones-write')
     assert.equal(d.deleteEmployeeCertificationUpload.action, 'tab-certificaciones-delete')
 
