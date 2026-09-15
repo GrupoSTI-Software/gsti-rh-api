@@ -129,12 +129,26 @@ test.group('Deuda — catálogo de tipos y requisitos por puesto sin gate Emplea
     for (const rel of [
       'start/routes/proceeding_file_type_routes.ts',
       'start/routes/proceeding_file_type_email_routes.ts',
-      'start/routes/position_certification_requirement_routes.ts',
     ]) {
       const content = await readFile(join(process.cwd(), rel), 'utf8')
       assert.notInclude(content, 'permissionGate')
       assert.notInclude(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
     }
+  })
+
+  test('los requisitos de certificación por puesto se protegen con permisos del Organigrama, no de Empleados', async ({
+    assert,
+  }) => {
+    // Desde que el organigrama exige permisos en el perfil del puesto, esta ruta
+    // declara su propio módulo. Lo que el caso cuida es que no se cuele un gate
+    // de Empleados: los requisitos se administran desde el organigrama.
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/position_certification_requirement_routes.ts'),
+      'utf8'
+    )
+    assert.include(content, 'ORGANIZATION_CHART_PERMISSION_DECLARATIONS')
+    assert.notInclude(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+    assert.notInclude(content, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS')
   })
 })
 

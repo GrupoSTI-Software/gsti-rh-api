@@ -901,11 +901,22 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
     assert.notEqual(response.body()?.key, 'PERM.DENIED')
   })
 
-  test('catálogos de zonas e insumos no responden PERM.DENIED', async ({ client, assert }) => {
-    await grantOnly(actor!.role.roleId, [])
-    for (const path of ['/api/zones', '/api/supplies', '/api/supply-types']) {
-      const response = await client.get(path).loginAs(actor!.user).headers(buHeader(actor!))
-      assert.notEqual(response.body()?.key, 'PERM.DENIED')
+  test('el catálogo de zonas sigue abierto; el de activos pide supplies:read y un permiso de Empleados no lo abre', async ({
+    client,
+    assert,
+  }) => {
+    // Desde que Activos e insumos exige permisos, sus catálogos piden su propio
+    // módulo. La asignación de activos no los necesita desde Empleados: el
+    // formulario de asignación vive en la página de activos. Zonas sigue
+    // abierto porque lo consume el select de zonas de Empleados.
+    for (const grants of [[], ['manage-employee-supplies']]) {
+      await grantOnly(actor!.role.roleId, grants)
+      const zonesCatalog = await client.get('/api/zones').loginAs(actor!.user).headers(buHeader(actor!))
+      assert.notEqual(zonesCatalog.body()?.key, 'PERM.DENIED')
+      for (const path of ['/api/supplies', '/api/supply-types']) {
+        const response = await client.get(path).loginAs(actor!.user).headers(buHeader(actor!))
+        assertPermissionDenied(assert, response)
+      }
     }
   })
 

@@ -179,13 +179,26 @@ test.group('employee_supplies — PermissionGate Activos', () => {
     assert.equal(matches.length, 4)
   })
 
-  test('el catálogo de insumos de la empresa no declara permissionGate de Empleados', async ({
+  test('el catálogo de activos se protege con permisos de Activos; de Empleados solo queda el Excel', async ({
     assert,
   }) => {
+    // Desde que el módulo supplies exige permisos, sus rutas declaran su propio
+    // módulo. Lo que este caso cuida es que la asignación de activos (Empleados)
+    // no se cuele en el catálogo: el único gate de Empleados es el reporte en
+    // Excel, que ya pedía employees:download-supplies-report.
     const supplies = await readFile(join(process.cwd(), 'start/routes/supplies.ts'), 'utf8')
     const types = await readFile(join(process.cwd(), 'start/routes/supply_type.ts'), 'utf8')
-    assert.notInclude(supplies, 'permissionGate')
-    assert.notInclude(types, 'permissionGate')
+    assert.include(supplies, 'SUPPLIES_PERMISSION_DECLARATIONS')
+    assert.include(types, 'SUPPLIES_PERMISSION_DECLARATIONS')
+    assert.notInclude(supplies, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+    assert.notInclude(types, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+    assert.notInclude(types, 'EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS')
+    const employeesGates =
+      compact(supplies).match(/permissionGate\(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.deepEqual(employeesGates, [
+      'permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getSuppliesExcel)',
+    ])
   })
 })
 

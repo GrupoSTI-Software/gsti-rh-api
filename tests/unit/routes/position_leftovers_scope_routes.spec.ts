@@ -34,15 +34,18 @@ test.group('position_approval_history_routes — scope obligatorio', () => {
   test('store y getLast (last/:positionId) siguen expuestos bajo el grupo con scope', ({
     assert,
   }) => {
-    const content = readFileSync(POSITION_APPROVAL_HISTORY_ROUTES_FILE, 'utf-8')
+    // Sin espacios ni saltos: cada ruta encadena su permissionGate del
+    // organigrama y la declaración ocupa varias líneas.
+    const compact = (value: string) => value.replace(/\s+/g, '')
+    const content = compact(readFileSync(POSITION_APPROVAL_HISTORY_ROUTES_FILE, 'utf-8'))
 
     assert.include(
       content,
-      "router.post('/', '#controllers/position_approval_history_controller.store')"
+      compact("router.post('/', '#controllers/position_approval_history_controller.store')")
     )
     assert.include(
       content,
-      "router.get('/last/:positionId', '#controllers/position_approval_history_controller.getLast')"
+      compact("router.get('/last/:positionId', '#controllers/position_approval_history_controller.getLast')")
     )
   })
 })
