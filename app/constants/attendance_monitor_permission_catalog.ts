@@ -21,9 +21,9 @@ export type AttendanceMonitorSection = 'listado' | 'nomina' | 'asistencia' | 'de
  * consulta):
  *  - API: `see-payroll`, `display-payments-summary`, `display-discounts-summary`
  *    y `download-summary` (reportes), `shift-coverage` (estadísticas),
- *    `add-assist-manual` (captura ajena), `sync-assist` (sincronización general
- *    en su controller y por empleado con permissionGate) y
- *    `delete-check-assist` (anular checada con permissionGate). Las dos
+ *    `add-assist-manual` (captura ajena), `sync-assist` (las dos vías de
+ *    sincronización, general y por empleado, con permissionGate) y
+ *    `delete-check-assist` (anular checada con permissionGate). Las tres
  *    declaraciones del gate viven en
  *    `employees_attendance_monitor_permission_declarations.ts`.
  *  - Solo backoffice: `read` (guard de pantalla), `consecutive-faults` y

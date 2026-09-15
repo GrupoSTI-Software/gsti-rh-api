@@ -40,6 +40,7 @@ import {
   storeAssistValidator,
 } from '#modules/assist-ingestion/validators/store_assist.validator'
 import type { StoreAssistPayload } from '#modules/assist-ingestion/validators/store_assist.validator'
+import { employeeSynchronizeAssistsValidator } from '#validators/assist_employee_synchronize'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -56,11 +57,6 @@ export default class AssistsController {
   private async assertCanSeePayroll(userRoleId: number): Promise<boolean> {
     const roleService = new RoleService()
     return roleService.hasAccess(userRoleId, ATTENDANCE_MONITOR_MODULE_SLUG, 'see-payroll')
-  }
-
-  private async assertCanSyncAssist(userRoleId: number): Promise<boolean> {
-    const roleService = new RoleService()
-    return roleService.hasAccess(userRoleId, ATTENDANCE_MONITOR_MODULE_SLUG, 'sync-assist')
   }
 
   /**
@@ -121,34 +117,10 @@ export default class AssistsController {
    *                   type: string
    *                   example: Ya se encuentra un proceso en sincronización, por favor espere
    *       403:
-   *         description: Sin permiso `sync-assist` (key `sin-autorizacion-para-sincronizar-asistencia`, code `AST.AUTHZ.003`).
-   *         content:
-   *           application/json:
-   *             example:
-   *               type: warning
-   *               title: Sin autorización para sincronizar asistencia
-   *               message: No tienes autorización para sincronizar la asistencia desde el equipo biométrico.
-   *               detail: No tienes autorización para sincronizar la asistencia desde el equipo biométrico.
-   *               key: sin-autorizacion-para-sincronizar-asistencia
-   *               code: AST.AUTHZ.003
+   *         description: Sin permiso `sync-assist` del módulo `employees-attendance-monitor` (permissionGate, key `PERM.DENIED` / `PERM.UNRESOLVED`).
    */
   @inject()
-  async synchronize({ auth, request, response, i18n }: HttpContext) {
-    const t = i18n.formatMessage.bind(i18n)
-    const userRoleId = auth.user?.roleId
-    if (!userRoleId || !(await this.assertCanSyncAssist(userRoleId))) {
-      const detail = t('assist_sync_forbidden_message')
-      response.status(403)
-      return {
-        type: 'warning',
-        title: t('assist_sync_forbidden_title'),
-        message: detail,
-        detail,
-        key: 'sin-autorizacion-para-sincronizar-asistencia',
-        code: ASSIST_ERROR_CODES.AUTHZ_SYNC,
-      }
-    }
-
+  async synchronize({ request, response, i18n }: HttpContext) {
     const dateParamApi = request.input('date')
     const page = request.input('page')
 
@@ -215,21 +187,59 @@ export default class AssistsController {
    *                   example: Ya se encuentra un proceso en sincronización, por favor espere
    *       403:
    *         description: Sin permiso `sync-assist` del módulo `employees-attendance-monitor` (permissionGate, key `PERM.DENIED` / `PERM.UNRESOLVED`).
+   *       422:
+   *         description: Rango o colaborador ausente o mal formado (key `datos-invalidos-para-sincronizar-asistencia`, code `AST.VAL.010`).
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: warning
+   *               title: Datos inválidos para sincronizar asistencia
+   *               message: El campo startDate es obligatorio
+   *               detail: El campo startDate es obligatorio
+   *               key: datos-invalidos-para-sincronizar-asistencia
+   *               code: AST.VAL.010
    */
   @inject()
-  async employeeSynchronize(
-    { auth, request, response, i18n }: HttpContext
-  ) {
-    const startDate = request.input('startDate')
-    const endDate = request.input('endDate')
-    const empCode = request.input('empCode')
+  async employeeSynchronize({ auth, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     const userId = auth.user?.userId
     const rawHeaders = request.request.rawHeaders
+
+    // Se valida contra `request.all()` —query y cuerpo— porque el panel de
+    // asistencia manda el rango en el query string, igual que la captura de
+    // checadas. Sin esto, un rango ausente llegaba como `undefined` al servicio
+    // y salía como un 400 crudo de `Invalid time value`.
+    let payload: { startDate: string; endDate: string; empCode: string }
+    try {
+      payload = await employeeSynchronizeAssistsValidator.validate(request.all())
+    } catch (validationError) {
+      const detail =
+        firstValidationIssue(validationError)?.message ??
+        t(
+          'assist_employee_sync_invalid_range_message',
+          undefined,
+          'Indica la fecha inicial, la fecha final y el colaborador a sincronizar.'
+        )
+      response.status(422)
+      return {
+        type: 'warning',
+        title: t(
+          'assist_employee_sync_invalid_range_title',
+          undefined,
+          'Datos inválidos para sincronizar asistencia'
+        ),
+        message: detail,
+        detail,
+        key: 'datos-invalidos-para-sincronizar-asistencia',
+        code: ASSIST_ERROR_CODES.VAL_SYNC_RANGE,
+      }
+    }
+
     try {
       const filters = {
-        startDate: startDate,
-        endDate: endDate,
-        empCode: empCode,
+        startDate: payload.startDate,
+        endDate: payload.endDate,
+        empCode: payload.empCode,
         page: 1,
         limit: 5000,
         userId: userId ? userId : 0,

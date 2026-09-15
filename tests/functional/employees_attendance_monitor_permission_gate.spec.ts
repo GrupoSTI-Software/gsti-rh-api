@@ -22,6 +22,7 @@ import {
   createEmployeeFixture,
   type EmployeeFixture,
 } from '#tests/helpers/employee_fixture'
+import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
 
 /**
  * Monitor de asistencia con la exigencia encendida.
@@ -92,9 +93,9 @@ function inactivate(client: ApiClient, actor: TenantActor, assistId: number) {
 }
 
 /**
- * Sin fechas a propósito: el controller convierte `startDate` a fecha y
- * `toISOString()` falla antes de llamar al biométrico, así que responde 400
- * sin salir a la red. Aquí solo importa si la petición cruza el gate.
+ * Sin fechas a propósito: el validador las exige y responde 422 sin salir a la
+ * red. Aquí solo importa si la petición cruza el gate; el contenido de esa
+ * negativa se prueba en su propio caso.
  */
 function synchronizeEmployee(client: ApiClient, actor: TenantActor) {
   return client
@@ -102,6 +103,19 @@ function synchronizeEmployee(client: ApiClient, actor: TenantActor) {
     .loginAs(actor.user)
     .headers(businessUnitHeaders(actor))
     .json({ empCode: 'SIN-EQUIPO' })
+}
+
+/**
+ * Sincronización general. Solo se usa en los casos que el gate NIEGA: cuando la
+ * petición lo cruza, el servicio sale a buscar al equipo biométrico y un test no
+ * puede depender de eso. Lo que este archivo prueba de ella es que ya no la
+ * decide el controller con su propio `AST.AUTHZ.003`, sino el gate.
+ */
+function synchronizeAll(client: ApiClient, actor: TenantActor) {
+  return client
+    .post('/api/v1/assists/synchronize')
+    .loginAs(actor.user)
+    .headers(businessUnitHeaders(actor))
 }
 
 function assertDenied(assert: Assert, response: ApiResponse, label: string): void {
@@ -151,7 +165,7 @@ test.group('Monitor de asistencia — permissionGate de anular checada y sincron
     assist = null
   })
 
-  test('sin concesiones: anular checada y sincronizar por empleado responden PERM.DENIED', async ({
+  test('sin concesiones: anular checada y las dos sincronizaciones responden PERM.DENIED', async ({
     client,
     assert,
   }) => {
@@ -162,6 +176,9 @@ test.group('Monitor de asistencia — permissionGate de anular checada y sincron
     assertDenied(assert, await inactivate(client, tenant, checada.assistId), 'anular checada')
     assert.isTrue(await isAssistActive(checada.assistId), 'la checada debe seguir activa')
     assertDenied(assert, await synchronizeEmployee(client, tenant), 'sincronizar por empleado')
+    // Antes respondía 403 con `AST.AUTHZ.003` desde el controller: misma
+    // decisión, otra forma de negativa. Ahora la niega el gate como las demás.
+    assertDenied(assert, await synchronizeAll(client, tenant), 'sincronización general')
   })
 
   test('delete-check-assist anula la checada propia y no abre la sincronización', async ({
@@ -189,13 +206,13 @@ test.group('Monitor de asistencia — permissionGate de anular checada y sincron
 
     const sync = await synchronizeEmployee(client, tenant)
     assertPassesGate(assert, sync)
-    sync.assertStatus(400)
+    sync.assertStatus(422)
 
     assertDenied(assert, await inactivate(client, tenant, checada.assistId), 'anular checada')
     assert.isTrue(await isAssistActive(checada.assistId), 'la checada debe seguir activa')
   })
 
-  test('el resto de casillas del monitor no abre ninguna de las dos operaciones', async ({
+  test('el resto de casillas del monitor no abre ninguna de las tres operaciones', async ({
     client,
     assert,
   }) => {
@@ -205,6 +222,7 @@ test.group('Monitor de asistencia — permissionGate de anular checada y sincron
 
     assertDenied(assert, await inactivate(client, tenant, checada.assistId), 'anular checada')
     assertDenied(assert, await synchronizeEmployee(client, tenant), 'sincronizar por empleado')
+    assertDenied(assert, await synchronizeAll(client, tenant), 'sincronización general')
   })
 
   test('owner pasa los dos gates sin concesiones (bypass standard)', async ({ client, assert }) => {
@@ -216,6 +234,29 @@ test.group('Monitor de asistencia — permissionGate de anular checada y sincron
 
     const sync = await synchronizeEmployee(client, account)
     assertPassesGate(assert, sync)
-    sync.assertStatus(400)
+    sync.assertStatus(422)
+  })
+
+  test('la sincronización por empleado sin rango responde 422 con título, detalle y key', async ({
+    client,
+    assert,
+  }) => {
+    // Antes reventaba dentro del servicio (`new Date(undefined)`) y salía como
+    // un 400 crudo `{ message: 'Invalid time value' }`: el panel de asistencia
+    // no podía distinguirlo de una caída del equipo biométrico.
+    const tenant = required(actor, 'el actor')
+    await grantModulePermissions(tenant, MODULE, ['sync-assist'])
+
+    const response = await synchronizeEmployee(client, tenant)
+
+    response.assertStatus(422)
+    const body = response.body()
+    assert.equal(body.key, 'datos-invalidos-para-sincronizar-asistencia')
+    assert.equal(body.code, ASSIST_ERROR_CODES.VAL_SYNC_RANGE)
+    assert.isString(body.title)
+    assert.isNotEmpty(body.title)
+    assert.isString(body.detail)
+    assert.isNotEmpty(body.detail)
+    assert.notInclude(body.detail, 'Invalid time value')
   })
 })

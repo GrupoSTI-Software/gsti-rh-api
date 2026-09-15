@@ -90,8 +90,8 @@ router
       .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getPermissionsByDates))
     router.get('/', '#controllers/assists_controller.index')//.use(middleware.auth({ guards: ['api'] }))
     router.get('/status', '#controllers/assists_controller.getStatusSync')
-    // Sin gate de ruta: el controller exige `sync-assist` con `hasAccess` y responde AST.AUTHZ.003.
     router.post('/synchronize', '#controllers/assists_controller.synchronize')
+      .use(middleware.permissionGate(EMPLOYEES_ATTENDANCE_MONITOR_PERMISSION_DECLARATIONS.synchronizeAssists))
     router.post('/employee-synchronize', '#controllers/assists_controller.employeeSynchronize')
       .use(middleware.permissionGate(EMPLOYEES_ATTENDANCE_MONITOR_PERMISSION_DECLARATIONS.employeeSynchronizeAssists))
     router.post('/', '#controllers/assists_controller.store')

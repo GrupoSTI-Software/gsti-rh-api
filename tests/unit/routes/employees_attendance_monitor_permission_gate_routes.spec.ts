@@ -14,9 +14,11 @@ import {
  *  - Anular una checada (`PUT /:assistId/inactivate`) y sincronizar por
  *    empleado (`POST /employee-synchronize`) no verificaban nada: el panel de
  *    asistencia ocultaba el botón, pero cualquier sesión del tenant podía
- *    llamarlos. Ahora exigen `delete-check-assist` y `sync-assist`.
- *  - La sincronización general (`POST /synchronize`) sigue sin gate de ruta:
- *    su controller ya exige `sync-assist` y responde con `AST.AUTHZ.003`.
+ *    llamarlos. Exigen `delete-check-assist` y `sync-assist`.
+ *  - La sincronización general (`POST /synchronize`) verificaba `sync-assist`
+ *    en su controller con `RoleService.hasAccess` y respondía `AST.AUTHZ.003`:
+ *    dos piezas de control de acceso para la misma decisión, con dos formas de
+ *    negativa. Ahora también pasa por el gate y responde `PERM.DENIED`.
  */
 
 const MONITOR = 'EMPLOYEES_ATTENDANCE_MONITOR_PERMISSION_DECLARATIONS'
@@ -27,7 +29,7 @@ const monitorGate = (key: keyof typeof EMPLOYEES_ATTENDANCE_MONITOR_PERMISSION_D
   gateExpression(MONITOR, EMPLOYEES_ATTENDANCE_MONITOR_PERMISSION_DECLARATIONS, key)
 
 test.group('Monitor de asistencia — declaraciones y exigencia', () => {
-  test('sincronizar por empleado pide sync-assist y anular una checada pide delete-check-assist; bypass standard', ({
+  test('las dos sincronizaciones piden sync-assist y anular una checada pide delete-check-assist; bypass standard', ({
     assert,
   }) => {
     const standard = (action: string) => ({
@@ -37,6 +39,7 @@ test.group('Monitor de asistencia — declaraciones y exigencia', () => {
     })
 
     assert.deepEqual(EMPLOYEES_ATTENDANCE_MONITOR_PERMISSION_DECLARATIONS, {
+      synchronizeAssists: standard('sync-assist'),
       employeeSynchronizeAssists: standard('sync-assist'),
       inactivateAssist: standard('delete-check-assist'),
     })
@@ -59,9 +62,15 @@ test.group('Monitor de asistencia — declaraciones y exigencia', () => {
 })
 
 test.group('assist_routes — gates del Monitor de asistencia', () => {
-  test('employee-synchronize e inactivate declaran su gate', ({ assert }) => {
+  test('las dos sincronizaciones e inactivate declaran su gate', ({ assert }) => {
     const content = readSource(ROUTES_FILE)
 
+    assertRouteGated(assert, content, {
+      method: 'post',
+      path: '/synchronize',
+      handler: `${CONTROLLER}.synchronize`,
+      gate: monitorGate('synchronizeAssists'),
+    })
     assertRouteGated(assert, content, {
       method: 'post',
       path: '/employee-synchronize',
@@ -76,18 +85,31 @@ test.group('assist_routes — gates del Monitor de asistencia', () => {
     })
   })
 
-  test('synchronize sigue sin gate de ruta porque su controller exige sync-assist', ({ assert }) => {
-    assertRouteOpen(assert, readSource(ROUTES_FILE), {
-      method: 'post',
-      path: '/synchronize',
-      handler: `${CONTROLLER}.synchronize`,
-    })
-
+  test('el controller ya no verifica sync-assist por su cuenta ni emite AST.AUTHZ.003', ({
+    assert,
+  }) => {
+    // Dejar la verificación del controller junto al gate sería doble control de
+    // acceso para la misma decisión: es lo que producía las dos negativas.
     const controller = readSource('app/controllers/assists_controller.ts')
-    assert.include(
+
+    assert.notInclude(controller, 'assertCanSyncAssist')
+    assert.notInclude(
       controller,
       "roleService.hasAccess(userRoleId, ATTENDANCE_MONITOR_MODULE_SLUG, 'sync-assist')"
     )
-    assert.include(controller, 'if (!userRoleId || !(await this.assertCanSyncAssist(userRoleId)))')
+    assert.notInclude(controller, 'ASSIST_ERROR_CODES.AUTHZ_SYNC')
+  })
+
+  test('la captura de checadas sigue sin gate de ruta: la resuelve el propio controller', ({
+    assert,
+  }) => {
+    // Sirve de testigo de que `assertRouteOpen` sigue distinguiendo una ruta sin
+    // gate; sin él, el caso de arriba pasaría aunque el helper dejara de ver los
+    // gates.
+    assertRouteOpen(assert, readSource(ROUTES_FILE), {
+      method: 'post',
+      path: '/',
+      handler: `${CONTROLLER}.store`,
+    })
   })
 })
