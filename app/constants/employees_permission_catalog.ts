@@ -413,6 +413,16 @@ const CATALOG_ENTRIES = [
     legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'exact' },
   },
   {
+    // Vivía en el módulo `compliance`, que se partió por pantalla. Protege toda
+    // exportación con datos sensibles de colaboradores (`PiiExportService`),
+    // no solo las de NOM-035: su casa es la familia de datos sensibles.
+    slug: 'export-sensitive-data',
+    displayName: 'Exportar datos sensibles completos',
+    kind: 'read',
+    section: 'datos-sensibles',
+    exceptionProfile: 'standard',
+  },
+  {
     slug: 'register-physical-consent',
     displayName: 'Registrar consentimiento físico',
     kind: 'write',
@@ -441,7 +451,7 @@ const CATALOG_ENTRIES = [
   ...tabActionsWithDelete('anotaciones', 'Anotaciones'),
   ...tabActionsWithDelete('dispositivos', 'Dispositivos'),
   ...tabActionsWithDelete('evaluaciones', 'Evaluaciones'),
-  ...tabActionsWithDelete('assessments', 'Assessments'),
+  ...tabActionsWithDelete('assessments', 'Evaluaciones por parámetros'),
   ...tabActionsWithDelete('ruta-carrera', 'Ruta de carrera'),
   ...tabActionsWithDelete('certificaciones', 'Certificaciones'),
   ...tabActionsReadOnly('consentimiento', 'Consentimiento'),

@@ -2,7 +2,7 @@ import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 
 const COVERAGE_REPORT_PERMISSION = {
-  module: 'compliance-contratos',
+  module: 'repse-registrations',
   action: 'read',
   bypass: 'expanded',
 } as const
