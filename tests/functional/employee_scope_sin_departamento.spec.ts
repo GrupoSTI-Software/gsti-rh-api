@@ -1,4 +1,6 @@
 import { test } from '@japa/runner'
+import { DateTime } from 'luxon'
+import i18nManager from '@adonisjs/i18n/services/main'
 import User from '#models/user'
 import Role from '#models/role'
 import Person from '#models/person'
@@ -6,10 +8,15 @@ import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import Department from '#models/department'
 import Employee from '#models/employee'
+import Notice from '#models/notice'
+import NoticeFile from '#models/notice_file'
 import NoticeRecipient from '#models/notice_recipient'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemPermission from '#models/system_permission'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
+import NoticeService from '#services/notice_service'
+import { TenantContext } from '#utils/tenant_context'
+import { grantNoticePermissions, revokeNoticePermissions } from './helpers/notice_permissions.js'
 
 /**
  * USRH1788466831247 — quien ve toda la plantilla (`root` o un rol con
@@ -394,5 +401,105 @@ test.group('Alcance sin departamento — Empleados y lista para asignar (USRH178
 
     response.assertStatus(200)
     assert.deepEqual(employeeIds(response.body()), [aCargoSinDepto.employee.employeeId])
+  })
+})
+
+test.group('Alcance sin departamento — avisos a toda la empresa (USRH1788466831247)', (group) => {
+  let unit: BusinessUnit
+  let foreignUnit: BusinessUnit
+  let completo: Actor | null = null
+  let conDepto: EmployeeFixture
+  let sinDepto: EmployeeFixture
+  let deptoBaja: EmployeeFixture
+  let ajenoSinDepto: EmployeeFixture
+  let sinDeptoNuevo: EmployeeFixture | null = null
+  let noticeGrants: RoleSystemPermission[] = []
+  const createdNotices: number[] = []
+
+  group.setup(async () => {
+    unit = await createUnit('avisos')
+    foreignUnit = await createUnit('avisos-ajena')
+    const activo = await createDepartment(unit, 'Avisos')
+    const eliminado = await createDepartment(unit, 'AvisosEliminado')
+    conDepto = await createEmployee(unit, 'AvisoConDepto', activo.departmentId)
+    sinDepto = await createEmployee(unit, 'AvisoSinDepto', null)
+    deptoBaja = await createEmployee(unit, 'AvisoDeptoBaja', eliminado.departmentId)
+    ajenoSinDepto = await createEmployee(foreignUnit, 'AvisoAjeno', null)
+    await eliminado.delete()
+
+    completo = await createRoleActor(unit, 'avisos-completo')
+    await grantEmployeesPermissions(completo.role!.roleId, ['read', 'full-employee-assigned'])
+    noticeGrants = await grantNoticePermissions(completo.role!.roleId, ['read', 'create'])
+  })
+
+  group.teardown(async () => {
+    if (createdNotices.length > 0) {
+      await NoticeRecipient.query().withTrashed().whereIn('notice_id', createdNotices).delete()
+      await NoticeFile.query().withTrashed().whereIn('notice_id', createdNotices).delete()
+      await Notice.query().withTrashed().whereIn('notice_id', createdNotices).delete()
+    }
+    await revokeNoticePermissions(noticeGrants)
+    await cleanupEmployees(
+      [conDepto, sinDepto, deptoBaja, ajenoSinDepto, sinDeptoNuevo].filter(
+        (f): f is EmployeeFixture => f !== null
+      )
+    )
+    await cleanupActor(completo)
+    await cleanupUnits([unit, foreignUnit])
+  })
+
+  test('al guardar un programado para toda la empresa, el sin departamento es destinatario', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .post('/api/notices')
+      .json({
+        noticeSubject: 'Toda la plantilla',
+        noticeDescription: '<p>Mensaje</p>',
+        noticeAudience: 'company',
+        noticeSendMode: 'scheduled',
+        noticeScheduledAt: DateTime.now().plus({ days: 1 }).toISO(),
+      })
+      .header('X-Business-Unit-Id', header(unit))
+      .loginAs(completo!.user)
+
+    response.assertStatus(201)
+    const notice = response.body().data.notice
+    createdNotices.push(notice.noticeId)
+    const ids = (notice.recipients as Array<{ employeeId: number }>).map((r) => r.employeeId)
+    assert.include(ids, conDepto.employee.employeeId)
+    assert.include(ids, sinDepto.employee.employeeId)
+    assert.notInclude(ids, deptoBaja.employee.employeeId, 'departamento dado de baja: regla 8')
+    assert.notInclude(ids, ajenoSinDepto.employee.employeeId, 'otra empresa: regla 5')
+  })
+
+  test('al salir el programado, se vuelve a resolver con el mismo criterio y sin mezclar empresas', async ({
+    assert,
+  }) => {
+    assert.isAbove(createdNotices.length, 0, 'depende del aviso guardado en el test anterior')
+    const noticeId = createdNotices[0]
+    // Entró a la empresa después de programar el aviso y sigue sin departamento:
+    // al salir, cuenta hoy, no entonces.
+    sinDeptoNuevo = await createEmployee(unit, 'AvisoSinDeptoNuevo', null)
+
+    // El comando corre fuera de una request y con el tenant en bypass: es el
+    // caso en el que solo el business_unit_id explícito acota.
+    const service = new NoticeService(i18nManager.locale(i18nManager.defaultLocale))
+    const notice = await Notice.findOrFail(noticeId)
+    await TenantContext.runUnscoped(
+      () => service.refreshCriteriaRecipients(notice),
+      'test USRH1788466831247: envío programado'
+    )
+
+    const rows = await NoticeRecipient.query()
+      .whereNull('notice_recipient_deleted_at')
+      .where('notice_id', noticeId)
+    const ids = rows.map((r) => r.employeeId)
+    assert.include(ids, sinDepto.employee.employeeId)
+    assert.include(ids, sinDeptoNuevo.employee.employeeId)
+    assert.include(ids, conDepto.employee.employeeId)
+    assert.notInclude(ids, deptoBaja.employee.employeeId)
+    assert.notInclude(ids, ajenoSinDepto.employee.employeeId, 'otra empresa con el tenant en bypass')
   })
 })

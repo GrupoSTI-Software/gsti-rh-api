@@ -219,8 +219,8 @@ test.group('Avisos — ciclo de vida (v2, segunda entrega)', (group) => {
       // la empresa; sin él se recorta a los colaboradores a cargo del usuario.
       ...(await grantFullEmployeeAccess(admin.role.roleId)),
     ]
-    // El listado de empleados —y con él `company`— solo alcanza a quien tiene
-    // departamento: los dos actores lo necesitan para contar como público.
+    // Departamento compartido para el escenario de público `department`. Desde
+    // USRH1788466831247 `company` alcanza también a quien no tiene departamento.
     sharedDepartment = await createDepartment(ana.businessUnit, 'Compartido')
     await assignDepartment(ana, sharedDepartment.departmentId)
     await assignDepartment(admin, sharedDepartment.departmentId)
