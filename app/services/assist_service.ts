@@ -4783,7 +4783,7 @@ export default class AssistsService {
         employeeService,
         {
           search: '',
-          departmentId: 0,
+          departmentId: departmentsList,
           positionId: 0,
           page: 1,
           limit: 999999,

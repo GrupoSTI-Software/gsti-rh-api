@@ -25,6 +25,9 @@ import type Employee from '#models/employee'
  *
  * @param query Query de `Employee` a la que se agrega el criterio. Se muta.
  * @param departmentsList Ids de los departamentos activos visibles para el rol.
+ * En el camino del aviso programado (tenant en bypass), esta lista puede
+ * traer departamentos de varias empresas; quien llama es responsable de
+ * acotar por `business_unit_id` aparte — este helper no lo hace.
  */
 export function applyVisibleDepartmentsScope(
   query: ModelQueryBuilderContract<typeof Employee>,

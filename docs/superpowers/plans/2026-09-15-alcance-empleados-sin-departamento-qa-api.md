@@ -131,11 +131,11 @@ Headers: `Authorization: Bearer <token de B>`, `X-Business-Unit-Id: <identificad
 
 Usuario: **B**.
 
-**Endpoint:** `GET /api/employees/?page=1&limit=100&search=Dos`
+**Endpoint:** `GET /api/employees/?page=1&limit=100&search=QA-ALC-02`
 
 Headers: `Authorization: Bearer <token de B>`, `X-Business-Unit-Id: <identificador de la empresa de prueba, resuelto en Preparar>`
 
-`Dos` es el apellido de `QA-ALC-02`.
+`QA-ALC-02` es el código de nómina del colaborador de prueba. Se usa el código en vez del apellido porque la búsqueda por código hace match exacto (`UPPER(employee_payroll_code) = ?`); una búsqueda por apellido es un `LIKE` de subcadena que, en una base de datos compartida, puede coincidir por accidente con apellidos preexistentes que contengan esas mismas letras (p. ej. Granados, Mercados, Prados) y dar un falso fallo de QA.
 
 **Response — 200:**
 
