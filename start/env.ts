@@ -195,6 +195,18 @@ export default await Env.create(new URL('../', import.meta.url), {
   BASIC_AUTH_PASSWORD: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
+  | Usuario root inicial (solo lo consume 0008_user_seeder)
+  |----------------------------------------------------------
+  | Opcionales a propósito: el servidor no las usa al arrancar y exigirlas
+  | tumbaría entornos que nunca siembran. El seeder falla con un error
+  | explícito si faltan, en vez de crear a root sin credenciales.
+  */
+  /** Correo del usuario root de plataforma. */
+  ROOT_USER_EMAIL: Env.schema.string.optional({ format: 'email' }),
+  /** Contraseña inicial del usuario root de plataforma. Nunca vive en el repo. */
+  ROOT_USER_PASSWORD: Env.schema.string.optional(),
+  /*
+  |----------------------------------------------------------
   | Variables para el modo demo y hardening del endpoint demo
   |----------------------------------------------------------
   */

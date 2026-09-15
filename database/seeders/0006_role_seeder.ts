@@ -26,40 +26,12 @@ export default class extends BaseSeeder {
   /** Roles base. El id lo asigna la BD; la identidad es `roleSlug`. */
   private readonly roles = [
     {
-      roleName: 'Super Administrador',
-      roleSlug: 'super-administrador',
-      roleDescription: 'Administrador',
-      roleActive: 1,
-      roleBusinessAccess: 'gsti-rh',
-    },
-    {
-      roleName: 'Recursos Humanos',
-      roleSlug: 'rh-manager',
-      roleDescription: 'Recursos Humanos Manager',
-      roleActive: 1,
-      roleBusinessAccess: 'gsti-rh',
-    },
-    {
       roleName: 'Root',
       roleSlug: 'root',
       roleDescription: 'Root',
       roleActive: 1,
-      roleBusinessAccess: 'gsti-rh',
-    },
-    {
-      roleName: 'Empleado',
-      roleSlug: 'empleado',
-      roleDescription: 'Empleado',
-      roleActive: 1,
-      roleBusinessAccess: 'gsti-rh',
-    },
-    {
-      roleName: 'Dueño',
-      roleSlug: 'owner',
-      roleDescription: 'Dueño de la cuenta contratada por autoservicio (acceso total a su empresa)',
-      roleActive: 1,
-      roleBusinessAccess: 'gsti-rh',
-    },
+      roleBusinessAccess: '',
+    }
   ]
 
   async run() {
