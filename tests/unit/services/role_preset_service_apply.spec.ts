@@ -4,7 +4,7 @@ import Role from '#models/role'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
-import SystemPermissionCatalogSyncSeeder from '#database/seeders/0055_system_permission_catalog_sync_seeder'
+import SystemPermissionCatalogSyncService from '#services/system_permission_catalog_sync_service'
 import RolePresetService from '#services/role_preset_service'
 import { RolePresetServiceError } from '#exceptions/role_preset_service_error'
 import { getRolePreset } from '#constants/role_presets'
@@ -33,7 +33,7 @@ test.group('RolePresetService.apply', (group) => {
   let employeesReadPermission: SystemPermission
 
   group.setup(async () => {
-    await new SystemPermissionCatalogSyncSeeder({} as never).run()
+    await new SystemPermissionCatalogSyncService().sync()
 
     role = await Role.create({
       roleName: `TSP Apply ${stamp}`,

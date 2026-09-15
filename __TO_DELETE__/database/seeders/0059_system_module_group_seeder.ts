@@ -1,6 +1,6 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
 import SystemModuleGroup from '#models/system_module_group'
-import { SYSTEM_MODULE_GROUP_CATALOG } from '#constants/system_module_group_catalog'
+import { SYSTEM_MODULE_GROUP_CATALOG } from '#constants/system-modules/system_module_groups.constant'
 
 /**
  * Siembra el catálogo de grupos del menú lateral y llena el icono SVG que

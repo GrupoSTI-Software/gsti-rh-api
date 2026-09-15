@@ -25,21 +25,6 @@ const DELETED_AT = 'system_module_group_deleted_at'
 const UNIQUE_KEY = 'uq_system_module_group_key_active'
 const ORDER_IDX = 'idx_system_module_group_order'
 
-type GroupRow = { name: string; key: string; order: number }
-
-/** Tabla de conversión congelada §4.1 — desempates de prefijo ya resueltos. */
-const GROUPS: GroupRow[] = [
-  { name: 'Reportes',        key: 'reportes',        order: 10 },
-  { name: 'Empresa',         key: 'empresa',         order: 20 },
-  { name: 'Calendarios',     key: 'calendarios',     order: 30 },
-  { name: 'Configuraciones', key: 'configuraciones', order: 40 },
-  { name: 'NOM-035',         key: 'nom-035',         order: 50 },
-  { name: 'Otros',           key: 'otros',           order: 60 },
-  { name: 'ZKSync',          key: 'zksync',          order: 70 },
-  { name: 'NOM-037',         key: 'nom-037',         order: 80 },
-  { name: 'Plataforma',      key: 'plataforma',      order: 90 },
-]
-
 export default class extends BaseSchema {
   async up() {
     // A1 — crear tabla con las 8 columnas reales.
@@ -83,26 +68,6 @@ export default class extends BaseSchema {
       ALTER TABLE \`${TABLE}\`
       ADD INDEX \`${ORDER_IDX}\` (\`system_module_group_order\`)
     `)
-
-    // A5 — insertar las 9 filas literales con reentrancia (CA7).
-    // WHERE NOT EXISTS garantiza que una segunda ejecución no duplica filas.
-    this.defer(async (db) => {
-      for (const g of GROUPS) {
-        await db.rawQuery(
-          `INSERT INTO \`${TABLE}\`
-             (system_module_group_name, system_module_group_key,
-              system_module_group_icon, system_module_group_order,
-              system_module_group_created_at)
-           SELECT ?, ?, NULL, ?, NOW()
-           WHERE NOT EXISTS (
-             SELECT 1 FROM \`${TABLE}\`
-             WHERE \`${KEY_COL}\` = ?
-               AND \`${DELETED_AT}\` IS NULL
-           )`,
-          [g.name, g.key, g.order, g.key]
-        )
-      }
-    })
   }
 
   async down() {

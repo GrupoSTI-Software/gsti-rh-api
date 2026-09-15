@@ -1,5 +1,5 @@
 import { test } from '@japa/runner'
-import SystemPermissionCatalogSyncSeeder from '#database/seeders/0055_system_permission_catalog_sync_seeder'
+import SystemPermissionCatalogSyncService from '#services/system_permission_catalog_sync_service'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 import { getRolePreset } from '#constants/role_presets'
 import RolePresetService from '#services/role_preset_service'
@@ -10,7 +10,7 @@ const employeesPermissionBySlug = new Map(
 
 test.group('RolePresetService.resolveEmployeesPermissionIds', (group) => {
   group.setup(async () => {
-    await new SystemPermissionCatalogSyncSeeder({} as never).run()
+    await new SystemPermissionCatalogSyncService().sync()
   })
 
   test('resuelve todos los slugs grantables de hr-admin a IDs del módulo employees', async ({
