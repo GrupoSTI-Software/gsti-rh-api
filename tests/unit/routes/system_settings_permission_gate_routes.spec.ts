@@ -169,7 +169,7 @@ test.group('Ajustes Generales — subrecursos de la ficha', () => {
     assert.include(compact(content), ".prefix('/api/system-settings-proceeding-files').use(middleware.auth())")
   })
 
-  test('tolerancias: escrituras con gate; las tres lecturas abiertas por el Monitor de asistencia', ({
+  test('tolerancias: escrituras con gate; lecturas abiertas y la ruta literal antes que la paramétrica', ({
     assert,
   }) => {
     const content = readRoutes('tolerance_routes.ts')
@@ -181,6 +181,17 @@ test.group('Ajustes Generales — subrecursos de la ficha', () => {
     assertOpen(assert, content, { method: 'get', path: '/:systemSettingId', handler: handler('index') })
     assertOpen(assert, content, { method: 'get', path: '/get-tardiness-tolerance', handler: handler('getTardinessTolerance') })
     assertOpen(assert, content, { method: 'get', path: '/:id', handler: handler('show') })
+
+    // Un parámetro de ruta acepta cualquier segmento: registrada primero,
+    // `/:systemSettingId` atendía también `/get-tardiness-tolerance` y el
+    // Monitor de asistencia recibía el listado de una empresa con id
+    // "get-tardiness-tolerance" en vez de su tolerancia de retardo.
+    const flat = compact(content)
+    assert.isBelow(
+      flat.indexOf("router.get('/get-tardiness-tolerance'"),
+      flat.indexOf("router.get('/:systemSettingId'"),
+      'la ruta literal debe registrarse antes que la paramétrica'
+    )
     assert.include(compact(content), ".prefix('/api/tolerances').use(middleware.auth())")
   })
 

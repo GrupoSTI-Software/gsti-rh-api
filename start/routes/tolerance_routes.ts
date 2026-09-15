@@ -5,17 +5,23 @@ import { SYSTEM_SETTINGS_PERMISSION_DECLARATIONS } from '#constants/system_setti
 router
   .group(() => {
     /**
-     * Las tres lecturas quedan sin gate. `/:systemSettingId` se registra antes
-     * que `/get-tardiness-tolerance` y el parámetro acepta cualquier segmento,
-     * así que también atiende la petición del Monitor de asistencia; por la
-     * misma causa `GET /:id` no se alcanza. Reordenarlas cambia lo que hoy
-     * recibe el Monitor y queda fuera de este cambio.
+     * Las lecturas quedan sin gate: las consumen el Monitor de asistencia y la
+     * ficha de empresa (ver `system_settings_permission_declarations.ts`).
+     *
+     * El ORDEN importa y es la razón de este bloque: un parámetro de ruta acepta
+     * cualquier segmento, así que `/:systemSettingId` registrado primero también
+     * atendía `/get-tardiness-tolerance` —el Monitor recibía el listado vacío de
+     * una empresa con id "get-tardiness-tolerance" en vez de su tolerancia—. La
+     * ruta literal va antes que la paramétrica.
+     *
+     * `GET /:id` (show) sigue sin alcanzarse: `/:systemSettingId` la cubre por
+     * ser ambas de un solo segmento. Queda reportado, no se toca aquí.
      */
-    router.get('/:systemSettingId', '#controllers/tolerances_controller.index')
     router.get(
       '/get-tardiness-tolerance',
       '#controllers/tolerances_controller.getTardinessTolerance'
     )
+    router.get('/:systemSettingId', '#controllers/tolerances_controller.index')
     router
       .post('/', '#controllers/tolerances_controller.store')
       .use(middleware.permissionGate(SYSTEM_SETTINGS_PERMISSION_DECLARATIONS.storeTolerance))

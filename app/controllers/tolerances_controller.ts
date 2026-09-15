@@ -1,6 +1,7 @@
 import { HttpContext } from '@adonisjs/core/http'
 import Tolerance from '../models/tolerance.js'
 import ToleranceService from '#services/tolerance_service'
+import SystemSettingService from '#services/system_setting_service'
 
 export default class TolerancesController {
   /**
@@ -290,11 +291,38 @@ export default class TolerancesController {
    *                     error:
    *                       type: string
    */
-  async getTardinessTolerance({ params, response }: HttpContext) {
+  /**
+   * La ruta es literal (`/get-tardiness-tolerance`) y no lleva `systemSettingId`:
+   * el Monitor de asistencia pide la tolerancia de retardo de la empresa activa,
+   * no la de una empresa que él elija. Antes leía `params.systemSettingId`, que
+   * aquí siempre es `undefined`, y la consulta reventaba con `".where" expects
+   * value to be defined`; el defecto quedaba tapado porque `/:systemSettingId`
+   * se registraba primero y atendía esta ruta en su lugar.
+   *
+   * La empresa activa se resuelve con `SystemSettingService.getActive()`, que es
+   * lo que ya usa `AssistsService.getTardinessToleranceMinutes()` para este mismo
+   * dato. Sin empresa activa responde `tardinessTolerance: null` y el backoffice
+   * cae a su valor por omisión, igual que cuando la empresa no la tiene
+   * configurada.
+   */
+  async getTardinessTolerance({ response }: HttpContext) {
     try {
+      const systemSettingActive = await new SystemSettingService().getActive()
+      if (!systemSettingActive) {
+        response.status(200)
+        return {
+          type: 'success',
+          title: 'Tolerance',
+          message: 'The tardiness tolerance found successfully',
+          data: {
+            tardinessTolerance: null,
+          },
+        }
+      }
+
       const toleranceService = new ToleranceService()
       const tardinessTolerance = await toleranceService.getTardinessTolerance(
-        params.systemSettingId
+        systemSettingActive.systemSettingId
       )
       response.status(200)
       return {
