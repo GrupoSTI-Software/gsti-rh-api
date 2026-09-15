@@ -1,9 +1,7 @@
 import { HttpContext } from '@adonisjs/core/http'
 import logger from '@adonisjs/core/services/logger'
 import AttendanceStatsService from './attendance-stats.service.js'
-import { hasShiftCoverageAccess } from './attendance-stats.permissions.js'
 import { getAttendanceStatsValidator } from './validators/get-attendance-stats.validator.js'
-import { getAttendanceCoverageValidator } from './validators/get-attendance-coverage.validator.js'
 import {
   getAttendanceAbsencesValidator,
   splitBranchOfficeIdsQuery,
@@ -17,8 +15,8 @@ import type {
 /**
  * Controller del módulo attendance-stats.
  *
- * Expone 3 endpoints de agregación de asistencias para reemplazar el patrón
- * actual de N requests al calendar individual desde el frontend.
+ * Expone los endpoints de agregación de asistencias que reemplazan el patrón
+ * de N requests al calendar individual desde el frontend.
  */
 export default class AttendanceStatsController {
 
@@ -136,168 +134,6 @@ export default class AttendanceStatsController {
    */
   async byEmployee(ctx: HttpContext) {
     return this.handle(ctx, 'byEmployee')
-  }
-
-  /**
-   * @swagger
-   * /api/v1/attendance-stats/coverage:
-   *   get:
-   *     summary: Cobertura de plantilla por sitio y turno
-   *     description: |
-   *       Compara presentes contra cuota por sitio de servicio y turno del día.
-   *       Requiere día único (startDay igual a endDay) y empresaContratanteId.
-   *
-   *       Exige el permiso `shift-coverage` del módulo `employees-attendance-monitor`
-   *       (root y owner pasan). Los conteos del semáforo son de la plantilla completa
-   *       del sitio; los candidatos solo incluyen colaboradores visibles para el usuario
-   *       con la regla del listado de empleados.
-   *
-   *       No acepta `companyId`: el middleware de alcance lo trata como alias legacy de
-   *       unidad de negocio.
-   *     security:
-   *       - bearerAuth: []
-   *     tags: [AttendanceStats]
-   *     parameters:
-   *       - name: X-Business-Unit-Id
-   *         in: header
-   *         required: true
-   *         description: Código público (UUID v4) de la unidad de negocio activa.
-   *         schema: { type: string, format: uuid }
-   *       - name: startDay
-   *         in: query
-   *         required: true
-   *         schema: { type: string, format: date, example: "2026-06-14" }
-   *       - name: endDay
-   *         in: query
-   *         required: true
-   *         schema: { type: string, format: date, example: "2026-06-14" }
-   *       - name: empresaContratanteId
-   *         in: query
-   *         required: true
-   *         description: ID de la empresa contratante cuyos sitios de servicio se evalúan.
-   *         schema: { type: integer, minimum: 1, example: 1 }
-   *       - name: branchOfficeIds
-   *         in: query
-   *         schema: { type: string, example: "1,2" }
-   *       - name: employeeIds
-   *         in: query
-   *         schema: { type: string, example: "1,2" }
-   *       - name: businessUnitId
-   *         in: query
-   *         schema: { type: integer }
-   *     responses:
-   *       '200':
-   *         description: Cobertura calculada correctamente
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/AttendanceCoverageSuccess'
-   *       '400':
-   *         description: Entrada inválida o día único requerido
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
-   *       '401':
-   *         description: No autenticado
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
-   *       '403':
-   *         description: Sin permiso shift-coverage (key sin-permiso, cuerpo title/detail/key) o scope insuficiente (key scope-insuficiente)
-   *         content:
-   *           application/json:
-   *             schema:
-   *               oneOf:
-   *                 - $ref: '#/components/schemas/AttendanceCoverageApiError'
-   *                 - type: object
-   *                   required: [title, detail, key]
-   *                   properties:
-   *                     title: { type: string }
-   *                     detail: { type: string }
-   *                     key: { type: string, enum: [sin-permiso] }
-   *             example:
-   *               title: Sin permiso
-   *               detail: No tienes permiso para consultar la cobertura de plantilla.
-   *               key: sin-permiso
-   *       '404':
-   *         description: Empresa contratante no encontrada
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
-   *       '500':
-   *         description: Error interno del servidor
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
-   */
-  async coverage(ctx: HttpContext) {
-    const { request, response, i18n, businessUnitScope, auth } = ctx
-    const t = i18n.formatMessage.bind(i18n)
-
-    try {
-      // Antes de validar: sin permiso no se revela qué parámetros espera.
-      const user = auth.getUserOrFail()
-      const canSeeCoverage = await hasShiftCoverageAccess(user.roleId)
-      if (!canSeeCoverage) {
-        return response.status(403).json({
-          title: t('attendance_stats_coverage_forbidden_title'),
-          detail: t('attendance_stats_coverage_forbidden_detail'),
-          key: 'sin-permiso',
-        })
-      }
-
-      const raw = {
-        startDay: request.input('startDay'),
-        endDay: request.input('endDay'),
-        empresaContratanteId: this.parseId(request.input('empresaContratanteId')),
-        departmentIds: this.parseIdList(request.input('departmentIds')),
-        employeeIds: this.parseIdList(request.input('employeeIds')),
-        businessUnitId: this.parseId(request.input('businessUnitId')),
-        payrollBusinessUnitId: this.parseId(request.input('payrollBusinessUnitId')),
-        branchOfficeIds: this.parseIdList(
-          request.input('branchOfficeIds') ?? request.input('branchNameIds')
-        ),
-      }
-
-      let validated
-      try {
-        validated = await getAttendanceCoverageValidator.validate(raw)
-      } catch (e: unknown) {
-        const messages = (e as { messages?: unknown })?.messages
-        return response.status(400).json({
-          type: 'error',
-          title: t('validation_error'),
-          message: t('attendance_stats_invalid_input'),
-          key: 'entrada-invalida',
-          details: messages,
-        })
-      }
-
-      const filters = validated
-      const service = new AttendanceStatsService(i18n)
-      const scope: ResolvedScope = { allowedBusinessUnitIds: businessUnitScope }
-      const result = await service.getCoverage(filters, scope, user.userId)
-
-      return response.status(result.status).json({
-        type: result.type,
-        title: result.title,
-        message: result.message,
-        key: result.key,
-        data: result.data,
-      })
-    } catch (error: unknown) {
-      // El detalle va al log, nunca a la respuesta: puede traer SQL o rutas internas.
-      logger.error({ err: error }, 'attendance-stats: error inesperado al calcular la cobertura')
-      return response.status(500).json({
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-      })
-    }
   }
 
   /**

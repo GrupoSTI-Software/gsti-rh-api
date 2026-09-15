@@ -44,7 +44,6 @@ import type {
 const MODULE_DIR = join(process.cwd(), 'app/modules/attendance-stats')
 const CONTROLLER_FILE = join(MODULE_DIR, 'attendance-stats.controller.ts')
 const REPO_FILE = join(MODULE_DIR, 'attendance-stats.repository.mysql.ts')
-const COVERAGE_FILE = join(MODULE_DIR, 'attendance-stats.coverage.ts')
 const ABSENCES_FILE = join(MODULE_DIR, 'attendance-stats.absences.ts')
 const RULES_FILE = join(MODULE_DIR, 'attendance-stats.rules.ts')
 const ROUTES_FILE = join(process.cwd(), 'start/routes/attendance_stats_routes.ts')
@@ -263,13 +262,9 @@ function failingRepo(calls: string[]): AttendanceStatsRepository {
   }
   return {
     getEmployeeCalendars: fail('getEmployeeCalendars'),
-    getSitesByCompany: fail('getSitesByCompany'),
-    getShiftQuotasByBranchIds: fail('getShiftQuotasByBranchIds'),
-    getActiveLoansForDay: fail('getActiveLoansForDay'),
     getAbsencesEmployeeIds: fail('getAbsencesEmployeeIds'),
     getAbsencesBranches: fail('getAbsencesBranches'),
     getLoansForRange: fail('getLoansForRange'),
-    getBranchOfficeNamesByIds: fail('getBranchOfficeNamesByIds'),
     getEmployeeIdsInResponsibleScope: fail('getEmployeeIdsInResponsibleScope'),
   }
 }
@@ -331,7 +326,6 @@ function orchestrator(params: {
     ),
   }
   const dependencies: AttendanceStatsServiceDependencies = {
-    findEmpresaContratanteInTenantOrFail: answer('findEmpresaContratanteInTenantOrFail', null),
     resolveEmployeeRoleScope: answer(
       'resolveEmployeeRoleScope',
       params.roleScope === undefined ? FULL_ROLE_SCOPE : params.roleScope
@@ -1002,12 +996,13 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     assert.include(body, 'logger.error(')
     assert.notInclude(body, 'error.message')
 
-    // El endpoint retirado ya no existe ni en el controller ni en las rutas.
+    // Los endpoints retirados ya no existen ni en el controller ni en las rutas:
+    // /coverage/absences se fue antes y /coverage al quedarse sin consumidor.
     const routes = readFileSync(ROUTES_FILE, 'utf-8')
     assert.notInclude(controller, 'coverageAbsences')
     assert.include(routes, "router.get('/absences', '#modules/attendance-stats/attendance-stats.controller.absences')")
-    assert.notInclude(routes, '/coverage/absences')
-    assert.include(routes, "'#modules/attendance-stats/attendance-stats.controller.coverage'")
+    assert.notInclude(routes, '/coverage')
+    assert.notInclude(controller, 'async coverage(')
   })
 
   test('censo: universo y préstamos con corte de tenant, cancelación, filtro opcional y orden determinista', ({ assert }) => {
@@ -1074,24 +1069,15 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
   })
 
   test('censo: las reglas de día y el motor de ausencias son módulos puros, sin ciclo con el service ni el repositorio', ({ assert }) => {
-    const coverage = readFileSync(COVERAGE_FILE, 'utf-8')
     const absences = readFileSync(ABSENCES_FILE, 'utf-8')
     const rules = readFileSync(RULES_FILE, 'utf-8')
 
-    assert.notInclude(coverage, 'coverageIsEvaluableDay')
-    assert.include(coverage, "import { isEvaluableDay } from './attendance-stats.rules.js'")
     assert.include(absences, "from './attendance-stats.rules.js'")
     for (const [name, content] of [
-      ['coverage', coverage],
       ['absences', absences],
       ['rules', rules],
     ]) {
       assert.notInclude(content, 'attendance-stats.service', `${name} no debe importar el service`)
-    }
-    for (const [name, content] of [
-      ['absences', absences],
-      ['rules', rules],
-    ]) {
       for (const dependency of ['@adonisjs/lucid', '#models/', 'repository', 'helpers/']) {
         assert.notInclude(content, dependency, `${name} no debe depender de ${dependency}`)
       }
