@@ -1,8 +1,6 @@
 import { test } from '@japa/runner'
-import {
-  SYSTEM_MODULES,
-  SYSTEM_MODULES_GROUPED,
-} from '#constants/system_modules_menu/system_modules.constant'
+import { SYSTEM_MODULES } from '#constants/system_modules_menu/system_modules.constant'
+import { validateSystemModulesDeclaration } from '#constants/system_permission_catalog'
 import type { PermissionGateOptions } from '#constants/permission_gate'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import { CALENDAR_PERMISSION_DECLARATIONS } from '#constants/calendar_permission_declarations'
@@ -47,9 +45,6 @@ const GATE_DECLARATIONS: object[] = [
   USERS_PERMISSION_DECLARATIONS,
 ]
 
-const findDuplicates = (values: string[]): string[] =>
-  values.filter((value, index) => values.indexOf(value) !== index)
-
 const collectGateOptions = (value: unknown): PermissionGateOptions[] => {
   if (!value || typeof value !== 'object') {
     return []
@@ -61,25 +56,12 @@ const collectGateOptions = (value: unknown): PermissionGateOptions[] => {
 }
 
 test.group('system_modules.constant — contrato del catálogo', () => {
-  test('ningún slug de módulo se repite', ({ assert }) => {
-    assert.deepEqual(
-      findDuplicates(SYSTEM_MODULES.map((systemModule) => systemModule.systemModuleSlug)),
-      []
-    )
-  })
-
-  test('ninguna clave de grupo se repite', ({ assert }) => {
-    assert.deepEqual(findDuplicates(SYSTEM_MODULES_GROUPED.map((group) => group.key)), [])
-  })
-
-  test('ningún permiso se repite dentro de su módulo', ({ assert }) => {
-    const duplicated = SYSTEM_MODULES.flatMap((systemModule) =>
-      findDuplicates(
-        systemModule.systemModulePermissions.map((permission) => permission.systemPermissionSlug)
-      ).map((slug) => `${systemModule.systemModuleSlug}:${slug}`)
-    )
-
-    assert.deepEqual(duplicated, [])
+  test('la declaración pasa validateSystemModulesDeclaration: sin claves de grupo, slugs de módulo ni permisos repetidos, y todo grupo referido existe', ({
+    assert,
+  }) => {
+    // Es la misma validación que corre 0062 antes de sembrar: los casos de
+    // cada regla se prueban en system_permission_catalog.spec.ts.
+    assert.doesNotThrow(() => validateSystemModulesDeclaration())
   })
 
   test('la ruta navegable coincide con el slug, que es como el BO protege la pantalla', ({

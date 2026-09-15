@@ -20,7 +20,6 @@ import Supply from '#models/supplie'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
-import SystemPermissionCatalogSyncService from '#services/system_permission_catalog_sync_service'
 
 const TEST_PASSWORD = 'ZonasActivosPermissionGate123!'
 const VALID_PNG_BUFFER = Buffer.from(
@@ -347,7 +346,6 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - soft-rollout (exigenci
   const supplies: SupplyFixture[] = []
 
   group.setup(async () => {
-    await new SystemPermissionCatalogSyncService().sync()
     employeesModule = await SystemModule.query()
       .whereNull('system_module_deleted_at')
       .where('system_module_slug', 'employees')
@@ -506,7 +504,6 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
   const supplies: SupplyFixture[] = []
 
   group.setup(async () => {
-    await new SystemPermissionCatalogSyncService().sync()
     employeesModule = await SystemModule.query()
       .whereNull('system_module_deleted_at')
       .where('system_module_slug', 'employees')
@@ -947,7 +944,6 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - bypass standard', (gro
   const zones: Zone[] = []
 
   group.setup(async () => {
-    await new SystemPermissionCatalogSyncService().sync()
     employeesModule = await SystemModule.query().whereNull('system_module_deleted_at').where('system_module_slug', 'employees').firstOrFail()
     employeesModule.systemModulePermissionEnforcementActive = true
     await employeesModule.save()

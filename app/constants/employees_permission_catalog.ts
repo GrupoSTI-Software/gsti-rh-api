@@ -1,21 +1,19 @@
 import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
 
 /**
- * Catálogo de acciones autorizables del módulo Empleados: primero el
- * piloto de enumeración de las ~28 acciones ya sembradas hoy en
- * `system_permissions` bajo `system_module_id = 1` (`0018_system_permission_seeder.ts`
- * y los seeders puntuales `0047_pii_sensitive_data_module_seeder.ts` /
- * `0051_physical_consent_permission_seeder.ts`), ahora ampliado por
- * USRH1785766406722 con el inventario completo de decisiones autorizables
- * del expediente (pestañas), listado, descargas y familias legales de
- * datos sensibles, más lo que la app/portal del colaborador consume fuera
- * del control de roles del backoffice (`exemption`).
+ * Catálogo de acciones autorizables del módulo Empleados. Lo siembra
+ * `0062_system_module_seeder` vía `permissionsFromActionCatalog`
+ * (`system_modules.constant.ts`). Empezó enumerando las ~28 acciones legadas
+ * del módulo y USRH1785766406722 lo amplió con el inventario completo de
+ * decisiones autorizables del expediente (pestañas), listado, descargas y
+ * familias legales de datos sensibles, más lo que la app/portal del
+ * colaborador consume fuera del control de roles del backoffice (`exemption`).
  *
  * Las 28 legacy conservan slug y `legacyEquivalence.relation: 'exact'`
- * (regla de negocio 9: no se borra ni renombra nada ya registrado). Las
- * acciones nuevas no crean fila en `system_permissions` cuando su relación
- * documental es `exact`; con `broader`/`narrower` sí se materializan porque
- * son una decisión distinta a la ya sembrada (decisión de diseño 3 del plan).
+ * (regla de negocio 9: no se borra ni renombra ningún slug ya registrado).
+ * Toda acción sin `exemption` se siembra como fila en `system_permissions`.
+ * `legacyEquivalence` no decide qué se siembra: hace que la concesión del slug
+ * legado siga cubriendo la acción (`isCatalogActionGranted`).
  */
 /**
  * Criterio de declaración (USRH1787433076993, regla de negocio 4). Ninguna
@@ -37,10 +35,9 @@ import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
  *    `sensitive-financiero-write`, `sensitive-salud-write` y
  *    `sensitive-biometrico-write`. Superficie declarada por adelantado de
  *    USRH1787204602831, que es quien les añade el consumidor. Dueña: esa HU.
- * 3. Los seis `collaborator-*` de la sección F. Llevan bloque `exemption`,
- *    `SystemPermissionCatalogSyncService.ensureAction` los ignora y nunca
- *    tienen fila en `system_permissions`. Son apartados documentales, no
- *    permisos.
+ * 3. Los seis `collaborator-*` de la sección F. Llevan bloque `exemption`:
+ *    `permissionsFromActionCatalog` los descarta y nunca tienen fila en
+ *    `system_permissions`. Son apartados documentales, no permisos.
  *
  * Retirados por esta HU, con baja lógica en base de datos (no borrado) y por
  * tanto reversibles: `tab-consentimiento-write`, `tab-responsable-write`,

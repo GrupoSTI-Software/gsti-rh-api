@@ -1,20 +1,26 @@
 import Role from '#models/role'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import type {
+  FlatSystemModuleDeclaration,
+  SystemModuleGroupDeclaration,
+} from '#constants/system_modules_menu/system_modules.constant'
 
 /**
- * Resolución del catálogo por slug, para uso exclusivo de seeders.
+ * Resolución del catálogo por slug. La usan los seeders para escribir y
+ * `permissions:check-consistency` para comparar sin escribir: los dos parten
+ * de `buildSystemModuleGroupSeedValues` y `buildSystemModuleSeedValues`, así la
+ * revisión reporta exactamente lo que la siembra cambiaría.
  *
  * Existe porque `system_module_id`, `system_permission_id` y `role_id` son
- * columnas autoincrementales que 17 seeders escribían a mano. Cuando dos
- * reclamaban el mismo número el segundo no fallaba: hacía `updateOrCreate` por
- * ese id y sobrescribía al primero en silencio. Así desaparecieron cinco
- * módulos —complaints, consent-evidence, legal-documents, telework-workers y
- * calendar— y el rol `super-administrador`, cuyo id 1 se lo quedó `kiosco` al
- * crearlo una migración sobre una tabla vacía.
+ * columnas autoincrementales que los seeders por módulo (hoy retirados)
+ * escribían a mano. Cuando dos reclamaban el mismo número el segundo no
+ * fallaba: hacía `updateOrCreate` por ese id y sobrescribía al primero en
+ * silencio. Así desaparecieron cinco módulos —complaints, consent-evidence,
+ * legal-documents, telework-workers y calendar— y el rol `super-administrador`,
+ * cuyo id 1 se lo quedó `kiosco` al crearlo una migración sobre una tabla vacía.
  *
- * Contrato garantizado — el llamador puede confiar en estos invariantes,
- * heredados de `resolveSystemModuleGroupIds`:
+ * Contrato garantizado — el llamador puede confiar en estos invariantes:
  *
  *   LA IDENTIDAD ES EL SLUG.  Ningún seeder vuelve a escribir un id literal,
  *   así que dos seeders no pueden pisarse: si el slug no existe se crea, y si
@@ -26,9 +32,8 @@ import SystemPermission from '#models/system_permission'
  *
  *   TOLERA LA BAJA LÓGICA.  Las búsquedas usan `withTrashed()`: una fila dada
  *   de baja ocupa la PK pero el scope de SoftDeletes la oculta, lo que
- *   provocaba un INSERT duplicado al re-ejecutar el seeder (molde
- *   `0017_system_module_seeder.ts:893-899`). Nunca se revive un registro dado
- *   de baja: se actualizan sus datos sin tocar `deletedAt`.
+ *   provocaba un INSERT duplicado al re-ejecutar el seeder. Nunca se revive un
+ *   registro dado de baja: se actualizan sus datos sin tocar `deletedAt`.
  */
 
 /** Campos del rol que un seeder declara. El id nunca se declara. */
@@ -38,6 +43,14 @@ export interface RoleSeedValues {
   roleDescription: string
   roleActive: number
   roleBusinessAccess: string
+}
+
+/** Campos del grupo que siembra `0061_system_module_group_seeder`. El id nunca se declara. */
+export interface SystemModuleGroupSeedValues {
+  systemModuleGroupName: string
+  systemModuleGroupKey: string
+  systemModuleGroupOrder: number
+  systemModuleGroupIcon: string
 }
 
 /** Campos del módulo que un seeder declara. El id nunca se declara. */
@@ -58,6 +71,54 @@ export interface SystemModuleSeedValues {
 export interface SystemPermissionSeedValues {
   systemPermissionName: string
   systemPermissionSlug: string
+}
+
+/**
+ * Valores que `0061_system_module_group_seeder` escribe para un grupo declarado.
+ *
+ * Función pura: `permissions:check-consistency` la usa para comparar contra BD
+ * lo mismo que la siembra escribe, sin mantener una segunda lista de campos.
+ */
+export function buildSystemModuleGroupSeedValues(
+  group: Omit<SystemModuleGroupDeclaration, 'modules'>
+): SystemModuleGroupSeedValues {
+  return {
+    systemModuleGroupName: group.name,
+    systemModuleGroupKey: group.key,
+    systemModuleGroupOrder: group.order,
+    systemModuleGroupIcon: group.icon,
+  }
+}
+
+/**
+ * Valores que `0062_system_module_seeder` escribe para un módulo declarado.
+ *
+ * Función pura, compartida con `permissions:check-consistency` por la misma
+ * razón que la de grupos.
+ *
+ * @param systemModule  Entrada de la vista plana `SYSTEM_MODULES`.
+ * @param groupIdByKey  Ids de los grupos vivos por clave. Una clave sin id da
+ *                      `null`: 0062 lanza antes de llegar aquí y la revisión
+ *                      reporta ese grupo por separado.
+ */
+export function buildSystemModuleSeedValues(
+  systemModule: FlatSystemModuleDeclaration,
+  groupIdByKey: ReadonlyMap<string, number>
+): SystemModuleSeedValues {
+  return {
+    systemModuleName: systemModule.systemModuleName,
+    systemModuleSlug: systemModule.systemModuleSlug,
+    systemModuleDescription: systemModule.systemModuleDescription,
+    systemModules: String(systemModule.systemModules),
+    systemModulePath: systemModule.systemModulePath,
+    systemModuleActive: systemModule.systemModuleActive,
+    systemModuleOrder: systemModule.systemModuleOrder,
+    systemModuleGroupId: systemModule.systemModuleGroupKey
+      ? groupIdByKey.get(systemModule.systemModuleGroupKey) ?? null
+      : null,
+    systemModulePermissionEnforcementActive: systemModule.systemModulePermissionEnforcementActive,
+    systemModuleIcon: systemModule.systemModuleIcon,
+  }
 }
 
 /**
@@ -94,8 +155,8 @@ export async function upsertRoleBySlug(
  * Da de alta o actualiza un módulo identificándolo por su slug y devuelve su id.
  *
  * @param values      Declaración completa del módulo, sin `systemModuleId`.
- * @param seederName  Nombre del seeder llamador, para que con 17 llamadores el
- *                    mensaje de error diga de inmediato quién falló.
+ * @param seederName  Nombre del seeder llamador, para que el mensaje de error
+ *                    diga de inmediato qué seeder falló.
  */
 export async function upsertSystemModuleBySlug(values: SystemModuleSeedValues, seederName: string): Promise<number> {
   if (!values.systemModuleSlug) {

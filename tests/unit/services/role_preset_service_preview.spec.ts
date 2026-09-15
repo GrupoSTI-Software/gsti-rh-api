@@ -3,7 +3,6 @@ import Role from '#models/role'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
-import SystemPermissionCatalogSyncService from '#services/system_permission_catalog_sync_service'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 import RolePresetService from '#services/role_preset_service'
 
@@ -37,8 +36,6 @@ test.group('RolePresetService.computeDesiredPermissionIds / preview', (group) =>
   let employeesReadPermission: SystemPermission
 
   group.setup(async () => {
-    await new SystemPermissionCatalogSyncService().sync()
-
     role = await Role.create({
       roleName: `TSP Preview ${stamp}`,
       roleSlug: `test-role-preset-preview-${stamp}`,

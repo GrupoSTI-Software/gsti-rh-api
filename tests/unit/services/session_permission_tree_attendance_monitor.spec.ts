@@ -5,31 +5,10 @@ import SystemPermission from '#models/system_permission'
 import RoleSystemPermission from '#models/role_system_permission'
 import type User from '#models/user'
 import SessionPermissionTreeService from '#services/session_permission_tree_service'
-import SystemPermissionCatalogSyncService from '#services/system_permission_catalog_sync_service'
-import SystemPermissionCatalogConsistencyService from '#services/system_permission_catalog_consistency_service'
-import { ATTENDANCE_MONITOR_PERMISSION_CATALOG } from '#constants/attendance_monitor_permission_catalog'
-import { SYSTEM_MODULES_CATALOG } from '#constants/system_modules_catalog'
-import type { SystemPermissionCatalog } from '#constants/system_permission_catalog'
 
 const MONITOR_SLUG = 'employees-attendance-monitor'
 const STAMP = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 const ROLE_SLUG = `monitor-tree-test-${STAMP}-plain-role`
-
-// Reusa la entrada REAL de `system_modules_catalog.ts` (no una copia a mano)
-// para que las pruebas de regla 8 / consistencia sigan verificando el
-// catálogo real del monitor, pero sin sincronizar/revisar de paso
-// `employees` y `positions` contra la BD compartida de pruebas.
-const MONITOR_MODULE_ENTRY = SYSTEM_MODULES_CATALOG.find(
-  (moduleEntry) => moduleEntry.slug === MONITOR_SLUG
-)
-if (!MONITOR_MODULE_ENTRY) {
-  throw new Error(`El módulo "${MONITOR_SLUG}" debería estar en SYSTEM_MODULES_CATALOG.`)
-}
-
-const MONITOR_ONLY_CATALOG: SystemPermissionCatalog = {
-  modules: [MONITOR_MODULE_ENTRY],
-  actionsByModule: { [MONITOR_SLUG]: ATTENDANCE_MONITOR_PERMISSION_CATALOG },
-}
 
 function fakeUser(roleId: number): User {
   return { userId: roleId, roleId } as User
@@ -49,7 +28,9 @@ async function findMonitorPermission(slug: string): Promise<SystemPermission> {
     .where('system_permission_slug', slug)
     .first()
   if (!permission) {
-    throw new Error(`El permiso "${MONITOR_SLUG}:${slug}" debería estar sembrado desde 0018.`)
+    throw new Error(
+      `El permiso "${MONITOR_SLUG}:${slug}" debería estar sembrado por 0062_system_module_seeder.`
+    )
   }
   return permission
 }
@@ -139,48 +120,6 @@ test.group('Árbol de sesión — monitor de asistencia (USRH1787433076991)', (g
     assert.lengthOf(actions, 11)
     assert.isTrue(
       actions.every((action) => action.allowed && action.reason === 'privileged-role')
-    )
-  })
-
-  test('regla 8: sincronizar el catálogo no crea filas ni toca las concesiones', async ({
-    assert,
-  }) => {
-    const countGrants = async (): Promise<number> => {
-      const rows = await RoleSystemPermission.query()
-        .whereNull('role_system_permission_deleted_at')
-        .count('* as total')
-      return Number((rows[0] as unknown as { $extras: { total: number } }).$extras.total)
-    }
-
-    const grantsBefore = await countGrants()
-    const first = await new SystemPermissionCatalogSyncService(MONITOR_ONLY_CATALOG).sync()
-    const second = await new SystemPermissionCatalogSyncService(MONITOR_ONLY_CATALOG).sync()
-    const grantsAfter = await countGrants()
-
-    const monitorSlugs = ATTENDANCE_MONITOR_PERMISSION_CATALOG.map((action) => action.slug)
-    for (const created of [...first.createdPermissionSlugs, ...second.createdPermissionSlugs]) {
-      assert.notInclude(monitorSlugs, created)
-    }
-    assert.isEmpty(
-      first.skippedActions.filter((skipped) => monitorSlugs.includes(skipped.slug as never))
-    )
-    assert.equal(grantsAfter, grantsBefore)
-  })
-
-  test('la revisión de consistencia deja de reportar deuda del monitor y no gana hallazgos', async ({
-    assert,
-  }) => {
-    const report = await new SystemPermissionCatalogConsistencyService(
-      MONITOR_ONLY_CATALOG
-    ).checkConsistency()
-    const monitorSlugs = ATTENDANCE_MONITOR_PERMISSION_CATALOG.map((action) => action.slug)
-
-    assert.notInclude(report.knownDebtModules, MONITOR_SLUG)
-    assert.isEmpty(
-      report.declaredNotRegistered.filter((finding) => monitorSlugs.includes(finding.slug as never))
-    )
-    assert.isEmpty(
-      report.registeredNotDeclared.filter((finding) => monitorSlugs.includes(finding.slug as never))
     )
   })
 })

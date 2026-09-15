@@ -59,6 +59,15 @@ export interface SystemModuleGroupDeclaration {
 }
 
 /**
+ * Entrada de la vista plana `SYSTEM_MODULES`: la declaración más la clave de su
+ * grupo (`null` si el módulo va suelto). Es lo que reciben la siembra y
+ * `permissions:check-consistency`.
+ */
+export interface FlatSystemModuleDeclaration extends SystemModuleDeclaration {
+  systemModuleGroupKey: string | null
+}
+
+/**
  * Módulos cuyas acciones se enumeran en un catálogo tipado: el gate de
  * permisos y el árbol de permisos de sesión los leen de ahí. Sus permisos se
  * derivan de ese catálogo, nunca se copian.

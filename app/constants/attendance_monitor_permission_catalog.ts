@@ -9,21 +9,18 @@ export type AttendanceMonitorSection = 'listado' | 'nomina' | 'asistencia' | 'de
 /**
  * Las 11 acciones del módulo `employees-attendance-monitor`.
  *
- * Las once YA están sembradas desde `0018_system_permission_seeder.ts`
- * (`systemModuleId: 7`), por eso todas declaran `legacyEquivalence` exacta
- * contra su propio slug: `SystemPermissionCatalogSyncService.ensureAction`
- * las reconoce y no crea fila nueva, e `isCatalogActionGranted` sigue
- * respetando las concesiones que cada cliente ya tiene. Enumerarlas no
- * concede ni retira nada a nadie (regla 8 de la HU).
+ * Las once se siembran desde este catálogo (`0062_system_module_seeder`).
+ * Todas declaran `legacyEquivalence` exacta contra su propio slug para que
+ * `isCatalogActionGranted` siga respetando las concesiones que cada cliente
+ * ya tiene. Enumerarlas no concede ni retira nada a nadie (regla 8 de la HU).
  *
- * `displayName` en español: solo se materializa en una base donde la fila
- * no existiera — el sync nunca renombra lo ya registrado.
+ * `displayName` en español: es el nombre que la siembra escribe en
+ * `system_permissions`, también sobre una fila ya registrada.
  *
  * Esta HU solo cambia el consumidor de `download-summary` y `see-payroll`
  * (las descargas del monitor en el backoffice). Las otras nueve se enumeran
- * porque la revisión de consistencia reporta como `registeredNotDeclared`
- * toda fila viva del módulo que el catálogo no declare; su gobierno sigue
- * exactamente como está.
+ * porque `permissions:check-consistency` reporta toda fila viva del módulo
+ * que la constante no declare; su gobierno sigue exactamente como está.
  */
 export const ATTENDANCE_MONITOR_PERMISSION_CATALOG = [
   {

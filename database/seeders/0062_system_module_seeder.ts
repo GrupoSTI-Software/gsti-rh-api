@@ -1,7 +1,9 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
 import SystemModuleGroup from '#models/system_module_group'
 import { SYSTEM_MODULES } from '#constants/system_modules_menu/system_modules.constant'
+import { validateSystemModulesDeclaration } from '#constants/system_permission_catalog'
 import {
+  buildSystemModuleSeedValues,
   retireSystemModule,
   upsertSystemModuleBySlug,
   upsertSystemPermissionsBySlug,
@@ -16,6 +18,11 @@ import {
  * slug): ninguna entrada declara id, el id lo asigna la BD. La razón está
  * documentada en `app/helpers/system_catalog_seed_resolver.ts`.
  *
+ * Antes de escribir valida la declaración: ante un slug repetido el upsert no
+ * falla, se queda con la última declaración en silencio. Los valores de cada
+ * módulo salen de `buildSystemModuleSeedValues`, la misma función con la que
+ * `permissions:check-consistency` compara la BD contra la constante.
+ *
  * Idempotente: re-ejecutarlo actualiza lo existente sin duplicar filas. Un
  * módulo marcado `systemModuleRetired` se da de baja lógica y uno ya dado de
  * baja nunca revive.
@@ -25,6 +32,8 @@ export default class extends BaseSeeder {
   private readonly seederName = 'system_module_seeder'
 
   async run() {
+    validateSystemModulesDeclaration()
+
     const groupKeys = [
       ...new Set(
         SYSTEM_MODULES.map((systemModule) => systemModule.systemModuleGroupKey).filter(
@@ -52,21 +61,7 @@ export default class extends BaseSeeder {
 
     for (const systemModule of SYSTEM_MODULES) {
       const systemModuleId = await upsertSystemModuleBySlug(
-        {
-          systemModuleName: systemModule.systemModuleName,
-          systemModuleSlug: systemModule.systemModuleSlug,
-          systemModuleDescription: systemModule.systemModuleDescription,
-          systemModules: String(systemModule.systemModules),
-          systemModulePath: systemModule.systemModulePath,
-          systemModuleActive: systemModule.systemModuleActive,
-          systemModuleOrder: systemModule.systemModuleOrder,
-          systemModuleGroupId: systemModule.systemModuleGroupKey
-            ? groupIdByKey.get(systemModule.systemModuleGroupKey) ?? null
-            : null,
-          systemModulePermissionEnforcementActive:
-            systemModule.systemModulePermissionEnforcementActive,
-          systemModuleIcon: systemModule.systemModuleIcon,
-        },
+        buildSystemModuleSeedValues(systemModule, groupIdByKey),
         this.seederName
       )
 

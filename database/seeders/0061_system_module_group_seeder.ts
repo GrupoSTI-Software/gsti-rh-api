@@ -1,6 +1,7 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
 import SystemModuleGroup from '#models/system_module_group'
 import { SYSTEM_MODULES_GROUPED } from '#constants/system_modules_menu/system_modules.constant'
+import { buildSystemModuleGroupSeedValues } from '../../app/helpers/system_catalog_seed_resolver.js'
 
 /**
  * Siembra el catálogo de grupos del menú lateral y llena el icono SVG que
@@ -13,11 +14,15 @@ import { SYSTEM_MODULES_GROUPED } from '#constants/system_modules_menu/system_mo
  *   — Nunca toca system_module_group_deleted_at: un grupo retirado no revive
  *     por re-ejecutar este seeder (R9).
  *
- * Molde: database/seeders/0017_system_module_seeder.ts:841-857.
+ * Molde de idempotencia: `app/helpers/system_catalog_seed_resolver.ts`
+ * (withTrashed, sin tocar deletedAt). Los valores salen de
+ * `buildSystemModuleGroupSeedValues`, la misma función con la que
+ * `permissions:check-consistency` compara la BD contra la constante.
  */
 export default class extends BaseSeeder {
   async run() {
     for (const entry of SYSTEM_MODULES_GROUPED) {
+      const values = buildSystemModuleGroupSeedValues(entry)
       const existing = await SystemModuleGroup.query()
         .withTrashed()
         .where('system_module_group_key', entry.key)
@@ -26,21 +31,12 @@ export default class extends BaseSeeder {
       if (existing) {
         // Actualizar nombre, icono y orden sin tocar deletedAt:
         // un grupo dado de baja no debe revivir.
-        existing.merge({
-          systemModuleGroupName: entry.name,
-          systemModuleGroupOrder: entry.order,
-          systemModuleGroupIcon: entry.icon,
-        })
+        existing.merge(values)
         await existing.save()
         continue
       }
 
-      await SystemModuleGroup.create({
-        systemModuleGroupName: entry.name,
-        systemModuleGroupKey: entry.key,
-        systemModuleGroupOrder: entry.order,
-        systemModuleGroupIcon: entry.icon,
-      })
+      await SystemModuleGroup.create(values)
     }
   }
 }
