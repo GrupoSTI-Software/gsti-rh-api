@@ -131,7 +131,23 @@ export async function grantModulePermissions(
     )
   }
 
-  await RoleSystemPermission.query().where('role_id', actor.role.roleId).delete()
+  await grantRoleModulePermissions(actor.role, moduleSlug, permissionSlugs)
+}
+
+/**
+ * Igual que `grantModulePermissions`, pero sobre un rol que el spec creó por
+ * su cuenta: los specs de aislamiento arman actores con varias empresas y no
+ * pasan por `createTenantActor`. Reemplaza TODAS las concesiones del rol, así
+ * que nunca se usa con un rol global (`owner`, `root`, ...).
+ *
+ * @throws Error si el permiso no está sembrado.
+ */
+export async function grantRoleModulePermissions(
+  role: Role,
+  moduleSlug: string,
+  permissionSlugs: readonly string[]
+): Promise<void> {
+  await RoleSystemPermission.query().where('role_id', role.roleId).delete()
   for (const permissionSlug of permissionSlugs) {
     const permission = await SystemPermission.query()
       .whereNull('system_permission_deleted_at')
@@ -148,7 +164,7 @@ export async function grantModulePermissions(
     }
 
     await RoleSystemPermission.create({
-      roleId: actor.role.roleId,
+      roleId: role.roleId,
       systemPermissionId: permission.systemPermissionId,
     })
   }

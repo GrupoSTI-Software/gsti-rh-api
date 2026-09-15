@@ -543,6 +543,23 @@ export default class BillingTenantController {
    *                   description: Response message
    *                 data:
    *                   type: object
+   *       '403':
+   *         description: Rol distinto de owner/root/super-administrador
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: solo-el-dueno-de-la-cuenta
+   *                 code:
+   *                   type: string
+   *                   example: PLT.SUB.FORBIDDEN_ROLE
    *       '404':
    *         description: Empresa fuera de alcance, plan no encontrado
    *         content:
@@ -582,8 +599,13 @@ export default class BillingTenantController {
    *                   type: string
    *                   description: Type of response generated
    */
-  async contractSubscription({ request, response }: HttpContext) {
+  async contractSubscription(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
+      // Contratar compromete dinero de la empresa. Ni la ruta ni el servicio
+      // miraban el rol: cualquier usuario con sesión en el tenant contrataba.
+      // Mismo guard de dueño que preview, increase, decrease y cancel.
+      await assertBillingOwner(ctx)
       const body = await request.validateUsing(contractTenantSubscriptionValidator)
       const result = await this.service.contractSubscription(
         body.billingPlanId,
