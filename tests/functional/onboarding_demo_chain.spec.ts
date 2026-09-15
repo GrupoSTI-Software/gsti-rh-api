@@ -55,8 +55,9 @@ async function removeAdminUser(userId: number, personId: number): Promise<void> 
 
 /**
  * Conteos acotados a LA SIEMBRA DEL TEST (por código de empleado y estado del
- * admin de prueba): la BD de desarrollo es compartida y puede tener siembras
- * demo vivas de otros usuarios que este spec no debe contar ni tocar.
+ * admin de prueba): la BD de la suite la comparten todos los specs de la
+ * corrida y puede tener siembras demo vivas que este spec no debe contar ni
+ * tocar.
  */
 async function countDemoLeftovers(
   employeeId: number,

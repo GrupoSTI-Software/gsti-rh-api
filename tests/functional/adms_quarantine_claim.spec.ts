@@ -55,8 +55,8 @@ test.group('Reclamo de cuarentena desde plataforma', (group) => {
 
       /**
        * `createAssignment` exige la bandera de biometricos (RN7). Se habilita
-       * para la prueba y se restaura en la limpieza: si la base de desarrollo
-       * no tiene ninguna empresa con la bandera, la prueba no puede correr.
+       * para la prueba y se restaura en la limpieza: si la BD de la suite no
+       * tiene ninguna empresa con la bandera, la prueba no puede correr.
        */
       biometricsWasEnabled = unit.businessUnitHasBiometrics === 1
       if (!biometricsWasEnabled) {

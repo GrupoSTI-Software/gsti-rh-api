@@ -6,16 +6,12 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * Crea `system_module_groups` con sus 8 columnas reales, la columna generada
  * VIRTUAL para el UNIQUE con baja lógica (patrón de
  * 1787932877000000_add_slug_active_unique_to_business_units.ts:82-98) y el
- * índice de orden.  Inserta las 9 filas literales de §4.1 con `icon = NULL`.
+ * índice de orden. Solo esquema: no inserta filas.
  *
- * Las filas van en esta migración —no en un seeder— por dos razones:
- * la migración B necesita filas a las que apuntar, y un ambiente productivo
- * migrado no corre seeders.  El WHERE NOT EXISTS da la reentrancia del CA7.
- *
- * IMPORTANTE: esta lista está congelada al 2026-09-01.  No se importa
- * ninguna constante viva: una migración es un hecho histórico inmutable, y si
- * importara una constante editable el catálogo cambiaría el comportamiento de
- * una migración vieja al levantar desde cero.
+ * Originalmente también insertaba los grupos del menú. Ese `INSERT` se retiró
+ * porque las migraciones ya no siembran catálogo: los grupos se declaran en
+ * `app/constants/system_modules_menu/system_modules.constant.ts` y los crea
+ * `0061_system_module_group_seeder`, resueltos por clave.
  */
 
 const TABLE = 'system_module_groups'

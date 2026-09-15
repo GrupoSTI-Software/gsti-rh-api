@@ -8402,7 +8402,7 @@ paths:
                 type: error
                 title: Error
                 message: Sin permiso para consultar los resultados anonimizados del centro de trabajo
-                detail: El rol no tiene permiso read del módulo nom035-disclosure.
+                detail: El rol no tiene permiso read del módulo disclosure.
                 key: sin-permiso
                 errorCode: NOM035.DISC.FORBIDDEN
                 data: null

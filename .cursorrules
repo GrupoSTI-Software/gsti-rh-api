@@ -25,7 +25,7 @@
 ### Verificación obligatoria antes de abrir PR
 
 - Correr `NODE_ENV=test DB_DATABASE=valanserh_test node ace migration:fresh --seed` sobre la BD desechable `valanserh_test`, la misma que `.env.test` fija para la suite. Nunca contra la BD de desarrollo compartida.
-- `node ace test` fija `NODE_ENV=test` y lee `.env.test` por su cuenta; `node ace migration:*`, `db:seed` y los demás comandos no. Sin `NODE_ENV=test DB_DATABASE=valanserh_test` delante caen en la BD de `.env`. Otra BD u otro puerto personal van en `.env.test.local`, que no se versiona.
+- `node ace test` fija `NODE_ENV=test` y lee `.env.test` por su cuenta; `node ace migration:*`, `db:seed` y los demás comandos no. Sin `NODE_ENV=test DB_DATABASE=valanserh_test` delante caen en la BD de `.env`. Otra BD u otro puerto personal van en `.env.test.local`, que no se versiona; quien lo use cambia también el nombre de la BD en estos comandos, porque una variable en línea gana sobre cualquier archivo `.env` y `DB_DATABASE=valanserh_test` ignoraría la de `.env.test.local`.
 - Nunca correr dos migraciones a la vez, ni siquiera contra BD distintas del mismo servidor: Lucid toma `GET_LOCK('1', 0)` de MySQL, un candado global a todo el servidor, y la segunda falla al instante con `E_UNABLE_ACQUIRE_LOCK` ("Concurrent migrations are not allowed").
 - `migration:run` incremental NO detecta errores de orden: sobre una BD que ya tiene todo aplicado, la columna o tabla que tu migración necesita ya existe porque se creó en otra secuencia. Solo el `fresh` reproduce el orden que verá un entorno nuevo.
 - Una migración que depende de una columna, tabla o fila creada por otra migración de la misma tanda debe verificarse con `fresh`, no con `run`.

@@ -10,10 +10,10 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * (la siembra `0062_system_module_seeder` al final), así que la concesión ya
  * no tiene sentido aquí.
  *
- * ATENCIÓN: el alta del rol `kiosco` vivía SOLO en esta migración. Si el rol
- * sigue siendo necesario, hay que declararlo explícitamente en
- * `0006_role_seeder.ts` (por slug, nunca por id) — no se reproduce aquí para
- * no mezclar de nuevo altas de catálogo dentro de una migración.
+ * ATENCIÓN: el alta del rol `kiosco` vivía SOLO en esta migración y no se
+ * reproduce en ningún otro lado. `0006_role_seeder` siembra únicamente `root`;
+ * si `kiosco` sigue haciendo falta, se resuelve junto con el rediseño de roles
+ * por empresa, pendiente de decisión, y no en seeders ni en migraciones.
  *
  * No se renombra ni se borra (regla de migraciones ya mergeadas: el nombre es
  * la clave que Lucid usa en `adonis_schema`); se vacía para no dejar un

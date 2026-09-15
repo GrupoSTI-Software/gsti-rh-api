@@ -324,9 +324,10 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
  * interruptor HTTP de exigencia, retirado porque la bandera la gobierna la
  * constante de módulos.
  *
- * Va en un grupo propio a propósito: el setup del grupo de arriba exige el rol
- * `owner` sembrado, que una BD fresca ya no trae (0006 solo siembra root), y un
- * setup fallido se lleva todos los tests de su grupo. Aquí el rol es del test.
+ * Va en un grupo propio a propósito: el caso mueve la bandera de exigencia de
+ * `employees` en los dos sentidos y el grupo de arriba la fija encendida para
+ * todos sus casos. Separarlos aísla ese cambio y deja que cada grupo reponga el
+ * valor previo en su teardown. Aquí el rol es del test.
  */
 test.group('GET /api/auth/session/permissions — bandera de exigencia por módulo', (group) => {
   let actor: TenantActor | null = null

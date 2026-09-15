@@ -42,7 +42,7 @@ async function createTestPerson(suffix: string): Promise<Person> {
 async function getTemplateEmployee(): Promise<Employee> {
   const template = await Employee.query().whereNull('employee_deleted_at').first()
   if (!template) {
-    throw new Error('La BD de desarrollo no tiene empleados para usar de plantilla')
+    throw new Error('La BD de pruebas no tiene empleados para usar de plantilla')
   }
   return template
 }
