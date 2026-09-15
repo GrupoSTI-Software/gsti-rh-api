@@ -9,6 +9,10 @@ import {
   replaceBranchOfficeShiftQuotasValidator,
   type BranchOfficeShiftQuotaInput,
 } from '../validators/branch_office_shift_quota.js'
+import { evaluateSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { respondPermissionGateDenial } from '#helpers/permission_gate_http'
+import { BRANCH_OFFICE_SHIFT_QUOTAS_REPSE_READ_PERMISSION } from '#constants/branch_office_shift_quotas_permission_declarations'
+import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 
 const SUCCESS_TITLE = 'Branch Office Shift Quotas'
 
@@ -16,6 +20,27 @@ const SUCCESS_TITLE = 'Branch Office Shift Quotas'
  * Controlador REST de cuotas de plantilla por sucursal y turno.
  */
 export default class BranchOfficeShiftQuotasController {
+  /**
+   * ¿Quien pide las cuotas puede verlas?
+   *
+   * Dos pantallas de módulos distintos las leen: el detalle de empresa
+   * contratante de REPSE y el formulario de préstamo temporal del colaborador,
+   * que es Empleados. `middleware.permissionGate` declara un solo módulo, así
+   * que cerrar la ruta con uno dejaría fuera al otro; se acepta cualquiera de
+   * los dos con la misma regla del gate (exigencia, bypass y concesiones).
+   */
+  private async canReadShiftQuotas(ctx: HttpContext): Promise<boolean> {
+    if (await evaluateSecondaryPermission(ctx, BRANCH_OFFICE_SHIFT_QUOTAS_REPSE_READ_PERMISSION)) {
+      return true
+    }
+    // El préstamo temporal las lee para proponer turnos: misma casilla que crea
+    // el préstamo (`tab-trabajo-write`), no una nueva.
+    return evaluateSecondaryPermission(
+      ctx,
+      EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createTemporaryAssignment
+    )
+  }
+
   /**
    * @swagger
    * /api/branch-offices/{branchOfficeId}/shift-quotas:
@@ -97,8 +122,16 @@ export default class BranchOfficeShiftQuotasController {
    *               key: sucursal-no-encontrada
    *               errorCode: BRCH.SQ.NF.BRCH.001
    *               data: null
+   *       '403':
+   *         description: |
+   *           Sin `repse-registrations:read`/`gestion` ni `employees:tab-trabajo-write`
+   *           (key `PERM.DENIED` / `PERM.UNRESOLVED`).
    */
-  async index({ params, response, businessUnitScope, i18n }: HttpContext) {
+  async index(ctx: HttpContext) {
+    const { params, response, businessUnitScope, i18n } = ctx
+    if (!(await this.canReadShiftQuotas(ctx))) {
+      return respondPermissionGateDenial(ctx, { reason: 'denied' })
+    }
     try {
       const branchOfficeId = this.parseBranchOfficeId(params.branchOfficeId, i18n)
       const quotas = await BranchOfficeShiftQuotaService.list(branchOfficeId, businessUnitScope)
