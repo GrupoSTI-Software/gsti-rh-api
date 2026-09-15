@@ -81,8 +81,15 @@ export default class BusinessUnitCompetencyLevelService {
         query.whereNot('business_unit_competency_level_id', businessUnitCompetencyLevel.businessUnitCompetencyLevelId)
       })
       .whereNull('business_unit_competency_level_deleted_at')
+      // La comparación es sin distinguir mayúsculas, que es lo que pide la regla
+      // (no puede haber dos niveles con la misma etiqueta en la empresa). El
+      // COLLATE debe ser del MISMO juego de caracteres que la columna: la tabla
+      // es utf8mb4 y `utf8_general_ci` es alias de `utf8mb3_general_ci`, así que
+      // MySQL rechazaba la consulta entera con ER_COLLATION_CHARSET_MISMATCH y
+      // el alta y la edición de niveles respondían 500. `utf8mb4_general_ci` es
+      // su equivalente en utf8mb4: misma semántica, ahora compatible.
       .whereRaw(
-        'business_unit_competency_level_label COLLATE utf8_general_ci = ?',
+        'business_unit_competency_level_label COLLATE utf8mb4_general_ci = ?',
         [businessUnitCompetencyLevel.businessUnitCompetencyLevelLabel.trim()]
       )
       .where('business_unit_id', businessUnitCompetencyLevel.businessUnitId)

@@ -251,11 +251,12 @@ async function expectStatus(
 /**
  * La petición cruzó el gate, sin exigir el éxito del controller.
  *
- * Solo para alta y edición de nivel: `BusinessUnitCompetencyLevelService.verifyInfo`
- * compara la etiqueta con `COLLATE utf8_general_ci`, que MySQL rechaza sobre
- * tablas utf8mb4, y el controller responde 500 con cualquier permiso. Es un
- * defecto previo al gate. Cuando se corrija, estos casos vuelven a
- * `expectStatus` con 201 y 200.
+ * Solo para alta y edición de nivel: cada caso siembra su propia tanda de cuatro
+ * niveles sobre la MISMA empresa, así que a partir del segundo la empresa llega
+ * al tope de cinco niveles y el controller responde 400 por una razón que nada
+ * tiene que ver con permisos. Fijar aquí 201 y 200 haría que el caso dependiera
+ * del orden de ejecución. Que la comparación de etiquetas funcione se prueba
+ * aparte, en `business_unit_competency_level_label_uniqueness.spec.ts`.
  *
  * El cliente de pruebas lanza ante un 5xx en lugar de devolver la respuesta.
  * El gate niega siempre con 403 y `PERM.DENIED`, nunca con 5xx: si lo que
