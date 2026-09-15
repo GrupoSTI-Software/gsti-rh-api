@@ -1,5 +1,6 @@
-import { readdirSync } from 'node:fs'
-import { join } from 'node:path'
+import { readdirSync, readFileSync } from 'node:fs'
+import { join, relative } from 'node:path'
+import ts from 'typescript'
 import { test } from '@japa/runner'
 import {
   SYSTEM_MODULES,
@@ -65,6 +66,111 @@ async function discoverGateDeclarations(): Promise<DiscoveredDeclarations[]> {
       return { file, options: Object.values(moduleExports).flatMap(collectGateOptions) }
     })
   )
+}
+
+/** Especificador de import que el contrato reconoce como archivo de declaraciones. */
+const DECLARATIONS_IMPORT = /^#constants\/[a-z0-9_]+_permission_declarations$/
+
+/**
+ * Archivos que montan rutas: todo `start/**` y los `*.routes.ts` de los
+ * módulos verticales. Lo retirado a `__TO_DELETE__/` no se registra y no cuenta.
+ */
+function listRouteSourceFiles(): string[] {
+  const walk = (dir: string, accept: (file: string) => boolean): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      if (entry.name === '__TO_DELETE__' || entry.name === 'node_modules') {
+        return []
+      }
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) {
+        return walk(path, accept)
+      }
+      return accept(entry.name) ? [path] : []
+    })
+
+  return [
+    ...walk(join(process.cwd(), 'start'), (name) => name.endsWith('.ts')),
+    ...walk(join(process.cwd(), 'app/modules'), (name) => name.endsWith('.routes.ts')),
+  ].sort()
+}
+
+/** Identificador raíz de `A.b`, `A['b']`, `A.b(...)` o `(A.b as X)`; `null` si no hay uno. */
+function rootIdentifier(expression: ts.Expression): ts.Identifier | null {
+  let current: ts.Expression = expression
+  while (!ts.isIdentifier(current)) {
+    if (
+      ts.isPropertyAccessExpression(current) ||
+      ts.isElementAccessExpression(current) ||
+      ts.isCallExpression(current) ||
+      ts.isParenthesizedExpression(current) ||
+      ts.isAsExpression(current) ||
+      ts.isSatisfiesExpression(current) ||
+      ts.isNonNullExpression(current)
+    ) {
+      current = current.expression
+      continue
+    }
+    return null
+  }
+  return current
+}
+
+interface GateCallSite {
+  file: string
+  line: number
+  argument: string
+  imported: boolean
+}
+
+/**
+ * Recorre con el AST de TypeScript cada llamada a `*.permissionGate(...)` y
+ * marca si su argumento sale de un import de `#constants/*_permission_declarations`.
+ * Un objeto escrito en el archivo de rutas, o una constante local, queda fuera
+ * del descubrimiento de arriba y por eso fuera del contrato.
+ */
+function collectGateCallSites(): GateCallSite[] {
+  return listRouteSourceFiles().flatMap((path) => {
+    const source = ts.createSourceFile(path, readFileSync(path, 'utf8'), ts.ScriptTarget.Latest, true)
+    const importedNames = new Set<string>()
+    const sites: GateCallSite[] = []
+
+    for (const statement of source.statements) {
+      if (
+        !ts.isImportDeclaration(statement) ||
+        !ts.isStringLiteral(statement.moduleSpecifier) ||
+        !DECLARATIONS_IMPORT.test(statement.moduleSpecifier.text)
+      ) {
+        continue
+      }
+      const bindings = statement.importClause?.namedBindings
+      if (bindings && ts.isNamedImports(bindings)) {
+        bindings.elements.forEach((element) => importedNames.add(element.name.text))
+      } else if (bindings && ts.isNamespaceImport(bindings)) {
+        importedNames.add(bindings.name.text)
+      }
+    }
+
+    const visit = (node: ts.Node): void => {
+      if (
+        ts.isCallExpression(node) &&
+        ts.isPropertyAccessExpression(node.expression) &&
+        node.expression.name.text === 'permissionGate'
+      ) {
+        const [argument] = node.arguments
+        const root = argument ? rootIdentifier(argument) : null
+        sites.push({
+          file: relative(process.cwd(), path),
+          line: source.getLineAndCharacterOfPosition(node.getStart()).line + 1,
+          argument: argument ? argument.getText(source) : '(sin argumento)',
+          imported: node.arguments.length === 1 && root !== null && importedNames.has(root.text),
+        })
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(source)
+
+    return sites
+  })
 }
 
 test.group('system_modules.constant — contrato del catálogo', () => {
@@ -164,6 +270,22 @@ test.group('system_modules.constant — contrato del catálogo', () => {
     )
 
     assert.deepEqual([...new Set(problems)], [])
+  })
+
+  test('toda ruta toma su declaración del gate de un import de #constants/*_permission_declarations', ({
+    assert,
+  }) => {
+    // El caso de arriba solo ve lo que vive en `app/constants`: una declaración
+    // escrita en el archivo de rutas (así estaba el reporte de cobertura REPSE)
+    // podía apuntar a un módulo apagado o a un permiso inexistente sin que nada
+    // fallara.
+    const sites = collectGateCallSites()
+    const outside = sites
+      .filter((site) => !site.imported)
+      .map((site) => `${site.file}:${site.line} -> ${site.argument}`)
+
+    assert.isAbove(sites.length, 0, 'sin llamadas a permissionGate el caso no prueba nada')
+    assert.deepEqual(outside, [])
   })
 
   test('las acciones con exemption de los catálogos tipados no se siembran como permiso', ({
