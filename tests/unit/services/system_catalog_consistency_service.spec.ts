@@ -417,8 +417,19 @@ test.group('SystemCatalogConsistencyService.check — contra la BD de pruebas', 
     const findings = await new SystemCatalogConsistencyService().check()
     const after = await snapshot()
 
-    assert.isArray(findings)
     assert.isAbove(before.modules.length, 0, 'la BD de pruebas debe venir sembrada')
     assert.deepEqual(after, before, 'la revisión de consistencia nunca escribe en BD')
+
+    // La BD viene de `migration:fresh --seed`: lo que 0061/0062 crean o renombran
+    // desde la constante no puede salir como hallazgo, porque la revisión compara
+    // con los mismos valores con los que se sembró. M5 (campos del módulo, bandera
+    // de exigencia incluida) y los hallazgos que piden decisión quedan fuera:
+    // otros specs de la corrida cambian esas filas o crean fixtures propios.
+    const seedCodes: readonly SystemCatalogFindingCode[] = ['G1', 'G4', 'M1', 'M3', 'P1', 'P4']
+    assert.deepEqual(
+      findings.filter((finding) => seedCodes.includes(finding.code)),
+      [],
+      'la revisión reporta como pendiente algo que la siembra ya escribió'
+    )
   })
 })

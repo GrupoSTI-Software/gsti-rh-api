@@ -163,9 +163,15 @@ export async function upsertSystemModuleBySlug(values: SystemModuleSeedValues, s
     throw new Error(`[${seederName}] Un módulo no puede sembrarse sin slug.`)
   }
 
+  // Puede haber una fila viva y varias dadas de baja con el mismo slug (el
+  // UNIQUE solo cubre las vivas). Se prefiere la viva y luego el menor id, la
+  // misma regla con la que `permissions:check-consistency` elige la fila: si
+  // no, la siembra podría actualizar la dada de baja y el hallazgo nunca se iría.
   const existing = await SystemModule.query()
     .withTrashed()
     .where('systemModuleSlug', values.systemModuleSlug)
+    .orderByRaw('system_module_deleted_at IS NULL DESC')
+    .orderBy('system_module_id')
     .first()
 
   if (existing) {
@@ -216,10 +222,13 @@ export async function upsertSystemPermissionsBySlug(
       )
     }
 
+    // Viva primero y luego menor id: misma regla que la revisión de consistencia.
     const existing = await SystemPermission.query()
       .withTrashed()
       .where('systemModuleId', systemModuleId)
       .where('systemPermissionSlug', permission.systemPermissionSlug)
+      .orderByRaw('system_permission_deleted_at IS NULL DESC')
+      .orderBy('system_permission_id')
       .first()
 
     if (existing) {

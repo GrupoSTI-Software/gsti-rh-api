@@ -3,6 +3,7 @@ import SystemModuleGroup from '#models/system_module_group'
 import SystemPermission from '#models/system_permission'
 import {
   SYSTEM_CATALOG_DECLARATION,
+  validateCatalogIntegrity,
   validateSystemModulesDeclaration,
   type SystemCatalogDeclaration,
 } from '#constants/system_permission_catalog'
@@ -404,9 +405,16 @@ export default class SystemCatalogConsistencyService {
    * Valida la declaración y la compara contra la BD con tres consultas
    * `withTrashed()`: una baja lógica es un hallazgo distinto a una fila que no
    * existe.
+   *
+   * Corre las dos validaciones porque revisan cosas distintas:
+   * `validateSystemModulesDeclaration` cubre lo que se siembra (claves y slugs
+   * repetidos, grupos no declarados) y `validateCatalogIntegrity` los catálogos
+   * tipados (acción sin sección, `legacyEquivalence.relation` inválida, catálogo
+   * de un módulo que ya no está en el catálogo de módulos).
    */
   async check(): Promise<SystemCatalogFinding[]> {
     validateSystemModulesDeclaration(SYSTEM_CATALOG_DECLARATION)
+    validateCatalogIntegrity()
 
     const [groups, modules, permissions] = await Promise.all([
       SystemModuleGroup.query().withTrashed().orderBy('system_module_group_id'),

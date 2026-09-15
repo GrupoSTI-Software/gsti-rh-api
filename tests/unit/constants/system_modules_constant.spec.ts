@@ -1,7 +1,11 @@
 import { test } from '@japa/runner'
-import { SYSTEM_MODULES } from '#constants/system_modules_menu/system_modules.constant'
+import {
+  SYSTEM_MODULES,
+  SYSTEM_MODULE_ACTION_CATALOGS,
+} from '#constants/system_modules_menu/system_modules.constant'
 import { validateSystemModulesDeclaration } from '#constants/system_permission_catalog'
 import type { PermissionGateOptions } from '#constants/permission_gate'
+import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
 import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
 import { CALENDAR_PERMISSION_DECLARATIONS } from '#constants/calendar_permission_declarations'
 import { EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS } from '#constants/employees_download_permission_declarations'
@@ -135,5 +139,32 @@ test.group('system_modules.constant — contrato del catálogo', () => {
     })
 
     assert.deepEqual([...new Set(problems)], [])
+  })
+
+  test('las acciones con exemption de los catálogos tipados no se siembran como permiso', ({
+    assert,
+  }) => {
+    // Las acciones exentas (p. ej. `collaborator-*`) son apartados documentales
+    // de la app del colaborador: si llegaran a `system_permissions`, la pantalla
+    // de roles ofrecería casillas que ninguna operación consulta.
+    const catalogs: Record<string, readonly ActionCatalogEntry<string>[]> =
+      SYSTEM_MODULE_ACTION_CATALOGS
+    const modulesBySlug = new Map(
+      SYSTEM_MODULES.map((systemModule) => [systemModule.systemModuleSlug as string, systemModule])
+    )
+
+    const exempt = Object.entries(catalogs).flatMap(([moduleSlug, actions]) =>
+      actions.filter((action) => action.exemption).map((action) => ({ moduleSlug, slug: action.slug }))
+    )
+    const seeded = exempt
+      .filter(({ moduleSlug, slug }) =>
+        (modulesBySlug.get(moduleSlug)?.systemModulePermissions ?? []).some(
+          (permission) => permission.systemPermissionSlug === slug
+        )
+      )
+      .map(({ moduleSlug, slug }) => `${moduleSlug}:${slug}`)
+
+    assert.isAbove(exempt.length, 0, 'sin acciones exentas el caso no prueba nada')
+    assert.deepEqual(seeded, [])
   })
 })

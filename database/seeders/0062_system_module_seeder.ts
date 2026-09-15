@@ -1,7 +1,10 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
 import SystemModuleGroup from '#models/system_module_group'
 import { SYSTEM_MODULES } from '#constants/system_modules_menu/system_modules.constant'
-import { validateSystemModulesDeclaration } from '#constants/system_permission_catalog'
+import {
+  validateCatalogIntegrity,
+  validateSystemModulesDeclaration,
+} from '#constants/system_permission_catalog'
 import {
   buildSystemModuleSeedValues,
   retireSystemModule,
@@ -18,8 +21,10 @@ import {
  * slug): ninguna entrada declara id, el id lo asigna la BD. La razón está
  * documentada en `app/helpers/system_catalog_seed_resolver.ts`.
  *
- * Antes de escribir valida la declaración: ante un slug repetido el upsert no
- * falla, se queda con la última declaración en silencio. Los valores de cada
+ * Antes de escribir valida la declaración y los catálogos tipados de los que
+ * derivan sus permisos: ante un slug repetido el upsert no falla, se queda con
+ * la última declaración en silencio. Son las mismas dos validaciones que corre
+ * `permissions:check-consistency`. Los valores de cada
  * módulo salen de `buildSystemModuleSeedValues`, la misma función con la que
  * `permissions:check-consistency` compara la BD contra la constante.
  *
@@ -33,6 +38,7 @@ export default class extends BaseSeeder {
 
   async run() {
     validateSystemModulesDeclaration()
+    validateCatalogIntegrity()
 
     const groupKeys = [
       ...new Set(
