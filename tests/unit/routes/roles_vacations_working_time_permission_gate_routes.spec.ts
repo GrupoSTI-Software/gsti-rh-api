@@ -115,6 +115,7 @@ test.group('Roles, vacaciones y jornada — declaraciones del gate', () => {
       applyRolePreset: 'update',
       storeRoleWithPreset: 'update',
       readOtherRoleAccess: 'read',
+      indexRolesWithGrants: 'read',
     }
 
     for (const [name, declaration] of Object.entries(ROLES_AND_PERMISSIONS_PERMISSION_DECLARATIONS)) {

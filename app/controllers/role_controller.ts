@@ -5,7 +5,10 @@ import BusinessUnit from '#models/business_unit'
 import Role from '#models/role'
 import { isReservedRoleIdentitySlug } from '#constants/system_roles'
 import { isOwnRoleLockedForUser, isSystemRoleLockedForUser } from '#helpers/system_role_lock'
-import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import {
+  ensureSecondaryPermission,
+  evaluateSecondaryPermission,
+} from '#helpers/permission_gate_secondary'
 import { ROLES_AND_PERMISSIONS_PERMISSION_DECLARATIONS as ROLES } from '#constants/roles_and_permissions_permission_declarations'
 import RolePresetService from '#services/role_preset_service'
 import { RolePresetServiceError } from '#exceptions/role_preset_service_error'
@@ -152,7 +155,8 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response, businessUnitScope }: HttpContext) {
+  async index(ctx: HttpContext) {
+    const { request, response, businessUnitScope } = ctx
     try {
       const search = request.input('search')
       const page = request.input('page', 1)
@@ -162,8 +166,11 @@ export default class RoleController {
         page: page,
         limit: limit,
       } as RoleFilterSearchInterface
+      // La ruta queda abierta para los selects de Usuarios, pero la matriz de
+      // concesiones de cada rol solo la ve quien puede leer roles.
+      const includeGrants = await evaluateSecondaryPermission(ctx, ROLES.indexRolesWithGrants)
       const roleService = new RoleService()
-      const roles = await roleService.index(filters, businessUnitScope)
+      const roles = await roleService.index(filters, businessUnitScope, { includeGrants })
       response.status(200)
       return {
         type: 'success',

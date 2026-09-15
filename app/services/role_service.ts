@@ -9,8 +9,22 @@ import SystemPermission from '#models/system_permission'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
 
+/** Qué parte de cada rol entrega el listado. */
+export interface RoleIndexOptions {
+  /**
+   * Precarga `roleSystemPermissions`. Solo con `roles-and-permissions:read`
+   * (o bypass): la matriz de un rol ajeno no se entrega a quien solo llena un
+   * select de Usuarios.
+   */
+  includeGrants: boolean
+}
+
 export default class RoleService {
-  async index(filters: RoleFilterSearchInterface, allowedBusinessUnitIds: number[] = []) {
+  async index(
+    filters: RoleFilterSearchInterface,
+    allowedBusinessUnitIds: number[] = [],
+    options: RoleIndexOptions = { includeGrants: false }
+  ) {
     let slugs: string[] = []
     if (allowedBusinessUnitIds.length > 0) {
       const units = await BusinessUnit.query()
@@ -43,7 +57,9 @@ export default class RoleService {
         })
       })
       .preload('roleDepartments')
-      .preload('roleSystemPermissions')
+      .if(options.includeGrants, (query) => {
+        query.preload('roleSystemPermissions')
+      })
       .orderBy('role_id')
       .paginate(filters.page, filters.limit)
     return roles

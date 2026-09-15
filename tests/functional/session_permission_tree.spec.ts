@@ -154,6 +154,10 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
 
     standardActor = await createTenantActor('session-permission-tree', standardRole, true)
     ownerActor = await createTenantActor('session-permission-tree-owner', ownerRole)
+    // El owner reasigna este rol en un caso: que el rol sea de su empresa, para
+    // que el caso no dependa de que la asignación no corte por empresa.
+    standardRole.roleBusinessAccess = ownerActor.businessUnit.businessUnitSlug
+    await standardRole.save()
     // Sesión cuyo rol ES `legacyAccessRole`: has-access solo responde la matriz
     // del rol de la sesión a quien no tiene roles-and-permissions:read.
     legacyActor = await createTenantActor('session-permission-tree-legacy', legacyAccessRole)

@@ -27,9 +27,14 @@ const rolesStandard = (action: string | readonly string[]): PermissionGateOption
  *  - `readOtherRoleAccess`: `read`, lo aplica el controller cuando
  *    `has-access`, `get-access` o `get-access-by-module` piden la matriz de un
  *    rol distinto al de la sesión.
+ *  - `indexRolesWithGrants`: `read`, lo evalúa el controller del listado sin
+ *    responder. Sin él, el listado sale sin `roleSystemPermissions`: la matriz
+ *    de todos los roles visibles no es dato de un select, y entregarla dejaba
+ *    sin efecto a `readOtherRoleAccess` y al gate del detalle.
  *
  * Quedan sin gate a propósito y por eso no se declaran como ruta:
- *  - `GET /api/roles`: selects y filtros de Usuarios.
+ *  - `GET /api/roles`: selects y filtros de Usuarios (id, nombre, slug); las
+ *    concesiones de cada rol solo viajan con `indexRolesWithGrants`.
  *  - `has-access`, `get-access` y `get-access-by-module`: plomería de sesión
  *    del menú y del guard de cada pantalla; con gate, quien no administra
  *    roles se quedaría sin menú.
@@ -56,4 +61,5 @@ export const ROLES_AND_PERMISSIONS_PERMISSION_DECLARATIONS = {
   // Verificaciones secundarias — app/controllers/role_controller.ts
   storeRoleWithPreset: rolesStandard('update'),
   readOtherRoleAccess: rolesStandard('read'),
+  indexRolesWithGrants: rolesStandard('read'),
 } as const satisfies Record<string, PermissionGateOptions>

@@ -1,8 +1,9 @@
 import { test } from '@japa/runner'
 import type { Assert } from '@japa/assert'
-import type { ApiClient } from '@japa/api-client'
+import type { ApiClient, ApiResponse } from '@japa/api-client'
 import Role from '#models/role'
 import RoleSystemPermission from '#models/role_system_permission'
+import SystemPermission from '#models/system_permission'
 import RolePresetService from '#services/role_preset_service'
 import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
 import {
@@ -22,7 +23,8 @@ import {
  *  - cada operación declarada con su permiso (y el `update` extra del alta con
  *    plantilla);
  *  - la plomería de sesión abierta (listado, has-access, get-access y
- *    get-access-by-module) acotada al rol de la sesión;
+ *    get-access-by-module) acotada al rol de la sesión; el listado solo trae la
+ *    matriz de concesiones de cada rol con `read`;
  *  - el bloqueo del rol propio: con permiso de edición nadie modifica, borra ni
  *    se concede permisos sobre el rol con el que inició sesión;
  *  - los nombres de rol que derivan un slug de identidad reservado.
@@ -196,6 +198,26 @@ async function assertStatus(
   return response
 }
 
+const LIST_ROLES_CALL: ApiCall = { label: 'listado de roles', method: 'get', url: '/api/roles' }
+
+/** Concesión real del módulo para que la matriz del rol objetivo no salga vacía. */
+async function moduleReadPermissionId(): Promise<number> {
+  const permission = await SystemPermission.query()
+    .whereNull('system_permission_deleted_at')
+    .where('system_permission_slug', 'read')
+    .whereHas('systemModule', (query) => query.where('system_module_slug', MODULE))
+    .firstOrFail()
+  return permission.systemPermissionId
+}
+
+/** Rol objetivo tal como lo serializa el listado paginado. */
+function listedRole(response: ApiResponse, role: Role): Record<string, unknown> {
+  const rows: Record<string, unknown>[] = response.body().data.roles.data
+  const row = rows.find((item) => item.roleId === role.roleId)
+  if (!row) throw new Error(`El listado no trae el rol ${role.roleId} de la empresa del actor.`)
+  return row
+}
+
 test.group('Roles y permisos — permissionGate con exigencia encendida', (group) => {
   let actor: TenantActor | null = null
   let target: Role | null = null
@@ -247,10 +269,30 @@ test.group('Roles y permisos — permissionGate con exigencia encendida', (group
     const tenant = required(actor, 'el actor')
     await grantModulePermissions(tenant, MODULE, [])
 
-    await assertStatus(assert, client, tenant, { label: 'listado de roles', method: 'get', url: '/api/roles' }, 200)
+    await assertStatus(assert, client, tenant, LIST_ROLES_CALL, 200)
     for (const call of accessCalls(tenant.role.roleId)) {
       await assertStatus(assert, client, tenant, call, 200)
     }
+  })
+
+  test('sin read el listado no trae la matriz de concesiones; con read, sí', async ({
+    client,
+    assert,
+  }) => {
+    const tenant = required(actor, 'el actor')
+    const role = required(target, 'el rol objetivo')
+    await RoleSystemPermission.create({
+      roleId: role.roleId,
+      systemPermissionId: await moduleReadPermissionId(),
+    })
+
+    await grantModulePermissions(tenant, MODULE, [])
+    const withoutRead = listedRole(await assertStatus(assert, client, tenant, LIST_ROLES_CALL, 200), role)
+    assert.notProperty(withoutRead, 'roleSystemPermissions')
+
+    await grantModulePermissions(tenant, MODULE, ['read'])
+    const withRead = listedRole(await assertStatus(assert, client, tenant, LIST_ROLES_CALL, 200), role)
+    assert.lengthOf(withRead.roleSystemPermissions as unknown[], 1)
   })
 
   test('la matriz de otro rol pide read: sin concesión PERM.DENIED, con read 200', async ({
