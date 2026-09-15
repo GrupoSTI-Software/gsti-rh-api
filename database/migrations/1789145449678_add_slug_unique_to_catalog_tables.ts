@@ -4,9 +4,9 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * Candado de identidad del catálogo: roles, módulos y permisos.
  *
  * `system_module_id` se declara `table.increments()` (autoincremental) pero 16
- * seeders escriben el id a mano y hacen `updateOrCreate` por ese id. Cuando dos
- * reclaman el mismo número el segundo no falla: sobrescribe al primero en
- * silencio. Así desaparecieron cinco módulos —complaints, consent-evidence,
+ * seeders por módulo (hoy retirados) escribían el id a mano y hacían
+ * `updateOrCreate` por ese id. Cuando dos reclamaban el mismo número el segundo
+ * no fallaba: sobrescribía al primero en silencio. Así desaparecieron cinco módulos —complaints, consent-evidence,
  * legal-documents, telework-workers y calendar— y quedó un permiso duplicado
  * (módulo 46 con dos slugs `read`). `roles` tiene el mismo defecto: la
  * migración 1788500000000 crea `kiosco` sin id y sobre una base vacía toma el

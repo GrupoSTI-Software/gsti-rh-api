@@ -7,10 +7,10 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * `system_module_group_id`/`system_module_order` sobre filas de
  * `system_modules` que asumía ya sembradas, usando listas congeladas
  * (`ORGANIZATION_FINAL`, `GROUP_FINAL`, `PREVIOUS_STATE`, `PREVIOUS_GROUPS`).
- * Bajo el modelo nuevo (USRH — catálogo de módulos/grupos nace vacío tras
- * `migration:fresh --seed`) no hay filas que reorganizar en este punto de la
- * secuencia: la organización del menú final se declara donde se declare el
- * catálogo mismo (el flujo de siembra que sustituya a los seeders retirados).
+ * Las migraciones ya no siembran catálogo y en este punto de la secuencia no
+ * hay filas que reorganizar: grupos y orden del menú se declaran en
+ * `system_modules.constant.ts` y los siembran `0061_system_module_group_seeder`
+ * y `0062_system_module_seeder`.
  *
  * Las constantes que este archivo importaba
  * (`app/constants/system-modules/final_groups_menu.constant.ts`,

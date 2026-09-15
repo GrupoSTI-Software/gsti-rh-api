@@ -4,11 +4,11 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * Cierre del acceso cruzado a la foto biométrica del colaborador.
  *
  * NO-OP HISTÓRICO. Esta migración concedía `tab-biometricos-read` a roles
- * administrativos y, de paso, creaba el rol `kiosco` si no existía. Bajo el
- * modelo nuevo (USRH — catálogo de módulos/permisos nace vacío tras
- * `migration:fresh --seed`) `system_permissions` no tiene la fila
- * `tab-biometricos-read` para conceder, así que la concesión ya no tiene
- * sentido aquí.
+ * administrativos y, de paso, creaba el rol `kiosco` si no existía. Las
+ * migraciones ya no siembran catálogo: en este punto de la secuencia
+ * `system_permissions` no tiene la fila `tab-biometricos-read` para conceder
+ * (la siembra `0062_system_module_seeder` al final), así que la concesión ya
+ * no tiene sentido aquí.
  *
  * ATENCIÓN: el alta del rol `kiosco` vivía SOLO en esta migración. Si el rol
  * sigue siendo necesario, hay que declararlo explícitamente en

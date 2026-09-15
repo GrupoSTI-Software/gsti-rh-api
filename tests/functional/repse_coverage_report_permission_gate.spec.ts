@@ -112,9 +112,7 @@ test.group('GET /api/repse/coverage-report — PermissionGateMiddleware (piloto 
     }
   })
 
-  test('rol sin privilegio es rechazado (module compliance-contratos no existe ⇒ fail-closed, sin permiso)', async ({
-    client,
-  }) => {
+  test('rol sin read en repse-registrations es rechazado (403 PERM.DENIED)', async ({ client }) => {
     const actor = await createActor('repse-gate-plain', await ensureRhManagerRole())
     try {
       const response = await client
