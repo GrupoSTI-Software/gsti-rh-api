@@ -1,12 +1,12 @@
 /**
- * Códigos estables para el cliente — administración de módulos de plataforma.
+ * Códigos estables para el cliente — vista de módulos de plataforma.
  * Prefijo PLT.MOD = PLaTaforma · MODulo.
+ *
+ * `PLT.MOD.VAL_INPUT` y `PLT.MOD.MODULE_NOT_FOUND` salieron con el interruptor
+ * `PUT /:systemModuleId/active`: no se reutilizan con otro significado para que
+ * un cliente viejo no los confunda.
  */
 export const PLATFORM_SYSTEM_MODULE_ERROR_CODES = {
-  /** Body inválido (Vine): `active` ausente o no booleano */
-  VAL_INPUT: 'PLT.MOD.VAL_INPUT',
-  /** Módulo inexistente para el id solicitado */
-  MODULE_NOT_FOUND: 'PLT.MOD.MODULE_NOT_FOUND',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.MOD.SYS_UNHANDLED',
 } as const

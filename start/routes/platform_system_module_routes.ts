@@ -2,8 +2,8 @@ import router from '@adonisjs/core/services/router'
 import { middleware } from '../kernel.js'
 
 /**
- * Rutas de plataforma para gobernar la disponibilidad global de los módulos
- * del sistema. Espeja el patrón de `platform_billing_routes.ts`.
+ * Rutas de plataforma de solo lectura sobre el catálogo de módulos del sistema.
+ * Espeja el patrón de `platform_billing_routes.ts`.
  *
  * Todas protegidas por `auth` + `platformAdmin` — globales, sin scope de tenant.
  * Prefijo: /api/platform/system-modules
@@ -14,22 +14,18 @@ import { middleware } from '../kernel.js'
  *     Orden clusterizado: grupos por `systemModuleGroupOrder`, módulos por
  *     `systemModuleOrder` dentro del suyo, módulos sueltos juntos al final.
  *
- *   PUT /api/platform/system-modules/:systemModuleId/active → togglear disponibilidad
- *
- * La exigencia de permisos por módulo (`system_module_permission_enforcement_active`)
- * no se expone aquí a propósito: la gobierna `system_modules.constant.ts` y la
- * siembra 0062 la sobrescribe por slug, así que un interruptor HTTP solo abría
- * una divergencia entre BD y constante que la siguiente siembra deshacía.
+ * Ni la disponibilidad (`system_module_active`) ni la exigencia de permisos
+ * (`system_module_permission_enforcement_active`) se escriben por HTTP a
+ * propósito: las dos las gobierna `system_modules.constant.ts` y la siembra 0062
+ * las sobrescribe por slug en cada corrida. Un interruptor HTTP solo abría una
+ * divergencia entre BD y constante que el siguiente despliegue deshacía en
+ * silencio. Apagar un módulo se hace en la constante.
  *
  * Ref: USRH1784573245783 · USRH1788282413110.
  */
 router
   .group(() => {
     router.get('/', '#controllers/platform_system_module_controller.index')
-    router.put(
-      '/:systemModuleId/active',
-      '#controllers/platform_system_module_controller.updateActive'
-    )
   })
   .prefix('/api/platform/system-modules')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])
