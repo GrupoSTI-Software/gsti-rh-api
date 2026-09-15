@@ -887,9 +887,21 @@ export const SYSTEM_MODULES_GROUPED = [
             systemPermissionName: 'Acceder al catálogo de rutas de carrera',
             systemPermissionSlug: 'read',
           },
-          { systemPermissionName: 'Crear rutas de carrera', systemPermissionSlug: 'create' },
-          { systemPermissionName: 'Editar rutas de carrera', systemPermissionSlug: 'update' },
-          { systemPermissionName: 'Eliminar rutas de carrera', systemPermissionSlug: 'delete' },
+          // "Plantillas del catálogo": sin esa precisión, en Roles quedaban junto a
+          // "Modificar/Eliminar Ruta de carrera" de la pestaña del empleado, que
+          // actúan sobre la propuesta de un colaborador y no sobre el catálogo.
+          {
+            systemPermissionName: 'Crear plantillas del catálogo de rutas de carrera',
+            systemPermissionSlug: 'create',
+          },
+          {
+            systemPermissionName: 'Editar plantillas del catálogo de rutas de carrera',
+            systemPermissionSlug: 'update',
+          },
+          {
+            systemPermissionName: 'Eliminar plantillas del catálogo de rutas de carrera',
+            systemPermissionSlug: 'delete',
+          },
         ],
       },
       {

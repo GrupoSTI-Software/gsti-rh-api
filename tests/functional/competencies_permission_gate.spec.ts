@@ -497,16 +497,18 @@ test.group('Competencias — permissionGate con exigencia encendida', (group) =>
     await expectStatus(assert, client, tenant, requests.deleteLevel(fixture.levels[3]), 200)
   })
 
-  test('owner pasa el gate sin concesiones (bypass standard)', async ({ client, assert }) => {
-    const owner = await createBypassActor('owner', 'competencias-owner')
-    try {
-      const fixture = await createFixture(owner, 'owner')
+  test('owner y root pasan el gate sin concesiones (bypass standard)', async ({ client, assert }) => {
+    for (const slug of ['owner', 'root'] as const) {
+      const bypass = await createBypassActor(slug, `competencias-${slug}`)
+      try {
+        const fixture = await createFixture(bypass, slug)
 
-      await expectStatus(assert, client, owner, requests.storeCompetency(), 201)
-      await expectStatus(assert, client, owner, requests.showCompetency(fixture.competency), 200)
-      await expectPassesGate(assert, client, owner, requests.updateLevel(owner, fixture.levels[0], 'Nivel owner'))
-    } finally {
-      await cleanupCompetencyActor(owner)
+        await expectStatus(assert, client, bypass, requests.storeCompetency(), 201)
+        await expectStatus(assert, client, bypass, requests.showCompetency(fixture.competency), 200)
+        await expectPassesGate(assert, client, bypass, requests.updateLevel(bypass, fixture.levels[0], `Nivel ${slug}`))
+      } finally {
+        await cleanupCompetencyActor(bypass)
+      }
     }
   })
 })

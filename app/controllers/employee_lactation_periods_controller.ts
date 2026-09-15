@@ -31,12 +31,16 @@ import {
 } from '#helpers/sensitive_data_write_api_error'
 
 /**
- * Esta funcionalidad NO tiene módulo propio en `system_modules`: vive
- * embebida en el apartado de "Información del empleado". Por eso los
+ * Los periodos del expediente no tienen módulo propio en `system_modules`:
+ * viven embebidos en el apartado de "Información del empleado". Por eso sus
  * checks de RBAC se hacen contra el módulo `employees`:
  *  - listar / consultar  → permiso `read`.
  *  - crear / editar / eliminar → permiso `update-information`
  *    (mismo permiso que usa medical conditions y otras secciones del perfil).
+ *
+ * Excepción: `complianceReport` y `complianceReportExport` (bitácora de
+ * lactancia) no pasan por este mapa; los decide el permissionGate de su ruta
+ * con `employee-lactation-periods:read`.
  */
 const PARENT_MODULE_SLUG = 'employees'
 const ACTION_PERMISSION_MAP: Record<'read' | 'create' | 'update' | 'delete', string> = {

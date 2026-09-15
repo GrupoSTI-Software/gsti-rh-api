@@ -430,16 +430,18 @@ test.group('Parámetros de evaluación — permissionGate con exigencia encendid
     await expectStatus(assert, client, tenant, requests.deleteTemplate(fixture), 201)
   })
 
-  test('owner pasa el gate sin concesiones (bypass standard)', async ({ client, assert }) => {
-    const owner = await createBypassActor('owner', 'plantillas-owner')
-    try {
-      const fixture = await createFixture(owner, 'owner')
+  test('owner y root pasan el gate sin concesiones (bypass standard)', async ({ client, assert }) => {
+    for (const slug of ['owner', 'root'] as const) {
+      const bypass = await createBypassActor(slug, `plantillas-${slug}`)
+      try {
+        const fixture = await createFixture(bypass, slug)
 
-      await expectStatus(assert, client, owner, requests.indexTemplates(), 200)
-      await expectStatus(assert, client, owner, requests.storeTemplate(), 201)
-      await expectStatus(assert, client, owner, requests.storeProfile(fixture), 201)
-    } finally {
-      await cleanupTemplateActor(owner)
+        await expectStatus(assert, client, bypass, requests.indexTemplates(), 200)
+        await expectStatus(assert, client, bypass, requests.storeTemplate(), 201)
+        await expectStatus(assert, client, bypass, requests.storeProfile(fixture), 201)
+      } finally {
+        await cleanupTemplateActor(bypass)
+      }
     }
   })
 })

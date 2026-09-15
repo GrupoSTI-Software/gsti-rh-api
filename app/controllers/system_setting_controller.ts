@@ -1607,6 +1607,9 @@ export default class SystemSettingController {
   /**
    * Obtiene archivos vencidos y por vencer de un system setting por rango de fechas.
    * GET /api/system-settings-proceeding-files/get-expired-and-expiring/:systemSettingId?dateStart=YYYY-MM-DD&dateEnd=YYYY-MM-DD
+   *
+   * La ruta exige `documents-expiration-matrix:read`: sin él responde 403 con la
+   * negativa del permissionGate (key `PERM.DENIED`) antes de llegar aquí.
    */
   async getExpiresAndExpiringProceedingFiles({ request, response }: HttpContext) {
     try {

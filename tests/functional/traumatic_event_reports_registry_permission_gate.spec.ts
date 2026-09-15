@@ -1,8 +1,10 @@
 import { test } from '@japa/runner'
 import type { Assert } from '@japa/assert'
 import type { ApiClient } from '@japa/api-client'
+import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
 import {
   assertModuleEnforced,
+  assertPassesGate,
   assertPermissionDenied,
   businessUnitHeaders,
   cleanupTenantActor,
@@ -131,11 +133,31 @@ test.group(
       assert.equal(response.status(), 200, JSON.stringify(response.body()))
     })
 
-    test('owner pasa el gate sin concesiones (bypass standard)', async ({ client, assert }) => {
+    test('sin sesión: la lista y el PDF responden 401 antes del gate', async ({ client, assert }) => {
+      // `auth` es middleware del grupo y corre antes que el gate de la ruta: un
+      // refactor que invierta el orden dejaría a la negativa del gate responder
+      // a quien ni siquiera inició sesión.
+      for (const call of PROTECTED_CALLS) {
+        const response = await client.get(call.url)
+        assert.equal(response.status(), 401, `${call.label}: ${JSON.stringify(response.body())}`)
+      }
+    })
+
+    test('owner pasa el gate sin concesiones en la lista y el PDF (bypass standard)', async ({
+      client,
+      assert,
+    }) => {
       const account = required(owner, 'el owner')
 
       const list = await send(client, account, REGISTRY_CALL)
       assert.equal(list.status(), 200, JSON.stringify(list.body()))
+
+      // owner también tiene salvoconducto en employees:export-sensitive-data, así
+      // que el PDF sin motivo responde 422 de exportación sensible: lo que importa
+      // aquí es que el gate del registro lo deje pasar.
+      const pdf = await send(client, account, EXPORT_CALL)
+      assertPassesGate(assert, pdf)
+      assert.notEqual(pdf.body()?.key, PERMISSION_GATE_ERROR_CODES.DENIED)
     })
   }
 )

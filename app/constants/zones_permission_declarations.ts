@@ -18,6 +18,11 @@ const zonesStandard = (action: string | readonly string[]): PermissionGateOption
  * La miniatura acepta `create` o `update`: el formulario la sube justo después
  * de crear y también después de editar, así que un rol que solo crea no debe
  * quedarse sin ella.
+ *
+ * Estos permisos deciden QUÉ se hace, no SOBRE QUÉ EMPRESA: `zones` no tiene
+ * `business_unit_id` y el grupo de rutas no monta `businessScope`, así que quien
+ * tenga el verbo (u owner por bypass) opera zonas de todas las empresas. Hueco
+ * de aislamiento pendiente, reportado aparte; no lo cierra este gate.
  */
 export const ZONES_PERMISSION_DECLARATIONS = {
   storeZone: zonesStandard('create'),

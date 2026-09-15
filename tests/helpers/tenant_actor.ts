@@ -33,6 +33,15 @@ import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 const HELPER_NAME = 'tests/helpers/tenant_actor'
 const TEST_PASSWORD = 'TenantActorGate123!'
 
+/** Roles globales que `ensureRole` comparte entre specs: nunca se les tocan concesiones. */
+const SHARED_ROLE_SLUGS: ReadonlySet<string> = new Set<TestRoleSlug>([
+  'root',
+  'owner',
+  'super-administrador',
+  'rh-manager',
+  'empleado',
+])
+
 export interface TenantActor {
   user: User
   person: Person
@@ -190,13 +199,22 @@ export async function grantModulePermissions(
  * pasan por `createTenantActor`. Reemplaza TODAS las concesiones del rol, así
  * que nunca se usa con un rol global (`owner`, `root`, ...).
  *
- * @throws Error si el permiso no está sembrado.
+ * @throws Error si el rol es uno de los globales que comparten los specs o si
+ *   el permiso no está sembrado.
  */
 export async function grantRoleModulePermissions(
   role: Role,
   moduleSlug: string,
   permissionSlugs: readonly string[]
 ): Promise<void> {
+  // Borrar las concesiones de un rol compartido contaminaría en silencio a los
+  // demás specs de la corrida que lo usan.
+  if (SHARED_ROLE_SLUGS.has(role.roleSlug)) {
+    throw new Error(
+      `[${HELPER_NAME}] El rol "${role.roleSlug}" es compartido: no se le siembran concesiones.`
+    )
+  }
+
   await RoleSystemPermission.query().where('role_id', role.roleId).delete()
   for (const permissionSlug of permissionSlugs) {
     const permission = await SystemPermission.query()

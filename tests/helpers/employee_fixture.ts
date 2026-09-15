@@ -1,4 +1,5 @@
 import db from '@adonisjs/lucid/services/db'
+import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import Person from '#models/person'
 import {
@@ -28,6 +29,9 @@ export interface EmployeeFixture {
 }
 
 const uniqueStamp = () => `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
+
+/** Prefijo con el que `tenant_actor` nombra las unidades que crea y borra. */
+const SPEC_BUSINESS_UNIT_SLUG_PREFIX = 'gate-'
 
 export async function createEmployeeFixture(
   businessUnitId: number,
@@ -71,9 +75,21 @@ export async function createEmployeeFixture(
  * Borra el empleado, su persona y el organigrama de la unidad. Lo que el caso
  * haya colgado del empleado (checadas, condiciones médicas) lo limpia el spec
  * antes de llamar aquí.
+ *
+ * @throws Error si la unidad no la creó `tenant_actor` (slug `gate-*`): el
+ *   borrado del organigrama es por unidad completa y en una empresa ajena
+ *   (p. ej. la prestada por `createBypassUserInBusinessUnit`) se llevaría datos
+ *   que el spec no creó.
  */
 export async function cleanupEmployeeFixture(fixture: EmployeeFixture | null): Promise<void> {
   if (!fixture) return
+
+  const businessUnit = await BusinessUnit.find(fixture.businessUnitId)
+  if (businessUnit && !businessUnit.businessUnitSlug.startsWith(SPEC_BUSINESS_UNIT_SLUG_PREFIX)) {
+    throw new Error(
+      `[tests/helpers/employee_fixture] La unidad "${businessUnit.businessUnitSlug}" no es de un spec: no se borra su organigrama.`
+    )
+  }
 
   await db.from('employees').where('employee_id', fixture.employee.employeeId).delete()
   await Person.query().where('person_id', fixture.person.personId).delete()

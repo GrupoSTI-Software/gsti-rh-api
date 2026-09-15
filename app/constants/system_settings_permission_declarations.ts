@@ -25,9 +25,10 @@ const systemSettingsStandard = (action: string): PermissionGateOptions => ({
  *  - `GET /api/system-settings-active` y `GET /api/system-settings-get-payroll-config`:
  *    arranque y marca del backoffice y de la PWA del colaborador, bonos y
  *    Monitor de asistencia.
- *  - `GET /api/system-settings-proceeding-files` y
- *    `GET /api/system-settings-proceeding-files/get-expired-and-expiring/:systemSettingId`:
- *    los lee la Matriz de vencimientos.
+ *  - `GET /api/system-settings-proceeding-files`: lo lee la Matriz de
+ *    vencimientos. Su vecina `get-expired-and-expiring/:systemSettingId` ya no
+ *    está abierta: pide `documents-expiration-matrix:read`
+ *    (`documents_expiration_matrix_permission_declarations.ts`).
  *  - Las lecturas de `/api/tolerances`: `/:systemSettingId` se registra antes
  *    que `/get-tardiness-tolerance` y atiende también la petición del Monitor
  *    de asistencia; protegerla le quitaría la tolerancia a ese módulo.

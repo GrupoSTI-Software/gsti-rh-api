@@ -19,7 +19,10 @@ const shiftsStandard = (action: string): PermissionGateOptions => ({
  *
  * Las dos consultas sin consumidor conocido (`shift-department-position` y
  * `shift-for-employees`) piden `read` en lugar de quedar abiertas: nadie las
- * usa y cerrarlas no rompe ninguna pantalla.
+ * usa y cerrarlas no rompe ninguna pantalla. `shift-for-employees` además no
+ * monta `businessScope` ni filtra por empresa: con `read` (u owner por bypass)
+ * devuelve turnos asignados de todas las empresas. Hueco de aislamiento
+ * pendiente, reportado aparte; el permiso no lo cierra.
  */
 export const SHIFTS_PERMISSION_DECLARATIONS = {
   storeShift: shiftsStandard('create'),
