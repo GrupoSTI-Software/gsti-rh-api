@@ -3,8 +3,10 @@ import RoleService from '#services/role_service'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
 import BusinessUnit from '#models/business_unit'
 import Role from '#models/role'
-import { isSystemRoleSlug } from '#constants/system_roles'
-import { isSystemRoleLockedForUser } from '#helpers/system_role_lock'
+import { isReservedRoleIdentitySlug } from '#constants/system_roles'
+import { isOwnRoleLockedForUser, isSystemRoleLockedForUser } from '#helpers/system_role_lock'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { ROLES_AND_PERMISSIONS_PERMISSION_DECLARATIONS as ROLES } from '#constants/roles_and_permissions_permission_declarations'
 import RolePresetService from '#services/role_preset_service'
 import { RolePresetServiceError } from '#exceptions/role_preset_service_error'
 import { buildRolePresetErrorResponse } from '#helpers/role_preset_error_response'
@@ -295,7 +297,8 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, businessUnitScope, i18n }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response, businessUnitScope, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const roleBusinessAccess = await buildRoleBusinessAccessFromScope(businessUnitScope)
@@ -306,10 +309,11 @@ export default class RoleController {
       const roleSlug = roleService.generateSlug(roleName)
       const roleActive = request.input('roleActive')
 
-      // Un nombre que genere el slug de un rol de sistema haría que el rol del
-      // tenant se volviera visible en todas las empresas (los listados amplían
-      // visibilidad por slug): nombre reservado, se rechaza.
-      if (isSystemRoleSlug(roleSlug)) {
+      // El slug sale del nombre y el runtime decide por slug: "Super
+      // Administrador" le daría al rol del tenant el salvoconducto `expanded`,
+      // y "Owner" o "Empleado" lo volverían visible en todas las empresas.
+      // Nombre reservado, se rechaza.
+      if (isReservedRoleIdentitySlug(roleSlug)) {
         response.status(400)
         return {
           title: t('system_role_name_reserved_title'),
@@ -327,6 +331,17 @@ export default class RoleController {
       } as Role
 
       const data = await request.validateUsing(createRoleValidator)
+
+      // La plantilla concede permisos al rol recién creado: con solo `create`,
+      // quien no puede editar permisos repartiría las concesiones de un módulo
+      // completo. El gate de la ruta ya exigió `create`; aquí se pide `update`.
+      if (
+        data.rolePresetSlug &&
+        !(await ensureSecondaryPermission(ctx, ROLES.storeRoleWithPreset))
+      ) {
+        return
+      }
+
       const valid = await roleService.verifyInfo(role)
       if (valid.status !== 200) {
         response.status(valid.status)
@@ -563,9 +578,18 @@ export default class RoleController {
           key: 'rol-sistema-bloqueado',
         }
       }
-      // Renombrar un rol del tenant hacia el slug de un rol de sistema lo
-      // volvería visible en todas las empresas: nombre reservado, se rechaza.
-      if (isSystemRoleSlug(roleSlug) && currentRole.roleSlug !== roleSlug) {
+      if (await isOwnRoleLockedForUser(auth, currentRole.roleId)) {
+        response.status(403)
+        return {
+          title: t('own_role_locked_title'),
+          detail: t('own_role_locked_detail'),
+          key: 'rol-propio-bloqueado',
+        }
+      }
+      // Renombrar un rol del tenant hacia un slug de identidad reservado le
+      // daría el trato de ese rol (salvoconducto o visibilidad global). Se
+      // admite conservar el slug que ya tiene: root renombrando al owner.
+      if (isReservedRoleIdentitySlug(roleSlug) && currentRole.roleSlug !== roleSlug) {
         response.status(400)
         return {
           title: t('system_role_name_reserved_title'),
@@ -739,6 +763,14 @@ export default class RoleController {
           key: 'rol-sistema-bloqueado',
         }
       }
+      if (await isOwnRoleLockedForUser(auth, currentRole.roleId)) {
+        response.status(403)
+        return {
+          title: t('own_role_locked_title'),
+          detail: t('own_role_locked_detail'),
+          key: 'rol-propio-bloqueado',
+        }
+      }
       const roleService = new RoleService()
       const deleteRole = await roleService.delete(currentRole)
       if (deleteRole) {
@@ -900,6 +932,16 @@ export default class RoleController {
           title: t('system_role_locked_title'),
           detail: t('system_role_locked_detail'),
           key: 'rol-sistema-bloqueado',
+        }
+      }
+
+      // Reasignar permisos al rol de la propia sesión sería concedérselos a sí mismo.
+      if (await isOwnRoleLockedForUser(auth, role.roleId)) {
+        response.status(403)
+        return {
+          title: t('own_role_locked_title'),
+          detail: t('own_role_locked_detail'),
+          key: 'rol-propio-bloqueado',
         }
       }
 
@@ -1093,6 +1135,21 @@ export default class RoleController {
             title: t('system_role_locked_batch_title'),
             detail: t('system_role_locked_batch_detail', { roleName: role.roleName }),
             key: 'rol-sistema-bloqueado-lote',
+            data: {
+              roleId: role.roleId,
+              roleName: role.roleName,
+              roleSlug: role.roleSlug,
+            },
+          }
+        }
+        // Un lote que incluya el rol de la sesión le concedería permisos al
+        // propio actor: se detiene completo, igual que con un rol de sistema.
+        if (await isOwnRoleLockedForUser(auth, role.roleId)) {
+          response.status(403)
+          return {
+            title: t('own_role_locked_title'),
+            detail: t('own_role_locked_batch_detail', { roleName: role.roleName }),
+            key: 'rol-propio-bloqueado',
             data: {
               roleId: role.roleId,
               roleName: role.roleName,
@@ -1388,7 +1445,8 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async hasAccess({ request, response }: HttpContext) {
+  async hasAccess(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const roleId = request.param('roleId')
       if (!roleId) {
@@ -1399,6 +1457,9 @@ export default class RoleController {
           message: 'Missing data to process',
           data: { roleId },
         }
+      }
+      if (!(await this.ensureRoleAccessReadable(ctx, roleId))) {
+        return
       }
       const systemModuleSlug = request.param('systemModuleSlug')
       if (!systemModuleSlug) {
@@ -1696,7 +1757,8 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async getAccessByModule({ request, response }: HttpContext) {
+  async getAccessByModule(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const roleId = request.param('roleId')
       if (!roleId) {
@@ -1707,6 +1769,9 @@ export default class RoleController {
           message: 'Missing data to process',
           data: { roleId },
         }
+      }
+      if (!(await this.ensureRoleAccessReadable(ctx, roleId))) {
+        return
       }
       const systemModuleSlug = request.param('systemModuleSlug')
       if (!systemModuleSlug) {
@@ -1837,7 +1902,8 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async getAccess({ request, response }: HttpContext) {
+  async getAccess(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const roleId = request.param('roleId')
       if (!roleId) {
@@ -1848,6 +1914,9 @@ export default class RoleController {
           message: 'Missing data to process',
           data: { roleId },
         }
+      }
+      if (!(await this.ensureRoleAccessReadable(ctx, roleId))) {
+        return
       }
       const roleService = new RoleService()
       const roleGetAccess = await roleService.getAccess(roleId)
@@ -1867,5 +1936,24 @@ export default class RoleController {
         error: error.message,
       }
     }
+  }
+
+  /**
+   * `has-access`, `get-access` y `get-access-by-module` quedan sin gate porque
+   * son la plomería de sesión del menú y del guard de cada pantalla, y el
+   * backoffice siempre pregunta por el rol de la sesión. Otro `roleId` expone la
+   * matriz de un rol ajeno: solo se admite con `roles-and-permissions:read`
+   * (root y owner por salvoconducto).
+   *
+   * @returns `false` cuando ya respondió 403 con la negativa uniforme del gate.
+   */
+  private async ensureRoleAccessReadable(
+    ctx: HttpContext,
+    roleId: string | number
+  ): Promise<boolean> {
+    if (ctx.auth.user?.roleId === Number(roleId)) {
+      return true
+    }
+    return ensureSecondaryPermission(ctx, ROLES.readOtherRoleAccess)
   }
 }

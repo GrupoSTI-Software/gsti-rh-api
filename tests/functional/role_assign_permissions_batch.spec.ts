@@ -7,6 +7,13 @@ import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import {
+  cleanupTenantActor,
+  createTenantActor,
+  grantModulePermissions,
+  type TenantActor as GateActor,
+} from '#tests/helpers/tenant_actor'
+import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
 
 const TEST_PASSWORD = 'RoleAssignBatchTest123!'
 
@@ -65,7 +72,7 @@ async function cleanupActor(actor: TenantActor | null) {
 test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766406741)', (group) => {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   let actor: TenantActor | null = null
-  let nonRootActor: TenantActor | null = null
+  let nonRootActor: GateActor | null = null
   let roleA: Role
   let roleB: Role
   let ownerRole: Role
@@ -74,7 +81,10 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
 
   group.setup(async () => {
     actor = await createActor('root', 'role-assign-batch-root')
-    nonRootActor = await createActor('rh-manager', 'role-assign-batch-rh')
+    // Rol propio con roles-and-permissions:update: cruza el gate y deja que el
+    // caso pruebe el bloqueo de roles de sistema, que es lo que le toca.
+    nonRootActor = await createTenantActor('role-assign-batch-admin')
+    await grantModulePermissions(nonRootActor, 'roles-and-permissions', ['update'])
 
     roleA = await Role.create({
       roleName: `Test Assign Batch Role A ${stamp}`,
@@ -129,7 +139,7 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
     await Role.query().where('role_id', roleA.roleId).delete()
     await Role.query().where('role_id', roleB.roleId).delete()
     await cleanupActor(actor)
-    await cleanupActor(nonRootActor)
+    await cleanupTenantActor(nonRootActor)
   })
 
   test('éxito: actualiza days y grants de todos los roles del lote', async ({ client, assert }) => {
@@ -260,5 +270,37 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
 
     const reloadedA = await Role.query().where('role_id', roleA.roleId).firstOrFail()
     assert.equal(reloadedA.roleManagementDays, previousDays)
+  })
+
+  test('sin roles-and-permissions:update el gate niega antes de revisar el lote', async ({
+    client,
+    assert,
+  }) => {
+    const seedA = await Role.query().where('role_id', roleA.roleId).firstOrFail()
+    const previousDays = seedA.roleManagementDays
+
+    await grantModulePermissions(nonRootActor!, 'roles-and-permissions', [])
+    try {
+      const response = await client
+        .post('/api/roles/assign-batch')
+        .loginAs(nonRootActor!.user)
+        .header('X-Business-Unit-Id', nonRootActor!.businessUnit.businessUnitPublicId)
+        .json({
+          roles: [
+            {
+              roleId: roleA.roleId,
+              permissions: [permission.systemPermissionId],
+              roleManagementDays: 66,
+            },
+          ],
+        })
+
+      response.assertStatus(403)
+      assert.equal(response.body().key, PERMISSION_GATE_ERROR_CODES.DENIED)
+      const reloadedA = await Role.query().where('role_id', roleA.roleId).firstOrFail()
+      assert.equal(reloadedA.roleManagementDays, previousDays)
+    } finally {
+      await grantModulePermissions(nonRootActor!, 'roles-and-permissions', ['update'])
+    }
   })
 })

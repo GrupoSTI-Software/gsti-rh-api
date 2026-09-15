@@ -915,7 +915,7 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModulePath: '/roles-and-permissions',
         systemModuleOrder: 1,
         systemModuleActive: 1,
-        systemModulePermissionEnforcementActive: false,
+        systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a12 12 0 0 0 8.5 3a12 12 0 0 1 -8.5 15a12 12 0 0 1 -8.5 -15a12 12 0 0 0 8.5 -3"/><path d="M12 11m-1 0a1 1 0 1 0 2 0a1 1 0 1 0 -2 0"/><path d="M12 12l0 2.5"/></svg>',
@@ -923,6 +923,7 @@ export const SYSTEM_MODULES_GROUPED = [
           { systemPermissionName: 'Acceder a roles y permisos', systemPermissionSlug: 'read' },
           { systemPermissionName: 'Crear roles', systemPermissionSlug: 'create' },
           { systemPermissionName: 'Editar roles y permisos', systemPermissionSlug: 'update' },
+          { systemPermissionName: 'Eliminar roles', systemPermissionSlug: 'delete' },
         ],
       },
       {
@@ -933,7 +934,7 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModulePath: '/vacations',
         systemModuleOrder: 2,
         systemModuleActive: 1,
-        systemModulePermissionEnforcementActive: false,
+        systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M13 21h-7a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v6"/><path d="M16 3v4"/><path d="M8 3v4"/><path d="M4 11h16"/><path d="M17 17v5"/><path d="M21 17v5"/></svg>',
@@ -955,7 +956,7 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModulePath: '/reform-simulation',
         systemModuleOrder: 3,
         systemModuleActive: 1,
-        systemModulePermissionEnforcementActive: false,
+        systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M20 8.04l-12.122 12.124a2.857 2.857 0 1 1 -4.041 -4.04l12.122 -12.124"/><path d="M7 13h8"/><path d="M19 15l1.5 1.6a2 2 0 1 1 -3 0l1.5 -1.6z"/><path d="M15 3l6 6"/></svg>',
@@ -974,7 +975,7 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModulePath: '/working-time-overrides',
         systemModuleOrder: 4,
         systemModuleActive: 1,
-        systemModulePermissionEnforcementActive: false,
+        systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M6 4h11a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-11a1 1 0 0 1 -1 -1v-14a1 1 0 0 1 1 -1m3 0v18"/><path d="M13 8l2 0"/><path d="M13 12l2 0"/></svg>',

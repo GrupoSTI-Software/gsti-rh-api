@@ -5,7 +5,7 @@ import RolePresetService from '#services/role_preset_service'
 import RoleService from '#services/role_service'
 import { RolePresetServiceError } from '#exceptions/role_preset_service_error'
 import { buildRolePresetErrorResponse } from '#helpers/role_preset_error_response'
-import { isSystemRoleLockedForUser } from '#helpers/system_role_lock'
+import { isOwnRoleLockedForUser, isSystemRoleLockedForUser } from '#helpers/system_role_lock'
 import { rolePresetApplyValidator, rolePresetPreviewValidator } from '#validators/role_preset'
 
 export default class RolePresetController {
@@ -75,6 +75,17 @@ export default class RolePresetController {
           title: i18n.formatMessage('system_role_locked_title'),
           detail: i18n.formatMessage('system_role_locked_detail'),
           key: 'rol-sistema-bloqueado',
+        }
+      }
+
+      // Aplicar una plantilla reescribe la matriz del rol: sobre el rol propio
+      // sería concederse permisos a sí mismo.
+      if (await isOwnRoleLockedForUser(auth, role.roleId)) {
+        response.status(403)
+        return {
+          title: i18n.formatMessage('own_role_locked_title'),
+          detail: i18n.formatMessage('own_role_locked_detail'),
+          key: 'rol-propio-bloqueado',
         }
       }
 

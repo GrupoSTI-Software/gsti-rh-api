@@ -11,6 +11,8 @@ import type {
   SessionPermissionTree,
 } from '#constants/session_permission_tree'
 import { ensureRole } from '#tests/helpers/ensure_role'
+import { assertModuleEnforced } from '#tests/helpers/tenant_actor'
+import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
 
 const TEST_PASSWORD = 'SessionPermissionTreeTest123!'
 
@@ -89,6 +91,7 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
   let standardActor: TenantActor | null = null
   let ownerActor: TenantActor | null = null
   let unresolvedActor: TenantActor | null = null
+  let legacyActor: TenantActor | null = null
   let standardRole: Role
   let legacyAccessRole: Role
   let ownerRole: Role
@@ -151,6 +154,9 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
 
     standardActor = await createTenantActor('session-permission-tree', standardRole, true)
     ownerActor = await createTenantActor('session-permission-tree-owner', ownerRole)
+    // Sesión cuyo rol ES `legacyAccessRole`: has-access solo responde la matriz
+    // del rol de la sesión a quien no tiene roles-and-permissions:read.
+    legacyActor = await createTenantActor('session-permission-tree-legacy', legacyAccessRole)
 
     const unresolvedRole = await Role.create({
       roleName: `Session Permission Tree Unresolved Role ${stamp}`,
@@ -168,6 +174,7 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
     await cleanupActor(standardActor)
     await cleanupActor(ownerActor)
     await cleanupActor(unresolvedActor)
+    await cleanupActor(legacyActor)
     if (legacyAccessRole) {
       await RoleSystemPermission.query().where('role_id', legacyAccessRole.roleId).delete()
       await Role.query().where('role_id', legacyAccessRole.roleId).delete()
@@ -292,10 +299,12 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
       .loginAs(standardActor!.user)
     beforeResponse.assertStatus(200)
 
+    // Reasigna otra cuenta: nadie cambia los permisos del rol de su propia
+    // sesión salvo root u owner (`isOwnRoleLockedForUser`).
     const assignResponse = await client
       .post(`/api/roles/assign/${standardRole.roleId}`)
-      .loginAs(standardActor!.user)
-      .header('X-Business-Unit-Id', standardActor!.businessUnit.businessUnitPublicId)
+      .loginAs(ownerActor!.user)
+      .header('X-Business-Unit-Id', ownerActor!.businessUnit.businessUnitPublicId)
       .json({ roleManagementDays: 10, permissions: [updatePermission.systemPermissionId] })
     assignResponse.assertStatus(201)
 
@@ -307,14 +316,37 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
     assert.notEqual(afterResponse.body().data.version, beforeResponse.body().data.version)
   })
 
-  test('mantiene intacto el contrato legado de has-access', async ({ client }) => {
+  test('mantiene intacto el contrato legado de has-access para el rol de la sesión', async ({
+    client,
+  }) => {
     const response = await client
       .get(`/api/roles/has-access/${legacyAccessRole.roleId}/employees/read`)
-      .loginAs(standardActor!.user)
-      .header('X-Business-Unit-Id', standardActor!.businessUnit.businessUnitPublicId)
+      .loginAs(legacyActor!.user)
+      .header('X-Business-Unit-Id', legacyActor!.businessUnit.businessUnitPublicId)
 
     response.assertStatus(200)
     response.assertBodyContains({ data: { roleHasAccess: true } })
+  })
+
+  test('has-access sobre un rol ajeno pide roles-and-permissions:read; owner lo cruza sin concesiones', async ({
+    client,
+    assert,
+  }) => {
+    await assertModuleEnforced('roles-and-permissions')
+
+    const denied = await client
+      .get(`/api/roles/has-access/${legacyAccessRole.roleId}/employees/read`)
+      .loginAs(standardActor!.user)
+      .header('X-Business-Unit-Id', standardActor!.businessUnit.businessUnitPublicId)
+    denied.assertStatus(403)
+    assert.equal(denied.body().key, PERMISSION_GATE_ERROR_CODES.DENIED)
+
+    const allowed = await client
+      .get(`/api/roles/has-access/${legacyAccessRole.roleId}/employees/read`)
+      .loginAs(ownerActor!.user)
+      .header('X-Business-Unit-Id', ownerActor!.businessUnit.businessUnitPublicId)
+    allowed.assertStatus(200)
+    allowed.assertBodyContains({ data: { roleHasAccess: true } })
   })
 })
 
