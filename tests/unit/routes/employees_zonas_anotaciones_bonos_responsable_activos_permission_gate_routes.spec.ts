@@ -35,12 +35,16 @@ test.group('employee_zone_routes — PermissionGate Zonas', () => {
     )
   })
 
-  test('el catálogo de zonas de la empresa no declara permissionGate de Empleados', async ({
+  test('el catálogo de zonas de la empresa se protege con permisos de Zonas, no de Empleados', async ({
     assert,
   }) => {
+    // Desde que el módulo zones exige permisos, sus rutas declaran su propio
+    // módulo. El listado sigue sin gate: este mismo flujo de Empleados lo usa
+    // en el select de zonas, y pedir zones:read lo rompería.
     const content = await readFile(join(process.cwd(), 'start/routes/zone_routes.ts'), 'utf8')
-    assert.notInclude(content, 'permissionGate')
+    assert.include(content, 'ZONES_PERMISSION_DECLARATIONS')
     assert.notInclude(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+    assert.notInclude(compact(content), "router.get('/','#controllers/zone_controller.index').use(")
   })
 })
 
