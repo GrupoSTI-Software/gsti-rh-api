@@ -116,16 +116,25 @@ test.group('proceeding_file_type_property_value_routes — sin permissionGate de
   })
 })
 
-test.group('Deuda — catálogo de tipos y requisitos por puesto sin gate Empleados', () => {
-  test('rutas del catálogo de tipos de documento no declaran permissionGate', async ({ assert }) => {
-    for (const rel of [
-      'start/routes/proceeding_file_type_routes.ts',
-      'start/routes/proceeding_file_type_email_routes.ts',
-    ]) {
-      const content = await readFile(join(process.cwd(), rel), 'utf8')
-      assert.notInclude(content, 'permissionGate')
-      assert.notInclude(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
-    }
+test.group('Deuda — correos del catálogo y requisitos por puesto sin gate Empleados', () => {
+  test('los correos del catálogo de tipos siguen sin permissionGate (deuda viva)', async ({
+    assert,
+  }) => {
+    // `proceeding_file_type_routes.ts` salió de esta lista: sus dos altas ya
+    // declaran el gate del módulo de la pantalla que las dispara —Empleados para
+    // la carpeta del expediente del colaborador, Ajustes Generales para la de la
+    // empresa— y la edición y la baja, que comparten ruta entre ambas áreas, las
+    // decide el controller por el área del registro. Lo cubre
+    // `proceeding_file_types_shift_quotas_permission_gate_routes.spec.ts`.
+    //
+    // Los correos del tipo de documento sí siguen sin dueño: la deuda queda aquí
+    // anotada y acotada a ese archivo.
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/proceeding_file_type_email_routes.ts'),
+      'utf8'
+    )
+    assert.notInclude(content, 'permissionGate')
+    assert.notInclude(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
   })
 
   test('los requisitos de certificación por puesto se protegen con permisos del Organigrama, no de Empleados', async ({

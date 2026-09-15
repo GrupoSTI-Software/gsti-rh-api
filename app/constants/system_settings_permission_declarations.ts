@@ -56,6 +56,11 @@ export const SYSTEM_SETTINGS_PERMISSION_DECLARATIONS = {
   updateProceedingFile: systemSettingsStandard('update'),
   destroyProceedingFile: systemSettingsStandard('update'),
 
+  // Carpetas (tipos) del expediente de la empresa — start/routes/proceeding_file_type_routes.ts
+  // Mismo criterio que el resto de los subrecursos: su único formulario vive en
+  // `systemSettingProceedingFiles`, que el backoffice habilita con `canUpdate`.
+  storeSystemSettingProceedingFileType: systemSettingsStandard('update'),
+
   // Tolerancias — start/routes/tolerance_routes.ts
   storeTolerance: systemSettingsStandard('update'),
   updateTolerance: systemSettingsStandard('update'),
@@ -87,3 +92,12 @@ export const SYSTEM_SETTINGS_PERMISSION_DECLARATIONS = {
   uploadTradeNameEmployeeApplicationIcon: systemSettingsStandard('update'),
   destroyTradeName: systemSettingsStandard('update'),
 } as const satisfies Record<string, PermissionGateOptions>
+
+/**
+ * Permiso cuando se edita o se da de baja una carpeta del expediente de la
+ * EMPRESA. No se monta en una ruta: `PUT` y `DELETE /api/proceeding-file-types`
+ * sirven a las dos áreas —empresa y colaborador— y el controller elige el
+ * permiso según el área del tipo que se está tocando.
+ */
+export const SYSTEM_SETTINGS_PROCEEDING_FILE_TYPE_WRITE_PERMISSION: PermissionGateOptions =
+  systemSettingsStandard('update')

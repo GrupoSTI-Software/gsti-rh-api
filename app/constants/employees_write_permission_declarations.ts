@@ -114,6 +114,12 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   createEmployeeProceedingFile: employeesStandard('tab-expediente-write'),
   updateEmployeeProceedingFile: employeesStandard('tab-expediente-write'),
   deleteEmployeeProceedingFile: employeesStandard('tab-expediente-delete'),
+  // Carpetas (tipos) del expediente del colaborador. Su único formulario es
+  // `proceedingFileTypeFolderForm` montado en `components/proceedingFiles`, que
+  // el backoffice solo muestra con `canManageFiles` (`employees:manage-files`,
+  // el legado de `tab-expediente-write`). La edición y la baja comparten ruta
+  // con las carpetas de la empresa y las decide el controller por área.
+  createEmployeeProceedingFileType: employeesStandard('tab-expediente-write'),
   storeProceedingFileTypeProperty: employeesStandard('tab-expediente-write'),
   storeMultipleProceedingFileTypeProperties: employeesStandard('tab-expediente-write'),
   deleteProceedingFileTypeProperty: employeesStandard('tab-expediente-delete'),

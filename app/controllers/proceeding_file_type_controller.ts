@@ -8,8 +8,48 @@ import {
   createEmployeeProceedingFileTypeValidator,
   createSystemSettingProceedingFileTypeValidator,
 } from '#validators/proceeding_file_type'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import {
+  EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION,
+  EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION,
+} from '#constants/employees_write_permission_declarations'
+import { SYSTEM_SETTINGS_PROCEEDING_FILE_TYPE_WRITE_PERMISSION } from '#constants/system_settings_permission_declarations'
+
+/** Área de expedientes del colaborador, tal como se guarda en la columna. */
+const EMPLOYEE_AREA = 'employee'
 
 export default class ProceedingFileTypeController {
+  /**
+   * Exige el permiso del área a la que pertenece el tipo de expediente.
+   *
+   * El módulo `proceeding-file-types` está retirado y no tiene permisos: quien
+   * es dueño de la operación es la pantalla que la dispara. Una carpeta del
+   * expediente del colaborador la gobierna Empleados (`tab-expediente-write` /
+   * `tab-expediente-delete`, los mismos que ya rigen sus archivos) y una del
+   * expediente de la empresa la gobierna Ajustes Generales (`update`, como el
+   * resto de los subrecursos de la ficha).
+   *
+   * Responde la negativa por su cuenta y devuelve `false`: quien llama solo
+   * tiene que cortar.
+   */
+  private async ensureAreaPermission(
+    ctx: HttpContext,
+    areaToUse: string | null | undefined,
+    intent: 'write' | 'delete'
+  ): Promise<boolean> {
+    if (areaToUse === EMPLOYEE_AREA) {
+      return ensureSecondaryPermission(
+        ctx,
+        intent === 'delete'
+          ? EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION
+          : EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION
+      )
+    }
+    // Cualquier otra área es de la empresa. Fail-closed por omisión: un área
+    // desconocida pide el permiso de Ajustes Generales, no pasa de largo.
+    return ensureSecondaryPermission(ctx, SYSTEM_SETTINGS_PROCEEDING_FILE_TYPE_WRITE_PERMISSION)
+  }
+
   /**
    * @swagger
    * /api/proceeding-file-types:
@@ -413,7 +453,8 @@ export default class ProceedingFileTypeController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, businessUnitScope }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response, businessUnitScope } = ctx
     try {
       const proceedingFileTypeName = request.input('proceedingFileTypeName')
       const proceedingFileTypeSlug = request.input('proceedingFileTypeSlug')
@@ -434,6 +475,10 @@ export default class ProceedingFileTypeController {
             : 0,
         proceedingFileTypeBusinessUnits: businessSlugs.join(','),
       } as ProceedingFileType
+      // El área la trae el cuerpo: se exige el permiso de la que se pide crear.
+      if (!(await this.ensureAreaPermission(ctx, proceedingFileTypeAreaToUse, 'write'))) {
+        return
+      }
       const proceedingFileTypeService = new ProceedingFileTypeService()
       const data = await request.validateUsing(createProceedingFileTypeValidator)
       const valid = await proceedingFileTypeService.verifyInfo(proceedingFileType)
@@ -858,7 +903,8 @@ export default class ProceedingFileTypeController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, businessUnitScope }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response, businessUnitScope } = ctx
     try {
       const proceedingFileTypeId = request.param('proceedingFileTypeId')
       const proceedingFileTypeName = request.input('proceedingFileTypeName')
@@ -902,6 +948,26 @@ export default class ProceedingFileTypeController {
           message: 'The proceeding file type was not found with the entered ID',
           data: { ...proceedingFileType },
         }
+      }
+      // Manda el área GUARDADA, que es la del expediente al que la carpeta
+      // pertenece hoy. Si además se pide moverla a otra área, se exige también
+      // el permiso del destino: mover no puede ser la vía para escribir en un
+      // expediente que no se puede tocar.
+      if (
+        !(await this.ensureAreaPermission(
+          ctx,
+          currentProceedingFileType.proceedingFileTypeAreaToUse,
+          'write'
+        ))
+      ) {
+        return
+      }
+      if (
+        proceedingFileTypeAreaToUse &&
+        proceedingFileTypeAreaToUse !== currentProceedingFileType.proceedingFileTypeAreaToUse &&
+        !(await this.ensureAreaPermission(ctx, proceedingFileTypeAreaToUse, 'write'))
+      ) {
+        return
       }
       const proceedingFileTypeService = new ProceedingFileTypeService()
       const data = await request.validateUsing(createProceedingFileTypeValidator)
@@ -1038,7 +1104,8 @@ export default class ProceedingFileTypeController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const proceedingFileTypeId = request.param('proceedingFileTypeId')
       if (!proceedingFileTypeId) {
@@ -1062,6 +1129,15 @@ export default class ProceedingFileTypeController {
           message: 'The proceeding file type was not found with the entered ID',
           data: { proceedingFileTypeId },
         }
+      }
+      if (
+        !(await this.ensureAreaPermission(
+          ctx,
+          currentProceedingFileType.proceedingFileTypeAreaToUse,
+          'delete'
+        ))
+      ) {
+        return
       }
       const proceedingFileTypeService = new ProceedingFileTypeService()
       const deleteProceedingFileType =
