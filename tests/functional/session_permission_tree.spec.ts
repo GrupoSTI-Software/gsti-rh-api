@@ -316,3 +316,66 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
     response.assertBodyContains({ data: { roleHasAccess: true } })
   })
 })
+
+/**
+ * Contrato de `permissionEnforcementActive` en el árbol de sesión: el BO lo
+ * pinta como "Vigilancia activa / Solo declarada". Antes lo cubría el spec del
+ * interruptor HTTP de exigencia, retirado porque la bandera la gobierna la
+ * constante de módulos.
+ *
+ * Va en un grupo propio a propósito: el setup del grupo de arriba exige el rol
+ * `owner` sembrado, que una BD fresca ya no trae (0006 solo siembra root), y un
+ * setup fallido se lleva todos los tests de su grupo. Aquí el rol es del test.
+ */
+test.group('GET /api/auth/session/permissions — bandera de exigencia por módulo', (group) => {
+  let actor: TenantActor | null = null
+  let employeesModule: SystemModule
+  let previousEmployeesEnforcement: boolean
+
+  group.setup(async () => {
+    const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
+    employeesModule = await SystemModule.query()
+      .whereNull('system_module_deleted_at')
+      .where('system_module_slug', 'employees')
+      .firstOrFail()
+    previousEmployeesEnforcement = employeesModule.systemModulePermissionEnforcementActive
+
+    const role = await Role.create({
+      roleName: `Session Permission Tree Enforcement Role ${stamp}`,
+      roleSlug: `session-permission-tree-enforcement-role-${stamp}`,
+      roleDescription: 'Fixture de test',
+      roleActive: 1,
+      roleBusinessAccess: '',
+      roleManagementDays: 10,
+    })
+    actor = await createTenantActor('session-permission-tree-enforcement', role, true)
+  })
+
+  group.teardown(async () => {
+    await cleanupActor(actor)
+    // Repone el valor previo y no un `false` fijo, para no dejar la BD al revés de la constante.
+    if (employeesModule) {
+      employeesModule.systemModulePermissionEnforcementActive = previousEmployeesEnforcement
+      await employeesModule.save()
+    }
+  })
+
+  test('refleja en cada módulo la bandera de exigencia guardada en system_modules', async ({
+    client,
+    assert,
+  }) => {
+    // Se prueban ambos valores para descartar un campo fijo o copiado de `active`.
+    for (const expected of [true, false]) {
+      employeesModule.systemModulePermissionEnforcementActive = expected
+      await employeesModule.save()
+
+      const response = await client.get('/api/auth/session/permissions').loginAs(actor!.user)
+      response.assertStatus(200)
+
+      const body = response.body() as { data: SessionPermissionTree }
+      const employeesNode = body.data.modules.find((moduleNode) => moduleNode.slug === 'employees')
+      assert.exists(employeesNode)
+      assert.strictEqual(employeesNode!.permissionEnforcementActive, expected)
+    }
+  })
+})

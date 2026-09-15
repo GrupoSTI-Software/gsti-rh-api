@@ -15,7 +15,11 @@ import { middleware } from '../kernel.js'
  *     `systemModuleOrder` dentro del suyo, módulos sueltos juntos al final.
  *
  *   PUT /api/platform/system-modules/:systemModuleId/active → togglear disponibilidad
- *   PUT /api/platform/system-modules/:systemModuleId/permission-enforcement → togglear enforcement
+ *
+ * La exigencia de permisos por módulo (`system_module_permission_enforcement_active`)
+ * no se expone aquí a propósito: la gobierna `system_modules.constant.ts` y la
+ * siembra 0062 la sobrescribe por slug, así que un interruptor HTTP solo abría
+ * una divergencia entre BD y constante que la siguiente siembra deshacía.
  *
  * Ref: USRH1784573245783 · USRH1788282413110.
  */
@@ -25,10 +29,6 @@ router
     router.put(
       '/:systemModuleId/active',
       '#controllers/platform_system_module_controller.updateActive'
-    )
-    router.put(
-      '/:systemModuleId/permission-enforcement',
-      '#controllers/platform_system_module_controller.updatePermissionEnforcement'
     )
   })
   .prefix('/api/platform/system-modules')
