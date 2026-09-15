@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Role from '#models/role'
@@ -217,6 +218,8 @@ async function buildFixtures(): Promise<TestFixtures> {
   const employeeUser = await createUserForPerson(employeePerson, employeeRole.roleId, [
     employeeBusinessUnit.businessUnitId,
   ])
+  employeeUser.userPasswordSetAt = DateTime.utc()
+  await employeeUser.save()
 
   return {
     tenantA: {

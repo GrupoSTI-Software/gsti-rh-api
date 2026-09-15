@@ -67,22 +67,20 @@ export default class UserResourceScopeMiddleware {
   ) {
     if (format === 'invitation') {
       const err = USER_INVITATION_RESEND_ERRORS.NOT_FOUND
-      ctx.response.status(err.status)
-      return {
+      return ctx.response.status(err.status).json({
         title: err.title,
         detail: err.detail,
         key: err.key,
         code: err.code,
-      }
+      })
     }
 
-    ctx.response.status(404)
-    return {
+    return ctx.response.status(404).json({
       type: 'warning',
       title: 'The user was not found',
       message: 'The user was not found with the entered ID',
-      data: { userId },
-    }
+      data: { userId: String(userId) },
+    })
   }
 }
 

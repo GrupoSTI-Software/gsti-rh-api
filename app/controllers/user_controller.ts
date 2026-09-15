@@ -39,6 +39,11 @@ import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
+import {
+  assertUserAccessEmailNotMasked,
+  isUserAccessEmailMaskedError,
+  respondUserAccessEmailMasked,
+} from '#helpers/user_access_email_api_error'
 import { normalizeToken } from '#helpers/employee_termination_record'
 import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
@@ -1628,6 +1633,17 @@ export default class UserController {
    *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
    *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
    *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
+   *       '422':
+   *         description: El correo de acceso contiene la máscara de un dato protegido. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: No fue posible guardar el correo de acceso }
+   *                 detail: { type: string, example: El correo de acceso contiene la máscara de un dato protegido. Captura el correo completo o usa el otro tipo de correo; no se guardó ningún cambio. }
+   *                 key: { type: string, example: no-fue-posible-guardar-el-correo-de-acceso }
+   *                 code: { type: string, example: USR.MAIL.001 }
    */
   async store(ctx: HttpContext) {
     const { auth, request, response, i18n, businessUnitScope } = ctx
@@ -1637,6 +1653,8 @@ export default class UserController {
       const roleId = request.input('roleId')
       const personId = request.input('personId')
       const userEmailType = request.input('userEmailType')
+
+      assertUserAccessEmailNotMasked(userEmail)
 
       const businessUnits = await BusinessUnit.query()
         .whereIn('business_unit_id', businessUnitScope)
@@ -1721,6 +1739,7 @@ export default class UserController {
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
+      if (isUserAccessEmailMaskedError(error)) return respondUserAccessEmailMasked(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -2011,6 +2030,17 @@ export default class UserController {
    *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
    *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
    *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
+   *       '422':
+   *         description: El correo de acceso contiene la máscara de un dato protegido. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: No fue posible guardar el correo de acceso }
+   *                 detail: { type: string, example: El correo de acceso contiene la máscara de un dato protegido. Captura el correo completo o usa el otro tipo de correo; no se guardó ningún cambio. }
+   *                 key: { type: string, example: no-fue-posible-guardar-el-correo-de-acceso }
+   *                 code: { type: string, example: USR.MAIL.001 }
    */
   async update(ctx: HttpContext) {
     const { auth, request, response, i18n, scopedUser } = ctx
@@ -2024,6 +2054,9 @@ export default class UserController {
       const roleId = request.input('roleId')
       const personId = request.input('personId')
       const userEmailType = request.input('userEmailType')
+
+      assertUserAccessEmailNotMasked(userEmail)
+
       const user = {
         userId: userId,
         userEmail: userEmail,
@@ -2093,6 +2126,7 @@ export default class UserController {
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
+      if (isUserAccessEmailMaskedError(error)) return respondUserAccessEmailMasked(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

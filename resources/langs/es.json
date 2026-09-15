@@ -2991,6 +2991,8 @@
   "session_permission_tree_unresolved_detail": "No fue posible determinar el rol de la sesión para construir el listado de permisos.",
   "system_setting_trade_name_taken_title": "Nombre comercial en uso",
   "system_setting_trade_name_taken_detail": "Tu empresa ya tiene una configuración con ese nombre comercial; usa un nombre distinto.",
+  "user_access_email_masked_title": "No fue posible guardar el correo de acceso",
+  "user_access_email_masked_detail": "El correo de acceso contiene la máscara de un dato protegido. Captura el correo completo o usa el otro tipo de correo; no se guardó ningún cambio.",
   "sensitive_data_write_forbidden_title": "Sin permiso para modificar datos sensibles",
   "sensitive_data_write_forbidden_detail": "No tienes permiso para modificar {category}. Ningún dato de la petición se guardó.",
   "sensitive_data_write_unresolved_title": "No se pudo determinar el permiso de escritura",
