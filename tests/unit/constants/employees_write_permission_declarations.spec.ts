@@ -17,9 +17,11 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
   // porque un arreglo de acciones aqui se resolveria en OR.
   // 154: salen createCertification, updateCertification y deleteCertification,
   // que ahora declara el modulo Catalogo de certificaciones.
-  test('declara exactamente 154 operaciones con module employees y bypass standard', ({ assert }) => {
+  // 153: sale updateCareerPathCandidateStatus, que ahora declara la Bandeja de
+  // rutas de carrera (`hr-career-path:update`).
+  test('declara exactamente 153 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 154)
+    assert.equal(keys.length, 153)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 
@@ -182,8 +184,9 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.updateEmployeeAssessment.action, 'tab-assessments-write')
     assert.equal(d.deleteEmployeeAssessment.action, 'tab-assessments-delete')
     assert.equal(d.createCareerPathCandidate.action, 'tab-ruta-carrera-write')
-    assert.equal(d.updateCareerPathCandidateStatus.action, 'tab-ruta-carrera-write')
     assert.equal(d.deleteCareerPathCandidate.action, 'tab-ruta-carrera-delete')
+    // Aprobar, rechazar o desactivar ya no es de Empleados: lo declara `hr-career-path`.
+    assert.notProperty(d, 'updateCareerPathCandidateStatus')
   })
 
   test('mapea Zonas, Anotaciones, Bonificaciones, Responsable/Asignados y Activos de escritura', ({

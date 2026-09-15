@@ -363,8 +363,9 @@ test.group('evaluaciones/assessments/ruta/certificaciones/incapacidades — lect
         keys: ['indexEmployeeAssessments', 'getAssessmentsByEmployee', 'showEmployeeAssessment'],
       },
       {
+        // Listar y ver el detalle son de la Bandeja de rutas de carrera (`hr-career-path`).
         file: 'start/routes/career_path_candidate_routes.ts',
-        keys: ['indexCareerPathCandidates', 'showCareerPathCandidate', 'getCareerPathByEmployee'],
+        keys: ['getCareerPathByEmployee'],
       },
       {
         file: 'start/routes/employee_certification_routes.ts',

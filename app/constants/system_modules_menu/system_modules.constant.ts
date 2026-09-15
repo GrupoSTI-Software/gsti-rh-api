@@ -875,7 +875,7 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModulePath: '/career-path-templates',
         systemModuleOrder: 6,
         systemModuleActive: 1,
-        systemModulePermissionEnforcementActive: false,
+        systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 19a2 2 0 1 0 4 0a2 2 0 0 0 -4 0"/><path d="M19 7a2 2 0 1 0 0 -4a2 2 0 0 0 0 4"/><path d="M11 19h5.5a3.5 3.5 0 0 0 0 -7h-8a3.5 3.5 0 0 1 0 -7h4.5"/></svg>',
@@ -884,6 +884,9 @@ export const SYSTEM_MODULES_GROUPED = [
             systemPermissionName: 'Acceder al catálogo de rutas de carrera',
             systemPermissionSlug: 'read',
           },
+          { systemPermissionName: 'Crear rutas de carrera', systemPermissionSlug: 'create' },
+          { systemPermissionName: 'Editar rutas de carrera', systemPermissionSlug: 'update' },
+          { systemPermissionName: 'Eliminar rutas de carrera', systemPermissionSlug: 'delete' },
         ],
       },
       {
@@ -894,7 +897,7 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModulePath: '/hr-career-path',
         systemModuleOrder: 7,
         systemModuleActive: 1,
-        systemModulePermissionEnforcementActive: false,
+        systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6a2 2 0 0 1 2 -2h12a2 2 0 0 1 2 2v12a2 2 0 0 1 -2 2h-12a2 2 0 0 1 -2 -2l0 -12"/><path d="M4 13h3l3 3h4l3 -3h3"/></svg>',
@@ -902,6 +905,10 @@ export const SYSTEM_MODULES_GROUPED = [
           {
             systemPermissionName: 'Acceder a la bandeja de rutas de carrera',
             systemPermissionSlug: 'read',
+          },
+          {
+            systemPermissionName: 'Aprobar, rechazar o desactivar rutas de carrera propuestas',
+            systemPermissionSlug: 'update',
           },
         ],
       },

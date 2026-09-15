@@ -165,8 +165,9 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   createEmployeeAssessment: employeesStandard('tab-assessments-write'),
   updateEmployeeAssessment: employeesStandard('tab-assessments-write'),
   deleteEmployeeAssessment: employeesStandard('tab-assessments-delete'),
+  // Cambiar estatus (aprobar, rechazar, desactivar) es de la Bandeja de rutas de
+  // carrera (`hr_career_path_permission_declarations.ts`): proponer no da aprobar.
   createCareerPathCandidate: employeesStandard('tab-ruta-carrera-write'),
-  updateCareerPathCandidateStatus: employeesStandard('tab-ruta-carrera-write'),
   deleteCareerPathCandidate: employeesStandard('tab-ruta-carrera-delete'),
   createEmployeeZone: employeesStandard('tab-zonas-write'),
   updateEmployeeZone: employeesStandard('tab-zonas-write'),

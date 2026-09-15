@@ -13,11 +13,15 @@ test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
   // 119: +getBirthdayExcel y +getAnniversaryExcel (306644f3, export Excel del calendario).
   // 120: +indexUnreadExceptionRequests y +downloadLactationEvidence (tenían ruta
   // sin gate); -lactationComplianceReport (el reporte pasó a la Bitácora de lactancia).
-  test('declara exactamente 120 operaciones con module employees y bypass standard', ({
+  // 118: salen indexCareerPathCandidates y showCareerPathCandidate, que ahora declara
+  // la Bandeja de rutas de carrera (`hr-career-path:read`).
+  test('declara exactamente 118 operaciones con module employees y bypass standard', ({
     assert,
   }) => {
     const keys = Object.keys(EMPLOYEES_READ_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 120)
+    assert.equal(keys.length, 118)
+    assert.notProperty(EMPLOYEES_READ_PERMISSION_DECLARATIONS, 'indexCareerPathCandidates')
+    assert.notProperty(EMPLOYEES_READ_PERMISSION_DECLARATIONS, 'showCareerPathCandidate')
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
     for (const key of keys) {

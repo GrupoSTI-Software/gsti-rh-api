@@ -122,8 +122,8 @@ export const EMPLOYEES_READ_PERMISSION_DECLARATIONS = {
   indexEmployeeAssessments: employeesStandard('tab-assessments-read'),
   getAssessmentsByEmployee: employeesStandard('tab-assessments-read'),
   showEmployeeAssessment: employeesStandard('tab-assessments-read'),
-  indexCareerPathCandidates: employeesStandard('tab-ruta-carrera-read'),
-  showCareerPathCandidate: employeesStandard('tab-ruta-carrera-read'),
+  // Listar y ver el detalle de candidatos son de la Bandeja de rutas de carrera
+  // (`hr_career_path_permission_declarations.ts`); aquí queda la lectura por empleado.
   getCareerPathByEmployee: employeesStandard('tab-ruta-carrera-read'),
   getEmployeeCertifications: employeesStandard('tab-certificaciones-read'),
   indexCertificationUploads: employeesStandard('tab-certificaciones-read'),
