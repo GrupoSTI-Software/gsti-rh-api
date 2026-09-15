@@ -1,3 +1,5 @@
+import { readdirSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from '@japa/runner'
 import {
   SYSTEM_MODULES,
@@ -6,22 +8,6 @@ import {
 import { validateSystemModulesDeclaration } from '#constants/system_permission_catalog'
 import type { PermissionGateOptions } from '#constants/permission_gate'
 import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
-import { ACCESS_POINT_PERMISSION_DECLARATIONS } from '#constants/access_point_permission_declarations'
-import { CALENDAR_PERMISSION_DECLARATIONS } from '#constants/calendar_permission_declarations'
-import { EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS } from '#constants/employees_download_permission_declarations'
-import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
-import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
-import {
-  NOTICES_READ_PERMISSION_DECLARATIONS,
-  NOTICES_WRITE_PERMISSION_DECLARATIONS,
-} from '#constants/notices_permission_declarations'
-import {
-  POSITIONS_AUDIT_READ_PERMISSION_DECLARATIONS,
-  POSITIONS_DELETE_PERMISSION_DECLARATIONS,
-  POSITIONS_READ_PERMISSION_DECLARATIONS,
-  POSITIONS_WRITE_PERMISSION_DECLARATIONS,
-} from '#constants/positions_permission_declarations'
-import { USERS_PERMISSION_DECLARATIONS } from '#constants/users_permission_declarations'
 
 /**
  * Rutas del backoffice que no coinciden con el slug por un alias declarado en
@@ -33,22 +19,25 @@ const BO_ROUTE_ALIASES: Record<string, string> = {
   'repse-registrations': '/repse',
 }
 
-/** Declaraciones que consumen las rutas con `middleware.permissionGate`. */
-const GATE_DECLARATIONS: object[] = [
-  ACCESS_POINT_PERMISSION_DECLARATIONS,
-  CALENDAR_PERMISSION_DECLARATIONS,
-  EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS,
-  EMPLOYEES_READ_PERMISSION_DECLARATIONS,
-  EMPLOYEES_WRITE_PERMISSION_DECLARATIONS,
-  NOTICES_READ_PERMISSION_DECLARATIONS,
-  NOTICES_WRITE_PERMISSION_DECLARATIONS,
-  POSITIONS_AUDIT_READ_PERMISSION_DECLARATIONS,
-  POSITIONS_DELETE_PERMISSION_DECLARATIONS,
-  POSITIONS_READ_PERMISSION_DECLARATIONS,
-  POSITIONS_WRITE_PERMISSION_DECLARATIONS,
-  USERS_PERMISSION_DECLARATIONS,
-]
+/**
+ * Convención de nombre de los archivos que declaran lo que consume
+ * `middleware.permissionGate`. El contrato se aplica a todo archivo que la
+ * cumpla: una lista escrita a mano dejaba fuera por olvido cualquier
+ * declaración nueva, y con ella una ruta que parecía protegida sin estarlo.
+ */
+const DECLARATIONS_DIR = join(process.cwd(), 'app/constants')
+const DECLARATIONS_SUFFIX = '_permission_declarations.ts'
 
+interface DiscoveredDeclarations {
+  file: string
+  options: PermissionGateOptions[]
+}
+
+/**
+ * Recorre los exports buscando objetos con forma de declaración del gate.
+ * Las funciones (p. ej. `employeesAttendanceReportJobDeclaration`) no se
+ * evalúan: devuelven declaraciones que ya viven en un mapa exportado.
+ */
 const collectGateOptions = (value: unknown): PermissionGateOptions[] => {
   if (!value || typeof value !== 'object') {
     return []
@@ -57,6 +46,25 @@ const collectGateOptions = (value: unknown): PermissionGateOptions[] => {
     return [value as PermissionGateOptions]
   }
   return Object.values(value).flatMap(collectGateOptions)
+}
+
+/**
+ * Importa cada `app/constants/*_permission_declarations.ts` por el alias del
+ * repo y junta todas sus declaraciones, sin importar cómo se llame el export.
+ */
+async function discoverGateDeclarations(): Promise<DiscoveredDeclarations[]> {
+  const files = readdirSync(DECLARATIONS_DIR)
+    .filter((file) => file.endsWith(DECLARATIONS_SUFFIX))
+    .sort()
+
+  return Promise.all(
+    files.map(async (file) => {
+      const moduleExports: Record<string, unknown> = await import(
+        `#constants/${file.slice(0, -'.ts'.length)}`
+      )
+      return { file, options: Object.values(moduleExports).flatMap(collectGateOptions) }
+    })
+  )
 }
 
 test.group('system_modules.constant — contrato del catálogo', () => {
@@ -110,7 +118,21 @@ test.group('system_modules.constant — contrato del catálogo', () => {
     assert.deepEqual(bareNames, [])
   })
 
-  test('toda declaración del gate apunta a un módulo con exigencia encendida y a un permiso declarado', ({
+  test('cada archivo *_permission_declarations.ts exporta al menos una declaración del gate', async ({
+    assert,
+  }) => {
+    // Sin este piso, un archivo que exportara solo fábricas o que cambiara de
+    // forma dejaría el contrato de abajo en verde sin revisar nada.
+    const discovered = await discoverGateDeclarations()
+
+    assert.isAbove(discovered.length, 0, 'no se encontró ningún archivo de declaraciones')
+    assert.deepEqual(
+      discovered.filter(({ options }) => options.length === 0).map(({ file }) => file),
+      []
+    )
+  })
+
+  test('toda declaración del gate apunta a un módulo con exigencia encendida y a un permiso declarado', async ({
     assert,
   }) => {
     // Con la exigencia apagada, `permissionGate` deja pasar a cualquier usuario
@@ -118,25 +140,28 @@ test.group('system_modules.constant — contrato del catálogo', () => {
     const modulesBySlug = new Map(
       SYSTEM_MODULES.map((systemModule) => [systemModule.systemModuleSlug as string, systemModule])
     )
+    const discovered = await discoverGateDeclarations()
 
-    const problems = GATE_DECLARATIONS.flatMap(collectGateOptions).flatMap((options) => {
-      const systemModule = modulesBySlug.get(options.module)
-      if (!systemModule) {
-        return [`${options.module}: módulo inexistente en la constante`]
-      }
-      if (!systemModule.systemModulePermissionEnforcementActive) {
-        return [`${options.module}: exigencia apagada`]
-      }
+    const problems = discovered.flatMap(({ file, options: fileOptions }) =>
+      fileOptions.flatMap((options) => {
+        const systemModule = modulesBySlug.get(options.module)
+        if (!systemModule) {
+          return [`${file} -> ${options.module}: módulo inexistente en la constante`]
+        }
+        if (!systemModule.systemModulePermissionEnforcementActive) {
+          return [`${file} -> ${options.module}: exigencia apagada`]
+        }
 
-      const declared = new Set<string>(
-        systemModule.systemModulePermissions.map((permission) => permission.systemPermissionSlug)
-      )
-      const actions = typeof options.action === 'string' ? [options.action] : options.action
+        const declared = new Set<string>(
+          systemModule.systemModulePermissions.map((permission) => permission.systemPermissionSlug)
+        )
+        const actions = typeof options.action === 'string' ? [options.action] : options.action
 
-      return actions
-        .filter((action) => !declared.has(action))
-        .map((action) => `${options.module}:${action}: permiso no declarado`)
-    })
+        return actions
+          .filter((action) => !declared.has(action))
+          .map((action) => `${file} -> ${options.module}:${action}: permiso no declarado`)
+      })
+    )
 
     assert.deepEqual([...new Set(problems)], [])
   })
