@@ -70,7 +70,7 @@ test.group('contratos/turnos/vacaciones/bonos/excepciones — PermissionGate lec
     }
   })
 
-  test('exception-requests: index y all con gate; my-requests y unread sin gate', async ({
+  test('exception-requests: index, all y unread con gate; my-requests y show sin gate', async ({
     assert,
   }) => {
     const content = await readFile(
@@ -85,10 +85,13 @@ test.group('contratos/turnos/vacaciones/bonos/excepciones — PermissionGate lec
       content,
       'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexAllExceptionRequests)'
     )
+    // No leídas: mismo dato que /all, mismo permiso (antes quedaba sin gate).
+    assert.include(
+      content.replace(/\s+/g, ''),
+      'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexUnreadExceptionRequests)'
+    )
     const my = content.split('\n').find((l) => l.includes('getMyExceptionRequests'))
-    const unread = content.split('\n').find((l) => l.includes('getUnreadExceptionRequests'))
     assert.notInclude(my!, 'permissionGate')
-    assert.notInclude(unread!, 'permissionGate')
     const show = content.split('\n').find((l) => l.includes('exception_requests_controller.show'))
     assert.notInclude(show!, 'permissionGate')
   })
@@ -145,12 +148,14 @@ test.group('lactancia/consentimiento/foto — PermissionGate lectura expediente'
     const routes = [
       {
         file: 'start/routes/employee_lactation_periods_routes.ts',
+        // El reporte de cumplimiento ya no está aquí: lo gobierna la Bitácora de
+        // lactancia (calendar_matrix_lactation_permission_gate_routes.spec.ts).
         keys: [
           'indexLactationPeriods',
-          'lactationComplianceReport',
           'listAllLactationConflicts',
           'listLactationConflicts',
           'indexLactationEvidences',
+          'downloadLactationEvidence',
         ],
       },
       {

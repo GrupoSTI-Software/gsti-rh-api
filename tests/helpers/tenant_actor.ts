@@ -189,6 +189,33 @@ export async function assertModuleEnforced(moduleSlug: string): Promise<void> {
   }
 }
 
+/**
+ * Fija la exigencia del módulo en BD y devuelve la que tenía, para restaurarla
+ * en el teardown del grupo.
+ *
+ * Existe porque varios specs de Empleados (p. ej. `employee_photo_me.spec.ts`)
+ * apagan esa exigencia para probar el soft-rollout y no la vuelven a encender.
+ * Un spec posterior que la necesita no puede fiarse de la siembra: la enciende
+ * él mismo y deja al terminar el valor que encontró.
+ *
+ * @throws Error si el módulo no existe en BD.
+ */
+export async function setModuleEnforcement(moduleSlug: string, active: boolean): Promise<boolean> {
+  const systemModule = await SystemModule.query()
+    .whereNull('system_module_deleted_at')
+    .where('system_module_slug', moduleSlug)
+    .first()
+
+  if (!systemModule) {
+    throw new Error(`[${HELPER_NAME}] No existe el módulo "${moduleSlug}": corre "migration:fresh --seed".`)
+  }
+
+  const previous = Boolean(systemModule.systemModulePermissionEnforcementActive)
+  systemModule.systemModulePermissionEnforcementActive = active
+  await systemModule.save()
+  return previous
+}
+
 export const businessUnitHeaders = (actor: TenantActor) => ({
   'X-Business-Unit-Id': actor.businessUnit.businessUnitPublicId,
 })

@@ -314,7 +314,8 @@ test.group('Ajustes Generales — permissionGate con exigencia encendida', (grou
       { label: 'configuración activa (BO y PWA)', method: 'get', url: '/api/system-settings-active' },
       { label: 'configuración de nómina activa (Bonos y Monitor)', method: 'get', url: '/api/system-settings-get-payroll-config' },
       { label: 'expediente (Matriz de vencimientos)', method: 'get', url: `/api/system-settings-proceeding-files?systemSettingId=${id}` },
-      { label: 'vencimientos (Matriz de vencimientos)', method: 'get', url: `/api/system-settings-proceeding-files/get-expired-and-expiring/${id}` },
+      // Los vencimientos ya no son lectura abierta: exigen documents-expiration-matrix:read
+      // (documents_expiration_matrix_permission_gate.spec.ts).
       { label: 'tolerancias de la ficha', method: 'get', url: `/api/tolerances/${id}` },
       { label: 'tolerancia de retardo (Monitor de asistencia)', method: 'get', url: '/api/tolerances/get-tardiness-tolerance' },
     ]

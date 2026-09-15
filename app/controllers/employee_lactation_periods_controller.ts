@@ -471,13 +471,15 @@ export default class EmployeeLactationPeriodsController {
    *       '200': { description: Listado paginado del reporte de cumplimiento }
    *       '400': { description: Validación inválida (rango from>to, filtros mal formados) }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'read' en el módulo employees }
+   *       '403': { description: Sin permiso 'read' en el módulo employee-lactation-periods (key PERM.DENIED) }
    */
   async complianceReport(ctx: HttpContext) {
     const { request, response } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx, 'read'))) return
+      // Sin `assertHasPermission`: el permiso lo decide el gate de la ruta
+      // (`employee-lactation-periods:read`). Pedir aquí `employees:read`
+      // negaba el reporte a quien sí tiene la bitácora.
 
       const filters = await request.validateUsing(employeeLactationComplianceReportValidator)
       const service = new EmployeeLactationComplianceReportService()
@@ -556,13 +558,15 @@ export default class EmployeeLactationPeriodsController {
    *             schema: { type: string, format: binary }
    *       '400': { description: Validación inválida }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'read' en el módulo employees }
+   *       '403': { description: Sin permiso 'read' en el módulo employee-lactation-periods (key PERM.DENIED) }
    */
   async complianceReportExport(ctx: HttpContext) {
     const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx, 'read'))) return
+      // Mismo criterio que `complianceReport`: el gate de la ruta decide. El
+      // PDF sin enmascarar sigue exigiendo `export-sensitive-data` en
+      // `PiiExportService`.
 
       const filters = await request.validateUsing(employeeLactationComplianceReportValidator)
       const reportFilters = this.toReportFilters(filters)

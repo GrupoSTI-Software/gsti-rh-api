@@ -31,7 +31,9 @@ test.group('employee_medical_condition_routes — PermissionGate', () => {
 })
 
 test.group('employee_lactation_periods_routes — PermissionGate', () => {
-  test('las 10 escrituras declaran permissionGate', async ({ assert }) => {
+  test('las 10 escrituras y las lecturas del reporte, conflictos y descarga declaran su gate', async ({
+    assert,
+  }) => {
     const content = await readFile(
       join(process.cwd(), 'start/routes/employee_lactation_periods_routes.ts'),
       'utf8'
@@ -59,11 +61,18 @@ test.group('employee_lactation_periods_routes — PermissionGate', () => {
       compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
       []
     assert.equal(matches.length, 10)
-    // Lecturas / reportes / download no llevan gate (sus handlers no aparecen junto a permissionGate)
-    assert.notMatch(content, /complianceReport[\s\S]{0,80}permissionGate/)
-    assert.notMatch(content, /listConflicts[\s\S]{0,80}permissionGate/)
-    assert.notMatch(content, /listAllConflicts[\s\S]{0,80}permissionGate/)
-    assert.notMatch(content, /downloadUrl[\s\S]{0,80}permissionGate/)
+    // Las lecturas también llevan gate: el reporte y su PDF son de la Bitácora
+    // de lactancia; conflictos y descarga de evidencias, de la pestaña de
+    // lactancia de Empleados.
+    for (const gate of [
+      'EMPLOYEE_LACTATION_PERIODS_PERMISSION_DECLARATIONS.complianceReport',
+      'EMPLOYEE_LACTATION_PERIODS_PERMISSION_DECLARATIONS.complianceReportExport',
+      'EMPLOYEES_READ_PERMISSION_DECLARATIONS.listAllLactationConflicts',
+      'EMPLOYEES_READ_PERMISSION_DECLARATIONS.listLactationConflicts',
+      'EMPLOYEES_READ_PERMISSION_DECLARATIONS.downloadLactationEvidence',
+    ]) {
+      assert.include(compact(content), `permissionGate(${gate})`, gate)
+    }
   })
 })
 

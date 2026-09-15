@@ -150,10 +150,13 @@ export const SYSTEM_MODULES_UNGROUPED = [
     systemModulePath: '/documents-expiration-matrix',
     systemModuleOrder: 4,
     systemModuleActive: 1,
-    systemModulePermissionEnforcementActive: false,
+    systemModulePermissionEnforcementActive: true,
     systemModuleRetired: false,
     systemModuleIcon:
       '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M8 16v-4a4 4 0 0 1 8 0v4"/><path d="M3 12h1m8 -9v1m8 8h1m-15.4 -6.4l.7 .7m12.1 -.7l-.7 .7"/><path d="M6 16m0 1a1 1 0 0 1 1 -1h10a1 1 0 0 1 1 1v2a1 1 0 0 1 -1 1h-10a1 1 0 0 1 -1 -1z"/></svg>',
+    // `read` lo exige el API en los dos vencimientos exclusivos de la matriz
+    // (expediente de la empresa y folio REPSE). Las tarjetas de expediente y
+    // certificaciones de empleados cuelgan de las pestañas de Empleados.
     systemModulePermissions: [
       { systemPermissionName: 'Acceder a la matriz de vencimientos', systemPermissionSlug: 'read' },
     ],
@@ -547,10 +550,13 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModulePath: '/employee-lactation-periods',
         systemModuleOrder: 97,
         systemModuleActive: 1,
-        systemModulePermissionEnforcementActive: false,
+        systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:
           '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M19 4v16h-12a2 2 0 0 1 -2 -2v-12a2 2 0 0 1 2 -2h12z"/><path d="M19 16h-12a2 2 0 0 0 -2 2"/><path d="M9 8h6"/></svg>',
+        // `read` lo exige el API en el reporte de cumplimiento y su PDF. Los
+        // periodos, conflictos y evidencias de la ficha del empleado cuelgan
+        // de las pestañas de Empleados (`tab-periodos-lactancia-*`).
         systemModulePermissions: [
           {
             systemPermissionName: 'Acceder a la bitácora de lactancia',

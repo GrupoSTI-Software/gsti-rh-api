@@ -11,11 +11,13 @@ test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
   // 117 desde que la foto de perfil salio por endpoint autenticado
   // (`streamEmployeePhoto`), al retirar el proxy público de imagenes.
   // 119: +getBirthdayExcel y +getAnniversaryExcel (306644f3, export Excel del calendario).
-  test('declara exactamente 119 operaciones con module employees y bypass standard', ({
+  // 120: +indexUnreadExceptionRequests y +downloadLactationEvidence (tenían ruta
+  // sin gate); -lactationComplianceReport (el reporte pasó a la Bitácora de lactancia).
+  test('declara exactamente 120 operaciones con module employees y bypass standard', ({
     assert,
   }) => {
     const keys = Object.keys(EMPLOYEES_READ_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 119)
+    assert.equal(keys.length, 120)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
     for (const key of keys) {
@@ -50,6 +52,8 @@ test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.getEmergencyContactsByEmployee.action, 'tab-persona-read')
     assert.equal(d.showMedicalConditionPropertyValue.action, 'tab-condicion-medica-read')
     assert.equal(d.indexLactationEvidences.action, 'tab-periodos-lactancia-read')
+    assert.equal(d.downloadLactationEvidence.action, 'tab-periodos-lactancia-read')
+    assert.equal(d.indexUnreadExceptionRequests.action, 'tab-trabajo-read')
     assert.equal(d.indexCertificationUploads.action, 'tab-certificaciones-read')
   })
 

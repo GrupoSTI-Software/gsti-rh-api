@@ -56,6 +56,8 @@ export const EMPLOYEES_READ_PERMISSION_DECLARATIONS = {
   indexAssistCalendars: employeesStandard('tab-trabajo-read'),
   indexExceptionRequests: employeesStandard('tab-trabajo-read'),
   indexAllExceptionRequests: employeesStandard('tab-trabajo-read'),
+  /** No leídas: el mismo dato que `indexAllExceptionRequests`, con el mismo permiso. */
+  indexUnreadExceptionRequests: employeesStandard('tab-trabajo-read'),
   showExceptionRequest: employeesStandard('tab-trabajo-read'),
   indexEmployeeBonuses: employeesStandard('tab-trabajo-read'),
   getBonusConcepts: employeesStandard('tab-trabajo-read'),
@@ -75,10 +77,13 @@ export const EMPLOYEES_READ_PERMISSION_DECLARATIONS = {
   indexMedicalConditionPropertyValues: employeesStandard('tab-condicion-medica-read'),
   showMedicalConditionPropertyValue: employeesStandard('tab-condicion-medica-read'),
   indexLactationPeriods: employeesStandard('tab-periodos-lactancia-read'),
-  lactationComplianceReport: employeesStandard('tab-periodos-lactancia-read'),
+  // El reporte de cumplimiento salió de aquí: lo gobierna la Bitácora de
+  // lactancia (`employee_lactation_periods_permission_declarations.ts`).
   listAllLactationConflicts: employeesStandard('tab-periodos-lactancia-read'),
   listLactationConflicts: employeesStandard('tab-periodos-lactancia-read'),
   indexLactationEvidences: employeesStandard('tab-periodos-lactancia-read'),
+  /** URL firmada de una evidencia: quien ve la lista de evidencias puede descargarlas. */
+  downloadLactationEvidence: employeesStandard('tab-periodos-lactancia-read'),
   getEmployeeProceedingFiles: employeesStandard('tab-expediente-read'),
   getExpiredExpiringProceedingFiles: employeesStandard('tab-expediente-read'),
   indexEmployeeProceedingFiles: employeesStandard('tab-expediente-read'),

@@ -3,14 +3,17 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 import { SYSTEM_SETTINGS_PERMISSION_DECLARATIONS } from '#constants/system_settings_permission_declarations'
+import { DOCUMENTS_EXPIRATION_MATRIX_PERMISSION_DECLARATIONS } from '#constants/documents_expiration_matrix_permission_declarations'
 
 router
   .group(() => {
-    // Sin gate: la Matriz de vencimientos lee los documentos por vencer.
-    router.get(
-      '/get-expired-and-expiring/:systemSettingId',
-      '#controllers/system_setting_controller.getExpiresAndExpiringProceedingFiles'
-    )
+    // Exclusivo de la Matriz de vencimientos: lo gobierna su módulo, no Ajustes Generales.
+    router
+      .get(
+        '/get-expired-and-expiring/:systemSettingId',
+        '#controllers/system_setting_controller.getExpiresAndExpiringProceedingFiles'
+      )
+      .use(middleware.permissionGate(DOCUMENTS_EXPIRATION_MATRIX_PERMISSION_DECLARATIONS.getExpiredAndExpiringSystemSettingProceedingFiles))
     router
       .post('/', '#controllers/system_setting_controller.storeProceedingFile')
       .use(middleware.permissionGate(SYSTEM_SETTINGS_PERMISSION_DECLARATIONS.storeProceedingFile))

@@ -151,7 +151,7 @@ test.group('Ajustes Generales — start/routes/system_setting_routes.ts', () => 
 })
 
 test.group('Ajustes Generales — subrecursos de la ficha', () => {
-  test('expediente de la empresa: escrituras y detalle con gate; listado y vencimientos abiertos', ({
+  test('expediente de la empresa: escrituras y detalle con gate; listado abierto; vencimientos con el gate de la matriz', ({
     assert,
   }) => {
     const content = readRoutes('system_settings_proceeding_files_routes.ts')
@@ -162,7 +162,10 @@ test.group('Ajustes Generales — subrecursos de la ficha', () => {
     assertGated(assert, content, { method: 'get', path: '/:systemSettingProceedingFileId', handler: handler('showProceedingFile'), declaration: 'showProceedingFile' })
     assertGated(assert, content, { method: 'delete', path: '/:systemSettingProceedingFileId', handler: handler('deleteProceedingFile'), declaration: 'destroyProceedingFile' })
     assertOpen(assert, content, { method: 'get', path: '/', handler: handler('proceedingFiles') })
-    assertOpen(assert, content, { method: 'get', path: '/get-expired-and-expiring/:systemSettingId', handler: handler('getExpiresAndExpiringProceedingFiles') })
+    // Los vencimientos solo los lee la Matriz de vencimientos: los gobierna su módulo, no Ajustes Generales.
+    const expiring = routeChain(assert, content, { method: 'get', path: '/get-expired-and-expiring/:systemSettingId', handler: handler('getExpiresAndExpiringProceedingFiles') })
+    assert.include(expiring, `.use(${GATE_CALL}DOCUMENTS_EXPIRATION_MATRIX_PERMISSION_DECLARATIONS.getExpiredAndExpiringSystemSettingProceedingFiles))`)
+    assert.equal(expiring.split(GATE_CALL).length - 1, 1)
     assert.include(compact(content), ".prefix('/api/system-settings-proceeding-files').use(middleware.auth())")
   })
 
