@@ -10,6 +10,7 @@ import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import { AUTH_LOGIN_ERROR_CODES } from '#constants/auth_login_error_codes'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * USRH1786736057519 — blindaje del módulo de usuarios (E5).
@@ -206,11 +207,7 @@ async function buildFixtures(): Promise<TestFixtures> {
     [tenantABu.businessUnitId]
   )
 
-  const employeeRole = await Role.query()
-    .whereNull('role_deleted_at')
-    .where('role_slug', 'empleado')
-    .orderBy('role_id', 'asc')
-    .firstOrFail()
+  const employeeRole = await ensureRole('empleado')
 
   const employeeBusinessUnit = await createBusinessUnit('User isolation employee')
   const employeePerson = await createPerson('user-isolation-employee')

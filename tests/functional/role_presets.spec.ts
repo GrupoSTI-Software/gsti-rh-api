@@ -7,6 +7,7 @@ import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import RolePresetService from '#services/role_preset_service'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'RolePresetsTest123!'
 
@@ -16,13 +17,10 @@ interface TenantActor {
   businessUnit: BusinessUnit
 }
 
-async function createActor(roleSlug: string, emailPrefix: string): Promise<TenantActor> {
+async function createActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).first()
-  if (!role) {
-    throw new Error(`Se requiere el rol "${roleSlug}" en BD para este test.`)
-  }
+  const role = await ensureRole(roleSlug)
 
   const person = await Person.create({
     personFirstname: 'RolePresets',
@@ -103,10 +101,7 @@ test.group('Role presets HTTP (USRH1785766406742)', (group) => {
       roleBusinessAccess: `${actor!.businessUnit.businessUnitSlug},${nonRootActor!.businessUnit.businessUnitSlug}`,
       roleManagementDays: 10,
     })
-    ownerRole = await Role.query()
-      .whereNull('role_deleted_at')
-      .where('role_slug', 'owner')
-      .firstOrFail()
+    ownerRole = await ensureRole('owner')
     testModule = await SystemModule.create({
       systemModuleName: 'Role Presets Test Module',
       systemModuleSlug: `role-presets-test-module-${stamp}`,

@@ -16,6 +16,7 @@ import Certification from '#models/certification'
 import EmployeeCertification from '#models/employee_certification'
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
 import EmployeeProceedingFileService from '#services/employee_proceeding_file_service'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'EmployeesExpedienteCertificacionesSoftRollout123!'
 
@@ -119,8 +120,8 @@ async function cleanupActor(actor: TenantActor | null) {
   await BusinessUnit.query().where('business_unit_id', actor.businessUnit.businessUnitId).delete()
 }
 
-async function createSystemActor(roleSlug: string, emailPrefix: string): Promise<SystemActor> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).firstOrFail()
+async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<SystemActor> {
+  const role = await ensureRole(roleSlug)
   const businessUnit = await BusinessUnit.query()
     .whereNull('business_unit_deleted_at')
     .where('business_unit_active', 1)

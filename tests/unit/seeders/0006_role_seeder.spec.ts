@@ -3,53 +3,57 @@ import RoleSeeder from '#database/seeders/0006_role_seeder'
 import Role from '#models/role'
 
 /**
- * Tests del seeder 0006_role_seeder — rol `owner` (USRH1783712837561).
+ * Tests del seeder 0006_role_seeder: siembra solo `root` (decisión de 303927d5).
  *
- * Cubre los criterios de aceptación del spec (§5):
- *  - Existe un rol `owner` nuevo sin alterar el catálogo previo (1 super-administrador,
- *    2 rh-manager, 3 root, 4 empleado).
- *  - El seeder es idempotente: correrlo dos veces no duplica filas.
+ * `owner`, `super-administrador`, `rh-manager` y `empleado` ya no nacen en una BD
+ * limpia; los specs que los necesitan los aseguran con `tests/helpers/ensure_role.ts`.
+ * Por eso ningún caso compara contra el total de la tabla `roles`: otros specs
+ * de la misma corrida pueden haberlos creado antes. Se compara lo que cambia al
+ * correr el seeder. Tampoco se afirma ningún id: lo asigna la BD.
  */
 
-const PREVIOUS_ROLES: Array<{ roleId: number; roleSlug: string }> = [
-  { roleId: 1, roleSlug: 'super-administrador' },
-  { roleId: 2, roleSlug: 'rh-manager' },
-  { roleId: 3, roleSlug: 'root' },
-  { roleId: 4, roleSlug: 'empleado' },
-]
+/** Slugs de todas las filas de `roles`, incluidas las dadas de baja. */
+async function allRoleSlugs(): Promise<string[]> {
+  const roles = await Role.query().withTrashed().select('role_slug')
+  return roles.map((role) => role.roleSlug)
+}
 
-test.group('0006_role_seeder — rol owner', () => {
-  test('siembra el rol owner (roleId 5) sin alterar el catálogo previo', async ({ assert }) => {
+/** Filas vivas de `root`. */
+async function liveRootRoles(): Promise<Role[]> {
+  return Role.query().whereNull('role_deleted_at').where('role_slug', 'root')
+}
+
+test.group('0006_role_seeder — solo root', () => {
+  test('deja un único root vivo y activo', async ({ assert }) => {
     await new RoleSeeder({} as never).run()
 
-    const owner = await Role.query().whereNull('role_deleted_at').where('role_slug', 'owner').first()
-    assert.exists(owner, 'El rol "owner" debe existir tras correr el seeder')
-    assert.equal(owner!.roleId, 5)
-    assert.equal(owner!.roleActive, 1)
-    assert.equal(owner!.roleBusinessAccess, 'gsti-rh')
-
-    for (const previous of PREVIOUS_ROLES) {
-      const role = await Role.query()
-        .whereNull('role_deleted_at')
-        .where('role_id', previous.roleId)
-        .first()
-      assert.exists(role, `El rol previo roleId=${previous.roleId} debe seguir existiendo`)
-      assert.equal(role!.roleSlug, previous.roleSlug, 'El slug del rol previo no debe cambiar')
-    }
+    const roots = await liveRootRoles()
+    assert.lengthOf(roots, 1, 'Debe existir exactamente un rol root vivo tras correr el seeder')
+    assert.equal(roots[0].roleActive, 1)
   })
 
-  test('correr el seeder dos veces no duplica el rol owner', async ({ assert }) => {
-    await new RoleSeeder({} as never).run()
-    const firstRunOwners = await Role.query()
-      .whereNull('role_deleted_at')
-      .where('role_slug', 'owner')
+  test('no crea ningún rol distinto de root', async ({ assert }) => {
+    const before = await allRoleSlugs()
 
     await new RoleSeeder({} as never).run()
-    const secondRunOwners = await Role.query()
-      .whereNull('role_deleted_at')
-      .where('role_slug', 'owner')
 
-    assert.lengthOf(firstRunOwners, 1, 'Debe existir exactamente un rol owner')
-    assert.lengthOf(secondRunOwners, 1, 'Correr el seeder de nuevo no debe duplicar el rol owner')
+    const after = await allRoleSlugs()
+    const created = after.filter((slug) => !before.includes(slug))
+    assert.includeMembers(['root'], created, 'El seeder solo puede agregar root')
+    assert.equal(after.length - before.length, created.length, 'El seeder no duplica filas existentes')
+  })
+
+  test('es idempotente: correrlo dos veces no duplica root ni cambia su id', async ({ assert }) => {
+    await new RoleSeeder({} as never).run()
+    const firstRun = await liveRootRoles()
+    const slugsAfterFirstRun = await allRoleSlugs()
+
+    await new RoleSeeder({} as never).run()
+    const secondRun = await liveRootRoles()
+    const slugsAfterSecondRun = await allRoleSlugs()
+
+    assert.lengthOf(secondRun, 1, 'Correr el seeder de nuevo no debe duplicar root')
+    assert.equal(secondRun[0].roleId, firstRun[0].roleId, 'El id de root no debe cambiar')
+    assert.lengthOf(slugsAfterSecondRun, slugsAfterFirstRun.length, 'No debe aparecer ninguna fila nueva')
   })
 })

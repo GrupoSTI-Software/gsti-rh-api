@@ -14,6 +14,7 @@ import BillingCatalogService from '#services/billing_catalog_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '#constants/billing_subscription_error_codes'
 import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — POST /api/billing/subscription (USRH1785441822058).
@@ -28,21 +29,10 @@ interface TenantActor {
   businessUnit: BusinessUnit
 }
 
-async function ensureRhManagerRole(): Promise<Role> {
-  const role = await Role.query()
-    .whereNull('role_deleted_at')
-    .where('role_slug', 'rh-manager')
-    .first()
-  if (!role) {
-    throw new Error('Se requiere el rol rh-manager en BD para probar scope limitado.')
-  }
-  return role
-}
-
 async function createScopedTenantActor(emailPrefix: string): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await ensureRhManagerRole()
+  const role = await ensureRole('rh-manager')
 
   const person = new Person()
   person.personFirstname = 'BillingContract'

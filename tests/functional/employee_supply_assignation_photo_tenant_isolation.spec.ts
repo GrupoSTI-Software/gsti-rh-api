@@ -10,8 +10,9 @@ import EmployeeSupplieAssignationPhoto from '#models/employee_supplie_assignatio
 import Supplie from '#models/supplie'
 import SupplyType from '#models/supply_type'
 import { TenantContext } from '#utils/tenant_context'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
-const ROOT_ROLE_ID = 3
+const ROOT_ROLE = 'root'
 
 interface TestActor {
   user: User
@@ -22,7 +23,7 @@ function uniqueStamp(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 100000)}`
 }
 
-async function createTestActor(roleId: number, emailPrefix: string): Promise<TestActor> {
+async function createTestActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TestActor> {
   const stamp = uniqueStamp()
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
   const person = new Person()
@@ -36,7 +37,8 @@ async function createTestActor(roleId: number, emailPrefix: string): Promise<Tes
   user.userEmail = email
   user.userPassword = 'EmployeeSupplyPhotoTest123!'
   user.userActive = 1
-  user.roleId = roleId
+  const role = await ensureRole(roleSlug)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -95,7 +97,7 @@ test.group('Fotos de insumos — aislamiento HTTP por tenant', (group) => {
   let createdSupplyTypeId: number | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-supply-photo')
+    root = await createTestActor(ROOT_ROLE, 'root-supply-photo')
     businessUnitOwn = await createBusinessUnit('propia')
     businessUnitForeign = await createBusinessUnit('foranea')
     employeeOwn = await createEmployee(root.person, businessUnitOwn)

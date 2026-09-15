@@ -6,6 +6,7 @@ import BusinessUnit from '#models/business_unit'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'RoleAssignBatchTest123!'
 
@@ -19,16 +20,10 @@ interface TenantActor {
  * Crea un actor de tenant con el rol indicado por slug (`root` para bypasear
  * el bloqueo de roles de sistema, cualquier otro slug no-root para probarlo).
  */
-async function createActor(roleSlug: string, emailPrefix: string): Promise<TenantActor> {
+async function createActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await Role.query()
-    .whereNull('role_deleted_at')
-    .where('role_slug', roleSlug)
-    .first()
-  if (!role) {
-    throw new Error(`Se requiere el rol "${roleSlug}" en BD para este test.`)
-  }
+  const role = await ensureRole(roleSlug)
 
   const person = new Person()
   person.personFirstname = 'RoleAssignBatch'
@@ -97,11 +92,8 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
       roleBusinessAccess: '',
       roleManagementDays: 10,
     })
-    // Rol de sistema ya seedeado en BD (no se crea ni se borra en este test).
-    ownerRole = await Role.query()
-      .whereNull('role_deleted_at')
-      .where('role_slug', 'owner')
-      .firstOrFail()
+    // Rol de sistema legacy: 0006 ya no lo siembra; se asegura por slug y no se borra.
+    ownerRole = await ensureRole('owner')
 
     systemModule = await SystemModule.create({
       systemModuleName: 'Test Assign Batch Module',

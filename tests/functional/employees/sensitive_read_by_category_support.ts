@@ -34,6 +34,7 @@ import { TenantContext } from '#utils/tenant_context'
 import { blindIndex } from '#utils/blind_index'
 import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
 import { normalizeRfc } from '../../../app/shared/validators/rfc.validator.js'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 export function countGateLookups(sqls: string[]) {
   const roles = sqls.filter((sql) => /from\s+[`"]?roles[`"]?/i.test(sql)).length
@@ -237,14 +238,11 @@ export async function cleanupActor(actor: TenantActor | null) {
 }
 
 export async function createSystemActor(
-  roleSlug: string,
+  roleSlug: TestRoleSlug,
   emailPrefix: string,
   businessUnitId: number
 ): Promise<SystemActor> {
-  const role = await Role.query()
-    .whereNull('role_deleted_at')
-    .where('role_slug', roleSlug)
-    .firstOrFail()
+  const role = await ensureRole(roleSlug)
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
   const person = await Person.create({
@@ -710,11 +708,15 @@ export interface RemainingSensitiveFixture {
   consent: UserConsent | null
 }
 
+/**
+ * Concede `moduleSlug:actionSlug` al rol, resuelto por slug, y devuelve la fila de
+ * concesión para que el spec que la pide sobre un rol compartido la retire en su teardown.
+ */
 export async function grantModuleAction(
   roleId: number,
   moduleSlug: string,
   actionSlug: string
-) {
+): Promise<RoleSystemPermission> {
   const permission = await SystemPermission.query()
     .whereNull('system_permission_deleted_at')
     .where('system_permission_slug', actionSlug)
@@ -725,7 +727,7 @@ export async function grantModuleAction(
   if (!permission) {
     throw new Error(`Se requiere ${moduleSlug}:${actionSlug} en BD para este test.`)
   }
-  await RoleSystemPermission.firstOrCreate(
+  return RoleSystemPermission.firstOrCreate(
     { roleId, systemPermissionId: permission.systemPermissionId },
     { roleId, systemPermissionId: permission.systemPermissionId }
   )

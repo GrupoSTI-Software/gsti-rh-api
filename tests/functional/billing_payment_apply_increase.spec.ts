@@ -4,9 +4,7 @@ import { writeFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import mail from '@adonisjs/mail/services/main'
-import RoleSeeder from '#database/seeders/0006_role_seeder'
 import User from '#models/user'
-import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
@@ -26,6 +24,7 @@ import EmployeeQuotaService from '#services/employee_quota_service'
 import SubscriptionChangeNotApplicableMail from '#mails/subscription_change_not_applicable_mail'
 import { BILLING_PAYMENT_ERROR_CODES } from '#constants/billing_payment_error_codes'
 import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — POST /api/platform/billing/subscriptions/:id/payments
@@ -57,17 +56,8 @@ interface PendingIncreaseFixture extends TenantFixture {
 let originalUploadPrivateBuffer: UploadService['uploadPrivateBuffer']
 let originalDeleteFile: UploadService['deleteFile']
 
-async function ensureAnyRole(): Promise<Role> {
-  await new RoleSeeder({} as never).run()
-  const role = await Role.query().whereNull('role_deleted_at').first()
-  if (!role) {
-    throw new Error('Se requiere al menos un rol en BD.')
-  }
-  return role
-}
-
 async function createPlatformAdmin(): Promise<User> {
-  const role = await ensureAnyRole()
+  const role = await ensureRole('root')
   const email = `platform-admin-${STAMP}-${Math.floor(Math.random() * 10_000)}@gsti-tests.local`
 
   const person = new Person()

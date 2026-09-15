@@ -20,6 +20,7 @@ import Supply from '#models/supplie'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'ZonasActivosPermissionGate123!'
 const VALID_PNG_BUFFER = Buffer.from(
@@ -139,8 +140,8 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
   return { user, person, businessUnit, role }
 }
 
-async function createSystemActor(roleSlug: string, emailPrefix: string): Promise<SystemActor> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).firstOrFail()
+async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<SystemActor> {
+  const role = await ensureRole(roleSlug)
   const stamp = await uniqueStamp()
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
   const businessUnit = await BusinessUnit.create({

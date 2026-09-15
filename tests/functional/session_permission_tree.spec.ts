@@ -10,6 +10,7 @@ import type {
   SessionPermissionActionNode,
   SessionPermissionTree,
 } from '#constants/session_permission_tree'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'SessionPermissionTreeTest123!'
 
@@ -146,7 +147,7 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
       systemPermissionId: readPermission.systemPermissionId,
     })
 
-    ownerRole = await Role.query().whereNull('role_deleted_at').where('role_slug', 'owner').firstOrFail()
+    ownerRole = await ensureRole('owner')
 
     standardActor = await createTenantActor('session-permission-tree', standardRole, true)
     ownerActor = await createTenantActor('session-permission-tree-owner', ownerRole)

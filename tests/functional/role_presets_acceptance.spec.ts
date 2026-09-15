@@ -9,6 +9,7 @@ import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import RolePresetService from '#services/role_preset_service'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 interface Actor {
   user: User
@@ -16,9 +17,9 @@ interface Actor {
   businessUnit: BusinessUnit
 }
 
-async function createActor(roleSlug = 'root'): Promise<Actor> {
+async function createActor(roleSlug: TestRoleSlug = 'root'): Promise<Actor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
-  const role = await Role.query().where('role_slug', roleSlug).firstOrFail()
+  const role = await ensureRole(roleSlug)
   const person = await Person.create({
     personFirstname: 'RolePresetAcceptance',
     personLastname: 'Test',
@@ -301,7 +302,7 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
   })
 
   test('F: rol sistema devuelve 403 y no modifica grants', async ({ client, assert }) => {
-    const owner = await Role.query().where('role_slug', 'owner').firstOrFail()
+    const owner = await ensureRole('owner')
     const beforeGrants = await grants(owner.roleId)
     const before = beforeGrants.map((grant) => grant.systemPermissionId).sort()
     const response = await client

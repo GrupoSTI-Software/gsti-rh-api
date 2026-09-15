@@ -5,6 +5,7 @@ import Employee from '#models/employee'
 import Person from '#models/person'
 import User from '#models/user'
 import EmployeeService from '#services/employee_service'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * USRH1785436961832 — alta de empleado todo-o-nada y reintentable.
@@ -117,7 +118,9 @@ test.group('EmployeeService.create — alta todo-o-nada (USRH1785436961832)', ()
     user.userEmail = `alta-trx-linked-user-${STAMP}@gsti-tests.local`
     user.userPassword = 'AltaTrxTest123!'
     user.userActive = 1
-    user.roleId = 2
+    // Cualquier rol vale: el caso solo necesita un usuario ligado a la persona.
+    const role = await ensureRole('root')
+    user.roleId = role.roleId
     user.personId = person.personId
     user.userEmailType = 'institutional'
     await user.save()

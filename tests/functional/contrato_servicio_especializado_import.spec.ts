@@ -26,10 +26,11 @@ import {
   getContratoEstatusByNumero,
   randomValidRfc,
   readExcelHeaderRow,
-  REPSE_REGISTRATIONS_CREATE_PERMISSION_ID,
   type ContratoImportTestFixture,
   uniqueStamp,
 } from './helpers/contrato_import_excel_fixture.js'
+import { grantModuleAction } from './employees/sensitive_read_by_category_support.js'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales E2E — importación masiva de contratos de servicios
@@ -39,9 +40,9 @@ import {
  */
 
 const TEST_PASSWORD = 'ContratoImportTest123!'
-const ROOT_ROLE_ID = 3
-const RH_MANAGER_ROLE_ID = 2
-const NO_PERMISSION_ROLE_ID = 4
+const ROOT_ROLE = 'root'
+const RH_MANAGER_ROLE = 'rh-manager'
+const NO_PERMISSION_ROLE = 'empleado'
 
 const PLANTILLA_PATH = '/api/contratos-servicios-especializados/plantilla-importacion'
 const IMPORT_PATH = '/api/contratos-servicios-especializados/importacion'
@@ -51,7 +52,7 @@ interface TestActor {
   person: Person
 }
 
-async function createTestActor(roleId: number, emailPrefix: string): Promise<TestActor> {
+async function createTestActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TestActor> {
   const stamp = uniqueStamp()
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
 
@@ -66,7 +67,8 @@ async function createTestActor(roleId: number, emailPrefix: string): Promise<Tes
   user.userEmail = email
   user.userPassword = TEST_PASSWORD
   user.userActive = 1
-  user.roleId = roleId
+  const role = await ensureRole(roleSlug)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -115,7 +117,7 @@ test.group('ContratoImport - sin permiso (403)', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    actor = await createTestActor(NO_PERMISSION_ROLE_ID, 'no-permiso')
+    actor = await createTestActor(NO_PERMISSION_ROLE, 'no-permiso')
     businessUnit = await createBusinessUnit('no-permiso')
     await actor.user.related('businessUnits').attach([businessUnit.businessUnitId])
   })
@@ -152,7 +154,7 @@ test.group('ContratoImport - plantilla (GET)', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-plantilla')
+    root = await createTestActor(ROOT_ROLE, 'root-plantilla')
     businessUnit = await createBusinessUnit('plantilla')
   })
 
@@ -193,7 +195,7 @@ test.group('ContratoImport - errores globales de archivo', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-archivo')
+    root = await createTestActor(ROOT_ROLE, 'root-archivo')
     businessUnit = await createBusinessUnit('archivo-global')
   })
 
@@ -322,7 +324,7 @@ test.group('ContratoImport - volumen alto de filas', (group) => {
   let fixture: ContratoImportTestFixture | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-volume')
+    root = await createTestActor(ROOT_ROLE, 'root-volume')
     businessUnit = await createBusinessUnit('volume')
     fixture = await createContratoImportFixture(businessUnit)
   })
@@ -367,7 +369,7 @@ test.group('ContratoImport - flujo feliz y parcial', (group) => {
   let fixture: ContratoImportTestFixture | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-happy')
+    root = await createTestActor(ROOT_ROLE, 'root-happy')
     businessUnit = await createBusinessUnit('happy')
     fixture = await createContratoImportFixture(businessUnit)
   })
@@ -455,7 +457,7 @@ test.group('ContratoImport - errores por fila', (group) => {
   let dupNumeroTenant = ''
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-row-errors')
+    root = await createTestActor(ROOT_ROLE, 'root-row-errors')
     businessUnit = await createBusinessUnit('row-errors')
     fixture = await createContratoImportFixture(businessUnit)
     dupNumeroTenant = `CSE-DUP-TENANT-${uniqueStamp()}`
@@ -607,7 +609,7 @@ test.group('ContratoImport - aislamiento tenant', (group) => {
   let fixtureB: ContratoImportTestFixture | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-tenant')
+    root = await createTestActor(ROOT_ROLE, 'root-tenant')
     businessUnitA = await createBusinessUnit('tenant-a')
     businessUnitB = await createBusinessUnit('tenant-b')
     fixtureA = await createContratoImportFixture(businessUnitA)
@@ -649,9 +651,9 @@ test.group('ContratoImport - escenarios extendidos (H01-H11)', (group) => {
   let rhManagerPermissionId: number | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-extended')
-    rhManager = await createTestActor(RH_MANAGER_ROLE_ID, 'rh-manager-import')
-    rateLimitActor = await createTestActor(ROOT_ROLE_ID, 'root-rate-limit')
+    root = await createTestActor(ROOT_ROLE, 'root-extended')
+    rhManager = await createTestActor(RH_MANAGER_ROLE, 'rh-manager-import')
+    rateLimitActor = await createTestActor(ROOT_ROLE, 'root-rate-limit')
     businessUnit = await createBusinessUnit('extended')
     noRepseBusinessUnit = await createBusinessUnit('no-repse')
     fixture = await createContratoImportFixture(businessUnit)
@@ -662,16 +664,8 @@ test.group('ContratoImport - escenarios extendidos (H01-H11)', (group) => {
     await rhManager.user.related('businessUnits').attach([businessUnit.businessUnitId])
     await rateLimitActor.user.related('businessUnits').attach([businessUnit.businessUnitId])
 
-    const permission = await RoleSystemPermission.updateOrCreate(
-      {
-        roleId: RH_MANAGER_ROLE_ID,
-        systemPermissionId: REPSE_REGISTRATIONS_CREATE_PERMISSION_ID,
-      },
-      {
-        roleId: RH_MANAGER_ROLE_ID,
-        systemPermissionId: REPSE_REGISTRATIONS_CREATE_PERMISSION_ID,
-      }
-    )
+    // Por slug: el id literal 157 apuntaba a otro permiso en cualquier BD sembrada desde cero.
+    const permission = await grantModuleAction(rhManager.user.roleId, 'repse-registrations', 'create')
     rhManagerPermissionId = permission.roleSystemPermissionId
   })
 

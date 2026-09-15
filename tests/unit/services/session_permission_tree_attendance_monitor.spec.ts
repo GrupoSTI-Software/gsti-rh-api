@@ -5,6 +5,7 @@ import SystemPermission from '#models/system_permission'
 import RoleSystemPermission from '#models/role_system_permission'
 import type User from '#models/user'
 import SessionPermissionTreeService from '#services/session_permission_tree_service'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 const MONITOR_SLUG = 'employees-attendance-monitor'
 const STAMP = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -110,10 +111,7 @@ test.group('Árbol de sesión — monitor de asistencia (USRH1787433076991)', (g
   test('CA-5: un rol privilegiado ve las 11 por privileged-role, sin grants', async ({
     assert,
   }) => {
-    const owner = await Role.query()
-      .whereNull('role_deleted_at')
-      .where('role_slug', 'owner')
-      .firstOrFail()
+    const owner = await ensureRole('owner')
     const tree = await new SessionPermissionTreeService().buildForUser(fakeUser(owner.roleId))
     const actions = monitorNodeFrom(tree).sections.flatMap((section) => section.actions)
 

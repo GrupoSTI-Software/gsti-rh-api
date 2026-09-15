@@ -2,8 +2,11 @@ import { BaseSeeder } from '@adonisjs/lucid/seeders'
 import { upsertRoleBySlug } from '../../app/helpers/system_catalog_seed_resolver.js'
 
 /**
- * Siembra los cinco roles base del sistema: `super-administrador`,
- * `rh-manager`, `root`, `empleado` y `owner`.
+ * Siembra el único rol global de una BD limpia: `root`.
+ *
+ * `super-administrador`, `rh-manager`, `empleado` y `owner` dejaron de sembrarse
+ * en 303927d5; el rediseño de roles por empresa está pendiente de decisión. Los
+ * specs que todavía los necesitan los aseguran con `tests/helpers/ensure_role.ts`.
  *
  * LA IDENTIDAD ES EL SLUG. Ningún rol declara `role_id`: la columna es
  * autoincremental y el número que le toque depende del orden real de siembra

@@ -5,7 +5,10 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import ProveedorRepse from '#models/proveedor_repse'
 import ProveedorRepseValidacion from '#models/proveedor_repse_validacion'
+import RoleSystemPermission from '#models/role_system_permission'
 import { computeRfcCheckDigit } from '../../app/shared/validators/rfc.validator.js'
+import { grantModuleAction } from './employees/sensitive_read_by_category_support.js'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — módulo "Proveedores REPSE" (USRH1784259105646, lado
@@ -22,9 +25,9 @@ import { computeRfcCheckDigit } from '../../app/shared/validators/rfc.validator.
  */
 
 const TEST_PASSWORD = 'RepseProviderTest123!'
-const ROOT_ROLE_ID = 3
-const NO_PERMISSION_ROLE_ID = 4 // empleado: no tiene permiso del módulo repse-providers
-const RH_MANAGER_ROLE_ID = 2 // tiene permiso granular vía el seeder 0052
+const ROOT_ROLE = 'root'
+const NO_PERMISSION_ROLE = 'empleado' // no tiene permiso del módulo repse-providers
+const RH_MANAGER_ROLE = 'rh-manager' // sin concesiones sembradas: su grupo le concede repse-providers:create
 
 /** PDF mínimo válido (magic bytes reales `%PDF-`). */
 const VALID_PDF_BUFFER = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF', 'utf-8')
@@ -39,7 +42,7 @@ interface TestActor {
   person: Person
 }
 
-async function createTestActor(roleId: number, emailPrefix: string): Promise<TestActor> {
+async function createTestActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TestActor> {
   const stamp = uniqueStamp()
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
 
@@ -54,7 +57,8 @@ async function createTestActor(roleId: number, emailPrefix: string): Promise<Tes
   user.userEmail = email
   user.userPassword = TEST_PASSWORD
   user.userActive = 1
-  user.roleId = roleId
+  const role = await ensureRole(roleSlug)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -137,7 +141,7 @@ test.group('RepseProviders - sin permiso (403)', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    actor = await createTestActor(NO_PERMISSION_ROLE_ID, 'no-permiso')
+    actor = await createTestActor(NO_PERMISSION_ROLE, 'no-permiso')
     businessUnit = await createSecondaryBusinessUnit('no-permiso')
     await actor.user.related('businessUnits').attach([businessUnit.businessUnitId])
   })
@@ -197,7 +201,7 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
   let otherProviderId: number | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-happy')
+    root = await createTestActor(ROOT_ROLE, 'root-happy')
     businessUnit = await createSecondaryBusinessUnit('happy')
   })
 
@@ -400,7 +404,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
   let existingFolio: string | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-val')
+    root = await createTestActor(ROOT_ROLE, 'root-val')
     businessUnit = await createSecondaryBusinessUnit('val')
 
     existingFolio = randomFolio('DUPCHECK')
@@ -739,7 +743,7 @@ test.group('RepseProviders - coherencia de reviewStatus/nextReviewAt', (group) =
   let periodicidadProviderId: number | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-coherencia')
+    root = await createTestActor(ROOT_ROLE, 'root-coherencia')
     businessUnit = await createSecondaryBusinessUnit('coherencia')
   })
 
@@ -834,7 +838,7 @@ test.group('RepseProviders - aislamiento multi-tenant (root, scope por selecció
   let providerIdA: number | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-tenant')
+    root = await createTestActor(ROOT_ROLE, 'root-tenant')
     businessUnitA = await createSecondaryBusinessUnit('tenant-a')
     businessUnitB = await createSecondaryBusinessUnit('tenant-b')
 
@@ -902,7 +906,7 @@ test.group('RepseProviders - i18n (Accept-Language)', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-i18n')
+    root = await createTestActor(ROOT_ROLE, 'root-i18n')
     businessUnit = await createSecondaryBusinessUnit('i18n')
   })
 
@@ -986,20 +990,29 @@ test.group('RepseProviders - permiso granular vía rol rh-manager (no root)', (g
   let actor: TestActor | null = null
   let businessUnit: BusinessUnit | null = null
   let providerId: number | null = null
+  let createGrant: RoleSystemPermission | null = null
 
   group.setup(async () => {
-    actor = await createTestActor(RH_MANAGER_ROLE_ID, 'rh-manager')
+    actor = await createTestActor(RH_MANAGER_ROLE, 'rh-manager')
     businessUnit = await createSecondaryBusinessUnit('rh-manager')
     await actor.user.related('businessUnits').attach([businessUnit.businessUnitId])
+    // El seeder 0052 que concedía este permiso está retirado: el spec lo concede
+    // por slug y lo retira al terminar, porque rh-manager es un rol compartido.
+    createGrant = await grantModuleAction(actor.user.roleId, 'repse-providers', 'create')
   })
 
   group.teardown(async () => {
+    if (createGrant) {
+      await RoleSystemPermission.query()
+        .where('role_system_permission_id', createGrant.roleSystemPermissionId)
+        .delete()
+    }
     await cleanupProveedor(providerId)
     await cleanupTestActor(actor)
     await deleteBusinessUnit(businessUnit)
   })
 
-  test('rh-manager puede crear un proveedor gracias al permiso seedeado (0052)', async ({
+  test('rh-manager puede crear un proveedor con el permiso granular create', async ({
     client,
     assert,
   }) => {
