@@ -10,11 +10,12 @@ import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_ca
 test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
   // 117 desde que la foto de perfil salio por endpoint autenticado
   // (`streamEmployeePhoto`), al retirar el proxy público de imagenes.
-  test('declara exactamente 117 operaciones con module employees y bypass standard', ({
+  // 119: +getBirthdayExcel y +getAnniversaryExcel (306644f3, export Excel del calendario).
+  test('declara exactamente 119 operaciones con module employees y bypass standard', ({
     assert,
   }) => {
     const keys = Object.keys(EMPLOYEES_READ_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 117)
+    assert.equal(keys.length, 119)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
     for (const key of keys) {
@@ -83,6 +84,8 @@ test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.indexEmployeesWithoutUser.action, 'read')
     assert.equal(d.getBirthday.action, 'read')
     assert.equal(d.getAnniversary.action, 'read')
+    assert.equal(d.getBirthdayExcel.action, 'read')
+    assert.equal(d.getAnniversaryExcel.action, 'read')
     assert.equal(d.getWorkSchedules.action, 'read')
     assert.equal(d.getTerminationCatalog.action, 'read')
     assert.equal(d.indexEmployeeTypes.action, 'read')

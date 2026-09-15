@@ -90,8 +90,10 @@ test.group('Índice maestro — registro del monitor de asistencia', () => {
     )
   })
 
+  // Afirma la intención (no se pisó ningún catálogo previo) y no la lista
+  // exacta: cada catálogo tipado nuevo rompía este spec sin motivo.
   test('los módulos ya enumerados siguen enumerados (no se pisó nada)', ({ assert }) => {
-    assert.deepEqual(Object.keys(SYSTEM_PERMISSION_CATALOG.actionsByModule).sort(), [
+    assert.includeMembers(Object.keys(SYSTEM_PERMISSION_CATALOG.actionsByModule), [
       'employees',
       'employees-attendance-monitor',
       'positions',
