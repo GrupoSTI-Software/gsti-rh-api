@@ -15,11 +15,13 @@ test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
   // sin gate); -lactationComplianceReport (el reporte pasó a la Bitácora de lactancia).
   // 118: salen indexCareerPathCandidates y showCareerPathCandidate, que ahora declara
   // la Bandeja de rutas de carrera (`hr-career-path:read`).
-  test('declara exactamente 118 operaciones con module employees y bypass standard', ({
+  // 123: +5 lecturas del catálogo de tipos y propiedades de condición médica, que
+  // no tenían gate y solo consume la pestaña Condición médica.
+  test('declara exactamente 123 operaciones con module employees y bypass standard', ({
     assert,
   }) => {
     const keys = Object.keys(EMPLOYEES_READ_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 118)
+    assert.equal(keys.length, 123)
     assert.notProperty(EMPLOYEES_READ_PERMISSION_DECLARATIONS, 'indexCareerPathCandidates')
     assert.notProperty(EMPLOYEES_READ_PERMISSION_DECLARATIONS, 'showCareerPathCandidate')
 

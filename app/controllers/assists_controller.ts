@@ -213,6 +213,8 @@ export default class AssistsController {
    *                 message:
    *                   type: string
    *                   example: Ya se encuentra un proceso en sincronización, por favor espere
+   *       403:
+   *         description: Sin permiso `sync-assist` del módulo `employees-attendance-monitor` (permissionGate, key `PERM.DENIED` / `PERM.UNRESOLVED`).
    */
   @inject()
   async employeeSynchronize(
@@ -1719,6 +1721,8 @@ export default class AssistsController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso `delete-check-assist` del módulo `employees-attendance-monitor` (permissionGate, key `PERM.DENIED` / `PERM.UNRESOLVED`).
    */
   async inactivate({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)

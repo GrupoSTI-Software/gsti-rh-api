@@ -47,20 +47,22 @@ const uniqueStamp = () => `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
 /** Nombre único por corrida, para no chocar con validaciones de nombre repetido. */
 export const uniqueTestName = (prefix: string) => `${prefix} ${uniqueStamp()}`
 
-async function createActorWithRole(
+/**
+ * Usuario de prueba colgado de una empresa ya existente. Es lo único que
+ * comparten el actor con empresa propia y el usuario prestado a una empresa
+ * que el spec no creó.
+ */
+export interface UnitUser {
+  user: User
+  person: Person
+}
+
+async function createUserInBusinessUnit(
   prefix: string,
   role: Role,
-  ownsRole: boolean
-): Promise<TenantActor> {
-  const stamp = uniqueStamp()
-  const email = `${prefix}-${stamp}@gsti-tests.local`
-  const businessUnit = await BusinessUnit.create({
-    businessUnitName: `Gate ${prefix} ${stamp}`,
-    businessUnitSlug: `gate-${prefix}-${stamp}`,
-    businessUnitLegalName: `Gate ${prefix} legal ${stamp}`,
-    businessUnitActive: 1,
-    businessUnitOrigin: 'platform',
-  })
+  businessUnitId: number
+): Promise<UnitUser> {
+  const email = `${prefix}-${uniqueStamp()}@gsti-tests.local`
   const person = await Person.create({
     personFirstname: 'Gate',
     personLastname: 'Test',
@@ -75,9 +77,57 @@ async function createActorWithRole(
     personId: person.personId,
     userEmailType: 'institutional',
   })
-  await user.related('businessUnits').attach([businessUnit.businessUnitId])
+  await user.related('businessUnits').attach([businessUnitId])
+
+  return { user, person }
+}
+
+async function createActorWithRole(
+  prefix: string,
+  role: Role,
+  ownsRole: boolean
+): Promise<TenantActor> {
+  const stamp = uniqueStamp()
+  const businessUnit = await BusinessUnit.create({
+    businessUnitName: `Gate ${prefix} ${stamp}`,
+    businessUnitSlug: `gate-${prefix}-${stamp}`,
+    businessUnitLegalName: `Gate ${prefix} legal ${stamp}`,
+    businessUnitActive: 1,
+    businessUnitOrigin: 'platform',
+  })
+  const { user, person } = await createUserInBusinessUnit(prefix, role, businessUnit.businessUnitId)
 
   return { user, person, businessUnit, role, ownsRole }
+}
+
+/**
+ * Usuario con un rol global (`owner`, `root`, ...) dentro de una empresa que el
+ * spec NO creó.
+ *
+ * Existe para los specs de aislamiento que resuelven sus empresas desde la BD:
+ * tomaban "el primer usuario del pivote", cuyo rol nadie conoce, y con la
+ * exigencia encendida ese usuario puede responder 403 antes de llegar al
+ * aislamiento que el caso prueba. `owner` pasa el gate con bypass standard y
+ * `businessScope` lo sigue acotando a su empresa, así que el caso prueba lo
+ * mismo que antes.
+ *
+ * La empresa no es del usuario: `cleanupUnitUser` nunca la borra.
+ */
+export async function createBypassUserInBusinessUnit(
+  roleSlug: TestRoleSlug,
+  prefix: string,
+  businessUnitId: number
+): Promise<UnitUser> {
+  return createUserInBusinessUnit(prefix, await ensureRole(roleSlug), businessUnitId)
+}
+
+/** Borra el usuario prestado y su persona; la empresa y el rol se quedan. */
+export async function cleanupUnitUser(unitUser: UnitUser | null): Promise<void> {
+  if (!unitUser) return
+
+  await BusinessUnitUser.query().where('user_id', unitUser.user.userId).delete()
+  await User.query().where('user_id', unitUser.user.userId).delete()
+  await Person.query().where('person_id', unitUser.person.personId).delete()
 }
 
 /** Usuario con unidad propia y un rol sin salvoconducto ni concesiones. */

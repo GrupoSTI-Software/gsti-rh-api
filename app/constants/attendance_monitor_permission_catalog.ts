@@ -17,10 +17,18 @@ export type AttendanceMonitorSection = 'listado' | 'nomina' | 'asistencia' | 'de
  * `displayName` en español: es el nombre que la siembra escribe en
  * `system_permissions`, también sobre una fila ya registrada.
  *
- * Esta HU solo cambia el consumidor de `download-summary` y `see-payroll`
- * (las descargas del monitor en el backoffice). Las otras nueve se enumeran
- * porque `permissions:check-consistency` reporta toda fila viva del módulo
- * que la constante no declare; su gobierno sigue exactamente como está.
+ * Quién verifica cada una (la constante solo declara permisos que alguien
+ * consulta):
+ *  - API: `see-payroll`, `display-payments-summary`, `display-discounts-summary`
+ *    y `download-summary` (reportes), `shift-coverage` (estadísticas),
+ *    `add-assist-manual` (captura ajena), `sync-assist` (sincronización general
+ *    en su controller y por empleado con permissionGate) y
+ *    `delete-check-assist` (anular checada con permissionGate). Las dos
+ *    declaraciones del gate viven en
+ *    `employees_attendance_monitor_permission_declarations.ts`.
+ *  - Solo backoffice: `read` (guard de pantalla), `consecutive-faults` y
+ *    `read-time-worked`, que oculta el indicador de tiempo trabajado de un
+ *    dato que `GET /api/v1/assists` entrega sin gate.
  */
 export const ATTENDANCE_MONITOR_PERMISSION_CATALOG = [
   {

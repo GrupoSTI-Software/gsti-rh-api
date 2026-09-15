@@ -19,9 +19,11 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
   // que ahora declara el modulo Catalogo de certificaciones.
   // 153: sale updateCareerPathCandidateStatus, que ahora declara la Bandeja de
   // rutas de carrera (`hr-career-path:update`).
-  test('declara exactamente 153 operaciones con module employees y bypass standard', ({ assert }) => {
+  // 162: +9 altas, ediciones y bajas del catálogo de tipos, propiedades y valores
+  // de condición médica, que no tenían gate.
+  test('declara exactamente 162 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 153)
+    assert.equal(keys.length, 162)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 

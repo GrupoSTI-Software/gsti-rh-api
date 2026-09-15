@@ -76,6 +76,14 @@ export const EMPLOYEES_READ_PERMISSION_DECLARATIONS = {
   showEmployeeMedicalCondition: employeesStandard('tab-condicion-medica-read'),
   indexMedicalConditionPropertyValues: employeesStandard('tab-condicion-medica-read'),
   showMedicalConditionPropertyValue: employeesStandard('tab-condicion-medica-read'),
+  // Catálogo de tipos de condición médica y sus propiedades: solo lo consume la
+  // pestaña Condición médica del expediente (tarjeta, formulario y administrador
+  // de tipos). Ni la PWA ni la app lo leen, así que no queda abierto.
+  indexMedicalConditionTypes: employeesStandard('tab-condicion-medica-read'),
+  showMedicalConditionType: employeesStandard('tab-condicion-medica-read'),
+  indexMedicalConditionTypeProperties: employeesStandard('tab-condicion-medica-read'),
+  getMedicalConditionTypePropertiesByType: employeesStandard('tab-condicion-medica-read'),
+  showMedicalConditionTypeProperty: employeesStandard('tab-condicion-medica-read'),
   indexLactationPeriods: employeesStandard('tab-periodos-lactancia-read'),
   // El reporte de cumplimiento salió de aquí: lo gobierna la Bitácora de
   // lactancia (`employee_lactation_periods_permission_declarations.ts`).

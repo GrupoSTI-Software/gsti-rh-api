@@ -73,6 +73,19 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   createEmployeeMedicalCondition: employeesStandard('tab-condicion-medica-write'),
   updateEmployeeMedicalCondition: employeesStandard('tab-condicion-medica-write'),
   deleteEmployeeMedicalCondition: employeesStandard('tab-condicion-medica-delete'),
+  // Catálogo de tipos, propiedades y valores de condición médica: mismas casillas
+  // que la condición del colaborador. Borrar pide -delete y no -write, igual que
+  // `deleteEmployeeMedicalCondition`: un tipo borrado deja sin tipo a todas las
+  // condiciones de la empresa que lo usaban.
+  createMedicalConditionType: employeesStandard('tab-condicion-medica-write'),
+  updateMedicalConditionType: employeesStandard('tab-condicion-medica-write'),
+  deleteMedicalConditionType: employeesStandard('tab-condicion-medica-delete'),
+  createMedicalConditionTypeProperty: employeesStandard('tab-condicion-medica-write'),
+  updateMedicalConditionTypeProperty: employeesStandard('tab-condicion-medica-write'),
+  deleteMedicalConditionTypeProperty: employeesStandard('tab-condicion-medica-delete'),
+  createMedicalConditionPropertyValue: employeesStandard('tab-condicion-medica-write'),
+  updateMedicalConditionPropertyValue: employeesStandard('tab-condicion-medica-write'),
+  deleteMedicalConditionPropertyValue: employeesStandard('tab-condicion-medica-delete'),
   createEmployeeLactationPeriod: employeesStandard('tab-periodos-lactancia-write'),
   updateEmployeeLactationPeriod: employeesStandard('tab-periodos-lactancia-write'),
   deleteEmployeeLactationPeriod: employeesStandard('tab-periodos-lactancia-delete'),

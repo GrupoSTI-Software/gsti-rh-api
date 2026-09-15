@@ -6,6 +6,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import type { NextFn } from '@adonisjs/core/types/http'
 import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
 import { EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS } from '#constants/employees_download_permission_declarations'
+import { EMPLOYEES_ATTENDANCE_MONITOR_PERMISSION_DECLARATIONS } from '#constants/employees_attendance_monitor_permission_declarations'
 import {
   ASSIST_INGESTION_BATCH_ITEMS_PER_WINDOW,
   ASSIST_INGESTION_BATCH_ITEMS_WINDOW,
@@ -89,13 +90,16 @@ router
       .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getPermissionsByDates))
     router.get('/', '#controllers/assists_controller.index')//.use(middleware.auth({ guards: ['api'] }))
     router.get('/status', '#controllers/assists_controller.getStatusSync')
+    // Sin gate de ruta: el controller exige `sync-assist` con `hasAccess` y responde AST.AUTHZ.003.
     router.post('/synchronize', '#controllers/assists_controller.synchronize')
     router.post('/employee-synchronize', '#controllers/assists_controller.employeeSynchronize')
+      .use(middleware.permissionGate(EMPLOYEES_ATTENDANCE_MONITOR_PERMISSION_DECLARATIONS.employeeSynchronizeAssists))
     router.post('/', '#controllers/assists_controller.store')
       .use(assistStoreLimit)
     router.post('/batch', '#modules/assist-ingestion/assist_ingestion.controller.storeBatch')
       .use([assistStoreLimit, assistBatchItemsLimit])
     router.put('/:assistId/inactivate', '#controllers/assists_controller.inactivate')
+      .use(middleware.permissionGate(EMPLOYEES_ATTENDANCE_MONITOR_PERMISSION_DECLARATIONS.inactivateAssist))
     router.get('/websocket-docs', '#controllers/assists_controller.websocketDocs')
     router.get('/verify-attendance-lock/:type', '#controllers/assists_controller.verifyAttendanceLock')
 
