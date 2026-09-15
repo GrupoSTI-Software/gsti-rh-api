@@ -7,7 +7,10 @@ import ProveedorRepse from '#models/proveedor_repse'
 import ProveedorRepseValidacion from '#models/proveedor_repse_validacion'
 import RoleSystemPermission from '#models/role_system_permission'
 import { computeRfcCheckDigit } from '../../app/shared/validators/rfc.validator.js'
-import { grantModuleAction } from './employees/sensitive_read_by_category_support.js'
+import {
+  grantModuleAction,
+  type ModuleActionGrant,
+} from './employees/sensitive_read_by_category_support.js'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 /**
@@ -27,7 +30,9 @@ import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 const TEST_PASSWORD = 'RepseProviderTest123!'
 const ROOT_ROLE = 'root'
 const NO_PERMISSION_ROLE = 'empleado' // no tiene permiso del módulo repse-providers
-const RH_MANAGER_ROLE = 'rh-manager' // sin concesiones sembradas: su grupo le concede repse-providers:create
+// Sin concesiones sembradas: el setup del grupo de pruebas de permiso granular le
+// concede repse-providers:create y lo retira en su teardown.
+const RH_MANAGER_ROLE = 'rh-manager'
 
 /** PDF mínimo válido (magic bytes reales `%PDF-`). */
 const VALID_PDF_BUFFER = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF', 'utf-8')
@@ -990,7 +995,7 @@ test.group('RepseProviders - permiso granular vía rol rh-manager (no root)', (g
   let actor: TestActor | null = null
   let businessUnit: BusinessUnit | null = null
   let providerId: number | null = null
-  let createGrant: RoleSystemPermission | null = null
+  let createGrant: ModuleActionGrant | null = null
 
   group.setup(async () => {
     actor = await createTestActor(RH_MANAGER_ROLE, 'rh-manager')
@@ -1002,9 +1007,10 @@ test.group('RepseProviders - permiso granular vía rol rh-manager (no root)', (g
   })
 
   group.teardown(async () => {
-    if (createGrant) {
+    // Solo si este grupo la creó: una concesión previa sobre el rol compartido se queda.
+    if (createGrant?.created) {
       await RoleSystemPermission.query()
-        .where('role_system_permission_id', createGrant.roleSystemPermissionId)
+        .where('role_system_permission_id', createGrant.grant.roleSystemPermissionId)
         .delete()
     }
     await cleanupProveedor(providerId)

@@ -1,6 +1,5 @@
 import { test } from '@japa/runner'
 import User from '#models/user'
-import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
@@ -64,10 +63,7 @@ async function createTenantActor(options: {
 }): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${options.emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'root').first()
-  if (!role) {
-    throw new Error('Se requiere el rol root en BD para los tests de /api/employees/quota.')
-  }
+  const role = await ensureRole('root')
 
   const person = new Person()
   person.personFirstname = 'EmployeeQuota'

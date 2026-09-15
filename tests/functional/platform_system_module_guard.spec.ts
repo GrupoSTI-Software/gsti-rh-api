@@ -15,6 +15,11 @@ import SystemModule from '#models/system_module'
  * de módulos. Table-driven con conteo, igual que el guard de alianzas: si se
  * agrega una ruta al archivo y no a esta tabla, el spec falla por conteo y
  * obliga a cubrir su guard.
+ *
+ * El guard se prueba en los dos sentidos: rechaza sin token (401) y sin
+ * marcador de plataforma (403), y deja pasar a un admin de plataforma (200)
+ * por el grupo real de rutas. Sin el 200, un middleware de más en el grupo que
+ * bloqueara a todos pasaría la suite en verde.
  */
 
 const TEST_PASSWORD = 'SystemModuleGuardTest123!'
@@ -157,6 +162,59 @@ test.group('Guard /api/platform/system-modules — 403 sin platformAdmin', (grou
       assert.equal(response.body().key, 'AUTH.PLATFORM.FORBIDDEN')
       assert.isUndefined(response.body().code)
       assert.isUndefined(response.body().data)
+
+      await employeesModule.refresh()
+      assert.equal(employeesModule.systemModuleActive, previousActive)
+    })
+  }
+})
+
+test.group('Guard /api/platform/system-modules — 200 con platformAdmin', (group) => {
+  let admin: TestActor | null = null
+  let employeesModule: SystemModule
+  let previousActive: number
+
+  group.setup(async () => {
+    employeesModule = await findEmployeesModule()
+    previousActive = employeesModule.systemModuleActive
+    admin = await createActor('system-module-guard-admin', true)
+  })
+
+  group.teardown(async () => {
+    await cleanupActor(admin)
+    // Solo repone si algo alcanzó a cambiar la disponibilidad; así no pisa lo que dejó la siembra.
+    if (employeesModule) {
+      await employeesModule.refresh()
+      if (employeesModule.systemModuleActive !== previousActive) {
+        employeesModule.systemModuleActive = previousActive
+        await employeesModule.save()
+      }
+    }
+  })
+
+  for (const route of SYSTEM_MODULE_AREA_ROUTES) {
+    test(`${route.label} pasa el guard con platformAdmin y responde 200`, async ({
+      client,
+      assert,
+    }) => {
+      const request = client[route.method](route.buildPath(employeesModule.systemModuleId)).loginAs(
+        admin!.user
+      )
+      if (route.method === 'put') {
+        // Pide el estado actual: cruza el guard sin cambiar la disponibilidad real del módulo.
+        request.json({ active: previousActive === 1 })
+      }
+
+      const response = await request
+      response.assertStatus(200)
+      assert.equal(response.body().type, 'success')
+
+      if (route.method === 'get') {
+        const slugs = (response.body().data.systemModules as Array<{ systemModuleSlug: string }>).map(
+          (systemModule) => systemModule.systemModuleSlug
+        )
+        assert.include(slugs, 'employees')
+      }
 
       await employeesModule.refresh()
       assert.equal(employeesModule.systemModuleActive, previousActive)

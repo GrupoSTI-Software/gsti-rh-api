@@ -1,7 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import User from '#models/user'
-import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
@@ -63,21 +62,13 @@ async function createScopedTenantActor(emailPrefix: string): Promise<TenantActor
   return { user, person, businessUnit }
 }
 
-async function ensureRootRole(): Promise<Role> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'root').first()
-  if (!role) {
-    throw new Error('Se requiere el rol root en BD para probar re-contratación tenant.')
-  }
-  return role
-}
-
 async function createTenantActor(options: {
   emailPrefix: string
   origin: 'platform' | 'self_service'
 }): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${options.emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await ensureRootRole()
+  const role = await ensureRole('root')
 
   const person = new Person()
   person.personFirstname = 'BillingContract'

@@ -1,5 +1,5 @@
 import { test } from '@japa/runner'
-import RoleSeeder from '#database/seeders/0006_role_seeder'
+import RoleSeeder, { ROLE_SEEDS } from '#database/seeders/0006_role_seeder'
 import Role from '#models/role'
 
 /**
@@ -8,8 +8,10 @@ import Role from '#models/role'
  * `owner`, `super-administrador`, `rh-manager` y `empleado` ya no nacen en una BD
  * limpia; los specs que los necesitan los aseguran con `tests/helpers/ensure_role.ts`.
  * Por eso ningún caso compara contra el total de la tabla `roles`: otros specs
- * de la misma corrida pueden haberlos creado antes. Se compara lo que cambia al
- * correr el seeder. Tampoco se afirma ningún id: lo asigna la BD.
+ * de la misma corrida pueden haberlos creado antes. La decisión de sembrar solo
+ * root se afirma sobre `ROLE_SEEDS`, lo que el seeder declara: si alguien vuelve
+ * a declarar un rol legacy, el upsert actualiza la fila que ya existe y ningún
+ * conteo de filas lo notaría. Tampoco se afirma ningún id: lo asigna la BD.
  */
 
 /** Slugs de todas las filas de `roles`, incluidas las dadas de baja. */
@@ -30,6 +32,14 @@ test.group('0006_role_seeder — solo root', () => {
     const roots = await liveRootRoles()
     assert.lengthOf(roots, 1, 'Debe existir exactamente un rol root vivo tras correr el seeder')
     assert.equal(roots[0].roleActive, 1)
+  })
+
+  test('declara únicamente root', ({ assert }) => {
+    assert.deepEqual(
+      ROLE_SEEDS.map((role) => role.roleSlug),
+      ['root'],
+      'El rediseño de roles por empresa está pendiente: 0006 no siembra ningún otro rol'
+    )
   })
 
   test('no crea ningún rol distinto de root', async ({ assert }) => {

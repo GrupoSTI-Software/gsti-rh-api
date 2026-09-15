@@ -205,7 +205,15 @@ test.group('Lectura sensible — 15 columnas restantes — E2E Japa', (group) =>
     client,
     assert,
   }) => {
-    await prepareSensitiveJourney(actor!.role.roleId, ['read'])
+    // El catálogo vigente declara `positions` con exigencia encendida
+    // (system_modules.constant.ts): leer rangos pide su propio permiso, aparte
+    // de la categoría sensible que prueba este caso. Se pasan también los dos
+    // módulos por defecto porque `extraModules` los reemplaza.
+    await prepareSensitiveJourney(actor!.role.roleId, ['read'], [
+      ['repse-registrations', 'read'],
+      ['traumatic-event-reports', 'read'],
+      ['positions', 'salary-ranges-read'],
+    ])
     const token = await sessionToken(client, actor!, assert)
     const surfaces = await openAnexoASurfaces(client, token, actor!, fixture!, extra!)
     for (const response of Object.values(surfaces)) {

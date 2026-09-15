@@ -708,15 +708,27 @@ export interface RemainingSensitiveFixture {
   consent: UserConsent | null
 }
 
+/** Concesión que devuelve `grantModuleAction`. */
+export interface ModuleActionGrant {
+  grant: RoleSystemPermission
+  /**
+   * `true` solo si esta llamada creó la fila. Sobre un rol compartido (p. ej.
+   * `rh-manager`) la concesión puede existir de antes: el teardown retira
+   * únicamente lo que su spec creó, para no quitarle el permiso a nadie más.
+   */
+  created: boolean
+}
+
 /**
  * Concede `moduleSlug:actionSlug` al rol, resuelto por slug, y devuelve la fila de
- * concesión para que el spec que la pide sobre un rol compartido la retire en su teardown.
+ * concesión y si la creó, para que el spec que la pide sobre un rol compartido
+ * retire en su teardown solo la que creó.
  */
 export async function grantModuleAction(
   roleId: number,
   moduleSlug: string,
   actionSlug: string
-): Promise<RoleSystemPermission> {
+): Promise<ModuleActionGrant> {
   const permission = await SystemPermission.query()
     .whereNull('system_permission_deleted_at')
     .where('system_permission_slug', actionSlug)
@@ -727,10 +739,18 @@ export async function grantModuleAction(
   if (!permission) {
     throw new Error(`Se requiere ${moduleSlug}:${actionSlug} en BD para este test.`)
   }
-  return RoleSystemPermission.firstOrCreate(
-    { roleId, systemPermissionId: permission.systemPermissionId },
-    { roleId, systemPermissionId: permission.systemPermissionId }
-  )
+  const existing = await RoleSystemPermission.query()
+    .where('role_id', roleId)
+    .where('system_permission_id', permission.systemPermissionId)
+    .first()
+  if (existing) {
+    return { grant: existing, created: false }
+  }
+  const grant = await RoleSystemPermission.create({
+    roleId,
+    systemPermissionId: permission.systemPermissionId,
+  })
+  return { grant, created: true }
 }
 
 export async function createRemainingSensitiveFixture(

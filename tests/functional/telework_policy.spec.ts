@@ -4,7 +4,10 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import TeleworkPolicy from '#models/telework_policy'
 import RoleSystemPermission from '#models/role_system_permission'
-import { grantModuleAction } from './employees/sensitive_read_by_category_support.js'
+import {
+  grantModuleAction,
+  type ModuleActionGrant,
+} from './employees/sensitive_read_by_category_support.js'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 /**
@@ -191,7 +194,7 @@ test.group('TeleworkPolicy - aislamiento entre empresas', (group) => {
   let rhManagerA: TestActor | null = null
   let businessUnitA: BusinessUnit | null = null
   let businessUnitB: BusinessUnit | null = null
-  let readGrant: RoleSystemPermission | null = null
+  let readGrant: ModuleActionGrant | null = null
 
   group.setup(async () => {
     businessUnitA = await getPrimaryBusinessUnit()
@@ -214,9 +217,10 @@ test.group('TeleworkPolicy - aislamiento entre empresas', (group) => {
   })
 
   group.teardown(async () => {
-    if (readGrant) {
+    // Solo si este grupo la creó: una concesión previa sobre el rol compartido se queda.
+    if (readGrant?.created) {
       await RoleSystemPermission.query()
-        .where('role_system_permission_id', readGrant.roleSystemPermissionId)
+        .where('role_system_permission_id', readGrant.grant.roleSystemPermissionId)
         .delete()
     }
     await cleanupTestActor(rhManagerA)

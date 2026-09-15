@@ -666,7 +666,8 @@ test.group('ContratoImport - escenarios extendidos (H01-H11)', (group) => {
 
     // Por slug: el id literal 157 apuntaba a otro permiso en cualquier BD sembrada desde cero.
     const permission = await grantModuleAction(rhManager.user.roleId, 'repse-registrations', 'create')
-    rhManagerPermissionId = permission.roleSystemPermissionId
+    // Solo se anota para retirar si este grupo la creó: rh-manager es un rol compartido.
+    rhManagerPermissionId = permission.created ? permission.grant.roleSystemPermissionId : null
   })
 
   group.teardown(async () => {
