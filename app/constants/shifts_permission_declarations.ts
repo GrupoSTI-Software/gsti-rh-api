@@ -8,7 +8,7 @@ const shiftsStandard = (action: string): PermissionGateOptions => ({
 
 /**
  * Declaraciones de permiso del módulo Turnos. Fuente única que consumen las
- * rutas de `start/routes/shift_routes.ts` y `start/routes/shift_for_employees.ts`.
+ * rutas de `start/routes/shift_routes.ts`.
  *
  * El listado (`GET /api/shift`) y el detalle (`GET /api/shift/:id`) no se
  * declaran: los consumen la asignación y el cambio de turno en Empleados y las
@@ -17,17 +17,13 @@ const shiftsStandard = (action: string): PermissionGateOptions => ({
  * `create` cubre también el turno temporal que nace desde el cambio de turno
  * del colaborador: el backoffice ya exige `shifts:create` para ese botón.
  *
- * Las dos consultas sin consumidor conocido (`shift-department-position` y
- * `shift-for-employees`) piden `read` en lugar de quedar abiertas: nadie las
- * usa y cerrarlas no rompe ninguna pantalla. `shift-for-employees` además no
- * monta `businessScope` ni filtra por empresa: con `read` (u owner por bypass)
- * devuelve turnos asignados de todas las empresas. Hueco de aislamiento
- * pendiente, reportado aparte; el permiso no lo cierra.
+ * Las dos consultas sin consumidor (`shift-department-position` y
+ * `shift-for-employees`) se retiraron en lugar de quedarse protegidas: ningún
+ * cliente las llamaba y `shift-for-employees` además corría sin corte de
+ * empresa. Con eso se fue el hueco de aislamiento que el permiso no cerraba.
  */
 export const SHIFTS_PERMISSION_DECLARATIONS = {
   storeShift: shiftsStandard('create'),
-  searchShiftsByPositionDepartment: shiftsStandard('read'),
   updateShift: shiftsStandard('update'),
   destroyShift: shiftsStandard('delete'),
-  indexShiftsForEmployees: shiftsStandard('read'),
 } as const satisfies Record<string, PermissionGateOptions>

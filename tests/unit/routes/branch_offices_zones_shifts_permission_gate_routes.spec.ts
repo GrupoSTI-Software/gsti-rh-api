@@ -157,8 +157,8 @@ test.group('Zonas — permissionGate en start/routes/zone_routes.ts', () => {
   })
 })
 
-test.group('Turnos — permissionGate en shift_routes.ts y shift_for_employees.ts', () => {
-  test('alta, edición, baja y la búsqueda por puesto/departamento declaran su permiso; listado y detalle quedan abiertos', ({
+test.group('Turnos — permissionGate en shift_routes.ts', () => {
+  test('alta, edición y baja declaran su permiso; listado y detalle quedan abiertos', ({
     assert,
   }) => {
     const content = readRoutes('shift_routes.ts')
@@ -168,12 +168,6 @@ test.group('Turnos — permissionGate en shift_routes.ts y shift_for_employees.t
       path: '/shift',
       handler: 'shifts_controller.store',
       declaration: 'SHIFTS_PERMISSION_DECLARATIONS.storeShift',
-    })
-    assertGated(assert, content, {
-      method: 'get',
-      path: '/shift-department-position',
-      handler: 'shifts_controller.searchPositionDepartment',
-      declaration: 'SHIFTS_PERMISSION_DECLARATIONS.searchShiftsByPositionDepartment',
     })
     assertGated(assert, content, {
       method: 'put',
@@ -189,29 +183,16 @@ test.group('Turnos — permissionGate en shift_routes.ts y shift_for_employees.t
     })
     assertOpen(assert, content, { method: 'get', path: '/shift', handler: 'shifts_controller.index' })
     assertOpen(assert, content, { method: 'get', path: '/shift/:id', handler: 'shifts_controller.show' })
-    assert.equal(gateCount(content), 4)
-  })
-
-  test('shift-for-employees declara shifts:read', ({ assert }) => {
-    const content = readRoutes('shift_for_employees.ts')
-
-    assertGated(assert, content, {
-      method: 'post',
-      path: '/shift-for-employees',
-      handler: 'shift_for_employees_controller.index',
-      declaration: 'SHIFTS_PERMISSION_DECLARATIONS.indexShiftsForEmployees',
-    })
-    assert.equal(gateCount(content), 1)
-    assert.include(content, 'middleware.auth()')
+    assert.equal(gateCount(content), 3)
+    // Retiradas por falta de consumidor: no deben reaparecer sin revisar el corte por empresa.
+    assert.notInclude(compact(content), compact("'/shift-department-position'"))
   })
 
   test('las declaraciones piden el permiso de turnos con bypass standard', ({ assert }) => {
     assert.deepEqual(SHIFTS_PERMISSION_DECLARATIONS, {
       storeShift: { module: 'shifts', action: 'create', bypass: 'standard' },
-      searchShiftsByPositionDepartment: { module: 'shifts', action: 'read', bypass: 'standard' },
       updateShift: { module: 'shifts', action: 'update', bypass: 'standard' },
       destroyShift: { module: 'shifts', action: 'delete', bypass: 'standard' },
-      indexShiftsForEmployees: { module: 'shifts', action: 'read', bypass: 'standard' },
     })
   })
 })

@@ -3,7 +3,6 @@ import db from '@adonisjs/lucid/services/db'
 import Shift from '#models/shift'
 import {
   assertModuleEnforced,
-  assertPassesGate,
   assertPermissionDenied,
   businessUnitHeaders,
   cleanupTenantActor,
@@ -16,10 +15,10 @@ import {
 } from '#tests/helpers/tenant_actor'
 
 /**
- * Turnos con la exigencia encendida: alta, edición, baja y las dos consultas
- * sin consumidor (`shift-department-position`, `shift-for-employees`) piden su
- * permiso de `shifts`. Listado y detalle quedan abiertos porque los consumen
- * Empleados y REPSE.
+ * Turnos con la exigencia encendida: alta, edición y baja piden su permiso de
+ * `shifts`. Listado y detalle quedan abiertos porque los consumen Empleados y
+ * REPSE. Las dos consultas sin consumidor (`shift-department-position` y
+ * `shift-for-employees`) se retiraron del API.
  */
 
 const MODULE = 'shifts'
@@ -33,8 +32,6 @@ const shiftPayload = (name: string) => ({
   shiftTemp: 0,
   shiftCalculateFlag: '',
 })
-
-const SHIFTS_FOR_EMPLOYEES_PAYLOAD = { startDate: '2026-01-01', endDate: '2026-01-31' }
 
 async function createShiftFixture(actor: TenantActor, prefix: string): Promise<Shift> {
   return Shift.create({
@@ -73,7 +70,7 @@ test.group('Turnos — permissionGate con exigencia encendida', (group) => {
     }
   })
 
-  test('sin concesiones: escrituras y consultas protegidas responden PERM.DENIED y no tocan el turno', async ({
+  test('sin concesiones: las escrituras responden PERM.DENIED y no tocan el turno', async ({
     client,
     assert,
   }) => {
@@ -103,18 +100,6 @@ test.group('Turnos — permissionGate con exigencia encendida', (group) => {
       .headers(businessUnitHeaders(tenant))
     assertPermissionDenied(assert, destroy)
 
-    const byPositionDepartment = await client
-      .get('/api/shift-department-position')
-      .loginAs(tenant.user)
-      .headers(businessUnitHeaders(tenant))
-    assertPermissionDenied(assert, byPositionDepartment)
-
-    const forEmployees = await client
-      .post('/api/shift-for-employees')
-      .loginAs(tenant.user)
-      .json(SHIFTS_FOR_EMPLOYEES_PAYLOAD)
-    assertPermissionDenied(assert, forEmployees)
-
     const after = await findAliveShift(shift.shiftId)
     assert.equal(after?.shiftName, shift.shiftName)
   })
@@ -139,7 +124,7 @@ test.group('Turnos — permissionGate con exigencia encendida', (group) => {
     show.assertStatus(200)
   })
 
-  test('cada permiso abre solo su operación: create 201, update 200, read consulta y delete 200', async ({
+  test('cada permiso abre solo su operación: create 201, update 200 y delete 200', async ({
     client,
     assert,
   }) => {
@@ -177,18 +162,8 @@ test.group('Turnos — permissionGate con exigencia encendida', (group) => {
       .headers(businessUnitHeaders(tenant))
     assertPermissionDenied(assert, destroyWithUpdateOnly)
 
+    // `read` no abre ninguna escritura: el listado y el detalle ya están abiertos.
     await grantModulePermissions(tenant, MODULE, ['read'])
-    const byPositionDepartment = await client
-      .get('/api/shift-department-position')
-      .loginAs(tenant.user)
-      .headers(businessUnitHeaders(tenant))
-    byPositionDepartment.assertStatus(200)
-    const forEmployees = await client
-      .post('/api/shift-for-employees')
-      .loginAs(tenant.user)
-      .json(SHIFTS_FOR_EMPLOYEES_PAYLOAD)
-    // Sin asignaciones en el rango el servicio responde 400: basta con cruzar el gate.
-    assertPassesGate(assert, forEmployees)
     const storeWithReadOnly = await client
       .post('/api/shift')
       .loginAs(tenant.user)
