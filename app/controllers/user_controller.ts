@@ -262,9 +262,6 @@ export default class UserController {
             employeeQuery.preload('position', (positionQuery) =>
               positionQuery.whereNull('position_deleted_at')
             )
-            // La app cliente necesita el UUID público de la unidad de negocio
-            // para enviarlo en el header x-business-unit-id de las siguientes
-            // solicitudes; el login es el único punto sin ese header.
             employeeQuery.preload('businessUnit')
           })
         )
@@ -424,7 +421,7 @@ export default class UserController {
       if (Ws.io) {
         try {
           Ws.io.emit(`user-forze-logout:${user.userEmail}:${origin}`, {})
-        } catch (error) {}
+        } catch (error) { }
       }
 
       const authTokenService = new AuthTokenService()
@@ -446,7 +443,7 @@ export default class UserController {
           date: date ? date : '',
           user_id: user.userId,
         } as LogAuthentication)
-      } catch (err) {}
+      } catch (err) { }
       response.status(200)
       return {
         type: 'success',
@@ -1643,7 +1640,7 @@ export default class UserController {
         .where('business_unit_active', 1)
         .whereNull('business_unit_deleted_at')
         .select('business_unit_id')
-      
+
       const businessUnitIds = businessUnits.map((unit) => unit.businessUnitId)
 
       const user = {
@@ -2823,104 +2820,104 @@ export default class UserController {
       }
     }
   }
- /**
-   * @swagger
-   * /api/auth/request/code-verify/{pinCode}:
-   *   post:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Users
-   *     summary: verify password recovery code
-   *     produces:
-   *       - application/json
-   *     parameters:
-   *       - in: path
-   *         name: pinCode
-   *         schema:
-   *           type: string
-   *         required: true
-   *     responses:
-   *       '200':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
+  /**
+    * @swagger
+    * /api/auth/request/code-verify/{pinCode}:
+    *   post:
+    *     security:
+    *       - bearerAuth: []
+    *     tags:
+    *       - Users
+    *     summary: verify password recovery code
+    *     produces:
+    *       - application/json
+    *     parameters:
+    *       - in: path
+    *         name: pinCode
+    *         schema:
+    *           type: string
+    *         required: true
+    *     responses:
+    *       '200':
+    *         description: Resource processed successfully
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: Processed object
+    *       '404':
+    *         description: Resource not found
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: List of parameters set by the client
+    *       '400':
+    *         description: The parameters entered are invalid or essential data is missing to process the request
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: List of parameters set by the client
+    *       default:
+    *         description: Unexpected error
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: Error message obtained
+    *                   properties:
+    *                     error:
+    *                       type: string
+    */
   async verifyRequestPinCode({ params, response, i18n }: HttpContext) {
     try {
       const user = await User.query()
