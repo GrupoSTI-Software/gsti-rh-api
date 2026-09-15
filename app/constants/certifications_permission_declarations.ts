@@ -17,14 +17,18 @@ const certificationsStandard = (action: string): PermissionGateOptions => ({
  * la pestaña del empleado siguen gobernando solo la carga y baja de
  * cumplimientos (`employee_certification_upload_routes.ts`).
  *
+ * `GET /api/certification-categories` pide `read`: su único consumidor es la
+ * pantalla del catálogo (`pages/certifications/script.ts` del backoffice), que
+ * ya exige ese permiso para abrirse. Ni el Organigrama, ni la PWA, ni la app
+ * del colaborador lo leen, así que por la regla de lecturas de catálogo se
+ * protege con el permiso del módulo.
+ *
  * Sin declaración a propósito:
  *  - `GET /api/certifications`: lo usa el panel de certificaciones requeridas
  *    del Organigrama como lista del selector.
- *  - `GET /api/certification-categories`: catálogo estático sembrado (0027),
- *    igual para todas las empresas y sin datos de ninguna. Hoy solo lo lee esta
- *    pantalla, pero cerrarlo no protege información.
  */
 export const CERTIFICATIONS_PERMISSION_DECLARATIONS = {
+  indexCertificationCategories: certificationsStandard('read'),
   createCertification: certificationsStandard('create'),
   updateCertification: certificationsStandard('update'),
   deleteCertification: certificationsStandard('delete'),

@@ -58,10 +58,11 @@ test.group('Plantillas, certificaciones y competencias — declaraciones del gat
     })
   })
 
-  test('certifications: el CRUD del catálogo pide su verbo en el módulo propio', ({ assert }) => {
+  test('certifications: el CRUD del catálogo y sus categorías piden su verbo en el módulo propio', ({ assert }) => {
     const standard = (action: string) => ({ module: 'certifications', action, bypass: 'standard' })
 
     assert.deepEqual(CERTIFICATIONS_PERMISSION_DECLARATIONS, {
+      indexCertificationCategories: standard('read'),
       createCertification: standard('create'),
       updateCertification: standard('update'),
       deleteCertification: standard('delete'),
@@ -152,7 +153,7 @@ test.group('Parámetros de evaluación — rutas de plantillas, dimensiones y pe
 })
 
 test.group('Catálogo de certificaciones — start/routes/certifications_routes.ts', () => {
-  test('escrituras declaran el gate de certifications; lista y categorías quedan abiertas', ({
+  test('escrituras y categorías declaran el gate de certifications; la lista queda abierta', ({
     assert,
   }) => {
     const content = readSource('start/routes/certifications_routes.ts')
@@ -163,7 +164,7 @@ test.group('Catálogo de certificaciones — start/routes/certifications_routes.
     assertRouteGated(assert, content, { method: 'delete', path: '/certifications/:id', handler: handler('destroy'), gate: certificationsGate('deleteCertification') })
 
     assertRouteOpen(assert, content, { method: 'get', path: '/certifications', handler: handler('index') })
-    assertRouteOpen(assert, content, { method: 'get', path: '/certification-categories', handler: handler('indexCategories') })
+    assertRouteGated(assert, content, { method: 'get', path: '/certification-categories', handler: handler('indexCategories'), gate: certificationsGate('indexCertificationCategories') })
   })
 })
 

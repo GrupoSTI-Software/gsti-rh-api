@@ -19,8 +19,9 @@ import {
  * Catálogo de certificaciones con la exigencia encendida: alta, edición y baja
  * piden `certifications:create/update/delete`. Antes colgaban de la pestaña de
  * certificaciones de Empleados; el caso de esos permisos viejos cuida que no
- * vuelvan a abrir el catálogo. La lista y las categorías quedan abiertas porque
- * el panel de certificaciones requeridas del Organigrama las usa.
+ * vuelvan a abrir el catálogo. La lista queda abierta porque el panel de
+ * certificaciones requeridas del Organigrama la usa como selector; las
+ * categorías piden `read` porque solo las lee la pantalla del catálogo.
  *
  * El catálogo es global (sin unidad de negocio): los fixtures se identifican
  * por un prefijo de nombre propio de la corrida y se borran al final.
@@ -250,17 +251,27 @@ test.group('Catálogo de certificaciones — permissionGate con exigencia encend
     }
   })
 
-  test('sin concesiones: la lista del catálogo y las categorías siguen abiertas', async ({
+  test('sin concesiones: la lista del catálogo sigue abierta', async ({ client, assert }) => {
+    const tenant = required(actor, 'el actor')
+    await grantModulePermissions(tenant, MODULE, [])
+
+    const response = await send(client, tenant, { method: 'get', url: '/api/certifications' })
+    assert.equal(response.status(), 200, JSON.stringify(response.body()))
+  })
+
+  test('las categorías piden read: sin concesión PERM.DENIED, con read 200', async ({
     client,
     assert,
   }) => {
     const tenant = required(actor, 'el actor')
-    await grantModulePermissions(tenant, MODULE, [])
+    const categories: GateRequest = { method: 'get', url: '/api/certification-categories' }
 
-    for (const url of ['/api/certifications', '/api/certification-categories']) {
-      const response = await send(client, tenant, { method: 'get', url })
-      assert.equal(response.status(), 200, `${url}: ${JSON.stringify(response.body())}`)
-    }
+    await grantModulePermissions(tenant, MODULE, [])
+    assertDeniedFor(assert, await send(client, tenant, categories), categories)
+
+    await grantModulePermissions(tenant, MODULE, ['read'])
+    const response = await send(client, tenant, categories)
+    assert.equal(response.status(), 200, JSON.stringify(response.body()))
   })
 
   test('owner y root dan de alta sin concesiones (bypass standard)', async ({ client, assert }) => {

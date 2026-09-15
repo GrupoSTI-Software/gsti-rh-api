@@ -4,7 +4,13 @@ import { CERTIFICATIONS_PERMISSION_DECLARATIONS } from '#constants/certification
 
 router
   .group(() => {
-    router.get('/certification-categories', '#controllers/certifications_controller.indexCategories')
+    router
+      .get('/certification-categories', '#controllers/certifications_controller.indexCategories')
+      .use(
+        middleware.permissionGate(
+          CERTIFICATIONS_PERMISSION_DECLARATIONS.indexCertificationCategories
+        )
+      )
     // Sin gate: lo usa el panel de certificaciones requeridas del Organigrama.
     router.get('/certifications', '#controllers/certifications_controller.index')
     router
