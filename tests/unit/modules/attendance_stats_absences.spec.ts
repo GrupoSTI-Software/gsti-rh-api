@@ -1055,6 +1055,16 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     )
     assert.include(scope, "'d.department_alias AS department_alias'")
     assert.include(scope, "'p.position_alias AS position_alias'")
+
+    // Aislamiento por empresa del join de sucursal base. Venía del spec de
+    // cobertura, que se retiró con su endpoint: el método sigue vivo y alimenta
+    // ausencias, así que la guarda se rescata aquí. Sin el `andOnIn`, la
+    // sucursal base de otra empresa entraría como sucursal efectiva; el alias
+    // debe salir de `bo` (acotado) y nunca de `ebo` (sin acotar).
+    assert.include(scope, "andOnIn('bo.business_unit_id', allowedBusinessUnitIds)")
+    assert.include(scope, "'bo.branch_office_id AS branch_office_id'")
+    assert.notInclude(scope, "'ebo.branch_office_id AS branch_office_id'")
+    assert.include(scope, "whereIn('ebo.branch_office_id', branchOfficeIds)")
   })
 
   test('las consultas de universo, préstamos y catálogo no devuelven nada sin unidades de negocio o sin ids', async ({ assert }) => {
@@ -1066,6 +1076,10 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     assert.deepEqual(await repo.getLoansForRange([1], START_DAY, END_DAY, []), [])
     assert.deepEqual(await repo.getAbsencesBranches([], [1]), [])
     assert.deepEqual(await repo.getAbsencesBranches([BRANCH_A], []), [])
+    // Rescatado del spec de cobertura retirado: el método sigue vivo y ausencias
+    // lo alcanza por `resolveVisibleEmployeeIds`. Sin unidades de negocio no
+    // puede devolver colaboradores de nadie.
+    assert.deepEqual(await repo.getEmployeeIdsInResponsibleScope(1, [1], []), [])
   })
 
   test('censo: las reglas de día y el motor de ausencias son módulos puros, sin ciclo con el service ni el repositorio', ({ assert }) => {

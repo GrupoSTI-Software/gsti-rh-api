@@ -20,7 +20,10 @@ export type AttendanceMonitorSection = 'listado' | 'nomina' | 'asistencia' | 'de
  * Quién verifica cada una (la constante solo declara permisos que alguien
  * consulta):
  *  - API: `see-payroll`, `display-payments-summary`, `display-discounts-summary`
- *    y `download-summary` (reportes), `shift-coverage` (estadísticas),
+ *    y `download-summary` (reportes), `shift-coverage` (motor de AUSENCIAS: es
+ *    lo único que gobierna hoy, mostrar u ocultar la empresa contratante en el
+ *    drawer; el semáforo de cobertura de plantilla que le daba nombre se retiró
+ *    con su endpoint),
  *    `add-assist-manual` (captura ajena), `sync-assist` (las dos vías de
  *    sincronización, general y por empleado, con permissionGate) y
  *    `delete-check-assist` (anular checada con permissionGate). Las tres
@@ -57,7 +60,10 @@ export const ATTENDANCE_MONITOR_PERMISSION_CATALOG = [
   },
   {
     slug: 'shift-coverage',
-    displayName: 'Ver cobertura de turnos',
+    // El nombre dice lo que la casilla concede HOY: la cobertura de plantilla
+    // que le daba nombre se retiró con su endpoint. 0062 reescribe el nombre
+    // sobre la fila ya sembrada, así que la pantalla de roles se actualiza sola.
+    displayName: 'Ver la empresa contratante en ausencias',
     kind: 'read',
     section: 'listado',
     exceptionProfile: 'standard',

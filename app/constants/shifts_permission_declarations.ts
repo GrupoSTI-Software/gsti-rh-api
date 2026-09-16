@@ -21,6 +21,13 @@ const shiftsStandard = (action: string): PermissionGateOptions => ({
  * `shift-for-employees`) se retiraron en lugar de quedarse protegidas: ningún
  * cliente las llamaba y `shift-for-employees` además corría sin corte de
  * empresa. Con eso se fue el hueco de aislamiento que el permiso no cerraba.
+ *
+ * Efecto colateral vigente: `shifts:read` quedó sin efecto en el API. Era la
+ * casilla de esas dos consultas retiradas y el listado y el detalle están
+ * abiertos a propósito, así que concederla o negarla no cambia ninguna
+ * respuesta. Se conserva en el catálogo (la pantalla de roles la sigue
+ * ofreciendo y hay concesiones sembradas); retirarla del módulo es una decisión
+ * de catálogo anotada en el backlog de la fase 6, no de este archivo.
  */
 export const SHIFTS_PERMISSION_DECLARATIONS = {
   storeShift: shiftsStandard('create'),

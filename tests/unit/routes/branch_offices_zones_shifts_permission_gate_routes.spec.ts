@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from '@japa/runner'
 import type { Assert } from '@japa/assert'
@@ -186,6 +186,20 @@ test.group('Turnos — permissionGate en shift_routes.ts', () => {
     assert.equal(gateCount(content), 3)
     // Retiradas por falta de consumidor: no deben reaparecer sin revisar el corte por empresa.
     assert.notInclude(compact(content), compact("'/shift-department-position'"))
+
+    // `shift-for-employees` era la que importaba: corría bajo `.prefix('/api')`
+    // con `auth()` y SIN `businessScope()`, así que devolvía turnos de todas las
+    // empresas. Su archivo de rutas se fue entero, así que la guarda no puede
+    // vivir en `shift_routes.ts`: se vigila que no vuelva a montarse.
+    assert.notInclude(
+      compact(readFileSync(join(process.cwd(), 'start/routes.ts'), 'utf-8')),
+      compact("'./routes/shift_for_employees.js'"),
+      'start/routes.ts no debe volver a importar shift_for_employees sin corte por empresa'
+    )
+    assert.isFalse(
+      existsSync(join(process.cwd(), 'start/routes/shift_for_employees.ts')),
+      'shift_for_employees.ts no debe reaparecer sin montar businessScope()'
+    )
   })
 
   test('las declaraciones piden el permiso de turnos con bypass standard', ({ assert }) => {
