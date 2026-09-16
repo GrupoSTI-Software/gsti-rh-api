@@ -5,6 +5,7 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import Alliance from '#models/alliance'
 import DiscountCode from '#models/discount_code'
+import AllianceBillingProfile from '#models/alliance_billing_profile'
 import { ALLIANCE_ERROR_CODES } from '#constants/alliance_error_codes'
 
 /**
@@ -64,6 +65,7 @@ async function cleanupActor(actor: TestActor | null) {
 
 async function cleanupAlliances(ids: number[]) {
   if (ids.length === 0) return
+  await AllianceBillingProfile.query().whereIn('alliance_id', ids).delete()
   await DiscountCode.query().whereIn('discount_code_alliance_id', ids).delete()
   await Alliance.query().whereIn('alliance_id', ids).delete()
 }
@@ -313,6 +315,114 @@ test.group('GET /api/platform/alliances — listado', (group) => {
     assert.isAtLeast(paged.body().meta.total, 2)
     assert.isAtLeast(paged.body().meta.lastPage, 2)
     assert.equal(paged.body().data.length, 1)
+  })
+
+  test('8. filtra por payable y un perfil soft-deleted no cuenta como pagable', async ({
+    client,
+    assert,
+  }) => {
+    const payableStamp = `Payable ${Date.now()}`
+    const withoutProfile = await Alliance.create({
+      allianceName: `${payableStamp} sin perfil`,
+      allianceContactName: null,
+      allianceContactEmail: null,
+      allianceContactPhone: null,
+      allianceDefaultCommissionPercent: 10,
+      allianceDefaultTermPeriods: null,
+      allianceActive: 1,
+    })
+    const incomplete = await Alliance.create({
+      allianceName: `${payableStamp} incompleto`,
+      allianceContactName: null,
+      allianceContactEmail: null,
+      allianceContactPhone: null,
+      allianceDefaultCommissionPercent: 10,
+      allianceDefaultTermPeriods: null,
+      allianceActive: 1,
+    })
+    await AllianceBillingProfile.create({
+      allianceId: incomplete.allianceId,
+      rfc: null,
+      legalName: 'Solo razón social',
+      postalCode: null,
+      taxRegimeCode: null,
+      cfdiUseCode: null,
+      billingEmail: null,
+    })
+    const complete = await Alliance.create({
+      allianceName: `${payableStamp} completo`,
+      allianceContactName: null,
+      allianceContactEmail: null,
+      allianceContactPhone: null,
+      allianceDefaultCommissionPercent: 10,
+      allianceDefaultTermPeriods: null,
+      allianceActive: 1,
+    })
+    await AllianceBillingProfile.create({
+      allianceId: complete.allianceId,
+      rfc: 'ALI010101AB4',
+      legalName: 'Alianza Completa SA de CV',
+      postalCode: '06600',
+      taxRegimeCode: '601',
+      cfdiUseCode: 'G03',
+      billingEmail: null,
+    })
+    const retiredProfile = await Alliance.create({
+      allianceName: `${payableStamp} perfil borrado`,
+      allianceContactName: null,
+      allianceContactEmail: null,
+      allianceContactPhone: null,
+      allianceDefaultCommissionPercent: 10,
+      allianceDefaultTermPeriods: null,
+      allianceActive: 1,
+    })
+    const liveThenDeleted = await AllianceBillingProfile.create({
+      allianceId: retiredProfile.allianceId,
+      rfc: 'ALI010101AB4',
+      legalName: 'Alianza Borrada SA de CV',
+      postalCode: '06600',
+      taxRegimeCode: '601',
+      cfdiUseCode: 'G03',
+      billingEmail: null,
+    })
+    await liveThenDeleted.delete()
+    createdIds.push(
+      withoutProfile.allianceId,
+      incomplete.allianceId,
+      complete.allianceId,
+      retiredProfile.allianceId
+    )
+
+    const payableYes = await client
+      .get(BASE_URL)
+      .qs({ search: payableStamp, payable: 1, limit: 100 })
+      .loginAs(admin!.user)
+    payableYes.assertStatus(200)
+    const yesIds = (payableYes.body().data as Array<{ allianceId: number }>).map((row) => row.allianceId)
+    assert.deepEqual(yesIds, [complete.allianceId])
+    assert.isTrue(
+      (payableYes.body().data as Array<{ billingProfileComplete: boolean }>).every(
+        (row) => row.billingProfileComplete === true
+      )
+    )
+
+    const payableNo = await client
+      .get(BASE_URL)
+      .qs({ search: payableStamp, payable: 0, limit: 100 })
+      .loginAs(admin!.user)
+    payableNo.assertStatus(200)
+    const noIds = (payableNo.body().data as Array<{ allianceId: number }>).map((row) => row.allianceId)
+    assert.includeMembers(noIds, [
+      withoutProfile.allianceId,
+      incomplete.allianceId,
+      retiredProfile.allianceId,
+    ])
+    assert.notInclude(noIds, complete.allianceId)
+    assert.isTrue(
+      (payableNo.body().data as Array<{ billingProfileComplete: boolean }>).every(
+        (row) => row.billingProfileComplete === false
+      )
+    )
   })
 })
 

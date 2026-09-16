@@ -25,6 +25,7 @@ const DEVICE: ResolvedAdmsDevice = {
   ip: '192.168.1.99',
   timezone: null,
   receivedAt: NOW,
+  configuredAt: null,
 }
 
 const FINGER_BLOB = 'A'.repeat(1120)

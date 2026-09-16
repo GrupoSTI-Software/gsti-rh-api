@@ -48,6 +48,10 @@ const CONTEXT_WHITELIST: ReadonlyArray<AdmsIncidentContextKey> = [
   'modality',
   'driftSeconds',
   'reason',
+  'deviceVersion',
+  'vaultVersions',
+  'declared',
+  'expected',
 ]
 
 const CONTEXT_VALUE_MAX_LENGTH = 200

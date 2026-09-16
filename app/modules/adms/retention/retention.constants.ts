@@ -19,7 +19,11 @@ import env from '#start/env'
  *   persona: una semana;
  * - una cuarentena sin actividad es un aparato que dejo de llamar.
  */
-function bounded(value: number | undefined, fallback: number, minimum: number): number {
+export function boundedRetentionDays(
+  value: number | undefined,
+  fallback: number,
+  minimum: number
+): number {
   if (value === undefined || !Number.isFinite(value)) return fallback
   return Math.max(minimum, Math.trunc(value))
 }
@@ -29,28 +33,57 @@ export const ADMS_COMMAND_RETENTION_MIN_DAYS = 30
 export const ADMS_PHOTO_PUBLICATION_RETENTION_MIN_DAYS = 1
 export const ADMS_QUARANTINE_RETENTION_MIN_DAYS = 7
 
+/**
+ * Plazos por omision: los que corren en cualquier despliegue que no configure
+ * las variables. Son constantes exportadas y no literales sueltos para que el
+ * spec pueda anclarse a ELLOS: con el valor escrito dentro de cada funcion,
+ * `.env.test` fijaba las cinco variables, la rama del entorno ganaba siempre y
+ * el default del codigo no lo cubria ninguna prueba.
+ */
+export const ADMS_RAW_RETENTION_DEFAULT_DAYS = 180
+export const ADMS_RAW_FAILED_RETENTION_DEFAULT_DAYS = 30
+export const ADMS_COMMAND_RETENTION_DEFAULT_DAYS = 365
+export const ADMS_PHOTO_PUBLICATION_RETENTION_DEFAULT_DAYS = 7
+export const ADMS_QUARANTINE_RETENTION_DEFAULT_DAYS = 30
+
 export function admsRawRetentionDays(): number {
-  return bounded(env.get('ADMS_RAW_RETENTION_DAYS'), 180, ADMS_RAW_RETENTION_MIN_DAYS)
+  return boundedRetentionDays(
+    env.get('ADMS_RAW_RETENTION_DAYS'),
+    ADMS_RAW_RETENTION_DEFAULT_DAYS,
+    ADMS_RAW_RETENTION_MIN_DAYS
+  )
 }
 
 export function admsRawFailedRetentionDays(): number {
-  return bounded(env.get('ADMS_RAW_FAILED_RETENTION_DAYS'), 30, ADMS_RAW_RETENTION_MIN_DAYS)
+  return boundedRetentionDays(
+    env.get('ADMS_RAW_FAILED_RETENTION_DAYS'),
+    ADMS_RAW_FAILED_RETENTION_DEFAULT_DAYS,
+    ADMS_RAW_RETENTION_MIN_DAYS
+  )
 }
 
 export function admsCommandRetentionDays(): number {
-  return bounded(env.get('ADMS_COMMAND_RETENTION_DAYS'), 365, ADMS_COMMAND_RETENTION_MIN_DAYS)
+  return boundedRetentionDays(
+    env.get('ADMS_COMMAND_RETENTION_DAYS'),
+    ADMS_COMMAND_RETENTION_DEFAULT_DAYS,
+    ADMS_COMMAND_RETENTION_MIN_DAYS
+  )
 }
 
 export function admsPhotoPublicationRetentionDays(): number {
-  return bounded(
+  return boundedRetentionDays(
     env.get('ADMS_PHOTO_PUBLICATION_RETENTION_DAYS'),
-    7,
+    ADMS_PHOTO_PUBLICATION_RETENTION_DEFAULT_DAYS,
     ADMS_PHOTO_PUBLICATION_RETENTION_MIN_DAYS
   )
 }
 
 export function admsQuarantineRetentionDays(): number {
-  return bounded(env.get('ADMS_QUARANTINE_RETENTION_DAYS'), 30, ADMS_QUARANTINE_RETENTION_MIN_DAYS)
+  return boundedRetentionDays(
+    env.get('ADMS_QUARANTINE_RETENTION_DAYS'),
+    ADMS_QUARANTINE_RETENTION_DEFAULT_DAYS,
+    ADMS_QUARANTINE_RETENTION_MIN_DAYS
+  )
 }
 
 /** Filas por corrida. Purgar en tandas no bloquea la tabla para el canal. */

@@ -3,9 +3,12 @@ import db from '@adonisjs/lucid/services/db'
 import { AdmsError } from '#exceptions/adms_error'
 import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import AccessPointEmployee from '#models/access_point_employee'
-import type { AccessPointEmployeeSyncStatus } from '#models/access_point_employee'
+import {
+  ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
+  type AccessPointEmployeeSyncStatus,
+} from '#models/access_point_employee'
 import AccessPointEmployeeEvent from '#models/access_point_employee_event'
-import { PIN_QUARANTINE_STATUSES } from './employee_sync_state.js'
+import { canTransition, PIN_QUARANTINE_STATUSES } from './employee_sync_state.js'
 import type { EmployeeSyncRepository, SyncEventInput } from './employee_sync.repository.js'
 
 /** Prefijo del cerrojo por equipo. Con nombre, no sobre una fila. */
@@ -107,6 +110,24 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
       })
   }
 
+  async countConfirmedBefore(accessPointId: number, at: DateTime): Promise<number> {
+    const rows = await AccessPointEmployee.query()
+      .where('access_point_id', accessPointId)
+      .where('access_point_employee_sync_status', ACCESS_POINT_EMPLOYEE_SYNC_STATUS.CONFIRMED)
+      .where((group) => {
+        group
+          .whereNull('access_point_employee_sync_confirmed_at')
+          .orWhere(
+            'access_point_employee_sync_confirmed_at',
+            '<=',
+            at.toSQL({ includeOffset: false }) ?? ''
+          )
+      })
+      .count('* as total')
+
+    return Number(rows[0].$extras.total ?? 0)
+  }
+
   async listTakenPins(accessPointId: number, exceptPivotId?: number): Promise<string[]> {
     const query = AccessPointEmployee.query()
       .withTrashed()
@@ -176,6 +197,24 @@ export default class EmployeeSyncRepositoryMysql implements EmployeeSyncReposito
   ): Promise<AccessPointEmployee | null> {
     const pivot = await this.findByCommandTarget(accessPointEmployeeId)
     if (!pivot) return null
+
+    /**
+     * La maquina decide, tambien cuando quien empuja es el canal.
+     *
+     * Esta via la usan el despacho y el acuse, que hasta ahora escribian el
+     * estado a ciegas: un `user_upsert` rezagado --uno que salio antes de la
+     * baja y llego despues-- movia el pivote de `revoked` a `sent` y luego a
+     * `confirmed`, dejando dentro del checador a quien acababa de salir. Un
+     * comando que llega tarde no puede deshacer un estado terminal; se ignora
+     * y quien llama decide si eso merece aviso.
+     */
+    if (
+      pivot.accessPointEmployeeSyncStatus !== status &&
+      !canTransition(pivot.accessPointEmployeeSyncStatus, status)
+    ) {
+      return null
+    }
+
     pivot.accessPointEmployeeSyncStatus = status
     if (status === 'sent') pivot.accessPointEmployeeSyncSentAt = DateTime.utc()
     if (status === 'confirmed') pivot.accessPointEmployeeSyncConfirmedAt = DateTime.utc()

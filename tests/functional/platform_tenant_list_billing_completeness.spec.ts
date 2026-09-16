@@ -27,6 +27,7 @@ const EXPECTED_ITEM_KEYS = [
   'businessUnitLegalName',
   'businessUnitName',
   'businessUnitPublicId',
+  'grupo',
   'hasBiometrics',
   'missingFields',
   'subscription',

@@ -64,6 +64,17 @@ export const ADMS_PHOTO_TOKEN_UNSCOPED_REASON =
 /** Ventana en la que dos IP distintas para la misma serie cuentan como anomalia. */
 export const ADMS_IP_ANOMALY_WINDOW_SECONDS = 300
 
+/**
+ * Cuanto vale el saludo de un equipo como respaldo de su sesion.
+ *
+ * Los comandos que llevan biometrico solo salen si el aparato saludo desde esta
+ * misma direccion dentro de la ventana: quien sondee de madrugada con una serie
+ * robada no recibe nada, porque no hay nada que entregarle. Media hora es
+ * holgado para un equipo que sondea cada pocos segundos, y corto frente al
+ * riesgo de entregarle una huella a quien solo conoce la serie.
+ */
+export const ADMS_HOT_SESSION_MINUTES = 30
+
 /** Limites del canal (spec 4.2 y 4.6). Store del limiter en memoria, por worker. */
 export const ADMS_RATE = {
   devicePerMinute: 300,
@@ -184,6 +195,14 @@ export const ADMS_INCIDENT_KIND = {
   VERSION_SOURCE_MISMATCH: 'version_source_mismatch',
   /** Acuse de un comando que no existe o que es de otro dispositivo (spec 6.5). */
   ORPHAN_ACK: 'orphan_ack',
+  /**
+   * Acuse sobre un comando que no estaba esperando respuesta (spec 6.2).
+   *
+   * El comando existe y es de ese equipo, pero su estado no admite el acuse:
+   * nunca salio, se cancelo, o el barrido ya lo dio por fallido. Se avisa en
+   * vez de aplicarlo porque acreditarlo marcaria como hecho algo que no paso.
+   */
+  STALE_ACK: 'stale_ack',
   /** Un blob biometrico que no pasa la validacion de la boveda (spec 7.1). */
   INVALID_TEMPLATE: 'invalid_template',
   /** El reloj del equipo esta corrido mas alla del umbral (spec 6.7). */
@@ -209,8 +228,55 @@ export const ADMS_INCIDENT_KIND = {
    * marcar en una puerta de la que ya se le retiro.
    */
   REVOKED_STILL_PRESENT: 'revoked_still_present',
+  /**
+   * El equipo declara una version de algoritmo de huella que ningun template
+   * del colaborador alcanza, asi que la copia no se encolo (spec 7.4).
+   *
+   * El corte por version es correcto --un template de otra generacion se
+   * descarta dentro del aparato sin avisar-- pero callarlo deja al equipo con
+   * gente dada de alta que no puede identificarse, y nadie se entera hasta que
+   * alguien no puede entrar.
+   */
+  TEMPLATE_VERSION_MISMATCH: 'template_version_mismatch',
+  /**
+   * El equipo declara menos gente dentro de la que se le dio de alta.
+   *
+   * Un reset de fabrica, un cambio de algoritmo de huella --que borra todo lo
+   * que el aparato tenia-- o un reemplazo dejan al servidor creyendo que la
+   * gente sigue registrada. Nadie lo nota hasta que alguien se queda parado en
+   * la puerta, porque del lado de aca todo figura confirmado.
+   */
+  DEVICE_ROSTER_SHRUNK: 'device_roster_shrunk',
+  /**
+   * La direccion por la que llego no corresponde al secreto de esa serie.
+   *
+   * O el checador perdio su direccion --un reset, alguien que la reescribio--
+   * o alguien esta usando su serie desde otro lado. Las dos cosas se atienden
+   * igual: no se le contesta y queda constancia.
+   */
+  CHANNEL_SECRET_MISMATCH: 'channel_secret_mismatch',
+  /** El equipo sigue hablando por el dominio comun: le falta migrar. */
+  CHANNEL_SECRET_MISSING: 'channel_secret_missing',
+  /** Una misma IP prueba direcciones que no son de nadie. */
+  CHANNEL_HOST_PROBE: 'channel_host_probe',
+  /** El aparato declara plataforma o firmware distintos de los guardados. */
+  DEVICE_IDENTITY_CHANGED: 'device_identity_changed',
 } as const
 export type AdmsIncidentKind = (typeof ADMS_INCIDENT_KIND)[keyof typeof ADMS_INCIDENT_KIND]
+
+/**
+ * Incidentes abiertos que explican por que un equipo no tiene las copias.
+ *
+ * Uno las retiene --con una anomalia de IP el canal no despacha nada que lleve
+ * template-- y el otro las impide: si la version no cruza no hay nada que
+ * mandar. Para la matriz del colaborador la pregunta es la misma, "por que no
+ * estan ahi", asi que se responden juntos y el consumidor distingue por `kind`.
+ */
+export const ADMS_COPY_BLOCKING_KINDS: readonly AdmsIncidentKind[] = [
+  ADMS_INCIDENT_KIND.IP_ANOMALY,
+  ADMS_INCIDENT_KIND.TEMPLATE_VERSION_MISMATCH,
+  ADMS_INCIDENT_KIND.DEVICE_IDENTITY_CHANGED,
+]
 
 /** Severidad del incidente. */
 export const ADMS_INCIDENT_SEVERITY = ['info', 'warning', 'error'] as const

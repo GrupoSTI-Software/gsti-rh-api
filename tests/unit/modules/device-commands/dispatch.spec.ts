@@ -8,6 +8,7 @@ import {
 } from '#modules/device-commands/device_command.constants'
 import type { DeviceCommandRepository } from '#modules/device-commands/device_command.repository'
 import type DeviceCommand from '#models/device_command'
+import type { PhotoDispatchPort } from '#modules/biometric-vault/photo/photo_dispatch.port'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
 
@@ -38,6 +39,8 @@ interface Options {
 function makeRepository(options: Options = {}) {
   const saved: DeviceCommand[] = []
   const excludedSeen: string[][] = []
+  /** Cuantas veces se intento rescatar lo que salio sin acuse. */
+  let requeueCalls = 0
   const repository: DeviceCommandRepository = {
     async enqueueIdempotent() {
       return { command: commandOf(), created: true }
@@ -46,6 +49,9 @@ function makeRepository(options: Options = {}) {
       return null
     },
     async findById() {
+      return options.byWireId ?? null
+    },
+    async findByIdForDevice() {
       return options.byWireId ?? null
     },
     async findByWireId() {
@@ -58,6 +64,10 @@ function makeRepository(options: Options = {}) {
     async hasInFlight() {
       return options.inFlight === true
     },
+    async requeueStaleInFlight() {
+      requeueCalls += 1
+      return { requeued: 0, failed: 0 }
+    },
     async listByDevice() {
       return []
     },
@@ -65,6 +75,9 @@ function makeRepository(options: Options = {}) {
       return []
     },
     async listLiveForPivot() {
+      return []
+    },
+    async listLiveFingerprintWrites() {
       return []
     },
     async findStuck() {
@@ -97,7 +110,7 @@ function makeRepository(options: Options = {}) {
       saved.push(command)
     },
   }
-  return { repository, saved, excludedSeen }
+  return { repository, saved, excludedSeen, requeueCount: () => requeueCalls }
 }
 
 test.group('Despacho de comandos', () => {
@@ -107,17 +120,32 @@ test.group('Despacho de comandos', () => {
     const pending = commandOf({ deviceCommandPayload: 'DATA DELETE USERINFO PIN=9999' })
     const { repository, saved } = makeRepository({ pending })
     const service = new CommandDispatchService(repository)
-    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false })
+    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
 
     assert.equal(line, 'C:1788912000000:DATA DELETE USERINFO PIN=9999')
     assert.equal(saved[0].deviceCommandStatus, 'sent')
     assert.equal(saved[0].deviceCommandSentAt, NOW)
   })
 
+  /**
+   * El caso real del 2026-09-11: una peticion de prueba se llevo un comando y
+   * nunca lo acuso. Como solo se despacha uno a la vez, la cola de ese equipo
+   * quedo taponada casi dos horas -- el checador sondeando, el servidor
+   * contestando OK, y ninguna alta saliendo.
+   */
+  test('antes de mirar la cola rescata lo que salio y nadie acuso', async ({ assert }) => {
+    const { repository, requeueCount } = makeRepository({ pending: commandOf() })
+    const service = new CommandDispatchService(repository)
+
+    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
+
+    assert.equal(requeueCount(), 1, 'sin esto, un acuse perdido deja al equipo mudo para siempre')
+  })
+
   test('con uno en vuelo no entrega otro: el equipo perderia el primero', async ({ assert }) => {
     const { repository, saved } = makeRepository({ inFlight: true, pending: commandOf() })
     const service = new CommandDispatchService(repository)
-    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false })
+    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
     assert.equal(line, 'OK')
     assert.lengthOf(saved, 0)
   })
@@ -125,7 +153,7 @@ test.group('Despacho de comandos', () => {
   test('sin nada pendiente responde OK', async ({ assert }) => {
     const { repository } = makeRepository()
     const service = new CommandDispatchService(repository)
-    assert.equal(await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false }), 'OK')
+    assert.equal(await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true }), 'OK')
   })
 
   test('si otro sondeo se lo llevo primero, este no entrega nada', async ({ assert }) => {
@@ -134,19 +162,81 @@ test.group('Despacho de comandos', () => {
     const pending = commandOf({ deviceCommandPayload: 'DATA DELETE USERINFO PIN=9999' })
     const { repository, saved } = makeRepository({ pending, lostRace: true })
     const service = new CommandDispatchService(repository)
-    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false })
+    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
 
     assert.equal(line, 'OK')
     assert.lengthOf(saved, 0)
   })
 
+  /**
+   * `findNextPending` ordena por prioridad e id: un comando que no se puede
+   * entregar y se queda `pending` vuelve a salir en cada sondeo y ninguna otra
+   * orden de ese equipo se despacha jamas. El checador se queda mudo y desde
+   * el servidor todo se ve normal.
+   */
+  test('un comando sin payload sale de la cola en vez de taponarla', async ({ assert }) => {
+    const pending = commandOf({ deviceCommandPayload: null })
+    const { repository, saved } = makeRepository({ pending })
+    const service = new CommandDispatchService(repository)
+    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
+
+    assert.equal(line, 'OK')
+    assert.equal(saved[0].deviceCommandStatus, 'failed')
+    assert.equal(saved[0].deviceCommandLastError, 'payload_unreadable')
+    assert.equal(saved[0].deviceCommandFailedAt, NOW)
+  })
+
+  test('una foto retirada saca su comando de la cola, no lo deja pendiente', async ({ assert }) => {
+    // Retirar una foto es operacion normal --alguien la apago o la cambio-- y
+    // hasta ahora dejaba el comando dando vueltas para siempre.
+    const pending = commandOf({
+      deviceCommandKind: 'biophoto_write',
+      deviceCommandPayload: 'DATA UPDATE BIOPHOTO PIN=9999',
+    })
+    const { repository, saved } = makeRepository({ pending })
+    const photos = {
+      async refreshForDispatch() {
+        return null
+      },
+    } as unknown as PhotoDispatchPort
+    const service = new CommandDispatchService(repository, undefined, photos)
+    const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
+
+    assert.equal(line, 'OK')
+    assert.equal(saved[0].deviceCommandStatus, 'failed')
+    assert.equal(saved[0].deviceCommandLastError, 'photo_publication_withdrawn')
+  })
+
+  /**
+   * Quien sondee de madrugada con una serie robada no recibe nada, porque no
+   * hay sesion caliente que lo respalde. Es lo unico que se puede hacer contra
+   * quien conoce la serie: reducir el botin.
+   */
+  test('sin saludo reciente no salen los comandos con biometrico', async ({ assert }) => {
+    const { repository, excludedSeen } = makeRepository({ pending: commandOf() })
+    const service = new CommandDispatchService(repository)
+
+    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: false })
+
+    assert.deepEqual(excludedSeen[0], ['biodata_write', 'biophoto_write'])
+  })
+
+  test('con saludo reciente salen todos', async ({ assert }) => {
+    const { repository, excludedSeen } = makeRepository({ pending: commandOf() })
+    const service = new CommandDispatchService(repository)
+
+    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
+
+    assert.deepEqual(excludedSeen[0], [])
+  })
+
   test('con anomalia de IP abierta se retienen los que llevan biometrico', async ({ assert }) => {
     const { repository, excludedSeen } = makeRepository({ pending: commandOf() })
     const service = new CommandDispatchService(repository)
-    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: true })
+    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: true, hotSession: true })
     assert.deepEqual(excludedSeen[0], ['biodata_write', 'biophoto_write'])
 
-    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false })
+    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
     assert.deepEqual(excludedSeen[1], [])
   })
 })
@@ -188,6 +278,61 @@ test.group('Acuse de comandos', () => {
     assert.equal(saved[0].deviceCommandExecutionEvidence, 'ack')
   })
 
+  /**
+   * Hasta ahora bastaba con que el identificador de cable existiera: un comando
+   * que nunca salio pasaba a `acked` como si hubiera viajado.
+   */
+  test('un comando que nunca salio no se acredita por un acuse', async ({ assert }) => {
+    const command = commandOf({ deviceCommandStatus: DEVICE_COMMAND_STATUS.PENDING })
+    const { repository, saved } = makeRepository({ byWireId: command })
+    const service = new CommandAckService(repository)
+    const outcome = await service.apply({
+      accessPointId: 12,
+      body: 'ID=1788912000000&Return=0&CMD=DATA',
+      now: NOW,
+    })
+
+    assert.equal(outcome.kind, 'stale')
+    assert.lengthOf(saved, 0)
+    assert.equal(command.deviceCommandStatus, 'pending')
+  })
+
+  test('un comando cancelado tampoco revive con un acuse tardio', async ({ assert }) => {
+    const command = commandOf({ deviceCommandStatus: DEVICE_COMMAND_STATUS.CANCELLED })
+    const { repository, saved } = makeRepository({ byWireId: command })
+    const service = new CommandAckService(repository)
+    const outcome = await service.apply({
+      accessPointId: 12,
+      body: 'ID=1788912000000&Return=0&CMD=DATA',
+      now: NOW,
+    })
+
+    assert.equal(outcome.kind, 'stale')
+    assert.lengthOf(saved, 0)
+  })
+
+  /**
+   * El equipo reenvia el acuse cuando no recibe respuesta. Tratarlo como
+   * anomalia llenaria la bitacora de avisos por un comportamiento normal.
+   */
+  test('el mismo acuse repetido no es anomalia ni reescribe nada', async ({ assert }) => {
+    const command = commandOf({
+      deviceCommandKind: DEVICE_COMMAND_KIND.BIOPHOTO_WRITE,
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+      deviceCommandReturnCode: 0,
+    })
+    const { repository, saved } = makeRepository({ byWireId: command })
+    const service = new CommandAckService(repository)
+    const outcome = await service.apply({
+      accessPointId: 12,
+      body: 'ID=1788912000000&Return=0&CMD=DATA',
+      now: NOW,
+    })
+
+    assert.equal(outcome.kind, 'duplicate')
+    assert.lengthOf(saved, 0)
+  })
+
   test('un codigo negativo del catalogo deja el motivo legible', async ({ assert }) => {
     const command = commandOf({ deviceCommandStatus: DEVICE_COMMAND_STATUS.SENT })
     const { repository, saved } = makeRepository({ byWireId: command })
@@ -202,7 +347,7 @@ test.group('Acuse de comandos', () => {
     assert.equal(saved[0].deviceCommandLastError, 'template_version_mismatch')
   })
 
-  test('un codigo fuera del catalogo se marca como desconocido, no se ignora', async ({
+  test('un codigo fuera del catalogo se marca como desconocido con su numero', async ({
     assert,
   }) => {
     const command = commandOf({ deviceCommandStatus: DEVICE_COMMAND_STATUS.SENT })
@@ -213,7 +358,13 @@ test.group('Acuse de comandos', () => {
       body: 'ID=1788912000000&Return=-77&CMD=DATA',
       now: NOW,
     })
-    assert.equal(saved[0].deviceCommandLastError, 'unknown_return_code')
+    /**
+     * El numero va pegado: sin el, todos los codigos no medidos dicen lo mismo
+     * y el siguiente que lea la fila no tiene con que buscar. Se midio `-1005`
+     * en `enroll_fp` justo asi, indistinguible de cualquier otro.
+     */
+    assert.equal(saved[0].deviceCommandLastError, 'unknown_return_code:-77')
+    assert.equal(saved[0].deviceCommandReturnCode, -77)
   })
 
   test('un acuse de otro dispositivo no se aplica', async ({ assert }) => {

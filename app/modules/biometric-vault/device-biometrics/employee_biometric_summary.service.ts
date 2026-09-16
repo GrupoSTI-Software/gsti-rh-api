@@ -1,9 +1,10 @@
+import type { DateTime } from 'luxon'
 import AccessPointEmployee, {
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
 } from '#models/access_point_employee'
 import AccessPointProfile from '#models/access_point_profile'
 import AdmsIncident from '#models/adms_incident'
-import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
+import { ADMS_COPY_BLOCKING_KINDS } from '#modules/adms/adms.constants'
 import DeviceCommand from '#models/device_command'
 import EmployeeBiometric from '#models/employee_biometric'
 import { parseBiometricData } from '#helpers/biometric_data_parser'
@@ -194,10 +195,28 @@ export default class EmployeeBiometricSummaryService {
         slot.bioType === BIO_TYPE.FINGERPRINT
           ? profile?.accessPointProfileFpVersion
           : profile?.accessPointProfileFaceVersion
+
+      /**
+       * El aparato declaro estar vacio despues de esto: no lo tiene.
+       *
+       * Se compara contra la fecha de cada prueba --la captura, la ejecucion o
+       * el acuse-- y no de golpe: una copia POSTERIOR a esa lectura todavia
+       * puede estar dentro, y darla por perdida mandaria a repetir un trabajo
+       * que si se hizo.
+       */
+      const deniedFrom = this.counterDeniesFrom(profile ?? null, slot.bioType)
+      const denies = (at: DateTime | null): boolean =>
+        deniedFrom !== null && (at === null || at <= deniedFrom)
+
+      const capturedHere = slot.sourceAccessPointId === accessPointId && !denies(slot.capturedAt)
+      const copiedHere =
+        replicated.has(slot.templateId) && !denies(replicated.get(slot.templateId) ?? null)
+      const ackedHere =
+        acknowledged.has(slot.templateId) && !denies(acknowledged.get(slot.templateId) ?? null)
+
       const state = resolveSlotState({
-        present:
-          slot.sourceAccessPointId === accessPointId || replicated.has(slot.templateId),
-        acknowledged: acknowledged.has(slot.templateId),
+        present: capturedHere || copiedHere,
+        acknowledged: ackedHere,
         templateMajorVer: slot.majorVer,
         deviceVersion: target ?? null,
       })
@@ -240,7 +259,7 @@ export default class EmployeeBiometricSummaryService {
   ): Promise<{ incidentId: number; kind: string; since: string | null } | null> {
     const incident = await AdmsIncident.query()
       .where('access_point_id', accessPointId)
-      .where('adms_incident_kind', ADMS_INCIDENT_KIND.IP_ANOMALY)
+      .whereIn('adms_incident_kind', [...ADMS_COPY_BLOCKING_KINDS])
       .where('adms_incident_status', 'open')
       .orderBy('adms_incident_id', 'desc')
       .first()
@@ -263,9 +282,9 @@ export default class EmployeeBiometricSummaryService {
     slots: TemplateSlot[],
     accessPointId: number,
     status: string = DEVICE_COMMAND_STATUS.EXECUTED
-  ): Promise<Set<number>> {
+  ): Promise<Map<number, DateTime | null>> {
     const templateIds = slots.map((slot) => slot.templateId)
-    if (templateIds.length === 0) return new Set()
+    if (templateIds.length === 0) return new Map()
 
     const rows = await DeviceCommand.query()
       .where('access_point_id', accessPointId)
@@ -273,11 +292,45 @@ export default class EmployeeBiometricSummaryService {
       .where('device_command_status', status)
       .whereIn('biometric_template_id', templateIds)
 
-    return new Set(
-      rows
-        .map((row) => row.biometricTemplateId)
-        .filter((id): id is number => typeof id === 'number')
-    )
+    const byTemplate = new Map<number, DateTime | null>()
+    for (const row of rows) {
+      if (typeof row.biometricTemplateId !== 'number') continue
+      byTemplate.set(
+        row.biometricTemplateId,
+        row.deviceCommandExecutedAt ?? row.deviceCommandAckedAt ?? null
+      )
+    }
+    return byTemplate
+  }
+
+  /**
+   * Desde cuando el propio aparato desmiente lo que creemos haberle copiado.
+   *
+   * Un contador en cero dice que ahi dentro no hay una sola huella --o un solo
+   * rostro-- por muchos acuses que guardemos de ese equipo. Un reset de
+   * fabrica, un reemplazo o un cambio de version de algoritmo, que borra todo
+   * lo que el aparato tenia, dejan los comandos viejos prometiendo un dato que
+   * ya no existe.
+   *
+   * Paso el 2026-09-10: la ficha decia "Huella en camino" diecisiete horas
+   * despues del acuse, hacia un equipo que se habia vaciado en medio. El
+   * contador del propio aparato es la unica palabra que vale sobre su
+   * contenido; un acuse solo prueba que la orden llego.
+   *
+   * `null` cuando no hay con que desmentir: sin lectura de `options`, o con el
+   * contador en algo distinto de cero.
+   */
+  private counterDeniesFrom(profile: AccessPointProfile | null, bioType: number): DateTime | null {
+    const readAt = profile?.accessPointProfileOptionsReadAt ?? null
+    if (readAt === null) return null
+
+    const count =
+      bioType === BIO_TYPE.FINGERPRINT
+        ? profile?.accessPointProfileFpCount
+        : profile?.accessPointProfileFaceCount
+
+    if (count === null || count === undefined || count > 0) return null
+    return readAt
   }
 
 }

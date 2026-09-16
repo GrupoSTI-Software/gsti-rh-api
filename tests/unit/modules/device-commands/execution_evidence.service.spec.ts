@@ -6,6 +6,7 @@ import {
   DEVICE_COMMAND_STATUS,
 } from '#modules/device-commands/device_command.constants'
 import type { DeviceCommandRepository } from '#modules/device-commands/device_command.repository'
+import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
 import type DeviceCommand from '#models/device_command'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
@@ -48,6 +49,7 @@ test.group('Evidencia de ejecucion: huella subida', () => {
       accessPointId: 12,
       pin: '1042',
       bioNo: 3,
+      bioType: BIO_TYPE.FINGERPRINT,
       now: NOW,
     })
 
@@ -63,9 +65,32 @@ test.group('Evidencia de ejecucion: huella subida', () => {
       accessPointId: 12,
       pin: '1042',
       bioNo: 7,
+      bioType: BIO_TYPE.FINGERPRINT,
       now: NOW,
     })
     assert.equal(marked.closed, 0)
+    assert.lengthOf(saved, 0)
+  })
+
+  /**
+   * El equipo numera el rostro con el `No` que declare --el SenseFace sube
+   * `No=0`-- asi que un rostro coincidia en PIN y numero con un enrolamiento
+   * del dedo 0 y lo cerraba como ejecutado: el operador leia "captura
+   * completada" y en la boveda no habia una sola huella.
+   */
+  test('un rostro no cierra el enrolamiento de huella del mismo numero', async ({ assert }) => {
+    const { service, saved } = makeService([commandOf({ deviceCommandBioNo: 0 })])
+
+    const marked = await service.fromBiometricUpload({
+      accessPointId: 12,
+      pin: '1042',
+      bioNo: 0,
+      bioType: BIO_TYPE.FACE,
+      now: NOW,
+    })
+
+    assert.equal(marked.closed, 0)
+    assert.isNull(marked.requestedByUserId)
     assert.lengthOf(saved, 0)
   })
 
@@ -81,6 +106,7 @@ test.group('Evidencia de ejecucion: huella subida', () => {
       accessPointId: 12,
       pin: '1042',
       bioNo: 3,
+      bioType: BIO_TYPE.FINGERPRINT,
       now: NOW,
     })
 
@@ -94,6 +120,7 @@ test.group('Evidencia de ejecucion: huella subida', () => {
       accessPointId: 12,
       pin: '1042',
       bioNo: 3,
+      bioType: BIO_TYPE.FINGERPRINT,
       now: NOW,
     })
 

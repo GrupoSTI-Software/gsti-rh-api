@@ -270,6 +270,7 @@ export default class BiometricUploadService {
           accessPointId: device.accessPointId,
           pin: row.pin,
           bioNo: row.bioNo,
+          bioType: row.bioType,
           now: device.receivedAt,
         })
         requestedByUserId = evidence.requestedByUserId

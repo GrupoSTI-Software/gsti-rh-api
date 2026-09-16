@@ -1,6 +1,5 @@
 import { test } from '@japa/runner'
 import User from '#models/user'
-import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
@@ -10,6 +9,7 @@ import BillingVolumeTier from '#models/billing_volume_tier'
 import BillingSubscription from '#models/billing_subscription'
 import BillingCatalogService from '#services/billing_catalog_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — GET /api/employees/quota (USRH1785441819658).
@@ -23,21 +23,10 @@ interface TenantActor {
   businessUnit: BusinessUnit
 }
 
-async function ensureRhManagerRole(): Promise<Role> {
-  const role = await Role.query()
-    .whereNull('role_deleted_at')
-    .where('role_slug', 'rh-manager')
-    .first()
-  if (!role) {
-    throw new Error('Se requiere el rol rh-manager en BD para probar scope limitado.')
-  }
-  return role
-}
-
 async function createScopedTenantActor(emailPrefix: string): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await ensureRhManagerRole()
+  const role = await ensureRole('rh-manager')
 
   const person = new Person()
   person.personFirstname = 'EmployeeQuota'
@@ -74,10 +63,7 @@ async function createTenantActor(options: {
 }): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${options.emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'root').first()
-  if (!role) {
-    throw new Error('Se requiere el rol root en BD para los tests de /api/employees/quota.')
-  }
+  const role = await ensureRole('root')
 
   const person = new Person()
   person.personFirstname = 'EmployeeQuota'

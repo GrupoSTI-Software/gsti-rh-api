@@ -21,13 +21,27 @@ export interface EmployeeAccessPointBiometricsDto {
   faces: number
   /** Copias acusadas por el equipo, sin prueba de que quedaran dentro. */
   onTheWay: { fingerprints: number; faces: number }
+  /**
+   * Guardados en la boveda que NO sirven en este equipo.
+   *
+   * Su version de algoritmo no coincide con la que declara el aparato, y un
+   * template de otra generacion se descarta dentro del equipo sin devolver
+   * error. No es "todavia no llego": no va a llegar. La unica salida es
+   * capturar el biometrico en ese lector o igualar la version del aparato.
+   *
+   * Va aparte de las otras dos cuentas porque la pantalla tiene que poder
+   * decirlo: sin esto, un equipo con la huella guardada y sin poder recibirla
+   * se anuncia igual que uno donde nunca se registro nada.
+   */
+  incompatible: { fingerprints: number; faces: number }
 }
 
-/** Equipo sin nada: ni dentro ni en camino. */
+/** Equipo sin nada: ni dentro, ni en camino, ni incompatible. */
 export const EMPTY_DEVICE_BIOMETRICS: EmployeeAccessPointBiometricsDto = {
   fingerprints: 0,
   faces: 0,
   onTheWay: { fingerprints: 0, faces: 0 },
+  incompatible: { fingerprints: 0, faces: 0 },
 }
 
 /**

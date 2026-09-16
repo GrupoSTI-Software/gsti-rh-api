@@ -351,9 +351,6 @@ export async function getContratoEstatusByNumero(
   return row?.estatus ?? null
 }
 
-/** Permiso `create` del módulo `repse-registrations` (systemPermissionId 157). */
-export const REPSE_REGISTRATIONS_CREATE_PERMISSION_ID = 157
-
 export function buildOversizedImportFileBuffer(): Buffer {
   return Buffer.alloc(10 * 1024 * 1024 + 1, 0)
 }

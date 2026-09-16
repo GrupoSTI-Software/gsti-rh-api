@@ -5,6 +5,7 @@ import Employee from '#models/employee'
 import Assist from '#models/assist'
 import BusinessUnit from '#models/business_unit'
 import { TenantContext } from '#utils/tenant_context'
+import { cleanupUnitUser, createBypassUserInBusinessUnit } from '#tests/helpers/tenant_actor'
 
 /**
  * USRH1786566437097 — entregable 14 / CA-21 ensayo contra BD real.
@@ -171,22 +172,28 @@ test.group('Assists — ensayo 2 empresas vivas (USRH1786566437097 / CA-21)', (g
     assert,
   }) => {
     if (!trialReady) return
-    const user = await getUserByEmail('betosimon@sae.com.mx')
+    // Anular checadas exige `delete-check-assist`: un owner de BU1 pasa el gate y
+    // `businessScope` lo sigue acotando a BU1, que es lo que este caso prueba.
+    const inactivator = await createBypassUserInBusinessUnit('owner', 'assist-ensayo-ca21', BU1_ID)
 
-    const response = await client
-      .put(`/api/v1/assists/${bu6AssistId}/inactivate`)
-      .loginAs(user)
-      .header('X-Business-Unit-Id', BU1_PUBLIC_ID)
+    try {
+      const response = await client
+        .put(`/api/v1/assists/${bu6AssistId}/inactivate`)
+        .loginAs(inactivator.user)
+        .header('X-Business-Unit-Id', BU1_PUBLIC_ID)
 
-    response.assertStatus(404)
+      response.assertStatus(404)
 
-    const stillActive = await TenantContext.runUnscoped(async () => {
-      return Assist.query()
-        .where('assist_id', bu6AssistId)
-        .where('assist_active', 1)
-        .first()
-    }, 'post-inactivate cross-tenant ensayo')
-    assert.isNotNull(stillActive)
+      const stillActive = await TenantContext.runUnscoped(async () => {
+        return Assist.query()
+          .where('assist_id', bu6AssistId)
+          .where('assist_active', 1)
+          .first()
+      }, 'post-inactivate cross-tenant ensayo')
+      assert.isNotNull(stillActive)
+    } finally {
+      await cleanupUnitUser(inactivator)
+    }
   })
 
   test('A7 · GET get-flat-list con empleado de BU6 desde BU1 no filtra checadas ajenas', async ({

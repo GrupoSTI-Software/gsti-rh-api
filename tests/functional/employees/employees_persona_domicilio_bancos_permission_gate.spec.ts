@@ -9,6 +9,7 @@ import Employee from '#models/employee'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'EmployeesPersonaDomicilioBancosSoftRollout123!'
 
@@ -106,8 +107,8 @@ async function cleanupActor(actor: TenantActor | null) {
   await BusinessUnit.query().where('business_unit_id', actor.businessUnit.businessUnitId).delete()
 }
 
-async function createSystemActor(roleSlug: string, emailPrefix: string): Promise<SystemActor> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).firstOrFail()
+async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<SystemActor> {
+  const role = await ensureRole(roleSlug)
   const businessUnit = await BusinessUnit.query()
     .whereNull('business_unit_deleted_at')
     .where('business_unit_active', 1)

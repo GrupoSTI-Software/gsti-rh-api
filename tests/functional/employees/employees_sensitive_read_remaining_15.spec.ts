@@ -93,6 +93,10 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     assert,
   }) => {
     await grantOnly(actor!.role.roleId, [])
+    // El catálogo vigente declara `positions` con exigencia encendida
+    // (system_modules.constant.ts): leer rangos pide su propio permiso, aparte
+    // de la categoría sensible que prueba este caso.
+    await grantModuleAction(actor!.role.roleId, 'positions', 'salary-ranges-read')
     const salaryRes = await client
       .get(`/api/employees/${fixture!.employee.employeeId}/salary-history`)
       .loginAs(actor!.user)
@@ -119,6 +123,8 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     assert,
   }) => {
     await grantOnly(actor!.role.roleId, ['sensitive-financiero-read'])
+    // Misma razón que el caso anterior: `positions` exige su permiso de lectura de rangos.
+    await grantModuleAction(actor!.role.roleId, 'positions', 'salary-ranges-read')
     const salaryRes = await client
       .get(`/api/employees/${fixture!.employee.employeeId}/salary-history`)
       .loginAs(actor!.user)

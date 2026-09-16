@@ -1,19 +1,16 @@
-export const PERSON_SUBJECT_TYPES = [
-  'collaborator',
-  'customer',
-  'flight-attendant',
-  'pilot',
-  'system-user',
-] as const
+/**
+ * Destinos que el alta de persona acepta declarar.
+ *
+ * `customer`, `flight-attendant` y `pilot` se retiraron con aviación: sus
+ * pantallas y rutas ya no existen y ningún cliente del API los envía. Seguir
+ * aceptándolos dejaba un atajo para crear personas sin `tab-persona-write`;
+ * ahora resuelven a 'collaborator' y exigen ese permiso (fail-closed).
+ */
+export const PERSON_SUBJECT_TYPES = ['collaborator', 'system-user'] as const
 
 export type PersonSubjectType = (typeof PERSON_SUBJECT_TYPES)[number]
 
-const NON_COLLABORATOR_SUBJECTS = new Set<PersonSubjectType>([
-  'customer',
-  'flight-attendant',
-  'pilot',
-  'system-user',
-])
+const NON_COLLABORATOR_SUBJECTS = new Set<PersonSubjectType>(['system-user'])
 
 /**
  * Resuelve el destino declarado en el alta de persona.

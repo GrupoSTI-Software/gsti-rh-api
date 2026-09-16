@@ -47,6 +47,18 @@ export const ADMS_ERROR_CODES = {
 
   /** El equipo acuso una orden y su propio estado dice que no la aplico. */
   CMD_NOT_APPLIED: 'ADMS.CMD.001',
+  /** El equipo declara una version de algoritmo que ningun template guardado alcanza. */
+  BIO_VERSION_MISMATCH: 'ADMS.BIO.001',
+  /** El equipo declara menos gente dentro de la que se le dio de alta. */
+  DEV_ROSTER_SHRUNK: 'ADMS.DEV.005',
+  /** La direccion no corresponde al secreto de esa serie. */
+  DEV_CHANNEL_SECRET_MISMATCH: 'ADMS.DEV.006',
+  /** El equipo llego sin direccion propia despues de la fecha de corte. */
+  DEV_CHANNEL_SECRET_MISSING: 'ADMS.DEV.007',
+  /** Peticiones repetidas contra direcciones que no son de nadie. */
+  DEV_CHANNEL_HOST_UNKNOWN: 'ADMS.DEV.008',
+  /** El equipo declara una identidad distinta de la registrada. */
+  DEV_IDENTITY_CHANGED: 'ADMS.DEV.009',
   /** Recurso fuera del alcance de la empresa (responde 404). */
   AUTHZ_OUT_OF_SCOPE: 'ADMS.AUTHZ.001',
   AUTHZ_FORBIDDEN: 'ADMS.AUTHZ.002',

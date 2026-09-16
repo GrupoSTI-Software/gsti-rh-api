@@ -95,6 +95,20 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   DOC_UNEXPECTED: 'OFFB.DOC.UNEXPECTED',
   /** Fecha de separación anterior a la de ingreso (regla 7, USRH1787433503689) — 422. */
   DOC_DATE_RANGE_INVALID: 'OFFB.DOC.DATE_RANGE_INVALID',
+  /** Paginado mal formado, `versionId` no entero positivo o campo `file` ausente (USRH1788553841100) — 400. */
+  TEMPLATE_VAL_INPUT: 'OFFB.TEMPLATE.VAL_INPUT',
+  /** Sin permiso read (consultar/descargar) o create (subir) sobre las plantillas — 403. */
+  TEMPLATE_FORBIDDEN: 'OFFB.TEMPLATE.FORBIDDEN',
+  /** Versión inexistente, de otro tipo o de otra empresa — 404 uniforme. */
+  TEMPLATE_NOT_FOUND: 'OFFB.TEMPLATE.NOT_FOUND',
+  /** `documentType` fuera de EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE (conjunto global, no de la empresa) — 422. */
+  TEMPLATE_TYPE_INVALID: 'OFFB.TEMPLATE.TYPE_INVALID',
+  /** El almacenamiento no guardó el archivo o no se pudo releer para sellarlo — 500. */
+  TEMPLATE_UPLOAD_FAILED: 'OFFB.TEMPLATE.UPLOAD_FAILED',
+  /** `getDownloadLink` no devolvió una cadena — 500. */
+  TEMPLATE_DOWNLOAD_FAILED: 'OFFB.TEMPLATE.DOWNLOAD_FAILED',
+  /** Error no clasificado del slice, incluido el duplicado del UNIQUE de vigencia — 500. */
+  TEMPLATE_UNEXPECTED: 'OFFB.TEMPLATE.UNEXPECTED',
 } as const
 
 export type EmployeeOffboardingErrorCode =

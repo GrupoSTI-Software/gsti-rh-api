@@ -28,6 +28,35 @@ scheduler.command('sync:assistance').cron('*/5 * * * *')
 scheduler.command('adms:sweep-commands').everyMinute().withoutOverlapping()
 
 /**
+ * Consume la cola de recalculo que deja la ingesta del checador (spec 5.4).
+ *
+ * El canal NO recalcula dentro de la peticion: el aparato reintenta cada pocos
+ * segundos si no recibe acuse, y un recalculo puede tardar mas que eso. Por eso
+ * cada checada deja un trabajo en cola... que hasta ahora nadie consumia. El
+ * comando existia, el modelo y la migracion lo citaban por nombre, y no estaba
+ * agendado: al 2026-09-10 habia 40 trabajos `pending`, el mas viejo de mas de
+ * un dia. Es decir, las checadas entraban a `assists` y el calendario que ve RH
+ * --y lo que llega a nomina-- no se rehacia nunca.
+ *
+ * Cada minuto, que es la cadencia que el propio servicio asume para dimensionar
+ * su lote. `withoutOverlapping` porque el consumidor reclama trabajos con su
+ * identificador de corrida y dos tandas encimadas competirian por las mismas
+ * filas de calendario.
+ */
+scheduler.command('adms:recalc-calendars').everyMinute().withoutOverlapping()
+
+/**
+ * Borra por plazo lo que cumplio su retencion (spec 13.12): crudos, comandos,
+ * publicaciones de foto y cuarentenas.
+ *
+ * Tampoco estaba agendado. El cuerpo crudo de cada subida guarda el mensaje
+ * completo del equipo --templates biometricos incluidos-- y su plazo declarado
+ * es de 180 dias: sin esta linea, ese plazo no se cumplia y la tabla crecia sin
+ * fin. De madrugada porque borra en tandas y no compite con la operacion.
+ */
+scheduler.command('adms:purge-retention').cron('0 8 * * *').withoutOverlapping()
+
+/**
  * Aviso diario a RH cuando un periodo de lactancia está a ≤ 30 días de
  * vencer. Se programa a las 13:00 UTC (07:00 CDMX) para que el correo
  * llegue antes del inicio normal de la jornada de RH y el equipo pueda

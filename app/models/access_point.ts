@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
+import encryption from '@adonisjs/core/services/encryption'
+import { BaseModel, beforeCreate, column, belongsTo } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import BusinessUnit from './business_unit.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { generateChannelSecret } from '#modules/adms/channel/channel_secret'
 import PlatformDevice from './platform_device.js'
 
 /**
@@ -134,11 +136,55 @@ export default class AccessPoint extends compose(BaseModel, SoftDeletes, withBus
   })
   declare accessPointAllowedCidrs: string[] | null
 
+  /**
+   * Secreto que el equipo lleva en la direccion del servidor.
+   *
+   * Cifrado en reposo. `serializeAs: null` para que no salga en ninguna
+   * respuesta por accidente: se entrega por su propia via --al reclamar el
+   * equipo o al rotarlo-- y solo a quien va a teclearlo en el aparato.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serializeAs: null,
+  })
+  declare accessPointChannelSecret: string | null
+
+  @column.dateTime()
+  declare accessPointChannelSecretSetAt: DateTime | null
+
   @column.dateTime({ autoCreate: true })
   declare accessPointCreatedAt: DateTime
 
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare accessPointUpdatedAt: DateTime
+
+  /**
+   * Todo checador nace con su direccion propia, sea cual sea la puerta.
+   *
+   * Hay tres vias de alta --el reclamo de una cuarentena, la entrega desde el
+   * inventario y el alta a mano del Backoffice-- y generar el secreto en cada
+   * una significaba que la que se olvidara dejaria equipos sin direccion: en
+   * convivencia mientras dura, y sin canal el dia del corte. Aqui se cubren las
+   * tres y las que vengan.
+   *
+   * No se regenera si ya viene puesto: el reclamo entrega el suyo y este hook
+   * no debe pisarlo.
+   */
+  @beforeCreate()
+  static assignChannelSecret(accessPoint: AccessPoint) {
+    if (accessPoint.accessPointChannelSecret) return
+    accessPoint.accessPointChannelSecret = generateChannelSecret()
+    accessPoint.accessPointChannelSecretSetAt = DateTime.utc()
+  }
 
   @column.dateTime({ columnName: 'access_point_deleted_at' })
   declare deletedAt: DateTime | null

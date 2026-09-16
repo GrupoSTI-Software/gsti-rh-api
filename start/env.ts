@@ -10,6 +10,8 @@
 */
 
 import { Env } from '@adonisjs/core/env'
+import { assertChannelBaseDomain } from '#modules/adms/channel/channel_secret'
+import { DateTime } from 'luxon'
 
 export default await Env.create(new URL('../', import.meta.url), {
   NODE_ENV: Env.schema.enum(['development', 'production', 'test'] as const),
@@ -193,6 +195,18 @@ export default await Env.create(new URL('../', import.meta.url), {
   BASIC_AUTH_PASSWORD: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
+  | Usuario root inicial (solo lo consume 0008_user_seeder)
+  |----------------------------------------------------------
+  | Opcionales a propósito: el servidor no las usa al arrancar y exigirlas
+  | tumbaría entornos que nunca siembran. El seeder falla con un error
+  | explícito si faltan, en vez de crear a root sin credenciales.
+  */
+  /** Correo del usuario root de plataforma. */
+  ROOT_USER_EMAIL: Env.schema.string.optional({ format: 'email' }),
+  /** Contraseña inicial del usuario root de plataforma. Nunca vive en el repo. */
+  ROOT_USER_PASSWORD: Env.schema.string.optional(),
+  /*
+  |----------------------------------------------------------
   | Variables para el modo demo y hardening del endpoint demo
   |----------------------------------------------------------
   */
@@ -212,6 +226,48 @@ export default await Env.create(new URL('../', import.meta.url), {
   | del minimo no acorta la retencion, se ignora. Un plazo de un dia puesto por
   | error borraria la evidencia con la que se reconstruye una nomina.
   */
+  /**
+   * Dominio comun del canal, sin el subdominio de cada equipo.
+   *
+   * Sin valor no se exige direccion propia: desplegar el codigo no puede tirar
+   * el canal de un cliente que aun no migro.
+   */
+  /**
+   * Token del puente ZK por socket.
+   *
+   * Sin el, los eventos de dispositivo se atienden como hasta ahora y queda
+   * aviso; con el puesto, quien no lo presente no entra. Es lo que separa a un
+   * checador de cualquiera que sepa la direccion del servidor.
+   */
+  ADMS_BRIDGE_TOKEN: Env.schema.string.optional(),
+  /**
+   * Dominio comun del canal: lo que va DETRAS del secreto en la direccion que
+   * teclea el instalador (`<secreto>.<este-dominio>`).
+   *
+   * Se valida al arrancar por la misma razon que la fecha de abajo: un valor
+   * mal escrito no falla, engaña. `hostLabelOf` deja de recortar la etiqueta,
+   * ningun equipo con secreto coincide, y el canal responde 404 a toda la
+   * flota sin un solo error en el log.
+   */
+  ADMS_CHANNEL_BASE_DOMAIN: (name: string, value?: string) =>
+    assertChannelBaseDomain(name, value),
+  /**
+   * Desde cuando un checador sin direccion propia deja de atenderse.
+   *
+   * Fecha ISO, y se valida al arrancar: un valor que no parsea hacia que el
+   * canal NO exigiera nada mientras el operador creia haber puesto la fecha de
+   * corte. Una proteccion apagada en silencio es peor que no tenerla, asi que
+   * el servidor no arranca con basura aqui.
+   */
+  ADMS_CHANNEL_SECRET_ENFORCED_FROM: (name: string, value?: string) => {
+    if (value === undefined || value.trim() === '') return undefined
+    if (!DateTime.fromISO(value.trim()).isValid) {
+      throw new Error(
+        `${name} tiene que ser una fecha ISO (por ejemplo 2026-10-15T00:00:00Z) y llego "${value}"`
+      )
+    }
+    return value.trim()
+  },
   ADMS_RAW_RETENTION_DAYS: Env.schema.number.optional(),
   ADMS_RAW_FAILED_RETENTION_DAYS: Env.schema.number.optional(),
   ADMS_COMMAND_RETENTION_DAYS: Env.schema.number.optional(),

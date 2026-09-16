@@ -14,7 +14,12 @@ import type AccessPointProfile from '#models/access_point_profile'
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
 
-function makeDeps(row: AccessPointLookupRow | null, blocked = false, freshProfile = false) {
+function makeDeps(
+  row: AccessPointLookupRow | null,
+  blocked = false,
+  freshProfile = false,
+  badAddressThreshold = false
+) {
   const incidents: IncidentInput[] = []
   const hits: string[] = []
   const claims: string[] = []
@@ -34,6 +39,9 @@ function makeDeps(row: AccessPointLookupRow | null, blocked = false, freshProfil
     },
     async countNewSerial() {
       return 'ok'
+    },
+    async countBadAddress() {
+      return badAddressThreshold ? 'threshold_reached' : 'ok'
     },
   }
   const incidentService = {
@@ -88,7 +96,17 @@ const ROW: AccessPointLookupRow = {
   allowedCidrs: null,
   timezone: null,
   lastConnectionAt: null,
+  channelSecret: null,
+  configuredAt: null,
 }
+
+/** La misma fila con el secreto que cada prueba necesite. */
+function rowWithSecret(channelSecret: string | null): AccessPointLookupRow {
+  return { ...ROW, channelSecret }
+}
+
+/** Dominio base del canal en las pruebas. */
+const BASE_DOMAIN = 'adms.valanserh.com'
 
 test.group('ADMS device resolver', () => {
   test('serie invalida: OK pelon sin tocar cuarentena', async ({ assert }) => {
@@ -189,6 +207,146 @@ test.group('ADMS device resolver', () => {
     if (result.kind !== 'ok') return
     await service.touch(result.device)
     assert.deepEqual(touches, ['192.168.1.5'])
+    assert.lengthOf(incidents, 0)
+  })
+
+  /**
+   * La serie va impresa en el aparato y las de ZKTeco son secuenciales: sin la
+   * direccion propia, conocerla bastaba para pedir los comandos en cola, con
+   * los templates dentro.
+   */
+  test('una etiqueta que no es la del equipo se responde como serie desconocida', async ({
+    assert,
+  }) => {
+    const { service, incidents, touches } = makeDeps(rowWithSecret('abcdefghjkmnpq'))
+
+    const result = await service.resolve({
+      serial: ROW.serial,
+      ip: '189.203.101.229',
+      now: NOW,
+      hints: null,
+      host: `zzzzzzzzzzzzzz.${BASE_DOMAIN}`,
+      baseDomain: BASE_DOMAIN,
+    })
+
+    assert.equal(result.kind, 'reject')
+    if (result.kind !== 'reject') return
+    /** 404 y no 403: un 403 confirmaria que la serie existe. */
+    assert.equal(result.status, 404)
+    assert.lengthOf(touches, 0)
+    assert.equal(incidents[0]?.kind, 'channel_secret_mismatch')
+  })
+
+  test('la etiqueta correcta pasa', async ({ assert }) => {
+    const { service } = makeDeps(rowWithSecret('abcdefghjkmnpq'))
+
+    const result = await service.resolve({
+      serial: ROW.serial,
+      ip: '189.203.101.229',
+      now: NOW,
+      hints: null,
+      host: `abcdefghjkmnpq.${BASE_DOMAIN}`,
+      baseDomain: BASE_DOMAIN,
+    })
+
+    assert.equal(result.kind, 'ok')
+  })
+
+  /**
+   * Durante la convivencia, el equipo que todavia no migro se atiende igual:
+   * cortarle de golpe deja a un cliente sin asistencia por un ajuste que nadie
+   * le aviso.
+   */
+  test('sin secreto asignado se atiende y queda el aviso', async ({ assert }) => {
+    const { service, incidents } = makeDeps(rowWithSecret(null))
+
+    const result = await service.resolve({
+      serial: ROW.serial,
+      ip: '189.203.101.229',
+      now: NOW,
+      hints: null,
+      host: BASE_DOMAIN,
+      baseDomain: BASE_DOMAIN,
+    })
+
+    assert.equal(result.kind, 'ok')
+    assert.equal(incidents[0]?.kind, 'channel_secret_missing')
+  })
+
+  /**
+   * El bug que anulaba C2: `touch` escribe la IP de quien llama, asi que
+   * preguntarlo despues devolvia siempre "caliente", incluida la primera
+   * peticion de un desconocido. El veredicto sale del estado ANTERIOR.
+   */
+  test('el primer contacto de una direccion nueva sale frio', async ({ assert }) => {
+    const { service } = makeDeps(ROW)
+
+    const result = await service.resolve({
+      serial: ROW.serial,
+      ip: '203.0.113.9',
+      now: NOW,
+      hints: null,
+    })
+    assert.equal(result.kind, 'ok')
+    if (result.kind !== 'ok') return
+
+    /** El perfil del fixture trae `10.0.0.1` como ultima vista. */
+    const { hotSession } = await service.touch(result.device)
+    assert.isFalse(hotSession)
+  })
+
+  test('el equipo que ya venia hablando desde su IP sale caliente', async ({ assert }) => {
+    const { service } = makeDeps(ROW)
+
+    const result = await service.resolve({
+      serial: ROW.serial,
+      ip: '10.0.0.1',
+      now: NOW,
+      hints: null,
+    })
+    assert.equal(result.kind, 'ok')
+    if (result.kind !== 'ok') return
+
+    const { hotSession } = await service.touch(result.device)
+    assert.isTrue(hotSession)
+  })
+
+  /**
+   * Sin esto, "alguien nos esta probando direcciones" es indistinguible de un
+   * checador al que le reescribieron la suya.
+   */
+  test('probar direcciones ajenas repetidas veces deja aviso', async ({ assert }) => {
+    const { service, incidents } = makeDeps(rowWithSecret('abcdefghjkmnpq'), false, false, true)
+
+    await service.resolve({
+      serial: ROW.serial,
+      ip: '203.0.113.9',
+      now: NOW,
+      hints: null,
+      host: `zzzzzzzzzzzzzz.${BASE_DOMAIN}`,
+      baseDomain: BASE_DOMAIN,
+    })
+
+    assert.isTrue(incidents.some((incident) => incident.kind === 'channel_host_probe'))
+  })
+
+  /**
+   * Sin dominio base configurado no se exige nada. Desplegar el codigo no puede
+   * tirar el canal de un cliente que aun no migro.
+   */
+  test('sin dominio base configurado el canal no exige direccion', async ({ assert }) => {
+    const { service, incidents } = makeDeps(rowWithSecret('abcdefghjkmnpq'))
+
+    const result = await service.resolve({
+      serial: ROW.serial,
+      ip: '189.203.101.229',
+      now: NOW,
+      hints: null,
+      host: 'lo-que-sea.ejemplo.com',
+      baseDomain: null,
+    })
+
+    assert.equal(result.kind, 'ok')
     assert.lengthOf(incidents, 0)
   })
 })

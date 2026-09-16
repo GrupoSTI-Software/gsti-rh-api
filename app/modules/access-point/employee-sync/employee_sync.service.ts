@@ -265,6 +265,19 @@ export default class EmployeeSyncService {
     pivot.accessPointEmployeeSyncStatus = ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKING
     await this.repository.save(pivot)
 
+    /**
+     * Primero se cierra lo que este vivo para este vinculo, y despues se pide
+     * la baja.
+     *
+     * El borrado sale con prioridad 1 y el alta con 3: si el alta sigue en la
+     * cola cuando se pide la baja, el equipo aplica primero el borrado y en el
+     * siguiente sondeo recoge el alta rezagada, que vuelve a dar de alta a la
+     * persona con su mismo PIN. Queda dentro del aparato, marcando, y el
+     * pivote acaba en `confirmed` como si nada. Lo mismo vale para una copia de
+     * biometrico en cola: a quien se va no se le copia nada.
+     */
+    await this.commands.cancelLiveForPivot(pivot.accessPointEmployeeId, input.actor.userId)
+
     const result = await this.commands.enqueue({
       accessPointId: input.accessPointId,
       businessUnitId: input.businessUnitId,

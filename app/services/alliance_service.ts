@@ -4,6 +4,7 @@ import DiscountCode from '#models/discount_code'
 import db from '@adonisjs/lucid/services/db'
 import logger from '@adonisjs/core/services/logger'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
 import { ALLIANCE_ERRORS } from '#constants/alliance_error_codes'
 import { AllianceServiceError } from '#exceptions/alliance_service_error'
 import { DISCOUNT_CODE_ERROR_CODES } from '#constants/discount_code_error_codes'
@@ -47,6 +48,91 @@ export function assertPositiveAllianceId(allianceId: number): void {
   if (!Number.isFinite(allianceId) || allianceId <= 0) {
     throwFromCatalog(ALLIANCE_ERRORS.NOT_FOUND)
   }
+}
+
+/**
+ * Superficie mínima de WHERE que comparten el subquery de `whereHas`
+ * y el query builder de modelo. No se usa `ModelQueryBuilderContract`:
+ * Lucid entrega un `RelationSubQueryBuilderContract` cuyo `paginate`
+ * no es el del modelo.
+ */
+interface BillingProfileWhereBuilder {
+  whereNotNull: (column: string) => BillingProfileWhereBuilder
+  whereRaw: (sql: string) => BillingProfileWhereBuilder
+}
+
+/**
+ * Cinco obligatorios presentes: RFC (no nulo en reposo), razón social,
+ * código postal, régimen y uso de CFDI. El correo de facturación no cuenta.
+ */
+function constrainCompleteBillingProfile(profileQuery: BillingProfileWhereBuilder): void {
+  profileQuery
+    .whereNotNull('alliance_billing_profile_rfc')
+    .whereRaw("TRIM(alliance_billing_profile_legal_name) <> ''")
+    .whereNotNull('alliance_billing_profile_postal_code')
+    .whereRaw("TRIM(alliance_billing_profile_postal_code) <> ''")
+    .whereNotNull('alliance_billing_profile_tax_regime_code')
+    .whereRaw("TRIM(alliance_billing_profile_tax_regime_code) <> ''")
+    .whereNotNull('alliance_billing_profile_cfdi_use_code')
+    .whereRaw("TRIM(alliance_billing_profile_cfdi_use_code) <> ''")
+}
+
+/**
+ * Subquery de perfil vivo correlacionada a `alliances`. El `whereNull` del
+ * `deleted_at` va explícito: el scope de SoftDeletes no llegó al `whereHas`
+ * en este filtro, y una subquery cruda tampoco lo aplica. Sin esa cláusula,
+ * un perfil borrado cuenta como "con perfil" y cae del lado equivocado.
+ */
+function constrainLiveBillingProfileSubquery(sub: {
+  from: (table: string) => typeof sub
+  whereRaw: (sql: string) => typeof sub
+  whereNull: (column: string) => typeof sub
+}): void {
+  sub
+    .from('alliance_billing_profiles')
+    .whereRaw('alliance_billing_profiles.alliance_id = alliances.alliance_id')
+    .whereNull('alliance_billing_profile_deleted_at')
+}
+
+/**
+ * Filtra por pagable según los cinco datos obligatorios del perfil fiscal.
+ * Sin fila viva de perfil, o con algún obligatorio vacío, no es pagable.
+ *
+ * El OR de "sin perfil" / "perfil incompleto" va agrupado: el builder de
+ * `.where()` no expone `whereHas`, así que se expresa con exists.
+ */
+function applyPayableFilter(
+  query: ModelQueryBuilderContract<typeof Alliance, Alliance>,
+  payable: number
+): void {
+  if (payable === 1) {
+    query.whereHas('allianceBillingProfile', (profileQuery) => {
+      profileQuery.whereNull('alliance_billing_profile_deleted_at')
+      constrainCompleteBillingProfile(profileQuery)
+    })
+    return
+  }
+
+  query.where((group) => {
+    group
+      .whereNotExists((sub) => {
+        constrainLiveBillingProfileSubquery(sub)
+      })
+      .orWhereExists((sub) => {
+        constrainLiveBillingProfileSubquery(sub)
+        sub.where((inner) => {
+          inner
+            .whereNull('alliance_billing_profile_rfc')
+            .orWhereRaw("TRIM(alliance_billing_profile_legal_name) = ''")
+            .orWhereNull('alliance_billing_profile_postal_code')
+            .orWhereRaw("TRIM(alliance_billing_profile_postal_code) = ''")
+            .orWhereNull('alliance_billing_profile_tax_regime_code')
+            .orWhereRaw("TRIM(alliance_billing_profile_tax_regime_code) = ''")
+            .orWhereNull('alliance_billing_profile_cfdi_use_code')
+            .orWhereRaw("TRIM(alliance_billing_profile_cfdi_use_code) = ''")
+        })
+      })
+  })
 }
 
 /**
@@ -121,7 +207,10 @@ function resolveAllianceCompleteness(alliance: Alliance) {
   })
 }
 
-export function toAllianceListItem(alliance: Alliance): AllianceListItem {
+export function toAllianceListItem(
+  alliance: Alliance,
+  liveAttributionsCount: number
+): AllianceListItem {
   const completeness = resolveAllianceCompleteness(alliance)
 
   return {
@@ -135,6 +224,7 @@ export function toAllianceListItem(alliance: Alliance): AllianceListItem {
     createdAt: toIso(alliance.createdAt) ?? '',
     billingProfileComplete: completeness.complete,
     missingFields: completeness.missingFields,
+    allianceLiveAttributionsCount: liveAttributionsCount,
   }
 }
 
@@ -161,15 +251,49 @@ function resolvePreloadedDiscountCode(alliance: Alliance): DiscountCode | null {
   return related as DiscountCode
 }
 
-export function toAllianceView(alliance: Alliance): AllianceView {
+export function toAllianceView(alliance: Alliance, liveAttributionsCount: number): AllianceView {
   const code = resolvePreloadedDiscountCode(alliance)
 
   return {
-    ...toAllianceListItem(alliance),
+    ...toAllianceListItem(alliance, liveAttributionsCount),
     allianceContactPhone: alliance.allianceContactPhone,
     updatedAt: toIso(alliance.updatedAt),
     allianceDiscountCode: code ? toAllianceDiscountCodeView(code, alliance) : null,
   }
+}
+
+/**
+ * Una consulta agregada por lote de ids (CA-11). Cero si la alianza
+ * no tiene atribuciones vivas.
+ */
+export async function loadLiveAttributionCounts(
+  allianceIds: number[]
+): Promise<Map<number, number>> {
+  const counts = new Map<number, number>()
+  if (allianceIds.length === 0) {
+    return counts
+  }
+
+  const rows = await db
+    .from('alliance_attributions')
+    .whereIn('alliance_id', allianceIds)
+    .whereNull('alliance_attribution_closed_at')
+    .whereNull('alliance_attribution_deleted_at')
+    .groupBy('alliance_id')
+    .select('alliance_id as allianceId')
+    .count('* as cnt')
+
+  for (const row of rows as Array<{ allianceId: number | string; cnt: number | string }>) {
+    counts.set(Number(row.allianceId), Number(row.cnt))
+  }
+
+  return counts
+}
+
+/** Vista de detalle con el conteo vivo resuelto en una consulta. */
+export async function toAllianceViewWithCount(alliance: Alliance): Promise<AllianceView> {
+  const counts = await loadLiveAttributionCounts([alliance.allianceId])
+  return toAllianceView(alliance, counts.get(alliance.allianceId) ?? 0)
 }
 
 /**
@@ -214,11 +338,19 @@ export default class AllianceService {
       query.where('alliance_active', filters.active)
     }
 
+    if (filters.payable !== undefined) {
+      applyPayableFilter(query, filters.payable)
+    }
+
     const paginated = await query.paginate(page, limit)
     const json = paginated.toJSON()
+    const alliances = json.data as Alliance[]
+    const counts = await loadLiveAttributionCounts(alliances.map((row) => row.allianceId))
 
     return {
-      data: (json.data as Alliance[]).map(toAllianceListItem),
+      data: alliances.map((row) =>
+        toAllianceListItem(row, counts.get(row.allianceId) ?? 0)
+      ),
       meta: {
         total: json.meta.total,
         page: json.meta.currentPage,

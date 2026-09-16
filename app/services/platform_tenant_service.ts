@@ -46,6 +46,18 @@ export interface TenantBillingCompleteness {
   missingFields: BillingProfileMissingField[]
 }
 
+/**
+ * Grupo económico al que pertenece un tenant (USRH1788055613533).
+ * `activo` viaja para que la vista distinga la pertenencia a un grupo apagado
+ * sin una segunda llamada. `platformTenantGroupId` es excepción declarada a H11:
+ * es entidad de plataforma, igual que `platformDeviceId`.
+ */
+export interface TenantGroupRef {
+  platformTenantGroupId: number
+  nombre: string
+  activo: boolean
+}
+
 export interface TenantListItem {
   businessUnitPublicId: string
   businessUnitName: string
@@ -58,6 +70,8 @@ export interface TenantListItem {
   /** Derivado: nombres de los datos obligatorios que faltan, en el orden del catálogo. Nunca los valores. */
   missingFields: BillingProfileMissingField[]
   subscription: TenantSubscriptionSnapshot | null
+  /** Grupo económico del tenant; `null` significa suelto, estado válido y visible (regla 9). */
+  grupo: TenantGroupRef | null
 }
 
 /**
@@ -296,6 +310,9 @@ export default class PlatformTenantService {
       rows.map((r) => r.buId as number)
     )
 
+    // ── 7b. Grupo económico de la página (UNA consulta, no una por fila) ──────
+    const grupoPorBu = await this.loadTenantGroupMap(rows.map((r) => r.buId as number))
+
     // ── 8. Armar respuesta ────────────────────────────────────────────────────
     const data: TenantListItem[] = rows.map((r) => {
       const sub = this.pickSub(r.buId as number, filters.status, subMap, canceledSubMap)
@@ -303,7 +320,9 @@ export default class PlatformTenantService {
         sub ? { ...r, ...sub } : r,
         employeeCounts[r.businessUnitPublicId as string] ?? 0,
         // Sin entrada en el mapa = nunca capturó perfil (regla 2).
-        billingCompleteness[r.buId as number] ?? resolveTenantBillingCompleteness(null)
+        billingCompleteness[r.buId as number] ?? resolveTenantBillingCompleteness(null),
+        // Sin entrada en el mapa = tenant suelto (regla 9).
+        grupoPorBu[r.buId as number] ?? null
       )
     })
 
@@ -388,8 +407,14 @@ export default class PlatformTenantService {
 
     const merged = sub ? { ...row, ...(sub as Record<string, unknown>) } : row
     const billingProfile = await this.loadBillingProfileSnapshot(row.buId as number)
+    const grupoPorBu = await this.loadTenantGroupMap([row.buId as number])
 
-    return this.toTenantDetail(merged, activeEmployees, billingProfile)
+    return this.toTenantDetail(
+      merged,
+      activeEmployees,
+      billingProfile,
+      grupoPorBu[row.buId as number] ?? null
+    )
   }
 
   // ─── Perfil fiscal (USRH1786737531069) ─────────────────────────────────────
@@ -454,6 +479,54 @@ export default class PlatformTenantService {
     }
 
     return map
+  }
+
+  /**
+   * Resuelve el grupo de un conjunto de cuentas en UNA consulta (jamás una por fila;
+   * espeja el mapa de empleados activos del listado).
+   *
+   * El `UNIQUE(business_unit_id)` del pivote garantiza a lo más una fila por cuenta,
+   * así que el mapa no puede perder información. Un vínculo cuyo grupo tenga baja
+   * lógica se trata como "sin grupo": queda fuera del mapa y el tenant sale `null`.
+   *
+   * @param businessUnitIds - Ids internos de las cuentas de la página.
+   * @returns Mapa de id interno a grupo; las cuentas sueltas no tienen entrada.
+   */
+  private async loadTenantGroupMap(
+    businessUnitIds: number[]
+  ): Promise<Record<number, TenantGroupRef>> {
+    if (businessUnitIds.length === 0) return {}
+
+    const filas = await db
+      .from('platform_tenant_group_members as m')
+      .join(
+        'platform_tenant_groups as g',
+        'g.platform_tenant_group_id',
+        'm.platform_tenant_group_id'
+      )
+      .whereIn('m.business_unit_id', businessUnitIds)
+      .whereNull('g.platform_tenant_group_deleted_at')
+      .select([
+        'm.business_unit_id as buId',
+        'g.platform_tenant_group_id as platformTenantGroupId',
+        'g.platform_tenant_group_name as nombre',
+        'g.platform_tenant_group_active as activo',
+      ])
+
+    const mapa: Record<number, TenantGroupRef> = {}
+    for (const fila of filas as Array<{
+      buId: number
+      platformTenantGroupId: number
+      nombre: string
+      activo: number
+    }>) {
+      mapa[Number(fila.buId)] = {
+        platformTenantGroupId: Number(fila.platformTenantGroupId),
+        nombre: fila.nombre,
+        activo: Number(fila.activo) === 1,
+      }
+    }
+    return mapa
   }
 
   /** Resuelve descripciones legibles del catálogo sembrado (máx. 2 consultas por detalle). */
@@ -602,7 +675,8 @@ export default class PlatformTenantService {
   private toTenantDetail(
     row: Record<string, unknown>,
     activeEmployees: number,
-    billingProfile: TenantBillingProfileSnapshot | null
+    billingProfile: TenantBillingProfileSnapshot | null,
+    grupo: TenantGroupRef | null
   ): TenantDetail {
     return {
       ...this.toListItem(
@@ -615,7 +689,8 @@ export default class PlatformTenantService {
               complete: billingProfile.billingProfileComplete,
               missingFields: billingProfile.missingFields,
             }
-          : resolveTenantBillingCompleteness(null)
+          : resolveTenantBillingCompleteness(null),
+        grupo
       ),
       billingProfile,
     }
@@ -624,7 +699,8 @@ export default class PlatformTenantService {
   private toListItem(
     row: Record<string, unknown>,
     activeEmployees: number,
-    billingCompleteness: TenantBillingCompleteness
+    billingCompleteness: TenantBillingCompleteness,
+    grupo: TenantGroupRef | null
   ): TenantListItem {
     const hasSubscription = row.subscriptionStatus !== null && row.subscriptionStatus !== undefined
 
@@ -654,6 +730,8 @@ export default class PlatformTenantService {
             canceledAt: toIsoDate(row.canceledAt),
           }
         : null,
+      // `null` es tenant suelto: estado válido y visible, nunca cadena vacía ni objeto vacío.
+      grupo,
     }
   }
 }

@@ -1,6 +1,9 @@
 import type { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import DeviceCommand from '#models/device_command'
+import { DeviceCommandError } from '#exceptions/device_command_error'
+import { DEVICE_COMMAND_ERROR_CODES } from '#constants/device_command_error_codes'
+import { BIO_TYPE } from '#modules/biometric-vault/biometric_vault.constants'
 import {
   DEVICE_COMMAND_KIND,
   DEVICE_COMMAND_STATUS,
@@ -39,7 +42,30 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
     wireIdCandidates: number[]
   ): Promise<EnqueueIdempotentResult | null> {
     return db.transaction(async (trx) => {
-      await trx.from('access_points').where('access_point_id', input.accessPointId).forUpdate().first()
+      const device = await trx
+        .from('access_points')
+        .where('access_point_id', input.accessPointId)
+        .forUpdate()
+        .first()
+
+      /**
+       * La empresa la dice el EQUIPO, no quien encola.
+       *
+       * `business_unit_id` viaja en la entrada y se escribia tal cual, sin
+       * cotejarlo contra la fila que esta transaccion ya tiene bloqueada. Un
+       * llamador que pasara otra empresa dejaba el comando --y su template--
+       * colgando de una empresa a la que ese checador no pertenece, y el corte
+       * por empresa de todas las lecturas posteriores lo daba por bueno.
+       */
+      const owner = device?.business_unit_id ?? null
+      if (owner === null || owner !== input.businessUnitId) {
+        throw new DeviceCommandError(
+          'El checador no pertenece a esa empresa',
+          DEVICE_COMMAND_ERROR_CODES.AUTHZ_OUT_OF_SCOPE,
+          404,
+          'punto-acceso-no-encontrado'
+        )
+      }
 
       if (input.correlationKey) {
         const existing = await DeviceCommand.query({ client: trx })
@@ -69,6 +95,7 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
   private fill(command: DeviceCommand, input: CommandInsert, wireId: number): void {
     command.deviceCommandWireId = wireId
     command.accessPointId = input.accessPointId
+    // Ya cotejado contra la fila del equipo dentro de la transaccion.
     command.businessUnitId = input.businessUnitId
     command.deviceCommandKind = input.kind
     command.deviceCommandPin = input.pin
@@ -100,6 +127,13 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
 
   async findById(commandId: number): Promise<DeviceCommand | null> {
     return DeviceCommand.query().where('device_command_id', commandId).first()
+  }
+
+  async findByIdForDevice(commandId: number, accessPointId: number): Promise<DeviceCommand | null> {
+    return DeviceCommand.query()
+      .where('device_command_id', commandId)
+      .where('access_point_id', accessPointId)
+      .first()
   }
 
   async findByWireId(wireId: number): Promise<DeviceCommand | null> {
@@ -141,6 +175,21 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
     return DeviceCommand.query()
       .where('access_point_employee_id', accessPointEmployeeId)
       .whereIn('device_command_status', [...LIVE_STATUSES])
+      .orderBy('device_command_id', 'asc')
+  }
+
+  async listLiveFingerprintWrites(accessPointId: number): Promise<DeviceCommand[]> {
+    return DeviceCommand.query()
+      .where('access_point_id', accessPointId)
+      .where('device_command_kind', DEVICE_COMMAND_KIND.BIODATA_WRITE)
+      .whereIn('device_command_status', [...LIVE_STATUSES])
+      .whereIn(
+        'biometric_template_id',
+        db
+          .from('biometric_templates')
+          .select('biometric_template_id')
+          .where('biometric_template_bio_type', BIO_TYPE.FINGERPRINT)
+      )
       .orderBy('device_command_id', 'asc')
   }
 
@@ -208,6 +257,48 @@ export default class DeviceCommandRepositoryMysql implements DeviceCommandReposi
       command.deviceCommandSentAt = input.sentAt
       await command.save()
       return true
+    })
+  }
+
+  async requeueStaleInFlight(input: {
+    accessPointId: number
+    sentBefore: DateTime
+    now: DateTime
+  }): Promise<{ requeued: number; failed: number }> {
+    return db.transaction(async (trx) => {
+      const stale = await DeviceCommand.query({ client: trx })
+        .where('access_point_id', input.accessPointId)
+        .where('device_command_status', DEVICE_COMMAND_STATUS.SENT)
+        .where('device_command_sent_at', '<', input.sentBefore.toFormat('yyyy-MM-dd HH:mm:ss'))
+        .forUpdate()
+
+      let requeued = 0
+      let failed = 0
+
+      for (const command of stale) {
+        command.useTransaction(trx)
+        command.deviceCommandAttempts += 1
+
+        /**
+         * `null` en el maximo es "insiste siempre": lo usa la baja de usuario,
+         * donde rendirse deja a alguien con acceso que ya no le toca.
+         */
+        const max = command.deviceCommandMaxAttempts
+        if (max !== null && command.deviceCommandAttempts >= max) {
+          command.deviceCommandStatus = DEVICE_COMMAND_STATUS.FAILED
+          command.deviceCommandFailedAt = input.now
+          command.deviceCommandLastError = 'sin acuse tras varios intentos'
+          failed += 1
+        } else {
+          command.deviceCommandStatus = DEVICE_COMMAND_STATUS.PENDING
+          command.deviceCommandSentAt = null
+          requeued += 1
+        }
+
+        await command.save()
+      }
+
+      return { requeued, failed }
     })
   }
 

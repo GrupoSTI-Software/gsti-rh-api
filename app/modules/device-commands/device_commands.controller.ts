@@ -137,9 +137,15 @@ export default class DeviceCommandsController {
        * El comando se lee dentro del alcance y ademas se comprueba que sea de
        * ESTE punto de acceso: un id de otro equipo de la misma empresa no
        * puede cancelarse desde la ruta de este.
+       *
+       * La pertenencia va en la consulta. Antes se traia la lista del
+       * dispositivo y se buscaba en memoria, pero esa lista esta topada a las
+       * 200 mas recientes: un comando mas viejo respondia 404 y no se podia ni
+       * cancelar ni reintentar. De paso, cada intento hidrataba 200 modelos y
+       * descifraba sus payloads --posibles templates biometricos-- para tirar
+       * 199.
        */
-      const commands = await service.listByDevice(accessPoint.accessPointId)
-      const target = commands.find((row) => row.deviceCommandId === params.commandId)
+      const target = await service.findForDevice(params.commandId, accessPoint.accessPointId)
       if (!target) {
         throw new DeviceCommandError(
           i18n.formatMessage('device_command_not_found_title'),

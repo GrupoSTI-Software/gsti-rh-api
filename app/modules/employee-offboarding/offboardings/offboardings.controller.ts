@@ -156,6 +156,9 @@ export default class OffboardingsController {
    *       regla 9 de USRH1786568279587 más la condición de expediente
    *       abierto; un cerrado reporta itemsOverdue 0 e itemsOpen con lo que
    *       quedó sin cumplir. Orden: fecha de referencia descendente.
+   *       Cada renglón trae además hasSeparationLetter (USRH1788579938608):
+   *       true si existe una constancia de separación vigente y viva —
+   *       booleano derivado dentro del mismo agregado, sin folio ni detalle.
    *     parameters:
    *       - in: query
    *         name: page
@@ -173,9 +176,13 @@ export default class OffboardingsController {
    *       - in: query
    *         name: overdueOnly
    *         schema: { type: boolean }
+   *       - in: query
+   *         name: withoutSeparationLetter
+   *         schema: { type: boolean }
+   *         description: Solo salidas con la baja ejecutada y sin constancia de separación vigente; se combina con los demás filtros
    *     responses:
    *       200:
-   *         description: data.employeeOffboardings con meta y data (renglones)
+   *         description: data.employeeOffboardings con meta y data (renglones, cada uno con hasSeparationLetter)
    *       400:
    *         description: Parámetros mal formados (key datos-invalidos)
    *       403:
@@ -193,6 +200,7 @@ export default class OffboardingsController {
           search: filters.search,
           status: filters.status,
           overdueOnly: filters.overdueOnly,
+          withoutSeparationLetter: filters.withoutSeparationLetter,
         },
         businessUnitScope
       )

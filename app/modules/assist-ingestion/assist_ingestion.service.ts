@@ -164,16 +164,23 @@ export default class AssistIngestionService {
    * recálculo, que puede tardar, no puede vivir dentro de su petición. Los
    * bordes son los mismos que en el recálculo directo: un día antes y uno
    * después, en la zona de negocio.
+   *
+   * Cuenta también las `preexisting`: insertar la checada y encolar su
+   * recálculo no ocurre en la misma transacción, así que un proceso que muere
+   * en medio deja la checada guardada y el trabajo no. El reenvío del equipo es
+   * la única reparación posible, y ahí esas checadas ya no son nuevas. Encolar
+   * de más cuesta un INSERT y el consumidor funde por colaborador; no encolar
+   * deja un calendario mal para siempre.
    */
   private async enqueueCalendarRecalc(persisted: AssistIngestionPersisted[]): Promise<void> {
-    const ranges = assistIngestionCalendarRanges(persisted)
+    const ranges = assistIngestionCalendarRanges(persisted, true)
     if (ranges.size === 0) return
 
     const byEmployee = new Map<number, number>()
     for (const row of persisted) {
       // La inserción exige empresa, así que `null` aquí sería una fila
       // imposible; se omite en vez de encolar un trabajo sin destino.
-      if (row.outcome !== 'inserted' || row.assist.businessUnitId === null) continue
+      if (row.assist.businessUnitId === null) continue
       byEmployee.set(row.assist.assistEmpId, row.assist.businessUnitId)
     }
 
@@ -253,13 +260,29 @@ export default class AssistIngestionService {
  * Los desenlaces que no escribieron no generan rango: una entrega de doscientas
  * repeticiones no puede convertirse en doscientos recálculos.
  */
+/**
+ * Rangos de calendario a recalcular, por colaborador.
+ *
+ * `includePreexisting` es para el camino diferido del canal: ahi el equipo
+ * reenvia el mismo lote cuando no recibe acuse, y si el proceso murio entre
+ * insertar la checada y encolar su recalculo, en el reenvio esas checadas
+ * vuelven como `preexisting`. Sin contarlas, el reintento del aparato --que es
+ * la unica reparacion que hay-- no repara nada y ese calendario se queda sin
+ * recalcular para siempre.
+ *
+ * El camino directo no las cuenta: ahi `preexisting` es una checada que ya
+ * estaba y rehacer su calendario en caliente es trabajo de mas.
+ */
 export function assistIngestionCalendarRanges(
-  persisted: AssistIngestionPersisted[]
+  persisted: AssistIngestionPersisted[],
+  includePreexisting: boolean = false
 ): Map<number, { from: DateTime; to: DateTime }> {
   const ranges = new Map<number, { from: DateTime; to: DateTime }>()
 
   for (const row of persisted) {
-    if (row.outcome !== 'inserted') continue
+    const counts =
+      row.outcome === 'inserted' || (includePreexisting && row.outcome === 'preexisting')
+    if (!counts) continue
     const punchTime = row.assist.assistPunchTimeUtc
     const current = ranges.get(row.assist.assistEmpId)
     if (!current) {

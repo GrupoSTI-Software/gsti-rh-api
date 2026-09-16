@@ -36,14 +36,17 @@ test.group('Ingesta con recalculo diferido', (group) => {
     )
   })
 
-  function makeService(records: AssistIngestionRecord[]) {
+  function makeService(
+    records: AssistIngestionRecord[],
+    outcome: AssistIngestionPersisted['outcome'] = 'inserted'
+  ) {
     const enqueued: CalendarRecalcJob[] = []
     const repository: AssistIngestionRepository = {
       async ingestMany(incoming) {
         records.push(...incoming)
         return incoming.map<AssistIngestionPersisted>((record) => ({
           index: record.index,
-          outcome: 'inserted',
+          outcome,
           assist: {
             assistEmpId: record.employeeId,
             businessUnitId: record.businessUnitId,
@@ -92,6 +95,24 @@ test.group('Ingesta con recalculo diferido', (group) => {
     // Bordes: un dia antes y uno despues del marcaje, en la zona de negocio.
     assert.equal(enqueued[0].from.toFormat('yyyy-MM-dd'), '2026-08-11')
     assert.equal(enqueued[0].to.toFormat('yyyy-MM-dd'), '2026-08-13')
+  })
+
+  /**
+   * Insertar la checada y encolar su recalculo no ocurren en la misma
+   * transaccion: un proceso que muere en medio deja la checada guardada y el
+   * trabajo no. El equipo reenvia el lote cuando no recibe acuse, y esa es la
+   * unica reparacion que hay -- pero ahi las checadas ya no son nuevas.
+   */
+  test('el reenvio de un lote ya guardado vuelve a encolar el recalculo', async ({ assert }) => {
+    const records: AssistIngestionRecord[] = []
+    const { service, enqueued } = makeService(records, 'preexisting')
+    const result = await TenantContext.run([employee.businessUnitId as number], () =>
+      service.ingest([itemFor()], { deferCalendarRecalc: true })
+    )
+
+    assert.equal(result.summary.inserted, 0)
+    assert.lengthOf(enqueued, 1)
+    assert.equal(enqueued[0].employeeId, employee.employeeId)
   })
 
   test('el alias y el metodo de verificacion llegan al registro', async ({ assert }) => {

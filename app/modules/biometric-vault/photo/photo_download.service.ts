@@ -13,6 +13,7 @@ import { ADMS_ERROR_CODES } from '#constants/adms_error_codes'
 import { ADMS_INCIDENT_KIND } from '#modules/adms/adms.constants'
 import IncidentService from '#modules/adms/raw/incident.service'
 import PhotoCommandAdapter, { type PhotoCommandPort } from './photo_command.adapter.js'
+import { channelSecretMatches } from '#modules/adms/channel/channel_secret'
 
 export type PhotoDownloadOutcome =
   | {
@@ -93,7 +94,23 @@ export default class PhotoDownloadService {
     }
   }
 
-  async resolve(path: string, now: DateTime): Promise<PhotoDownloadOutcome> {
+  async resolve(
+    path: string,
+    now: DateTime,
+    /**
+     * Direccion por la que llego la peticion.
+     *
+     * La descarga NO trae serie --el firmware pide la URL tal cual se la
+     * dimos-- pero la publicacion si sabe a que equipo va, asi que la etiqueta
+     * se compara contra el secreto de ESE punto de acceso. Sin esto, el token
+     * seria la unica credencial de la unica ruta que entrega un biometrico ya
+     * renderizado.
+     */
+    address: { label: string | null; baseDomain: string | null } = {
+      label: null,
+      baseDomain: null,
+    }
+  ): Promise<PhotoDownloadOutcome> {
     const token = extractPhotoToken(path)
     /**
      * La forma se comprueba antes de tocar la base: probar rutas al azar no
@@ -106,6 +123,32 @@ export default class PhotoDownloadService {
     const publication = await this.repository.findByTokenHashUnscoped(hashPhotoToken(token))
     if (!publication) {
       return { kind: 'not_found', reason: 'token_unknown', publicationId: null, accessPointId: null }
+    }
+
+    /**
+     * Antes de consumir el token: resolver marca la publicacion como
+     * descargada, asi que rechazar despues gastaria el enlace de alguien que
+     * nunca recibio la foto.
+     */
+    if (address.baseDomain !== null) {
+      const point = await TenantContext.runUnscoped(
+        () =>
+          AccessPoint.query().where('access_point_id', publication.accessPointId).first(),
+        'foto por token: la direccion propia del equipo al que va'
+      )
+      const secret = point?.accessPointChannelSecret ?? null
+      /**
+       * Sin secreto todavia, se sirve: es la misma convivencia del resto del
+       * canal. Con secreto, la etiqueta tiene que ser la suya.
+       */
+      if (secret !== null && !channelSecretMatches(address.label, secret)) {
+        return {
+          kind: 'not_found',
+          reason: 'address_mismatch',
+          publicationId: publication.biometricPhotoPublicationId,
+          accessPointId: publication.accessPointId,
+        }
+      }
     }
 
     if (!this.publications.isDownloadable(publication, now)) {

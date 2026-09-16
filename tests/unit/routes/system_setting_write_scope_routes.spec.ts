@@ -13,27 +13,27 @@ const WRITE_ROUTES = [
   {
     label: 'birthday-emails',
     snippet:
-      "router.put('/:systemSettingId/birthday-emails', '#controllers/system_setting_controller.updateBirthdayEmailsStatus').use(middleware.auth()).use(middleware.businessScope()).use(middleware.permissionGate(SYSTEM_SETTINGS_WRITE_PERMISSION_DECLARATIONS.updateBirthdayEmailsStatus))",
+      "router.put('/:systemSettingId/birthday-emails', '#controllers/system_setting_controller.updateBirthdayEmailsStatus').use(middleware.auth()).use(middleware.businessScope())",
   },
   {
     label: 'anniversary-emails',
     snippet:
-      "router.put('/:systemSettingId/anniversary-emails', '#controllers/system_setting_controller.updateAnniversaryEmailsStatus').use(middleware.auth()).use(middleware.businessScope()).use(middleware.permissionGate(SYSTEM_SETTINGS_WRITE_PERMISSION_DECLARATIONS.updateAnniversaryEmailsStatus))",
+      "router.put('/:systemSettingId/anniversary-emails', '#controllers/system_setting_controller.updateAnniversaryEmailsStatus').use(middleware.auth()).use(middleware.businessScope())",
   },
   {
     label: 'attendance-fault-hr-emails',
     snippet:
-      "router.put('/:systemSettingId/attendance-fault-hr-emails', '#controllers/system_setting_controller.updateAttendanceFaultHrEmailsStatus').use(middleware.auth()).use(middleware.businessScope()).use(middleware.permissionGate(SYSTEM_SETTINGS_WRITE_PERMISSION_DECLARATIONS.updateAttendanceFaultHrEmailsStatus))",
+      "router.put('/:systemSettingId/attendance-fault-hr-emails', '#controllers/system_setting_controller.updateAttendanceFaultHrEmailsStatus').use(middleware.auth()).use(middleware.businessScope())",
   },
   {
     label: 'employee-application-icon',
     snippet:
-      "router.post('/:systemSettingId/employee-application-icon', '#controllers/system_setting_controller.uploadEmployeeApplicationIcon').use(middleware.auth()).use(middleware.businessScope()).use(middleware.permissionGate(SYSTEM_SETTINGS_WRITE_PERMISSION_DECLARATIONS.uploadEmployeeApplicationIcon))",
+      "router.post('/:systemSettingId/employee-application-icon', '#controllers/system_setting_controller.uploadEmployeeApplicationIcon').use(middleware.auth()).use(middleware.businessScope())",
   },
   {
     label: 'delete',
     snippet:
-      "router.delete('/:systemSettingId', '#controllers/system_setting_controller.delete').use(middleware.auth()).use(middleware.businessScope()).use(middleware.permissionGate(SYSTEM_SETTINGS_DELETE_PERMISSION_DECLARATIONS.delete))",
+      "router.delete('/:systemSettingId', '#controllers/system_setting_controller.delete').use(middleware.auth()).use(middleware.businessScope())",
   },
 ] as const
 

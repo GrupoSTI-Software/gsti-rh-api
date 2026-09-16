@@ -130,7 +130,7 @@ import RegulationClauseFeature from '#models/regulation_clause_feature'
  *       if (!feature) {
  *         throw new Error(
  *           `[seeder] Feature no encontrada para slug "${row.featureSlug}". ` +
- *           `Verifica que 0032_system_feature_seeder haya corrido antes.`
+ *           `Verifica que la feature exista en system_features.`
  *         )
  *       }
  *
@@ -210,7 +210,7 @@ export default class extends BaseSeeder {
       if (!feature) {
         throw new Error(
           `[0033_baseline_seeder] Feature no encontrada para slug "${row.featureSlug}". ` +
-            'Verifica que 0032_system_feature_seeder haya corrido antes que este seeder.'
+            'Verifica que la feature exista en system_features: ningún seeder vigente llena esa tabla.'
         )
       }
 
