@@ -15,7 +15,12 @@ const dbConfig = defineConfig({
         timezone: 'Z' // Esto es para UTC
       },
       migrations: {
-        naturalSort: true,
+        // naturalSort compara los prefijos como numeros enteros: un timestamp en
+        // microsegundos (16 digitos) resulta "mayor" que uno en milisegundos (13),
+        // y Lucid ejecuta todas las de 16 digitos al final, fuera de su orden
+        // cronologico real. El orden lexicografico si es el correcto, porque un
+        // prefijo en microsegundos es el de milisegundos con tres digitos extra.
+        naturalSort: false,
         paths: ['database/migrations'],
       },
     },

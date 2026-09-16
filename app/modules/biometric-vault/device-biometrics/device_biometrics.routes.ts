@@ -6,8 +6,9 @@ import { middleware } from '#start/kernel'
  *
  * Cuelgan del colaborador y no del equipo porque la pantalla que las usa es la
  * pestaña de biometricos del colaborador. El permiso se resuelve dentro del
- * controlador con `evaluateEnforced`: el interruptor de exigencia del modulo
- * esta apagado y `permissionGate` dejaria pasar a cualquier autenticado.
+ * controlador con `evaluateEnforced`: el modulo `employees` hoy exige permisos,
+ * pero el dato es biometrico y no puede colgar de ese interruptor —apagarlo en
+ * BD haria que `permissionGate` dejara pasar a cualquier autenticado—.
  */
 router
   .group(() => {

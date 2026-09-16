@@ -1,15 +1,29 @@
 import { test } from '@japa/runner'
 import User from '#models/user'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * USRH1785167064404 — API de consulta del marco regulatorio (solo lectura).
  * Verificación funcional contra BD real ya sembrada (seeders 0028-0031+0033):
  * 8 autoridades (STPS + 7 esqueleto), NOM-035-STPS (47 numerales),
  * NOM-037-STPS (49 numerales).
+ * El permiso `regulatory-coverage:read` se prueba en
+ * `regulatory_coverage_permission_gate.spec.ts`; aquí se usa root para probar el contenido.
  */
 
-async function getAnyActiveUser(): Promise<User> {
-  return User.query().whereNull('user_deleted_at').firstOrFail()
+/**
+ * Usuario root sembrado por 0008. Con la exigencia de `regulatory-coverage`
+ * encendida, "el primer usuario activo" dejaba el resultado al rol de la primera
+ * fila (la consulta ni siquiera ordenaba): cualquier usuario creado antes que
+ * root respondía 403. root pasa el gate por bypass.
+ */
+async function getRootUser(): Promise<User> {
+  const root = await ensureRole('root')
+  return User.query()
+    .whereNull('user_deleted_at')
+    .where('role_id', root.roleId)
+    .orderBy('user_id', 'asc')
+    .firstOrFail()
 }
 
 test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities', () => {
@@ -22,7 +36,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities', () => {
     client,
     assert,
   }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client.get('/api/v1/regulatory-authorities').loginAs(user)
 
     response.assertStatus(200)
@@ -49,7 +63,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities', () => {
     client,
     assert,
   }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client
       .get('/api/v1/regulatory-authorities')
       .qs({ has_regulations: 'true' })
@@ -62,7 +76,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities', () => {
   })
 
   test('422 con has_regulations inválido (REG.VAL.001)', async ({ client, assert }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client
       .get('/api/v1/regulatory-authorities')
       .qs({ has_regulations: 'foo' })
@@ -79,7 +93,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities/:slug', (
     client,
     assert,
   }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client.get('/api/v1/regulatory-authorities/stps').loginAs(user)
 
     response.assertStatus(200)
@@ -98,7 +112,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulatory-authorities/:slug', (
     client,
     assert,
   }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client
       .get('/api/v1/regulatory-authorities/no-existe-xyz')
       .loginAs(user)
@@ -116,7 +130,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code', () => {
     client,
     assert,
   }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client.get('/api/v1/regulations/NOM-035-STPS').loginAs(user)
 
     response.assertStatus(200)
@@ -162,7 +176,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code', () => {
   })
 
   test('200: NOM-037-STPS con 49 numerales', async ({ client, assert }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client.get('/api/v1/regulations/NOM-037-STPS').loginAs(user)
 
     response.assertStatus(200)
@@ -181,7 +195,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code', () => {
     client,
     assert,
   }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client.get('/api/v1/regulations/NOM-099-XXX').loginAs(user)
 
     response.assertStatus(404)
@@ -197,7 +211,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code', () => {
     client,
     assert,
   }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     // Primer hit: llena el caché.
     await client.get('/api/v1/regulations/NOM-035-STPS').loginAs(user)
 
@@ -215,7 +229,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code/clauses/:claus
     client,
     assert,
   }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client
       .get('/api/v1/regulations/NOM-035-STPS/clauses/5.8.a')
       .loginAs(user)
@@ -238,7 +252,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code/clauses/:claus
   })
 
   test('200: numeral padre 5.8 lista sus 3 hijos directos', async ({ client, assert }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client
       .get('/api/v1/regulations/NOM-035-STPS/clauses/5.8')
       .loginAs(user)
@@ -254,7 +268,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code/clauses/:claus
   })
 
   test('404 con norma inexistente (REG.NF.002)', async ({ client, assert }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client
       .get('/api/v1/regulations/NOM-099-XXX/clauses/5.1')
       .loginAs(user)
@@ -267,7 +281,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code/clauses/:claus
     client,
     assert,
   }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client
       .get('/api/v1/regulations/NOM-035-STPS/clauses/99.99')
       .loginAs(user)
@@ -281,7 +295,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code/clauses/:claus
     client,
     assert,
   }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     // '5.1' existe en NOM-037-STPS con otro id; pedirlo bajo NOM-035-STPS
     // con un código que sólo exista en la otra norma debe dar 404, no 500.
     const response = await client
@@ -295,7 +309,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code/clauses/:claus
 
 test.group('RegulatoryFramework — GET /api/v1/regulations/:code/clauses/:clauseCode/features', () => {
   test('200: forma mínima {clause, features}', async ({ client, assert }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client
       .get('/api/v1/regulations/NOM-035-STPS/clauses/5.8.a/features')
       .loginAs(user)
@@ -307,7 +321,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code/clauses/:claus
   })
 
   test('404 con numeral inexistente (REG.NF.003)', async ({ client, assert }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const response = await client
       .get('/api/v1/regulations/NOM-035-STPS/clauses/99.99/features')
       .loginAs(user)
@@ -319,7 +333,7 @@ test.group('RegulatoryFramework — GET /api/v1/regulations/:code/clauses/:claus
 
 test.group('RegulatoryFramework — negativo: sin mutaciones', () => {
   test('no existen rutas POST/PUT/DELETE bajo estos paths', async ({ client }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const post = await client
       .post('/api/v1/regulatory-authorities')
       .loginAs(user)
@@ -334,7 +348,7 @@ test.group('RegulatoryFramework — i18n (regla 5)', () => {
     client,
     assert,
   }) => {
-    const user = await getAnyActiveUser()
+    const user = await getRootUser()
     const responseEs = await client
       .get('/api/v1/regulatory-authorities/stps')
       .loginAs(user)

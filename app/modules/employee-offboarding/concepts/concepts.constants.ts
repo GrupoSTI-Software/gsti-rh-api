@@ -6,8 +6,8 @@
 
 /**
  * Slug del módulo de menú del backoffice que gobierna el permiso (regla 9).
- * En plural: `employee-offboarding` a secas ya está tomado por un
- * `system_feature` (`0032_system_feature_seeder.ts`).
+ * En plural, igual al primer segmento de su ruta (`/employee-offboardings`),
+ * como exige `system_modules.constant.ts`.
  */
 export const EMPLOYEE_OFFBOARDINGS_MODULE_SLUG = 'employee-offboardings'
 

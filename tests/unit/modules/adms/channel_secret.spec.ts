@@ -1,5 +1,7 @@
 import { test } from '@japa/runner'
 import {
+  assertChannelBaseDomain,
+  channelAddressOf,
   channelSecretMatches,
   generateChannelSecret,
   hostLabelOf,
@@ -61,7 +63,15 @@ test.group('Secreto del canal: comparacion', () => {
   test('coincide solo con el secreto exacto', ({ assert }) => {
     const secret = generateChannelSecret()
     assert.isTrue(channelSecretMatches(secret, secret))
-    assert.isFalse(channelSecretMatches(secret.slice(0, -1) + 'z', secret))
+    /**
+     * El caracter que sustituye al ultimo tiene que estar FUERA del alfabeto.
+     * Mutar con `z` --que si pertenece-- dejaba el secreto intacto cada vez que
+     * el ultimo caracter ya era `z`: una de cada 31 corridas pasaba el mismo
+     * secreto a las dos partes y el caso afirmaba `isFalse` sobre una
+     * comparacion verdadera. `0` esta excluido del alfabeto a proposito (se
+     * confunde con `O`), asi que nunca puede ser el ultimo caracter generado.
+     */
+    assert.isFalse(channelSecretMatches(secret.slice(0, -1) + '0', secret))
   })
 
   test('un largo distinto no coincide y no revienta', ({ assert }) => {
@@ -88,5 +98,105 @@ test.group('Secreto del canal: comparacion', () => {
     assert.isFalse(channelSecretMatches(null, generateChannelSecret()))
     assert.isFalse(channelSecretMatches(generateChannelSecret(), null))
     assert.isFalse(channelSecretMatches(null, null))
+  })
+})
+
+test.group('Secreto del canal: direccion que se teclea', () => {
+  test('el secreto va como etiqueta delante del dominio comun', ({ assert }) => {
+    assert.equal(
+      channelAddressOf('37htrxq38vtrms', 'adms-dev.valanserh.app'),
+      '37htrxq38vtrms.adms-dev.valanserh.app'
+    )
+  })
+
+  /**
+   * El DNS no distingue mayusculas, pero quien teclea si: una direccion
+   * mostrada en mayusculas se copia en mayusculas al menu del aparato y
+   * despues no cuadra con lo que la pantalla dice.
+   */
+  test('normaliza a minusculas y recorta los espacios de los extremos', ({ assert }) => {
+    assert.equal(
+      channelAddressOf('  ABCDEF1234  ', '  ADMS.VALANSERH.APP '),
+      'abcdef1234.adms.valanserh.app'
+    )
+  })
+
+  test('sin dominio comun no hay direccion que dar', ({ assert }) => {
+    assert.isNull(channelAddressOf('37htrxq38vtrms', null))
+    assert.isNull(channelAddressOf('37htrxq38vtrms', ''))
+    assert.isNull(channelAddressOf('37htrxq38vtrms', '   '))
+  })
+
+  test('un equipo anterior al canal no tiene direccion propia', ({ assert }) => {
+    assert.isNull(channelAddressOf(null, 'adms-dev.valanserh.app'))
+  })
+
+  /** La direccion que se muestra tiene que ser la que el canal despues acepta. */
+  test('lo que se teclea es lo que el canal reconoce como etiqueta propia', ({ assert }) => {
+    const secret = generateChannelSecret()
+    const base = 'adms-dev.valanserh.app'
+
+    const address = channelAddressOf(secret, base)
+
+    assert.isNotNull(address)
+    assert.equal(hostLabelOf(address, base), secret)
+    assert.isTrue(channelSecretMatches(hostLabelOf(address, base), secret))
+  })
+})
+
+test.group('Secreto del canal: validacion del dominio comun', () => {
+  test('acepta un dominio de dos y de tres etiquetas', ({ assert }) => {
+    assert.equal(assertChannelBaseDomain('VAR', 'valanserh.app'), 'valanserh.app')
+    assert.equal(
+      assertChannelBaseDomain('VAR', 'adms-dev.valanserh.app'),
+      'adms-dev.valanserh.app'
+    )
+  })
+
+  test('vacio significa convivencia, no error', ({ assert }) => {
+    assert.isUndefined(assertChannelBaseDomain('VAR', ''))
+    assert.isUndefined(assertChannelBaseDomain('VAR', '   '))
+    assert.isUndefined(assertChannelBaseDomain('VAR', undefined))
+  })
+
+  test('normaliza mayusculas y espacios de los extremos', ({ assert }) => {
+    assert.equal(assertChannelBaseDomain('VAR', '  ADMS.Valanserh.App  '), 'adms.valanserh.app')
+  })
+
+  /**
+   * El caso real del 2026-09-11: con el comodin puesto, el sufijo que busca
+   * `hostLabelOf` pasa a ser `.*.valanserh.app` y ningun `Host` termina asi,
+   * asi que el canal rechaza a toda la flota sin decir nada.
+   */
+  test('rechaza el comodin, que es sintaxis de DNS y no de esta variable', ({ assert }) => {
+    assert.throws(
+      () => assertChannelBaseDomain('ADMS_CHANNEL_BASE_DOMAIN', '*.valanserh.app'),
+      /comodin va en el registro DNS/
+    )
+  })
+
+  test('rechaza esquema, ruta y puerto', ({ assert }) => {
+    assert.throws(() => assertChannelBaseDomain('VAR', 'https://valanserh.app'), /esquema/)
+    assert.throws(() => assertChannelBaseDomain('VAR', 'valanserh.app/iclock'), /ruta/)
+    assert.throws(() => assertChannelBaseDomain('VAR', 'valanserh.app:443'), /puerto/)
+  })
+
+  test('rechaza un valor que no puede ser dominio', ({ assert }) => {
+    assert.throws(() => assertChannelBaseDomain('VAR', 'localhost'), /falta al menos un punto/)
+    assert.throws(() => assertChannelBaseDomain('VAR', '.valanserh.app'), /punto de los extremos/)
+    assert.throws(() => assertChannelBaseDomain('VAR', 'valanserh.app.'), /punto de los extremos/)
+    assert.throws(() => assertChannelBaseDomain('VAR', 'adms..valanserh.app'), /no es valida para DNS/)
+    assert.throws(() => assertChannelBaseDomain('VAR', 'adms dev.valanserh.app'), /espacios/)
+    assert.throws(() => assertChannelBaseDomain('VAR', '-adms.valanserh.app'), /no es valida para DNS/)
+  })
+
+  /** Lo validado tiene que servirle despues a las dos funciones del canal. */
+  test('lo que pasa la validacion funciona en el resto del canal', ({ assert }) => {
+    const base = assertChannelBaseDomain('VAR', 'ADMS-Dev.Valanserh.App')!
+    const secret = generateChannelSecret()
+
+    const address = channelAddressOf(secret, base)
+
+    assert.equal(hostLabelOf(address, base), secret)
   })
 })

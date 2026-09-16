@@ -13,6 +13,7 @@ import BillingVolumeTier from '#models/billing_volume_tier'
 import BillingSubscription from '#models/billing_subscription'
 import BillingCatalogService from '#services/billing_catalog_service'
 import SelfServiceSubscriptionCreatedMail from '#mails/self_service_subscription_created_mail'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Test funcional — flujo completo de signup self-service (USRH1783712837561 +
@@ -31,6 +32,8 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
   let mailFake: ReturnType<typeof mail.fake> | null = null
 
   group.setup(async () => {
+    // El alta self-service asigna owner por slug y 0006 ya no lo siembra.
+    await ensureRole('owner')
     mailFake = mail.fake()
     signupEmail = `owner-signup-${Date.now()}@gsti-tests.local`
 

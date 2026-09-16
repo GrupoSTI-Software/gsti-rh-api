@@ -18,6 +18,7 @@ import SystemSettingService from '#services/system_setting_service'
 import BillingCatalogService from '#services/billing_catalog_service'
 import { SignupServiceError } from '#exceptions/signup_service_error'
 import { SIGNUP_ERROR_CODES } from '#constants/signup_error_codes'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests de `SignupDraftService.complete()` — creación transaccional del
@@ -129,6 +130,8 @@ test.group('SignupDraftService.complete() - creación de system_settings del ten
   let publishedPlanId: number | null = null
 
   group.each.setup(async () => {
+    // complete() asigna owner por slug y 0006 ya no lo siembra.
+    await ensureRole('owner')
     stamp = Date.now() + Math.floor(Math.random() * 1000)
     publishedPlanId = await createPublishedPlan(stamp)
   })

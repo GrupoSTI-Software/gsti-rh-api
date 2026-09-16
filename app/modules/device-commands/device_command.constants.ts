@@ -80,6 +80,26 @@ export const DEVICE_COMMAND_RETURN_CODES: Readonly<Record<number, string>> = {
 export const DEVICE_COMMAND_UNKNOWN_RETURN = 'unknown_return_code'
 
 /**
+ * Nombre del desenlace que acuso el equipo, para guardar en `lastError`.
+ *
+ * Un codigo que no esta en la tabla lleva el numero pegado
+ * (`unknown_return_code:-1005`). Sin el numero, el operador ve la misma
+ * palabra para cualquier fallo no medido y el siguiente que lea la fila no
+ * tiene con que buscar: el codigo queda en `device_command_return_code`, pero
+ * el mensaje que se muestra es este. Se midio `-1005` en `enroll_fp` y no se
+ * bautiza sin entender que lo provoca -- inventarle nombre a un numero es
+ * peor que no tenerlo.
+ *
+ * @param returnCode - `Return` tal como lo acuso el aparato.
+ * @returns Nombre medido del codigo, o `unknown_return_code[:<codigo>]`.
+ */
+export function returnCodeLabel(returnCode: number | null): string {
+  if (returnCode === null) return DEVICE_COMMAND_UNKNOWN_RETURN
+  const known = DEVICE_COMMAND_RETURN_CODES[returnCode]
+  return known ?? `${DEVICE_COMMAND_UNKNOWN_RETURN}:${returnCode}`
+}
+
+/**
  * Con que se dio por ejecutado un comando (spec 6.6).
  *
  * `Return=0` significa RECIBIDO, no ejecutado: la bateria en hardware midio un
@@ -124,6 +144,22 @@ export const DEVICE_COMMAND_STALE_PENDING_MINUTES = 30
 
 /** Tope de reintentos. `user_delete` no lo tiene: dejar a un ex-colaborador dentro es un riesgo. */
 export const DEVICE_COMMAND_MAX_ATTEMPTS = 3
+
+/**
+ * Cuanto se espera el acuse de un comando que ya salio, antes de darlo por
+ * perdido y volver a encolarlo.
+ *
+ * El equipo acusa por `devicecmd` en el sondeo siguiente al que recibio la
+ * orden, asi que la respuesta normal llega en segundos. Cinco minutos son
+ * treinta sondeos: si a esas alturas no acuso, o no le llego o se apago en
+ * medio.
+ *
+ * Hace falta porque un comando en vuelo BLOQUEA la cola entera de ese equipo
+ * --solo se despacha uno a la vez-- y nada lo desbloqueaba: un corte de luz
+ * justo despues de recibir una orden dejaba al checador sin recibir nada mas,
+ * para siempre, sin un solo error en el log.
+ */
+export const DEVICE_COMMAND_IN_FLIGHT_TIMEOUT_MINUTES = 5
 
 /** Tope de caracteres del nombre en `USERINFO`. El limite real del firmware no se midio. */
 export const DEVICE_COMMAND_NAME_MAX_LENGTH = 24
