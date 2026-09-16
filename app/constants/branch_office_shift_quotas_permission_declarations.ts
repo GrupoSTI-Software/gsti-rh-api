@@ -26,6 +26,12 @@ const repseExpanded = (action: string | readonly string[]): PermissionGateOption
  * solo `update` nunca ve el botón: no se le abre aquí una puerta que la pantalla
  * no le da.
  *
+ * Por eso esta escritura NO sigue el patrón `acción ∨ gestion` del resto del
+ * dominio REPSE (`compliance_repse_rbac.ts` resuelve todo con `hasAction ||
+ * hasGestion`): la divergencia es deliberada y la respalda la pantalla, que
+ * solo muestra el editor con `canManage`. Queda escrita aquí para que no haya
+ * que reconstruirla desde el historial.
+ *
  * LECTURA — DOS consumidores de módulos distintos, y por eso NO lleva gate de
  * ruta: la misma pantalla de REPSE y el formulario de préstamo temporal del
  * colaborador (`components/temporaryAssignmentForm`), que es Empleados y se

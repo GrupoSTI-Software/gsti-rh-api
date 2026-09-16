@@ -60,7 +60,9 @@ test.group('proceeding_file_type_routes — altas con gate, edición y baja por 
   }) => {
     assert.deepEqual(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeProceedingFileType, {
       module: 'employees',
-      action: 'tab-expediente-write',
+      // En OR con `manage-files`, la casilla con la que el backoffice muestra el
+      // formulario de carpetas: el gate no aplica la equivalencia legada.
+      action: ['tab-expediente-write', 'manage-files'],
       bypass: 'standard',
     })
     assert.deepEqual(SYSTEM_SETTINGS_PERMISSION_DECLARATIONS.storeSystemSettingProceedingFileType, {
@@ -145,7 +147,7 @@ test.group('branch_office_shift_quota_routes — escritura con gate, lectura en 
     assert.include(controller, 'createTemporaryAssignment')
 
     const start = controller.indexOf('async index(')
-    const check = controller.indexOf('canReadShiftQuotas(ctx)', start)
+    const check = controller.indexOf('resolveShiftQuotasReadDecision(ctx)', start)
     const list = controller.indexOf('BranchOfficeShiftQuotaService.list(', start)
     assert.isAbove(check, -1, 'index debe comprobar el permiso de lectura')
     assert.isBelow(check, list, 'debe comprobarlo antes de listar')

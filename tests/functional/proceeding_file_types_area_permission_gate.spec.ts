@@ -185,6 +185,11 @@ test.group('Carpetas del expediente — permiso por área', (group) => {
     assert,
   }) => {
     const tenant = required(actor, 'el actor')
+    // `grantModulePermissions` reemplaza las concesiones DEL MÓDULO que recibe:
+    // sin limpiar Empleados a mano, este caso arrastraría el
+    // `tab-expediente-delete` del anterior y sus negativas dependerían del
+    // orden de ejecución, no del permiso que el caso declara.
+    await grantModulePermissions(tenant, EMPLOYEES_MODULE, [])
     await grantModulePermissions(tenant, SYSTEM_SETTINGS_MODULE, ['update'])
     const empleado = await createFolder(tenant, 'employee', 'Update empresa colaborador')
     const empresa = await createFolder(tenant, 'system-setting', 'Update empresa empresa')
@@ -197,6 +202,40 @@ test.group('Carpetas del expediente — permiso por área', (group) => {
     assertDenied(assert, await createEmployeeFolder(client, tenant), 'alta carpeta colaborador')
     assertDenied(assert, await updateFolder(client, tenant, empleado), 'editar carpeta colaborador')
     assert.isTrue(await isAlive(empleado), 'la carpeta de colaborador debe seguir viva')
+  })
+
+  test('el área se decide normalizada: "Employee" no burla el permiso del colaborador', async ({
+    client,
+    assert,
+  }) => {
+    // La columna es `utf8mb4_0900_ai_ci`: en MySQL `Employee = employee`. Si la
+    // decisión se tomara con `===` en JS, este PUT pasaría con solo
+    // `system-settings:update` y la carpeta aparecería en el expediente del
+    // colaborador.
+    const tenant = required(actor, 'el actor')
+    await grantModulePermissions(tenant, EMPLOYEES_MODULE, [])
+    await grantModulePermissions(tenant, SYSTEM_SETTINGS_MODULE, ['update'])
+    const empresa = await createFolder(tenant, 'system-setting', 'Bypass mayusculas')
+    created.push(empresa.proceedingFileTypeId)
+
+    const response = await client
+      .put(folderUrl(empresa))
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
+      .json({
+        proceedingFileTypeName: `${empresa.proceedingFileTypeName} movida`,
+        proceedingFileTypeSlug: `${empresa.proceedingFileTypeSlug}-movida`,
+        proceedingFileTypeAreaToUse: 'Employee',
+        proceedingFileTypeActive: 1,
+      })
+
+    assertDenied(assert, response, 'mover a "Employee" con solo system-settings:update')
+    const row = await ProceedingFileType.findOrFail(empresa.proceedingFileTypeId)
+    assert.equal(
+      row.proceedingFileTypeAreaToUse,
+      'system-setting',
+      'la carpeta no debe haberse movido al expediente del colaborador'
+    )
   })
 
   test('owner cruza las dos áreas sin concesiones (bypass standard)', async ({

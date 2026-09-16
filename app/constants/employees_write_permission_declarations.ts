@@ -116,10 +116,21 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   deleteEmployeeProceedingFile: employeesStandard('tab-expediente-delete'),
   // Carpetas (tipos) del expediente del colaborador. Su único formulario es
   // `proceedingFileTypeFolderForm` montado en `components/proceedingFiles`, que
-  // el backoffice solo muestra con `canManageFiles` (`employees:manage-files`,
-  // el legado de `tab-expediente-write`). La edición y la baja comparten ruta
-  // con las carpetas de la empresa y las decide el controller por área.
-  createEmployeeProceedingFileType: employeesStandard('tab-expediente-write'),
+  // el backoffice solo muestra con `canManageFiles` (`employees:manage-files`).
+  // La edición y la baja comparten ruta con las carpetas de la empresa y las
+  // decide el controller por área.
+  //
+  // Acepta las DOS casillas en OR porque el gate compara slugs literales y no
+  // aplica la equivalencia legada del catálogo (`tab-expediente-write` declara
+  // `manage-files` como su legado `broader`), mientras el árbol de sesión —del
+  // que depende la pantalla— sí la aplica. Sin el OR, un rol con solo
+  // `manage-files` veía el botón y recibía 403, y uno con solo
+  // `tab-expediente-write` podía escribir por API sin ver nunca el botón.
+  // Cuando el punto 3 unifique la decisión de legado, esto vuelve a un solo slug.
+  createEmployeeProceedingFileType: employeesStandard([
+    'tab-expediente-write',
+    'manage-files',
+  ]),
   storeProceedingFileTypeProperty: employeesStandard('tab-expediente-write'),
   storeMultipleProceedingFileTypeProperties: employeesStandard('tab-expediente-write'),
   deleteProceedingFileTypeProperty: employeesStandard('tab-expediente-delete'),
@@ -231,13 +242,20 @@ export const EMPLOYEES_PERSON_COLLABORATOR_WRITE_PERMISSION: PermissionGateOptio
 export const EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION: PermissionGateOptions =
   employeesStandard('tab-persona-delete')
 
-/** Permiso cuando se escribe un proceeding file / valor de propiedad del área employee. */
+/**
+ * Permiso cuando se escribe una carpeta del área `employee`.
+ *
+ * Igual que `createEmployeeProceedingFileType`, acepta también `manage-files`:
+ * es la única casilla con la que el backoffice muestra los botones de editar y
+ * borrar carpeta (`proceedingFileTypeFolder/index.vue`, `v-if="canManageFiles"`),
+ * y el gate no aplica por su cuenta la equivalencia legada del catálogo.
+ */
 export const EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION: PermissionGateOptions =
-  employeesStandard('tab-expediente-write')
+  employeesStandard(['tab-expediente-write', 'manage-files'])
 
-/** Permiso cuando se elimina un proceeding file / valor de propiedad del área employee. */
+/** Permiso cuando se elimina una carpeta del área `employee`. Mismo motivo del OR. */
 export const EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION: PermissionGateOptions =
-  employeesStandard('tab-expediente-delete')
+  employeesStandard(['tab-expediente-delete', 'manage-files'])
 
 /** Permiso secundario cuando la escritura de excepción / aceptación de solicitud asienta o altera vacaciones. */
 export const EMPLOYEES_MANAGE_VACATION_PERMISSION: PermissionGateOptions =

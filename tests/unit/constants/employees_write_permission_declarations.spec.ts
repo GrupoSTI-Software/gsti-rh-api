@@ -119,8 +119,20 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.createEmployeeCertificationUpload.action, 'tab-certificaciones-write')
     assert.equal(d.deleteEmployeeCertificationUpload.action, 'tab-certificaciones-delete')
 
-    assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION.action, 'tab-expediente-write')
-    assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION.action, 'tab-expediente-delete')
+    // Las carpetas aceptan además `manage-files`: es la casilla con la que el
+    // backoffice muestra sus botones y el gate no aplica la equivalencia legada.
+    assert.deepEqual(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION.action, [
+      'tab-expediente-write',
+      'manage-files',
+    ])
+    assert.deepEqual(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION.action, [
+      'tab-expediente-delete',
+      'manage-files',
+    ])
+    assert.deepEqual(d.createEmployeeProceedingFileType.action, [
+      'tab-expediente-write',
+      'manage-files',
+    ])
     assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION.bypass, 'standard')
     assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION.bypass, 'standard')
     assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION.module, 'employees')
