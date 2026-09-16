@@ -378,7 +378,10 @@ export default class BillingSubscriptionController {
    *           aún no vigente (PLT.DSC.CODE_NOT_YET_VALID), vencido
    *           (PLT.DSC.CODE_EXPIRED), agotó su cupo de canjes
    *           (PLT.DSC.CODE_EXHAUSTED), o el descuento deja el subtotal del
-   *           periodo en cero o menos (PLT.DSC.SUBTOTAL_ZERO)
+   *           periodo en cero o menos (PLT.DSC.SUBTOTAL_ZERO). Si el código
+   *           es de una alianza y la empresa ya le corresponde a otra,
+   *           rechaza con PLT.ALL.ATTRIBUTION_OTHER_ALLIANCE (no se crea
+   *           la suscripción ni se consume el canje).
    */
   async store({ request, response }: HttpContext) {
     try {
