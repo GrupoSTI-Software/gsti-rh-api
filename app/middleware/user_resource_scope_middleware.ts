@@ -71,6 +71,12 @@ export default class UserResourceScopeMiddleware {
     // se quedaba sin título, sin mensaje y sin `key` con los que reaccionar
     // —y el 404 dejaba de ser indistinguible del de "no existe", que es justo
     // lo que este middleware promete.
+    // `Number(params.userId)` es NaN con un id no numérico y `JSON.stringify`
+    // lo serializa como `null`: el cuerpo dejaría de ser idéntico al del
+    // recurso ajeno, que es justo la uniformidad que este middleware promete.
+    // Se decide explícitamente en 0.
+    const reportedUserId = Number.isInteger(userId) ? userId : 0
+
     if (format === 'invitation') {
       const err = USER_INVITATION_RESEND_ERRORS.NOT_FOUND
       return ctx.response.status(err.status).json({
@@ -85,7 +91,7 @@ export default class UserResourceScopeMiddleware {
       type: 'warning',
       title: 'The user was not found',
       message: 'The user was not found with the entered ID',
-      data: { userId },
+      data: { userId: reportedUserId },
     })
   }
 }

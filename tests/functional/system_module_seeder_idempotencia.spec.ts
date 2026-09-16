@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import db from '@adonisjs/lucid/services/db'
 import SystemModuleSeeder from '#database/seeders/0062_system_module_seeder'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
@@ -53,7 +54,12 @@ async function fechaDeBaja(slug: string): Promise<string | null> {
   return modulo.deletedAt ? modulo.deletedAt.toISO() : null
 }
 
-const correrSeeder = () => new SystemModuleSeeder({} as never).run()
+/**
+ * Cliente real, no un `{} as never`: hoy `BaseSeeder` solo lo guarda y 0062 no
+ * lo usa, pero el día que abra una transacción con `this.client` el spec
+ * reventaría en runtime en vez de fallar al compilar.
+ */
+const correrSeeder = () => new SystemModuleSeeder(db.connection()).run()
 
 test.group('0062_system_module_seeder', () => {
   test('correrlo dos veces no duplica filas ni cambia ningún id', async ({ assert }) => {

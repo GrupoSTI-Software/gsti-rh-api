@@ -7,7 +7,9 @@ function compact(source: string): string {
 }
 
 test.group('employee_zone_routes — PermissionGate Zonas', () => {
-  test('escrituras declaran permissionGate y lecturas no', async ({ assert }) => {
+  test('las escrituras usan declaraciones de escritura y la lectura la suya (showEmployeeZone)', async ({
+    assert,
+  }) => {
     const content = await readFile(
       join(process.cwd(), 'start/routes/employee_zone_routes.ts'),
       'utf8'

@@ -155,7 +155,9 @@ async function seedActiveEmployees(businessUnitId: number, count: number): Promi
     employee.personId = person.personId
     employee.businessUnitId = businessUnitId
     employee.payrollBusinessUnitId = businessUnitId
-    employee.companyId = 1
+    // La empresa del propio fixture, no un id fijo: `company_id` no tiene
+    // foránea, así que un 1 literal no lo respalda nada.
+    employee.companyId = businessUnitId
     employee.employeeFirstName = 'Decrease'
     employee.employeeLastName = `Emp${i}`
     employee.employeeCode = `DEC-${businessUnitId}-${i}-${STAMP}`
@@ -186,12 +188,14 @@ async function cleanupTenantActor(actor: TenantActor | null) {
   /**
    * Los empleados sembrados se borran de verdad, y sus personas con ellos.
    *
-   * `Employee` usa borrado lógico, así que el `delete()` anterior dejaba la
-   * fila viva en la tabla y a su `Person` sin dueño aparente pero referenciada
-   * por la FK: nadie la borraba nunca. Cada corrida del caso del mínimo por
-   * plantilla dejaba quince personas más en la base, con correo único, hasta
-   * volverla irreconocible. Se borra por consulta cruda para saltarse el mixin
-   * y en orden hijo → padre para no chocar con la llave foránea.
+   * Lo que se fugaba eran las filas de `people`, no las de `employees`: el
+   * mixin de borrado lógico solo intercepta el `delete()` de una INSTANCIA
+   * (sobrescribe `$getQueryFor`), no el del query builder, así que
+   * `Employee.query().delete()` ya borraba físicamente. Lo que faltaba era
+   * borrar sus personas, que quedaban sin dueño y con correo único: cada
+   * corrida del caso del mínimo por plantilla dejaba quince más en la base.
+   * El `db.from('employees')` se conserva por explícito, y el orden
+   * hijo → padre evita chocar con la llave foránea.
    */
   const empleadosDeLaEmpresa = await Employee.query()
     .withTrashed()
