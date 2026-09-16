@@ -2,14 +2,20 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from '@japa/runner'
 import {
+  ADMS_COMMAND_RETENTION_DEFAULT_DAYS,
   ADMS_COMMAND_RETENTION_MIN_DAYS,
+  ADMS_PHOTO_PUBLICATION_RETENTION_DEFAULT_DAYS,
   ADMS_PHOTO_PUBLICATION_RETENTION_MIN_DAYS,
+  ADMS_QUARANTINE_RETENTION_DEFAULT_DAYS,
   ADMS_QUARANTINE_RETENTION_MIN_DAYS,
+  ADMS_RAW_FAILED_RETENTION_DEFAULT_DAYS,
+  ADMS_RAW_RETENTION_DEFAULT_DAYS,
   ADMS_RAW_RETENTION_MIN_DAYS,
   admsCommandRetentionDays,
   admsRawFailedRetentionDays,
   admsRawRetentionDays,
   admsRetentionSummary,
+  boundedRetentionDays,
 } from '#modules/adms/retention/retention.constants'
 
 /**
@@ -26,36 +32,44 @@ import {
  * una comparación numérica suelta.
  */
 
-/** Los cinco plazos del spec, con su mínimo en código. Es el contrato. */
+/**
+ * Los cinco plazos del spec, con su default y su mínimo tomados del CÓDIGO.
+ *
+ * `porDefecto` sale de la constante exportada y no de un literal repetido aquí:
+ * con el valor escrito dentro de cada función, `.env.test` fijaba las cinco
+ * variables, la rama del entorno ganaba siempre y cambiar un default en el
+ * código dejaba la suite verde. Ahora el default vive en un solo lugar y estos
+ * casos lo comparan contra `.env.test` y contra `.env.example`.
+ */
 const PLAZOS = [
   {
     variable: 'ADMS_RAW_RETENTION_DAYS',
     resumen: 'rawDays',
-    porDefecto: 180,
+    porDefecto: ADMS_RAW_RETENTION_DEFAULT_DAYS,
     minimo: ADMS_RAW_RETENTION_MIN_DAYS,
   },
   {
     variable: 'ADMS_RAW_FAILED_RETENTION_DAYS',
     resumen: 'rawFailedDays',
-    porDefecto: 30,
+    porDefecto: ADMS_RAW_FAILED_RETENTION_DEFAULT_DAYS,
     minimo: ADMS_RAW_RETENTION_MIN_DAYS,
   },
   {
     variable: 'ADMS_COMMAND_RETENTION_DAYS',
     resumen: 'commandDays',
-    porDefecto: 365,
+    porDefecto: ADMS_COMMAND_RETENTION_DEFAULT_DAYS,
     minimo: ADMS_COMMAND_RETENTION_MIN_DAYS,
   },
   {
     variable: 'ADMS_PHOTO_PUBLICATION_RETENTION_DAYS',
     resumen: 'photoPublicationDays',
-    porDefecto: 7,
+    porDefecto: ADMS_PHOTO_PUBLICATION_RETENTION_DEFAULT_DAYS,
     minimo: ADMS_PHOTO_PUBLICATION_RETENTION_MIN_DAYS,
   },
   {
     variable: 'ADMS_QUARANTINE_RETENTION_DAYS',
     resumen: 'quarantineDays',
-    porDefecto: 30,
+    porDefecto: ADMS_QUARANTINE_RETENTION_DEFAULT_DAYS,
     minimo: ADMS_QUARANTINE_RETENTION_MIN_DAYS,
   },
 ] as const
@@ -95,6 +109,28 @@ test.group('Plazos de retencion del canal', () => {
     for (const plazo of PLAZOS) {
       assert.equal(summary[plazo.resumen], plazo.porDefecto, `${plazo.variable} fuera del spec`)
     }
+  })
+
+  /**
+   * La rama de FALLBACK, que es la que corre en cualquier despliegue que no
+   * configure las variables. No se puede ejercitar por `admsRetentionSummary()`
+   * mientras `.env.test` las fije —y debe fijarlas, para que el resto del
+   * archivo no lea el `.env` de la maquina—, asi que se prueba sobre la funcion
+   * pura que las resuelve.
+   */
+  test('sin variable configurada, cada plazo cae en el default del codigo', ({ assert }) => {
+    for (const plazo of PLAZOS) {
+      assert.equal(
+        boundedRetentionDays(undefined, plazo.porDefecto, plazo.minimo),
+        plazo.porDefecto,
+        `${plazo.variable} deberia caer en su default`
+      )
+    }
+
+    // Un valor no numerico tampoco debe colarse: cae al default, no a NaN.
+    assert.equal(boundedRetentionDays(Number.NaN, 180, 30), 180)
+    // Y un valor por debajo del minimo se eleva al minimo, no se acepta.
+    assert.equal(boundedRetentionDays(1, 180, 30), 30)
   })
 
   /**
