@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
+import { PDFDocument } from 'pdf-lib'
 import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
@@ -7,6 +8,7 @@ import ProveedorRepse from '#models/proveedor_repse'
 import ProveedorRepseValidacion from '#models/proveedor_repse_validacion'
 import RoleSystemPermission from '#models/role_system_permission'
 import { computeRfcCheckDigit } from '../../app/shared/validators/rfc.validator.js'
+import { REPSE_PROVIDER_TIMEZONE } from '#modules/repse-providers/repse_provider_dates'
 import {
   grantModuleAction,
   type ModuleActionGrant,
@@ -28,14 +30,53 @@ import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
  */
 
 const TEST_PASSWORD = 'RepseProviderTest123!'
+
+/**
+ * "Hoy" en la zona de negocio del módulo, NO en la del proceso.
+ *
+ * El runtime ancla todas sus reglas de fecha a `REPSE_PROVIDER_TIMEZONE`
+ * (ver `repse_provider_dates.ts`), mientras que el proceso de pruebas corre en
+ * UTC. Con `DateTime.now().toISODate()` la fixture mandaba la fecha UTC: a
+ * partir de las 18:00 de México eso ya es el día siguiente, el runtime lo leía
+ * como futuro y respondía 422 `fecha-futura`. La suite pasaba o fallaba según
+ * la hora a la que se corriera; estas funciones la vuelven independiente de ella.
+ */
+function fechaHoyNegocio(): string {
+  return DateTime.now().setZone(REPSE_PROVIDER_TIMEZONE).toISODate()!
+}
+
+/** La misma fecha de negocio desplazada en días (negativo = pasado). */
+function fechaNegocioDesplazada(dias: number): string {
+  return DateTime.now().setZone(REPSE_PROVIDER_TIMEZONE).plus({ days: dias }).toISODate()!
+}
 const ROOT_ROLE = 'root'
 const NO_PERMISSION_ROLE = 'empleado' // no tiene permiso del módulo repse-providers
 // Sin concesiones sembradas: el setup del grupo de pruebas de permiso granular le
 // concede repse-providers:create y lo retira en su teardown.
 const RH_MANAGER_ROLE = 'rh-manager'
 
-/** PDF mínimo válido (magic bytes reales `%PDF-`). */
-const VALID_PDF_BUFFER = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF', 'utf-8')
+/**
+ * PDF de verdad, no solo los magic bytes.
+ *
+ * La fixture anterior (`%PDF-1.4\n1 0 obj<<>>endobj\n%%EOF`) pasaba la
+ * detección por magic bytes, pero no es un documento: no tiene catálogo. El
+ * intake, después de aceptarlo, lo reescribe para quitarle los metadatos
+ * identificantes (`FileIntakeService.transformPdf`), y ahí `pdf-lib` reventaba
+ * con "Cannot read properties of undefined (reading 'Pages')". El archivo se
+ * rechazaba con 422 `archivo-no-procesable` y los seis casos que suben
+ * evidencia jamás llegaban a ejercitar la bitácora que dicen probar.
+ *
+ * Se construye igual que `buildPdf()` en
+ * `tests/unit/services/file_intake_service.spec.ts`, que es la referencia del
+ * propio intake.
+ */
+async function buildValidPdfBuffer(): Promise<Buffer> {
+  const doc = await PDFDocument.create()
+  doc.addPage()
+  return Buffer.from(await doc.save())
+}
+
+const VALID_PDF_BUFFER = await buildValidPdfBuffer()
 const VALID_PDF_NAME = 'evidencia-repse.pdf'
 
 function uniqueStamp(): string {
@@ -284,7 +325,7 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     client,
     assert,
   }) => {
-    const fecha = DateTime.now().toISODate()!
+    const fecha = fechaHoyNegocio()
 
     const response = await client
       .post(`/api/repse-providers/${providerId}/validations`)
@@ -315,7 +356,18 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     assert.notEqual(provider.reviewStatus, 'pending_first_validation')
   })
 
-  test('GET download descarga la evidencia de la validación (200, mismo archivo subido)', async ({
+  /**
+   * Lo que baja es la evidencia SANEADA, no el archivo tal cual se subió.
+   *
+   * El intake reescribe todo PDF para quitarle autor, título y demás metadatos
+   * identificantes antes de guardarlo, así que el objeto almacenado pesa
+   * distinto que el original a propósito. El caso comparaba `content-length`
+   * contra el largo del buffer subido y, en cuanto el saneo dejó de ser un
+   * no-op, esa igualdad pasó a afirmar justo lo contrario de la garantía del
+   * sistema. Lo que sí debe cumplirse es que se entregue un PDF íntegro y como
+   * adjunto con su nombre original.
+   */
+  test('GET download entrega la evidencia saneada como adjunto (200)', async ({
     client,
     assert,
   }) => {
@@ -328,7 +380,17 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     assert.equal(response.header('content-type'), 'application/pdf')
     assert.include(response.header('content-disposition') ?? '', 'attachment')
     assert.include(response.header('content-disposition') ?? '', VALID_PDF_NAME)
-    assert.equal(response.header('content-length'), String(VALID_PDF_BUFFER.length))
+    assert.isAbove(Number(response.header('content-length')), 0)
+    /**
+     * La firma se comprueba sobre los BYTES. japa no convierte a texto un
+     * `application/pdf` —`response.text()` es `undefined` aquí, a diferencia del
+     * xlsx de la plantilla de contratos, que sí pasa por un parser de texto— y
+     * leerlo así hacía reventar el caso con "Cannot read properties of
+     * undefined". El cuerpo llega como Buffer.
+     */
+    const evidencia: Buffer = response.body()
+    assert.isTrue(Buffer.isBuffer(evidencia), 'La descarga debe llegar como binario')
+    assert.equal(evidencia.subarray(0, 5).toString('latin1'), '%PDF-')
   })
 
   test('GET download de validación inexistente responde 404 con key validacion-no-encontrada', async ({
@@ -546,7 +608,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .field('estatus', 'vigente')
-      .field('fecha', DateTime.now().toISODate()!)
+      .field('fecha', fechaHoyNegocio())
 
     response.assertStatus(422)
     assert.equal(response.body().key, 'evidencia-invalida')
@@ -562,7 +624,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .field('estatus', 'vigente')
-      .field('fecha', DateTime.now().toISODate()!)
+      .field('fecha', fechaHoyNegocio())
       .file('archivo', Buffer.from('contenido de texto plano, no es evidencia válida'), {
         filename: 'evidencia.txt',
         contentType: 'text/plain',
@@ -584,7 +646,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .field('estatus', 'vigente')
-      .field('fecha', DateTime.now().toISODate()!)
+      .field('fecha', fechaHoyNegocio())
       .file('archivo', oversizedPdf, { filename: VALID_PDF_NAME, contentType: 'application/pdf' })
 
     response.assertStatus(422)
@@ -601,7 +663,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .field('estatus', 'status_invalido')
-      .field('fecha', DateTime.now().toISODate()!)
+      .field('fecha', fechaHoyNegocio())
       .file('archivo', VALID_PDF_BUFFER, { filename: VALID_PDF_NAME, contentType: 'application/pdf' })
 
     response.assertStatus(422)
@@ -619,7 +681,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .header('Accept-Language', 'en')
       .field('estatus', 'status_invalido')
-      .field('fecha', DateTime.now().toISODate()!)
+      .field('fecha', fechaHoyNegocio())
       .file('archivo', VALID_PDF_BUFFER, { filename: VALID_PDF_NAME, contentType: 'application/pdf' })
 
     response.assertStatus(422)
@@ -673,7 +735,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
         rfc: randomRfc(),
         folio: randomFolio('VENCIDO'),
         objetoRegistrado: 'Servicio con folio vencido',
-        folioVencimiento: DateTime.now().minus({ days: 1 }).toISODate(),
+        folioVencimiento: fechaNegocioDesplazada(-1),
       })
 
     response.assertStatus(422)
@@ -689,7 +751,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
       .put(`/api/repse-providers/${existingProviderId}`)
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
-      .json({ folioVencimiento: DateTime.now().minus({ days: 1 }).toISODate() })
+      .json({ folioVencimiento: fechaNegocioDesplazada(-1) })
 
     response.assertStatus(422)
     assert.equal(response.body().key, 'folio-vencimiento-pasado')
@@ -704,7 +766,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .field('estatus', 'vigente')
-      .field('fecha', DateTime.now().plus({ days: 1 }).toISODate()!)
+      .field('fecha', fechaNegocioDesplazada(1))
       .file('archivo', VALID_PDF_BUFFER, { filename: VALID_PDF_NAME, contentType: 'application/pdf' })
 
     response.assertStatus(422)
@@ -716,8 +778,8 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
     client,
     assert,
   }) => {
-    const hoy = DateTime.now().toISODate()!
-    const ayer = DateTime.now().minus({ days: 1 }).toISODate()!
+    const hoy = fechaHoyNegocio()
+    const ayer = fechaNegocioDesplazada(-1)
 
     const first = await client
       .post(`/api/repse-providers/${existingProviderId}/validations`)
@@ -806,7 +868,7 @@ test.group('RepseProviders - coherencia de reviewStatus/nextReviewAt', (group) =
     createResponse.assertStatus(201)
     periodicidadProviderId = createResponse.body().data.proveedorRepse.proveedorRepseId
 
-    const fecha = DateTime.now().toISODate()!
+    const fecha = fechaHoyNegocio()
     const validationResponse = await client
       .post(`/api/repse-providers/${periodicidadProviderId}/validations`)
       .loginAs(root!.user)

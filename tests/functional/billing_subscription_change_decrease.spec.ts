@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
@@ -131,9 +132,17 @@ async function createLiveSubscription(
   return subscription
 }
 
+/**
+ * Plantilla activa de la empresa, creada por la propia fixture.
+ *
+ * Antes copiaba departamento, puesto y tipo de un empleado cualquiera que ya
+ * existiera en la base (`Employee.query().firstOrFail()`). Sobre una BD recién
+ * sembrada no existe ninguno y el caso moría en el setup con "Row not found",
+ * sin llegar a probar el mínimo por plantilla. Esas tres columnas son
+ * opcionales para el conteo de plantilla activa, así que no se copian: lo único
+ * que la regla mira es cuántos empleados vivos tiene la empresa.
+ */
 async function seedActiveEmployees(businessUnitId: number, count: number): Promise<void> {
-  const template = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
-
   for (let i = 0; i < count; i++) {
     const person = new Person()
     person.personFirstname = 'Decrease'
@@ -145,10 +154,8 @@ async function seedActiveEmployees(businessUnitId: number, count: number): Promi
     const employee = new Employee()
     employee.personId = person.personId
     employee.businessUnitId = businessUnitId
-    employee.companyId = template.companyId
-    employee.departmentId = template.departmentId
-    employee.positionId = template.positionId
-    employee.employeeTypeId = template.employeeTypeId
+    employee.payrollBusinessUnitId = businessUnitId
+    employee.companyId = 1
     employee.employeeFirstName = 'Decrease'
     employee.employeeLastName = `Emp${i}`
     employee.employeeCode = `DEC-${businessUnitId}-${i}-${STAMP}`
@@ -176,9 +183,26 @@ async function cleanupTenantActor(actor: TenantActor | null) {
   await BillingSubscription.query()
     .where('business_unit_id', actor.businessUnit.businessUnitId)
     .delete()
-  await Employee.query().where('business_unit_id', actor.businessUnit.businessUnitId).delete()
+  /**
+   * Los empleados sembrados se borran de verdad, y sus personas con ellos.
+   *
+   * `Employee` usa borrado lógico, así que el `delete()` anterior dejaba la
+   * fila viva en la tabla y a su `Person` sin dueño aparente pero referenciada
+   * por la FK: nadie la borraba nunca. Cada corrida del caso del mínimo por
+   * plantilla dejaba quince personas más en la base, con correo único, hasta
+   * volverla irreconocible. Se borra por consulta cruda para saltarse el mixin
+   * y en orden hijo → padre para no chocar con la llave foránea.
+   */
+  const empleadosDeLaEmpresa = await Employee.query()
+    .withTrashed()
+    .where('business_unit_id', actor.businessUnit.businessUnitId)
+    .select('person_id')
+  const seededPersonIds = empleadosDeLaEmpresa.map((employee) => employee.personId)
+
+  await db.from('employees').where('business_unit_id', actor.businessUnit.businessUnitId).delete()
   await BusinessUnitUser.query().where('user_id', actor.user.userId).delete()
   await User.query().where('user_id', actor.user.userId).delete()
+  await Person.query().whereIn('person_id', seededPersonIds).delete()
   await Person.query().where('person_id', actor.person.personId).delete()
   await BusinessUnit.query()
     .where('business_unit_id', actor.businessUnit.businessUnitId)

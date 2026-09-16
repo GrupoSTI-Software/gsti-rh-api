@@ -29,10 +29,21 @@ test.group('employee_zone_routes — PermissionGate Zonas', () => {
       compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
       []
     assert.equal(matches.length, 3)
-    assert.notMatch(
+    /**
+     * El detalle dejó de ser abierto: desde que Zonas exige permisos, el GET
+     * declara su propia lectura (`showEmployeeZone`). El caso afirmaba lo
+     * contrario —que `/:employeeZoneId` no llevaba gate— y quedó desfasado del
+     * contrato vigente; lo que hoy protege es que la lectura use la declaración
+     * de LECTURA y no una de escritura.
+     */
+    assert.include(content, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS')
+    assert.include(
       compact(content),
-      /get\('\/:employeeZoneId'[\s\S]*?\)\.use\(middleware\.permissionGate/
+      'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeZone)'
     )
+    const readMatches =
+      compact(content).match(/permissionGate\(EMPLOYEES_READ_PERMISSION_DECLARATIONS\.\w+\)/g) ?? []
+    assert.equal(readMatches.length, 1)
   })
 
   test('el catálogo de zonas de la empresa se protege con permisos de Zonas, no de Empleados', async ({
@@ -248,6 +259,14 @@ test.group('employee_supply_assignament_photo — PermissionGate fotografías', 
       compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
       []
     assert.equal(matches.length, 3)
-    assert.notInclude(content, 'businessScope')
+    /**
+     * El grupo SÍ monta `businessScope()`, y debe seguir montándolo: la foto de
+     * una entrega cuelga de un activo de una empresa, así que sin el candado de
+     * empresa el gate por sí solo dejaría leer y borrar fotos ajenas. El caso
+     * afirmaba lo contrario (`notInclude`) desde antes de que el grupo lo
+     * montara, y se quedó protegiendo justo lo que no debe.
+     */
+    assert.include(compact(content), '.use(middleware.auth())')
+    assert.include(compact(content), '.use(middleware.businessScope())')
   })
 })

@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Role from '#models/role'
@@ -127,6 +128,14 @@ async function createUserForPerson(
     roleId,
     personId: person.personId,
     userEmailType: 'institutional',
+    /**
+     * Cuenta ya activada. `UserService.create` sella esta marca al dar de alta,
+     * pero estas fixtures escriben el modelo directo y la dejaban en `null`:
+     * el login corta antes de comprobar nada con `cuenta-pendiente-de-activar`
+     * (403), así que los tres casos de login afirmaban su resultado sobre una
+     * respuesta que nunca llegó a evaluar credenciales, rol ni origen.
+     */
+    userPasswordSetAt: DateTime.utc(),
   })
 
   if (businessUnitIds.length > 0) {
@@ -140,12 +149,22 @@ function buHeader(businessUnit: BusinessUnit) {
   return { 'X-Business-Unit-Id': businessUnit.businessUnitPublicId }
 }
 
-function notFoundBody(userId: number | string) {
+/**
+ * 404 uniforme del módulo de usuarios.
+ *
+ * `data.userId` viaja como NÚMERO: así lo escriben sus dos productores
+ * —`user_resource_scope_middleware` y el 404 del propio `user_controller`— y
+ * que ambos coincidan byte a byte es justo lo que impide distinguir un recurso
+ * ajeno de uno inexistente. La fixture lo comparaba como cadena y nunca lo
+ * notó, porque hasta ahora el middleware devolvía el cuerpo en lugar de
+ * escribirlo y la respuesta llegaba vacía.
+ */
+function notFoundBody(userId: number) {
   return {
     type: 'warning',
     title: 'The user was not found',
     message: 'The user was not found with the entered ID',
-    data: { userId: String(userId) },
+    data: { userId },
   }
 }
 
