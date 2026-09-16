@@ -468,41 +468,6 @@ export function loginUserPerson(body: Record<string, unknown>) {
     : {}
 }
 
-export function customerPerson(body: Record<string, unknown>) {
-  const data =
-    body.data && typeof body.data === 'object'
-      ? (body.data as Record<string, unknown>)
-      : {}
-  const customer =
-    data.customer && typeof data.customer === 'object'
-      ? (data.customer as Record<string, unknown>)
-      : {}
-  return customer.person && typeof customer.person === 'object'
-    ? (customer.person as Record<string, unknown>)
-    : {}
-}
-
-export function nestedEmployeePerson(
-  body: Record<string, unknown>,
-  rootKey: 'pilot' | 'flightAttendant'
-) {
-  const data =
-    body.data && typeof body.data === 'object'
-      ? (body.data as Record<string, unknown>)
-      : {}
-  const root =
-    data[rootKey] && typeof data[rootKey] === 'object'
-      ? (data[rootKey] as Record<string, unknown>)
-      : {}
-  const employee =
-    root.employee && typeof root.employee === 'object'
-      ? (root.employee as Record<string, unknown>)
-      : {}
-  return employee.person && typeof employee.person === 'object'
-    ? (employee.person as Record<string, unknown>)
-    : {}
-}
-
 export function nestedBanks(body: Record<string, unknown>): Record<string, unknown>[] {
   const data =
     body.data && typeof body.data === 'object'
