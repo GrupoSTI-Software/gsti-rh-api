@@ -29,9 +29,12 @@ const systemSettingsStandard = (action: string): PermissionGateOptions => ({
  *    vencimientos. Su vecina `get-expired-and-expiring/:systemSettingId` ya no
  *    está abierta: pide `documents-expiration-matrix:read`
  *    (`documents_expiration_matrix_permission_declarations.ts`).
- *  - Las lecturas de `/api/tolerances`: `/:systemSettingId` se registra antes
- *    que `/get-tardiness-tolerance` y atiende también la petición del Monitor
- *    de asistencia; protegerla le quitaría la tolerancia a ese módulo.
+ *  - Las lecturas de `/api/tolerances`. Son dos y cada una por su motivo:
+ *    `/get-tardiness-tolerance` la consume el Monitor de asistencia por sí
+ *    misma —desde que se registra ANTES que la paramétrica, que era quien la
+ *    atendía por accidente—, y `/:systemSettingId` la consume la ficha de
+ *    empresa. Protegerlas con `system-settings` le quitaría la tolerancia al
+ *    Monitor, que es de otro módulo.
  *
  * Bypass `standard` (root y owner): son los dos únicos roles a los que el
  * backoffice da acceso total a la pantalla (`store/general.ts`, `getAccess`);
