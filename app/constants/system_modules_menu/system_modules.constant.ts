@@ -22,8 +22,10 @@ import { ACCESS_POINT_PERMISSION_CATALOG } from '#constants/access_point_permiss
  *    `#` en la ruta: el backoffice lo oculta del menú.
  *  - Declarar solo permisos que alguna operación real verifica (API o BO): una
  *    casilla que nadie consulta le miente a quien administra roles.
- *  - `systemModuleRetired: true` da de baja el módulo: la pantalla del BO
- *    responde 403 a todo rol salvo root y owner.
+ *  - `systemModuleRetired: true` da de baja el módulo: la siembra da de baja su
+ *    fila, el API lo deja fuera del listado de módulos y el BO ya no tiene la
+ *    pantalla —movida a `__TO_DELETE__/pages/`—, así que su ruta responde 404 a
+ *    todo rol, root y owner incluidos.
  *  - `systemModulePermissionEnforcementActive` va en `true` en todo módulo cuyos
  *    permisos exige el API (`middleware.permissionGate`, `hasAccess` o
  *    equivalentes). En `false`, el gate deja pasar a cualquier usuario
