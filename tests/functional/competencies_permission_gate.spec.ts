@@ -248,37 +248,6 @@ async function expectStatus(
   assert.equal(response.status(), status, `${request.label}: ${JSON.stringify(response.body())}`)
 }
 
-/**
- * La petición cruzó el gate, sin exigir el éxito del controller.
- *
- * Solo para alta y edición de nivel: cada caso siembra su propia tanda de cuatro
- * niveles sobre la MISMA empresa, así que a partir del segundo la empresa llega
- * al tope de cinco niveles y el controller responde 400 por una razón que nada
- * tiene que ver con permisos. Fijar aquí 201 y 200 haría que el caso dependiera
- * del orden de ejecución. Que la comparación de etiquetas funcione se prueba
- * aparte, en `business_unit_competency_level_label_uniqueness.spec.ts`.
- *
- * El cliente de pruebas lanza ante un 5xx en lugar de devolver la respuesta.
- * El gate niega siempre con 403 y `PERM.DENIED`, nunca con 5xx: si lo que
- * llega es ese error, la petición ya había cruzado el gate.
- */
-async function expectPassesGate(
-  assert: Assert,
-  client: ApiClient,
-  actor: TenantActor,
-  request: GateRequest
-): Promise<void> {
-  try {
-    const response = await send(client, actor, request)
-    assert.notEqual(response.status(), 403, `${request.label}: ${JSON.stringify(response.body())}`)
-    assert.notEqual(response.body()?.key, PERMISSION_GATE_ERROR_CODES.DENIED, request.label)
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    assert.notInclude(message, PERMISSION_GATE_ERROR_CODES.DENIED, request.label)
-    assert.include(message, '"type":"error"', `${request.label}: ${message}`)
-  }
-}
-
 /** Descriptores y rangos cuelgan de los niveles de la empresa: se borran antes que ella. */
 async function cleanupCompetencyActor(actor: TenantActor | null): Promise<void> {
   if (!actor) return
@@ -422,7 +391,11 @@ test.group('Competencias — permissionGate con exigencia encendida', (group) =>
     const fixture = await createFixture(tenant, 'alta')
 
     await expectStatus(assert, client, tenant, requests.storeCompetency(), 201)
-    await expectPassesGate(assert, client, tenant, requests.storeLevel(tenant))
+    // 201 y no "cruzó el gate": cada caso corre sobre su PROPIA empresa
+    // (`group.each.setup` crea un actor nuevo y con él una unidad de negocio
+    // nueva), la fixture siembra cuatro niveles y el tope dispara en el quinto
+    // —`>= 5`—, así que el alta responde 201 de verdad.
+    await expectStatus(assert, client, tenant, requests.storeLevel(tenant), 201)
     await expectStatus(assert, client, tenant, requests.storeDescriptor(fixture), 201)
     await expectStatus(assert, client, tenant, requests.storeBracket(fixture.descriptor), 201)
 
@@ -463,7 +436,12 @@ test.group('Competencias — permissionGate con exigencia encendida', (group) =>
     })
 
     await expectStatus(assert, client, tenant, requests.updateCompetency(fixture.competency), 201)
-    await expectPassesGate(assert, client, tenant, requests.updateLevel(tenant, fixture.levels[0], 'Nivel editado'))
+    // 200 y no "cruzó el gate": el tope de cinco niveles vive dentro de
+    // `if (!businessUnitCompetencyLevelId)`, así que un PUT nunca lo alcanza.
+    // Es además el único caso del repo que ejerce la EDICIÓN de un nivel
+    // esperando éxito: si el COLLATE de la etiqueta volviera a romperse, aquí
+    // se ve (antes, un 500 pasaba por "cruzó el gate").
+    await expectStatus(assert, client, tenant, requests.updateLevel(tenant, fixture.levels[0], 'Nivel editado'), 200)
     await expectStatus(assert, client, tenant, requests.updateDescriptor(fixture.descriptor), 200)
     await expectStatus(assert, client, tenant, requests.deleteDescriptor(spareDescriptor), 200)
     await expectStatus(assert, client, tenant, requests.storeDescriptor(fixture), 201)
@@ -506,7 +484,7 @@ test.group('Competencias — permissionGate con exigencia encendida', (group) =>
 
         await expectStatus(assert, client, bypass, requests.storeCompetency(), 201)
         await expectStatus(assert, client, bypass, requests.showCompetency(fixture.competency), 200)
-        await expectPassesGate(assert, client, bypass, requests.updateLevel(bypass, fixture.levels[0], `Nivel ${slug}`))
+        await expectStatus(assert, client, bypass, requests.updateLevel(bypass, fixture.levels[0], `Nivel ${slug}`), 200)
       } finally {
         await cleanupCompetencyActor(bypass)
       }
