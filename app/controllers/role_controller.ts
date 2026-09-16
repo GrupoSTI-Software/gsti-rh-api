@@ -5,6 +5,7 @@ import BusinessUnit from '#models/business_unit'
 import Role from '#models/role'
 import { isReservedRoleIdentitySlug } from '#constants/system_roles'
 import { isOwnRoleLockedForUser, isSystemRoleLockedForUser } from '#helpers/system_role_lock'
+import { resolveActiveBusinessUnitId } from '#helpers/role_business_scope'
 import {
   ensureSecondaryPermission,
   evaluateSecondaryPermission,
@@ -308,13 +309,35 @@ export default class RoleController {
     const { request, response, businessUnitScope, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const roleBusinessAccess = await buildRoleBusinessAccessFromScope(businessUnitScope)
+      // Un rol siempre nace dentro de una empresa: la activa de la sesión, la
+      // misma que resolvió `businessScope` del header. Sin ella no hay dueño
+      // posible y se niega (fail-closed).
+      const businessUnitId = resolveActiveBusinessUnitId(businessUnitScope)
+      if (businessUnitId === null) {
+        response.status(400)
+        return {
+          title: t('role_active_business_unit_unresolved_title'),
+          detail: t('role_active_business_unit_unresolved_detail'),
+          key: 'empresa-activa-no-resuelta',
+        }
+      }
 
       const roleService = new RoleService()
       const roleName = request.input('roleName')
       const roleDescription = request.input('roleDescription')
-      const roleSlug = roleService.generateSlug(roleName)
       const roleActive = request.input('roleActive')
+
+      // Se valida ANTES de derivar el slug: `generateSlug` espera una cadena y
+      // con el nombre vacío reventaba con 500 en lugar de decir qué falta.
+      const roleSlug = typeof roleName === 'string' ? roleService.generateSlug(roleName) : ''
+      if (roleSlug.length === 0) {
+        response.status(409)
+        return {
+          title: t('role_name_required_title'),
+          detail: t('role_name_required_detail'),
+          key: 'rol-nombre-requerido',
+        }
+      }
 
       // El slug sale del nombre y el runtime decide por slug: "Super
       // Administrador" le daría al rol del tenant el salvoconducto `expanded`,
@@ -329,10 +352,30 @@ export default class RoleController {
         }
       }
 
+      // El candado único de `roles` es por empresa: dos clientes pueden tener
+      // su "Recursos Humanos", pero el mismo cliente no. Se comprueba antes de
+      // insertar para responder 409 y no un 500 del índice.
+      const duplicated = await roleService.findLiveRoleWithSlugInScope(roleSlug, businessUnitScope)
+      if (duplicated) {
+        response.status(409)
+        return {
+          title: t('role_slug_duplicated_title'),
+          detail: t('role_slug_duplicated_detail'),
+          key: 'rol-slug-duplicado',
+          data: { roleSlug },
+        }
+      }
+
+      // El CSV se sigue escribiendo por compatibilidad: quedan lectores que
+      // resuelven la empresa de un rol por `role_business_access`. La columna
+      // dueña es `business_unit_id`.
+      const roleBusinessAccess = await buildRoleBusinessAccessFromScope(businessUnitScope)
+
       const role = {
         roleName: roleName,
         roleDescription: roleDescription,
         roleSlug: roleSlug,
+        businessUnitId: businessUnitId,
         roleActive: roleActive,
         roleBusinessAccess: roleBusinessAccess,
       } as Role
@@ -544,8 +587,11 @@ export default class RoleController {
       const roleService = new RoleService()
       const roleName = request.input('roleName')
       const roleDescription = request.input('roleDescription')
-      const roleSlug = roleService.generateSlug(roleName)
       const roleActive = request.input('roleActive')
+      // El slug ya no se guarda al renombrar (`RoleService.update`): se deriva
+      // solo para rechazar los nombres reservados. Sin nombre queda vacío y el
+      // validador responde 422 más abajo, nunca un 500.
+      const roleSlug = typeof roleName === 'string' ? roleService.generateSlug(roleName) : ''
 
       const role = {
         roleId: roleId,
@@ -593,9 +639,11 @@ export default class RoleController {
           key: 'rol-propio-bloqueado',
         }
       }
-      // Renombrar un rol del tenant hacia un slug de identidad reservado le
-      // daría el trato de ese rol (salvoconducto o visibilidad global). Se
-      // admite conservar el slug que ya tiene: root renombrando al owner.
+      // El renombrado ya no mueve el slug, así que no puede robar la identidad
+      // de un rol reservado; se sigue rechazando el nombre para que nadie
+      // publique un "Owner" o un "Super Administrador" de mentiras en el
+      // catálogo de la empresa. Se admite conservar el nombre que ya tiene:
+      // root renombrando al owner.
       if (isReservedRoleIdentitySlug(roleSlug) && currentRole.roleSlug !== roleSlug) {
         response.status(400)
         return {
@@ -959,7 +1007,7 @@ export default class RoleController {
           role.useTransaction(trx)
           role.roleManagementDays = data.roleManagementDays
           await role.save()
-          return roleService.assignPermissions(roleId, data.permissions, trx)
+          return roleService.assignPermissions(role.roleId, data.permissions, trx)
         })
       } catch {
         response.status(500)

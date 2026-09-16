@@ -1,6 +1,7 @@
 import BusinessUnit from '#models/business_unit'
 import Department from '#models/department'
-import { SYSTEM_ROLE_SLUGS, isSystemRoleSlug } from '#constants/system_roles'
+import { isSystemRoleSlug } from '#constants/system_roles'
+import { applyRoleBusinessScope, buildRoleBusinessScope } from '#helpers/role_business_scope'
 import Role from '#models/role'
 import RoleDepartment from '#models/role_department'
 import RoleSystemPermission from '#models/role_system_permission'
@@ -25,40 +26,24 @@ export default class RoleService {
     allowedBusinessUnitIds: number[] = [],
     options: RoleIndexOptions = { includeGrants: false }
   ) {
-    let slugs: string[] = []
-    if (allowedBusinessUnitIds.length > 0) {
-      const units = await BusinessUnit.query()
-        .whereIn('business_unit_id', allowedBusinessUnitIds)
-        .select('business_unit_slug')
-      slugs = units.map((bu) => bu.businessUnitSlug)
-    }
+    const scope = await buildRoleBusinessScope(allowedBusinessUnitIds)
 
-    // Roles de sistema (owner, empleado) siempre visibles en todo tenant
-    // (USRH1785436961936); el resto se filtra por role_business_access.
-    const roles = await Role.query()
-      .whereNull('role_deleted_at')
-      .andWhere((query) => {
-        query.whereIn('role_slug', [...SYSTEM_ROLE_SLUGS])
-        if (slugs.length === 0) {
-          return
-        }
-        query.orWhere((accessQuery) => {
-          accessQuery.whereNotNull('role_business_access')
-          accessQuery.andWhere((subQuery) => {
-            slugs.forEach((slug) => {
-              subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [slug.trim()])
-            })
-          })
-        })
-      })
-      .if(filters.search, (query) => {
-        query.andWhere((searchQuery) => {
+    // El listado trae los roles de la empresa activa, los de sistema (visibles
+    // en todo tenant) y —mientras no corra el backfill— los heredados que aún
+    // se distinguen por el CSV. La regla completa vive en
+    // `helpers/role_business_scope.ts`, que también usa el listado de usuarios.
+    const query = Role.query().whereNull('role_deleted_at')
+    applyRoleBusinessScope(query, scope)
+
+    const roles = await query
+      .if(filters.search, (searchScoped) => {
+        searchScoped.andWhere((searchQuery) => {
           searchQuery.whereRaw('UPPER(role_name) LIKE ?', [`%${filters.search.toUpperCase()}%`])
         })
       })
       .preload('roleDepartments')
-      .if(options.includeGrants, (query) => {
-        query.preload('roleSystemPermissions')
+      .if(options.includeGrants, (grantsScoped) => {
+        grantsScoped.preload('roleSystemPermissions')
       })
       .orderBy('role_id')
       .paginate(filters.page, filters.limit)
@@ -70,6 +55,7 @@ export default class RoleService {
     newRole.roleName = role.roleName
     newRole.roleDescription = role.roleDescription
     newRole.roleSlug = role.roleSlug
+    newRole.businessUnitId = role.businessUnitId ?? null
     newRole.roleActive = role.roleActive
     newRole.roleBusinessAccess = role.roleBusinessAccess
     if (trx) newRole.useTransaction(trx)
@@ -77,10 +63,16 @@ export default class RoleService {
     return newRole
   }
 
+  /**
+   * El slug NO se reescribe al renombrar: es la identidad del rol, lo que
+   * decide el runtime (`RESERVED_ROLE_IDENTITY_SLUGS`) y lo que sostiene el
+   * candado único por empresa. Un rename que lo moviera cambiaría en silencio
+   * el rol al que apuntan las referencias por slug y podría chocar contra el
+   * índice. Ni la empresa dueña se toca: un rol no cambia de dueño.
+   */
   async update(currentRole: Role, role: Role) {
     currentRole.roleName = role.roleName
     currentRole.roleDescription = role.roleDescription
-    currentRole.roleSlug = role.roleSlug
     currentRole.roleActive = role.roleActive
     await currentRole.save()
     return currentRole
@@ -529,5 +521,26 @@ export default class RoleService {
       : []
 
     return slugs.some((slug) => access.includes(slug.trim())) ? role : null
+  }
+
+  /**
+   * ¿La empresa activa ya tiene un rol vivo con ese slug? Es el pre-check del
+   * alta: el slug se deriva del nombre y el candado único es por empresa, así
+   * que un duplicado tiene que responder 409 y no reventar contra el índice
+   * con un 500.
+   *
+   * Mira el mismo alcance que el listado a propósito: un rol heredado que la
+   * empresa ve por CSV también ocupa el nombre, aunque el índice no lo impida
+   * mientras su `business_unit_id` siga en NULL.
+   */
+  async findLiveRoleWithSlugInScope(
+    roleSlug: string,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<Role | null> {
+    const scope = await buildRoleBusinessScope(allowedBusinessUnitIds)
+    const query = Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug)
+    applyRoleBusinessScope(query, scope)
+
+    return (await query.first()) ?? null
   }
 }
