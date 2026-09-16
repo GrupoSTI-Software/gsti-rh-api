@@ -160,3 +160,45 @@ test.group('BillingSubscriptionService.createSubscription — criterio de prueba
     }
   })
 })
+
+test.group(
+  'BillingSubscriptionService.createSubscription — RN-07 borde declarado, no blindado (USRH1789151097443)',
+  () => {
+    test('un plan con CERO días de prueba, sin skipTrial, deja trial_ends_at poblado (= hoy): el criterio nuevo lo cuenta como "tuvo prueba" aunque la prueba duró cero días. Caso aceptado, no defendido — hoy ningún plan del catálogo tiene 0 días', async ({
+      assert,
+    }) => {
+      const stamp = Date.now() + 3
+      const zeroTrialPlanId = await createPlan(stamp, 0)
+      const businessUnit = await createBusinessUnit(stamp, 'rn07')
+      const service = new BillingSubscriptionService()
+
+      try {
+        const subscription = await service.createSubscription({
+          businessUnitPublicId: businessUnit.businessUnitPublicId,
+          billingPlanId: zeroTrialPlanId,
+          contractedEmployees: 10,
+          // Sin skipTrial: el flujo normal de alta, no el de "pagar directo".
+        })
+
+        // El borde exacto que describe RN-07: nace 'trialing' (no 'active'),
+        // con 0 días contratados pero trial_ends_at YA poblado (= hoy, porque
+        // hoy + 0 días = hoy). El criterio nuevo lee esto como "tuvo prueba".
+        assert.equal(subscription.billingSubscriptionStatus, 'trialing')
+        assert.equal(subscription.billingSubscriptionContractedTrialDays, 0)
+        assert.isNotNull(subscription.billingSubscriptionTrialEndsAt)
+        assert.equal(
+          subscription.billingSubscriptionTrialEndsAt!.toISODate(),
+          subscription.billingSubscriptionCurrentPeriodStart!.toISODate()
+        )
+
+        // Consecuencia declarada: una suscripción nueva para la misma
+        // empresa ya no recibiría prueba, aunque su prueba real duró 0 días.
+        const secondAttemptWouldSkipTrial = subscription.billingSubscriptionTrialEndsAt !== null
+        assert.isTrue(secondAttemptWouldSkipTrial)
+      } finally {
+        await cleanupBusinessUnit(businessUnit.businessUnitId)
+        await cleanupPlan(zeroTrialPlanId)
+      }
+    })
+  }
+)
