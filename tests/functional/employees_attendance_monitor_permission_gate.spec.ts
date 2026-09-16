@@ -225,7 +225,16 @@ test.group('Monitor de asistencia — permissionGate de anular checada y sincron
     assertDenied(assert, await synchronizeAll(client, tenant), 'sincronización general')
   })
 
-  test('owner pasa los dos gates sin concesiones (bypass standard)', async ({ client, assert }) => {
+  /**
+   * Ejerce anular checada y sincronizar por empleado. La sincronización general
+   * es la tercera ruta con gate y NO se ejerce aquí: cruzado el gate, el
+   * servicio sale a buscar al equipo biométrico y un test no puede depender de
+   * eso. De ella este archivo prueba solo la negativa.
+   */
+  test('owner pasa el gate de anular y el de sincronizar por empleado (bypass standard)', async ({
+    client,
+    assert,
+  }) => {
     const account = required(owner, 'el owner')
 
     const missing = await inactivate(client, account, NON_EXISTENT_ASSIST_ID)
@@ -258,5 +267,63 @@ test.group('Monitor de asistencia — permissionGate de anular checada y sincron
     assert.isString(body.detail)
     assert.isNotEmpty(body.detail)
     assert.notInclude(body.detail, 'Invalid time value')
+  })
+
+  test('una fecha imposible responde 422 y no revienta dentro del servicio', async ({
+    client,
+    assert,
+  }) => {
+    // El regex `^\d{4}-\d{2}-\d{2}([T ].*)?$` acepta `2026-13-45` y
+    // `2026-09-15Tzzz`: las dos pasaban el 422 y reventaban igual que antes en
+    // `new Date(...).toISOString()`, saliendo como el mismo 400 crudo
+    // `{ message: 'Invalid time value' }` que el validador venía a cerrar.
+    const tenant = required(actor, 'el actor')
+    await grantModulePermissions(tenant, MODULE, ['sync-assist'])
+
+    for (const rango of [
+      { startDate: '2026-13-45', endDate: '2026-09-15', caso: 'mes y día imposibles' },
+      { startDate: '2026-09-15', endDate: '2026-09-15Tzzz', caso: 'sufijo no interpretable' },
+      { startDate: '2026-02-30', endDate: '2026-03-05', caso: 'día que no existe en el mes' },
+      { startDate: '2026-09-07', endDate: '2026-09-01', caso: 'rango invertido' },
+    ]) {
+      const response = await client
+        .post('/api/v1/assists/employee-synchronize')
+        .loginAs(tenant.user)
+        .headers(businessUnitHeaders(tenant))
+        .json({ empCode: 'SIN-EQUIPO', startDate: rango.startDate, endDate: rango.endDate })
+
+      assert.equal(response.status(), 422, `${rango.caso}: ${JSON.stringify(response.body())}`)
+      assert.equal(response.body()?.key, 'datos-invalidos-para-sincronizar-asistencia', rango.caso)
+      assert.notInclude(response.body()?.detail ?? '', 'Invalid time value', rango.caso)
+    }
+  })
+
+  test('con la exigencia del módulo apagada, el gate deja pasar la sincronización por empleado', async ({
+    client,
+    assert,
+  }) => {
+    /**
+     * Decisión explícita y probada. Pasar las sincronizaciones del `hasAccess`
+     * del controller al `permissionGate` NO conservó el alcance: `hasAccess`
+     * exigía `sync-assist` siempre, mientras `evaluate` corta antes en
+     * `module-not-enforced` y concede a cualquier sesión del tenant. Hoy el
+     * módulo está encendido —en la constante y en la siembra—, así que el hueco
+     * no está abierto; este caso deja escrito qué pasa si alguien apaga el
+     * interruptor en BD, en vez de dejarlo a la interpretación del lector.
+     *
+     * Solo se ejerce la vía POR EMPLEADO: su validador responde 422 sin salir a
+     * la red. La general llamaría al equipo biométrico.
+     */
+    const tenant = required(actor, 'el actor')
+    await grantModulePermissions(tenant, MODULE, [])
+    const previous = await setModuleEnforcement(MODULE, false)
+    try {
+      const response = await synchronizeEmployee(client, tenant)
+
+      assertPassesGate(assert, response)
+      response.assertStatus(422)
+    } finally {
+      await setModuleEnforcement(MODULE, previous)
+    }
   })
 })
