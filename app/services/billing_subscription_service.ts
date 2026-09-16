@@ -915,6 +915,17 @@ export default class BillingSubscriptionService {
    * contratación anterior, sin importar su estado ni si fue borrada
    * lógicamente: la evidencia es histórica (USRH1785962095089 §10).
    */
+  /**
+   * USRH1789151097443 (RN-01): "tuvo prueba" se decide por la existencia de
+   * `trial_ends_at` — dato que se escribe una sola vez al dar de alta y
+   * nunca se vuelve a tocar — y NUNCA por `contracted_trial_days`, que se
+   * reescribe en cada cambio de plan (`changePlan()`) y por eso no sirve
+   * para reconstruir la historia de la empresa.
+   *
+   * RN-03: la prueba es una sola por empresa y cuenta aunque la suscripción
+   * con la que la gozó ya no esté vigente (`.withTrashed()`, sin filtro de
+   * estado).
+   */
   private async hasConsumedTrial(
     businessUnitId: number,
     trx: TransactionClientContract
@@ -922,7 +933,7 @@ export default class BillingSubscriptionService {
     const row = await BillingSubscription.query({ client: trx })
       .withTrashed()
       .where('business_unit_id', businessUnitId)
-      .where('billing_subscription_contracted_trial_days', '>', 0)
+      .whereNotNull('billing_subscription_trial_ends_at')
       .first()
 
     return row !== null

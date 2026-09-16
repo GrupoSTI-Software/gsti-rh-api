@@ -108,7 +108,8 @@ function monthDateBounds(month: string): { inicio: string; fin: string } {
  * - conversiones: unión deduplicada por suscripción de (a) transiciones
  *   `trial_expired_covered` con `cut_date` en el mes y (b) el primer pago
  *   (el de `paid_at` más temprano) de una suscripción que sí tuvo prueba
- *   (`contracted_trial_days > 0`) con `paid_at` en el mes. El pago que
+ *   (`trial_ends_at IS NOT NULL`, USRH1789151097443 RN-01) con `paid_at` en
+ *   el mes. El pago que
  *   activa un `trialing` no deja bitácora: leer solo transitions subcuenta.
  * - morosidad: transiciones `period_expired` / `trial_expired_uncovered` con
  *   `cut_date` en el mes. Cliente vivo, no baja.
@@ -329,10 +330,15 @@ export default class PlatformSubscriptionFlowService {
    * (`paid_at` más temprano; a igual instante, el id menor) de cada
    * suscripción viva que sí tuvo prueba, cuando cayó en el rango UTC del mes.
    *
-   * Solo cuentan suscripciones con `contracted_trial_days > 0`: una de pago
-   * directo sin prueba es alta, no conversión (el contrato dice "pasó de prueba
-   * a pagando"). La subconsulta se apoya en el índice
-   * `(billing_subscription_id, billing_payment_paid_at)`.
+   * Solo cuentan suscripciones con `trial_ends_at IS NOT NULL` (USRH1789151097443
+   * RN-01/RN-02): una de pago directo sin prueba es alta, no conversión (el
+   * contrato dice "pasó de prueba a pagando"). NUNCA `contracted_trial_days`
+   * — se reescribe en cada cambio de plan (`changePlan()`) y una empresa que
+   * entró pagando y luego cambió a un plan con días de prueba quedaría
+   * marcada, desde ese cambio, como si hubiera tenido prueba sin haberla
+   * tenido nunca. `trial_ends_at` se escribe una sola vez, al dar de alta, y
+   * ninguna operación lo vuelve a tocar. La subconsulta se apoya en el
+   * índice `(billing_subscription_id, billing_payment_paid_at)`.
    *
    * `billing_payments` es append-only sin borrado: no lleva filtro de borrado
    * propio; el universo lo acotan la suscripción y la empresa.
@@ -349,7 +355,7 @@ export default class PlatformSubscriptionFlowService {
       .join('business_units as bu', 'bu.business_unit_id', 'bs.business_unit_id')
       .whereNull('bs.billing_subscription_deleted_at')
       .whereNull('bu.business_unit_deleted_at')
-      .where('bs.billing_subscription_contracted_trial_days', '>', 0)
+      .whereNotNull('bs.billing_subscription_trial_ends_at')
       .whereRaw(
         'bp.billing_payment_id = (SELECT bp2.billing_payment_id FROM billing_payments bp2 WHERE bp2.billing_subscription_id = bp.billing_subscription_id ORDER BY bp2.billing_payment_paid_at ASC, bp2.billing_payment_id ASC LIMIT 1)'
       )
