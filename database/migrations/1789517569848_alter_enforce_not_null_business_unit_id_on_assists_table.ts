@@ -8,6 +8,13 @@ const COLUMNA = 'business_unit_id'
 const NOMBRE_LLAVE_FORANEA = 'assists_business_unit_id_foreign'
 
 /**
+ * Nombre de archivo de la M3 original, tal como quedó registrada en
+ * `adonis_schema` en las bases que deployearon entre 591044e1 y fab69b76. Es la
+ * marca con la que `down()` sabe que el endurecimiento no es suyo.
+ */
+const NOMBRE_MIGRACION_VIEJA = '1786566437097002_enforce_not_null_business_unit_id_on_assists'
+
+/**
  * USRH1786566437097 — M3 (reposición): endurece `assists.business_unit_id`
  * a NOT NULL + llave foránea contra `business_units`.
  *
@@ -110,6 +117,14 @@ export default class extends BaseSchema {
 
   async down() {
     this.defer(async (db) => {
+      // El down solo deshace lo que ESTE archivo pudo haber hecho. En una base
+      // donde corrió la M3 vieja, el endurecimiento es suyo y `up()` salió por
+      // el early-return sin tocar nada: desendurecer aquí dejaría la tabla MÁS
+      // débil de lo que estaba antes de que esta migración existiera, y como la
+      // M3 vieja sigue registrada en `adonis_schema`, nada la volvería a
+      // aplicar. Ante esa marca, no-op.
+      if (await this.corrioLaMigracionVieja(db)) return
+
       // Se retira por el nombre que tenga en BD, no por el esperado: si la llave se creó
       // con otro nombre, un `DROP FOREIGN KEY` con el nombre fijo fallaría.
       const llavesForaneas = await this.llavesForaneasDeLaColumna(db)
@@ -126,6 +141,20 @@ export default class extends BaseSchema {
         )
       }
     })
+  }
+
+  /**
+   * ¿La M3 original llegó a correr en esta base? Se pregunta por su nombre en
+   * `adonis_schema`, que es la clave con la que Lucid registra cada migración.
+   */
+  private async corrioLaMigracionVieja(db: QueryClientContract): Promise<boolean> {
+    const total = await this.contar(
+      db,
+      'SELECT COUNT(*) AS total FROM `adonis_schema` WHERE `name` LIKE ?',
+      [`%${NOMBRE_MIGRACION_VIEJA}`]
+    )
+
+    return total > 0
   }
 
   /** Existencia y nulabilidad actuales de la columna en el esquema activo. */
@@ -147,10 +176,15 @@ export default class extends BaseSchema {
    * por nombre para no crear una segunda FK equivalente si alguien la nombró distinto.
    */
   private async llavesForaneasDeLaColumna(db: QueryClientContract): Promise<string[]> {
+    // Se filtra por la tabla y la columna REFERENCIADAS, no solo por "tiene
+    // referencia": una FK de esta columna hacia otra tabla haría creer a `up()`
+    // que la llave contra `business_units` ya existe —y nunca la crearía— y
+    // haría que `down()` soltara una llave que este archivo no creó.
     const rows = await db.rawQuery(
       `SELECT CONSTRAINT_NAME AS nombre FROM information_schema.KEY_COLUMN_USAGE
        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ? AND COLUMN_NAME = ?
-         AND REFERENCED_TABLE_NAME IS NOT NULL`,
+         AND REFERENCED_TABLE_NAME = 'business_units'
+         AND REFERENCED_COLUMN_NAME = 'business_unit_id'`,
       [this.tableName, COLUMNA]
     )
     const filas = Array.isArray(rows) ? (rows[0] as Array<{ nombre: string }>) : []
@@ -158,10 +192,32 @@ export default class extends BaseSchema {
     return filas.map((fila) => fila.nombre)
   }
 
-  /** Ejecuta un `SELECT COUNT(*) AS total` y devuelve el conteo. */
-  private async contar(db: QueryClientContract, sql: string): Promise<number> {
-    const rows = await db.rawQuery(sql)
+  /**
+   * Ejecuta un `SELECT COUNT(*) AS total` y devuelve el conteo.
+   *
+   * Falla RUIDOSO ante una forma inesperada, igual que `estadoDeLaColumna`: un
+   * 0 silencioso desarmaría las dos guardas que protegen los datos (cuarentena
+   * y huérfanos) y la migración pasaría derecho al `MODIFY ... NOT NULL`. Sin
+   * `sql_mode` estricto, MySQL reescribiría cada NULL a 0 —la pertenencia
+   * inventada que la cabecera promete no inventar— y después la FK reventaría
+   * con errno 1452 dejando la tabla a medio migrar.
+   */
+  private async contar(
+    db: QueryClientContract,
+    sql: string,
+    bindings: readonly string[] = []
+  ): Promise<number> {
+    const rows = await db.rawQuery(sql, [...bindings])
+    const total = Array.isArray(rows)
+      ? (rows[0] as Array<{ total: number }>)[0]?.total
+      : undefined
 
-    return Array.isArray(rows) ? Number((rows[0] as Array<{ total: number }>)[0]?.total ?? 0) : 0
+    if (typeof total !== 'number' && typeof total !== 'string') {
+      throw new Error(
+        'assists: no se pudo leer el conteo de la guarda; se aborta sin tocar el esquema.'
+      )
+    }
+
+    return Number(total)
   }
 }

@@ -139,7 +139,16 @@ test.group('Assist — scope fail-closed en BD real (USRH1786566437097 / D1–D5
       .orderBy('businessUnitId', 'asc')
       .limit(2)
 
-    scopedUnitId = Number(unitRows[0]?.businessUnitId ?? unidadesReales[0]?.businessUnitId ?? 0)
+    // Sin `?? 0`: un 0 aquí (BD restaurada con todas las empresas inactivas y
+    // sin checadas) se colaría hasta el insert de A8 y la FK repuesta lo
+    // rechazaría con un errno 1452 opaco, en vez de decir qué falta.
+    const unidadResuelta = unitRows[0]?.businessUnitId ?? unidadesReales[0]?.businessUnitId
+    if (unidadResuelta === undefined) {
+      throw new Error(
+        'BD sin empresas activas: el grupo D1-D5/A8 requiere al menos una. Corre "migration:fresh --seed".'
+      )
+    }
+    scopedUnitId = Number(unidadResuelta)
 
     const otraUnidad = unidadesReales.find(
       (unidad) => Number(unidad.businessUnitId) !== scopedUnitId
@@ -241,7 +250,14 @@ test.group('Assist — scope fail-closed en BD real (USRH1786566437097 / D1–D5
     )
   })
 
-  test('A8 · mismo código e instante en BU1 y BU6 conviven y el scope las separa', async ({
+  /**
+   * Las dos empresas son las que resolvió el setup —la sembrada y otra real, o
+   * una creada al vuelo—, no las BU1/BU6 del ensayo original. El `assistEmpId`
+   * es un literal a propósito: el invariante bajo prueba es que el mixin separa
+   * por `business_unit_id`, y la columna `assist_emp_id` no participa en él ni
+   * tiene foránea que la ate a la empresa.
+   */
+  test('A8 · dos empresas reales conviven con el mismo código e instante y el scope las separa', async ({
     assert,
   }) => {
     const sharedCode = `TRIAL-A8-${Date.now()}`
