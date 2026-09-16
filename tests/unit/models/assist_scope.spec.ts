@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import Assist from '#models/assist'
+import BusinessUnit from '#models/business_unit'
 import { AssistError } from '#exceptions/assist_error'
 import { TenantContext } from '#utils/tenant_context'
 import { assertModelHasColumns } from '../helpers/lucid_model_assertions.js'
@@ -103,6 +104,7 @@ test.group('Assist — scope fail-closed en BD real (USRH1786566437097 / D1–D5
   let secondUnitId: number
   let totalCount: number
   let fixtureIds: number[] = []
+  let unidadCreadaId: number | null = null
 
   group.setup(async () => {
     const totalRows = await TenantContext.runUnscoped(async () => {
@@ -118,23 +120,61 @@ test.group('Assist — scope fail-closed en BD real (USRH1786566437097 / D1–D5
         .count('* as total')
     }, 'unidades con checadas ensayo')
 
-    if (unitRows.length < 2) {
-      scopedUnitId = Number(unitRows[0]?.businessUnitId ?? 1)
-      scopedUnitCount = Number(unitRows[0]?.$extras.total ?? 0)
-      secondUnitId = scopedUnitId === 1 ? 6 : 1
+    if (unitRows.length >= 2) {
+      scopedUnitId = Number(unitRows[0].businessUnitId)
+      scopedUnitCount = Number(unitRows[0].$extras.total)
+      secondUnitId = Number(unitRows[1].businessUnitId)
       return
     }
 
-    scopedUnitId = Number(unitRows[0].businessUnitId)
-    scopedUnitCount = Number(unitRows[0].$extras.total)
-    secondUnitId = Number(unitRows[1].businessUnitId)
+    // BD sin checadas repartidas entre empresas (p. ej. tras `migration:fresh --seed`).
+    // Aquí se inventaba el id 6 como segunda empresa. Desde que la M3 repuso la FK
+    // `assists_business_unit_id_foreign`, insertar una checada de una empresa inexistente
+    // falla con errno 1452: A8 dejaba de probar el scope y solo probaba la FK. Las dos
+    // empresas del caso son ahora reales — las que haya en BD, o una creada aquí.
+    scopedUnitCount = Number(unitRows[0]?.$extras.total ?? 0)
+
+    const unidadesReales = await BusinessUnit.query()
+      .where('businessUnitActive', 1)
+      .orderBy('businessUnitId', 'asc')
+      .limit(2)
+
+    scopedUnitId = Number(unitRows[0]?.businessUnitId ?? unidadesReales[0]?.businessUnitId ?? 0)
+
+    const otraUnidad = unidadesReales.find(
+      (unidad) => Number(unidad.businessUnitId) !== scopedUnitId
+    )
+
+    if (otraUnidad) {
+      secondUnitId = Number(otraUnidad.businessUnitId)
+      return
+    }
+
+    const marca = `${Date.now()}`
+    const unidadCreada = await BusinessUnit.create({
+      businessUnitName: `Scope A8 ${marca}`,
+      businessUnitSlug: `scope-a8-${marca}`,
+      businessUnitLegalName: `Scope A8 legal ${marca}`,
+      businessUnitActive: 1,
+      businessUnitOrigin: 'platform',
+    })
+    unidadCreadaId = Number(unidadCreada.businessUnitId)
+    secondUnitId = unidadCreadaId
   })
 
   group.teardown(async () => {
-    if (fixtureIds.length === 0) return
-    await TenantContext.runUnscoped(async () => {
-      await Assist.query().whereIn('assistId', fixtureIds).delete()
-    }, 'limpieza fixtures scope assists')
+    if (fixtureIds.length > 0) {
+      await TenantContext.runUnscoped(async () => {
+        await Assist.query().whereIn('assistId', fixtureIds).delete()
+      }, 'limpieza fixtures scope assists')
+    }
+
+    // La empresa creada por este grupo se retira DESPUÉS de sus checadas: la FK repuesta
+    // por la M3 es ON DELETE RESTRICT y rechazaría soltarla mientras alguna la referencie.
+    if (unidadCreadaId !== null) {
+      await BusinessUnit.query().where('businessUnitId', unidadCreadaId).delete()
+      unidadCreadaId = null
+    }
   })
 
   test('D1 · TenantContext.run([id]) devuelve solo filas de esa unidad', async ({ assert }) => {
