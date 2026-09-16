@@ -113,7 +113,7 @@ export default class BusinessUnitController {
    *       '500':
    *         description: >
    *           Error interno: colisión de slug agotada (TNT.BU.SLUG_CONFLICT),
-   *           fallo de configuración base (TNT.BU.SETTINGS_PROVISIONING_FAILED), o
+   *           fallo de provisión de la configuración (TNT.BU.SETTINGS_PROVISIONING_FAILED), o
    *           error no clasificado (TNT.BU.CREATION_FAILED).
    */
   async store(ctx: HttpContext) {

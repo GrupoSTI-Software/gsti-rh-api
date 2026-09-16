@@ -6,6 +6,12 @@ import Assist from '#models/assist'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import { TenantContext } from '#utils/tenant_context'
+import {
+  cleanupUnitUser,
+  createBypassUserInBusinessUnit,
+  required,
+  type UnitUser,
+} from '#tests/helpers/tenant_actor'
 
 /**
  * USRH1786569916882 — cierre de fuga de lectura e IDOR de anulación de checadas
@@ -165,6 +171,26 @@ test.group('Assists — aislamiento por tenant (BD real)', (group) => {
     }
   })
 
+  /**
+   * Anular checadas exige `delete-check-assist` desde que la ruta tiene gate, y
+   * el "primer usuario del pivote" no tiene un rol conocido. Los casos de
+   * anulación usan un owner de la misma empresa: pasa el gate y `businessScope`
+   * lo sigue acotando a ella, así que prueban el mismo aislamiento que antes.
+   */
+  let inactivator: UnitUser | null = null
+
+  group.setup(async () => {
+    inactivator = await createBypassUserInBusinessUnit(
+      'owner',
+      'assist-aislamiento',
+      actorBusinessUnitId
+    )
+  })
+
+  group.teardown(async () => {
+    await cleanupUnitUser(inactivator)
+  })
+
   test('A8 · GET sin employeeId responde 400 y no entrega calendario', async ({ client, assert }) => {
     const user = await getUserForBusinessUnit(actorBusinessUnitId)
 
@@ -251,7 +277,7 @@ test.group('Assists — aislamiento por tenant (BD real)', (group) => {
     client,
     assert,
   }) => {
-    const user = await getUserForBusinessUnit(actorBusinessUnitId)
+    const user = required(inactivator, 'el owner que anula checadas').user
 
     const response = await client
       .put(`/api/v1/assists/${assistBu6Id}/inactivate`)
@@ -280,7 +306,7 @@ test.group('Assists — aislamiento por tenant (BD real)', (group) => {
     client,
     assert,
   }) => {
-    const user = await getUserForBusinessUnit(actorBusinessUnitId)
+    const user = required(inactivator, 'el owner que anula checadas').user
 
     const crossTenantResponse = await client
       .put(`/api/v1/assists/${assistBu6Id}/inactivate`)
@@ -353,7 +379,7 @@ test.group('Assists — aislamiento por tenant (BD real)', (group) => {
     )
 
     try {
-      const user = await getUserForBusinessUnit(actorBusinessUnitId)
+      const user = required(inactivator, 'el owner que anula checadas').user
 
       const response = await client
         .put(`/api/v1/assists/${ownAssist.assistId}/inactivate`)

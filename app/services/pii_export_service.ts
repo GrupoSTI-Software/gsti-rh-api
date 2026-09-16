@@ -9,7 +9,7 @@ import RoleService from '#services/role_service'
 import { PiiExportAuditError } from '../exceptions/pii_export_audit_error.js'
 import type { PiiExportDeliverOptionsInterface } from '../interfaces/pii_export_deliver_options_interface.js'
 
-export const EXPORT_SENSITIVE_PERMISSION_MODULE = 'compliance'
+export const EXPORT_SENSITIVE_PERMISSION_MODULE = 'employees'
 export const EXPORT_SENSITIVE_PERMISSION_SLUG = 'export-sensitive-data'
 
 /**

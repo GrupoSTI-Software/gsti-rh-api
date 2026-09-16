@@ -91,7 +91,10 @@ export default class AssistIngestionRepositoryMysql implements AssistIngestionRe
     assist.assistEmpId = record.employeeId
     assist.assistEmpCode = record.employeeCode
     assist.assistTerminalSn = record.terminalSn
-    assist.assistTerminalAlias = ''
+    // El alias es el nombre legible del equipo. Sigue siendo `''` cuando el
+    // origen no aporta uno: es el valor que ya tenían todas las filas.
+    assist.assistTerminalAlias = record.terminalAlias ?? ''
+    assist.assistVerifyMethod = record.verifyMethod ?? null
     assist.assistAreaAlias = ''
     assist.assistTerminalId = null
     assist.assistSyncId = 0

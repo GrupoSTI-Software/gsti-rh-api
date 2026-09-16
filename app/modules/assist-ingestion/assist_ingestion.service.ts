@@ -10,6 +10,11 @@ import {
   isAssistArrivalDeferred,
 } from './assist_ingestion.constants.js'
 import AssistIngestionRepositoryMysql from './assist_ingestion.repository.mysql.js'
+import CalendarRecalcRepositoryMysql from './calendar-recalc/calendar_recalc.repository.mysql.js'
+import type {
+  CalendarRecalcJob,
+  CalendarRecalcRepository,
+} from './calendar-recalc/calendar_recalc.repository.js'
 import {
   ASSIST_INGESTION_BATCH_DUPLICATE_ITEM,
   ASSIST_INGESTION_EMPLOYEE_NOT_FOUND,
@@ -42,6 +47,21 @@ type SubjectResolution =
   | { ok: true; subject: ResolvedSubject }
   | { ok: false; rejection: AssistIngestionRejection }
 
+/** Opciones de una entrega. Sin ellas el comportamiento es exactamente el de siempre. */
+export interface AssistIngestionOptions {
+  /**
+   * Encola el recálculo de calendarios en vez de correrlo dentro de la
+   * petición. Lo usa el canal del checador, que debe acusar en segundos.
+   */
+  deferCalendarRecalc?: boolean
+}
+
+/**
+ * Zona con la que se recortan los días del rango de recálculo. Es la misma que
+ * usa el recálculo directo; cambiarla movería los bordes de los dos caminos.
+ */
+const CALENDAR_RECALC_ZONE = 'UTC-6'
+
 /**
  * Motor de ingesta de checadas.
  *
@@ -56,12 +76,20 @@ type SubjectResolution =
  */
 export default class AssistIngestionService {
   private readonly repository: AssistIngestionRepository
+  private readonly calendarRecalc: CalendarRecalcRepository
 
-  constructor(repository: AssistIngestionRepository = new AssistIngestionRepositoryMysql()) {
+  constructor(
+    repository: AssistIngestionRepository = new AssistIngestionRepositoryMysql(),
+    calendarRecalc: CalendarRecalcRepository = new CalendarRecalcRepositoryMysql()
+  ) {
     this.repository = repository
+    this.calendarRecalc = calendarRecalc
   }
 
-  async ingest(items: AssistIngestionItem[]): Promise<AssistIngestionResult> {
+  async ingest(
+    items: AssistIngestionItem[],
+    options: AssistIngestionOptions = {}
+  ): Promise<AssistIngestionResult> {
     const results: AssistIngestionItemResult[] = items.map((item, index) => ({
       index,
       clientRef: item.clientRef,
@@ -91,6 +119,8 @@ export default class AssistIngestionService {
         origin: item.origin,
         createdByUserId: item.createdByUserId,
         terminalSn: item.terminalSn,
+        terminalAlias: item.terminalAlias,
+        verifyMethod: item.verifyMethod,
       }
 
       // Los gemelos se resuelven en memoria, antes de tocar la base: si se dejaran
@@ -118,9 +148,54 @@ export default class AssistIngestionService {
       }
     }
 
-    await this.recalculateCalendars(persisted)
+    if (options.deferCalendarRecalc) {
+      await this.enqueueCalendarRecalc(persisted)
+    } else {
+      await this.recalculateCalendars(persisted)
+    }
 
     return { results, summary: summarize(results) }
+  }
+
+  /**
+   * Encola el recálculo en vez de correrlo (spec ADMS 5.4).
+   *
+   * El checador reintenta cada pocos segundos si no recibe acuse, así que el
+   * recálculo, que puede tardar, no puede vivir dentro de su petición. Los
+   * bordes son los mismos que en el recálculo directo: un día antes y uno
+   * después, en la zona de negocio.
+   *
+   * Cuenta también las `preexisting`: insertar la checada y encolar su
+   * recálculo no ocurre en la misma transacción, así que un proceso que muere
+   * en medio deja la checada guardada y el trabajo no. El reenvío del equipo es
+   * la única reparación posible, y ahí esas checadas ya no son nuevas. Encolar
+   * de más cuesta un INSERT y el consumidor funde por colaborador; no encolar
+   * deja un calendario mal para siempre.
+   */
+  private async enqueueCalendarRecalc(persisted: AssistIngestionPersisted[]): Promise<void> {
+    const ranges = assistIngestionCalendarRanges(persisted, true)
+    if (ranges.size === 0) return
+
+    const byEmployee = new Map<number, number>()
+    for (const row of persisted) {
+      // La inserción exige empresa, así que `null` aquí sería una fila
+      // imposible; se omite en vez de encolar un trabajo sin destino.
+      if (row.assist.businessUnitId === null) continue
+      byEmployee.set(row.assist.assistEmpId, row.assist.businessUnitId)
+    }
+
+    const jobs: CalendarRecalcJob[] = []
+    for (const [employeeId, range] of ranges) {
+      const businessUnitId = byEmployee.get(employeeId)
+      if (businessUnitId === undefined) continue
+      jobs.push({
+        businessUnitId,
+        employeeId,
+        from: range.from.setZone(CALENDAR_RECALC_ZONE).plus({ day: -1 }).startOf('day'),
+        to: range.to.setZone(CALENDAR_RECALC_ZONE).plus({ day: 1 }).startOf('day'),
+      })
+    }
+    await this.calendarRecalc.enqueue(jobs)
   }
 
   /**
@@ -185,13 +260,29 @@ export default class AssistIngestionService {
  * Los desenlaces que no escribieron no generan rango: una entrega de doscientas
  * repeticiones no puede convertirse en doscientos recálculos.
  */
+/**
+ * Rangos de calendario a recalcular, por colaborador.
+ *
+ * `includePreexisting` es para el camino diferido del canal: ahi el equipo
+ * reenvia el mismo lote cuando no recibe acuse, y si el proceso murio entre
+ * insertar la checada y encolar su recalculo, en el reenvio esas checadas
+ * vuelven como `preexisting`. Sin contarlas, el reintento del aparato --que es
+ * la unica reparacion que hay-- no repara nada y ese calendario se queda sin
+ * recalcular para siempre.
+ *
+ * El camino directo no las cuenta: ahi `preexisting` es una checada que ya
+ * estaba y rehacer su calendario en caliente es trabajo de mas.
+ */
 export function assistIngestionCalendarRanges(
-  persisted: AssistIngestionPersisted[]
+  persisted: AssistIngestionPersisted[],
+  includePreexisting: boolean = false
 ): Map<number, { from: DateTime; to: DateTime }> {
   const ranges = new Map<number, { from: DateTime; to: DateTime }>()
 
   for (const row of persisted) {
-    if (row.outcome !== 'inserted') continue
+    const counts =
+      row.outcome === 'inserted' || (includePreexisting && row.outcome === 'preexisting')
+    if (!counts) continue
     const punchTime = row.assist.assistPunchTimeUtc
     const current = ranges.get(row.assist.assistEmpId)
     if (!current) {

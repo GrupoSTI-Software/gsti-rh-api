@@ -3,3 +3,4 @@ node_modules/
 .eslintrc.js
 swagger/**/*.js
 ace.js
+__TO_DELETE__/

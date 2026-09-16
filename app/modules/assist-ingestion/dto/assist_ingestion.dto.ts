@@ -38,6 +38,10 @@ export interface AssistIngestionItem {
   createdByUserId: number | null
   /** Serie real del equipo; `null` cuando el origen no aporta una. Nunca cadena vacía. */
   terminalSn: string | null
+  /** Nombre legible del equipo. Omitido guarda `''`, como hasta ahora. */
+  terminalAlias?: string | null
+  /** Método de verificación del checador (1 huella, 15 rostro). Solo lo llena el canal ADMS. */
+  verifyMethod?: number | null
   /** Referencia opaca del equipo de origen. Viaja de ida y vuelta; no se guarda (API-3). */
   clientRef: string | null
 }
@@ -55,6 +59,8 @@ export interface AssistIngestionRecord {
   origin: AssistCreateFrom
   createdByUserId: number | null
   terminalSn: string | null
+  terminalAlias?: string | null
+  verifyMethod?: number | null
 }
 
 /** Lo que el puerto devuelve por registro: se insertó, o su identidad ya estaba tomada. */

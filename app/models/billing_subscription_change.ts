@@ -5,6 +5,7 @@ import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import BillingSubscription from './billing_subscription.js'
 import BillingPayment from './billing_payment.js'
+import type { DiscountCodeKind } from './discount_code.js'
 
 export type BillingSubscriptionChangeType = 'increase' | 'decrease'
 
@@ -163,6 +164,38 @@ export default class BillingSubscriptionChange extends compose(BaseModel, SoftDe
   /** Adeudo en CENTAVOS enteros (ej. 91210 = $912.10 MXN). Nunca negativo. */
   @column()
   declare billingSubscriptionChangeProratedAmountCents: number
+
+  // ---------------------------------------------------------------------
+  // Congelado del código de descuento (USRH1787714804405 §10). Se llena
+  // junto con los campos de arriba al solicitar o agendar el cambio; la
+  // aplicación los transcribe a la suscripción sin volver a preguntarle
+  // al catálogo. NULL/0 cuando la suscripción no tiene código congelado.
+  // ---------------------------------------------------------------------
+
+  /** Pesos que el código descuenta en el trato nuevo; 0 sin código o con el beneficio agotado. */
+  @column()
+  declare billingSubscriptionChangeCodeDiscountAmount: number
+
+  /** Precio de lista por empleado del trato nuevo; espeja el de la suscripción. */
+  @column()
+  declare billingSubscriptionChangeUndiscountedUnitAmount: number | null
+
+  /** Subtotal del trato nuevo sin el código (con el descuento por volumen ya aplicado). */
+  @column()
+  declare billingSubscriptionChangeUndiscountedSubtotal: number | null
+
+  @column()
+  declare billingSubscriptionChangeUndiscountedTaxAmount: number | null
+
+  @column()
+  declare billingSubscriptionChangeUndiscountedTotal: number | null
+
+  /** Evidencia del código vigente en la suscripción al congelar este cambio; base de la guarda de código desfasado. */
+  @column()
+  declare billingSubscriptionChangeDiscountCodeText: string | null
+
+  @column()
+  declare billingSubscriptionChangeDiscountCodeKind: DiscountCodeKind | null
 
   @column.dateTime()
   declare billingSubscriptionChangeEffectiveAt: DateTime | null

@@ -3,6 +3,8 @@ import EmployeeBiometricFaceIdService from '#services/employee_biometric_face_id
 import UploadService from '#services/upload_service'
 import { HttpContext } from '@adonisjs/core/http'
 import { inject } from '@adonisjs/core'
+import { ensureEmployeeBiometricRead } from '#helpers/ensure_employee_biometric_read'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
 /**
  * Controlador proxy para servir el binario de la foto biométrica de un empleado
@@ -98,7 +100,8 @@ export default class EmployeeBiometricPhotosController {
    *                   type: string
    */
   @inject()
-  async streamPhoto({ request, response, logger }: HttpContext, uploadService: UploadService) {
+  async streamPhoto(ctx: HttpContext, uploadService: UploadService) {
+    const { request, response, logger } = ctx
     const employeeIdRaw = request.param('employeeId')
     const employeeId = Number(employeeIdRaw)
 
@@ -110,6 +113,18 @@ export default class EmployeeBiometricPhotosController {
         message: 'El ID del empleado es inválido',
         data: { employeeId: employeeIdRaw },
       }
+    }
+
+    // Aquí se entregan los bytes de la foto, no una URL: es el punto que de
+    // verdad hay que cerrar. Solo el dueño pasa sin permiso de administración.
+    if (
+      !(await ensureEmployeeBiometricRead(
+        ctx,
+        employeeId,
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.streamBiometricFacePhoto
+      ))
+    ) {
+      return
     }
 
     const currentEmployee = await Employee.query()

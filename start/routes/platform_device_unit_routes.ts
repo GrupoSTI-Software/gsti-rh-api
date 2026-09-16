@@ -39,6 +39,37 @@ router
     router
       .post('/:platformDeviceId/retirement', '#controllers/platform_device_controller.retire')
       .where('platformDeviceId', router.matchers.number())
+    /**
+     * La direccion propia del equipo. Se pregunta por la unidad, pero es
+     * asunto del canal: el controlador vive en el modulo de puntos de acceso.
+     */
+    router
+      .get(
+        '/:platformDeviceId/channel-secret',
+        '#modules/access-point/platform/device_channel_secret.controller.show'
+      )
+      .where('platformDeviceId', router.matchers.number())
+    /**
+     * Estado de conexion de esta unidad. `/health` del tablero recorre el
+     * parque entero; aqui se pregunta por el equipo que se esta viendo.
+     */
+    router
+      .get(
+        '/:platformDeviceId/health',
+        '#modules/access-point/platform/device_health.controller.show'
+      )
+      .where('platformDeviceId', router.matchers.number())
+    /**
+     * Pedirle al equipo que se presente. No es una consulta: deja un `INFO` en
+     * su cola y espera a que pase a recogerlo, porque con ADMS el aparato
+     * pregunta y el servidor contesta -- nunca al contrario.
+     */
+    router
+      .post(
+        '/:platformDeviceId/sync',
+        '#modules/access-point/platform/device_health.controller.sync'
+      )
+      .where('platformDeviceId', router.matchers.number())
   })
   .prefix('/api/platform/devices/units')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])

@@ -6,6 +6,7 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import RepseRegistration from '#models/repse_registration'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — módulo "Gafete del empleado" (USRH1784686362321):
@@ -26,7 +27,7 @@ import RepseRegistration from '#models/repse_registration'
  * esa ruta, para no contaminar el contador compartido por IP.
  */
 
-const ROOT_ROLE_ID = 3
+const ROOT_ROLE = 'root'
 
 function uniqueStamp(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 100000)}`
@@ -37,7 +38,7 @@ interface TestActor {
   person: Person
 }
 
-async function createTestActor(roleId: number, emailPrefix: string): Promise<TestActor> {
+async function createTestActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TestActor> {
   const stamp = uniqueStamp()
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
 
@@ -52,7 +53,8 @@ async function createTestActor(roleId: number, emailPrefix: string): Promise<Tes
   user.userEmail = email
   user.userPassword = 'EmployeeBadgeTest123!'
   user.userActive = 1
-  user.roleId = roleId
+  const role = await ensureRole(roleSlug)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -85,6 +87,8 @@ async function deleteBusinessUnit(businessUnit: BusinessUnit | null) {
 
 interface CreateEmployeeOverrides {
   employeeTerminatedDate?: string | null
+  /** Key cruda del bucket (objeto privado) o URL http; `null` = sin fotografía. */
+  employeePhoto?: string | null
 }
 
 async function createEmployee(
@@ -105,6 +109,7 @@ async function createEmployee(
   employee.businessUnitId = businessUnit.businessUnitId
   employee.payrollBusinessUnitId = businessUnit.businessUnitId
   employee.employeeTerminatedDate = overrides.employeeTerminatedDate ?? null
+  employee.employeePhoto = overrides.employeePhoto ?? null
   await employee.save()
   return employee
 }
@@ -168,7 +173,7 @@ test.group('EmployeeBadge - flujo feliz con folio REPSE vigente (E1/E2)', (group
   let firstToken: string | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-happy')
+    root = await createTestActor(ROOT_ROLE, 'root-happy')
     businessUnit = await createBusinessUnit('happy')
     employee = await createEmployee(root.person, businessUnit)
     registration = await createRepseRegistration(businessUnit)
@@ -275,7 +280,7 @@ test.group('EmployeeBadge - nombre compuesto en E1', (group) => {
   let employee: Employee | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'compound-name')
+    root = await createTestActor(ROOT_ROLE, 'compound-name')
     root!.person.personFirstname = 'Luis Miguel'
     root!.person.personLastname = 'Rodríguez'
     root!.person.personSecondLastname = 'Veltrán'
@@ -301,10 +306,7 @@ test.group('EmployeeBadge - nombre compuesto en E1', (group) => {
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
 
     response.assertStatus(200)
-    assert.equal(
-      response.body().data.gafete.nombreCompleto,
-      'Luis Miguel Rodríguez Veltrán'
-    )
+    assert.equal(response.body().data.gafete.nombreCompleto, 'Luis Miguel Rodríguez Veltrán')
   })
 })
 
@@ -314,7 +316,7 @@ test.group('EmployeeBadge - flujo feliz sin registro REPSE (R7 — universal)', 
   let employee: Employee | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-sinfolio')
+    root = await createTestActor(ROOT_ROLE, 'root-sinfolio')
     businessUnit = await createBusinessUnit('sinfolio')
     employee = await createEmployee(root.person, businessUnit)
   })
@@ -338,6 +340,7 @@ test.group('EmployeeBadge - flujo feliz sin registro REPSE (R7 — universal)', 
     const gafete = response.body().data.gafete
     assert.isNull(gafete.folioRepse)
     assert.isNull(gafete.folioVigente)
+    assert.isNull(gafete.folioVigenteHasta)
     assert.isTrue(gafete.vinculoVigente)
   })
 })
@@ -349,7 +352,7 @@ test.group('EmployeeBadge - folio REPSE vencido', (group) => {
   let registration: RepseRegistration | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-vencido')
+    root = await createTestActor(ROOT_ROLE, 'root-vencido')
     businessUnit = await createBusinessUnit('vencido')
     employee = await createEmployee(root.person, businessUnit)
     registration = await createRepseRegistration(businessUnit, DateTime.now().minus({ days: 5 }))
@@ -375,6 +378,7 @@ test.group('EmployeeBadge - folio REPSE vencido', (group) => {
     const gafete = response.body().data.gafete
     assert.equal(gafete.folioRepse, registration!.folio)
     assert.isFalse(gafete.folioVigente)
+    assert.equal(gafete.folioVigenteHasta, registration!.expiresAt.toISODate())
     assert.isTrue(gafete.vinculoVigente)
   })
 })
@@ -388,7 +392,7 @@ test.group('EmployeeBadge - 404 uniforme (BDG.NF.001)', (group) => {
   let terminatedEmployee: Employee | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-404')
+    root = await createTestActor(ROOT_ROLE, 'root-404')
     businessUnitA = await createBusinessUnit('404-a')
     businessUnitB = await createBusinessUnit('404-b')
     employeeA = await createEmployee(root.person, businessUnitA)
@@ -483,7 +487,7 @@ test.group('EmployeeBadge - validación de entrada (422 BDG.VAL.001)', (group) =
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-val')
+    root = await createTestActor(ROOT_ROLE, 'root-val')
     businessUnit = await createBusinessUnit('val')
   })
 
@@ -538,8 +542,8 @@ test.group('EmployeeBadge - propio (/me, E3)', (group) => {
   let ownEmployee: Employee | null = null
 
   group.setup(async () => {
-    ownerActor = await createTestActor(ROOT_ROLE_ID, 'root-me')
-    noEmployeeActor = await createTestActor(ROOT_ROLE_ID, 'root-me-sin-empleado')
+    ownerActor = await createTestActor(ROOT_ROLE, 'root-me')
+    noEmployeeActor = await createTestActor(ROOT_ROLE, 'root-me-sin-empleado')
     businessUnit = await createBusinessUnit('me')
     ownEmployee = await createEmployee(ownerActor.person, businessUnit)
   })
@@ -581,7 +585,7 @@ test.group('EmployeeBadge - i18n (Accept-Language)', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-i18n')
+    root = await createTestActor(ROOT_ROLE, 'root-i18n')
     businessUnit = await createBusinessUnit('i18n')
   })
 
@@ -652,7 +656,7 @@ test.group('EmployeeBadge - verificación pública (E4)', (group) => {
   let token: string | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-verify')
+    root = await createTestActor(ROOT_ROLE, 'root-verify')
     businessUnit = await createBusinessUnit('verify')
     employee = await createEmployee(root.person, businessUnit)
     registration = await createRepseRegistration(businessUnit)
@@ -754,11 +758,11 @@ test.group('EmployeeBadge - descarga masiva (E6)', (group) => {
   let terminatedEmployee: Employee | null = null
 
   group.setup(async () => {
-    validationActor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-val')
-    pdfActor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-pdf')
-    pngActor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-png')
-    rc1Actor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-rc1')
-    dedupActor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-dedup')
+    validationActor = await createTestActor(ROOT_ROLE, 'root-bulk-val')
+    pdfActor = await createTestActor(ROOT_ROLE, 'root-bulk-pdf')
+    pngActor = await createTestActor(ROOT_ROLE, 'root-bulk-png')
+    rc1Actor = await createTestActor(ROOT_ROLE, 'root-bulk-rc1')
+    dedupActor = await createTestActor(ROOT_ROLE, 'root-bulk-dedup')
     businessUnit = await createBusinessUnit('bulk')
     otherBu = await createBusinessUnit('bulk-other')
     pdfEmployee = await createEmployee(pdfActor.person, businessUnit)
@@ -850,7 +854,7 @@ test.group('EmployeeBadge - descarga masiva (E6)', (group) => {
   })
 
   test('POST /bulk omite bajas y ids ajenos en silencio (RC1)', async ({ client, assert }) => {
-    const otherPerson = await createTestActor(ROOT_ROLE_ID, 'bulk-cross')
+    const otherPerson = await createTestActor(ROOT_ROLE, 'bulk-cross')
     const foreignEmployee = await createEmployee(otherPerson.person, otherBu!)
 
     try {
@@ -881,7 +885,11 @@ test.group('EmployeeBadge - descarga masiva (E6)', (group) => {
     const response = await client
       .post('/api/employee-badges/bulk')
       .json({
-        empleadoIds: [dedupEmployee!.employeeId, dedupEmployee!.employeeId, dedupEmployee!.employeeId],
+        empleadoIds: [
+          dedupEmployee!.employeeId,
+          dedupEmployee!.employeeId,
+          dedupEmployee!.employeeId,
+        ],
         formato: 'png',
       })
       .loginAs(dedupActor!.user)
@@ -899,7 +907,7 @@ test.group('EmployeeBadge - rate limit bulk (E6)', (group) => {
   let employee: Employee | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-bulk-limit')
+    root = await createTestActor(ROOT_ROLE, 'root-bulk-limit')
     businessUnit = await createBusinessUnit('bulk-limit')
     employee = await createEmployee(root.person, businessUnit)
   })
@@ -931,5 +939,161 @@ test.group('EmployeeBadge - rate limit bulk (E6)', (group) => {
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
 
     limited.assertStatus(429)
+  })
+})
+
+/** Fecha civil del registro REPSE vigente de B1 — se asserta literal, no derivada. */
+const B1_FOLIO_VIGENTE_HASTA = '2031-03-31'
+/** Registro ya vencido: la fecha viaja igual, `folioVigente` es false. */
+const B1_FOLIO_VENCIDO_HASTA = '2020-01-15'
+/** Key privada del bucket: `resolvePublicAssetUrl` da null y la foto SÍ existe. */
+const B1_FOTO_PRIVADA = 'employees/photos/b1-gafete-offline.jpg'
+
+/**
+ * B1 de ESB-04-02-08-01 — el gafete deja de mentir. Cubre lo observable por
+ * HTTP: `folioVigenteHasta` (§9.1) y `fotoFaltante` con semántica real (§9.2).
+ *
+ * `vinculoVigente === false` (§9.5) NO se prueba aquí y no puede probarse
+ * aquí: `businessScope()` solo resuelve empresas con `business_unit_active = 1`
+ * (`business_access_scope_service.ts:76-82` y `:92-96`) y el repositorio
+ * descarta al trabajador de baja (`badge.repository.mysql.ts:34` y `:178`).
+ * Esa rama vive en `tests/unit/modules/employee-badge/badge.service.spec.ts`.
+ */
+test.group('EmployeeBadge - contrato para la app sin conexión (B1)', (group) => {
+  let root: TestActor | null = null
+  let vigenteBusinessUnit: BusinessUnit | null = null
+  let vencidoBusinessUnit: BusinessUnit | null = null
+  let vigenteRegistration: RepseRegistration | null = null
+  let vencidoRegistration: RepseRegistration | null = null
+  let vigenteEmployee: Employee | null = null
+  let vencidoEmployee: Employee | null = null
+
+  group.setup(async () => {
+    root = await createTestActor(ROOT_ROLE, 'root-b1')
+    vigenteBusinessUnit = await createBusinessUnit('b1-vigente')
+    vencidoBusinessUnit = await createBusinessUnit('b1-vencido')
+    vigenteRegistration = await createRepseRegistration(
+      vigenteBusinessUnit,
+      DateTime.fromISO(B1_FOLIO_VIGENTE_HASTA)
+    )
+    vencidoRegistration = await createRepseRegistration(
+      vencidoBusinessUnit,
+      DateTime.fromISO(B1_FOLIO_VENCIDO_HASTA)
+    )
+    vigenteEmployee = await createEmployee(root.person, vigenteBusinessUnit, {
+      employeePhoto: B1_FOTO_PRIVADA,
+    })
+    vencidoEmployee = await createEmployee(root.person, vencidoBusinessUnit)
+  })
+
+  group.teardown(async () => {
+    await cleanupRepseRegistration(vencidoRegistration?.repseRegistrationId ?? null)
+    await cleanupRepseRegistration(vigenteRegistration?.repseRegistrationId ?? null)
+    await cleanupEmployee(vencidoEmployee?.employeeId ?? null)
+    await cleanupEmployee(vigenteEmployee?.employeeId ?? null)
+    await cleanupTestActor(root)
+    await deleteBusinessUnit(vencidoBusinessUnit)
+    await deleteBusinessUnit(vigenteBusinessUnit)
+  })
+
+  test('GET /:employeeId expone folioVigenteHasta como fecha civil YYYY-MM-DD', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/employee-badges/${vigenteEmployee!.employeeId}`)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', vigenteBusinessUnit!.businessUnitPublicId)
+
+    response.assertStatus(200)
+    const gafete = response.body().data.gafete
+    assert.equal(gafete.folioRepse, vigenteRegistration!.folio)
+    assert.equal(gafete.folioVigenteHasta, B1_FOLIO_VIGENTE_HASTA)
+    assert.isTrue(gafete.folioVigente)
+  })
+
+  test('GET /:employeeId manda folioVigenteHasta aunque el folio esté vencido', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/employee-badges/${vencidoEmployee!.employeeId}`)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', vencidoBusinessUnit!.businessUnitPublicId)
+
+    response.assertStatus(200)
+    const gafete = response.body().data.gafete
+    assert.equal(gafete.folioVigenteHasta, B1_FOLIO_VENCIDO_HASTA)
+    assert.isFalse(gafete.folioVigente)
+  })
+
+  test('GET /:employeeId con foto privada responde fotoFaltante false y fotoUrl null', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/employee-badges/${vigenteEmployee!.employeeId}`)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', vigenteBusinessUnit!.businessUnitPublicId)
+
+    response.assertStatus(200)
+    const gafete = response.body().data.gafete
+    assert.isNull(gafete.fotoUrl)
+    assert.isFalse(gafete.fotoFaltante)
+  })
+
+  test('GET /:employeeId sin fotografía en el expediente responde fotoFaltante true', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/employee-badges/${vencidoEmployee!.employeeId}`)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', vencidoBusinessUnit!.businessUnitPublicId)
+
+    response.assertStatus(200)
+    const gafete = response.body().data.gafete
+    assert.isNull(gafete.fotoUrl)
+    assert.isTrue(gafete.fotoFaltante)
+  })
+
+  test('GET /me entrega el mismo contrato que consume la app del empleado', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get('/api/employee-badges/me')
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', vigenteBusinessUnit!.businessUnitPublicId)
+
+    response.assertStatus(200)
+    const gafete = response.body().data.gafete
+    assert.equal(gafete.empleadoId, vigenteEmployee!.employeeId)
+    assert.equal(gafete.folioVigenteHasta, B1_FOLIO_VIGENTE_HASTA)
+    assert.isFalse(gafete.fotoFaltante)
+    assert.isTrue(gafete.vinculoVigente)
+  })
+
+  test('el key-set de data.gafete es exactamente el del contrato', async ({ client, assert }) => {
+    const response = await client
+      .get(`/api/employee-badges/${vigenteEmployee!.employeeId}`)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', vigenteBusinessUnit!.businessUnitPublicId)
+
+    response.assertStatus(200)
+    assert.deepEqual(Object.keys(response.body().data.gafete).sort(), [
+      'empleadoId',
+      'empresa',
+      'folioRepse',
+      'folioVigente',
+      'folioVigenteHasta',
+      'fotoFaltante',
+      'fotoUrl',
+      'nombreCompleto',
+      'puesto',
+      'qrDataUrl',
+      'urlVerificacion',
+      'vinculoVigente',
+    ])
   })
 })

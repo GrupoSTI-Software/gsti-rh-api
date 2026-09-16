@@ -5,6 +5,7 @@ import BillingInternalNotificationService from '#services/billing_internal_notif
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import { assertBillingOwner } from '../helpers/billing_owner_guard.js'
+import { onlyAccountOwnerCanContractError } from '../helpers/billing_tenant_error.js'
 import { resolveBillingSubscriptionApiError } from '../helpers/billing_subscription_api_error.js'
 import { TenantContext } from '../utils/tenant_context.js'
 import {
@@ -543,6 +544,23 @@ export default class BillingTenantController {
    *                   description: Response message
    *                 data:
    *                   type: object
+   *       '403':
+   *         description: Rol distinto de owner/root/super-administrador
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: solo-el-dueno-de-la-cuenta
+   *                 code:
+   *                   type: string
+   *                   example: PLT.SUB.FORBIDDEN_ROLE
    *       '404':
    *         description: Empresa fuera de alcance, plan no encontrado
    *         content:
@@ -582,8 +600,14 @@ export default class BillingTenantController {
    *                   type: string
    *                   description: Type of response generated
    */
-  async contractSubscription({ request, response }: HttpContext) {
+  async contractSubscription(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
+      // Contratar compromete dinero de la empresa. Ni la ruta ni el servicio
+      // miraban el rol: cualquier usuario con sesión en el tenant contrataba.
+      // Mismo guard de dueño que preview, increase, decrease y cancel, con una
+      // negativa que habla de contratar.
+      await assertBillingOwner(ctx, onlyAccountOwnerCanContractError)
       const body = await request.validateUsing(contractTenantSubscriptionValidator)
       const result = await this.service.contractSubscription(
         body.billingPlanId,
@@ -608,6 +632,14 @@ export default class BillingTenantController {
    *       prorrateo (si es aumento) y fecha de efecto (si es reducción) sin
    *       modificar la suscripción. Solo el dueño de la cuenta (`owner`).
    *       Requiere suscripción viva y periodo con días por delante.
+   *
+   *       Con código de descuento vigente (USRH1787714804405), `newAmounts`
+   *       suma cinco campos opcionales — `codeDiscountAmount`,
+   *       `undiscountedUnitAmount`, `undiscountedSubtotal`,
+   *       `undiscountedTaxAmount`, `undiscountedTotal` — con el efecto del
+   *       código ya recalculado sobre el tamaño nuevo y lo que costaría sin
+   *       él; el prorrateo se calcula sobre los totales con descuento. Sin
+   *       código, la respuesta es idéntica a la de antes de esta historia.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -708,6 +740,13 @@ export default class BillingTenantController {
    *       activa) o aplica de inmediato sin cobro (periodo de prueba). Solo el dueño
    *       de la cuenta (`owner`). Delega el cálculo en la previsualización; no acepta
    *       importes ni identificadores de suscripción en el body.
+   *
+   *       Con código de descuento vigente, el trato se congela ya con el
+   *       descuento recalculado sobre el tamaño nuevo (USRH1787714804405):
+   *       `newAmounts` suma los mismos cinco campos opcionales que la
+   *       previsualización. Si el código se agotó entre que se prometió y
+   *       que se cobró, el pago se asienta pero el aumento queda
+   *       `not_applicable` con motivo `descuento-desfasado`.
    *     security:
    *       - bearerAuth: []
    *     parameters:
@@ -843,6 +882,12 @@ export default class BillingTenantController {
    *       No modifica el cupo ni los importes del periodo en curso; no cobra ni devuelve
    *       dinero. Solo el dueño de la cuenta (`owner`). Si ya existía otra petición viva,
    *       la sustituye. No acepta identificadores de suscripción en el body.
+   *
+   *       Con código de descuento vigente, el trato agendado congela el
+   *       descuento recalculado sobre el tamaño nuevo (USRH1787714804405).
+   *       Si el código se agotó entre que se agendó y que el barrido diario
+   *       la aplica, la reducción queda `not_applicable` con motivo
+   *       `descuento-desfasado` y la suscripción no se toca.
    *     security:
    *       - bearerAuth: []
    *     parameters:

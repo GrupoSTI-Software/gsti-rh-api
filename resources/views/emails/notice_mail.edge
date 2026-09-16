@@ -1,41 +1,145 @@
-<!DOCTYPE html>
-<html lang="en">
+{{--
+  Correo de un aviso del buzón (Avisos y noticias).
+
+  Adopta el sistema visual de `magic_link.edge` / `request_password.edge`:
+  tarjeta blanca con borde fino sobre fondo gris, logo alineado a la izquierda
+  sobre una regla, un rótulo pequeño, el asunto como título, la fecha de envío
+  y el contenido según el tipo de aviso:
+
+  - texto: el mensaje del editor (negritas, listas y enlaces) y, si los hay,
+    los adjuntos listados en una caja lavanda;
+  - imagen: la imagen incrustada a todo el ancho de la tarjeta (Content-ID,
+    porque el objeto es privado y no hay URL pública);
+  - PDF: caja lavanda que avisa que el comunicado va adjunto.
+
+  Convenciones de diseño:
+  - Estilos inline salvo la media query de móvil y el formato del mensaje
+    enriquecido, cuyos nodos no se pueden estilar uno por uno.
+  - Layout basado en tablas: requisito para Outlook 2007-2019.
+  - Ancho máximo 600px combinado con width="100%".
+
+  Paleta:
+    #f2f3f6 fondo · #ffffff tarjeta · #dfe2e6 bordes y reglas
+    #17224d títulos · #4b5057 cuerpo · #6e757c texto secundario
+    #445cba acento (enlaces) · #eef1fa caja informativa
+--}}<!DOCTYPE html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta http-equiv="X-UA-Compatible" content="ie=edge">
-  <meta name="color-scheme" content="light dark">
-  <meta name="supported-color-schemes" content="light dark">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://sae-assets.sfo3.cdn.digitaloceanspaces.com/general/logos/logo_sae_jpg.jpeg" rel="stylesheet">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+  <title>{{ noticeSubject }}</title>
+  <style>
+    @media only screen and (max-width: 480px) {
+      .notice-mail-card { padding: 28px 24px 40px 24px !important; }
+      .notice-mail-title { font-size: 21px !important; line-height: 28px !important; }
+    }
+    .notice-mail-body p { margin: 0 0 12px 0; }
+    .notice-mail-body p:last-child { margin-bottom: 0; }
+    .notice-mail-body ul, .notice-mail-body ol { margin: 0 0 12px 0; padding-left: 22px; }
+    .notice-mail-body li { margin: 0 0 4px 0; }
+    .notice-mail-body a { color: #445cba; text-decoration: underline; }
+    .notice-mail-body strong, .notice-mail-body b { color: #17224d; }
+  </style>
 </head>
-<body style="background-color: #f5f5fa; padding: 0rem; padding-top: 1rem; padding-bottom: 1rem; color: #303e67; font-family: 'Tajawal', sans-serif;">
-  <div class="email" style="width: 100%; max-width: 600px; background-color: #fefefe; min-height: 10rem; border-radius: 0.3rem; margin: auto; box-shadow: 0.1rem 0.1rem 0.2rem #f1f5f9; padding: 1.5rem; box-sizing: border-box;">
-    <div class="head" style="background-color: white;">
-      <img src="{{ backgroundImageLogo }}" style="width: 7rem;">
-    </div>
-    <div class="welcome" style="margin-top: 0rem; text-align: left;">
-      <h2 style="font-size: 1.25rem; text-transform: capitalize; margin-bottom: 0; text-align: center;">
-        {{ noticeSubject }}
-      </h2>
-      
-      @if (noticeType === 'text') 
-        <div style="border: 1px dashed #e3ebf6; padding: 1.5rem; border-radius: 0.3rem; text-align: left; font-size: 0.9rem; text-wrap: pretty; margin-top: 1rem;">
-          {{{ noticeDescription }}}
-        </div>
-      @elseif (noticeType === 'image' && noticeImageUrl)
-        <img src="{{ noticeImageUrl }}" style="width: 100%; height: auto; object-fit: cover; margin-top: 1rem;">
-      @endif
-     
-      
-      <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid #e3ebf6; font-size: 0.85rem; color: #636c87; text-align: center;">
-        This notification was sent by {{ tradeName }}.
-        <br>
-        <br>
-        If you have any questions, please do not hesitate to reach out.
-      </div>
-    </div>
+<body style="margin: 0; padding: 0; background-color: #f2f3f6; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #4b5057; -webkit-font-smoothing: antialiased;">
+  {{-- Preheader oculto: aparece como preview en la bandeja de entrada. --}}
+  <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all;">
+    {{ preheader }}
   </div>
+
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f2f3f6;">
+    <tr>
+      <td align="center" style="padding: 16px 12px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; max-width: 600px; background-color: #ffffff; border: 1px solid #dfe2e6; border-radius: 8px;">
+          <tr>
+            <td class="notice-mail-card" style="padding: 39px 57px 40px 57px;">
+
+              {{-- Logo de la empresa, alineado a la izquierda. El margen negativo
+                   compensa el 8% transparente del asset --}}
+              @if (backgroundImageLogo)
+                <img src="{{ backgroundImageLogo }}" alt="{{ tradeName }}" height="42" style="height: 42px; width: auto; display: block; border: 0; margin-left: -16px;" />
+              @else
+                <p style="margin: 0; font-size: 24px; font-weight: 700; color: #17224d;">{{ tradeName }}</p>
+              @end
+
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 19px 0 0 0; font-size: 0; line-height: 0;">
+                    <div style="height: 1px; background-color: #dfe2e6; font-size: 0; line-height: 1px;">&nbsp;</div>
+                  </td>
+                </tr>
+              </table>
+
+              {{-- Rótulo: de quién viene y si es una actualización --}}
+              <p style="margin: 32px 0 0 0; font-size: 12px; line-height: 18px; font-weight: 600; color: #6e757c;">
+                {{ kicker }}
+              </p>
+
+              {{-- Asunto --}}
+              <h1 class="notice-mail-title" style="margin: 8px 0 0 0; font-size: 24px; line-height: 31px; font-weight: 700; color: #17224d;">
+                {{ noticeSubject }}
+              </h1>
+
+              <p style="margin: 10px 0 0 0; font-size: 12px; line-height: 18px; color: #6e757c;">
+                {{ sentOn }}
+              </p>
+
+              @if (noticeType === 'text')
+                {{-- Mensaje del editor: HTML saneado en el API, por eso se imprime sin escapar --}}
+                <div class="notice-mail-body" style="margin: 26px 0 0 0; font-size: 14px; line-height: 24px; color: #4b5057;">
+                  {{{ noticeDescription }}}
+                </div>
+              @elseif (noticeType === 'image' && noticeImageCid)
+                <img src="cid:{{ noticeImageCid }}" alt="{{ noticeSubject }}" width="486" style="display: block; width: 100%; max-width: 100%; height: auto; margin: 26px 0 0 0; border: 0; border-radius: 8px;" />
+              @elseif (noticeType === 'image' && noticeImageUrl)
+                <img src="{{ noticeImageUrl }}" alt="{{ noticeSubject }}" width="486" style="display: block; width: 100%; max-width: 100%; height: auto; margin: 26px 0 0 0; border: 0; border-radius: 8px;" />
+              @end
+
+              {{-- Adjuntos: caja lavanda con el listado de archivos --}}
+              @if (attachmentNames.length > 0)
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin: 26px 0 0 0; background-color: #eef1fa; border-radius: 8px;">
+                  <tr>
+                    <td style="padding: 22px 24px 24px 24px;">
+                      <p style="margin: 0; font-size: 14px; line-height: 22px; font-weight: 700; color: #17224d;">
+                        {{ attachmentsTitle }}
+                      </p>
+                      <p style="margin: 6px 0 0 0; font-size: 13px; line-height: 22px; color: #4b5057;">
+                        {{ attachmentsNote }}
+                      </p>
+                      <div style="margin: 12px 0 0 0;">
+                        @each (name in attachmentNames)
+                          <p style="margin: 0; font-size: 13px; line-height: 22px; color: #4b5057; word-break: break-all;">
+                            &middot; {{ name }}
+                          </p>
+                        @end
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              @end
+
+              <p style="margin: 22px 0 0 0; font-size: 13px; line-height: 21px; color: #6e757c;">
+                {{ appHint }}
+              </p>
+
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+                <tr>
+                  <td style="padding: 30px 0 0 0; font-size: 0; line-height: 0;">
+                    <div style="height: 1px; background-color: #dfe2e6; font-size: 0; line-height: 1px;">&nbsp;</div>
+                  </td>
+                </tr>
+              </table>
+
+              <p style="margin: 14px 0 0 0; font-size: 12px; line-height: 20px; color: #6e757c;">
+                {{ footer }}
+              </p>
+
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>

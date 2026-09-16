@@ -126,24 +126,6 @@ export function subscriptionPastDueError(): BillingSubscriptionServiceError {
   )
 }
 
-/**
- * Candado temporal (USRH1787714804401 §4.4, regla 16): mientras la
- * suscripción tenga un código de descuento vivo (beneficio no agotado),
- * los tres puntos de autoservicio que recalculan el precio quedan
- * cerrados. Lo retira el eslabón 9 en su primer commit.
- */
-export function changeBlockedByDiscountCodeError(): BillingSubscriptionServiceError {
-  const detail =
-    'Esta suscripción tiene un código de descuento vigente y su cupo no puede cambiarse todavía. Escríbenos para ajustarlo.'
-  return new BillingSubscriptionServiceError(
-    detail,
-    BILLING_SUBSCRIPTION_ERROR_CODES.CHANGE_BLOCKED_BY_DISCOUNT_CODE,
-    409,
-    'cambio-bloqueado-por-codigo-de-descuento',
-    detail
-  )
-}
-
 /** Periodo vigente sin días por delante para prorratear. */
 export function periodNotProratableError(): BillingSubscriptionServiceError {
   const detail =
@@ -161,6 +143,23 @@ export function periodNotProratableError(): BillingSubscriptionServiceError {
 export function onlyAccountOwnerError(): BillingSubscriptionServiceError {
   const detail =
     'Solo el dueño de la cuenta puede consultar el costo de un cambio de suscripción.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE,
+    403,
+    'solo-el-dueno-de-la-cuenta',
+    detail
+  )
+}
+
+/**
+ * Solo el dueño de la cuenta contrata la suscripción. Mismo `code` y `key` que
+ * `onlyAccountOwnerError` (el cliente distingue la negativa igual); cambia el
+ * `detail`, porque la pantalla de contratación lo muestra tal cual y hablar del
+ * costo de un cambio confundía a quien intentó contratar.
+ */
+export function onlyAccountOwnerCanContractError(): BillingSubscriptionServiceError {
+  const detail = 'Solo el dueño de la cuenta puede contratar la suscripción.'
   return new BillingSubscriptionServiceError(
     detail,
     BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE,

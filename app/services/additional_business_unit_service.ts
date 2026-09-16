@@ -165,7 +165,14 @@ export default class AdditionalBusinessUnitService {
           await user.related('businessUnits').attach([newBu.businessUnitId])
 
           // 3.4d Configuración mínima del tenant nuevo
-          await systemSettingService.createForTenant(newBu.businessUnitId, slug, trx)
+          await systemSettingService.createForTenant(
+            {
+              businessUnitId: newBu.businessUnitId,
+              businessUnitSlug: slug,
+              businessUnitName: newBu.businessUnitName,
+            },
+            trx
+          )
 
           // 3.4e Suscripción — sin periodo de prueba (ADDITIONAL_BUSINESS_UNIT_SKIPS_TRIAL)
           const subscription = await subscriptionService.createSubscription(

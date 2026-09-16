@@ -138,6 +138,10 @@ export default class Assist extends compose(BaseModel, SoftDeletes, withBusiness
   @column()
   declare assistOrigin: AssistCreateFrom | null
 
+  /** Metodo de verificacion del checador (1 huella, 15 rostro). Solo lo llena el canal ADMS. */
+  @column()
+  declare assistVerifyMethod: number | null
+
   /** Usuario que capturó el registro. NULL en autoservicio, sync e históricos. Sin FK. */
   @column()
   declare assistCreatedByUserId: number | null

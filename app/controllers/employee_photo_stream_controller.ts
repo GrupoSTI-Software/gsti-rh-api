@@ -12,6 +12,14 @@ import StoredFileStreamService from '#services/stored_file_stream_service'
  *
  * La foto se guarda como objeto privado desde el endurecimiento de la subida,
  * así que este endpoint es la forma de mostrarla en el backoffice y en la app.
+ *
+ * `me` es la MISMA salida para el dueño de la foto (app del colaborador). No
+ * recibe identificador: resuelve el empleado por el `personId` de la sesión y
+ * por el scope de empresa que dejó `BusinessUnitScopeMiddleware` en
+ * `ctx.businessUnitScope` (`business_unit_scope_middleware.ts:112`) — mismo
+ * predicado que `BadgeRepositoryMysql.findActiveEmployeeByPersonId`. Por eso su
+ * ruta no lleva `permissionGate`: no hay nada que autorizar más allá de estar
+ * autenticado dentro del tenant.
  */
 export default class EmployeePhotoStreamController {
   /**
@@ -65,7 +73,81 @@ export default class EmployeePhotoStreamController {
       .whereNull('employee_deleted_at')
       .first()
 
-    if (!employee?.employeePhoto) {
+    return this.streamPhotoOf({ response, logger }, employee)
+  }
+
+  /**
+   * @swagger
+   * /api/employees/me/photo:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: Foto de perfil propia del usuario autenticado
+   *     description: |
+   *       Contrato para la app del colaborador. Resuelve el empleado por el
+   *       `personId` de la sesión dentro de la unidad de negocio activa; jamás
+   *       acepta un `employeeId` del cliente. Se registra ANTES de
+   *       `/{employeeId}/photo` en el router y no lleva `permissionGate`.
+   *
+   *       Emite `ETag` y `Last-Modified` cuando la foto vive en el bucket. Las
+   *       fotos alojadas en el servidor de biométricos se entregan como buffer
+   *       y no traen esas cabeceras.
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: "Unidad de negocio seleccionada (scope del tenant)."
+   *     responses:
+   *       200:
+   *         description: Binario de la imagen
+   *         content:
+   *           image/jpeg:
+   *             schema:
+   *               type: string
+   *               format: binary
+   *       400:
+   *         description: Falta el header X-Business-Unit-Id (key `BU.VAL.000`)
+   *       401:
+   *         description: Sin autenticación
+   *       404:
+   *         description: |
+   *           El usuario no tiene empleado en la unidad activa, el empleado no
+   *           tiene foto (`foto-no-encontrada`) o la foto registrada no está en
+   *           el almacenamiento (`foto-no-disponible`). Los tres casos son
+   *           indistinguibles a propósito.
+   */
+  async me({ auth, response, logger, businessUnitScope }: HttpContext) {
+    const employee = await Employee.query()
+      .where('person_id', auth.user!.personId)
+      .whereIn('business_unit_id', businessUnitScope)
+      .whereNull('employee_deleted_at')
+      .first()
+
+    return this.streamPhotoOf({ response, logger }, employee)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers privados
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Tramo común de `show` y `me`: entrega los bytes o el 404 de dominio.
+   *
+   * Recibe el empleado ya resuelto —cada superficie lo resuelve con su propio
+   * criterio— y trata "no hay empleado" y "no hay foto" con la misma respuesta:
+   * distinguirlos filtraría existencia sin ganar nada.
+   */
+  private async streamPhotoOf(
+    ctx: Pick<HttpContext, 'response' | 'logger'>,
+    employee: Employee | null
+  ) {
+    const { response, logger } = ctx
+
+    if (!employee || !employee.employeePhoto) {
       response.status(404)
       return {
         type: 'warning',
@@ -74,6 +156,8 @@ export default class EmployeePhotoStreamController {
         key: 'foto-no-encontrada',
       }
     }
+
+    const employeeId = employee.employeeId
 
     try {
       const entregada = await new StoredFileStreamService().streamEmployeePhotoInto(

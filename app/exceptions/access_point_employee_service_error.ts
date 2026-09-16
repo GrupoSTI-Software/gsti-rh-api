@@ -6,6 +6,7 @@ export type AccessPointEmployeeErrorKey =
   | 'colaborador-no-encontrado'
   | 'asignacion-duplicada'
   | 'asignacion-no-encontrada'
+  | 'baja-pendiente-en-el-equipo'
   | 'datos-invalidos'
   | 'sin-permiso'
   | 'error-interno'

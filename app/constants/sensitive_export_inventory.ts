@@ -221,6 +221,13 @@ export const SENSITIVE_EXPORT_INVENTORY: readonly SensitiveExportDefinition[] = 
   },
 ] as const
 
+/**
+ * Condición futura (USRH1788288461952): no hay export masivo de comprobantes
+ * fiscales en este set, por eso no hay entrada en el array. Si alguna vez se
+ * exporta un listado de comprobantes con RFC, ese export entra al inventario
+ * y exige PiiExportService (motivo + asiento + variante enmascarada).
+ */
+
 /** Exportaciones masivas que deben cablearse en E5 (motivo + asiento o variante enmascarada). */
 export const SENSITIVE_MASS_EXPORTS = SENSITIVE_EXPORT_INVENTORY.filter(
   (item) => !item.excluded && item.scope === 'mass'

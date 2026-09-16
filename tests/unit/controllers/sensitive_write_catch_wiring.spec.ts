@@ -14,7 +14,10 @@ const files: Record<string, number> = {
   'app/controllers/traumatic_event_report_controller.ts': 3,
   'app/controllers/employee_lactation_periods_controller.ts': 5,
   'app/controllers/employee_biometric_controller.ts': 4,
-  'app/controllers/employee_biometric_face_id_controller.ts': 3,
+  // 4 desde que `useAsEmployeePhoto` guarda la foto de perfil: ese guardado
+  // pasa por el mismo guard de categoria sensible que el resto, asi que tiene
+  // que atrapar la negacion y responderla con triplete en vez de un 500.
+  'app/controllers/employee_biometric_face_id_controller.ts': 4,
   'app/controllers/user_controller.ts': 2,
   'app/controllers/employee_controller.ts': 1,
 }
@@ -30,6 +33,6 @@ test.group('Catch de SensitiveDataWriteError', () => {
       assert.equal(count, expected + 1, `${relative} import + ${expected} catch`)
       total += expected
     }
-    assert.equal(total, 30)
+    assert.equal(total, 31)
   })
 })

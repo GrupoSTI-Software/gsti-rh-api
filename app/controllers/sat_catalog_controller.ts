@@ -4,7 +4,7 @@ import { resolveSatCatalogApiError } from '#helpers/sat_catalog_api_error'
 import type { SatCatalogSuccessResponse } from '../interfaces/sat_catalog_interface.js'
 
 /**
- * Catálogos fiscales oficiales del SAT (USRH1786737531063).
+ * Catálogos fiscales oficiales del SAT (USRH1786737531063, USRH1788288461952).
  *
  * Contrato de éxito: `{ type: 'success', data: SatCatalogsResponse }`.
  * Errores: `{ title, detail, key, code }` con prefijo `SAT.CAT.*`.
@@ -20,8 +20,9 @@ export default class SatCatalogController {
    *       - SAT Catalogs
    *     summary: Consultar catálogos fiscales del SAT
    *     description: |
-   *       Devuelve íntegros `c_RegimenFiscal` (19 claves) y `c_UsoCFDI` (24 claves),
-   *       incluyendo la relación de regímenes de receptor admitidos por cada uso.
+   *       Devuelve íntegros `c_RegimenFiscal` (19 claves), `c_UsoCFDI` (24 claves)
+   *       y `c_MotivoCancelacion` (4 claves), incluyendo la relación de regímenes
+   *       de receptor admitidos por cada uso.
    *       Catálogo global del sistema — no requiere `X-Business-Unit-Id`.
    *       Solo exige sesión iniciada (regla 9).
    *     security:
@@ -75,6 +76,20 @@ export default class SatCatalogController {
    *                             items:
    *                               type: string
    *                             example: ["601", "603", "606"]
+   *                     cancellationReasons:
+   *                       type: array
+   *                       items:
+   *                         type: object
+   *                         properties:
+   *                           code:
+   *                             type: string
+   *                             example: "01"
+   *                           description:
+   *                             type: string
+   *                             example: Comprobante emitido con errores con relación
+   *                           requiresSubstitute:
+   *                             type: boolean
+   *                             example: true
    *       '401':
    *         description: Sin sesión
    *       '500':

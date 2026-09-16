@@ -98,6 +98,14 @@ export interface EmployeeOffboardingListRowDto {
   itemsOverdue: number
   closedAt: string | null
   closedByUserId: number | null
+  /**
+   * Constancia de separación VIGENTE y viva (USRH1788579938608, reglas 1 y
+   * 2): booleano derivado por `EXISTS` dentro del agregado, nunca
+   * persistido. No viaja folio, fecha, hash, autor ni id del documento —
+   * ese detalle vive en el bloque de documentos del expediente. Solo tiene
+   * sentido de "faltante" junto con `terminationExecuted` (regla 3).
+   */
+  hasSeparationLetter: boolean
 }
 
 /** Datetime crudo del driver MySQL a ISO; `null` cuando no hay valor. */
@@ -141,6 +149,8 @@ export function toListRowDto(row: Record<string, unknown>): EmployeeOffboardingL
     closedByUserId: row.closedByUserId === null || row.closedByUserId === undefined
       ? null
       : Number(row.closedByUserId),
+    // MySQL devuelve el EXISTS como 1/0 (a veces string), nunca booleano
+    hasSeparationLetter: Number(row.hasSeparationLetter) === 1,
   }
 }
 

@@ -1,10 +1,13 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
+import encryption from '@adonisjs/core/services/encryption'
+import { BaseModel, beforeCreate, column, belongsTo } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import BusinessUnit from './business_unit.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { generateChannelSecret } from '#modules/adms/channel/channel_secret'
+import PlatformDevice from './platform_device.js'
 
 /**
  * @swagger
@@ -22,6 +25,10 @@ import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
  *         businessUnitId:
  *           type: number
  *           description: Business unit id
+ *         platformDeviceId:
+ *           type: number
+ *           nullable: true
+ *           description: Amarre hacia la unidad del inventario de plataforma (USRH1787193625428). Null si no viene de una entrega nuestra.
  *         accessPointActive:
  *           type: number
  *           description: Active status (0 = inactive, 1 = active)
@@ -75,6 +82,15 @@ export default class AccessPoint extends compose(BaseModel, SoftDeletes, withBus
   @column()
   declare businessUnitId: number
 
+  /**
+   * Amarre hacia la unidad física del inventario de plataforma
+   * (USRH1787193625428). NULL para los equipos preexistentes y los que el
+   * cliente da de alta a mano; lo puebla "Precargar el punto de acceso del
+   * tenant al asignar la unidad" (USRH1787189981879).
+   */
+  @column()
+  declare platformDeviceId: number | null
+
   @column()
   declare accessPointActive: number
 
@@ -102,11 +118,73 @@ export default class AccessPoint extends compose(BaseModel, SoftDeletes, withBus
   @column.dateTime()
   declare accessPointLastConnection: DateTime | null
 
+  /** Zona IANA del dispositivo; override de la de la empresa (spec ADMS 5.3). */
+  @column()
+  declare accessPointTimezone: string | null
+
+  /**
+   * CIDR desde los que el canal acepta a este equipo. NULL = sin restriccion.
+   * Fail-closed solo cuando esta configurado (spec ADMS 13, regla 10).
+   */
+  @column({
+    prepare: (value: string[] | null) => (value ? JSON.stringify(value) : null),
+    consume: (value: string | string[] | null) => {
+      if (value === null || value === undefined) return null
+      if (typeof value === 'string') return JSON.parse(value) as string[]
+      return value
+    },
+  })
+  declare accessPointAllowedCidrs: string[] | null
+
+  /**
+   * Secreto que el equipo lleva en la direccion del servidor.
+   *
+   * Cifrado en reposo. `serializeAs: null` para que no salga en ninguna
+   * respuesta por accidente: se entrega por su propia via --al reclamar el
+   * equipo o al rotarlo-- y solo a quien va a teclearlo en el aparato.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serializeAs: null,
+  })
+  declare accessPointChannelSecret: string | null
+
+  @column.dateTime()
+  declare accessPointChannelSecretSetAt: DateTime | null
+
   @column.dateTime({ autoCreate: true })
   declare accessPointCreatedAt: DateTime
 
   @column.dateTime({ autoCreate: true, autoUpdate: true })
   declare accessPointUpdatedAt: DateTime
+
+  /**
+   * Todo checador nace con su direccion propia, sea cual sea la puerta.
+   *
+   * Hay tres vias de alta --el reclamo de una cuarentena, la entrega desde el
+   * inventario y el alta a mano del Backoffice-- y generar el secreto en cada
+   * una significaba que la que se olvidara dejaria equipos sin direccion: en
+   * convivencia mientras dura, y sin canal el dia del corte. Aqui se cubren las
+   * tres y las que vengan.
+   *
+   * No se regenera si ya viene puesto: el reclamo entrega el suyo y este hook
+   * no debe pisarlo.
+   */
+  @beforeCreate()
+  static assignChannelSecret(accessPoint: AccessPoint) {
+    if (accessPoint.accessPointChannelSecret) return
+    accessPoint.accessPointChannelSecret = generateChannelSecret()
+    accessPoint.accessPointChannelSecretSetAt = DateTime.utc()
+  }
 
   @column.dateTime({ columnName: 'access_point_deleted_at' })
   declare deletedAt: DateTime | null
@@ -115,4 +193,9 @@ export default class AccessPoint extends compose(BaseModel, SoftDeletes, withBus
     foreignKey: 'businessUnitId',
   })
   declare businessUnit: BelongsTo<typeof BusinessUnit>
+
+  @belongsTo(() => PlatformDevice, {
+    foreignKey: 'platformDeviceId',
+  })
+  declare platformDevice: BelongsTo<typeof PlatformDevice>
 }

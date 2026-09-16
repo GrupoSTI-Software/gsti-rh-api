@@ -13,12 +13,26 @@ function lightenColor(color: string, percent: number): string {
       (B < 255 ? B < 1 ? 0 : B : 255)).toString(16).slice(1)
   }
 
+/**
+ * Bloque del logo de la empresa. Devuelve cadena vacía cuando la empresa aún no
+ * ha cargado su logo (las empresas nuevas nacen sin imágenes de marca), en vez
+ * de emitir un `<img src="null">` roto en el correo.
+ */
+function logoBlock(systemLogo: string | null, companyName: string): string {
+  if (!systemLogo) {
+    return ''
+  }
+  return `<div class="logo-container">
+                    <img src="${systemLogo}" alt="Logo de ${companyName}">
+                </div>`
+}
+
 export function generateBirthdayEmailHtml(
     firstName: string,
     lastName: string,
     companyName: string,
     sidebarColor: string,
-    systemLogo: string
+    systemLogo: string | null
   ): string {
     // Asegurar que el color tenga el formato hexadecimal correcto
     const formattedColor = sidebarColor.startsWith('#') ? sidebarColor : `#${sidebarColor}`
@@ -131,9 +145,7 @@ export function generateBirthdayEmailHtml(
             </div>
 
             <div class="content">
-                <div class="logo-container">
-                    <img src="${systemLogo}" alt="Logo de ${companyName}">
-                </div>
+                ${logoBlock(systemLogo, companyName)}
 
                 <div class="greeting">
                     ¡Querido/a <span class="highlight">${firstName} ${lastName}</span>!
@@ -173,7 +185,7 @@ export function generateBirthdayReminderEmailHtml(
     birthdayEmployees: Employee[],
     companyName: string,
     sidebarColor: string,
-    systemLogo: string
+    systemLogo: string | null
   ): string {
     // Asegurar que el color tenga el formato hexadecimal correcto
     const formattedColor = sidebarColor.startsWith('#') ? sidebarColor : `#${sidebarColor}`
@@ -394,9 +406,7 @@ export function generateBirthdayReminderEmailHtml(
             </div>
 
             <div class="content">
-                <div class="logo-container">
-                    <img src="${systemLogo}" alt="Logo de ${companyName}">
-                </div>
+                ${logoBlock(systemLogo, companyName)}
 
                 <div class="greeting">
                     Hola <span class="highlight">${hrFirstName} ${hrLastName}</span>,
@@ -457,7 +467,7 @@ export function generateAnniversaryEmailHtml(
     yearsOfService: number,
     companyName: string,
     sidebarColor: string,
-    systemLogo: string
+    systemLogo: string | null
   ): string {
     // Asegurar que el color tenga el formato hexadecimal correcto
     const formattedColor = sidebarColor.startsWith('#') ? sidebarColor : `#${sidebarColor}`
@@ -586,9 +596,7 @@ export function generateAnniversaryEmailHtml(
             </div>
 
             <div class="content">
-                <div class="logo-container">
-                    <img src="${systemLogo}" alt="Logo de ${companyName}">
-                </div>
+                ${logoBlock(systemLogo, companyName)}
 
                 <div class="greeting">
                     ¡Querido/a <span class="highlight">${firstName} ${lastName}</span>!
@@ -633,7 +641,7 @@ export function generateAnniversaryReminderEmailHtml(
     anniversaryEmployees: Employee[],
     companyName: string,
     sidebarColor: string,
-    systemLogo: string
+    systemLogo: string | null
   ): string {
     // Asegurar que el color tenga el formato hexadecimal correcto
     const formattedColor = sidebarColor.startsWith('#') ? sidebarColor : `#${sidebarColor}`
@@ -836,9 +844,7 @@ export function generateAnniversaryReminderEmailHtml(
             </div>
 
             <div class="content">
-                <div class="logo-container">
-                    <img src="${systemLogo}" alt="Logo de ${companyName}">
-                </div>
+                ${logoBlock(systemLogo, companyName)}
 
                 <div class="greeting">
                     Hola <span class="highlight">${hrFirstName} ${hrLastName}</span>,

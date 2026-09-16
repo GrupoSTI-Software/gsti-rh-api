@@ -2485,95 +2485,123 @@ components:
                   items:
                     $ref: '#/components/schemas/DocumentoContratoEspecializado'
 
-    AttendanceCoverageLoanDecision:
+    AttendanceAbsencesBranch:
       type: object
-      required: [state]
-      properties:
-        state:
-          type: string
-          enum: [can_create, must_cancel_active, not_applicable]
-          description: Decisión de acción para UI del flujo de préstamo.
-        activeAssignmentId:
-          type: integer
-          nullable: true
-          description: ID del préstamo activo a cancelar primero cuando state=must_cancel_active.
-
-    AttendanceCoverageCandidate:
-      type: object
-      required: [employeeId, name, source, originLeftBelowMin, loanDecision]
-      properties:
-        employeeId:
-          type: integer
-        name:
-          type: string
-        source:
-          type: string
-          enum: [rest_same_site, loan_other_site]
-        originLeftBelowMin:
-          type: boolean
-        originBranchOfficeId:
-          type: integer
-          nullable: true
-        originBranchOfficeName:
-          type: string
-          nullable: true
-          description: Nombre del sitio de origen (sitio efectivo del candidato).
-        loanDecision:
-          $ref: '#/components/schemas/AttendanceCoverageLoanDecision'
-
-    AttendanceCoverageShift:
-      type: object
-      required: [shiftId, label, required, min, assigned, present, missing, status, candidates]
-      properties:
-        shiftId:
-          type: integer
-        label:
-          type: string
-        required:
-          type: integer
-        min:
-          type: integer
-        assigned:
-          type: integer
-        present:
-          type: integer
-        missing:
-          type: integer
-        status:
-          type: string
-          enum: [green, amber, red, no_quota]
-        candidates:
-          type: array
-          items:
-            $ref: '#/components/schemas/AttendanceCoverageCandidate'
-
-    AttendanceCoverageSite:
-      type: object
-      required: [branchOfficeId, name, shifts]
+      description: Sucursal referenciada por alguna entrada de `days`.
+      required: [branchOfficeId, name, empresaContratanteId, empresaContratanteName]
       properties:
         branchOfficeId:
           type: integer
         name:
           type: string
-        shifts:
-          type: array
-          items:
-            $ref: '#/components/schemas/AttendanceCoverageShift'
+        empresaContratanteId:
+          type: integer
+          nullable: true
+          description: |
+            Empresa contratante (cliente REPSE) de la sucursal. `null` si la sucursal no tiene empresa, si la
+            empresa está borrada o fuera del tenant, o si el usuario no tiene el permiso `shift-coverage` del
+            módulo `employees-attendance-monitor` (en ese caso va `null` en todas las sucursales).
+        empresaContratanteName:
+          type: string
+          nullable: true
+          description: Razón social de la empresa contratante; `null` en los mismos casos que `empresaContratanteId`.
 
-    AttendanceCoverageData:
+    AttendanceAbsencesEmployee:
       type: object
-      required: [day, sites]
+      description: Colaborador que aparece en alguna entrada de `days`, una sola vez.
+      required:
+        - employeeId
+        - firstName
+        - lastName
+        - secondLastName
+        - photo
+        - positionName
+        - departmentId
+        - departmentName
+      properties:
+        employeeId:
+          type: integer
+        firstName:
+          type: string
+        lastName:
+          type: string
+          nullable: true
+        secondLastName:
+          type: string
+          nullable: true
+        photo:
+          type: string
+          nullable: true
+        positionName:
+          type: string
+          nullable: true
+          description: Alias del puesto si lo tiene; si no, su nombre.
+        departmentId:
+          type: integer
+          nullable: true
+        departmentName:
+          type: string
+          nullable: true
+          description: Alias del departamento si lo tiene; si no, su nombre.
+
+    AttendanceAbsencesEntry:
+      type: object
+      required: [employeeId, branchOfficeId]
+      properties:
+        employeeId:
+          type: integer
+        branchOfficeId:
+          type: integer
+          nullable: true
+          description: Sucursal efectiva del día (destino del préstamo vigente o base activa); `null` si no tiene.
+
+    AttendanceAbsencesDay:
+      type: object
+      required: [day, entries]
       properties:
         day:
           type: string
           format: date
-          description: Día consultado (yyyy-MM-dd, huso México).
-        sites:
+          description: Día del periodo (yyyy-MM-dd, huso México).
+        entries:
           type: array
+          description: |
+            Faltas del día, ordenadas por nombre completo del colaborador y, empatando, por id. Vacío si nadie
+            faltó.
           items:
-            $ref: '#/components/schemas/AttendanceCoverageSite'
+            $ref: '#/components/schemas/AttendanceAbsencesEntry'
 
-    AttendanceCoverageSuccess:
+    AttendanceAbsencesData:
+      type: object
+      required: [period, branches, employees, days]
+      properties:
+        period:
+          type: object
+          required: [startDay, endDay]
+          properties:
+            startDay:
+              type: string
+              format: date
+            endDay:
+              type: string
+              format: date
+        branches:
+          type: array
+          description: Solo las sucursales referenciadas por alguna entrada, ordenadas por nombre.
+          items:
+            $ref: '#/components/schemas/AttendanceAbsencesBranch'
+        employees:
+          type: array
+          description: Cada colaborador que aparece en `days`, una sola vez, ordenados por nombre completo.
+          items:
+            $ref: '#/components/schemas/AttendanceAbsencesEmployee'
+        days:
+          type: array
+          description: Todos los días del periodo en orden ascendente, incluso los que no tienen faltas.
+          items:
+            $ref: '#/components/schemas/AttendanceAbsencesDay'
+
+    AttendanceAbsencesSuccess:
       type: object
       required: [type, title, message, data]
       properties:
@@ -2585,7 +2613,138 @@ components:
         message:
           type: string
         data:
-          $ref: '#/components/schemas/AttendanceCoverageData'
+          $ref: '#/components/schemas/AttendanceAbsencesData'
+
+    AttendanceOverviewStatistics:
+      type: object
+      description: |
+        Contadores y porcentajes. `ontimePercentage + tolerancePercentage + delayPercentage + faultPercentage`
+        cierran en 100 cuando `totalAvailable > 0` (el residuo de redondeo lo absorbe el bucket con mayor
+        conteo); `earlyOutPercentage` es independiente. Con `totalAvailable = 0` todos los porcentajes son 0.
+      required:
+        - assists
+        - tolerances
+        - delays
+        - earlyOuts
+        - faults
+        - totalAvailable
+        - ontimePercentage
+        - tolerancePercentage
+        - delayPercentage
+        - earlyOutPercentage
+        - faultPercentage
+        - justifiedAbsences
+        - vacations
+        - holidays
+        - employeesQty
+      properties:
+        assists:
+          type: integer
+        tolerances:
+          type: integer
+        delays:
+          type: integer
+        earlyOuts:
+          type: integer
+        faults:
+          type: integer
+        totalAvailable:
+          type: integer
+          description: Registros empleado-día evaluables (assists + tolerances + delays + faults).
+        ontimePercentage:
+          type: integer
+        tolerancePercentage:
+          type: integer
+        delayPercentage:
+          type: integer
+        earlyOutPercentage:
+          type: integer
+        faultPercentage:
+          type: integer
+        justifiedAbsences:
+          type: integer
+          description: Informativo; no entra al cierre al 100%.
+        vacations:
+          type: integer
+          description: Informativo; no entra al cierre al 100%.
+        holidays:
+          type: integer
+          description: Informativo; no entra al cierre al 100%.
+        employeesQty:
+          type: integer
+          description: |
+            Empleados con al menos un día evaluable: en el período para `statistics`, en esa fecha
+            para `daily[]` y en ese mes para `monthly[]`.
+
+    AttendanceOverviewDailyRow:
+      type: object
+      required: [day, statistics]
+      properties:
+        day:
+          type: string
+          format: date
+          description: Día laboral (yyyy-MM-dd, huso México).
+          example: "2026-03-15"
+        statistics:
+          $ref: '#/components/schemas/AttendanceOverviewStatistics'
+
+    AttendanceOverviewMonthlyRow:
+      type: object
+      required: [month, statistics]
+      properties:
+        month:
+          type: string
+          pattern: '^\d{4}-\d{2}$'
+          description: Mes calendario (yyyy-MM).
+          example: "2026-03"
+        statistics:
+          $ref: '#/components/schemas/AttendanceOverviewStatistics'
+
+    AttendanceOverviewData:
+      type: object
+      required: [statistics, period, daily]
+      properties:
+        statistics:
+          $ref: '#/components/schemas/AttendanceOverviewStatistics'
+        period:
+          type: object
+          required: [startDay, endDay, evaluableDays]
+          properties:
+            startDay:
+              type: string
+              format: date
+            endDay:
+              type: string
+              format: date
+            evaluableDays:
+              type: integer
+              description: Registros empleado-día evaluables del período; igual a `statistics.totalAvailable`.
+        daily:
+          type: array
+          description: Un elemento por cada día del rango `[startDay, endDay]` inclusive, ascendente.
+          items:
+            $ref: '#/components/schemas/AttendanceOverviewDailyRow'
+        monthly:
+          type: array
+          description: |
+            Solo con `granularity=month`. Un elemento por cada mes calendario entre `startDay` y `endDay`
+            inclusive, ascendente; los meses sin registros vienen en cero.
+          items:
+            $ref: '#/components/schemas/AttendanceOverviewMonthlyRow'
+
+    AttendanceOverviewSuccess:
+      type: object
+      required: [type, title, message, data]
+      properties:
+        type:
+          type: string
+          enum: [success]
+        title:
+          type: string
+        message:
+          type: string
+        data:
+          $ref: '#/components/schemas/AttendanceOverviewData'
 
     EmployeeTemporaryAssignmentResource:
       type: object
@@ -3725,9 +3884,12 @@ components:
           nullable: true
         fotoFaltante:
           type: boolean
-          description: "`true` cuando `fotoUrl` es `null` (regla 10 — no bloquea la generación)."
+          description: "`true` solo cuando NO hay fotografía en el expediente. `fotoFaltante:false` con `fotoUrl:null` significa que la foto existe pero es un objeto privado: pídela por el endpoint autenticado."
         empresa:
           type: string
+        puesto:
+          type: string
+          nullable: true
         logoUrl:
           type: string
           nullable: true
@@ -3737,9 +3899,14 @@ components:
         folioVigente:
           type: boolean
           nullable: true
+        folioVigenteHasta:
+          type: string
+          format: date
+          nullable: true
+          description: "Fecha civil `YYYY-MM-DD` de vencimiento del registro REPSE; `null` sin registro. Viaja también con el folio vencido: el cliente recalcula la vigencia contra su propia fecha de negocio."
         vinculoVigente:
           type: boolean
-          description: "Siempre `true` en las superficies de generación (E1/E2/E3): el empleado consultable ya está activo por construcción."
+          description: "`employeeActive && businessUnitActive`, el mismo criterio que la verificación pública (E4). En E1/E2/E3 resuelve `true` en toda petición alcanzable —`businessScope()` solo admite empresas activas y el repositorio descarta al trabajador de baja—, pero se calcula, ya no se afirma."
         urlVerificacion:
           type: string
           description: "`${BACKOFFICE_URL}/badge-verification/<token>` (R8) — el token nunca viaja como campo suelto."
@@ -7327,13 +7494,24 @@ paths:
                 errorCode: BRCH.SQ.VAL.QUOTA.001
                 data: null
 
-  /api/v1/attendance-stats/coverage:
+  /api/v1/attendance-stats/overview:
     get:
-      summary: Cobertura de plantilla por sitio y turno
+      summary: Estadísticas agregadas globales del período
       description: |
-        Compara presentes contra cuota (requerida/mínimo) por sitio de servicio REPSE y turno del día.
-        Requiere un único día (`startDay` = `endDay`) y `companyId` (empresa contratante).
-        Incluye candidatos de cobertura para turnos en semáforo amarillo o rojo.
+        Contadores y porcentajes (ontime, tolerance, delay, fault, early-out) agregados sobre los empleados
+        del scope del usuario, filtrables por departamento, empleado, unidad de negocio y sucursal.
+
+        `daily` trae las mismas estadísticas por cada día del rango `[startDay, endDay]` inclusive, ascendente;
+        los días sin registros evaluables aparecen con `totalAvailable: 0`.
+
+        **Serie mensual** (modo anual del monitor): con `granularity=month` agrega `monthly`, una entrada
+        `{ month: 'yyyy-MM', statistics }` por cada mes calendario entre `startDay` y `endDay` inclusive,
+        ascendente. Cada mes suma los contadores de sus días con el mismo cierre al 100% que `statistics`;
+        `employeesQty` cuenta los empleados con al menos un día evaluable en ese mes. Los meses sin registros
+        aparecen en cero. Con `granularity=day` o sin el parámetro la respuesta no trae `monthly`;
+        `statistics` y `daily` no cambian en ningún caso.
+
+        **Huso horario**: `startDay`/`endDay` se interpretan como días laborales en huso México (UTC-6).
       tags: [AttendanceStats]
       security:
         - bearerAuth: []
@@ -7341,43 +7519,38 @@ paths:
         - name: X-Business-Unit-Id
           in: header
           required: true
+          description: Código público (UUID v4) de la unidad de negocio activa.
           schema:
-            type: integer
+            type: string
+            format: uuid
         - name: startDay
           in: query
           required: true
           schema:
             type: string
             format: date
-            example: "2026-06-15"
+            example: "2026-01-01"
         - name: endDay
           in: query
           required: true
           schema:
             type: string
             format: date
-            example: "2026-06-15"
-        - name: companyId
-          in: query
-          required: true
-          description: ID de empresa contratante (empresaContratanteId).
-          schema:
-            type: integer
-            minimum: 1
-            example: 1
-        - name: branchOfficeIds
+            example: "2026-12-31"
+        - name: departmentIds
           in: query
           required: false
-          description: CSV de IDs de sitios a incluir (subset de la empresa contratante).
+          description: IDs separados por coma.
           schema:
             type: string
-            example: "5,7"
+            example: "1,2,3"
         - name: employeeIds
           in: query
           required: false
+          description: IDs separados por coma.
           schema:
             type: string
-            example: "10,11"
+            example: "10,11,12"
         - name: businessUnitId
           in: query
           required: false
@@ -7388,52 +7561,30 @@ paths:
           required: false
           schema:
             type: integer
+        - name: branchOfficeIds
+          in: query
+          required: false
+          description: IDs separados por coma.
+          schema:
+            type: string
+            example: "5,7"
+        - name: granularity
+          in: query
+          required: false
+          description: Serie adicional. `day` (default) solo trae `daily`; `month` agrega `monthly`.
+          schema:
+            type: string
+            enum: [day, month]
+            default: day
       responses:
         '200':
-          description: Cobertura calculada correctamente
+          description: Estadísticas calculadas correctamente
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/AttendanceCoverageSuccess'
-              example:
-                type: success
-                title: Resources
-                message: Resources were found successfully
-                data:
-                  day: "2026-06-15"
-                  sites:
-                    - branchOfficeId: 5
-                      name: Planta Monterrey
-                      shifts:
-                        - shiftId: 3
-                          label: Nocturno
-                          required: 10
-                          min: 8
-                          assigned: 9
-                          present: 7
-                          missing: 3
-                          status: red
-                          candidates:
-                            - employeeId: 42
-                              name: Juan Pérez
-                              source: rest_same_site
-                              originLeftBelowMin: false
-                              originBranchOfficeId: 5
-                              originBranchOfficeName: Planta Monterrey
-                              loanDecision:
-                                state: not_applicable
-                                activeAssignmentId: null
-                            - employeeId: 88
-                              name: Ana López
-                              source: loan_other_site
-                              originLeftBelowMin: true
-                              originBranchOfficeId: 12
-                              originBranchOfficeName: CEDIS Guadalajara
-                              loanDecision:
-                                state: can_create
-                                activeAssignmentId: null
+                $ref: '#/components/schemas/AttendanceOverviewSuccess'
         '400':
-          description: Entrada inválida, rango inválido o día único requerido
+          description: Entrada inválida (incluye `granularity` fuera de `day`/`month`) o rango inválido
           content:
             application/json:
               schema:
@@ -7454,14 +7605,6 @@ paths:
                     title: Validation error
                     message: Invalid date range
                     key: rango-invalido
-                    data: null
-                diaUnicoRequerido:
-                  summary: key dia-unico-requerido
-                  value:
-                    type: error
-                    title: Validation error
-                    message: Coverage requires a single day
-                    key: dia-unico-requerido
                     data: null
         '401':
           description: No autenticado
@@ -7486,18 +7629,6 @@ paths:
                 message: User has no business units assigned
                 key: scope-insuficiente
                 data: null
-        '404':
-          description: Empresa contratante no encontrada (key empresa-contratante-no-encontrada)
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/ApiError'
-              example:
-                type: error
-                title: Validation error
-                message: La empresa contratante no existe o no pertenece al tenant actual.
-                key: empresa-contratante-no-encontrada
-                data: null
         '500':
           description: Error interno del servidor
           content:
@@ -7509,6 +7640,201 @@ paths:
                 title: Server error
                 message: An unexpected error has occurred on the server
                 data: null
+
+  /api/v1/attendance-stats/absences:
+    get:
+      summary: Ausencias por día con sucursal efectiva y empresa contratante
+      description: |
+        Motor único del drawer de Ausencias del monitor: quién faltó cada día del periodo `[startDay, endDay]`
+        inclusive, con un máximo de 62 días, y en qué sucursal efectiva. El cliente agrupa las mismas entradas en
+        tres vistas: Organigrama (por departamento), Sucursales (sucursal sin empresa contratante o sin sucursal)
+        y Clientes REPSE (sucursal con empresa contratante).
+
+        **Regla**: un colaborador faltó el día D cuando D es evaluable (no es futuro, descanso, vacaciones,
+        festivo, incapacidad ni excepción no general) y el día cuenta exactamente una falta.
+
+        **Sucursal efectiva**: el destino del préstamo temporal vigente ese día (no borrado, sin cancelar a esa
+        fecha, con origen y destino del tenant; con varios vigentes gana el de inicio más reciente y, empatando,
+        el de id mayor). Sin préstamo, la sucursal base activa HOY; con varias bases activas, la de id menor. Sin
+        base ni préstamo, o si la sucursal está borrada o fuera del tenant, `null`. Para periodos pasados no se
+        reconstruye la asignación histórica.
+
+        **Universo**: la plantilla del tenant (no borrados, sin discriminador de asistencia). Con
+        `branchOfficeIds`, solo quien tiene base activa en esas sucursales o un préstamo hacia ellas que
+        intersecta el periodo; sus faltas salen con la sucursal efectiva de cada día aunque sea otra.
+
+        **Permiso**: ninguno propio (paridad con el drawer de Ausencias); nunca responde 403 por permiso.
+        **Alcance**: días, empleados y sucursales solo incluyen colaboradores que el usuario puede ver con la regla
+        del listado de empleados.
+
+        **Empresa contratante**: `branches[].empresaContratanteId` y `empresaContratanteName` solo si la empresa
+        está viva y pertenece al tenant, y el usuario tiene el permiso `shift-coverage` del módulo
+        `employees-attendance-monitor` (root y owner pasan). Sin ese permiso ambos van en `null` en todas las
+        sucursales; `data` conserva la misma forma y `days` las mismas entradas.
+
+        **Errores**: traen `title`, `detail` y `key` (además de `type` y `message` del envoltorio del módulo).
+      tags: [AttendanceStats]
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: X-Business-Unit-Id
+          in: header
+          required: true
+          description: Código público (UUID v4) de la unidad de negocio activa.
+          schema:
+            type: string
+            format: uuid
+        - name: startDay
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-09-01"
+        - name: endDay
+          in: query
+          required: true
+          schema:
+            type: string
+            format: date
+            example: "2026-09-15"
+        - name: branchOfficeIds
+          in: query
+          required: false
+          description: |
+            CSV de IDs de sucursales que acotan el universo. Cada pieza debe ser un entero decimal sin signo ni
+            ceros a la izquierda, de 1 a 9007199254740991 (`Number.MAX_SAFE_INTEGER`). Si trae valor y alguna pieza
+            no cumple (`abc`, `0`, `1.5`, `5.0`, `+5`, `0x10`, `0b11`, `1e3`, `9007199254740993`, vacío) responde 400
+            `entrada-invalida` con `details`; nunca se ignora para ampliar la consulta a toda la plantilla.
+          schema:
+            type: string
+            example: "5,7"
+        - name: payrollBusinessUnitId
+          in: query
+          required: false
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Ausencias calculadas correctamente
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AttendanceAbsencesSuccess'
+              example:
+                type: success
+                title: Resources
+                message: Resources were found successfully
+                data:
+                  period:
+                    startDay: "2026-09-01"
+                    endDay: "2026-09-02"
+                  branches:
+                    - branchOfficeId: 7
+                      name: Oficina Matriz
+                      empresaContratanteId: null
+                      empresaContratanteName: null
+                    - branchOfficeId: 5
+                      name: Planta Monterrey
+                      empresaContratanteId: 3
+                      empresaContratanteName: Servicios Industriales del Norte SA de CV
+                  employees:
+                    - employeeId: 88
+                      firstName: Ana
+                      lastName: López
+                      secondLastName: Díaz
+                      photo: null
+                      positionName: Analista
+                      departmentId: 4
+                      departmentName: Administración
+                    - employeeId: 42
+                      firstName: Juan
+                      lastName: Pérez
+                      secondLastName: null
+                      photo: null
+                      positionName: Guardia
+                      departmentId: 3
+                      departmentName: Operaciones
+                  days:
+                    - day: "2026-09-01"
+                      entries:
+                        - employeeId: 88
+                          branchOfficeId: 7
+                        - employeeId: 42
+                          branchOfficeId: 5
+                    - day: "2026-09-02"
+                      entries: []
+        '400':
+          description: |
+            Entrada inválida, rango inválido o rango de más de 62 días. `entrada-invalida` trae `details` con el
+            campo y la regla: fecha con formato válido pero inexistente (`2026-02-31`, regla `existingIsoDay`) o
+            `branchOfficeIds` con alguna pieza que no es entero >= 1.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              examples:
+                entradaInvalida:
+                  summary: key entrada-invalida
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Invalid request parameters
+                    detail: Invalid request parameters
+                    key: entrada-invalida
+                    details:
+                      - message: La fecha startDay no existe en el calendario.
+                        rule: existingIsoDay
+                        field: startDay
+                rangoInvalido:
+                  summary: key rango-invalido
+                  value:
+                    type: error
+                    title: Validation error
+                    message: Invalid date range
+                    detail: Invalid date range
+                    key: rango-invalido
+                    data: null
+                rangoMaximoExcedido:
+                  summary: key rango-maximo-excedido
+                  value:
+                    type: error
+                    title: Rango máximo excedido
+                    message: El periodo no puede abarcar más de 62 días.
+                    detail: El periodo no puede abarcar más de 62 días.
+                    key: rango-maximo-excedido
+                    data: null
+        '401':
+          description: No autenticado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+        '403':
+          description: Scope insuficiente (key scope-insuficiente)
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Forbidden
+                message: User has no business units assigned
+                detail: User has no business units assigned
+                key: scope-insuficiente
+                data: null
+        '500':
+          description: Error interno del servidor; el detalle solo va al log
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ApiError'
+              example:
+                type: error
+                title: Server error
+                message: An unexpected error has occurred on the server
+                detail: An unexpected error has occurred on the server
+                key: error-inesperado
 
   /api/nom035/questionnaire-applicability:
     get:
@@ -7772,7 +8098,7 @@ paths:
                 type: error
                 title: Error
                 message: Sin permiso para consultar los resultados anonimizados del centro de trabajo
-                detail: El rol no tiene permiso read del módulo nom035-disclosure.
+                detail: El rol no tiene permiso read del módulo disclosure.
                 key: sin-permiso
                 errorCode: NOM035.DISC.FORBIDDEN
                 data: null
@@ -11704,6 +12030,7 @@ paths:
                         logoUrl: "https://cdn.example.com/logo.png"
                         folioRepse: "REPSE-12345-2024"
                         folioVigente: true
+                        folioVigenteHasta: "2031-03-31"
                         vinculoVigente: true
                         urlVerificacion: "https://bo.example.com/badge-verification/abc123"
                         qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"
@@ -11723,6 +12050,7 @@ paths:
                         logoUrl: null
                         folioRepse: null
                         folioVigente: null
+                        folioVigenteHasta: null
                         vinculoVigente: true
                         urlVerificacion: "https://bo.example.com/badge-verification/def456"
                         qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"
@@ -12066,6 +12394,7 @@ paths:
                     logoUrl: "https://cdn.example.com/logo.png"
                     folioRepse: "REPSE-12345-2024"
                     folioVigente: true
+                    folioVigenteHasta: "2031-03-31"
                     vinculoVigente: true
                     urlVerificacion: "https://bo.example.com/badge-verification/abc123"
                     qrDataUrl: "data:image/png;base64,iVBORw0KGgo…"

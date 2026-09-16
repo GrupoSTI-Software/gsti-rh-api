@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import BillingSubscription from './billing_subscription.js'
+import type { DiscountCodeKind } from './discount_code.js'
 
 export type BillingPaymentMethod = 'transfer' | 'cash' | 'other'
 
@@ -81,6 +82,22 @@ export default class BillingPayment extends BaseModel {
 
   @column()
   declare billingPaymentTaxRate: number
+
+  // ─── Marca del código de descuento del periodo cobrado (USRH1787714804403) ─
+  // Transcrita del trato congelado de la suscripción, nunca recalculada.
+  // NULL/0 cuando el periodo no llevó código (incluido beneficio agotado).
+
+  @column()
+  declare billingPaymentDiscountCodeText: string | null
+
+  @column()
+  declare billingPaymentDiscountCodeKind: DiscountCodeKind | null
+
+  @column()
+  declare billingPaymentCodeDiscountAmountCents: number
+
+  @column()
+  declare billingPaymentDiscountCodeBenefitPeriodsUsedAfter: number | null
 
   @column()
   declare billingPaymentMethod: BillingPaymentMethod

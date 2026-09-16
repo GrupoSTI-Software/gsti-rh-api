@@ -12,6 +12,7 @@ import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'BiometricosDispositivosPermissionGate123!'
 
@@ -135,8 +136,8 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
   return { user, person, businessUnit, role }
 }
 
-async function createSystemActor(roleSlug: string, emailPrefix: string): Promise<SystemActor> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).firstOrFail()
+async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<SystemActor> {
+  const role = await ensureRole(roleSlug)
   const stamp = await uniqueStamp()
   const businessUnit = await BusinessUnit.create({
     businessUnitName: `Bio sistema ${stamp}`,
@@ -382,12 +383,14 @@ test.group('Biometricos/Dispositivos - soft-rollout (exigencia OFF)', (group) =>
           .post(`/api/employees/${employeeId}/biometric-face-id`)
           .loginAs(actor!.user)
           .headers(buHeader(actor!))
-          .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' }),
+          .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+          .field('quality', '95'),
         client
           .put(`/api/employees/${employeeId}/biometric-face-id`)
           .loginAs(actor!.user)
           .headers(buHeader(actor!))
-          .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' }),
+          .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+          .field('quality', '95'),
         client
           .delete(`/api/employees/${employeeId}/biometric-face-id`)
           .loginAs(actor!.user)
@@ -487,6 +490,7 @@ test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
       .loginAs(actor!.user)
       .headers(buHeader(actor!))
       .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+      .field('quality', '95')
     assertPermissionDenied(assert, deniedUpload)
 
     await grantOnly(actor!.role.roleId, ['upload-face-id'])
@@ -495,6 +499,7 @@ test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
       .loginAs(actor!.user)
       .headers(buHeader(actor!))
       .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+      .field('quality', '95')
     assertNotPermissionDenied(assert, allowedUpload)
 
     const allowedReplace = await client
@@ -502,6 +507,7 @@ test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
       .loginAs(actor!.user)
       .headers(buHeader(actor!))
       .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+      .field('quality', '95')
     assertNotPermissionDenied(assert, allowedReplace)
   })
 
@@ -644,12 +650,14 @@ test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
         .post(`/api/employees/${employeeId}/biometric-face-id`)
         .loginAs(actor!.user)
         .headers(buHeader(actor!))
-        .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' }),
+        .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+        .field('quality', '95'),
       client
         .put(`/api/employees/${employeeId}/biometric-face-id`)
         .loginAs(actor!.user)
         .headers(buHeader(actor!))
-        .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' }),
+        .file('photo', VALID_PNG_BUFFER, { filename: VALID_FILE_NAME, contentType: 'image/png' })
+        .field('quality', '95'),
       client
         .delete(`/api/employees/${employeeId}/biometric-face-id`)
         .loginAs(actor!.user)

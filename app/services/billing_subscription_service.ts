@@ -11,6 +11,7 @@ import DiscountCode from '#models/discount_code'
 import { DiscountCodeServiceError } from '#exceptions/discount_code_service_error'
 import { DISCOUNT_CODE_ERROR_CODES } from '#constants/discount_code_error_codes'
 import BillingSubscriptionChange from '#models/billing_subscription_change'
+import BillingPayment from '#models/billing_payment'
 import type { SubscriptionChangeRecord } from '#services/billing_subscription_change_service'
 import EmployeeQuotaService from '#services/employee_quota_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
@@ -293,19 +294,63 @@ export default class BillingSubscriptionService {
    * en `pending_payment` sobre esta suscripción, se expone en
    * `pendingIncreaseChange` para que el drawer de registro de pago lo
    * muestre sin calcular cifras propias. `null` cuando no hay adeudo vivo.
+   *
+   * Desde USRH1787714804407 también expone `discountBenefitRestoredFrom`:
+   * la fecha calendario desde la que se cobra el precio sin el código
+   * congelado, para que la ficha explique un total más alto sin que el
+   * operador tenga que consultar la base de datos. `null` sin código, con
+   * beneficio vigente o indefinido, o si ningún pago registró el consumo.
    */
-  async getSubscriptionDetail(
-    subscriptionId: number
-  ): Promise<Record<string, unknown> & { pendingIncreaseChange: SubscriptionChangeRecord | null }> {
+  async getSubscriptionDetail(subscriptionId: number): Promise<
+    Record<string, unknown> & {
+      pendingIncreaseChange: SubscriptionChangeRecord | null
+      discountBenefitRestoredFrom: string | null
+    }
+  > {
     const subscription = await this.getSubscription(subscriptionId)
     const pendingIncreaseChange = await this.findPendingIncreaseChange(
       subscription.billingSubscriptionId
     )
+    const discountBenefitRestoredFrom = await this.findDiscountBenefitRestoredFrom(subscription)
 
     return {
       ...subscription.serialize(),
       pendingIncreaseChange,
+      discountBenefitRestoredFrom,
     }
+  }
+
+  /**
+   * Fecha calendario desde la que se cobra el precio sin el código: el
+   * `period_end` del pago que agotó el beneficio (`billing_payment_service.ts:379-395`).
+   * `null` sin código, con `_discount_code_benefit_periods` indefinido
+   * (nunca se agota) o si ningún pago registró el consumo que lo agotó.
+   *
+   * Corta antes de consultar `billing_payments` (regla 8, USRH1787714804406/407):
+   * sin código congelado o con beneficio indefinido no hay nada que buscar.
+   * Sin `join`, una sola lectura por FK — mismo patrón que
+   * `findPendingIncreaseChange`.
+   */
+  private async findDiscountBenefitRestoredFrom(
+    subscription: BillingSubscription
+  ): Promise<string | null> {
+    const benefitPeriods = subscription.billingSubscriptionDiscountCodeBenefitPeriods
+    if (subscription.billingSubscriptionDiscountCodeText === null || benefitPeriods === null) {
+      return null
+    }
+
+    const payment = await BillingPayment.query()
+      .where('billing_subscription_id', subscription.billingSubscriptionId)
+      .whereNotNull('billing_payment_discount_code_benefit_periods_used_after')
+      .where('billing_payment_discount_code_benefit_periods_used_after', '>=', benefitPeriods)
+      .orderBy('billing_payment_id', 'asc')
+      .first()
+
+    if (!payment) {
+      return null
+    }
+
+    return toCalendarIsoDate(payment.billingPaymentPeriodEnd)
   }
 
   /**
@@ -614,8 +659,19 @@ export default class BillingSubscriptionService {
 
   /**
    * Cambia el plan de una suscripción existente, recongelando el snapshot
-   * (precio, descuento, importes) desde el catálogo vigente a la fecha efectiva
-   * (hoy en zona CDMX). No recalcula ni toca el histórico ni los pagos asentados.
+   * (precio, descuento, importes) desde el catálogo vigente a la fecha
+   * efectiva (hoy en zona CDMX). No recalcula ni toca el histórico ni los
+   * pagos asentados.
+   *
+   * Si la suscripción tiene un código de descuento congelado (USRH1787714804406
+   * §4.1), se conserva y se recalcula sobre el precio del plan nuevo: primero
+   * el descuento por volumen sobre el tramo del plan nuevo, después el código
+   * sobre ese resultado. Excepción cerrada por Wilvardo: con `kind =
+   * 'unit_price'` y beneficio vigente, el cambio de plan se rechaza (§4.1) sin
+   * tocar ninguna columna ni consultar el catálogo. Con el beneficio agotado
+   * (cualquier `kind`), el trato nuevo se calcula sin código, sin borrar las
+   * condiciones congeladas (regla 5). Los periodos de beneficio consumidos
+   * nunca se tocan aquí.
    */
   async changePlan(
     subscriptionId: number,
@@ -655,6 +711,24 @@ export default class BillingSubscriptionService {
       )
     }
 
+    // Regla 6/8 (USRH1787714804406 §4.1, §4.2): con código `unit_price` y
+    // beneficio vigente, el cambio de plan se rechaza ANTES de tocar el
+    // catálogo y antes de abrir la transacción — en memoria, sin I/O, para
+    // no gastar trabajo en un cambio que se va a rechazar y no dejar
+    // ninguna escritura posible.
+    if (
+      subscription.billingSubscriptionDiscountCodeKind === 'unit_price' &&
+      !this.isDiscountCodeBenefitExhausted(subscription)
+    ) {
+      throw new BillingSubscriptionServiceError(
+        `Suscripción ${subscriptionId} tiene un código de precio fijo por empleado con beneficio vigente`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.PLAN_CHANGE_UNIT_PRICE_CODE,
+        409,
+        'cambio-de-plan-con-precio-fijado',
+        'Esta suscripción tiene un código de descuento que fija el precio por empleado y todavía tiene periodos de beneficio por consumir. Decide qué pasa con el descuento antes de cambiar de plan.'
+      )
+    }
+
     // Misma regla de cantidad que el alta (USRH1785962095089 §6 regla 3):
     // la cantidad contratada vigente debe seguir cumpliendo bloques de 10 y
     // el mínimo por plantilla activa, aunque la plantilla haya crecido desde
@@ -667,12 +741,14 @@ export default class BillingSubscriptionService {
     assertMinimumContractedEmployees(contractedEmployees, activeEmployees)
 
     const today = toBusinessDateString()
+    const appliedCode = this.resolveAppliedDiscountCodeForPlanChange(subscription)
     let resolved
     try {
       resolved = await this.catalog.resolvePrice(
         billingPlanId,
         subscription.billingSubscriptionContractedEmployees,
-        today
+        today,
+        appliedCode
       )
     } catch {
       throw new BillingSubscriptionServiceError(
@@ -710,9 +786,76 @@ export default class BillingSubscriptionService {
       // La fecha efectiva del nuevo trato es HOY (fecha del cambio), no la fecha
       // de vigencia del precio en el catálogo (que puede ser del pasado).
       subscription.billingSubscriptionContractedEffectiveFrom = DateTime.fromISO(today)
+
+      // Regla 3 (USRH1787714804406): mismos cuatro bloques que el eslabón 9,
+      // escritos en la misma transacción. Con código aplicable, vienen de
+      // los `undiscounted*` que `resolvePrice` calculó del lado del código
+      // (sin código, `resolved.codeDiscountAmount` es `undefined`). Con
+      // código congelado pero sin aplicar (agotado), `undiscounted_* =
+      // contracted_*` y `code_discount_amount = 0` (regla 5, no se deja en
+      // NULL: las condiciones canjeadas siguen ahí como evidencia).
+      if (resolved.codeDiscountAmount !== undefined) {
+        subscription.billingSubscriptionCodeDiscountAmount = resolved.codeDiscountAmount
+        subscription.billingSubscriptionUndiscountedUnitAmount =
+          resolved.undiscountedPricePerEmployee ?? null
+        subscription.billingSubscriptionUndiscountedSubtotal =
+          resolved.undiscountedSubtotal ?? null
+        subscription.billingSubscriptionUndiscountedTaxAmount =
+          resolved.undiscountedTaxAmount ?? null
+        subscription.billingSubscriptionUndiscountedTotal = resolved.undiscountedTotal ?? null
+      } else if (subscription.billingSubscriptionDiscountCodeText !== null) {
+        subscription.billingSubscriptionCodeDiscountAmount = 0
+        subscription.billingSubscriptionUndiscountedUnitAmount = resolved.pricePerEmployee
+        subscription.billingSubscriptionUndiscountedSubtotal = resolved.subtotal
+        subscription.billingSubscriptionUndiscountedTaxAmount = resolved.taxAmount
+        subscription.billingSubscriptionUndiscountedTotal = resolved.total
+      }
+      // Sin código congelado (regla 10, sin regresión): no se toca ninguno
+      // de los cinco campos, comportamiento idéntico al de antes de esta HU.
+
       await subscription.save()
       return subscription
     })
+  }
+
+  /**
+   * Resuelve si el código congelado en la suscripción debe pasarse a
+   * `resolvePrice` al cambiar de plan. Mismo criterio de agotamiento que el
+   * eslabón 9 (regla 15 de USRH1787714804404.md, fuente única): `undefined`
+   * sin código o con el beneficio agotado. Se duplica la llamada, no la
+   * regla — `BillingSubscriptionChangeService` vive en otro archivo y esta
+   * historia no lo toca (frontera de archivos, spec-USRH1787714804406.md §4.3).
+   */
+  private resolveAppliedDiscountCodeForPlanChange(
+    subscription: BillingSubscription
+  ): AppliedDiscountCode | undefined {
+    if (subscription.billingSubscriptionDiscountCodeText === null) {
+      return undefined
+    }
+
+    if (this.isDiscountCodeBenefitExhausted(subscription)) {
+      return undefined
+    }
+
+    const kind = subscription.billingSubscriptionDiscountCodeKind
+    const value = subscription.billingSubscriptionDiscountCodeValue
+    if (kind === null || value === null) {
+      return undefined
+    }
+
+    return { kind, value: Number(value) }
+  }
+
+  /**
+   * Regla 15 de USRH1787714804404.md (fuente única, dos cláusulas):
+   * beneficio agotado ⇔ `benefitPeriods` no es NULL y los periodos
+   * consumidos alcanzaron o superaron esa duración. Sin código congelado,
+   * no aplica (no es "agotado", es "no hay").
+   */
+  private isDiscountCodeBenefitExhausted(subscription: BillingSubscription): boolean {
+    const benefitPeriods = subscription.billingSubscriptionDiscountCodeBenefitPeriods
+    const benefitPeriodsUsed = subscription.billingSubscriptionDiscountCodeBenefitPeriodsUsed
+    return benefitPeriods !== null && benefitPeriodsUsed >= benefitPeriods
   }
 
   // ─── Cancelación ─────────────────────────────────────────────────────────

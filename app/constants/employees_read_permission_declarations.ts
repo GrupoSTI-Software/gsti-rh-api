@@ -56,6 +56,8 @@ export const EMPLOYEES_READ_PERMISSION_DECLARATIONS = {
   indexAssistCalendars: employeesStandard('tab-trabajo-read'),
   indexExceptionRequests: employeesStandard('tab-trabajo-read'),
   indexAllExceptionRequests: employeesStandard('tab-trabajo-read'),
+  /** No leídas: el mismo dato que `indexAllExceptionRequests`, con el mismo permiso. */
+  indexUnreadExceptionRequests: employeesStandard('tab-trabajo-read'),
   showExceptionRequest: employeesStandard('tab-trabajo-read'),
   indexEmployeeBonuses: employeesStandard('tab-trabajo-read'),
   getBonusConcepts: employeesStandard('tab-trabajo-read'),
@@ -74,11 +76,22 @@ export const EMPLOYEES_READ_PERMISSION_DECLARATIONS = {
   showEmployeeMedicalCondition: employeesStandard('tab-condicion-medica-read'),
   indexMedicalConditionPropertyValues: employeesStandard('tab-condicion-medica-read'),
   showMedicalConditionPropertyValue: employeesStandard('tab-condicion-medica-read'),
+  // Catálogo de tipos de condición médica y sus propiedades: solo lo consume la
+  // pestaña Condición médica del expediente (tarjeta, formulario y administrador
+  // de tipos). Ni la PWA ni la app lo leen, así que no queda abierto.
+  indexMedicalConditionTypes: employeesStandard('tab-condicion-medica-read'),
+  showMedicalConditionType: employeesStandard('tab-condicion-medica-read'),
+  indexMedicalConditionTypeProperties: employeesStandard('tab-condicion-medica-read'),
+  getMedicalConditionTypePropertiesByType: employeesStandard('tab-condicion-medica-read'),
+  showMedicalConditionTypeProperty: employeesStandard('tab-condicion-medica-read'),
   indexLactationPeriods: employeesStandard('tab-periodos-lactancia-read'),
-  lactationComplianceReport: employeesStandard('tab-periodos-lactancia-read'),
+  // El reporte de cumplimiento salió de aquí: lo gobierna la Bitácora de
+  // lactancia (`employee_lactation_periods_permission_declarations.ts`).
   listAllLactationConflicts: employeesStandard('tab-periodos-lactancia-read'),
   listLactationConflicts: employeesStandard('tab-periodos-lactancia-read'),
   indexLactationEvidences: employeesStandard('tab-periodos-lactancia-read'),
+  /** URL firmada de una evidencia: quien ve la lista de evidencias puede descargarlas. */
+  downloadLactationEvidence: employeesStandard('tab-periodos-lactancia-read'),
   getEmployeeProceedingFiles: employeesStandard('tab-expediente-read'),
   getExpiredExpiringProceedingFiles: employeesStandard('tab-expediente-read'),
   indexEmployeeProceedingFiles: employeesStandard('tab-expediente-read'),
@@ -117,8 +130,8 @@ export const EMPLOYEES_READ_PERMISSION_DECLARATIONS = {
   indexEmployeeAssessments: employeesStandard('tab-assessments-read'),
   getAssessmentsByEmployee: employeesStandard('tab-assessments-read'),
   showEmployeeAssessment: employeesStandard('tab-assessments-read'),
-  indexCareerPathCandidates: employeesStandard('tab-ruta-carrera-read'),
-  showCareerPathCandidate: employeesStandard('tab-ruta-carrera-read'),
+  // Listar y ver el detalle de candidatos son de la Bandeja de rutas de carrera
+  // (`hr_career_path_permission_declarations.ts`); aquí queda la lectura por empleado.
   getCareerPathByEmployee: employeesStandard('tab-ruta-carrera-read'),
   getEmployeeCertifications: employeesStandard('tab-certificaciones-read'),
   indexCertificationUploads: employeesStandard('tab-certificaciones-read'),
@@ -137,6 +150,9 @@ export const EMPLOYEES_READ_PERMISSION_DECLARATIONS = {
   indexEmployeesWithoutUser: employeesStandard('read'),
   getBirthday: employeesStandard('read'),
   getAnniversary: employeesStandard('read'),
+  /** Los Excel del calendario exponen lo mismo que el listado: mismo permiso. */
+  getBirthdayExcel: employeesStandard('read'),
+  getAnniversaryExcel: employeesStandard('read'),
   getWorkSchedules: employeesStandard('read'),
   getTerminationCatalog: employeesStandard('read'),
   indexEmployeeTypes: employeesStandard('read'),

@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { BaseModel, column, computed } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 
@@ -39,6 +39,28 @@ export default class NoticeFile extends compose(BaseModel, SoftDeletes) {
   @column()
   declare noticeFilePath: string
 
+
+  /**
+   * Nombre legible del adjunto: el último segmento de la key, con la extensión
+   * REAL que escribió el intake. Con esto el cliente no tiene que derivarlo de
+   * una URL.
+   */
+  @computed()
+  get noticeFileName(): string | null {
+    if (!this.noticeFilePath) return null
+    const segments = this.noticeFilePath.split('/')
+    return segments[segments.length - 1] || null
+  }
+
+  /**
+   * Ruta autenticada del binario. Aditiva: la versión instalada de la app la
+   * ignora, y `noticeFilePath` se mantiene porque el backoffice lo pinta.
+   */
+  @computed()
+  get noticeFileUrl(): string | null {
+    if (!this.noticeFilePath) return null
+    return `/api/notices/${this.noticeId}/files/${this.noticeFileId}/content`
+  }
 
   @column.dateTime({ autoCreate: true })
   declare noticeFileCreatedAt: DateTime

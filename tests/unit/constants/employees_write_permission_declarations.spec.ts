@@ -10,14 +10,23 @@ import {
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 
 test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
-  // 156 tras integrar multitenant en la rama de gafetes: a las 147 del ancestro
-  // comun se suman las 4 que aporta esta rama (showEmployeeBadge,
-  // getEmployeeBadgePng, getEmployeeBadgePdf, bulkEmployeeBadges) y las 5 que
-  // traia multitenant (assignEmployeeAccessPoint, removeEmployeeAccessPoint y
-  // las tres de propiedades del tipo de expediente).
-  test('declara exactamente 156 operaciones con module employees y bypass standard', ({ assert }) => {
+  // 157: a las 156 que dejo la integracion de multitenant en la rama de gafetes
+  // se suma `useEmployeeFaceIdAsPhoto`, la copia del rostro biometrico a la foto
+  // de perfil. Esa declaracion cubre SOLO el lado de escritura de la foto; el
+  // permiso de lectura biometrica que tambien exige lo evalua el controlador,
+  // porque un arreglo de acciones aqui se resolveria en OR.
+  // 154: salen createCertification, updateCertification y deleteCertification,
+  // que ahora declara el modulo Catalogo de certificaciones.
+  // 153: sale updateCareerPathCandidateStatus, que ahora declara la Bandeja de
+  // rutas de carrera (`hr-career-path:update`).
+  // 162: +9 altas, ediciones y bajas del catálogo de tipos, propiedades y valores
+  // de condición médica, que no tenían gate.
+  // 163: +createEmployeeProceedingFileType, el alta de carpeta del expediente del
+  // colaborador. Su ruta no verificaba nada y el módulo propio del catálogo de
+  // tipos está retirado y sin permisos, así que la gobierna la pestaña que la usa.
+  test('declara exactamente 163 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 156)
+    assert.equal(keys.length, 163)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 
@@ -103,14 +112,27 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.storeProceedingFileTypeProperty.action, 'tab-expediente-write')
     assert.equal(d.storeMultipleProceedingFileTypeProperties.action, 'tab-expediente-write')
     assert.equal(d.deleteProceedingFileTypeProperty.action, 'tab-expediente-delete')
-    assert.equal(d.createCertification.action, 'tab-certificaciones-write')
-    assert.equal(d.updateCertification.action, 'tab-certificaciones-write')
-    assert.equal(d.deleteCertification.action, 'tab-certificaciones-delete')
+    // El CRUD del catálogo ya no es de Empleados: lo declara `certifications`.
+    assert.notProperty(d, 'createCertification')
+    assert.notProperty(d, 'updateCertification')
+    assert.notProperty(d, 'deleteCertification')
     assert.equal(d.createEmployeeCertificationUpload.action, 'tab-certificaciones-write')
     assert.equal(d.deleteEmployeeCertificationUpload.action, 'tab-certificaciones-delete')
 
-    assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION.action, 'tab-expediente-write')
-    assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION.action, 'tab-expediente-delete')
+    // Las carpetas aceptan además `manage-files`: es la casilla con la que el
+    // backoffice muestra sus botones y el gate no aplica la equivalencia legada.
+    assert.deepEqual(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION.action, [
+      'tab-expediente-write',
+      'manage-files',
+    ])
+    assert.deepEqual(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION.action, [
+      'tab-expediente-delete',
+      'manage-files',
+    ])
+    assert.deepEqual(d.createEmployeeProceedingFileType.action, [
+      'tab-expediente-write',
+      'manage-files',
+    ])
     assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION.bypass, 'standard')
     assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION.bypass, 'standard')
     assert.equal(EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION.module, 'employees')
@@ -179,8 +201,9 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.updateEmployeeAssessment.action, 'tab-assessments-write')
     assert.equal(d.deleteEmployeeAssessment.action, 'tab-assessments-delete')
     assert.equal(d.createCareerPathCandidate.action, 'tab-ruta-carrera-write')
-    assert.equal(d.updateCareerPathCandidateStatus.action, 'tab-ruta-carrera-write')
     assert.equal(d.deleteCareerPathCandidate.action, 'tab-ruta-carrera-delete')
+    // Aprobar, rechazar o desactivar ya no es de Empleados: lo declara `hr-career-path`.
+    assert.notProperty(d, 'updateCareerPathCandidateStatus')
   })
 
   test('mapea Zonas, Anotaciones, Bonificaciones, Responsable/Asignados y Activos de escritura', ({
