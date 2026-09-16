@@ -41,7 +41,8 @@ import {
  * - La rama de administración exige el permiso `read` del módulo.
  * - Borrar da de baja las filas antes de tocar el almacenamiento.
  *
- * Las pruebas escriben sobre la base de desarrollo y limpian lo suyo; las que
+ * Las pruebas escriben sobre la BD desechable de la suite (`valanserh_test`) y
+ * limpian lo suyo; las que
  * pasan por `POST /api/notices` requieren las migraciones `1788800000010` y
  * `1788800000011`, y la de binarios necesita el bucket de desarrollo.
  */

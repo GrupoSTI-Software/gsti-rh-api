@@ -452,6 +452,16 @@ export default class RepseRegistrationsController {
    *                 message: { type: string, example: Usuario no autenticado }
    *                 errorCode: { type: string, example: REPSE.FORBID.001 }
    *                 data: { nullable: true }
+   *       '403':
+   *         description: Sin permiso `documents-expiration-matrix:read` (negativa del permissionGate)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string }
+   *                 detail: { type: string }
+   *                 key: { type: string, example: PERM.DENIED }
    *       '500':
    *         description: Error inesperado del servidor
    *         content:

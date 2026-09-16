@@ -2,9 +2,9 @@
  * Formas canónicas de la alianza comercial
  * (USRH1788505941892 / USRH1788505941893 / USRH1788505941894).
  *
- * Las HUs siguientes (06b) agregan campos a estas mismas
- * interfaces; ninguna las redefine. Esta HU no entrega
- * `allianceLiveAttributionsCount`.
+ * Las HUs siguientes agregan campos a estas mismas interfaces;
+ * ninguna las redefine. `allianceLiveAttributionsCount` nace en
+ * USRH1789099318113 (06b).
  */
 
 import type { BillingProfileMissingField } from '../helpers/tenant_billing_profile_completeness.js'
@@ -24,6 +24,8 @@ export interface AllianceListItem {
   createdAt: string
   billingProfileComplete: boolean
   missingFields: BillingProfileMissingField[]
+  /** Clientes con atribución viva hoy. Se cuenta al consultar. */
+  allianceLiveAttributionsCount: number
 }
 
 /** Vista del perfil fiscal de la alianza. Única superficie que expone el RFC en claro. */

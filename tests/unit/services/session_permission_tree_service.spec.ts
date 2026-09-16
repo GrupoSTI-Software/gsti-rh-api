@@ -7,6 +7,7 @@ import SystemPermission from '#models/system_permission'
 import RoleSystemPermission from '#models/role_system_permission'
 import type User from '#models/user'
 import { SYSTEM_PERMISSION_CATALOG, SYSTEM_MODULES_CATALOG } from '#constants/system_permission_catalog'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 const STAMP = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 const TEST_SLUG_PREFIX = `session-tree-test-${STAMP}`
@@ -15,14 +16,6 @@ const ORPHAN_PERMISSION_SLUG = `${TEST_SLUG_PREFIX}-orphan-action`
 
 function fakeUser(roleId: number): User {
   return { userId: roleId, roleId } as User
-}
-
-async function findRole(slug: string): Promise<Role> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', slug).first()
-  if (!role) {
-    throw new Error(`El rol "${slug}" es requerido para este test. Ejecuta los seeders primero.`)
-  }
-  return role
 }
 
 async function findEmployeesModule(): Promise<SystemModule> {
@@ -165,7 +158,7 @@ test.group('SessionPermissionTreeService', (group) => {
   test('rol owner sin grants de employees ve acciones standard como rol privilegiado', async ({
     assert,
   }) => {
-    const owner = await findRole('owner')
+    const owner = await ensureRole('owner')
     const tree = await new SessionPermissionTreeService().buildForUser(fakeUser(owner.roleId))
     const readAction = employeesActionFrom(tree, 'read')
     const createAction = employeesActionFrom(tree, 'create')
@@ -281,7 +274,7 @@ test.group('SessionPermissionTreeService', (group) => {
       SYSTEM_MODULES_CATALOG.map((moduleEntry) => moduleEntry.slug)
     )
 
-    const enumeratedModuleSlugs = ['employees', 'positions', 'employees-attendance-monitor']
+    const enumeratedModuleSlugs = Object.keys(SYSTEM_PERMISSION_CATALOG.actionsByModule)
     const nonEnumeratedModules = tree.modules.filter(
       (moduleNode) => !enumeratedModuleSlugs.includes(moduleNode.slug)
     )

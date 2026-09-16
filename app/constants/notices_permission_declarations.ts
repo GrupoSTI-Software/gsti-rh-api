@@ -1,7 +1,7 @@
 import type { PermissionGateOptions } from '#constants/permission_gate'
 import { NOTICE_PERMISSION_MODULE_SLUG } from '#constants/notice'
 
-/** Acciones sembradas para el módulo 32 en `0018_system_permission_seeder`. */
+/** Acciones del módulo `notices` declaradas en `system_modules.constant.ts`. */
 type NoticeActionSlug = 'read' | 'create' | 'update' | 'delete'
 
 const noticesStandard = (action: NoticeActionSlug): PermissionGateOptions => ({

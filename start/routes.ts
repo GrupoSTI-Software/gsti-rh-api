@@ -19,6 +19,7 @@ import './routes/platform_billing_payment_routes.js'
 import './routes/platform_billing_tax_receipt_routes.js'
 import './routes/platform_discount_code_routes.js'
 import './routes/platform_alliance_routes.js'
+import './routes/platform_alliance_attribution_routes.js'
 import './routes/platform_tenant_routes.js'
 import './routes/platform_tenant_group_routes.js'
 import './routes/platform_system_module_routes.js'
@@ -51,7 +52,6 @@ import './routes/shift_routes.js'
 import './routes/employee_shifts_routes.js'
 import './routes/shift_exceptions_routes.js'
 import './routes/holiday_routes.js'
-import './routes/shift_for_employees.js'
 import './routes/department_position_routes.js'
 import './routes/role_routes.js'
 import './routes/role_preset_routes.js'
@@ -60,14 +60,10 @@ import './routes/vacations_routes.js'
 import './routes/proceeding_file_routes.js'
 import './routes/employee_proceeding_file_routes.js'
 import './routes/proceeding_file_type_routes.js'
-import './routes/airport.js'
-import './routes/customer_routes.js'
-import './routes/customer_proceeding_file_routes.js'
 import './routes/system_setting_routes.js'
 import './routes/system_settings_proceeding_files_routes.js'
 import './routes/system_settings_employees.js'
 import './routes/system_module_routes.js'
-import './routes/gallery_routes.js'
 import './routes/business_unit_routes.js'
 import './routes/branch_offices.js'
 import './routes/nom035_routes.js'
@@ -95,39 +91,27 @@ import './routes/work_disability_period_routes.js'
 import './routes/work_disability_note_routes.js'
 
 /*
- * Rutas del dominio de aviacion (aeronaves, mantenimiento, pilotos,
- * sobrecargos y reservas) DESREGISTRADAS a la espera de la baja definitiva
- * del modulo.
+ * Aviación (aeronaves, mantenimiento, pilotos, sobrecargos, reservas,
+ * aeropuertos, galerías y clientes) RETIRADA del API.
  *
- * Motivo: concentraban 17 puntos de subida de archivos públicos, sin tope de
- * tamaño y sin validación de extensión. Al ir el modulo de salida, se retira
- * la superficie expuesta en lugar de invertir en endurecerla.
+ * Motivo: el BO ya no tiene pantallas de aviación y ningún cliente del API
+ * (BO, PWA, app, landlord, zkmanager, biotime-sync) llama estas rutas. Las
+ * desregistradas concentraban subidas de archivos públicas sin tope de tamaño
+ * ni validación de extensión. Rutas, controladores, validadores, interfaces,
+ * servicios y los modelos de mantenimiento y galerías están en `__TO_DELETE__/`.
  *
- * Los archivos siguen en `start/routes/` y sus controladores en `app/`: al
- * dar de baja el modulo hay que eliminar también esos archivos, sus modelos,
- * servicios y validators. Lista desregistrada:
- *   - aircraft_routes
- *   - aircraft_class_routes
- *   - aircraft_property_routes
- *   - aircraft_operator_routes
- *   - aircraft_proceeding_file_routes
- *   - aircraft_maintenance_routes
- *   - aircraft_maintenance_status_routes
- *   - maintenance_expense_routes
- *   - maintenance_expense_category_routes
- *   - maintenance_type_routes
- *   - maintenance_urgency_level_routes
- *   - pilot_routes
- *   - pilot_proceeding_file_routes
- *   - flight_attendant_routes
- *   - flight_attendant_proceeding_file_routes
- *   - reservations_routes
- *   - reservation_leg_routes
- *   - reservation_note_routes
- *
- * NO incluye `customer_routes` ni `customer_proceeding_file_routes`: la tabla
- * `customers` la consulta `employee_service.ts` para validar `person_id`
- * duplicado, así que su baja requiere analisis propio.
+ * Se conservan, sin rutas, los modelos que el código vivo todavía usa sobre
+ * tablas que siguen existiendo:
+ *   - customer y flight_attendant: validación de `employee_service.verifyInfo`.
+ *   - customer, pilot, flight_attendant, reservation, reservation_leg y
+ *     reservation_note: orden de borrado de `employee_service.deleteAllEmployees`.
+ *   - customer_, pilot_, flight_attendant_ y aircraft_proceeding_file: relaciones
+ *     de `proceeding_file.ts` (reporte de vencimientos de
+ *     `proceeding_file_service.ts`) y validación de
+ *     `employee_proceeding_file_service.ts`.
+ *   - aircraft, aircraft_class, aircraft_operator, aircraft_property y airport:
+ *     los importan los modelos anteriores.
+ * Retirarlos exige decidir antes qué pasa con esos datos (baja de tablas).
  */
 
 import './routes/employee_photo_routes.js'

@@ -7,6 +7,7 @@ import BusinessUnitUser from '#models/business_unit_user'
 import Employee from '#models/employee'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
+import { setModuleEnforcement } from '#tests/helpers/tenant_actor'
 
 /**
  * `GET /api/employees/me/photo` — la foto propia del colaborador
@@ -262,6 +263,7 @@ test.group('Foto propia (/me/photo) — contrato del endpoint', (group) => {
 
 test.group('Foto propia (/me/photo) — exigencia de permisos encendida', (group) => {
   let employeesModule: SystemModule
+  let previousEmployeesEnforcement = false
   let actor: TenantActor | null = null
   let empleadoPropio: Employee | null = null
 
@@ -270,8 +272,16 @@ test.group('Foto propia (/me/photo) — exigencia de permisos encendida', (group
       .whereNull('system_module_deleted_at')
       .where('system_module_slug', 'employees')
       .firstOrFail()
-    employeesModule.systemModulePermissionEnforcementActive = true
-    await employeesModule.save()
+    /**
+     * Se guarda el valor PREVIO para devolverlo tal cual en el teardown.
+     *
+     * Antes se apagaba a ciegas (`false`) y se exigía que quedara apagado. Eso
+     * era cierto durante el soft-rollout, pero hoy la siembra deja la exigencia
+     * de Empleados ENCENDIDA: este grupo la apagaba para toda la corrida y
+     * cualquier spec posterior que dependiera de ella pasaba sin probar nada,
+     * según el orden en que japa los tomara.
+     */
+    previousEmployeesEnforcement = await setModuleEnforcement('employees', true)
 
     actor = await createActor('foto-me-gate')
     empleadoPropio = await createEmployee(actor.person, actor.businessUnit, {
@@ -280,19 +290,20 @@ test.group('Foto propia (/me/photo) — exigencia de permisos encendida', (group
   })
 
   group.teardown(async () => {
-    let enforcementLeftDisabled = false
     try {
       await cleanupEmployee(empleadoPropio?.employeeId ?? null)
       await cleanupActor(actor)
     } finally {
-      employeesModule.systemModulePermissionEnforcementActive = false
-      await employeesModule.save()
-      const moduleAfterTeardown = await SystemModule.findOrFail(employeesModule.systemModuleId)
-      enforcementLeftDisabled =
-        moduleAfterTeardown.systemModulePermissionEnforcementActive === false
+      await setModuleEnforcement('employees', previousEmployeesEnforcement)
     }
-    if (!enforcementLeftDisabled) {
-      throw new Error('La exigencia de permisos de empleados debe quedar apagada tras el suite.')
+
+    const moduleAfterTeardown = await SystemModule.findOrFail(employeesModule.systemModuleId)
+    if (
+      moduleAfterTeardown.systemModulePermissionEnforcementActive !== previousEmployeesEnforcement
+    ) {
+      throw new Error(
+        'La exigencia de permisos de empleados debe quedar como estaba antes del suite.'
+      )
     }
   })
 

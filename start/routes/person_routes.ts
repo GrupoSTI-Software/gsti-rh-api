@@ -3,7 +3,8 @@ import { middleware } from '#start/kernel'
 import { EMPLOYEES_PERSON_COLLABORATOR_READ_PERMISSION } from '#constants/employees_read_permission_declarations'
 
 // USRH1785766406726/USRH1787433076995 — regla C-13: `/api/persons` es superficie compartida
-// (colaborador, cliente y usuario del sistema). `GET /` exige `tab-persona-read` mediante
+// (colaborador y usuario del sistema; los destinos de aviación, incluido cliente, se
+// retiraron y resuelven a colaborador). `GET /` exige `tab-persona-read` mediante
 // gate declarativo, porque el listado siempre corresponde al módulo Empleados. `POST /`
 // exige `tab-persona-write` solo cuando el destino resuelve a colaborador; ese chequeo
 // es condicional y vive en `person_controller.store` (no se monta gate aquí). `PUT`/`DELETE`

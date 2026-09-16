@@ -2,122 +2,152 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import User from '#models/user'
 import RepseRegistration from '#models/repse_registration'
+import {
+  cleanupTenantActor,
+  createBypassActor,
+  createTenantActor,
+  grantModulePermissions,
+  type TenantActor,
+} from '#tests/helpers/tenant_actor'
 
 /**
- * USRH1783691644909 — verificación end-to-end contra BD real: el módulo
- * REPSE debe resolver su alcance con el scope central (unidad seleccionada),
- * no con SYSTEM_BUSINESS. La BD restablecida no tiene datos REPSE, así que
- * se crean fixtures mínimos en BU1 y BU6 para probar el aislamiento cruzado.
+ * USRH1783691644909 — el módulo REPSE resuelve su alcance con el scope central
+ * (la unidad seleccionada en el header), no con `SYSTEM_BUSINESS`.
+ *
+ * Las dos empresas y sus usuarios los crea este spec. Antes apuntaba a datos de
+ * una máquina de desarrollo —los ids públicos de "sae" y "cima", el correo de
+ * `betosimon@sae.com.mx` y el de un root concreto— y sobre una BD recién
+ * sembrada la empresa 6 no existe: el `insert` del setup moría por llave
+ * foránea y japa marcaba el grupo entero como "Setup hook" fallido. Los cinco
+ * casos llevaban tiempo sin ejercitar una sola línea de aislamiento sin que el
+ * conteo de la suite lo delatara, porque un grupo que no arranca no reporta
+ * tests fallidos: reporta cero tests.
+ *
+ * Los dos sentidos se prueban con actores distintos a propósito:
+ *  - el de la empresa A tiene un rol propio con `repse-registrations:read` y
+ *    nada más, que es el caso real de un usuario de cliente;
+ *  - el `root` no prueba RBAC (lo saltea), prueba la regla 4: aun con acceso
+ *    total, ve solo la empresa que trae seleccionada en el header.
  */
 
-const BU1_PUBLIC_ID = 'a76db057-2292-49a0-9f1b-911e328d93b0' // sae
-const BU6_PUBLIC_ID = '8c3617a4-c942-4ba7-aee6-2ac32d4ab5ef' // cima
+const MODULE_SLUG = 'repse-registrations'
 
-async function getUserByEmail(email: string): Promise<User> {
-  return User.query().whereNull('user_deleted_at').where('user_email', email).firstOrFail()
+let empresaA: TenantActor | null = null
+let empresaB: TenantActor | null = null
+let root: TenantActor | null = null
+let registroA: RepseRegistration | null = null
+let registroB: RepseRegistration | null = null
+
+function folioUnico(prefijo: string): string {
+  return `TEST-${prefijo}-${Date.now()}-${Math.floor(Math.random() * 100_000)}`
 }
 
-test.group('REPSE — registros y empresas contratantes con scope central (BD real)', (group) => {
-  let bu1RegistrationId: number
-  let bu6RegistrationId: number
+async function crearRegistro(businessUnitId: number, prefijo: string): Promise<RepseRegistration> {
+  const registro = new RepseRegistration()
+  registro.businessUnitId = businessUnitId
+  registro.folio = folioUnico(prefijo)
+  registro.registeredAt = DateTime.now()
+  registro.expiresAt = DateTime.now().plus({ years: 1 })
+  registro.status = 'active'
+  await registro.save()
+  return registro
+}
 
+function headerDe(actor: TenantActor): string {
+  return actor.businessUnit.businessUnitPublicId
+}
+
+test.group('REPSE — registros con scope central (BD real)', (group) => {
   group.setup(async () => {
-    const bu1 = new RepseRegistration()
-    bu1.businessUnitId = 1
-    bu1.folio = `TEST-BU1-${Date.now()}`
-    bu1.registeredAt = DateTime.now()
-    bu1.expiresAt = DateTime.now().plus({ years: 1 })
-    bu1.status = 'active'
-    await bu1.save()
-    bu1RegistrationId = bu1.repseRegistrationId
+    empresaA = await createTenantActor('repse-scope-a')
+    empresaB = await createTenantActor('repse-scope-b')
+    root = await createBypassActor('root', 'repse-scope-root')
 
-    const bu6 = new RepseRegistration()
-    bu6.businessUnitId = 6
-    bu6.folio = `TEST-BU6-${Date.now()}`
-    bu6.registeredAt = DateTime.now()
-    bu6.expiresAt = DateTime.now().plus({ years: 1 })
-    bu6.status = 'active'
-    await bu6.save()
-    bu6RegistrationId = bu6.repseRegistrationId
+    // El usuario de la empresa A solo puede leer registros REPSE: el resto del
+    // módulo le queda cerrado, para que un 200 aquí signifique "su empresa" y
+    // no "tiene de todo".
+    await grantModulePermissions(empresaA, MODULE_SLUG, ['read'])
+
+    registroA = await crearRegistro(empresaA.businessUnit.businessUnitId, 'A')
+    registroB = await crearRegistro(empresaB.businessUnit.businessUnitId, 'B')
   })
 
   group.teardown(async () => {
-    if (bu1RegistrationId) {
-      await RepseRegistration.query().where('repseRegistrationId', bu1RegistrationId).delete()
-    }
-    if (bu6RegistrationId) {
-      await RepseRegistration.query().where('repseRegistrationId', bu6RegistrationId).delete()
-    }
-  })
-
-  test('usuario BU1 ve su propio registro REPSE', async ({ client, assert }) => {
-    const user = await getUserByEmail('betosimon@sae.com.mx')
-
-    const response = await client
-      .get(`/api/repse-registrations/${bu1RegistrationId}`)
-      .loginAs(user)
-      .header('X-Business-Unit-Id', BU1_PUBLIC_ID)
-
-    response.assertStatus(200)
-    assert.equal(response.body().data.repseRegistration.repseRegistrationId, bu1RegistrationId)
-  })
-
-  test('usuario BU1 recibe 404 uniforme al pedir el registro REPSE de BU6', async ({
-    client,
-  }) => {
-    const user = await getUserByEmail('betosimon@sae.com.mx')
-
-    const response = await client
-      .get(`/api/repse-registrations/${bu6RegistrationId}`)
-      .loginAs(user)
-      .header('X-Business-Unit-Id', BU1_PUBLIC_ID)
-
-    response.assertStatus(404)
-    response.assertBodyContains({ key: 'repse-no-encontrado' })
-  })
-
-  // jdsimon (rol "administrador") no tiene el permiso granular del módulo
-  // compliance-repse en esta BD — un hallazgo de RBAC ajeno a esta HU. Se usa
-  // un usuario root (bypass de RBAC + acceso total vía selección, regla 4)
-  // para probar la dirección BU6 -> BU1, que además valida esa regla.
-  test('root con BU6 seleccionada ve el registro REPSE de BU6 (acceso total vía selección)', async ({
-    client,
-    assert,
-  }) => {
-    const user = await getUserByEmail('wramirez@siler-mx.com')
-
-    const response = await client
-      .get(`/api/repse-registrations/${bu6RegistrationId}`)
-      .loginAs(user)
-      .header('X-Business-Unit-Id', BU6_PUBLIC_ID)
-
-    response.assertStatus(200)
-    assert.equal(response.body().data.repseRegistration.repseRegistrationId, bu6RegistrationId)
-  })
-
-  test('root con BU6 seleccionada recibe 404 uniforme al pedir el registro de BU1', async ({
-    client,
-  }) => {
-    const user = await getUserByEmail('wramirez@siler-mx.com')
-
-    const response = await client
-      .get(`/api/repse-registrations/${bu1RegistrationId}`)
-      .loginAs(user)
-      .header('X-Business-Unit-Id', BU6_PUBLIC_ID)
-
-    response.assertStatus(404)
-    response.assertBodyContains({ key: 'repse-no-encontrado' })
-  })
-
-  test('sin SYSTEM_BUSINESS: el helper resuelve del TenantContext, no de la env', ({
-    assert,
-  }) => {
-    const content = readFileSync(
-      join(process.cwd(), 'app/helpers/repse_tenant_scope.ts'),
-      'utf-8'
+    // Los registros primero: cuelgan de la empresa por llave foránea y
+    // `cleanupTenantActor` borra la empresa.
+    const ids = [registroA?.repseRegistrationId, registroB?.repseRegistrationId].filter(
+      (id): id is number => typeof id === 'number'
     )
+    if (ids.length > 0) {
+      await RepseRegistration.query().whereIn('repse_registration_id', ids).delete()
+    }
+    registroA = null
+    registroB = null
+
+    await cleanupTenantActor(empresaA)
+    await cleanupTenantActor(empresaB)
+    await cleanupTenantActor(root)
+    empresaA = null
+    empresaB = null
+    root = null
+  })
+
+  test('un usuario ve el registro REPSE de su propia empresa', async ({ client, assert }) => {
+    const response = await client
+      .get(`/api/repse-registrations/${registroA!.repseRegistrationId}`)
+      .loginAs(empresaA!.user)
+      .header('X-Business-Unit-Id', headerDe(empresaA!))
+
+    response.assertStatus(200)
+    assert.equal(
+      response.body().data.repseRegistration.repseRegistrationId,
+      registroA!.repseRegistrationId
+    )
+  })
+
+  test('un usuario recibe 404 uniforme al pedir el registro REPSE de otra empresa', async ({
+    client,
+  }) => {
+    const response = await client
+      .get(`/api/repse-registrations/${registroB!.repseRegistrationId}`)
+      .loginAs(empresaA!.user)
+      .header('X-Business-Unit-Id', headerDe(empresaA!))
+
+    response.assertStatus(404)
+    response.assertBodyContains({ key: 'repse-no-encontrado' })
+  })
+
+  test('root con la empresa B seleccionada ve el registro de B (acceso total vía selección)', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`/api/repse-registrations/${registroB!.repseRegistrationId}`)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', headerDe(empresaB!))
+
+    response.assertStatus(200)
+    assert.equal(
+      response.body().data.repseRegistration.repseRegistrationId,
+      registroB!.repseRegistrationId
+    )
+  })
+
+  test('root con la empresa B seleccionada recibe 404 al pedir el registro de A', async ({
+    client,
+  }) => {
+    const response = await client
+      .get(`/api/repse-registrations/${registroA!.repseRegistrationId}`)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', headerDe(empresaB!))
+
+    response.assertStatus(404)
+    response.assertBodyContains({ key: 'repse-no-encontrado' })
+  })
+
+  test('sin SYSTEM_BUSINESS: el helper resuelve del TenantContext, no de la env', ({ assert }) => {
+    const content = readFileSync(join(process.cwd(), 'app/helpers/repse_tenant_scope.ts'), 'utf-8')
     assert.notInclude(content, 'SYSTEM_BUSINESS')
     assert.include(content, 'TenantContext.getScope()')
   })

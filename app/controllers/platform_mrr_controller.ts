@@ -61,6 +61,13 @@ export default class PlatformMrrController {
    *       monedas informa cuántas suscripciones hay por moneda contratada: la suma NO se
    *       agrupa por moneda, es un supuesto declarado y más de un elemento significa que la
    *       cifra cruza monedas.
+   *       concentracion reparte el actual neto entre grupos económicos, con una sola entrada
+   *       que agrupa a todos los clientes sin grupo. La suma de los importes del reparto es
+   *       exactamente mrrActualNetoCents porque salen de la misma consulta; la suma de los
+   *       porcentajes puede no dar 100.0 por el redondeo y no se fuerza. Un grupo dado de baja
+   *       no aparece: sus clientes cuentan bajo Sin grupo y su ingreso nunca sale del reparto.
+   *       Un grupo apagado sí aparece, porque sigue concentrando ingreso. No hay umbrales,
+   *       semáforos ni alertas de concentración.
    *       Se resuelve en el momento de la consulta: sin caché, sin cierre guardado y sin
    *       proceso programado. Es un agregado: no publica empresas, identificadores internos
    *       ni información fiscal.
@@ -112,6 +119,69 @@ export default class PlatformMrrController {
    *                             example: MXN
    *                           suscripciones:
    *                             type: integer
+   *                     concentracion:
+   *                       type: object
+   *                       description: |
+   *                         Reparto del ingreso mensual recurrente actual neto entre grupos
+   *                         económicos. La suma de los importes de todas las unidades es
+   *                         EXACTAMENTE mrrActualNetoCents: las dos cifras se calculan en la
+   *                         misma consulta y sobre el mismo corte, así que cuadran por
+   *                         construcción. La suma de los porcentajes puede no dar 100.0 por el
+   *                         redondeo a un decimal y eso es correcto: lo que cuadra es el dinero.
+   *                         El proyectado de las suscripciones en prueba NO entra en el reparto.
+   *                         Es un agregado: no publica identificadores ni nombres de clientes.
+   *                       properties:
+   *                         base:
+   *                           type: string
+   *                           enum: [mrr-actual-neto]
+   *                           description: |
+   *                             Declara en el propio payload sobre qué cifra se reparte, para que
+   *                             nadie lo confunda con el proyectado de pruebas.
+   *                         unidades:
+   *                           type: array
+   *                           description: |
+   *                             Una entrada por grupo económico con ingreso activo, más una sola
+   *                             entrada con todos los clientes que no pertenecen a ningún grupo.
+   *                             Ordenadas por importe descendente, desempate por nombre. La
+   *                             entrada Sin grupo NO se fija al final: compite por importe como
+   *                             cualquier otra. Las unidades sin ingreso activo no se listan.
+   *                             Llega vacío cuando no hay ninguna suscripción activa.
+   *                           items:
+   *                             type: object
+   *                             properties:
+   *                               tipo:
+   *                                 type: string
+   *                                 enum: [grupo, sin-grupo]
+   *                               platformTenantGroupId:
+   *                                 type: integer
+   *                                 nullable: true
+   *                                 description: null cuando tipo es sin-grupo.
+   *                               nombre:
+   *                                 type: string
+   *                                 description: |
+   *                                   Nombre del grupo económico, o "Sin grupo" en la bolsa. Es
+   *                                   dato interno de GSTI y solo aparece dentro de /api/platform.
+   *                                 example: Grupo Norte
+   *                               tenants:
+   *                                 type: integer
+   *                                 description: Clientes distintos con ingreso activo dentro de la unidad.
+   *                               mrrNetoCents:
+   *                                 type: integer
+   *                                 description: Importe de la unidad SIN IVA, en centavos.
+   *                               participacionPct:
+   *                                 type: number
+   *                                 format: float
+   *                                 description: |
+   *                                   Parte del total que aporta la unidad, en por ciento con un
+   *                                   decimal. Se deriva del importe, nunca al revés, y no se
+   *                                   ajusta para que la suma dé 100.0.
+   *                                 example: 31.4
+   *                         gruposOmitidosSinMrr:
+   *                           type: integer
+   *                           description: |
+   *                             Grupos económicos vivos que no aparecen en unidades porque no
+   *                             tienen ningún cliente con suscripción activa. Se informan en vez
+   *                             de ensuciar la lectura con barras en cero.
    *                     calculadoAl:
    *                       type: string
    *                       format: date
@@ -166,11 +236,13 @@ export default class PlatformMrrController {
    *   Borradas fuera; empresa desactivada pero no borrada sí cuenta.\
    *   Las dos cifras van SIN impuestos, al revés que la deuda vencida.\
    *   Se resuelve en el momento de la consulta, sin caché ni proceso programado.\
+   *   concentracion reparte el actual neto entre grupos económicos y una sola bolsa Sin grupo: la\
+   *   suma de sus importes es exactamente mrrActualNetoCents; la de sus porcentajes puede no dar 100.\
    *   Es un agregado: no publica empresas, identificadores internos ni información fiscal.
    * @tag Platform · Métricas
    * @operationId getPlatformMrr
    * @security [{"bearerAuth": []}]
-   * @responseBody 200 - {"type": "success", "data": {"mrrActualNetoCents": 1250000, "suscripcionesActivas": 4, "mrrProyectadoTrialCents": 200000, "suscripcionesEnPrueba": 1, "monedas": [{"codigo": "MXN", "suscripciones": 5}], "calculadoAl": "2026-09-08"}}
+   * @responseBody 200 - {"type": "success", "data": {"mrrActualNetoCents": 325000, "suscripcionesActivas": 5, "mrrProyectadoTrialCents": 200000, "suscripcionesEnPrueba": 1, "monedas": [{"codigo": "MXN", "suscripciones": 6}], "concentracion": {"base": "mrr-actual-neto", "unidades": [{"tipo": "grupo", "platformTenantGroupId": 7, "nombre": "Grupo Norte", "tenants": 2, "mrrNetoCents": 130000, "participacionPct": 40.0}, {"tipo": "sin-grupo", "platformTenantGroupId": null, "nombre": "Sin grupo", "tenants": 2, "mrrNetoCents": 130000, "participacionPct": 40.0}, {"tipo": "grupo", "platformTenantGroupId": 9, "nombre": "Grupo Sur", "tenants": 1, "mrrNetoCents": 65000, "participacionPct": 20.0}], "gruposOmitidosSinMrr": 1}, "calculadoAl": "2026-09-11"}}
    * @responseBody 403 - {"title": "string", "detail": "string", "key": "AUTH.PLATFORM.FORBIDDEN"}
    * @responseBody 500 - {"title": "string", "detail": "string", "key": "error-inesperado-al-obtener-el-ingreso-mensual-recurrente", "code": "PLT.MET.SYS_UNHANDLED"}
    */

@@ -16,7 +16,8 @@ const PII_ACCESS_LOG_READ_PERMISSION: PermissionGateOptions = {
 
 /**
  * Exige el permiso `read` del módulo `sensitive-data-access-log` con
- * `evaluateEnforced`: el interruptor apagado no otorga.
+ * `evaluateEnforced`: el interruptor de exigencia del módulo —hoy encendido— no
+ * participa, así que apagarlo en BD nunca otorga esta lectura.
  * Reusa `ctx.permissionGate` si el middleware de scope ya lo pobló.
  */
 export async function ensurePiiAccessLogRead(ctx: HttpContext): Promise<void> {
