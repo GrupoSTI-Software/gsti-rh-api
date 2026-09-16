@@ -16,7 +16,7 @@ export default class Nom035DisclosureController {
     if (user.role?.roleSlug === 'root') return true
 
     const roleService = new RoleService()
-    return roleService.hasAccess(user.roleId, 'nom035-disclosure', 'read')
+    return roleService.hasAccess(user.roleId, 'disclosure', 'read')
   }
 
   /**

@@ -3,6 +3,12 @@ import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import TeleworkPolicy from '#models/telework_policy'
+import RoleSystemPermission from '#models/role_system_permission'
+import {
+  grantModuleAction,
+  type ModuleActionGrant,
+} from './employees/sensitive_read_by_category_support.js'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — editor del borrador de la Política de Teletrabajo
@@ -26,15 +32,15 @@ import TeleworkPolicy from '#models/telework_policy'
  */
 
 const TEST_PASSWORD = 'TeleworkPolicyTest123!'
-const ROOT_ROLE_ID = 3
-const NO_PERMISSION_ROLE_ID = 4 // empleado: no tiene el permiso 'telework-policy'
+const ROOT_ROLE = 'root'
+const NO_PERMISSION_ROLE = 'empleado' // no tiene el permiso 'telework-policy'
 
 interface TestActor {
   user: User
   person: Person
 }
 
-async function createTestActor(roleId: number, emailPrefix: string): Promise<TestActor> {
+async function createTestActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TestActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
 
@@ -49,7 +55,8 @@ async function createTestActor(roleId: number, emailPrefix: string): Promise<Tes
   user.userEmail = email
   user.userPassword = TEST_PASSWORD
   user.userActive = 1
-  user.roleId = roleId
+  const role = await ensureRole(roleSlug)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -104,7 +111,7 @@ test.group('TeleworkPolicy - sin permiso (403)', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    actor = await createTestActor(NO_PERMISSION_ROLE_ID, 'no-permiso')
+    actor = await createTestActor(NO_PERMISSION_ROLE, 'no-permiso')
     businessUnit = await getPrimaryBusinessUnit()
     await actor.user.related('businessUnits').attach([businessUnit.businessUnitId])
   })
@@ -182,11 +189,12 @@ test.group('TeleworkPolicy - sin permiso (403)', (group) => {
 })
 
 test.group('TeleworkPolicy - aislamiento entre empresas', (group) => {
-  const RH_MANAGER_ROLE_ID = 2
+  const RH_MANAGER_ROLE = 'rh-manager'
 
   let rhManagerA: TestActor | null = null
   let businessUnitA: BusinessUnit | null = null
   let businessUnitB: BusinessUnit | null = null
+  let readGrant: ModuleActionGrant | null = null
 
   group.setup(async () => {
     businessUnitA = await getPrimaryBusinessUnit()
@@ -201,11 +209,20 @@ test.group('TeleworkPolicy - aislamiento entre empresas', (group) => {
 
     // El usuario solo tiene asignada la empresa A (regla de negocio 7:
     // aislamiento por empresa) — nunca la B.
-    rhManagerA = await createTestActor(RH_MANAGER_ROLE_ID, 'rh-manager-a')
+    rhManagerA = await createTestActor(RH_MANAGER_ROLE, 'rh-manager-a')
     await rhManagerA.user.related('businessUnits').attach([businessUnitA.businessUnitId])
+    // El control positivo necesita telework-policy:read. Ya no llega sembrado: se
+    // concede por slug y se retira al terminar, porque rh-manager es un rol compartido.
+    readGrant = await grantModuleAction(rhManagerA.user.roleId, 'telework-policy', 'read')
   })
 
   group.teardown(async () => {
+    // Solo si este grupo la creó: una concesión previa sobre el rol compartido se queda.
+    if (readGrant?.created) {
+      await RoleSystemPermission.query()
+        .where('role_system_permission_id', readGrant.grant.roleSystemPermissionId)
+        .delete()
+    }
     await cleanupTestActor(rhManagerA)
     if (businessUnitB) {
       await BusinessUnit.query().where('business_unit_id', businessUnitB.businessUnitId).delete()
@@ -255,7 +272,7 @@ test.group('TeleworkPolicy - aislamiento entre empresas', (group) => {
 
 test.group('TeleworkPolicy - header X-Business-Unit-Id', () => {
   test('responde 400 cuando falta el header X-Business-Unit-Id', async ({ client, assert }) => {
-    const actor = await createTestActor(ROOT_ROLE_ID, 'header-missing')
+    const actor = await createTestActor(ROOT_ROLE, 'header-missing')
     try {
       const response = await client.get('/api/nom037/telework-policy').loginAs(actor.user)
       response.assertStatus(400)
@@ -271,7 +288,7 @@ test.group('TeleworkPolicy - flujo completo (root)', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root')
+    root = await createTestActor(ROOT_ROLE, 'root')
     businessUnit = await getPrimaryBusinessUnit()
 
     // Determinismo: garantiza que la empresa arranca sin ninguna política previa

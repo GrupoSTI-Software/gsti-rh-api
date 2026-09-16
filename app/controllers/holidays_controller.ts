@@ -254,6 +254,8 @@ export default class HolidayController {
    *                   example: Resource fetched
    *                 data:
    *                   $ref: '#/components/schemas/Holiday'
+   *       403:
+   *         description: Sin permiso `calendar:read` (negativa del permissionGate, key `PERM.DENIED`)
    *       404:
    *         description: Resource not found
    */

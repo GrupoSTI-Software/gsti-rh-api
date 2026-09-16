@@ -7,6 +7,13 @@ import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import RolePresetService from '#services/role_preset_service'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import {
+  cleanupTenantActor,
+  createTenantActor,
+  grantModulePermissions,
+  type TenantActor as GateActor,
+} from '#tests/helpers/tenant_actor'
 
 const TEST_PASSWORD = 'RolePresetsTest123!'
 
@@ -16,13 +23,10 @@ interface TenantActor {
   businessUnit: BusinessUnit
 }
 
-async function createActor(roleSlug: string, emailPrefix: string): Promise<TenantActor> {
+async function createActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).first()
-  if (!role) {
-    throw new Error(`Se requiere el rol "${roleSlug}" en BD para este test.`)
-  }
+  const role = await ensureRole(roleSlug)
 
   const person = await Person.create({
     personFirstname: 'RolePresets',
@@ -84,7 +88,7 @@ async function permissionId(moduleSlug: string, permissionSlug: string): Promise
 test.group('Role presets HTTP (USRH1785766406742)', (group) => {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   let actor: TenantActor | null = null
-  let nonRootActor: TenantActor | null = null
+  let nonRootActor: GateActor | null = null
   let targetRole: Role
   let ownerRole: Role
   let testModule: SystemModule
@@ -94,7 +98,10 @@ test.group('Role presets HTTP (USRH1785766406742)', (group) => {
 
   group.setup(async () => {
     actor = await createActor('root', 'role-presets-root')
-    nonRootActor = await createActor('rh-manager', 'role-presets-rh')
+    // Rol propio con roles-and-permissions:update: cruza el gate de plantillas y
+    // deja que el caso pruebe el bloqueo de roles de sistema.
+    nonRootActor = await createTenantActor('role-presets-admin')
+    await grantModulePermissions(nonRootActor, 'roles-and-permissions', ['update'])
     targetRole = await Role.create({
       roleName: `Test Role Presets ${stamp}`,
       roleSlug: `test-role-presets-${stamp}`,
@@ -103,10 +110,7 @@ test.group('Role presets HTTP (USRH1785766406742)', (group) => {
       roleBusinessAccess: `${actor!.businessUnit.businessUnitSlug},${nonRootActor!.businessUnit.businessUnitSlug}`,
       roleManagementDays: 10,
     })
-    ownerRole = await Role.query()
-      .whereNull('role_deleted_at')
-      .where('role_slug', 'owner')
-      .firstOrFail()
+    ownerRole = await ensureRole('owner')
     testModule = await SystemModule.create({
       systemModuleName: 'Role Presets Test Module',
       systemModuleSlug: `role-presets-test-module-${stamp}`,
@@ -136,7 +140,7 @@ test.group('Role presets HTTP (USRH1785766406742)', (group) => {
     await SystemPermission.query().where('system_module_id', testModule.systemModuleId).delete()
     await SystemModule.query().where('system_module_id', testModule.systemModuleId).delete()
     await cleanupActor(actor)
-    await cleanupActor(nonRootActor)
+    await cleanupTenantActor(nonRootActor)
   })
 
   test('GET lista las cuatro plantillas con versión y cantidad de permisos', async ({

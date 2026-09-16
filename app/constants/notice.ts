@@ -79,10 +79,11 @@ export const NOTICE_SEND_MODE_VALUES = [
 ] as const
 
 /**
- * Slug del módulo en `system_modules` (fila 32, `0017_system_module_seeder`).
+ * Slug del módulo en `system_modules`, declarado en
+ * `app/constants/system_modules_menu/system_modules.constant.ts`.
  * Único lugar canónico para las declaraciones del gate de permisos.
  */
-export const NOTICE_PERMISSION_MODULE_SLUG = 'avisos-y-noticias'
+export const NOTICE_PERMISSION_MODULE_SLUG = 'notices'
 
 /**
  * Tope del mensaje de un aviso de texto, medido sobre el texto plano (sin

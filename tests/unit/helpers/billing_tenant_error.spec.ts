@@ -11,6 +11,7 @@ import {
   mapCatalogErrorForPublicSurface,
   noLiveSubscriptionChangeError,
   noLiveSubscriptionError,
+  onlyAccountOwnerCanContractError,
   onlyAccountOwnerError,
   originNotSelfServiceError,
   periodNotProratableError,
@@ -174,6 +175,16 @@ test.group('billing_tenant_error — previsualización de cambio (USRH1786107870
     assert.equal(error.key, 'solo-el-dueno-de-la-cuenta')
     assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE)
     assert.equal(error.httpStatus, 403)
+  })
+
+  test('onlyAccountOwnerCanContractError conserva code y key y habla de contratar', ({
+    assert,
+  }) => {
+    const error = onlyAccountOwnerCanContractError()
+    assert.equal(error.key, 'solo-el-dueno-de-la-cuenta')
+    assert.equal(error.errorCode, BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE)
+    assert.equal(error.httpStatus, 403)
+    assert.include(error.message, 'contratar la suscripción')
   })
 })
 

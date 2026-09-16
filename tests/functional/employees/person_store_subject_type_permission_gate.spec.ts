@@ -193,12 +193,22 @@ test.group('Alta/listado persona — exigencia ON', (group) => {
     }
   })
 
-  test('ausente, collaborator y valor-invalido sin write dan 403 y no crean fila', async ({
+  test('ausente, collaborator, valor-invalido y destinos de aviación sin write dan 403 y no crean fila', async ({
     client,
     assert,
   }) => {
     await grantEmployeesOnly(actor!.role.roleId, [])
-    for (const subject of [undefined, 'collaborator', 'valor-invalido'] as const) {
+    // customer, flight-attendant y pilot se retiraron con aviación: ya no
+    // eximen de tab-persona-write.
+    const subjects = [
+      undefined,
+      'collaborator',
+      'valor-invalido',
+      'customer',
+      'flight-attendant',
+      'pilot',
+    ] as const
+    for (const subject of subjects) {
       const payload = personPayload(`on-${String(subject)}`, subject)
       const before = await countByEmail(payload.personEmail)
       const response = await client.post('/api/persons').loginAs(actor!.user).json(payload)
@@ -216,10 +226,13 @@ test.group('Alta/listado persona — exigencia ON', (group) => {
     assert.equal(await countByEmail(payload.personEmail), 0)
   })
 
-  test('destinos no colaborador no exigen tab-persona-write', async ({ client, assert }) => {
+  test('system-user, el único destino no colaborador vivo, no exige tab-persona-write', async ({
+    client,
+    assert,
+  }) => {
     // Aísla tab-persona-write de EMP.SENS.WRITE.FORBIDDEN sobre personEmail.
     await grantEmployeesOnly(actor!.role.roleId, ['sensitive-contacto-write'])
-    for (const subject of ['customer', 'flight-attendant', 'pilot', 'system-user'] as const) {
+    for (const subject of ['system-user'] as const) {
       const payload = personPayload(`on-${subject}`, subject)
       createdEmails.push(payload.personEmail)
       const response = await client.post('/api/persons').loginAs(actor!.user).json(payload)

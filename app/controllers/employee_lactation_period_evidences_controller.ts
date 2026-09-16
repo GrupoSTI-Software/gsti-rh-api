@@ -14,7 +14,9 @@ import { StandardResponseFormatter } from '../helpers/standard_response_formatte
  * las evidencias no tienen módulo propio en `system_modules`, viven embebidas
  * en el apartado "Información del empleado". Por eso los checks de RBAC se
  * hacen contra el módulo `employees`:
- *  - listar / consultar / descargar  → permiso `read`.
+ *  - listar / consultar → permiso `read`.
+ *  - descargar → solo el gate de la ruta (`tab-periodos-lactancia-read`); el
+ *    `read` del listado general no alcanza para firmar URLs de datos de salud.
  *  - subir / eliminar → permiso `update-information`
  *    (mismo permiso que usa el CRUD del propio periodo).
  */
@@ -191,7 +193,7 @@ export default class EmployeeLactationPeriodEvidencesController {
    *                 downloadUrl: { type: string }
    *                 expiresInSeconds: { type: integer }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'read' }
+   *       '403': { description: Sin permiso 'tab-periodos-lactancia-read' en el módulo employees (key PERM.DENIED) }
    *       '404': { description: Periodo o evidencia inexistente }
    *       '500':
    *         description: Fallo al firmar la URL (key `lactation-evidence-download-failed`)
@@ -200,7 +202,8 @@ export default class EmployeeLactationPeriodEvidencesController {
     const { params, response } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx, 'read'))) return
+      // Sin `assertHasPermission`: el gate de la ruta exige la pestaña de
+      // lactancia, que es lo que el BO usa para mostrar las evidencias.
 
       const periodId = this.parseResourceId(params.periodId)
       const evidenceId = this.parseResourceId(params.evidenceId)

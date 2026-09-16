@@ -39,6 +39,8 @@ interface Options {
 function makeRepository(options: Options = {}) {
   const saved: DeviceCommand[] = []
   const excludedSeen: string[][] = []
+  /** Cuantas veces se intento rescatar lo que salio sin acuse. */
+  let requeueCalls = 0
   const repository: DeviceCommandRepository = {
     async enqueueIdempotent() {
       return { command: commandOf(), created: true }
@@ -61,6 +63,10 @@ function makeRepository(options: Options = {}) {
     },
     async hasInFlight() {
       return options.inFlight === true
+    },
+    async requeueStaleInFlight() {
+      requeueCalls += 1
+      return { requeued: 0, failed: 0 }
     },
     async listByDevice() {
       return []
@@ -104,7 +110,7 @@ function makeRepository(options: Options = {}) {
       saved.push(command)
     },
   }
-  return { repository, saved, excludedSeen }
+  return { repository, saved, excludedSeen, requeueCount: () => requeueCalls }
 }
 
 test.group('Despacho de comandos', () => {
@@ -119,6 +125,21 @@ test.group('Despacho de comandos', () => {
     assert.equal(line, 'C:1788912000000:DATA DELETE USERINFO PIN=9999')
     assert.equal(saved[0].deviceCommandStatus, 'sent')
     assert.equal(saved[0].deviceCommandSentAt, NOW)
+  })
+
+  /**
+   * El caso real del 2026-09-11: una peticion de prueba se llevo un comando y
+   * nunca lo acuso. Como solo se despacha uno a la vez, la cola de ese equipo
+   * quedo taponada casi dos horas -- el checador sondeando, el servidor
+   * contestando OK, y ninguna alta saliendo.
+   */
+  test('antes de mirar la cola rescata lo que salio y nadie acuso', async ({ assert }) => {
+    const { repository, requeueCount } = makeRepository({ pending: commandOf() })
+    const service = new CommandDispatchService(repository)
+
+    await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
+
+    assert.equal(requeueCount(), 1, 'sin esto, un acuse perdido deja al equipo mudo para siempre')
   })
 
   test('con uno en vuelo no entrega otro: el equipo perderia el primero', async ({ assert }) => {
@@ -326,7 +347,7 @@ test.group('Acuse de comandos', () => {
     assert.equal(saved[0].deviceCommandLastError, 'template_version_mismatch')
   })
 
-  test('un codigo fuera del catalogo se marca como desconocido, no se ignora', async ({
+  test('un codigo fuera del catalogo se marca como desconocido con su numero', async ({
     assert,
   }) => {
     const command = commandOf({ deviceCommandStatus: DEVICE_COMMAND_STATUS.SENT })
@@ -337,7 +358,13 @@ test.group('Acuse de comandos', () => {
       body: 'ID=1788912000000&Return=-77&CMD=DATA',
       now: NOW,
     })
-    assert.equal(saved[0].deviceCommandLastError, 'unknown_return_code')
+    /**
+     * El numero va pegado: sin el, todos los codigos no medidos dicen lo mismo
+     * y el siguiente que lea la fila no tiene con que buscar. Se midio `-1005`
+     * en `enroll_fp` justo asi, indistinguible de cualquier otro.
+     */
+    assert.equal(saved[0].deviceCommandLastError, 'unknown_return_code:-77')
+    assert.equal(saved[0].deviceCommandReturnCode, -77)
   })
 
   test('un acuse de otro dispositivo no se aplica', async ({ assert }) => {
