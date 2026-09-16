@@ -13,9 +13,10 @@ import PermissionGateService from '#services/permission_gate_service'
  * exige.
  *
  * A diferencia de `ensureEmployeeTabRead`, resuelve con `evaluateEnforced`: el
- * dato es biométrico y el interruptor de exigencia del módulo `employees` está
- * apagado, así que honrarlo dejaría la foto de cualquiera al alcance de
- * cualquier sesión autenticada de la misma unidad.
+ * dato es biométrico y no puede colgar del interruptor de exigencia del módulo
+ * `employees` —hoy encendido—, porque honrarlo dejaría la foto de cualquiera al
+ * alcance de cualquier sesión autenticada de la misma unidad el día que alguien
+ * lo apagara en BD.
  *
  * [employeeId] dueño de la foto que se pide, tal como viene en la ruta.
  * [options] permiso de administración que se exige a quien no es el dueño.

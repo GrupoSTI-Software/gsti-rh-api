@@ -1,5 +1,4 @@
 import { DateTime } from 'luxon'
-import { buildEmployeeDisplayName, resolveEffectiveBranchId } from './attendance-stats.coverage.js'
 import { classifyDay, enumerateDays, isEvaluableDay } from './attendance-stats.rules.js'
 import type {
   AbsencesBranch,
@@ -7,6 +6,7 @@ import type {
   AbsencesDay,
   AbsencesEmployee,
   AbsencesResponse,
+  CoverageActiveLoanRow,
   CoverageRangeLoanRow,
   EmployeeCalendarBundle,
   EmployeeInfo,
@@ -18,6 +18,32 @@ import type {
  * calendario; el calendario SQL crece con colaboradores por días.
  */
 export const ABSENCES_MAX_RANGE_DAYS = 62
+
+/** Nombre completo del colaborador (nombre y apellidos presentes, separados por espacio). */
+export function buildEmployeeDisplayName(employee: EmployeeInfo): string {
+  return [employee.employeeFirstName, employee.employeeLastName, employee.employeeSecondLastName]
+    .filter((part) => part && part.trim().length > 0)
+    .join(' ')
+    .trim()
+}
+
+/**
+ * Sucursal efectiva del colaborador dado el préstamo que lo mueve ese día: el
+ * destino del préstamo o, sin préstamo, su sucursal base. Solo resuelve la
+ * sucursal; elegir el préstamo cuando hay varios vigentes le toca al llamador
+ * (`selectLoanForDay`, que se queda con el de start_date más reciente y,
+ * empatando, con el de id mayor).
+ *
+ * Vivía en el motor de cobertura; al retirarse ese endpoint se mudó aquí, que
+ * es su único consumidor, para no dejar un módulo suelto solo por dos funciones.
+ */
+export function resolveEffectiveBranchId(
+  homeBranchId: number | null | undefined,
+  loan: CoverageActiveLoanRow | undefined
+): number | null {
+  if (loan) return loan.targetBranchId
+  return homeBranchId ?? null
+}
 
 /**
  * Días del rango [startDay, endDay] contando ambos extremos. Devuelve `null`
@@ -34,10 +60,9 @@ export function countRangeDaysInclusive(startDay: string, endDay: string): numbe
 /**
  * Préstamo que mueve al colaborador el día `day`: vigente ese día
  * (start_date <= día <= end_date) y sin cancelar a esa fecha (cancelled_at nulo
- * o posterior al día, el mismo criterio que `getActiveLoansForDay`). Con varios
- * vigentes gana el de start_date más reciente y, empatando, el de id mayor, sin
- * importar el orden de entrada. Es el mismo desempate que la cobertura del día
- * obtiene del orden de `getActiveLoansForDay` al quedarse con el primero.
+ * o posterior al día, el mismo criterio con el que `getLoansForRange` los trae).
+ * Con varios vigentes gana el de start_date más reciente y, empatando, el de id
+ * mayor, sin importar el orden de entrada.
  */
 export function selectLoanForDay(
   loans: readonly CoverageRangeLoanRow[],

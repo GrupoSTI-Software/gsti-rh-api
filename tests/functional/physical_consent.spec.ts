@@ -8,6 +8,7 @@ import Employee from '#models/employee'
 import LegalDocument from '#models/legal_document'
 import UserConsent from '#models/user_consent'
 import PiiAccessLog from '#models/pii_access_log'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — consentimiento biométrico físico (USRH1784146205513).
@@ -32,9 +33,9 @@ import PiiAccessLog from '#models/pii_access_log'
  */
 
 const TEST_PASSWORD = 'PhysicalConsentTest123!'
-const ROOT_ROLE_ID = 3
-const NO_PERMISSION_ROLE_ID = 4 // empleado: no tiene el permiso 'register-physical-consent'
-const LINKED_USER_ROLE_ID = 4
+const ROOT_ROLE = 'root'
+const NO_PERMISSION_ROLE = 'empleado' // no tiene el permiso 'register-physical-consent'
+const LINKED_USER_ROLE = 'empleado'
 
 /** PNG 1x1 válido (magic bytes reales) — el bodyparser detecta el tipo por contenido, no por extensión. */
 const VALID_PNG_BUFFER = Buffer.from(
@@ -52,7 +53,7 @@ interface TestActor {
   person: Person
 }
 
-async function createTestActor(roleId: number, emailPrefix: string): Promise<TestActor> {
+async function createTestActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TestActor> {
   const stamp = uniqueStamp()
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
 
@@ -67,7 +68,8 @@ async function createTestActor(roleId: number, emailPrefix: string): Promise<Tes
   user.userEmail = email
   user.userPassword = TEST_PASSWORD
   user.userActive = 1
-  user.roleId = roleId
+  const role = await ensureRole(roleSlug)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -131,7 +133,8 @@ async function createEmployeeFixture(
     linkedUser.userEmail = `empleado-user-${prefix}-${stamp}@gsti-tests.local`
     linkedUser.userPassword = TEST_PASSWORD
     linkedUser.userActive = 1
-    linkedUser.roleId = LINKED_USER_ROLE_ID
+    const linkedUserRole = await ensureRole(LINKED_USER_ROLE)
+    linkedUser.roleId = linkedUserRole.roleId
     linkedUser.personId = person.personId
     linkedUser.userEmailType = 'institutional'
     await linkedUser.save()
@@ -217,7 +220,7 @@ test.group('PhysicalConsent - sin permiso (403 CSNT.FORB.001)', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    actor = await createTestActor(NO_PERMISSION_ROLE_ID, 'no-permiso')
+    actor = await createTestActor(NO_PERMISSION_ROLE, 'no-permiso')
     businessUnit = await getPrimaryBusinessUnit()
     await actor.user.related('businessUnits').attach([businessUnit.businessUnitId])
   })
@@ -262,7 +265,7 @@ test.group('PhysicalConsent - flujo completo (root, empleado sin usuario vincula
   let registeredUserConsentId: number | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root')
+    root = await createTestActor(ROOT_ROLE, 'root')
     businessUnit = await getPrimaryBusinessUnit()
     document = await createCurrentBiometricDocument('1.0')
     employeeFixture = await createEmployeeFixture(businessUnit.businessUnitId, 'sin-usuario', false)
@@ -403,7 +406,7 @@ test.group('PhysicalConsent - doble ancla (empleado con usuario vinculado)', (gr
   let employeeFixture: EmployeeFixture | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-doble-ancla')
+    root = await createTestActor(ROOT_ROLE, 'root-doble-ancla')
     businessUnit = await getPrimaryBusinessUnit()
     document = await createCurrentBiometricDocument('1.0')
     employeeFixture = await createEmployeeFixture(businessUnit.businessUnitId, 'con-usuario', true)
@@ -440,7 +443,7 @@ test.group('PhysicalConsent - sin versión vigente publicada (422 CSNT.VAL.003)'
   let employeeFixture: EmployeeFixture | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'sin-vigente')
+    root = await createTestActor(ROOT_ROLE, 'sin-vigente')
     businessUnit = await getPrimaryBusinessUnit()
     await ensureNoBiometricCurrentDocument()
     employeeFixture = await createEmployeeFixture(businessUnit.businessUnitId, 'sin-vigente', false)
@@ -477,7 +480,7 @@ test.group('PhysicalConsent - validaciones de versión y archivo (422)', (group)
   let employeeFixture: EmployeeFixture | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'validaciones')
+    root = await createTestActor(ROOT_ROLE, 'validaciones')
     businessUnit = await getPrimaryBusinessUnit()
     document = await createCurrentBiometricDocument('1.0')
     employeeFixture = await createEmployeeFixture(businessUnit.businessUnitId, 'validaciones', false)
@@ -565,7 +568,7 @@ test.group('PhysicalConsent - empleado fuera de scope o inexistente (404 CSNT.NF
   let employeeFixtureB: EmployeeFixture | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'fuera-de-scope')
+    root = await createTestActor(ROOT_ROLE, 'fuera-de-scope')
     businessUnitA = await getPrimaryBusinessUnit()
     businessUnitB = await createSecondaryBusinessUnit('fuera-de-scope')
     document = await createCurrentBiometricDocument('1.0')

@@ -7,10 +7,10 @@ export type PermissionGateBypass = 'standard' | 'expanded' | 'platformReserved' 
 
 /**
  * Contrato que cada operación protegida declara en el mismo lugar en que se
- * declara la ruta. `module` es un slug libre (no forzado al catálogo cerrado
- * de módulos): el módulo piloto de esta historia ('compliance-contratos')
- * no existe todavía en `system_modules` ni en el catálogo tipado, y forzar
- * el tipo rompería la declaración del piloto.
+ * declara la ruta. `module` es un slug libre (string, no el tipo cerrado del
+ * catálogo) para no acoplar las declaraciones de ruta al catálogo tipado. Si
+ * el slug no existe en `system_modules`, el gate lo trata como exigido y niega
+ * a quien no tenga salvoconducto (fail-closed, `permission_gate_service.ts`).
  */
 export interface PermissionGateOptions {
   module: string

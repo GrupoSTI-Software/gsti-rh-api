@@ -6,12 +6,21 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import SystemSetting from '#models/system_setting'
+import RoleSystemPermission from '#models/role_system_permission'
+import { assertPermissionDenied, grantRoleModulePermissions } from '#tests/helpers/tenant_actor'
 
 /**
  * USRH1789018905950 — `GET /api/system-settings/:systemSettingId` exige auth +
  * scope de empresa. Cubre CA-1 a CA-6 del spec (401, 400/404 de middleware,
  * lectura propia, 404 uniforme ajeno/inexistente/molde, log best-effort).
+ *
+ * Con la exigencia de `system-settings` encendida el rol limitado recibe
+ * `system-settings:read`: sin esa concesión el gate responde 403 antes de la
+ * verificación de scope que estos casos prueban. Un segundo actor sin
+ * concesiones confirma la negativa del gate.
  */
+
+const SYSTEM_SETTINGS_MODULE = 'system-settings'
 
 const TEST_PASSWORD = 'SystemSettingShow123!'
 const NON_EXISTENT_SYSTEM_SETTING_ID = 2_147_483_647
@@ -95,17 +104,28 @@ async function cleanupBusinessUnit(businessUnitId: number) {
   await BusinessUnit.query().where('business_unit_id', businessUnitId).delete()
 }
 
+/** Las concesiones referencian al rol: se borran antes que el rol. */
+async function cleanupRole(role: Role | null) {
+  if (!role?.roleId) return
+  await RoleSystemPermission.query().where('role_id', role.roleId).delete()
+  await Role.query().where('role_id', role.roleId).delete()
+}
+
 test.group('GET /api/system-settings/:systemSettingId — aislamiento por tenant', (group) => {
   let businessUnitA: BusinessUnit
   let businessUnitB: BusinessUnit
   let systemSettingA: SystemSetting
   let systemSettingB: SystemSetting
   let actorA: TestActor | null = null
+  let actorWithoutGrant: TestActor | null = null
   let limitedRole: Role | null = null
+  let ungrantedRole: Role | null = null
 
   group.setup(async () => {
     const stamp = Date.now()
     limitedRole = await createLimitedRole(String(stamp))
+    await grantRoleModulePermissions(limitedRole, SYSTEM_SETTINGS_MODULE, ['read'])
+    ungrantedRole = await createLimitedRole(`${stamp}-sin-concesion`)
 
     businessUnitA = await BusinessUnit.create({
       businessUnitName: `Show Settings BU A ${stamp}`,
@@ -142,6 +162,11 @@ test.group('GET /api/system-settings/:systemSettingId — aislamiento por tenant
     })
 
     actorA = await createActor('show-settings-a', [businessUnitA.businessUnitId], limitedRole)
+    actorWithoutGrant = await createActor(
+      'show-settings-sin-permiso',
+      [businessUnitA.businessUnitId],
+      ungrantedRole
+    )
   })
 
   group.teardown(async () => {
@@ -158,9 +183,9 @@ test.group('GET /api/system-settings/:systemSettingId — aislamiento por tenant
       await cleanupBusinessUnit(businessUnitB.businessUnitId)
     }
     await cleanupActor(actorA)
-    if (limitedRole?.roleId) {
-      await Role.query().where('role_id', limitedRole.roleId).delete()
-    }
+    await cleanupActor(actorWithoutGrant)
+    await cleanupRole(limitedRole)
+    await cleanupRole(ungrantedRole)
   })
 
   test('CA-1: sin Authorization responde 401 y no entrega la ficha', async ({ client, assert }) => {
@@ -271,6 +296,26 @@ test.group('GET /api/system-settings/:systemSettingId — aislamiento por tenant
       notFoundEnvelope(moldResponse.body())
     )
   })
+
+  test('sin system-settings:read la ficha propia y la ajena responden el mismo PERM.DENIED', async ({
+    client,
+    assert,
+  }) => {
+    const own = await client
+      .get(`/api/system-settings/${systemSettingA.systemSettingId}`)
+      .loginAs(actorWithoutGrant!.user)
+      .headers(buHeader(businessUnitA))
+    const foreign = await client
+      .get(`/api/system-settings/${systemSettingB.systemSettingId}`)
+      .loginAs(actorWithoutGrant!.user)
+      .headers(buHeader(businessUnitA))
+
+    assertPermissionDenied(assert, own)
+    assertPermissionDenied(assert, foreign)
+    // El gate decide antes de buscar la ficha: la negativa no delata si existe.
+    assert.deepEqual(own.body(), foreign.body())
+    assert.notInclude(JSON.stringify(own.body()), systemSettingA.systemSettingTradeName)
+  })
 })
 
 test.group('GET /api/system-settings/:systemSettingId — log de rechazos (CA-6)', (group) => {
@@ -292,6 +337,7 @@ test.group('GET /api/system-settings/:systemSettingId — log de rechazos (CA-6)
   group.setup(async () => {
     const stamp = Date.now()
     limitedRole = await createLimitedRole(`${stamp}-log`)
+    await grantRoleModulePermissions(limitedRole, SYSTEM_SETTINGS_MODULE, ['read'])
 
     businessUnitA = await BusinessUnit.create({
       businessUnitName: `Show Log BU A ${stamp}`,
@@ -332,9 +378,7 @@ test.group('GET /api/system-settings/:systemSettingId — log de rechazos (CA-6)
       await cleanupBusinessUnit(businessUnitB.businessUnitId)
     }
     await cleanupActor(actorA)
-    if (limitedRole?.roleId) {
-      await Role.query().where('role_id', limitedRole.roleId).delete()
-    }
+    await cleanupRole(limitedRole)
   })
 
   test('CA-6: rechazo emite ScopeDeniedLogService con los seis campos', async ({

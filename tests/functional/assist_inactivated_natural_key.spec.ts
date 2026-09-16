@@ -7,6 +7,12 @@ import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import { TenantContext } from '#utils/tenant_context'
 import { computeAssistNaturalKey } from '#utils/assist_natural_key'
+import {
+  cleanupUnitUser,
+  createBypassUserInBusinessUnit,
+  required,
+  type UnitUser,
+} from '#tests/helpers/tenant_actor'
 
 /**
  * USRH1786566437097 — entregable 16 / CA-23 / regla 16 / spec A9.
@@ -131,11 +137,26 @@ test.group('Assists — inactivada no libera slot de llave natural (CA-23)', (gr
     }, 'limpieza fixture CA-23')
   })
 
+  /**
+   * Anular checadas exige `delete-check-assist` desde que la ruta tiene gate, y
+   * el "primer usuario del pivote" no tiene un rol conocido. La anulación la hace
+   * un owner de la misma empresa: pasa el gate sin cambiar lo que el caso prueba.
+   */
+  let inactivator: UnitUser | null = null
+
+  group.setup(async () => {
+    inactivator = await createBypassUserInBusinessUnit('owner', 'assist-ca23', businessUnitId)
+  })
+
+  group.teardown(async () => {
+    await cleanupUnitUser(inactivator)
+  })
+
   test('A9 · PUT inactivate (Backoffice) deja assist_active=0 y conserva la llave', async ({
     client,
     assert,
   }) => {
-    const user = await getUserForBusinessUnit(businessUnitId)
+    const user = required(inactivator, 'el owner que anula la checada').user
 
     const response = await client
       .put(`/api/v1/assists/${fixtureAssistId}/inactivate`)

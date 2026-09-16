@@ -15,9 +15,11 @@ const accessPoints = (
 
 /**
  * Declaraciones que consumen las rutas del canal ADMS hacia el Backoffice.
- * Toda ruta las resuelve con `evaluateEnforced` (spec ADMS 11): el interruptor
- * de exigencia del modulo esta apagado y `permissionGate` de ruta dejaria
- * pasar a cualquier autenticado.
+ * Toda ruta las resuelve con `evaluateEnforced` (spec ADMS 11) y no con el
+ * `permissionGate` de ruta. El modulo `biometric-devices` hoy exige permisos,
+ * pero `evaluate` cortaria en `module-not-enforced` el dia que alguien apagara
+ * ese interruptor en BD y abriria el canal a cualquier autenticado;
+ * `evaluateEnforced` nunca lo consulta.
  */
 export const ACCESS_POINT_PERMISSION_DECLARATIONS = {
   readHealth: accessPoints('read-health'),

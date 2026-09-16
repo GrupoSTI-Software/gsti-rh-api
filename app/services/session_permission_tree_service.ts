@@ -105,7 +105,7 @@ export default class SessionPermissionTreeService {
       const permissionEnforcementActive = moduleRow?.systemModulePermissionEnforcementActive ?? false
       const actions = this.catalog.actionsByModule[moduleEntry.slug] ?? []
 
-      if (!moduleEntry.actionsEnumerated || actions.length === 0) {
+      if (actions.length === 0) {
         return {
           slug: moduleEntry.slug,
           active,
@@ -205,8 +205,9 @@ export default class SessionPermissionTreeService {
   }
 
   private async computeEnumeratedPermissionMax(modulesBySlug: ModulesBySlug): Promise<DateTime> {
+    // Un módulo es enumerado cuando tiene clave en `actionsByModule`.
     const enumeratedModuleIds = this.catalog.modules
-      .filter((moduleEntry) => moduleEntry.actionsEnumerated)
+      .filter((moduleEntry) => Object.hasOwn(this.catalog.actionsByModule, moduleEntry.slug))
       .map((moduleEntry) => modulesBySlug.get(moduleEntry.slug)?.systemModuleId)
       .filter((systemModuleId): systemModuleId is number => typeof systemModuleId === 'number')
 
@@ -236,11 +237,9 @@ export default class SessionPermissionTreeService {
   }
 
   private computeCatalogDigest(): string {
+    // Los módulos sin catálogo tipado aportan `[]`: el digest solo depende de
+    // las acciones tipadas y su orden, así el BO no invalida su caché de más.
     const typedActions = this.catalog.modules.flatMap((moduleEntry) => {
-      if (!moduleEntry.actionsEnumerated) {
-        return []
-      }
-
       const actions = this.catalog.actionsByModule[moduleEntry.slug] ?? []
       return actions.map(
         (action) => `${moduleEntry.slug}:${action.slug}:${action.exceptionProfile}`

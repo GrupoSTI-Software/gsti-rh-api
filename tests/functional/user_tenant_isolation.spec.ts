@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Role from '#models/role'
@@ -10,6 +11,7 @@ import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import { AUTH_LOGIN_ERROR_CODES } from '#constants/auth_login_error_codes'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * USRH1786736057519 — blindaje del módulo de usuarios (E5).
@@ -126,6 +128,14 @@ async function createUserForPerson(
     roleId,
     personId: person.personId,
     userEmailType: 'institutional',
+    /**
+     * Cuenta ya activada. `UserService.create` sella esta marca al dar de alta,
+     * pero estas fixtures escriben el modelo directo y la dejaban en `null`:
+     * el login corta antes de comprobar nada con `cuenta-pendiente-de-activar`
+     * (403), así que los tres casos de login afirmaban su resultado sobre una
+     * respuesta que nunca llegó a evaluar credenciales, rol ni origen.
+     */
+    userPasswordSetAt: DateTime.utc(),
   })
 
   if (businessUnitIds.length > 0) {
@@ -139,12 +149,22 @@ function buHeader(businessUnit: BusinessUnit) {
   return { 'X-Business-Unit-Id': businessUnit.businessUnitPublicId }
 }
 
-function notFoundBody(userId: number | string) {
+/**
+ * 404 uniforme del módulo de usuarios.
+ *
+ * `data.userId` viaja como NÚMERO: así lo escriben sus dos productores
+ * —`user_resource_scope_middleware` y el 404 del propio `user_controller`— y
+ * que ambos coincidan byte a byte es justo lo que impide distinguir un recurso
+ * ajeno de uno inexistente. La fixture lo comparaba como cadena y nunca lo
+ * notó, porque hasta ahora el middleware devolvía el cuerpo en lugar de
+ * escribirlo y la respuesta llegaba vacía.
+ */
+function notFoundBody(userId: number) {
   return {
     type: 'warning',
     title: 'The user was not found',
     message: 'The user was not found with the entered ID',
-    data: { userId: String(userId) },
+    data: { userId },
   }
 }
 
@@ -206,11 +226,7 @@ async function buildFixtures(): Promise<TestFixtures> {
     [tenantABu.businessUnitId]
   )
 
-  const employeeRole = await Role.query()
-    .whereNull('role_deleted_at')
-    .where('role_slug', 'empleado')
-    .orderBy('role_id', 'asc')
-    .firstOrFail()
+  const employeeRole = await ensureRole('empleado')
 
   const employeeBusinessUnit = await createBusinessUnit('User isolation employee')
   const employeePerson = await createPerson('user-isolation-employee')

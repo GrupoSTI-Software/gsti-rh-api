@@ -10,7 +10,7 @@ export const POSITIONS_PERMISSION_CATALOG = [
     kind: 'read',
     section: 'salary-ranges',
     exceptionProfile: 'standard',
-    // Sin legacyEquivalence: 0018 no siembra permisos con systemModuleId: 3.
+    // Sin legacyEquivalence: acción nueva, sin permiso previo equivalente.
   },
   {
     slug: 'salary-ranges-write',
