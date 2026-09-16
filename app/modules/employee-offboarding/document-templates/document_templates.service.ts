@@ -8,8 +8,19 @@ import UploadService from '#services/upload_service'
 import type { IncomingFile } from '#services/file_intake_service'
 import { FileIntakeError } from '#exceptions/file_intake_error'
 import { isUploadFailureSentinel } from '#constants/upload_sentinels'
-import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
-import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
+import EmployeeOffboardingServiceError, {
+  type EmployeeOffboardingErrorKey,
+} from '#exceptions/employee_offboarding_service_error'
+import {
+  EMPLOYEE_OFFBOARDING_ERROR_CODES,
+  type EmployeeOffboardingErrorCode,
+} from '#constants/employee_offboarding_error_codes'
+import {
+  inspectPdfTemplate,
+  sanitizeVerdictDetail,
+  type PdfTemplateInspection,
+  type PdfTemplateRejectionReason,
+} from '#helpers/pdf_template_safety'
 import type EmployeeOffboardingDocumentTemplate from '#models/employee_offboarding_document_template'
 import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '../concepts/concepts.constants.js'
 import { buildUserNamesMap } from '../offboardings/dto/offboardings.dto.js'
@@ -22,11 +33,14 @@ import {
   OFFBOARDING_DOCUMENT_FIELDS,
   fieldsForDocumentType,
 } from '../documents/document_fields.constants.js'
+import type { DocumentTemplateValidationResult } from './document_template_validation_result.type.js'
 import {
   DOCUMENT_TEMPLATE_FALLBACK_FILE_NAME,
   DOCUMENT_TEMPLATE_INTAKE_PROFILE,
   DOCUMENT_TEMPLATE_ORIGINAL_FILE_NAME_MAX_LENGTH,
+  DOCUMENT_TEMPLATE_STATUS,
   DOCUMENT_TEMPLATES_S3_FOLDER,
+  type DocumentTemplateStatus,
 } from './document_templates.constants.js'
 import DocumentTemplatesRepositoryMysql from './document_templates.repository.mysql.js'
 import type {
@@ -61,6 +75,74 @@ export interface EmployeeOffboardingDocumentTemplateVersionsResult {
 /** Duplicado de llave de MySQL/MariaDB (el UNIQUE de vigencia como último candado). */
 function isDuplicateKeyError(error: unknown): boolean {
   return (error as { code?: string } | null)?.code === 'ER_DUP_ENTRY'
+}
+
+/** Motivo de rechazo con su ofensor ya saneado; `null` = la plantilla pasa. */
+interface TemplateRejection {
+  reason: Exclude<PdfTemplateRejectionReason, 'unvalidated_legacy'>
+  detail: string | null
+}
+
+/**
+ * Cada motivo con su propio `key`, `code` y copy (regla 3 de USRH1789097550387).
+ * Un genérico no cumple. Los diez comparten el título.
+ */
+const REJECTION_ERRORS: Readonly<
+  Record<
+    TemplateRejection['reason'],
+    { key: EmployeeOffboardingErrorKey; code: EmployeeOffboardingErrorCode; detailKey: string }
+  >
+> = {
+  encrypted: {
+    key: 'plantilla-protegida-con-contrasena',
+    code: EMPLOYEE_OFFBOARDING_ERROR_CODES.TEMPLATE_REJECTED_ENCRYPTED,
+    detailKey: 'employee_offboarding_document_template_rejected_encrypted_detail',
+  },
+  xfa: {
+    key: 'plantilla-de-formulario-dinamico',
+    code: EMPLOYEE_OFFBOARDING_ERROR_CODES.TEMPLATE_REJECTED_XFA,
+    detailKey: 'employee_offboarding_document_template_rejected_xfa_detail',
+  },
+  no_form_fields: {
+    key: 'plantilla-sin-campos-rellenables',
+    code: EMPLOYEE_OFFBOARDING_ERROR_CODES.TEMPLATE_REJECTED_NO_FIELDS,
+    detailKey: 'employee_offboarding_document_template_rejected_no_fields_detail',
+  },
+  field_type: {
+    key: 'plantilla-con-campo-de-tipo-no-admitido',
+    code: EMPLOYEE_OFFBOARDING_ERROR_CODES.TEMPLATE_REJECTED_FIELD_TYPE,
+    detailKey: 'employee_offboarding_document_template_rejected_field_type_detail',
+  },
+  active_content: {
+    key: 'plantilla-con-contenido-activo',
+    code: EMPLOYEE_OFFBOARDING_ERROR_CODES.TEMPLATE_REJECTED_ACTIVE_CONTENT,
+    detailKey: 'employee_offboarding_document_template_rejected_active_content_detail',
+  },
+  submit_action: {
+    key: 'plantilla-con-envio-a-terceros',
+    code: EMPLOYEE_OFFBOARDING_ERROR_CODES.TEMPLATE_REJECTED_SUBMIT_ACTION,
+    detailKey: 'employee_offboarding_document_template_rejected_submit_action_detail',
+  },
+  signature_field: {
+    key: 'plantilla-con-campo-de-firma',
+    code: EMPLOYEE_OFFBOARDING_ERROR_CODES.TEMPLATE_REJECTED_SIGNATURE_FIELD,
+    detailKey: 'employee_offboarding_document_template_rejected_signature_field_detail',
+  },
+  duplicate_field: {
+    key: 'plantilla-con-campos-duplicados',
+    code: EMPLOYEE_OFFBOARDING_ERROR_CODES.TEMPLATE_REJECTED_DUPLICATE_FIELD,
+    detailKey: 'employee_offboarding_document_template_rejected_duplicate_field_detail',
+  },
+  field_name_invalid: {
+    key: 'plantilla-con-nombre-de-campo-invalido',
+    code: EMPLOYEE_OFFBOARDING_ERROR_CODES.TEMPLATE_REJECTED_FIELD_NAME,
+    detailKey: 'employee_offboarding_document_template_rejected_field_name_detail',
+  },
+  too_complex: {
+    key: 'plantilla-demasiado-compleja',
+    code: EMPLOYEE_OFFBOARDING_ERROR_CODES.TEMPLATE_REJECTED_TOO_COMPLEX,
+    detailKey: 'employee_offboarding_document_template_rejected_too_complex_detail',
+  },
 }
 
 /**
@@ -197,12 +279,17 @@ export default class DocumentTemplatesService {
     // confirma además que el objeto existe ANTES de insertar la fila.
     const stored = await new UploadService().readStoredFileBuffer(storageKey)
     if (!stored) {
-      throw this.uploadFailedError()
+      throw this.unreadableError()
     }
     const contentSha256 = createHash('sha256').update(stored).digest('hex')
     const fileSizeBytes = stored.byteLength
 
-    const record = await this.persistVersion({
+    // Revisión estructural (USRH1789097550387) sobre el buffer ALMACENADO:
+    // única carga de pdf-lib del flujo; el documento queda listo para que
+    // ESB-05-07-08 contraste los campos sin volver a cargarlo.
+    const inspection = await inspectPdfTemplate(stored)
+    const rejection = this.resolveRejection(documentType, inspection)
+    const version = {
       businessUnitId,
       documentType,
       storageKey,
@@ -210,20 +297,100 @@ export default class DocumentTemplatesService {
       fileSizeBytes,
       contentSha256,
       uploadedByUserId,
-    })
+    }
+    const pageCount = inspection.pageCount
+    const fieldCount = inspection.ok ? inspection.fields.length : inspection.fieldCount
 
-    // Sin nombre original, key completa, URL ni hash junto a identificadores
+    if (rejection) {
+      // Regla 4 y 5: el intento consume su consecutivo como `rejected` y NO
+      // toca la vigente. Se responde 422 con el dictamen (data).
+      const record = await this.persistVersion({
+        ...version,
+        status: DOCUMENT_TEMPLATE_STATUS.REJECTED,
+        validationResult: this.buildStructuralVerdict(documentType, rejection),
+      })
+      // Sin nombres de campo, key completa, URL ni hash junto a identificadores
+      logger.info(
+        {
+          businessUnitId,
+          documentType,
+          versionId: record.employeeOffboardingDocumentTemplateId,
+          pageCount,
+          fieldCount,
+          verdict: 'rejected',
+          reason: rejection.reason,
+        },
+        'Plantilla de documento de salida: versión rechazada por la revisión estructural'
+      )
+      throw this.rejectedError(rejection.reason, record)
+    }
+
+    const record = await this.persistVersion({
+      ...version,
+      status: DOCUMENT_TEMPLATE_STATUS.CURRENT,
+      validationResult: this.buildStructuralVerdict(documentType, null),
+    })
     logger.info(
       {
         businessUnitId,
         documentType,
         versionId: record.employeeOffboardingDocumentTemplateId,
-        fileSizeBytes,
+        pageCount,
+        fieldCount,
+        verdict: 'accepted',
       },
       'Plantilla de documento de salida: versión nueva vigente'
     )
 
     return await this.toDto(record)
+  }
+
+  /**
+   * Motivo de rechazo del intento, o `null` si la plantilla pasa. Un buffer
+   * que no se puede cargar tras el intake es un objeto corrupto: 500, sin
+   * fila. El décimo detector (CA-9) SÍ lee el catálogo: un campo con nombre
+   * del catálogo cuyo widget no es de texto no puede rellenarse; vive aquí y
+   * no en el helper, que no conoce el catálogo.
+   */
+  private resolveRejection(
+    documentType: EmployeeOffboardingDocumentType,
+    inspection: PdfTemplateInspection
+  ): TemplateRejection | null {
+    if (!inspection.ok) {
+      if (inspection.reason === 'unreadable') {
+        throw this.unreadableError()
+      }
+      return { reason: inspection.reason, detail: inspection.detail }
+    }
+    const catalogKeys = new Set(fieldsForDocumentType(documentType).map((field) => field.key))
+    const offender = inspection.fields.find(
+      (field) => catalogKeys.has(field.name) && field.kind !== 'text'
+    )
+    return offender ? { reason: 'field_type', detail: sanitizeVerdictDetail(offender.name) } : null
+  }
+
+  /**
+   * Dictamen estructural (K-1): esta HU escribe SIEMPRE `structural`; las tres
+   * listas van vacías y `passed` refleja solo la estructura. ESB-05-07-08
+   * conserva `structural`, puebla las listas y cambia `stage` a `fields`.
+   */
+  private buildStructuralVerdict(
+    documentType: EmployeeOffboardingDocumentType,
+    rejection: TemplateRejection | null
+  ): DocumentTemplateValidationResult {
+    return {
+      checkedAt: new Date().toISOString(),
+      documentType,
+      passed: rejection === null,
+      recognized: [],
+      unrecognized: [],
+      missingRequired: [],
+      structural: {
+        stage: 'structural',
+        reason: rejection?.reason ?? null,
+        detail: rejection?.detail ?? null,
+      },
+    }
   }
 
   /** URL pre-firmada de 300 s (regla 7): no se persiste ni se loguea. */
@@ -276,6 +443,8 @@ export default class DocumentTemplatesService {
     fileSizeBytes: number
     contentSha256: string
     uploadedByUserId: number | null
+    status: DocumentTemplateStatus
+    validationResult: DocumentTemplateValidationResult | null
   }): Promise<EmployeeOffboardingDocumentTemplate> {
     try {
       return await db.transaction(async (trx) => {
@@ -292,7 +461,14 @@ export default class DocumentTemplatesService {
             trx
           )) + 1
 
-        await this.repository.markCurrentAsSuperseded(input.businessUnitId, input.documentType, trx)
+        // Un rechazo NO desplaza a la vigente (regla 5); solo la nueva `current` la reemplaza
+        if (input.status === DOCUMENT_TEMPLATE_STATUS.CURRENT) {
+          await this.repository.markCurrentAsSuperseded(
+            input.businessUnitId,
+            input.documentType,
+            trx
+          )
+        }
 
         return await this.repository.createVersion({ ...input, versionNumber }, trx)
       })
@@ -420,6 +596,36 @@ export default class DocumentTemplatesService {
       httpStatus: 500,
       title: this.t('employee_offboarding_document_template_error_title'),
       detail: this.t('employee_offboarding_document_template_upload_failed_detail'),
+    })
+  }
+
+  /** 422 con el dictamen en `data`: el BO lo muestra sin volver a subir el archivo. */
+  private rejectedError(
+    reason: TemplateRejection['reason'],
+    record: EmployeeOffboardingDocumentTemplate
+  ) {
+    const mapping = REJECTION_ERRORS[reason]
+    return new EmployeeOffboardingServiceError({
+      key: mapping.key,
+      errorCode: mapping.code,
+      httpStatus: 422,
+      title: this.t('employee_offboarding_document_template_rejected_title'),
+      detail: this.t(mapping.detailKey),
+      data: {
+        employeeOffboardingDocumentTemplateId: record.employeeOffboardingDocumentTemplateId,
+        versionNumber: Number(record.employeeOffboardingDocumentTemplateVersionNumber),
+        validationResult: record.employeeOffboardingDocumentTemplateValidationResult,
+      },
+    })
+  }
+
+  private unreadableError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'plantilla-no-procesable',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.TEMPLATE_UNREADABLE,
+      httpStatus: 500,
+      title: this.t('employee_offboarding_document_template_error_title'),
+      detail: this.t('employee_offboarding_document_template_unreadable_detail'),
     })
   }
 

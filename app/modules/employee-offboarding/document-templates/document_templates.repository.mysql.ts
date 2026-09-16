@@ -111,13 +111,12 @@ export default class DocumentTemplatesRepositoryMysql implements DocumentTemplat
         businessUnitId: data.businessUnitId,
         employeeOffboardingDocumentTemplateDocumentType: data.documentType,
         employeeOffboardingDocumentTemplateVersionNumber: data.versionNumber,
-        employeeOffboardingDocumentTemplateStatus: DOCUMENT_TEMPLATE_STATUS.CURRENT,
+        employeeOffboardingDocumentTemplateStatus: data.status,
         employeeOffboardingDocumentTemplateStorageKey: data.storageKey,
         employeeOffboardingDocumentTemplateOriginalFileName: data.originalFileName,
         employeeOffboardingDocumentTemplateFileSizeBytes: data.fileSizeBytes,
         employeeOffboardingDocumentTemplateContentSha256: data.contentSha256,
-        // Siempre null aquí: la revisión la registra ESB-05-07-08
-        employeeOffboardingDocumentTemplateValidationResult: null,
+        employeeOffboardingDocumentTemplateValidationResult: data.validationResult,
         employeeOffboardingDocumentTemplateUploadedByUserId: data.uploadedByUserId,
       },
       { client: trx }
