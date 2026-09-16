@@ -25,3 +25,6 @@ router
   })
   .prefix('/api/zones')
   .use(middleware.auth())
+  // Zonas dejó de ser catálogo compartido: cada empresa ve las suyas. Sin este
+  // middleware no hay TenantContext y el mixin de Zone no filtraría nada.
+  .use(middleware.businessScope())

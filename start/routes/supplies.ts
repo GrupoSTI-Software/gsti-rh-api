@@ -37,3 +37,7 @@ router
   })
   .prefix('/api')
   .use(middleware.auth())
+  // El catálogo de activos dejó de ser compartido: cada empresa ve el suyo. Sin
+  // este middleware no hay TenantContext y el mixin no filtraría nada. Alcanza
+  // también a `/supplies/excel`, que hasta aquí agregaba todas las empresas.
+  .use(middleware.businessScope())

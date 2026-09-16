@@ -104,7 +104,7 @@ const supplies = (key: keyof typeof SUPPLIES_PERMISSION_DECLARATIONS) =>
 const SUPPLIES_ROUTE_FILES: RouteFileContract[] = [
   {
     file: 'supply_type.ts',
-    businessScope: false,
+    businessScope: true,
     gated: [
       { method: 'post', path: '/supply-types', handler: 'supply_types_controller.store', declaration: supplies('storeSupplyType') },
       { method: 'get', path: '/supply-types', handler: 'supply_types_controller.index', declaration: supplies('indexSupplyTypes') },
@@ -117,7 +117,7 @@ const SUPPLIES_ROUTE_FILES: RouteFileContract[] = [
   },
   {
     file: 'supplies.ts',
-    businessScope: false,
+    businessScope: true,
     gated: [
       { method: 'post', path: '/supplies', handler: 'supplies_controller.store', declaration: supplies('storeSupply') },
       { method: 'get', path: '/supplies', handler: 'supplies_controller.index', declaration: supplies('indexSupplies') },
@@ -132,7 +132,7 @@ const SUPPLIES_ROUTE_FILES: RouteFileContract[] = [
   },
   {
     file: 'supplie_caracteristics.ts',
-    businessScope: false,
+    businessScope: true,
     gated: [
       { method: 'post', path: '/supplie-characteristics', handler: 'supplie_caracteristics_controller.store', declaration: supplies('storeSupplyCharacteristic') },
       { method: 'get', path: '/supplie-characteristics', handler: 'supplie_caracteristics_controller.index', declaration: supplies('indexSupplyCharacteristics') },
@@ -146,7 +146,7 @@ const SUPPLIES_ROUTE_FILES: RouteFileContract[] = [
   },
   {
     file: 'supplie_caracteristic_values.ts',
-    businessScope: false,
+    businessScope: true,
     gated: [
       { method: 'post', path: '/supplie-characteristic-values', handler: 'supplie_caracteristic_values_controller.store', declaration: supplies('storeSupplyCharacteristicValue') },
       { method: 'get', path: '/supplie-characteristic-values', handler: 'supplie_caracteristic_values_controller.index', declaration: supplies('indexSupplyCharacteristicValues') },
@@ -161,7 +161,7 @@ const SUPPLIES_ROUTE_FILES: RouteFileContract[] = [
   },
   {
     file: 'supply_value_histories.ts',
-    businessScope: false,
+    businessScope: true,
     gated: [
       { method: 'get', path: '/supply-value-histories', handler: 'supply_value_histories_controller.index', declaration: supplies('indexSupplyValueHistories') },
       { method: 'post', path: '/supply-value-histories', handler: 'supply_value_histories_controller.store', declaration: supplies('storeSupplyValueHistory') },

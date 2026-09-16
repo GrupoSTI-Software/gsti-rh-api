@@ -9,6 +9,7 @@ import {
   assertModuleEnforced,
   assertPassesGate,
   assertPermissionDenied,
+  businessUnitHeaders,
   cleanupTenantActor,
   createBypassActor,
   createTenantActor,
@@ -24,8 +25,10 @@ import {
  * `supplies`. El detalle del activo queda abierto porque lo consume la Matriz
  * de vencimientos.
  *
- * Las tablas del catálogo no tienen unidad de negocio (son globales), así que
- * los fixtures se identifican por un prefijo de slug propio de la corrida.
+ * El catálogo ya está acotado por empresa (`business_unit_id` + businessScope),
+ * así que toda petición viaja con el encabezado de la empresa del actor y los
+ * fixtures nacen con la suya. Se identifican además por un prefijo de slug
+ * propio de la corrida, para limpiarlos sin tocar datos de otros specs.
  */
 
 const MODULE = 'supplies'
@@ -42,15 +45,23 @@ interface GateRequest {
 let slugCounter = 0
 const nextSlug = (label: string) => `${RUN_SLUG}-${label}-${++slugCounter}`
 
-async function createSupplyTypeFixture(label: string): Promise<SupplyType> {
+/**
+ * Los fixtures corren fuera de una request, donde no hay TenantContext: la
+ * empresa va explícita porque el hook del modelo no tendría de dónde
+ * resolverla y el alta fallaría.
+ */
+async function createSupplyTypeFixture(label: string, tenant: TenantActor): Promise<SupplyType> {
   return SupplyType.create({
+    businessUnitId: tenant.businessUnit.businessUnitId,
     supplyTypeName: uniqueTestName(`Tipo ${label}`),
     supplyTypeSlug: nextSlug(label),
   })
 }
 
+/** El activo hereda la empresa de su tipo, igual que lo hace el hook del modelo. */
 async function createSupplyFixture(supplyType: SupplyType, label: string): Promise<Supplie> {
   return Supplie.create({
+    businessUnitId: supplyType.businessUnitId,
     supplyFileNumber: Number(`${Date.now()}${Math.floor(Math.random() * 100)}`.slice(-9)),
     supplyName: uniqueTestName(`Activo ${label}`),
     supplyTypeId: supplyType.supplyTypeId,
@@ -72,7 +83,9 @@ async function cleanupRunSupplies(): Promise<void> {
 }
 
 function send(client: ApiClient, actor: TenantActor, request: GateRequest) {
-  const pending = client[request.method](request.url).loginAs(actor.user)
+  const pending = client[request.method](request.url)
+    .loginAs(actor.user)
+    .headers(businessUnitHeaders(actor))
   return request.body ? pending.json(request.body) : pending
 }
 
@@ -108,20 +121,32 @@ test.group('Activos e insumos — permissionGate con exigencia encendida', (grou
   }) => {
     const tenant = required(actor, 'el actor')
     await grantModulePermissions(tenant, MODULE, [])
-    const supplyType = await createSupplyTypeFixture('sin-permiso')
+    const supplyType = await createSupplyTypeFixture('sin-permiso', tenant)
     const supply = await createSupplyFixture(supplyType, 'sin-permiso')
     const deniedSlug = nextSlug('alta-negada')
 
     const requests: GateRequest[] = [
-      { method: 'post', url: '/api/supply-types', body: { supplyTypeName: 'Alta negada', supplyTypeSlug: deniedSlug } },
+      {
+        method: 'post',
+        url: '/api/supply-types',
+        body: { supplyTypeName: 'Alta negada', supplyTypeSlug: deniedSlug },
+      },
       { method: 'get', url: '/api/supply-types' },
       { method: 'get', url: `/api/supply-types/${supplyType.supplyTypeId}` },
-      { method: 'put', url: `/api/supply-types/${supplyType.supplyTypeId}`, body: { supplyTypeName: 'Edición negada' } },
+      {
+        method: 'put',
+        url: `/api/supply-types/${supplyType.supplyTypeId}`,
+        body: { supplyTypeName: 'Edición negada' },
+      },
       { method: 'delete', url: `/api/supply-types/${supplyType.supplyTypeId}` },
       { method: 'get', url: `/api/supply-types/${supplyType.supplyTypeId}/characteristics` },
       { method: 'post', url: '/api/supplies', body: {} },
       { method: 'get', url: '/api/supplies' },
-      { method: 'put', url: `/api/supplies/${supply.supplyId}`, body: { supplyName: 'Edición negada' } },
+      {
+        method: 'put',
+        url: `/api/supplies/${supply.supplyId}`,
+        body: { supplyName: 'Edición negada' },
+      },
       { method: 'delete', url: `/api/supplies/${supply.supplyId}` },
       { method: 'post', url: `/api/supplies/${supply.supplyId}/deactivate`, body: {} },
       { method: 'get', url: `/api/supplies/${supply.supplyId}/with-type` },
@@ -141,7 +166,9 @@ test.group('Activos e insumos — permissionGate con exigencia encendida', (grou
     }
 
     assert.isNull(await SupplyType.query().where('supplyTypeSlug', deniedSlug).first())
-    const typeAfter = await SupplyType.query().where('supplyTypeId', supplyType.supplyTypeId).first()
+    const typeAfter = await SupplyType.query()
+      .where('supplyTypeId', supplyType.supplyTypeId)
+      .first()
     assert.equal(typeAfter?.supplyTypeName, supplyType.supplyTypeName)
     const supplyAfter = await Supplie.query().where('supplyId', supply.supplyId).first()
     assert.equal(supplyAfter?.supplyName, supply.supplyName)
@@ -153,9 +180,15 @@ test.group('Activos e insumos — permissionGate con exigencia encendida', (grou
   }) => {
     const tenant = required(actor, 'el actor')
     await grantModulePermissions(tenant, MODULE, [])
-    const supply = await createSupplyFixture(await createSupplyTypeFixture('detalle'), 'detalle')
+    const supply = await createSupplyFixture(
+      await createSupplyTypeFixture('detalle', tenant),
+      'detalle'
+    )
 
-    const response = await client.get(`/api/supplies/${supply.supplyId}`).loginAs(tenant.user)
+    const response = await client
+      .get(`/api/supplies/${supply.supplyId}`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
 
     response.assertStatus(200)
   })
@@ -171,21 +204,29 @@ test.group('Activos e insumos — permissionGate con exigencia encendida', (grou
     const store = await client
       .post('/api/supply-types')
       .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
       .json({ supplyTypeName: uniqueTestName('Tipo con permiso'), supplyTypeSlug: slug })
     store.assertStatus(201)
     const created = required(
       await SupplyType.query().where('supplyTypeSlug', slug).first(),
       'el tipo creado'
     )
-    const listWithCreateOnly = await client.get('/api/supply-types').loginAs(tenant.user)
+    const listWithCreateOnly = await client
+      .get('/api/supply-types')
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
     assertPermissionDenied(assert, listWithCreateOnly)
 
     await grantModulePermissions(tenant, MODULE, ['read'])
-    const show = await client.get(`/api/supply-types/${created.supplyTypeId}`).loginAs(tenant.user)
+    const show = await client
+      .get(`/api/supply-types/${created.supplyTypeId}`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
     show.assertStatus(200)
     const updateWithReadOnly = await client
       .put(`/api/supply-types/${created.supplyTypeId}`)
       .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
       .json({ supplyTypeName: uniqueTestName('Edición solo lectura') })
     assertPermissionDenied(assert, updateWithReadOnly)
 
@@ -194,6 +235,7 @@ test.group('Activos e insumos — permissionGate con exigencia encendida', (grou
     const update = await client
       .put(`/api/supply-types/${created.supplyTypeId}`)
       .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
       .json({ supplyTypeName: renamed })
     update.assertStatus(200)
     const updated = await SupplyType.query().where('supplyTypeId', created.supplyTypeId).first()
@@ -201,12 +243,14 @@ test.group('Activos e insumos — permissionGate con exigencia encendida', (grou
     const destroyWithUpdateOnly = await client
       .delete(`/api/supply-types/${created.supplyTypeId}`)
       .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
     assertPermissionDenied(assert, destroyWithUpdateOnly)
 
     await grantModulePermissions(tenant, MODULE, ['delete'])
     const destroy = await client
       .delete(`/api/supply-types/${created.supplyTypeId}`)
       .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
     destroy.assertStatus(200)
     assert.isNull(await SupplyType.query().where('supplyTypeId', created.supplyTypeId).first())
   })
@@ -216,7 +260,10 @@ test.group('Activos e insumos — permissionGate con exigencia encendida', (grou
     assert,
   }) => {
     const tenant = required(actor, 'el actor')
-    const supply = await createSupplyFixture(await createSupplyTypeFixture('guardado'), 'guardado')
+    const supply = await createSupplyFixture(
+      await createSupplyTypeFixture('guardado', tenant),
+      'guardado'
+    )
     const savedWithSupply: GateRequest[] = [
       { method: 'post', url: '/api/supplie-characteristic-values', body: {} },
       { method: 'post', url: '/api/supply-value-histories', body: {} },
@@ -256,10 +303,14 @@ test.group('Activos e insumos — permissionGate con exigencia encendida', (grou
     const ownerStore = await client
       .post('/api/supply-types')
       .loginAs(ownerAccount.user)
+      .headers(businessUnitHeaders(ownerAccount))
       .json({ supplyTypeName: uniqueTestName('Tipo owner'), supplyTypeSlug: nextSlug('owner') })
     ownerStore.assertStatus(201)
 
-    const superAdminList = await client.get('/api/supply-types').loginAs(superAdminAccount.user)
+    const superAdminList = await client
+      .get('/api/supply-types')
+      .loginAs(superAdminAccount.user)
+      .headers(businessUnitHeaders(superAdminAccount))
     assertPermissionDenied(assert, superAdminList)
   })
 })

@@ -65,8 +65,17 @@ test.group('Zonas — permissionGate con exigencia encendida', (group) => {
     return name
   }
 
-  const createZoneFixture = (prefix: string) =>
-    Zone.create({ ...zonePayload(trackedName(prefix)), zoneThumbnail: null })
+  /**
+   * Zona de la empresa del actor. `businessUnitId` va explícito porque el
+   * fixture corre fuera de una request: sin TenantContext el hook del modelo no
+   * tiene de dónde resolver la empresa y el alta fallaría.
+   */
+  const createZoneFixture = (prefix: string, tenant: TenantActor) =>
+    Zone.create({
+      ...zonePayload(trackedName(prefix)),
+      zoneThumbnail: null,
+      businessUnitId: tenant.businessUnit.businessUnitId,
+    })
 
   group.setup(async () => {
     await assertModuleEnforced(MODULE)
@@ -88,7 +97,7 @@ test.group('Zonas — permissionGate con exigencia encendida', (group) => {
   }) => {
     const tenant = required(actor, 'el actor')
     await grantModulePermissions(tenant, MODULE, [])
-    const zone = await createZoneFixture('Zona sin permiso')
+    const zone = await createZoneFixture('Zona sin permiso', tenant)
     const deniedName = trackedName('Alta negada')
 
     const store = await client
@@ -99,19 +108,29 @@ test.group('Zonas — permissionGate con exigencia encendida', (group) => {
     assertPermissionDenied(assert, store)
     assert.isNull(await Zone.query().where('zoneName', deniedName).first())
 
-    const show = await client.get(`/api/zones/${zone.zoneId}`).loginAs(tenant.user)
+    const show = await client
+      .get(`/api/zones/${zone.zoneId}`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
     assertPermissionDenied(assert, show)
 
     const update = await client
       .put(`/api/zones/${zone.zoneId}`)
       .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
       .json(zonePayload(uniqueTestName('Edición negada')))
     assertPermissionDenied(assert, update)
 
-    const thumbnail = await client.put(`/api/zones/${zone.zoneId}/thumbnail`).loginAs(tenant.user)
+    const thumbnail = await client
+      .put(`/api/zones/${zone.zoneId}/thumbnail`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
     assertPermissionDenied(assert, thumbnail)
 
-    const destroy = await client.delete(`/api/zones/${zone.zoneId}`).loginAs(tenant.user)
+    const destroy = await client
+      .delete(`/api/zones/${zone.zoneId}`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
     assertPermissionDenied(assert, destroy)
 
     const after = await findAliveZone(zone.zoneId)
@@ -124,7 +143,10 @@ test.group('Zonas — permissionGate con exigencia encendida', (group) => {
     const tenant = required(actor, 'el actor')
     await grantModulePermissions(tenant, MODULE, [])
 
-    const response = await client.get('/api/zones').loginAs(tenant.user)
+    const response = await client
+      .get('/api/zones')
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
 
     response.assertStatus(200)
   })
@@ -137,18 +159,29 @@ test.group('Zonas — permissionGate con exigencia encendida', (group) => {
     const name = trackedName('Alta con permiso')
 
     await grantModulePermissions(tenant, MODULE, ['create'])
-    const store = await client.post('/api/zones').loginAs(tenant.user).json(zonePayload(name))
+    const store = await client
+      .post('/api/zones')
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
+      .json(zonePayload(name))
     store.assertStatus(201)
     const created = required(await Zone.query().where('zoneName', name).first(), 'la zona creada')
-    const showWithCreateOnly = await client.get(`/api/zones/${created.zoneId}`).loginAs(tenant.user)
+    const showWithCreateOnly = await client
+      .get(`/api/zones/${created.zoneId}`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
     assertPermissionDenied(assert, showWithCreateOnly)
 
     await grantModulePermissions(tenant, MODULE, ['read'])
-    const show = await client.get(`/api/zones/${created.zoneId}`).loginAs(tenant.user)
+    const show = await client
+      .get(`/api/zones/${created.zoneId}`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
     show.assertStatus(200)
     const updateWithReadOnly = await client
       .put(`/api/zones/${created.zoneId}`)
       .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
       .json(zonePayload(name))
     assertPermissionDenied(assert, updateWithReadOnly)
 
@@ -157,16 +190,23 @@ test.group('Zonas — permissionGate con exigencia encendida', (group) => {
     const update = await client
       .put(`/api/zones/${created.zoneId}`)
       .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
       .json(zonePayload(renamed))
     // El controller de zonas responde 201 también al editar y al borrar.
     update.assertStatus(201)
     const updated = await findAliveZone(created.zoneId)
     assert.equal(updated?.zoneName, renamed)
-    const destroyWithUpdateOnly = await client.delete(`/api/zones/${created.zoneId}`).loginAs(tenant.user)
+    const destroyWithUpdateOnly = await client
+      .delete(`/api/zones/${created.zoneId}`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
     assertPermissionDenied(assert, destroyWithUpdateOnly)
 
     await grantModulePermissions(tenant, MODULE, ['delete'])
-    const destroy = await client.delete(`/api/zones/${created.zoneId}`).loginAs(tenant.user)
+    const destroy = await client
+      .delete(`/api/zones/${created.zoneId}`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
     destroy.assertStatus(201)
     assert.isNull(await findAliveZone(created.zoneId))
   })
@@ -176,18 +216,24 @@ test.group('Zonas — permissionGate con exigencia encendida', (group) => {
     assert,
   }) => {
     const tenant = required(actor, 'el actor')
-    const zone = await createZoneFixture('Zona miniatura')
+    const zone = await createZoneFixture('Zona miniatura', tenant)
 
     for (const permissionSlug of ['create', 'update']) {
       await grantModulePermissions(tenant, MODULE, [permissionSlug])
-      const response = await client.put(`/api/zones/${zone.zoneId}/thumbnail`).loginAs(tenant.user)
+      const response = await client
+        .put(`/api/zones/${zone.zoneId}/thumbnail`)
+        .loginAs(tenant.user)
+        .headers(businessUnitHeaders(tenant))
       // Sin archivo el controller responde 400: basta con que el gate lo haya dejado pasar.
       assertPassesGate(assert, response)
       response.assertStatus(400)
     }
 
     await grantModulePermissions(tenant, MODULE, ['read'])
-    const readOnly = await client.put(`/api/zones/${zone.zoneId}/thumbnail`).loginAs(tenant.user)
+    const readOnly = await client
+      .put(`/api/zones/${zone.zoneId}/thumbnail`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
     assertPermissionDenied(assert, readOnly)
   })
 
@@ -197,6 +243,7 @@ test.group('Zonas — permissionGate con exigencia encendida', (group) => {
     const response = await client
       .post('/api/zones')
       .loginAs(account.user)
+      .headers(businessUnitHeaders(account))
       .json(zonePayload(trackedName('Alta owner')))
 
     response.assertStatus(201)

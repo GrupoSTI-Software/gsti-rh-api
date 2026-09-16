@@ -142,6 +142,10 @@ test.group('Zonas — permissionGate en start/routes/zone_routes.ts', () => {
     assertOpen(assert, content, { method: 'get', path: '/', handler: 'zone_controller.index' })
     assert.equal(gateCount(content), 5)
     assert.include(content, 'middleware.auth()')
+    // Zonas dejó de ser catálogo compartido: sin businessScope no hay
+    // TenantContext y el mixin de Zone no filtraría nada, así que el listado
+    // abierto de arriba devolvería las zonas de todas las empresas.
+    assert.include(content, 'middleware.businessScope()')
   })
 
   test('la miniatura acepta create o update porque se sube tras crear y tras editar', ({

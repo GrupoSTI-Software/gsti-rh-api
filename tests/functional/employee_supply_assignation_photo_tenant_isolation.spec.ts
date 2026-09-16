@@ -105,7 +105,11 @@ test.group('Fotos de insumos — aislamiento HTTP por tenant', (group) => {
 
     let catalogSupply = await Supplie.query().whereNull('supply_deleted_at').first()
     if (!catalogSupply) {
+      // El catálogo de activos ya es por empresa: el fixture nace en la propia
+      // y va explícito porque aquí no hay TenantContext del que resolverlo. Lo
+      // que este spec ejercita es el aislamiento de la FOTO, no el del catálogo.
       const supplyType = await SupplyType.create({
+        businessUnitId: businessUnitOwn!.businessUnitId,
         supplyTypeName: `Tipo de prueba ${cuid()}`,
         supplyTypeDescription: 'Tipo para pruebas de aislamiento HTTP',
         supplyTypeIdentifier: cuid(),
@@ -113,6 +117,7 @@ test.group('Fotos de insumos — aislamiento HTTP por tenant', (group) => {
       })
       createdSupplyTypeId = supplyType.supplyTypeId
       catalogSupply = await Supplie.create({
+        businessUnitId: supplyType.businessUnitId,
         supplyFileNumber: 900000000 + Math.floor(Math.random() * 99999999),
         supplyName: `Insumo de prueba ${cuid()}`,
         supplyDescription: 'Insumo para pruebas de aislamiento HTTP',
