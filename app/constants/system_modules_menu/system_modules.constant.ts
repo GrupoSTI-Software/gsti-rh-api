@@ -26,6 +26,13 @@ import { ACCESS_POINT_PERMISSION_CATALOG } from '#constants/access_point_permiss
  *    fila, el API lo deja fuera del listado de módulos y el BO ya no tiene la
  *    pantalla —movida a `__TO_DELETE__/pages/`—, así que su ruta responde 404 a
  *    todo rol, root y owner incluidos.
+ *  - `systemModuleActive: 0` con `systemModuleRetired: false` es otra cosa: el
+ *    módulo sigue vivo (código, rutas, pantalla y permisos intactos) pero queda
+ *    apagado por ALCANCE DE LANZAMIENTO, y el árbol de permisos de sesión lo da
+ *    por inaccesible. Se usa para lo que todavía no está aislado por empresa y
+ *    no puede mostrarse en multitenant. Encenderlo es volver el valor a 1: no
+ *    hay migración ni baja de permisos de por medio. Cada módulo así apagado
+ *    lleva en su declaración el comentario que dice qué falta para encenderlo.
  *  - `systemModulePermissionEnforcementActive` va en `true` en todo módulo cuyos
  *    permisos exige el API (`middleware.permissionGate`, `hasAccess` o
  *    equivalentes). En `false`, el gate deja pasar a cualquier usuario
@@ -768,7 +775,11 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModules: 1,
         systemModulePath: '/assessment-templates',
         systemModuleOrder: 1,
-        systemModuleActive: 1,
+        // Apagado por ALCANCE DE LANZAMIENTO, no por baja: sus tablas todavía no
+        // están aisladas por empresa, así que en multitenant un cliente vería las
+        // plantillas de otro. Se enciende (volver a 1) cuando `assessment_templates`
+        // y sus hijas tengan business_unit_id + withBusinessUnitScope.
+        systemModuleActive: 0,
         systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:
@@ -838,7 +849,11 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModules: 1,
         systemModulePath: '/certifications',
         systemModuleOrder: 4,
-        systemModuleActive: 1,
+        // Apagado por ALCANCE DE LANZAMIENTO, no por baja: `certifications` y
+        // `certification_categories` todavía no están aisladas por empresa, así
+        // que en multitenant un cliente vería el catálogo de otro. Se enciende
+        // (volver a 1) cuando tengan business_unit_id + withBusinessUnitScope.
+        systemModuleActive: 0,
         systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:
@@ -860,7 +875,12 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModules: 1,
         systemModulePath: '/competencies',
         systemModuleOrder: 5,
-        systemModuleActive: 1,
+        // Apagado por ALCANCE DE LANZAMIENTO, no por baja: `competencies`,
+        // `competency_descriptors` y `competency_brackets` todavía no están
+        // aisladas por empresa, así que en multitenant un cliente vería las
+        // competencias de otro. Se enciende (volver a 1) cuando tengan
+        // business_unit_id + withBusinessUnitScope.
+        systemModuleActive: 0,
         systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:

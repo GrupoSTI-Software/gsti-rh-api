@@ -315,3 +315,73 @@ test.group('system_modules.constant — contrato del catálogo', () => {
     assert.deepEqual(seeded, [])
   })
 })
+
+/**
+ * Excepción documentada a "módulo vivo = módulo activo".
+ *
+ * Un módulo puede quedar `systemModuleActive: 0` SIN estar retirado: sigue con
+ * código, rutas, pantalla y permisos, pero se apaga porque sus tablas todavía
+ * no están aisladas por empresa y en multitenant mostraría datos de otro
+ * cliente. No es una baja (`systemModuleRetired`), es alcance de lanzamiento, y
+ * encenderlo es volver el valor a 1.
+ *
+ * La lista va explícita para que apagar o encender un módulo más sea una
+ * decisión visible en el diff y no un descuido que nadie nota hasta que un
+ * cliente reporta la pantalla vacía —o, peor, los datos de otro.
+ */
+const APAGADOS_POR_ALCANCE_DE_LANZAMIENTO: readonly string[] = [
+  'assessment-templates',
+  'certifications',
+  'competencies',
+]
+
+const SYSTEM_MODULES_SOURCE = join(
+  process.cwd(),
+  'app/constants/system_modules_menu/system_modules.constant.ts'
+)
+
+test.group('system_modules.constant — módulos apagados por alcance de lanzamiento', () => {
+  test('los únicos módulos inactivos sin retirar son los de la lista', ({ assert }) => {
+    const inactivosVivos = SYSTEM_MODULES.filter(
+      (systemModule) => !systemModule.systemModuleRetired && systemModule.systemModuleActive === 0
+    )
+      .map((systemModule) => systemModule.systemModuleSlug)
+      .sort()
+
+    assert.deepEqual(inactivosVivos, [...APAGADOS_POR_ALCANCE_DE_LANZAMIENTO].sort())
+  })
+
+  test('siguen vivos: no retirados, con sus permisos declarados y su ruta navegable', ({
+    assert,
+  }) => {
+    // A diferencia de un retirado, el módulo conserva permisos y pantalla: solo
+    // se apaga. Si alguien le vacía los permisos, encenderlo dejaría de ser un
+    // cambio de un carácter.
+    const rotos = APAGADOS_POR_ALCANCE_DE_LANZAMIENTO.map((slug) => {
+      const systemModule = SYSTEM_MODULES.find((current) => current.systemModuleSlug === slug)
+      if (!systemModule) return `${slug}: no existe en la constante`
+      if (systemModule.systemModuleRetired) return `${slug}: está retirado, no apagado`
+      if (systemModule.systemModulePermissions.length === 0) return `${slug}: se quedó sin permisos`
+      if (systemModule.systemModulePath.includes('#')) return `${slug}: perdió su ruta navegable`
+      return null
+    }).filter((problema): problema is string => problema !== null)
+
+    assert.deepEqual(rotos, [])
+  })
+
+  test('cada uno documenta en la constante por qué está apagado y qué falta para encenderlo', ({
+    assert,
+  }) => {
+    // Sin el porqué al lado del valor, el siguiente que lea `systemModuleActive: 0`
+    // no sabrá si fue una baja, un bug o una decisión.
+    const source = readFileSync(SYSTEM_MODULES_SOURCE, 'utf8')
+
+    const sinJustificar = APAGADOS_POR_ALCANCE_DE_LANZAMIENTO.filter((slug) => {
+      const declaration = source.slice(source.indexOf(`systemModuleSlug: '${slug}'`))
+      const upToActive = declaration.slice(0, declaration.indexOf('systemModuleActive'))
+      return !/ALCANCE DE LANZAMIENTO/.test(upToActive)
+    })
+
+    assert.deepEqual(sinJustificar, [])
+  })
+})
