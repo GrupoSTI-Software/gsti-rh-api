@@ -1,7 +1,11 @@
 import BusinessUnit from '#models/business_unit'
 import Department from '#models/department'
 import { isSystemRoleSlug } from '#constants/system_roles'
-import { applyRoleBusinessScope, buildRoleBusinessScope } from '#helpers/role_business_scope'
+import {
+  applyRoleBusinessScope,
+  buildRoleBusinessScope,
+  isRoleInBusinessScope,
+} from '#helpers/role_business_scope'
 import Role from '#models/role'
 import RoleDepartment from '#models/role_department'
 import RoleSystemPermission from '#models/role_system_permission'
@@ -154,12 +158,20 @@ export default class RoleService {
     }
   }
 
-  async show(roleId: number) {
-    const role = await Role.query()
+  /**
+   * Detalle de un rol acotado a la empresa activa: un rol de otra empresa
+   * responde `null` para que el caller conteste 404 sin revelar que existe,
+   * igual que el resto del repo.
+   */
+  async show(roleId: number, allowedBusinessUnitIds: number[] = []) {
+    const scope = await buildRoleBusinessScope(allowedBusinessUnitIds)
+    const query = Role.query()
       .whereNull('role_deleted_at')
       .where('role_id', roleId)
       .preload('roleSystemPermissions')
-      .first()
+    applyRoleBusinessScope(query, scope)
+
+    const role = await query.first()
     return role ? role : null
   }
 
@@ -483,11 +495,14 @@ export default class RoleService {
   }
 
   /**
-   * Busca un rol por id acotado al tenant, con el mismo criterio que `index`:
-   * los roles de sistema resuelven en cualquier empresa (USRH1785436961936) y
-   * el resto solo si su CSV `role_business_access` incluye alguna unidad del
-   * scope. Devuelve `null` cuando el rol existe pero pertenece a otro tenant,
-   * para que el caller responda 404 sin revelar su existencia.
+   * Busca un rol por id acotado a la empresa activa, con el mismo criterio que
+   * `index` (`helpers/role_business_scope.ts`): la empresa dueña
+   * (`business_unit_id`), los roles de sistema globales y —temporalmente— los
+   * heredados que solo tienen el CSV. Devuelve `null` cuando el rol existe pero
+   * es de otra empresa, para que el caller responda 404 sin revelar que existe.
+   *
+   * Un alcance vacío no resuelve nada: sin empresa activa no hay rol que tocar
+   * (fail-closed). Antes, un alcance vacío miraba TODAS las empresas activas.
    */
   async findRoleByIdInScope(
     roleId: number,
@@ -499,28 +514,8 @@ export default class RoleService {
       return null
     }
 
-    if (isSystemRoleSlug(role.roleSlug)) {
-      return role
-    }
-
-    let slugs: string[]
-    if (allowedBusinessUnitIds.length === 0) {
-      const allUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .select('business_unit_slug')
-      slugs = allUnits.map((unit) => unit.businessUnitSlug)
-    } else {
-      const units = await BusinessUnit.query()
-        .whereIn('business_unit_id', allowedBusinessUnitIds)
-        .select('business_unit_slug')
-      slugs = units.map((unit) => unit.businessUnitSlug)
-    }
-
-    const access = role.roleBusinessAccess
-      ? role.roleBusinessAccess.split(',').map((slug) => slug.trim())
-      : []
-
-    return slugs.some((slug) => access.includes(slug.trim())) ? role : null
+    const scope = await buildRoleBusinessScope(allowedBusinessUnitIds)
+    return isRoleInBusinessScope(role, scope) ? role : null
   }
 
   /**

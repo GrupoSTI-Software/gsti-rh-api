@@ -239,6 +239,60 @@ export async function grantRoleModulePermissions(
 }
 
 /**
+ * Suma concesiones de un módulo SIN borrar las que el rol ya tiene, que es lo
+ * que hacen `grantModulePermissions` y `grantRoleModulePermissions`.
+ *
+ * Existe por el techo de concesión (`helpers/role_grant_ceiling.ts`): un actor
+ * que reparte permisos tiene que tenerlos él mismo, así que los casos necesitan
+ * un rol con permisos de DOS módulos a la vez —el de roles para cruzar el gate
+ * y el del permiso que reparte— y reemplazar dejaría solo el último.
+ *
+ * @throws Error si el rol es uno de los globales que comparten los specs o si
+ *   el permiso no está sembrado.
+ */
+export async function addRoleModulePermissions(
+  role: Role,
+  moduleSlug: string,
+  permissionSlugs: readonly string[]
+): Promise<void> {
+  if (SHARED_ROLE_SLUGS.has(role.roleSlug)) {
+    throw new Error(
+      `[${HELPER_NAME}] El rol "${role.roleSlug}" es compartido: no se le siembran concesiones.`
+    )
+  }
+
+  for (const permissionSlug of permissionSlugs) {
+    const permission = await SystemPermission.query()
+      .whereNull('system_permission_deleted_at')
+      .where('system_permission_slug', permissionSlug)
+      .whereHas('systemModule', (query) =>
+        query.whereNull('system_module_deleted_at').where('system_module_slug', moduleSlug)
+      )
+      .first()
+
+    if (!permission) {
+      throw new Error(
+        `[${HELPER_NAME}] No existe el permiso "${moduleSlug}:${permissionSlug}": corre "migration:fresh --seed".`
+      )
+    }
+
+    const existing = await RoleSystemPermission.query()
+      .whereNull('role_system_permission_deleted_at')
+      .where('role_id', role.roleId)
+      .where('system_permission_id', permission.systemPermissionId)
+      .first()
+    if (existing) {
+      continue
+    }
+
+    await RoleSystemPermission.create({
+      roleId: role.roleId,
+      systemPermissionId: permission.systemPermissionId,
+    })
+  }
+}
+
+/**
  * El gate lee la exigencia de la BD, no de la constante: sin re-sembrar, un
  * módulo recién encendido sigue dejando pasar a todos y el spec mentiría.
  *

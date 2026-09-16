@@ -6,6 +6,11 @@ import RoleService from '#services/role_service'
 import { RolePresetServiceError } from '#exceptions/role_preset_service_error'
 import { buildRolePresetErrorResponse } from '#helpers/role_preset_error_response'
 import { isOwnRoleLockedForUser, isSystemRoleLockedForUser } from '#helpers/system_role_lock'
+import {
+  buildGrantCeilingDenial,
+  findPermissionsAboveActorCeiling,
+} from '#helpers/role_grant_ceiling'
+import { getRolePreset } from '#constants/role_presets'
 import { rolePresetApplyValidator, rolePresetPreviewValidator } from '#validators/role_preset'
 
 export default class RolePresetController {
@@ -54,7 +59,8 @@ export default class RolePresetController {
     }
   }
 
-  async apply({ auth, request, response, businessUnitScope, i18n }: HttpContext) {
+  async apply(ctx: HttpContext) {
+    const { auth, request, response, businessUnitScope, i18n } = ctx
     try {
       const data = await request.validateUsing(rolePresetApplyValidator)
       const role = await this.loadRole(request.param('roleId'), businessUnitScope)
@@ -87,6 +93,23 @@ export default class RolePresetController {
           detail: i18n.formatMessage('own_role_locked_detail'),
           key: 'rol-propio-bloqueado',
         }
+      }
+
+      // Techo de concesión: una plantilla no es un atajo para repartir
+      // permisos que el actor no tiene. Se revisan los permisos de la
+      // plantilla —lo único que puede AGREGAR, en `merge` y en `replace`—
+      // contra los que el rol ya tiene, antes de abrir la transacción.
+      const presetPermissions = await new RolePresetService().resolveEmployeesPermissionIds(
+        getRolePreset(data.presetSlug).permissionSlugs
+      )
+      const breaches = await findPermissionsAboveActorCeiling(
+        ctx,
+        presetPermissions.ids,
+        role.roleId
+      )
+      if (breaches.length > 0) {
+        response.status(403)
+        return buildGrantCeilingDenial(i18n, breaches)
       }
 
       const result = await db.transaction((trx) =>

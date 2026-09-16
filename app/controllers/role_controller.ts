@@ -7,6 +7,10 @@ import { isReservedRoleIdentitySlug } from '#constants/system_roles'
 import { isOwnRoleLockedForUser, isSystemRoleLockedForUser } from '#helpers/system_role_lock'
 import { resolveActiveBusinessUnitId } from '#helpers/role_business_scope'
 import {
+  buildGrantCeilingDenial,
+  findPermissionsAboveActorCeiling,
+} from '#helpers/role_grant_ceiling'
+import {
   ensureSecondaryPermission,
   evaluateSecondaryPermission,
 } from '#helpers/permission_gate_secondary'
@@ -392,6 +396,20 @@ export default class RoleController {
         return
       }
 
+      // Techo de concesión: la plantilla no puede darle al rol nuevo permisos
+      // que el actor no tiene. El rol aún no existe, así que todo lo que trae
+      // la plantilla cuenta como concesión nueva.
+      if (data.rolePresetSlug) {
+        const presetPermissions = await new RolePresetService().resolveEmployeesPermissionIds(
+          getRolePreset(data.rolePresetSlug).permissionSlugs
+        )
+        const breaches = await findPermissionsAboveActorCeiling(ctx, presetPermissions.ids, null)
+        if (breaches.length > 0) {
+          response.status(403)
+          return buildGrantCeilingDenial(i18n, breaches)
+        }
+      }
+
       const valid = await roleService.verifyInfo(role)
       if (valid.status !== 200) {
         response.status(valid.status)
@@ -580,7 +598,7 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async update({ auth, request, response, i18n }: HttpContext) {
+  async update({ auth, request, response, businessUnitScope, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const roleId = request.param('roleId')
@@ -610,10 +628,9 @@ export default class RoleController {
           data: { ...role },
         }
       }
-      const currentRole = await Role.query()
-        .whereNull('role_deleted_at')
-        .where('role_id', roleId)
-        .first()
+      // Acotado a la empresa activa: un rol de otra empresa responde 404, como
+      // si no existiera.
+      const currentRole = await roleService.findRoleByIdInScope(Number(roleId), businessUnitScope)
       if (!currentRole) {
         response.status(404)
         return {
@@ -784,8 +801,9 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async delete({ auth, request, response, i18n }: HttpContext) {
+  async delete({ auth, request, response, businessUnitScope, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
+    const roleService = new RoleService()
     try {
       const roleId = request.param('roleId')
       if (!roleId) {
@@ -797,10 +815,8 @@ export default class RoleController {
           data: { roleId },
         }
       }
-      const currentRole = await Role.query()
-        .whereNull('role_deleted_at')
-        .where('role_id', roleId)
-        .first()
+      // Acotado a la empresa activa: un rol de otra empresa responde 404.
+      const currentRole = await roleService.findRoleByIdInScope(Number(roleId), businessUnitScope)
       if (!currentRole) {
         response.status(404)
         return {
@@ -826,7 +842,6 @@ export default class RoleController {
           key: 'rol-propio-bloqueado',
         }
       }
-      const roleService = new RoleService()
       const deleteRole = await roleService.delete(currentRole)
       if (deleteRole) {
         response.status(200)
@@ -963,12 +978,15 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async assign({ auth, request, response, i18n }: HttpContext) {
+  async assign(ctx: HttpContext) {
+    const { auth, request, response, businessUnitScope, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
+    const roleService = new RoleService()
     try {
       const roleId = request.param('roleId')
       const data = request.all()
-      const role = await Role.query().whereNull('role_deleted_at').where('role_id', roleId).first()
+      // Acotado a la empresa activa: un rol de otra empresa responde 404.
+      const role = await roleService.findRoleByIdInScope(Number(roleId), businessUnitScope)
       if (!role) {
         response.status(404)
         return {
@@ -1000,7 +1018,14 @@ export default class RoleController {
         }
       }
 
-      const roleService = new RoleService()
+      // Techo de concesión: solo se reparte lo que el actor tiene. Se revisa
+      // antes de abrir la transacción, así que una negativa no escribe nada.
+      const breaches = await findPermissionsAboveActorCeiling(ctx, data.permissions, role.roleId)
+      if (breaches.length > 0) {
+        response.status(403)
+        return buildGrantCeilingDenial(i18n, breaches)
+      }
+
       let roleSystemPermissions
       try {
         roleSystemPermissions = await db.transaction(async (trx) => {
@@ -1162,19 +1187,25 @@ export default class RoleController {
    *                 error:
    *                   type: string
    */
-  async assignBatch({ auth, request, response, i18n }: HttpContext) {
+  async assignBatch(ctx: HttpContext) {
+    const { auth, request, response, businessUnitScope, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
+    const roleService = new RoleService()
     try {
       const { roles: items } = await request.validateUsing(assignRolesPermissionsBatchValidator)
 
-      // Preflight: se valida y se carga cada rol del lote ANTES de abrir la
-      // transacción. Cualquier 404/403 detiene el lote completo sin escrituras
-      // (atomicidad "todo o nada" del USRH1785766406741).
+      // Preflight en dos pasadas ANTES de abrir la transacción. Cualquier
+      // 404/403 detiene el lote completo sin escrituras (atomicidad "todo o
+      // nada" del USRH1785766406741).
+      //
+      // Primero se resuelven y se juzgan TODOS los roles del lote, y solo
+      // después se revisa el techo de concesión: si el lote trae un rol
+      // intocable, esa negativa manda sobre la de los permisos, sin depender
+      // del orden en que el cliente haya armado el arreglo.
+      const targets = new Map<number, Role>()
       for (const item of items) {
-        const role = await Role.query()
-          .whereNull('role_deleted_at')
-          .where('role_id', item.roleId)
-          .first()
+        // Acotado a la empresa activa: un rol de otra empresa responde 404.
+        const role = await roleService.findRoleByIdInScope(item.roleId, businessUnitScope)
         if (!role) {
           response.status(404)
           return {
@@ -1212,9 +1243,28 @@ export default class RoleController {
             },
           }
         }
+
+        targets.set(item.roleId, role)
       }
 
-      const roleService = new RoleService()
+      // Segunda pasada: techo de concesión. Un solo rol del lote con permisos
+      // fuera del alcance del actor detiene el lote completo.
+      for (const item of items) {
+        const role = targets.get(item.roleId)
+        if (!role) {
+          continue
+        }
+
+        const breaches = await findPermissionsAboveActorCeiling(ctx, item.permissions, role.roleId)
+        if (breaches.length > 0) {
+          response.status(403)
+          return buildGrantCeilingDenial(i18n, breaches, {
+            roleId: role.roleId,
+            roleName: role.roleName,
+          })
+        }
+      }
+
       try {
         await db.transaction(async (trx) => {
           await roleService.assignPermissionsBatch(items, trx)
@@ -1347,7 +1397,7 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show({ request, response, businessUnitScope }: HttpContext) {
     try {
       const roleId = request.param('roleId')
       if (!roleId) {
@@ -1360,7 +1410,9 @@ export default class RoleController {
         }
       }
       const roleService = new RoleService()
-      const showRole = await roleService.show(roleId)
+      // Acotado a la empresa activa: el detalle de un rol de otra empresa
+      // responde 404 igual que uno inexistente.
+      const showRole = await roleService.show(Number(roleId), businessUnitScope)
       if (!showRole) {
         response.status(404)
         return {

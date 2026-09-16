@@ -86,12 +86,20 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
     nonRootActor = await createTenantActor('role-assign-batch-admin')
     await grantModulePermissions(nonRootActor, 'roles-and-permissions', ['update'])
 
+    // Los dos actores del grupo son de empresas distintas y los dos tienen que
+    // alcanzar estos roles: `assign-batch` resuelve cada id dentro de la
+    // empresa activa. Se dejan como roles heredados (sin `business_unit_id`),
+    // que es el caso que sostiene la compatibilidad temporal con el CSV.
+    const sharedAccess = [
+      actor!.businessUnit.businessUnitSlug,
+      nonRootActor!.businessUnit.businessUnitSlug,
+    ].join(',')
     roleA = await Role.create({
       roleName: `Test Assign Batch Role A ${stamp}`,
       roleSlug: `test-assign-batch-role-a-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
+      roleBusinessAccess: sharedAccess,
       roleManagementDays: 10,
     })
     roleB = await Role.create({
@@ -99,7 +107,7 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
       roleSlug: `test-assign-batch-role-b-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
+      roleBusinessAccess: sharedAccess,
       roleManagementDays: 10,
     })
     // Rol de sistema legacy: 0006 ya no lo siembra; se asegura por slug y no se borra.

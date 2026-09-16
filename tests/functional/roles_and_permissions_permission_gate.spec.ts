@@ -7,6 +7,7 @@ import SystemPermission from '#models/system_permission'
 import RolePresetService from '#services/role_preset_service'
 import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
 import {
+  addRoleModulePermissions,
   assertModuleEnforced,
   businessUnitHeaders,
   cleanupTenantActor,
@@ -60,6 +61,26 @@ const readOnlyPresetVersion = () => {
   const preset = new RolePresetService().list().find((item) => item.slug === 'read-only')
   if (!preset) throw new Error('La plantilla read-only debe existir para este spec.')
   return preset.version
+}
+
+/**
+ * Siembra en el rol del actor los permisos de Empleados de la plantilla
+ * `read-only`, sin tocar los del módulo de roles.
+ *
+ * El techo de concesión (`helpers/role_grant_ceiling.ts`) no deja repartir lo
+ * que uno no tiene, ni siquiera a través de una plantilla. Los casos que
+ * prueban el GATE necesitan al actor por encima de ese techo para que la
+ * respuesta hable del permiso de la ruta y no del techo.
+ */
+async function grantPresetPermissionsToActor(actor: TenantActor): Promise<void> {
+  const preset = new RolePresetService().list().find((item) => item.slug === 'read-only')
+  if (!preset) throw new Error('La plantilla read-only debe existir para este spec.')
+
+  await addRoleModulePermissions(
+    actor.role,
+    'employees',
+    preset.permissions.map((permission) => permission.slug)
+  )
 }
 
 /** Rol que pertenece a la empresa del actor, igual que uno creado desde su pantalla. */
@@ -359,6 +380,10 @@ test.group('Roles y permisos — permissionGate con exigencia encendida', (group
     assert.isNull(await Role.query().where('role_name', presetName).first())
 
     await grantModulePermissions(tenant, MODULE, ['create', 'update'])
+    // El techo de concesión pide que el actor tenga lo que reparte: sin los
+    // permisos de Empleados de la plantilla, el alta respondería 403 y el caso
+    // dejaría de probar el gate, que es lo suyo.
+    await grantPresetPermissionsToActor(tenant)
     const createdWithPreset = await assertStatus(assert, client, tenant, withPreset, 201)
     assert.equal(createdWithPreset.body().data.appliedPreset.slug, 'read-only')
     assert.isNotEmpty(await grantsOf(createdWithPreset.body().data.role.roleId))
@@ -375,6 +400,9 @@ test.group('Roles y permisos — permissionGate con exigencia encendida', (group
     const role = required(target, 'el rol objetivo')
     const disposable = await createTenantRole(tenant, 'desechable')
     await grantModulePermissions(tenant, MODULE, ['update'])
+    // Ver el comentario del caso anterior: la plantilla solo reparte lo que el
+    // actor ya tiene.
+    await grantPresetPermissionsToActor(tenant)
     const calls = operationCalls(role.roleId)
 
     await assertStatus(assert, client, tenant, calls.update, 201)
