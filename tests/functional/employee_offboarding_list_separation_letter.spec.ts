@@ -29,8 +29,9 @@ import {
  * `withoutSeparationLetter` del listado de salidas (CA-1, CA-2, CA-3, CA-6 y
  * CA-7 del spec, más el aislamiento por empresa del DoD).
  *
- * Corre sobre la base de desarrollo con fixtures PROPIAS: dos empresas, un
- * rol con `read` sobre `employee-offboardings` (módulo sembrado por 0055), un
+ * Corre sobre la BD desechable de la suite (`valanserh_test`) con fixtures
+ * PROPIAS: dos empresas, un
+ * rol con `read` sobre `employee-offboardings` (módulo sembrado por 0062), un
  * rol sin permiso, colaboradores con la baja ejecutada (borrado lógico) o
  * solo programada, expedientes, pendientes y documentos. Todo se destruye en
  * `group.teardown` en orden inverso de FK.
@@ -170,7 +171,7 @@ async function findReadPermission(): Promise<SystemPermission> {
     .first()
   if (!systemModule) {
     throw new Error(
-      `Se requiere el módulo "${EMPLOYEE_OFFBOARDINGS_MODULE_SLUG}" en BD (seeder 0055) para este test.`
+      `Se requiere el módulo "${EMPLOYEE_OFFBOARDINGS_MODULE_SLUG}" en BD (seeder 0062) para este test.`
     )
   }
   const permission = await SystemPermission.query()

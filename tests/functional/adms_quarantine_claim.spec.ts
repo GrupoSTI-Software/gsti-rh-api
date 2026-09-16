@@ -24,8 +24,8 @@ const SERIAL_REVIVE = `TESTR${STAMP}`.slice(0, 24)
 
 test.group('Reclamo de cuarentena desde plataforma', (group) => {
   let tenant: BusinessUnit
+  let otraEmpresa: BusinessUnit
   let modelId: number
-  let biometricsWasEnabled = false
   let primerAccessPointId = 0
   const quarantineIds: number[] = []
   const deviceIds: number[] = []
@@ -47,23 +47,37 @@ test.group('Reclamo de cuarentena desde plataforma', (group) => {
     }, 'fixture de cuarentena')
   }
 
+  /**
+   * Empresa creada por el spec, con la bandera de biometricos encendida.
+   *
+   * `createAssignment` exige esa bandera (RN7). Antes se tomaba "la primera
+   * empresa de la base" y se le encendia la bandera prestada, restaurandola al
+   * final: el caso dependia de que existiera alguna empresa, escribia sobre
+   * datos que no eran suyos y, si el teardown no llegaba a correr, dejaba a esa
+   * empresa con biometricos encendidos para el resto de la corrida.
+   */
+  async function crearEmpresa(prefijo: string): Promise<BusinessUnit> {
+    const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
+    const unidad = new BusinessUnit()
+    unidad.businessUnitName = `Cuarentena ${prefijo} ${stamp}`
+    unidad.businessUnitSlug = `cuarentena-${prefijo}-${stamp}`
+    unidad.businessUnitLegalName = `Cuarentena ${prefijo} legal ${stamp}`
+    unidad.businessUnitActive = 1
+    unidad.businessUnitOrigin = 'platform'
+    unidad.businessUnitHasBiometrics = 1
+    await unidad.save()
+    return unidad
+  }
+
   group.setup(async () => {
     await TenantContext.runUnscoped(async () => {
-      const unit = await BusinessUnit.query().whereNull('business_unit_deleted_at').first()
-      if (!unit) throw new Error('Se requiere al menos una empresa.')
-      tenant = unit
+      tenant = await crearEmpresa('propia')
+      // La segunda empresa es del caso de la serie ajena: se crea aqui para que
+      // ese caso no dependa de que la base tenga mas de una empresa.
+      otraEmpresa = await crearEmpresa('ajena')
 
-      /**
-       * `createAssignment` exige la bandera de biometricos (RN7). Se habilita
-       * para la prueba y se restaura en la limpieza: si la base de desarrollo
-       * no tiene ninguna empresa con la bandera, la prueba no puede correr.
-       */
-      biometricsWasEnabled = unit.businessUnitHasBiometrics === 1
-      if (!biometricsWasEnabled) {
-        unit.businessUnitHasBiometrics = 1
-        await unit.save()
-      }
-
+      // El catalogo de modelos es de plataforma y lo siembra 0058: es global
+      // por diseño, no un dato de desarrollo.
       const model = await PlatformDeviceModel.query()
         .where('platform_device_model_status', 'vigente')
         .whereNull('platform_device_model_deleted_at')
@@ -110,9 +124,13 @@ test.group('Reclamo de cuarentena desde plataforma', (group) => {
       if (deviceIds.length > 0) {
         await db.from('platform_devices').whereIn('platform_device_id', deviceIds).delete()
       }
-      if (!biometricsWasEnabled && tenant) {
-        tenant.businessUnitHasBiometrics = 0
-        await tenant.save()
+      // Las empresas son del spec: se borran enteras al final, sin restaurar
+      // banderas prestadas a nadie.
+      const empresaIds = [tenant?.businessUnitId, otraEmpresa?.businessUnitId].filter(
+        (id): id is number => typeof id === 'number'
+      )
+      if (empresaIds.length > 0) {
+        await db.from('business_units').whereIn('business_unit_id', empresaIds).delete()
       }
     }, 'limpieza del reclamo')
   })
@@ -309,14 +327,7 @@ test.group('Reclamo de cuarentena desde plataforma', (group) => {
    */
   test('una serie que pertenecio a otra empresa no se reclama en silencio', async ({ assert }) => {
     const serial = `TESTO${STAMP}`.slice(0, 24)
-    const otra = await TenantContext.runUnscoped(
-      () =>
-        BusinessUnit.query()
-          .whereNull('business_unit_deleted_at')
-          .whereNot('business_unit_id', tenant.businessUnitId)
-          .firstOrFail(),
-      'segunda empresa para el aislamiento'
-    )
+    const otra = otraEmpresa
 
     const muerto = await TenantContext.runUnscoped(async () => {
       const ap = new AccessPoint()

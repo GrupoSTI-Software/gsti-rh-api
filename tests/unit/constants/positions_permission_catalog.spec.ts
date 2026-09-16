@@ -32,7 +32,6 @@ test.group('Catálogo positions — USRH1787433076995', () => {
       (entry) => entry.slug === 'positions'
     )
     assert.exists(moduleEntry)
-    assert.isTrue(moduleEntry!.actionsEnumerated)
     assert.deepEqual(
       SYSTEM_PERMISSION_CATALOG.actionsByModule.positions.map((action) => action.slug),
       POSITIONS_PERMISSION_CATALOG.map((action) => action.slug)

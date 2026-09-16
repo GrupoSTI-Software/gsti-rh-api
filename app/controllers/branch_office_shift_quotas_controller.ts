@@ -9,6 +9,11 @@ import {
   replaceBranchOfficeShiftQuotasValidator,
   type BranchOfficeShiftQuotaInput,
 } from '../validators/branch_office_shift_quota.js'
+import { evaluateSecondaryEnforcedDecision } from '#helpers/permission_gate_secondary'
+import { respondPermissionGateDenial } from '#helpers/permission_gate_http'
+import type { PermissionGateDecision } from '#services/permission_gate_service'
+import { BRANCH_OFFICE_SHIFT_QUOTAS_REPSE_READ_PERMISSION } from '#constants/branch_office_shift_quotas_permission_declarations'
+import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 
 const SUCCESS_TITLE = 'Branch Office Shift Quotas'
 
@@ -16,6 +21,46 @@ const SUCCESS_TITLE = 'Branch Office Shift Quotas'
  * Controlador REST de cuotas de plantilla por sucursal y turno.
  */
 export default class BranchOfficeShiftQuotasController {
+  /**
+   * ¿Quien pide las cuotas puede verlas? Devuelve la decisión, no un booleano,
+   * para que la negativa distinga `PERM.DENIED` de `PERM.UNRESOLVED`.
+   *
+   * Dos pantallas de módulos distintos las leen: el detalle de empresa
+   * contratante de REPSE y el formulario de préstamo temporal del colaborador,
+   * que es Empleados. `middleware.permissionGate` declara un solo módulo, así
+   * que cerrar la ruta con uno dejaría fuera al otro; se acepta cualquiera de
+   * los dos con la regla del gate de identidad, bypass y concesiones.
+   *
+   * Se usa `evaluateEnforced` y NO `evaluate` justamente porque son dos: con
+   * `evaluate`, que cualquiera de los dos módulos tuviera la exigencia apagada
+   * en BD bastaba para que su rama concediera por `module-not-enforced` y la
+   * lectura volviera a quedar abierta a todo el tenant. El catálogo contempla
+   * apagar la exigencia durante un rollout, así que el agujero dependía del
+   * interruptor de un módulo ajeno a quien pide.
+   */
+  private async resolveShiftQuotasReadDecision(
+    ctx: HttpContext
+  ): Promise<PermissionGateDecision> {
+    const repse = await evaluateSecondaryEnforcedDecision(
+      ctx,
+      BRANCH_OFFICE_SHIFT_QUOTAS_REPSE_READ_PERMISSION
+    )
+    if (repse.allowed) return repse
+
+    // El préstamo temporal las lee para proponer turnos: misma casilla que crea
+    // el préstamo (`tab-trabajo-write`), no una nueva.
+    const employees = await evaluateSecondaryEnforcedDecision(
+      ctx,
+      EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createTemporaryAssignment
+    )
+    if (employees.allowed) return employees
+
+    // Se propaga la razón más severa: si alguna de las dos no pudo resolverse
+    // (rol borrado, error de BD), el cliente no debe leer "no tienes permiso".
+    const unresolved = repse.reason === 'unresolved' || employees.reason === 'unresolved'
+    return { allowed: false, reason: unresolved ? 'unresolved' : 'denied' }
+  }
+
   /**
    * @swagger
    * /api/branch-offices/{branchOfficeId}/shift-quotas:
@@ -97,8 +142,17 @@ export default class BranchOfficeShiftQuotasController {
    *               key: sucursal-no-encontrada
    *               errorCode: BRCH.SQ.NF.BRCH.001
    *               data: null
+   *       '403':
+   *         description: |
+   *           Sin `repse-registrations:read`/`gestion` ni `employees:tab-trabajo-write`
+   *           (key `PERM.DENIED` / `PERM.UNRESOLVED`).
    */
-  async index({ params, response, businessUnitScope, i18n }: HttpContext) {
+  async index(ctx: HttpContext) {
+    const { params, response, businessUnitScope, i18n } = ctx
+    const decision = await this.resolveShiftQuotasReadDecision(ctx)
+    if (!decision.allowed) {
+      return respondPermissionGateDenial(ctx, decision)
+    }
     try {
       const branchOfficeId = this.parseBranchOfficeId(params.branchOfficeId, i18n)
       const quotas = await BranchOfficeShiftQuotaService.list(branchOfficeId, businessUnitScope)
@@ -212,6 +266,10 @@ export default class BranchOfficeShiftQuotasController {
    *               message: Unauthorized access
    *               errorCode: BRCH.SQ.SYS.001
    *               data: null
+   *       '403':
+   *         description: |
+   *           Sin `repse-registrations:gestion` (key `PERM.DENIED` /
+   *           `PERM.UNRESOLVED`). La niega el `permissionGate` de la ruta.
    *       '404':
    *         description: key sucursal-no-encontrada o turno-no-encontrado
    *         content:

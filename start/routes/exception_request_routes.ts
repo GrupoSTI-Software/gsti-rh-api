@@ -12,7 +12,12 @@ router
       .get('/all', '#controllers/exception_requests_controller.indexAllExceptionRequests')
       .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexAllExceptionRequests))
     router.get('/my-requests', '#controllers/exception_requests_controller.getMyExceptionRequests')
-    router.get('/unread', '#controllers/exception_requests_controller.getUnreadExceptionRequests')
+    // Mismo dato y mismo permiso que `/all`; ningún cliente lo consume hoy.
+    router
+      .get('/unread', '#controllers/exception_requests_controller.getUnreadExceptionRequests')
+      .use(
+        middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexUnreadExceptionRequests)
+      )
     // D-08: alta exenta — entrada compartida con la app del colaborador.
     router.post('/', '#controllers/exception_requests_controller.store')
     router

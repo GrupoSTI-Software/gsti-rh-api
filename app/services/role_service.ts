@@ -1,6 +1,11 @@
 import BusinessUnit from '#models/business_unit'
 import Department from '#models/department'
-import { SYSTEM_ROLE_SLUGS, isSystemRoleSlug } from '#constants/system_roles'
+import { isSystemRoleSlug } from '#constants/system_roles'
+import {
+  applyRoleBusinessScope,
+  buildRoleBusinessScope,
+  isRoleInBusinessScope,
+} from '#helpers/role_business_scope'
 import Role from '#models/role'
 import RoleDepartment from '#models/role_department'
 import RoleSystemPermission from '#models/role_system_permission'
@@ -9,41 +14,41 @@ import SystemPermission from '#models/system_permission'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
 
-export default class RoleService {
-  async index(filters: RoleFilterSearchInterface, allowedBusinessUnitIds: number[] = []) {
-    let slugs: string[] = []
-    if (allowedBusinessUnitIds.length > 0) {
-      const units = await BusinessUnit.query()
-        .whereIn('business_unit_id', allowedBusinessUnitIds)
-        .select('business_unit_slug')
-      slugs = units.map((bu) => bu.businessUnitSlug)
-    }
+/** Qué parte de cada rol entrega el listado. */
+export interface RoleIndexOptions {
+  /**
+   * Precarga `roleSystemPermissions`. Solo con `roles-and-permissions:read`
+   * (o bypass): la matriz de un rol ajeno no se entrega a quien solo llena un
+   * select de Usuarios.
+   */
+  includeGrants: boolean
+}
 
-    // Roles de sistema (owner, empleado) siempre visibles en todo tenant
-    // (USRH1785436961936); el resto se filtra por role_business_access.
-    const roles = await Role.query()
-      .whereNull('role_deleted_at')
-      .andWhere((query) => {
-        query.whereIn('role_slug', [...SYSTEM_ROLE_SLUGS])
-        if (slugs.length === 0) {
-          return
-        }
-        query.orWhere((accessQuery) => {
-          accessQuery.whereNotNull('role_business_access')
-          accessQuery.andWhere((subQuery) => {
-            slugs.forEach((slug) => {
-              subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [slug.trim()])
-            })
-          })
-        })
-      })
-      .if(filters.search, (query) => {
-        query.andWhere((searchQuery) => {
+export default class RoleService {
+  async index(
+    filters: RoleFilterSearchInterface,
+    allowedBusinessUnitIds: number[] = [],
+    options: RoleIndexOptions = { includeGrants: false }
+  ) {
+    const scope = await buildRoleBusinessScope(allowedBusinessUnitIds)
+
+    // El listado trae los roles de la empresa activa, los de sistema (visibles
+    // en todo tenant) y —mientras no corra el backfill— los heredados que aún
+    // se distinguen por el CSV. La regla completa vive en
+    // `helpers/role_business_scope.ts`, que también usa el listado de usuarios.
+    const query = Role.query().whereNull('role_deleted_at')
+    applyRoleBusinessScope(query, scope)
+
+    const roles = await query
+      .if(filters.search, (searchScoped) => {
+        searchScoped.andWhere((searchQuery) => {
           searchQuery.whereRaw('UPPER(role_name) LIKE ?', [`%${filters.search.toUpperCase()}%`])
         })
       })
       .preload('roleDepartments')
-      .preload('roleSystemPermissions')
+      .if(options.includeGrants, (grantsScoped) => {
+        grantsScoped.preload('roleSystemPermissions')
+      })
       .orderBy('role_id')
       .paginate(filters.page, filters.limit)
     return roles
@@ -54,6 +59,7 @@ export default class RoleService {
     newRole.roleName = role.roleName
     newRole.roleDescription = role.roleDescription
     newRole.roleSlug = role.roleSlug
+    newRole.businessUnitId = role.businessUnitId ?? null
     newRole.roleActive = role.roleActive
     newRole.roleBusinessAccess = role.roleBusinessAccess
     if (trx) newRole.useTransaction(trx)
@@ -61,10 +67,16 @@ export default class RoleService {
     return newRole
   }
 
+  /**
+   * El slug NO se reescribe al renombrar: es la identidad del rol, lo que
+   * decide el runtime (`RESERVED_ROLE_IDENTITY_SLUGS`) y lo que sostiene el
+   * candado único por empresa. Un rename que lo moviera cambiaría en silencio
+   * el rol al que apuntan las referencias por slug y podría chocar contra el
+   * índice. Ni la empresa dueña se toca: un rol no cambia de dueño.
+   */
   async update(currentRole: Role, role: Role) {
     currentRole.roleName = role.roleName
     currentRole.roleDescription = role.roleDescription
-    currentRole.roleSlug = role.roleSlug
     currentRole.roleActive = role.roleActive
     await currentRole.save()
     return currentRole
@@ -146,12 +158,20 @@ export default class RoleService {
     }
   }
 
-  async show(roleId: number) {
-    const role = await Role.query()
+  /**
+   * Detalle de un rol acotado a la empresa activa: un rol de otra empresa
+   * responde `null` para que el caller conteste 404 sin revelar que existe,
+   * igual que el resto del repo.
+   */
+  async show(roleId: number, allowedBusinessUnitIds: number[] = []) {
+    const scope = await buildRoleBusinessScope(allowedBusinessUnitIds)
+    const query = Role.query()
       .whereNull('role_deleted_at')
       .where('role_id', roleId)
       .preload('roleSystemPermissions')
-      .first()
+    applyRoleBusinessScope(query, scope)
+
+    const role = await query.first()
     return role ? role : null
   }
 
@@ -475,11 +495,14 @@ export default class RoleService {
   }
 
   /**
-   * Busca un rol por id acotado al tenant, con el mismo criterio que `index`:
-   * los roles de sistema resuelven en cualquier empresa (USRH1785436961936) y
-   * el resto solo si su CSV `role_business_access` incluye alguna unidad del
-   * scope. Devuelve `null` cuando el rol existe pero pertenece a otro tenant,
-   * para que el caller responda 404 sin revelar su existencia.
+   * Busca un rol por id acotado a la empresa activa, con el mismo criterio que
+   * `index` (`helpers/role_business_scope.ts`): la empresa dueña
+   * (`business_unit_id`), los roles de sistema globales y —temporalmente— los
+   * heredados que solo tienen el CSV. Devuelve `null` cuando el rol existe pero
+   * es de otra empresa, para que el caller responda 404 sin revelar que existe.
+   *
+   * Un alcance vacío no resuelve nada: sin empresa activa no hay rol que tocar
+   * (fail-closed). Antes, un alcance vacío miraba TODAS las empresas activas.
    */
   async findRoleByIdInScope(
     roleId: number,
@@ -491,27 +514,28 @@ export default class RoleService {
       return null
     }
 
-    if (isSystemRoleSlug(role.roleSlug)) {
-      return role
-    }
+    const scope = await buildRoleBusinessScope(allowedBusinessUnitIds)
+    return isRoleInBusinessScope(role, scope) ? role : null
+  }
 
-    let slugs: string[]
-    if (allowedBusinessUnitIds.length === 0) {
-      const allUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .select('business_unit_slug')
-      slugs = allUnits.map((unit) => unit.businessUnitSlug)
-    } else {
-      const units = await BusinessUnit.query()
-        .whereIn('business_unit_id', allowedBusinessUnitIds)
-        .select('business_unit_slug')
-      slugs = units.map((unit) => unit.businessUnitSlug)
-    }
+  /**
+   * ¿La empresa activa ya tiene un rol vivo con ese slug? Es el pre-check del
+   * alta: el slug se deriva del nombre y el candado único es por empresa, así
+   * que un duplicado tiene que responder 409 y no reventar contra el índice
+   * con un 500.
+   *
+   * Mira el mismo alcance que el listado a propósito: un rol heredado que la
+   * empresa ve por CSV también ocupa el nombre, aunque el índice no lo impida
+   * mientras su `business_unit_id` siga en NULL.
+   */
+  async findLiveRoleWithSlugInScope(
+    roleSlug: string,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<Role | null> {
+    const scope = await buildRoleBusinessScope(allowedBusinessUnitIds)
+    const query = Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug)
+    applyRoleBusinessScope(query, scope)
 
-    const access = role.roleBusinessAccess
-      ? role.roleBusinessAccess.split(',').map((slug) => slug.trim())
-      : []
-
-    return slugs.some((slug) => access.includes(slug.trim())) ? role : null
+    return (await query.first()) ?? null
   }
 }

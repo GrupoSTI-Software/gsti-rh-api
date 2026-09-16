@@ -1,55 +1,108 @@
 import { test } from '@japa/runner'
-import RoleSeeder from '#database/seeders/0006_role_seeder'
+import RoleSeeder, { ROLE_SEEDS } from '#database/seeders/0006_role_seeder'
 import Role from '#models/role'
 
 /**
- * Tests del seeder 0006_role_seeder — rol `owner` (USRH1783712837561).
+ * Tests del seeder 0006_role_seeder: siembra los tres roles globales que el
+ * runtime resuelve por slug (`root`, `owner`, `empleado`) y ninguno más.
  *
- * Cubre los criterios de aceptación del spec (§5):
- *  - Existe un rol `owner` nuevo sin alterar el catálogo previo (1 super-administrador,
- *    2 rh-manager, 3 root, 4 empleado).
- *  - El seeder es idempotente: correrlo dos veces no duplica filas.
+ * Es un puente hasta que aterricen los roles por empresa. Lo que protege este
+ * spec es el borde: que no vuelvan `super-administrador` ni `rh-manager`, que
+ * dan salvoconducto ampliado y visibilidad sin que ningún flujo los necesite.
+ *
+ * Ningún caso compara contra el total de la tabla `roles`: otros specs de la
+ * misma corrida crean roles con `tests/helpers/ensure_role.ts` antes de que
+ * corra este seeder. Por eso lo declarado se afirma sobre `ROLE_SEEDS` y lo
+ * sembrado sobre las filas de cada slug. Tampoco se afirma ningún id: lo
+ * asigna la BD.
  */
 
-const PREVIOUS_ROLES: Array<{ roleId: number; roleSlug: string }> = [
-  { roleId: 1, roleSlug: 'super-administrador' },
-  { roleId: 2, roleSlug: 'rh-manager' },
-  { roleId: 3, roleSlug: 'root' },
-  { roleId: 4, roleSlug: 'empleado' },
-]
+const SEMBRADOS = ['root', 'owner', 'empleado'] as const
+const NO_SEMBRADOS = ['super-administrador', 'rh-manager'] as const
 
-test.group('0006_role_seeder — rol owner', () => {
-  test('siembra el rol owner (roleId 5) sin alterar el catálogo previo', async ({ assert }) => {
-    await new RoleSeeder({} as never).run()
+/** Slugs de todas las filas de `roles`, incluidas las dadas de baja. */
+async function allRoleSlugs(): Promise<string[]> {
+  const roles = await Role.query().withTrashed().select('role_slug')
+  return roles.map((role) => role.roleSlug)
+}
 
-    const owner = await Role.query().whereNull('role_deleted_at').where('role_slug', 'owner').first()
-    assert.exists(owner, 'El rol "owner" debe existir tras correr el seeder')
-    assert.equal(owner!.roleId, 5)
-    assert.equal(owner!.roleActive, 1)
-    assert.equal(owner!.roleBusinessAccess, 'gsti-rh')
+/** Filas vivas de un slug. */
+async function liveRoles(slug: string): Promise<Role[]> {
+  return Role.query().whereNull('role_deleted_at').where('role_slug', slug)
+}
 
-    for (const previous of PREVIOUS_ROLES) {
-      const role = await Role.query()
-        .whereNull('role_deleted_at')
-        .where('role_id', previous.roleId)
-        .first()
-      assert.exists(role, `El rol previo roleId=${previous.roleId} debe seguir existiendo`)
-      assert.equal(role!.roleSlug, previous.roleSlug, 'El slug del rol previo no debe cambiar')
+test.group('0006_role_seeder — puente de roles globales', () => {
+  test('declara root, owner y empleado, y ningún rol con salvoconducto ampliado', ({ assert }) => {
+    const declarados = ROLE_SEEDS.map((role) => role.roleSlug)
+
+    assert.deepEqual(declarados, [...SEMBRADOS])
+    for (const slug of NO_SEMBRADOS) {
+      assert.notInclude(
+        declarados,
+        slug,
+        `${slug} no se siembra: reparte acceso que ningún flujo necesita para operar`
+      )
     }
   })
 
-  test('correr el seeder dos veces no duplica el rol owner', async ({ assert }) => {
+  test('ninguna declaración fija id ni concesiones ni ata el CSV a una empresa', ({ assert }) => {
+    for (const role of ROLE_SEEDS) {
+      assert.notProperty(role, 'roleId', `${role.roleSlug} no debe declarar id: lo asigna la BD`)
+      assert.equal(role.roleActive, 1)
+      assert.equal(
+        role.roleBusinessAccess,
+        '',
+        `${role.roleSlug} no debe atar su visibilidad al slug de una empresa`
+      )
+    }
+  })
+
+  test('deja una sola fila viva y activa de cada rol sembrado', async ({ assert }) => {
     await new RoleSeeder({} as never).run()
-    const firstRunOwners = await Role.query()
-      .whereNull('role_deleted_at')
-      .where('role_slug', 'owner')
+
+    for (const slug of SEMBRADOS) {
+      const roles = await liveRoles(slug)
+      assert.lengthOf(roles, 1, `Debe existir exactamente un rol ${slug} vivo tras correr el seeder`)
+      assert.equal(roles[0].roleActive, 1)
+    }
+  })
+
+  test('no crea ningún rol fuera de los declarados', async ({ assert }) => {
+    const before = await allRoleSlugs()
 
     await new RoleSeeder({} as never).run()
-    const secondRunOwners = await Role.query()
-      .whereNull('role_deleted_at')
-      .where('role_slug', 'owner')
 
-    assert.lengthOf(firstRunOwners, 1, 'Debe existir exactamente un rol owner')
-    assert.lengthOf(secondRunOwners, 1, 'Correr el seeder de nuevo no debe duplicar el rol owner')
+    const after = await allRoleSlugs()
+    const created = after.filter((slug) => !before.includes(slug))
+    assert.includeMembers([...SEMBRADOS], created, 'El seeder solo puede agregar los declarados')
+    assert.equal(
+      after.length - before.length,
+      created.length,
+      'El seeder no duplica filas existentes'
+    )
+  })
+
+  test('es idempotente: correrlo dos veces no duplica ni cambia ids', async ({ assert }) => {
+    await new RoleSeeder({} as never).run()
+    const idsPrimeraCorrida = new Map<string, number>()
+    for (const slug of SEMBRADOS) {
+      const [role] = await liveRoles(slug)
+      idsPrimeraCorrida.set(slug, role.roleId)
+    }
+    const slugsPrimeraCorrida = await allRoleSlugs()
+
+    await new RoleSeeder({} as never).run()
+    const slugsSegundaCorrida = await allRoleSlugs()
+
+    for (const slug of SEMBRADOS) {
+      const roles = await liveRoles(slug)
+      assert.lengthOf(roles, 1, `Correr el seeder de nuevo no debe duplicar ${slug}`)
+      assert.equal(roles[0].roleId, idsPrimeraCorrida.get(slug), `El id de ${slug} no debe cambiar`)
+    }
+    assert.lengthOf(
+      slugsSegundaCorrida,
+      slugsPrimeraCorrida.length,
+      'No debe aparecer ninguna fila nueva'
+    )
   })
 })

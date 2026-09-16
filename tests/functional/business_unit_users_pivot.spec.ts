@@ -4,6 +4,7 @@ import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — refactor multi-tenant a tabla pivote `business_unit_users`.
@@ -39,22 +40,12 @@ interface PivotTestUser {
   password: string
 }
 
-async function ensureRootRole(): Promise<Role> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'root').first()
-  if (!role) {
-    throw new Error(
-      'El rol "root" es requerido para los tests funcionales del pivote. Ejecuta los seeders antes de correr el suite.'
-    )
-  }
-  return role
-}
-
 async function createPivotUser(options: {
   email: string
   active: number
   businessUnitIds: number[]
 }): Promise<PivotTestUser> {
-  const role = await ensureRootRole()
+  const role = await ensureRole('root')
 
   const person = new Person()
   person.personFirstname = 'Pivot'
