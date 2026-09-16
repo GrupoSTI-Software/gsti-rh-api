@@ -5,7 +5,6 @@ import User from '#models/user'
 import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
-import SystemModule from '#models/system_module'
 import { SYSTEM_MODULES } from '#constants/system_modules_menu/system_modules.constant'
 
 /**
@@ -101,14 +100,6 @@ async function cleanupActor(actor: TestActor | null) {
   await BusinessUnit.query().where('business_unit_id', actor.businessUnit.businessUnitId).delete()
 }
 
-/** Módulo real sobre el que se apunta el interruptor retirado; `employees` existe en toda siembra. */
-async function findEmployeesModule(): Promise<SystemModule> {
-  return SystemModule.query()
-    .whereNull('system_module_deleted_at')
-    .where('system_module_slug', 'employees')
-    .firstOrFail()
-}
-
 test.group('Guard /api/platform/system-modules — conteo del área', () => {
   test('las rutas del archivo coinciden en número con la tabla del guard', async ({ assert }) => {
     const content = await readFile(join(process.cwd(), ROUTES_FILE), 'utf8')
@@ -184,14 +175,24 @@ test.group('Guard /api/platform/system-modules — 200 con platformAdmin', (grou
       listed.map((systemModule) => [systemModule.systemModuleSlug, systemModule])
     )
 
-    // Se compara contra la constante y no contra un número fijo: agregar o dar
-    // de baja un módulo ahí no debe romper este spec, pero perderlo del listado sí.
+    // Se compara contra la constante y no contra un número fijo: el spec no
+    // depende de cuántos módulos haya. Sí depende de que la siembra 0062 esté
+    // al día en la BD de pruebas — un módulo agregado a la constante rompe este
+    // caso hasta que se resiembre, que es justo lo que se quiere detectar.
     for (const declared of SYSTEM_MODULES.filter(
       (systemModule) => !systemModule.systemModuleRetired
     )) {
       const row = listedBySlug.get(declared.systemModuleSlug)
       assert.exists(row, `falta ${declared.systemModuleSlug} en el listado`)
-      assert.include([0, 1], row!.systemModuleActive)
+      // La disponibilidad se cotea contra la constante, no contra "0 o 1": es el
+      // invariante que sostiene el retiro del interruptor HTTP. Si una fila
+      // deriva (UPDATE manual, entorno sin resembrar), el landlord publicaría
+      // una disponibilidad falsa y nadie se enteraría.
+      assert.equal(
+        row!.systemModuleActive,
+        declared.systemModuleActive,
+        `disponibilidad de ${declared.systemModuleSlug}`
+      )
       assert.equal(
         row!.systemModuleGroup?.systemModuleGroupKey ?? null,
         declared.systemModuleGroupKey,
@@ -211,45 +212,17 @@ test.group('Guard /api/platform/system-modules — 200 con platformAdmin', (grou
   })
 })
 
-test.group(
-  'Interruptor retirado PUT /api/platform/system-modules/:systemModuleId/active',
-  (group) => {
-    let admin: TestActor | null = null
-    let employeesModule: SystemModule
-    let previousActive: number
+/**
+ * El 404 lo produce el RUTEO, no el guard: Adonis no encuentra la ruta y
+ * responde antes de entrar al grupo, así que ni `auth`, ni `platformAdmin`, ni
+ * el bodyparser participan. Por eso el caso no levanta actor ni repone la
+ * disponibilidad: no hay petición que pueda escribirla. Que la constante
+ * gobierne `system_module_active` lo prueba el listado, arriba.
+ */
+test.group('Interruptor retirado PUT /api/platform/system-modules/:systemModuleId/active', () => {
+  test('la ruta retirada no está registrada: responde 404 de ruteo', async ({ client }) => {
+    const response = await client.put(`${LIST_PATH}/1/active`).json({ active: false })
 
-    group.setup(async () => {
-      employeesModule = await findEmployeesModule()
-      previousActive = employeesModule.systemModuleActive
-      admin = await createActor('system-module-guard-retired', true)
-    })
-
-    group.teardown(async () => {
-      await cleanupActor(admin)
-      // Solo repone si una ruta revivida alcanzó a escribir; así no pisa lo que dejó la siembra.
-      if (employeesModule) {
-        await employeesModule.refresh()
-        if (employeesModule.systemModuleActive !== previousActive) {
-          employeesModule.systemModuleActive = previousActive
-          await employeesModule.save()
-        }
-      }
-    })
-
-    test('responde 404 aun con platformAdmin y no cambia la disponibilidad', async ({
-      client,
-      assert,
-    }) => {
-      // Pide el estado contrario al actual: si la ruta reviviera, el cambio sería visible.
-      const response = await client
-        .put(`${LIST_PATH}/${employeesModule.systemModuleId}/active`)
-        .loginAs(admin!.user)
-        .json({ active: previousActive !== 1 })
-
-      response.assertStatus(404)
-
-      await employeesModule.refresh()
-      assert.equal(employeesModule.systemModuleActive, previousActive)
-    })
-  }
-)
+    response.assertStatus(404)
+  })
+})

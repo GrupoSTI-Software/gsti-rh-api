@@ -10,6 +10,3 @@ export const PLATFORM_SYSTEM_MODULE_ERROR_CODES = {
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.MOD.SYS_UNHANDLED',
 } as const
-
-export type PlatformSystemModuleErrorCode =
-  (typeof PLATFORM_SYSTEM_MODULE_ERROR_CODES)[keyof typeof PLATFORM_SYSTEM_MODULE_ERROR_CODES]
