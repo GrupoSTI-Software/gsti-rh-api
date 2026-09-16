@@ -335,7 +335,9 @@ export default class RoleController {
       // con el nombre vacío reventaba con 500 en lugar de decir qué falta.
       const roleSlug = typeof roleName === 'string' ? roleService.generateSlug(roleName) : ''
       if (roleSlug.length === 0) {
-        response.status(409)
+        // 422 y no 409: un nombre vacío o de puros símbolos es entrada inválida,
+        // no un conflicto con lo que ya existe. El 409 queda para el slug duplicado.
+        response.status(422)
         return {
           title: t('role_name_required_title'),
           detail: t('role_name_required_detail'),

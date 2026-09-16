@@ -119,7 +119,8 @@ test.group('Roles — unicidad de nombre por empresa', (group) => {
     assert.lengthOf(live, 1, 'el 409 no debe dejar una segunda fila viva')
   })
 
-  test('el nombre vacío o de puros símbolos responde 409, no 500', async ({ client, assert }) => {
+  // 422 y no 409: es entrada inválida, no conflicto con lo existente.
+  test('el nombre vacío o de puros símbolos responde 422, no 500', async ({ client, assert }) => {
     const tenant = required(actorA, 'el actor A')
 
     for (const body of [
@@ -128,7 +129,7 @@ test.group('Roles — unicidad de nombre por empresa', (group) => {
       { roleName: '!!!', roleDescription: 'Solo símbolos', roleActive: true },
     ]) {
       const response = await postRole(client, tenant, body)
-      assert.equal(response.status(), 409, JSON.stringify(response.body()))
+      assert.equal(response.status(), 422, JSON.stringify(response.body()))
       assert.equal(response.body().key, 'rol-nombre-requerido')
       assert.isString(response.body().title)
       assert.isString(response.body().detail)
