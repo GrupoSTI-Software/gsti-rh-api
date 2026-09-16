@@ -261,10 +261,13 @@ export async function assertModuleEnforced(moduleSlug: string): Promise<void> {
  * Fija la exigencia del módulo en BD y devuelve la que tenía, para restaurarla
  * en el teardown del grupo.
  *
- * Nació del soft-rollout, cuando specs de Empleados apagaban esa exigencia y no
- * la volvían a encender. Hoy ningún spec la apaga y la siembra la deja
- * encendida, pero quien depende de ella la sigue forzando a `true` y
- * restaurando el valor previo: así el orden de la suite no decide el resultado.
+ * Los specs de Empleados y Puestos siguen apagando la exigencia —escriben el
+ * modelo directo, no este helper— y varios la dejan apagada a propósito al
+ * terminar, con verificación explícita en su teardown (13 archivos contienen
+ * «debe quedar apagada tras el suite»; p. ej.
+ * `tests/functional/employee_photo_me.spec.ts`). Por eso un spec posterior no
+ * puede fiarse de la siembra: la fuerza a `true` él mismo y restaura el valor
+ * que encontró, y así el orden de la suite no decide el resultado.
  *
  * @throws Error si el módulo no existe en BD.
  */

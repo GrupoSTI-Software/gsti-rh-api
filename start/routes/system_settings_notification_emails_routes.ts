@@ -8,8 +8,8 @@ import { SYSTEM_SETTINGS_PERMISSION_DECLARATIONS } from '#constants/system_setti
  * El grupo no montaba ningún middleware: sin sesión se listaban, creaban y
  * borraban destinatarios. `auth()` va en el grupo para que ninguna ruta que se
  * agregue aquí nazca pública, y cada ruta declara su permiso. El gate no
- * sustituye a `auth()`: con la exigencia apagada deja pasar sin mirar al
- * usuario.
+ * sustituye a `auth()`: si alguien apagara la exigencia de `system-settings` en
+ * BD —hoy encendida—, dejaría pasar sin mirar al usuario.
  */
 router
   .group(() => {
