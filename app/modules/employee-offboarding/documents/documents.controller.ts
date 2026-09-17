@@ -50,7 +50,10 @@ export default class DocumentsController {
    *         schema: { type: string, enum: [separation_letter] }
    *     responses:
    *       200:
-   *         description: Documentos en data.employeeOffboardingDocuments
+   *         description: |
+   *           Documentos en data.employeeOffboardingDocuments. Cada uno trae
+   *           templateVersionId y templateVersionNumber (USRH1789097550389):
+   *           null = emitido con la plantilla del sistema.
    *       403:
    *         description: Sin permiso read sobre employee-offboardings (key sin-permiso)
    *       404:
@@ -93,9 +96,14 @@ export default class DocumentsController {
    *       veces haga falta (USRH1787433503692): cada emisión es una fila
    *       nueva con folio consecutivo bajo forUpdate, la anterior queda
    *       reemplazada (nunca se borra) y exactamente una queda vigente.
-   *       PDF fijo en español, privado en S3, con snapshot de lo impreso,
-   *       sello sha256 y tamaño. Sobre expediente cerrado sí se emite.
-   *       No muta nada más.
+   *       PDF privado en S3, con snapshot de lo impreso, sello sha256 y
+   *       tamaño. Sobre expediente cerrado sí se emite. No muta nada más.
+   *       Con plantilla propia vigente de la empresa (USRH1789097550389) el
+   *       documento se produce sobre ella: campos rellenados con los mismos
+   *       valores, aplanado (sin campos editables) y amarrado a la versión
+   *       en templateVersionId/templateVersionNumber; sin plantilla propia
+   *       sale la del sistema y ambos campos viajan null. Nunca cae en
+   *       silencio a la del sistema si la propia no se recupera.
    *     parameters:
    *       - in: path
    *         name: offboardingId
@@ -111,7 +119,7 @@ export default class DocumentsController {
    *               documentType: { type: string, enum: [separation_letter] }
    *     responses:
    *       201:
-   *         description: Documento emitido en data.employeeOffboardingDocument
+   *         description: Documento emitido en data.employeeOffboardingDocument (incluye templateVersionId y templateVersionNumber, null = plantilla del sistema)
    *       400:
    *         description: documentType ausente o desconocido (key datos-invalidos)
    *       403:
@@ -119,9 +127,9 @@ export default class DocumentsController {
    *       404:
    *         description: Expediente fuera del alcance (key expediente-no-encontrado)
    *       422:
-   *         description: Baja no ejecutada (key baja-no-ejecutada) o dato faltante (key constancia-incompleta)
+   *         description: Baja no ejecutada (key baja-no-ejecutada), dato faltante (key constancia-incompleta) o dato no imprimible con la tipografía de la plantilla propia (key dato-no-imprimible-en-la-plantilla, code OFFB.DOC.TEMPLATE_TEXT_UNRENDERABLE)
    *       500:
-   *         description: Fallo de render (constancia-no-generada) o de almacenamiento (constancia-no-almacenada)
+   *         description: Fallo de render (constancia-no-generada), de almacenamiento (constancia-no-almacenada), plantilla propia vigente no recuperable (plantilla-vigente-no-recuperable, OFFB.DOC.TEMPLATE_UNAVAILABLE) o documento no producible sobre la plantilla propia (documento-no-generado-con-plantilla, OFFB.DOC.TEMPLATE_FILL_FAILED)
    */
   async store({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {

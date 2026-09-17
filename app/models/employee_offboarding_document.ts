@@ -55,6 +55,10 @@ import User from '#models/user'
  *         employeeOffboardingDocumentGeneratedByUserId:
  *           type: integer
  *           nullable: true
+ *         employeeOffboardingDocumentTemplateVersionId:
+ *           type: integer
+ *           nullable: true
+ *           description: Versión de plantilla propia con la que salió; null = plantilla del sistema (USRH1789097550389).
  *         employeeOffboardingDocumentCreatedAt:
  *           type: string
  *           format: date-time
@@ -129,6 +133,14 @@ export default class EmployeeOffboardingDocument extends compose(BaseModel, Soft
 
   @column()
   declare employeeOffboardingDocumentGeneratedByUserId: number | null
+
+  /**
+   * Versión de plantilla propia con la que salió (USRH1789097550389); `null`
+   * = plantilla del sistema, incluidas todas las emisiones anteriores. Sin
+   * `belongsTo` a propósito: un `preload` expondría la `storageKey`.
+   */
+  @column({ columnName: 'employee_offboarding_document_template_version_id' })
+  declare employeeOffboardingDocumentTemplateVersionId: number | null
 
   @column.dateTime({ autoCreate: true })
   declare employeeOffboardingDocumentCreatedAt: DateTime

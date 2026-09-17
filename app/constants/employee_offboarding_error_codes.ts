@@ -95,6 +95,12 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   DOC_UNEXPECTED: 'OFFB.DOC.UNEXPECTED',
   /** Fecha de separación anterior a la de ingreso (regla 7, USRH1787433503689) — 422. */
   DOC_DATE_RANGE_INVALID: 'OFFB.DOC.DATE_RANGE_INVALID',
+  /** Hay plantilla propia vigente pero su objeto no se pudo leer del almacenamiento; sin caída a la del sistema (USRH1789097550389) — 500. */
+  DOC_TEMPLATE_UNAVAILABLE: 'OFFB.DOC.TEMPLATE_UNAVAILABLE',
+  /** Un dato a imprimir no es codificable con la tipografía estándar de la plantilla propia — 422. */
+  DOC_TEMPLATE_TEXT_UNRENDERABLE: 'OFFB.DOC.TEMPLATE_TEXT_UNRENDERABLE',
+  /** La plantilla propia no produjo el documento: obligatorio sin texto, aplanado con campos vivos o fallo de pdf-lib — 500. */
+  DOC_TEMPLATE_FILL_FAILED: 'OFFB.DOC.TEMPLATE_FILL_FAILED',
   /** Paginado mal formado, `versionId` no entero positivo o campo `file` ausente (USRH1788553841100) — 400. */
   TEMPLATE_VAL_INPUT: 'OFFB.TEMPLATE.VAL_INPUT',
   /** Sin permiso read (consultar/descargar) o create (subir) sobre las plantillas — 403. */
