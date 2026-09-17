@@ -1218,72 +1218,12 @@ export default class EmployeeService {
   }
 
   /**
-   * Departamento y puesto obligatorios y vigentes. Solo lo exige el ALTA
-   * (`store`, después de su relleno "Sin departamento" / "Sin posición").
-   * La edición no pasa por aquí (USRH1788466831270, regla 1): su estructura
-   * se revisa en `EmployeeStructureService` y solo cuando cambia.
-   */
-  async verifyStructureExist(employee: Employee) {
-    if (!employee.departmentId) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The department was not found',
-        message: 'The department was not found with the entered ID',
-        data: { ...employee },
-      }
-    }
-    const existDepartment = await Department.query()
-      .whereNull('department_deleted_at')
-      .where('department_id', employee.departmentId)
-      .first()
-
-    if (!existDepartment && employee.departmentId) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The department was not found',
-        message: 'The department was not found with the entered ID',
-        data: { ...employee },
-      }
-    }
-    if (!employee.positionId) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The position was not found',
-        message: 'The position was not found with the entered ID',
-        data: { ...employee },
-      }
-    }
-
-    const existPosition = await Position.query()
-      .whereNull('position_deleted_at')
-      .where('position_id', employee.positionId)
-      .first()
-
-    if (!existPosition && employee.positionId) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The position was not found',
-        message: 'The position was not found with the entered ID',
-        data: { ...employee },
-      }
-    }
-    return {
-      status: 200,
-      type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verify successfully',
-      data: { ...employee },
-    }
-  }
-
-  /**
    * Comprobaciones compartidas por alta y edición: tipo de empleado, persona
-   * (solo alta), empresa y empresa de nómina. La estructura NO va aquí
-   * (USRH1788466831270): ver `verifyStructureExist`.
+   * (solo alta), empresa y empresa de nómina. La estructura del ALTA se
+   * revisa en store con requireEmployeeStructureForCreate +
+   * EmployeeStructureService.verifyAssignable (USRH1789328927556). La de la
+   * edición, en EmployeeStructureService y solo cuando cambia
+   * (USRH1788466831270).
    */
   async verifyInfoExist(employee: Employee) {
     const existEmployeeType = await EmployeeType.query()
@@ -1373,13 +1313,17 @@ export default class EmployeeService {
 
   async verifyInfo(employee: Employee) {
     const action = employee.employeeId > 0 ? 'updated' : 'created'
-    const existCode = await Employee.query()
-      .if(employee.employeeId > 0, (query) => {
-        query.whereNot('employee_id', employee.employeeId)
-      })
-      .whereNull('employee_deleted_at')
-      .where('employee_code', employee.employeeCode)
-      .first()
+    const employeeCodeStr = employee.employeeCode?.toString().trim() || ''
+    const existCode =
+      employeeCodeStr !== ''
+        ? await Employee.query()
+            .if(employee.employeeId > 0, (query) => {
+              query.whereNot('employee_id', employee.employeeId)
+            })
+            .whereNull('employee_deleted_at')
+            .where('employee_code', employee.employeeCode)
+            .first()
+        : null
 
     if (existCode && employee.employeeCode) {
       return {

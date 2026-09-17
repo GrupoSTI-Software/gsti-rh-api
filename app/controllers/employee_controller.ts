@@ -14,6 +14,7 @@ import BiometricEmployeeInterface from '../interfaces/biometric_employee_interfa
 import { createEmployeeValidator } from '../validators/employee.js'
 import { updateEmployeeValidator } from '../validators/employee.js'
 import EmployeeStructureService, {
+  requireEmployeeStructureForCreate,
   resolveEmployeeStructureUpdate,
 } from '#services/employee_structure_service'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
@@ -1134,31 +1135,59 @@ export default class EmployeeController {
         employeeIgnoreConsecutiveAbsences: employeeIgnoreConsecutiveAbsences,
         employeeAuthorizeAnyZones: employeeAuthorizeAnyZones,
       } as Employee
-      if (!employee.departmentId || employee.departmentId.toString() === '0') {
-        const department = await Department.query()
-          .whereNull('department_deleted_at')
-          .where('department_name', 'Sin departamento')
-          .first()
-        if (department) {
-          employee.departmentId = department.departmentId
-        }
-      }
-      if (!employee.positionId || employee.positionId.toString() === '0') {
-        const position = await Position.query()
-          .whereNull('position_deleted_at')
-          .where('position_name', 'Sin posición')
-          .first()
-        if (position) {
-          employee.positionId = position.positionId
-        }
-      }
       const employeeService = new EmployeeService(i18n)
+      const requiredStructure = requireEmployeeStructureForCreate({
+        departmentId: departmentId,
+        positionId: positionId,
+      })
+      if (!requiredStructure.ok) {
+        if (personId) {
+          await employeeService.releasePersonIfOrphan(personId)
+        }
+        const messageKey =
+          requiredStructure.missing === 'both'
+            ? 'employee_structure_required_both'
+            : `employee_${requiredStructure.missing}_required`
+        response.status(400)
+        return {
+          type: 'warning',
+          title: i18n.t(`${messageKey}_title`),
+          message: i18n.t(`${messageKey}_message`),
+          detail: i18n.t(`${messageKey}_message`),
+          key: 'alta-empleado-invalida',
+        }
+      }
       const data = await request.validateUsing(createEmployeeValidator)
-      // El alta sigue exigiendo departamento y puesto (USRH1788466831270 no lo
-      // cambia; lo atiende USRH1789328927556). La edición ya no pasa por aquí.
-      const structureExist = await employeeService.verifyStructureExist(employee)
-      const exist =
-        structureExist.status === 200 ? await employeeService.verifyInfoExist(employee) : structureExist
+      employee.departmentId = data.departmentId ?? employee.departmentId
+      employee.positionId = data.positionId ?? employee.positionId
+      const structureCheck = await new EmployeeStructureService().verifyAssignable({
+        departmentId: Number(employee.departmentId),
+        positionId: Number(employee.positionId),
+        businessUnitId: Number(employee.businessUnitId),
+        departmentIdToVerify: Number(employee.departmentId),
+        positionIdToVerify: Number(employee.positionId),
+      })
+      if (!structureCheck.ok) {
+        await ScopeDeniedLogService.log({
+          domain: structureCheck.field,
+          action: 'assign-to-employee',
+          requestedId: structureCheck.requestedId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        if (personId) {
+          await employeeService.releasePersonIfOrphan(personId)
+        }
+        response.status(400)
+        return {
+          type: 'warning',
+          title: i18n.t(`employee_${structureCheck.field}_not_in_business_unit_title`),
+          message: i18n.t(`employee_${structureCheck.field}_not_in_business_unit_message`),
+          detail: i18n.t(`employee_${structureCheck.field}_not_in_business_unit_message`),
+          key: 'alta-empleado-invalida',
+        }
+      }
+      const exist = await employeeService.verifyInfoExist(employee)
       if (exist.status !== 200) {
         // USRH1785436961832: el alta se rechaza (p. ej. catálogo faltante) —
         // se libera la persona creada para este acto, si quedó huérfana, para
@@ -1192,9 +1221,7 @@ export default class EmployeeController {
         }
       }
       // Pertenencia del nivel de puesto (USRH1785964117188): corre contra el
-      // positionId EFECTIVO (post-fallback "Sin posición") y antes de toda
-      // persistencia; el rechazo burbujea al catch, que libera la persona
-      // huérfana del acto.
+      // positionId del alta (ya exigido y verificado) y antes de persistir.
       const positionLevelConfigId = data.positionLevelConfigId ?? null
       await new EmployeePositionLevelService().assertAssignable({
         positionLevelConfigId,
@@ -1275,6 +1302,19 @@ export default class EmployeeController {
       if (workScheduleError) {
         response.status(400)
         return workScheduleError
+      }
+      if (error?.code === 'E_VALIDATION_ERROR') {
+        // Regla 4 (USRH1789328927556): un dato mal formado es un rechazo por
+        // datos, no un error del servidor. Con 500 el BO abre la pantalla de
+        // error general y el usuario pierde lo capturado.
+        response.status(400)
+        return {
+          type: 'warning',
+          title: i18n.t('validation_error'),
+          message: error.messages?.[0]?.message ?? i18n.t('validation_error'),
+          errors: error.messages,
+          key: 'alta-empleado-invalida',
+        }
       }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
