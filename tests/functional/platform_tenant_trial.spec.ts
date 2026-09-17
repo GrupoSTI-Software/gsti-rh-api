@@ -296,6 +296,54 @@ test.group('PlatformTenantTrialService — matriz de estados (USRH1789079078169)
     }
   })
 
+  test('RN-04/anti-resta: tras un cambio de plan, contracted_trial_days deja de coincidir con la ventana y la ventana leída manda, no una resta', async ({
+    assert,
+  }) => {
+    const stamp = Date.now() + 100
+    const trialPlanId = await createPlan(stamp, 7)
+    const otherPlanWith30Days = await createPlan(stamp + 1, 30)
+    const businessUnit = await createBusinessUnit(stamp, 'rn04-antiresta')
+    const subscriptionService = new BillingSubscriptionService()
+    const trialService = new PlatformTenantTrialService()
+
+    try {
+      const sub = await subscriptionService.createSubscription({
+        businessUnitPublicId: businessUnit.businessUnitPublicId,
+        billingPlanId: trialPlanId,
+        contractedEmployees: 10,
+      })
+      const originalInicio = sub.billingSubscriptionSubscribedAt.toISODate()!
+      const originalFin = sub.billingSubscriptionTrialEndsAt!.toISODate()!
+
+      // Cambia a un plan con 30 días de prueba: reescribe contracted_trial_days
+      // a 30 (USRH1789151097443), pero NO toca trial_ends_at ni subscribed_at.
+      // Si la ventana se calculara restando (fin - contracted_trial_days), el
+      // "inicio" resultante sería un día que nunca existió (30 días antes del
+      // fin real), distinto del inicio verdadero.
+      const changed = await subscriptionService.changePlan(
+        sub.billingSubscriptionId,
+        otherPlanWith30Days
+      )
+      assert.equal(changed.billingSubscriptionContractedTrialDays, 30)
+
+      const snapshot = await trialService.resolveOne(businessUnit.businessUnitPublicId)
+
+      // La ventana sigue siendo la LEÍDA (7 días reales), no una resta con 30.
+      assert.deepEqual(snapshot.ventana, { inicio: originalInicio, fin: originalFin })
+      // Lo informativo sí refleja el cambio de plan — no coincide con la ventana.
+      assert.equal(snapshot.diasContratados, 30)
+      const ventanaDias = Math.round(
+        (new Date(originalFin).getTime() - new Date(originalInicio).getTime()) / 86_400_000
+      )
+      assert.equal(ventanaDias, 7)
+      assert.notEqual(snapshot.diasContratados, ventanaDias)
+    } finally {
+      await cleanupBusinessUnit(businessUnit.businessUnitId)
+      await cleanupPlan(trialPlanId)
+      await cleanupPlan(otherPlanWith30Days)
+    }
+  })
+
   test('cancelación posterior al fin de la prueba no acorta nada: medición sigue siendo el fin contratado', async ({
     assert,
   }) => {
