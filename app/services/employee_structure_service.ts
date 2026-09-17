@@ -91,6 +91,12 @@ export default class EmployeeStructureService {
   async verifyAssignable(
     resolution: EmployeeStructureResolution
   ): Promise<EmployeeStructureVerification> {
+    // Sin nada que verificar no se abre el bypass de tenant: runUnscoped
+    // anota cada invocación en el log de auditoría aunque no consulte nada.
+    if (resolution.departmentIdToVerify === null && resolution.positionIdToVerify === null) {
+      return { ok: true }
+    }
+
     return TenantContext.runUnscoped(
       async () => {
         if (resolution.departmentIdToVerify !== null) {

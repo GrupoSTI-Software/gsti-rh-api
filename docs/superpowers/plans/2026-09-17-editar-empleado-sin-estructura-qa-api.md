@@ -10,9 +10,7 @@ Se prueba con un cliente de API (Postman, Insomnia, Bruno). La autenticación se
 
 **URL base:** `http://127.0.0.1:3333`
 
-**Header obligatorio en toda petición de este manual.** Además del token, cada endpoint exige el header `X-Business-Unit-Id` con el identificador público de la empresa desde la que actúa el usuario. En los diez escenarios de este manual el usuario actúa siempre desde la empresa de prueba (la del colaborador editado) — en Preparar está la consulta para resolverlo.
-
-**Un caso de esta historia no se puede provocar con un cliente de API sobre este ambiente.** "Al cambiar a un colaborador de empresa, su departamento se revisa contra la nueva" exige mover a un colaborador de una empresa a otra en la misma edición; ese movimiento de empresa no se provoca aquí. Lo cubre la prueba automatizada del expediente técnico; este manual no le inventa pasos.
+**Header obligatorio en toda petición de este manual.** Además del token, cada endpoint exige el header `X-Business-Unit-Id` con el identificador público de la empresa desde la que actúa el usuario. En los doce escenarios de este manual el usuario actúa siempre desde la empresa de prueba — incluso cuando el cuerpo mueve al colaborador a la empresa ajena (Escenarios 11 y 12). Quien captura es el usuario **A**, que tiene acceso a las dos; el header no cambia: en Preparar está la consulta para resolverlo.
 
 ## 1. Preparar (una sola vez)
 
@@ -55,6 +53,12 @@ El identificador interno de la misma empresa, para los campos `businessUnitId` y
 
 ```sql
 SELECT business_unit_id FROM business_units WHERE business_unit_slug = 'qa-edicion-prueba';
+```
+
+El identificador interno de la empresa ajena, para los campos `businessUnitId` y `payrollBusinessUnitId` cuando el Escenario 11 o el 12 mueven al colaborador de empresa:
+
+```sql
+SELECT business_unit_id FROM business_units WHERE business_unit_slug = 'qa-edicion-ajena';
 ```
 
 El departamento y el puesto activos de la empresa de prueba, el departamento dado de baja de la empresa de prueba, y el departamento y el puesto de la empresa ajena:
@@ -543,7 +547,121 @@ Headers: `Authorization: Bearer <token de A>`, `X-Business-Unit-Id: <identificad
 
 (Los datos son los ya explicados en el Escenario 1 y en el Escenario 2: esta baja se registra desde la lista de colaboradores en vez de desde su ficha, sin pedirle estructura tampoco.)
 
-## 12. Checklist
+## 12. Escenario 11 — Al cambiar de empresa, el departamento que ya tenía se revisa contra la nueva y se rechaza
+
+Usuario: **A**. Este escenario usa a `QA-EDI-02` **después** del Escenario 3: ya tiene el departamento y el puesto activos de la empresa de prueba. Aquí se le cambia solo la empresa, sin tocar su estructura: el sistema revisa esos mismos ids contra la empresa ajena y los rechaza.
+
+**Endpoint:** `PUT /api/employees/<id de QA-EDI-02, resuelto en Preparar>`
+
+Headers: `Authorization: Bearer <token de A>`, `X-Business-Unit-Id: <identificador de la empresa de prueba, resuelto en Preparar>`
+
+```json
+{
+  "employeeCode": "QA-EDI-02",
+  "employeeFirstName": "Edicion",
+  "employeeLastName": "Dos",
+  "employeeSecondLastName": "QA",
+  "companyId": 1,
+  "departmentId": <id de QA-EDI-DEPT-ACTIVO, resuelto en Preparar>,
+  "positionId": <id de QA-EDI-POS-ACTIVO, resuelto en Preparar>,
+  "employeeTypeId": 1,
+  "businessUnitId": <id interno de la empresa ajena, resuelto en Preparar>,
+  "payrollBusinessUnitId": <id interno de la empresa ajena, resuelto en Preparar>,
+  "employeeBusinessEmail": "qa-edi-02@gsti-tests.local",
+  "employeeWorkSchedule": "Onsite",
+  "employeeWorkScheduleHybridConfig": null
+}
+```
+
+**Response — 400:**
+
+```json
+{
+  "type": "warning",
+  "title": "Departamento no disponible",
+  "message": "El departamento no existe en la empresa del empleado",
+  "data": { "...": "..." }
+}
+```
+
+Qué significa lo nuevo aquí: aunque el departamento y el puesto no cambiaron en el cuerpo, al cambiar `businessUnitId` el sistema los revisa contra la empresa **nueva** (la ajena). Como esos ids son de la empresa de prueba, no existen en la ajena: mismo mensaje que el Escenario 5.
+
+Ahora confirma que el colaborador no se movió ni perdió su estructura:
+
+**Endpoint:** `GET /api/employees/<id de QA-EDI-02, resuelto en Preparar>`
+
+Headers: `Authorization: Bearer <token de A>`, `X-Business-Unit-Id: <identificador de la empresa de prueba, resuelto en Preparar>`
+
+**Response — 200:**
+
+```json
+{
+  "type": "success",
+  "title": "Employees",
+  "message": "The employee was found successfully",
+  "data": {
+    "employee": {
+      "employeeId": <id de QA-EDI-02, resuelto en Preparar>,
+      "businessUnitId": <id interno de la empresa de prueba, resuelto en Preparar>,
+      "departmentId": <id de QA-EDI-DEPT-ACTIVO, resuelto en Preparar>,
+      "positionId": <id de QA-EDI-POS-ACTIVO, resuelto en Preparar>,
+      "...": "..."
+    }
+  }
+}
+```
+
+Qué significa lo nuevo aquí: `businessUnitId` es la empresa del colaborador. Sigue siendo la de prueba: el rechazo dejó todo como estaba (empresa, departamento y puesto).
+
+## 13. Escenario 12 — Se cambia de empresa y se asigna estructura válida de la empresa nueva
+
+Usuario: **A**. Este escenario usa a `QA-EDI-04` **después** de los Escenarios 5 a 9: sigue sin departamento ni puesto y sigue en la empresa de prueba. Aquí sí se permite el cambio porque, en la misma edición, se le asignan el departamento y el puesto de la empresa ajena.
+
+**Endpoint:** `PUT /api/employees/<id de QA-EDI-04, resuelto en Preparar>`
+
+Headers: `Authorization: Bearer <token de A>`, `X-Business-Unit-Id: <identificador de la empresa de prueba, resuelto en Preparar>`
+
+```json
+{
+  "employeeCode": "QA-EDI-04",
+  "employeeFirstName": "Edicion",
+  "employeeLastName": "Cuatro",
+  "employeeSecondLastName": "QA",
+  "companyId": 1,
+  "departmentId": <id de QA-EDI-DEPT-AJENO, resuelto en Preparar>,
+  "positionId": <id de QA-EDI-POS-AJENO, resuelto en Preparar>,
+  "employeeTypeId": 1,
+  "businessUnitId": <id interno de la empresa ajena, resuelto en Preparar>,
+  "payrollBusinessUnitId": <id interno de la empresa ajena, resuelto en Preparar>,
+  "employeeBusinessEmail": "qa-edi-04@gsti-tests.local",
+  "employeeWorkSchedule": "Onsite",
+  "employeeWorkScheduleHybridConfig": null
+}
+```
+
+**Response — 201:**
+
+```json
+{
+  "type": "success",
+  "title": "Employees",
+  "message": "The employee was updated successfully",
+  "data": {
+    "employee": {
+      "employeeId": <id de QA-EDI-04, resuelto en Preparar>,
+      "businessUnitId": <id interno de la empresa ajena, resuelto en Preparar>,
+      "payrollBusinessUnitId": <id interno de la empresa ajena, resuelto en Preparar>,
+      "departmentId": <id de QA-EDI-DEPT-AJENO, resuelto en Preparar>,
+      "positionId": <id de QA-EDI-POS-AJENO, resuelto en Preparar>,
+      "...": "..."
+    }
+  }
+}
+```
+
+Qué significa lo nuevo aquí: `businessUnitId` / `payrollBusinessUnitId` ya son los de la empresa ajena — el colaborador sí se movió. `departmentId` / `positionId` son los de esa misma empresa ajena: al cambiar de empresa y asignar estructura de la nueva en la misma edición, la verificación pasa.
+
+## 14. Checklist
 
 - [ ] Escenario 1: se corrige el correo de `QA-EDI-01`; `departmentId` y `positionId` quedan en `null`
 - [ ] Escenario 2: se registra la baja de `QA-EDI-01` desde la ficha (PUT); su estructura sigue en `null`
@@ -555,3 +673,5 @@ Headers: `Authorization: Bearer <token de A>`, `X-Business-Unit-Id: <identificad
 - [ ] Escenario 8: no se le puede asignar un nivel de puesto a `QA-EDI-04` porque no tiene puesto (`ELVL.CONF.001`)
 - [ ] Escenario 9: `departmentId: 0` se rechaza con un mensaje de validación, no con un error de servidor
 - [ ] Escenario 10: se da de baja a `QA-EDI-05` desde la lista (DELETE), sin pedirle estructura
+- [ ] Escenario 11: al cambiar a `QA-EDI-02` de empresa sin cambiar su estructura, se rechaza; sigue en la empresa de prueba con su departamento y puesto
+- [ ] Escenario 12: se cambia a `QA-EDI-04` a la empresa ajena y se le asignan el departamento y el puesto de esa empresa; se guarda

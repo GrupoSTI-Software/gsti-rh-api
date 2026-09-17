@@ -188,6 +188,8 @@ async function snapshot(employeeId: number) {
       'department_id',
       'position_id',
       'position_level_config_id',
+      'business_unit_id',
+      'payroll_business_unit_id',
       'employee_business_email',
       'employee_terminated_date',
       'employee_termination_modality',
@@ -408,6 +410,26 @@ test.group('Edición y baja sin estructura — PUT/DELETE /api/employees/:id (US
     const row = await snapshot(conEstructura.employee.employeeId)
     assert.equal(row.department_id, activeDepartment.departmentId)
     assert.equal(row.position_id, activePosition.positionId)
+    assert.equal(row.business_unit_id, unit.businessUnitId)
+  })
+
+  test('regla 5: al cambiar de empresa y asignar estructura válida de la nueva, se acepta', async ({
+    client,
+    assert,
+  }) => {
+    const response = await put(conEstructura, {
+      businessUnitId: foreignUnit.businessUnitId,
+      payrollBusinessUnitId: foreignUnit.businessUnitId,
+      departmentId: foreignDepartment.departmentId,
+      positionId: foreignPosition.positionId,
+    })(client)
+
+    response.assertStatus(201)
+    const row = await snapshot(conEstructura.employee.employeeId)
+    assert.equal(row.business_unit_id, foreignUnit.businessUnitId)
+    assert.equal(row.payroll_business_unit_id, foreignUnit.businessUnitId)
+    assert.equal(row.department_id, foreignDepartment.departmentId)
+    assert.equal(row.position_id, foreignPosition.positionId)
   })
 
   test('regla 7: a un empleado sin puesto no se le asigna un nivel de puesto', async ({
