@@ -150,9 +150,25 @@ test.group('SensitiveFieldsCatalogService.revealEligibility', () => {
       'not_revealable'
     )
     assert.equal(
-      catalog.revealEligibility('WorkDisabilityNote', 'workDisabilityNoteDescription'),
+      catalog.revealEligibility('EmployeeBiometricFaceId', 'employeeBiometricFaceIdPhotoUrl'),
       'not_revealable'
     )
+  })
+
+  test('las siete columnas nuevas del expediente son revelables (USRH1788478865946)', ({ assert }) => {
+    const catalog = new SensitiveFieldsCatalogService()
+    const pairs = [
+      ['WorkDisabilityNote', 'workDisabilityNoteDescription'],
+      ['TraumaticEventReport', 'traumaticEventReportInvolvedPeople'],
+      ['TraumaticEventReport', 'traumaticEventReportDescription'],
+      ['EmployeeLactationPeriod', 'employeeLactationPeriodNotes'],
+      ['EmployeeEmergencyContact', 'employeeEmergencyContactPhone'],
+      ['EmployeeSpouse', 'employeeSpousePhone'],
+      ['EmpresaContratante', 'rfc'],
+    ] as const
+    for (const [model, column] of pairs) {
+      assert.equal(catalog.revealEligibility(model, column), 'revealable', `${model}.${column}`)
+    }
   })
 
   test('par ausente del catálogo no está clasificado', ({ assert }) => {
