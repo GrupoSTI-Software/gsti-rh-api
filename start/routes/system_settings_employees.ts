@@ -13,3 +13,9 @@ router
     router.delete('/:systemSettingId', '#controllers/system_settings_employees_controller.delete').use(middleware.auth()).use(middleware.permissionGate(SYSTEM_SETTINGS_PERMISSION_DECLARATIONS.destroyEmployeeLimit))
   })
   .prefix('/api/system-settings-employees')
+  /**
+   * Sin `businessScope()` el `systemSettingId` del cliente alcanzaba el techo de
+   * contratación de cualquier empresa: el borrado no borra, crea un registro sin
+   * límite, así que la fuga quitaba el tope de contratación ajeno.
+   */
+  .use(middleware.businessScope())

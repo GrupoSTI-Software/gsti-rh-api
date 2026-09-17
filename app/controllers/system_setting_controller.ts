@@ -21,6 +21,11 @@ import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import { resolveSystemSettingApiError } from '../helpers/resolve_system_setting_api_error.js'
 import { resolveOptionalTenantBusinessUnitId } from '#helpers/resolve_optional_tenant_business_unit_id'
+import {
+  findSystemSettingInScope,
+  isTenantScopeActive,
+  scopedSystemSettingIds,
+} from '#helpers/system_setting_tenant_scope'
 
 export default class SystemSettingController {
   /**
@@ -1554,10 +1559,7 @@ export default class SystemSettingController {
         }
       }
 
-      const systemSetting = await SystemSetting.query()
-        .whereNull('deletedAt')
-        .where('systemSettingId', systemSettingId)
-        .first()
+      const systemSetting = await findSystemSettingInScope(systemSettingId)
 
       if (!systemSetting) {
         response.status(404)
@@ -1572,6 +1574,9 @@ export default class SystemSettingController {
       const query = SystemSettingProceedingFile.query()
         .whereNull('system_setting_proceeding_file_deleted_at')
         .where('system_setting_id', systemSettingId)
+        .if(isTenantScopeActive(), (scoped) => {
+          scoped.whereIn('system_setting_id', scopedSystemSettingIds())
+        })
         .if(proceedingFileTypeId !== null, (q) => {
           q.whereHas('proceedingFile', (sub) => {
             sub
@@ -1639,10 +1644,7 @@ export default class SystemSettingController {
         }
       }
 
-      const systemSetting = await SystemSetting.query()
-        .whereNull('deletedAt')
-        .where('systemSettingId', systemSettingId)
-        .first()
+      const systemSetting = await findSystemSettingInScope(systemSettingId)
       if (!systemSetting) {
         response.status(404)
         return {

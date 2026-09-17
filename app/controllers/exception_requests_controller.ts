@@ -10,6 +10,7 @@ import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import Employee from '#models/employee'
+import { isTenantScopeActive, scopedEmployeeIds } from '#helpers/employee_tenant_scope'
 import ExceptionType from '#models/exception_type'
 import ShiftException from '#models/shift_exception'
 import ShiftExceptionService from '#services/shift_exception_service'
@@ -122,7 +123,12 @@ export default class ExceptionRequestsController {
         error: 'Invalid status. Only "accepted" or "refused" are allowed.',
       })
     }
-    const exceptionRequest = await ExceptionRequest.find(params.id)
+    const exceptionRequest = await ExceptionRequest.query()
+      .where('exception_request_id', params.id)
+      .if(isTenantScopeActive(), (scoped) => {
+        scoped.whereIn('employee_id', scopedEmployeeIds())
+      })
+      .first()
     if (!exceptionRequest) {
       return response.status(404).json({
         error: 'ExceptionRequest not found',
@@ -375,6 +381,9 @@ export default class ExceptionRequestsController {
       const employeeId = request.input('employeeId')
 
       const query = ExceptionRequest.query()
+        .if(isTenantScopeActive(), (scoped) => {
+          scoped.whereIn('employee_id', scopedEmployeeIds())
+        })
         .preload('employee', (employeeQuery) => {
           employeeQuery.preload('department')
           employeeQuery.preload('position')
@@ -618,7 +627,12 @@ export default class ExceptionRequestsController {
   async show(ctx: HttpContext) {
     const { params, response } = ctx
     try {
-      const exceptionRequest = await ExceptionRequest.find(params.id)
+      const exceptionRequest = await ExceptionRequest.query()
+        .where('exception_request_id', params.id)
+        .if(isTenantScopeActive(), (scoped) => {
+          scoped.whereIn('employee_id', scopedEmployeeIds())
+        })
+        .first()
       const allowed = exceptionRequest
         ? await ensureEmployeeTabRead(
             ctx,
@@ -727,7 +741,12 @@ export default class ExceptionRequestsController {
 
   async update({ params, request, response }: HttpContext) {
     const data = await request.validateUsing(updateExceptionRequestValidator)
-    const exceptionRequest = await ExceptionRequest.findOrFail(params.id)
+    const exceptionRequest = await ExceptionRequest.query()
+      .where('exception_request_id', params.id)
+      .if(isTenantScopeActive(), (scoped) => {
+        scoped.whereIn('employee_id', scopedEmployeeIds())
+      })
+      .firstOrFail()
     const esRecursosHumanos = await this.isRhManager(data.role?.roleId)
     const requestedDate = data.requestedDate.toISODate()
     if (requestedDate) {
@@ -805,7 +824,12 @@ export default class ExceptionRequestsController {
    */
 
   async destroy({ params, response }: HttpContext) {
-    const exceptionRequest = await ExceptionRequest.findOrFail(params.id)
+    const exceptionRequest = await ExceptionRequest.query()
+      .where('exception_request_id', params.id)
+      .if(isTenantScopeActive(), (scoped) => {
+        scoped.whereIn('employee_id', scopedEmployeeIds())
+      })
+      .firstOrFail()
     await exceptionRequest.delete()
 
     return response
@@ -963,6 +987,9 @@ export default class ExceptionRequestsController {
       const isRHH = RRHH_ROLE_SLUGS.includes(roleSlug as (typeof RRHH_ROLE_SLUGS)[number])
 
       const query = ExceptionRequest.query()
+        .if(isTenantScopeActive(), (scoped) => {
+          scoped.whereIn('employee_id', scopedEmployeeIds())
+        })
         .preload('employee', (employeeQuery) => {
           employeeQuery.preload('department')
           employeeQuery.preload('position')
@@ -1125,6 +1152,9 @@ export default class ExceptionRequestsController {
       const gerencialReadFilter = request.input('gerencialRead')
 
       const query = ExceptionRequest.query()
+        .if(isTenantScopeActive(), (scoped) => {
+          scoped.whereIn('employee_id', scopedEmployeeIds())
+        })
         .if(rhReadFilter !== undefined, (q) => {
           q.where('exceptionRequestRhRead', rhReadFilter)
         })

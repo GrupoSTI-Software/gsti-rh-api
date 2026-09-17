@@ -222,7 +222,9 @@ test.group('Ajustes Generales — subrecursos de la ficha', () => {
     assertGated(assert, content, { method: 'get', path: '/:systemSettingId', handler: handler('indexBySystemSetting'), declaration: 'indexNotificationEmailsBySystemSetting' })
     assertGated(assert, content, { method: 'post', path: '/', handler: handler('store'), declaration: 'storeNotificationEmail' })
     assertGated(assert, content, { method: 'delete', path: '/:systemSettingNotificationEmailId', handler: handler('delete'), declaration: 'destroyNotificationEmail' })
-    assert.include(compact(content), ".prefix('/api/system-settings-notification-emails').use(middleware.auth())")
+    const flat = compact(content)
+    assert.include(flat, ".prefix('/api/system-settings-notification-emails').use(middleware.auth())")
+    assert.include(flat, '.use(middleware.businessScope())')
   })
 
   test('límite de empleados: las cuatro rutas montan auth antes del gate', ({ assert }) => {

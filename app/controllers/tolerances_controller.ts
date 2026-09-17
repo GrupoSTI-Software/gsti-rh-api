@@ -5,6 +5,7 @@ import ToleranceService from '#services/tolerance_service'
 import SystemSettingService from '#services/system_setting_service'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import { resolveOptionalTenantBusinessUnitId } from '#helpers/resolve_optional_tenant_business_unit_id'
+import { findSystemSettingInScope } from '#helpers/system_setting_tenant_scope'
 
 export default class TolerancesController {
   /**
@@ -73,6 +74,13 @@ export default class TolerancesController {
   async store({ request, response }: HttpContext) {
     const data = request.only(['toleranceName', 'toleranceMinutes', 'systemSettingId'])
 
+    // El `systemSettingId` llega del cliente: sin resolverlo dentro de la
+    // empresa activa se podían sembrar tolerancias en la configuración ajena.
+    const systemSetting = await findSystemSettingInScope(data.systemSettingId)
+    if (!systemSetting) {
+      return response.notFound({ message: 'Tolerance not found' })
+    }
+
     const tolerance = await Tolerance.create({
       toleranceName: data.toleranceName,
       toleranceMinutes: data.toleranceMinutes,
@@ -109,7 +117,7 @@ export default class TolerancesController {
    *         description: Tolerance not found
    */
   async show({ params, response }: HttpContext) {
-    const tolerance = await Tolerance.find(params.id)
+    const tolerance = await new ToleranceService().findInScope(params.id)
     if (!tolerance) {
       return response.notFound({ message: 'Tolerance not found' })
     }
@@ -154,7 +162,7 @@ export default class TolerancesController {
    *         description: Tolerance not found
    */
   async update({ params, request, response }: HttpContext) {
-    const tolerance = await Tolerance.find(params.id)
+    const tolerance = await new ToleranceService().findInScope(params.id)
     if (!tolerance) {
       return response.notFound({ message: 'Tolerance not found' })
     }
@@ -187,7 +195,7 @@ export default class TolerancesController {
    *         description: Tolerance not found
    */
   async destroy({ params, response }: HttpContext) {
-    const tolerance = await Tolerance.find(params.id)
+    const tolerance = await new ToleranceService().findInScope(params.id)
     if (!tolerance) {
       return response.notFound({ message: 'Tolerance not found' })
     }
@@ -208,14 +216,17 @@ export default class TolerancesController {
    *     summary: Tolerancia de retardo de la empresa que pide (Monitor de asistencia)
    *     description: >-
    *       Ruta literal, sin parámetros. La empresa se resuelve del encabezado
-   *       `X-Business-Unit-Id`. Responde `data.tardinessTolerance` con el objeto
-   *       Tolerance de esa empresa, o `null` si no tiene una configurada; el
-   *       backoffice cae entonces a su valor por omisión.
+   *       `X-Business-Unit-Id`, ahora obligatorio: el grupo monta `businessScope()`
+   *       y sin encabezado la respuesta es 400. Responde `data.tardinessTolerance`
+   *       con el objeto Tolerance de esa empresa, o `null` si no tiene una
+   *       configurada; el backoffice cae entonces a su valor por omisión.
    *     parameters:
    *       - name: X-Business-Unit-Id
    *         in: header
-   *         required: false
-   *         description: Empresa activa. Sin él se resuelve la ficha base.
+   *         required: true
+   *         description: >-
+   *           Empresa activa. Antes era opcional y se caía a la ficha base; el
+   *           corte de empresa del grupo lo volvió obligatorio.
    *         schema:
    *           type: string
    *     responses:

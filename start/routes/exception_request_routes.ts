@@ -35,4 +35,11 @@ router
   })
   .prefix('/api/exception-requests')
   .use(middleware.auth())
+  /**
+   * `ExceptionRequest` no compone el mixin y su tabla no tiene marca de empresa:
+   * la pertenencia va por el empleado. El contexto que abre este middleware es
+   * lo que permite acotar por empleado en el controlador; sin él, el listado
+   * devolvía las solicitudes de todas las empresas.
+   */
+  .use(middleware.businessScope())
   .use(middleware.sensitiveAccess())

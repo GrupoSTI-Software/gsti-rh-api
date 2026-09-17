@@ -45,9 +45,20 @@ router
   })
   .prefix('/api/positions')
   .use(middleware.auth())
+  /**
+   * Mismo caso que el `move` de departamentos: era el único handler sin corte de
+   * empresa en este controlador.
+   */
+  .use(middleware.businessScope())
 router
   .group(() => {
     router.post('/assign-shift/:positionId', '#controllers/position_controller.assignShift')
   })
   .prefix('/api/position')
   .use(middleware.auth())
+  /**
+   * Mismo caso que `assign-shift` de departamento: `Position`, `Employee` y
+   * `Shift` componen el mixin y el contexto lo activa este middleware. Queda
+   * pendiente aparte que la ruta tampoco monta `permissionGate`.
+   */
+  .use(middleware.businessScope())

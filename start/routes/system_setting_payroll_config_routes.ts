@@ -13,3 +13,8 @@ router
     router.get('/:systemSettingPayrollConfigId', '#controllers/system_setting_payroll_config_controller.show').use(middleware.auth()).use(middleware.permissionGate(SYSTEM_SETTINGS_PERMISSION_DECLARATIONS.showPayrollConfig))
   })
   .prefix('/api/system-setting-payroll-configs')
+  /**
+   * Sin `businessScope()` el servicio no puede acotar el `systemSettingId` que
+   * manda el cliente y el alta escribía el régimen de pago de otra empresa.
+   */
+  .use(middleware.businessScope())
