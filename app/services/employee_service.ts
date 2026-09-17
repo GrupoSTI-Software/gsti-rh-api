@@ -1217,7 +1217,13 @@ export default class EmployeeService {
     return positionId
   }
 
-  async verifyInfoExist(employee: Employee) {
+  /**
+   * Departamento y puesto obligatorios y vigentes. Solo lo exige el ALTA
+   * (`store`, después de su relleno "Sin departamento" / "Sin posición").
+   * La edición no pasa por aquí (USRH1788466831270, regla 1): su estructura
+   * se revisa en `EmployeeStructureService` y solo cuando cambia.
+   */
+  async verifyStructureExist(employee: Employee) {
     if (!employee.departmentId) {
       return {
         status: 400,
@@ -1265,7 +1271,21 @@ export default class EmployeeService {
         data: { ...employee },
       }
     }
+    return {
+      status: 200,
+      type: 'success',
+      title: 'Info verifiy successfully',
+      message: 'Info verify successfully',
+      data: { ...employee },
+    }
+  }
 
+  /**
+   * Comprobaciones compartidas por alta y edición: tipo de empleado, persona
+   * (solo alta), empresa y empresa de nómina. La estructura NO va aquí
+   * (USRH1788466831270): ver `verifyStructureExist`.
+   */
+  async verifyInfoExist(employee: Employee) {
     const existEmployeeType = await EmployeeType.query()
       .whereNull('employee_type_deleted_at')
       .where('employee_type_id', employee.employeeTypeId)

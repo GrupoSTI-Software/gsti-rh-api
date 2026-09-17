@@ -1150,7 +1150,11 @@ export default class EmployeeController {
       }
       const employeeService = new EmployeeService(i18n)
       const data = await request.validateUsing(createEmployeeValidator)
-      const exist = await employeeService.verifyInfoExist(employee)
+      // El alta sigue exigiendo departamento y puesto (USRH1788466831270 no lo
+      // cambia; lo atiende USRH1789328927556). La edición ya no pasa por aquí.
+      const structureExist = await employeeService.verifyStructureExist(employee)
+      const exist =
+        structureExist.status === 200 ? await employeeService.verifyInfoExist(employee) : structureExist
       if (exist.status !== 200) {
         // USRH1785436961832: el alta se rechaza (p. ej. catálogo faltante) —
         // se libera la persona creada para este acto, si quedó huérfana, para
