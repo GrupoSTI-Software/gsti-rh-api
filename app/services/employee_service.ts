@@ -1313,38 +1313,47 @@ export default class EmployeeService {
 
   async verifyInfo(employee: Employee) {
     const action = employee.employeeId > 0 ? 'updated' : 'created'
-    const existCode = await Employee.query()
-      .if(employee.employeeId > 0, (query) => {
-        query.whereNot('employee_id', employee.employeeId)
-      })
-      .whereNull('employee_deleted_at')
-      .where('employee_code', employee.employeeCode)
-      .first()
+    // Sin código (o vacío) no se consulta: en el alta el API lo genera después
+    // en `create`. Un `.where('employee_code', undefined)` revienta Lucid con
+    // 500 (Escenario 3 del manual QA / formularios que omiten el código).
+    const employeeCodeStr = employee.employeeCode?.toString().trim() || ''
+    if (employeeCodeStr) {
+      const existCode = await Employee.query()
+        .if(employee.employeeId > 0, (query) => {
+          query.whereNot('employee_id', employee.employeeId)
+        })
+        .whereNull('employee_deleted_at')
+        .where('employee_code', employee.employeeCode)
+        .first()
 
-    if (existCode && employee.employeeCode) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The employee code already exists for another employee',
-        message: `The employee resource cannot be ${action} because the code is already assigned to another employee`,
-        data: { ...employee },
+      if (existCode) {
+        return {
+          status: 400,
+          type: 'warning',
+          title: 'The employee code already exists for another employee',
+          message: `The employee resource cannot be ${action} because the code is already assigned to another employee`,
+          data: { ...employee },
+        }
       }
     }
-    const existBusinessEmail = await Employee.query()
-      .if(employee.employeeId > 0, (query) => {
-        query.whereNot('employee_id', employee.employeeId)
-      })
-      .whereNull('employee_deleted_at')
-      .where('employee_business_email', employee.employeeBusinessEmail)
-      .first()
+    const employeeBusinessEmailStr = employee.employeeBusinessEmail?.toString().trim() || ''
+    if (employeeBusinessEmailStr) {
+      const existBusinessEmail = await Employee.query()
+        .if(employee.employeeId > 0, (query) => {
+          query.whereNot('employee_id', employee.employeeId)
+        })
+        .whereNull('employee_deleted_at')
+        .where('employee_business_email', employee.employeeBusinessEmail)
+        .first()
 
-    if (existBusinessEmail && employee.employeeBusinessEmail) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The employee business email already exists for another employee',
-        message: `The employee resource cannot be ${action} because the business email is already assigned to another employee`,
-        data: { ...employee },
+      if (existBusinessEmail) {
+        return {
+          status: 400,
+          type: 'warning',
+          title: 'The employee business email already exists for another employee',
+          message: `The employee resource cannot be ${action} because the business email is already assigned to another employee`,
+          data: { ...employee },
+        }
       }
     }
     if (!employee.employeeId) {

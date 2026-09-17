@@ -270,6 +270,29 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
     }
   })
 
+  test('sin employeeCode se crea: el codigo se genera y no hay 500', async ({ client, assert }) => {
+    const person = await createPerson(`alta-sin-codigo-${stamp()}@gsti-tests.local`)
+    try {
+      const body = storeBody(person, {
+        departmentId: activeDepartment.departmentId,
+        positionId: activePosition.positionId,
+      })
+      delete (body as { employeeCode?: string }).employeeCode
+
+      const response = await client
+        .post('/api/employees')
+        .loginAs(root!.user)
+        .header('X-Business-Unit-Id', unit.businessUnitPublicId)
+        .json(body)
+
+      response.assertStatus(201)
+      assert.isString(response.body().data.employee.employeeCode)
+      assert.isAbove(String(response.body().data.employee.employeeCode).length, 0)
+    } finally {
+      await cleanupPerson(person)
+    }
+  })
+
   test('un rechazo no deja la persona a medias: el reintento con el mismo correo procede (regla 5)', async ({
     client,
     assert,

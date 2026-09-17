@@ -21,7 +21,7 @@ cd gsti-rh-api
 node ace db:seed --files=database/seeders/_tmp_do_not_commit_qa_seeder.ts
 ```
 
-Deja lista la empresa de prueba y la ajena, el departamento y el puesto activos y el departamento dado de baja en la de prueba, el departamento y el puesto de la ajena, y el usuario que da de alta. **No** crea colaboradores: cada escenario los crea con `POST /api/people` y `POST /api/employees`.
+Deja lista la empresa de prueba y la ajena, el departamento y el puesto activos y el departamento dado de baja en la de prueba, el departamento y el puesto de la ajena, y el usuario que da de alta. **No** crea colaboradores: cada escenario los crea con `POST /api/persons` y `POST /api/employees`.
 
 | | Correo | Contraseña | Variante |
 |---|---|---|---|
@@ -71,7 +71,7 @@ Usuario: **A**. Correo de la persona y del colaborador: `qa-alta-s1@gsti-tests.l
 
 **Paso 1 — Crear la persona**
 
-**Endpoint:** `POST /api/people`
+**Endpoint:** `POST /api/persons`
 
 Headers: `Authorization: Bearer <token de A>`, `X-Business-Unit-Id: <identificador público de la empresa de prueba, resuelto en Preparar>`
 
@@ -159,7 +159,7 @@ Repite el **Paso 1** con el mismo cuerpo y correo.
 
 Usuario: **A**. Correo: `qa-alta-s2@gsti-tests.local`.
 
-**Paso 1 —** `POST /api/people` (misma forma que el Escenario 1, con `personLastname`: `"Dos"` y `personEmail`: `qa-alta-s2@gsti-tests.local`).
+**Paso 1 —** `POST /api/persons` (misma forma que el Escenario 1, con `personLastname`: `"Dos"` y `personEmail`: `qa-alta-s2@gsti-tests.local`).
 
 **Response — 201:** (Los datos de persona son los ya explicados en el Escenario 1.)
 
@@ -203,7 +203,7 @@ Qué significa lo nuevo aquí: `message` indica que esta vez sí viajó el depar
 
 Usuario: **A**. Correo: `qa-alta-s3@gsti-tests.local`.
 
-**Paso 1 —** `POST /api/people` (`personLastname`: `"Tres"`, correo `qa-alta-s3@gsti-tests.local`).
+**Paso 1 —** `POST /api/persons` (`personLastname`: `"Tres"`, correo `qa-alta-s3@gsti-tests.local`).
 
 **Response — 201:** (Los datos de persona son los ya explicados en el Escenario 1.)
 
@@ -250,7 +250,7 @@ Qué significa lo nuevo aquí: `data.employee` es el colaborador ya dado de alta
 
 Usuario: **A**. Correo: `qa-alta-s4@gsti-tests.local`.
 
-**Paso 1 —** `POST /api/people` (`personLastname`: `"Cuatro"`, correo `qa-alta-s4@gsti-tests.local`).
+**Paso 1 —** `POST /api/persons` (`personLastname`: `"Cuatro"`, correo `qa-alta-s4@gsti-tests.local`).
 
 **Response — 201:** (Los datos de persona son los ya explicados en el Escenario 1.)
 
@@ -299,7 +299,7 @@ WHERE employee_business_email = 'qa-alta-s4@gsti-tests.local' AND employee_delet
 
 Usuario: **A**. Correo: `qa-alta-s5@gsti-tests.local`.
 
-**Paso 1 —** `POST /api/people` (`personLastname`: `"Cinco"`, correo `qa-alta-s5@gsti-tests.local`).
+**Paso 1 —** `POST /api/persons` (`personLastname`: `"Cinco"`, correo `qa-alta-s5@gsti-tests.local`).
 
 **Response — 201:** (Los datos de persona son los ya explicados en el Escenario 1.)
 
@@ -341,7 +341,7 @@ Usuario: **A**. Correo: `qa-alta-s5@gsti-tests.local`.
 
 Usuario: **A**. Correo: `qa-alta-s6@gsti-tests.local`.
 
-**Paso 1 —** `POST /api/people` (`personLastname`: `"Seis"`, correo `qa-alta-s6@gsti-tests.local`).
+**Paso 1 —** `POST /api/persons` (`personLastname`: `"Seis"`, correo `qa-alta-s6@gsti-tests.local`).
 
 **Response — 201:** (Los datos de persona son los ya explicados en el Escenario 1.)
 
@@ -373,7 +373,7 @@ Usuario: **A**. Correo: `qa-alta-s6@gsti-tests.local`.
 
 Usuario: **A**. Correo: `qa-alta-s7@gsti-tests.local`.
 
-**Paso 1 —** `POST /api/people` (`personLastname`: `"Siete"`, correo `qa-alta-s7@gsti-tests.local`).
+**Paso 1 —** `POST /api/persons` (`personLastname`: `"Siete"`, correo `qa-alta-s7@gsti-tests.local`).
 
 **Response — 201:** (Los datos de persona son los ya explicados en el Escenario 1.)
 
@@ -467,7 +467,7 @@ Si la fila ya existía de una corrida anterior, el mensaje puede hablar de actua
 
 ## 10. Checklist
 
-- [ ] Escenario 1: `400` con `Faltan el departamento y el puesto`; sin colaborador; `POST /api/people` con el mismo correo → `201`
+- [ ] Escenario 1: `400` con `Faltan el departamento y el puesto`; sin colaborador; `POST /api/persons` con el mismo correo → `201`
 - [ ] Escenario 2: `400` con `Falta el puesto`
 - [ ] Escenario 3: `201` con `departmentId` y `positionId` activos de la empresa de prueba; sin texto “Sin Departamento”
 - [ ] Escenario 4: `400` con `El departamento no existe en la empresa del empleado`; sin colaborador
