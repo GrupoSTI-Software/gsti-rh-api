@@ -25,6 +25,7 @@ import { todayInBusinessZone, toCalendarIsoDate } from '../utils/business_date.j
 import { RECEIPT_MAX_BYTES, RECEIPT_ALLOWED_MIMES } from '../validators/billing_payment.js'
 import { BILLING_TAX_RECEIPT_LIVE_STATUS } from '#constants/billing_tax_receipt'
 import { hasFinancialSnapshot } from '#helpers/billing_payment_financial_snapshot'
+import AllianceCommissionService from '#services/alliance_commission_service'
 
 // ─── Carpeta S3 de comprobantes ───────────────────────────────────────────────
 const RECEIPT_S3_FOLDER = 'billing/payments/receipts'
@@ -221,6 +222,7 @@ interface FrozenDiscount {
 export default class BillingPaymentService {
   private readonly changeService = new BillingSubscriptionChangeService()
   private readonly internalNotification = new BillingInternalNotificationService()
+  private readonly commissions = new AllianceCommissionService()
 
   /**
    * Registra un pago sobre una suscripción existente y no cancelada.
@@ -491,6 +493,20 @@ export default class BillingPaymentService {
         newPayment.billingPaymentPeriodStart = newPeriodStart
         newPayment.billingPaymentPeriodEnd = newPeriodEnd
         await newPayment.save()
+
+        // Comisión de alianza (ESB-07-09-09-09): mismo acto que el pago.
+        // Si el INSERT falla, esta trx revierte el registro completo.
+        // Sin comisión el pago queda exactamente igual que antes.
+        await this.commissions.accrueOnPayment(
+          {
+            businessUnitId: subscription.businessUnitId,
+            billingPaymentId: newPayment.billingPaymentId,
+            periodsCovered,
+            periodSubtotalCents: snapshot.subtotalCents,
+            paidAt: paidAtDt,
+          },
+          trx
+        )
 
         subscription.useTransaction(trx)
         subscription.billingSubscriptionCreditBalanceCents = creditBalanceAfterCents

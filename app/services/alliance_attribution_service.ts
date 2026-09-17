@@ -6,6 +6,7 @@ import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { ALLIANCE_ERRORS } from '#constants/alliance_error_codes'
 import { AllianceServiceError } from '#exceptions/alliance_service_error'
+import AllianceCommissionService from '#services/alliance_commission_service'
 import {
   assertCommissionPercent,
   assertPositiveAllianceId,
@@ -35,6 +36,8 @@ const PATCH_NUMERIC_KEYS = [
   'allianceAttributionTermPeriods',
 ] as const
 const PATCH_OWNER_KEYS = ['allianceId', 'businessUnitPublicId'] as const
+
+const commissions = new AllianceCommissionService()
 
 function throwFromCatalog(
   catalog: (typeof ALLIANCE_ERRORS)[keyof typeof ALLIANCE_ERRORS]
@@ -332,6 +335,8 @@ export default class AllianceAttributionService {
   /**
    * Ajusta porcentaje, plazo o fecha de inicio de una atribución viva.
    * No toca alianza, empresa ni el acuerdo general.
+   * El plazo no puede quedar por debajo de los periodos ya devengados;
+   * igual a lo devengado se permite (deja la atribución agotada).
    */
   async updateAllianceAttribution(
     allianceAttributionId: number | string,
@@ -368,6 +373,13 @@ export default class AllianceAttributionService {
 
       if (row.allianceAttributionClosedAt) {
         throwFromCatalog(ALLIANCE_ERRORS.ATTRIBUTION_CLOSED_IMMUTABLE)
+      }
+
+      if (typeof input.allianceAttributionTermPeriods === 'number') {
+        const accrued = await commissions.sumAccruedPeriods(id, trx)
+        if (input.allianceAttributionTermPeriods < accrued) {
+          throwFromCatalog(ALLIANCE_ERRORS.ATTRIBUTION_TERM_BELOW_ACCRUED)
+        }
       }
 
       if (input.allianceAttributionCommissionPercent !== undefined) {
