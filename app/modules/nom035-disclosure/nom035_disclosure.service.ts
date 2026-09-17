@@ -80,7 +80,7 @@ export default class Nom035DisclosureService {
       )
     }
 
-    const canReadAll = await this.roleService.hasAccess(user.roleId, 'nom035-disclosure', 'read-all')
+    const canReadAll = await this.roleService.hasAccess(user.roleId, 'disclosure', 'read-all')
     const requestedBranchOfficeId = query.branchOfficeId
     const targetBranchOfficeId =
       canReadAll && requestedBranchOfficeId ? requestedBranchOfficeId : employeeContext.branchOfficeId

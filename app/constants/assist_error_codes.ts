@@ -11,6 +11,8 @@ export const ASSIST_ERROR_CODES = {
   VAL_EMPLOYEE_NOT_FOUND: 'AST.VAL.008',
   /** `assistChannel` presente pero fuera del vocabulario cerrado `ASSIST_CHANNEL`. */
   VAL_CHANNEL_UNKNOWN: 'AST.VAL.009',
+  /** Sincronización por colaborador sin rango de fechas válido o sin `empCode`. */
+  VAL_SYNC_RANGE: 'AST.VAL.010',
   /** `assistPunchTime` presente pero no parseable en ninguno de los dos formatos. */
   VAL_PUNCH_TIME_FORMAT: 'AST.VAL.003',
   /** Hora de captura posterior a la del servidor, más allá de la tolerancia vigente. */
@@ -25,7 +27,14 @@ export const ASSIST_ERROR_CODES = {
   AUTHZ_EMPLOYEE_TERMINATED: 'AST.AUTHZ.001',
   /** Captura ajena sin permiso `add-assist-manual`. */
   AUTHZ_FOREIGN_WRITE: 'AST.AUTHZ.002',
-  /** Sincronización general sin permiso `sync-assist`. */
+  /**
+   * Sincronización general sin permiso `sync-assist`.
+   *
+   * Sin emisor desde que `POST /synchronize` pasó al permissionGate y responde
+   * `PERM.DENIED`. El código se conserva por la regla del catálogo —un código
+   * publicado no se reutiliza para otra cosa— y por si un cliente viejo todavía
+   * lo mapea.
+   */
   AUTHZ_SYNC: 'AST.AUTHZ.003',
   /** Límite de volumen de registros superado. */
   RATE_LIMIT: 'AST.RATE.001',

@@ -1,25 +1,39 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
+import env from '#start/env'
 import User from '../../app/models/user.js'
 import BusinessUnit from '../../app/models/business_unit.js'
 import { resolveRoleIdsBySlug } from '../../app/helpers/system_catalog_seed_resolver.js'
+import { DateTime } from 'luxon'
 
 export default class extends BaseSeeder {
   /** Rol del usuario de plataforma, por slug: el id depende del orden de siembra. */
   private readonly roleSlug = 'root'
 
   async run() {
+    const rootUserEmail = env.get('ROOT_USER_EMAIL')
+    const rootUserPassword = env.get('ROOT_USER_PASSWORD')
+
+    if (!rootUserEmail || !rootUserPassword) {
+      throw new Error(
+        '[0008_user_seeder] Faltan ROOT_USER_EMAIL y/o ROOT_USER_PASSWORD en el .env. ' +
+          'Sin ellas el usuario root se sembraría sin credenciales.'
+      )
+    }
+
     const roleIdBySlug = await resolveRoleIdsBySlug([this.roleSlug], '0008_user_seeder')
 
     const users = [
       {
-        userEmail: 'desarrollo-software@gruposti.com',
-        userId: 100,
-        userPassword: 'GrupoSTI',
+        userEmail: rootUserEmail,
+        userId: 1,
+        userPassword: rootUserPassword,
         userActive: 1,
         personId: 1,
         roleId: roleIdBySlug.get(this.roleSlug)!,
         businessUnitIds: [1],
         isPlatformAdmin: true,
+        userPasswordSetAt: DateTime.now(),
+        userEmailVerifiedAt: DateTime.now(),
       },
     ]
 

@@ -19,7 +19,7 @@ export default class AttentionProgramActionController {
     if (user.role?.roleSlug === 'root') return true
 
     const roleService = new RoleService()
-    return roleService.hasAccess(user.roleId, 'compliance', action)
+    return roleService.hasAccess(user.roleId, 'attention-program', action)
   }
 
   private parsePositiveId(value: unknown, fieldName: string, i18n: HttpContext['i18n']): number {

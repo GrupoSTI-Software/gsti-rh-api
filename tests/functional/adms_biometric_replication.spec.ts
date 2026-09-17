@@ -192,8 +192,9 @@ test.group('ADMS replicacion de biometricos (rebanada 10)', (group) => {
   /**
    * Se mira el template DEL FIXTURE, no todos los del colaborador.
    *
-   * El spec corre sobre la base de desarrollo y toma al primer colaborador de
-   * la empresa: si alguien enrolo un dedo real con el hardware --paso el
+   * El spec toma al primer colaborador de la empresa y corria sobre la base de
+   * desarrollo (hoy usa la BD desechable de la suite): si alguien enrolo un
+   * dedo real con el hardware --paso el
    * 2026-09-10-- su template queda en la misma boveda y con otra version. El
    * conteo global convertia ese dato ajeno en un fallo del corte por version.
    */

@@ -1,5 +1,4 @@
 import { test } from '@japa/runner'
-import SystemPermissionCatalogSyncSeeder from '#database/seeders/0055_system_permission_catalog_sync_seeder'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
 import { getRolePreset } from '#constants/role_presets'
 import RolePresetService from '#services/role_preset_service'
@@ -8,11 +7,8 @@ const employeesPermissionBySlug = new Map(
   EMPLOYEES_PERMISSION_CATALOG.map((permission) => [permission.slug, permission] as const)
 )
 
-test.group('RolePresetService.resolveEmployeesPermissionIds', (group) => {
-  group.setup(async () => {
-    await new SystemPermissionCatalogSyncSeeder({} as never).run()
-  })
-
+// Los permisos de employees los siembra 0062 (la suite corre sobre migration:fresh --seed).
+test.group('RolePresetService.resolveEmployeesPermissionIds', () => {
   test('resuelve todos los slugs grantables de hr-admin a IDs del módulo employees', async ({
     assert,
   }) => {

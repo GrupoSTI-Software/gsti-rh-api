@@ -32,14 +32,17 @@ test.group('career_path_candidate_routes — scope obligatorio', () => {
     assert,
   }) => {
     const content = readFileSync(CAREER_PATH_CANDIDATE_ROUTES_FILE, 'utf-8')
+    // Sin espacios ni saltos: cada ruta encadena su permissionGate y prettier la
+    // parte en `router` / `.get(...)`, así que el literal de una sola línea no aparece.
+    const flat = content.replace(/\s+/g, '')
 
     assert.include(
-      content,
-      "router.get('/:careerPathCandidateId', '#controllers/career_path_candidate_controller.show')"
+      flat,
+      "router.get('/:careerPathCandidateId','#controllers/career_path_candidate_controller.show')"
     )
     assert.include(
-      content,
-      "router.get('/employee/:employeeId', '#controllers/career_path_candidate_controller.getByEmployeeId')"
+      flat,
+      "router.get('/employee/:employeeId','#controllers/career_path_candidate_controller.getByEmployeeId')"
     )
     // businessScope() debe estar en la misma cadena .use() del group, no ausente.
     const groupBlockEnd = content.indexOf(".prefix('/api/career-path-candidates')")

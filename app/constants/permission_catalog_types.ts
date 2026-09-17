@@ -1,10 +1,11 @@
 /**
  * Tipos genéricos del índice maestro de módulos y permisos (USRH1785766406720).
  *
- * Deliberadamente reutilizables por CUALQUIER módulo, no solo por Empleados
- * (el piloto de esta HU): `ActionCatalogEntry` recibe la sección como
- * parámetro genérico (`TSection`) en vez de una unión de literales fija, para
- * que declarar un nuevo módulo más adelante no obligue a tocar este archivo.
+ * Reutilizables por cualquier módulo con catálogo tipado en
+ * `SYSTEM_MODULE_ACTION_CATALOGS` (`system_modules.constant.ts`):
+ * `ActionCatalogEntry` recibe la sección como parámetro genérico (`TSection`) en
+ * vez de una unión de literales fija, para que declarar un catálogo nuevo no
+ * obligue a tocar este archivo.
  */
 
 import type { PermissionGateBypass } from '#constants/permission_gate'
@@ -47,19 +48,19 @@ export interface ActionCatalogEntry<TSection extends string = string> {
   exceptionProfile: PermissionGateBypass
   /** Presente cuando la acción ya existía antes de declararse en este catálogo. */
   legacyEquivalence?: LegacyPermissionEquivalence
-  /** Presente cuando la acción queda deliberadamente fuera de la revisión de consistencia. */
+  /**
+   * Presente cuando la acción es un apartado documental: la siembra la descarta
+   * (`permissionsFromActionCatalog`) y nunca tiene fila en `system_permissions`.
+   */
   exemption?: ActionExemption
 }
 
+/**
+ * Entrada del índice de módulos vigentes. Solo lleva el slug: si el módulo
+ * tiene catálogo tipado se sabe por su clave en `actionsByModule`, no por un
+ * campo que repita ese dato.
+ */
 export interface ModuleCatalogEntry {
   /** Nombre estable del módulo. Es la clave de identidad — nunca un id numérico. */
   slug: string
-  /** Equivalencia informativa con `system_modules`; nunca se usa para buscar/crear (regla 6). */
-  legacySystemModuleId?: number
-  /**
-   * `true` solo cuando el catálogo enumera acción por acción las acciones del
-   * módulo. En esta HU, únicamente `employees` (piloto); el resto queda
-   * reconocido pero sin acciones enumeradas — deuda conocida, no error.
-   */
-  actionsEnumerated: boolean
 }

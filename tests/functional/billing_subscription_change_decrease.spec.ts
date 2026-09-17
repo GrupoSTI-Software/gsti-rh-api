@@ -1,8 +1,7 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import RoleSeeder from '#database/seeders/0006_role_seeder'
+import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
-import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
@@ -18,6 +17,7 @@ import BillingCatalogService from '#services/billing_catalog_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '#constants/billing_subscription_error_codes'
 import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — POST /api/billing/subscription/changes/decrease|cancel (USRH1786107870853).
@@ -32,32 +32,13 @@ interface TenantActor {
   businessUnit: BusinessUnit
 }
 
-async function ensureOwnerRole(): Promise<Role> {
-  await new RoleSeeder({} as never).run()
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'owner').first()
-  if (!role) {
-    throw new Error('Se requiere el rol owner en BD para probar decrease.')
-  }
-  return role
-}
-
-async function ensureEmployeeRole(): Promise<Role> {
-  await new RoleSeeder({} as never).run()
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'empleado').first()
-  if (!role) {
-    throw new Error('Se requiere el rol empleado en BD para probar decrease.')
-  }
-  return role
-}
-
 async function createTenantActor(options: {
   emailPrefix: string
   roleSlug: 'owner' | 'empleado'
 }): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${options.emailPrefix}-${stamp}@gsti-tests.local`
-  const role =
-    options.roleSlug === 'owner' ? await ensureOwnerRole() : await ensureEmployeeRole()
+  const role = await ensureRole(options.roleSlug)
 
   const person = new Person()
   person.personFirstname = 'BillingDecrease'
@@ -151,9 +132,17 @@ async function createLiveSubscription(
   return subscription
 }
 
+/**
+ * Plantilla activa de la empresa, creada por la propia fixture.
+ *
+ * Antes copiaba departamento, puesto y tipo de un empleado cualquiera que ya
+ * existiera en la base (`Employee.query().firstOrFail()`). Sobre una BD recién
+ * sembrada no existe ninguno y el caso moría en el setup con "Row not found",
+ * sin llegar a probar el mínimo por plantilla. Esas tres columnas son
+ * opcionales para el conteo de plantilla activa, así que no se copian: lo único
+ * que la regla mira es cuántos empleados vivos tiene la empresa.
+ */
 async function seedActiveEmployees(businessUnitId: number, count: number): Promise<void> {
-  const template = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
-
   for (let i = 0; i < count; i++) {
     const person = new Person()
     person.personFirstname = 'Decrease'
@@ -165,10 +154,10 @@ async function seedActiveEmployees(businessUnitId: number, count: number): Promi
     const employee = new Employee()
     employee.personId = person.personId
     employee.businessUnitId = businessUnitId
-    employee.companyId = template.companyId
-    employee.departmentId = template.departmentId
-    employee.positionId = template.positionId
-    employee.employeeTypeId = template.employeeTypeId
+    employee.payrollBusinessUnitId = businessUnitId
+    // La empresa del propio fixture, no un id fijo: `company_id` no tiene
+    // foránea, así que un 1 literal no lo respalda nada.
+    employee.companyId = businessUnitId
     employee.employeeFirstName = 'Decrease'
     employee.employeeLastName = `Emp${i}`
     employee.employeeCode = `DEC-${businessUnitId}-${i}-${STAMP}`
@@ -196,9 +185,28 @@ async function cleanupTenantActor(actor: TenantActor | null) {
   await BillingSubscription.query()
     .where('business_unit_id', actor.businessUnit.businessUnitId)
     .delete()
-  await Employee.query().where('business_unit_id', actor.businessUnit.businessUnitId).delete()
+  /**
+   * Los empleados sembrados se borran de verdad, y sus personas con ellos.
+   *
+   * Lo que se fugaba eran las filas de `people`, no las de `employees`: el
+   * mixin de borrado lógico solo intercepta el `delete()` de una INSTANCIA
+   * (sobrescribe `$getQueryFor`), no el del query builder, así que
+   * `Employee.query().delete()` ya borraba físicamente. Lo que faltaba era
+   * borrar sus personas, que quedaban sin dueño y con correo único: cada
+   * corrida del caso del mínimo por plantilla dejaba quince más en la base.
+   * El `db.from('employees')` se conserva por explícito, y el orden
+   * hijo → padre evita chocar con la llave foránea.
+   */
+  const empleadosDeLaEmpresa = await Employee.query()
+    .withTrashed()
+    .where('business_unit_id', actor.businessUnit.businessUnitId)
+    .select('person_id')
+  const seededPersonIds = empleadosDeLaEmpresa.map((employee) => employee.personId)
+
+  await db.from('employees').where('business_unit_id', actor.businessUnit.businessUnitId).delete()
   await BusinessUnitUser.query().where('user_id', actor.user.userId).delete()
   await User.query().where('user_id', actor.user.userId).delete()
+  await Person.query().whereIn('person_id', seededPersonIds).delete()
   await Person.query().where('person_id', actor.person.personId).delete()
   await BusinessUnit.query()
     .where('business_unit_id', actor.businessUnit.businessUnitId)

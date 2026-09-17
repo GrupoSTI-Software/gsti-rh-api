@@ -19,8 +19,9 @@ const idValidator = vine.compile(
  * Estado de los checadores (spec ADMS 9.2).
  *
  * Es lectura, pero resuelve el permiso con `evaluateEnforced` igual que todo lo
- * demas: el interruptor de exigencia del modulo esta apagado y `permissionGate`
- * dejaria ver el estado de los equipos a cualquier autenticado.
+ * demas del canal: el modulo `biometric-devices` hoy exige permisos y apagar su
+ * interruptor en BD no debe dejar el estado de los equipos al alcance de
+ * cualquier autenticado, que es lo que haria `evaluate`.
  */
 export default class HealthController {
   /**

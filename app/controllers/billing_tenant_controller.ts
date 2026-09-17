@@ -5,6 +5,7 @@ import BillingInternalNotificationService from '#services/billing_internal_notif
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import { assertBillingOwner } from '../helpers/billing_owner_guard.js'
+import { onlyAccountOwnerCanContractError } from '../helpers/billing_tenant_error.js'
 import { resolveBillingSubscriptionApiError } from '../helpers/billing_subscription_api_error.js'
 import { TenantContext } from '../utils/tenant_context.js'
 import {
@@ -543,6 +544,23 @@ export default class BillingTenantController {
    *                   description: Response message
    *                 data:
    *                   type: object
+   *       '403':
+   *         description: Rol distinto de owner/root/super-administrador
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                   example: solo-el-dueno-de-la-cuenta
+   *                 code:
+   *                   type: string
+   *                   example: PLT.SUB.FORBIDDEN_ROLE
    *       '404':
    *         description: Empresa fuera de alcance, plan no encontrado
    *         content:
@@ -582,8 +600,14 @@ export default class BillingTenantController {
    *                   type: string
    *                   description: Type of response generated
    */
-  async contractSubscription({ request, response }: HttpContext) {
+  async contractSubscription(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
+      // Contratar compromete dinero de la empresa. Ni la ruta ni el servicio
+      // miraban el rol: cualquier usuario con sesión en el tenant contrataba.
+      // Mismo guard de dueño que preview, increase, decrease y cancel, con una
+      // negativa que habla de contratar.
+      await assertBillingOwner(ctx, onlyAccountOwnerCanContractError)
       const body = await request.validateUsing(contractTenantSubscriptionValidator)
       const result = await this.service.contractSubscription(
         body.billingPlanId,

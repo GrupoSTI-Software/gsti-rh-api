@@ -20,7 +20,7 @@ import Supply from '#models/supplie'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
-import SystemPermissionCatalogSyncService from '#services/system_permission_catalog_sync_service'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'ZonasActivosPermissionGate123!'
 const VALID_PNG_BUFFER = Buffer.from(
@@ -140,8 +140,8 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
   return { user, person, businessUnit, role }
 }
 
-async function createSystemActor(roleSlug: string, emailPrefix: string): Promise<SystemActor> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).firstOrFail()
+async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<SystemActor> {
+  const role = await ensureRole(roleSlug)
   const stamp = await uniqueStamp()
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
   const businessUnit = await BusinessUnit.create({
@@ -261,9 +261,16 @@ async function cleanupEmployeeFixture(fixture: EmployeeFixture | null) {
   await Person.query().where('person_id', fixture.person.personId).delete()
 }
 
-async function createZoneFixture(prefix: string) {
+/**
+ * Zona de la empresa indicada. `businessUnitId` va explícito porque el fixture
+ * corre fuera de una request: sin TenantContext el hook del modelo no tendría
+ * de dónde resolver la empresa. Y como Zone ya está acotada por empresa, una
+ * zona solo sirve a peticiones hechas con el encabezado de SU empresa.
+ */
+async function createZoneFixture(prefix: string, businessUnitId: number) {
   const stamp = await uniqueStamp()
   return Zone.create({
+    businessUnitId,
     zoneName: `Zona ${prefix} ${stamp}`,
     zoneAddress: 'Calle de prueba',
     zonePolygon: '[]',
@@ -274,13 +281,16 @@ async function cleanupZone(zone: Zone | null) {
   if (zone) await Zone.query().where('zone_id', zone.zoneId).delete()
 }
 
-async function createSupplyFixture(prefix: string): Promise<SupplyFixture> {
+/** Mismo motivo que en las zonas: el catálogo de activos ya es por empresa. */
+async function createSupplyFixture(prefix: string, businessUnitId: number): Promise<SupplyFixture> {
   const stamp = await uniqueStamp()
   const supplyType = await SupplyType.create({
+    businessUnitId,
     supplyTypeName: `Tipo ${prefix} ${stamp}`,
     supplyTypeSlug: `tipo-${prefix}-${stamp}`,
   })
   const supply = await Supply.create({
+    businessUnitId,
     supplyFileNumber: Number(`${Date.now()}${Math.floor(Math.random() * 100)}`.slice(-9)),
     supplyName: `Herramienta ${prefix} ${stamp}`,
     supplyTypeId: supplyType.supplyTypeId,
@@ -347,7 +357,6 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - soft-rollout (exigenci
   const supplies: SupplyFixture[] = []
 
   group.setup(async () => {
-    await new SystemPermissionCatalogSyncService().sync()
     employeesModule = await SystemModule.query()
       .whereNull('system_module_deleted_at')
       .where('system_module_slug', 'employees')
@@ -386,9 +395,9 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - soft-rollout (exigenci
     await db.from('employee_annotations').where('employee_id', employeeId).delete()
     await db.from('employee_bonuses').where('employee_id', employeeId).delete()
     await db.from('user_responsible_employees').where('employee_id', employeeId).delete()
-    const zone = await createZoneFixture('off-create')
-    const replacementZone = await createZoneFixture('off-update')
-    const supplyFixture = await createSupplyFixture('off')
+    const zone = await createZoneFixture('off-create', actor!.businessUnit.businessUnitId)
+    const replacementZone = await createZoneFixture('off-update', actor!.businessUnit.businessUnitId)
+    const supplyFixture = await createSupplyFixture('off', actor!.businessUnit.businessUnitId)
     zones.push(zone)
     zones.push(replacementZone)
     supplies.push(supplyFixture)
@@ -506,7 +515,6 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
   const supplies: SupplyFixture[] = []
 
   group.setup(async () => {
-    await new SystemPermissionCatalogSyncService().sync()
     employeesModule = await SystemModule.query()
       .whereNull('system_module_deleted_at')
       .where('system_module_slug', 'employees')
@@ -531,8 +539,8 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
   test('sin grants: las 21 escrituras responden PERM.DENIED sin cambios parciales', async ({ client, assert }) => {
     await grantOnly(actor!.role.roleId, [])
     const employeeId = fixture!.employee.employeeId
-    const zone = await createZoneFixture('on-deny')
-    const supplyFixture = await createSupplyFixture('on-deny')
+    const zone = await createZoneFixture('on-deny', actor!.businessUnit.businessUnitId)
+    const supplyFixture = await createSupplyFixture('on-deny', actor!.businessUnit.businessUnitId)
     zones.push(zone)
     supplies.push(supplyFixture)
     const employeeZone = await EmployeeZone.create({ employeeId, zoneId: zone.zoneId })
@@ -587,7 +595,7 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
 
   test('zonas sí y bonificaciones no: la zona queda y la bonificación no se registra', async ({ client, assert }) => {
     await grantOnly(actor!.role.roleId, ['tab-zonas-write'])
-    const zone = await createZoneFixture('sep')
+    const zone = await createZoneFixture('sep', actor!.businessUnit.businessUnitId)
     zones.push(zone)
     const zoneRes = await client.post('/api/employee-zones').loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeId: fixture!.employee.employeeId, zoneId: zone.zoneId })
     assertSuccess(assert, zoneRes)
@@ -606,8 +614,8 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
 
   test('tab-zonas-write permite POST y PUT, pero DELETE exige tab-zonas-delete', async ({ client, assert }) => {
     const employeeId = fixture!.employee.employeeId
-    const originalZone = await createZoneFixture('write')
-    const replacementZone = await createZoneFixture('write-replacement')
+    const originalZone = await createZoneFixture('write', actor!.businessUnit.businessUnitId)
+    const replacementZone = await createZoneFixture('write-replacement', actor!.businessUnit.businessUnitId)
     zones.push(originalZone, replacementZone)
     await grantOnly(actor!.role.roleId, ['tab-zonas-write'])
     const created = await client.post('/api/employee-zones').loginAs(actor!.user).headers(buHeader(actor!)).json({ employeeId, zoneId: originalZone.zoneId })
@@ -713,7 +721,7 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
 
   test('sin manage-employee-supplies la foto no se almacena y no se crea la asignación', async ({ client, assert }) => {
     await grantOnly(actor!.role.roleId, ['tab-expediente-write', 'manage-files'])
-    const supplyFixture = await createSupplyFixture('deny-photo')
+    const supplyFixture = await createSupplyFixture('deny-photo', actor!.businessUnit.businessUnitId)
     supplies.push(supplyFixture)
     const photosBefore = await EmployeeSupplieAssignationPhoto.query()
     const suppliesBefore = await EmployeeSupplie.query().where('employee_id', fixture!.employee.employeeId)
@@ -730,7 +738,7 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
 
   test('manage-employee-supplies permite las nueve operaciones del ciclo del activo', async ({ client, assert }) => {
     await grantOnly(actor!.role.roleId, ['manage-employee-supplies'])
-    const supplyFixture = await createSupplyFixture('cycle')
+    const supplyFixture = await createSupplyFixture('cycle', actor!.businessUnit.businessUnitId)
     supplies.push(supplyFixture)
     const create = await client.post('/api/employee-supplies').loginAs(actor!.user).headers(buHeader(actor!)).json({
       employeeId: fixture!.employee.employeeId, supplyId: supplyFixture.supply.supplyId, employeeSupplyAssignamentDate: '2026-08-01',
@@ -853,7 +861,7 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
   }) => {
     await grantOnly(actor!.role.roleId, [])
     const employeeId = fixture!.employee.employeeId
-    const zone = await createZoneFixture('on-get')
+    const zone = await createZoneFixture('on-get', actor!.businessUnit.businessUnitId)
     zones.push(zone)
     const employeeZone = await EmployeeZone.create({ employeeId, zoneId: zone.zoneId })
     const annotation = await EmployeeAnnotation.create({
@@ -891,7 +899,7 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
   }) => {
     await grantOnly(actor!.role.roleId, [])
     const employeeId = fixture!.employee.employeeId
-    const supplyFixture = await createSupplyFixture('on-get')
+    const supplyFixture = await createSupplyFixture('on-get', actor!.businessUnit.businessUnitId)
     supplies.push(supplyFixture)
     const supply = await EmployeeSupplie.create({
       employeeId,
@@ -903,11 +911,22 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
     assert.notEqual(response.body()?.key, 'PERM.DENIED')
   })
 
-  test('catálogos de zonas e insumos no responden PERM.DENIED', async ({ client, assert }) => {
-    await grantOnly(actor!.role.roleId, [])
-    for (const path of ['/api/zones', '/api/supplies', '/api/supply-types']) {
-      const response = await client.get(path).loginAs(actor!.user).headers(buHeader(actor!))
-      assert.notEqual(response.body()?.key, 'PERM.DENIED')
+  test('el catálogo de zonas sigue abierto; el de activos pide supplies:read y un permiso de Empleados no lo abre', async ({
+    client,
+    assert,
+  }) => {
+    // Desde que Activos e insumos exige permisos, sus catálogos piden su propio
+    // módulo. La asignación de activos no los necesita desde Empleados: el
+    // formulario de asignación vive en la página de activos. Zonas sigue
+    // abierto porque lo consume el select de zonas de Empleados.
+    for (const grants of [[], ['manage-employee-supplies']]) {
+      await grantOnly(actor!.role.roleId, grants)
+      const zonesCatalog = await client.get('/api/zones').loginAs(actor!.user).headers(buHeader(actor!))
+      assert.notEqual(zonesCatalog.body()?.key, 'PERM.DENIED')
+      for (const path of ['/api/supplies', '/api/supply-types']) {
+        const response = await client.get(path).loginAs(actor!.user).headers(buHeader(actor!))
+        assertPermissionDenied(assert, response)
+      }
     }
   })
 
@@ -919,7 +938,7 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - matriz con exigencia O
 
   test('full-employee-assigned no abre escritura de zona ni bono', async ({ client, assert }) => {
     await grantOnly(actor!.role.roleId, ['full-employee-assigned'])
-    const zone = await createZoneFixture('full-assigned')
+    const zone = await createZoneFixture('full-assigned', actor!.businessUnit.businessUnitId)
     zones.push(zone)
     const zoneRes = await client
       .post('/api/employee-zones')
@@ -947,7 +966,6 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - bypass standard', (gro
   const zones: Zone[] = []
 
   group.setup(async () => {
-    await new SystemPermissionCatalogSyncService().sync()
     employeesModule = await SystemModule.query().whereNull('system_module_deleted_at').where('system_module_slug', 'employees').firstOrFail()
     employeesModule.systemModulePermissionEnforcementActive = true
     await employeesModule.save()
@@ -974,12 +992,14 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - bypass standard', (gro
   test('owner y root sin grants no reciben PERM.DENIED en POST zona y POST bono', async ({ client, assert }) => {
     ownerGrants = await snapshotAndClearEmployeesGrants(ownerActor!.roleId)
     rootGrants = await snapshotAndClearEmployeesGrants(rootActor!.roleId)
-    const zone = await createZoneFixture('bypass')
-    zones.push(zone)
     for (const systemActor of [
       { actor: ownerActor!, fixture: ownerFixture! },
       { actor: rootActor!, fixture: rootFixture! },
     ]) {
+      // Una zona por actor: owner y root viven en empresas distintas y Zone ya
+      // está acotada, así que una sola zona no puede servir a los dos.
+      const zone = await createZoneFixture('bypass', systemActor.actor.businessUnit.businessUnitId)
+      zones.push(zone)
       const zoneRes = await client.post('/api/employee-zones').loginAs(systemActor.actor.user).headers(buHeader(systemActor.actor)).json({ employeeId: systemActor.fixture.employee.employeeId, zoneId: zone.zoneId })
       assertSuccess(assert, zoneRes)
       const bonusRes = await client.post('/api/employee-bonuses').loginAs(systemActor.actor.user).headers(buHeader(systemActor.actor)).json(bonusPayload(systemActor.fixture.employee.employeeId))
@@ -991,7 +1011,7 @@ test.group('Zonas/Anotaciones/Bonos/Responsable/Activos - bypass standard', (gro
     const direccion = await createSystemActor('super-administrador', 'za-dg')
     const dgGrants = await snapshotAndClearEmployeesGrants(direccion.roleId)
     const dgFixture = await createEmployeeFixture(direccion.businessUnit.businessUnitId, 'dg')
-    const zone = await createZoneFixture('dg')
+    const zone = await createZoneFixture('dg', direccion.businessUnit.businessUnitId)
     zones.push(zone)
     try {
       const denied = await client.post('/api/employee-zones').loginAs(direccion.user).headers(buHeader(direccion)).json({ employeeId: dgFixture.employee.employeeId, zoneId: zone.zoneId })
