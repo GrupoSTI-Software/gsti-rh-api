@@ -59,26 +59,18 @@ test.group('employee_proceeding_file_routes — PermissionGate Expediente', () =
   })
 })
 
-test.group('certifications_routes — PermissionGate', () => {
-  test('escrituras del catálogo declaran permissionGate; lecturas no', async ({ assert }) => {
+test.group('certifications_routes — el catálogo ya no cuelga de Empleados', () => {
+  test('las escrituras del catálogo declaran su propio módulo, no permisos de Empleados', async ({
+    assert,
+  }) => {
+    // La protección vigente por ruta se afirma en
+    // `assessment_templates_certifications_competencies_permission_gate_routes.spec.ts`.
+    // Aquí se cuida que no regrese el gate de la pestaña del empleado, que dejaba
+    // la casilla de roles del catálogo sin efecto en el API.
     const content = await readFile(join(process.cwd(), 'start/routes/certifications_routes.ts'), 'utf8')
-    assert.include(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
-    assert.include(
-      compact(content),
-      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createCertification)'
-    )
-    assert.include(
-      compact(content),
-      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateCertification)'
-    )
-    assert.include(
-      compact(content),
-      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteCertification)'
-    )
-    const matches =
-      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
-      []
-    assert.equal(matches.length, 3)
+    assert.include(content, 'CERTIFICATIONS_PERMISSION_DECLARATIONS')
+    assert.notInclude(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+    assert.notInclude(content, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS')
   })
 })
 
@@ -124,17 +116,40 @@ test.group('proceeding_file_type_property_value_routes — sin permissionGate de
   })
 })
 
-test.group('Deuda — catálogo de tipos y requisitos por puesto sin gate Empleados', () => {
-  test('rutas del catálogo de tipos de documento no declaran permissionGate', async ({ assert }) => {
-    for (const rel of [
-      'start/routes/proceeding_file_type_routes.ts',
-      'start/routes/proceeding_file_type_email_routes.ts',
-      'start/routes/position_certification_requirement_routes.ts',
-    ]) {
-      const content = await readFile(join(process.cwd(), rel), 'utf8')
-      assert.notInclude(content, 'permissionGate')
-      assert.notInclude(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
-    }
+test.group('Deuda — correos del catálogo y requisitos por puesto sin gate Empleados', () => {
+  test('los correos del catálogo de tipos siguen sin permissionGate (deuda viva)', async ({
+    assert,
+  }) => {
+    // `proceeding_file_type_routes.ts` salió de esta lista: sus dos altas ya
+    // declaran el gate del módulo de la pantalla que las dispara —Empleados para
+    // la carpeta del expediente del colaborador, Ajustes Generales para la de la
+    // empresa— y la edición y la baja, que comparten ruta entre ambas áreas, las
+    // decide el controller por el área del registro. Lo cubre
+    // `proceeding_file_types_shift_quotas_permission_gate_routes.spec.ts`.
+    //
+    // Los correos del tipo de documento sí siguen sin dueño: la deuda queda aquí
+    // anotada y acotada a ese archivo.
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/proceeding_file_type_email_routes.ts'),
+      'utf8'
+    )
+    assert.notInclude(content, 'permissionGate')
+    assert.notInclude(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+  })
+
+  test('los requisitos de certificación por puesto se protegen con permisos del Organigrama, no de Empleados', async ({
+    assert,
+  }) => {
+    // Desde que el organigrama exige permisos en el perfil del puesto, esta ruta
+    // declara su propio módulo. Lo que el caso cuida es que no se cuele un gate
+    // de Empleados: los requisitos se administran desde el organigrama.
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/position_certification_requirement_routes.ts'),
+      'utf8'
+    )
+    assert.include(content, 'ORGANIZATION_CHART_PERMISSION_DECLARATIONS')
+    assert.notInclude(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+    assert.notInclude(content, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS')
   })
 })
 

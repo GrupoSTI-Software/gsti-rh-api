@@ -553,13 +553,14 @@ export default class TraumaticEventReportController {
    *       '200': { description: Registro paginado con canalizaciones y exámenes }
    *       '400': { description: Rango invertido ETR.VAL.RANGE.001 }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso read ETR.FORBID.001 }
+   *       '403': { description: Sin permiso read del registro auditable PERM.DENIED }
    */
   async registry(ctx: HttpContext) {
     const { request, response } = ctx
     try {
+      // El permiso lo exige el gate de la ruta con el módulo del registro. Repetir
+      // aquí la verificación de reportes obligaba a tener dos permisos para una pantalla.
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const raw = await request.validateUsing(traumaticEventRegistryFiltersValidator)
       const filters = this.toRegistryFilters(raw)
@@ -666,13 +667,14 @@ export default class TraumaticEventReportController {
    *             schema: { type: string, format: binary }
    *       '400': { description: Rango invertido ETR.VAL.RANGE.001 }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso read ETR.FORBID.001 }
+   *       '403': { description: Sin permiso read del registro auditable PERM.DENIED }
    */
   async registryExport(ctx: HttpContext) {
     const { request, response, i18n } = ctx
     try {
+      // Mismo gate de ruta que la lista. Si la CURP sale completa o enmascarada
+      // lo sigue decidiendo PiiExportService con employees:export-sensitive-data.
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx, 'read'))) return
 
       const raw = await request.validateUsing(traumaticEventRegistryFiltersValidator)
       const filters = this.toRegistryFilters(raw)

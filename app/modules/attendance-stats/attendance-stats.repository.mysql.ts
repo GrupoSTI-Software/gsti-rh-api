@@ -6,10 +6,7 @@ import { toAbsencesBranch } from './attendance-stats.absences.js'
 import type {
   AbsencesBranch,
   AttendanceStatsFilters,
-  CoverageActiveLoanRow,
   CoverageRangeLoanRow,
-  CoverageShiftQuotaRow,
-  CoverageSiteRef,
   EmployeeCalendarBundle,
   EmployeeInfo,
 } from './dto/attendance-stats.dto.js'
@@ -800,117 +797,6 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     return 'ontime'
   }
 
-  async getSitesByCompany(
-    empresaContratanteId: number,
-    allowedBusinessUnitIds: number[],
-    branchOfficeIds?: number[]
-  ): Promise<CoverageSiteRef[]> {
-    if (allowedBusinessUnitIds.length === 0) return []
-
-    const q = db
-      .from('branch_offices AS bo')
-      .whereNull('bo.branch_office_deleted_at')
-      .where('bo.empresa_contratante_id', empresaContratanteId)
-      .whereIn('bo.business_unit_id', allowedBusinessUnitIds)
-
-    if (branchOfficeIds && branchOfficeIds.length > 0) {
-      q.whereIn('bo.branch_office_id', branchOfficeIds)
-    }
-
-    const rows = await q
-      .select('bo.branch_office_id AS branch_office_id', 'bo.branch_office_name AS branch_office_name')
-      .orderBy('bo.branch_office_name', 'asc')
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return rows.map((r: any) => ({
-      branchOfficeId: Number(r.branch_office_id),
-      branchOfficeName: String(r.branch_office_name ?? ''),
-    }))
-  }
-
-  async getShiftQuotasByBranchIds(
-    branchOfficeIds: number[],
-    allowedBusinessUnitIds: number[]
-  ): Promise<CoverageShiftQuotaRow[]> {
-    if (branchOfficeIds.length === 0 || allowedBusinessUnitIds.length === 0) return []
-
-    const rows = await db
-      .from('branch_office_shift_quotas AS q')
-      .innerJoin('shifts AS s', 's.shift_id', 'q.shift_id')
-      // db.from salta el mixin de tenant: el corte por empresa va explícito.
-      .innerJoin('branch_offices AS bo', 'bo.branch_office_id', 'q.branch_office_id')
-      .whereNull('bo.branch_office_deleted_at')
-      .whereIn('bo.business_unit_id', allowedBusinessUnitIds)
-      .whereIn('q.branch_office_id', branchOfficeIds)
-      .whereNull('s.shift_deleted_at')
-      .where('s.shift_temp', 0)
-      .select(
-        'q.branch_office_id AS branch_office_id',
-        'q.shift_id AS shift_id',
-        's.shift_name AS shift_name',
-        'q.branch_office_shift_quota_required AS required',
-        'q.branch_office_shift_quota_minimum AS minimum'
-      )
-      .orderBy('q.branch_office_id', 'asc')
-      .orderBy('s.shift_name', 'asc')
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return rows.map((r: any) => ({
-      branchOfficeId: Number(r.branch_office_id),
-      shiftId: Number(r.shift_id),
-      shiftName: String(r.shift_name ?? ''),
-      required: Number(r.required),
-      minimum: Number(r.minimum),
-    }))
-  }
-
-  async getActiveLoansForDay(
-    day: string,
-    allowedBusinessUnitIds: number[]
-  ): Promise<CoverageActiveLoanRow[]> {
-    if (allowedBusinessUnitIds.length === 0) return []
-
-    const rows = await db
-      .from('employee_temporary_assignments AS eta')
-      .innerJoin('employees AS e', 'e.employee_id', 'eta.employee_id')
-      // Origen y destino deben ser sucursales de la empresa: un préstamo que
-      // apunte a otra no puede mover al colaborador ni aportar su nombre.
-      .innerJoin('branch_offices AS source_bo', 'source_bo.branch_office_id', 'eta.source_branch_id')
-      .innerJoin('branch_offices AS target_bo', 'target_bo.branch_office_id', 'eta.target_branch_id')
-      .whereIn('source_bo.business_unit_id', allowedBusinessUnitIds)
-      .whereIn('target_bo.business_unit_id', allowedBusinessUnitIds)
-      .whereNull('e.employee_deleted_at')
-      .whereNull('eta.employee_temporary_assignment_deleted_at')
-      .whereIn('e.business_unit_id', allowedBusinessUnitIds)
-      .where('eta.start_date', '<=', day)
-      .where('eta.end_date', '>=', day)
-      .where((query) => {
-        query.whereNull('eta.cancelled_at').orWhere('eta.cancelled_at', '>', day)
-      })
-      .select(
-        'eta.employee_temporary_assignment_id AS assignment_id',
-        'eta.employee_id AS employee_id',
-        'eta.source_branch_id AS source_branch_id',
-        'eta.target_branch_id AS target_branch_id',
-        'eta.destination_shift_id AS destination_shift_id',
-        'eta.reason AS reason'
-      )
-      // Con varios préstamos vigentes, la cobertura se queda con el primero por
-      // colaborador: el mismo desempate que selectLoanForDay.
-      .orderBy('eta.start_date', 'desc')
-      .orderBy('eta.employee_temporary_assignment_id', 'desc')
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return rows.map((r: any) => ({
-      assignmentId: Number(r.assignment_id),
-      employeeId: Number(r.employee_id),
-      sourceBranchId: Number(r.source_branch_id),
-      targetBranchId: Number(r.target_branch_id),
-      destinationShiftId: r.destination_shift_id === null ? null : Number(r.destination_shift_id),
-      reason: typeof r.reason === 'string' ? r.reason : null,
-    }))
-  }
-
   async getAbsencesEmployeeIds(
     startDay: string,
     endDay: string,
@@ -1074,28 +960,6 @@ ORDER BY sfd_full.employee_id, sfd_full.day
       endDate: row.end_date,
       cancelledAt: row.cancelled_at,
     }))
-  }
-
-  async getBranchOfficeNamesByIds(
-    branchOfficeIds: number[],
-    allowedBusinessUnitIds: number[]
-  ): Promise<Map<number, string>> {
-    const uniqueIds = [...new Set(branchOfficeIds.filter((id) => id > 0))]
-    if (uniqueIds.length === 0 || allowedBusinessUnitIds.length === 0) return new Map()
-
-    const rows = await db
-      .from('branch_offices AS bo')
-      .whereIn('bo.branch_office_id', uniqueIds)
-      .whereNull('bo.branch_office_deleted_at')
-      .whereIn('bo.business_unit_id', allowedBusinessUnitIds)
-      .select('bo.branch_office_id AS branch_office_id', 'bo.branch_office_name AS branch_office_name')
-
-    const names = new Map<number, string>()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of rows as any[]) {
-      names.set(Number(r.branch_office_id), String(r.branch_office_name ?? ''))
-    }
-    return names
   }
 
   async getEmployeeIdsInResponsibleScope(

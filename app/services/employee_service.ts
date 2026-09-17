@@ -19,6 +19,7 @@ import { DateTime } from 'luxon'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
 import { isTerminatedEmployeesFilterRequested } from '#helpers/terminated_employees_filter'
+import { applyVisibleDepartmentsScope } from '#helpers/apply_visible_departments_scope'
 import type {
   EmployeeImportResult,
   EmployeeImportRowError,
@@ -478,7 +479,7 @@ export default class EmployeeService {
       .if(
         !filters.userResponsibleId,
         (query) => {
-          query.whereIn('departmentId', departmentsList)
+          applyVisibleDepartmentsScope(query, departmentsList)
         }
       )
       .if(filters.branchNameIds && filters.branchNameIds.length > 0, (query) => {
@@ -8402,7 +8403,7 @@ export default class EmployeeService {
       .if(
         !filters.userResponsibleId,
         (query) => {
-          query.whereIn('departmentId', departmentsList)
+          applyVisibleDepartmentsScope(query, departmentsList)
         }
       )
       .if(filters.branchNameIds && filters.branchNameIds.length > 0, (query) => {

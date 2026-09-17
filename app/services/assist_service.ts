@@ -22,6 +22,7 @@ import { LogAssist } from '../interfaces/MongoDB/log_assist.js'
 import BusinessUnit from '#models/business_unit'
 import env from '#start/env'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { resolveOrgAliasDisplay } from '#utils/org_alias_display'
 import SystemSettingService from './system_setting_service.js'
 import SystemSetting from '#models/system_setting'
 import { AssistIncidentPayrollExcelRowInterface } from '../interfaces/assist_incident_payroll_excel_row_interface.js'
@@ -1434,6 +1435,8 @@ export default class AssistsService {
   private buildIncidentSummaryRow(
     filters: AssistIncidentSummaryV2CalendarExcelFilterInterface
   ): AssistIncidentSummaryV2ExcelRowInterface {
+    // TODO(USRH1788466831291): misma regla que #utils/org_alias_display.
+    // Converger al helper cuando se toque este reporte.
     let department = filters.employee.department?.departmentAlias
       ? filters.employee.department.departmentAlias
       : ''
@@ -2755,16 +2758,16 @@ export default class AssistsService {
       if (!calendar.assist.dateShift) {
         status = ''
       }
-      let department = employee.department.departmentAlias
-        ? employee.department.departmentAlias
-        : ''
-      department =
-        department === '' && employee.department?.departmentName
-          ? employee.department.departmentName
-          : ''
-      let position = employee.position.positionAlias ? employee.position.positionAlias : ''
-      position =
-        position === '' && employee.position?.positionName ? employee.position.positionName : ''
+      const department = resolveOrgAliasDisplay(
+        employee.department?.departmentAlias,
+        employee.department?.departmentName,
+        Boolean(employee.department?.deletedAt)
+      )
+      const position = resolveOrgAliasDisplay(
+        employee.position?.positionAlias,
+        employee.position?.positionName,
+        Boolean(employee.position?.deletedAt)
+      )
       let shiftName = ''
       let shiftStartDate = ''
       let shiftEndsDate = ''
@@ -3009,11 +3012,11 @@ export default class AssistsService {
     filters: AssistIncidentSummaryCalendarExcelFilterInterface
   ) {
     const rows = [] as AssistIncidentExcelRowInterface[]
-    let department = filters.employee.department.departmentAlias ? filters.employee.department.departmentAlias : ''
-    department =
-      department === '' && filters.employee.department?.departmentName
-        ? filters.employee.department.departmentName
-        : ''
+    const department = resolveOrgAliasDisplay(
+      filters.employee.department?.departmentAlias,
+      filters.employee.department?.departmentName,
+      Boolean(filters.employee.department?.deletedAt)
+    )
     let daysWorked = 0
     let daysOnTime = 0
     let tolerances = 0
@@ -4126,6 +4129,8 @@ export default class AssistsService {
    filters: AssistIncidentPayrollCalendarExcelFilterInterface
   ) {
     const rows = [] as AssistIncidentPayrollExcelRowInterface[]
+    // TODO(USRH1788466831291): misma regla que #utils/org_alias_display.
+    // Converger al helper cuando se toque este reporte.
     let department = filters.employee.department?.departmentAlias ? filters.employee.department.departmentAlias : ''
     department =
       department === '' && filters.employee.department?.departmentName
@@ -4778,7 +4783,7 @@ export default class AssistsService {
         employeeService,
         {
           search: '',
-          departmentId: 0,
+          departmentId: departmentsList,
           positionId: 0,
           page: 1,
           limit: 999999,

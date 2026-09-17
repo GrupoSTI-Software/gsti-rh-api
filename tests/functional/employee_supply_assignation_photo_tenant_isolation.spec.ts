@@ -10,8 +10,9 @@ import EmployeeSupplieAssignationPhoto from '#models/employee_supplie_assignatio
 import Supplie from '#models/supplie'
 import SupplyType from '#models/supply_type'
 import { TenantContext } from '#utils/tenant_context'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
-const ROOT_ROLE_ID = 3
+const ROOT_ROLE = 'root'
 
 interface TestActor {
   user: User
@@ -22,7 +23,7 @@ function uniqueStamp(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 100000)}`
 }
 
-async function createTestActor(roleId: number, emailPrefix: string): Promise<TestActor> {
+async function createTestActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TestActor> {
   const stamp = uniqueStamp()
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
   const person = new Person()
@@ -36,7 +37,8 @@ async function createTestActor(roleId: number, emailPrefix: string): Promise<Tes
   user.userEmail = email
   user.userPassword = 'EmployeeSupplyPhotoTest123!'
   user.userActive = 1
-  user.roleId = roleId
+  const role = await ensureRole(roleSlug)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -95,7 +97,7 @@ test.group('Fotos de insumos — aislamiento HTTP por tenant', (group) => {
   let createdSupplyTypeId: number | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-supply-photo')
+    root = await createTestActor(ROOT_ROLE, 'root-supply-photo')
     businessUnitOwn = await createBusinessUnit('propia')
     businessUnitForeign = await createBusinessUnit('foranea')
     employeeOwn = await createEmployee(root.person, businessUnitOwn)
@@ -103,7 +105,11 @@ test.group('Fotos de insumos — aislamiento HTTP por tenant', (group) => {
 
     let catalogSupply = await Supplie.query().whereNull('supply_deleted_at').first()
     if (!catalogSupply) {
+      // El catálogo de activos ya es por empresa: el fixture nace en la propia
+      // y va explícito porque aquí no hay TenantContext del que resolverlo. Lo
+      // que este spec ejercita es el aislamiento de la FOTO, no el del catálogo.
       const supplyType = await SupplyType.create({
+        businessUnitId: businessUnitOwn!.businessUnitId,
         supplyTypeName: `Tipo de prueba ${cuid()}`,
         supplyTypeDescription: 'Tipo para pruebas de aislamiento HTTP',
         supplyTypeIdentifier: cuid(),
@@ -111,6 +117,7 @@ test.group('Fotos de insumos — aislamiento HTTP por tenant', (group) => {
       })
       createdSupplyTypeId = supplyType.supplyTypeId
       catalogSupply = await Supplie.create({
+        businessUnitId: supplyType.businessUnitId,
         supplyFileNumber: 900000000 + Math.floor(Math.random() * 99999999),
         supplyName: `Insumo de prueba ${cuid()}`,
         supplyDescription: 'Insumo para pruebas de aislamiento HTTP',

@@ -13,7 +13,7 @@ import i18nManager from '@adonisjs/i18n/services/main'
 import { resolveMailLocale } from '#constants/mail_locale'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import Role from '#models/role'
-import { SYSTEM_ROLE_SLUGS } from '#constants/system_roles'
+import { applyRoleBusinessScope, buildRoleBusinessScope } from '#helpers/role_business_scope'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
@@ -55,36 +55,19 @@ export default class UserService {
   }
 
   async index(filters: UserFilterSearchInterface, allowedBusinessUnitIds: number[] = []) {
-
-    // Convertir IDs a slugs para filtrar roles (role_business_access usa CSV de slugs)
-    let allowedSlugs: string[] = []
-    if (allowedBusinessUnitIds.length > 0) {
-      const buUnits = await BusinessUnit.query()
-        .whereIn('business_unit_id', allowedBusinessUnitIds)
-        .where('business_unit_active', 1)
-      allowedSlugs = buUnits.map((bu) => bu.businessUnitSlug)
-    }
-
     // USRH1785436961936: los usuarios con rol de sistema (owner, empleado)
-    // también aparecen en el listado del tenant — mismo criterio que
-    // `RoleService.index`. El aislamiento entre empresas lo garantiza el
-    // filtro `whereHas('businessUnits')` de abajo, no este armado de roles.
-    const roles = await Role.query()
-      .whereNull('role_deleted_at')
-      .andWhere((query) => {
-        query.whereIn('role_slug', [...SYSTEM_ROLE_SLUGS])
-        if (allowedSlugs.length === 0) {
-          return
-        }
-        query.orWhere((accessQuery) => {
-          accessQuery.whereNotNull('role_business_access')
-          accessQuery.andWhere((subQuery) => {
-            allowedSlugs.forEach((business) => {
-              subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [business.trim()])
-            })
-          })
-        })
-      })
+    // también aparecen en el listado del tenant — MISMO criterio que
+    // `RoleService.index`, que es justo por lo que los dos comparten
+    // `helpers/role_business_scope.ts`: roles de la empresa activa, roles de
+    // sistema globales y, temporalmente, los heredados que solo tienen el CSV.
+    // Si este filtro se quedara atrás, los usuarios con un rol creado desde la
+    // nueva alta desaparecerían del listado. El aislamiento entre empresas lo
+    // garantiza el filtro `whereHas('businessUnits')` de abajo, no este armado.
+    const scope = await buildRoleBusinessScope(allowedBusinessUnitIds)
+    const rolesQuery = Role.query().whereNull('role_deleted_at')
+    applyRoleBusinessScope(rolesQuery, scope)
+
+    const roles = await rolesQuery
     const rolesIds = roles.map((item) => item.roleId)
 
     const selectedColumns = [
