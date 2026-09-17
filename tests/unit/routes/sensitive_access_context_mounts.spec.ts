@@ -122,21 +122,13 @@ test.group('Apertura del contexto de lectura sensible', () => {
     assert.include(accessLogsGroup?.chain ?? '', '.use(middleware.businessScopeOptional())')
   })
 
-  test('los cuatro grupos con solo auth() montan sensitiveAccess y no businessScope', ({
+  test('el grupo /api/persons con solo auth() monta sensitiveAccess y no businessScope', ({
     assert,
   }) => {
-    const files = [
-      'start/routes/person_routes.ts',
-      'start/routes/customer_routes.ts',
-      'start/routes/pilot_routes.ts',
-      'start/routes/flight_attendant_routes.ts',
-    ]
-    for (const relative of files) {
-      const source = readFileSync(join(ROOT, relative), 'utf-8')
-      assert.include(source, 'middleware.sensitiveAccess()', relative)
-    }
-
+    // Clientes, pilotos y sobrecargos compartían esta forma de montaje; sus
+    // rutas se retiraron con aviación y persons es el único grupo que queda.
     const persons = readFileSync(join(ROOT, 'start/routes/person_routes.ts'), 'utf-8')
+    assert.include(persons, 'middleware.sensitiveAccess()')
     assert.include(persons, "prefix('/api/persons')")
     assert.match(
       persons,

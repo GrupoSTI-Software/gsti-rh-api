@@ -2,8 +2,8 @@ import router from '@adonisjs/core/services/router'
 import { middleware } from '../kernel.js'
 
 /**
- * Rutas de plataforma para gobernar la disponibilidad global de los módulos
- * del sistema. Espeja el patrón de `platform_billing_routes.ts`.
+ * Rutas de plataforma de solo lectura sobre el catálogo de módulos del sistema.
+ * Espeja el patrón de `platform_billing_routes.ts`.
  *
  * Todas protegidas por `auth` + `platformAdmin` — globales, sin scope de tenant.
  * Prefijo: /api/platform/system-modules
@@ -14,22 +14,24 @@ import { middleware } from '../kernel.js'
  *     Orden clusterizado: grupos por `systemModuleGroupOrder`, módulos por
  *     `systemModuleOrder` dentro del suyo, módulos sueltos juntos al final.
  *
- *   PUT /api/platform/system-modules/:systemModuleId/active → togglear disponibilidad
- *   PUT /api/platform/system-modules/:systemModuleId/permission-enforcement → togglear enforcement
+ * Ni la disponibilidad (`system_module_active`) ni la exigencia de permisos
+ * (`system_module_permission_enforcement_active`) se escriben por HTTP a
+ * propósito: las dos las gobierna `system_modules.constant.ts` y la siembra 0062
+ * las sobrescribe por slug en cada corrida. Un interruptor HTTP solo abría una
+ * divergencia entre BD y constante que la siguiente corrida de la siembra
+ * deshacía en silencio.
+ *
+ * Apagar un módulo se hace en la constante Y exige correr la siembra: el repo no
+ * automatiza `node ace db:seed` en ningún lado (no hay script en `package.json`
+ * ni workflow que lo ejecute; el README lo documenta como paso manual), así que
+ * un despliegue por sí solo NO aplica el cambio. Queda anotado en el backlog de
+ * la fase 6 para que operación conozca el costo antes de necesitarlo.
  *
  * Ref: USRH1784573245783 · USRH1788282413110.
  */
 router
   .group(() => {
     router.get('/', '#controllers/platform_system_module_controller.index')
-    router.put(
-      '/:systemModuleId/active',
-      '#controllers/platform_system_module_controller.updateActive'
-    )
-    router.put(
-      '/:systemModuleId/permission-enforcement',
-      '#controllers/platform_system_module_controller.updatePermissionEnforcement'
-    )
   })
   .prefix('/api/platform/system-modules')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])

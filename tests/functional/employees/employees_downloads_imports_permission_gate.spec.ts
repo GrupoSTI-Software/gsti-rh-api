@@ -9,7 +9,7 @@ import RoleDepartment from '#models/role_department'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
-import SystemPermissionCatalogSyncService from '#services/system_permission_catalog_sync_service'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'EmployeesDownloadsPermissionGate123!'
 
@@ -125,8 +125,8 @@ async function cleanupActor(actor: TenantActor | null) {
   await BusinessUnit.query().where('business_unit_id', actor.businessUnit.businessUnitId).delete()
 }
 
-async function createSystemActor(roleSlug: string, emailPrefix: string): Promise<SystemActor> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).firstOrFail()
+async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<SystemActor> {
+  const role = await ensureRole(roleSlug)
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
   const businessUnit = await BusinessUnit.create({
@@ -207,7 +207,6 @@ async function disableEnforcementAndVerify(employeesModule: SystemModule) {
 }
 
 async function prepareEmployeesModule(enforcementActive: boolean): Promise<SystemModule> {
-  await new SystemPermissionCatalogSyncService().sync()
   const employeesModule = await SystemModule.query()
     .whereNull('system_module_deleted_at')
     .where('system_module_slug', 'employees')

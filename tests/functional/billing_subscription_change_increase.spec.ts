@@ -1,8 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import RoleSeeder from '#database/seeders/0006_role_seeder'
 import User from '#models/user'
-import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
@@ -15,6 +13,7 @@ import BillingCatalogService from '#services/billing_catalog_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '#constants/billing_subscription_error_codes'
 import { toBusinessDateString } from '#utils/business_date'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — POST /api/billing/subscription/changes/increase (USRH1786107870850).
@@ -28,32 +27,13 @@ interface TenantActor {
   businessUnit: BusinessUnit
 }
 
-async function ensureOwnerRole(): Promise<Role> {
-  await new RoleSeeder({} as never).run()
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'owner').first()
-  if (!role) {
-    throw new Error('Se requiere el rol owner en BD para probar increase.')
-  }
-  return role
-}
-
-async function ensureEmployeeRole(): Promise<Role> {
-  await new RoleSeeder({} as never).run()
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'empleado').first()
-  if (!role) {
-    throw new Error('Se requiere el rol empleado en BD para probar increase.')
-  }
-  return role
-}
-
 async function createTenantActor(options: {
   emailPrefix: string
   roleSlug: 'owner' | 'empleado'
 }): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${options.emailPrefix}-${stamp}@gsti-tests.local`
-  const role =
-    options.roleSlug === 'owner' ? await ensureOwnerRole() : await ensureEmployeeRole()
+  const role = await ensureRole(options.roleSlug)
 
   const person = new Person()
   person.personFirstname = 'BillingIncrease'

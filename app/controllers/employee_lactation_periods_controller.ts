@@ -31,12 +31,16 @@ import {
 } from '#helpers/sensitive_data_write_api_error'
 
 /**
- * Esta funcionalidad NO tiene módulo propio en `system_modules`: vive
- * embebida en el apartado de "Información del empleado". Por eso los
+ * Los periodos del expediente no tienen módulo propio en `system_modules`:
+ * viven embebidos en el apartado de "Información del empleado". Por eso sus
  * checks de RBAC se hacen contra el módulo `employees`:
  *  - listar / consultar  → permiso `read`.
  *  - crear / editar / eliminar → permiso `update-information`
  *    (mismo permiso que usa medical conditions y otras secciones del perfil).
+ *
+ * Excepción: `complianceReport` y `complianceReportExport` (bitácora de
+ * lactancia) no pasan por este mapa; los decide el permissionGate de su ruta
+ * con `employee-lactation-periods:read`.
  */
 const PARENT_MODULE_SLUG = 'employees'
 const ACTION_PERMISSION_MAP: Record<'read' | 'create' | 'update' | 'delete', string> = {
@@ -471,13 +475,15 @@ export default class EmployeeLactationPeriodsController {
    *       '200': { description: Listado paginado del reporte de cumplimiento }
    *       '400': { description: Validación inválida (rango from>to, filtros mal formados) }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'read' en el módulo employees }
+   *       '403': { description: Sin permiso 'read' en el módulo employee-lactation-periods (key PERM.DENIED) }
    */
   async complianceReport(ctx: HttpContext) {
     const { request, response } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx, 'read'))) return
+      // Sin `assertHasPermission`: el permiso lo decide el gate de la ruta
+      // (`employee-lactation-periods:read`). Pedir aquí `employees:read`
+      // negaba el reporte a quien sí tiene la bitácora.
 
       const filters = await request.validateUsing(employeeLactationComplianceReportValidator)
       const service = new EmployeeLactationComplianceReportService()
@@ -556,13 +562,15 @@ export default class EmployeeLactationPeriodsController {
    *             schema: { type: string, format: binary }
    *       '400': { description: Validación inválida }
    *       '401': { description: Sin autenticación }
-   *       '403': { description: Sin permiso 'read' en el módulo employees }
+   *       '403': { description: Sin permiso 'read' en el módulo employee-lactation-periods (key PERM.DENIED) }
    */
   async complianceReportExport(ctx: HttpContext) {
     const { request, response, i18n } = ctx
     try {
       if (!(await this.assertAuthenticated(ctx))) return
-      if (!(await this.assertHasPermission(ctx, 'read'))) return
+      // Mismo criterio que `complianceReport`: el gate de la ruta decide. El
+      // PDF sin enmascarar sigue exigiendo `export-sensitive-data` en
+      // `PiiExportService`.
 
       const filters = await request.validateUsing(employeeLactationComplianceReportValidator)
       const reportFilters = this.toReportFilters(filters)

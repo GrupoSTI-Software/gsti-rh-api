@@ -10,6 +10,9 @@ import type {
   SessionPermissionActionNode,
   SessionPermissionTree,
 } from '#constants/session_permission_tree'
+import { ensureRole } from '#tests/helpers/ensure_role'
+import { assertModuleEnforced } from '#tests/helpers/tenant_actor'
+import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
 
 const TEST_PASSWORD = 'SessionPermissionTreeTest123!'
 
@@ -88,6 +91,7 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
   let standardActor: TenantActor | null = null
   let ownerActor: TenantActor | null = null
   let unresolvedActor: TenantActor | null = null
+  let legacyActor: TenantActor | null = null
   let standardRole: Role
   let legacyAccessRole: Role
   let ownerRole: Role
@@ -146,10 +150,17 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
       systemPermissionId: readPermission.systemPermissionId,
     })
 
-    ownerRole = await Role.query().whereNull('role_deleted_at').where('role_slug', 'owner').firstOrFail()
+    ownerRole = await ensureRole('owner')
 
     standardActor = await createTenantActor('session-permission-tree', standardRole, true)
     ownerActor = await createTenantActor('session-permission-tree-owner', ownerRole)
+    // El owner reasigna este rol en un caso: que el rol sea de su empresa, para
+    // que el caso no dependa de que la asignación no corte por empresa.
+    standardRole.roleBusinessAccess = ownerActor.businessUnit.businessUnitSlug
+    await standardRole.save()
+    // Sesión cuyo rol ES `legacyAccessRole`: has-access solo responde la matriz
+    // del rol de la sesión a quien no tiene roles-and-permissions:read.
+    legacyActor = await createTenantActor('session-permission-tree-legacy', legacyAccessRole)
 
     const unresolvedRole = await Role.create({
       roleName: `Session Permission Tree Unresolved Role ${stamp}`,
@@ -167,6 +178,7 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
     await cleanupActor(standardActor)
     await cleanupActor(ownerActor)
     await cleanupActor(unresolvedActor)
+    await cleanupActor(legacyActor)
     if (legacyAccessRole) {
       await RoleSystemPermission.query().where('role_id', legacyAccessRole.roleId).delete()
       await Role.query().where('role_id', legacyAccessRole.roleId).delete()
@@ -291,10 +303,12 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
       .loginAs(standardActor!.user)
     beforeResponse.assertStatus(200)
 
+    // Reasigna otra cuenta: nadie cambia los permisos del rol de su propia
+    // sesión salvo root u owner (`isOwnRoleLockedForUser`).
     const assignResponse = await client
       .post(`/api/roles/assign/${standardRole.roleId}`)
-      .loginAs(standardActor!.user)
-      .header('X-Business-Unit-Id', standardActor!.businessUnit.businessUnitPublicId)
+      .loginAs(ownerActor!.user)
+      .header('X-Business-Unit-Id', ownerActor!.businessUnit.businessUnitPublicId)
       .json({ roleManagementDays: 10, permissions: [updatePermission.systemPermissionId] })
     assignResponse.assertStatus(201)
 
@@ -306,13 +320,100 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
     assert.notEqual(afterResponse.body().data.version, beforeResponse.body().data.version)
   })
 
-  test('mantiene intacto el contrato legado de has-access', async ({ client }) => {
+  test('mantiene intacto el contrato legado de has-access para el rol de la sesión', async ({
+    client,
+  }) => {
     const response = await client
       .get(`/api/roles/has-access/${legacyAccessRole.roleId}/employees/read`)
-      .loginAs(standardActor!.user)
-      .header('X-Business-Unit-Id', standardActor!.businessUnit.businessUnitPublicId)
+      .loginAs(legacyActor!.user)
+      .header('X-Business-Unit-Id', legacyActor!.businessUnit.businessUnitPublicId)
 
     response.assertStatus(200)
     response.assertBodyContains({ data: { roleHasAccess: true } })
+  })
+
+  test('has-access sobre un rol ajeno pide roles-and-permissions:read; owner lo cruza sin concesiones', async ({
+    client,
+    assert,
+  }) => {
+    await assertModuleEnforced('roles-and-permissions')
+
+    const denied = await client
+      .get(`/api/roles/has-access/${legacyAccessRole.roleId}/employees/read`)
+      .loginAs(standardActor!.user)
+      .header('X-Business-Unit-Id', standardActor!.businessUnit.businessUnitPublicId)
+    denied.assertStatus(403)
+    assert.equal(denied.body().key, PERMISSION_GATE_ERROR_CODES.DENIED)
+
+    const allowed = await client
+      .get(`/api/roles/has-access/${legacyAccessRole.roleId}/employees/read`)
+      .loginAs(ownerActor!.user)
+      .header('X-Business-Unit-Id', ownerActor!.businessUnit.businessUnitPublicId)
+    allowed.assertStatus(200)
+    allowed.assertBodyContains({ data: { roleHasAccess: true } })
+  })
+})
+
+/**
+ * Contrato de `permissionEnforcementActive` en el árbol de sesión: el BO lo
+ * pinta como "Vigilancia activa / Solo declarada". Antes lo cubría el spec del
+ * interruptor HTTP de exigencia, retirado porque la bandera la gobierna la
+ * constante de módulos.
+ *
+ * Va en un grupo propio a propósito: el caso mueve la bandera de exigencia de
+ * `employees` en los dos sentidos y el grupo de arriba la fija encendida para
+ * todos sus casos. Separarlos aísla ese cambio y deja que cada grupo reponga el
+ * valor previo en su teardown. Aquí el rol es del test.
+ */
+test.group('GET /api/auth/session/permissions — bandera de exigencia por módulo', (group) => {
+  let actor: TenantActor | null = null
+  let employeesModule: SystemModule
+  let previousEmployeesEnforcement: boolean
+
+  group.setup(async () => {
+    const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
+    employeesModule = await SystemModule.query()
+      .whereNull('system_module_deleted_at')
+      .where('system_module_slug', 'employees')
+      .firstOrFail()
+    previousEmployeesEnforcement = employeesModule.systemModulePermissionEnforcementActive
+
+    const role = await Role.create({
+      roleName: `Session Permission Tree Enforcement Role ${stamp}`,
+      roleSlug: `session-permission-tree-enforcement-role-${stamp}`,
+      roleDescription: 'Fixture de test',
+      roleActive: 1,
+      roleBusinessAccess: '',
+      roleManagementDays: 10,
+    })
+    actor = await createTenantActor('session-permission-tree-enforcement', role, true)
+  })
+
+  group.teardown(async () => {
+    await cleanupActor(actor)
+    // Repone el valor previo y no un `false` fijo, para no dejar la BD al revés de la constante.
+    if (employeesModule) {
+      employeesModule.systemModulePermissionEnforcementActive = previousEmployeesEnforcement
+      await employeesModule.save()
+    }
+  })
+
+  test('refleja en cada módulo la bandera de exigencia guardada en system_modules', async ({
+    client,
+    assert,
+  }) => {
+    // Se prueban ambos valores para descartar un campo fijo o copiado de `active`.
+    for (const expected of [true, false]) {
+      employeesModule.systemModulePermissionEnforcementActive = expected
+      await employeesModule.save()
+
+      const response = await client.get('/api/auth/session/permissions').loginAs(actor!.user)
+      response.assertStatus(200)
+
+      const body = response.body() as { data: SessionPermissionTree }
+      const employeesNode = body.data.modules.find((moduleNode) => moduleNode.slug === 'employees')
+      assert.exists(employeesNode)
+      assert.strictEqual(employeesNode!.permissionEnforcementActive, expected)
+    }
   })
 })

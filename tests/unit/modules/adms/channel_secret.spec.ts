@@ -63,7 +63,15 @@ test.group('Secreto del canal: comparacion', () => {
   test('coincide solo con el secreto exacto', ({ assert }) => {
     const secret = generateChannelSecret()
     assert.isTrue(channelSecretMatches(secret, secret))
-    assert.isFalse(channelSecretMatches(secret.slice(0, -1) + 'z', secret))
+    /**
+     * El caracter que sustituye al ultimo tiene que estar FUERA del alfabeto.
+     * Mutar con `z` --que si pertenece-- dejaba el secreto intacto cada vez que
+     * el ultimo caracter ya era `z`: una de cada 31 corridas pasaba el mismo
+     * secreto a las dos partes y el caso afirmaba `isFalse` sobre una
+     * comparacion verdadera. `0` esta excluido del alfabeto a proposito (se
+     * confunde con `O`), asi que nunca puede ser el ultimo caracter generado.
+     */
+    assert.isFalse(channelSecretMatches(secret.slice(0, -1) + '0', secret))
   })
 
   test('un largo distinto no coincide y no revienta', ({ assert }) => {

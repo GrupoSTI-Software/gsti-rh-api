@@ -1,4 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import type { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import { onlyAccountOwnerError } from './billing_tenant_error.js'
 import { forbiddenRoleError } from './business_unit_signup_errors.js'
 
@@ -13,13 +14,20 @@ export function isBillingOwnerSlug(roleSlug: string | undefined): boolean {
 /**
  * Solo el dueño de la cuenta consulta el costo del cambio de suscripción (USRH1786107870847).
  * `root` y `super-administrador` pasan, como en el resto del repo.
+ *
+ * @param buildError - Negativa a lanzar; por defecto la del cambio de suscripción.
+ *   La contratación pasa la suya para que el `detail` describa lo que se intentó.
+ * @throws BillingSubscriptionServiceError 403 si el rol no es de dueño.
  */
-export async function assertBillingOwner(ctx: HttpContext): Promise<void> {
+export async function assertBillingOwner(
+  ctx: HttpContext,
+  buildError: () => BillingSubscriptionServiceError = onlyAccountOwnerError
+): Promise<void> {
   const user = ctx.auth.user!
   await user.preload('role')
 
   if (!isBillingOwnerSlug(user.role?.roleSlug)) {
-    throw onlyAccountOwnerError()
+    throw buildError()
   }
 }
 

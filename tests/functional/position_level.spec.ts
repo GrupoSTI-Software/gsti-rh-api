@@ -7,6 +7,7 @@ import BusinessUnit from '#models/business_unit'
 import PositionLevel from '#models/position_level'
 import PositionLevelService from '#services/position_level_service'
 import PositionLevelServiceError from '#exceptions/position_level_service_error'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — catálogo de niveles de puesto por empresa
@@ -22,8 +23,8 @@ import PositionLevelServiceError from '#exceptions/position_level_service_error'
  */
 
 const TEST_PASSWORD = 'PositionLevelTest123!'
-const ROOT_ROLE_ID = 3
-const NO_PERMISSION_ROLE_ID = 4 // empleado: sin permiso del módulo organization-chart
+const ROOT_ROLE = 'root'
+const NO_PERMISSION_ROLE = 'empleado' // sin permiso del módulo organization-chart
 
 function uniqueStamp(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 100000)}`
@@ -34,7 +35,7 @@ interface TestActor {
   person: Person
 }
 
-async function createTestActor(roleId: number, emailPrefix: string): Promise<TestActor> {
+async function createTestActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TestActor> {
   const stamp = uniqueStamp()
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
 
@@ -49,7 +50,8 @@ async function createTestActor(roleId: number, emailPrefix: string): Promise<Tes
   user.userEmail = email
   user.userPassword = TEST_PASSWORD
   user.userActive = 1
-  user.roleId = roleId
+  const role = await ensureRole(roleSlug)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -126,7 +128,7 @@ test.group('PositionLevels - sin permiso (403, regla 9)', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    actor = await createTestActor(NO_PERMISSION_ROLE_ID, 'no-permiso')
+    actor = await createTestActor(NO_PERMISSION_ROLE, 'no-permiso')
     businessUnit = await createTestBusinessUnit('no-permiso')
     await actor.user.related('businessUnits').attach([businessUnit.businessUnitId])
   })
@@ -194,7 +196,7 @@ test.group('PositionLevels - flujo feliz (root) CA-1/2/4/5/7', (group) => {
   let semiSeniorId: number | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-happy')
+    root = await createTestActor(ROOT_ROLE, 'root-happy')
     businessUnit = await createTestBusinessUnit('happy')
   })
 
@@ -484,7 +486,7 @@ test.group('PositionLevels - eliminar (CA-6, reglas 5 y 6)', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-delete')
+    root = await createTestActor(ROOT_ROLE, 'root-delete')
     businessUnit = await createTestBusinessUnit('delete')
   })
 
@@ -577,7 +579,7 @@ test.group('PositionLevels - aislamiento multi-tenant (CA-3, regla 1)', (group) 
   let levelIdB: number | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-tenant')
+    root = await createTestActor(ROOT_ROLE, 'root-tenant')
     businessUnitA = await createTestBusinessUnit('tenant-a')
     businessUnitB = await createTestBusinessUnit('tenant-b')
 

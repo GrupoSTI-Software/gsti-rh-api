@@ -1,10 +1,18 @@
 import { test } from '@japa/runner'
+import type { Group } from '@japa/runner/core'
 import db from '@adonisjs/lucid/services/db'
-import User from '#models/user'
-import Position from '#models/position'
+import type Position from '#models/position'
 import AssessmentTemplate from '#models/assessment_template'
 import AssessmentTemplateDimension from '#models/assessment_template_dimension'
 import PositionAssessmentProfile from '#models/position_assessment_profile'
+import {
+  businessUnitHeaders,
+  cleanupTenantActor,
+  createBypassActor,
+  required,
+  type TenantActor,
+} from '#tests/helpers/tenant_actor'
+import { cleanupOrgChartFixtures, createPositionFixture } from '#tests/helpers/org_chart_fixtures'
 
 /**
  * Tests funcionales — PositionAssessmentProfileController
@@ -37,12 +45,52 @@ import PositionAssessmentProfile from '#models/position_assessment_profile'
  *
  * GET /:positionAssessmentProfileId (show)
  *   - positionAssessmentProfileId: requerido, número positivo (path param)
+ *
+ * Los permisos del gate (403 sin concesión, éxito con cada una) se prueban en
+ * `assessment_templates_permission_gate.spec.ts`. Aquí el actor es un owner,
+ * que pasa el gate por bypass standard.
  */
+
+interface OwnerWithPosition {
+  actor: TenantActor
+  position: Position
+}
+
+/**
+ * Registra en el grupo un owner con empresa y puesto propios, y los borra al
+ * terminar.
+ *
+ * Por qué: los grupos tomaban el primer usuario y el primer puesto de la BD.
+ * En una BD recién sembrada no hay puesto y el setup fallaba; las rutas exigen
+ * `X-Business-Unit-Id`, y con la exigencia de `assessment-templates` encendida
+ * alta, detalle, edición y baja piden permiso. Owner pasa el gate y ve solo su
+ * empresa, que es donde vive el puesto.
+ */
+function useOwnerWithPosition(group: Group, label: string): () => OwnerWithPosition {
+  let current: OwnerWithPosition | null = null
+
+  group.setup(async () => {
+    const actor = await createBypassActor('owner', label)
+    const position = await createPositionFixture(actor.businessUnit.businessUnitId, `Puesto ${label}`)
+    current = { actor, position }
+  })
+
+  group.teardown(async () => {
+    if (!current) return
+    await db
+      .from('position_assessment_profiles')
+      .where('position_id', current.position.positionId)
+      .delete()
+    await cleanupOrgChartFixtures(current.actor.businessUnit.businessUnitId)
+    await cleanupTenantActor(current.actor)
+    current = null
+  })
+
+  return () => required(current, 'el owner con puesto')
+}
 
 /**
  * Crea un set completo de prueba: una plantilla con una dimensión.
- * El puesto se obtiene de la base existente (firstOrFail) para evitar
- * tener que crear toda la jerarquía dependiente de business_unit.
  */
 async function createTestFixture(suffix: string) {
   const template = await AssessmentTemplate.create({
@@ -82,16 +130,24 @@ async function cleanupTestFixture(templateId: number) {
 }
 
 test.group('PositionAssessmentProfile - index GET /', (group) => {
-  let user: User
+  const owner = useOwnerWithPosition(group, 'pap-index')
+  let template: AssessmentTemplate
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    const fixture = await createTestFixture('Index')
+    template = fixture.template
+  })
+
+  group.teardown(async () => {
+    await cleanupTestFixture(template.assessmentTemplateId)
   })
 
   test('devuelve lista paginada de perfiles', async ({ client }) => {
+    const { actor } = owner()
     const response = await client
       .get('/api/position-assessment-profiles')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .qs({ page: 1, limit: 10 })
 
     response.assertStatus(200)
@@ -107,10 +163,11 @@ test.group('PositionAssessmentProfile - index GET /', (group) => {
   })
 
   test('filtra por positionId', async ({ client }) => {
-    const position = await Position.query().whereNull('position_deleted_at').firstOrFail()
+    const { actor, position } = owner()
     const response = await client
       .get('/api/position-assessment-profiles')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .qs({ positionId: position.positionId, page: 1, limit: 10 })
 
     response.assertStatus(200)
@@ -118,23 +175,11 @@ test.group('PositionAssessmentProfile - index GET /', (group) => {
   })
 
   test('filtra por assessmentTemplateId (a través de dimension)', async ({ client }) => {
-    const template = await AssessmentTemplate.query()
-      .whereNull('assessment_template_deleted_at')
-      .first()
-
-    if (!template) {
-      // No hay plantillas en la BD: la prueba se considera trivial
-      const response = await client
-        .get('/api/position-assessment-profiles')
-        .loginAs(user)
-        .qs({ assessmentTemplateId: 1, page: 1, limit: 10 })
-      response.assertStatus(200)
-      return
-    }
-
+    const { actor } = owner()
     const response = await client
       .get('/api/position-assessment-profiles')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .qs({
         assessmentTemplateId: template.assessmentTemplateId,
         page: 1,
@@ -147,15 +192,12 @@ test.group('PositionAssessmentProfile - index GET /', (group) => {
 })
 
 test.group('PositionAssessmentProfile - store POST /', (group) => {
-  let user: User
-  let position: Position
+  const owner = useOwnerWithPosition(group, 'pap-store')
   let template: AssessmentTemplate
   let dimension: AssessmentTemplateDimension
   const createdIds: number[] = []
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    position = await Position.query().whereNull('position_deleted_at').firstOrFail()
     const fixture = await createTestFixture('Store')
     template = fixture.template
     dimension = fixture.dimension
@@ -172,9 +214,11 @@ test.group('PositionAssessmentProfile - store POST /', (group) => {
   })
 
   test('crea un nuevo perfil de evaluación de puesto', async ({ client, assert }) => {
+    const { actor, position } = owner()
     const response = await client
       .post('/api/position-assessment-profiles')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .json({
         positionId: position.positionId,
         assessmentTemplateDimensionId: dimension.assessmentTemplateDimensionId,
@@ -192,11 +236,13 @@ test.group('PositionAssessmentProfile - store POST /', (group) => {
   })
 
   test('falla con error de validación si falta positionId', async ({ client, assert }) => {
+    const { actor } = owner()
     let caught: unknown = null
     try {
       await client
         .post('/api/position-assessment-profiles')
-        .loginAs(user)
+        .loginAs(actor.user)
+        .headers(businessUnitHeaders(actor))
         .json({
           assessmentTemplateDimensionId: dimension.assessmentTemplateDimensionId,
           positionAssessmentProfileMinimumValue: 10,
@@ -212,11 +258,13 @@ test.group('PositionAssessmentProfile - store POST /', (group) => {
     client,
     assert,
   }) => {
+    const { actor, position } = owner()
     let caught: unknown = null
     try {
       await client
         .post('/api/position-assessment-profiles')
-        .loginAs(user)
+        .loginAs(actor.user)
+        .headers(businessUnitHeaders(actor))
         .json({
           positionId: position.positionId,
           assessmentTemplateDimensionId: dimension.assessmentTemplateDimensionId,
@@ -230,6 +278,7 @@ test.group('PositionAssessmentProfile - store POST /', (group) => {
   })
 
   test('devuelve 401 sin autenticación', async ({ client }) => {
+    const { position } = owner()
     const response = await client.post('/api/position-assessment-profiles').json({
       positionId: position.positionId,
       assessmentTemplateDimensionId: dimension.assessmentTemplateDimensionId,
@@ -242,19 +291,16 @@ test.group('PositionAssessmentProfile - store POST /', (group) => {
 })
 
 test.group('PositionAssessmentProfile - show GET /:id', (group) => {
-  let user: User
-  let position: Position
+  const owner = useOwnerWithPosition(group, 'pap-show')
   let template: AssessmentTemplate
   let profile: PositionAssessmentProfile
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    position = await Position.query().whereNull('position_deleted_at').firstOrFail()
     const fixture = await createTestFixture('Show')
     template = fixture.template
 
     profile = await PositionAssessmentProfile.create({
-      positionId: position.positionId,
+      positionId: owner().position.positionId,
       assessmentTemplateDimensionId: fixture.dimension.assessmentTemplateDimensionId,
       positionAssessmentProfileMinimumValue: 30,
       positionAssessmentProfileMaximumValue: 70,
@@ -270,9 +316,11 @@ test.group('PositionAssessmentProfile - show GET /:id', (group) => {
   })
 
   test('devuelve el perfil por ID', async ({ client, assert }) => {
+    const { actor } = owner()
     const response = await client
       .get(`/api/position-assessment-profiles/${profile.positionAssessmentProfileId}`)
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
 
     response.assertStatus(200)
     response.assertBodyContains({ type: 'success' })
@@ -285,18 +333,22 @@ test.group('PositionAssessmentProfile - show GET /:id', (group) => {
   })
 
   test('devuelve 404 si el perfil no existe', async ({ client }) => {
+    const { actor } = owner()
     const response = await client
       .get('/api/position-assessment-profiles/999999999')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
 
     response.assertStatus(404)
     response.assertBodyContains({ type: 'warning' })
   })
 
   test('devuelve 400 si el ID es inválido (NaN)', async ({ client }) => {
+    const { actor } = owner()
     const response = await client
       .get('/api/position-assessment-profiles/abc')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
 
     response.assertStatus(400)
     response.assertBodyContains({ type: 'warning' })
@@ -304,19 +356,16 @@ test.group('PositionAssessmentProfile - show GET /:id', (group) => {
 })
 
 test.group('PositionAssessmentProfile - update PUT /:id', (group) => {
-  let user: User
-  let position: Position
+  const owner = useOwnerWithPosition(group, 'pap-update')
   let template: AssessmentTemplate
   let profile: PositionAssessmentProfile
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    position = await Position.query().whereNull('position_deleted_at').firstOrFail()
     const fixture = await createTestFixture('Update')
     template = fixture.template
 
     profile = await PositionAssessmentProfile.create({
-      positionId: position.positionId,
+      positionId: owner().position.positionId,
       assessmentTemplateDimensionId: fixture.dimension.assessmentTemplateDimensionId,
       positionAssessmentProfileMinimumValue: 10,
       positionAssessmentProfileMaximumValue: 50,
@@ -332,9 +381,11 @@ test.group('PositionAssessmentProfile - update PUT /:id', (group) => {
   })
 
   test('actualiza los rangos mínimo y máximo del perfil', async ({ client, assert }) => {
+    const { actor } = owner()
     const response = await client
       .put(`/api/position-assessment-profiles/${profile.positionAssessmentProfileId}`)
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .json({
         positionAssessmentProfileMinimumValue: 25,
         positionAssessmentProfileMaximumValue: 75,
@@ -355,9 +406,11 @@ test.group('PositionAssessmentProfile - update PUT /:id', (group) => {
   })
 
   test('devuelve 404 si el perfil no existe', async ({ client }) => {
+    const { actor } = owner()
     const response = await client
       .put('/api/position-assessment-profiles/999999999')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .json({
         positionAssessmentProfileMinimumValue: 10,
         positionAssessmentProfileMaximumValue: 90,
@@ -368,9 +421,11 @@ test.group('PositionAssessmentProfile - update PUT /:id', (group) => {
   })
 
   test('devuelve 400 si el ID es inválido', async ({ client }) => {
+    const { actor } = owner()
     const response = await client
       .put('/api/position-assessment-profiles/abc')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .json({
         positionAssessmentProfileMinimumValue: 10,
         positionAssessmentProfileMaximumValue: 90,
@@ -384,11 +439,13 @@ test.group('PositionAssessmentProfile - update PUT /:id', (group) => {
     client,
     assert,
   }) => {
+    const { actor } = owner()
     let caught: unknown = null
     try {
       await client
         .put(`/api/position-assessment-profiles/${profile.positionAssessmentProfileId}`)
-        .loginAs(user)
+        .loginAs(actor.user)
+        .headers(businessUnitHeaders(actor))
         .json({
           positionAssessmentProfileMinimumValue: -5,
           positionAssessmentProfileMaximumValue: 50,
@@ -401,13 +458,10 @@ test.group('PositionAssessmentProfile - update PUT /:id', (group) => {
 })
 
 test.group('PositionAssessmentProfile - delete DELETE /:id', (group) => {
-  let user: User
-  let position: Position
+  const owner = useOwnerWithPosition(group, 'pap-delete')
   let template: AssessmentTemplate
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    position = await Position.query().whereNull('position_deleted_at').firstOrFail()
     const fixture = await createTestFixture('Delete')
     template = fixture.template
   })
@@ -417,6 +471,7 @@ test.group('PositionAssessmentProfile - delete DELETE /:id', (group) => {
   })
 
   test('elimina (soft delete) un perfil de evaluación', async ({ client }) => {
+    const { actor, position } = owner()
     const dimension = await AssessmentTemplateDimension.query()
       .where('assessment_template_id', template.assessmentTemplateId)
       .firstOrFail()
@@ -430,14 +485,16 @@ test.group('PositionAssessmentProfile - delete DELETE /:id', (group) => {
 
     const response = await client
       .delete(`/api/position-assessment-profiles/${profile.positionAssessmentProfileId}`)
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
 
     response.assertStatus(201)
     response.assertBodyContains({ type: 'success' })
 
     const showResponse = await client
       .get(`/api/position-assessment-profiles/${profile.positionAssessmentProfileId}`)
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
 
     showResponse.assertStatus(404)
 
@@ -448,18 +505,22 @@ test.group('PositionAssessmentProfile - delete DELETE /:id', (group) => {
   })
 
   test('devuelve 404 si el perfil no existe', async ({ client }) => {
+    const { actor } = owner()
     const response = await client
       .delete('/api/position-assessment-profiles/999999999')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
 
     response.assertStatus(404)
     response.assertBodyContains({ type: 'warning' })
   })
 
   test('devuelve 400 si el ID es inválido', async ({ client }) => {
+    const { actor } = owner()
     const response = await client
       .delete('/api/position-assessment-profiles/abc')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
 
     response.assertStatus(400)
     response.assertBodyContains({ type: 'warning' })
@@ -475,8 +536,7 @@ test.group('PositionAssessmentProfile - delete DELETE /:id', (group) => {
  *  - mismatch → 422 con key 'rango-no-coherente-con-tipo'.
  */
 test.group('PositionAssessmentProfile - coherencia con dataType', (group) => {
-  let user: User
-  let position: Position
+  const owner = useOwnerWithPosition(group, 'pap-coherencia')
   let template: AssessmentTemplate
   let numericDim: AssessmentTemplateDimension
   let percentDim: AssessmentTemplateDimension
@@ -484,8 +544,6 @@ test.group('PositionAssessmentProfile - coherencia con dataType', (group) => {
   const createdIds: number[] = []
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
-    position = await Position.query().whereNull('position_deleted_at').firstOrFail()
     template = await AssessmentTemplate.create({
       assessmentTemplateName: 'PAP Plantilla DataType',
       assessmentTemplateDescription: null,
@@ -521,9 +579,11 @@ test.group('PositionAssessmentProfile - coherencia con dataType', (group) => {
   })
 
   test('numeric: crea perfil con min/max válidos y persiste', async ({ client, assert }) => {
+    const { actor, position } = owner()
     const response = await client
       .post('/api/position-assessment-profiles')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .json({
         positionId: position.positionId,
         assessmentTemplateDimensionId: numericDim.assessmentTemplateDimensionId,
@@ -540,9 +600,11 @@ test.group('PositionAssessmentProfile - coherencia con dataType', (group) => {
   })
 
   test('numeric: 422 si min > max', async ({ client, assert }) => {
+    const { actor, position } = owner()
     const response = await client
       .post('/api/position-assessment-profiles')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .json({
         positionId: position.positionId,
         assessmentTemplateDimensionId: numericDim.assessmentTemplateDimensionId,
@@ -555,9 +617,11 @@ test.group('PositionAssessmentProfile - coherencia con dataType', (group) => {
   })
 
   test('percent: 422 si max > 100', async ({ client, assert }) => {
+    const { actor, position } = owner()
     const response = await client
       .post('/api/position-assessment-profiles')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .json({
         positionId: position.positionId,
         assessmentTemplateDimensionId: percentDim.assessmentTemplateDimensionId,
@@ -570,9 +634,11 @@ test.group('PositionAssessmentProfile - coherencia con dataType', (group) => {
   })
 
   test('categorical_amb: crea perfil con expectedValue válido', async ({ client, assert }) => {
+    const { actor, position } = owner()
     const response = await client
       .post('/api/position-assessment-profiles')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .json({
         positionId: position.positionId,
         assessmentTemplateDimensionId: categoricalDim.assessmentTemplateDimensionId,
@@ -591,9 +657,11 @@ test.group('PositionAssessmentProfile - coherencia con dataType', (group) => {
   })
 
   test('categorical_amb: 422 si se envía min/max', async ({ client, assert }) => {
+    const { actor, position } = owner()
     const response = await client
       .post('/api/position-assessment-profiles')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .json({
         positionId: position.positionId,
         assessmentTemplateDimensionId: categoricalDim.assessmentTemplateDimensionId,
@@ -606,9 +674,11 @@ test.group('PositionAssessmentProfile - coherencia con dataType', (group) => {
   })
 
   test('categorical_amb: 422 si falta expectedValue', async ({ client, assert }) => {
+    const { actor, position } = owner()
     const response = await client
       .post('/api/position-assessment-profiles')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .json({
         positionId: position.positionId,
         assessmentTemplateDimensionId: categoricalDim.assessmentTemplateDimensionId,
@@ -619,9 +689,11 @@ test.group('PositionAssessmentProfile - coherencia con dataType', (group) => {
   })
 
   test('numeric: 422 si se envía expectedValue', async ({ client, assert }) => {
+    const { actor, position } = owner()
     const response = await client
       .post('/api/position-assessment-profiles')
-      .loginAs(user)
+      .loginAs(actor.user)
+      .headers(businessUnitHeaders(actor))
       .json({
         positionId: position.positionId,
         assessmentTemplateDimensionId: numericDim.assessmentTemplateDimensionId,
