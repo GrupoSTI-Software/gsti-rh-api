@@ -29,9 +29,14 @@ export interface TenantTrialFixtureSpec {
   skipTrial?: boolean
   /**
    * Desplaza `subscribed_at` contra hoy, en días (negativo = en el pasado).
-   * Por omisión `0` (recién dada de alta hoy).
+   * Por omisión `0` (recién dada de alta hoy). Impreciso para pruebas que
+   * necesitan caer en un mes civil exacto: la hora de "hoy" se conserva, y
+   * cerca de la medianoche UTC puede correr el día civil de México al mes
+   * vecino. Para eso usar `subscribedAtOverride`.
    */
   startOffsetDays?: number
+  /** Sobrescribe `subscribed_at` con un valor exacto (`YYYY-MM-DD` o `YYYY-MM-DD HH:mm:ss`). Gana sobre `startOffsetDays`. */
+  subscribedAtOverride?: string
   /** Status final a forzar. Por omisión el que deja `createSubscription` (`'trialing'` con prueba). */
   status?: 'trialing' | 'active' | 'past_due' | 'canceled'
   /** Fecha de cancelación (`YYYY-MM-DD`) a forzar. Omitido/`null` = sin cancelar. */
@@ -136,7 +141,9 @@ export async function createTenantTrialFixture(
     billingSubscriptionId = subscription.billingSubscriptionId
 
     const overrides: Record<string, unknown> = {}
-    if (spec.startOffsetDays !== undefined) {
+    if (spec.subscribedAtOverride !== undefined) {
+      overrides.billing_subscription_subscribed_at = spec.subscribedAtOverride
+    } else if (spec.startOffsetDays !== undefined) {
       overrides.billing_subscription_subscribed_at = DateTime.utc()
         .plus({ days: spec.startOffsetDays })
         .toFormat('yyyy-MM-dd HH:mm:ss')

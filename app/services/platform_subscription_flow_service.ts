@@ -3,6 +3,7 @@ import db from '@adonisjs/lucid/services/db'
 import { getBusinessTimeZone, toBusinessDateString } from '../utils/business_date.js'
 import { PLATFORM_METRIC_ERROR_CODES } from '../constants/platform_metric_error_codes.js'
 import { PlatformMetricServiceError } from '../exceptions/platform_metric_service_error.js'
+import type { BillingSubscriptionTransitionReason } from '#models/billing_subscription_transition'
 
 // ─── Tipos de retorno ─────────────────────────────────────────────────────────
 
@@ -88,6 +89,25 @@ function monthDateBounds(month: string): { inicio: string; fin: string } {
     fin: start.plus({ months: 1 }).toISODate()!,
   }
 }
+
+/**
+ * El primer pago de una suscripción: el de `paid_at` más temprano, y a igual
+ * instante el `id` menor. Texto idéntico, carácter por carácter, al que ya
+ * sostenía `loadFirstPaymentConversionIdsForMonth` antes de la extracción de
+ * USRH1789101459905 — se sube a constante para que el lector mensual y el
+ * lector por suscripción compartan la misma definición, sin posibilidad de
+ * que se separen con el tiempo. Se apoya en el índice
+ * `(billing_subscription_id, billing_payment_paid_at)`
+ * (`database/migrations/1784300000014_create_billing_payments_table.ts:52-53`).
+ */
+const FIRST_PAYMENT_OF_SUBSCRIPTION =
+  'bp.billing_payment_id = (SELECT bp2.billing_payment_id FROM billing_payments bp2 WHERE bp2.billing_subscription_id = bp.billing_subscription_id ORDER BY bp2.billing_payment_paid_at ASC, bp2.billing_payment_id ASC LIMIT 1)'
+
+/** Las dos razones de transición que nacen de que la prueba terminó (excluye `period_expired`). */
+const TRIAL_TRANSITION_REASONS: BillingSubscriptionTransitionReason[] = [
+  'trial_expired_covered',
+  'trial_expired_uncovered',
+]
 
 // ─── Servicio ─────────────────────────────────────────────────────────────────
 
@@ -291,16 +311,37 @@ export default class PlatformSubscriptionFlowService {
   }
 
   /**
-   * Conversiones por reloj y por mes: transiciones `trial_expired_covered`.
-   * Es solo un camino de los dos: el armado la une con el primer pago.
-   *
-   * @returns Mapa `YYYY-MM` → ids de suscripción (sin dedupe entre caminos: lo hace el armado).
+   * Universo compartido de "primer pago de la suscripción" (USRH1789101459905
+   * §7.2): `billing_payments` + join a `billing_subscriptions` + join a
+   * `business_units`, los dos `whereNull` a mano y la subconsulta
+   * correlacionada de `FIRST_PAYMENT_OF_SUBSCRIPTION`. Dueño único de este
+   * SQL: el lector mensual (`loadFirstPaymentConversionIdsForMonth`) y el
+   * lector por suscripción (`getFirstPaymentBySubscription`) se construyen
+   * **encima** de esta misma base, así que no pueden divergir.
    */
-  private async loadClockConversionIdsByMonth(
-    inicio: string,
-    fin: string
-  ): Promise<Map<string, string[]>> {
-    const rows = (await db
+  private firstPaymentBaseQuery() {
+    return db
+      .from('billing_payments as bp')
+      .join(
+        'billing_subscriptions as bs',
+        'bs.billing_subscription_id',
+        'bp.billing_subscription_id'
+      )
+      .join('business_units as bu', 'bu.business_unit_id', 'bs.business_unit_id')
+      .whereNull('bs.billing_subscription_deleted_at')
+      .whereNull('bu.business_unit_deleted_at')
+      .whereRaw(FIRST_PAYMENT_OF_SUBSCRIPTION)
+  }
+
+  /**
+   * Universo compartido de "transición de fin de prueba de la suscripción"
+   * (USRH1789101459905 §7.2): `billing_subscription_transitions` + los dos
+   * joins + los dos `whereNull` + acotado a las dos razones que nacen de que
+   * la prueba terminó (`trial_expired_covered` / `trial_expired_uncovered`,
+   * excluye `period_expired`: esa es morosidad de periodo, no de prueba).
+   */
+  private trialTransitionsBaseQuery() {
+    return db
       .from('billing_subscription_transitions as bst')
       .join(
         'billing_subscriptions as bs',
@@ -310,6 +351,20 @@ export default class PlatformSubscriptionFlowService {
       .join('business_units as bu', 'bu.business_unit_id', 'bs.business_unit_id')
       .whereNull('bs.billing_subscription_deleted_at')
       .whereNull('bu.business_unit_deleted_at')
+      .whereIn('bst.billing_subscription_transition_reason', TRIAL_TRANSITION_REASONS)
+  }
+
+  /**
+   * Conversiones por reloj y por mes: transiciones `trial_expired_covered`.
+   * Es solo un camino de los dos: el armado la une con el primer pago.
+   *
+   * @returns Mapa `YYYY-MM` → ids de suscripción (sin dedupe entre caminos: lo hace el armado).
+   */
+  private async loadClockConversionIdsByMonth(
+    inicio: string,
+    fin: string
+  ): Promise<Map<string, string[]>> {
+    const rows = (await this.trialTransitionsBaseQuery()
       .where('bst.billing_subscription_transition_reason', 'trial_expired_covered')
       .where('bst.billing_subscription_transition_cut_date', '>=', inicio)
       .where('bst.billing_subscription_transition_cut_date', '<', fin)
@@ -337,28 +392,19 @@ export default class PlatformSubscriptionFlowService {
    * entró pagando y luego cambió a un plan con días de prueba quedaría
    * marcada, desde ese cambio, como si hubiera tenido prueba sin haberla
    * tenido nunca. `trial_ends_at` se escribe una sola vez, al dar de alta, y
-   * ninguna operación lo vuelve a tocar. La subconsulta se apoya en el
-   * índice `(billing_subscription_id, billing_payment_paid_at)`.
+   * ninguna operación lo vuelve a tocar.
    *
-   * `billing_payments` es append-only sin borrado: no lleva filtro de borrado
-   * propio; el universo lo acotan la suscripción y la empresa.
+   * Este filtro de "empresa con prueba" es del universo de la tarjeta —
+   * `getFirstPaymentBySubscription` (lector por suscripción, más abajo) NO lo
+   * lleva a propósito: quien elige la suscripción de la prueba ya es
+   * `PlatformTrialService` vía `USRH1789079078169` (§7.3 del spec de
+   * USRH1789101459905). Duplicarlo ahí metería el defecto conocido del
+   * marcador de la tarjeta también en la ficha.
    */
   private async loadFirstPaymentConversionIdsForMonth(month: string): Promise<string[]> {
     const { inicioUtc, finUtc } = monthBounds(month)
-    const rows = (await db
-      .from('billing_payments as bp')
-      .join(
-        'billing_subscriptions as bs',
-        'bs.billing_subscription_id',
-        'bp.billing_subscription_id'
-      )
-      .join('business_units as bu', 'bu.business_unit_id', 'bs.business_unit_id')
-      .whereNull('bs.billing_subscription_deleted_at')
-      .whereNull('bu.business_unit_deleted_at')
+    const rows = (await this.firstPaymentBaseQuery()
       .whereNotNull('bs.billing_subscription_trial_ends_at')
-      .whereRaw(
-        'bp.billing_payment_id = (SELECT bp2.billing_payment_id FROM billing_payments bp2 WHERE bp2.billing_subscription_id = bp.billing_subscription_id ORDER BY bp2.billing_payment_paid_at ASC, bp2.billing_payment_id ASC LIMIT 1)'
-      )
       .where('bp.billing_payment_paid_at', '>=', inicioUtc)
       .where('bp.billing_payment_paid_at', '<', finUtc)
       .select('bp.billing_subscription_id as subscriptionId')) as Array<
@@ -366,6 +412,79 @@ export default class PlatformSubscriptionFlowService {
     >
 
     return rows.map((row) => String(row.subscriptionId))
+  }
+
+  /**
+   * Primer pago de cada suscripción del lote, sin filtro de mes ni de "tuvo
+   * prueba" (USRH1789101459905 §7.2 paso 4): quien decide si aplica es el
+   * llamador (`PlatformTrialService`, que ya eligió la suscripción de la
+   * prueba). Guarda de lote vacío antes de tocar la base — `whereIn([])`
+   * devuelve todo en algunos motores.
+   *
+   * Claves del mapa: `string`. `billing_subscription_id` es `bigInteger`
+   * (`1784300000014_create_billing_payments_table.ts:19`) y el resto del
+   * área ya normaliza con `String(...)` en ambos extremos; mezclar `string`
+   * con `number` produce un `Map` que nunca acierta.
+   */
+  async getFirstPaymentBySubscription(subscriptionIds: string[]): Promise<Map<string, Date>> {
+    const result = new Map<string, Date>()
+    if (subscriptionIds.length === 0) {
+      return result
+    }
+
+    const rows = (await this.firstPaymentBaseQuery()
+      .whereIn('bp.billing_subscription_id', subscriptionIds)
+      .select(
+        'bp.billing_subscription_id as subscriptionId',
+        'bp.billing_payment_paid_at as paidAt'
+      )) as Array<{ subscriptionId: number | string; paidAt: Date }>
+
+    for (const row of rows) {
+      result.set(String(row.subscriptionId), row.paidAt)
+    }
+    return result
+  }
+
+  /**
+   * Transición de fin de prueba de cada suscripción del lote (USRH1789101459905
+   * §7.2 paso 5). El UNIQUE `(subscription_id, cut_date)` es idempotencia
+   * **diaria**, no "una transición por suscripción" (R16): una suscripción
+   * puede traer una `trial_*` y, más tarde, una `period_expired` — la
+   * primera fila por suscripción, ordenada por `cut_date ASC, id ASC`, es
+   * siempre la de fin de prueba porque `trialTransitionsBaseQuery()` ya
+   * excluye `period_expired`.
+   */
+  async getTrialTransitionBySubscription(
+    subscriptionIds: string[]
+  ): Promise<Map<string, { reason: BillingSubscriptionTransitionReason; cutDate: unknown }>> {
+    const result = new Map<string, { reason: BillingSubscriptionTransitionReason; cutDate: unknown }>()
+    if (subscriptionIds.length === 0) {
+      return result
+    }
+
+    const rows = (await this.trialTransitionsBaseQuery()
+      .whereIn('bst.billing_subscription_id', subscriptionIds)
+      .orderBy('bst.billing_subscription_transition_cut_date', 'asc')
+      .orderBy('bst.billing_subscription_transition_id', 'asc')
+      .select(
+        'bst.billing_subscription_id as subscriptionId',
+        'bst.billing_subscription_transition_reason as reason',
+        'bst.billing_subscription_transition_cut_date as cutDate'
+      )) as Array<{
+      subscriptionId: number | string
+      reason: BillingSubscriptionTransitionReason
+      cutDate: unknown
+    }>
+
+    for (const row of rows) {
+      const key = String(row.subscriptionId)
+      // Primera fila por suscripción gana (ya viene ordenada ASC): es la
+      // transición de fin de prueba, nunca la más reciente.
+      if (!result.has(key)) {
+        result.set(key, { reason: row.reason, cutDate: row.cutDate })
+      }
+    }
+    return result
   }
 
   /**

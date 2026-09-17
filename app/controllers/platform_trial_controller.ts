@@ -54,7 +54,7 @@ export default class PlatformTrialController {
    * @tag Platform · Prueba de tenants
    * @operationId getPlatformTenantTrial
    * @security [{"bearerAuth": []}]
-   * @responseBody 200 - {"type": "success", "data": {"tenant": {"publicId": "3f2b…", "nombre": "Aceros del Norte"}, "prueba": {"inicio": "2026-09-01", "fin": "2026-09-08", "finEfectivo": "2026-09-05", "diasContratados": 7, "diasTranscurridos": 4, "diasRestantes": 3, "estado": "viva", "resultado": null, "fechaResultado": null}}}
+   * @responseBody 200 - {"type": "success", "data": {"tenant": {"publicId": "3f2b…", "nombre": "Aceros del Norte"}, "prueba": {"inicio": "2026-08-01", "fin": "2026-08-08", "finEfectivo": "2026-08-08", "diasContratados": 7, "diasTranscurridos": 7, "diasRestantes": 0, "estado": "terminada", "resultado": "convirtio-despues-de-vencer", "fechaResultado": "2026-11-03"}}}
    * @responseBody 404 - {"title": "No fue posible obtener la prueba del tenant", "detail": "La empresa solicitada no existe o no está disponible.", "key": "tenant-no-encontrado", "code": "PLT.MET.TENANT_NOT_FOUND"}
    * @responseBody 403 - {"title": "string", "detail": "string", "key": "AUTH.PLATFORM.FORBIDDEN"}
    * @responseBody 500 - {"title": "string", "detail": "string", "key": "error-inesperado-al-obtener-la-prueba-del-tenant", "code": "PLT.MET.SYS_UNHANDLED"}

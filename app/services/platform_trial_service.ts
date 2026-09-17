@@ -1,8 +1,11 @@
+import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import { PLATFORM_METRIC_ERROR_CODES } from '../constants/platform_metric_error_codes.js'
 import { PlatformMetricServiceError } from '../exceptions/platform_metric_service_error.js'
+import PlatformSubscriptionFlowService from './platform_subscription_flow_service.js'
 import {
   daysBetweenBusinessDates,
+  getBusinessTimeZone,
   toBusinessDateString,
   toCalendarIsoDate,
 } from '../utils/business_date.js'
@@ -52,6 +55,8 @@ export interface PlatformLiveTrialRef {
 }
 
 interface TrialSubscriptionRow {
+  /** `bigInteger`; se normaliza a `string` en todo lo que cruza con el churn (USRH1789101459905). */
+  subscriptionId: number | string
   businessUnitId: number
   status: string
   contractedTrialDays: number
@@ -61,6 +66,7 @@ interface TrialSubscriptionRow {
 }
 
 const TRIAL_SUBSCRIPTION_COLUMNS = [
+  'bs.billing_subscription_id as subscriptionId',
   'bs.business_unit_id as businessUnitId',
   'bs.billing_subscription_status as status',
   'bs.billing_subscription_contracted_trial_days as contractedTrialDays',
@@ -68,6 +74,56 @@ const TRIAL_SUBSCRIPTION_COLUMNS = [
   'bs.billing_subscription_trial_ends_at as trialEndsAt',
   'bs.billing_subscription_canceled_at as canceledAt',
 ]
+
+interface TrialOutcomeInput {
+  /** Día civil `fin` de la ventana ya resuelta (RN-06, inclusive). */
+  fin: string
+  /** Instante real del primer pago de la suscripción, `undefined` si nunca pagó. */
+  paidAt: Date | undefined
+  /** Medianoche civil de la cancelación, o `null` si nunca canceló. */
+  canceledAt: unknown
+  /** `cut_date` de la transición `trial_*` de esa suscripción, o `null` si no hay bitácora. */
+  transitionCutDate: unknown
+}
+
+/**
+ * Núcleo puro del desenlace de una prueba terminada (USRH1789101459905 §7.4).
+ * Sin base de datos: recibe ya resueltos el primer pago, la cancelación y la
+ * transición de la suscripción, así que es determinista — lo que prueba
+ * `platform_trial_resolution.spec.ts` (RN-07/08/08a/08b, la no-terminalidad
+ * de CA-3, la frontera civil de `paid_at` de CA-2, la precedencia pago >
+ * cancelación de CA-4 y la cancelación posterior al fin).
+ *
+ * El pago gana siempre sobre la cancelación (regla 3, es lo que hace la
+ * tarjeta de Movimiento): `'convirtio'` si su día civil es `<= fin`
+ * (inclusive, RN-06), si no `'convirtio-despues-de-vencer'` — y **nunca** es
+ * terminal: una prueba que hoy lee `'vencio-sin-pago'` cambia en cuanto
+ * exista un pago, sin importar qué se había leído antes (RN-08).
+ */
+export function resolveSingleTrialOutcome(
+  input: TrialOutcomeInput
+): { resultado: PlatformTrialResultado; fechaResultado: string } {
+  if (input.paidAt) {
+    // A15/H1: `paid_at` es un instante real, NUNCA `toCalendarIsoDate` (ancla
+    // el `Date` crudo a UTC y correría el día entre las 18:00 y las 23:59 de
+    // México). Se convierte con `setZone` explícito.
+    const fechaPago = DateTime.fromJSDate(input.paidAt, { zone: 'utc' })
+      .setZone(getBusinessTimeZone())
+      .toISODate()!
+    return {
+      resultado: fechaPago <= input.fin ? 'convirtio' : 'convirtio-despues-de-vencer',
+      fechaResultado: fechaPago,
+    }
+  }
+
+  const fechaCancelacion = toCalendarIsoDate(input.canceledAt)
+  if (fechaCancelacion !== null && fechaCancelacion <= input.fin) {
+    return { resultado: 'cancelo', fechaResultado: fechaCancelacion }
+  }
+
+  const cutDate = toCalendarIsoDate(input.transitionCutDate)
+  return { resultado: 'vencio-sin-pago', fechaResultado: cutDate ?? input.fin }
+}
 
 /**
  * Núcleo puro: arma el `PlatformTenantTrial` a partir de la fila de
@@ -131,7 +187,9 @@ export function resolveTenantTrialWindow(
  * (R-3): es el precio de que esta consulta y la tarjeta nunca difieran.
  */
 export default class PlatformTrialService {
-  /** Ventana y estado de una sola empresa por su `businessUnitPublicId`. */
+  private readonly flowService = new PlatformSubscriptionFlowService()
+
+  /** Ventana, estado y desenlace de una sola empresa por su `businessUnitPublicId`. */
   async getTenantTrial(publicId: string): Promise<{
     tenant: { publicId: string; nombre: string }
     prueba: PlatformTenantTrial | null
@@ -155,7 +213,24 @@ export default class PlatformTrialService {
     }
 
     const row = await this.fetchTrialRow(buRow.buId)
-    const prueba = row ? resolveTenantTrialWindow(row, toBusinessDateString()) : null
+    let prueba: PlatformTenantTrial | null = null
+
+    if (row) {
+      prueba = resolveTenantTrialWindow(row, toBusinessDateString())
+      const outcomes = await this.resolveOutcomes([
+        {
+          id: String(row.subscriptionId),
+          fin: prueba.fin,
+          estado: prueba.estado,
+          canceledAt: row.canceledAt,
+        },
+      ])
+      const outcome = outcomes.get(String(row.subscriptionId))
+      if (outcome) {
+        prueba.resultado = outcome.resultado
+        prueba.fechaResultado = outcome.fechaResultado
+      }
+    }
 
     return {
       tenant: { publicId, nombre: buRow.businessUnitName },
@@ -164,9 +239,12 @@ export default class PlatformTrialService {
   }
 
   /**
-   * Ventana y estado de un lote de empresas, por `businessUnitId`. Clave del
-   * mapa = `businessUnitId`; sin entrada para la que no tuvo prueba. Una
-   * sola consulta con `whereIn`, sin importar cuántos ids se pidan.
+   * Ventana, estado y desenlace de un lote de empresas, por `businessUnitId`.
+   * Clave del mapa = `businessUnitId`; sin entrada para la que no tuvo
+   * prueba. Una sola consulta con `whereIn` para la ventana y una sola
+   * resolución de desenlace para todo el lote (USRH1789101459905 §7.4):
+   * misma ruta que `getTenantTrial`, imposible que den valores distintos
+   * para el mismo tenant.
    */
   async resolveTrialsForBusinessUnits(ids: number[]): Promise<Map<number, PlatformTenantTrial>> {
     const result = new Map<number, PlatformTenantTrial>()
@@ -176,14 +254,42 @@ export default class PlatformTrialService {
 
     const rows = await this.fetchTrialRowsForBuIds(ids)
     const hoyIso = toBusinessDateString()
+    const bySubscriptionId = new Map<string, PlatformTenantTrial>()
+    const outcomeInputs: Array<{
+      id: string
+      fin: string
+      estado: PlatformTrialEstado
+      canceledAt: unknown
+    }> = []
+
     for (const row of rows) {
       // La consulta ya ordena por `business_unit_id, subscribed_at DESC, id
       // DESC` y solo la primera fila de cada empresa llega aquí (RN-01): el
       // amarre del mapa es siempre por `businessUnitId`, nunca por índice.
-      if (!result.has(row.businessUnitId)) {
-        result.set(row.businessUnitId, resolveTenantTrialWindow(row, hoyIso))
+      if (result.has(row.businessUnitId)) {
+        continue
+      }
+      const prueba = resolveTenantTrialWindow(row, hoyIso)
+      result.set(row.businessUnitId, prueba)
+      const subscriptionId = String(row.subscriptionId)
+      bySubscriptionId.set(subscriptionId, prueba)
+      outcomeInputs.push({
+        id: subscriptionId,
+        fin: prueba.fin,
+        estado: prueba.estado,
+        canceledAt: row.canceledAt,
+      })
+    }
+
+    const outcomes = await this.resolveOutcomes(outcomeInputs)
+    for (const [subscriptionId, outcome] of outcomes) {
+      const prueba = bySubscriptionId.get(subscriptionId)
+      if (prueba) {
+        prueba.resultado = outcome.resultado
+        prueba.fechaResultado = outcome.fechaResultado
       }
     }
+
     return result
   }
 
@@ -219,6 +325,59 @@ export default class PlatformTrialService {
   }
 
   // ─── Privadas ───────────────────────────────────────────────────────────────
+
+  /**
+   * Resuelve `resultado` y `fechaResultado` de un lote de suscripciones
+   * terminadas (USRH1789101459905 §7.4). En lote por construcción: dos
+   * consultas totales (pagos y transiciones) sea una o sean cien
+   * suscripciones — nunca una por tenant. Sin entrada para las `viva` (RN-07:
+   * no se evalúa nada, ni se llama a la base por ellas).
+   *
+   * Orden de decisión, el pago gana siempre sobre la cancelación (es lo que
+   * hace la tarjeta de Movimiento y es lo que sostiene la paridad):
+   *   1. Hay primer pago → `'convirtio'` si su día civil es `<= fin`
+   *      (inclusive, RN-06), si no `'convirtio-despues-de-vencer'` (RN-08:
+   *      NO es terminal — cambia en cuanto exista un pago, sin importar qué
+   *      resultado se había leído antes).
+   *   2. Sin pago, con cancelación dentro de la ventana (`<= fin`) → `'cancelo'`.
+   *   3. Sin pago, sin cancelación en ventana → `'vencio-sin-pago'`, con
+   *      `fechaResultado` = `cut_date` de la transición `trial_*` de esa
+   *      suscripción, o `fin` si nunca hubo bitácora (prueba anterior al reloj).
+   */
+  private async resolveOutcomes(
+    subscriptions: Array<{
+      id: string
+      fin: string
+      estado: PlatformTrialEstado
+      canceledAt: unknown
+    }>
+  ): Promise<Map<string, { resultado: PlatformTrialResultado; fechaResultado: string }>> {
+    const result = new Map<string, { resultado: PlatformTrialResultado; fechaResultado: string }>()
+    const terminadas = subscriptions.filter((s) => s.estado === 'terminada')
+    if (terminadas.length === 0) {
+      return result
+    }
+
+    const ids = terminadas.map((s) => s.id)
+    const [firstPayments, trialTransitions] = await Promise.all([
+      this.flowService.getFirstPaymentBySubscription(ids),
+      this.flowService.getTrialTransitionBySubscription(ids),
+    ])
+
+    for (const sub of terminadas) {
+      result.set(
+        sub.id,
+        resolveSingleTrialOutcome({
+          fin: sub.fin,
+          paidAt: firstPayments.get(sub.id),
+          canceledAt: sub.canceledAt,
+          transitionCutDate: trialTransitions.get(sub.id)?.cutDate ?? null,
+        })
+      )
+    }
+
+    return result
+  }
 
   /**
    * La suscripción que ES la prueba de la empresa: la más reciente, no
