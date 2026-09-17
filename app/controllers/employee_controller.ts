@@ -13,6 +13,10 @@ import axios from 'axios'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { createEmployeeValidator } from '../validators/employee.js'
 import { updateEmployeeValidator } from '../validators/employee.js'
+import EmployeeStructureService, {
+  resolveEmployeeStructureUpdate,
+} from '#services/employee_structure_service'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
 import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
@@ -1733,6 +1737,45 @@ export default class EmployeeController {
         }
       }
 
+      // Estructura (USRH1788466831270): departamento y puesto no son
+      // obligatorios al editar. Clave ausente = conservar lo guardado (aunque
+      // esté vacío); null = dejar sin asignar. Solo lo DISTINTO de lo guardado
+      // —o todo, si cambia de empresa— tiene que existir, estar vigente y ser
+      // de la empresa del empleado; reenviar lo mismo nunca bloquea (regla 4).
+      const structure = resolveEmployeeStructureUpdate(
+        {
+          departmentId: currentEmployee.departmentId,
+          positionId: currentEmployee.positionId,
+          businessUnitId: currentEmployee.businessUnitId,
+        },
+        {
+          departmentId: data.departmentId,
+          positionId: data.positionId,
+          businessUnitId: Number(employee.businessUnitId),
+        }
+      )
+      const structureCheck = await new EmployeeStructureService().verifyAssignable(structure)
+      if (!structureCheck.ok) {
+        // Registro de accesos bloqueados: qué id se pidió y quién, sin datos
+        // del empleado. Inexistente, eliminado y ajeno son indistinguibles.
+        await ScopeDeniedLogService.log({
+          domain: structureCheck.field,
+          action: 'assign-to-employee',
+          requestedId: structureCheck.requestedId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        response.status(400)
+        return {
+          type: 'warning',
+          title: i18n.t(`employee_${structureCheck.field}_not_in_business_unit_title`),
+          message: i18n.t(`employee_${structureCheck.field}_not_in_business_unit_message`),
+          data: { ...data },
+        }
+      }
+      employee.departmentId = structure.departmentId
+      employee.positionId = structure.positionId
+
       // Nivel de puesto (USRH1785964117188): propiedad ausente = no tocar el
       // nivel actual; null explícito = limpiar. La pertenencia corre contra
       // el positionId del payload ANTES de persistir, con la exención de
@@ -1741,7 +1784,9 @@ export default class EmployeeController {
         const positionLevelConfigId = data.positionLevelConfigId ?? null
         await new EmployeePositionLevelService().assertAssignable({
           positionLevelConfigId,
-          effectivePositionId: employee.positionId,
+          // Regla 7 (USRH1788466831270): el puesto efectivo es el resuelto
+          // arriba —el del payload o, si no vino, el guardado—.
+          effectivePositionId: structure.positionId,
           businessUnitScope,
           previousPositionLevelConfigId: currentEmployee.positionLevelConfigId,
           currentPositionId: currentEmployee.positionId,
@@ -1801,6 +1846,18 @@ export default class EmployeeController {
       if (workScheduleError) {
         response.status(400)
         return workScheduleError
+      }
+      if (error?.code === 'E_VALIDATION_ERROR') {
+        // Regla 8 (USRH1788466831270): un dato mal formado es un rechazo por
+        // datos, no un error del servidor. Con 500 el BO abre la pantalla de
+        // error general y el usuario pierde lo capturado.
+        response.status(400)
+        return {
+          type: 'warning',
+          title: i18n.t('validation_error'),
+          message: error.messages?.[0]?.message ?? i18n.t('validation_error'),
+          errors: error.messages,
+        }
       }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
