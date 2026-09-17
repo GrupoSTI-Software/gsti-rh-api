@@ -157,10 +157,13 @@ test.group('Alta exige estructura — POST /api/employees (USRH1789328927556)', 
   })
 
   function storeBody(person: Person, overrides: Record<string, unknown> = {}) {
+    const s = stamp()
     return {
       employeeFirstName: 'Alta',
       employeeLastName: 'Estructura',
       employeeSecondLastName: 'QA',
+      employeeCode: `ALT-${s}`,
+      employeePayrollNum: `ALT-PN-${s}`,
       companyId: unit.businessUnitId,
       personId: person.personId,
       employeeTypeId: 1,

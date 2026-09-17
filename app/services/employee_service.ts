@@ -1313,17 +1313,13 @@ export default class EmployeeService {
 
   async verifyInfo(employee: Employee) {
     const action = employee.employeeId > 0 ? 'updated' : 'created'
-    const employeeCodeStr = employee.employeeCode?.toString().trim() || ''
-    const existCode =
-      employeeCodeStr !== ''
-        ? await Employee.query()
-            .if(employee.employeeId > 0, (query) => {
-              query.whereNot('employee_id', employee.employeeId)
-            })
-            .whereNull('employee_deleted_at')
-            .where('employee_code', employee.employeeCode)
-            .first()
-        : null
+    const existCode = await Employee.query()
+      .if(employee.employeeId > 0, (query) => {
+        query.whereNot('employee_id', employee.employeeId)
+      })
+      .whereNull('employee_deleted_at')
+      .where('employee_code', employee.employeeCode)
+      .first()
 
     if (existCode && employee.employeeCode) {
       return {
