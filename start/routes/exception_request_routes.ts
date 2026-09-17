@@ -32,6 +32,34 @@ router
       .use(
         middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateExceptionRequestStatus)
       )
+    // Resolver en lote es la misma facultad ejercida N veces: mismo permiso que
+    // la resolución individual, no uno nuevo.
+    // Señales de apoyo: se leen con el mismo permiso con el que se consulta la
+    // solicitud, porque son un detalle más de ella.
+    router
+      .get('/:id/decision-context', '#controllers/exception_requests_controller.decisionContext')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexAllExceptionRequests))
+    // Adjuntos: leer va con el permiso de lectura del módulo; subir, con el de
+    // resolución, porque el comprobante es parte de resolver.
+    router
+      .get('/:id/attachments', '#controllers/exception_requests_controller.indexAttachments')
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexAllExceptionRequests))
+    router
+      .get(
+        '/:id/attachments/:attachmentId',
+        '#controllers/exception_requests_controller.showAttachment'
+      )
+      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexAllExceptionRequests))
+    router
+      .post('/:id/attachments', '#controllers/exception_requests_controller.storeAttachment')
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateExceptionRequestStatus)
+      )
+    router
+      .post('/resolve-batch', '#controllers/exception_requests_controller.resolveBatch')
+      .use(
+        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateExceptionRequestStatus)
+      )
   })
   .prefix('/api/exception-requests')
   .use(middleware.auth())
