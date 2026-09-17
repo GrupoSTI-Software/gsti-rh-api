@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import type { ApiClient } from '@japa/api-client'
 import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Role from '#models/role'
@@ -258,7 +259,7 @@ test.group('Edición y baja sin estructura — PUT/DELETE /api/employees/:id (US
   })
 
   function put(fixture: EmployeeFixture, overrides: Record<string, unknown> = {}) {
-    return (client: any) =>
+    return (client: ApiClient) =>
       client
         .put(`/api/employees/${fixture.employee.employeeId}`)
         .loginAs(root!.user)
