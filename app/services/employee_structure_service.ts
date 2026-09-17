@@ -1,5 +1,6 @@
 import Department from '#models/department'
 import Position from '#models/position'
+import { TenantContext } from '#utils/tenant_context'
 
 /** Departamento, puesto y empresa que el empleado tiene GUARDADOS. */
 export interface EmployeeStructureCurrent {
@@ -75,39 +76,48 @@ export function resolveEmployeeStructureUpdate(
  * Confirma que el departamento y el puesto marcados para verificar existen,
  * no están eliminados y pertenecen a la empresa del empleado (regla 3).
  *
- * El `where('business_unit_id', …)` es explícito además del mixin
- * `withBusinessUnitScope`: el mixin acota a la empresa del header (la del
- * usuario activo), y la regla exige la del EMPLEADO, que puede ser otra si la
- * misma edición lo cambia de empresa. Con los dos filtros en AND, un id ajeno
- * nunca resuelve. Inexistente, eliminado y ajeno son indistinguibles en el
- * resultado (regla 6).
+ * El `where('business_unit_id', …)` es explícito y es el filtro correcto
+ * por sí solo. Se ejecuta dentro de `TenantContext.runUnscoped` para que el
+ * mixin `withBusinessUnitScope` —que ANDea un filtro ambiental basado en el
+ * header de la request— no interfiera: en particular, cuando un empleado
+ * cambia de empresa (regla 5), el header permanece fijo en la empresa VIEJA
+ * (la única forma de cargar al empleado), pero `resolution.businessUnitId`
+ * es la nueva. Sin el bypass, el mixin recibiría un filtro ambiental que
+ * intersecta la empresa nueva con la vieja, haciendo invisible cualquier
+ * departamento/puesto legítimo de la empresa nueva. Inexistente, eliminado
+ * y ajeno son indistinguibles en el resultado (regla 6).
  */
 export default class EmployeeStructureService {
   async verifyAssignable(
     resolution: EmployeeStructureResolution
   ): Promise<EmployeeStructureVerification> {
-    if (resolution.departmentIdToVerify !== null) {
-      const department = await Department.query()
-        .where('department_id', resolution.departmentIdToVerify)
-        .whereNull('department_deleted_at')
-        .where('business_unit_id', resolution.businessUnitId)
-        .first()
-      if (!department) {
-        return { ok: false, field: 'department', requestedId: resolution.departmentIdToVerify }
-      }
-    }
+    return TenantContext.runUnscoped(
+      async () => {
+        if (resolution.departmentIdToVerify !== null) {
+          const department = await Department.query()
+            .where('department_id', resolution.departmentIdToVerify)
+            .whereNull('department_deleted_at')
+            .where('business_unit_id', resolution.businessUnitId)
+            .first()
+          if (!department) {
+            return { ok: false, field: 'department', requestedId: resolution.departmentIdToVerify }
+          }
+        }
 
-    if (resolution.positionIdToVerify !== null) {
-      const position = await Position.query()
-        .where('position_id', resolution.positionIdToVerify)
-        .whereNull('position_deleted_at')
-        .where('business_unit_id', resolution.businessUnitId)
-        .first()
-      if (!position) {
-        return { ok: false, field: 'position', requestedId: resolution.positionIdToVerify }
-      }
-    }
+        if (resolution.positionIdToVerify !== null) {
+          const position = await Position.query()
+            .where('position_id', resolution.positionIdToVerify)
+            .whereNull('position_deleted_at')
+            .where('business_unit_id', resolution.businessUnitId)
+            .first()
+          if (!position) {
+            return { ok: false, field: 'position', requestedId: resolution.positionIdToVerify }
+          }
+        }
 
-    return { ok: true }
+        return { ok: true }
+      },
+      'EmployeeStructureService.verifyAssignable: filtra explicitamente por la empresa del empleado, no por el scope ambiental del actor'
+    )
   }
 }

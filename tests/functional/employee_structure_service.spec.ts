@@ -4,6 +4,7 @@ import Department from '#models/department'
 import Position from '#models/position'
 import EmployeeStructureService from '#services/employee_structure_service'
 import type { EmployeeStructureResolution } from '#services/employee_structure_service'
+import { TenantContext } from '#utils/tenant_context'
 
 /**
  * USRH1788466831270 — la verificación de "existe, vigente y de la empresa del
@@ -172,6 +173,18 @@ test.group('Estructura del empleado — verificación en la empresa del empleado
       field: 'department',
       requestedId: activeDepartment.departmentId,
     })
+  })
+
+  test('TenantContext activo en otra empresa no oculta un departamento vigente de la empresa del empleado', async ({
+    assert,
+  }) => {
+    const result = await TenantContext.run([foreignUnit.businessUnitId], () =>
+      service.verifyAssignable(
+        resolution(unit.businessUnitId, { departmentId: activeDepartment.departmentId })
+      )
+    )
+
+    assert.deepEqual(result, { ok: true })
   })
 
   test('el departamento se reporta antes que el puesto cuando fallan los dos', async ({ assert }) => {
