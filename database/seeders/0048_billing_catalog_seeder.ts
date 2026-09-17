@@ -66,7 +66,7 @@ export default class BillingCatalogSeeder extends BaseSeeder {
       { min: 50, discount: 15 },
       { min: 150, discount: 20 },
       { min: 400, discount: 25 },
-      { min: 500, discount: 30 },
+      { min: 500, discount: 27 },
     ]
 
     for (const t of tiers) {
