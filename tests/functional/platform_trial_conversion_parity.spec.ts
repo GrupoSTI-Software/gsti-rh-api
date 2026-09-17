@@ -201,6 +201,53 @@ test.group('Paridad de cifra — USRH1789101459905', () => {
   })
 })
 
+// ─── §7.5 — frontera declarada: qué pasa si existe trial_expired_covered ──────
+
+test.group('Frontera declarada del camino del reloj — USRH1789101459905 §7.5', () => {
+  test('una transición trial_expired_covered no cambia el resultado: el pago que la causa sigue ganando siempre', async ({
+    assert,
+  }) => {
+    // El conteo obligatorio contra datos reales (§7.5) encontró exactamente
+    // una fila `trial_expired_covered` en desarrollo, siempre acompañada de
+    // un pago de esa misma suscripción — nunca aparece sola hoy
+    // (`billing_subscription_clock_service.ts:223-224`, la rama solo se
+    // alcanza cuando `current_period_end` ya se movió, y eso solo lo hace un
+    // pago). Este caso reproduce esa combinación a mano y documenta que,
+    // aunque exista la transición "cubierta", el resultado sigue viniendo
+    // del pago (precedencia de §7.4): el día que el camino se vuelva
+    // alcanzable sin pago, esta prueba es la que lo señalaría, no rompiendo
+    // en silencio.
+    const trialService = new PlatformTrialService()
+    const { tenants, cleanup } = await createTenantTrialFixture([
+      {
+        tag: 'frontera-covered',
+        trialDays: 7,
+        subscribedAtOverride: subscribedAtEnMes(1),
+        trialEndsAtOverride: `${MES}-08`,
+        status: 'active',
+      },
+    ])
+    const [tenant] = tenants
+
+    try {
+      await crearPago(tenant.billingSubscriptionId!, pagoEnMes(20, 12)) // después del fin
+      await crearTransicion(tenant.billingSubscriptionId!, 'trial_expired_covered', `${MES}-09`)
+
+      const { prueba } = await trialService.getTenantTrial(tenant.businessUnitPublicId)
+
+      assert.isNotNull(prueba)
+      // El resultado sigue siendo el del pago, no "vencio-sin-pago" ni un
+      // quinto valor que refleje la transición "cubierta" — la transición
+      // nunca se convierte en resultado por sí misma.
+      assert.equal(prueba!.resultado, 'convirtio-despues-de-vencer')
+      assert.equal(prueba!.fechaResultado, `${MES}-20`)
+    } finally {
+      await limpiarChurnDeLote(tenants)
+      await cleanup()
+    }
+  })
+})
+
 // ─── CA-9 — aislamiento (RN-49): la subconsulta correlacionada no se pierde ───
 
 test.group('Aislamiento del churn por suscripción — USRH1789101459905 CA-9', () => {
