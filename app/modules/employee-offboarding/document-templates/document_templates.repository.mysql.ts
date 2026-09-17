@@ -17,6 +17,12 @@ import type {
  * eso una fila ajena nunca queda hidratada en memoria.
  */
 export default class DocumentTemplatesRepositoryMysql implements DocumentTemplatesRepository {
+  /**
+   * Candado V-1, lado lectura (USRH1789097550388): además de `current`, la
+   * versión debe tener dictamen registrado. Una `current` heredada sin
+   * dictamen se comporta como "sin plantilla propia" aunque el barrido de
+   * USRH1789097550387 no haya corrido en el ambiente.
+   */
   async resolveCurrent(
     businessUnitId: number,
     documentType: string
@@ -25,6 +31,7 @@ export default class DocumentTemplatesRepositoryMysql implements DocumentTemplat
       .where('business_unit_id', businessUnitId)
       .where('employee_offboarding_document_template_document_type', documentType)
       .where('employee_offboarding_document_template_status', DOCUMENT_TEMPLATE_STATUS.CURRENT)
+      .whereNotNull('employee_offboarding_document_template_validation_result')
       .first()
   }
 

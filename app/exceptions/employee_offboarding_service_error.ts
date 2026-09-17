@@ -47,6 +47,7 @@ export type EmployeeOffboardingErrorKey =
   | 'plantilla-con-campos-duplicados'
   | 'plantilla-con-nombre-de-campo-invalido'
   | 'plantilla-demasiado-compleja'
+  | 'plantilla-con-campos-invalidos'
   | 'error-interno'
   | 'sin-permiso'
   | 'datos-invalidos'

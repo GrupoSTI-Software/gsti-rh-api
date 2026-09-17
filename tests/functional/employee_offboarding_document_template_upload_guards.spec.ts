@@ -30,6 +30,7 @@ import {
   buildWithOpenAction,
   buildWithWidgetAction,
   buildXfa,
+  VALID_TEMPLATE_FIELD_NAMES,
 } from '../fixtures/pdf-templates/build_pdf_template_fixtures.js'
 
 /**
@@ -374,7 +375,7 @@ test.group('Rechazo estructural de la plantilla (USRH1789097550387)', (group) =>
     await destroyFixtures(created.businessUnitIds, created.roleIds)
   })
 
-  test('Base: la plantilla válida entra como versión 1 vigente con dictamen estructural aprobado', async ({
+  test('Base: la plantilla válida entra como versión 1 vigente; pasa la estructura y el contraste (USRH1789097550388) la deja en etapa fields', async ({
     client,
     assert,
   }) => {
@@ -387,11 +388,11 @@ test.group('Rechazo estructural de la plantilla (USRH1789097550387)', (group) =>
     assert.isTrue(dto.validationResult!.passed)
     assert.strictEqual(dto.validationResult!.documentType, DOCUMENT_TYPE)
     assert.isString(dto.validationResult!.checkedAt)
-    assert.deepEqual(dto.validationResult!.recognized, [])
+    assert.deepEqual(dto.validationResult!.recognized, [...VALID_TEMPLATE_FIELD_NAMES])
     assert.deepEqual(dto.validationResult!.unrecognized, [])
     assert.deepEqual(dto.validationResult!.missingRequired, [])
     assert.deepEqual(dto.validationResult!.structural, {
-      stage: 'structural',
+      stage: 'fields',
       reason: null,
       detail: null,
     })

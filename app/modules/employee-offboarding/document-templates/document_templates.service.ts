@@ -33,6 +33,7 @@ import {
   OFFBOARDING_DOCUMENT_FIELDS,
   fieldsForDocumentType,
 } from '../documents/document_fields.constants.js'
+import { validateTemplateFields } from '../documents/document_template_validation.service.js'
 import type { DocumentTemplateValidationResult } from './document_template_validation_result.type.js'
 import {
   DOCUMENT_TEMPLATE_FALLBACK_FILE_NAME,
@@ -77,11 +78,16 @@ function isDuplicateKeyError(error: unknown): boolean {
   return (error as { code?: string } | null)?.code === 'ER_DUP_ENTRY'
 }
 
-/** Motivo de rechazo con su ofensor ya saneado; `null` = la plantilla pasa. */
+/** Motivo de rechazo estructural con su ofensor ya saneado. */
 interface TemplateRejection {
   reason: Exclude<PdfTemplateRejectionReason, 'unvalidated_legacy'>
   detail: string | null
 }
+
+/** Salida de la revisión estructural: el rechazo, o los nombres de campo listos para el contraste. */
+type StructuralReview =
+  | { rejection: TemplateRejection; fieldNames: null }
+  | { rejection: null; fieldNames: readonly string[] }
 
 /**
  * Cada motivo con su propio `key`, `code` y copy (regla 3 de USRH1789097550387).
@@ -160,9 +166,10 @@ const REJECTION_ERRORS: Readonly<
  * borra, porque bajo concurrencia podría borrar el objeto equivocado. Nunca
  * una fila que apunte a un objeto inexistente (regla 6).
  *
- * Este slice NO abre el PDF: el buffer releído es el punto de extensión de
- * ESB-05-07-14 (rechazo estructural) y ESB-05-07-08 (validación de campos),
- * que se injertan dentro de `createVersion`.
+ * El buffer releído es el punto de extensión de la cadena: USRH1789097550387
+ * (rechazo estructural, única carga de pdf-lib) y USRH1789097550388
+ * (contraste de campos contra el catálogo) se injertan dentro de
+ * `createVersion` y deciden entre los dos el estado final de la versión.
  */
 export default class DocumentTemplatesService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -285,10 +292,10 @@ export default class DocumentTemplatesService {
     const fileSizeBytes = stored.byteLength
 
     // Revisión estructural (USRH1789097550387) sobre el buffer ALMACENADO:
-    // única carga de pdf-lib del flujo; el documento queda listo para que
-    // ESB-05-07-08 contraste los campos sin volver a cargarlo.
+    // única carga de pdf-lib del flujo; los nombres de campo que entrega
+    // alimentan el contraste sin volver a cargar el documento.
     const inspection = await inspectPdfTemplate(stored)
-    const rejection = this.resolveRejection(documentType, inspection)
+    const review = this.reviewStructure(documentType, inspection)
     const version = {
       businessUnitId,
       documentType,
@@ -301,13 +308,13 @@ export default class DocumentTemplatesService {
     const pageCount = inspection.pageCount
     const fieldCount = inspection.ok ? inspection.fields.length : inspection.fieldCount
 
-    if (rejection) {
+    if (review.rejection) {
       // Regla 4 y 5: el intento consume su consecutivo como `rejected` y NO
       // toca la vigente. Se responde 422 con el dictamen (data).
       const record = await this.persistVersion({
         ...version,
         status: DOCUMENT_TEMPLATE_STATUS.REJECTED,
-        validationResult: this.buildStructuralVerdict(documentType, rejection),
+        validationResult: this.buildStructuralVerdict(documentType, review.rejection),
       })
       // Sin nombres de campo, key completa, URL ni hash junto a identificadores
       logger.info(
@@ -318,18 +325,25 @@ export default class DocumentTemplatesService {
           pageCount,
           fieldCount,
           verdict: 'rejected',
-          reason: rejection.reason,
+          reason: review.rejection.reason,
         },
         'Plantilla de documento de salida: versión rechazada por la revisión estructural'
       )
-      throw this.rejectedError(rejection.reason, record)
+      throw this.rejectedError(review.rejection.reason, record)
     }
 
+    // Contraste contra el catálogo (USRH1789097550388): decide el estado
+    // final. Pase o no, la fila entra con su consecutivo y su dictamen
+    // (regla 5); solo la que pasa desplaza a la vigente (`persistVersion`).
+    const validationResult = this.contrastFields(documentType, review.fieldNames)
     const record = await this.persistVersion({
       ...version,
-      status: DOCUMENT_TEMPLATE_STATUS.CURRENT,
-      validationResult: this.buildStructuralVerdict(documentType, null),
+      status: validationResult.passed
+        ? DOCUMENT_TEMPLATE_STATUS.CURRENT
+        : DOCUMENT_TEMPLATE_STATUS.REJECTED,
+      validationResult,
     })
+    // Conteos, nunca nombres de campo: `config/logger.ts` no redacta
     logger.info(
       {
         businessUnitId,
@@ -337,59 +351,89 @@ export default class DocumentTemplatesService {
         versionId: record.employeeOffboardingDocumentTemplateId,
         pageCount,
         fieldCount,
-        verdict: 'accepted',
+        unrecognizedCount: validationResult.unrecognized.length,
+        missingCount: validationResult.missingRequired.length,
+        passed: validationResult.passed,
       },
-      'Plantilla de documento de salida: versión nueva vigente'
+      validationResult.passed
+        ? 'Plantilla de documento de salida: versión nueva vigente'
+        : 'Plantilla de documento de salida: versión rechazada por el contraste de campos'
     )
+    // El 422 sale DESPUÉS de confirmar el INSERT: el id que viaja en `data` existe
+    if (!validationResult.passed) {
+      throw this.validationFailedError(record, validationResult)
+    }
 
     return await this.toDto(record)
   }
 
   /**
-   * Motivo de rechazo del intento, o `null` si la plantilla pasa. Un buffer
-   * que no se puede cargar tras el intake es un objeto corrupto: 500, sin
-   * fila. El décimo detector (CA-9) SÍ lee el catálogo: un campo con nombre
-   * del catálogo cuyo widget no es de texto no puede rellenarse; vive aquí y
-   * no en el helper, que no conoce el catálogo.
+   * Revisión estructural del intento (USRH1789097550387). Un buffer que no se
+   * puede cargar tras el intake es un objeto corrupto: 500, sin fila. El
+   * décimo detector (CA-9) SÍ lee el catálogo: un campo con nombre del
+   * catálogo cuyo widget no es de texto no puede rellenarse; vive aquí y no
+   * en el helper, que no conoce el catálogo. Si nada rechaza, entrega los
+   * nombres de campo del documento ya cargado para el contraste.
    */
-  private resolveRejection(
+  private reviewStructure(
     documentType: EmployeeOffboardingDocumentType,
     inspection: PdfTemplateInspection
-  ): TemplateRejection | null {
+  ): StructuralReview {
     if (!inspection.ok) {
       if (inspection.reason === 'unreadable') {
         throw this.unreadableError()
       }
-      return { reason: inspection.reason, detail: inspection.detail }
+      return {
+        rejection: { reason: inspection.reason, detail: inspection.detail },
+        fieldNames: null,
+      }
     }
     const catalogKeys = new Set(fieldsForDocumentType(documentType).map((field) => field.key))
     const offender = inspection.fields.find(
       (field) => catalogKeys.has(field.name) && field.kind !== 'text'
     )
-    return offender ? { reason: 'field_type', detail: sanitizeVerdictDetail(offender.name) } : null
+    if (offender) {
+      return {
+        rejection: { reason: 'field_type', detail: sanitizeVerdictDetail(offender.name) },
+        fieldNames: null,
+      }
+    }
+    return { rejection: null, fieldNames: inspection.fieldNames }
   }
 
   /**
-   * Dictamen estructural (K-1): esta HU escribe SIEMPRE `structural`; las tres
-   * listas van vacías y `passed` refleja solo la estructura. ESB-05-07-08
-   * conserva `structural`, puebla las listas y cambia `stage` a `fields`.
+   * Dictamen de un rechazo estructural (K-1): las tres listas van vacías,
+   * `passed` es falso y `stage: 'structural'` marca hasta dónde llegó la
+   * revisión. El de una plantilla que pasa la estructura lo escribe el
+   * contraste (`contrastFields`) con `stage: 'fields'`.
    */
   private buildStructuralVerdict(
     documentType: EmployeeOffboardingDocumentType,
-    rejection: TemplateRejection | null
+    rejection: TemplateRejection
   ): DocumentTemplateValidationResult {
     return {
       checkedAt: new Date().toISOString(),
       documentType,
-      passed: rejection === null,
+      passed: false,
       recognized: [],
       unrecognized: [],
       missingRequired: [],
-      structural: {
-        stage: 'structural',
-        reason: rejection?.reason ?? null,
-        detail: rejection?.detail ?? null,
-      },
+      structural: { stage: 'structural', reason: rejection.reason, detail: rejection.detail },
+    }
+  }
+
+  /**
+   * Paso semántico (USRH1789097550388): la función pura del slice
+   * `documents/` sobre los nombres que dejó la revisión estructural. La parte
+   * `structural` se conserva sin motivo y con `stage: 'fields'`.
+   */
+  private contrastFields(
+    documentType: EmployeeOffboardingDocumentType,
+    fieldNames: readonly string[]
+  ): DocumentTemplateValidationResult {
+    return {
+      ...validateTemplateFields(fieldNames, documentType, new Date().toISOString()),
+      structural: { stage: 'fields', reason: null, detail: null },
     }
   }
 
@@ -420,7 +464,8 @@ export default class DocumentTemplatesService {
   /**
    * Contrato publicado a la cadena (ESB-05-07-09 la consume para emitir):
    * el MODELO de la versión vigente, no el DTO; `null` = plantilla del
-   * sistema. ESB-05-07-08 lo estrecha a versiones con revisión registrada.
+   * sistema. Solo versiones con dictamen registrado: el repositorio lo exige
+   * (candado V-1, lado lectura, USRH1789097550388).
    */
   async resolveCurrentTemplate(
     businessUnitId: number,
@@ -611,12 +656,65 @@ export default class DocumentTemplatesService {
       httpStatus: 422,
       title: this.t('employee_offboarding_document_template_rejected_title'),
       detail: this.t(mapping.detailKey),
-      data: {
-        employeeOffboardingDocumentTemplateId: record.employeeOffboardingDocumentTemplateId,
-        versionNumber: Number(record.employeeOffboardingDocumentTemplateVersionNumber),
-        validationResult: record.employeeOffboardingDocumentTemplateValidationResult,
-      },
+      data: this.verdictData(record),
     })
+  }
+
+  /**
+   * Único 422 del contraste (USRH1789097550388): mismo `key` y `code` para
+   * las tres fallas, que se distinguen por el `detail` y por
+   * `data.validationResult` (lo que el BO pinta). El título es el de todo
+   * rechazo de plantilla.
+   */
+  private validationFailedError(
+    record: EmployeeOffboardingDocumentTemplate,
+    result: DocumentTemplateValidationResult
+  ) {
+    return new EmployeeOffboardingServiceError({
+      key: 'plantilla-con-campos-invalidos',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.TEMPLATE_VALIDATION_FAILED,
+      httpStatus: 422,
+      title: this.t('employee_offboarding_document_template_rejected_title'),
+      detail: this.validationFailedDetail(result),
+      data: this.verdictData(record),
+    })
+  }
+
+  /**
+   * Tres variantes de `detail`: los no reconocidos se citan tal como venían
+   * (ya saneados) y los obligatorios ausentes por su etiqueta en el idioma
+   * de la petición; ambos en el orden del dictamen, separados por coma.
+   */
+  private validationFailedDetail(result: DocumentTemplateValidationResult): string {
+    const missingKeys = new Set(result.missingRequired)
+    const unrecognized = result.unrecognized.map((entry) => entry.fieldName).join(', ')
+    const missing = fieldsForDocumentType(result.documentType)
+      .filter((field) => missingKeys.has(field.key))
+      .map((field) => this.t(field.labelKey))
+      .join(', ')
+    if (result.unrecognized.length > 0 && result.missingRequired.length > 0) {
+      return this.t('employee_offboarding_document_template_validation_failed_detail', {
+        unrecognized,
+        missing,
+      })
+    }
+    if (result.unrecognized.length > 0) {
+      return this.t('employee_offboarding_document_template_validation_unrecognized_detail', {
+        fields: unrecognized,
+      })
+    }
+    return this.t('employee_offboarding_document_template_validation_missing_required_detail', {
+      fields: missing,
+    })
+  }
+
+  /** Carga de `data` de todo 422 con dictamen: id y consecutivo de la fila insertada más su dictamen. */
+  private verdictData(record: EmployeeOffboardingDocumentTemplate): Record<string, unknown> {
+    return {
+      employeeOffboardingDocumentTemplateId: record.employeeOffboardingDocumentTemplateId,
+      versionNumber: Number(record.employeeOffboardingDocumentTemplateVersionNumber),
+      validationResult: record.employeeOffboardingDocumentTemplateValidationResult,
+    }
   }
 
   private unreadableError() {

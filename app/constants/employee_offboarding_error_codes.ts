@@ -131,6 +131,8 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   TEMPLATE_REJECTED_FIELD_NAME: 'OFFB.TEMPLATE.REJECTED_FIELD_NAME',
   /** Más de 30 páginas o más de 200 campos — 422. */
   TEMPLATE_REJECTED_TOO_COMPLEX: 'OFFB.TEMPLATE.REJECTED_TOO_COMPLEX',
+  /** El contraste contra el catálogo no pasó: campo no reconocido y/u obligatorio ausente (USRH1789097550388) — 422. */
+  TEMPLATE_VALIDATION_FAILED: 'OFFB.TEMPLATE.VALIDATION_FAILED',
 } as const
 
 export type EmployeeOffboardingErrorCode =

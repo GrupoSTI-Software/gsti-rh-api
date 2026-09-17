@@ -5,9 +5,10 @@ import { PDFDocument, PDFHexString, PDFName, PDFString, StandardFonts, type PDFP
 
 /**
  * Generador DETERMINISTA de las fixtures PDF de la revisión estructural
- * (USRH1789097550387). Todo se construye en memoria solo con `pdf-lib`: no
- * hace falta `qpdf` ni ningún binario preexistente, y por convención del
- * repositorio no se comitea ningún `.pdf` bajo `tests/`.
+ * (USRH1789097550387) y del contraste de campos (USRH1789097550388). Todo se
+ * construye en memoria solo con `pdf-lib`: no hace falta `qpdf` ni ningún
+ * binario preexistente, y por convención del repositorio no se comitea
+ * ningún `.pdf` bajo `tests/`.
  *
  * Determinismo: fechas fijas (pdf-lib estampa creación y modificación con la
  * hora actual si no se fijan), `useObjectStreams: false` y cero
@@ -36,13 +37,41 @@ export const WIDGET_ACTION_KINDS = [
 ] as const
 export type WidgetActionKind = (typeof WIDGET_ACTION_KINDS)[number]
 
-/** Los cinco campos de texto de la plantilla válida (nombres del catálogo). */
+/**
+ * Los seis campos OBLIGATORIOS del catálogo, en su orden: la plantilla válida
+ * pasa la revisión estructural (USRH1789097550387) y el contraste
+ * (USRH1789097550388). Sin `folio` el contraste la rechazaría.
+ */
 export const VALID_TEMPLATE_FIELD_NAMES = [
   'legal_name',
   'employee_name',
   'position_name',
   'hire_date',
   'separation_date',
+  'folio',
+] as const
+
+/** Los diez `key` del catálogo en su orden; el spec unitario del contraste vigila que no se desfasen. */
+export const ALL_CATALOG_FIELD_NAMES = [
+  'legal_name',
+  'trade_name',
+  'employee_name',
+  'position_name',
+  'department_or_unit',
+  'hire_date',
+  'separation_date',
+  'seniority',
+  'folio',
+  'issue_date',
+] as const
+
+/** Los obligatorios sin `hire_date` (CA-4 del contraste). */
+export const MISSING_HIRE_DATE_FIELD_NAMES = [
+  'legal_name',
+  'employee_name',
+  'position_name',
+  'separation_date',
+  'folio',
 ] as const
 
 async function newDocument(): Promise<PDFDocument> {
@@ -288,16 +317,64 @@ export async function buildManyPagesAndFields(pages = 31, totalFields = 201): Pr
   return toBuffer(document)
 }
 
-/** `valid-template.pdf`: cinco campos de texto con nombres del catálogo, una página, sin contenido activo. */
-export async function buildValidTemplate(): Promise<Buffer> {
+/**
+ * Plantilla de solo campos de texto con los nombres dados, en ese orden, en
+ * una página de alto proporcional y sin contenido activo. Base de la
+ * plantilla válida y de las fixtures del contraste (USRH1789097550388); el
+ * título distingue los bytes de dos plantillas con los mismos campos.
+ */
+export async function buildTextFieldsTemplate(
+  names: readonly string[],
+  title = 'Plantilla'
+): Promise<Buffer> {
   const document = await newDocument()
-  const page = document.addPage(PAGE_SIZE)
+  const height = 100 + names.length * 40
+  const page = document.addPage([PAGE_SIZE[0], height])
   const font = await document.embedFont(StandardFonts.Helvetica)
-  page.drawText('Plantilla válida', { x: 20, y: 270, size: 14, font })
-  VALID_TEMPLATE_FIELD_NAMES.forEach((name, index) => {
-    addTextField(document, page, name, 230 - index * 40)
+  page.drawText(title, { x: 20, y: height - 30, size: 14, font })
+  names.forEach((name, index) => {
+    addTextField(document, page, name, height - 70 - index * 40)
   })
   return toBuffer(document)
+}
+
+/** `valid-template.pdf`: los seis obligatorios del catálogo como campos de texto. */
+export async function buildValidTemplate(): Promise<Buffer> {
+  return buildTextFieldsTemplate(VALID_TEMPLATE_FIELD_NAMES, 'Plantilla válida')
+}
+
+/** `all-catalog-fields.pdf`: los diez `key` del catálogo (CA-1 del contraste). */
+export async function buildAllCatalogFields(): Promise<Buffer> {
+  return buildTextFieldsTemplate(ALL_CATALOG_FIELD_NAMES, 'Plantilla completa')
+}
+
+/** `typo-field-name.pdf`: los seis obligatorios más `employe_name` (a una edición de `employee_name`). */
+export async function buildTypoFieldName(): Promise<Buffer> {
+  return buildTextFieldsTemplate(
+    [...VALID_TEMPLATE_FIELD_NAMES, 'employe_name'],
+    'Plantilla con error de dedo'
+  )
+}
+
+/** `foreign-field-name.pdf`: los seis obligatorios más `nombre_empleado` (sin parecido real). */
+export async function buildForeignFieldName(): Promise<Buffer> {
+  return buildTextFieldsTemplate(
+    [...VALID_TEMPLATE_FIELD_NAMES, 'nombre_empleado'],
+    'Plantilla con campo inventado'
+  )
+}
+
+/** `missing-hire-date.pdf`: cinco obligatorios, sin `hire_date`. */
+export async function buildMissingHireDate(): Promise<Buffer> {
+  return buildTextFieldsTemplate(MISSING_HIRE_DATE_FIELD_NAMES, 'Plantilla sin fecha de ingreso')
+}
+
+/** `typo-and-missing.pdf`: sin `hire_date` y con `employe_name` (las dos fallas a la vez). */
+export async function buildTypoAndMissing(): Promise<Buffer> {
+  return buildTextFieldsTemplate(
+    [...MISSING_HIRE_DATE_FIELD_NAMES, 'employe_name'],
+    'Plantilla con dos fallas'
+  )
 }
 
 /** `encrypted.pdf`: entrada `/Encrypt` en el trailer (pdf-lib solo mira su presencia). */
@@ -316,7 +393,7 @@ export async function buildEncrypted(): Promise<Buffer> {
   return toBuffer(document)
 }
 
-/** Las trece fixtures nombradas del spec, más las auxiliares de las pruebas. */
+/** Las trece fixtures nombradas del spec de la 387, las auxiliares de sus pruebas y las cinco del contraste (388). */
 export const PDF_TEMPLATE_FIXTURES: Readonly<Record<string, () => Promise<Buffer>>> = {
   'no-fields.pdf': buildNoFields,
   'with-openaction.pdf': buildWithOpenAction,
@@ -336,6 +413,11 @@ export const PDF_TEMPLATE_FIXTURES: Readonly<Record<string, () => Promise<Buffer
   'control-char-field-name.pdf': buildControlCharFieldName,
   'widget-aa-submitform.pdf': buildWithWidgetAdditionalActions,
   'field-aa-javascript.pdf': buildWithFieldAdditionalActions,
+  'all-catalog-fields.pdf': buildAllCatalogFields,
+  'typo-field-name.pdf': buildTypoFieldName,
+  'foreign-field-name.pdf': buildForeignFieldName,
+  'missing-hire-date.pdf': buildMissingHireDate,
+  'typo-and-missing.pdf': buildTypoAndMissing,
 }
 
 /** Escribe todas las fixtures en `directory` y devuelve las rutas creadas. */
