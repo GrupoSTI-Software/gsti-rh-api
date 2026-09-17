@@ -11,6 +11,8 @@ import CareerPathCandidate from '#models/career_path_candidate'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import { setModuleEnforcement } from '#tests/helpers/tenant_actor'
 
 const TEST_PASSWORD = 'EvalAssessRutaPermissionGate123!'
 
@@ -127,8 +129,8 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
   return { user, person, businessUnit, role }
 }
 
-async function createSystemActor(roleSlug: string, emailPrefix: string): Promise<SystemActor> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).firstOrFail()
+async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<SystemActor> {
+  const role = await ensureRole(roleSlug)
   const stamp = await uniqueStamp()
   const businessUnit = await BusinessUnit.create({
     businessUnitName: `Evaluaciones sistema ${stamp}`,
@@ -412,7 +414,9 @@ test.group('Evaluaciones/Assessments/Ruta - soft-rollout (exigencia OFF)', (grou
     }
   })
 
-  test('sin grants: las dieciséis escrituras no responden PERM.DENIED', async ({ client, assert }) => {
+  // Quince: el cambio de estatus de candidatos pasó a la Bandeja de rutas de
+  // carrera y ya no depende de la exigencia de Empleados que apaga este grupo.
+  test('sin grants: las quince escrituras no responden PERM.DENIED', async ({ client, assert }) => {
     await grantOnly(actor!.role.roleId, [])
     const headers = buHeader(actor!)
     const evaluation = await createEvaluationFixture(
@@ -442,7 +446,6 @@ test.group('Evaluaciones/Assessments/Ruta - soft-rollout (exigencia OFF)', (grou
       client.put('/api/employee-assessments/1').loginAs(actor!.user).headers(headers).json({}),
       client.delete('/api/employee-assessments/1').loginAs(actor!.user).headers(headers),
       client.post('/api/career-path-candidates').loginAs(actor!.user).headers(headers).json({ businessUnitId: actor!.businessUnit.businessUnitId, employeeId: fixture!.employee.employeeId, originPositionId: fixture!.positionId, targetPositionId: fixture!.positionId, careerPathCandidateIsOverride: false, careerPathOverrideReasonId: 0, careerPathCandidateStatus: 'propuesto', proposedBy: actor!.user.userId, reviewedBy: 0 }),
-      client.put(`/api/career-path-candidates/${candidate.careerPathCandidateId}`).loginAs(actor!.user).headers(headers).json({ careerPathCandidateStatus: 'activo' }),
       client.delete(`/api/career-path-candidates/${candidate.careerPathCandidateId}`).loginAs(actor!.user).headers(headers),
       client.delete(`/api/employee-evaluations/${evaluation.employeeEvaluationId}`).loginAs(actor!.user).headers(headers),
     ]
@@ -454,6 +457,7 @@ test.group('Evaluaciones/Assessments/Ruta - matriz con exigencia ON', (group) =>
   let actor: TenantActor | null = null
   let fixture: EmployeeFixture | null = null
   let employeesModule: SystemModule
+  let previousHrCareerPathEnforcement: boolean | null = null
 
   group.setup(async () => {
     employeesModule = await SystemModule.query()
@@ -462,6 +466,10 @@ test.group('Evaluaciones/Assessments/Ruta - matriz con exigencia ON', (group) =>
       .firstOrFail()
     employeesModule.systemModulePermissionEnforcementActive = true
     await employeesModule.save()
+    // El caso de ruta de carrera afirma que proponer ya no aprueba: ese PUT lo
+    // decide `hr-career-path`, así que el grupo fija su exigencia en vez de
+    // fiarse de la siembra.
+    previousHrCareerPathEnforcement = await setModuleEnforcement('hr-career-path', true)
     actor = await createActor('eval-enforced')
     fixture = await createEmployeeFixture(actor.businessUnit.businessUnitId, 'enforced')
   })
@@ -470,6 +478,9 @@ test.group('Evaluaciones/Assessments/Ruta - matriz con exigencia ON', (group) =>
       await cleanupEmployeeFixture(fixture)
       await cleanupActor(actor)
     } finally {
+      if (previousHrCareerPathEnforcement !== null) {
+        await setModuleEnforcement('hr-career-path', previousHrCareerPathEnforcement)
+      }
       await disableEnforcementAndVerify(employeesModule)
     }
   })
@@ -493,28 +504,23 @@ test.group('Evaluaciones/Assessments/Ruta - matriz con exigencia ON', (group) =>
     assertPermissionDenied(assert, await client.delete(`/api/employee-evaluations/${evaluation.employeeEvaluationId}`).loginAs(actor!.user).headers(headers))
   })
 
-  test('tab-ruta-carrera-write permite proponer y cambiar estatus; delete aparte; sin side-effects al denegar', async ({ client, assert }) => {
+  test('tab-ruta-carrera-write permite proponer pero no cambiar estatus; delete aparte; sin side-effects al denegar', async ({ client, assert }) => {
     await grantOnly(actor!.role.roleId, ['tab-ruta-carrera-write'])
     const headers = buHeader(actor!)
     assertNotPermissionDenied(assert, await client.post('/api/career-path-candidates').loginAs(actor!.user).headers(headers).json({
       businessUnitId: actor!.businessUnit.businessUnitId, employeeId: fixture!.employee.employeeId, originPositionId: fixture!.positionId, targetPositionId: fixture!.positionId, careerPathCandidateIsOverride: false, careerPathOverrideReasonId: 0, careerPathCandidateStatus: 'propuesto', proposedBy: actor!.user.userId, reviewedBy: 0,
     }))
-    const candidate = await createCareerPathCandidateFixture({
-      businessUnitId: actor!.businessUnit.businessUnitId, employeeId: fixture!.employee.employeeId, originPositionId: fixture!.positionId, targetPositionId: fixture!.positionId, proposedBy: actor!.user.userId,
-    })
-    assertNotPermissionDenied(assert, await client.put(`/api/career-path-candidates/${candidate.careerPathCandidateId}`).loginAs(actor!.user).headers(headers).json({ careerPathCandidateStatus: 'activo', reviewedBy: actor!.user.userId }))
     const blocked = await createCareerPathCandidateFixture({
       businessUnitId: actor!.businessUnit.businessUnitId, employeeId: fixture!.employee.employeeId, originPositionId: fixture!.positionId, targetPositionId: fixture!.positionId, proposedBy: actor!.user.userId,
     })
     const historyBefore = await db.from('career_path_candidate_status_histories').where('career_path_candidate_id', blocked.careerPathCandidateId).count('* as total')
     const countBefore = Number(historyBefore[0].total ?? historyBefore[0]['count(*)'] ?? 0)
-    await grantOnly(actor!.role.roleId, [])
-    assertPermissionDenied(assert, await client.put(`/api/career-path-candidates/${blocked.careerPathCandidateId}`).loginAs(actor!.user).headers(headers).json({ careerPathCandidateStatus: 'rechazado', careerPathCandidateRejectionReason: 'x' }))
+    // Proponer ya no da aprobar: el PUT lo decide `hr-career-path:update`.
+    assertPermissionDenied(assert, await client.put(`/api/career-path-candidates/${blocked.careerPathCandidateId}`).loginAs(actor!.user).headers(headers).json({ careerPathCandidateStatus: 'activo' }))
     const reloaded = await CareerPathCandidate.findOrFail(blocked.careerPathCandidateId)
     assert.equal(reloaded.careerPathCandidateStatus, 'propuesto')
     const historyAfter = await db.from('career_path_candidate_status_histories').where('career_path_candidate_id', blocked.careerPathCandidateId).count('* as total')
     assert.equal(Number(historyAfter[0].total ?? historyAfter[0]['count(*)'] ?? 0), countBefore)
-    await grantOnly(actor!.role.roleId, ['tab-ruta-carrera-write'])
     assertPermissionDenied(assert, await client.delete(`/api/career-path-candidates/${blocked.careerPathCandidateId}`).loginAs(actor!.user).headers(headers))
   })
 
@@ -530,7 +536,7 @@ test.group('Evaluaciones/Assessments/Ruta - matriz con exigencia ON', (group) =>
     assertPermissionDenied(assert, await client.post('/api/employee-evaluations').loginAs(actor!.user).headers(headers).json({}))
   })
 
-  test('sin permisos: las dieciséis escrituras responden PERM.DENIED', async ({ client, assert }) => {
+  test('sin permisos: las quince escrituras responden PERM.DENIED', async ({ client, assert }) => {
     await grantOnly(actor!.role.roleId, [])
     const headers = buHeader(actor!)
     const evaluation = await createEvaluationFixture(fixture!.employee.employeeId, actor!.businessUnit.businessUnitId, 'deny-all')
@@ -552,7 +558,6 @@ test.group('Evaluaciones/Assessments/Ruta - matriz con exigencia ON', (group) =>
       client.put('/api/employee-assessments/1').loginAs(actor!.user).headers(headers).json({}),
       client.delete('/api/employee-assessments/1').loginAs(actor!.user).headers(headers),
       client.post('/api/career-path-candidates').loginAs(actor!.user).headers(headers).json({}),
-      client.put(`/api/career-path-candidates/${candidate.careerPathCandidateId}`).loginAs(actor!.user).headers(headers).json({ careerPathCandidateStatus: 'activo' }),
       client.delete(`/api/career-path-candidates/${candidate.careerPathCandidateId}`).loginAs(actor!.user).headers(headers),
     ]
     for (const request of requests) assertPermissionDenied(assert, await request)

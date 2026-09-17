@@ -1,7 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import User from '#models/user'
-import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
@@ -14,6 +13,7 @@ import BillingCatalogService from '#services/billing_catalog_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '#constants/billing_subscription_error_codes'
 import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — POST /api/billing/subscription (USRH1785441822058).
@@ -28,21 +28,10 @@ interface TenantActor {
   businessUnit: BusinessUnit
 }
 
-async function ensureRhManagerRole(): Promise<Role> {
-  const role = await Role.query()
-    .whereNull('role_deleted_at')
-    .where('role_slug', 'rh-manager')
-    .first()
-  if (!role) {
-    throw new Error('Se requiere el rol rh-manager en BD para probar scope limitado.')
-  }
-  return role
-}
-
 async function createScopedTenantActor(emailPrefix: string): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await ensureRhManagerRole()
+  const role = await ensureRole('rh-manager')
 
   const person = new Person()
   person.personFirstname = 'BillingContract'
@@ -73,21 +62,19 @@ async function createScopedTenantActor(emailPrefix: string): Promise<TenantActor
   return { user, person, businessUnit }
 }
 
-async function ensureRootRole(): Promise<Role> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'root').first()
-  if (!role) {
-    throw new Error('Se requiere el rol root en BD para probar re-contratación tenant.')
-  }
-  return role
-}
-
+/**
+ * Actor con empresa propia y un rol que el guard de billing deja contratar.
+ * `root` por defecto; `owner` es el rol con el que el alta self-service crea la
+ * cuenta (`signup_draft_service.ts`), y por eso tiene su propio caso.
+ */
 async function createTenantActor(options: {
   emailPrefix: string
   origin: 'platform' | 'self_service'
+  roleSlug?: 'root' | 'owner'
 }): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${options.emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await ensureRootRole()
+  const role = await ensureRole(options.roleSlug ?? 'root')
 
   const person = new Person()
   person.personFirstname = 'BillingContract'
@@ -256,6 +243,35 @@ test.group('POST /api/billing/subscription — autenticación y scope', () => {
       await cleanupTenantActor(actor)
     }
   })
+
+  test('responde 403 PLT.SUB.FORBIDDEN_ROLE a quien no es dueño de la cuenta y no contrata', async ({
+    client,
+    assert,
+  }) => {
+    // rh-manager en su propia empresa self-service: antes del guard contrataba
+    // igual que el dueño.
+    const actor = await createScopedTenantActor('contract-not-owner')
+
+    try {
+      const response = await client
+        .post('/api/billing/subscription')
+        .loginAs(actor.user)
+        .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+        .json({ billingPlanId: 1, contractedEmployees: 10 })
+
+      response.assertStatus(403)
+      assert.equal(response.body().code, BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE)
+      assert.equal(response.body().key, 'solo-el-dueno-de-la-cuenta')
+
+      const subscriptions = await BillingSubscription.query().where(
+        'business_unit_id',
+        actor.businessUnit.businessUnitId
+      )
+      assert.lengthOf(subscriptions, 0)
+    } finally {
+      await cleanupTenantActor(actor)
+    }
+  })
 })
 
 test.group('POST /api/billing/subscription — re-contratación self-service', (group) => {
@@ -301,6 +317,27 @@ test.group('POST /api/billing/subscription — re-contratación self-service', (
 
       assert.equal(toCalendarIsoDate(persisted.billingSubscriptionCurrentPeriodEnd), today)
       assert.notProperty(data, 'businessUnitId')
+    } finally {
+      await cleanupTenantActor(actor)
+    }
+  })
+
+  test('owner, el rol con el que nace la cuenta self-service, contrata', async ({ client }) => {
+    // El guard de dueño no debe cerrarle la contratación a quien se registró.
+    const actor = await createTenantActor({
+      emailPrefix: 'contract-owner',
+      origin: 'self_service',
+      roleSlug: 'owner',
+    })
+
+    try {
+      const response = await client
+        .post('/api/billing/subscription')
+        .loginAs(actor.user)
+        .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+        .json(contractPayload(planId!, 10))
+
+      response.assertStatus(201)
     } finally {
       await cleanupTenantActor(actor)
     }

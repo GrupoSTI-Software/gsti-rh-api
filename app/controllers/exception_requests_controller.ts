@@ -1099,6 +1099,8 @@ export default class ExceptionRequestsController {
    *                         example: pending
    *       400:
    *         description: Invalid query parameters
+   *       403:
+   *         description: Sin permiso `employees:tab-trabajo-read` (negativa del permissionGate, key `PERM.DENIED`)
    *       500:
    *         description: Internal server error
    */

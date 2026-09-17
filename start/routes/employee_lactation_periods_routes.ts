@@ -2,6 +2,7 @@ import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
+import { EMPLOYEE_LACTATION_PERIODS_PERMISSION_DECLARATIONS } from '#constants/employee_lactation_periods_permission_declarations'
 
 router
   .group(() => {
@@ -19,7 +20,8 @@ router
         '#controllers/employee_lactation_periods_controller.store'
       )
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeLactationPeriod))
-    // Reporte de cumplimiento (JSON + export PDF).
+    // Reporte de cumplimiento (JSON + export PDF): pantalla de la Bitácora de
+    // lactancia, así que exigen su módulo y no las pestañas de Empleados.
     // OJO: estas rutas deben declararse ANTES de `/:id` para que
     // `compliance-report` no se confunda con un identificador numérico.
     router.get(
@@ -27,12 +29,15 @@ router
       '#controllers/employee_lactation_periods_controller.complianceReport'
     )
       .use(
-        middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.lactationComplianceReport)
+        middleware.permissionGate(EMPLOYEE_LACTATION_PERIODS_PERMISSION_DECLARATIONS.complianceReport)
       )
     router.get(
       '/employee-lactation-periods/compliance-report/export',
       '#controllers/employee_lactation_periods_controller.complianceReportExport'
     )
+      .use(
+        middleware.permissionGate(EMPLOYEE_LACTATION_PERIODS_PERMISSION_DECLARATIONS.complianceReportExport)
+      )
     // Disparo manual / reproceso del aviso de vencimiento. La misma
     // consideración de orden aplica: va ANTES de `/:id` para que el
     // segmento literal `notifications` no colisione con un identificador
@@ -129,10 +134,14 @@ router
         '#controllers/employee_lactation_period_evidences_controller.store'
       )
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createLactationEvidence))
+    // Firma URLs de PDFs de lactancia (datos de salud): mismo permiso que listar las evidencias.
     router.get(
       '/employee-lactation-periods/:periodId/evidences/:evidenceId/download-url',
       '#controllers/employee_lactation_period_evidences_controller.downloadUrl'
     )
+      .use(
+        middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.downloadLactationEvidence)
+      )
     // prettier-ignore
     router
       .delete(

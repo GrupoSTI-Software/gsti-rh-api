@@ -198,14 +198,13 @@ export default class SupplieService {
         .orderBy('employeeSupplyCreatedAt', 'desc')
 
       // Get active system setting
-      // USRH1783712837584: NO migrado a resolveByBusinessUnitId a propósito.
-      // Este reporte agrega `Supplie`/`EmployeeSupplie` de TODAS las empresas
-      // en un solo Excel (sin filtro por business_unit_id arriba), así que no
-      // existe un único tenant que resolver. Es un proceso cross-tenant tipo
-      // batch pese a vivir detrás de un endpoint HTTP autenticado (sin
-      // `businessScope`) — se deja con `getActive()` y se reclasifica para la
-      // hermana batch (USRH1783713925140) en vez de forzar un fail-closed que
-      // rompería el reporte.
+      // USRH1783712837584 describía este reporte como cross-tenant: agregaba
+      // `Supplie`/`EmployeeSupplie` de TODAS las empresas porque su ruta no
+      // montaba `businessScope`. Con el aislamiento del catálogo de activos eso
+      // dejó de ser cierto: `/api/supplies/excel` ya corre bajo `businessScope`
+      // y ambas consultas de arriba quedan acotadas por el mixin a la empresa
+      // activa. La ficha sigue resolviéndose con `getActive()` — queda como
+      // deuda menor alinearla al tenant activo, no cambia el corte de datos.
       const systemSettingService = new SystemSettingService()
       const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
 

@@ -5,6 +5,7 @@ import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import RoleSystemPermission from '#models/role_system_permission'
 import type User from '#models/user'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 const STAMP = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
 const MODULE_SLUG = `test-permgate-module-${STAMP}`
@@ -12,14 +13,6 @@ const ROLE_SLUG = `test-permgate-role-${STAMP}`
 
 function fakeUser(roleId: number): User {
   return { userId: roleId, roleId } as User
-}
-
-async function findPrivilegedRole(slug: string): Promise<Role> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', slug).first()
-  if (!role) {
-    throw new Error(`El rol "${slug}" es requerido para este test. Ejecuta los seeders primero.`)
-  }
-  return role
 }
 
 test.group('PermissionGateService', (group) => {
@@ -78,8 +71,8 @@ test.group('PermissionGateService', (group) => {
     testModule.systemModulePermissionEnforcementActive = true
     await testModule.save()
 
-    const root = await findPrivilegedRole('root')
-    const owner = await findPrivilegedRole('owner')
+    const root = await ensureRole('root')
+    const owner = await ensureRole('owner')
     const service = new PermissionGateService()
 
     const rootDecision = await service.evaluate(fakeUser(root.roleId), {
@@ -103,7 +96,7 @@ test.group('PermissionGateService', (group) => {
     testModule.systemModulePermissionEnforcementActive = true
     await testModule.save()
 
-    const direccionGeneral = await findPrivilegedRole('super-administrador')
+    const direccionGeneral = await ensureRole('super-administrador')
     const service = new PermissionGateService()
 
     const decision = await service.evaluate(fakeUser(direccionGeneral.roleId), {
@@ -120,7 +113,7 @@ test.group('PermissionGateService', (group) => {
     testModule.systemModulePermissionEnforcementActive = true
     await testModule.save()
 
-    const direccionGeneral = await findPrivilegedRole('super-administrador')
+    const direccionGeneral = await ensureRole('super-administrador')
     const service = new PermissionGateService()
 
     const decision = await service.evaluate(fakeUser(direccionGeneral.roleId), {
@@ -137,8 +130,8 @@ test.group('PermissionGateService', (group) => {
     testModule.systemModulePermissionEnforcementActive = true
     await testModule.save()
 
-    const root = await findPrivilegedRole('root')
-    const owner = await findPrivilegedRole('owner')
+    const root = await ensureRole('root')
+    const owner = await ensureRole('owner')
     const service = new PermissionGateService()
 
     const rootDecision = await service.evaluate(fakeUser(root.roleId), {
@@ -161,7 +154,7 @@ test.group('PermissionGateService', (group) => {
     testModule.systemModulePermissionEnforcementActive = true
     await testModule.save()
 
-    const root = await findPrivilegedRole('root')
+    const root = await ensureRole('root')
     const service = new PermissionGateService()
 
     const decision = await service.evaluate(fakeUser(root.roleId), {
@@ -379,7 +372,7 @@ test.group('PermissionGateService', (group) => {
     testModule.systemModulePermissionEnforcementActive = false
     await testModule.save()
 
-    const root = await findPrivilegedRole('root')
+    const root = await ensureRole('root')
     const service = new PermissionGateService()
     const decision = await service.evaluateEnforced(fakeUser(root.roleId), {
       module: MODULE_SLUG,
@@ -414,7 +407,7 @@ test.group('PermissionGateService', (group) => {
     testModule.systemModulePermissionEnforcementActive = false
     await testModule.save()
 
-    const direccionGeneral = await findPrivilegedRole('super-administrador')
+    const direccionGeneral = await ensureRole('super-administrador')
     const service = new PermissionGateService()
     const decision = await service.evaluateEnforced(fakeUser(direccionGeneral.roleId), {
       module: MODULE_SLUG,

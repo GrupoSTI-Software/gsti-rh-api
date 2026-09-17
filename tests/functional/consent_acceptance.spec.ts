@@ -4,6 +4,7 @@ import Person from '#models/person'
 import LegalDocument from '#models/legal_document'
 import UserConsent from '#models/user_consent'
 import type { LegalDocumentType } from '#models/legal_document'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — consentimiento legal granular por documento (USRH1783101935670),
@@ -23,7 +24,7 @@ import type { LegalDocumentType } from '#models/legal_document'
  */
 
 const TEST_PASSWORD = 'ConsentTest123!'
-const DEFAULT_ROLE_ID = 2 // rh-manager: el consentimiento es personal (sin RBAC), cualquier rol autenticado aplica.
+const DEFAULT_ROLE = 'rh-manager' // el consentimiento es personal (sin RBAC), cualquier rol autenticado aplica.
 
 interface TestActor {
   user: User
@@ -45,7 +46,8 @@ async function createTestActor(emailPrefix: string): Promise<TestActor> {
   user.userEmail = email
   user.userPassword = TEST_PASSWORD
   user.userActive = 1
-  user.roleId = DEFAULT_ROLE_ID
+  const role = await ensureRole(DEFAULT_ROLE)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()

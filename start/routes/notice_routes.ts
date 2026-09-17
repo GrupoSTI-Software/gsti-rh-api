@@ -37,7 +37,7 @@ router
 
 /**
  * Operaciones de administración: exigen empresa activa (defensa en profundidad)
- * y el permiso del módulo `avisos-y-noticias` declarado en
+ * y el permiso del módulo `notices` declarado en
  * `notices_permission_declarations.ts`.
  */
 router

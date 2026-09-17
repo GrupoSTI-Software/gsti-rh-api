@@ -70,12 +70,15 @@ test.group('POST /api/roles/assign/:roleId — atomicidad (USRH1785766406721)', 
 
   group.setup(async () => {
     actor = await createRootActor('role-assign-atomic')
+    // El rol cuelga de la empresa del actor: `assign` resuelve el id dentro de
+    // la empresa activa y un rol sin dueño ni CSV no es de nadie (404).
     targetRole = await Role.create({
       roleName: `Test Assign Atomic Role ${stamp}`,
       roleSlug: `test-assign-atomic-role-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
+      businessUnitId: actor.businessUnit.businessUnitId,
+      roleBusinessAccess: actor.businessUnit.businessUnitSlug,
       roleManagementDays: 10,
     })
     systemModule = await SystemModule.create({

@@ -5,21 +5,10 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../../../app/constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../../../app/exceptions/billing_subscription_service_error.js'
 import { assertBillingOwner } from '../../../app/helpers/billing_owner_guard.js'
-import RoleSeeder from '#database/seeders/0006_role_seeder'
 import Role from '#models/role'
 import Person from '#models/person'
 import User from '#models/user'
-
-async function ensureRole(slug: string): Promise<Role> {
-  if (slug === 'owner') {
-    await new RoleSeeder({} as never).run()
-  }
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', slug).first()
-  if (!role) {
-    throw new Error(`El rol "${slug}" es requerido para este test. Ejecuta los seeders primero.`)
-  }
-  return role
-}
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 async function createUserWithRole(role: Role): Promise<{ user: User; person: Person }> {
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
