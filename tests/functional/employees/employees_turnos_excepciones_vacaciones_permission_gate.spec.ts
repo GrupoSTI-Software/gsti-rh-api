@@ -298,7 +298,7 @@ function requestPayload(fixtures: TestFixtures) {
   return {
     employeeId: fixtures.employee.employee.employeeId,
     exceptionTypeId: fixtures.absenceType.exceptionTypeId,
-    exceptionRequestStatus: 'requested',
+    exceptionRequestStatus: 'pending',
     exceptionRequestDescription: 'Solicitud de prueba D-08',
     requestedDate: '2030-01-07',
   }
@@ -319,7 +319,7 @@ async function createCommonRequest(fixtures: TestFixtures, actor: TenantActor) {
   return ExceptionRequest.create({
     employeeId: fixtures.employee.employee.employeeId,
     exceptionTypeId: fixtures.absenceType.exceptionTypeId,
-    exceptionRequestStatus: 'requested',
+    exceptionRequestStatus: 'pending',
     exceptionRequestDescription: 'Solicitud común para aprobar',
     exceptionRequestCheckInTime: null,
     exceptionRequestCheckOutTime: null,
