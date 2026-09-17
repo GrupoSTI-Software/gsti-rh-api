@@ -33,6 +33,45 @@ export interface EmployeeStructureResolution {
 
 export type EmployeeStructureField = 'department' | 'position'
 
+export type EmployeeStructureMissing = 'department' | 'position' | 'both'
+
+/**
+ * Vacío o en cero cuenta como faltante al alta (USRH1789328927556, regla 2).
+ * No trata un string no numérico ("abc") como faltante: eso lo rechaza Vine
+ * como dato mal formado (regla 4), no como "Falta el departamento".
+ */
+export function isMissingStructureId(value: unknown): boolean {
+  if (value === null || value === undefined) {
+    return true
+  }
+  if (typeof value === 'string' && value.trim() === '') {
+    return true
+  }
+  return value === 0 || value === '0'
+}
+
+/**
+ * Decide si el alta trae departamento y puesto, o cuál falta (regla 1).
+ * Función pura: no consulta nada y no inventa valores (regla 2).
+ */
+export function requireEmployeeStructureForCreate(input: {
+  departmentId?: unknown
+  positionId?: unknown
+}): { ok: true } | { ok: false; missing: EmployeeStructureMissing } {
+  const departmentMissing = isMissingStructureId(input.departmentId)
+  const positionMissing = isMissingStructureId(input.positionId)
+  if (departmentMissing && positionMissing) {
+    return { ok: false, missing: 'both' }
+  }
+  if (departmentMissing) {
+    return { ok: false, missing: 'department' }
+  }
+  if (positionMissing) {
+    return { ok: false, missing: 'position' }
+  }
+  return { ok: true }
+}
+
 export type EmployeeStructureVerification =
   | { ok: true }
   | { ok: false; field: EmployeeStructureField; requestedId: number }
