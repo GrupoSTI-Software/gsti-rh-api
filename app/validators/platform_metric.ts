@@ -88,3 +88,25 @@ export const subscriptionFlowsValidatorMessages = new SimpleMessagesProvider({
   'mes.string': 'El mes debe tener el formato AAAA-MM.',
   'mes.regex': 'El mes debe tener el formato AAAA-MM.',
 })
+
+/**
+ * Query params de `GET /api/platform/tenant-trials` (lote, USRH1789079078169).
+ *
+ * `ids` viaja como CSV (`?ids=uuid1,uuid2`) en vez de `ids[]` repetido: es el
+ * mismo estilo de query simple que ya usa el resto del área de métricas. El
+ * `.split(',')` y el tope de tamaño del lote viven en el controlador — aquí
+ * solo se fija que venga una cadena no vacía.
+ */
+export const tenantTrialBatchValidator = vine.compile(
+  vine.object({
+    ids: vine.string().minLength(1),
+  })
+)
+
+/**
+ * Mensajes en español de `tenantTrialBatchValidator`.
+ */
+export const tenantTrialBatchValidatorMessages = new SimpleMessagesProvider({
+  'ids.string': 'ids debe ser una lista de identificadores separados por coma.',
+  'ids.minLength': 'ids no puede venir vacío.',
+})
