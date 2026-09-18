@@ -374,6 +374,11 @@ export default class EmployeeController {
       const hireDate = request.input('hireDate')
 
       const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(auth.user!)
+      // USRH1789698261608: traza de la compensación del alta por sincronización.
+      const releaseContext: PersonReleaseContext = {
+        actorUserId: auth.user?.userId ?? null,
+        businessUnitScope: allowedIds,
+      }
       const businessUnits = await BusinessUnit.query()
         .where('business_unit_active', 1)
         .whereIn('business_unit_id', allowedIds)
@@ -472,7 +477,7 @@ export default class EmployeeController {
             employee.businessUnitId = businessUnitApply?.businessUnitId || 1
             employeeCountSaved += 1
 
-            await this.verify(employee, employeeService)
+            await this.verify(employee, employeeService, releaseContext)
           }
         }
         response.status(201)
@@ -4586,13 +4591,17 @@ export default class EmployeeController {
     }
   }
 
-  private async verify(employee: BiometricEmployeeInterface, employeeService: EmployeeService) {
+  private async verify(
+    employee: BiometricEmployeeInterface,
+    employeeService: EmployeeService,
+    releaseContext: PersonReleaseContext
+  ) {
     const existEmployee = await Employee.query()
       .where('employee_code', employee.empCode)
       .withTrashed()
       .first()
     if (!existEmployee) {
-      await employeeService.syncCreate(employee)
+      await employeeService.syncCreate(employee, releaseContext)
     }
   }
 
@@ -6887,6 +6896,11 @@ export default class EmployeeController {
     try {
       const employees = request.input('employees')
       const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(auth.user!)
+      // USRH1789698261608: traza de la compensación del alta por sincronización.
+      const releaseContext: PersonReleaseContext = {
+        actorUserId: auth.user?.userId ?? null,
+        businessUnitScope: allowedIds,
+      }
       const businessUnits = await BusinessUnit.query()
         .where('business_unit_active', 1)
         .whereIn('business_unit_id', allowedIds)
@@ -6962,7 +6976,7 @@ export default class EmployeeController {
             employee.usersResponsible = usersResponsible
             employee.businessUnitId = businessUnitApply?.businessUnitId || 1
             employeeCountSaved += 1
-            await this.verify(employee, employeeService)
+            await this.verify(employee, employeeService, releaseContext)
           }
         }
         response.status(201)

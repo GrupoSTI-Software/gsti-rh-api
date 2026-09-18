@@ -207,8 +207,10 @@ export default class EmployeeService {
     return DateTime.fromMillis(randomTimestamp)
   }
 
-  async syncCreate(employee: BiometricEmployeeInterface) {
-    // Guardar el personId que viene del frontend
+  async syncCreate(employee: BiometricEmployeeInterface, releaseContext: PersonReleaseContext) {
+    // Persona candidata a liberar si el alta falla. Si viene del API de
+    // biométricos es preexistente y el predicado la conserva (fuera de
+    // ventana); solo la creada en este mismo acto se libera (USRH1789698261608).
     let personIdToDelete = employee.personId || null
     // const newEmployee = new Employee()
     // const personService = new PersonService(this.i18n)
@@ -230,7 +232,7 @@ export default class EmployeeService {
         .whereNull('employee_type_deleted_at')
         .first()
 
-      // Usar el personId que viene del frontend
+      // Persona preexistente que llegó del API de biométricos
       if (employee.personId) {
         newEmployee.personId = employee.personId
       } else {
@@ -283,13 +285,10 @@ export default class EmployeeService {
 
       return newEmployee
     } catch (error) {
-      // Si hay error y tenemos un personId, eliminarlo
+      // USRH1789698261608 (D2): misma compensación que el alta desde el BO.
+      // `releasePersonIfOrphan` nunca lanza, así que no hace falta anidar.
       if (personIdToDelete) {
-        try {
-          await this.deletePersonById(personIdToDelete)
-        } catch (deleteError) {
-          console.error('Error eliminando persona huérfana:', deleteError)
-        }
+        await this.releasePersonIfOrphan(personIdToDelete, releaseContext)
       }
       throw error
     }
@@ -2663,7 +2662,11 @@ export default class EmployeeService {
   }
 
   /**
-   * Eliminar una persona por su ID
+   * Eliminar una persona por su ID.
+   *
+   * @deprecated Sin llamadores desde USRH1789698261608: borraba sin comprobar
+   * vínculo ni antigüedad. Toda compensación del alta fallida pasa por
+   * `releasePersonIfOrphan`. Se retira junto con el alta transaccional.
    * @param personId - ID de la persona a eliminar
    * @returns Promise<boolean> - true si se eliminó correctamente
    */
