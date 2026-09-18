@@ -1,6 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import Role from '#models/role'
-import { isSystemRoleSlug } from '#constants/system_roles'
 
 /**
  * Slugs que sí pueden reconfigurar su propio rol: la cuenta de plataforma y el
@@ -10,13 +9,20 @@ import { isSystemRoleSlug } from '#constants/system_roles'
 const OWN_ROLE_EDITOR_SLUGS: readonly string[] = ['root', 'owner']
 
 /**
- * Determina si el usuario actual puede reconfigurar un rol de sistema.
+ * Determina si el usuario actual puede reconfigurar un rol de plataforma.
+ *
+ * Lo que se protege es el rol SIN empresa dueña (`business_unit_id` NULL): hoy
+ * solo `root`. Antes la lista eran `owner` y `empleado`, porque eran filas
+ * globales que todos los clientes compartían y tocarlas afectaba a los demás;
+ * desde que cada empresa tiene las suyas, esos roles son del cliente y él los
+ * administra. Lo que sigue sin poder hacer es fabricar o renombrar un rol con
+ * un slug reservado (`RESERVED_ROLE_IDENTITY_SLUGS`), que es otra guarda.
  */
 export async function isSystemRoleLockedForUser(
   auth: HttpContext['auth'],
   role: Role
 ): Promise<boolean> {
-  if (!isSystemRoleSlug(role.roleSlug)) {
+  if (role.businessUnitId !== null && role.businessUnitId !== undefined) {
     return false
   }
 

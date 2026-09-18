@@ -1,7 +1,6 @@
 import mail from '@adonisjs/mail/services/main'
 import env from '#start/env'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
-import BusinessUnit from '#models/business_unit'
 import SystemSetting from '#models/system_setting'
 import TeleworkPolicyNotificationLog from '#models/telework_policy_notification_log'
 import type TeleworkPolicy from '#models/telework_policy'
@@ -180,35 +179,31 @@ export default class TeleworkPolicyNotificationService {
    * (USRH1784259058567).
    */
   private async resolveBrandingForBusinessUnit(
-    _businessUnitId: number
+    businessUnitId: number
   ): Promise<{ tradeName: string; backgroundImageLogo: string }> {
-    const businessUnit = await BusinessUnit.query().whereNull('business_unit_deleted_at').first()
-
-    const slug = businessUnit?.businessUnitSlug?.trim().toLowerCase() ?? ''
-    const settings = await SystemSetting.query()
+    // El parámetro se usa: antes se ignoraba (`_businessUnitId`) y la marca
+    // salía de la PRIMERA empresa de la base, con lo que un tenant podía recibir
+    // el correo con el nombre y el logo de otro. La configuración de una empresa
+    // se pide por su llave.
+    const setting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_active', 1)
-      .select(
-        'system_setting_trade_name',
-        'system_setting_logo',
-        'system_setting_business_units'
-      )
+      .where('business_unit_id', businessUnitId)
+      .first()
 
-    for (const setting of settings) {
-      const slugs = (setting.systemSettingBusinessUnits ?? '')
-        .split(',')
-        .map((value) => value.trim().toLowerCase())
-        .filter(Boolean)
-
-      if (slug && slugs.includes(slug)) {
-        return {
-          tradeName: setting.systemSettingTradeName || 'Valanserh',
-          backgroundImageLogo: setting.systemSettingLogo || DEFAULT_MAIL_LOGO,
-        }
+    if (setting) {
+      return {
+        tradeName: setting.systemSettingTradeName || 'Valanserh',
+        backgroundImageLogo: setting.systemSettingLogo || DEFAULT_MAIL_LOGO,
       }
     }
 
-    const fallback = settings[0]
+    const fallback = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .where('system_setting_active', 1)
+      .whereNull('business_unit_id')
+      .first()
+
     return {
       tradeName: fallback?.systemSettingTradeName || 'Valanserh',
       backgroundImageLogo: fallback?.systemSettingLogo || DEFAULT_MAIL_LOGO,

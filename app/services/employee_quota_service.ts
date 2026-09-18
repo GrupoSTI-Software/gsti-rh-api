@@ -189,27 +189,20 @@ export default class EmployeeQuotaService {
     businessUnit: BusinessUnit,
     trx: TransactionClientContract
   ): Promise<void> {
-    const systemSettings = await SystemSetting.query({ client: trx })
+    // La configuración de la empresa se resuelve por su llave; antes se
+    // recorrían todas las activas buscando el slug dentro de su CSV.
+    const matchingSetting = await SystemSetting.query({ client: trx })
       .whereNull('system_setting_deleted_at')
       .where('system_setting_active', 1)
-      .select('system_setting_id', 'system_setting_business_units')
+      .where('business_unit_id', businessUnit.businessUnitId)
+      .select('system_setting_id')
+      .first()
 
-    let matchingSystemSettingId: number | null = null
-
-    for (const setting of systemSettings) {
-      const settingBusinessUnits = setting.systemSettingBusinessUnits
-        .split(',')
-        .map((unit: string) => unit.trim())
-
-      if (settingBusinessUnits.includes(businessUnit.businessUnitSlug)) {
-        matchingSystemSettingId = setting.systemSettingId
-        break
-      }
-    }
-
-    if (matchingSystemSettingId === null) {
+    if (!matchingSetting) {
       return
     }
+
+    const matchingSystemSettingId = matchingSetting.systemSettingId
 
     await SystemSettingsEmployee.query({ client: trx })
       .where('is_active', 1)
@@ -254,27 +247,19 @@ export default class EmployeeQuotaService {
     trx?: TransactionClientContract
   ): Promise<number | null> {
     try {
-      const systemSettings = await SystemSetting.query({ client: trx })
+      // Misma resolución por llave que el método anterior.
+      const matchingSetting = await SystemSetting.query({ client: trx })
         .whereNull('system_setting_deleted_at')
         .where('system_setting_active', 1)
-        .select('system_setting_id', 'system_setting_business_units')
+        .where('business_unit_id', businessUnit.businessUnitId)
+        .select('system_setting_id')
+        .first()
 
-      let matchingSystemSettingId: number | null = null
-
-      for (const setting of systemSettings) {
-        const settingBusinessUnits = setting.systemSettingBusinessUnits
-          .split(',')
-          .map((unit: string) => unit.trim())
-
-        if (settingBusinessUnits.includes(businessUnit.businessUnitSlug)) {
-          matchingSystemSettingId = setting.systemSettingId
-          break
-        }
-      }
-
-      if (matchingSystemSettingId === null) {
+      if (!matchingSetting) {
         return null
       }
+
+      const matchingSystemSettingId = matchingSetting.systemSettingId
 
       const result = await SystemSettingsEmployee.query({ client: trx })
         .where('is_active', 1)

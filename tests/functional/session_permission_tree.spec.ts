@@ -129,7 +129,6 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
       roleSlug: `session-permission-tree-role-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
       roleManagementDays: 10,
     })
     await RoleSystemPermission.create({
@@ -142,7 +141,6 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
       roleSlug: `session-permission-tree-legacy-role-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
       roleManagementDays: 10,
     })
     await RoleSystemPermission.create({
@@ -154,9 +152,10 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
 
     standardActor = await createTenantActor('session-permission-tree', standardRole, true)
     ownerActor = await createTenantActor('session-permission-tree-owner', ownerRole)
-    // El owner reasigna este rol en un caso: que el rol sea de su empresa, para
-    // que el caso no dependa de que la asignación no corte por empresa.
-    standardRole.roleBusinessAccess = ownerActor.businessUnit.businessUnitSlug
+    // El owner reasigna este rol en un caso: el rol tiene que ser de SU empresa,
+    // porque la asignación resuelve el id dentro de la empresa activa. Antes lo
+    // conseguía el CSV `role_business_access`; ahora lo dice la llave.
+    standardRole.businessUnitId = ownerActor.businessUnit.businessUnitId
     await standardRole.save()
     // Sesión cuyo rol ES `legacyAccessRole`: has-access solo responde la matriz
     // del rol de la sesión a quien no tiene roles-and-permissions:read.
@@ -167,7 +166,6 @@ test.group('GET /api/auth/session/permissions — árbol de permisos de sesión'
       roleSlug: `session-permission-tree-unresolved-role-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
       roleManagementDays: 10,
     })
     unresolvedActor = await createTenantActor('session-permission-tree-unresolved', unresolvedRole)
@@ -383,7 +381,6 @@ test.group('GET /api/auth/session/permissions — bandera de exigencia por módu
       roleSlug: `session-permission-tree-enforcement-role-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
       roleManagementDays: 10,
     })
     actor = await createTenantActor('session-permission-tree-enforcement', role, true)

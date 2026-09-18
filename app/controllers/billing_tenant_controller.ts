@@ -4,7 +4,8 @@ import BillingSubscriptionChangeService from '#services/billing_subscription_cha
 import BillingInternalNotificationService from '#services/billing_internal_notification_service'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
-import { assertBillingOwner } from '../helpers/billing_owner_guard.js'
+import { assertBillingOwner, isBillingOwnerRequest } from '../helpers/billing_owner_guard.js'
+import { restrictMySubscription } from '#helpers/billing_tenant_visibility'
 import { onlyAccountOwnerCanContractError } from '../helpers/billing_tenant_error.js'
 import { resolveBillingSubscriptionApiError } from '../helpers/billing_subscription_api_error.js'
 import { TenantContext } from '../utils/tenant_context.js'
@@ -448,10 +449,17 @@ export default class BillingTenantController {
    *       '404':
    *         description: Empresa fuera de alcance o inexistente
    */
-  async mySubscription({ response }: HttpContext) {
+  async mySubscription(ctx: HttpContext) {
+    const { response } = ctx
     try {
+      // Esta lectura no se niega: el backoffice la consulta en cada navegación
+      // de cualquier usuario para su muro de contratación. Lo que cambia es
+      // CUÁNTO se devuelve — el dinero es del dueño (`restrictMySubscription`).
+      const isOwner = await isBillingOwnerRequest(ctx)
       const result = await this.service.getMySubscription()
-      return response.status(200).json({ type: 'success', data: result })
+      const data = isOwner ? result : restrictMySubscription(result)
+
+      return response.status(200).json({ type: 'success', data })
     } catch (error) {
       const { status, ...body } = resolveBillingSubscriptionApiError(error)
       return response.status(status).json(body)

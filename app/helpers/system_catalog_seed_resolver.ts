@@ -42,7 +42,6 @@ export interface RoleSeedValues {
   roleSlug: string
   roleDescription: string
   roleActive: number
-  roleBusinessAccess: string
 }
 
 /** Campos del grupo que siembra `0061_system_module_group_seeder`. El id nunca se declara. */

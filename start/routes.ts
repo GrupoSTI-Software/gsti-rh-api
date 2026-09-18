@@ -32,6 +32,7 @@ import './routes/platform_recovery_routes.js'
 import './routes/platform_receivable_routes.js'
 import './routes/platform_mrr_routes.js'
 import './routes/platform_subscription_flow_routes.js'
+import './routes/platform_trial_routes.js'
 import './routes/login_routes.js'
 import './routes/auth_recovery_routes.js'
 import './routes/auth_invitation_routes.js'
@@ -163,8 +164,11 @@ import './routes/reform_simulator_routes.js'
 import '#modules/work-journal/work_journal.routes'
 import '#modules/onboarding/catalog/catalog.routes'
 import '#modules/onboarding/state/state.routes'
-import '#modules/onboarding/trial_access/trial_access.routes'
-import '#modules/onboarding/simulate_attendance/simulate_attendance.routes'
+// USRH1789079078167: trial-access y simulate-attendance se retiraron — eran
+// puertas HTTP de versiones viejas del onboarding sin ningún consumidor vivo
+// (backoffice, app del empleado y Panel verificados) y sin validación de
+// pertenencia (IDOR). El generador de checadas de práctica sigue vivo como
+// pieza interna del recorrido guiado (demo_seed lo llama directo por clase).
 import '#modules/onboarding/demo_seed/demo_seed.routes'
 import '#modules/consent/acceptance/acceptance.routes'
 import '#modules/consent/evidence/evidence.routes'

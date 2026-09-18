@@ -3,6 +3,7 @@ import Person from '#models/person'
 import User from '#models/user'
 import { UserFilterSearchInterface } from '../interfaces/user_filter_search_interface.js'
 import ApiToken from '#models/api_token'
+import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
 import Department from '#models/department'
 import { DateTime } from 'luxon'
 import { LogStore } from '#models/MongoDB/log_store'
@@ -149,9 +150,9 @@ export default class UserService {
     }
     await newUser.save()
 
-    if (businessUnitIds.length > 0) {
-      await newUser.related('businessUnits').attach(businessUnitIds)
-    }
+    // El rol efectivo por empresa nace igual al rol de la cuenta: es el mismo
+    // acceso que tenía antes de que la pivote llevara rol.
+    await attachBusinessUnitsWithRole(newUser, businessUnitIds, newUser.roleId)
 
     return newUser
   }
@@ -607,11 +608,11 @@ export default class UserService {
         .whereNull('business_unit_deleted_at')
         .select('business_unit_id')
 
-      if (activeBusinessUnits.length > 0) {
-        await user
-          .related('businessUnits')
-          .attach(activeBusinessUnits.map((unit) => unit.businessUnitId))
-      }
+      await attachBusinessUnitsWithRole(
+        user,
+        activeBusinessUnits.map((unit) => unit.businessUnitId),
+        user.roleId
+      )
 
       return user
     } catch (error) {
@@ -901,9 +902,7 @@ export default class UserService {
         user.personId = person.personId
         await user.save()
 
-        if (activeBusinessUnitIds.length > 0) {
-          await user.related('businessUnits').attach(activeBusinessUnitIds)
-        }
+        await attachBusinessUnitsWithRole(user, activeBusinessUnitIds, user.roleId)
 
         const employeeCode = `ROOT-${prefix}-${index + 1}`
         const employee = new Employee()

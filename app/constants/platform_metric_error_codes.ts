@@ -11,6 +11,8 @@ export const PLATFORM_METRIC_ERROR_CODES = {
   VAL_INPUT: 'PLT.MET.VAL_INPUT',
   /** Error no tipado del sistema */
   SYS_UNHANDLED: 'PLT.MET.SYS_UNHANDLED',
+  /** Tenant inexistente o borrado lógicamente, por `publicId` (USRH1789079078169) */
+  TENANT_NOT_FOUND: 'PLT.MET.TENANT_NOT_FOUND',
 } as const
 
 /** Unión de los códigos estables definidos en `PLATFORM_METRIC_ERROR_CODES`. */
@@ -87,4 +89,20 @@ export const SUBSCRIPTION_FLOWS_METRIC_ERROR_TEXTS: PlatformMetricErrorTexts = {
   failureKey: 'no-fue-posible-obtener-los-flujos-de-suscripcion',
   unhandledTitle: 'Error inesperado al obtener los flujos de suscripción',
   unhandledKey: 'error-inesperado-al-obtener-los-flujos-de-suscripcion',
+}
+
+/**
+ * Textos de la ventana y el estado de la prueba de un tenant (USRH1789079078169).
+ *
+ * Estrena el área de consultas de la prueba; comparte infraestructura de
+ * error con el resto de métricas de plataforma en vez de crear un módulo de
+ * error propio — es la misma clase de superficie (consulta de solo lectura
+ * para `platformAdmin`), y el código `PLT.MET.TENANT_NOT_FOUND` se agrega al
+ * set compartido en lugar de duplicarlo.
+ */
+export const TRIAL_METRIC_ERROR_TEXTS: PlatformMetricErrorTexts = {
+  failureTitle: 'No fue posible obtener la prueba del tenant',
+  failureKey: 'no-fue-posible-obtener-la-prueba-del-tenant',
+  unhandledTitle: 'Error inesperado al obtener la prueba del tenant',
+  unhandledKey: 'error-inesperado-al-obtener-la-prueba-del-tenant',
 }

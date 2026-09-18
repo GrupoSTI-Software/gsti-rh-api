@@ -227,8 +227,8 @@ test.group('BillingSubscriptionService.createSubscription — replaceLiveSubscri
       })
 
       assert.notEqual(replacement.billingSubscriptionId, original.billingSubscriptionId)
-      // La original ya gozó prueba (contracted_trial_days > 0): el reemplazo
-      // nace sin prueba, active (regla de prueba única por empresa).
+      // La original ya gozó prueba (trial_ends_at poblado, USRH1789151097443
+      // RN-01): el reemplazo nace sin prueba, active (prueba única por empresa).
       assert.equal(replacement.billingSubscriptionStatus, 'active')
       assert.equal(replacement.billingSubscriptionContractedEmployees, 20)
 

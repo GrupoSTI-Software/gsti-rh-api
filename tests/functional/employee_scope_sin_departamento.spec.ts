@@ -112,7 +112,6 @@ async function createRoleActor(unit: BusinessUnit, label: string): Promise<Actor
     roleSlug: `alcance-${label}-${s}`,
     roleDescription: 'Rol temporal para el alcance de empleados sin departamento',
     roleActive: 1,
-    roleBusinessAccess: unit.businessUnitSlug,
     roleManagementDays: 10,
   })
   return createUser(unit, label, role, s)

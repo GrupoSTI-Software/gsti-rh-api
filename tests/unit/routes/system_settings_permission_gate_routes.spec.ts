@@ -195,7 +195,12 @@ test.group('Ajustes Generales — subrecursos de la ficha', () => {
     assert.include(compact(content), ".prefix('/api/tolerances').use(middleware.auth())")
   })
 
-  test('configuración de nómina: las cuatro rutas montan auth antes del gate (el detalle era público)', ({
+  /**
+   * Mismo criterio que el límite de empleados: `auth()` en el GRUPO y antes que
+   * `businessScope()`. El detalle de esta configuración además era público antes
+   * de que el grupo llevara autenticación.
+   */
+  test('configuración de nómina: el grupo monta auth antes del scope y cada ruta su gate', ({
     assert,
   }) => {
     const content = readRoutes('system_setting_payroll_config_routes.ts')
@@ -208,8 +213,16 @@ test.group('Ajustes Generales — subrecursos de la ficha', () => {
     ]
 
     for (const route of routes) {
-      assertAuthBeforeGate(assert, assertGated(assert, content, route), `${route.method.toUpperCase()} ${route.path}`)
+      assertGated(assert, content, route)
     }
+
+    const flat = compact(content)
+    assert.include(flat, ".prefix('/api/system-setting-payroll-configs')")
+    assert.isBelow(
+      flat.indexOf('.use(middleware.auth())'),
+      flat.indexOf('.use(middleware.businessScope())'),
+      'auth() del grupo debe ir antes de businessScope()'
+    )
   })
 
   test('correos de notificación: el grupo monta auth y cada ruta su gate (no tenía ningún middleware)', ({
@@ -222,10 +235,20 @@ test.group('Ajustes Generales — subrecursos de la ficha', () => {
     assertGated(assert, content, { method: 'get', path: '/:systemSettingId', handler: handler('indexBySystemSetting'), declaration: 'indexNotificationEmailsBySystemSetting' })
     assertGated(assert, content, { method: 'post', path: '/', handler: handler('store'), declaration: 'storeNotificationEmail' })
     assertGated(assert, content, { method: 'delete', path: '/:systemSettingNotificationEmailId', handler: handler('delete'), declaration: 'destroyNotificationEmail' })
-    assert.include(compact(content), ".prefix('/api/system-settings-notification-emails').use(middleware.auth())")
+    const flat = compact(content)
+    assert.include(flat, ".prefix('/api/system-settings-notification-emails').use(middleware.auth())")
+    assert.include(flat, '.use(middleware.businessScope())')
   })
 
-  test('límite de empleados: las cuatro rutas montan auth antes del gate', ({ assert }) => {
+  /**
+   * `auth()` vive en el GRUPO, como en el resto de los grupos de este archivo, y
+   * antes que `businessScope()`. Antes estaba ruta por ruta, y como los
+   * middlewares del grupo corren primero, `businessScope()` se ejecutaba sin
+   * usuario autenticado y reventaba con un 500 al leer su rol.
+   */
+  test('límite de empleados: el grupo monta auth antes del scope y cada ruta su gate', ({
+    assert,
+  }) => {
     const content = readRoutes('system_settings_employees.ts')
     const handler = (method: string) => `system_settings_employees_controller.${method}`
     const routes: GatedRouteRef[] = [
@@ -236,8 +259,16 @@ test.group('Ajustes Generales — subrecursos de la ficha', () => {
     ]
 
     for (const route of routes) {
-      assertAuthBeforeGate(assert, assertGated(assert, content, route), `${route.method.toUpperCase()} ${route.path}`)
+      assertGated(assert, content, route)
     }
+
+    const flat = compact(content)
+    assert.include(flat, ".prefix('/api/system-settings-employees')")
+    assert.isBelow(
+      flat.indexOf('.use(middleware.auth())'),
+      flat.indexOf('.use(middleware.businessScope())'),
+      'auth() del grupo debe ir antes de businessScope()'
+    )
   })
 
   test('razones sociales: cada ruta declara su gate y el grupo conserva auth y businessScope', ({

@@ -14,6 +14,7 @@ import LactationExpiringMail, {
 } from '#mails/lactation_expiring_mail'
 import mail from '@adonisjs/mail/services/main'
 import { TenantContext } from '#utils/tenant_context'
+import { indexSystemSettingsByBusinessUnitSlug } from '#helpers/system_settings_by_business_unit'
 
 /**
  * Logger inyectable. El comando ace pasa los métodos `info/warn/error` de
@@ -149,8 +150,10 @@ export default class EmployeeLactationNotificationService {
     }
 
     // Carga única de SystemSettings activos para evitar N queries.
-    const settings = await this.fetchActiveSystemSettings()
-    const settingByBuSlug = this.indexSystemSettingsByBuSlug(settings)
+    const settingByBuSlug = await this.indexSystemSettingsByBuSlug()
+    const settingById = new Map(
+      [...settingByBuSlug.values()].map((item) => [item.systemSettingId, item])
+    )
 
     // Agrupa candidatos por SystemSetting. Si no se puede resolver, se
     // omite (no es un fallo crítico, lo registramos como warning con
@@ -179,7 +182,7 @@ export default class EmployeeLactationNotificationService {
     const from = resolveMailSender()
 
     for (const [systemSettingId, rows] of grouped.entries()) {
-      const setting = settings.find((s) => s.systemSettingId === systemSettingId)!
+      const setting = settingById.get(systemSettingId)!
       const recipients = await this.fetchRecipientsForSetting(systemSettingId)
 
       if (recipients.length === 0) {
@@ -341,40 +344,14 @@ export default class EmployeeLactationNotificationService {
     return candidates
   }
 
-  private async fetchActiveSystemSettings(): Promise<SystemSetting[]> {
-    return SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_active', 1)
-      .select(
-        'system_setting_id',
-        'system_setting_trade_name',
-        'system_setting_sidebar_color',
-        'system_setting_business_units',
-        'system_setting_active'
-      )
-  }
-
   /**
-   * Construye `Map<businessUnitSlug, SystemSetting>` para resolución
-   * O(1) durante el agrupado. El CSV `systemSettingBusinessUnits` se
-   * normaliza a lowercase + trim antes de indexar.
+   * `Map<businessUnitSlug, SystemSetting>` para resolución O(1) durante el
+   * agrupado. Lo arma la frontera única
+   * (`indexSystemSettingsByBusinessUnitSlug`) desde `business_unit_id`; antes
+   * este método partía el CSV `system_setting_business_units` por su cuenta.
    */
-  private indexSystemSettingsByBuSlug(
-    settings: SystemSetting[]
-  ): Map<string, SystemSetting> {
-    const map = new Map<string, SystemSetting>()
-    for (const setting of settings) {
-      const slugs = (setting.systemSettingBusinessUnits ?? '')
-        .split(',')
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean)
-      for (const slug of slugs) {
-        if (!map.has(slug)) {
-          map.set(slug, setting)
-        }
-      }
-    }
-    return map
+  private async indexSystemSettingsByBuSlug(): Promise<Map<string, SystemSetting>> {
+    return indexSystemSettingsByBusinessUnitSlug()
   }
 
   private async fetchRecipientsForSetting(systemSettingId: number): Promise<string[]> {
