@@ -61,7 +61,6 @@ async function createOutsider(businessUnitId: number): Promise<Outsider> {
     role.roleSlug = `adms-sin-permisos-${STAMP}`
     role.roleDescription = 'Rol de prueba sin concesiones sobre biometric-devices'
     role.roleActive = 1
-    role.roleBusinessAccess = 'assigned'
     await role.save()
 
     const person = new Person()

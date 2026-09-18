@@ -1,10 +1,20 @@
 import SystemSettingProceedingFile from '#models/system_setting_proceeding_file'
-import SystemSetting from '#models/system_setting'
 import ProceedingFile from '#models/proceeding_file'
 import ProceedingFileType from '#models/proceeding_file_type'
 import { DateTime } from 'luxon'
 import type { ProceedingFileExpiredFilterInterface } from '../interfaces/proceeding_file_expired_filter_interface.js'
+import {
+  findSystemSettingInScope,
+  isTenantScopeActive,
+  scopedSystemSettingIds,
+} from '#helpers/system_setting_tenant_scope'
 
+/**
+ * Expediente documental de la empresa y sus vencimientos. El corte se aplica a
+ * mano porque el `systemSettingId` llega del cliente y ni esta tabla puente ni
+ * `SystemSetting` componen el mixin de empresa: sin él se leía el expediente
+ * ajeno y el guardado permitía mover un documento de una empresa a otra.
+ */
 export default class SystemSettingProceedingFileService {
   async create(data: { systemSettingId: number; proceedingFileId: number }) {
     const row = new SystemSettingProceedingFile()
@@ -22,6 +32,9 @@ export default class SystemSettingProceedingFileService {
     return SystemSettingProceedingFile.query()
       .whereNull('system_setting_proceeding_file_deleted_at')
       .where('systemSettingProceedingFileId', systemSettingProceedingFileId)
+      .if(isTenantScopeActive(), (query) => {
+        query.whereIn('system_setting_id', scopedSystemSettingIds())
+      })
       .preload('proceedingFile', (q) => {
         q.whereNull('proceeding_file_deleted_at').preload('proceedingFileType')
       })
@@ -44,10 +57,7 @@ export default class SystemSettingProceedingFileService {
   }
 
   async verifyInfoExist(data: { systemSettingId: number; proceedingFileId: number }) {
-    const systemSetting = await SystemSetting.query()
-      .whereNull('deletedAt')
-      .where('systemSettingId', data.systemSettingId)
-      .first()
+    const systemSetting = await findSystemSettingInScope(data.systemSettingId)
 
     if (!systemSetting) {
       return {
@@ -153,7 +163,11 @@ export default class SystemSettingProceedingFileService {
       .whereIn('proceeding_file_type_id', proceedingFileTypesIds)
       .whereBetween('proceeding_file_expiration_at', [filters.dateStart, filters.dateEnd])
       .whereHas('systemSettingProceedingFile', (q) => {
-        q.whereNull('system_setting_proceeding_file_deleted_at').where('system_setting_id', systemSettingId)
+        q.whereNull('system_setting_proceeding_file_deleted_at')
+          .where('system_setting_id', systemSettingId)
+          .if(isTenantScopeActive(), (scoped) => {
+            scoped.whereIn('system_setting_id', scopedSystemSettingIds())
+          })
       })
       .preload('proceedingFileType')
       .preload('systemSettingProceedingFile', (q) => {
@@ -168,7 +182,11 @@ export default class SystemSettingProceedingFileService {
       .whereIn('proceeding_file_type_id', proceedingFileTypesIds)
       .whereBetween('proceeding_file_expiration_at', [newDateStart, newDateEnd])
       .whereHas('systemSettingProceedingFile', (q) => {
-        q.whereNull('system_setting_proceeding_file_deleted_at').where('system_setting_id', systemSettingId)
+        q.whereNull('system_setting_proceeding_file_deleted_at')
+          .where('system_setting_id', systemSettingId)
+          .if(isTenantScopeActive(), (scoped) => {
+            scoped.whereIn('system_setting_id', scopedSystemSettingIds())
+          })
       })
       .preload('proceedingFileType')
       .preload('systemSettingProceedingFile', (q) => {

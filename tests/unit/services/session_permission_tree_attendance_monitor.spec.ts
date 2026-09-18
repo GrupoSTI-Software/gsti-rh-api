@@ -55,7 +55,6 @@ test.group('Árbol de sesión — monitor de asistencia (USRH1787433076991)', (g
       roleSlug: ROLE_SLUG,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
     })
   })
 
