@@ -31,7 +31,12 @@ export default class extends BaseSeeder {
         userActive: 1,
         personId: 1,
         roleId: roleIdBySlug.get(this.roleSlug)!,
-        businessUnitIds: [1],
+        // Sin empresas: `root` es la cuenta de plataforma y alcanza todas las
+        // activas sin necesitar membresía
+        // (`BusinessAccessScopeService.getAccessibleIds`). Una base nueva no
+        // tiene ninguna —el primer tenant nace del registro self-service o del
+        // alta desde configuración—, así que no hay a qué ligarlo.
+        businessUnitIds: [] as number[],
         isPlatformAdmin: true,
         userPasswordSetAt: DateTime.now(),
         userEmailVerifiedAt: DateTime.now(),
