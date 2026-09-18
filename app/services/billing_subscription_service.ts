@@ -8,6 +8,7 @@ import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing
 import BillingCatalogService, { type AppliedDiscountCode } from '#services/billing_catalog_service'
 import DiscountCodeService from '#services/discount_code_service'
 import DiscountCode from '#models/discount_code'
+import AllianceAttributionService from '#services/alliance_attribution_service'
 import { DiscountCodeServiceError } from '#exceptions/discount_code_service_error'
 import { DISCOUNT_CODE_ERROR_CODES } from '#constants/discount_code_error_codes'
 import BillingSubscriptionChange from '#models/billing_subscription_change'
@@ -108,6 +109,7 @@ export default class BillingSubscriptionService {
   private readonly catalog = new BillingCatalogService()
   private readonly employeeQuota = new EmployeeQuotaService()
   private readonly discountCodes = new DiscountCodeService()
+  private readonly attributions = new AllianceAttributionService()
 
   // ─── Empresas (picker del alta) ──────────────────────────────────────────
 
@@ -580,6 +582,17 @@ export default class BillingSubscriptionService {
       // transacción, antes del INSERT, para que el índice único de la
       // columna espejo nunca vea dos filas vivas de la misma empresa.
       await this.cancelWithin(existingLive, trx)
+    }
+
+    // Código de una alianza: la atribución nace en la misma transacción
+    // que la suscripción. Otra alianza viva rechaza el alta completo
+    // (nada se consume, la viva que se iba a reemplazar sigue viva).
+    if (redeemedCode?.allianceId) {
+      await this.attributions.attributeOnAllianceCodeRedeem(
+        redeemedCode.allianceId,
+        input.businessUnitPublicId,
+        trx
+      )
     }
 
     // Paso 10b (USRH1787714804401 §4/Anexo C §2): se consume el cupo justo

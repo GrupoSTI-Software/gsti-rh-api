@@ -235,7 +235,7 @@ export default class VacationAuthorizationSignaturesService {
     const pending = await ExceptionRequest.query()
       .where('employee_id', employeeId)
       .where('exception_type_id', vacationType.exceptionTypeId)
-      .whereIn('exception_request_status', ['requested', 'pending'])
+      .where('exception_request_status', 'pending')
       .orderBy('requested_date', 'asc')
 
     return {

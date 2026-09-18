@@ -111,7 +111,6 @@ test.group('GET /api/system-settings-active — resolución por business_unit_id
     systemSettingA.systemSettingTradeName = `Trade A ${stamp}`
     systemSettingA.systemSettingSidebarColor = '#111111'
     systemSettingA.systemSettingActive = 1
-    systemSettingA.systemSettingBusinessUnits = businessUnitA.businessUnitSlug
     systemSettingA.systemSettingMonthlyConversionFactor = 30.4
     await systemSettingA.save()
 
@@ -120,7 +119,6 @@ test.group('GET /api/system-settings-active — resolución por business_unit_id
     systemSettingB.systemSettingTradeName = `Trade B ${stamp}`
     systemSettingB.systemSettingSidebarColor = '#222222'
     systemSettingB.systemSettingActive = 1
-    systemSettingB.systemSettingBusinessUnits = businessUnitB.businessUnitSlug
     systemSettingB.systemSettingMonthlyConversionFactor = 30.4
     await systemSettingB.save()
 
@@ -171,7 +169,13 @@ test.group('GET /api/system-settings-active — resolución por business_unit_id
     response.assertStatus(401)
   })
 
-  test('autenticado sin header: devuelve la ficha base, no la de un cliente sembrado', async ({
+  /**
+   * Antes devolvía 200 con la "ficha base" de plataforma (`business_unit_id`
+   * NULL). Esa fila se retiró: era la configuración de nadie y se servía como si
+   * fuera la del cliente que preguntaba. Sin header no hay empresa que
+   * identificar, así que no hay configuración que servir.
+   */
+  test('autenticado sin header: 404, no se sirve la configuración de nadie', async ({
     client,
     assert,
   }) => {
@@ -182,12 +186,10 @@ test.group('GET /api/system-settings-active — resolución por business_unit_id
 
     const response = await client.get('/api/system-settings-active').loginAs(actorA.user)
 
-    response.assertStatus(200)
+    response.assertStatus(404)
     const body = response.body()
-    assert.equal(body.type, 'success')
-    assert.isNull(body.data?.systemSetting?.businessUnitId)
-    assert.notEqual(body.data?.systemSetting?.systemSettingId, systemSettingA.systemSettingId)
-    assert.notEqual(body.data?.systemSetting?.systemSettingId, systemSettingB.systemSettingId)
+    assert.equal(body.key, 'configuracion-sin-empresa')
+    assert.isNull(body.data?.systemSetting ?? null)
   })
 
   test('con header + sesión de la empresa A: devuelve exactamente la configuración de A', async ({

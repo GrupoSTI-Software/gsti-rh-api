@@ -26,7 +26,6 @@ import ToleranceService from './tolerance_service.js'
 import { AssistSyncFilterInterface } from '../interfaces/assist_sync_filter_interface.js'
 import AssistsService from './assist_service.js'
 import SystemSettingService from './system_setting_service.js'
-import SystemSetting from '#models/system_setting'
 import Tolerance from '#models/tolerance'
 import { ShiftInterface } from '../interfaces/shift_interface.js'
 import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_service_index_interface.js'
@@ -2463,8 +2462,10 @@ export default class SyncAssistsService {
         return this.tolerancesCache
       }
 
-      const systemSettingService = new SystemSettingService()
-      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+      // Tolerancias DE LA EMPRESA ACTIVA. Antes salían de la configuración de
+      // plataforma, así que la sincronización aplicaba los mismos minutos a
+      // todos los clientes, ignorando lo que cada uno hubiera ajustado.
+      const systemSettingActive = await new SystemSettingService().resolveForActiveTenant()
       let data = [] as Tolerance[]
 
       if (systemSettingActive) {

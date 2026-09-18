@@ -94,7 +94,7 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
       roleSlug: `acceptance-role-${stamp}`,
       roleDescription: 'Fixture de aceptación',
       roleActive: 1,
-      roleBusinessAccess: actor!.businessUnit.businessUnitSlug,
+      businessUnitId: actor!.businessUnit.businessUnitId,
       roleManagementDays: 10,
     })
     otherModule = await SystemModule.create({
@@ -310,7 +310,16 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
     )
   })
 
-  test('F: rol sistema devuelve 403 y no modifica grants', async ({ client, assert }) => {
+  /**
+   * Antes: 403 `rol-sistema-bloqueado`, porque `owner` era una fila global que
+   * el candado de roles de sistema protegía de los tenants. Con roles por
+   * empresa no queda ningún rol de tenant compartido, y un rol sin empresa
+   * dueña no existe para quien pide: responde 404 y tampoco se toca.
+   */
+  test('F: un rol sin empresa dueña devuelve 404 y no modifica grants', async ({
+    client,
+    assert,
+  }) => {
     const owner = await ensureRole('owner')
     const beforeGrants = await grants(owner.roleId)
     const before = beforeGrants.map((grant) => grant.systemPermissionId).sort()
@@ -324,8 +333,7 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
         expectedPresetVersion: '1.0.0',
         baselinePermissionIds: before,
       })
-    response.assertStatus(403)
-    assert.equal(response.body().key, 'rol-sistema-bloqueado')
+    response.assertStatus(404)
     const after = await grants(owner.roleId)
     assert.deepEqual(after.map((grant) => grant.systemPermissionId).sort(), before)
   })

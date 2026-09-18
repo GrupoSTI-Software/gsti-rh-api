@@ -81,7 +81,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     roleSlug: `turnos-pruebas-${stamp}`,
     roleDescription: 'Rol temporal para matriz de permisos',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   const person = await Person.create({
@@ -298,7 +298,7 @@ function requestPayload(fixtures: TestFixtures) {
   return {
     employeeId: fixtures.employee.employee.employeeId,
     exceptionTypeId: fixtures.absenceType.exceptionTypeId,
-    exceptionRequestStatus: 'requested',
+    exceptionRequestStatus: 'pending',
     exceptionRequestDescription: 'Solicitud de prueba D-08',
     requestedDate: '2030-01-07',
   }
@@ -319,7 +319,7 @@ async function createCommonRequest(fixtures: TestFixtures, actor: TenantActor) {
   return ExceptionRequest.create({
     employeeId: fixtures.employee.employee.employeeId,
     exceptionTypeId: fixtures.absenceType.exceptionTypeId,
-    exceptionRequestStatus: 'requested',
+    exceptionRequestStatus: 'pending',
     exceptionRequestDescription: 'Solicitud común para aprobar',
     exceptionRequestCheckInTime: null,
     exceptionRequestCheckOutTime: null,

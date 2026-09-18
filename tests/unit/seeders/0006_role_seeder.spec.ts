@@ -3,12 +3,14 @@ import RoleSeeder, { ROLE_SEEDS } from '#database/seeders/0006_role_seeder'
 import Role from '#models/role'
 
 /**
- * Tests del seeder 0006_role_seeder: siembra los tres roles globales que el
- * runtime resuelve por slug (`root`, `owner`, `empleado`) y ninguno más.
+ * Tests del seeder 0006_role_seeder: siembra `root`, el ÚNICO rol global de la
+ * plataforma, y ninguno más.
  *
- * Es un puente hasta que aterricen los roles por empresa. Lo que protege este
- * spec es el borde: que no vuelvan `super-administrador` ni `rh-manager`, que
- * dan salvoconducto ampliado y visibilidad sin que ningún flujo los necesite.
+ * Lo que protege este spec es el borde en las dos direcciones: que no vuelvan
+ * `super-administrador` ni `rh-manager` —que reparten salvoconducto ampliado sin
+ * que ningún flujo los necesite— y que no vuelvan `owner` ni `empleado` como
+ * filas globales, que es justo lo que el modelo de roles por empresa retira:
+ * cada empresa estrena los suyos en `0064_tenant_roles_seeder`.
  *
  * Ningún caso compara contra el total de la tabla `roles`: otros specs de la
  * misma corrida crean roles con `tests/helpers/ensure_role.ts` antes de que
@@ -17,8 +19,9 @@ import Role from '#models/role'
  * asigna la BD.
  */
 
-const SEMBRADOS = ['root', 'owner', 'empleado'] as const
-const NO_SEMBRADOS = ['super-administrador', 'rh-manager'] as const
+const SEMBRADOS = ['root'] as const
+/** Los dos primeros reparten acceso de más; los dos últimos son de cada empresa, no globales. */
+const NO_SEMBRADOS = ['super-administrador', 'rh-manager', 'owner', 'empleado'] as const
 
 /** Slugs de todas las filas de `roles`, incluidas las dadas de baja. */
 async function allRoleSlugs(): Promise<string[]> {
@@ -31,29 +34,25 @@ async function liveRoles(slug: string): Promise<Role[]> {
   return Role.query().whereNull('role_deleted_at').where('role_slug', slug)
 }
 
-test.group('0006_role_seeder — puente de roles globales', () => {
-  test('declara root, owner y empleado, y ningún rol con salvoconducto ampliado', ({ assert }) => {
+test.group('0006_role_seeder — el único rol global es root', () => {
+  test('declara root y nada más', ({ assert }) => {
     const declarados = ROLE_SEEDS.map((role) => role.roleSlug)
 
     assert.deepEqual(declarados, [...SEMBRADOS])
     for (const slug of NO_SEMBRADOS) {
-      assert.notInclude(
-        declarados,
-        slug,
-        `${slug} no se siembra: reparte acceso que ningún flujo necesita para operar`
-      )
+      assert.notInclude(declarados, slug, `${slug} no se siembra como rol global`)
     }
   })
 
-  test('ninguna declaración fija id ni concesiones ni ata el CSV a una empresa', ({ assert }) => {
+  test('ninguna declaración fija id ni ata el rol a una empresa', ({ assert }) => {
     for (const role of ROLE_SEEDS) {
       assert.notProperty(role, 'roleId', `${role.roleSlug} no debe declarar id: lo asigna la BD`)
-      assert.equal(role.roleActive, 1)
-      assert.equal(
-        role.roleBusinessAccess,
-        '',
-        `${role.roleSlug} no debe atar su visibilidad al slug de una empresa`
+      assert.notProperty(
+        role,
+        'businessUnitId',
+        `${role.roleSlug} es de la plataforma: no cuelga de ninguna empresa`
       )
+      assert.equal(role.roleActive, 1)
     }
   })
 
@@ -64,6 +63,7 @@ test.group('0006_role_seeder — puente de roles globales', () => {
       const roles = await liveRoles(slug)
       assert.lengthOf(roles, 1, `Debe existir exactamente un rol ${slug} vivo tras correr el seeder`)
       assert.equal(roles[0].roleActive, 1)
+      assert.isNull(roles[0].businessUnitId, `${slug} es global: sin empresa dueña`)
     }
   })
 

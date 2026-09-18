@@ -23,8 +23,9 @@ import {
  * el contrato del resto del repo. Antes cargaban el rol por id a secas: con un
  * solo id adivinado, un administrador de A reconfiguraba el rol de B.
  *
- * Cubre también la compatibilidad temporal: los roles heredados todavía no
- * tienen `business_unit_id` y se resuelven por el CSV `role_business_access`.
+ * Cubre también los dos bordes del modelo: un rol SIN empresa dueña no lo
+ * alcanza nadie (fail-closed), y el rol global de la plataforma tampoco es
+ * alcanzable desde un tenant.
  */
 
 const MODULE = 'roles-and-permissions'
@@ -117,18 +118,16 @@ test.group('Roles — aislamiento entre empresas', (group) => {
       roleDescription: 'Fixture del spec de aislamiento',
       roleActive: 1,
       businessUnitId: required(actorB, 'el actor B').businessUnit.businessUnitId,
-      roleBusinessAccess: required(actorB, 'el actor B').businessUnit.businessUnitSlug,
       roleManagementDays: 10,
     })
 
-    // Rol heredado de la empresa A: sin dueño, solo con el CSV.
+    // Rol sin empresa dueña: el estado que ya no alcanza ningún tenant.
     legacyRole = await Role.create({
-      roleName: uniqueTestName('Rol heredado de A'),
-      roleSlug: `role-isolation-legacy-${Date.now()}`,
-      roleDescription: 'Fixture heredado: sin business_unit_id, solo CSV',
+      roleName: uniqueTestName('Rol sin dueño'),
+      roleSlug: `role-isolation-orphan-${Date.now()}`,
+      roleDescription: 'Fixture sin business_unit_id: no es de nadie',
       roleActive: 1,
       businessUnitId: null,
-      roleBusinessAccess: required(actorA, 'el actor A').businessUnit.businessUnitSlug,
       roleManagementDays: 10,
     })
   })
@@ -170,7 +169,7 @@ test.group('Roles — aislamiento entre empresas', (group) => {
   }) => {
     const tenant = required(actorA, 'el actor A')
     const target = required(foreignRole, 'el rol de la empresa B')
-    const legacy = required(legacyRole, 'el rol heredado de A')
+    const orphan = required(legacyRole, 'el rol sin dueño')
 
     const response = await client
       .get('/api/roles')
@@ -182,53 +181,50 @@ test.group('Roles — aislamiento entre empresas', (group) => {
     const ids: number[] = response
       .body()
       .data.roles.data.map((row: { roleId: number }) => row.roleId)
-    assert.include(ids, legacy.roleId, 'el rol heredado de A resuelve por el CSV')
+    assert.include(ids, tenant.role.roleId, 'el rol propio de A sí aparece')
     assert.notInclude(ids, target.roleId, 'el rol de B no aparece en el listado de A')
+    assert.notInclude(ids, orphan.roleId, 'un rol sin dueño no aparece en el listado de nadie')
   })
 
-  test('compatibilidad temporal: el rol heredado solo lo alcanza la empresa de su CSV', async ({
-    client,
-    assert,
-  }) => {
+  test('un rol sin empresa dueña no lo alcanza ninguna empresa', async ({ client }) => {
+    // Antes este caso afirmaba lo contrario: un rol sin dueño se resolvía por el
+    // CSV `role_business_access` y la empresa nombrada ahí sí lo veía. Retirado
+    // el CSV, un rol sin dueño no es de nadie, y eso vale para las dos empresas.
     const tenantA = required(actorA, 'el actor A')
     const tenantB = required(actorB, 'el actor B')
-    const legacy = required(legacyRole, 'el rol heredado de A')
+    const orphan = required(legacyRole, 'el rol sin dueño')
 
-    const ownResponse = await client
-      .get(`/api/roles/${legacy.roleId}`)
-      .loginAs(tenantA.user)
-      .headers(businessUnitHeaders(tenantA))
-    ownResponse.assertStatus(200)
-    assert.equal(ownResponse.body().data.role.roleId, legacy.roleId)
-
-    const foreignResponse = await client
-      .get(`/api/roles/${legacy.roleId}`)
-      .loginAs(tenantB.user)
-      .headers(businessUnitHeaders(tenantB))
-    foreignResponse.assertStatus(404)
+    for (const tenant of [tenantA, tenantB]) {
+      const response = await client
+        .get(`/api/roles/${orphan.roleId}`)
+        .loginAs(tenant.user)
+        .headers(businessUnitHeaders(tenant))
+      response.assertStatus(404)
+    }
   })
 
-  test('los roles de sistema globales siguen alcanzables desde cualquier empresa', async ({
+  test('el rol global de la plataforma no es alcanzable desde un tenant', async ({
     client,
     assert,
   }) => {
+    // Antes `owner` y `empleado` eran filas globales que toda empresa veía y
+    // podía asignar. Ya no existen así: cada empresa estrena las suyas, y lo
+    // único global es `root`, que es de la plataforma y ningún tenant alcanza.
     const tenant = required(actorA, 'el actor A')
-    const systemRole = await Role.query()
+    const platformRole = await Role.query()
       .whereNull('role_deleted_at')
       .whereNull('business_unit_id')
-      .where('role_slug', 'owner')
+      .where('role_slug', 'root')
       .first()
-    if (!systemRole) {
-      assert.fail('Se requiere el rol de sistema owner: corre "migration:fresh --seed".')
+    if (!platformRole) {
+      assert.fail('Se requiere el rol root: corre "migration:fresh --seed".')
       return
     }
 
-    // 200 en el detalle; la edición la sigue bloqueando el candado de roles de
-    // sistema (403), no el aislamiento por empresa.
     const response = await client
-      .get(`/api/roles/${systemRole.roleId}`)
+      .get(`/api/roles/${platformRole.roleId}`)
       .loginAs(tenant.user)
       .headers(businessUnitHeaders(tenant))
-    response.assertStatus(200)
+    response.assertStatus(404)
   })
 })
