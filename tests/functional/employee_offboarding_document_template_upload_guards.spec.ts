@@ -116,7 +116,7 @@ async function createRole(
     roleSlug: `${FIXTURE_SLUG_PREFIX}${prefix}-${stamp}`,
     roleDescription: 'Rol temporal del spec de rechazo de plantillas',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   created.roleIds.push(role.roleId)
