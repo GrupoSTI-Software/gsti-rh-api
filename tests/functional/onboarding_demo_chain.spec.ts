@@ -10,6 +10,7 @@ import User from '#models/user'
 import EmployeeService from '#services/employee_service'
 import DemoSeedService from '#modules/onboarding/demo_seed/demo_seed.service'
 import DemoWipeService from '#modules/onboarding/demo_seed/services/demo_wipe.service'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Cadena demo del onboarding contra la BD real de desarrollo (BU 1):
@@ -37,7 +38,8 @@ async function createAdminUser(suffix: string = 'chain'): Promise<{ user: User; 
   user.userEmail = `onboarding-demo-admin-${suffix}-${STAMP}@gsti-tests.local`
   user.userPassword = 'OnboardingDemoChain123!'
   user.userActive = 1
-  user.roleId = 2
+  const role = await ensureRole('rh-manager')
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -53,8 +55,9 @@ async function removeAdminUser(userId: number, personId: number): Promise<void> 
 
 /**
  * Conteos acotados a LA SIEMBRA DEL TEST (por código de empleado y estado del
- * admin de prueba): la BD de desarrollo es compartida y puede tener siembras
- * demo vivas de otros usuarios que este spec no debe contar ni tocar.
+ * admin de prueba): la BD de la suite la comparten todos los specs de la
+ * corrida y puede tener siembras demo vivas que este spec no debe contar ni
+ * tocar.
  */
 async function countDemoLeftovers(
   employeeId: number,

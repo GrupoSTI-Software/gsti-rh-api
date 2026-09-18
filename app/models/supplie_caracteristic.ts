@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column, hasMany } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import { belongsTo } from '@adonisjs/lucid/orm'
 import SupplyType from './supply_type.js'
 import * as relations from '@adonisjs/lucid/types/relations'
@@ -17,6 +19,10 @@ import SupplieCaracteristicValue from './supplie_caracteristic_value.js'
  *         supplieCaracteristicId:
  *           type: number
  *           description: Supplie caracteristic ID
+ *         businessUnitId:
+ *           type: number
+ *           nullable: true
+ *           description: Unidad de negocio dueña de la característica (alcance de lanzamiento SaaS)
  *         supplyTypeId:
  *           type: number
  *           description: Supply type ID
@@ -49,9 +55,38 @@ import SupplieCaracteristicValue from './supplie_caracteristic_value.js'
  *         supplieCaracteristicDeletedAt: null
  */
 
-export default class SupplieCaracteristic extends compose(BaseModel, SoftDeletes) {
+export default class SupplieCaracteristic extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare supplieCaracteristicId: number
+
+  /**
+   * Marca de pertenencia. Nullable mientras el backfill
+   * (`backfill:zones-supplies-business-unit`) no haya corrido en el entorno:
+   * una característica en NULL queda fuera de toda consulta con contexto de
+   * tenant, así que se pierde visibilidad, nunca aislamiento.
+   */
+  @column()
+  declare businessUnitId: number | null
+
+  /**
+   * Resuelve businessUnitId desde el tipo de activo padre, nunca del cuerpo.
+   * El tipo ya está acotado por el mixin, así que un `supplyTypeId` de otra
+   * empresa no resuelve y el alta falla en vez de cruzar empresas.
+   */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: SupplieCaracteristic) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(async () => {
+      const supplyType = await SupplyType.query()
+        .where('supplyTypeId', instance.supplyTypeId)
+        .first()
+      return supplyType?.businessUnitId ? { businessUnitId: supplyType.businessUnitId } : null
+    }, 'el tipo de activo')
+  }
 
   @column()
   declare supplyTypeId: number

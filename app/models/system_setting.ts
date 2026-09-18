@@ -37,9 +37,6 @@ import BusinessUnit from './business_unit.js'
  *          systemSettingSidebarColor:
  *            type: string
  *            description: System setting sidebar color
- *          systemSettingBusinessUnits:
- *            type: string
- *            description: Available business Units
  *          businessUnitId:
  *            type: number
  *            nullable: true
@@ -104,9 +101,6 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare systemSettingActive: number
-
-  @column()
-  declare systemSettingBusinessUnits: string
 
   /**
    * Relación formal por identificador hacia la unidad de negocio (tenant) dueña de
@@ -177,10 +171,14 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
 
   /**
    * Unidad de negocio (tenant) dueña de esta configuración, por relación formal.
-   * No se aplica `withBusinessUnitScope()` a este modelo: los 16 consumidores
-   * legacy de `SystemSettingService.getActive()` siguen resolviendo por
-   * `system_setting_business_units` (FIND_IN_SET) hasta que las HUs 3 y 4 del
-   * set los migren; aplicar el scope aquí cambiaría ese comportamiento en silencio.
+   * Es la ÚNICA fuente: el CSV `system_setting_business_units` se retiró y todos
+   * los consumidores resuelven por esta llave.
+   *
+   * El modelo sigue SIN `withBusinessUnitScope()`, y eso es deliberado: varios
+   * de sus consumidores son procesos batch que corren fuera del contexto de una
+   * petición (avisos, sellado, correos), y ahí el mixin no filtraría nada
+   * mientras que un scope activo cambiaría su alcance en silencio. Cada uno
+   * acota por `business_unit_id` de forma explícita.
    */
   @belongsTo(() => BusinessUnit, {
     foreignKey: 'businessUnitId',

@@ -9,21 +9,29 @@ export type AttendanceMonitorSection = 'listado' | 'nomina' | 'asistencia' | 'de
 /**
  * Las 11 acciones del módulo `employees-attendance-monitor`.
  *
- * Las once YA están sembradas desde `0018_system_permission_seeder.ts`
- * (`systemModuleId: 7`), por eso todas declaran `legacyEquivalence` exacta
- * contra su propio slug: `SystemPermissionCatalogSyncService.ensureAction`
- * las reconoce y no crea fila nueva, e `isCatalogActionGranted` sigue
- * respetando las concesiones que cada cliente ya tiene. Enumerarlas no
- * concede ni retira nada a nadie (regla 8 de la HU).
+ * Las once se siembran desde este catálogo (`0062_system_module_seeder`).
+ * Todas declaran `legacyEquivalence` exacta contra su propio slug para que
+ * `isCatalogActionGranted` siga respetando las concesiones que cada cliente
+ * ya tiene. Enumerarlas no concede ni retira nada a nadie (regla 8 de la HU).
  *
- * `displayName` en español: solo se materializa en una base donde la fila
- * no existiera — el sync nunca renombra lo ya registrado.
+ * `displayName` en español: es el nombre que la siembra escribe en
+ * `system_permissions`, también sobre una fila ya registrada.
  *
- * Esta HU solo cambia el consumidor de `download-summary` y `see-payroll`
- * (las descargas del monitor en el backoffice). Las otras nueve se enumeran
- * porque la revisión de consistencia reporta como `registeredNotDeclared`
- * toda fila viva del módulo que el catálogo no declare; su gobierno sigue
- * exactamente como está.
+ * Quién verifica cada una (la constante solo declara permisos que alguien
+ * consulta):
+ *  - API: `see-payroll`, `display-payments-summary`, `display-discounts-summary`
+ *    y `download-summary` (reportes), `shift-coverage` (motor de AUSENCIAS: es
+ *    lo único que gobierna hoy, mostrar u ocultar la empresa contratante en el
+ *    drawer; el semáforo de cobertura de plantilla que le daba nombre se retiró
+ *    con su endpoint),
+ *    `add-assist-manual` (captura ajena), `sync-assist` (las dos vías de
+ *    sincronización, general y por empleado, con permissionGate) y
+ *    `delete-check-assist` (anular checada con permissionGate). Las tres
+ *    declaraciones del gate viven en
+ *    `employees_attendance_monitor_permission_declarations.ts`.
+ *  - Solo backoffice: `read` (guard de pantalla), `consecutive-faults` y
+ *    `read-time-worked`, que oculta el indicador de tiempo trabajado de un
+ *    dato que `GET /api/v1/assists` entrega sin gate.
  */
 export const ATTENDANCE_MONITOR_PERMISSION_CATALOG = [
   {
@@ -52,7 +60,10 @@ export const ATTENDANCE_MONITOR_PERMISSION_CATALOG = [
   },
   {
     slug: 'shift-coverage',
-    displayName: 'Ver cobertura de turnos',
+    // El nombre dice lo que la casilla concede HOY: la cobertura de plantilla
+    // que le daba nombre se retiró con su endpoint. 0062 reescribe el nombre
+    // sobre la fila ya sembrada, así que la pantalla de roles se actualiza sola.
+    displayName: 'Ver la empresa contratante en ausencias',
     kind: 'read',
     section: 'listado',
     exceptionProfile: 'standard',

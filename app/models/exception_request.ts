@@ -90,10 +90,25 @@ export default class ExceptionRequest extends compose(BaseModel, SoftDeletes) {
   exceptionTypeId!: number
 
   @column()
-  exceptionRequestStatus!: 'requested' | 'pending' | 'accepted' | 'refused'
+  exceptionRequestStatus!: 'pending' | 'accepted' | 'refused'
 
   @column()
   exceptionRequestDescription?: string
+
+  /**
+   * Nota con la que la empresa resolvio la solicitud. Es la voz de la empresa y
+   * nunca sustituye a `exceptionRequestDescription`, que es la del empleado.
+   */
+  @column()
+  declare exceptionRequestResolutionNote: string | null
+
+  /** Usuario que resolvio. NULL en las resueltas antes de la HU-1. */
+  @column()
+  declare resolvedByUserId: number | null
+
+  /** Momento de la resolucion. NULL mientras siga pendiente. */
+  @column.dateTime()
+  declare exceptionRequestResolvedAt: DateTime | null
 
   @column()
   exceptionRequestCheckInTime!: string | null
@@ -124,6 +139,11 @@ export default class ExceptionRequest extends compose(BaseModel, SoftDeletes) {
 
   @column.dateTime({ columnName: 'exception_request_deleted_at' })
   declare deletedAt: DateTime | null
+
+  @belongsTo(() => User, {
+    foreignKey: 'resolvedByUserId',
+  })
+  declare resolvedByUser: relations.BelongsTo<typeof User>
 
   @belongsTo(() => Employee, {
     foreignKey: 'employeeId',

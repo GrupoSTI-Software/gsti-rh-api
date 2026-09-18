@@ -1,13 +1,9 @@
 import { I18n } from '@adonisjs/i18n'
 import { DateTime } from 'luxon'
-import SystemSetting from '#models/system_setting'
-import { findEmpresaContratanteInTenantOrFail } from '../../helpers/repse_tenant_scope.js'
-import { EmpresaContratanteError } from '../../exceptions/empresa_contratante_error.js'
 import { resolveEmployeeRoleScope } from '../../helpers/resolve_employee_role_scope.js'
 import type { EmployeeRoleScope } from '../../helpers/resolve_employee_role_scope.js'
 import AttendanceStatsRepositoryMysql from './attendance-stats.repository.mysql.js'
 import { hasShiftCoverageAccess } from './attendance-stats.permissions.js'
-import { buildCoverageResponse } from './attendance-stats.coverage.js'
 import {
   ABSENCES_MAX_RANGE_DAYS,
   buildAbsencesResponse,
@@ -27,6 +23,7 @@ import {
   toStatistics,
 } from './attendance-stats.rules.js'
 import type { AttendanceStatsRepository } from './attendance-stats.repository.js'
+import SystemSettingService from '#services/system_setting_service'
 import type {
   AbsencesFilters,
   AbsencesResponse,
@@ -34,10 +31,6 @@ import type {
   AttendanceStatsGranularity,
   AttendanceStatsViewer,
   CleanCounters,
-  CoverageFilters,
-  CoverageResponse,
-  CoverageActiveLoanRow,
-  CoverageSiteRef,
   DailyStatsRow,
   DepartmentRow,
   EmployeeCalendarBundle,
@@ -64,11 +57,6 @@ export interface ServiceResult<T> {
  * ejercitar la orquestación sin BD.
  */
 export interface AttendanceStatsServiceDependencies {
-  /** Lanza `EmpresaContratanteError` si la empresa no existe o no pertenece al tenant. */
-  findEmpresaContratanteInTenantOrFail: (
-    empresaContratanteId: number,
-    notFoundKey: string
-  ) => Promise<unknown>
   /** Alcance de colaboradores del usuario; `null` si el usuario ya no existe. */
   resolveEmployeeRoleScope: (userId: number, i18n: I18n) => Promise<EmployeeRoleScope | null>
   /** Tolerancias de retardo y falta vigentes. */
@@ -119,8 +107,6 @@ export default class AttendanceStatsService {
     this.i18n = i18n
     this.repo = repo ?? new AttendanceStatsRepositoryMysql(i18n)
     this.dependencies = {
-      findEmpresaContratanteInTenantOrFail:
-        dependencies.findEmpresaContratanteInTenantOrFail ?? findEmpresaContratanteInTenantOrFail,
       resolveEmployeeRoleScope: dependencies.resolveEmployeeRoleScope ?? resolveEmployeeRoleScope,
       loadToleranceThresholds:
         dependencies.loadToleranceThresholds ?? loadToleranceThresholdsFromSettings,
@@ -151,60 +137,6 @@ export default class AttendanceStatsService {
       }
     }
     return null
-  }
-
-  validateSingleDay(filters: AttendanceStatsFilters): ServiceResult<null> | null {
-    const rangeError = this.validateRange(filters)
-    if (rangeError) return rangeError
-
-    if (filters.startDay !== filters.endDay) {
-      return {
-        status: 400,
-        type: 'error',
-        title: this.t('validation_error'),
-        message: this.t('attendance_stats_coverage_single_day_required'),
-        key: 'dia-unico-requerido',
-        data: null,
-      }
-    }
-    return null
-  }
-
-  /** Mapa id → nombre de sucursal para enriquecer candidatos de cobertura. */
-  private async resolveBranchOfficeNamesById(
-    sites: CoverageSiteRef[],
-    bundles: EmployeeCalendarBundle[],
-    loans: CoverageActiveLoanRow[],
-    allowedBusinessUnitIds: number[]
-  ): Promise<Map<number, string>> {
-    const namesById = new Map<number, string>()
-    for (const site of sites) {
-      namesById.set(site.branchOfficeId, site.branchOfficeName)
-    }
-
-    const missingIds = new Set<number>()
-    for (const bundle of bundles) {
-      const branchOfficeId = bundle.employee.branchOfficeId
-      if (branchOfficeId !== null && branchOfficeId !== undefined && !namesById.has(branchOfficeId)) {
-        missingIds.add(branchOfficeId)
-      }
-    }
-    for (const loan of loans) {
-      if (!namesById.has(loan.sourceBranchId)) missingIds.add(loan.sourceBranchId)
-      if (!namesById.has(loan.targetBranchId)) missingIds.add(loan.targetBranchId)
-    }
-
-    if (missingIds.size > 0) {
-      const resolved = await this.repo.getBranchOfficeNamesByIds(
-        [...missingIds],
-        allowedBusinessUnitIds
-      )
-      for (const [id, name] of resolved) {
-        namesById.set(id, name)
-      }
-    }
-
-    return namesById
   }
 
   /**
@@ -240,106 +172,6 @@ export default class AttendanceStatsService {
         )
         .map((bundle) => bundle.employee.employeeId)
     )
-  }
-
-  /**
-   * Cobertura de plantilla por sitio y turno de una empresa contratante.
-   *
-   * @param userId - Usuario que consulta; recorta los candidatos a los
-   *   colaboradores que puede ver. Los conteos no se recortan.
-   */
-  async getCoverage(
-    filters: CoverageFilters,
-    scope: ResolvedScope,
-    userId: number
-  ): Promise<ServiceResult<CoverageResponse>> {
-    if (scope.allowedBusinessUnitIds.length === 0) {
-      return this.forbidden()
-    }
-
-    const singleDayError = this.validateSingleDay(filters)
-    if (singleDayError) {
-      return {
-        status: singleDayError.status,
-        type: singleDayError.type,
-        title: singleDayError.title,
-        message: singleDayError.message,
-        key: singleDayError.key,
-        data: null,
-      }
-    }
-
-    const empresaError = await this.findEmpresaContratanteError<CoverageResponse>(
-      filters.empresaContratanteId
-    )
-    if (empresaError) return empresaError
-
-    const sites = await this.repo.getSitesByCompany(
-      filters.empresaContratanteId,
-      scope.allowedBusinessUnitIds,
-      filters.branchOfficeIds
-    )
-
-    const calendarFilters: AttendanceStatsFilters = {
-      startDay: filters.startDay,
-      endDay: filters.endDay,
-      departmentIds: filters.departmentIds,
-      employeeIds: filters.employeeIds,
-      businessUnitId: filters.businessUnitId,
-      payrollBusinessUnitId: filters.payrollBusinessUnitId,
-    }
-
-    const [bundles, loans] = await Promise.all([
-      this.repo.getEmployeeCalendars(calendarFilters, scope.allowedBusinessUnitIds),
-      this.repo.getActiveLoansForDay(filters.startDay, scope.allowedBusinessUnitIds),
-    ])
-
-    const companySiteIds = sites.map((s) => s.branchOfficeId)
-    const extraBranchIds = new Set<number>()
-    for (const bundle of bundles) {
-      if (bundle.employee.branchOfficeId) {
-        extraBranchIds.add(bundle.employee.branchOfficeId)
-      }
-    }
-    for (const loan of loans) {
-      extraBranchIds.add(loan.sourceBranchId)
-      extraBranchIds.add(loan.targetBranchId)
-    }
-
-    const quotaBranchIds = [...new Set([...companySiteIds, ...extraBranchIds])]
-    const quotas = await this.repo.getShiftQuotasByBranchIds(
-      quotaBranchIds,
-      scope.allowedBusinessUnitIds
-    )
-    const branchOfficeNamesById = await this.resolveBranchOfficeNamesById(
-      sites,
-      bundles,
-      loans,
-      scope.allowedBusinessUnitIds
-    )
-    const visibleEmployeeIds = await this.resolveVisibleEmployeeIds(
-      userId,
-      bundles,
-      scope.allowedBusinessUnitIds
-    )
-
-    const data = buildCoverageResponse({
-      day: filters.startDay,
-      sites,
-      quotas,
-      loans,
-      bundles,
-      branchOfficeNamesById,
-      visibleEmployeeIds,
-    })
-
-    return {
-      status: 200,
-      type: 'success',
-      title: this.t('resources'),
-      message: this.t('resources_were_found_successfully'),
-      data,
-    }
   }
 
   /**
@@ -472,34 +304,6 @@ export default class AttendanceStatsService {
       }
     }
     return null
-  }
-
-  /**
-   * Error a responder si la empresa contratante no existe o no pertenece al
-   * tenant; `null` si pertenece.
-   */
-  private async findEmpresaContratanteError<T>(
-    empresaContratanteId: number
-  ): Promise<ServiceResult<T> | null> {
-    try {
-      await this.dependencies.findEmpresaContratanteInTenantOrFail(
-        empresaContratanteId,
-        'empresa-contratante-no-encontrada'
-      )
-      return null
-    } catch (error) {
-      if (error instanceof EmpresaContratanteError) {
-        return {
-          status: error.httpStatus,
-          type: 'error',
-          title: this.t('validation_error'),
-          message: error.message,
-          key: error.key,
-          data: null,
-        }
-      }
-      throw error
-    }
   }
 
   private found<T>(data: T): ServiceResult<T> {
@@ -645,15 +449,16 @@ export default class AttendanceStatsService {
 }
 
 /**
- * Tolerancias de retardo y falta de la configuración activa de SystemSetting;
+ * Tolerancias de retardo y falta DE LA EMPRESA ACTIVA; sin empresa en contexto,
  * sin configuración o sin la tolerancia, los defaults del módulo.
+ *
+ * Antes tomaba `.first()` de cualquier configuración activa, sin filtrar por
+ * empresa: el porcentaje de retardos y faltas de un cliente se calculaba con la
+ * tolerancia de otro —la que primero devolviera la base—, y el suyo, el que
+ * había ajustado desde su backoffice, no se aplicaba.
  */
 async function loadToleranceThresholdsFromSettings(): Promise<ToleranceThresholds> {
-  const setting = await SystemSetting.query()
-    .whereNull('system_setting_deleted_at')
-    .where('system_setting_active', 1)
-    .preload('systemSettingTolerances')
-    .first()
+  const setting = await new SystemSettingService().resolveForActiveTenant()
 
   if (!setting) {
     return {

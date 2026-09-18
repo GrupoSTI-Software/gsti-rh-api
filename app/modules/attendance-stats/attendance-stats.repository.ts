@@ -1,10 +1,7 @@
 import type {
   AbsencesBranch,
   AttendanceStatsFilters,
-  CoverageActiveLoanRow,
   CoverageRangeLoanRow,
-  CoverageShiftQuotaRow,
-  CoverageSiteRef,
   EmployeeCalendarBundle,
 } from './dto/attendance-stats.dto.js'
 
@@ -23,32 +20,6 @@ export interface AttendanceStatsRepository {
     effectiveFilters: AttendanceStatsFilters,
     allowedBusinessUnitIds: number[]
   ): Promise<EmployeeCalendarBundle[]>
-
-  /** Sitios de servicio REPSE ligados a una empresa contratante en scope. */
-  getSitesByCompany(
-    empresaContratanteId: number,
-    allowedBusinessUnitIds: number[],
-    branchOfficeIds?: number[]
-  ): Promise<CoverageSiteRef[]>
-
-  /**
-   * Cuotas bulk por sucursales (solo turnos no temporales). Solo devuelve
-   * cuotas de sucursales vivas de las unidades de negocio permitidas; con la
-   * lista de unidades vacía no devuelve nada.
-   */
-  getShiftQuotasByBranchIds(
-    branchOfficeIds: number[],
-    allowedBusinessUnitIds: number[]
-  ): Promise<CoverageShiftQuotaRow[]>
-
-  /**
-   * Préstamos temporales vigentes en una fecha ISO yyyy-MM-dd. Descarta los
-   * préstamos cuya sucursal de origen o destino no pertenece a las unidades
-   * de negocio permitidas. Orden: start_date descendente y, empatando, id
-   * descendente; con varios vigentes por colaborador, el primero es el que
-   * lo mueve ese día.
-   */
-  getActiveLoansForDay(day: string, allowedBusinessUnitIds: number[]): Promise<CoverageActiveLoanRow[]>
 
   /**
    * Universo de ausencias: la plantilla de las unidades de negocio permitidas
@@ -89,15 +60,6 @@ export interface AttendanceStatsRepository {
     endDay: string,
     allowedBusinessUnitIds: number[]
   ): Promise<CoverageRangeLoanRow[]>
-
-  /**
-   * Nombres de sucursales por id (lectura bulk para candidatos de cobertura).
-   * Solo resuelve sucursales de las unidades de negocio permitidas.
-   */
-  getBranchOfficeNamesByIds(
-    branchOfficeIds: number[],
-    allowedBusinessUnitIds: number[]
-  ): Promise<Map<number, string>>
 
   /**
    * De `employeeIds`, los que un usuario sin acceso completo a la plantilla

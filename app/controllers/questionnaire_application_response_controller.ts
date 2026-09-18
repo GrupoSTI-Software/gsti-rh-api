@@ -19,7 +19,7 @@ export default class QuestionnaireApplicationResponseController {
     if (user.role?.roleSlug === 'root') return true
 
     const roleService = new RoleService()
-    return roleService.hasAccess(user.roleId, 'compliance', action)
+    return roleService.hasAccess(user.roleId, 'questionnaire-applications', action)
   }
 
   private parsePositiveInt(value: unknown): number {

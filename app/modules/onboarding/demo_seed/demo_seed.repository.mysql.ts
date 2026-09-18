@@ -204,12 +204,18 @@ export default class DemoSeedRepositoryMysql implements DemoSeedRepository {
       id: responsible.userResponsibleEmployeeId,
     })
 
-    // 4. Usuario demo para la app del empleado (rol de sistema `empleado`,
+    // 4. Usuario demo para la app del empleado (rol `empleado` DE ESTA EMPRESA,
     //    JAMÁS root; UserService.create hace el attach de business_unit_users
     //    sin side effect de correo — POST /api/users está prohibido aquí).
-    const employeeRole = await new RoleService().findRoleBySlug('empleado')
+    //
+    //    El rol se resuelve dentro de la empresa que se está sembrando: ya no
+    //    hay un `empleado` global compartido, cada empresa estrena el suyo al
+    //    nacer (`TenantRoleProvisioningService`).
+    const employeeRole = await new RoleService().findRoleBySlug('empleado', [input.businessUnitId])
     if (!employeeRole) {
-      throw new Error('El rol de sistema "empleado" no existe en el catálogo de roles')
+      throw new Error(
+        `La empresa ${input.businessUnitId} no tiene rol "empleado": no se puede sembrar el demo`
+      )
     }
     const userService = new UserService(this.i18n)
     const userData = new User()
@@ -228,7 +234,6 @@ export default class DemoSeedRepositoryMysql implements DemoSeedRepository {
     shift.shiftTimeStart = DEMO_SHIFT_TIME_START
     shift.shiftActiveHours = DEMO_SHIFT_ACTIVE_HOURS
     shift.shiftRestDays = DEMO_SHIFT_REST_DAYS
-    shift.shiftBusinessUnits = input.businessUnitSlug
     shift.businessUnitId = input.businessUnitId
     shift.useTransaction(trx)
     await shift.save()

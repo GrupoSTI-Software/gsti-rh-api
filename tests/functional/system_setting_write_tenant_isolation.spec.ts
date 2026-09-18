@@ -6,11 +6,20 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import SystemSetting from '#models/system_setting'
+import RoleSystemPermission from '#models/role_system_permission'
+import { assertPermissionDenied, grantRoleModulePermissions } from '#tests/helpers/tenant_actor'
 
 /**
  * USRH1789018905972 — aislamiento en las cinco vías de escritura restantes
  * sobre system_settings (DELETE, tres interruptores de correo, POST ícono).
+ *
+ * Con la exigencia de `system-settings` encendida el rol limitado recibe
+ * `update` (interruptores e ícono) y `delete` (baja): sin esas concesiones el
+ * gate responde 403 antes de la verificación de scope que estos casos prueban.
+ * Un segundo actor sin concesiones confirma la negativa del gate.
  */
+
+const SYSTEM_SETTINGS_MODULE = 'system-settings'
 
 const TEST_PASSWORD = 'SystemSettingWrite123!'
 const NON_EXISTENT_SYSTEM_SETTING_ID = 2_147_483_647
@@ -116,6 +125,13 @@ function snapshotEmailFlags(row: SystemSetting): EmailFlagsSnapshot {
   }
 }
 
+/** Las concesiones referencian al rol: se borran antes que el rol. */
+async function cleanupRole(role: Role | null) {
+  if (!role?.roleId) return
+  await RoleSystemPermission.query().where('role_id', role.roleId).delete()
+  await Role.query().where('role_id', role.roleId).delete()
+}
+
 test.group('Escrituras system-settings — aislamiento por tenant', (group) => {
   let businessUnitA: BusinessUnit
   let businessUnitB: BusinessUnit
@@ -124,11 +140,15 @@ test.group('Escrituras system-settings — aislamiento por tenant', (group) => {
   let systemSettingB: SystemSetting
   let disposableSetting: SystemSetting
   let actorA: TestActor | null = null
+  let actorWithoutGrant: TestActor | null = null
   let limitedRole: Role | null = null
+  let ungrantedRole: Role | null = null
 
   group.setup(async () => {
     const stamp = Date.now()
     limitedRole = await createLimitedRole(String(stamp))
+    await grantRoleModulePermissions(limitedRole, SYSTEM_SETTINGS_MODULE, ['update', 'delete'])
+    ungrantedRole = await createLimitedRole(`${stamp}-sin-concesion`)
 
     businessUnitA = await BusinessUnit.create({
       businessUnitName: `Write Settings BU A ${stamp}`,
@@ -159,7 +179,6 @@ test.group('Escrituras system-settings — aislamiento por tenant', (group) => {
       systemSettingTradeName: `Trade A ${stamp}`,
       systemSettingSidebarColor: '#111111',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: businessUnitA.businessUnitSlug,
       systemSettingBirthdayEmails: 0,
       systemSettingAnniversaryEmails: 0,
       systemSettingAttendanceFaultHrEmails: 0,
@@ -171,7 +190,6 @@ test.group('Escrituras system-settings — aislamiento por tenant', (group) => {
       systemSettingTradeName: `Trade B ${stamp}`,
       systemSettingSidebarColor: '#222222',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: businessUnitB.businessUnitSlug,
       systemSettingBirthdayEmails: 1,
       systemSettingAnniversaryEmails: 1,
       systemSettingAttendanceFaultHrEmails: 1,
@@ -183,13 +201,17 @@ test.group('Escrituras system-settings — aislamiento por tenant', (group) => {
       systemSettingTradeName: `Disposable C ${stamp}`,
       systemSettingSidebarColor: '#333333',
       systemSettingActive: 0,
-      systemSettingBusinessUnits: businessUnitC.businessUnitSlug,
     })
 
     actorA = await createActor(
       'write-settings-a',
       [businessUnitA.businessUnitId, businessUnitC.businessUnitId],
       limitedRole
+    )
+    actorWithoutGrant = await createActor(
+      'write-settings-sin-permiso',
+      [businessUnitA.businessUnitId],
+      ungrantedRole
     )
   })
 
@@ -213,9 +235,9 @@ test.group('Escrituras system-settings — aislamiento por tenant', (group) => {
       await cleanupBusinessUnit(businessUnitC.businessUnitId)
     }
     await cleanupActor(actorA)
-    if (limitedRole?.roleId) {
-      await Role.query().where('role_id', limitedRole.roleId).delete()
-    }
+    await cleanupActor(actorWithoutGrant)
+    await cleanupRole(limitedRole)
+    await cleanupRole(ungrantedRole)
   })
 
   test('CA-1: interruptor propio de cumpleaños responde 200 y persiste', async ({ client, assert }) => {
@@ -450,5 +472,33 @@ test.group('Escrituras system-settings — aislamiento por tenant', (group) => {
 
     response.assertStatus(400)
     assert.equal(response.body().key, 'BU.VAL.000')
+  })
+
+  test('sin concesiones el interruptor y la baja propios responden PERM.DENIED y la ficha no cambia', async ({
+    client,
+    assert,
+  }) => {
+    const before = snapshotEmailFlags(
+      await SystemSetting.query().where('system_setting_id', systemSettingA.systemSettingId).firstOrFail()
+    )
+
+    const toggle = await client
+      .put(`/api/system-settings/${systemSettingA.systemSettingId}/anniversary-emails`)
+      .json({ systemSettingAnniversaryEmails: true })
+      .loginAs(actorWithoutGrant!.user)
+      .headers(buHeader(businessUnitA))
+    const destroy = await client
+      .delete(`/api/system-settings/${systemSettingA.systemSettingId}`)
+      .loginAs(actorWithoutGrant!.user)
+      .headers(buHeader(businessUnitA))
+
+    assertPermissionDenied(assert, toggle)
+    assertPermissionDenied(assert, destroy)
+
+    const after = await SystemSetting.query()
+      .where('system_setting_id', systemSettingA.systemSettingId)
+      .whereNull('system_setting_deleted_at')
+      .firstOrFail()
+    assert.deepEqual(snapshotEmailFlags(after), before)
   })
 })
