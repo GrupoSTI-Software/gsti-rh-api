@@ -344,6 +344,8 @@ export default class DocumentTemplatesController {
       detail: resolved.detail,
       key: resolved.key,
       code: resolved.code,
+      // El rechazo estructural viaja con su dictamen (USRH1789097550387)
+      ...(resolved.data !== undefined ? { data: resolved.data } : {}),
     }
   }
 }

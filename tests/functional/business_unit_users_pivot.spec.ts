@@ -4,6 +4,7 @@ import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — refactor multi-tenant a tabla pivote `business_unit_users`.
@@ -39,22 +40,12 @@ interface PivotTestUser {
   password: string
 }
 
-async function ensureRootRole(): Promise<Role> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'root').first()
-  if (!role) {
-    throw new Error(
-      'El rol "root" es requerido para los tests funcionales del pivote. Ejecuta los seeders antes de correr el suite.'
-    )
-  }
-  return role
-}
-
 async function createPivotUser(options: {
   email: string
   active: number
   businessUnitIds: number[]
 }): Promise<PivotTestUser> {
-  const role = await ensureRootRole()
+  const role = await ensureRole('root')
 
   const person = new Person()
   person.personFirstname = 'Pivot'
@@ -282,11 +273,10 @@ test.group('Users (POST /api/users) - userBusinessAccess como arreglo de IDs', (
   })
 })
 
-test.group('Roles (POST /api/roles) - roleBusinessAccess se hereda desde la pivote', (group) => {
+test.group('Roles (POST /api/roles) - el rol nace de la empresa activa', (group) => {
   let actor: PivotTestUser | null = null
   let createdRoleId: number | null = null
   let businessUnitIds: number[] = []
-  let businessUnitSlugs: string[] = []
 
   group.setup(async () => {
     const stamp = Date.now()
@@ -305,10 +295,8 @@ test.group('Roles (POST /api/roles) - roleBusinessAccess se hereda desde la pivo
       seed.businessUnitActive = 1
       await seed.save()
       businessUnitIds = [seed.businessUnitId]
-      businessUnitSlugs = [seed.businessUnitSlug]
     } else {
       businessUnitIds = existing.map((unit) => unit.businessUnitId)
-      businessUnitSlugs = existing.map((unit) => unit.businessUnitSlug)
     }
 
     actor = await createPivotUser({
@@ -325,7 +313,13 @@ test.group('Roles (POST /api/roles) - roleBusinessAccess se hereda desde la pivo
     await cleanupPivotUser(actor)
   })
 
-  test('genera roleBusinessAccess como CSV de IDs obtenidos del pivote del actor', async ({
+  /**
+   * Antes este caso afirmaba que el alta componía el CSV `role_business_access`
+   * con los slugs de TODAS las empresas del pivote del actor. Eso hacía que un
+   * rol creado por alguien con dos empresas naciera alcanzable desde las dos.
+   * Ahora el rol nace de UNA: la empresa activa de la petición, la del header.
+   */
+  test('el rol nace con la empresa activa como dueña, no con todas las del actor', async ({
     client,
     assert,
   }) => {
@@ -348,18 +342,11 @@ test.group('Roles (POST /api/roles) - roleBusinessAccess se hereda desde la pivo
     createdRoleId = Number(body.data.role.roleId)
 
     const persistedRole = await Role.query().where('role_id', createdRoleId).firstOrFail()
-    const persistedAccess = persistedRole.roleBusinessAccess ?? ''
-    const persistedSlugs = persistedAccess
-      .split(',')
-      .map((token) => token.trim())
-      .filter((value) => value.length > 0)
-      .sort()
 
-    const expectedSlugs = [...businessUnitSlugs].sort()
-    assert.deepEqual(
-      persistedSlugs,
-      expectedSlugs,
-      'roleBusinessAccess debe componerse con los slugs leídos desde la pivote'
+    assert.equal(
+      persistedRole.businessUnitId,
+      businessUnitIds[0],
+      'el dueño del rol es la empresa activa del header, no el conjunto del actor'
     )
   })
 })

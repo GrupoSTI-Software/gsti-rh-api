@@ -10,11 +10,20 @@ import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_ca
 test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
   // 117 desde que la foto de perfil salio por endpoint autenticado
   // (`streamEmployeePhoto`), al retirar el proxy público de imagenes.
-  test('declara exactamente 117 operaciones con module employees y bypass standard', ({
+  // 119: +getBirthdayExcel y +getAnniversaryExcel (306644f3, export Excel del calendario).
+  // 120: +indexUnreadExceptionRequests y +downloadLactationEvidence (tenían ruta
+  // sin gate); -lactationComplianceReport (el reporte pasó a la Bitácora de lactancia).
+  // 118: salen indexCareerPathCandidates y showCareerPathCandidate, que ahora declara
+  // la Bandeja de rutas de carrera (`hr-career-path:read`).
+  // 123: +5 lecturas del catálogo de tipos y propiedades de condición médica, que
+  // no tenían gate y solo consume la pestaña Condición médica.
+  test('declara exactamente 123 operaciones con module employees y bypass standard', ({
     assert,
   }) => {
     const keys = Object.keys(EMPLOYEES_READ_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 117)
+    assert.equal(keys.length, 123)
+    assert.notProperty(EMPLOYEES_READ_PERMISSION_DECLARATIONS, 'indexCareerPathCandidates')
+    assert.notProperty(EMPLOYEES_READ_PERMISSION_DECLARATIONS, 'showCareerPathCandidate')
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
     for (const key of keys) {
@@ -49,6 +58,8 @@ test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.getEmergencyContactsByEmployee.action, 'tab-persona-read')
     assert.equal(d.showMedicalConditionPropertyValue.action, 'tab-condicion-medica-read')
     assert.equal(d.indexLactationEvidences.action, 'tab-periodos-lactancia-read')
+    assert.equal(d.downloadLactationEvidence.action, 'tab-periodos-lactancia-read')
+    assert.equal(d.indexUnreadExceptionRequests.action, 'tab-trabajo-read')
     assert.equal(d.indexCertificationUploads.action, 'tab-certificaciones-read')
   })
 
@@ -83,6 +94,8 @@ test.group('EMPLOYEES_READ_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.indexEmployeesWithoutUser.action, 'read')
     assert.equal(d.getBirthday.action, 'read')
     assert.equal(d.getAnniversary.action, 'read')
+    assert.equal(d.getBirthdayExcel.action, 'read')
+    assert.equal(d.getAnniversaryExcel.action, 'read')
     assert.equal(d.getWorkSchedules.action, 'read')
     assert.equal(d.getTerminationCatalog.action, 'read')
     assert.equal(d.indexEmployeeTypes.action, 'read')

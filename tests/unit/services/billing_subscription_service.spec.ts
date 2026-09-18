@@ -1,5 +1,7 @@
 import { test } from '@japa/runner'
+import { ALLIANCE_ERROR_CODES, ALLIANCE_ERRORS } from '../../../app/constants/alliance_error_codes.js'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../../../app/constants/billing_subscription_error_codes.js'
+import { AllianceServiceError } from '../../../app/exceptions/alliance_service_error.js'
 import { BillingSubscriptionServiceError } from '../../../app/exceptions/billing_subscription_service_error.js'
 import { resolveBillingSubscriptionApiError } from '../../../app/helpers/billing_subscription_api_error.js'
 import { LIVE_SUBSCRIPTION_STATUSES } from '../../../app/models/billing_subscription.js'
@@ -163,6 +165,23 @@ test.group('resolveBillingSubscriptionApiError — transformación de errores', 
   test('nunca expone stacktrace en la respuesta resuelta', ({ assert }) => {
     const resolved = resolveBillingSubscriptionApiError(new Error('error'))
     assert.notProperty(resolved, 'stack')
+  })
+
+  test('AllianceServiceError de otra alianza se reexpone con PLT.ALL.* y 422', ({ assert }) => {
+    const error = new AllianceServiceError(
+      ALLIANCE_ERRORS.ATTRIBUTION_OTHER_ALLIANCE.detail,
+      ALLIANCE_ERROR_CODES.ATTRIBUTION_OTHER_ALLIANCE,
+      ALLIANCE_ERRORS.ATTRIBUTION_OTHER_ALLIANCE.status,
+      ALLIANCE_ERRORS.ATTRIBUTION_OTHER_ALLIANCE.key,
+      ALLIANCE_ERRORS.ATTRIBUTION_OTHER_ALLIANCE.detail
+    )
+    const resolved = resolveBillingSubscriptionApiError(error)
+    assert.equal(resolved.status, 422)
+    assert.equal(resolved.code, ALLIANCE_ERROR_CODES.ATTRIBUTION_OTHER_ALLIANCE)
+    assert.equal(resolved.key, ALLIANCE_ERRORS.ATTRIBUTION_OTHER_ALLIANCE.key)
+    assert.equal(resolved.detail, ALLIANCE_ERRORS.ATTRIBUTION_OTHER_ALLIANCE.detail)
+    assert.notInclude(resolved.detail.toLowerCase(), 'despacho')
+    assert.notInclude(resolved.detail.toLowerCase(), 'consultora')
   })
 })
 

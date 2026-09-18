@@ -14,7 +14,10 @@ export interface EmployeeOffboardingDocumentTemplateDto {
   originalFileName: string
   fileSizeBytes: number
   contentSha256: string
-  /** `null` en esta rebanada; lo puebla ESB-05-07-08. */
+  /**
+   * Dictamen de la revisión: estructura (USRH1789097550387) y contraste de
+   * campos (USRH1789097550388). `null` solo en filas anteriores a la cadena.
+   */
   validationResult: DocumentTemplateValidationResult | null
   uploadedByUserId: number | null
   uploadedByUserName: string | null

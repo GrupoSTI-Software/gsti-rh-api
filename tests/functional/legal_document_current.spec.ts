@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import User from '#models/user'
 import Person from '#models/person'
 import LegalDocument from '#models/legal_document'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — `GET /api/legal-documents/current` (cimiento, USRH1783058893786),
@@ -25,7 +26,7 @@ import LegalDocument from '#models/legal_document'
  */
 
 const TEST_PASSWORD = 'LegalDocCurrentTest123!'
-const DEFAULT_ROLE_ID = 2 // rh-manager: `/current` solo exige auth, no el permiso de gestión (solo-root).
+const DEFAULT_ROLE = 'rh-manager' // `/current` solo exige auth, no el permiso de gestión (solo-root).
 
 interface TestActor {
   user: User
@@ -47,7 +48,8 @@ async function createTestActor(emailPrefix: string): Promise<TestActor> {
   user.userEmail = email
   user.userPassword = TEST_PASSWORD
   user.userActive = 1
-  user.roleId = DEFAULT_ROLE_ID
+  const role = await ensureRole(DEFAULT_ROLE)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()

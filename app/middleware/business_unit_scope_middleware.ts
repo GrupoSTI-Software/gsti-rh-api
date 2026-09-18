@@ -5,6 +5,10 @@ import { resolveLegacyCompanyIdParam } from '#helpers/resolve_legacy_company_id_
 import { resolveBusinessUnitIdParam } from '#helpers/resolve_business_unit_id_param'
 import { TenantContext } from '#utils/tenant_context'
 import { runWithSensitiveReadDecisions } from '#helpers/sensitive_read_decisions'
+import {
+  applyEffectiveTenantRole,
+  resolveEffectiveTenantRole,
+} from '#helpers/effective_tenant_role'
 
 /** Header que el cliente envía para seleccionar la unidad de negocio activa. */
 const BUSINESS_UNIT_HEADER = 'x-business-unit-id'
@@ -49,7 +53,20 @@ const ERR = {
  */
 export default class BusinessUnitScopeMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {
-    const user = ctx.auth.user!
+    const user = ctx.auth.user
+
+    // Sin usuario autenticado no hay alcance que resolver. Pasaba cuando una
+    // ruta declaraba `auth()` ruta por ruta y `businessScope()` en el grupo: los
+    // del grupo corren antes, así que este middleware se ejecutaba primero y el
+    // `!` de la aserción convertía el descuido en un 500 ilegible
+    // (`Cannot read properties of undefined (reading 'role')`).
+    if (!user) {
+      return ctx.response.status(401).json({
+        title: 'Sesión requerida',
+        detail: 'La operación requiere una sesión válida.',
+        key: 'sesion-requerida',
+      })
+    }
 
     if (!user.role) {
       await user.load('role')
@@ -110,6 +127,17 @@ export default class BusinessUnitScopeMiddleware {
     }
 
     ctx.businessUnitScope = [requestedId]
+
+    // ── Rol efectivo dentro de la empresa activa ────────────────────────────
+    // El rol vive en el par (empresa, cuenta), no en la cuenta: quien es dueño
+    // en una empresa puede ser colaborador en otra. Se resuelve aquí, una vez
+    // por petición y ya conocida la empresa, para que el gate, los guards por
+    // slug y `RoleService.hasAccess` decidan todos sobre el mismo rol sin que
+    // ninguno tenga que saber de dónde salió.
+    const effectiveRole = await resolveEffectiveTenantRole(user, requestedId)
+    if (effectiveRole) {
+      applyEffectiveTenantRole(user, effectiveRole)
+    }
 
     return TenantContext.run([requestedId], () => runWithSensitiveReadDecisions(ctx, next))
   }

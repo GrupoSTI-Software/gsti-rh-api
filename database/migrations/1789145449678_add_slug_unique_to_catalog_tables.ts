@@ -4,14 +4,14 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * Candado de identidad del catálogo: roles, módulos y permisos.
  *
  * `system_module_id` se declara `table.increments()` (autoincremental) pero 16
- * seeders escriben el id a mano y hacen `updateOrCreate` por ese id. Cuando dos
- * reclaman el mismo número el segundo no falla: sobrescribe al primero en
- * silencio. Así desaparecieron cinco módulos —complaints, consent-evidence,
+ * seeders por módulo (hoy retirados) escribían el id a mano y hacían
+ * `updateOrCreate` por ese id. Cuando dos reclamaban el mismo número el segundo
+ * no fallaba: sobrescribía al primero en silencio. Así desaparecieron cinco módulos —complaints, consent-evidence,
  * legal-documents, telework-workers y calendar— y quedó un permiso duplicado
- * (módulo 46 con dos slugs `read`). `roles` tiene el mismo defecto: la
- * migración 1788500000000 crea `kiosco` sin id y sobre una base vacía toma el
- * 1, con lo que `0006_role_seeder` da por existente al rol 1 y nunca crea
- * `super-administrador`.
+ * (módulo 46 con dos slugs `read`). `roles` tenía el mismo defecto: la
+ * migración 1788500000000, hoy NO-OP, creaba `kiosco` sin id y sobre una base
+ * vacía tomaba el 1, con lo que `0006_role_seeder` daba por existente al rol 1
+ * y nunca creaba `super-administrador`.
 
  * Este candado NO impide la sobrescritura por id —una fila a la que le cambian
  * el slug no viola ningún UNIQUE—; eso lo cura que los seeders resuelvan por
@@ -35,8 +35,8 @@ import { BaseSchema } from '@adonisjs/lucid/schema'
  * cualquier DDL: en MySQL cada `ALTER TABLE` hace commit implícito y no se
  * revierte, así que un abort posterior dejaría las tablas a medias.
  *
- * Depende de 1789145447080_recover_lost_system_modules, que repara el
- * duplicado vivo. Sin esa reparación previa el pre-check de aquí aborta.
+ * El Paso 0 de esta misma migración repara los permisos duplicados vivos antes
+ * del pre-check; sin esa reparación el pre-check aborta.
  */
 
 const ROLES_TABLE = 'roles'

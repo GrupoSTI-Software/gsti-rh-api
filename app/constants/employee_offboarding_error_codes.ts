@@ -95,6 +95,12 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   DOC_UNEXPECTED: 'OFFB.DOC.UNEXPECTED',
   /** Fecha de separación anterior a la de ingreso (regla 7, USRH1787433503689) — 422. */
   DOC_DATE_RANGE_INVALID: 'OFFB.DOC.DATE_RANGE_INVALID',
+  /** Hay plantilla propia vigente pero su objeto no se pudo leer del almacenamiento; sin caída a la del sistema (USRH1789097550389) — 500. */
+  DOC_TEMPLATE_UNAVAILABLE: 'OFFB.DOC.TEMPLATE_UNAVAILABLE',
+  /** Un dato a imprimir no es codificable con la tipografía estándar de la plantilla propia — 422. */
+  DOC_TEMPLATE_TEXT_UNRENDERABLE: 'OFFB.DOC.TEMPLATE_TEXT_UNRENDERABLE',
+  /** La plantilla propia no produjo el documento: obligatorio sin texto, aplanado con campos vivos o fallo de pdf-lib — 500. */
+  DOC_TEMPLATE_FILL_FAILED: 'OFFB.DOC.TEMPLATE_FILL_FAILED',
   /** Paginado mal formado, `versionId` no entero positivo o campo `file` ausente (USRH1788553841100) — 400. */
   TEMPLATE_VAL_INPUT: 'OFFB.TEMPLATE.VAL_INPUT',
   /** Sin permiso read (consultar/descargar) o create (subir) sobre las plantillas — 403. */
@@ -109,6 +115,30 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   TEMPLATE_DOWNLOAD_FAILED: 'OFFB.TEMPLATE.DOWNLOAD_FAILED',
   /** Error no clasificado del slice, incluido el duplicado del UNIQUE de vigencia — 500. */
   TEMPLATE_UNEXPECTED: 'OFFB.TEMPLATE.UNEXPECTED',
+  /** El objeto quedó almacenado pero no se pudo releer para revisarlo (USRH1789097550387) — 500. */
+  TEMPLATE_UNREADABLE: 'OFFB.TEMPLATE.UNREADABLE',
+  /** PDF protegido con contraseña (USRH1789097550387) — 422. */
+  TEMPLATE_REJECTED_ENCRYPTED: 'OFFB.TEMPLATE.REJECTED_ENCRYPTED',
+  /** Formulario dinámico XFA: no se puede rellenar ni fijar — 422. */
+  TEMPLATE_REJECTED_XFA: 'OFFB.TEMPLATE.REJECTED_XFA',
+  /** Sin ningún campo rellenable — 422. */
+  TEMPLATE_REJECTED_NO_FIELDS: 'OFFB.TEMPLATE.REJECTED_NO_FIELDS',
+  /** Campo con nombre del catálogo cuyo widget no es de texto (CA-9) — 422. */
+  TEMPLATE_REJECTED_FIELD_TYPE: 'OFFB.TEMPLATE.REJECTED_FIELD_TYPE',
+  /** /OpenAction, /AA, /Names→/JavaScript o /Names→/EmbeddedFiles en el catálogo — 422. */
+  TEMPLATE_REJECTED_ACTIVE_CONTENT: 'OFFB.TEMPLATE.REJECTED_ACTIVE_CONTENT',
+  /** Acción de envío, importación, apertura o script en un widget — 422. */
+  TEMPLATE_REJECTED_SUBMIT_ACTION: 'OFFB.TEMPLATE.REJECTED_SUBMIT_ACTION',
+  /** Campo de firma (/Sig): al fijar el documento la firma quedaría inválida — 422. */
+  TEMPLATE_REJECTED_SIGNATURE_FIELD: 'OFFB.TEMPLATE.REJECTED_SIGNATURE_FIELD',
+  /** Dos campos distintos con el mismo nombre calificado — 422. */
+  TEMPLATE_REJECTED_DUPLICATE_FIELD: 'OFFB.TEMPLATE.REJECTED_DUPLICATE_FIELD',
+  /** Nombre de campo con controles C0/C1 o marcas bidireccionales — 422. */
+  TEMPLATE_REJECTED_FIELD_NAME: 'OFFB.TEMPLATE.REJECTED_FIELD_NAME',
+  /** Más de 30 páginas o más de 200 campos — 422. */
+  TEMPLATE_REJECTED_TOO_COMPLEX: 'OFFB.TEMPLATE.REJECTED_TOO_COMPLEX',
+  /** El contraste contra el catálogo no pasó: campo no reconocido y/u obligatorio ausente (USRH1789097550388) — 422. */
+  TEMPLATE_VALIDATION_FAILED: 'OFFB.TEMPLATE.VALIDATION_FAILED',
 } as const
 
 export type EmployeeOffboardingErrorCode =

@@ -187,7 +187,7 @@ export default class PersonController {
    *             properties:
    *               personSubjectType:
    *                 type: string
-   *                 enum: [collaborator, customer, flight-attendant, pilot, system-user]
+   *                 enum: [collaborator, system-user]
    *                 description: Destino declarado del alta (no se persiste). Ausente, vacío o desconocido se resuelve como 'collaborator' y exige permiso de escritura de persona colaborador.
    *                 required: false
    *               personFirstname:

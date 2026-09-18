@@ -18,7 +18,6 @@ export default class ShiftService {
     newShift.shiftActiveHours = shift.shiftActiveHours
     newShift.shiftRestDays = shift.shiftRestDays
     newShift.shiftAccumulatedFault = shift.shiftAccumulatedFault
-    newShift.shiftBusinessUnits = shift.shiftBusinessUnits
     newShift.businessUnitId = shift.businessUnitId
     newShift.shiftTemp = shift.shiftTemp
     newShift.shiftLunchTime = shift.shiftLunchTime
@@ -213,7 +212,6 @@ export default class ShiftService {
     shift.shiftRestDays = shiftData.shiftRestDays
     shift.shiftAccumulatedFault = shiftData.shiftAccumulatedFault
     shift.shiftCalculateFlag = shiftData.shiftCalculateFlag
-    shift.shiftBusinessUnits = allowedBusinessUnitSlugs.join(',')
     shift.businessUnitId = businessUnitId
     shift.shiftTemp = shiftData.shiftTemp
     shift.shiftColor = shiftData.shiftColor

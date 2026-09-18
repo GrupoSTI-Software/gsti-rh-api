@@ -1,8 +1,6 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import RoleSeeder from '#database/seeders/0006_role_seeder'
 import User from '#models/user'
-import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
@@ -14,6 +12,7 @@ import BillingSubscriptionChange from '#models/billing_subscription_change'
 import BillingCatalogService from '#services/billing_catalog_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
 import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — GET /api/billing/subscription/me (USRH1785441817226,
@@ -31,21 +30,10 @@ interface TenantActor {
   businessUnit: BusinessUnit
 }
 
-async function ensureRhManagerRole(): Promise<Role> {
-  const role = await Role.query()
-    .whereNull('role_deleted_at')
-    .where('role_slug', 'rh-manager')
-    .first()
-  if (!role) {
-    throw new Error('Se requiere el rol rh-manager en BD para probar scope limitado.')
-  }
-  return role
-}
-
 async function createScopedTenantActor(emailPrefix: string): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await ensureRhManagerRole()
+  const role = await ensureRole('rh-manager')
 
   const person = new Person()
   person.personFirstname = 'BillingSubMe'
@@ -76,15 +64,6 @@ async function createScopedTenantActor(emailPrefix: string): Promise<TenantActor
   return { user, person, businessUnit }
 }
 
-async function ensureEmployeeRole(): Promise<Role> {
-  await new RoleSeeder({} as never).run()
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'empleado').first()
-  if (!role) {
-    throw new Error('Se requiere el rol empleado en BD para los tests de billing/subscription/me.')
-  }
-  return role
-}
-
 async function createTenantActor(options: {
   emailPrefix: string
   origin: 'platform' | 'self_service'
@@ -93,13 +72,7 @@ async function createTenantActor(options: {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${options.emailPrefix}-${stamp}@gsti-tests.local`
   const roleSlug = options.roleSlug ?? 'root'
-  const role =
-    roleSlug === 'empleado'
-      ? await ensureEmployeeRole()
-      : await Role.query().whereNull('role_deleted_at').where('role_slug', 'root').first()
-  if (!role) {
-    throw new Error('Se requiere el rol root en BD para los tests de billing/subscription/me.')
-  }
+  const role = await ensureRole(roleSlug)
 
   const person = new Person()
   person.personFirstname = 'BillingSubMe'
@@ -399,32 +372,40 @@ test.group('GET /api/billing/subscription/me — contrato de datos (CA-6)', (gro
   })
 })
 
-test.group(
-  'GET /api/billing/subscription/me — regresión muro (CA-5, USRH1786107870865)',
-  () => {
-    test('un usuario empleado recibe 200 sin gate de rol', async ({ client, assert }) => {
-      const actor = await createTenantActor({
-        emailPrefix: 'sub-me-employee',
-        origin: 'self_service',
-        roleSlug: 'empleado',
-      })
-
-      try {
-        const response = await client
-          .get('/api/billing/subscription/me')
-          .loginAs(actor.user)
-          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
-
-        response.assertStatus(200)
-        assert.equal(response.body().data.businessUnitOrigin, 'self_service')
-        assert.isNull(response.body().data.subscription)
-        assert.equal(response.body().data.minimumContractedEmployees, 10)
-      } finally {
-        await cleanupTenantActor(actor)
-      }
+test.group('GET /api/billing/subscription/me — el dinero es del dueño', () => {
+  /**
+   * Antes este caso afirmaba "recibe 200 sin gate de rol" y dejaba constancia de
+   * que la facturación del tenant estaba abierta a cualquier cuenta de la
+   * empresa. No se cierra con un 403 porque el backoffice consulta esta ruta en
+   * cada navegación de cualquier usuario (muro de contratación, fail-closed):
+   * negarla dejaría a administradores y colaboradores fuera del backoffice
+   * entero. Se recorta: presencia sí, dinero no.
+   */
+  test('un usuario empleado ve si hay contratación viva, pero no el dinero', async ({
+    client,
+    assert,
+  }) => {
+    const actor = await createTenantActor({
+      emailPrefix: 'sub-me-employee',
+      origin: 'self_service',
+      roleSlug: 'empleado',
     })
-  }
-)
+
+    try {
+      const response = await client
+        .get('/api/billing/subscription/me')
+        .loginAs(actor.user)
+        .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+      response.assertStatus(200)
+      assert.equal(response.body().data.businessUnitOrigin, 'self_service')
+      assert.isNull(response.body().data.subscription, 'sin contratación viva no hay nada que ver')
+      assert.equal(response.body().data.minimumContractedEmployees, 10)
+    } finally {
+      await cleanupTenantActor(actor)
+    }
+  })
+})
 
 test.group(
   'GET /api/billing/subscription/me — minimumContractedEmployees (USRH1785441822058)',
@@ -691,7 +672,7 @@ test.group(
       }
     })
 
-    test('un usuario empleado recibe liveChange en 200 sin gate de rol', async ({
+    test('un usuario empleado no alcanza el liveChange ni los importes', async ({
       client,
       assert,
     }) => {
@@ -699,7 +680,7 @@ test.group(
         emailPrefix: 'sub-me-live-owner',
         origin: 'self_service',
       })
-      const employeeRole = await ensureEmployeeRole()
+      const employeeRole = await ensureRole('empleado')
       const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
       const employeeEmail = `sub-me-live-employee-${stamp}@gsti-tests.local`
 
@@ -739,9 +720,11 @@ test.group(
           .header('X-Business-Unit-Id', ownerActor.businessUnit.businessUnitPublicId)
 
         response.assertStatus(200)
-        assert.isObject(response.body().data.subscription.liveChange)
-        assert.equal(response.body().data.subscription.liveChange.type, 'increase')
-        assert.equal(response.body().data.subscription.liveChange.status, 'pending_payment')
+        assert.deepEqual(
+          response.body().data.subscription,
+          { hasLiveSubscription: true },
+          'sabe que la empresa está contratada y nada más: ni plan, ni importes, ni cambio en curso'
+        )
       } finally {
         await BusinessUnitUser.query().where('user_id', employeeUser.userId).delete()
         await User.query().where('user_id', employeeUser.userId).delete()

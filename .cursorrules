@@ -24,15 +24,19 @@
 
 ### Verificación obligatoria antes de abrir PR
 
-- Correr `DB_DATABASE=<bd_desechable> node ace migration:fresh --seed` sobre una base de datos DESECHABLE. Nunca contra la BD de desarrollo compartida.
+- Correr `NODE_ENV=test DB_DATABASE=sae_pruebas node ace migration:fresh --seed` sobre la BD desechable `sae_pruebas`, la misma que `.env.test` fija para la suite. Nunca contra la BD de desarrollo compartida.
+- `node ace test` fija `NODE_ENV=test` y lee `.env.test` por su cuenta; `node ace migration:*`, `db:seed` y los demás comandos no. Sin `NODE_ENV=test DB_DATABASE=sae_pruebas` delante caen en la BD de `.env`. Otra BD u otro puerto personal van en `.env.test.local`, que no se versiona; quien lo use cambia también el nombre de la BD en estos comandos, porque una variable en línea gana sobre cualquier archivo `.env` y `DB_DATABASE=sae_pruebas` ignoraría la de `.env.test.local`.
+- Nunca correr dos migraciones a la vez, ni siquiera contra BD distintas del mismo servidor: Lucid toma `GET_LOCK('1', 0)` de MySQL, un candado global a todo el servidor, y la segunda falla al instante con `E_UNABLE_ACQUIRE_LOCK` ("Concurrent migrations are not allowed").
 - `migration:run` incremental NO detecta errores de orden: sobre una BD que ya tiene todo aplicado, la columna o tabla que tu migración necesita ya existe porque se creó en otra secuencia. Solo el `fresh` reproduce el orden que verá un entorno nuevo.
 - Una migración que depende de una columna, tabla o fila creada por otra migración de la misma tanda debe verificarse con `fresh`, no con `run`.
 
-### Catálogo (módulos, permisos, roles): no insertar a ciegas desde migraciones
+### Catálogo (módulos, grupos, permisos): fuente única en la constante
 
-- `system_modules`, `system_permissions` y sus relaciones son CATÁLOGO, no esquema. Un `INSERT` sin id explícito desde una migración toma el `AUTO_INCREMENT` disponible: sobre una BD vacía (`fresh`) eso es el id 1, que `database/seeders/0017_system_module_seeder.ts` reclama para otro módulo con id fijo y sobrescribe. Así se perdía el módulo Calendario en cada entorno nuevo.
-- Mientras el alta de módulos siga repartida entre migraciones y seeders: una migración que inserte catálogo debe hacerlo con id explícito fuera del rango que reclaman los seeders, o declararse directamente en el seeder correspondiente.
-- Toda migración que toque catálogo debe ser idempotente (`WHERE NOT EXISTS` o equivalente) y verificarse con `migration:fresh --seed`, no solo con `migration:fresh` sin seeders.
+- `system_module_groups`, `system_modules` y `system_permissions` son CATÁLOGO, no esquema. Su única fuente es `app/constants/system_modules_menu/system_modules.constant.ts`. Cómo agregar, renombrar o dar de baja un módulo o permiso está en la cabecera de ese archivo; no se repite aquí.
+- La siembra resuelve todo por slug (`app/helpers/system_catalog_seed_resolver.ts`): `0061_system_module_group_seeder` crea los grupos y `0062_system_module_seeder` los módulos, sus permisos y las bajas. El id lo asigna la BD.
+- Prohibido: `INSERT`/`UPDATE`/`DELETE` de filas de catálogo en migraciones, ids literales de módulo, permiso o rol, y seeders por módulo. Los seeders con id fijo se pisaban entre sí y un `INSERT` sin id desde una migración tomaba un id que otro seeder reclamaba: así se perdían módulos como Calendario en cada entorno nuevo. Las migraciones que sembraban catálogo quedan como NO-OP históricas.
+- Una concesión que ningún atajo de rol cubre y que nadie puede darse desde Roles y permisos se declara por slug (rol, módulo, permiso) en `0063_system_role_permission_seeder`.
+- Todo cambio de catálogo se verifica con `NODE_ENV=test DB_DATABASE=sae_pruebas node ace migration:fresh --seed` y después `NODE_ENV=test DB_DATABASE=sae_pruebas node ace permissions:check-consistency`, que debe terminar sin hallazgos (código de salida 0).
 
 ## Retiro de archivos → `__TO_DELETE__/`
 
