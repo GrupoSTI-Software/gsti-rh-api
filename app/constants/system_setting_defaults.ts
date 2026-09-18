@@ -59,3 +59,32 @@ export function tenantDefaultContent(businessUnitName: string): SystemSettingTen
     systemSettingTradeName: businessUnitName,
   }
 }
+
+/**
+ * Tolerancias de asistencia con las que nace la configuración de una empresa.
+ *
+ * Son los mismos tres valores que sembraba `0020_tolerance_seeder` sobre el
+ * registro base de plataforma (`system_setting_id = 1`). Ese seeder se retiró:
+ * las tolerancias son de cada empresa —las edita desde su backoffice— y colgarlas
+ * de una fila global hacía que el motor de asistencia leyera las de plataforma
+ * para todos los clientes por igual.
+ *
+ * `Delay` marca el retardo, `Fault` la falta y `TardinessTolerance` el margen de
+ * impuntualidad acumulable.
+ */
+export const TENANT_TOLERANCE_DEFAULTS = [
+  { toleranceName: 'Delay', toleranceMinutes: 10 },
+  { toleranceName: 'Fault', toleranceMinutes: 30 },
+  { toleranceName: 'TardinessTolerance', toleranceMinutes: 3 },
+] as const
+
+/**
+ * Marca con la que responden los correos y reportes cuando no hay una empresa
+ * que los reclame (procesos de plataforma, o una empresa sin configuración).
+ *
+ * Antes salía del registro base sembrado, que traía el nombre y los assets de
+ * una instalación concreta (`GrupoSTI`, imágenes de `sae-assets`). Una marca de
+ * respaldo es una constante, no una fila de datos que alguien pueda editar sin
+ * saber a cuántos clientes afecta.
+ */
+export const PLATFORM_FALLBACK_TRADE_NAME = 'Valanserh'

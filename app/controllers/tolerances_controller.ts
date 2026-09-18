@@ -336,7 +336,10 @@ export default class TolerancesController {
     // Empresa fuera del alcance del usuario: no se cae a la base, que sería
     // servir la configuración de otra empresa.
     if (notInScope) return null
-    if (businessUnitId === null) return systemSettingService.getActive()
+    // Sin empresa identificada no hay configuración que servir: antes caía al
+    // registro base de plataforma, que ya no existe —y servirlo era dar la
+    // tolerancia de nadie como si fuera la propia—.
+    if (businessUnitId === null) return null
 
     try {
       return await systemSettingService.resolveByBusinessUnitId(businessUnitId)

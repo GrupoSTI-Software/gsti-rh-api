@@ -2278,14 +2278,16 @@ export default class SystemSettingController {
         }
       }
 
-      // Sin header: ficha base (`business_unit_id` NULL), determinista.
-      const showSystemSetting = await systemSettingService.getActive()
-      response.status(200)
+      // Sin header no hay empresa que identificar y por tanto no hay ficha que
+      // servir. Antes se devolvía la base de plataforma; esa fila se retiró
+      // porque no era de nadie y se colaba como si fuera la del cliente.
+      response.status(404)
       return {
-        type: 'success',
-        title: 'System settings',
-        message: 'The system setting active was found successfully',
-        data: { systemSetting: showSystemSetting },
+        type: 'warning',
+        title: 'The system setting was not found',
+        message: 'No hay empresa identificada: envía el header X-Business-Unit-Id.',
+        key: 'configuracion-sin-empresa',
+        data: { systemSetting: null },
       }
     } catch (error) {
       response.status(500)
@@ -3333,7 +3335,8 @@ export default class SystemSettingController {
           }
         }
       } else {
-        systemSetting = await systemSettingService.getActive()
+        // Sin empresa identificada no hay ficha; el 404 de abajo lo resuelve.
+        systemSetting = null
       }
 
       if (!systemSetting) {

@@ -11,6 +11,7 @@ import User from '#models/user'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import SystemSetting from '#models/system_setting'
+import Tolerance from '#models/tolerance'
 import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingVolumeTier from '#models/billing_volume_tier'
@@ -103,6 +104,19 @@ async function cleanupTenant(businessUnitName: string, email: string) {
     await BillingSubscription.query()
       .where('business_unit_id', businessUnit.businessUnitId)
       .delete()
+    // Las tolerancias que el alta siembra salen antes que la ficha: la FK impide
+    // borrarla mientras tenga tolerancias vivas.
+    const tenantSettings = await SystemSetting.query()
+      .withTrashed()
+      .where('business_unit_id', businessUnit.businessUnitId)
+    if (tenantSettings.length > 0) {
+      await Tolerance.query()
+        .whereIn(
+          'system_setting_id',
+          tenantSettings.map((setting) => setting.systemSettingId)
+        )
+        .delete()
+    }
     await SystemSetting.query()
       .withTrashed()
       .where('business_unit_id', businessUnit.businessUnitId)

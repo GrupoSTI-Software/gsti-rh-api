@@ -9,6 +9,9 @@ import {
   tenantDefaultContent,
 } from '../constants/system_setting_defaults.js'
 import type { TenantProvisioningTargetInterface } from '../interfaces/tenant_provisioning_target_interface.js'
+import Tolerance from '#models/tolerance'
+import { TENANT_TOLERANCE_DEFAULTS } from '#constants/system_setting_defaults'
+import { TenantContext } from '#utils/tenant_context'
 
 export default class SystemSettingService {
   /**
@@ -125,23 +128,33 @@ export default class SystemSettingService {
   }
 
   /**
-   * Configuración BASE de la plataforma: la fila activa sin empresa dueña.
+   * Configuración de la EMPRESA ACTIVA de la petición.
    *
-   * Antes aceptaba una lista de slugs y, con ella, resolvía la configuración de
-   * una empresa cruzando el CSV `system_setting_business_units` con
-   * `FIND_IN_SET`. Ese parámetro no lo usaba ningún llamador —todos llaman sin
-   * argumentos— y la configuración de una empresa se pide por su llave, con
-   * `getByBusinessUnitId`. El CSV se retiró junto con esa rama.
+   * Es lo que necesita casi todo el runtime: el motor de asistencia, la marca de
+   * los reportes y las tolerancias. Antes esos consumidores llamaban a
+   * `getActive()`, que devuelve la fila de plataforma, así que un cliente veía
+   * los valores de otro —o los de nadie—.
+   *
+   * Devuelve `null` cuando no hay una empresa activa identificada (procesos
+   * batch, rutas sin `businessScope`) o cuando esa empresa aún no tiene
+   * configuración. Quien llama decide su default; nunca se cae a la fila de otra
+   * empresa.
    */
-  async getActive() {
-    const baseSystemSetting = await SystemSetting.query()
+  async resolveForActiveTenant(): Promise<SystemSetting | null> {
+    const scope = TenantContext.getScope()
+
+    if (scope.length !== 1) {
+      return null
+    }
+
+    const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_active', 1)
-      .whereNull('business_unit_id')
+      .where('business_unit_id', scope[0])
       .preload('systemSettingTolerances')
       .first()
 
-    return baseSystemSetting ?? null
+    return systemSetting ?? null
   }
 
   /**
@@ -455,6 +468,7 @@ export default class SystemSettingService {
       // `restore()` limpia `deletedAt` y persiste en una sola escritura
       // (incluye el contenido recién asignado, ya marcado como dirty).
       await existing.restore()
+      await this.seedTenantTolerances(existing.systemSettingId, trx)
       return existing
     }
 
@@ -463,6 +477,47 @@ export default class SystemSettingService {
     created.businessUnitId = businessUnitId
     created.useTransaction(trx)
     await created.save()
+    await this.seedTenantTolerances(created.systemSettingId, trx)
+
     return created
+  }
+
+  /**
+   * Tolerancias de asistencia propias de la empresa.
+   *
+   * Antes no se sembraban: las tres filas (`Delay`, `Fault`,
+   * `TardinessTolerance`) colgaban del registro base de plataforma y el motor de
+   * asistencia las leía de ahí para TODOS los clientes. Una empresa que ajustaba
+   * su tolerancia desde el backoffice creaba las suyas, pero el motor seguía
+   * mirando las globales. Ahora nacen con la empresa.
+   *
+   * Idempotente por el par (configuración, nombre): reejecutar no duplica ni
+   * pisa el valor que el cliente haya ajustado.
+   */
+  private async seedTenantTolerances(
+    systemSettingId: number,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    const existing = await Tolerance.query({ client: trx })
+      .where('system_setting_id', systemSettingId)
+      .select('tolerance_name')
+
+    const present = new Set(existing.map((tolerance) => tolerance.toleranceName))
+    const missing = TENANT_TOLERANCE_DEFAULTS.filter(
+      (tolerance) => !present.has(tolerance.toleranceName)
+    )
+
+    if (missing.length === 0) {
+      return
+    }
+
+    await Tolerance.createMany(
+      missing.map((tolerance) => ({
+        toleranceName: tolerance.toleranceName,
+        toleranceMinutes: tolerance.toleranceMinutes,
+        systemSettingId,
+      })),
+      { client: trx }
+    )
   }
 }
