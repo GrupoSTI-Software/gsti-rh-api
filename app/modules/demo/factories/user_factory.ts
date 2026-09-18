@@ -77,7 +77,11 @@ export const UserFactory = factory
       userEmail: 'demo@example.com',
       userPassword: DEMO_DEFAULT_PASSWORD,
       userActive: 1,
-      roleId: 1,
+      // 0 a propósito: `users.role_id` tiene FK contra `roles`, así que un
+      // llamador que olvide pasar el rol falla de inmediato en vez de crear el
+      // usuario con el rol que hoy ocupe el id 1 (es `kiosco`, la terminal de
+      // asistencia, no un administrador).
+      roleId: 0,
       personId: 0,
       userToken: '',
       userEmailType: 'institutional',

@@ -6,16 +6,24 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import SystemSetting from '#models/system_setting'
+import RoleSystemPermission from '#models/role_system_permission'
+import { assertPermissionDenied, grantRoleModulePermissions } from '#tests/helpers/tenant_actor'
 
 /**
  * USRH1789018905961 — `PUT /api/system-settings/:systemSettingId` exige que la
  * ficha pertenezca al scope antes de escribir campos o tocar archivos de marca.
+ *
+ * Con la exigencia de `system-settings` encendida el rol limitado recibe
+ * `system-settings:update`: sin esa concesión el gate responde 403 antes de la
+ * verificación de scope que estos casos prueban. Un segundo actor sin
+ * concesiones confirma la negativa del gate.
  */
+
+const SYSTEM_SETTINGS_MODULE = 'system-settings'
 
 const TEST_PASSWORD = 'SystemSettingUpdate123!'
 const NON_EXISTENT_SYSTEM_SETTING_ID = 2_147_483_647
 const MOLD_SYSTEM_SETTING_ID = 1
-const MOLD_CSV = 'gsti-rh'
 
 interface TestActor {
   user: User
@@ -25,7 +33,6 @@ interface TestActor {
 interface SettingSnapshot {
   systemSettingTradeName: string
   systemSettingSidebarColor: string
-  systemSettingBusinessUnits: string
   systemSettingLogo: string | null
   systemSettingBanner: string | null
   systemSettingFavicon: string | null
@@ -50,7 +57,6 @@ function snapshotSetting(row: SystemSetting): SettingSnapshot {
   return {
     systemSettingTradeName: row.systemSettingTradeName,
     systemSettingSidebarColor: row.systemSettingSidebarColor,
-    systemSettingBusinessUnits: row.systemSettingBusinessUnits,
     systemSettingLogo: row.systemSettingLogo,
     systemSettingBanner: row.systemSettingBanner,
     systemSettingFavicon: row.systemSettingFavicon,
@@ -137,17 +143,28 @@ async function applyUpdateFields(
   return request
 }
 
+/** Las concesiones referencian al rol: se borran antes que el rol. */
+async function cleanupRole(role: Role | null) {
+  if (!role?.roleId) return
+  await RoleSystemPermission.query().where('role_id', role.roleId).delete()
+  await Role.query().where('role_id', role.roleId).delete()
+}
+
 test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant', (group) => {
   let businessUnitA: BusinessUnit
   let businessUnitB: BusinessUnit
   let systemSettingA: SystemSetting
   let systemSettingB: SystemSetting
   let actorA: TestActor | null = null
+  let actorWithoutGrant: TestActor | null = null
   let limitedRole: Role | null = null
+  let ungrantedRole: Role | null = null
 
   group.setup(async () => {
     const stamp = Date.now()
     limitedRole = await createLimitedRole(String(stamp))
+    await grantRoleModulePermissions(limitedRole, SYSTEM_SETTINGS_MODULE, ['update'])
+    ungrantedRole = await createLimitedRole(`${stamp}-sin-concesion`)
 
     businessUnitA = await BusinessUnit.create({
       businessUnitName: `Update Settings BU A ${stamp}`,
@@ -170,7 +187,6 @@ test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant
       systemSettingTradeName: `Trade A ${stamp}`,
       systemSettingSidebarColor: '#111111',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: businessUnitA.businessUnitSlug,
       systemSettingMonthlyConversionFactor: 30.4,
       systemSettingLogo: `https://cdn.example.test/system-settings/logo-a-${stamp}.png`,
       systemSettingBanner: `https://cdn.example.test/system-settings/banner-a-${stamp}.png`,
@@ -183,7 +199,6 @@ test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant
       systemSettingTradeName: `Trade B ${stamp}`,
       systemSettingSidebarColor: '#222222',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: businessUnitB.businessUnitSlug,
       systemSettingMonthlyConversionFactor: 30.4,
       systemSettingLogo: `https://cdn.example.test/system-settings/logo-b-${stamp}.png`,
       systemSettingBanner: `https://cdn.example.test/system-settings/banner-b-${stamp}.png`,
@@ -192,6 +207,11 @@ test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant
     })
 
     actorA = await createActor('update-settings-a', [businessUnitA.businessUnitId], limitedRole)
+    actorWithoutGrant = await createActor(
+      'update-settings-sin-permiso',
+      [businessUnitA.businessUnitId],
+      ungrantedRole
+    )
   })
 
   group.teardown(async () => {
@@ -208,9 +228,9 @@ test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant
       await cleanupBusinessUnit(businessUnitB.businessUnitId)
     }
     await cleanupActor(actorA)
-    if (limitedRole?.roleId) {
-      await Role.query().where('role_id', limitedRole.roleId).delete()
-    }
+    await cleanupActor(actorWithoutGrant)
+    await cleanupRole(limitedRole)
+    await cleanupRole(ungrantedRole)
   })
 
   test('CA-1: guardado propio sin color en el payload conserva el sidebar vigente', async ({
@@ -275,7 +295,7 @@ test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant
 
     assert.equal(reloaded.systemSettingTradeName, newTradeName)
     assert.equal(reloaded.systemSettingSidebarColor, newColor)
-    assert.equal(reloaded.systemSettingBusinessUnits, businessUnitA.businessUnitSlug)
+    assert.equal(reloaded.businessUnitId, businessUnitA.businessUnitId)
     assert.equal(reloaded.systemSettingToleranceCountPerAbsence, 5)
   })
 
@@ -344,7 +364,7 @@ test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant
       return
     }
 
-    const csvBefore = moldBefore.systemSettingBusinessUnits
+    const ownerBefore = moldBefore.businessUnitId
 
     const response = await applyUpdateFields(
       client,
@@ -360,8 +380,31 @@ test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant
       .where('system_setting_id', MOLD_SYSTEM_SETTING_ID)
       .firstOrFail()
 
-    assert.equal(moldAfter.systemSettingBusinessUnits, csvBefore)
-    assert.include(moldAfter.systemSettingBusinessUnits, MOLD_CSV)
+    assert.equal(moldAfter.businessUnitId, ownerBefore, 'la empresa dueña del molde no cambia')
+  })
+
+  test('sin system-settings:update el guardado propio responde PERM.DENIED y la ficha no cambia', async ({
+    client,
+    assert,
+  }) => {
+    const before = snapshotSetting(
+      await SystemSetting.query().where('system_setting_id', systemSettingA.systemSettingId).firstOrFail()
+    )
+
+    const response = await applyUpdateFields(
+      client,
+      `/api/system-settings/${systemSettingA.systemSettingId}`,
+      actorWithoutGrant!.user,
+      businessUnitA,
+      maliciousUpdateFields(String(Date.now()))
+    )
+
+    assertPermissionDenied(assert, response)
+
+    const after = snapshotSetting(
+      await SystemSetting.query().where('system_setting_id', systemSettingA.systemSettingId).firstOrFail()
+    )
+    assert.deepEqual(after, before)
   })
 })
 
@@ -384,6 +427,7 @@ test.group('PUT /api/system-settings/:systemSettingId — log de rechazos (CA-6)
   group.setup(async () => {
     const stamp = Date.now()
     limitedRole = await createLimitedRole(`${stamp}-log`)
+    await grantRoleModulePermissions(limitedRole, SYSTEM_SETTINGS_MODULE, ['update'])
 
     businessUnitA = await BusinessUnit.create({
       businessUnitName: `Update Log BU A ${stamp}`,
@@ -406,7 +450,6 @@ test.group('PUT /api/system-settings/:systemSettingId — log de rechazos (CA-6)
       systemSettingTradeName: `Trade Log B ${stamp}`,
       systemSettingSidebarColor: '#333333',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: businessUnitB.businessUnitSlug,
       systemSettingMonthlyConversionFactor: 30.4,
     })
 
@@ -424,9 +467,7 @@ test.group('PUT /api/system-settings/:systemSettingId — log de rechazos (CA-6)
       await cleanupBusinessUnit(businessUnitB.businessUnitId)
     }
     await cleanupActor(actorA)
-    if (limitedRole?.roleId) {
-      await Role.query().where('role_id', limitedRole.roleId).delete()
-    }
+    await cleanupRole(limitedRole)
   })
 
   test('CA-6: rechazo emite ScopeDeniedLogService con los seis campos', async ({

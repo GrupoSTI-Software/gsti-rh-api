@@ -13,6 +13,7 @@ import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import Database from '@adonisjs/lucid/services/db'
 import i18nManager from '@adonisjs/i18n/services/main'
 import { DateTime } from 'luxon'
+import { resolveBusinessUnitSlugsForSetting } from '#helpers/system_settings_by_business_unit'
 
 export interface AttendanceFaultHrNotifyRow {
   employeeAssistCalendarId: number
@@ -69,29 +70,30 @@ export interface ResolveActiveSystemSettingsOptions {
  */
 export default class AttendanceFaultHrNotificationService {
   /**
-   * Indica si el setting tiene al menos una unidad de negocio entre los slugs permitidos.
+   * Indica si la configuración es de alguna de las empresas permitidas.
+   *
+   * Compara por la llave `business_unit_id`. Antes partía el CSV
+   * `system_setting_business_units` y cruzaba slugs; la configuración pertenece
+   * a UNA empresa y esa relación ya es formal.
    */
   private settingMatchesAllowedBusinessUnits(
     setting: SystemSetting,
-    allowedBusinessUnitSlugs: string[]
+    allowedBusinessUnitIds: number[]
   ): boolean {
-    const units = setting.systemSettingBusinessUnits
-      ? setting.systemSettingBusinessUnits.split(',').map((u: string) => u.trim())
-      : []
-    return units.some((u) => allowedBusinessUnitSlugs.includes(u))
+    return setting.businessUnitId !== null && allowedBusinessUnitIds.includes(setting.businessUnitId)
   }
 
   /**
-   * Resuelve el system setting activo cuyas unidades de negocio tengan al menos
-   * una coincidencia con los slugs permitidos (resolvedor central del scope de tenant).
+   * Resuelve el system setting activo de alguna de las empresas permitidas
+   * (resolvedor central del scope de tenant).
    * Devuelve el primer match en el orden de la consulta (comportamiento legacy de una sola empresa).
    */
-  resolveActiveSystemSetting(systemSettings: SystemSetting[], allowedBusinessUnitSlugs: string[]): SystemSetting | null {
-    if (allowedBusinessUnitSlugs.length === 0) {
+  resolveActiveSystemSetting(systemSettings: SystemSetting[], allowedBusinessUnitIds: number[]): SystemSetting | null {
+    if (allowedBusinessUnitIds.length === 0) {
       return null
     }
     for (const setting of systemSettings) {
-      if (setting.systemSettingActive === 1 && this.settingMatchesAllowedBusinessUnits(setting, allowedBusinessUnitSlugs)) {
+      if (setting.systemSettingActive === 1 && this.settingMatchesAllowedBusinessUnits(setting, allowedBusinessUnitIds)) {
         return setting
       }
     }
@@ -100,14 +102,14 @@ export default class AttendanceFaultHrNotificationService {
 
   /**
    * Resuelve todos los system settings activos con notificación de faltas a RH habilitada
-   * y al menos una unidad de negocio entre los slugs permitidos, en orden estable por id.
+   * cuya empresa esté entre las permitidas, en orden estable por id.
    */
   resolveActiveSystemSettings(
     systemSettings: SystemSetting[],
-    allowedBusinessUnitSlugs: string[],
+    allowedBusinessUnitIds: number[],
     options?: ResolveActiveSystemSettingsOptions
   ): SystemSetting[] {
-    if (allowedBusinessUnitSlugs.length === 0) {
+    if (allowedBusinessUnitIds.length === 0) {
       return []
     }
 
@@ -121,7 +123,7 @@ export default class AttendanceFaultHrNotificationService {
         if (requireFlag && !setting.systemSettingAttendanceFaultHrEmails) {
           return false
         }
-        return this.settingMatchesAllowedBusinessUnits(setting, allowedBusinessUnitSlugs)
+        return this.settingMatchesAllowedBusinessUnits(setting, allowedBusinessUnitIds)
       })
       .sort((a, b) => a.systemSettingId - b.systemSettingId)
   }
@@ -533,13 +535,11 @@ export default class AttendanceFaultHrNotificationService {
 
     const nowCst = DateTime.now().setZone('UTC-6')
     const calendarDay = nowCst.toFormat('yyyy-MM-dd')
-    const businessUnitSlugs = (systemSetting.systemSettingBusinessUnits || '')
-      .split(',')
-      .map((u) => u.trim().toLowerCase())
-      .filter(Boolean)
+    const settingBusinessUnitSlugs = await resolveBusinessUnitSlugsForSetting(systemSetting)
+    const businessUnitSlugs = settingBusinessUnitSlugs.map((slug) => slug.toLowerCase())
 
     if (businessUnitSlugs.length === 0) {
-      log.warning(`${settingLabel}: el system setting no tiene unidades de negocio configuradas`)
+      log.warning(`${settingLabel}: el system setting no tiene empresa dueña`)
       return { sent: false, reason: 'no_business_units' }
     }
 
@@ -758,7 +758,7 @@ export default class AttendanceFaultHrNotificationService {
       .where('system_setting_active', 1)
       .select(
         'system_setting_id',
-        'system_setting_business_units',
+        'business_unit_id',
         'system_setting_active',
         'system_setting_trade_name',
         'system_setting_sidebar_color',
@@ -768,12 +768,12 @@ export default class AttendanceFaultHrNotificationService {
     const activeUnits = await BusinessUnit.query()
       .whereNull('business_unit_deleted_at')
       .where('business_unit_active', 1)
-      .select('business_unit_slug')
-    const allowedBusinessUnitSlugs = activeUnits.map((u) => u.businessUnitSlug).filter(Boolean)
+      .select('business_unit_id', 'business_unit_slug')
+    const allowedBusinessUnitIds = activeUnits.map((u) => u.businessUnitId)
 
     const activeSettings = this.resolveActiveSystemSettings(
       systemSettings as SystemSetting[],
-      allowedBusinessUnitSlugs,
+      allowedBusinessUnitIds,
       { requireAttendanceFaultFlag: !isTest }
     )
 

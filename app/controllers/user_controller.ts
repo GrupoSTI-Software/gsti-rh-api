@@ -20,7 +20,6 @@ import Employee from '#models/employee'
 import BusinessUnit from '#models/business_unit'
 import AuthTokenService from '#services/auth_token_service'
 import AuthMailService, { type AuthMailLanguage } from '#services/auth_mail_service'
-import RoleService from '#services/role_service'
 import { AUTH_LOGIN_ERRORS } from '#constants/auth_login_error_codes'
 import { respondRefreshTokenUnauthorized } from '../helpers/auth_token_response.js'
 import i18nManager from '@adonisjs/i18n/services/main'
@@ -39,10 +38,16 @@ import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
+import {
+  assertUserAccessEmailNotMasked,
+  isUserAccessEmailMaskedError,
+  respondUserAccessEmailMasked,
+} from '#helpers/user_access_email_api_error'
 import { normalizeToken } from '#helpers/employee_termination_record'
 import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
+import { canAccessBackoffice } from '#helpers/backoffice_access'
 
 /**
  * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
@@ -56,15 +61,16 @@ function generateRecoveryPin(): string {
 
 async function dispatchUserInvitationEmail(user: User): Promise<void> {
   await user.load('person')
-  const empleadoRole = await new RoleService().findRoleBySlug('empleado')
-  const canAccessBackoffice = !empleadoRole || user.roleId !== empleadoRole.roleId
+  // Se pregunta por el rol efectivo en sus empresas, no por la fila global de
+  // `empleado`, que ya no existe como rol único (ver `backoffice_access.ts`).
+  const canAccessBackofficeValue = await canAccessBackoffice(user)
   const authMailService = new AuthMailService()
   await authMailService.sendUserInvitation({
     to: user.userEmail,
     firstName: user.person?.personFirstname || user.userEmail,
     invitationToken: user.userToken,
     language: 'es',
-    canAccessBackoffice,
+    canAccessBackoffice: canAccessBackofficeValue,
   })
 }
 
@@ -262,9 +268,6 @@ export default class UserController {
             employeeQuery.preload('position', (positionQuery) =>
               positionQuery.whereNull('position_deleted_at')
             )
-            // La app cliente necesita el UUID público de la unidad de negocio
-            // para enviarlo en el header x-business-unit-id de las siguientes
-            // solicitudes; el login es el único punto sin ese header.
             employeeQuery.preload('businessUnit')
           })
         )
@@ -407,9 +410,7 @@ export default class UserController {
       }
 
       if (origin === 'web') {
-        const roleService = new RoleService()
-        const employeeRole = await roleService.findRoleBySlug('empleado')
-        if (employeeRole && user.roleId === employeeRole.roleId) {
+        if (!(await canAccessBackoffice(user))) {
           response.status(403)
           return {
             title: AUTH_LOGIN_ERRORS.BACKOFFICE_FORBIDDEN.title,
@@ -424,7 +425,7 @@ export default class UserController {
       if (Ws.io) {
         try {
           Ws.io.emit(`user-forze-logout:${user.userEmail}:${origin}`, {})
-        } catch (error) {}
+        } catch (error) { }
       }
 
       const authTokenService = new AuthTokenService()
@@ -446,7 +447,7 @@ export default class UserController {
           date: date ? date : '',
           user_id: user.userId,
         } as LogAuthentication)
-      } catch (err) {}
+      } catch (err) { }
       response.status(200)
       return {
         type: 'success',
@@ -1628,6 +1629,17 @@ export default class UserController {
    *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
    *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
    *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
+   *       '422':
+   *         description: El correo de acceso contiene la máscara de un dato protegido. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: No fue posible guardar el correo de acceso }
+   *                 detail: { type: string, example: El correo de acceso contiene la máscara de un dato protegido. Captura el correo completo o usa el otro tipo de correo; no se guardó ningún cambio. }
+   *                 key: { type: string, example: no-fue-posible-guardar-el-correo-de-acceso }
+   *                 code: { type: string, example: USR.MAIL.001 }
    */
   async store(ctx: HttpContext) {
     const { auth, request, response, i18n, businessUnitScope } = ctx
@@ -1638,12 +1650,14 @@ export default class UserController {
       const personId = request.input('personId')
       const userEmailType = request.input('userEmailType')
 
+      assertUserAccessEmailNotMasked(userEmail)
+
       const businessUnits = await BusinessUnit.query()
         .whereIn('business_unit_id', businessUnitScope)
         .where('business_unit_active', 1)
         .whereNull('business_unit_deleted_at')
         .select('business_unit_id')
-      
+
       const businessUnitIds = businessUnits.map((unit) => unit.businessUnitId)
 
       const user = {
@@ -1721,6 +1735,7 @@ export default class UserController {
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
+      if (isUserAccessEmailMaskedError(error)) return respondUserAccessEmailMasked(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -2011,6 +2026,17 @@ export default class UserController {
    *                 detail: { type: string, example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó. }
    *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
    *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
+   *       '422':
+   *         description: El correo de acceso contiene la máscara de un dato protegido. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: No fue posible guardar el correo de acceso }
+   *                 detail: { type: string, example: El correo de acceso contiene la máscara de un dato protegido. Captura el correo completo o usa el otro tipo de correo; no se guardó ningún cambio. }
+   *                 key: { type: string, example: no-fue-posible-guardar-el-correo-de-acceso }
+   *                 code: { type: string, example: USR.MAIL.001 }
    */
   async update(ctx: HttpContext) {
     const { auth, request, response, i18n, scopedUser } = ctx
@@ -2024,6 +2050,9 @@ export default class UserController {
       const roleId = request.input('roleId')
       const personId = request.input('personId')
       const userEmailType = request.input('userEmailType')
+
+      assertUserAccessEmailNotMasked(userEmail)
+
       const user = {
         userId: userId,
         userEmail: userEmail,
@@ -2093,6 +2122,7 @@ export default class UserController {
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
+      if (isUserAccessEmailMaskedError(error)) return respondUserAccessEmailMasked(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -2823,104 +2853,104 @@ export default class UserController {
       }
     }
   }
- /**
-   * @swagger
-   * /api/auth/request/code-verify/{pinCode}:
-   *   post:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Users
-   *     summary: verify password recovery code
-   *     produces:
-   *       - application/json
-   *     parameters:
-   *       - in: path
-   *         name: pinCode
-   *         schema:
-   *           type: string
-   *         required: true
-   *     responses:
-   *       '200':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
+  /**
+    * @swagger
+    * /api/auth/request/code-verify/{pinCode}:
+    *   post:
+    *     security:
+    *       - bearerAuth: []
+    *     tags:
+    *       - Users
+    *     summary: verify password recovery code
+    *     produces:
+    *       - application/json
+    *     parameters:
+    *       - in: path
+    *         name: pinCode
+    *         schema:
+    *           type: string
+    *         required: true
+    *     responses:
+    *       '200':
+    *         description: Resource processed successfully
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: Processed object
+    *       '404':
+    *         description: Resource not found
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: List of parameters set by the client
+    *       '400':
+    *         description: The parameters entered are invalid or essential data is missing to process the request
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: List of parameters set by the client
+    *       default:
+    *         description: Unexpected error
+    *         content:
+    *           application/json:
+    *             schema:
+    *               type: object
+    *               properties:
+    *                 type:
+    *                   type: string
+    *                   description: Type of response generated
+    *                 title:
+    *                   type: string
+    *                   description: Title of response generated
+    *                 message:
+    *                   type: string
+    *                   description: Message of response
+    *                 data:
+    *                   type: object
+    *                   description: Error message obtained
+    *                   properties:
+    *                     error:
+    *                       type: string
+    */
   async verifyRequestPinCode({ params, response, i18n }: HttpContext) {
     try {
       const user = await User.query()

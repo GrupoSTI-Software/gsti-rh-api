@@ -8,8 +8,88 @@ import {
   createEmployeeProceedingFileTypeValidator,
   createSystemSettingProceedingFileTypeValidator,
 } from '#validators/proceeding_file_type'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import {
+  EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION,
+  EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION,
+} from '#constants/employees_write_permission_declarations'
+import { SYSTEM_SETTINGS_PROCEEDING_FILE_TYPE_WRITE_PERMISSION } from '#constants/system_settings_permission_declarations'
+
+/** Área de expedientes del colaborador, tal como se guarda en la columna. */
+const EMPLOYEE_AREA = 'employee'
+
+/**
+ * Vocabulario cerrado de áreas. Son las dos que el producto escribe hoy
+ * (`ProceedingFileTypeService.createEmployeeType` y `createSystemSettingType`).
+ */
+const PROCEEDING_FILE_TYPE_AREAS = [EMPLOYEE_AREA, 'system-setting'] as const
+
+/**
+ * Normaliza el área antes de decidir y antes de escribirla.
+ *
+ * El área se comparaba en JS con `===` (sensible a mayúsculas) pero se consulta
+ * en MySQL con `=` sobre una columna `utf8mb4_0900_ai_ci`, que NO lo es:
+ * mandar `Employee` caía en la rama de empresa —pedía `system-settings:update`—
+ * mientras `getByArea('employee')` sí devolvía la carpeta en el expediente del
+ * COLABORADOR. Era la vía para colgar una carpeta de un expediente que no se
+ * puede tocar, con solo el permiso del otro.
+ *
+ * @returns El área canónica, o `null` si no pertenece al vocabulario.
+ */
+function normalizeProceedingFileTypeArea(
+  areaToUse: string | null | undefined
+): (typeof PROCEEDING_FILE_TYPE_AREAS)[number] | null {
+  const area = String(areaToUse ?? '')
+    .trim()
+    .toLowerCase()
+  return PROCEEDING_FILE_TYPE_AREAS.find((candidate) => candidate === area) ?? null
+}
+
+/** Negativa 422 ante un área que no pertenece al vocabulario cerrado. */
+const UNKNOWN_AREA_RESPONSE = {
+  type: 'warning',
+  title: 'Área de expediente inválida',
+  message: `El área debe ser una de: ${PROCEEDING_FILE_TYPE_AREAS.join(', ')}.`,
+  detail: `El área debe ser una de: ${PROCEEDING_FILE_TYPE_AREAS.join(', ')}.`,
+  key: 'area-de-expediente-desconocida',
+} as const
 
 export default class ProceedingFileTypeController {
+  /**
+   * Exige el permiso del área a la que pertenece el tipo de expediente.
+   *
+   * El módulo `proceeding-file-types` está retirado y no tiene permisos: quien
+   * es dueño de la operación es la pantalla que la dispara. Una carpeta del
+   * expediente del colaborador la gobierna Empleados (`tab-expediente-write` /
+   * `tab-expediente-delete`, los mismos que ya rigen sus archivos) y una del
+   * expediente de la empresa la gobierna Ajustes Generales (`update`, como el
+   * resto de los subrecursos de la ficha).
+   *
+   * Responde la negativa por su cuenta y devuelve `false`: quien llama solo
+   * tiene que cortar.
+   */
+  private async ensureAreaPermission(
+    ctx: HttpContext,
+    areaToUse: string | null | undefined,
+    intent: 'write' | 'delete'
+  ): Promise<boolean> {
+    // Se decide sobre el área NORMALIZADA: la columna es insensible a
+    // mayúsculas, así que `Employee` y `employee` son la misma carpeta para la
+    // consulta que arma el árbol del expediente y deben pedir el mismo permiso.
+    if (normalizeProceedingFileTypeArea(areaToUse) === EMPLOYEE_AREA) {
+      return ensureSecondaryPermission(
+        ctx,
+        intent === 'delete'
+          ? EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION
+          : EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION
+      )
+    }
+    // Cualquier otra área es de la empresa. Fail-closed por omisión: un área
+    // desconocida (incluida una fila legada con un área que ya no se escribe)
+    // pide el permiso de Ajustes Generales, no pasa de largo.
+    return ensureSecondaryPermission(ctx, SYSTEM_SETTINGS_PROCEEDING_FILE_TYPE_WRITE_PERMISSION)
+  }
+
   /**
    * @swagger
    * /api/proceeding-file-types:
@@ -413,7 +493,8 @@ export default class ProceedingFileTypeController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, businessUnitScope }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response, businessUnitScope } = ctx
     try {
       const proceedingFileTypeName = request.input('proceedingFileTypeName')
       const proceedingFileTypeSlug = request.input('proceedingFileTypeSlug')
@@ -423,10 +504,14 @@ export default class ProceedingFileTypeController {
         ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
         : []
       const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
+      // El área se cierra al vocabulario ANTES de decidir y de escribir: así no
+      // se puede fijar a mano una variante (`Employee`) que la consulta del
+      // árbol sí trataría como del colaborador.
+      const areaSolicitada = normalizeProceedingFileTypeArea(proceedingFileTypeAreaToUse)
       const proceedingFileType = {
         proceedingFileTypeName: proceedingFileTypeName,
         proceedingFileTypeSlug: proceedingFileTypeSlug,
-        proceedingFileTypeAreaToUse: proceedingFileTypeAreaToUse,
+        proceedingFileTypeAreaToUse: areaSolicitada,
         proceedingFileTypeActive:
           proceedingFileTypeActive &&
           (proceedingFileTypeActive === 'true' || Number.parseInt(proceedingFileTypeActive) === 1)
@@ -434,6 +519,14 @@ export default class ProceedingFileTypeController {
             : 0,
         proceedingFileTypeBusinessUnits: businessSlugs.join(','),
       } as ProceedingFileType
+      // El área la trae el cuerpo: se exige el permiso de la que se pide crear.
+      if (!(await this.ensureAreaPermission(ctx, proceedingFileTypeAreaToUse, 'write'))) {
+        return
+      }
+      if (!areaSolicitada) {
+        response.status(422)
+        return { ...UNKNOWN_AREA_RESPONSE, data: { proceedingFileTypeAreaToUse } }
+      }
       const proceedingFileTypeService = new ProceedingFileTypeService()
       const data = await request.validateUsing(createProceedingFileTypeValidator)
       const valid = await proceedingFileTypeService.verifyInfo(proceedingFileType)
@@ -858,7 +951,8 @@ export default class ProceedingFileTypeController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, businessUnitScope }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response, businessUnitScope } = ctx
     try {
       const proceedingFileTypeId = request.param('proceedingFileTypeId')
       const proceedingFileTypeName = request.input('proceedingFileTypeName')
@@ -869,11 +963,14 @@ export default class ProceedingFileTypeController {
         ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
         : []
       const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
+      // Igual que en el alta: el área del cuerpo se cierra al vocabulario antes
+      // de decidir el permiso del destino y antes de persistirla.
+      const areaSolicitada = normalizeProceedingFileTypeArea(proceedingFileTypeAreaToUse)
       const proceedingFileType = {
         proceedingFileTypeId: proceedingFileTypeId,
         proceedingFileTypeName: proceedingFileTypeName,
         proceedingFileTypeSlug: proceedingFileTypeSlug,
-        proceedingFileTypeAreaToUse: proceedingFileTypeAreaToUse,
+        proceedingFileTypeAreaToUse: areaSolicitada,
         proceedingFileTypeActive:
           proceedingFileTypeActive &&
           (proceedingFileTypeActive === 'true' || Number.parseInt(proceedingFileTypeActive) === 1)
@@ -902,6 +999,34 @@ export default class ProceedingFileTypeController {
           message: 'The proceeding file type was not found with the entered ID',
           data: { ...proceedingFileType },
         }
+      }
+      // Manda el área GUARDADA, que es la del expediente al que la carpeta
+      // pertenece hoy. Si además se pide moverla a otra área, se exige también
+      // el permiso del destino: mover no puede ser la vía para escribir en un
+      // expediente que no se puede tocar.
+      if (
+        !(await this.ensureAreaPermission(
+          ctx,
+          currentProceedingFileType.proceedingFileTypeAreaToUse,
+          'write'
+        ))
+      ) {
+        return
+      }
+      if (proceedingFileTypeAreaToUse && !areaSolicitada) {
+        response.status(422)
+        return { ...UNKNOWN_AREA_RESPONSE, data: { proceedingFileTypeAreaToUse } }
+      }
+      // La comparación va entre áreas NORMALIZADAS: `Employee` sobre una carpeta
+      // de empresa ES un movimiento al expediente del colaborador y debe pedir
+      // su permiso, aunque las cadenas crudas difieran solo en mayúsculas.
+      if (
+        areaSolicitada &&
+        areaSolicitada !==
+          normalizeProceedingFileTypeArea(currentProceedingFileType.proceedingFileTypeAreaToUse) &&
+        !(await this.ensureAreaPermission(ctx, areaSolicitada, 'write'))
+      ) {
+        return
       }
       const proceedingFileTypeService = new ProceedingFileTypeService()
       const data = await request.validateUsing(createProceedingFileTypeValidator)
@@ -1038,7 +1163,8 @@ export default class ProceedingFileTypeController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const proceedingFileTypeId = request.param('proceedingFileTypeId')
       if (!proceedingFileTypeId) {
@@ -1062,6 +1188,15 @@ export default class ProceedingFileTypeController {
           message: 'The proceeding file type was not found with the entered ID',
           data: { proceedingFileTypeId },
         }
+      }
+      if (
+        !(await this.ensureAreaPermission(
+          ctx,
+          currentProceedingFileType.proceedingFileTypeAreaToUse,
+          'delete'
+        ))
+      ) {
+        return
       }
       const proceedingFileTypeService = new ProceedingFileTypeService()
       const deleteProceedingFileType =

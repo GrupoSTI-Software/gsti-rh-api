@@ -19,7 +19,7 @@ export default class QuestionnaireTabulationController {
     if (user.role?.roleSlug === 'root') return true
 
     const roleService = new RoleService()
-    return roleService.hasAccess(user.roleId, 'compliance', action)
+    return roleService.hasAccess(user.roleId, 'questionnaire-tabulation', action)
   }
 
   private async validateApplicationId(rawValue: unknown): Promise<number> {

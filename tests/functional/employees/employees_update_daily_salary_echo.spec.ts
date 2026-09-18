@@ -73,7 +73,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     roleSlug: `daily-salary-echo-${stamp}`,
     roleDescription: 'Rol temporal para pruebas de eco de salario diario',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   const person = await Person.create({

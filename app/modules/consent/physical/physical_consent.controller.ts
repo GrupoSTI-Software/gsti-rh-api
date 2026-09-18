@@ -9,7 +9,7 @@ import { registerPhysicalConsentValidator } from './validators/register_physical
 
 /** Módulo bajo el que vive el permiso nuevo (regla 2 — sin módulo aparte). */
 const PARENT_MODULE_SLUG = 'employees'
-/** Permiso NUEVO y específico (decisión Wilvardo 2026-07-15) — ver seeder 0051. */
+/** Permiso NUEVO y específico (decisión Wilvardo 2026-07-15); se declara en `EMPLOYEES_PERMISSION_CATALOG`. */
 const PHYSICAL_CONSENT_PERMISSION_SLUG = 'register-physical-consent'
 
 /**

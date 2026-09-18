@@ -3,7 +3,6 @@ import mail from '@adonisjs/mail/services/main'
 import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Person from '#models/person'
-import Role from '#models/role'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import SystemSetting from '#models/system_setting'
@@ -19,6 +18,7 @@ import { BusinessUnitSignupServiceError } from '#exceptions/business_unit_signup
 import { BillingSubscriptionServiceError } from '#exceptions/billing_subscription_service_error'
 import { MAX_LIVE_BUSINESS_UNITS_PER_USER } from '#constants/business_unit'
 import { toBusinessDateString } from '#utils/business_date'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — alta de empresa adicional (USRH1787932877001).
@@ -34,16 +34,8 @@ import { toBusinessDateString } from '#utils/business_date'
 
 const TEST_PASSWORD = 'AdditionalBuTest123!'
 
-async function ensureOwnerRole(): Promise<Role> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'owner').first()
-  if (!role) {
-    throw new Error('Se requiere el rol "owner" en BD. Ejecuta los seeders primero.')
-  }
-  return role
-}
-
 async function createOwnerUser(stamp: string): Promise<{ user: User; person: Person }> {
-  const ownerRole = await ensureOwnerRole()
+  const ownerRole = await ensureRole('owner')
 
   const person = new Person()
   person.personFirstname = 'Adicional'

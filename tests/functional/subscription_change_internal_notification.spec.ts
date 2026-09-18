@@ -2,9 +2,7 @@ import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import mail from '@adonisjs/mail/services/main'
 import env from '#start/env'
-import RoleSeeder from '#database/seeders/0006_role_seeder'
 import User from '#models/user'
-import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
@@ -19,6 +17,7 @@ import BillingInternalNotificationService from '#services/billing_internal_notif
 import SubscriptionChangeRequestedMail from '#mails/subscription_change_requested_mail'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '#constants/billing_subscription_error_codes'
 import { toBusinessDateString } from '#utils/business_date'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — aviso interno de solicitud de cambio de suscripción
@@ -117,19 +116,10 @@ async function waitForAsyncNotifications(ms = 150): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-async function ensureOwnerRole(): Promise<Role> {
-  await new RoleSeeder({} as never).run()
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'owner').first()
-  if (!role) {
-    throw new Error('Se requiere el rol owner en BD.')
-  }
-  return role
-}
-
 async function createTenantActor(emailPrefix: string): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await ensureOwnerRole()
+  const role = await ensureRole('owner')
 
   const person = new Person()
   person.personFirstname = 'ChangeNotif'

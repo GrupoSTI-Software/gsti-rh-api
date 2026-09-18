@@ -16,7 +16,7 @@ test.group('Catalogo de permisos de puntos de acceso', () => {
     const moduleEntry = SYSTEM_PERMISSION_CATALOG.modules.find(
       (entry) => entry.slug === ACCESS_POINT_MODULE_SLUG
     )
-    assert.isTrue(moduleEntry?.actionsEnumerated)
+    assert.exists(moduleEntry)
     assert.strictEqual(
       SYSTEM_PERMISSION_CATALOG.actionsByModule[ACCESS_POINT_MODULE_SLUG],
       ACCESS_POINT_PERMISSION_CATALOG
