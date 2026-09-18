@@ -70,7 +70,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     roleSlug: `foto-propia-${stamp}`,
     roleDescription: 'Rol temporal sin permisos del módulo employees',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   const person = await Person.create({

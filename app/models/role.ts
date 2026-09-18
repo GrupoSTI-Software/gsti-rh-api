@@ -24,16 +24,13 @@ import RoleDepartment from './role_department.js'
  *          businessUnitId:
  *            type: number
  *            nullable: true
- *            description: Business unit that owns the role (null = platform role)
+ *            description: Empresa dueña del rol; null solo en el rol global de plataforma
  *          roleDescription:
  *            type: string
  *            description: Role description
  *          roleActive:
  *            type: number
  *            description: Role status
- *          roleBusinessAccess:
- *            type: string
- *            description: Business access
  *          roleManagementDays:
  *            type: number
  *            description: Role management days
@@ -56,12 +53,9 @@ export default class Role extends compose(BaseModel, SoftDeletes) {
   declare roleSlug: string
 
   /**
-   * Empresa dueña del rol. `null` = rol global de la plataforma (`root`) o de
-   * sistema (`owner`, `empleado`), visible en todo tenant.
-   *
-   * Los roles heredados de cada cliente todavía viven con `null` y se
-   * distinguen por el CSV `roleBusinessAccess`; esa compatibilidad temporal la
-   * resuelve `app/helpers/role_business_scope.ts` y desaparece con el backfill.
+   * Empresa dueña del rol. `null` solo en `root`, el rol global de la
+   * plataforma: cualquier otro rol pertenece a una empresa y el candado
+   * (empresa, slug) de `1789528501204` hace que su identidad sea el par.
    */
   @column()
   declare businessUnitId: number | null
@@ -71,9 +65,6 @@ export default class Role extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare roleActive: number
-
-  @column()
-  declare roleBusinessAccess: string
 
   @column()
   declare roleManagementDays: number | null

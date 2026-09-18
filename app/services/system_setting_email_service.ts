@@ -1,9 +1,19 @@
-import SystemSetting from '#models/system_setting'
 import SystemSettingNotificationEmail from '#models/system_setting_notification_email'
+import {
+  findSystemSettingInScope,
+  isTenantScopeActive,
+  scopedSystemSettingIds,
+} from '#helpers/system_setting_tenant_scope'
 
 /**
  * Service class for managing system setting notification emails
  * Provides methods to create, delete, and verify system setting notification email records
+ *
+ * Estos destinatarios reciben aprobaciones de vacaciones y permisos, avisos de
+ * lactancia y folios REPSE. Ni este modelo ni `SystemSetting` componen el mixin
+ * de empresa, así que cada consulta se acota a mano con el candado compartido:
+ * sin él, el `systemSettingId` que manda el cliente alcanzaba la configuración
+ * de cualquier otra empresa.
  */
 export default class SystemSettingEmailService {
   /**
@@ -13,6 +23,9 @@ export default class SystemSettingEmailService {
   async index() {
     const systemSettingNotificationEmails = await SystemSettingNotificationEmail.query()
       .whereNull('system_setting_notification_email_deleted_at')
+      .if(isTenantScopeActive(), (query) => {
+        query.whereIn('system_setting_id', scopedSystemSettingIds())
+      })
       .preload('systemSetting')
       .orderBy('system_setting_notification_email_id', 'desc')
     return systemSettingNotificationEmails
@@ -27,6 +40,9 @@ export default class SystemSettingEmailService {
     const systemSettingNotificationEmails = await SystemSettingNotificationEmail.query()
       .whereNull('system_setting_notification_email_deleted_at')
       .where('system_setting_id', systemSettingId)
+      .if(isTenantScopeActive(), (query) => {
+        query.whereIn('system_setting_id', scopedSystemSettingIds())
+      })
       .preload('systemSetting')
       .orderBy('system_setting_notification_email_id', 'desc')
     return systemSettingNotificationEmails
@@ -64,6 +80,9 @@ export default class SystemSettingEmailService {
     const systemSettingNotificationEmail = await SystemSettingNotificationEmail.query()
       .whereNull('system_setting_notification_email_deleted_at')
       .where('system_setting_notification_email_id', systemSettingNotificationEmailId)
+      .if(isTenantScopeActive(), (query) => {
+        query.whereIn('system_setting_id', scopedSystemSettingIds())
+      })
       .first()
     return systemSettingNotificationEmail ? systemSettingNotificationEmail : null
   }
@@ -74,10 +93,11 @@ export default class SystemSettingEmailService {
    * @returns Promise<Object> - Verification result with status and message
    */
   async verifyInfoExist(systemSettingNotificationEmail: SystemSettingNotificationEmail) {
-    const existSystemSetting = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_id', systemSettingNotificationEmail.systemSettingId)
-      .first()
+    // Resuelve dentro de la empresa activa: comprobar solo la existencia dejaba
+    // suscribir un correo propio a las notificaciones de otro cliente.
+    const existSystemSetting = await findSystemSettingInScope(
+      systemSettingNotificationEmail.systemSettingId
+    )
 
     if (!existSystemSetting && systemSettingNotificationEmail.systemSettingId) {
       return {

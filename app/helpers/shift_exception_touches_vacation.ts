@@ -58,3 +58,35 @@ export async function exceptionRequestAcceptTouchesVacation(
 
   return exceptionTypeIdIsVacation(request.exceptionTypeId)
 }
+
+/**
+ * Indica si un lote de solicitudes toca vacaciones al aceptarse.
+ *
+ * Es la versión de conjunto de `exceptionRequestAcceptTouchesVacation`: basta
+ * una solicitud de vacaciones en el lote para que la operación completa exija el
+ * permiso de vacaciones, porque una sola aceptación ya consume días.
+ *
+ * @param exceptionRequestIds - Ids del lote.
+ * @param status - Resolución que se pretende aplicar.
+ * @returns `true` cuando al menos una del lote es de vacaciones y se va a aceptar.
+ */
+export async function exceptionRequestsBatchTouchesVacation(
+  exceptionRequestIds: number[],
+  status: string
+): Promise<boolean> {
+  if (status !== 'accepted' || exceptionRequestIds.length === 0) {
+    return false
+  }
+
+  const requests = await ExceptionRequest.query()
+    .whereNull('exception_request_deleted_at')
+    .whereIn('exception_request_id', exceptionRequestIds)
+
+  for (const request of requests) {
+    if (await exceptionTypeIdIsVacation(request.exceptionTypeId)) {
+      return true
+    }
+  }
+
+  return false
+}

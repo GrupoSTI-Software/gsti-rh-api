@@ -602,6 +602,7 @@ export default class AllianceService {
     }
 
     return db.transaction(async (trx) => {
+      await this.lockOwnedDiscountCode(alliance.allianceId, trx)
       alliance.useTransaction(trx)
       alliance.allianceActive = 1
       await alliance.save()
@@ -619,6 +620,7 @@ export default class AllianceService {
     }
 
     return db.transaction(async (trx) => {
+      await this.lockOwnedDiscountCode(alliance.allianceId, trx)
       alliance.useTransaction(trx)
       alliance.allianceActive = 0
       await alliance.save()
@@ -626,6 +628,22 @@ export default class AllianceService {
       await alliance.load('discountCode')
       return alliance
     })
+  }
+
+  /**
+   * Toma el candado del código ANTES de tocar `alliances`. El alta con
+   * canje ya bloquea esa fila; si aquí se actualizara la alianza primero,
+   * el INSERT de la atribución (FK) y este UPDATE del código se cruzan
+   * y MySQL declara deadlock.
+   */
+  private async lockOwnedDiscountCode(
+    allianceId: number,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    await DiscountCode.query({ client: trx })
+      .where('discount_code_alliance_id', allianceId)
+      .forUpdate()
+      .first()
   }
 
   /**

@@ -34,8 +34,12 @@ test.group('Shift — modelo con withBusinessUnitScope', () => {
     assertModelHasColumns(assert, Shift, ['businessUnitId'])
   })
 
-  test('conserva shiftBusinessUnits (CSV) como espejo denormalizado', ({ assert }) => {
-    assertModelHasColumns(assert, Shift, ['shiftBusinessUnits'])
+  test('ya no declara el CSV shiftBusinessUnits', ({ assert }) => {
+    // Era un espejo denormalizado de la empresa dueña. Se retiró: no gobernaba
+    // el aislamiento —eso lo hace `businessUnitId` con el mixin— y solo podía
+    // discrepar de la llave, como pasaba en el import de empleados.
+    assert.notProperty(Shift.$columnsDefinitions.keys ?? {}, 'shiftBusinessUnits')
+    assert.isFalse(Shift.$hasColumn('shiftBusinessUnits'))
   })
 })
 

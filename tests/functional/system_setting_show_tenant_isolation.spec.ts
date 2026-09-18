@@ -148,7 +148,6 @@ test.group('GET /api/system-settings/:systemSettingId — aislamiento por tenant
       systemSettingTradeName: `Trade A ${stamp}`,
       systemSettingSidebarColor: '#111111',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: businessUnitA.businessUnitSlug,
       systemSettingMonthlyConversionFactor: 30.4,
     })
 
@@ -157,7 +156,6 @@ test.group('GET /api/system-settings/:systemSettingId — aislamiento por tenant
       systemSettingTradeName: `Trade B ${stamp}`,
       systemSettingSidebarColor: '#222222',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: businessUnitB.businessUnitSlug,
       systemSettingMonthlyConversionFactor: 30.4,
     })
 
@@ -360,7 +358,6 @@ test.group('GET /api/system-settings/:systemSettingId — log de rechazos (CA-6)
       systemSettingTradeName: `Trade Log B ${stamp}`,
       systemSettingSidebarColor: '#333333',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: businessUnitB.businessUnitSlug,
       systemSettingMonthlyConversionFactor: 30.4,
     })
 

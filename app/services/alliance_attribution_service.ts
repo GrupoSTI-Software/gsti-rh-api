@@ -190,8 +190,11 @@ function toAllianceAttributionView(
  *
  * La unicidad de la atribución viva se sostiene con `forUpdate` sobre
  * `business_units` (la fila padre siempre existe) y con el UNIQUE de
- * la columna generada. Los dos caminos del conflicto responden el
- * mismo 409 `PLT.ALL.ATTRIBUTION_ALREADY_LIVE`.
+ * la columna generada. El alta a mano y el canje del código de una
+ * alianza escriben por el mismo camino. El conflicto de dos vivas
+ * responde 409 `PLT.ALL.ATTRIBUTION_ALREADY_LIVE`; canjear el código
+ * de otra alianza con una viva responde 422
+ * `PLT.ALL.ATTRIBUTION_OTHER_ALLIANCE` y no crea nada.
  */
 export default class AllianceAttributionService {
   /**
@@ -215,62 +218,115 @@ export default class AllianceAttributionService {
     assertPatchNumericFieldsAreScalar(body)
   }
 
+  /**
+   * Alta a mano. El porcentaje y el plazo ausentes heredan del acuerdo
+   * general; si vienen, se guardan los confirmados. `termPeriods: null`
+   * deja el plazo indeterminado para este cliente.
+   */
   async createAttribution(
     input: CreateAllianceAttributionInput
   ): Promise<AllianceAttributionView> {
-    assertPositiveAllianceId(input.allianceId)
-    this.assertStartsAtCalendarDate(input.allianceAttributionStartsAt)
-
     const created = await db.transaction(async (trx) => {
-      const unit = await this.lockBusinessUnitByPublicId(input.businessUnitPublicId, trx)
-
-      const live = await AllianceAttribution.query({ client: trx })
-        .where('business_unit_id', unit.businessUnitId)
-        .whereNull('alliance_attribution_closed_at')
-        .first()
-
-      if (live) {
-        throwFromCatalog(ALLIANCE_ERRORS.ATTRIBUTION_ALREADY_LIVE)
-      }
-
-      const alliance = await this.getActiveAllianceForCreate(input.allianceId, trx)
-      const commissionPercent =
-        input.allianceAttributionCommissionPercent ?? alliance.allianceDefaultCommissionPercent
-      const termPeriods =
-        input.allianceAttributionTermPeriods === undefined
-          ? alliance.allianceDefaultTermPeriods
-          : input.allianceAttributionTermPeriods
-
-      assertCommissionPercent(commissionPercent)
-      assertTermPeriods(termPeriods)
-      if (
-        typeof termPeriods === 'number' &&
-        (termPeriods > MYSQL_UNSIGNED_INT_MAX || !Number.isSafeInteger(termPeriods))
-      ) {
-        throwFromCatalog(ALLIANCE_ERRORS.TERM_PERIODS_INVALID)
-      }
-
-      try {
-        return await AllianceAttribution.create(
-          {
-            allianceId: alliance.allianceId,
-            businessUnitId: unit.businessUnitId,
-            allianceAttributionCommissionPercent: commissionPercent,
-            allianceAttributionTermPeriods: termPeriods,
-            allianceAttributionStartsAt: DateTime.fromISO(input.allianceAttributionStartsAt, {
-              zone: 'utc',
-            }),
-            allianceAttributionClosedAt: null,
-            allianceAttributionCloseReason: null,
-          },
-          { client: trx }
-        )
-      } catch (error) {
-        rethrowDuplicateLiveAttribution(error)
-      }
+      return this.createAttributionWithin(input, trx)
     })
 
     return this.getAttribution(created.allianceAttributionId)
+  }
+
+  /**
+   * Alta de atribución dentro de una transacción ya abierta. Única
+   * escritura de atribución nueva: el alta a mano y el canje del código
+   * de una alianza pasan por aquí, con las mismas reglas.
+   */
+  async createAttributionWithin(
+    input: CreateAllianceAttributionInput,
+    trx: TransactionClientContract
+  ): Promise<AllianceAttribution> {
+    assertPositiveAllianceId(input.allianceId)
+    this.assertStartsAtCalendarDate(input.allianceAttributionStartsAt)
+
+    const unit = await this.lockBusinessUnitByPublicId(input.businessUnitPublicId, trx)
+
+    const live = await AllianceAttribution.query({ client: trx })
+      .where('business_unit_id', unit.businessUnitId)
+      .whereNull('alliance_attribution_closed_at')
+      .first()
+
+    if (live) {
+      throwFromCatalog(ALLIANCE_ERRORS.ATTRIBUTION_ALREADY_LIVE)
+    }
+
+    const alliance = await this.getActiveAllianceForCreate(input.allianceId, trx)
+    const commissionPercent =
+      input.allianceAttributionCommissionPercent ?? alliance.allianceDefaultCommissionPercent
+    const termPeriods =
+      input.allianceAttributionTermPeriods === undefined
+        ? alliance.allianceDefaultTermPeriods
+        : input.allianceAttributionTermPeriods
+
+    assertCommissionPercent(commissionPercent)
+    assertTermPeriods(termPeriods)
+    if (
+      typeof termPeriods === 'number' &&
+      (termPeriods > MYSQL_UNSIGNED_INT_MAX || !Number.isSafeInteger(termPeriods))
+    ) {
+      throwFromCatalog(ALLIANCE_ERRORS.TERM_PERIODS_INVALID)
+    }
+
+    try {
+      return await AllianceAttribution.create(
+        {
+          allianceId: alliance.allianceId,
+          businessUnitId: unit.businessUnitId,
+          allianceAttributionCommissionPercent: commissionPercent,
+          allianceAttributionTermPeriods: termPeriods,
+          allianceAttributionStartsAt: DateTime.fromISO(input.allianceAttributionStartsAt, {
+            zone: 'utc',
+          }),
+          allianceAttributionClosedAt: null,
+          allianceAttributionCloseReason: null,
+        },
+        { client: trx }
+      )
+    } catch (error) {
+      rethrowDuplicateLiveAttribution(error)
+    }
+  }
+
+  /**
+   * Si el código canjeado es de una alianza, deja a la empresa atribuida
+   * a esa alianza en la misma transacción del alta. Misma alianza viva:
+   * no-op. Otra alianza viva: rechaza el alta completo (422).
+   */
+  async attributeOnAllianceCodeRedeem(
+    allianceId: number,
+    businessUnitPublicId: string,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    assertPositiveAllianceId(allianceId)
+
+    const unit = await this.lockBusinessUnitByPublicId(businessUnitPublicId, trx)
+    const live = await AllianceAttribution.query({ client: trx })
+      .where('business_unit_id', unit.businessUnitId)
+      .whereNull('alliance_attribution_closed_at')
+      .forUpdate()
+      .first()
+
+    if (live) {
+      if (live.allianceId === allianceId) {
+        return
+      }
+      throwFromCatalog(ALLIANCE_ERRORS.ATTRIBUTION_OTHER_ALLIANCE)
+    }
+
+    await this.createAttributionWithin(
+      {
+        allianceId,
+        businessUnitPublicId,
+        allianceAttributionStartsAt: toBusinessDateString(),
+      },
+      trx
+    )
   }
 
   /**
@@ -481,6 +537,7 @@ export default class AllianceAttributionService {
     const alliance = await Alliance.query({ client: trx })
       .where('alliance_id', allianceId)
       .whereNull('alliance_deleted_at')
+      .forUpdate()
       .first()
 
     if (!alliance) {
