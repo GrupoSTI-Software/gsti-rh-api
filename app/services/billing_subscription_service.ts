@@ -8,6 +8,7 @@ import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing
 import BillingCatalogService, { type AppliedDiscountCode } from '#services/billing_catalog_service'
 import DiscountCodeService from '#services/discount_code_service'
 import DiscountCode from '#models/discount_code'
+import AllianceAttributionService from '#services/alliance_attribution_service'
 import { DiscountCodeServiceError } from '#exceptions/discount_code_service_error'
 import { DISCOUNT_CODE_ERROR_CODES } from '#constants/discount_code_error_codes'
 import BillingSubscriptionChange from '#models/billing_subscription_change'
@@ -108,6 +109,7 @@ export default class BillingSubscriptionService {
   private readonly catalog = new BillingCatalogService()
   private readonly employeeQuota = new EmployeeQuotaService()
   private readonly discountCodes = new DiscountCodeService()
+  private readonly attributions = new AllianceAttributionService()
 
   // ─── Empresas (picker del alta) ──────────────────────────────────────────
 
@@ -582,6 +584,17 @@ export default class BillingSubscriptionService {
       await this.cancelWithin(existingLive, trx)
     }
 
+    // Código de una alianza: la atribución nace en la misma transacción
+    // que la suscripción. Otra alianza viva rechaza el alta completo
+    // (nada se consume, la viva que se iba a reemplazar sigue viva).
+    if (redeemedCode?.allianceId) {
+      await this.attributions.attributeOnAllianceCodeRedeem(
+        redeemedCode.allianceId,
+        input.businessUnitPublicId,
+        trx
+      )
+    }
+
     // Paso 10b (USRH1787714804401 §4/Anexo C §2): se consume el cupo justo
     // antes de congelar la fila, dentro de la misma `trx` que ya trae la
     // fila del código bloqueada desde el paso 6b. Único escritor del
@@ -915,6 +928,17 @@ export default class BillingSubscriptionService {
    * contratación anterior, sin importar su estado ni si fue borrada
    * lógicamente: la evidencia es histórica (USRH1785962095089 §10).
    */
+  /**
+   * USRH1789151097443 (RN-01): "tuvo prueba" se decide por la existencia de
+   * `trial_ends_at` — dato que se escribe una sola vez al dar de alta y
+   * nunca se vuelve a tocar — y NUNCA por `contracted_trial_days`, que se
+   * reescribe en cada cambio de plan (`changePlan()`) y por eso no sirve
+   * para reconstruir la historia de la empresa.
+   *
+   * RN-03: la prueba es una sola por empresa y cuenta aunque la suscripción
+   * con la que la gozó ya no esté vigente (`.withTrashed()`, sin filtro de
+   * estado).
+   */
   private async hasConsumedTrial(
     businessUnitId: number,
     trx: TransactionClientContract
@@ -922,7 +946,7 @@ export default class BillingSubscriptionService {
     const row = await BillingSubscription.query({ client: trx })
       .withTrashed()
       .where('business_unit_id', businessUnitId)
-      .where('billing_subscription_contracted_trial_days', '>', 0)
+      .whereNotNull('billing_subscription_trial_ends_at')
       .first()
 
     return row !== null

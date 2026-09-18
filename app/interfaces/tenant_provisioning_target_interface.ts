@@ -9,7 +9,7 @@
 interface TenantProvisioningTargetInterface {
   /** `business_units.business_unit_id` de la empresa recién creada. */
   businessUnitId: number
-  /** Slug opaco de la empresa; se copia al CSV legacy `system_setting_business_units`. */
+  /** Slug opaco de la empresa. */
   businessUnitSlug: string
   /** Nombre de la empresa; se siembra como nombre comercial de su configuración. */
   businessUnitName: string

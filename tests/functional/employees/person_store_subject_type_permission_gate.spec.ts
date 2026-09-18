@@ -57,7 +57,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     roleSlug: `persona-subject-${stamp}`,
     roleDescription: 'Rol temporal QA alta persona',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   const person = await Person.create({

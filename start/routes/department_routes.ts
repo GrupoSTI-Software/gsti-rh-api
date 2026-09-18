@@ -54,9 +54,24 @@ router
   })
   .prefix('/api/departments')
   .use(middleware.auth())
+  /**
+   * `move` era el único handler de este controlador sin corte de empresa: sus
+   * hermanos `update`, `delete` y `show` ya leen el scope. Sin contexto se podía
+   * reorganizar el organigrama de otro cliente dentro de sí mismo.
+   */
+  .use(middleware.businessScope())
 
 router.group(() => {
   router.post('/assign-shift/:departmentId', '#controllers/department_controller.assignShift')
 })
 .prefix('/api/department')
 .use(middleware.auth())
+/**
+ * `Department`, `Employee` y `Shift` componen el mixin de empresa, así que con
+ * el contexto activo el filtro se aplica solo. Sin él, este endpoint reescribía
+ * el turno de todos los empleados de un departamento de otro cliente.
+ *
+ * Pendiente aparte: esta ruta tampoco monta `permissionGate`, así que hoy la
+ * alcanza cualquier sesión. Cambiar eso es autorización, no aislamiento.
+ */
+.use(middleware.businessScope())

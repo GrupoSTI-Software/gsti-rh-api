@@ -29,7 +29,7 @@ import {
  * `withoutSeparationLetter` del listado de salidas (CA-1, CA-2, CA-3, CA-6 y
  * CA-7 del spec, más el aislamiento por empresa del DoD).
  *
- * Corre sobre la BD desechable de la suite (`valanserh_test`) con fixtures
+ * Corre sobre la BD desechable de la suite (`sae_pruebas`) con fixtures
  * PROPIAS: dos empresas, un
  * rol con `read` sobre `employee-offboardings` (módulo sembrado por 0062), un
  * rol sin permiso, colaboradores con la baja ejecutada (borrado lógico) o
@@ -198,8 +198,8 @@ async function createRole(
     roleSlug: `${FIXTURE_SLUG_PREFIX}${prefix}-${stamp}`,
     roleDescription: 'Rol temporal del spec del listado de salidas',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
     roleManagementDays: 10,
+    businessUnitId: businessUnit.businessUnitId,
   })
   created.roleIds.push(role.roleId)
   if (withRead) {

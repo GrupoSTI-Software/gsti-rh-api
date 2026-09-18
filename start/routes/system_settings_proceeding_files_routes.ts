@@ -40,3 +40,9 @@ router
   })
   .prefix('/api/system-settings-proceeding-files')
   .use(middleware.auth())
+  /**
+   * Sin `businessScope()` el listado del expediente iba sin gate y sin corte, y
+   * el guardado admitía reasignar el `systemSettingId`: se podía mover un
+   * documento de una empresa a otra.
+   */
+  .use(middleware.businessScope())

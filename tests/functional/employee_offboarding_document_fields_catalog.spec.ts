@@ -156,8 +156,8 @@ async function createRole(
     roleSlug: `${FIXTURE_SLUG_PREFIX}${prefix}-${stamp}`,
     roleDescription: 'Rol temporal del spec del catálogo de campos',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
     roleManagementDays: 10,
+    businessUnitId: businessUnit.businessUnitId,
   })
   created.roleIds.push(role.roleId)
   for (const permission of await findPermissions(actions)) {
