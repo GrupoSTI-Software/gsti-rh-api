@@ -72,7 +72,6 @@ export default class SystemSettingService {
     target.systemSettingBanner = source.systemSettingBanner
     target.systemSettingFavicon = source.systemSettingFavicon
     target.systemSettingActive = source.systemSettingActive
-    target.systemSettingBusinessUnits = source.systemSettingBusinessUnits
     target.systemSettingToleranceCountPerAbsence = source.systemSettingToleranceCountPerAbsence
     target.systemSettingRestrictFutureVacation = source.systemSettingRestrictFutureVacation
     target.systemSettingMaxAbsencesBeforeAttendanceLock = source.systemSettingMaxAbsencesBeforeAttendanceLock
@@ -106,7 +105,6 @@ export default class SystemSettingService {
     currentSystemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock
     currentSystemSetting.systemSettingMonthlyConversionFactor =
       systemSetting.systemSettingMonthlyConversionFactor ?? currentSystemSetting.systemSettingMonthlyConversionFactor
-    currentSystemSetting.systemSettingBusinessUnits = systemSetting.systemSettingBusinessUnits
     await currentSystemSetting.save()
     return currentSystemSetting
   }
@@ -126,32 +124,24 @@ export default class SystemSettingService {
     return systemSetting ? systemSetting : null
   }
 
-  async getActive(allowedBusinessUnitSlugs: string[] = []) {
-    if (allowedBusinessUnitSlugs.length === 0) {
-      const baseSystemSetting = await SystemSetting.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_active', 1)
-        .whereNull('business_unit_id')
-        .preload('systemSettingTolerances')
-        .first()
-      return baseSystemSetting ?? null
-    }
-
-    const slugs = allowedBusinessUnitSlugs
-    const systemSetting = await SystemSetting.query()
+  /**
+   * Configuración BASE de la plataforma: la fila activa sin empresa dueña.
+   *
+   * Antes aceptaba una lista de slugs y, con ella, resolvía la configuración de
+   * una empresa cruzando el CSV `system_setting_business_units` con
+   * `FIND_IN_SET`. Ese parámetro no lo usaba ningún llamador —todos llaman sin
+   * argumentos— y la configuración de una empresa se pide por su llave, con
+   * `getByBusinessUnitId`. El CSV se retiró junto con esa rama.
+   */
+  async getActive() {
+    const baseSystemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_active', 1)
+      .whereNull('business_unit_id')
       .preload('systemSettingTolerances')
-      .andWhere((query) => {
-        query.andWhere((subQuery) => {
-          slugs.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, system_setting_business_units)', [business.trim()])
-          })
-        })
-      })
       .first()
 
-    return systemSetting ?? null
+    return baseSystemSetting ?? null
   }
 
   /**
@@ -446,7 +436,7 @@ export default class SystemSettingService {
     target: TenantProvisioningTargetInterface,
     trx: TransactionClientContract
   ): Promise<SystemSetting> {
-    const { businessUnitId, businessUnitSlug, businessUnitName } = target
+    const { businessUnitId, businessUnitName } = target
     const content = tenantDefaultContent(businessUnitName)
 
     const existing = await SystemSetting.query({ client: trx })
@@ -462,7 +452,6 @@ export default class SystemSettingService {
 
       existing.useTransaction(trx)
       Object.assign(existing, content)
-      existing.systemSettingBusinessUnits = businessUnitSlug
       // `restore()` limpia `deletedAt` y persiste en una sola escritura
       // (incluye el contenido recién asignado, ya marcado como dirty).
       await existing.restore()
@@ -472,7 +461,6 @@ export default class SystemSettingService {
     const created = new SystemSetting()
     Object.assign(created, content)
     created.businessUnitId = businessUnitId
-    created.systemSettingBusinessUnits = businessUnitSlug
     created.useTransaction(trx)
     await created.save()
     return created

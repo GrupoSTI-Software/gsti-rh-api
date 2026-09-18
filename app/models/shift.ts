@@ -48,9 +48,6 @@ import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
  *           type: number
  *           description: Accumulated Faults
  *           nullable: false
- *         shiftBusinessUnits:
- *            type: string
- *            description: Espejo denormalizado legado (CSV de slugs). Ya no gobierna el aislamiento; ver businessUnitId.
  *         businessUnitId:
  *           type: number
  *           description: Unidad de negocio dueña del turno (marca autoritativa de aislamiento, USRH1783821206521)
@@ -105,9 +102,9 @@ import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
  * @tenant-scope activo (USRH1783821206521)
  * Shift es un modelo dueño de primer nivel (como Employee): cada turno tiene
  * una unidad dueña única en `business_unit_id`, aplicada automáticamente por
- * `withBusinessUnitScope()` en toda query. `shiftBusinessUnits` (CSV de slugs)
- * se conserva como espejo denormalizado por compatibilidad con lectores
- * existentes, pero deja de gobernar el aislamiento.
+ * `withBusinessUnitScope()` en toda query. El CSV de slugs que lo acompañaba
+ * (`shift_business_units`) se retiró: era un espejo denormalizado que ya no
+ * gobernaba el aislamiento y solo podía discrepar de la llave.
  */
 export default class Shift extends compose(BaseModel, withBusinessUnitScope()) {
   @column({ isPrimary: true })
@@ -136,9 +133,6 @@ export default class Shift extends compose(BaseModel, withBusinessUnitScope()) {
 
   @column()
   declare shiftAccumulatedFault: number
-
-  @column()
-  declare shiftBusinessUnits: string
 
   /** Unidad de negocio dueña del turno (marca autoritativa de aislamiento). */
   @column()

@@ -111,7 +111,6 @@ test.group('GET /api/system-settings-active — resolución por business_unit_id
     systemSettingA.systemSettingTradeName = `Trade A ${stamp}`
     systemSettingA.systemSettingSidebarColor = '#111111'
     systemSettingA.systemSettingActive = 1
-    systemSettingA.systemSettingBusinessUnits = businessUnitA.businessUnitSlug
     systemSettingA.systemSettingMonthlyConversionFactor = 30.4
     await systemSettingA.save()
 
@@ -120,7 +119,6 @@ test.group('GET /api/system-settings-active — resolución por business_unit_id
     systemSettingB.systemSettingTradeName = `Trade B ${stamp}`
     systemSettingB.systemSettingSidebarColor = '#222222'
     systemSettingB.systemSettingActive = 1
-    systemSettingB.systemSettingBusinessUnits = businessUnitB.businessUnitSlug
     systemSettingB.systemSettingMonthlyConversionFactor = 30.4
     await systemSettingB.save()
 

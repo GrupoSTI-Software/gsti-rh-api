@@ -61,7 +61,6 @@ test.group('SystemSettingService.createForTenant', (group) => {
     })
 
     assert.equal(created.businessUnitId, businessUnit.businessUnitId)
-    assert.equal(created.systemSettingBusinessUnits, businessUnit.businessUnitSlug)
 
     // Identidad propia de la empresa, no la del registro base (GrupoSTI)
     assert.equal(created.systemSettingTradeName, businessUnit.businessUnitName)
@@ -301,7 +300,6 @@ test.group('SystemSettingService.createForTenant — callers internos (CA-7)', (
       })
 
       assert.equal(created.businessUnitId, businessUnit.businessUnitId)
-      assert.equal(created.systemSettingBusinessUnits, businessUnit.businessUnitSlug)
     } finally {
       await SystemSetting.query()
         .withTrashed()

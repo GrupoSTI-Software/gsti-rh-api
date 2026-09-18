@@ -234,7 +234,6 @@ export default class DemoSeedRepositoryMysql implements DemoSeedRepository {
     shift.shiftTimeStart = DEMO_SHIFT_TIME_START
     shift.shiftActiveHours = DEMO_SHIFT_ACTIVE_HOURS
     shift.shiftRestDays = DEMO_SHIFT_REST_DAYS
-    shift.shiftBusinessUnits = input.businessUnitSlug
     shift.businessUnitId = input.businessUnitId
     shift.useTransaction(trx)
     await shift.save()

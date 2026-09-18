@@ -27,7 +27,6 @@ export default class extends BaseSeeder {
         shiftActiveHours: 24,
         shiftRestDays: '0',
         shiftAccumulatedFault: 1,
-        shiftBusinessUnits: 'gsti-rh',
         businessUnitId: 1,
         shiftTemp: 0,
       },

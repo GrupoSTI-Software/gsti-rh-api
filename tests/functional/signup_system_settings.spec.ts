@@ -214,8 +214,11 @@ test.group('SignupDraftService.complete() - creación de system_settings del ten
     assert.equal(settings.systemSettingPeriodAbsencesBeforeAttendanceLock, 'monthly')
     assert.equal(settings.systemSettingPeriodLateArrivalsBeforeAttendanceLock, 'monthly')
     assert.equal(Number(settings.systemSettingMonthlyConversionFactor), 30.42)
-    assert.equal(settings.systemSettingBusinessUnits, businessUnit.businessUnitSlug)
-    assert.notEqual(settings.businessUnitId, null)
+    assert.equal(
+      settings.businessUnitId,
+      businessUnit.businessUnitId,
+      'la configuración queda ligada a su empresa por la llave'
+    )
   })
 
   test('reintento idempotente: no duplica la configuración del mismo tenant', async ({ assert }) => {

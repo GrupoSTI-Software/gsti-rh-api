@@ -67,7 +67,6 @@ async function createSettingFixtures(actor: TenantActor, prefix: string): Promis
       systemSettingTradeName: uniqueTestName(prefix),
       systemSettingSidebarColor: '#111111',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: actor.businessUnit.businessUnitSlug,
       systemSettingMonthlyConversionFactor: 30.4,
     }))
   const tolerance = await Tolerance.create({

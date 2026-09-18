@@ -1,6 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
-import BusinessUnit from '#models/business_unit'
 import SystemSetting from '#models/system_setting'
 import SystemSettingProceedingFile from '#models/system_setting_proceeding_file'
 import SystemSettingService from '#services/system_setting_service'
@@ -510,10 +509,6 @@ export default class SystemSettingController {
         systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactor,
       } as SystemSetting
       const systemSettingService = new SystemSettingService()
-      const buUnitsStore = businessUnitScope.length > 0
-        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
-        : []
-      const businessSlugsStore = buUnitsStore.map((bu) => bu.businessUnitSlug)
       const data = await request.validateUsing(createSystemSettingValidator)
       // USRH1785436961868: unicidad del nombre comercial POR EMPRESA (scope
       // del middleware, nunca del payload); error estándar {title, detail, key}
@@ -637,7 +632,6 @@ export default class SystemSettingController {
         }
         systemSetting.systemSettingEmployeeAplicationIcon = fileUrl
       }
-      systemSetting.systemSettingBusinessUnits = businessSlugsStore.join(',')
       // USRH1783712837584: `create()` no asignaba `businessUnitId` — si un
       // admin crea manualmente desde la pantalla BO (empresa preexistente sin
       // backfill), la fila quedaría sin relación formal a su empresa.
@@ -930,10 +924,6 @@ export default class SystemSettingController {
         }
       }
       const systemSettingService = new SystemSettingService()
-      const buUnitsUpdate = businessUnitScope.length > 0
-        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
-        : []
-      const businessSlugsUpdate = buUnitsUpdate.map((bu) => bu.businessUnitSlug)
       // USRH1785436961868: unicidad del nombre comercial POR EMPRESA (scope
       // del middleware, nunca del payload); error estándar {title, detail, key}
       // en el idioma del usuario, sin revelar datos de otras empresas.
@@ -961,7 +951,6 @@ export default class SystemSettingController {
           data: { ...systemSetting },
         }
       }
-      systemSetting.systemSettingBusinessUnits = businessSlugsUpdate.join(',')
       const validationOptions = {
         types: ['image'],
         size: '',
