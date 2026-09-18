@@ -9,6 +9,7 @@ import TeleworkPolicy from '#models/telework_policy'
 import TeleworkPolicyNotificationLog from '#models/telework_policy_notification_log'
 import TeleworkPolicyNotificationService from '#modules/telework-policy/telework_policy_notification.service'
 import type { TeleworkWorkerRecipient } from '#services/telework_worker_service'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Unit — `TeleworkPolicyNotificationService` (USRH1783547655377): envío +
@@ -32,7 +33,8 @@ async function createTestUser(): Promise<User> {
   user.userEmail = `notif-test-${stamp}@gsti-tests.local`
   user.userPassword = TEST_PASSWORD
   user.userActive = 1
-  user.roleId = 3
+  const role = await ensureRole('root')
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()

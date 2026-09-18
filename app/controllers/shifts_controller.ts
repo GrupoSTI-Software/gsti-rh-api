@@ -108,7 +108,6 @@ export default class ShiftController {
         shiftRestDays: data.shiftRestDays,
         shiftAccumulatedFault: data.shiftAccumulatedFault,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
-        shiftBusinessUnits: businessSlugs.join(','),
         // Unidad dueña = unidad seleccionada del request (regla 3, USRH1783821206521).
         businessUnitId: businessUnitScope[0],
         shiftTemp: data.shiftTemp,
@@ -426,7 +425,6 @@ export default class ShiftController {
         shiftRestDays: data.shiftRestDays,
         shiftAccumulatedFault: data.shiftAccumulatedFault,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
-        shiftBusinessUnits: businessSlugs.join(','),
         shiftTemp: data.shiftTemp,
         shiftLunchTime: data.shiftLunchTime,
         shiftCompensableLunchSchedule: data.shiftCompensableLunchSchedule,
@@ -453,7 +451,6 @@ export default class ShiftController {
         ...data,
         shiftAlias: data.shiftAlias?.trim() || null,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
-        shiftBusinessUnits: businessSlugs.join(','),
       }
       if (shiftColorInput !== undefined && shiftColorInput !== null) {
         mergeData.shiftColor = data.shiftColor
@@ -539,98 +536,6 @@ export default class ShiftController {
         title: 'Server error',
         message: 'An error occurred while deleting the shift',
         data: error.message,
-      })
-    }
-  }
-
-  async searchPositionDepartment({ request, response }: HttpContext) {
-    try {
-      const {
-        shiftDayStart,
-        shiftName,
-        shiftActiveHours,
-        departmentId,
-        positionId,
-        page = 1,
-        limit = 10,
-      } = request.qs()
-
-      const query = Shift.query()
-        .whereNull('shiftDeletedAt')
-        .withCount('employees', (employeeQuery) => {
-          employeeQuery.whereNull('deletedAt')
-          if (departmentId || positionId) {
-            employeeQuery.whereHas('employee', (employeeSubQuery) => {
-              if (departmentId) {
-                employeeSubQuery.where('departmentId', departmentId)
-              }
-              if (positionId) {
-                employeeSubQuery.where('positionId', positionId)
-              }
-            })
-          }
-        })
-        .preload('employees', (employeeQuery) => {
-          employeeQuery
-            .whereHas('employee', (employeeSubQuery) => {
-              if (departmentId) {
-                employeeSubQuery.where('departmentId', departmentId)
-              }
-              if (positionId) {
-                employeeSubQuery.where('positionId', positionId)
-              }
-            })
-            .preload('employee', (employeeSubQuery) => {
-              employeeSubQuery.preload('person')
-            })
-            .whereNull('deletedAt')
-        })
-
-      if (shiftDayStart) {
-        query.where('shiftDayStart', shiftDayStart)
-      }
-
-      if (shiftName) {
-        query.where('shiftName', 'LIKE', `%${shiftName}%`)
-      }
-
-      if (shiftActiveHours) {
-        query.where('shiftActiveHours', shiftActiveHours)
-      }
-
-      const shifts = await query.paginate(page, limit)
-
-      const filteredShifts = shifts.all().filter((shift) => shift.$extras.employees_count > 0)
-
-      return response.status(200).json({
-        type: 'success',
-        title: 'Successfully action',
-        message: 'Resources fetched',
-        data: {
-          meta: {
-            total: filteredShifts.length,
-            per_page: shifts.perPage,
-            current_page: shifts.currentPage,
-            last_page: shifts.lastPage,
-            first_page: 1,
-          },
-          data: filteredShifts.map((shift) => ({
-            ...shift.toJSON(),
-            employee_count: shift.$extras.employees_count,
-            employees: shift.employees.map((employeeShift) => ({
-              employeeId: employeeShift.employeeId,
-              employeeFirstName: employeeShift.employee?.person?.personFirstname,
-              employeeLastName: `${employeeShift.employee.person?.personLastname} ${employeeShift.employee.person?.personSecondLastname}`,
-            })),
-          })),
-        },
-      })
-    } catch (error) {
-      return response.status(500).json({
-        type: 'error',
-        title: 'Server error',
-        message: error.message,
-        data: null,
       })
     }
   }

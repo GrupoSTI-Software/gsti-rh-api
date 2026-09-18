@@ -1,6 +1,8 @@
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import { DiscountCodeServiceError } from '../exceptions/discount_code_service_error.js'
+import { AllianceServiceError } from '../exceptions/alliance_service_error.js'
+import { resolveAllianceApiError } from './alliance_api_error.js'
 import { resolveDiscountCodeApiError } from './discount_code_api_error.js'
 
 export type ResolvedBillingSubscriptionError = {
@@ -13,8 +15,9 @@ export type ResolvedBillingSubscriptionError = {
 }
 
 /**
- * Convierte excepciones del módulo de suscripciones en la respuesta HTTP estable
- * `{ title, detail, key, code }` con prefijo PLT.SUB.*.
+ * Convierte excepciones del alta de suscripciones en la respuesta HTTP estable
+ * `{ title, detail, key, code }`. El prefijo habitual es PLT.SUB.*; un código
+ * de alianza puede reexponer PLT.ALL.* o PLT.DSC.* sin reescribir el mensaje.
  */
 export function resolveBillingSubscriptionApiError(
   error: unknown,
@@ -52,6 +55,13 @@ export function resolveBillingSubscriptionApiError(
   // daría la cotización — no se reescribe el mensaje aquí.
   if (error instanceof DiscountCodeServiceError) {
     return resolveDiscountCodeApiError(error, fallbackStatus)
+  }
+
+  // Canje del código de una alianza: el alta puede rechazarse con
+  // PLT.ALL.* (otra alianza viva). Se reexpone el catálogo de alianzas
+  // sin reescribir el mensaje.
+  if (error instanceof AllianceServiceError) {
+    return resolveAllianceApiError(error, fallbackStatus)
   }
 
   return {

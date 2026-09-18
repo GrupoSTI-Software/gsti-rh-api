@@ -8,9 +8,16 @@ import Employee from '#models/employee'
 
 /**
  * Autorizacion unica de las rutas del canal ADMS hacia el Backoffice
- * (spec 11 y 13): el permiso se resuelve con `evaluateEnforced` porque el
- * interruptor de exigencia del modulo esta apagado y `permissionGate` de ruta
- * dejaria pasar a cualquier autenticado.
+ * (spec 11 y 13): el permiso se resuelve con `evaluateEnforced` y no con el
+ * `permissionGate` de ruta.
+ *
+ * El motivo no depende de un modulo concreto: la decision no puede colgar del
+ * interruptor de exigencia del modulo del que cuelgue la declaracion que se le
+ * pase —`biometric-devices` en el canal ADMS, `employees` en los biometricos
+ * del expediente (`device_biometrics.controller.ts`)—. Los dos exigen permisos
+ * hoy; aun asi `evaluate` no sirve aqui, porque cortaria en
+ * `module-not-enforced` —dejando el canal abierto a cualquier autenticado— si
+ * alguien apagara ese interruptor en BD.
  */
 export async function ensureAccessPointPermission(
   ctx: HttpContext,

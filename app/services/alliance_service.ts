@@ -207,7 +207,10 @@ function resolveAllianceCompleteness(alliance: Alliance) {
   })
 }
 
-export function toAllianceListItem(alliance: Alliance): AllianceListItem {
+export function toAllianceListItem(
+  alliance: Alliance,
+  liveAttributionsCount: number
+): AllianceListItem {
   const completeness = resolveAllianceCompleteness(alliance)
 
   return {
@@ -221,6 +224,7 @@ export function toAllianceListItem(alliance: Alliance): AllianceListItem {
     createdAt: toIso(alliance.createdAt) ?? '',
     billingProfileComplete: completeness.complete,
     missingFields: completeness.missingFields,
+    allianceLiveAttributionsCount: liveAttributionsCount,
   }
 }
 
@@ -247,15 +251,49 @@ function resolvePreloadedDiscountCode(alliance: Alliance): DiscountCode | null {
   return related as DiscountCode
 }
 
-export function toAllianceView(alliance: Alliance): AllianceView {
+export function toAllianceView(alliance: Alliance, liveAttributionsCount: number): AllianceView {
   const code = resolvePreloadedDiscountCode(alliance)
 
   return {
-    ...toAllianceListItem(alliance),
+    ...toAllianceListItem(alliance, liveAttributionsCount),
     allianceContactPhone: alliance.allianceContactPhone,
     updatedAt: toIso(alliance.updatedAt),
     allianceDiscountCode: code ? toAllianceDiscountCodeView(code, alliance) : null,
   }
+}
+
+/**
+ * Una consulta agregada por lote de ids (CA-11). Cero si la alianza
+ * no tiene atribuciones vivas.
+ */
+export async function loadLiveAttributionCounts(
+  allianceIds: number[]
+): Promise<Map<number, number>> {
+  const counts = new Map<number, number>()
+  if (allianceIds.length === 0) {
+    return counts
+  }
+
+  const rows = await db
+    .from('alliance_attributions')
+    .whereIn('alliance_id', allianceIds)
+    .whereNull('alliance_attribution_closed_at')
+    .whereNull('alliance_attribution_deleted_at')
+    .groupBy('alliance_id')
+    .select('alliance_id as allianceId')
+    .count('* as cnt')
+
+  for (const row of rows as Array<{ allianceId: number | string; cnt: number | string }>) {
+    counts.set(Number(row.allianceId), Number(row.cnt))
+  }
+
+  return counts
+}
+
+/** Vista de detalle con el conteo vivo resuelto en una consulta. */
+export async function toAllianceViewWithCount(alliance: Alliance): Promise<AllianceView> {
+  const counts = await loadLiveAttributionCounts([alliance.allianceId])
+  return toAllianceView(alliance, counts.get(alliance.allianceId) ?? 0)
 }
 
 /**
@@ -306,9 +344,13 @@ export default class AllianceService {
 
     const paginated = await query.paginate(page, limit)
     const json = paginated.toJSON()
+    const alliances = json.data as Alliance[]
+    const counts = await loadLiveAttributionCounts(alliances.map((row) => row.allianceId))
 
     return {
-      data: (json.data as Alliance[]).map(toAllianceListItem),
+      data: alliances.map((row) =>
+        toAllianceListItem(row, counts.get(row.allianceId) ?? 0)
+      ),
       meta: {
         total: json.meta.total,
         page: json.meta.currentPage,
@@ -560,6 +602,7 @@ export default class AllianceService {
     }
 
     return db.transaction(async (trx) => {
+      await this.lockOwnedDiscountCode(alliance.allianceId, trx)
       alliance.useTransaction(trx)
       alliance.allianceActive = 1
       await alliance.save()
@@ -577,6 +620,7 @@ export default class AllianceService {
     }
 
     return db.transaction(async (trx) => {
+      await this.lockOwnedDiscountCode(alliance.allianceId, trx)
       alliance.useTransaction(trx)
       alliance.allianceActive = 0
       await alliance.save()
@@ -584,6 +628,22 @@ export default class AllianceService {
       await alliance.load('discountCode')
       return alliance
     })
+  }
+
+  /**
+   * Toma el candado del código ANTES de tocar `alliances`. El alta con
+   * canje ya bloquea esa fila; si aquí se actualizara la alianza primero,
+   * el INSERT de la atribución (FK) y este UPDATE del código se cruzan
+   * y MySQL declara deadlock.
+   */
+  private async lockOwnedDiscountCode(
+    allianceId: number,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    await DiscountCode.query({ client: trx })
+      .where('discount_code_alliance_id', allianceId)
+      .forUpdate()
+      .first()
   }
 
   /**

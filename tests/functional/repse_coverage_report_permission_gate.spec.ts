@@ -4,6 +4,7 @@ import Role from '#models/role'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'RepseCoverageGateTest123!'
 
@@ -11,18 +12,6 @@ interface TenantActor {
   user: User
   person: Person
   businessUnit: BusinessUnit
-}
-
-async function findRole(slug: string): Promise<Role> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', slug).first()
-  if (!role) {
-    throw new Error(`Se requiere el rol "${slug}" en BD para este test.`)
-  }
-  return role
-}
-
-async function ensureRhManagerRole(): Promise<Role> {
-  return findRole('rh-manager')
 }
 
 async function createActor(emailPrefix: string, role: Role): Promise<TenantActor> {
@@ -68,7 +57,7 @@ async function cleanupActor(actor: TenantActor | null) {
 
 test.group('GET /api/repse/coverage-report — PermissionGateMiddleware (piloto USRH1785766406721)', () => {
   test('root tiene acceso (bypass expanded)', async ({ client }) => {
-    const actor = await createActor('repse-gate-root', await findRole('root'))
+    const actor = await createActor('repse-gate-root', await ensureRole('root'))
     try {
       const response = await client
         .get('/api/repse/coverage-report')
@@ -83,7 +72,7 @@ test.group('GET /api/repse/coverage-report — PermissionGateMiddleware (piloto 
   })
 
   test('owner tiene acceso (bypass expanded)', async ({ client }) => {
-    const actor = await createActor('repse-gate-owner', await findRole('owner'))
+    const actor = await createActor('repse-gate-owner', await ensureRole('owner'))
     try {
       const response = await client
         .get('/api/repse/coverage-report')
@@ -98,7 +87,7 @@ test.group('GET /api/repse/coverage-report — PermissionGateMiddleware (piloto 
   })
 
   test('super-administrador tiene acceso (bypass expanded)', async ({ client }) => {
-    const actor = await createActor('repse-gate-dg', await findRole('super-administrador'))
+    const actor = await createActor('repse-gate-dg', await ensureRole('super-administrador'))
     try {
       const response = await client
         .get('/api/repse/coverage-report')
@@ -112,10 +101,8 @@ test.group('GET /api/repse/coverage-report — PermissionGateMiddleware (piloto 
     }
   })
 
-  test('rol sin privilegio es rechazado (module compliance-contratos no existe ⇒ fail-closed, sin permiso)', async ({
-    client,
-  }) => {
-    const actor = await createActor('repse-gate-plain', await ensureRhManagerRole())
+  test('rol sin read en repse-registrations es rechazado (403 PERM.DENIED)', async ({ client }) => {
+    const actor = await createActor('repse-gate-plain', await ensureRole('rh-manager'))
     try {
       const response = await client
         .get('/api/repse/coverage-report')
@@ -131,7 +118,7 @@ test.group('GET /api/repse/coverage-report — PermissionGateMiddleware (piloto 
   })
 
   test('export sigue el mismo contrato de permisos que el listado', async ({ client }) => {
-    const actor = await createActor('repse-gate-export-plain', await ensureRhManagerRole())
+    const actor = await createActor('repse-gate-export-plain', await ensureRole('rh-manager'))
     try {
       const response = await client
         .get('/api/repse/coverage-report/export')

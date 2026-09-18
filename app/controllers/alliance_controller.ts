@@ -1,7 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { ALLIANCE_ERRORS } from '#constants/alliance_error_codes'
 import AllianceBillingProfileService from '#services/alliance_billing_profile_service'
-import AllianceService, { toAllianceView } from '#services/alliance_service'
+import AllianceService, { toAllianceViewWithCount } from '#services/alliance_service'
 import { upsertAllianceBillingProfileValidator } from '#validators/alliance_billing_profile'
 import {
   createAllianceValidator,
@@ -107,7 +107,7 @@ export default class AllianceController {
   async show({ params, response }: HttpContext) {
     try {
       const alliance = await this.service.getAlliance(Number(params.allianceId))
-      return response.status(200).json({ type: 'success', data: toAllianceView(alliance) })
+      return response.status(200).json({ type: 'success', data: await toAllianceViewWithCount(alliance) })
     } catch (error) {
       const { status, ...body } = resolveAllianceApiError(error)
       return response.status(status).json(body)
@@ -169,7 +169,7 @@ export default class AllianceController {
     try {
       const data = await request.validateUsing(createAllianceValidator)
       const alliance = await this.service.createAlliance(data)
-      return response.status(201).json({ type: 'success', data: toAllianceView(alliance) })
+      return response.status(201).json({ type: 'success', data: await toAllianceViewWithCount(alliance) })
     } catch (error) {
       const { status, ...body } = resolveAllianceApiError(error)
       return response.status(status).json(body)
@@ -233,7 +233,7 @@ export default class AllianceController {
     try {
       const data = await request.validateUsing(updateAllianceValidator)
       const alliance = await this.service.updateAlliance(Number(params.allianceId), data)
-      return response.status(200).json({ type: 'success', data: toAllianceView(alliance) })
+      return response.status(200).json({ type: 'success', data: await toAllianceViewWithCount(alliance) })
     } catch (error) {
       const { status, ...body } = resolveAllianceApiError(error)
       return response.status(status).json(body)
@@ -266,7 +266,7 @@ export default class AllianceController {
   async activate({ params, response }: HttpContext) {
     try {
       const alliance = await this.service.activateAlliance(Number(params.allianceId))
-      return response.status(200).json({ type: 'success', data: toAllianceView(alliance) })
+      return response.status(200).json({ type: 'success', data: await toAllianceViewWithCount(alliance) })
     } catch (error) {
       const { status, ...body } = resolveAllianceApiError(error)
       return response.status(status).json(body)
@@ -302,7 +302,7 @@ export default class AllianceController {
   async deactivate({ params, response }: HttpContext) {
     try {
       const alliance = await this.service.deactivateAlliance(Number(params.allianceId))
-      return response.status(200).json({ type: 'success', data: toAllianceView(alliance) })
+      return response.status(200).json({ type: 'success', data: await toAllianceViewWithCount(alliance) })
     } catch (error) {
       const { status, ...body } = resolveAllianceApiError(error)
       return response.status(status).json(body)

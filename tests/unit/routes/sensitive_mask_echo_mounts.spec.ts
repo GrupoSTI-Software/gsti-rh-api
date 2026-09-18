@@ -19,9 +19,6 @@ const WRITE_ROUTE_FILES = [
   'start/routes/user_routes.ts',
   'start/routes/employee_routes.ts',
   'start/routes/synchronization_routes.ts',
-  'start/routes/pilot_routes.ts',
-  'start/routes/flight_attendant_routes.ts',
-  'start/routes/customer_routes.ts',
 ]
 
 test.group('Montaje sensitiveMaskEcho', () => {

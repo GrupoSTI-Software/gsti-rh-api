@@ -4837,19 +4837,16 @@ export default class EmployeeService {
         return 'FFD6FFDC' // Color por defecto si la unidad no existe (ARGB)
       }
 
+      // La configuración de la empresa se pide por su llave; antes se recorrían
+      // todas las activas buscando el slug dentro de su CSV.
       const systemSettings = await SystemSetting.query()
         .whereNull('system_setting_deleted_at')
         .where('system_setting_active', 1)
+        .where('business_unit_id', businessUnit.businessUnitId)
 
       for (const systemSetting of systemSettings) {
-        if (systemSetting.systemSettingBusinessUnits) {
-          const units = systemSetting.systemSettingBusinessUnits
-            .split(',')
-            .map((unit: string) => unit.trim())
-
-          const hasMatch = units.includes(businessUnit.businessUnitSlug)
-
-          if (hasMatch && systemSetting.systemSettingSidebarColor) {
+        {
+          if (systemSetting.systemSettingSidebarColor) {
             // Remover el # si existe y convertir a ARGB (agregar FF al inicio para alpha)
             let color = systemSetting.systemSettingSidebarColor.replace('#', '').toUpperCase()
             // Si el color tiene 6 caracteres, agregar FF al inicio para formato ARGB
@@ -5681,7 +5678,7 @@ export default class EmployeeService {
     // Obtener turnos activos con sus unidades de negocio
     const shifts = await Shift.query()
       .whereNull('shift_deleted_at')
-      .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'shiftBusinessUnits', 'shiftColor')
+      .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'businessUnitId', 'shiftColor')
       .orderBy('shiftName')
 
     // Crear mapa de shiftId -> color para uso en modo reporte
@@ -5742,7 +5739,7 @@ export default class EmployeeService {
 
       listSheet.getCell(shiftRow, 1).value = displayValue // Valor para dropdown
       listSheet.getCell(shiftRow, 2).value = shift.shiftId // Shift ID
-      listSheet.getCell(shiftRow, 3).value = shift.shiftBusinessUnits || '' // Business Units
+      listSheet.getCell(shiftRow, 3).value = shift.businessUnitId // Empresa dueña del turno
       listSheet.getCell(shiftRow, 4).value = formattedName // Nombre formateado completo
       shiftRow++
     })
@@ -6313,10 +6310,10 @@ export default class EmployeeService {
       // Obtener todos los turnos para mapear nombres/alias a IDs
       const shifts = await Shift.query()
         .whereNull('shift_deleted_at')
-        .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'shiftBusinessUnits')
+        .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'businessUnitId')
 
       // Mapa: clave = valor normalizado, valor = objeto con shiftId y businessUnits
-      const shiftMap = new Map<string, Array<{ shiftId: number; businessUnits: string | null }>>()
+      const shiftMap = new Map<string, Array<{ shiftId: number; businessUnitId: number }>>()
 
       shifts.forEach((shift) => {
         const shiftNameLower = shift.shiftName.toLowerCase().trim()
@@ -6327,7 +6324,7 @@ export default class EmployeeService {
         }
         shiftMap.get(shiftNameLower)!.push({
           shiftId: shift.shiftId,
-          businessUnits: shift.shiftBusinessUnits
+          businessUnitId: shift.businessUnitId
         })
 
         // Si tiene alias, agregarlo también
@@ -6338,7 +6335,7 @@ export default class EmployeeService {
           }
           shiftMap.get(aliasLower)!.push({
             shiftId: shift.shiftId,
-            businessUnits: shift.shiftBusinessUnits
+            businessUnitId: shift.businessUnitId
           })
         }
 
@@ -6368,7 +6365,7 @@ export default class EmployeeService {
                   }
                   shiftMap.get(formattedLower)!.push({
                     shiftId: shift.shiftId,
-                    businessUnits: shift.shiftBusinessUnits
+                    businessUnitId: shift.businessUnitId
                   })
                 })
               }
@@ -6617,19 +6614,21 @@ export default class EmployeeService {
           const normalizedShiftName = shiftNameLower.replace(/\s+/g, ' ').trim()
           const employeeBusinessUnitId = employee.businessUnitId
 
-          // Función auxiliar para verificar si el businessUnitId está en shiftBusinessUnits
-          const isBusinessUnitMatch = (businessUnitsStr: string | null, targetBusinessUnitId: number): boolean => {
-            if (!businessUnitsStr || businessUnitsStr.trim() === '') return false
-            const businessUnitsList = businessUnitsStr.split(',').map(bu => bu.trim())
-            return businessUnitsList.includes(String(targetBusinessUnitId))
-          }
+          // El turno es del empleado si los dos son de la misma empresa. Antes
+          // esto parseaba el CSV `shift_business_units` buscando el id dentro,
+          // pero ese CSV se escribía con SLUGS: la comparación no acertaba nunca
+          // y el import caía siempre al turno por nombre sin mirar la empresa.
+          const isBusinessUnitMatch = (
+            shiftBusinessUnitId: number,
+            targetBusinessUnitId: number
+          ): boolean => shiftBusinessUnitId === targetBusinessUnitId
 
           // Buscar primero por coincidencia exacta
           const exactMatches = shiftMap.get(normalizedShiftName)
           if (exactMatches && exactMatches.length > 0) {
             // Si hay coincidencia exacta, buscar la que coincida con la unidad de negocio
             const matchingShift = exactMatches.find(s =>
-              isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+              isBusinessUnitMatch(s.businessUnitId, employeeBusinessUnitId)
             )
             if (matchingShift) {
               shiftId = matchingShift.shiftId
@@ -6647,7 +6646,7 @@ export default class EmployeeService {
               // Coincidencia exacta normalizada
               if (normalizedMapKey === normalizedShiftName) {
                 const matchingShift = shiftsList.find(s =>
-                  isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+                  isBusinessUnitMatch(s.businessUnitId, employeeBusinessUnitId)
                 )
                 if (matchingShift) {
                   shiftId = matchingShift.shiftId
@@ -6672,7 +6671,7 @@ export default class EmployeeService {
 
                 if (excelStart === mapStart && excelEnd === mapEnd) {
                   const matchingShift = shiftsList.find(s =>
-                    isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+                    isBusinessUnitMatch(s.businessUnitId, employeeBusinessUnitId)
                   )
                   if (matchingShift) {
                     shiftId = matchingShift.shiftId
@@ -6687,7 +6686,7 @@ export default class EmployeeService {
               // Coincidencia por inclusión
               if (normalizedMapKey.includes(normalizedShiftName) || normalizedShiftName.includes(normalizedMapKey)) {
                 const matchingShift = shiftsList.find(s =>
-                  isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+                  isBusinessUnitMatch(s.businessUnitId, employeeBusinessUnitId)
                 )
                 if (matchingShift) {
                   shiftId = matchingShift.shiftId
@@ -6703,7 +6702,7 @@ export default class EmployeeService {
               const shiftNameClean = normalizedShiftName.replace(/[-\s()]/g, '').toLowerCase()
               if (nameClean === shiftNameClean && nameClean.length > 0) {
                 const matchingShift = shiftsList.find(s =>
-                  isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+                  isBusinessUnitMatch(s.businessUnitId, employeeBusinessUnitId)
                 )
                 if (matchingShift) {
                   shiftId = matchingShift.shiftId
@@ -6719,7 +6718,7 @@ export default class EmployeeService {
               const shiftNameOnly = normalizedShiftName.split(/\s*(?:to|-)\s*/)[0].trim()
               if (nameOnly && shiftNameOnly && nameOnly === shiftNameOnly) {
                 const matchingShift = shiftsList.find(s =>
-                  isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+                  isBusinessUnitMatch(s.businessUnitId, employeeBusinessUnitId)
                 )
                 if (matchingShift) {
                   shiftId = matchingShift.shiftId

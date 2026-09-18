@@ -6,6 +6,7 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import RepseRegistration from '#models/repse_registration'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — módulo "Gafete del empleado" (USRH1784686362321):
@@ -26,7 +27,7 @@ import RepseRegistration from '#models/repse_registration'
  * esa ruta, para no contaminar el contador compartido por IP.
  */
 
-const ROOT_ROLE_ID = 3
+const ROOT_ROLE = 'root'
 
 function uniqueStamp(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 100000)}`
@@ -37,7 +38,7 @@ interface TestActor {
   person: Person
 }
 
-async function createTestActor(roleId: number, emailPrefix: string): Promise<TestActor> {
+async function createTestActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TestActor> {
   const stamp = uniqueStamp()
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
 
@@ -52,7 +53,8 @@ async function createTestActor(roleId: number, emailPrefix: string): Promise<Tes
   user.userEmail = email
   user.userPassword = 'EmployeeBadgeTest123!'
   user.userActive = 1
-  user.roleId = roleId
+  const role = await ensureRole(roleSlug)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -171,7 +173,7 @@ test.group('EmployeeBadge - flujo feliz con folio REPSE vigente (E1/E2)', (group
   let firstToken: string | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-happy')
+    root = await createTestActor(ROOT_ROLE, 'root-happy')
     businessUnit = await createBusinessUnit('happy')
     employee = await createEmployee(root.person, businessUnit)
     registration = await createRepseRegistration(businessUnit)
@@ -278,7 +280,7 @@ test.group('EmployeeBadge - nombre compuesto en E1', (group) => {
   let employee: Employee | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'compound-name')
+    root = await createTestActor(ROOT_ROLE, 'compound-name')
     root!.person.personFirstname = 'Luis Miguel'
     root!.person.personLastname = 'Rodríguez'
     root!.person.personSecondLastname = 'Veltrán'
@@ -314,7 +316,7 @@ test.group('EmployeeBadge - flujo feliz sin registro REPSE (R7 — universal)', 
   let employee: Employee | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-sinfolio')
+    root = await createTestActor(ROOT_ROLE, 'root-sinfolio')
     businessUnit = await createBusinessUnit('sinfolio')
     employee = await createEmployee(root.person, businessUnit)
   })
@@ -350,7 +352,7 @@ test.group('EmployeeBadge - folio REPSE vencido', (group) => {
   let registration: RepseRegistration | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-vencido')
+    root = await createTestActor(ROOT_ROLE, 'root-vencido')
     businessUnit = await createBusinessUnit('vencido')
     employee = await createEmployee(root.person, businessUnit)
     registration = await createRepseRegistration(businessUnit, DateTime.now().minus({ days: 5 }))
@@ -390,7 +392,7 @@ test.group('EmployeeBadge - 404 uniforme (BDG.NF.001)', (group) => {
   let terminatedEmployee: Employee | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-404')
+    root = await createTestActor(ROOT_ROLE, 'root-404')
     businessUnitA = await createBusinessUnit('404-a')
     businessUnitB = await createBusinessUnit('404-b')
     employeeA = await createEmployee(root.person, businessUnitA)
@@ -485,7 +487,7 @@ test.group('EmployeeBadge - validación de entrada (422 BDG.VAL.001)', (group) =
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-val')
+    root = await createTestActor(ROOT_ROLE, 'root-val')
     businessUnit = await createBusinessUnit('val')
   })
 
@@ -540,8 +542,8 @@ test.group('EmployeeBadge - propio (/me, E3)', (group) => {
   let ownEmployee: Employee | null = null
 
   group.setup(async () => {
-    ownerActor = await createTestActor(ROOT_ROLE_ID, 'root-me')
-    noEmployeeActor = await createTestActor(ROOT_ROLE_ID, 'root-me-sin-empleado')
+    ownerActor = await createTestActor(ROOT_ROLE, 'root-me')
+    noEmployeeActor = await createTestActor(ROOT_ROLE, 'root-me-sin-empleado')
     businessUnit = await createBusinessUnit('me')
     ownEmployee = await createEmployee(ownerActor.person, businessUnit)
   })
@@ -583,7 +585,7 @@ test.group('EmployeeBadge - i18n (Accept-Language)', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-i18n')
+    root = await createTestActor(ROOT_ROLE, 'root-i18n')
     businessUnit = await createBusinessUnit('i18n')
   })
 
@@ -654,7 +656,7 @@ test.group('EmployeeBadge - verificación pública (E4)', (group) => {
   let token: string | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-verify')
+    root = await createTestActor(ROOT_ROLE, 'root-verify')
     businessUnit = await createBusinessUnit('verify')
     employee = await createEmployee(root.person, businessUnit)
     registration = await createRepseRegistration(businessUnit)
@@ -756,11 +758,11 @@ test.group('EmployeeBadge - descarga masiva (E6)', (group) => {
   let terminatedEmployee: Employee | null = null
 
   group.setup(async () => {
-    validationActor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-val')
-    pdfActor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-pdf')
-    pngActor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-png')
-    rc1Actor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-rc1')
-    dedupActor = await createTestActor(ROOT_ROLE_ID, 'root-bulk-dedup')
+    validationActor = await createTestActor(ROOT_ROLE, 'root-bulk-val')
+    pdfActor = await createTestActor(ROOT_ROLE, 'root-bulk-pdf')
+    pngActor = await createTestActor(ROOT_ROLE, 'root-bulk-png')
+    rc1Actor = await createTestActor(ROOT_ROLE, 'root-bulk-rc1')
+    dedupActor = await createTestActor(ROOT_ROLE, 'root-bulk-dedup')
     businessUnit = await createBusinessUnit('bulk')
     otherBu = await createBusinessUnit('bulk-other')
     pdfEmployee = await createEmployee(pdfActor.person, businessUnit)
@@ -852,7 +854,7 @@ test.group('EmployeeBadge - descarga masiva (E6)', (group) => {
   })
 
   test('POST /bulk omite bajas y ids ajenos en silencio (RC1)', async ({ client, assert }) => {
-    const otherPerson = await createTestActor(ROOT_ROLE_ID, 'bulk-cross')
+    const otherPerson = await createTestActor(ROOT_ROLE, 'bulk-cross')
     const foreignEmployee = await createEmployee(otherPerson.person, otherBu!)
 
     try {
@@ -905,7 +907,7 @@ test.group('EmployeeBadge - rate limit bulk (E6)', (group) => {
   let employee: Employee | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-bulk-limit')
+    root = await createTestActor(ROOT_ROLE, 'root-bulk-limit')
     businessUnit = await createBusinessUnit('bulk-limit')
     employee = await createEmployee(root.person, businessUnit)
   })
@@ -967,7 +969,7 @@ test.group('EmployeeBadge - contrato para la app sin conexión (B1)', (group) =>
   let vencidoEmployee: Employee | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-b1')
+    root = await createTestActor(ROOT_ROLE, 'root-b1')
     vigenteBusinessUnit = await createBusinessUnit('b1-vigente')
     vencidoBusinessUnit = await createBusinessUnit('b1-vencido')
     vigenteRegistration = await createRepseRegistration(

@@ -10,18 +10,18 @@ import RoleService from '#services/role_service'
 
 export default class QuestionnaireApplicabilityController {
   /**
-   * Verifica si el usuario tiene permiso para acceder al módulo de compliance.
-   * Los roles 'root' tienen acceso total.
+   * Verifica si el usuario tiene permiso para acceder al módulo de aplicabilidad
+   * de cuestionarios. Los roles 'root' tienen acceso total.
    */
   private async checkPermission(ctx: HttpContext): Promise<boolean> {
     const user = ctx.auth.user
     if (!user) return false
-    
+
     await user.load('role')
     if (user.role?.roleSlug === 'root') return true
 
     const roleService = new RoleService()
-    return await roleService.hasAccess(user.roleId, 'compliance', 'read')
+    return await roleService.hasAccess(user.roleId, 'questionnaire-applicability', 'read')
   }
 
   /**

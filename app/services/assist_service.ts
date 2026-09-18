@@ -16,7 +16,6 @@ import { ShiftExceptionInterface } from '../interfaces/shift_exception_interface
 import axios from 'axios'
 import { AssistIncidentExcelRowInterface } from '../interfaces/assist_incident_excel_row_interface.js'
 import Assist from '#models/assist'
-import Tolerance from '#models/tolerance'
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogAssist } from '../interfaces/MongoDB/log_assist.js'
 import BusinessUnit from '#models/business_unit'
@@ -39,7 +38,6 @@ import WorkDisability from '#models/work_disability'
 import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_interface.js'
 import { I18n } from '@adonisjs/i18n'
 import Holiday from '#models/holiday'
-import ToleranceService from './tolerance_service.js'
 import EmployeeShift from '#models/employee_shift'
 import User from '#models/user'
 import mail from '@adonisjs/mail/services/main'
@@ -56,6 +54,15 @@ import {
 import EffectiveService from '#modules/working-time-rules/effective/effective.service'
 import { AssistIncidentSummaryV2ExcelRowInterface } from '../interfaces/assist_incident_summary_v2_excel_row_interface.js'
 import { AssistIncidentSummaryV2CalendarExcelFilterInterface } from '../interfaces/assist_incident_summary_v2_calendar_excel_filter_interface.js'
+import { PLATFORM_FALLBACK_TRADE_NAME } from '#constants/system_setting_defaults'
+
+/**
+ * Defaults de tolerancia cuando no hay empresa en contexto o la empresa no tiene
+ * la suya configurada. Son los valores que estos métodos ya usaban en duro.
+ */
+const DEFAULT_DELAY_TOLERANCE_MINUTES = 10
+const DEFAULT_TARDINESS_TOLERANCE_MINUTES = 3
+const DEFAULT_TOLERANCE_COUNT_PER_ABSENCE = 3
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -3737,31 +3744,23 @@ export default class AssistsService {
     return payPeriodNumber
   }
 
+  /** Logo de la empresa activa; el del entorno cuando no hay empresa o no tiene uno. */
   async getLogo() {
     let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      if (systemSettingActive.systemSettingLogo) {
-        imageLogo = systemSettingActive.systemSettingLogo
-      }
+    const systemSetting = await new SystemSettingService().resolveForActiveTenant()
+
+    if (systemSetting?.systemSettingLogo) {
+      imageLogo = systemSetting.systemSettingLogo
     }
+
     return imageLogo
   }
 
+  /** Retardos que suman una falta, según la empresa activa. */
   async getToleranceCountPerAbsence() {
-    let tolerancePerAbsence = 0
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      if (systemSettingActive.systemSettingToleranceCountPerAbsence) {
-        tolerancePerAbsence = systemSettingActive.systemSettingToleranceCountPerAbsence
-      }
-    }
-    if (tolerancePerAbsence === 0) {
-      tolerancePerAbsence = 3
-    }
-    return tolerancePerAbsence
+    const systemSetting = await new SystemSettingService().resolveForActiveTenant()
+
+    return systemSetting?.systemSettingToleranceCountPerAbsence || DEFAULT_TOLERANCE_COUNT_PER_ABSENCE
   }
 
   /**
@@ -4491,16 +4490,11 @@ export default class AssistsService {
       .orderBy('business_unit_id')
   }
 
+  /** Nombre comercial de la empresa activa, para encabezar sus reportes. */
   async getTradeName() {
-    let tradeName = 'BO'
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      if (systemSettingActive.systemSettingTradeName) {
-        tradeName = systemSettingActive.systemSettingTradeName
-      }
-    }
-    return tradeName
+    const systemSetting = await new SystemSettingService().resolveForActiveTenant()
+
+    return systemSetting?.systemSettingTradeName || PLATFORM_FALLBACK_TRADE_NAME
   }
 
   paintBorderAll(worksheet: ExcelJS.Worksheet, rowCount: number) {
@@ -4577,26 +4571,38 @@ export default class AssistsService {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
   }
 
+  /** Margen de impuntualidad de la empresa activa. */
   async getTardiesTolerance() {
-    let tardies = 0
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      const tolerance = await Tolerance.query()
-        .whereNull('tolerance_deleted_at')
-        .where('tolerance_name', 'TardinessTolerance')
-        .where('systemSettingId', systemSettingActive.systemSettingId)
-        .first()
+    return this.resolveTenantToleranceMinutes(
+      'TardinessTolerance',
+      DEFAULT_TARDINESS_TOLERANCE_MINUTES
+    )
+  }
 
-      if (tolerance) {
-        tardies = tolerance.toleranceMinutes
-      }
+  /**
+   * Minutos de una tolerancia DE LA EMPRESA ACTIVA, con su default si la empresa
+   * no la tiene configurada o si no hay empresa en contexto.
+   *
+   * Los tres métodos que la consultan resolvían antes por la configuración de
+   * PLATAFORMA: la tolerancia de un cliente salía de una fila global que
+   * ninguno de ellos podía ver ni ajustar, y la que sí ajustaban desde su
+   * backoffice no la miraba nadie.
+   */
+  private async resolveTenantToleranceMinutes(
+    toleranceName: string,
+    defaultMinutes: number
+  ): Promise<number> {
+    const systemSetting = await new SystemSettingService().resolveForActiveTenant()
+
+    if (!systemSetting) {
+      return defaultMinutes
     }
 
-    if (tardies === 0) {
-      tardies = 3
-    }
-    return tardies
+    const tolerance = systemSetting.systemSettingTolerances.find(
+      (item) => item.toleranceName === toleranceName
+    )
+
+    return tolerance?.toleranceMinutes ?? defaultMinutes
   }
 
   getVacationBonus(employee: Employee, datePay: string) {
@@ -5336,29 +5342,14 @@ export default class AssistsService {
    * @returns {Promise<number>} La tolerancia de retardo en minutos
    */
   async getDelayToleranceMinutes(): Promise<number> {
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    let delayToleranceMinutes = 10 // Default
-    if (systemSettingActive) {
-      const toleranceService = new ToleranceService()
-      const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
-      const delayTolerance = tolerances.find((t) => t.toleranceName === 'Delay')
-      if (delayTolerance) delayToleranceMinutes = delayTolerance.toleranceMinutes
-    }
-    return delayToleranceMinutes
+    return this.resolveTenantToleranceMinutes('Delay', DEFAULT_DELAY_TOLERANCE_MINUTES)
   }
 
   async getTardinessToleranceMinutes(): Promise<number> {
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    let tardinessToleranceMinutes = 10 // Default
-    if (systemSettingActive) {
-      const toleranceService = new ToleranceService()
-      const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
-      const tardinessTolerance = tolerances.find((t) => t.toleranceName === 'TardinessTolerance')
-      if (tardinessTolerance) tardinessToleranceMinutes = tardinessTolerance.toleranceMinutes
-    }
-    return tardinessToleranceMinutes
+    return this.resolveTenantToleranceMinutes(
+      'TardinessTolerance',
+      DEFAULT_DELAY_TOLERANCE_MINUTES
+    )
   }
 
   async getFaultsAndDelaysFromEmployeeCalendar(employeeCalendar: AssistDayInterface[], tardies: number, toleranceCountPerAbsences: number) {
@@ -5401,8 +5392,10 @@ export default class AssistsService {
 
   async verifyAttendanceLock(userId: number, type: string) {
     try {
-      const systemSettingService = new SystemSettingService()
-      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+      // El bloqueo por faltas se decide con la configuración de LA EMPRESA
+      // ACTIVA. Antes leía la de plataforma, así que todos los clientes
+      // compartían el mismo umbral sin poder ajustarlo.
+      const systemSettingActive = await new SystemSettingService().resolveForActiveTenant()
       if (!systemSettingActive) {
         return {
           status: 404,

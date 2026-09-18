@@ -4,7 +4,6 @@ import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import RepseRegistration from '#models/repse_registration'
-import SystemSetting from '#models/system_setting'
 import SystemSettingNotificationEmail from '#models/system_setting_notification_email'
 import {
   buildRenovacionPeriodoClave,
@@ -19,6 +18,7 @@ import RepseFolioExpiringMail, {
 } from '#mails/repse_folio_expiring_mail'
 import { REPSE_FOLIO_RUN_UNSCOPED_REASON } from '#constants/repse_folio_aviso'
 import { TenantContext } from '#utils/tenant_context'
+import { indexSystemSettingsByBusinessUnitSlug } from '#helpers/system_settings_by_business_unit'
 
 /**
  * Lista de desarrollo — solo estos correos reciben avisos reales en
@@ -104,8 +104,12 @@ export default class RepseFolioAvisoService {
       return result
     }
 
-    const settings = await this.fetchActiveSystemSettings()
-    const settingByBuSlug = this.indexSystemSettingsByBuSlug(settings)
+    // Índice por la frontera única: la configuración cuelga de su empresa por
+    // `business_unit_id`, no de un CSV de slugs.
+    const settingByBuSlug = await indexSystemSettingsByBusinessUnitSlug()
+    const settingById = new Map(
+      [...settingByBuSlug.values()].map((item) => [item.systemSettingId, item])
+    )
 
     const grouped = new Map<number, CandidateRow[]>()
     const unmatchedByBuSlug: Record<string, number[]> = {}
@@ -133,7 +137,7 @@ export default class RepseFolioAvisoService {
     const isDevelopment = env.get('NODE_ENV') !== 'production'
 
     for (const [systemSettingId, rows] of grouped.entries()) {
-      const setting = settings.find((s) => s.systemSettingId === systemSettingId)!
+      const setting = settingById.get(systemSettingId)!
       const recipients = await this.fetchRecipientsForSetting(systemSettingId)
 
       if (recipients.length === 0) {
@@ -318,37 +322,6 @@ export default class RepseFolioAvisoService {
     }
 
     return candidates
-  }
-
-  private async fetchActiveSystemSettings(): Promise<SystemSetting[]> {
-    return SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_active', 1)
-      .select(
-        'system_setting_id',
-        'system_setting_trade_name',
-        'system_setting_sidebar_color',
-        'system_setting_business_units',
-        'system_setting_active'
-      )
-  }
-
-  private indexSystemSettingsByBuSlug(
-    settings: SystemSetting[]
-  ): Map<string, SystemSetting> {
-    const map = new Map<string, SystemSetting>()
-    for (const setting of settings) {
-      const slugs = (setting.systemSettingBusinessUnits ?? '')
-        .split(',')
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean)
-      for (const slug of slugs) {
-        if (!map.has(slug)) {
-          map.set(slug, setting)
-        }
-      }
-    }
-    return map
   }
 
   private async fetchRecipientsForSetting(systemSettingId: number): Promise<string[]> {

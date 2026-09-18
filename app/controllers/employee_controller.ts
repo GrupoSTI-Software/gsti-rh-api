@@ -5058,6 +5058,11 @@ export default class EmployeeController {
       const zones = await employeeService.getZones(employeeId)
       const coordinates = []
       for (const zone of zones) {
+        // `zone.zone` puede llegar nulo desde que Zone está acotada por empresa:
+        // una asignación cuya zona no pertenece al alcance activo (o sigue sin
+        // empresa porque falta el backfill) no precarga la relación. Antes esto
+        // reventaba el mapa del Monitor con un 500; ahora se omite la geocerca.
+        if (!zone.zone?.zonePolygon) continue
         const polygon = JSON.parse(zone.zone.zonePolygon)
         coordinates.push(polygon.features[0].geometry.coordinates)
       }
