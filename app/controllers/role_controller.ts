@@ -1,7 +1,6 @@
 import { HttpContext } from '@adonisjs/core/http'
 import RoleService from '#services/role_service'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
-import BusinessUnit from '#models/business_unit'
 import Role from '#models/role'
 import { isReservedRoleIdentitySlug } from '#constants/system_roles'
 import { isOwnRoleLockedForUser, isSystemRoleLockedForUser } from '#helpers/system_role_lock'
@@ -26,27 +25,6 @@ import {
 } from '#validators/role'
 import db from '@adonisjs/lucid/services/db'
 
-/**
- * Construye el CSV legado de `roleBusinessAccess` con los slugs del scope de
- * la petición (`ctx.businessUnitScope`, middleware businessScope): el rol nace
- * ligado a la empresa activa, no al pivote completo del usuario
- * (USRH1785436961936, regla 3).
- *
- * Conservamos `roleBusinessAccess` como CSV de slugs por compatibilidad con
- * código heredado que lo lee.
- */
-async function buildRoleBusinessAccessFromScope(businessUnitScope: number[]): Promise<string> {
-  if (businessUnitScope.length === 0) {
-    return ''
-  }
-
-  const businessUnits = await BusinessUnit.query()
-    .whereIn('business_unit_id', businessUnitScope)
-    .whereNull('business_unit_deleted_at')
-    .select('business_unit_slug')
-
-  return businessUnits.map((unit) => unit.businessUnitSlug).join(',')
-}
 
 export default class RoleController {
   /**
@@ -373,9 +351,6 @@ export default class RoleController {
       }
 
       // El CSV se sigue escribiendo por compatibilidad: quedan lectores que
-      // resuelven la empresa de un rol por `role_business_access`. La columna
-      // dueña es `business_unit_id`.
-      const roleBusinessAccess = await buildRoleBusinessAccessFromScope(businessUnitScope)
 
       const role = {
         roleName: roleName,
@@ -383,7 +358,6 @@ export default class RoleController {
         roleSlug: roleSlug,
         businessUnitId: businessUnitId,
         roleActive: roleActive,
-        roleBusinessAccess: roleBusinessAccess,
       } as Role
 
       const data = await request.validateUsing(createRoleValidator)

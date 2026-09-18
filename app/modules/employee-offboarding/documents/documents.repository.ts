@@ -25,7 +25,16 @@ export interface EmployeeOffboardingDocumentCreateData {
   employeeOffboardingDocumentGeneratedByUserId: number | null
   /** Id de la emisión que esta reemplaza; `null` en la primera (USRH1787433503692). */
   employeeOffboardingDocumentSupersededDocumentId: number | null
+  /** Versión de plantilla propia usada; `null` = plantilla del sistema (USRH1789097550389). */
+  employeeOffboardingDocumentTemplateVersionId: number | null
 }
+
+/**
+ * Alias con el que `listByOffboarding` proyecta en `$extras` el número
+ * legible de la versión de plantilla (K-4, USRH1789097550389); `null` sin
+ * versión. Derivado por join, nunca columna.
+ */
+export const DOCUMENT_TEMPLATE_VERSION_NUMBER_EXTRA = 'template_version_number'
 
 /**
  * Puerto de acceso a datos de los documentos del expediente
@@ -99,7 +108,9 @@ export interface DocumentsRepository {
 
   /**
    * Documentos vivos del expediente, id descendente. Sin `includeSuperseded`
-   * solo las vigentes (regla 5); `documentType` acota por tipo.
+   * solo las vigentes (regla 5); `documentType` acota por tipo. Cada fila
+   * trae en `$extras[DOCUMENT_TEMPLATE_VERSION_NUMBER_EXTRA]` el número de
+   * la versión de plantilla usada, o `null`.
    */
   listByOffboarding(
     employeeOffboardingId: number,

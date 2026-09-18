@@ -9,6 +9,9 @@ import {
   tenantDefaultContent,
 } from '../constants/system_setting_defaults.js'
 import type { TenantProvisioningTargetInterface } from '../interfaces/tenant_provisioning_target_interface.js'
+import Tolerance from '#models/tolerance'
+import { TENANT_TOLERANCE_DEFAULTS } from '#constants/system_setting_defaults'
+import { TenantContext } from '#utils/tenant_context'
 
 export default class SystemSettingService {
   /**
@@ -72,7 +75,6 @@ export default class SystemSettingService {
     target.systemSettingBanner = source.systemSettingBanner
     target.systemSettingFavicon = source.systemSettingFavicon
     target.systemSettingActive = source.systemSettingActive
-    target.systemSettingBusinessUnits = source.systemSettingBusinessUnits
     target.systemSettingToleranceCountPerAbsence = source.systemSettingToleranceCountPerAbsence
     target.systemSettingRestrictFutureVacation = source.systemSettingRestrictFutureVacation
     target.systemSettingMaxAbsencesBeforeAttendanceLock = source.systemSettingMaxAbsencesBeforeAttendanceLock
@@ -106,7 +108,6 @@ export default class SystemSettingService {
     currentSystemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock
     currentSystemSetting.systemSettingMonthlyConversionFactor =
       systemSetting.systemSettingMonthlyConversionFactor ?? currentSystemSetting.systemSettingMonthlyConversionFactor
-    currentSystemSetting.systemSettingBusinessUnits = systemSetting.systemSettingBusinessUnits
     await currentSystemSetting.save()
     return currentSystemSetting
   }
@@ -126,29 +127,31 @@ export default class SystemSettingService {
     return systemSetting ? systemSetting : null
   }
 
-  async getActive(allowedBusinessUnitSlugs: string[] = []) {
-    if (allowedBusinessUnitSlugs.length === 0) {
-      const baseSystemSetting = await SystemSetting.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_active', 1)
-        .whereNull('business_unit_id')
-        .preload('systemSettingTolerances')
-        .first()
-      return baseSystemSetting ?? null
+  /**
+   * Configuración de la EMPRESA ACTIVA de la petición.
+   *
+   * Es lo que necesita casi todo el runtime: el motor de asistencia, la marca de
+   * los reportes y las tolerancias. Antes esos consumidores llamaban a
+   * `getActive()`, que devuelve la fila de plataforma, así que un cliente veía
+   * los valores de otro —o los de nadie—.
+   *
+   * Devuelve `null` cuando no hay una empresa activa identificada (procesos
+   * batch, rutas sin `businessScope`) o cuando esa empresa aún no tiene
+   * configuración. Quien llama decide su default; nunca se cae a la fila de otra
+   * empresa.
+   */
+  async resolveForActiveTenant(): Promise<SystemSetting | null> {
+    const scope = TenantContext.getScope()
+
+    if (scope.length !== 1) {
+      return null
     }
 
-    const slugs = allowedBusinessUnitSlugs
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_active', 1)
+      .where('business_unit_id', scope[0])
       .preload('systemSettingTolerances')
-      .andWhere((query) => {
-        query.andWhere((subQuery) => {
-          slugs.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, system_setting_business_units)', [business.trim()])
-          })
-        })
-      })
       .first()
 
     return systemSetting ?? null
@@ -446,7 +449,7 @@ export default class SystemSettingService {
     target: TenantProvisioningTargetInterface,
     trx: TransactionClientContract
   ): Promise<SystemSetting> {
-    const { businessUnitId, businessUnitSlug, businessUnitName } = target
+    const { businessUnitId, businessUnitName } = target
     const content = tenantDefaultContent(businessUnitName)
 
     const existing = await SystemSetting.query({ client: trx })
@@ -462,19 +465,59 @@ export default class SystemSettingService {
 
       existing.useTransaction(trx)
       Object.assign(existing, content)
-      existing.systemSettingBusinessUnits = businessUnitSlug
       // `restore()` limpia `deletedAt` y persiste en una sola escritura
       // (incluye el contenido recién asignado, ya marcado como dirty).
       await existing.restore()
+      await this.seedTenantTolerances(existing.systemSettingId, trx)
       return existing
     }
 
     const created = new SystemSetting()
     Object.assign(created, content)
     created.businessUnitId = businessUnitId
-    created.systemSettingBusinessUnits = businessUnitSlug
     created.useTransaction(trx)
     await created.save()
+    await this.seedTenantTolerances(created.systemSettingId, trx)
+
     return created
+  }
+
+  /**
+   * Tolerancias de asistencia propias de la empresa.
+   *
+   * Antes no se sembraban: las tres filas (`Delay`, `Fault`,
+   * `TardinessTolerance`) colgaban del registro base de plataforma y el motor de
+   * asistencia las leía de ahí para TODOS los clientes. Una empresa que ajustaba
+   * su tolerancia desde el backoffice creaba las suyas, pero el motor seguía
+   * mirando las globales. Ahora nacen con la empresa.
+   *
+   * Idempotente por el par (configuración, nombre): reejecutar no duplica ni
+   * pisa el valor que el cliente haya ajustado.
+   */
+  private async seedTenantTolerances(
+    systemSettingId: number,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    const existing = await Tolerance.query({ client: trx })
+      .where('system_setting_id', systemSettingId)
+      .select('tolerance_name')
+
+    const present = new Set(existing.map((tolerance) => tolerance.toleranceName))
+    const missing = TENANT_TOLERANCE_DEFAULTS.filter(
+      (tolerance) => !present.has(tolerance.toleranceName)
+    )
+
+    if (missing.length === 0) {
+      return
+    }
+
+    await Tolerance.createMany(
+      missing.map((tolerance) => ({
+        toleranceName: tolerance.toleranceName,
+        toleranceMinutes: tolerance.toleranceMinutes,
+        systemSettingId,
+      })),
+      { client: trx }
+    )
   }
 }

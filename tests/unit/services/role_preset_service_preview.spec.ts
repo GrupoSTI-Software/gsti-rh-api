@@ -41,7 +41,6 @@ test.group('RolePresetService.computeDesiredPermissionIds / preview', (group) =>
       roleSlug: `test-role-preset-preview-${stamp}`,
       roleDescription: 'Fixture de prueba',
       roleActive: 1,
-      roleBusinessAccess: '',
     })
 
     employeesReadPermission = await findEmployeesPermission('read')

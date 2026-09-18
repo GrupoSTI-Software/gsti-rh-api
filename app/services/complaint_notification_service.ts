@@ -8,7 +8,6 @@ import SystemSetting from '#models/system_setting'
 import SystemPermission from '#models/system_permission'
 import RoleSystemPermission from '#models/role_system_permission'
 import User from '#models/user'
-import BusinessUnit from '#models/business_unit'
 import {
   COMPLAINT_BOARD_MODULE_PATH,
   COMPLAINT_MANAGE_PERMISSION,
@@ -250,36 +249,28 @@ export default class ComplaintNotificationService {
   private async resolveBrandingForBusinessUnit(
     businessUnitId: number
   ): Promise<{ tradeName: string; backgroundImageLogo: string }> {
-    const businessUnit = await BusinessUnit.query()
-      .where('business_unit_id', businessUnitId)
-      .whereNull('business_unit_deleted_at')
-      .first()
-
-    const slug = businessUnit?.businessUnitSlug?.trim().toLowerCase() ?? ''
-    const settings = await SystemSetting.query()
+    // La configuración de la empresa se pide por su llave. Antes se traían todas
+    // las activas y se buscaba el slug dentro del CSV de cada una.
+    const setting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_active', 1)
-      .select(
-        'system_setting_trade_name',
-        'system_setting_logo',
-        'system_setting_business_units'
-      )
+      .where('business_unit_id', businessUnitId)
+      .first()
 
-    for (const setting of settings) {
-      const slugs = (setting.systemSettingBusinessUnits ?? '')
-        .split(',')
-        .map((value) => value.trim().toLowerCase())
-        .filter(Boolean)
-
-      if (slug && slugs.includes(slug)) {
-        return {
-          tradeName: setting.systemSettingTradeName || 'Valanserh',
-          backgroundImageLogo: setting.systemSettingLogo || DEFAULT_MAIL_LOGO,
-        }
+    if (setting) {
+      return {
+        tradeName: setting.systemSettingTradeName || 'Valanserh',
+        backgroundImageLogo: setting.systemSettingLogo || DEFAULT_MAIL_LOGO,
       }
     }
 
-    const fallback = settings[0]
+    // Sin configuración propia, la marca base de la plataforma.
+    const fallback = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .where('system_setting_active', 1)
+      .whereNull('business_unit_id')
+      .first()
+
     return {
       tradeName: fallback?.systemSettingTradeName || 'Valanserh',
       backgroundImageLogo: fallback?.systemSettingLogo || DEFAULT_MAIL_LOGO,

@@ -55,6 +55,17 @@ export const ALLIANCE_ERROR_CODES = {
   ATTRIBUTION_ALREADY_CLOSED: 'PLT.ALL.ATTRIBUTION_ALREADY_CLOSED',
   /** La fecha de cierre es anterior a startsAt o posterior a hoy */
   ATTRIBUTION_CLOSE_DATE_INVALID: 'PLT.ALL.ATTRIBUTION_CLOSE_DATE_INVALID',
+  /**
+   * Canje del código de otra alianza con atribución viva: se rechaza
+   * el alta completo. 422 porque es regla sobre el propio recurso
+   * (la contratación), no colisión al crear una segunda fila.
+   */
+  ATTRIBUTION_OTHER_ALLIANCE: 'PLT.ALL.ATTRIBUTION_OTHER_ALLIANCE',
+  /**
+   * El plazo ajustado quedaría por debajo de los periodos ya
+   * devengados. 422: regla sobre el propio recurso.
+   */
+  ATTRIBUTION_TERM_BELOW_ACCRUED: 'PLT.ALL.ATTRIBUTION_TERM_BELOW_ACCRUED',
   /** Error no tipado del módulo */
   SYS_UNHANDLED: 'PLT.ALL.SYS_UNHANDLED',
 } as const
@@ -242,6 +253,22 @@ export const ALLIANCE_ERRORS = {
     detail:
       'La fecha de cierre no puede ser anterior a la fecha desde la que aplica ni posterior a hoy.',
     code: ALLIANCE_ERROR_CODES.ATTRIBUTION_CLOSE_DATE_INVALID,
+    status: 422,
+  },
+  ATTRIBUTION_OTHER_ALLIANCE: {
+    key: 'empresa-atribuida-a-otra-alianza',
+    title: 'Alianzas',
+    detail:
+      'La empresa ya está atribuida a otra alianza comercial. Para usar este código, primero hay que cerrar esa atribución desde la ficha de la empresa.',
+    code: ALLIANCE_ERROR_CODES.ATTRIBUTION_OTHER_ALLIANCE,
+    status: 422,
+  },
+  ATTRIBUTION_TERM_BELOW_ACCRUED: {
+    key: 'plazo-por-debajo-de-lo-devengado',
+    title: 'Alianzas',
+    detail:
+      'El plazo no puede quedar por debajo de los periodos ya devengados de esta atribución.',
+    code: ALLIANCE_ERROR_CODES.ATTRIBUTION_TERM_BELOW_ACCRUED,
     status: 422,
   },
   SYS_UNHANDLED: {

@@ -1,7 +1,6 @@
 import Supplie from '#models/supplie'
 import EmployeeSupplie from '#models/employee_supplie'
 import SystemSettingService from './system_setting_service.js'
-import SystemSetting from '#models/system_setting'
 import ExcelJS from 'exceljs'
 import axios from 'axios'
 import sharp from 'sharp'
@@ -206,7 +205,7 @@ export default class SupplieService {
       // activa. La ficha sigue resolviéndose con `getActive()` — queda como
       // deuda menor alinearla al tenant activo, no cambia el corte de datos.
       const systemSettingService = new SystemSettingService()
-      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+      const systemSettingActive = await systemSettingService.resolveForActiveTenant()
 
       // Get logo and colors from system setting
       let imageLogo = systemSettingActive?.systemSettingLogo || `${env.get('BACKGROUND_IMAGE_LOGO')}`

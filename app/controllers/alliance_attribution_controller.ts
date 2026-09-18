@@ -187,8 +187,9 @@ export default class AllianceAttributionController {
    *         description: Atribución cerrada (PLT.ALL.ATTRIBUTION_CLOSED_IMMUTABLE)
    *       '422':
    *         description: >
-   *           Datos inválidos, comisión o plazo fuera de rango, o fecha
-   *           de inicio en el futuro
+   *           Datos inválidos, comisión o plazo fuera de rango, fecha de
+   *           inicio en el futuro, o plazo por debajo de lo ya devengado
+   *           (PLT.ALL.ATTRIBUTION_TERM_BELOW_ACCRUED)
    */
   async update({ params, request, response }: HttpContext) {
     try {

@@ -85,7 +85,6 @@ async function createActor(prefix: string, sharedUnit?: BusinessUnit): Promise<A
     roleSlug: `ciclo-avisos-${prefix}-${stamp}`,
     roleDescription: 'Rol temporal para el ciclo de vida de avisos',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
     roleManagementDays: 10,
   })
   const person = await Person.create({

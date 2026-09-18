@@ -5,10 +5,13 @@ import type { I18n } from '@adonisjs/i18n'
 import db from '@adonisjs/lucid/services/db'
 import SignupDraft from '#models/signup_draft'
 import Person from '#models/person'
+import Role from '#models/role'
+import RoleSystemPermission from '#models/role_system_permission'
 import User from '#models/user'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import SystemSetting from '#models/system_setting'
+import Tolerance from '#models/tolerance'
 import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingVolumeTier from '#models/billing_volume_tier'
@@ -101,6 +104,19 @@ async function cleanupTenant(businessUnitName: string, email: string) {
     await BillingSubscription.query()
       .where('business_unit_id', businessUnit.businessUnitId)
       .delete()
+    // Las tolerancias que el alta siembra salen antes que la ficha: la FK impide
+    // borrarla mientras tenga tolerancias vivas.
+    const tenantSettings = await SystemSetting.query()
+      .withTrashed()
+      .where('business_unit_id', businessUnit.businessUnitId)
+    if (tenantSettings.length > 0) {
+      await Tolerance.query()
+        .whereIn(
+          'system_setting_id',
+          tenantSettings.map((setting) => setting.systemSettingId)
+        )
+        .delete()
+    }
     await SystemSetting.query()
       .withTrashed()
       .where('business_unit_id', businessUnit.businessUnitId)
@@ -116,6 +132,24 @@ async function cleanupTenant(businessUnitName: string, email: string) {
     await Person.query().where('person_id', person.personId).delete()
   }
   if (businessUnit) {
+    // Los roles propios de la empresa salen antes que ella: la FK
+    // `roles_business_unit_id_foreign` es RESTRICT a propósito, para que una
+    // empresa con roles no desaparezca por accidente desde la base.
+    const tenantRoles = await Role.query()
+      .withTrashed()
+      .where('business_unit_id', businessUnit.businessUnitId)
+    if (tenantRoles.length > 0) {
+      await RoleSystemPermission.query()
+        .whereIn(
+          'role_id',
+          tenantRoles.map((role) => role.roleId)
+        )
+        .delete()
+      await Role.query()
+        .withTrashed()
+        .where('business_unit_id', businessUnit.businessUnitId)
+        .delete()
+    }
     await BusinessUnit.query().where('business_unit_id', businessUnit.businessUnitId).delete()
   }
   await SignupDraft.query().withTrashed().where('signup_draft_email', email).delete()
@@ -194,8 +228,11 @@ test.group('SignupDraftService.complete() - creación de system_settings del ten
     assert.equal(settings.systemSettingPeriodAbsencesBeforeAttendanceLock, 'monthly')
     assert.equal(settings.systemSettingPeriodLateArrivalsBeforeAttendanceLock, 'monthly')
     assert.equal(Number(settings.systemSettingMonthlyConversionFactor), 30.42)
-    assert.equal(settings.systemSettingBusinessUnits, businessUnit.businessUnitSlug)
-    assert.notEqual(settings.businessUnitId, null)
+    assert.equal(
+      settings.businessUnitId,
+      businessUnit.businessUnitId,
+      'la configuración queda ligada a su empresa por la llave'
+    )
   })
 
   test('reintento idempotente: no duplica la configuración del mismo tenant', async ({ assert }) => {
