@@ -18,7 +18,6 @@ test.group('RoleService.assignPermissions — trx opcional', (group) => {
       roleSlug: `test-assign-trx-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
     })
     systemModule = await SystemModule.create({
       systemModuleName: 'Test Assign Trx Module',
@@ -86,7 +85,6 @@ test.group('RoleService.assignPermissionsBatch — lote atómico', (group) => {
       roleSlug: `test-batch-a-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
       roleManagementDays: 10,
     })
     roleB = await Role.create({
@@ -94,7 +92,6 @@ test.group('RoleService.assignPermissionsBatch — lote atómico', (group) => {
       roleSlug: `test-batch-b-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
       roleManagementDays: 20,
     })
     systemModule = await SystemModule.create({

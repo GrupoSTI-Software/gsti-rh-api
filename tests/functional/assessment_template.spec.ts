@@ -1,37 +1,41 @@
 import { test } from '@japa/runner'
+import type { Group } from '@japa/runner/core'
 import db from '@adonisjs/lucid/services/db'
-import User from '#models/user'
-import Role from '#models/role'
+import type User from '#models/user'
 import AssessmentTemplate from '#models/assessment_template'
 import AssessmentTemplateDimension from '#models/assessment_template_dimension'
+import {
+  cleanupTenantActor,
+  createBypassActor,
+  createTenantActor,
+  grantModulePermissions,
+  required,
+  type TenantActor,
+} from '#tests/helpers/tenant_actor'
 
 /**
- * Helper compartido por los tests de toggle-status.
+ * Registra en el grupo un usuario root propio y lo borra al terminar.
  *
- * El controlador de PATCH /:id/status valida que el usuario tenga el
- * permiso `toggle-status` sobre el módulo `assessment-templates`. El
- * primer usuario del ambiente de pruebas no necesariamente es 'root',
- * por lo que este helper localiza explícitamente un usuario cuyo rol
- * sea 'root' (bypass del chequeo de permisos en el controlador).
- *
- * Si no encuentra uno, recae al primer usuario disponible para no
- * romper otros tests (esos casos se deben omitir explícitamente).
+ * Por qué: los grupos tomaban el primer usuario de la BD y, si no había root,
+ * recaían en cualquiera. Con la exigencia de `assessment-templates` encendida y
+ * un gate en cada ruta, ese usuario responde 403 si su rol no es root u owner,
+ * y en una BD recién sembrada ni siquiera se sabe cuál es. Root pasa el gate
+ * por bypass standard y el toggle de estatus por el atajo del controller. Los
+ * permisos del gate se prueban en `assessment_templates_permission_gate.spec.ts`.
  */
-async function loadRootUser(): Promise<User> {
-  const rootRole = await Role.query()
-    .whereNull('role_deleted_at')
-    .where('role_slug', 'root')
-    .first()
-  if (rootRole) {
-    const rootUser = await User.query()
-      .whereNull('user_deleted_at')
-      .where('role_id', rootRole.roleId)
-      .first()
-    if (rootUser) {
-      return rootUser
-    }
-  }
-  return User.query().whereNull('user_deleted_at').firstOrFail()
+function useRootActor(group: Group, label: string): () => User {
+  let actor: TenantActor | null = null
+
+  group.setup(async () => {
+    actor = await createBypassActor('root', label)
+  })
+
+  group.teardown(async () => {
+    await cleanupTenantActor(actor)
+    actor = null
+  })
+
+  return () => required(actor, 'el actor root').user
 }
 
 /**
@@ -69,9 +73,10 @@ async function loadRootUser(): Promise<User> {
 
 test.group('AssessmentTemplate - index GET /', (group) => {
   let user: User
+  const rootUser = useRootActor(group, 'plantillas')
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    user = rootUser()
   })
 
   test('devuelve lista paginada de plantillas', async ({ client }) => {
@@ -115,10 +120,11 @@ test.group('AssessmentTemplate - index GET /', (group) => {
 
 test.group('AssessmentTemplate - store POST /', (group) => {
   let user: User
+  const rootUser = useRootActor(group, 'plantillas')
   const createdIds: number[] = []
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    user = rootUser()
   })
 
   group.teardown(async () => {
@@ -240,10 +246,11 @@ test.group('AssessmentTemplate - store POST /', (group) => {
 
 test.group('AssessmentTemplate - show GET /:id', (group) => {
   let user: User
+  const rootUser = useRootActor(group, 'plantillas')
   let template: AssessmentTemplate
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    user = rootUser()
     template = await AssessmentTemplate.create({
       assessmentTemplateName: 'Plantilla Test Show',
       assessmentTemplateDescription: null,
@@ -293,10 +300,11 @@ test.group('AssessmentTemplate - show GET /:id', (group) => {
 
 test.group('AssessmentTemplate - update PUT /:id', (group) => {
   let user: User
+  const rootUser = useRootActor(group, 'plantillas')
   let template: AssessmentTemplate
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    user = rootUser()
     template = await AssessmentTemplate.create({
       assessmentTemplateName: 'Plantilla Test Update Original',
       assessmentTemplateDescription: null,
@@ -390,9 +398,10 @@ test.group('AssessmentTemplate - update PUT /:id', (group) => {
 
 test.group('AssessmentTemplate - delete DELETE /:id', (group) => {
   let user: User
+  const rootUser = useRootActor(group, 'plantillas')
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    user = rootUser()
   })
 
   test('elimina (soft delete) una plantilla y sus dimensiones', async ({ client }) => {
@@ -453,6 +462,7 @@ test.group('AssessmentTemplate - delete DELETE /:id', (group) => {
  */
 test.group('AssessmentTemplate - toggle-status PATCH /:id/status', (group) => {
   let user: User
+  const rootUser = useRootActor(group, 'plantillas')
   let activeTemplate: AssessmentTemplate
   let inactiveTemplate: AssessmentTemplate
 
@@ -460,7 +470,7 @@ test.group('AssessmentTemplate - toggle-status PATCH /:id/status', (group) => {
     // El happy path requiere un usuario con rol 'root' (bypass del chequeo
     // de permisos en el controlador). El test de 403 más abajo usa un
     // usuario no-root.
-    user = await loadRootUser()
+    user = rootUser()
     activeTemplate = await AssessmentTemplate.create({
       assessmentTemplateName: 'Plantilla Toggle Activa',
       assessmentTemplateDescription: null,
@@ -531,32 +541,54 @@ test.group('AssessmentTemplate - toggle-status PATCH /:id/status', (group) => {
     response.assertBodyContains({ type: 'warning' })
   })
 
-  test("usuario no-root sin permiso recibe 403 con key 'sin-permiso'", async ({
+  test("rol sin toggle-status recibe 403 con key 'sin-permiso' aunque tenga read y update", async ({
     client,
     assert,
   }) => {
-    // Buscamos un usuario cuyo rol NO sea root y sin permiso 'toggle-status'.
-    // Si la base de pruebas no contiene ninguno, el caso se salta.
-    const noRootUser = await User.query()
-      .whereNull('user_deleted_at')
-      .whereHas('role', (q) => {
-        q.whereNull('role_deleted_at').where('role_slug', '!=', 'root')
-      })
-      .preload('role')
-      .first()
+    // Actor con rol propio y concesiones explícitas: antes se buscaba cualquier
+    // usuario no root de la BD y, si no había, el caso se daba por bueno.
+    const tenant = await createTenantActor('plantillas-toggle-sin')
+    try {
+      await grantModulePermissions(tenant, 'assessment-templates', ['read', 'update'])
+      const template = await AssessmentTemplate.findOrFail(activeTemplate.assessmentTemplateId)
+      template.assessmentTemplateIsActive = true
+      await template.save()
 
-    if (!noRootUser) {
-      assert.isTrue(true, 'no existe usuario no-root en el ambiente de pruebas; se omite')
-      return
+      const response = await client
+        .patch(`/api/assessment-templates/${activeTemplate.assessmentTemplateId}/status`)
+        .loginAs(tenant.user)
+        .json({ isActive: false })
+
+      response.assertStatus(403)
+      response.assertBodyContains({ key: 'sin-permiso' })
+      const reloaded = await AssessmentTemplate.findOrFail(activeTemplate.assessmentTemplateId)
+      assert.isTrue(Boolean(reloaded.assessmentTemplateIsActive))
+    } finally {
+      await cleanupTenantActor(tenant)
     }
+  })
 
-    const response = await client
-      .patch(`/api/assessment-templates/${activeTemplate.assessmentTemplateId}/status`)
-      .loginAs(noRootUser)
-      .json({ isActive: false })
+  test('rol con toggle-status conmuta el estatus sin ser root ni owner', async ({
+    client,
+    assert,
+  }) => {
+    const tenant = await createTenantActor('plantillas-toggle-con')
+    try {
+      await grantModulePermissions(tenant, 'assessment-templates', ['toggle-status'])
+      const template = await AssessmentTemplate.findOrFail(activeTemplate.assessmentTemplateId)
+      template.assessmentTemplateIsActive = true
+      await template.save()
 
-    response.assertStatus(403)
-    response.assertBodyContains({ key: 'sin-permiso' })
+      const response = await client
+        .patch(`/api/assessment-templates/${activeTemplate.assessmentTemplateId}/status`)
+        .loginAs(tenant.user)
+        .json({ isActive: false })
+
+      response.assertStatus(200)
+      assert.equal(response.body().data?.assessmentTemplate?.assessmentTemplateIsActive, false)
+    } finally {
+      await cleanupTenantActor(tenant)
+    }
   })
 })
 
@@ -567,11 +599,12 @@ test.group('AssessmentTemplate - toggle-status PATCH /:id/status', (group) => {
  */
 test.group('AssessmentTemplate - index filtro ?status=', (group) => {
   let user: User
+  const rootUser = useRootActor(group, 'plantillas')
   let activeTemplate: AssessmentTemplate
   let inactiveTemplate: AssessmentTemplate
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    user = rootUser()
     activeTemplate = await AssessmentTemplate.create({
       assessmentTemplateName: 'Plantilla Filtro Activa',
       assessmentTemplateDescription: null,
@@ -645,6 +678,7 @@ test.group('AssessmentTemplate - index filtro ?status=', (group) => {
  */
 test.group('AssessmentTemplate - reorder PATCH /:id/dimensions/reorder', (group) => {
   let user: User
+  const rootUser = useRootActor(group, 'plantillas')
   let template: AssessmentTemplate
   let dimA: number
   let dimB: number
@@ -653,7 +687,7 @@ test.group('AssessmentTemplate - reorder PATCH /:id/dimensions/reorder', (group)
   let foreignDim: number
 
   group.setup(async () => {
-    user = await loadRootUser()
+    user = rootUser()
     template = await AssessmentTemplate.create({
       assessmentTemplateName: 'Plantilla Reorder ABC',
       assessmentTemplateDescription: null,

@@ -1,6 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
-import BusinessUnit from '#models/business_unit'
 import SystemSetting from '#models/system_setting'
 import SystemSettingProceedingFile from '#models/system_setting_proceeding_file'
 import SystemSettingService from '#services/system_setting_service'
@@ -17,10 +16,15 @@ import {
   createSystemSettingProceedingFileValidator,
   updateSystemSettingProceedingFileValidator,
 } from '#validators/system_setting_proceeding_file'
-import BusinessAccessScopeService from '#services/business_access_scope_service'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import { resolveSystemSettingApiError } from '../helpers/resolve_system_setting_api_error.js'
+import { resolveOptionalTenantBusinessUnitId } from '#helpers/resolve_optional_tenant_business_unit_id'
+import {
+  findSystemSettingInScope,
+  isTenantScopeActive,
+  scopedSystemSettingIds,
+} from '#helpers/system_setting_tenant_scope'
 
 export default class SystemSettingController {
   /**
@@ -505,10 +509,6 @@ export default class SystemSettingController {
         systemSettingMonthlyConversionFactor: systemSettingMonthlyConversionFactor,
       } as SystemSetting
       const systemSettingService = new SystemSettingService()
-      const buUnitsStore = businessUnitScope.length > 0
-        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
-        : []
-      const businessSlugsStore = buUnitsStore.map((bu) => bu.businessUnitSlug)
       const data = await request.validateUsing(createSystemSettingValidator)
       // USRH1785436961868: unicidad del nombre comercial POR EMPRESA (scope
       // del middleware, nunca del payload); error estándar {title, detail, key}
@@ -632,7 +632,6 @@ export default class SystemSettingController {
         }
         systemSetting.systemSettingEmployeeAplicationIcon = fileUrl
       }
-      systemSetting.systemSettingBusinessUnits = businessSlugsStore.join(',')
       // USRH1783712837584: `create()` no asignaba `businessUnitId` — si un
       // admin crea manualmente desde la pantalla BO (empresa preexistente sin
       // backfill), la fila quedaría sin relación formal a su empresa.
@@ -925,10 +924,6 @@ export default class SystemSettingController {
         }
       }
       const systemSettingService = new SystemSettingService()
-      const buUnitsUpdate = businessUnitScope.length > 0
-        ? await BusinessUnit.query().whereIn('business_unit_id', businessUnitScope).where('business_unit_active', 1)
-        : []
-      const businessSlugsUpdate = buUnitsUpdate.map((bu) => bu.businessUnitSlug)
       // USRH1785436961868: unicidad del nombre comercial POR EMPRESA (scope
       // del middleware, nunca del payload); error estándar {title, detail, key}
       // en el idioma del usuario, sin revelar datos de otras empresas.
@@ -956,7 +951,6 @@ export default class SystemSettingController {
           data: { ...systemSetting },
         }
       }
-      systemSetting.systemSettingBusinessUnits = businessSlugsUpdate.join(',')
       const validationOptions = {
         types: ['image'],
         size: '',
@@ -1554,10 +1548,7 @@ export default class SystemSettingController {
         }
       }
 
-      const systemSetting = await SystemSetting.query()
-        .whereNull('deletedAt')
-        .where('systemSettingId', systemSettingId)
-        .first()
+      const systemSetting = await findSystemSettingInScope(systemSettingId)
 
       if (!systemSetting) {
         response.status(404)
@@ -1572,6 +1563,9 @@ export default class SystemSettingController {
       const query = SystemSettingProceedingFile.query()
         .whereNull('system_setting_proceeding_file_deleted_at')
         .where('system_setting_id', systemSettingId)
+        .if(isTenantScopeActive(), (scoped) => {
+          scoped.whereIn('system_setting_id', scopedSystemSettingIds())
+        })
         .if(proceedingFileTypeId !== null, (q) => {
           q.whereHas('proceedingFile', (sub) => {
             sub
@@ -1607,6 +1601,9 @@ export default class SystemSettingController {
   /**
    * Obtiene archivos vencidos y por vencer de un system setting por rango de fechas.
    * GET /api/system-settings-proceeding-files/get-expired-and-expiring/:systemSettingId?dateStart=YYYY-MM-DD&dateEnd=YYYY-MM-DD
+   *
+   * La ruta exige `documents-expiration-matrix:read`: sin él responde 403 con la
+   * negativa del permissionGate (key `PERM.DENIED`) antes de llegar aquí.
    */
   async getExpiresAndExpiringProceedingFiles({ request, response }: HttpContext) {
     try {
@@ -1636,10 +1633,7 @@ export default class SystemSettingController {
         }
       }
 
-      const systemSetting = await SystemSetting.query()
-        .whereNull('deletedAt')
-        .where('systemSettingId', systemSettingId)
-        .first()
+      const systemSetting = await findSystemSettingInScope(systemSettingId)
       if (!systemSetting) {
         response.status(404)
         return {
@@ -2242,34 +2236,11 @@ export default class SystemSettingController {
    *  - Header + sesión, unidad fuera de scope/inválida → `{ notInScope: true }`.
    *  - Header + sesión + unidad válida → `{ businessUnitId }`.
    */
-  private async resolveOptionalTenantBusinessUnitId(
-    ctx: HttpContext
-  ): Promise<{ businessUnitId: number | null; notInScope?: boolean }> {
-    const headerValue = ctx.request.header('x-business-unit-id')
-    if (!headerValue) return { businessUnitId: null }
-
-    let authenticated = false
-    try {
-      authenticated = await ctx.auth.check()
-    } catch {
-      authenticated = false
-    }
-    if (!authenticated || !ctx.auth.user) return { businessUnitId: null }
-
-    const user = ctx.auth.user
-    if (!user.role) await user.load('role')
-    const scopeService = new BusinessAccessScopeService()
-    const fullScope = await scopeService.getAccessibleIds(user)
-    const resolvedId = await scopeService.resolveInternalId(headerValue, fullScope)
-    if (resolvedId === null) return { businessUnitId: null, notInScope: true }
-    return { businessUnitId: resolvedId }
-  }
-
   async getActive(ctx: HttpContext) {
     const { response } = ctx
     try {
       const systemSettingService = new SystemSettingService()
-      const { businessUnitId, notInScope } = await this.resolveOptionalTenantBusinessUnitId(ctx)
+      const { businessUnitId, notInScope } = await resolveOptionalTenantBusinessUnitId(ctx)
 
       if (notInScope) {
         response.status(404)
@@ -2307,14 +2278,16 @@ export default class SystemSettingController {
         }
       }
 
-      // Sin header: ficha base (`business_unit_id` NULL), determinista.
-      const showSystemSetting = await systemSettingService.getActive()
-      response.status(200)
+      // Sin header no hay empresa que identificar y por tanto no hay ficha que
+      // servir. Antes se devolvía la base de plataforma; esa fila se retiró
+      // porque no era de nadie y se colaba como si fuera la del cliente.
+      response.status(404)
       return {
-        type: 'success',
-        title: 'System settings',
-        message: 'The system setting active was found successfully',
-        data: { systemSetting: showSystemSetting },
+        type: 'warning',
+        title: 'The system setting was not found',
+        message: 'No hay empresa identificada: envía el header X-Business-Unit-Id.',
+        key: 'configuracion-sin-empresa',
+        data: { systemSetting: null },
       }
     } catch (error) {
       response.status(500)
@@ -3331,7 +3304,7 @@ export default class SystemSettingController {
     const { response } = ctx
     try {
       const systemSettingService = new SystemSettingService()
-      const { businessUnitId, notInScope } = await this.resolveOptionalTenantBusinessUnitId(ctx)
+      const { businessUnitId, notInScope } = await resolveOptionalTenantBusinessUnitId(ctx)
 
       if (notInScope) {
         response.status(404)
@@ -3362,7 +3335,8 @@ export default class SystemSettingController {
           }
         }
       } else {
-        systemSetting = await systemSettingService.getActive()
+        // Sin empresa identificada no hay ficha; el 404 de abajo lo resuelve.
+        systemSetting = null
       }
 
       if (!systemSetting) {

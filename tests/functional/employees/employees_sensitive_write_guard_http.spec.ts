@@ -87,7 +87,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     roleSlug: `sensitive-guard-http-${stamp}`,
     roleDescription: 'Rol temporal para probar el 403 HTTP del guard de datos sensibles',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   const person = await Person.create({

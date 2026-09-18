@@ -2,6 +2,8 @@ import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import type BusinessUnit from '#models/business_unit'
 import type EmployeeOffboardingDocumentTemplate from '#models/employee_offboarding_document_template'
 import type User from '#models/user'
+import type { DocumentTemplateStatus } from './document_templates.constants.js'
+import type { DocumentTemplateValidationResult } from './document_template_validation_result.type.js'
 
 /** Datos para insertar la versión (el servicio ya subió, releyó y selló el archivo). */
 export interface EmployeeOffboardingDocumentTemplateCreateData {
@@ -13,6 +15,10 @@ export interface EmployeeOffboardingDocumentTemplateCreateData {
   fileSizeBytes: number
   contentSha256: string
   uploadedByUserId: number | null
+  /** `current` tras pasar la revisión; `rejected` cuando no la pasó (USRH1789097550387). */
+  status: DocumentTemplateStatus
+  /** Dictamen estructural de la revisión; `null` solo lo escribió USRH1788553841100. */
+  validationResult: DocumentTemplateValidationResult | null
 }
 
 /** Página pedida del historial. */
@@ -80,7 +86,7 @@ export interface DocumentTemplatesRepository {
     trx: TransactionClientContract
   ): Promise<void>
 
-  /** Inserta la versión nueva como `current`, dentro de la transacción del lock. */
+  /** Inserta la versión con el estado y el dictamen que decidió el servicio, dentro de la transacción del lock. */
   createVersion(
     data: EmployeeOffboardingDocumentTemplateCreateData,
     trx: TransactionClientContract

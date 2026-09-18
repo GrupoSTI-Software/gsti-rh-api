@@ -1,54 +1,69 @@
 import { test } from '@japa/runner'
+import Role from '#models/role'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemPermission from '#models/system_permission'
-import SystemPermissionCatalogSyncService from '#services/system_permission_catalog_sync_service'
 
 /**
- * No-regresión de roles (USRH1785766406722, Task 4, regla 10): sincronizar el
- * catálogo real de Empleados no debe conceder ni retirar accesos en
- * `role_system_permissions`.
+ * No-regresión de roles (USRH1785766406722, Task 4, regla 10): los permisos del
+ * catálogo real de Empleados existen en BD porque los siembra
+ * `0062_system_module_seeder` (la suite corre sobre `migration:fresh --seed`), y
+ * sembrarlos no los concede a ningún rol.
+ *
+ * Con una excepción declarada, que es de otra siembra: el rol `admin` que cada
+ * empresa estrena al nacer (`0064_tenant_roles_seeder`) recibe el catálogo
+ * completo a propósito, porque es el administrador del cliente. Lo que este
+ * spec sigue protegiendo es que materializar un permiso NO se lo reparta a
+ * nadie más: ni a los roles que ya existían ni a los que un cliente creó.
  */
 
-test.group('EMPLOYEES_PERMISSION_CATALOG — sync real no concede roles (Task 4)', () => {
-  test('sync del catálogo real no aumenta role_system_permissions', async ({ assert }) => {
-    const before = await RoleSystemPermission.query().whereNull(
-      'role_system_permission_deleted_at'
-    )
-    const beforeCount = before.length
-    await new SystemPermissionCatalogSyncService().sync()
-    const after = await RoleSystemPermission.query().whereNull(
-      'role_system_permission_deleted_at'
-    )
-    assert.equal(after.length, beforeCount)
-  })
+/** Slug del rol que sí nace con el catálogo puesto (uno por empresa). */
+const TENANT_ADMIN_SLUG = 'admin'
 
-  test('sync materializa manage-employee-supplies y no lo concede a ningún rol', async ({
+async function findLiveEmployeesPermission(slug: string): Promise<SystemPermission | null> {
+  return SystemPermission.query()
+    .whereNull('system_permission_deleted_at')
+    .where('system_permission_slug', slug)
+    .whereHas('systemModule', (query) =>
+      query.whereNull('system_module_deleted_at').where('system_module_slug', 'employees')
+    )
+    .first()
+}
+
+/**
+ * Concesiones vivas EXCLUYENDO las del administrador que cada empresa estrena:
+ * esas son la siembra de roles, no la del catálogo.
+ */
+async function liveGrants(): Promise<RoleSystemPermission[]> {
+  const adminRoles = await Role.query()
+    .whereNull('role_deleted_at')
+    .where('role_slug', TENANT_ADMIN_SLUG)
+    .select('role_id')
+  const adminRoleIds = adminRoles.map((role) => role.roleId)
+
+  const query = RoleSystemPermission.query().whereNull('role_system_permission_deleted_at')
+
+  if (adminRoleIds.length > 0) {
+    query.whereNotIn('role_id', adminRoleIds)
+  }
+
+  return query
+}
+
+test.group('EMPLOYEES_PERMISSION_CATALOG — la siembra no concede roles (Task 4)', () => {
+  test('el seed materializa manage-employee-supplies y no lo concede a ningún rol', async ({
     assert,
   }) => {
-    const beforeGrants = await RoleSystemPermission.query().whereNull(
-      'role_system_permission_deleted_at'
-    )
-    const result = await new SystemPermissionCatalogSyncService().sync()
-    const permission = await SystemPermission.query()
-      .whereNull('system_permission_deleted_at')
-      .where('system_permission_slug', 'manage-employee-supplies')
-      .whereHas('systemModule', (query) =>
-        query.whereNull('system_module_deleted_at').where('system_module_slug', 'employees')
-      )
-      .first()
+    const permission = await findLiveEmployeesPermission('manage-employee-supplies')
     assert.exists(permission)
-    const afterGrants = await RoleSystemPermission.query().whereNull(
-      'role_system_permission_deleted_at'
-    )
-    assert.equal(afterGrants.length, beforeGrants.length)
-    const granted = afterGrants.filter(
+
+    const grants = await liveGrants()
+    const granted = grants.filter(
       (row) => row.systemPermissionId === permission!.systemPermissionId
     )
     assert.equal(granted.length, 0)
-    void result
   })
 
-  test('sync materializa los 15 slugs nuevos y no los concede a ningún rol', async ({
+  test('el seed materializa los 15 slugs nuevos y no los concede a ningún rol', async ({
     assert,
   }) => {
     const slugs = [
@@ -68,25 +83,12 @@ test.group('EMPLOYEES_PERMISSION_CATALOG — sync real no concede roles (Task 4)
       'download-employee-contract',
       'import-vacations',
     ]
-    const beforeGrants = await RoleSystemPermission.query().whereNull(
-      'role_system_permission_deleted_at'
-    )
-    await new SystemPermissionCatalogSyncService().sync()
-    const afterGrants = await RoleSystemPermission.query().whereNull(
-      'role_system_permission_deleted_at'
-    )
-    assert.equal(afterGrants.length, beforeGrants.length)
+    const grants = await liveGrants()
 
     for (const slug of slugs) {
-      const permission = await SystemPermission.query()
-        .whereNull('system_permission_deleted_at')
-        .where('system_permission_slug', slug)
-        .whereHas('systemModule', (query) =>
-          query.whereNull('system_module_deleted_at').where('system_module_slug', 'employees')
-        )
-        .first()
+      const permission = await findLiveEmployeesPermission(slug)
       assert.exists(permission, slug)
-      const granted = afterGrants.filter(
+      const granted = grants.filter(
         (row) => row.systemPermissionId === permission!.systemPermissionId
       )
       assert.equal(granted.length, 0, slug)

@@ -25,6 +25,7 @@ import {
   resolveEmployeeRoleScope,
   type EmployeeRoleScope,
 } from '#helpers/resolve_employee_role_scope'
+import { applyVisibleDepartmentsScope } from '#helpers/apply_visible_departments_scope'
 import { resolveMailLocale } from '#constants/mail_locale'
 import { MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME, MAIL_TIME_ZONE } from '#constants/mail_branding'
 import {
@@ -492,7 +493,10 @@ export default class NoticeService {
   /**
    * Mismo recorte que `EmployeeService.index`: sin acceso completo a la
    * plantilla, solo los colaboradores a cargo del usuario y él mismo; con
-   * acceso completo, los departamentos visibles para el rol.
+   * acceso completo, los departamentos visibles para el rol **y los
+   * empleados sin departamento** (USRH1788466831247). El `business_unit_id`
+   * explícito de la query sigue acotando por fuera: también cuando el
+   * programado sale con el tenant en bypass.
    */
   private applyRoleScope(
     query: ModelQueryBuilderContract<typeof Employee>,
@@ -515,7 +519,7 @@ export default class NoticeService {
       })
       return
     }
-    query.whereIn('department_id', roleScope.departmentsList)
+    applyVisibleDepartmentsScope(query, roleScope.departmentsList)
   }
 
   /**

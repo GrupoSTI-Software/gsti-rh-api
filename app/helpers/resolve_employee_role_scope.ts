@@ -8,7 +8,11 @@ import UserService from '#services/user_service'
  * aplica el listado de empleados (`EmployeeController.index`).
  */
 export interface EmployeeRoleScope {
-  /** Departamentos visibles para el rol. `root` y `full-employee-assigned` ven todos. */
+  /**
+   * Departamentos activos visibles para el rol. `root` y `full-employee-assigned`
+   * ven todos; para ellos las listas y los avisos agregan además a los empleados
+   * sin departamento con `applyVisibleDepartmentsScope` (USRH1788466831247).
+   */
   departmentsList: number[]
   /**
    * Con valor, el usuario NO tiene acceso completo a la plantilla: solo ve a

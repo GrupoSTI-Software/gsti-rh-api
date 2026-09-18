@@ -4,6 +4,7 @@ import { test } from '@japa/runner'
 import db from '@adonisjs/lucid/services/db'
 import BusinessUnit from '#models/business_unit'
 import SystemSetting from '#models/system_setting'
+import Tolerance from '#models/tolerance'
 import SystemSettingService from '#services/system_setting_service'
 import { SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT } from '#constants/system_setting_defaults'
 
@@ -19,6 +20,30 @@ import { SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT } from '#constants/sys
  * su propia transacción real, como en producción); identificadores únicos por
  * timestamp; cleanup explícito en `group.teardown`.
  */
+
+
+/**
+ * Borra la configuración de una empresa y lo que cuelga de ella.
+ *
+ * Las tolerancias salen primero: desde que el alta las siembra, la FK impide
+ * borrar la ficha mientras tenga tolerancias vivas.
+ */
+async function cleanupTenantSettings(businessUnitId: number): Promise<void> {
+  const settings = await SystemSetting.query()
+    .withTrashed()
+    .where('business_unit_id', businessUnitId)
+
+  if (settings.length > 0) {
+    await Tolerance.query()
+      .whereIn(
+        'system_setting_id',
+        settings.map((setting) => setting.systemSettingId)
+      )
+      .delete()
+  }
+
+  await SystemSetting.query().withTrashed().where('business_unit_id', businessUnitId).delete()
+}
 
 test.group('SystemSettingService.createForTenant', (group) => {
   let businessUnit: BusinessUnit | null = null
@@ -36,7 +61,7 @@ test.group('SystemSettingService.createForTenant', (group) => {
 
   group.teardown(async () => {
     if (businessUnit) {
-      await SystemSetting.query().withTrashed().where('business_unit_id', businessUnit.businessUnitId).delete()
+      await cleanupTenantSettings(businessUnit.businessUnitId)
       await BusinessUnit.query().where('business_unit_id', businessUnit.businessUnitId).delete()
     }
   })
@@ -61,7 +86,6 @@ test.group('SystemSettingService.createForTenant', (group) => {
     })
 
     assert.equal(created.businessUnitId, businessUnit.businessUnitId)
-    assert.equal(created.systemSettingBusinessUnits, businessUnit.businessUnitSlug)
 
     // Identidad propia de la empresa, no la del registro base (GrupoSTI)
     assert.equal(created.systemSettingTradeName, businessUnit.businessUnitName)
@@ -147,12 +171,6 @@ test.group('SystemSettingService.createForTenant', (group) => {
     isolatedUnit.businessUnitActive = 1
     await isolatedUnit.save()
 
-    const base = await SystemSetting.query().withTrashed().where('system_setting_id', 1).first()
-    const wasDeleted = !base || !!base.deletedAt
-    if (base && !base.deletedAt) {
-      await base.delete()
-    }
-
     try {
       const created = await db.transaction(async (trx) => {
         return service.createForTenant(
@@ -168,20 +186,7 @@ test.group('SystemSettingService.createForTenant', (group) => {
       assert.equal(created.businessUnitId, isolatedUnit.businessUnitId)
       assert.equal(created.systemSettingTradeName, isolatedUnit.businessUnitName)
     } finally {
-      // Restaura el base solo si este test lo soft-deleteó (no altera un base ya borrado en el entorno).
-      if (!wasDeleted) {
-        const current = await SystemSetting.query()
-          .withTrashed()
-          .where('system_setting_id', 1)
-          .firstOrFail()
-        if (current.deletedAt) {
-          await current.restore()
-        }
-      }
-      await SystemSetting.query()
-        .withTrashed()
-        .where('business_unit_id', isolatedUnit.businessUnitId)
-        .delete()
+      await cleanupTenantSettings(isolatedUnit.businessUnitId)
       await BusinessUnit.query().where('business_unit_id', isolatedUnit.businessUnitId).delete()
     }
   })
@@ -268,10 +273,7 @@ test.group('SystemSettingService.createForTenant — callers internos (CA-7)', (
       assert.equal(created.businessUnitId, businessUnit.businessUnitId)
       assert.equal(created.systemSettingTradeName, businessUnit.businessUnitName)
     } finally {
-      await SystemSetting.query()
-        .withTrashed()
-        .where('business_unit_id', businessUnit.businessUnitId)
-        .delete()
+      await cleanupTenantSettings(businessUnit.businessUnitId)
       await BusinessUnit.query().where('business_unit_id', businessUnit.businessUnitId).delete()
     }
   })
@@ -301,12 +303,8 @@ test.group('SystemSettingService.createForTenant — callers internos (CA-7)', (
       })
 
       assert.equal(created.businessUnitId, businessUnit.businessUnitId)
-      assert.equal(created.systemSettingBusinessUnits, businessUnit.businessUnitSlug)
     } finally {
-      await SystemSetting.query()
-        .withTrashed()
-        .where('business_unit_id', businessUnit.businessUnitId)
-        .delete()
+      await cleanupTenantSettings(businessUnit.businessUnitId)
       await BusinessUnit.query().where('business_unit_id', businessUnit.businessUnitId).delete()
     }
   })

@@ -14,17 +14,35 @@ export const createDeviceModelValidator = vine.compile(
     name: vine.string().trim().minLength(1).maxLength(191),
     slug: vine.string().trim().regex(/^[a-z0-9]+(-[a-z0-9]+)*$/).maxLength(100).optional(),
     status: vine.enum(deviceStatusEnum).optional(),
+    /**
+     * Capacidad de la ficha tecnica. Opcional y nullable a proposito: no
+     * capturarla es un estado valido --y entonces no se muestra ningun
+     * maximo-- y ponerla en null es como se borra un dato mal tecleado.
+     */
+    maxUserCount: vine.number().positive().withoutDecimals().nullable().optional(),
+    maxFingerCount: vine.number().positive().withoutDecimals().nullable().optional(),
+    maxFaceCount: vine.number().positive().withoutDecimals().nullable().optional(),
+    maxAttLogCount: vine.number().positive().withoutDecimals().nullable().optional(),
   })
 )
 
 /**
  * Body para `PATCH /api/platform/device-models/:deviceModelId`.
- * Solo brand y name son actualizables. El slug es inmutable (regla de negocio).
+ * Brand, name y la capacidad son actualizables. El slug es inmutable (regla de negocio).
  */
 export const updateDeviceModelValidator = vine.compile(
   vine.object({
     brand: vine.string().trim().minLength(1).maxLength(100).optional(),
     name: vine.string().trim().minLength(1).maxLength(191).optional(),
+    /**
+     * Capacidad de la ficha tecnica. Opcional y nullable a proposito: no
+     * capturarla es un estado valido --y entonces no se muestra ningun
+     * maximo-- y ponerla en null es como se borra un dato mal tecleado.
+     */
+    maxUserCount: vine.number().positive().withoutDecimals().nullable().optional(),
+    maxFingerCount: vine.number().positive().withoutDecimals().nullable().optional(),
+    maxFaceCount: vine.number().positive().withoutDecimals().nullable().optional(),
+    maxAttLogCount: vine.number().positive().withoutDecimals().nullable().optional(),
   })
 )
 

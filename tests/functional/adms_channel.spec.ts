@@ -1,5 +1,4 @@
 import { test } from '@japa/runner'
-import env from '#start/env'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import AdmsRawMessage from '#models/adms_raw_message'
@@ -9,37 +8,35 @@ import AccessPointProfile from '#models/access_point_profile'
 import AccessPointStamp from '#models/access_point_stamp'
 import BusinessUnit from '#models/business_unit'
 import { TenantContext } from '#utils/tenant_context'
+import { admsChannelGet, admsChannelPost } from '#tests/helpers/adms_channel_request'
 
 /**
  * Canal ADMS, rebanada 1 (spec v2, 4.1 a 4.6). BD real; fixture propio con serie
  * `TEST-ADMS-<stamp>` en la primera empresa activa; limpieza acotada por serie e
- * ids en `group.teardown`. Se usa `fetch` porque el cliente de Japa no manda
- * cuerpos de texto crudo con TAB.
+ * ids en `group.teardown`. Las peticiones van por el helper del canal y no por
+ * el cliente de Japa, que no manda cuerpos de texto crudo con TAB.
  *
  * Rate-limit: el store del limiter es `memory` y persiste en el proceso; este
  * archivo hace menos de 300 peticiones por serie y menos de 1200 por IP.
  */
-const BASE = `http://${env.get('HOST')}:${env.get('PORT')}`
 const STAMP = `${Date.now()}`
 const SERIAL = `TEST-ADMS-${STAMP}`
 const UNKNOWN_SERIAL = `TEST-ADMSQ-${STAMP}`
 const INVALID_SERIAL = 'BAD SN'
 
-async function post(path: string, body: string, contentType = 'text/plain'): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': contentType },
-    body,
-  })
-}
-
-async function get(path: string): Promise<Response> {
-  return fetch(`${BASE}${path}`, { method: 'GET' })
-}
-
 test.group('ADMS channel (rebanada 1)', (group) => {
   let accessPoint: AccessPoint
   let businessUnitId: number
+
+  /**
+   * Toda peticion viaja por la direccion propia del equipo de la fixture: es
+   * lo que el canal exige cuando hay dominio comun configurado.
+   */
+  const post = (path: string, body: string, contentType = 'text/plain'): Promise<Response> =>
+    admsChannelPost(path, body, accessPoint.accessPointChannelSecret, contentType)
+
+  const get = (path: string): Promise<Response> =>
+    admsChannelGet(path, accessPoint.accessPointChannelSecret)
 
   group.setup(async () => {
     const unit = await TenantContext.runUnscoped(

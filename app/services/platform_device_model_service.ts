@@ -16,18 +16,35 @@ export interface DeviceModelRecord {
   photoUrl: string
   status: PlatformDeviceModelStatus
   active: boolean
+  /**
+   * Capacidad de la ficha tecnica, tecleada por GSTI. `null` en cada campo
+   * significa que nadie la capturo: entonces manda lo que declare el equipo, y
+   * si tampoco lo declara no se muestra ningun maximo.
+   */
+  maxUserCount: number | null
+  maxFingerCount: number | null
+  maxFaceCount: number | null
+  maxAttLogCount: number | null
   createdAt: string
   updatedAt: string | null
 }
 
-interface CreateDeviceModelInput {
+/** Capacidad de la ficha tecnica. `null` la borra; ausente la deja como estaba. */
+interface DeviceModelCapacityInput {
+  maxUserCount?: number | null
+  maxFingerCount?: number | null
+  maxFaceCount?: number | null
+  maxAttLogCount?: number | null
+}
+
+interface CreateDeviceModelInput extends DeviceModelCapacityInput {
   brand: string
   name: string
   slug?: string
   status?: PlatformDeviceModelStatus
 }
 
-interface UpdateDeviceModelInput {
+interface UpdateDeviceModelInput extends DeviceModelCapacityInput {
   brand?: string
   name?: string
 }
@@ -93,6 +110,10 @@ export default class PlatformDeviceModelService {
       photoUrl: this.resolvePhotoUrl(model.platformDeviceModelSlug),
       status: model.platformDeviceModelStatus,
       active: model.platformDeviceModelActive === 1,
+      maxUserCount: model.platformDeviceModelMaxUserCount,
+      maxFingerCount: model.platformDeviceModelMaxFingerCount,
+      maxFaceCount: model.platformDeviceModelMaxFaceCount,
+      maxAttLogCount: model.platformDeviceModelMaxAttLogCount,
       createdAt: model.platformDeviceModelCreatedAt.toISO()!,
       updatedAt: model.platformDeviceModelUpdatedAt?.toISO() ?? null,
     }
@@ -171,16 +192,20 @@ export default class PlatformDeviceModelService {
       platformDeviceModelSlug: slug,
       platformDeviceModelStatus: input.status ?? 'en_validacion',
       platformDeviceModelActive: 1,
+      platformDeviceModelMaxUserCount: input.maxUserCount ?? null,
+      platformDeviceModelMaxFingerCount: input.maxFingerCount ?? null,
+      platformDeviceModelMaxFaceCount: input.maxFaceCount ?? null,
+      platformDeviceModelMaxAttLogCount: input.maxAttLogCount ?? null,
     })
 
     return this.serialize(model)
   }
 
   /**
-   * Actualiza brand y/o name de un modelo existente. El slug es inmutable.
+   * Actualiza brand, name y/o la capacidad de un modelo existente. El slug es inmutable.
    *
    * @param deviceModelId - Identificador del modelo a actualizar.
-   * @param input - Campos a modificar (brand, name).
+   * @param input - Campos a modificar (brand, name, capacidad de la ficha tecnica).
    * @returns El modelo actualizado serializado.
    * @throws PlatformDeviceServiceError 404 si no existe.
    */
@@ -202,6 +227,25 @@ export default class PlatformDeviceModelService {
 
     if (input.brand !== undefined) model.platformDeviceModelBrand = input.brand
     if (input.name !== undefined) model.platformDeviceModelName = input.name
+
+    /**
+     * `undefined` es "no lo mandaron" y `null` es "borralo": un maximo mal
+     * tecleado tiene que poder quitarse, y sin distinguir los dos casos la
+     * unica salida seria dejarlo mintiendo para siempre.
+     */
+    if (input.maxUserCount !== undefined) {
+      model.platformDeviceModelMaxUserCount = input.maxUserCount
+    }
+    if (input.maxFingerCount !== undefined) {
+      model.platformDeviceModelMaxFingerCount = input.maxFingerCount
+    }
+    if (input.maxFaceCount !== undefined) {
+      model.platformDeviceModelMaxFaceCount = input.maxFaceCount
+    }
+    if (input.maxAttLogCount !== undefined) {
+      model.platformDeviceModelMaxAttLogCount = input.maxAttLogCount
+    }
+
     await model.save()
 
     return this.serialize(model)

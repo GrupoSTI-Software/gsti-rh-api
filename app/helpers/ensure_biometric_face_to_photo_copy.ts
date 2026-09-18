@@ -17,8 +17,9 @@ import PermissionGateService from '#services/permission_gate_service'
  *
  * Resuelve con `evaluateEnforced` y NO con `evaluate` por el mismo motivo que
  * `ensureEmployeeBiometricRead`: el interruptor de exigencia del modulo
- * `employees` esta apagado, asi que `evaluate` devolveria `module-not-enforced`
- * y concederia la copia a cualquier sesion autenticada de la unidad.
+ * `employees` hoy esta encendido, pero apagarlo en BD haria que `evaluate`
+ * devolviera `module-not-enforced` y concediera la copia a cualquier sesion
+ * autenticada de la unidad.
  *
  * Tampoco exime al dueño del registro. Esta es una accion de administracion del
  * Backoffice, no una lectura que el colaborador necesite de si mismo: dejar que

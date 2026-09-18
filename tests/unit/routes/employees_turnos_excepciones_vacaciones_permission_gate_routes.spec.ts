@@ -128,7 +128,12 @@ test.group('exception_request_routes — PermissionGate + D-08', () => {
     const matches =
       compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
       []
-    assert.equal(matches.length, 3)
+    // Cinco escrituras con gate: editar, borrar, resolver, resolver en lote y
+    // adjuntar comprobante. Las tres ultimas comparten
+    // `updateExceptionRequestStatus` porque son la misma facultad —resolver— y
+    // el comprobante es parte de esa resolucion. El conteo es el guardarrail: si
+    // aparece un gate de escritura nuevo, esta cuenta obliga a justificarlo.
+    assert.equal(matches.length, 5)
     // D-08: el store no lleva permissionGate en la misma declaración de ruta.
     assert.notMatch(
       compact(content),

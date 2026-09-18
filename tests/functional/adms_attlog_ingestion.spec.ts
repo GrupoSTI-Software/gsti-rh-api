@@ -1,6 +1,5 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import env from '#start/env'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
@@ -14,6 +13,7 @@ import AssistCalendarRecalcJob from '#models/assist_calendar_recalc_job'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import { TenantContext } from '#utils/tenant_context'
+import { admsChannelPost } from '#tests/helpers/adms_channel_request'
 
 /**
  * Rebanada 3 de extremo a extremo: una subida ATTLOG del checador se convierte
@@ -23,7 +23,6 @@ import { TenantContext } from '#utils/tenant_context'
  * BD real; fixture propio `TEST-ADMS-I-<stamp>`; se usa un empleado vivo ya
  * existente y su codigo como PIN. Limpieza acotada por serie e ids.
  */
-const BASE = `http://${env.get('HOST')}:${env.get('PORT')}`
 const STAMP = `${Date.now()}`
 const SERIAL = `TEST-ADMS-I-${STAMP}`
 const UNKNOWN_PIN = '8999123'
@@ -44,20 +43,20 @@ function localTimeFor(offsetSeconds: number, zone: string): string {
   return RUN_BASE.plus({ seconds: offsetSeconds }).setZone(zone).toFormat('yyyy-MM-dd HH:mm:ss')
 }
 
-async function postAttlog(body: string): Promise<Response> {
-  return fetch(`${BASE}/iclock/cdata?SN=${SERIAL}&table=ATTLOG&Stamp=9999`, {
-    method: 'POST',
-    headers: { 'content-type': 'text/plain' },
-    body,
-  })
-}
-
 test.group('ADMS ingesta de checadas (rebanada 3)', (group) => {
   let accessPoint: AccessPoint
   let employee: Employee
   let businessUnitId: number
   let zone: string
   const createdAssistIds: number[] = []
+
+  /** La subida viaja por la direccion propia del equipo, como la manda el aparato. */
+  const postAttlog = (body: string): Promise<Response> =>
+    admsChannelPost(
+      `/iclock/cdata?SN=${SERIAL}&table=ATTLOG&Stamp=9999`,
+      body,
+      accessPoint.accessPointChannelSecret
+    )
 
   group.setup(async () => {
     await TenantContext.runUnscoped(async () => {

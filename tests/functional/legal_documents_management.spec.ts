@@ -2,6 +2,7 @@ import { test } from '@japa/runner'
 import User from '#models/user'
 import Person from '#models/person'
 import LegalDocument from '#models/legal_document'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — gestión y publicación de versiones de documentos legales
@@ -27,15 +28,15 @@ import LegalDocument from '#models/legal_document'
  */
 
 const TEST_PASSWORD = 'LegalDocsTest123!'
-const ROOT_ROLE_ID = 3
-const NON_ROOT_ROLE_ID = 2 // rh-manager: no tiene el permiso 'legal-documents' (solo-root)
+const ROOT_ROLE = 'root'
+const NON_ROOT_ROLE = 'rh-manager' // no tiene el permiso 'legal-documents' (solo-root)
 
 interface TestActor {
   user: User
   person: Person
 }
 
-async function createTestActor(roleId: number, emailPrefix: string): Promise<TestActor> {
+async function createTestActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TestActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
 
@@ -50,7 +51,8 @@ async function createTestActor(roleId: number, emailPrefix: string): Promise<Tes
   user.userEmail = email
   user.userPassword = TEST_PASSWORD
   user.userActive = 1
-  user.roleId = roleId
+  const role = await ensureRole(roleSlug)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -101,7 +103,7 @@ test.group('Legal Documents Management - solo root (403 en todos los verbos)', (
   let nonRoot: TestActor | null = null
 
   group.setup(async () => {
-    nonRoot = await createTestActor(NON_ROOT_ROLE_ID, 'no-root')
+    nonRoot = await createTestActor(NON_ROOT_ROLE, 'no-root')
   })
 
   group.teardown(async () => {
@@ -171,7 +173,7 @@ test.group('Legal Documents Management - flujo de gestión (root)', (group) => {
   const createdIds: number[] = []
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root')
+    root = await createTestActor(ROOT_ROLE, 'root')
 
     const previousCurrent = await LegalDocument.query()
       .where('legal_document_type', 'biometric_consent')

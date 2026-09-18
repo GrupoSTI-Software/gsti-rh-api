@@ -1,26 +1,15 @@
 import { test } from '@japa/runner'
 import type { HttpContext } from '@adonisjs/core/http'
 import { assertComplianceRepsePermission } from '#helpers/compliance_repse_rbac'
-import RoleSeeder from '#database/seeders/0006_role_seeder'
 import Role from '#models/role'
 import Person from '#models/person'
 import User from '#models/user'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Tests unitarios — assertComplianceRepsePermission, bypass de `owner`
  * (USRH1783712837561, regresión de acceso: owner ≥ super-administrador actual).
  */
-
-async function ensureRole(slug: string): Promise<Role> {
-  if (slug === 'owner') {
-    await new RoleSeeder({} as never).run()
-  }
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', slug).first()
-  if (!role) {
-    throw new Error(`El rol "${slug}" es requerido para este test. Ejecuta los seeders primero.`)
-  }
-  return role
-}
 
 async function createUserWithRole(role: Role): Promise<{ user: User; person: Person }> {
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
