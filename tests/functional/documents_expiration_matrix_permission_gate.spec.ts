@@ -51,7 +51,6 @@ const createSetting = (actor: TenantActor) =>
     systemSettingTradeName: uniqueTestName('Matriz gate'),
     systemSettingSidebarColor: '#111111',
     systemSettingActive: 1,
-    systemSettingBusinessUnits: actor.businessUnit.businessUnitSlug,
     systemSettingMonthlyConversionFactor: 30.4,
   })
 

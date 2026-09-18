@@ -10,6 +10,7 @@ import SystemPermission from '#models/system_permission'
 import User from '#models/user'
 import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
 
 /**
  * Actores explícitos para specs de `permissionGate` sobre una BD limpia.
@@ -86,9 +87,24 @@ async function createUserInBusinessUnit(
     personId: person.personId,
     userEmailType: 'institutional',
   })
-  await user.related('businessUnits').attach([businessUnitId])
+  // Con rol efectivo escrito en la pivote: es lo que resuelve el middleware de
+  // scope en producción, así que el actor del spec debe nacer igual.
+  await attachBusinessUnitsWithRole(user, [businessUnitId], role.roleId)
 
   return { user, person }
+}
+
+/** Empresa propia del actor, base de todo lo demás: el rol cuelga de ella. */
+async function createActorBusinessUnit(prefix: string): Promise<BusinessUnit> {
+  const stamp = uniqueStamp()
+
+  return BusinessUnit.create({
+    businessUnitName: `Gate ${prefix} ${stamp}`,
+    businessUnitSlug: `gate-${prefix}-${stamp}`,
+    businessUnitLegalName: `Gate ${prefix} legal ${stamp}`,
+    businessUnitActive: 1,
+    businessUnitOrigin: 'platform',
+  })
 }
 
 async function createActorWithRole(
@@ -96,14 +112,7 @@ async function createActorWithRole(
   role: Role,
   ownsRole: boolean
 ): Promise<TenantActor> {
-  const stamp = uniqueStamp()
-  const businessUnit = await BusinessUnit.create({
-    businessUnitName: `Gate ${prefix} ${stamp}`,
-    businessUnitSlug: `gate-${prefix}-${stamp}`,
-    businessUnitLegalName: `Gate ${prefix} legal ${stamp}`,
-    businessUnitActive: 1,
-    businessUnitOrigin: 'platform',
-  })
+  const businessUnit = await createActorBusinessUnit(prefix)
   const { user, person } = await createUserInBusinessUnit(prefix, role, businessUnit.businessUnitId)
 
   return { user, person, businessUnit, role, ownsRole }
@@ -139,19 +148,28 @@ export async function cleanupUnitUser(unitUser: UnitUser | null): Promise<void> 
   await Person.query().where('person_id', unitUser.person.personId).delete()
 }
 
-/** Usuario con unidad propia y un rol sin salvoconducto ni concesiones. */
+/**
+ * Usuario con unidad propia y un rol sin salvoconducto ni concesiones.
+ *
+ * La empresa se crea ANTES que el rol, y no al revés: desde que un rol
+ * pertenece a una empresa (`roles.business_unit_id`), un rol sin dueño no lo
+ * alcanza nadie —ni siquiera quien lo trae puesto—, así que un actor con rol
+ * huérfano vería listados vacíos y 404 en todo.
+ */
 export async function createTenantActor(prefix: string): Promise<TenantActor> {
   const stamp = uniqueStamp()
+  const businessUnit = await createActorBusinessUnit(prefix)
   const role = await Role.create({
     roleName: `Gate ${prefix} ${stamp}`,
     roleSlug: `gate-${prefix}-${stamp}`,
     roleDescription: 'Rol temporal de spec: solo tiene las concesiones que siembra cada caso',
     roleActive: 1,
-    roleBusinessAccess: 'gsti-rh',
     roleManagementDays: 10,
+    businessUnitId: businessUnit.businessUnitId,
   })
+  const { user, person } = await createUserInBusinessUnit(prefix, role, businessUnit.businessUnitId)
 
-  return createActorWithRole(prefix, role, true)
+  return { user, person, businessUnit, role, ownsRole: true }
 }
 
 /** Usuario con unidad propia y un rol global que el gate reconoce por slug. */
@@ -165,10 +183,24 @@ export async function cleanupTenantActor(actor: TenantActor | null): Promise<voi
   await BusinessUnitUser.query().where('user_id', actor.user.userId).delete()
   await User.query().where('user_id', actor.user.userId).delete()
   await Person.query().where('person_id', actor.person.personId).delete()
-  if (actor.ownsRole) {
-    await RoleSystemPermission.query().where('role_id', actor.role.roleId).delete()
-    await Role.query().where('role_id', actor.role.roleId).delete()
+  // Todos los roles de la empresa salen antes que ella, no solo el del actor:
+  // desde que un rol cuelga de una empresa, la FK `roles_business_unit_id_foreign`
+  // (RESTRICT) impide borrarla mientras quede uno, y los casos crean roles
+  // propios de la empresa además del suyo.
+  const tenantRoles = await Role.query()
+    .withTrashed()
+    .where('business_unit_id', actor.businessUnit.businessUnitId)
+  const tenantRoleIds = tenantRoles.map((role) => role.roleId)
+
+  if (actor.ownsRole && !tenantRoleIds.includes(actor.role.roleId)) {
+    tenantRoleIds.push(actor.role.roleId)
   }
+
+  if (tenantRoleIds.length > 0) {
+    await RoleSystemPermission.query().whereIn('role_id', tenantRoleIds).delete()
+    await Role.query().withTrashed().whereIn('role_id', tenantRoleIds).delete()
+  }
+
   await BusinessUnit.query().where('business_unit_id', actor.businessUnit.businessUnitId).delete()
 }
 

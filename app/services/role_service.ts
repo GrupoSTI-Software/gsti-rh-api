@@ -1,6 +1,5 @@
-import BusinessUnit from '#models/business_unit'
 import Department from '#models/department'
-import { isSystemRoleSlug } from '#constants/system_roles'
+import { PLATFORM_ROLE_SLUG } from '#constants/system_roles'
 import {
   applyRoleBusinessScope,
   buildRoleBusinessScope,
@@ -61,7 +60,6 @@ export default class RoleService {
     newRole.roleSlug = role.roleSlug
     newRole.businessUnitId = role.businessUnitId ?? null
     newRole.roleActive = role.roleActive
-    newRole.roleBusinessAccess = role.roleBusinessAccess
     if (trx) newRole.useTransaction(trx)
     await newRole.save()
     return newRole
@@ -402,17 +400,16 @@ export default class RoleService {
 
     const rolesWithSameName = await query
 
-    const inputAccess = role.roleBusinessAccess
-      ? role.roleBusinessAccess.split(',').map((e) => e.trim())
-      : []
-
-    const hasConflict = rolesWithSameName.some((existingRole) => {
-      const existingAccess = existingRole.roleBusinessAccess
-        ? existingRole.roleBusinessAccess.split(',').map((e) => e.trim())
-        : []
-
-      return inputAccess.some((company) => existingAccess.includes(company))
-    })
+    // Dos roles pueden llamarse igual en empresas distintas; dentro de la misma,
+    // no. La empresa dueña es la llave: antes esto se decidía cruzando dos CSV
+    // de slugs, que era la forma de preguntar lo mismo cuando el rol no tenía
+    // dueño.
+    const hasConflict = rolesWithSameName.some(
+      (existingRole) =>
+        role.businessUnitId !== null &&
+        role.businessUnitId !== undefined &&
+        existingRole.businessUnitId === role.businessUnitId
+    )
 
     if (hasConflict && role.roleName) {
       return {
@@ -441,57 +438,55 @@ export default class RoleService {
   }
 
   /**
-   * Busca un rol por su slug
+   * Busca un rol por su slug, con la empresa por delante.
+   *
+   * El orden importa:
+   *
+   *  1. Rol PROPIO de alguna de las empresas del alcance
+   *     (`business_unit_id`). Es el criterio definitivo desde que cada empresa
+   *     estrena su juego de roles al nacer
+   *     (`TenantRoleProvisioningService`), y por eso va primero: con un `owner`
+   *     por cliente, resolver el slug a secas devolvería el del cliente más
+   *     antiguo.
+   *  2. Rol global de plataforma, `business_unit_id IS NULL`: solo `root`.
+   *
    * @param roleSlug - Slug del rol a buscar
+   * @param allowedBusinessUnitIds - Empresas del alcance; vacío = sin empresa conocida
    * @returns Rol encontrado o null
    */
   async findRoleBySlug(
     roleSlug: string,
     allowedBusinessUnitIds: number[] = []
   ): Promise<Role | null> {
-    // Los roles de sistema resuelven directo, sin depender del CSV
-    // role_business_access: son asignables en todo tenant (USRH1785436961936).
-    // `orderBy` fija la fila sembrada (la más antigua) ante cualquier residuo
-    // histórico con slug duplicado.
-    if (isSystemRoleSlug(roleSlug)) {
-      return (
-        (await Role.query()
-          .where('role_slug', roleSlug)
-          .whereNull('role_deleted_at')
-          .orderBy('role_id', 'asc')
-          .first()) || null
-      )
-    }
-
-    let slugs: string[]
-    if (allowedBusinessUnitIds.length === 0) {
-      const allUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .select('business_unit_slug')
-      slugs = allUnits.map((bu) => bu.businessUnitSlug)
-    } else {
-      const units = await BusinessUnit.query()
+    if (allowedBusinessUnitIds.length > 0) {
+      const ownedRole = await Role.query()
+        .where('role_slug', roleSlug)
+        .whereNull('role_deleted_at')
         .whereIn('business_unit_id', allowedBusinessUnitIds)
-        .select('business_unit_slug')
-      slugs = units.map((bu) => bu.businessUnitSlug)
+        .orderBy('role_id', 'asc')
+        .first()
+
+      if (ownedRole) {
+        return ownedRole
+      }
     }
 
-    if (slugs.length === 0) return null
+    // Roles globales de la plataforma. `orderBy` fija la fila sembrada (la más
+    // antigua) ante cualquier residuo histórico con slug duplicado.
+    if (roleSlug === PLATFORM_ROLE_SLUG) {
+      const globalRole = await Role.query()
+        .where('role_slug', roleSlug)
+        .whereNull('role_deleted_at')
+        .whereNull('business_unit_id')
+        .orderBy('role_id', 'asc')
+        .first()
 
-    const role = await Role.query()
-      .where('role_slug', roleSlug)
-      .whereNull('role_deleted_at')
-      .andWhere((query) => {
-        query.whereNotNull('role_business_access')
-        query.andWhere((subQuery) => {
-          slugs.forEach((slug) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [slug.trim()])
-          })
-        })
-      })
-      .first()
+      if (globalRole) {
+        return globalRole
+      }
+    }
 
-    return role || null
+    return null
   }
 
   /**

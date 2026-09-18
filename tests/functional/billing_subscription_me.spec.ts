@@ -372,32 +372,40 @@ test.group('GET /api/billing/subscription/me — contrato de datos (CA-6)', (gro
   })
 })
 
-test.group(
-  'GET /api/billing/subscription/me — regresión muro (CA-5, USRH1786107870865)',
-  () => {
-    test('un usuario empleado recibe 200 sin gate de rol', async ({ client, assert }) => {
-      const actor = await createTenantActor({
-        emailPrefix: 'sub-me-employee',
-        origin: 'self_service',
-        roleSlug: 'empleado',
-      })
-
-      try {
-        const response = await client
-          .get('/api/billing/subscription/me')
-          .loginAs(actor.user)
-          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
-
-        response.assertStatus(200)
-        assert.equal(response.body().data.businessUnitOrigin, 'self_service')
-        assert.isNull(response.body().data.subscription)
-        assert.equal(response.body().data.minimumContractedEmployees, 10)
-      } finally {
-        await cleanupTenantActor(actor)
-      }
+test.group('GET /api/billing/subscription/me — el dinero es del dueño', () => {
+  /**
+   * Antes este caso afirmaba "recibe 200 sin gate de rol" y dejaba constancia de
+   * que la facturación del tenant estaba abierta a cualquier cuenta de la
+   * empresa. No se cierra con un 403 porque el backoffice consulta esta ruta en
+   * cada navegación de cualquier usuario (muro de contratación, fail-closed):
+   * negarla dejaría a administradores y colaboradores fuera del backoffice
+   * entero. Se recorta: presencia sí, dinero no.
+   */
+  test('un usuario empleado ve si hay contratación viva, pero no el dinero', async ({
+    client,
+    assert,
+  }) => {
+    const actor = await createTenantActor({
+      emailPrefix: 'sub-me-employee',
+      origin: 'self_service',
+      roleSlug: 'empleado',
     })
-  }
-)
+
+    try {
+      const response = await client
+        .get('/api/billing/subscription/me')
+        .loginAs(actor.user)
+        .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+      response.assertStatus(200)
+      assert.equal(response.body().data.businessUnitOrigin, 'self_service')
+      assert.isNull(response.body().data.subscription, 'sin contratación viva no hay nada que ver')
+      assert.equal(response.body().data.minimumContractedEmployees, 10)
+    } finally {
+      await cleanupTenantActor(actor)
+    }
+  })
+})
 
 test.group(
   'GET /api/billing/subscription/me — minimumContractedEmployees (USRH1785441822058)',
@@ -664,7 +672,7 @@ test.group(
       }
     })
 
-    test('un usuario empleado recibe liveChange en 200 sin gate de rol', async ({
+    test('un usuario empleado no alcanza el liveChange ni los importes', async ({
       client,
       assert,
     }) => {
@@ -712,9 +720,11 @@ test.group(
           .header('X-Business-Unit-Id', ownerActor.businessUnit.businessUnitPublicId)
 
         response.assertStatus(200)
-        assert.isObject(response.body().data.subscription.liveChange)
-        assert.equal(response.body().data.subscription.liveChange.type, 'increase')
-        assert.equal(response.body().data.subscription.liveChange.status, 'pending_payment')
+        assert.deepEqual(
+          response.body().data.subscription,
+          { hasLiveSubscription: true },
+          'sabe que la empresa está contratada y nada más: ni plan, ni importes, ni cambio en curso'
+        )
       } finally {
         await BusinessUnitUser.query().where('user_id', employeeUser.userId).delete()
         await User.query().where('user_id', employeeUser.userId).delete()

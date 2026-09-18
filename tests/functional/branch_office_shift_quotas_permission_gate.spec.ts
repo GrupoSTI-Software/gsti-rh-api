@@ -51,7 +51,6 @@ async function createShift(actor: TenantActor, prefix: string): Promise<Shift> {
     shiftActiveHours: 8,
     shiftRestDays: '0',
     shiftAccumulatedFault: 1,
-    shiftBusinessUnits: actor.businessUnit.businessUnitSlug,
     businessUnitId: actor.businessUnit.businessUnitId,
     shiftTemp: 0,
   })

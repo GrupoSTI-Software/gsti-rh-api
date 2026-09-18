@@ -40,3 +40,10 @@ router
   })
   .prefix('/api/system-settings-notification-emails')
   .use(middleware.auth())
+  /**
+   * Sin `businessScope()` no hay contexto de empresa y el servicio no puede
+   * acotar sus consultas: el `systemSettingId` llega del cliente. Antes de
+   * montarlo, el listado devolvía los correos de todas las empresas y el alta
+   * permitía suscribirse a las notificaciones de otro cliente.
+   */
+  .use(middleware.businessScope())

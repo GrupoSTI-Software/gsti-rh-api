@@ -24,7 +24,6 @@ const SYSTEM_SETTINGS_MODULE = 'system-settings'
 const TEST_PASSWORD = 'SystemSettingUpdate123!'
 const NON_EXISTENT_SYSTEM_SETTING_ID = 2_147_483_647
 const MOLD_SYSTEM_SETTING_ID = 1
-const MOLD_CSV = 'gsti-rh'
 
 interface TestActor {
   user: User
@@ -34,7 +33,6 @@ interface TestActor {
 interface SettingSnapshot {
   systemSettingTradeName: string
   systemSettingSidebarColor: string
-  systemSettingBusinessUnits: string
   systemSettingLogo: string | null
   systemSettingBanner: string | null
   systemSettingFavicon: string | null
@@ -59,7 +57,6 @@ function snapshotSetting(row: SystemSetting): SettingSnapshot {
   return {
     systemSettingTradeName: row.systemSettingTradeName,
     systemSettingSidebarColor: row.systemSettingSidebarColor,
-    systemSettingBusinessUnits: row.systemSettingBusinessUnits,
     systemSettingLogo: row.systemSettingLogo,
     systemSettingBanner: row.systemSettingBanner,
     systemSettingFavicon: row.systemSettingFavicon,
@@ -190,7 +187,6 @@ test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant
       systemSettingTradeName: `Trade A ${stamp}`,
       systemSettingSidebarColor: '#111111',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: businessUnitA.businessUnitSlug,
       systemSettingMonthlyConversionFactor: 30.4,
       systemSettingLogo: `https://cdn.example.test/system-settings/logo-a-${stamp}.png`,
       systemSettingBanner: `https://cdn.example.test/system-settings/banner-a-${stamp}.png`,
@@ -203,7 +199,6 @@ test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant
       systemSettingTradeName: `Trade B ${stamp}`,
       systemSettingSidebarColor: '#222222',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: businessUnitB.businessUnitSlug,
       systemSettingMonthlyConversionFactor: 30.4,
       systemSettingLogo: `https://cdn.example.test/system-settings/logo-b-${stamp}.png`,
       systemSettingBanner: `https://cdn.example.test/system-settings/banner-b-${stamp}.png`,
@@ -300,7 +295,7 @@ test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant
 
     assert.equal(reloaded.systemSettingTradeName, newTradeName)
     assert.equal(reloaded.systemSettingSidebarColor, newColor)
-    assert.equal(reloaded.systemSettingBusinessUnits, businessUnitA.businessUnitSlug)
+    assert.equal(reloaded.businessUnitId, businessUnitA.businessUnitId)
     assert.equal(reloaded.systemSettingToleranceCountPerAbsence, 5)
   })
 
@@ -369,7 +364,7 @@ test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant
       return
     }
 
-    const csvBefore = moldBefore.systemSettingBusinessUnits
+    const ownerBefore = moldBefore.businessUnitId
 
     const response = await applyUpdateFields(
       client,
@@ -385,8 +380,7 @@ test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant
       .where('system_setting_id', MOLD_SYSTEM_SETTING_ID)
       .firstOrFail()
 
-    assert.equal(moldAfter.systemSettingBusinessUnits, csvBefore)
-    assert.include(moldAfter.systemSettingBusinessUnits, MOLD_CSV)
+    assert.equal(moldAfter.businessUnitId, ownerBefore, 'la empresa dueña del molde no cambia')
   })
 
   test('sin system-settings:update el guardado propio responde PERM.DENIED y la ficha no cambia', async ({
@@ -456,7 +450,6 @@ test.group('PUT /api/system-settings/:systemSettingId — log de rechazos (CA-6)
       systemSettingTradeName: `Trade Log B ${stamp}`,
       systemSettingSidebarColor: '#333333',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: businessUnitB.businessUnitSlug,
       systemSettingMonthlyConversionFactor: 30.4,
     })
 

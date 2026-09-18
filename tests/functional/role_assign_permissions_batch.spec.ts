@@ -86,29 +86,27 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
     nonRootActor = await createTenantActor('role-assign-batch-admin')
     await grantModulePermissions(nonRootActor, 'roles-and-permissions', ['update'])
 
-    // Los dos actores del grupo son de empresas distintas y los dos tienen que
-    // alcanzar estos roles: `assign-batch` resuelve cada id dentro de la
-    // empresa activa. Se dejan como roles heredados (sin `business_unit_id`),
-    // que es el caso que sostiene la compatibilidad temporal con el CSV.
-    const sharedAccess = [
-      actor!.businessUnit.businessUnitSlug,
-      nonRootActor!.businessUnit.businessUnitSlug,
-    ].join(',')
+    // Los dos fixtures pertenecen a la empresa del actor root, que es quien los
+    // usa en los casos de éxito y de rollback. Antes no tenían dueño y los
+    // alcanzaban los dos actores a la vez gracias al CSV: eso era precisamente
+    // lo que permitía que un rol viviera en dos empresas, y ya no existe. El
+    // caso del actor no root trabaja sobre su propio rol.
+    const fixturesBusinessUnitId = actor!.businessUnit.businessUnitId
     roleA = await Role.create({
       roleName: `Test Assign Batch Role A ${stamp}`,
       roleSlug: `test-assign-batch-role-a-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: sharedAccess,
       roleManagementDays: 10,
+      businessUnitId: fixturesBusinessUnitId,
     })
     roleB = await Role.create({
       roleName: `Test Assign Batch Role B ${stamp}`,
       roleSlug: `test-assign-batch-role-b-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: sharedAccess,
       roleManagementDays: 10,
+      businessUnitId: fixturesBusinessUnitId,
     })
     // Rol de sistema legacy: 0006 ya no lo siembra; se asegura por slug y no se borra.
     ownerRole = await ensureRole('owner')
@@ -243,12 +241,25 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
     assert.lengthOf(grantsAfterB, grantsBeforeB.length)
   })
 
-  test('rol de sistema en el lote: 403, identifica el rol y no escribe nada', async ({
-    client,
-    assert,
-  }) => {
-    const seedA = await Role.query().where('role_id', roleA.roleId).firstOrFail()
-    const previousDays = seedA.roleManagementDays
+  /**
+   * Antes este caso metía en el lote el `owner` global y esperaba 403
+   * `rol-sistema-bloqueado-lote`. Ya no hay roles de tenant compartidos: un rol
+   * que no es de la empresa activa —sea de otra o sea de la plataforma— no
+   * existe para quien pide, y el lote se cae con 404 antes de escribir nada.
+   * Lo que se sigue garantizando es lo mismo: la atomicidad del conjunto.
+   */
+  test('un rol ajeno en el lote: 404 y no escribe nada', async ({ client, assert }) => {
+    // Un rol de su empresa distinto al de su sesión: sobre el propio hay otro
+    // bloqueo (escalamiento de privilegios) que respondería antes.
+    const ownTenantRole = await Role.create({
+      roleName: `Rol de la empresa del actor ${stamp}`,
+      roleSlug: `role-assign-batch-own-tenant-${stamp}`,
+      roleDescription: 'Fixture de test',
+      roleActive: 1,
+      roleManagementDays: 10,
+      businessUnitId: nonRootActor!.businessUnit.businessUnitId,
+    })
+    const previousDays = ownTenantRole.roleManagementDays
 
     const response = await client
       .post('/api/roles/assign-batch')
@@ -260,7 +271,7 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
       .json({
         roles: [
           {
-            roleId: roleA.roleId,
+            roleId: ownTenantRole.roleId,
             permissions: [permission.systemPermissionId],
             roleManagementDays: 55,
           },
@@ -272,12 +283,10 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
         ],
       })
 
-    response.assertStatus(403)
-    assert.equal(response.body().key, 'rol-sistema-bloqueado-lote')
-    assert.equal(response.body().data.roleSlug, 'owner')
+    response.assertStatus(404)
 
-    const reloadedA = await Role.query().where('role_id', roleA.roleId).firstOrFail()
-    assert.equal(reloadedA.roleManagementDays, previousDays)
+    const reloaded = await Role.query().where('role_id', ownTenantRole.roleId).firstOrFail()
+    assert.equal(reloaded.roleManagementDays, previousDays)
   })
 
   test('sin roles-and-permissions:update el gate niega antes de revisar el lote', async ({

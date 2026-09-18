@@ -37,7 +37,6 @@ test.group('RolePresetService.apply', (group) => {
       roleSlug: `test-role-preset-apply-${stamp}`,
       roleDescription: 'Fixture de prueba',
       roleActive: 1,
-      roleBusinessAccess: '',
       roleManagementDays: 17,
     })
     employeesReadPermission = await findEmployeesPermission('read')

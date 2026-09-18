@@ -3,6 +3,7 @@ import env from '#start/env'
 import User from '../../app/models/user.js'
 import BusinessUnit from '../../app/models/business_unit.js'
 import { resolveRoleIdsBySlug } from '../../app/helpers/system_catalog_seed_resolver.js'
+import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
 import { DateTime } from 'luxon'
 
 export default class extends BaseSeeder {
@@ -30,7 +31,12 @@ export default class extends BaseSeeder {
         userActive: 1,
         personId: 1,
         roleId: roleIdBySlug.get(this.roleSlug)!,
-        businessUnitIds: [1],
+        // Sin empresas: `root` es la cuenta de plataforma y alcanza todas las
+        // activas sin necesitar membresía
+        // (`BusinessAccessScopeService.getAccessibleIds`). Una base nueva no
+        // tiene ninguna —el primer tenant nace del registro self-service o del
+        // alta desde configuración—, así que no hay a qué ligarlo.
+        businessUnitIds: [] as number[],
         isPlatformAdmin: true,
         userPasswordSetAt: DateTime.now(),
         userEmailVerifiedAt: DateTime.now(),
@@ -62,9 +68,11 @@ export default class extends BaseSeeder {
       const alreadyAttachedIds = alreadyAttached.map((unit) => unit.businessUnitId)
       const toAttach = validIds.filter((id) => !alreadyAttachedIds.includes(id))
 
-      if (toAttach.length > 0) {
-        await user.related('businessUnits').attach(toAttach)
-      }
+      // Sin rol efectivo en la pivote a propósito: root es la cuenta de
+      // plataforma y no tiene rol DENTRO de ninguna empresa. `role_id` en NULL
+      // es lo que significa eso, y el runtime cae a `users.role_id`, que es
+      // `root`.
+      await attachBusinessUnitsWithRole(user, toAttach, null)
     }
   }
 }

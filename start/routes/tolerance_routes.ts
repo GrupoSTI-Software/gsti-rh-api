@@ -35,3 +35,9 @@ router
   })
   .prefix('/api/tolerances')
   .use(middleware.auth())
+  /**
+   * `businessScope()` es aquí la única defensa del dominio: las lecturas van sin
+   * gate de permisos a propósito, y sin contexto de empresa el servicio no puede
+   * acotar el `systemSettingId` que manda el cliente.
+   */
+  .use(middleware.businessScope())
