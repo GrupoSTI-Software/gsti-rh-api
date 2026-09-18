@@ -59,6 +59,8 @@ import {
   employeeImportQuotaNoPlanError,
 } from '../helpers/employee_quota_api_error.js'
 import { isSensitiveDataWriteError } from '#helpers/sensitive_data_write_api_error'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import { resolvePersonRelease, type PersonReleaseContext } from '#helpers/person_release_guard'
 import { findSensitiveCategoriesInExcelHeaders } from '#constants/employee_excel_sensitive_headers'
 import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
@@ -699,7 +701,12 @@ export default class EmployeeService {
     return missing
   }
 
-  async create(employee: Employee, usersResponsible: User[], SNDeviceList: string = '') {
+  async create(
+    employee: Employee,
+    usersResponsible: User[],
+    releaseContext: PersonReleaseContext,
+    SNDeviceList: string = ''
+  ) {
     // Persona del mismo acto de alta (creada por el BO en el request previo):
     // si el alta falla se libera solo si quedó huérfana, para que el reintento
     // no choque con "personEmail has already been taken" (USRH1785436961832).
@@ -800,7 +807,7 @@ export default class EmployeeService {
       return newEmployee
     } catch (error) {
       if (personIdCandidate) {
-        await this.releasePersonIfOrphan(personIdCandidate)
+        await this.releasePersonIfOrphan(personIdCandidate, releaseContext)
       }
       throw error
     }
@@ -2590,42 +2597,67 @@ export default class EmployeeService {
 
 
   /**
-   * Libera (soft-delete) la persona de un intento de alta fallido para que el
-   * reintento del formulario no choque con los únicos de persona (correo,
-   * CURP, RFC — sus validadores ignoran filas eliminadas). Solo procede si la
-   * persona quedó huérfana: sin empleado, usuario ni cliente activos. Una
-   * persona preexistente ligada a algo más no se toca — el sistema queda como
-   * antes del intento (USRH1785436961832, reglas 2 y 3).
+   * Libera (soft delete) a la persona del alta de empleado fallida para que el
+   * capturista pueda reintentar sin chocar con "el correo ya está registrado"
+   * (USRH1785436961832), ahora blindada (USRH1789698261608).
+   *
+   * Solo procede si la persona no tiene NI HA TENIDO vínculo alguno —empleado,
+   * usuario o cliente, vivo o dado de baja— y nació dentro de la ventana de
+   * frescura. Cualquier otro caso se niega en silencio y queda trazado. No
+   * comprueba de qué empresa es la persona: `people` no tiene esa marca.
+   *
+   * @param personId Persona candidata; llega del payload del alta o del API de biométricos.
+   * @param context Actor y scope del acto, para la traza de la decisión. No decide nada.
+   * @returns `true` solo si la persona quedó liberada. Nunca lanza.
    */
-  async releasePersonIfOrphan(personId: number): Promise<boolean> {
+  async releasePersonIfOrphan(
+    personId: number,
+    context: PersonReleaseContext
+  ): Promise<boolean> {
     try {
-      const orphan = await Person.query()
-        .where('person_id', personId)
-        .whereNotExists((query) => {
-          query.from('employees')
-            .whereRaw('employees.person_id = people.person_id')
-            .whereNull('employees.employee_deleted_at')
-        })
-        .whereNotExists((query) => {
-          query.from('users')
-            .whereRaw('users.person_id = people.person_id')
-            .whereNull('users.user_deleted_at')
-        })
-        .whereNotExists((query) => {
-          query.from('customers')
-            .whereRaw('customers.person_id = people.person_id')
-            .whereNull('customers.customer_deleted_at')
-        })
-        .first()
+      const decision = await resolvePersonRelease(personId)
 
-      if (!orphan) {
+      if (!decision.releasable) {
+        // `not-found` es el camino normal de la segunda compensación del mismo
+        // acto (la primera ya liberó): registrarlo llenaría la auditoría de
+        // falsos positivos en cada alta fallida legítima.
+        if (decision.reason !== 'not-found') {
+          logger.warn(
+            { personId, reason: decision.reason, actorUserId: context.actorUserId },
+            'EmployeeService.releasePersonIfOrphan: liberación denegada'
+          )
+          // Best-effort y posterior a la decisión: si Mongo está caído no
+          // guarda y no avisa, y el rechazo se sostiene igual.
+          await ScopeDeniedLogService.log({
+            domain: 'person',
+            action: 'release-orphan',
+            requestedId: personId,
+            actorUserId: context.actorUserId,
+            businessUnitScope: context.businessUnitScope,
+          })
+        }
         return false
       }
 
-      await orphan.delete()
+      await decision.person.delete()
+
+      // La CONCESIÓN también se registra. Sin esto, un barrido exitoso de
+      // expedientes en vuelo sería invisible — justo el escenario que interesa
+      // poder reconstruir después. Mismo carácter best-effort.
+      await ScopeDeniedLogService.log({
+        domain: 'person',
+        action: 'release-orphan-granted',
+        requestedId: personId,
+        actorUserId: context.actorUserId,
+        businessUnitScope: context.businessUnitScope,
+      })
+
       return true
     } catch (error) {
-      console.error('Error liberando persona huérfana del alta fallida:', error)
+      logger.error(
+        { err: error, personId },
+        'EmployeeService.releasePersonIfOrphan: fallo al liberar la persona del alta fallida'
+      )
       return false
     }
   }
