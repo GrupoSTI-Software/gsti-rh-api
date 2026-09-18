@@ -91,8 +91,8 @@ async function createTenantRole(actor: TenantActor, prefix: string): Promise<Rol
     roleSlug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
     roleDescription: 'Rol de spec del gate de roles',
     roleActive: 1,
-    roleBusinessAccess: actor.businessUnit.businessUnitSlug,
     roleManagementDays: 10,
+    businessUnitId: actor.businessUnit.businessUnitId,
   })
 }
 
@@ -100,7 +100,7 @@ async function createTenantRole(actor: TenantActor, prefix: string): Promise<Rol
 async function cleanupTenantRoles(actor: TenantActor | null): Promise<void> {
   if (!actor) return
   const roles = await Role.query()
-    .where('role_business_access', actor.businessUnit.businessUnitSlug)
+    .where('business_unit_id', actor.businessUnit.businessUnitId)
     .whereNot('role_id', actor.role.roleId)
   const roleIds = roles.map((role) => role.roleId)
   if (roleIds.length === 0) return
@@ -367,7 +367,7 @@ test.group('Roles y permisos — permissionGate con exigencia encendida', (group
     const calls = operationCalls(role.roleId)
 
     const created = await assertStatus(assert, client, tenant, calls.store, 201)
-    assert.equal(created.body().data.role.roleBusinessAccess, tenant.businessUnit.businessUnitSlug)
+    assert.equal(created.body().data.role.businessUnitId, tenant.businessUnit.businessUnitId)
 
     const presetName = uniqueTestName('Alta con plantilla')
     const withPreset: ApiCall = {
@@ -439,7 +439,7 @@ test.group('Roles y permisos — permissionGate con exigencia encendida', (group
     await grantModulePermissions(tenant, MODULE, ['update', 'delete'])
     // Las plantillas resuelven el rol acotado a la empresa: el del actor tiene
     // que pertenecer a la suya para que el caso llegue al bloqueo.
-    tenant.role.roleBusinessAccess = tenant.businessUnit.businessUnitSlug
+    tenant.role.businessUnitId = tenant.businessUnit.businessUnitId
     await tenant.role.save()
     const ownCalls = operationCalls(tenant.role.roleId)
 
@@ -518,7 +518,7 @@ test.group('Roles y permisos — nombres con slug de identidad reservado', (grou
       assert.isNull(
         await Role.query()
           .where('role_name', roleName)
-          .where('role_business_access', account.businessUnit.businessUnitSlug)
+          .where('business_unit_id', account.businessUnit.businessUnitId)
           .first(),
         `"${roleName}" no debe crearse en la empresa`
       )

@@ -51,7 +51,6 @@ export const ROLE_SEEDS: readonly RoleSeedValues[] = [
     roleSlug: 'root',
     roleDescription: 'Root',
     roleActive: 1,
-    roleBusinessAccess: '',
   },
 ]
 

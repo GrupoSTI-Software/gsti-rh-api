@@ -85,9 +85,6 @@ export default class TenantRoleProvisioningService {
     role.roleDescription = definition.description
     role.businessUnitId = businessUnitId
     role.roleActive = 1
-    // El CSV `role_business_access` queda vacío: la pertenencia la dice la
-    // llave `business_unit_id` y el CSV está en retiro.
-    role.roleBusinessAccess = ''
     role.useTransaction(trx)
     await role.save()
 

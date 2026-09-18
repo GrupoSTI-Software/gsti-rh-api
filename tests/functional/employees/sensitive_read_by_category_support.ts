@@ -204,7 +204,7 @@ export async function createActor(emailPrefix: string): Promise<TenantActor> {
     roleSlug: `sens-read-qa-${stamp}`,
     roleDescription: 'Rol temporal de lectura sensible por categoría',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   const person = await Person.create({

@@ -78,7 +78,6 @@ test.group('POST /api/roles/assign/:roleId — atomicidad (USRH1785766406721)', 
       roleDescription: 'Fixture de test',
       roleActive: 1,
       businessUnitId: actor.businessUnit.businessUnitId,
-      roleBusinessAccess: actor.businessUnit.businessUnitSlug,
       roleManagementDays: 10,
     })
     systemModule = await SystemModule.create({

@@ -61,7 +61,6 @@ async function createRoleFor(actor: TenantActor, prefix: string): Promise<Role> 
     roleDescription: 'Fixture del spec de techo de concesión',
     roleActive: 1,
     businessUnitId: actor.businessUnit.businessUnitId,
-    roleBusinessAccess: actor.businessUnit.businessUnitSlug,
     roleManagementDays: 10,
   })
 }

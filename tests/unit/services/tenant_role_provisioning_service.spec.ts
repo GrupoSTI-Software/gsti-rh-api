@@ -61,8 +61,8 @@ test.group('TenantRoleProvisioningService', () => {
         'todo rol sembrado pertenece a la empresa que lo estrena'
       )
       assert.isTrue(
-        roles.every((role) => role.roleBusinessAccess === ''),
-        'la pertenencia la dice la llave, no el CSV'
+        roles.every((role) => role.businessUnitId !== null),
+        'ningún rol de una empresa queda sin dueño'
       )
     } finally {
       await cleanup(businessUnit.businessUnitId)

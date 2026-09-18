@@ -45,7 +45,6 @@ async function createRole(slug: string, businessUnitId: number): Promise<Role> {
     roleSlug: slug,
     roleDescription: 'Rol de prueba',
     roleActive: 1,
-    roleBusinessAccess: '',
     businessUnitId,
   })
 }
