@@ -27,12 +27,12 @@ const readIdentificacionStore = {
 
 test.group('neutralizeSensitiveMaskEchoInBody', () => {
   test('sin ALS devuelve el cuerpo intacto', ({ assert }) => {
-    const body = { personRfc: maskSensitiveValue('VARL850602AB3', 'identificacion') }
+    const body = { personRfc: maskSensitiveValue('VARL850602AB3') }
     assert.strictEqual(neutralizeSensitiveMaskEchoInBody(body as Record<string, unknown>), body)
   })
 
   test('elimina eco de catálogo si no hay lectura de la categoría', ({ assert }) => {
-    const echo = maskSensitiveValue('VARL850602AB3', 'identificacion')
+    const echo = maskSensitiveValue('VARL850602AB3')
     const body = { personRfc: echo, personFirstname: 'Ana' }
     SensitiveAccessContext.run(deniedStore, () => {
       const out = neutralizeSensitiveMaskEchoInBody(body as Record<string, unknown>)
@@ -42,7 +42,7 @@ test.group('neutralizeSensitiveMaskEchoInBody', () => {
   })
 
   test('no elimina si el usuario tiene lectura de la categoría', ({ assert }) => {
-    const echo = maskSensitiveValue('VARL850602AB3', 'identificacion')
+    const echo = maskSensitiveValue('VARL850602AB3')
     const body = { personRfc: echo }
     SensitiveAccessContext.run(readIdentificacionStore, () => {
       const out = neutralizeSensitiveMaskEchoInBody(body as Record<string, unknown>)

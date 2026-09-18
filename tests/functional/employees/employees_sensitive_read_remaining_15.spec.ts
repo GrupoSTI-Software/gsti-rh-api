@@ -158,7 +158,7 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     expectNeverDenied(response, assert)
     assert.equal(
       empresaRfcFromShow(response.body()),
-      maskSensitiveValue(CLEAR_REMAINING.empresaRfc, 'identificacion')
+      maskSensitiveValue(CLEAR_REMAINING.empresaRfc)
     )
   })
 
@@ -308,11 +308,11 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     const masked = extra!.consent.serialize()
     assert.equal(
       masked.userConsentIp,
-      maskSensitiveValue(CLEAR_REMAINING.consentIp, 'contacto')
+      maskSensitiveValue(CLEAR_REMAINING.consentIp)
     )
     assert.equal(
       masked.userConsentUserAgent,
-      maskSensitiveValue(CLEAR_REMAINING.consentUa, 'contacto')
+      maskSensitiveValue(CLEAR_REMAINING.consentUa)
     )
     const clear = SensitiveAccessContext.run(
       {

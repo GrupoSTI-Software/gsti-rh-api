@@ -117,8 +117,8 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
       const response = await loginWeb(client, actorEmail, TEST_PASSWORD)
       expectNeverDenied(response, assert)
       const person = loginUserPerson(response.body())
-      assert.equal(person.personEmail, maskSensitiveValue(actorEmail, 'contacto'))
-      assert.equal(person.personPhone, maskSensitiveValue(fixture!.clear.phone, 'contacto'))
+      assert.equal(person.personEmail, maskSensitiveValue(actorEmail))
+      assert.equal(person.personPhone, maskSensitiveValue(fixture!.clear.phone))
       assert.notEqual(person.personEmail, actorEmail)
     } finally {
       actor!.person.personEmail = originalPersonEmail
@@ -143,7 +143,7 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     expectNeverDenied(response, assert)
     const person = employeePerson(response.body())
     assert.equal(person.personEmail, fixture!.clear.email)
-    assert.equal(person.personCurp, maskSensitiveValue(fixture!.clear.curp, 'identificacion'))
+    assert.equal(person.personCurp, maskSensitiveValue(fixture!.clear.curp))
   })
 
   test('E.3: solo sensitive-identificacion-read destapa CURP/RFC/NSS; contacto y bancos tapados', async ({
@@ -240,8 +240,8 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
       .header('X-Business-Unit-Id', buHeader(actor!))
     expectNeverDenied(response, assert)
     const person = personShowBody(response.body())
-    assert.equal(person.personEmail, maskSensitiveValue(fixture!.clear.email, 'contacto'))
-    assert.equal(person.personCurp, maskSensitiveValue(fixture!.clear.curp, 'identificacion'))
+    assert.equal(person.personEmail, maskSensitiveValue(fixture!.clear.email))
+    assert.equal(person.personCurp, maskSensitiveValue(fixture!.clear.curp))
   })
 
   // E.8 a E.10 (GET de clientes, pilotos y sobrecargos) se retiraron junto con

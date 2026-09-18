@@ -249,18 +249,18 @@ test.group('Lectura sensible — 15 columnas restantes — E2E Japa', (group) =>
 
     assert.equal(
       spouseBody(surfaces.spouseRes.body()).employeeSpousePhone,
-      maskSensitiveValue(CLEAR_FIXED.phoneSecondary, 'contacto')
+      maskSensitiveValue(CLEAR_FIXED.phoneSecondary)
     )
     assert.equal(
       emergencyBody(surfaces.emergencyRes.body()).employeeEmergencyContactPhone,
-      maskSensitiveValue(CLEAR_FIXED.phone, 'contacto')
+      maskSensitiveValue(CLEAR_FIXED.phone)
     )
     assert.equal(
       emergencyPhonesFromEmployeeList(
         surfaces.emergencyListRes.body(),
         extra!.emergency.employeeEmergencyContactId
       ),
-      maskSensitiveValue(CLEAR_FIXED.phone, 'contacto')
+      maskSensitiveValue(CLEAR_FIXED.phone)
     )
 
     expectAmountNull(firstSalaryDaily(surfaces.salaryRes.body()), assert)
@@ -273,7 +273,7 @@ test.group('Lectura sensible — 15 columnas restantes — E2E Japa', (group) =>
         surfaces.empresaIndexRes.body(),
         extra!.empresa.empresaContratanteId
       ),
-      maskSensitiveValue(CLEAR_REMAINING.empresaRfc, 'identificacion')
+      maskSensitiveValue(CLEAR_REMAINING.empresaRfc)
     )
 
     const biometric = surfaces.biometricRes.body()?.data?.employeeBiometric as Record<

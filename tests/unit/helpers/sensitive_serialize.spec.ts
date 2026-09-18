@@ -7,7 +7,7 @@ import {
   maskSensitiveDtoValue,
 } from '#helpers/sensitive_serialize'
 import { SensitiveAccessContext, type SensitiveWriteDecision } from '#utils/sensitive_access_context'
-import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
+import { maskSensitiveValue, SENSITIVE_MASK } from '#helpers/sensitive_mask'
 import type { LegalCategory } from '#constants/sensitive_fields'
 
 const allDenied: Record<LegalCategory, boolean> = {
@@ -27,10 +27,10 @@ const deniedWrite: Record<LegalCategory, SensitiveWriteDecision> = {
 }
 
 test.group('sensitiveSerialize', () => {
-  test('sin contexto activo enmascara igual que hoy', ({ assert }) => {
+  test('sin contexto activo enmascara con máscara fija', ({ assert }) => {
     const serialize = sensitiveSerialize('Person', 'personCurp')
-    assert.equal(serialize('ABCD123456MDFABC01'), '••••••••••••••BC01')
-    assert.equal(serialize('ABCD123456MDFABC01'), maskSensitiveValue('ABCD123456MDFABC01', 'identificacion'))
+    assert.equal(serialize('ABCD123456MDFABC01'), SENSITIVE_MASK)
+    assert.equal(serialize('ABCD123456MDFABC01'), maskSensitiveValue('ABCD123456MDFABC01'))
   })
 
   test('con permiso de la categoría entrega el valor en claro', ({ assert }) => {
@@ -56,17 +56,17 @@ test.group('sensitiveSerialize', () => {
         write: deniedWrite,
       },
       () => {
-        assert.equal(serializeClabe('012345678901234567'), '••••••••••••••4567')
+        assert.equal(serializeClabe('012345678901234567'), SENSITIVE_MASK)
       }
     )
   })
 
-  test('salud sin permiso entrega cinco MASK_CHAR', ({ assert }) => {
+  test('salud sin permiso entrega máscara fija', ({ assert }) => {
     const serialize = sensitiveSerialize(
       'EmployeeMedicalCondition',
       'employeeMedicalConditionDiagnosis'
     )
-    assert.equal(serialize('gripe'), MASK_CHAR.repeat(5))
+    assert.equal(serialize('gripe'), SENSITIVE_MASK)
   })
 
   test('par no clasificado se tapa siempre, incluso con bypass de otra categoría', ({
@@ -85,7 +85,7 @@ test.group('sensitiveSerialize', () => {
         write: deniedWrite,
       },
       () => {
-        assert.equal(serialize('Ana'), MASK_CHAR.repeat(5))
+        assert.equal(serialize('Ana'), SENSITIVE_MASK)
       }
     )
   })
@@ -93,6 +93,12 @@ test.group('sensitiveSerialize', () => {
   test('null permanece null', ({ assert }) => {
     const serialize = sensitiveSerialize('Person', 'personRfc')
     assert.isNull(serialize(null))
+  })
+
+  test('cadena en blanco permanece en blanco, no se enmascara', ({ assert }) => {
+    const serialize = sensitiveSerialize('Person', 'personImssNss')
+    assert.equal(serialize(''), '')
+    assert.equal(serialize('   '), '   ')
   })
 })
 
@@ -182,10 +188,10 @@ test.group('sensitiveSerializeNumeric', () => {
 })
 
 test.group('maskSensitiveDtoValue', () => {
-  test('biométrico sin permiso entrega cinco MASK_CHAR', ({ assert }) => {
+  test('biométrico sin permiso entrega máscara fija', ({ assert }) => {
     assert.equal(
       maskSensitiveDtoValue('EmployeeBiometric', 'employeeBiometricData', 'Finger:1, Face'),
-      MASK_CHAR.repeat(5)
+      SENSITIVE_MASK
     )
   })
 
@@ -208,11 +214,15 @@ test.group('maskSensitiveDtoValue', () => {
     assert.equal(maskSensitiveDtoValue('EmployeeBiometric', 'employeeBiometricData', ''), '')
   })
 
-  test('RFC de empresa contratante sin permiso aplica maskLastFour', ({ assert }) => {
+  test('RFC de empresa contratante sin permiso aplica máscara fija', ({ assert }) => {
     assert.equal(
       maskSensitiveDtoValue('EmpresaContratante', 'rfc', 'VACW850312J95'),
-      '•••••••••2J95'
+      SENSITIVE_MASK
     )
+  })
+
+  test('cadena en blanco en DTO permanece en blanco', ({ assert }) => {
+    assert.equal(maskSensitiveDtoValue('Person', 'personRfc', '   '), '   ')
   })
 
   test('la categoría sale del catálogo, no de un literal en el caller', ({ assert }) => {
