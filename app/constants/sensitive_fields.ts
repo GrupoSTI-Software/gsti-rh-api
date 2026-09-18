@@ -77,7 +77,7 @@ export interface SensitiveField {
 }
 
 /**
- * Catálogo maestro de campos personales sensibles de Valanserh (32 columnas).
+ * Catálogo maestro de campos personales sensibles de Valanserh.
  *
  * Exclusiones justificadas (no se incluyen porque no son datos sensibles de la persona):
  *   - `workDisabilityPeriodFile`           — ruta S3, no dato clínico.
@@ -239,6 +239,19 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
     encrypted: true,
   },
 
+  // ─── ProveedorRepse: identificación (USRH1788551528001) ─────────────────────
+  // RFC del proveedor REPSE (moral o física). Cifrado AES; la huella solo se
+  // escribe (providers.service.ts) y nadie la usa en WHERE: treatment
+  // 'cifrar', no 'cifrar-buscable' (mismo criterio que BillingTaxReceipt).
+  // Sin maskedInApi hasta USRH1789328027052. Ancla: app/models/proveedor_repse.ts
+  {
+    model: 'ProveedorRepse',
+    column: 'rfc',
+    legalCategory: 'identificacion',
+    treatment: 'cifrar',
+    encrypted: true,
+  },
+
   // ─── Employee: financiero (VIGENTE, EN CLARO — cifrado en HU aparte) ──────
   // Dato vivo del que se derivan EmployeeSalaryHistory.salaryDaily y el cálculo
   // de nómina. Se clasifica y se oculta en serialización; NO se cifra todavía
@@ -264,6 +277,25 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // ciphertext crudo. Ancla: app/models/user_consent.ts
   { model: 'UserConsent', column: 'userConsentIp', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
   { model: 'UserConsent', column: 'userConsentUserAgent', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
+
+  // ─── TeleworkPolicyAcknowledgement: contacto (acuse NOM-037) ───────────────
+  // Gemelo de UserConsent: desde dónde se dio por recibida la política. Nunca en
+  // WHERE; nunca se serializa (serializeAs: null en el modelo). Fallo-cerrado.
+  // Ancla: app/models/telework_policy_acknowledgement.ts
+  {
+    model: 'TeleworkPolicyAcknowledgement',
+    column: 'teleworkPolicyAcknowledgementIp',
+    legalCategory: 'contacto',
+    treatment: 'cifrar',
+    encrypted: true,
+  },
+  {
+    model: 'TeleworkPolicyAcknowledgement',
+    column: 'teleworkPolicyAcknowledgementUserAgent',
+    legalCategory: 'contacto',
+    treatment: 'cifrar',
+    encrypted: true,
+  },
 
   // ─── PositionSalaryRangeAudit: financiero (YA CIFRADO, faltaba serialize) ──
   // Espejo auditado del rango. Ancla: app/models/position_salary_range_audit.ts

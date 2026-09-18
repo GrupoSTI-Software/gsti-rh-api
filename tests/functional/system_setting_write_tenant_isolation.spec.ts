@@ -179,7 +179,6 @@ test.group('Escrituras system-settings — aislamiento por tenant', (group) => {
       systemSettingTradeName: `Trade A ${stamp}`,
       systemSettingSidebarColor: '#111111',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: businessUnitA.businessUnitSlug,
       systemSettingBirthdayEmails: 0,
       systemSettingAnniversaryEmails: 0,
       systemSettingAttendanceFaultHrEmails: 0,
@@ -191,7 +190,6 @@ test.group('Escrituras system-settings — aislamiento por tenant', (group) => {
       systemSettingTradeName: `Trade B ${stamp}`,
       systemSettingSidebarColor: '#222222',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: businessUnitB.businessUnitSlug,
       systemSettingBirthdayEmails: 1,
       systemSettingAnniversaryEmails: 1,
       systemSettingAttendanceFaultHrEmails: 1,
@@ -203,7 +201,6 @@ test.group('Escrituras system-settings — aislamiento por tenant', (group) => {
       systemSettingTradeName: `Disposable C ${stamp}`,
       systemSettingSidebarColor: '#333333',
       systemSettingActive: 0,
-      systemSettingBusinessUnits: businessUnitC.businessUnitSlug,
     })
 
     actorA = await createActor(

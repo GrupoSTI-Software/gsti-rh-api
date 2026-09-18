@@ -1,6 +1,5 @@
 import { I18n } from '@adonisjs/i18n'
 import { DateTime } from 'luxon'
-import SystemSetting from '#models/system_setting'
 import { resolveEmployeeRoleScope } from '../../helpers/resolve_employee_role_scope.js'
 import type { EmployeeRoleScope } from '../../helpers/resolve_employee_role_scope.js'
 import AttendanceStatsRepositoryMysql from './attendance-stats.repository.mysql.js'
@@ -24,6 +23,7 @@ import {
   toStatistics,
 } from './attendance-stats.rules.js'
 import type { AttendanceStatsRepository } from './attendance-stats.repository.js'
+import SystemSettingService from '#services/system_setting_service'
 import type {
   AbsencesFilters,
   AbsencesResponse,
@@ -449,15 +449,16 @@ export default class AttendanceStatsService {
 }
 
 /**
- * Tolerancias de retardo y falta de la configuración activa de SystemSetting;
+ * Tolerancias de retardo y falta DE LA EMPRESA ACTIVA; sin empresa en contexto,
  * sin configuración o sin la tolerancia, los defaults del módulo.
+ *
+ * Antes tomaba `.first()` de cualquier configuración activa, sin filtrar por
+ * empresa: el porcentaje de retardos y faltas de un cliente se calculaba con la
+ * tolerancia de otro —la que primero devolviera la base—, y el suyo, el que
+ * había ajustado desde su backoffice, no se aplicaba.
  */
 async function loadToleranceThresholdsFromSettings(): Promise<ToleranceThresholds> {
-  const setting = await SystemSetting.query()
-    .whereNull('system_setting_deleted_at')
-    .where('system_setting_active', 1)
-    .preload('systemSettingTolerances')
-    .first()
+  const setting = await new SystemSettingService().resolveForActiveTenant()
 
   if (!setting) {
     return {

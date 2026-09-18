@@ -5,44 +5,30 @@ import {
 } from '../../app/helpers/system_catalog_seed_resolver.js'
 
 /**
- * Siembra los roles globales que el runtime resuelve por slug: `root`, `owner`
- * y `empleado`.
+ * Siembra los roles de una base nueva.
  *
- * PUENTE, no destino. El rediseño de roles por empresa (owner, admin y employee
- * creados al dar de alta el tenant) está planeado y pendiente de ejecutar;
- * mientras tanto estos tres tienen que existir porque el código vivo los busca
- * por slug y falla en silencio o con 500 si no están:
- *  - `owner`: `SignupDraftService.complete` lo asigna al dueño; sin él, el alta
- *    self-service responde 500 `SIGNUP.ROLE.OWNER_NOT_FOUND.001`.
- *  - `empleado`: `user_controller` bloquea con él el login web del colaborador
- *    y decide `canAccessBackoffice` en la invitación; sin la fila, el bloqueo
- *    NO aplica y el colaborador entra al backoffice. También lo resuelve el
- *    sembrado de datos de práctica del onboarding.
- *  - `root`: cuenta de plataforma (`0008_user_seeder`, `0063`).
+ * Aquí va SOLO el rol global de la plataforma: `root`, sin empresa dueña. El
+ * juego propio de cada empresa (dueño, administrador y colaborador) lo siembra
+ * `0064_tenant_roles_seeder`, que corre después del catálogo de módulos y
+ * permisos porque el administrador nace con ese catálogo puesto.
  *
- * `super-administrador` y `rh-manager` NO se siembran a propósito. El primero
+ * `owner` y `empleado` ya NO se siembran como filas globales. Lo fueron
+ * mientras el runtime los resolvía por slug sin saber de qué empresa hablaba;
+ * desde que el rol cuelga del par (empresa, cuenta), una fila global de `owner`
+ * es justo lo que hace falta evitar: el dueño de un cliente no puede ser el
+ * mismo registro que el de otro. `root` se queda global porque no pertenece a
+ * ninguna empresa: es la cuenta de GSTI.
+ *
+ * `super-administrador` y `rh-manager` NO se siembran, como antes: el primero
  * da salvoconducto ampliado, facturación y REPSE a quien lo tenga, y ningún
- * flujo lo necesita para operar; el segundo solo cambia visibilidad y avisos.
- * Ambos quedan reservados (`RESERVED_ROLE_IDENTITY_SLUGS`), así que ningún
- * tenant puede fabricarlos con un nombre. Los specs que los necesitan los
- * aseguran con `tests/helpers/ensure_role.ts`.
- *
- * Ninguno lleva concesiones: `owner` pasa por salvoconducto y `empleado` no
- * debe tener acceso al backoffice.
- *
- * `roleBusinessAccess` va vacío: la visibilidad multi-tenant de `owner` y
- * `empleado` la da `SYSTEM_ROLE_SLUGS`, no el CSV, y atar el CSV al slug de una
- * empresa se rompe si esa empresa se renombra.
+ * flujo lo necesita para operar. Ambos siguen reservados
+ * (`RESERVED_ROLE_IDENTITY_SLUGS`), así que ningún tenant puede fabricarlos con
+ * un nombre. Los specs que los necesitan los aseguran con
+ * `tests/helpers/ensure_role.ts`.
  *
  * LA IDENTIDAD ES EL SLUG. Ningún rol declara `role_id`: la columna es
- * autoincremental y el número que le toque depende del orden real de siembra
- * en cada instalación. Declararlo a mano fue el bug: este seeder buscaba
- * `role_id = 1` antes que el slug, y como la migración
- * `1788500000000_grant_biometric_face_read_to_admin_roles` (hoy NO-OP) creaba
- * el rol `kiosco` sin id sobre una tabla vacía, el 1 se lo quedaba `kiosco`; el
- * seeder lo encontraba, concluía que `super-administrador` ya existía y NUNCA
- * lo creaba. Con la búsqueda por slug cada rol se resuelve contra su propia
- * fila.
+ * autoincremental y el número que le toque depende del orden real de siembra en
+ * cada instalación.
  *
  * La búsqueda usa `withTrashed()`: una fila dada de baja ocupa la PK pero el
  * scope de SoftDeletes la oculta, lo que provocaría un INSERT duplicado al
@@ -65,21 +51,6 @@ export const ROLE_SEEDS: readonly RoleSeedValues[] = [
     roleSlug: 'root',
     roleDescription: 'Root',
     roleActive: 1,
-    roleBusinessAccess: '',
-  },
-  {
-    roleName: 'Dueño',
-    roleSlug: 'owner',
-    roleDescription: 'Dueño de la cuenta contratada por autoservicio (acceso total a su empresa)',
-    roleActive: 1,
-    roleBusinessAccess: '',
-  },
-  {
-    roleName: 'Empleado',
-    roleSlug: 'empleado',
-    roleDescription: 'Colaborador sin acceso al backoffice',
-    roleActive: 1,
-    roleBusinessAccess: '',
   },
 ]
 
@@ -88,5 +59,6 @@ export default class extends BaseSeeder {
     for (const role of ROLE_SEEDS) {
       await upsertRoleBySlug(role, '0006_role_seeder')
     }
+
   }
 }

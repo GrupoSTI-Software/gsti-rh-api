@@ -243,6 +243,7 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
   let root: TestActor | null = null
   let businessUnit: BusinessUnit | null = null
   let providerId: number | null = null
+  let createdProviderRfc: string | null = null
   let validationId: number | null = null
   let otherProviderId: number | null = null
 
@@ -262,13 +263,15 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     client,
     assert,
   }) => {
+    createdProviderRfc = randomRfc()
+
     const response = await client
       .post('/api/repse-providers')
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .json({
         razonSocial: 'Servicios Especializados Acme S.A. de C.V.',
-        rfc: randomRfc(),
+        rfc: createdProviderRfc,
         folio: randomFolio('HAPPY'),
         objetoRegistrado: 'Servicios de limpieza industrial',
         folioVencimiento: '2027-01-01',
@@ -283,6 +286,39 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     assert.equal(provider.reviewStatus, 'pending_first_validation')
     assert.isNull(provider.nextReviewAt)
     providerId = provider.proveedorRepseId
+  })
+
+  test('CA-2/CA-5: serialize() oculta rfc; GET list/detail lo devuelven en claro por DTO', async ({
+    client,
+    assert,
+  }) => {
+    const rfc = createdProviderRfc!
+    const row = await ProveedorRepse.findOrFail(providerId!)
+    const serialized = row.serialize()
+
+    assert.isUndefined(serialized.rfc)
+    assert.isUndefined(serialized.rfcHash)
+    assert.equal(row.rfc, rfc)
+
+    const detail = await client
+      .get(`/api/repse-providers/${providerId}`)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    detail.assertStatus(200)
+    assert.equal(detail.body().data.proveedorRepse.rfc, rfc)
+
+    const list = await client
+      .get('/api/repse-providers')
+      .qs({ page: 1, limit: 50 })
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    list.assertStatus(200)
+    const rows = list.body().data.proveedoresRepse.data as Array<{ proveedorRepseId: number; rfc: string }>
+    const match = rows.find((item) => item.proveedorRepseId === providerId)
+    assert.exists(match)
+    assert.equal(match!.rfc, rfc)
   })
 
   test('GET /api/repse-providers/:id devuelve el proveedor creado', async ({ client, assert }) => {

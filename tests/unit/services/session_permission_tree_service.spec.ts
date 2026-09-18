@@ -71,7 +71,6 @@ test.group('SessionPermissionTreeService', (group) => {
       roleSlug: ROLE_SLUG,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
     })
   })
 

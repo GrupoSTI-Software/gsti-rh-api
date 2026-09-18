@@ -41,7 +41,7 @@ import {
  * - La rama de administración exige el permiso `read` del módulo.
  * - Borrar da de baja las filas antes de tocar el almacenamiento.
  *
- * Las pruebas escriben sobre la BD desechable de la suite (`valanserh_test`) y
+ * Las pruebas escriben sobre la BD desechable de la suite (`sae_pruebas`) y
  * limpian lo suyo; las que
  * pasan por `POST /api/notices` requieren las migraciones `1788800000010` y
  * `1788800000011`, y la de binarios necesita el bucket de desarrollo.
@@ -85,7 +85,6 @@ async function createActor(prefix: string, sharedUnit?: BusinessUnit): Promise<A
     roleSlug: `ciclo-avisos-${prefix}-${stamp}`,
     roleDescription: 'Rol temporal para el ciclo de vida de avisos',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
     roleManagementDays: 10,
   })
   const person = await Person.create({
