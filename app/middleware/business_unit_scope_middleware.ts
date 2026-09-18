@@ -53,7 +53,20 @@ const ERR = {
  */
 export default class BusinessUnitScopeMiddleware {
   async handle(ctx: HttpContext, next: NextFn) {
-    const user = ctx.auth.user!
+    const user = ctx.auth.user
+
+    // Sin usuario autenticado no hay alcance que resolver. Pasaba cuando una
+    // ruta declaraba `auth()` ruta por ruta y `businessScope()` en el grupo: los
+    // del grupo corren antes, así que este middleware se ejecutaba primero y el
+    // `!` de la aserción convertía el descuido en un 500 ilegible
+    // (`Cannot read properties of undefined (reading 'role')`).
+    if (!user) {
+      return ctx.response.status(401).json({
+        title: 'Sesión requerida',
+        detail: 'La operación requiere una sesión válida.',
+        key: 'sesion-requerida',
+      })
+    }
 
     if (!user.role) {
       await user.load('role')
