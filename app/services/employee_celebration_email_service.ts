@@ -17,6 +17,7 @@ import env from '#start/env'
 import mail from '@adonisjs/mail/services/main'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import { DateTime } from 'luxon'
+import { resolveBusinessUnitSlugsForSetting } from '#helpers/system_settings_by_business_unit'
 
 type CelebrationFlag = 'birthday' | 'anniversary'
 
@@ -62,25 +63,17 @@ export interface EmployeeCelebrationEmailLogger {
 export default class EmployeeCelebrationEmailService {
   private settingMatchesAllowedBusinessUnits(
     setting: SystemSetting,
-    allowedBusinessUnitSlugs: string[]
+    allowedBusinessUnitIds: number[]
   ): boolean {
-    const units = this.parseBusinessUnitSlugs(setting.systemSettingBusinessUnits)
-    return units.some((unit) => allowedBusinessUnitSlugs.includes(unit))
-  }
-
-  private parseBusinessUnitSlugs(csv: string | null | undefined): string[] {
-    return (csv || '')
-      .split(',')
-      .map((unit) => unit.trim())
-      .filter(Boolean)
+    return setting.businessUnitId !== null && allowedBusinessUnitIds.includes(setting.businessUnitId)
   }
 
   resolveActiveSystemSettings(
     systemSettings: SystemSetting[],
-    allowedBusinessUnitSlugs: string[],
+    allowedBusinessUnitIds: number[],
     flag: CelebrationFlag
   ): SystemSetting[] {
-    if (allowedBusinessUnitSlugs.length === 0) {
+    if (allowedBusinessUnitIds.length === 0) {
       return []
     }
 
@@ -96,7 +89,7 @@ export default class EmployeeCelebrationEmailService {
         if (!flagEnabled) {
           return false
         }
-        return this.settingMatchesAllowedBusinessUnits(setting, allowedBusinessUnitSlugs)
+        return this.settingMatchesAllowedBusinessUnits(setting, allowedBusinessUnitIds)
       })
       .sort((a, b) => a.systemSettingId - b.systemSettingId)
   }
@@ -218,6 +211,20 @@ export default class EmployeeCelebrationEmailService {
 
     const normalizedSlugs = businessUnitSlugs.map((slug) => slug.trim()).filter(Boolean)
 
+    // La empresa de un rol se pregunta por su llave. Antes se cruzaba el CSV
+    // `role_business_access` con `FIND_IN_SET`, que era la forma de preguntar lo
+    // mismo cuando el rol no tenía dueño.
+    const businessUnits = await BusinessUnit.query()
+      .whereNull('business_unit_deleted_at')
+      .whereIn('business_unit_slug', normalizedSlugs)
+      .select('business_unit_id')
+
+    if (businessUnits.length === 0) {
+      return []
+    }
+
+    const businessUnitIds = businessUnits.map((unit) => unit.businessUnitId)
+
     return User.query()
       .whereNull('user_deleted_at')
       .where('user_active', 1)
@@ -228,12 +235,7 @@ export default class EmployeeCelebrationEmailService {
           .whereNull('role_deleted_at')
           .where('role_active', 1)
           .whereRaw('LOWER(TRIM(role_slug)) = ?', ['rh-manager'])
-          .whereNotNull('role_business_access')
-          .andWhere((accessQuery) => {
-            for (const slug of normalizedSlugs) {
-              accessQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [slug])
-            }
-          })
+          .whereIn('business_unit_id', businessUnitIds)
       })
       .preload('person')
       .preload('role')
@@ -249,7 +251,7 @@ export default class EmployeeCelebrationEmailService {
     log: EmployeeCelebrationEmailLogger
   ): Promise<EmployeeCelebrationProcessSettingResult> {
     const settingLabel = this.formatSettingLabel(systemSetting)
-    const businessUnitSlugs = this.parseBusinessUnitSlugs(systemSetting.systemSettingBusinessUnits)
+    const businessUnitSlugs = await resolveBusinessUnitSlugsForSetting(systemSetting)
 
     if (businessUnitSlugs.length === 0) {
       log.warning(`${settingLabel}: el system setting no tiene unidades de negocio configuradas`)
@@ -307,7 +309,7 @@ export default class EmployeeCelebrationEmailService {
     log: EmployeeCelebrationEmailLogger
   ): Promise<EmployeeCelebrationProcessSettingResult> {
     const settingLabel = this.formatSettingLabel(systemSetting)
-    const businessUnitSlugs = this.parseBusinessUnitSlugs(systemSetting.systemSettingBusinessUnits)
+    const businessUnitSlugs = await resolveBusinessUnitSlugsForSetting(systemSetting)
 
     if (businessUnitSlugs.length === 0) {
       log.warning(`${settingLabel}: el system setting no tiene unidades de negocio configuradas`)
@@ -381,7 +383,7 @@ export default class EmployeeCelebrationEmailService {
     log: EmployeeCelebrationEmailLogger
   ): Promise<EmployeeCelebrationProcessSettingResult> {
     const settingLabel = this.formatSettingLabel(systemSetting)
-    const businessUnitSlugs = this.parseBusinessUnitSlugs(systemSetting.systemSettingBusinessUnits)
+    const businessUnitSlugs = await resolveBusinessUnitSlugsForSetting(systemSetting)
 
     if (businessUnitSlugs.length === 0) {
       log.warning(`${settingLabel}: el system setting no tiene unidades de negocio configuradas`)
@@ -455,7 +457,7 @@ export default class EmployeeCelebrationEmailService {
     log: EmployeeCelebrationEmailLogger
   ): Promise<EmployeeCelebrationProcessSettingResult> {
     const settingLabel = this.formatSettingLabel(systemSetting)
-    const businessUnitSlugs = this.parseBusinessUnitSlugs(systemSetting.systemSettingBusinessUnits)
+    const businessUnitSlugs = await resolveBusinessUnitSlugsForSetting(systemSetting)
 
     if (businessUnitSlugs.length === 0) {
       log.warning(`${settingLabel}: el system setting no tiene unidades de negocio configuradas`)
@@ -605,7 +607,7 @@ export default class EmployeeCelebrationEmailService {
       flag === 'birthday'
         ? [
             'system_setting_id',
-            'system_setting_business_units',
+            'business_unit_id',
             'system_setting_active',
             'system_setting_trade_name',
             'system_setting_sidebar_color',
@@ -614,7 +616,7 @@ export default class EmployeeCelebrationEmailService {
           ]
         : [
             'system_setting_id',
-            'system_setting_business_units',
+            'business_unit_id',
             'system_setting_active',
             'system_setting_trade_name',
             'system_setting_sidebar_color',
@@ -630,12 +632,12 @@ export default class EmployeeCelebrationEmailService {
     const activeUnits = await BusinessUnit.query()
       .whereNull('business_unit_deleted_at')
       .where('business_unit_active', 1)
-      .select('business_unit_slug')
-    const allowedBusinessUnitSlugs = activeUnits.map((unit) => unit.businessUnitSlug).filter(Boolean)
+      .select('business_unit_id', 'business_unit_slug')
+    const allowedBusinessUnitIds = activeUnits.map((unit) => unit.businessUnitId)
 
     const activeSettings = this.resolveActiveSystemSettings(
       systemSettings as SystemSetting[],
-      allowedBusinessUnitSlugs,
+      allowedBusinessUnitIds,
       flag
     )
 

@@ -107,7 +107,7 @@ test.group('Role presets HTTP (USRH1785766406742)', (group) => {
       roleSlug: `test-role-presets-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: `${actor!.businessUnit.businessUnitSlug},${nonRootActor!.businessUnit.businessUnitSlug}`,
+      businessUnitId: actor!.businessUnit.businessUnitId,
       roleManagementDays: 10,
     })
     ownerRole = await ensureRole('owner')
@@ -249,7 +249,14 @@ test.group('Role presets HTTP (USRH1785766406742)', (group) => {
     )
   })
 
-  test('apply sobre rol de sistema como no-root devuelve 403 sin cambios', async ({
+  /**
+   * Antes este caso esperaba 403 `rol-sistema-bloqueado`: `owner` era una fila
+   * global y el candado de roles de sistema impedía que un tenant la tocara.
+   * Ya no hay roles de tenant compartidos, así que un rol sin empresa dueña
+   * simplemente no existe para nadie: lo que protege es el aislamiento, y su
+   * respuesta es 404.
+   */
+  test('apply sobre un rol sin empresa dueña devuelve 404 sin cambios', async ({
     client,
     assert,
   }) => {
@@ -267,8 +274,7 @@ test.group('Role presets HTTP (USRH1785766406742)', (group) => {
         baselinePermissionIds: before,
       })
 
-    response.assertStatus(403)
-    assert.equal(response.body().key, 'rol-sistema-bloqueado')
+    response.assertStatus(404)
     const afterGrants = await loadGrants(ownerRole.roleId)
     assert.deepEqual(afterGrants.map((grant) => grant.systemPermissionId).sort(), before)
   })
@@ -279,7 +285,6 @@ test.group('Role presets HTTP (USRH1785766406742)', (group) => {
       roleSlug: `foreign-role-presets-${stamp}`,
       roleDescription: 'Fixture de otro tenant',
       roleActive: 1,
-      roleBusinessAccess: nonRootActor!.businessUnit.businessUnitSlug,
       roleManagementDays: 10,
     })
     foreignRoleIds.push(foreignRole.roleId)

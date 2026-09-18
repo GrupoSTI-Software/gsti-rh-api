@@ -7,7 +7,7 @@ import { NOTICE_PERMISSION_MODULE_SLUG } from '#constants/notice'
  * Apoyo para las suites de avisos: concesiones del módulo `notices`
  * y su bandera de exigencia. Todo lo que se crea o cambia aquí se revierte con
  * la función pareja, porque las pruebas de la corrida comparten la BD
- * desechable de la suite (`valanserh_test`).
+ * desechable de la suite (`sae_pruebas`).
  */
 
 /** Fila del módulo de avisos en `system_modules`; el gate es fail-closed si falta. */

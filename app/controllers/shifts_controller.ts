@@ -108,7 +108,6 @@ export default class ShiftController {
         shiftRestDays: data.shiftRestDays,
         shiftAccumulatedFault: data.shiftAccumulatedFault,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
-        shiftBusinessUnits: businessSlugs.join(','),
         // Unidad dueña = unidad seleccionada del request (regla 3, USRH1783821206521).
         businessUnitId: businessUnitScope[0],
         shiftTemp: data.shiftTemp,
@@ -426,7 +425,6 @@ export default class ShiftController {
         shiftRestDays: data.shiftRestDays,
         shiftAccumulatedFault: data.shiftAccumulatedFault,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
-        shiftBusinessUnits: businessSlugs.join(','),
         shiftTemp: data.shiftTemp,
         shiftLunchTime: data.shiftLunchTime,
         shiftCompensableLunchSchedule: data.shiftCompensableLunchSchedule,
@@ -453,7 +451,6 @@ export default class ShiftController {
         ...data,
         shiftAlias: data.shiftAlias?.trim() || null,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
-        shiftBusinessUnits: businessSlugs.join(','),
       }
       if (shiftColorInput !== undefined && shiftColorInput !== null) {
         mergeData.shiftColor = data.shiftColor

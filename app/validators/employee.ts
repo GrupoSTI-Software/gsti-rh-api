@@ -107,9 +107,12 @@ export const updateEmployeeValidator = vine.compile(
     employeeSecondLastName: vine.string().trim().minLength(0).maxLength(25).optional(),
     employeePayrollCode: vine.string().trim().minLength(0).maxLength(100).optional(),
     companyId: vine.number().min(1),
-    departmentId: vine.number().min(1),
+    // USRH1788466831270, regla 1: al editar no son obligatorios. Ausente =
+    // conservar lo guardado; `null` = dejar sin asignar (regla 9). Solo el
+    // alta (`createEmployeeValidator` + relleno en `store`) los sigue exigiendo.
+    departmentId: vine.number().min(1).nullable().optional(),
     departmentSyncId: vine.number().min(0).optional(),
-    positionId: vine.number().min(1),
+    positionId: vine.number().min(1).nullable().optional(),
     positionSyncId: vine.number().min(0).optional(),
     positionLevelConfigId: vine.number().min(1).nullable().optional(),
     employeeTypeId: vine.number().min(1),

@@ -43,6 +43,7 @@ interface TestFixtures {
   admin: TestActor
   outsider: TestActor
   businessUnitIds: number[]
+  completeTenantPublicId: string
 }
 
 /** Crea un usuario con o sin la marca de administrador de plataforma. */
@@ -136,6 +137,7 @@ test.group('GET /api/platform/tenants — completitud fiscal', (group) => {
         never.businessUnitId,
         removed.businessUnitId,
       ],
+      completeTenantPublicId: complete.businessUnitPublicId,
     }
   })
 
@@ -328,5 +330,19 @@ test.group('GET /api/platform/tenants — completitud fiscal', (group) => {
     assert.equal(body.type, 'success')
     assert.isArray(body.data)
     assert.deepEqual(Object.keys(body.meta).sort(), ['lastPage', 'limit', 'page', 'total'])
+  })
+
+  test('BG-10: el detalle del tenant conserva billingProfile.rfc (CA-4)', async ({
+    client,
+    assert,
+  }) => {
+    const response = await client
+      .get(`${BASE_URL}/${fixtures!.completeTenantPublicId}`)
+      .loginAs(fixtures!.admin.user)
+
+    response.assertStatus(200)
+
+    const billingProfile = response.body().data.billingProfile as Record<string, unknown>
+    assert.equal(billingProfile.rfc, CAPTURED_RFC)
   })
 })

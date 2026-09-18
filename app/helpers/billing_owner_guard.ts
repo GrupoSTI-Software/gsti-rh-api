@@ -32,6 +32,25 @@ export async function assertBillingOwner(
 }
 
 /**
+ * Igual que `assertBillingOwner`, pero responde en vez de lanzar.
+ *
+ * La consume la única lectura que no puede negarse —el estado de la
+ * contratación, que el backoffice consulta en cada navegación— para decidir
+ * cuánto de la suscripción devuelve: todo al dueño, lo imprescindible al resto
+ * (`restrictMySubscription`).
+ */
+export async function isBillingOwnerRequest(ctx: HttpContext): Promise<boolean> {
+  const user = ctx.auth.user
+  if (!user) {
+    return false
+  }
+
+  await user.preload('role')
+
+  return isBillingOwnerSlug(user.role?.roleSlug)
+}
+
+/**
  * Guard del alta de empresa adicional (USRH1787932877001, CA-5).
  *
  * Mismos slugs permitidos que `assertBillingOwner`; código de error

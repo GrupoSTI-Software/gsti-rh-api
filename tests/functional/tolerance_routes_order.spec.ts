@@ -45,7 +45,6 @@ test.group('tolerancias — la ruta literal gana a la paramétrica', (group) => 
       systemSettingTradeName: uniqueTestName('tolerance-routes-order'),
       systemSettingSidebarColor: '#111111',
       systemSettingActive: 1,
-      systemSettingBusinessUnits: actor.businessUnit.businessUnitSlug,
       systemSettingMonthlyConversionFactor: 30.4,
     })
     await Tolerance.create({
