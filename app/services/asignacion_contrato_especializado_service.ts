@@ -18,6 +18,7 @@ import {
   findEmployeeInTenantOrFail,
   getAllowedBusinessUnitIds,
 } from '../helpers/repse_tenant_scope.js'
+import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'
 export type AsignacionAdvertencia = {
   key: string
   detail: string
@@ -68,7 +69,11 @@ function formatPorcentaje(value: number): string {
 
 function serializeEmpleado(employee: Employee): AsignacionEmpleadoSerialized {
   const nombre = `${employee.employeeFirstName ?? ''} ${employee.employeeLastName ?? ''}`.trim()
-  const nss = employee.person?.personImssNss ?? null
+  const nss = maskSensitiveDtoValue(
+    'Person',
+    'personImssNss',
+    employee.person?.personImssNss
+  )
   return {
     id: employee.employeeId,
     nombre,

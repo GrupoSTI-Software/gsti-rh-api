@@ -19,6 +19,7 @@ import {
   getAllowedBusinessUnitIds,
 } from '../helpers/repse_tenant_scope.js'
 import { serializeAnexo15d } from '../helpers/anexo_15d_serializer.js'
+import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'
 import { toBusinessDateString } from '#utils/business_date'
 
 export interface Anexo15dCreatePayload {
@@ -123,7 +124,7 @@ function serializeContratanteBasico(row: EmpresaContratante) {
   return {
     id: row.empresaContratanteId,
     razonSocial: row.razonSocial,
-    rfc: row.rfc,
+    rfc: maskSensitiveDtoValue('EmpresaContratante', 'rfc', row.rfc),
   }
 }
 
