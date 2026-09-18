@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from '@japa/runner'
 import db from '@adonisjs/lucid/services/db'
 import BusinessUnit from '#models/business_unit'
@@ -191,5 +193,31 @@ test.group('Tolerancias por empresa', () => {
     const resolved = await new SystemSettingService().resolveForActiveTenant()
 
     assert.isNull(resolved)
+  })
+})
+
+/**
+ * El módulo de estadísticas de asistencia calcula el porcentaje de retardos y
+ * faltas con las tolerancias de la empresa. Resolvía con `.first()` sobre
+ * cualquier configuración activa —sin filtrar por empresa—, de modo que un
+ * cliente veía sus estadísticas calculadas con el umbral de otro.
+ */
+test.group('Tolerancias de las estadísticas de asistencia', () => {
+  test('el módulo resuelve por empresa activa, no por la primera configuración', ({ assert }) => {
+    const content = readFileSync(
+      join(process.cwd(), 'app/modules/attendance-stats/attendance-stats.service.ts'),
+      'utf-8'
+    )
+
+    assert.include(
+      content,
+      'resolveForActiveTenant()',
+      'las tolerancias del módulo salen de la empresa activa'
+    )
+    assert.notMatch(
+      content,
+      /SystemSetting\.query\(\)[\s\S]*?\.first\(\)/,
+      'ninguna consulta toma "la primera configuración que aparezca"'
+    )
   })
 })
