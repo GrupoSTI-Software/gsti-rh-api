@@ -174,7 +174,7 @@ async function createRole(prefix: string, businessUnit: BusinessUnit): Promise<R
     roleSlug: `${FIXTURE_SLUG_PREFIX}${prefix}-${stamp}`,
     roleDescription: 'Rol temporal del spec de emisión con plantilla propia',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   created.roleIds.push(role.roleId)
