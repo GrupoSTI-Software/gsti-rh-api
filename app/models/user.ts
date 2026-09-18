@@ -196,6 +196,10 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   /**
    * Unidades de negocio a las que el usuario tiene acceso.
    * Fuente de verdad para el aislamiento multi-tenant a nivel de usuario.
+   *
+   * La pivote lleva `role_id`: el rol efectivo de la cuenta DENTRO de cada
+   * empresa. `roleId` de esta tabla es el rol de la etapa anterior —uno solo
+   * por cuenta— y sobrevive como respaldo mientras el backfill no termina.
    */
   @manyToMany(() => BusinessUnit, {
     pivotTable: 'business_unit_users',
@@ -203,6 +207,7 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
     pivotForeignKey: 'user_id',
     relatedKey: 'businessUnitId',
     pivotRelatedForeignKey: 'business_unit_id',
+    pivotColumns: ['role_id'],
     pivotTimestamps: {
       createdAt: 'business_unit_user_created_at',
       updatedAt: 'business_unit_user_updated_at',

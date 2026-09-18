@@ -372,32 +372,35 @@ test.group('GET /api/billing/subscription/me — contrato de datos (CA-6)', (gro
   })
 })
 
-test.group(
-  'GET /api/billing/subscription/me — regresión muro (CA-5, USRH1786107870865)',
-  () => {
-    test('un usuario empleado recibe 200 sin gate de rol', async ({ client, assert }) => {
-      const actor = await createTenantActor({
-        emailPrefix: 'sub-me-employee',
-        origin: 'self_service',
-        roleSlug: 'empleado',
-      })
-
-      try {
-        const response = await client
-          .get('/api/billing/subscription/me')
-          .loginAs(actor.user)
-          .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
-
-        response.assertStatus(200)
-        assert.equal(response.body().data.businessUnitOrigin, 'self_service')
-        assert.isNull(response.body().data.subscription)
-        assert.equal(response.body().data.minimumContractedEmployees, 10)
-      } finally {
-        await cleanupTenantActor(actor)
-      }
+test.group('GET /api/billing/subscription/me — solo el dueño ve la facturación', () => {
+  /**
+   * Antes este caso afirmaba lo contrario —"recibe 200 sin gate de rol"— y
+   * dejaba constancia de que la facturación del tenant estaba abierta a
+   * cualquier cuenta autenticada de la empresa. Con un `admin` por empresa que
+   * administra la operación pero no el dinero, eso deja de ser tolerable:
+   * `assertBillingOwner` —el mismo guard que ya protegía contratar, aumentar,
+   * reducir y cancelar— pasa a cubrir también esta lectura.
+   */
+  test('un usuario empleado recibe 403', async ({ client, assert }) => {
+    const actor = await createTenantActor({
+      emailPrefix: 'sub-me-employee',
+      origin: 'self_service',
+      roleSlug: 'empleado',
     })
-  }
-)
+
+    try {
+      const response = await client
+        .get('/api/billing/subscription/me')
+        .loginAs(actor.user)
+        .header('X-Business-Unit-Id', actor.businessUnit.businessUnitPublicId)
+
+      response.assertStatus(403)
+      assert.equal(response.body().code, 'PLT.SUB.FORBIDDEN_ROLE')
+    } finally {
+      await cleanupTenantActor(actor)
+    }
+  })
+})
 
 test.group(
   'GET /api/billing/subscription/me — minimumContractedEmployees (USRH1785441822058)',
@@ -664,7 +667,7 @@ test.group(
       }
     })
 
-    test('un usuario empleado recibe liveChange en 200 sin gate de rol', async ({
+    test('un usuario empleado no alcanza el liveChange: 403', async ({
       client,
       assert,
     }) => {
@@ -711,10 +714,8 @@ test.group(
           .loginAs(employeeUser)
           .header('X-Business-Unit-Id', ownerActor.businessUnit.businessUnitPublicId)
 
-        response.assertStatus(200)
-        assert.isObject(response.body().data.subscription.liveChange)
-        assert.equal(response.body().data.subscription.liveChange.type, 'increase')
-        assert.equal(response.body().data.subscription.liveChange.status, 'pending_payment')
+        response.assertStatus(403)
+        assert.equal(response.body().code, 'PLT.SUB.FORBIDDEN_ROLE')
       } finally {
         await BusinessUnitUser.query().where('user_id', employeeUser.userId).delete()
         await User.query().where('user_id', employeeUser.userId).delete()

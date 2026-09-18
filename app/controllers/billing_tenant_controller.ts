@@ -448,8 +448,15 @@ export default class BillingTenantController {
    *       '404':
    *         description: Empresa fuera de alcance o inexistente
    */
-  async mySubscription({ response }: HttpContext) {
+  async mySubscription(ctx: HttpContext) {
+    const { response } = ctx
     try {
+      // El estado de la contratación es información de dinero: la ven los
+      // mismos que pueden cambiarla (`assertBillingOwner`). Faltaba solo aquí,
+      // y con un `admin` por empresa —que administra la operación pero no el
+      // dinero— esa lectura abierta deja de ser aceptable.
+      await assertBillingOwner(ctx)
+
       const result = await this.service.getMySubscription()
       return response.status(200).json({ type: 'success', data: result })
     } catch (error) {

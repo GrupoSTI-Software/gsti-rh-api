@@ -10,6 +10,7 @@ import SystemPermission from '#models/system_permission'
 import User from '#models/user'
 import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
 
 /**
  * Actores explícitos para specs de `permissionGate` sobre una BD limpia.
@@ -86,7 +87,9 @@ async function createUserInBusinessUnit(
     personId: person.personId,
     userEmailType: 'institutional',
   })
-  await user.related('businessUnits').attach([businessUnitId])
+  // Con rol efectivo escrito en la pivote: es lo que resuelve el middleware de
+  // scope en producción, así que el actor del spec debe nacer igual.
+  await attachBusinessUnitsWithRole(user, [businessUnitId], role.roleId)
 
   return { user, person }
 }

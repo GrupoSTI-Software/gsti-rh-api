@@ -63,6 +63,7 @@ import { ShiftExceptionFactory } from '../factories/shift_exception_factory.js'
 import { EmployeeVacationArchiveFactory } from '../factories/employee_vacation_archive_factory.js'
 import { EmployeeVacationArchiveContentFactory } from '../factories/employee_vacation_archive_content_factory.js'
 import { ExceptionRequestFactory } from '../factories/exception_request_factory.js'
+import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
 
 async function demoDbCounts(tag: string, label: string): Promise<void> {
   const q = async (table: string): Promise<number> => {
@@ -616,9 +617,7 @@ export default class DemoFactoryService {
         personId: emp.person.personId,
       }).create()
 
-      if (activeBusinessUnitIds.length > 0) {
-        await demoUser.related('businessUnits').attach(activeBusinessUnitIds)
-      }
+      await attachBusinessUnitsWithRole(demoUser, activeBusinessUnitIds, demoUser.roleId)
 
       result.users.created++
     }
@@ -665,9 +664,7 @@ export default class DemoFactoryService {
         personId: rootPerson.personId,
       }).create()
 
-      if (activeBusinessUnitIds.length > 0) {
-        await rootDemoUser.related('businessUnits').attach(activeBusinessUnitIds)
-      }
+      await attachBusinessUnitsWithRole(rootDemoUser, activeBusinessUnitIds, rootDemoUser.roleId)
 
       result.users.created++
 

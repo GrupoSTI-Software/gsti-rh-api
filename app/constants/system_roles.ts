@@ -8,6 +8,13 @@
  * consumidores (listados de roles y usuarios, guards del controller) la
  * importan de aquí, no la duplican.
  */
+/**
+ * Rol global de la plataforma: la cuenta de GSTI, sin empresa dueña
+ * (`business_unit_id IS NULL`). Es el único rol que NO se siembra por empresa
+ * y el único que sobrevive al retiro de los roles globales.
+ */
+export const PLATFORM_ROLE_SLUG = 'root' as const
+
 export const SYSTEM_ROLE_SLUGS = ['owner', 'empleado'] as const
 
 export type SystemRoleSlug = (typeof SYSTEM_ROLE_SLUGS)[number]

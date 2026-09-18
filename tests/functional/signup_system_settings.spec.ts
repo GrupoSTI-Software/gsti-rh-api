@@ -5,6 +5,8 @@ import type { I18n } from '@adonisjs/i18n'
 import db from '@adonisjs/lucid/services/db'
 import SignupDraft from '#models/signup_draft'
 import Person from '#models/person'
+import Role from '#models/role'
+import RoleSystemPermission from '#models/role_system_permission'
 import User from '#models/user'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
@@ -116,6 +118,24 @@ async function cleanupTenant(businessUnitName: string, email: string) {
     await Person.query().where('person_id', person.personId).delete()
   }
   if (businessUnit) {
+    // Los roles propios de la empresa salen antes que ella: la FK
+    // `roles_business_unit_id_foreign` es RESTRICT a propósito, para que una
+    // empresa con roles no desaparezca por accidente desde la base.
+    const tenantRoles = await Role.query()
+      .withTrashed()
+      .where('business_unit_id', businessUnit.businessUnitId)
+    if (tenantRoles.length > 0) {
+      await RoleSystemPermission.query()
+        .whereIn(
+          'role_id',
+          tenantRoles.map((role) => role.roleId)
+        )
+        .delete()
+      await Role.query()
+        .withTrashed()
+        .where('business_unit_id', businessUnit.businessUnitId)
+        .delete()
+    }
     await BusinessUnit.query().where('business_unit_id', businessUnit.businessUnitId).delete()
   }
   await SignupDraft.query().withTrashed().where('signup_draft_email', email).delete()

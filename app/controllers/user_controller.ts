@@ -20,7 +20,6 @@ import Employee from '#models/employee'
 import BusinessUnit from '#models/business_unit'
 import AuthTokenService from '#services/auth_token_service'
 import AuthMailService, { type AuthMailLanguage } from '#services/auth_mail_service'
-import RoleService from '#services/role_service'
 import { AUTH_LOGIN_ERRORS } from '#constants/auth_login_error_codes'
 import { respondRefreshTokenUnauthorized } from '../helpers/auth_token_response.js'
 import i18nManager from '@adonisjs/i18n/services/main'
@@ -48,6 +47,7 @@ import { normalizeToken } from '#helpers/employee_termination_record'
 import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
+import { canAccessBackoffice } from '#helpers/backoffice_access'
 
 /**
  * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
@@ -61,15 +61,16 @@ function generateRecoveryPin(): string {
 
 async function dispatchUserInvitationEmail(user: User): Promise<void> {
   await user.load('person')
-  const empleadoRole = await new RoleService().findRoleBySlug('empleado')
-  const canAccessBackoffice = !empleadoRole || user.roleId !== empleadoRole.roleId
+  // Se pregunta por el rol efectivo en sus empresas, no por la fila global de
+  // `empleado`, que ya no existe como rol único (ver `backoffice_access.ts`).
+  const canAccessBackofficeValue = await canAccessBackoffice(user)
   const authMailService = new AuthMailService()
   await authMailService.sendUserInvitation({
     to: user.userEmail,
     firstName: user.person?.personFirstname || user.userEmail,
     invitationToken: user.userToken,
     language: 'es',
-    canAccessBackoffice,
+    canAccessBackoffice: canAccessBackofficeValue,
   })
 }
 
@@ -409,9 +410,7 @@ export default class UserController {
       }
 
       if (origin === 'web') {
-        const roleService = new RoleService()
-        const employeeRole = await roleService.findRoleBySlug('empleado')
-        if (employeeRole && user.roleId === employeeRole.roleId) {
+        if (!(await canAccessBackoffice(user))) {
           response.status(403)
           return {
             title: AUTH_LOGIN_ERRORS.BACKOFFICE_FORBIDDEN.title,
