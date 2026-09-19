@@ -54,7 +54,32 @@ export default class AllianceAttributionController {
    *                 nullable: true
    *     responses:
    *       '201':
-   *         description: Atribución creada
+   *         description: >
+   *           Atribución creada, con avance del plazo (periodos
+   *           devengados, restantes, si sigue generando, motivo y monto
+   *           acumulado en centavos). Sin comisiones: 0 / plazo / true /
+   *           null / 0.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     allianceAttributionAccruedPeriods:
+   *                       type: integer
+   *                     allianceAttributionRemainingPeriods:
+   *                       type: integer
+   *                       nullable: true
+   *                     allianceAttributionIsAccruing:
+   *                       type: boolean
+   *                     allianceAttributionNotAccruingReason:
+   *                       type: string
+   *                       nullable: true
+   *                       enum: [term_exhausted, closed]
+   *                     allianceAttributionAccruedAmountCents:
+   *                       type: integer
    *       '404':
    *         description: >
    *           Alianza no encontrada (PLT.ALL.NOT_FOUND) o empresa cliente
@@ -95,7 +120,31 @@ export default class AllianceAttributionController {
    *           type: integer
    *     responses:
    *       '200':
-   *         description: Vista completa de la atribución
+   *         description: >
+   *           Vista completa de la atribución, con avance del plazo
+   *           (periodos devengados, restantes, si sigue generando, motivo
+   *           y monto acumulado en centavos).
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     allianceAttributionAccruedPeriods:
+   *                       type: integer
+   *                     allianceAttributionRemainingPeriods:
+   *                       type: integer
+   *                       nullable: true
+   *                     allianceAttributionIsAccruing:
+   *                       type: boolean
+   *                     allianceAttributionNotAccruingReason:
+   *                       type: string
+   *                       nullable: true
+   *                       enum: [term_exhausted, closed]
+   *                     allianceAttributionAccruedAmountCents:
+   *                       type: integer
    *       '404':
    *         description: Atribución no encontrada (PLT.ALL.ATTRIBUTION_NOT_FOUND)
    */
@@ -131,7 +180,33 @@ export default class AllianceAttributionController {
    *           format: uuid
    *     responses:
    *       '200':
-   *         description: Histórico de atribuciones
+   *         description: >
+   *           Histórico de atribuciones, cada una con su avance del plazo.
+   *           El agregado de comisiones es una sola consulta para todo
+   *           el conjunto, nunca una por atribución.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 data:
+   *                   type: array
+   *                   items:
+   *                     type: object
+   *                     properties:
+   *                       allianceAttributionAccruedPeriods:
+   *                         type: integer
+   *                       allianceAttributionRemainingPeriods:
+   *                         type: integer
+   *                         nullable: true
+   *                       allianceAttributionIsAccruing:
+   *                         type: boolean
+   *                       allianceAttributionNotAccruingReason:
+   *                         type: string
+   *                         nullable: true
+   *                         enum: [term_exhausted, closed]
+   *                       allianceAttributionAccruedAmountCents:
+   *                         type: integer
    *       '404':
    *         description: Empresa cliente no encontrada (PLT.ALL.BUSINESS_UNIT_NOT_FOUND)
    */
@@ -180,7 +255,30 @@ export default class AllianceAttributionController {
    *                 format: date
    *     responses:
    *       '200':
-   *         description: Atribución ajustada
+   *         description: >
+   *           Atribución ajustada, con el avance del plazo recalculado
+   *           (ampliar una agotada la deja generando de nuevo).
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     allianceAttributionAccruedPeriods:
+   *                       type: integer
+   *                     allianceAttributionRemainingPeriods:
+   *                       type: integer
+   *                       nullable: true
+   *                     allianceAttributionIsAccruing:
+   *                       type: boolean
+   *                     allianceAttributionNotAccruingReason:
+   *                       type: string
+   *                       nullable: true
+   *                       enum: [term_exhausted, closed]
+   *                     allianceAttributionAccruedAmountCents:
+   *                       type: integer
    *       '404':
    *         description: Atribución no encontrada (PLT.ALL.ATTRIBUTION_NOT_FOUND)
    *       '409':
@@ -241,7 +339,32 @@ export default class AllianceAttributionController {
    *                 type: string
    *     responses:
    *       '200':
-   *         description: Atribución cerrada
+   *         description: >
+   *           Atribución cerrada. El avance informa
+   *           notAccruingReason `closed` aunque el plazo también se
+   *           hubiera agotado; el monto acumulado incluye comisiones
+   *           con fecha posterior al cierre.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     allianceAttributionAccruedPeriods:
+   *                       type: integer
+   *                     allianceAttributionRemainingPeriods:
+   *                       type: integer
+   *                       nullable: true
+   *                     allianceAttributionIsAccruing:
+   *                       type: boolean
+   *                     allianceAttributionNotAccruingReason:
+   *                       type: string
+   *                       nullable: true
+   *                       enum: [term_exhausted, closed]
+   *                     allianceAttributionAccruedAmountCents:
+   *                       type: integer
    *       '404':
    *         description: Atribución no encontrada (PLT.ALL.ATTRIBUTION_NOT_FOUND)
    *       '422':

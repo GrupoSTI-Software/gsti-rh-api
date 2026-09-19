@@ -59,6 +59,8 @@ import {
   employeeImportQuotaNoPlanError,
 } from '../helpers/employee_quota_api_error.js'
 import { isSensitiveDataWriteError } from '#helpers/sensitive_data_write_api_error'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import { resolvePersonRelease, type PersonReleaseContext } from '#helpers/person_release_guard'
 import { findSensitiveCategoriesInExcelHeaders } from '#constants/employee_excel_sensitive_headers'
 import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
@@ -205,8 +207,10 @@ export default class EmployeeService {
     return DateTime.fromMillis(randomTimestamp)
   }
 
-  async syncCreate(employee: BiometricEmployeeInterface) {
-    // Guardar el personId que viene del frontend
+  async syncCreate(employee: BiometricEmployeeInterface, releaseContext: PersonReleaseContext) {
+    // Persona candidata a liberar si el alta falla. Si viene del API de
+    // biométricos es preexistente y el predicado la conserva (fuera de
+    // ventana); solo la creada en este mismo acto se libera (USRH1789698261608).
     let personIdToDelete = employee.personId || null
     // const newEmployee = new Employee()
     // const personService = new PersonService(this.i18n)
@@ -228,7 +232,7 @@ export default class EmployeeService {
         .whereNull('employee_type_deleted_at')
         .first()
 
-      // Usar el personId que viene del frontend
+      // Persona preexistente que llegó del API de biométricos
       if (employee.personId) {
         newEmployee.personId = employee.personId
       } else {
@@ -274,20 +278,15 @@ export default class EmployeeService {
       // Guardar empleado
       await newEmployee.save()
 
-      await this.updateEmployeeSlug(newEmployee)
-
       // Asignar usuarios responsables
       await this.setUserResponsible(newEmployee.employeeId, employee.usersResponsible ? employee.usersResponsible : [])
 
       return newEmployee
     } catch (error) {
-      // Si hay error y tenemos un personId, eliminarlo
+      // USRH1789698261608 (D2): misma compensación que el alta desde el BO.
+      // `releasePersonIfOrphan` nunca lanza, así que no hace falta anidar.
       if (personIdToDelete) {
-        try {
-          await this.deletePersonById(personIdToDelete)
-        } catch (deleteError) {
-          console.error('Error eliminando persona huérfana:', deleteError)
-        }
+        await this.releasePersonIfOrphan(personIdToDelete, releaseContext)
       }
       throw error
     }
@@ -350,7 +349,6 @@ export default class EmployeeService {
     currentEmployee.positionSyncId = employee.positionId
     currentEmployee.employeeLastSynchronizationAt = new Date()
     await currentEmployee.save()
-    await this.updateEmployeeSlug(currentEmployee)
     return currentEmployee
   }
 
@@ -699,7 +697,12 @@ export default class EmployeeService {
     return missing
   }
 
-  async create(employee: Employee, usersResponsible: User[], SNDeviceList: string = '') {
+  async create(
+    employee: Employee,
+    usersResponsible: User[],
+    releaseContext: PersonReleaseContext,
+    SNDeviceList: string = ''
+  ) {
     // Persona del mismo acto de alta (creada por el BO en el request previo):
     // si el alta falla se libera solo si quedó huérfana, para que el reintento
     // no choque con "personEmail has already been taken" (USRH1785436961832).
@@ -764,7 +767,6 @@ export default class EmployeeService {
         await this.verifyEmployeeLimit(employee.businessUnitId, trx)
         newEmployee.useTransaction(trx)
         await newEmployee.save()
-        await this.updateEmployeeSlug(newEmployee, trx)
         await this.setUserResponsible(
           newEmployee.employeeId,
           usersResponsible ? usersResponsible : [],
@@ -800,7 +802,7 @@ export default class EmployeeService {
       return newEmployee
     } catch (error) {
       if (personIdCandidate) {
-        await this.releasePersonIfOrphan(personIdCandidate)
+        await this.releasePersonIfOrphan(personIdCandidate, releaseContext)
       }
       throw error
     }
@@ -882,7 +884,6 @@ export default class EmployeeService {
       })
     }
 
-    await this.updateEmployeeSlug(currentEmployee)
     await currentEmployee.load('businessUnit')
     return currentEmployee
   }
@@ -1073,52 +1074,6 @@ export default class EmployeeService {
   }
 
   /**
-   * Público desde USRH1785438246847: la siembra demo del onboarding lo reusa
-   * para poblar el slug del empleado de práctica dentro de su transacción.
-   */
-  async updateEmployeeSlug(employee: Employee, trx?: TransactionClientContract) {
-    if (!employee.employeeId) {
-      return
-    }
-
-    const slug = this.generateEmployeeSlug(employee)
-    await Employee.query({ client: trx })
-      .where('employee_id', employee.employeeId)
-      .update({ employee_slug: slug })
-    employee.employeeSlug = slug
-  }
-
-  private generateEmployeeSlug(employee: Employee) {
-    const firstNamePart = this.normalizeSlugSegment(employee.employeeFirstName)
-    const lastNamePart = this.normalizeSlugSegment(employee.employeeLastName)
-    const secondLastNamePart = this.normalizeSlugSegment(employee.employeeSecondLastName)
-    const namePart =
-      [firstNamePart, lastNamePart, secondLastNamePart].filter((part) => part).join('-') || 'sin-nombre'
-
-    const payrollPart = this.normalizeSlugSegment(employee.employeePayrollCode, 'sin-codigo')
-    const idPart = employee.employeeId ? `${employee.employeeId}` : '0'
-
-    return `${namePart}---${payrollPart}---${idPart}`.toLowerCase()
-  }
-
-  private normalizeSlugSegment(value?: string | null, fallback = '') {
-    if (!value) {
-      return fallback
-    }
-
-    return value
-      .toString()
-      .trim()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/[^a-zA-Z0-9\-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .toLowerCase()
-  }
-
-  /**
    * Reactivar un empleado eliminado (soft delete)
    * @param currentEmployee - Empleado a reactivar
    * @returns Promise<Employee>
@@ -1195,6 +1150,28 @@ export default class EmployeeService {
       .withTrashed()
       .first()
     return employee ? employee : null
+  }
+
+  /**
+   * Canjea el token opaco de la URL del Backoffice por el empleado.
+   *
+   * Resuelve el id y delega en `getById` en vez de repetir su query: el filtro
+   * por usuario responsable, los preloads y el `withTrashed` viven en un solo
+   * lugar. La búsqueda del slug hereda el alcance por empresa del mixin
+   * `withBusinessUnitScope`, así que un token de otra empresa no resuelve.
+   */
+  async getBySlug(employeeSlug: string, userResponsibleId?: number | null) {
+    const match = await Employee.query()
+      .where('employee_slug', employeeSlug)
+      .select('employee_id')
+      .withTrashed()
+      .first()
+
+    if (!match) {
+      return null
+    }
+
+    return this.getById(match.employeeId, userResponsibleId)
   }
 
   async getNewPosition(
@@ -2590,48 +2567,77 @@ export default class EmployeeService {
 
 
   /**
-   * Libera (soft-delete) la persona de un intento de alta fallido para que el
-   * reintento del formulario no choque con los únicos de persona (correo,
-   * CURP, RFC — sus validadores ignoran filas eliminadas). Solo procede si la
-   * persona quedó huérfana: sin empleado, usuario ni cliente activos. Una
-   * persona preexistente ligada a algo más no se toca — el sistema queda como
-   * antes del intento (USRH1785436961832, reglas 2 y 3).
+   * Libera (soft delete) a la persona del alta de empleado fallida para que el
+   * capturista pueda reintentar sin chocar con "el correo ya está registrado"
+   * (USRH1785436961832), ahora blindada (USRH1789698261608).
+   *
+   * Solo procede si la persona no tiene NI HA TENIDO vínculo alguno —empleado,
+   * usuario o cliente, vivo o dado de baja— y nació dentro de la ventana de
+   * frescura. Cualquier otro caso se niega en silencio y queda trazado. No
+   * comprueba de qué empresa es la persona: `people` no tiene esa marca.
+   *
+   * @param personId Persona candidata; llega del payload del alta o del API de biométricos.
+   * @param context Actor y scope del acto, para la traza de la decisión. No decide nada.
+   * @returns `true` solo si la persona quedó liberada. Nunca lanza.
    */
-  async releasePersonIfOrphan(personId: number): Promise<boolean> {
+  async releasePersonIfOrphan(
+    personId: number,
+    context: PersonReleaseContext
+  ): Promise<boolean> {
     try {
-      const orphan = await Person.query()
-        .where('person_id', personId)
-        .whereNotExists((query) => {
-          query.from('employees')
-            .whereRaw('employees.person_id = people.person_id')
-            .whereNull('employees.employee_deleted_at')
-        })
-        .whereNotExists((query) => {
-          query.from('users')
-            .whereRaw('users.person_id = people.person_id')
-            .whereNull('users.user_deleted_at')
-        })
-        .whereNotExists((query) => {
-          query.from('customers')
-            .whereRaw('customers.person_id = people.person_id')
-            .whereNull('customers.customer_deleted_at')
-        })
-        .first()
+      const decision = await resolvePersonRelease(personId)
 
-      if (!orphan) {
+      if (!decision.releasable) {
+        // `not-found` es el camino normal de la segunda compensación del mismo
+        // acto (la primera ya liberó): registrarlo llenaría la auditoría de
+        // falsos positivos en cada alta fallida legítima.
+        if (decision.reason !== 'not-found') {
+          logger.warn(
+            { personId, reason: decision.reason, actorUserId: context.actorUserId },
+            'EmployeeService.releasePersonIfOrphan: liberación denegada'
+          )
+          // Best-effort y posterior a la decisión: si Mongo está caído no
+          // guarda y no avisa, y el rechazo se sostiene igual.
+          await ScopeDeniedLogService.log({
+            domain: 'person',
+            action: 'release-orphan',
+            requestedId: personId,
+            actorUserId: context.actorUserId,
+            businessUnitScope: context.businessUnitScope,
+          })
+        }
         return false
       }
 
-      await orphan.delete()
+      await decision.person.delete()
+
+      // La CONCESIÓN también se registra. Sin esto, un barrido exitoso de
+      // expedientes en vuelo sería invisible — justo el escenario que interesa
+      // poder reconstruir después. Mismo carácter best-effort.
+      await ScopeDeniedLogService.log({
+        domain: 'person',
+        action: 'release-orphan-granted',
+        requestedId: personId,
+        actorUserId: context.actorUserId,
+        businessUnitScope: context.businessUnitScope,
+      })
+
       return true
     } catch (error) {
-      console.error('Error liberando persona huérfana del alta fallida:', error)
+      logger.error(
+        { err: error, personId },
+        'EmployeeService.releasePersonIfOrphan: fallo al liberar la persona del alta fallida'
+      )
       return false
     }
   }
 
   /**
-   * Eliminar una persona por su ID
+   * Eliminar una persona por su ID.
+   *
+   * @deprecated Sin llamadores desde USRH1789698261608: borraba sin comprobar
+   * vínculo ni antigüedad. Toda compensación del alta fallida pasa por
+   * `releasePersonIfOrphan`. Se retira junto con el alta transaccional.
    * @param personId - ID de la persona a eliminar
    * @returns Promise<boolean> - true si se eliminó correctamente
    */
@@ -4118,8 +4124,6 @@ export default class EmployeeService {
 
     await employee.save()
 
-    // Generar slug único después de guardar (necesita employeeId)
-    await this.updateEmployeeSlug(employee)
 
     return employee
   }
@@ -7784,7 +7788,6 @@ export default class EmployeeService {
     }
 
     await employee.save()
-    await this.updateEmployeeSlug(employee)
     return employee
   }
 

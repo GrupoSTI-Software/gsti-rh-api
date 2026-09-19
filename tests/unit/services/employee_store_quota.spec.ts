@@ -14,8 +14,15 @@ import BillingSubscriptionService from '#services/billing_subscription_service'
 import EmployeeService from '#services/employee_service'
 import { EmployeeQuotaError } from '../../../app/exceptions/employee_quota_error.js'
 import { EMPLOYEE_QUOTA_ERROR_CODES } from '#constants/employee_quota_error_codes'
+import type { PersonReleaseContext } from '#helpers/person_release_guard'
 
 const STAMP = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
+
+/**
+ * USRH1789698261608: `create()` ahora exige el contexto de liberación. Estos
+ * casos prueban cupo, no la liberación en sí — el contenido no importa.
+ */
+const RELEASE_CONTEXT: PersonReleaseContext = { actorUserId: null, businessUnitScope: [] }
 
 function getService(): EmployeeService {
   return new EmployeeService(i18nManager.locale(i18nManager.defaultLocale))
@@ -182,7 +189,7 @@ test.group('EmployeeService — cupo en alta individual (USRH1785441817258)', (g
     const service = getService()
 
     try {
-      await service.create(payload, [])
+      await service.create(payload, [], RELEASE_CONTEXT)
       assert.fail('debió lanzar EmployeeQuotaError')
     } catch (error) {
       assert.instanceOf(error, EmployeeQuotaError)
@@ -220,7 +227,7 @@ test.group('EmployeeService — cupo en alta individual (USRH1785441817258)', (g
     const service = getService()
 
     try {
-      await service.create(payload, [])
+      await service.create(payload, [], RELEASE_CONTEXT)
       assert.fail('debió lanzar EmployeeQuotaError')
     } catch (error) {
       assert.instanceOf(error, EmployeeQuotaError)
@@ -245,7 +252,7 @@ test.group('EmployeeService — cupo en alta individual (USRH1785441817258)', (g
     const payload = buildEmployeePayload(template, person, businessUnit.businessUnitId, 'ok')
     const service = getService()
 
-    const created = await service.create(payload, [])
+    const created = await service.create(payload, [], RELEASE_CONTEXT)
     cleanup(async () => {
       await Employee.query().where('employee_id', created.employeeId).delete()
       await cleanupBusinessUnitWithPersons(businessUnit.businessUnitId, [person.personId])
@@ -290,8 +297,8 @@ test.group('EmployeeService — cupo en alta individual (USRH1785441817258)', (g
     })
 
     const results = await Promise.allSettled([
-      service.create(payloadA, []),
-      service.create(payloadB, []),
+      service.create(payloadA, [], RELEASE_CONTEXT),
+      service.create(payloadB, [], RELEASE_CONTEXT),
     ])
 
     const fulfilled = results.filter((result) => result.status === 'fulfilled')

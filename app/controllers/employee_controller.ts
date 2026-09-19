@@ -73,6 +73,7 @@ import { I18n } from '@adonisjs/i18n'
 import { TenantContext } from '#utils/tenant_context'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import { isEmployeeTerminationRecordChanged } from '#helpers/employee_termination_record'
+import type { PersonReleaseContext } from '#helpers/person_release_guard'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { EMPLOYEES_TERMINATION_RECORD_PERMISSION } from '#constants/employees_write_permission_declarations'
 import EmployeeQuotaService from '#services/employee_quota_service'
@@ -373,6 +374,11 @@ export default class EmployeeController {
       const hireDate = request.input('hireDate')
 
       const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(auth.user!)
+      // USRH1789698261608: traza de la compensación del alta por sincronización.
+      const releaseContext: PersonReleaseContext = {
+        actorUserId: auth.user?.userId ?? null,
+        businessUnitScope: allowedIds,
+      }
       const businessUnits = await BusinessUnit.query()
         .where('business_unit_active', 1)
         .whereIn('business_unit_id', allowedIds)
@@ -471,7 +477,7 @@ export default class EmployeeController {
             employee.businessUnitId = businessUnitApply?.businessUnitId || 1
             employeeCountSaved += 1
 
-            await this.verify(employee, employeeService)
+            await this.verify(employee, employeeService, releaseContext)
           }
         }
         response.status(201)
@@ -1136,13 +1142,20 @@ export default class EmployeeController {
         employeeAuthorizeAnyZones: employeeAuthorizeAnyZones,
       } as Employee
       const employeeService = new EmployeeService(i18n)
+      // USRH1789698261608: actor y scope del acto, solo para la traza de la
+      // liberación. `personId` llega crudo del payload: se castea aquí y el
+      // helper vuelve a normalizar (doble cinturón).
+      const releaseContext: PersonReleaseContext = {
+        actorUserId: auth.user?.userId ?? null,
+        businessUnitScope,
+      }
       const requiredStructure = requireEmployeeStructureForCreate({
         departmentId: departmentId,
         positionId: positionId,
       })
       if (!requiredStructure.ok) {
         if (personId) {
-          await employeeService.releasePersonIfOrphan(personId)
+          await employeeService.releasePersonIfOrphan(Number(personId), releaseContext)
         }
         const messageKey =
           requiredStructure.missing === 'both'
@@ -1176,7 +1189,7 @@ export default class EmployeeController {
           businessUnitScope,
         })
         if (personId) {
-          await employeeService.releasePersonIfOrphan(personId)
+          await employeeService.releasePersonIfOrphan(Number(personId), releaseContext)
         }
         response.status(400)
         return {
@@ -1193,7 +1206,7 @@ export default class EmployeeController {
         // se libera la persona creada para este acto, si quedó huérfana, para
         // que el reintento no choque con "personEmail has already been taken".
         if (personId) {
-          await employeeService.releasePersonIfOrphan(personId)
+          await employeeService.releasePersonIfOrphan(Number(personId), releaseContext)
         }
         response.status(exist.status)
         return {
@@ -1208,7 +1221,7 @@ export default class EmployeeController {
       const verifyInfo = await employeeService.verifyInfo(employee)
       if (verifyInfo.status !== 200) {
         if (personId) {
-          await employeeService.releasePersonIfOrphan(personId)
+          await employeeService.releasePersonIfOrphan(Number(personId), releaseContext)
         }
         response.status(verifyInfo.status)
         return {
@@ -1251,7 +1264,7 @@ export default class EmployeeController {
         }
       }
 
-      const newEmployee = await employeeService.create(employee, usersResponsible)
+      const newEmployee = await employeeService.create(employee, usersResponsible, releaseContext)
       if (newEmployee) {
         response.status(201)
         return {
@@ -1269,7 +1282,10 @@ export default class EmployeeController {
       const failedPersonId = Number(request.input('personId')) || 0
       if (failedPersonId > 0) {
         const employeeService = new EmployeeService(i18n)
-        await employeeService.releasePersonIfOrphan(failedPersonId)
+        await employeeService.releasePersonIfOrphan(failedPersonId, {
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
       }
       if (error instanceof EmployeePositionLevelError) {
         const resolved = resolveEmployeePositionLevelApiError(error, error.httpStatus, i18n)
@@ -2261,6 +2277,108 @@ export default class EmployeeController {
           message: 'The employee was found successfully',
           data: { employee: showEmployee },
         }
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees/get-by-slug/{employeeSlug}:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: get employee by opaque slug
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: employeeSlug
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: Employee opaque token
+   *         required: true
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *       '400':
+   *         description: The slug was not provided
+   *       '404':
+   *         description: The employee was not found
+   *       '500':
+   *         description: Unexpected server error
+   */
+  /**
+   * Canjea el token opaco de la URL del Backoffice por el empleado.
+   *
+   * Espeja a `getById`: mismo filtro por usuario responsable y mismo gate, que
+   * se resuelve aquí adentro con `ensureEmployeeTabRead` porque necesita el id
+   * ya resuelto para saber qué pestañas puede leer quien pregunta. El alcance
+   * por empresa lo ponen `auth()` y `businessScope()` del prefijo — el token no
+   * es el control de acceso, solo evita que el nombre y el código de nómina
+   * viajen en la URL.
+   */
+  async getBySlug(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
+    try {
+      await auth.check()
+      const user = auth.user
+      let userResponsibleId = null
+      if (user) {
+        await user.preload('role')
+        if (user.role.roleSlug !== 'root') {
+          userResponsibleId = user?.userId
+        }
+      }
+
+      const employeeSlug = request.param('employeeSlug')
+      if (!employeeSlug) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The employee slug was not found',
+          data: { employeeSlug },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const showEmployee = await employeeService.getBySlug(employeeSlug, userResponsibleId)
+      if (!showEmployee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'The employee was not found',
+          message: 'The employee was not found with the entered slug',
+          data: { employeeSlug },
+        }
+      }
+
+      const allowed = await ensureEmployeeTabRead(
+        ctx,
+        showEmployee.employeeId,
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeById
+      )
+      if (!allowed) {
+        return
+      }
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Employees',
+        message: 'The employee was found successfully',
+        data: { employee: showEmployee },
       }
     } catch (error) {
       response.status(500)
@@ -4575,13 +4693,17 @@ export default class EmployeeController {
     }
   }
 
-  private async verify(employee: BiometricEmployeeInterface, employeeService: EmployeeService) {
+  private async verify(
+    employee: BiometricEmployeeInterface,
+    employeeService: EmployeeService,
+    releaseContext: PersonReleaseContext
+  ) {
     const existEmployee = await Employee.query()
       .where('employee_code', employee.empCode)
       .withTrashed()
       .first()
     if (!existEmployee) {
-      await employeeService.syncCreate(employee)
+      await employeeService.syncCreate(employee, releaseContext)
     }
   }
 
@@ -6876,6 +6998,11 @@ export default class EmployeeController {
     try {
       const employees = request.input('employees')
       const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(auth.user!)
+      // USRH1789698261608: traza de la compensación del alta por sincronización.
+      const releaseContext: PersonReleaseContext = {
+        actorUserId: auth.user?.userId ?? null,
+        businessUnitScope: allowedIds,
+      }
       const businessUnits = await BusinessUnit.query()
         .where('business_unit_active', 1)
         .whereIn('business_unit_id', allowedIds)
@@ -6951,7 +7078,7 @@ export default class EmployeeController {
             employee.usersResponsible = usersResponsible
             employee.businessUnitId = businessUnitApply?.businessUnitId || 1
             employeeCountSaved += 1
-            await this.verify(employee, employeeService)
+            await this.verify(employee, employeeService, releaseContext)
           }
         }
         response.status(201)
