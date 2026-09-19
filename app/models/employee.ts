@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column, hasMany, hasOne } from '@adonisjs/lucid/orm'
+import { randomUUID } from 'node:crypto'
+import { BaseModel, beforeCreate, belongsTo, column, hasMany, hasOne } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany, HasOne } from '@adonisjs/lucid/types/relations'
 import Department from './department.js'
 import Position from './position.js'
@@ -178,8 +179,32 @@ export default class Employee extends compose(BaseModel, SoftDeletes, withBusine
   @column()
   declare employeePayrollCode: string | null
 
+  /**
+   * Token opaco con el que el Backoffice identifica al empleado en la URL del
+   * navegador. No se deriva de sus datos: el formato anterior
+   * (`nombre---codigoNomina---id`) filtraba PII al historial, a los logs de
+   * proxy y al header `Referer`.
+   */
   @column()
-  declare employeeSlug: string | null
+  declare employeeSlug: string
+
+  /**
+   * Asigna el slug en el alta, no en cada servicio que crea empleados.
+   *
+   * Había cuatro rutas de alta distintas — sincronización con el checador, alta
+   * transaccional, importación masiva y siembra demo — y cada una tenía que
+   * acordarse de pedirlo después del `save()`. Como hook queda invariante:
+   * ninguna alta puede nacer sin slug, tampoco las que se escriban después.
+   *
+   * Es inmutable a propósito. Es el identificador de la URL, así que
+   * regenerarlo al renombrar a un empleado rompería todos los enlaces que
+   * apuntan a él.
+   */
+  @beforeCreate()
+  static async assignEmployeeSlug(instance: Employee) {
+    if (instance.employeeSlug) return
+    instance.employeeSlug = randomUUID()
+  }
 
   @column()
   declare employeeWorkSchedule: EmployeeWorkSchedule

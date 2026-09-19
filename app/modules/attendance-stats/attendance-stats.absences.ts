@@ -219,6 +219,7 @@ function preferAlias(alias: string | null | undefined, name: string | null): str
 function toAbsencesEmployee(employee: EmployeeInfo): AbsencesEmployee {
   return {
     employeeId: employee.employeeId,
+    employeeSlug: employee.employeeSlug,
     firstName: employee.employeeFirstName ?? '',
     lastName: employee.employeeLastName,
     secondLastName: employee.employeeSecondLastName,

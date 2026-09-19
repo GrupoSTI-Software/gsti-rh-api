@@ -164,6 +164,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     const rows = await q
       .select(
         'e.employee_id AS employee_id',
+        'e.employee_slug AS employee_slug',
         'e.employee_code AS employee_code',
         'e.employee_payroll_code AS employee_payroll_code',
         'e.employee_first_name AS employee_first_name',
@@ -207,6 +208,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
       return {
         employee: {
           employeeId: Number(r.employee_id),
+          employeeSlug: String(r.employee_slug ?? ''),
           employeeCode: r.employee_code ?? null,
           employeePayrollCode: r.employee_payroll_code ?? null,
           employeeFirstName: r.employee_first_name ?? null,
