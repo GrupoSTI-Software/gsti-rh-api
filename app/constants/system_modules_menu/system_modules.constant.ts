@@ -8,6 +8,13 @@ import { ACCESS_POINT_PERMISSION_CATALOG } from '#constants/access_point_permiss
  * Fuente única del catálogo de módulos del sistema: menú (grupo, orden,
  * icono, ruta), identidad (slug), permisos y exigencia de permisos.
  *
+ * NO crees otro archivo con una lista, enum, tipo unión o mapa de módulos o
+ * permisos: aquí se declara y de aquí se deriva por código. Nada de sembrar
+ * catálogo desde migraciones, ni ids o slugs escritos a mano. La regla completa
+ * —qué archivos satélite existen y qué puede declarar cada uno— está en
+ * `.claude/rules/catalogo-modulos-permisos.md`. El contrato lo verifica
+ * `node ace test unit --files="constants/"`, que corre en pre-push y en CI.
+ *
  * Cómo se usa:
  *  - Agregar un módulo o permiso, renombrarlo o cambiarle el icono se hace
  *    SOLO aquí. Los seeders `0061_system_module_group_seeder` y
@@ -596,25 +603,6 @@ export const SYSTEM_MODULES_GROUPED = [
         ],
       },
       {
-        systemModuleName: 'Ajustes Generales',
-        systemModuleSlug: 'system-settings',
-        systemModuleDescription: '',
-        systemModules: 1,
-        systemModulePath: '/system-settings',
-        systemModuleOrder: 99,
-        systemModuleActive: 1,
-        systemModulePermissionEnforcementActive: true,
-        systemModuleRetired: false,
-        systemModuleIcon:
-          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h9"/><path d="M9 8h1"/><path d="M9 12h1"/><path d="M9 16h1"/><path d="M14 8h1"/><path d="M14 12h1"/><path d="M5 21v-16c0 -.53 .211 -1.039 .586 -1.414c.375 -.375 .884 -.586 1.414 -.586h10c.53 0 1.039 .211 1.414 .586c.375 .375 .586 .884 .586 1.414v7"/><path d="M16 18c0 .53 .211 1.039 .586 1.414c.375 .375 .884 .586 1.414 .586c.53 0 1.039 -.211 1.414 -.586c.375 -.375 .586 -.884 .586 -1.414c0 -.53 -.211 -1.039 -.586 -1.414c-.375 -.375 -.884 -.586 -1.414 -.586c-.53 0 -1.039 .211 -1.414 .586c-.375 .375 -.586 .884 -.586 1.414z"/><path d="M18 14.5v1.5"/><path d="M18 20v1.5"/><path d="M21.032 16.25l-1.299 .75"/><path d="M16.27 19l-1.3 .75"/><path d="M14.97 16.25l1.3 .75"/><path d="M19.733 19l1.3 .75"/></svg>',
-        systemModulePermissions: [
-          { systemPermissionName: 'Acceder a ajustes generales', systemPermissionSlug: 'read' },
-          { systemPermissionName: 'Crear ajustes generales', systemPermissionSlug: 'create' },
-          { systemPermissionName: 'Editar ajustes generales', systemPermissionSlug: 'update' },
-          { systemPermissionName: 'Eliminar ajustes generales', systemPermissionSlug: 'delete' },
-        ],
-      },
-      {
         systemModuleName: 'Puestos',
         systemModuleSlug: 'positions',
         systemModuleDescription: '',
@@ -1184,6 +1172,25 @@ export const SYSTEM_MODULES_GROUPED = [
             systemPermissionName: 'Consultar la cobertura y el marco regulatorio',
             systemPermissionSlug: 'read',
           },
+        ],
+      },
+      {
+        systemModuleName: 'Ajustes Generales',
+        systemModuleSlug: 'system-settings',
+        systemModuleDescription: '',
+        systemModules: 1,
+        systemModulePath: '/system-settings',
+        systemModuleOrder: 99,
+        systemModuleActive: 1,
+        systemModulePermissionEnforcementActive: true,
+        systemModuleRetired: false,
+        systemModuleIcon:
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h9"/><path d="M9 8h1"/><path d="M9 12h1"/><path d="M9 16h1"/><path d="M14 8h1"/><path d="M14 12h1"/><path d="M5 21v-16c0 -.53 .211 -1.039 .586 -1.414c.375 -.375 .884 -.586 1.414 -.586h10c.53 0 1.039 .211 1.414 .586c.375 .375 .586 .884 .586 1.414v7"/><path d="M16 18c0 .53 .211 1.039 .586 1.414c.375 .375 .884 .586 1.414 .586c.53 0 1.039 -.211 1.414 -.586c.375 -.375 .586 -.884 .586 -1.414c0 -.53 -.211 -1.039 -.586 -1.414c-.375 -.375 -.884 -.586 -1.414 -.586c-.53 0 -1.039 .211 -1.414 .586c-.375 .375 -.586 .884 -.586 1.414z"/><path d="M18 14.5v1.5"/><path d="M18 20v1.5"/><path d="M21.032 16.25l-1.299 .75"/><path d="M16.27 19l-1.3 .75"/><path d="M14.97 16.25l1.3 .75"/><path d="M19.733 19l1.3 .75"/></svg>',
+        systemModulePermissions: [
+          { systemPermissionName: 'Acceder a ajustes generales', systemPermissionSlug: 'read' },
+          { systemPermissionName: 'Crear ajustes generales', systemPermissionSlug: 'create' },
+          { systemPermissionName: 'Editar ajustes generales', systemPermissionSlug: 'update' },
+          { systemPermissionName: 'Eliminar ajustes generales', systemPermissionSlug: 'delete' },
         ],
       },
     ],
