@@ -4,7 +4,11 @@ import {
   cleanupActor,
   createSensitiveFixture,
   cleanupSensitiveFixture,
+  createRemainingSensitiveFixture,
+  cleanupRemainingSensitiveFixture,
   buHeader,
+  CLEAR_FIXED,
+  CLEAR_REMAINING,
   createSystemActor,
   cleanupSystemActor,
   grantAcrossModules,
@@ -12,26 +16,45 @@ import {
   cleanupRevealLogs,
   type TenantActor,
   type SensitiveFixture,
+  type RemainingSensitiveFixture,
 } from './pii_permission_gate_support.js'
 
 const REVEALABLE_COLUMNS = [
-  { model: 'Person', column: 'personCurp', permission: 'sensitive-identificacion-read', clearKey: 'curp' as const },
-  { model: 'Person', column: 'personRfc', permission: 'sensitive-identificacion-read', clearKey: 'rfc' as const },
-  { model: 'Person', column: 'personImssNss', permission: 'sensitive-identificacion-read', clearKey: 'nss' as const },
-  { model: 'Person', column: 'personEmail', permission: 'sensitive-contacto-read', clearKey: 'email' as const },
-  { model: 'Person', column: 'personPhone', permission: 'sensitive-contacto-read', clearKey: 'phone' as const },
-  { model: 'Person', column: 'personPhoneSecondary', permission: 'sensitive-contacto-read', clearKey: 'phoneSecondary' as const },
-  { model: 'EmployeeBank', column: 'employeeBankAccountClabe', permission: 'sensitive-financiero-read', clearKey: 'clabe' as const },
-  { model: 'EmployeeBank', column: 'employeeBankAccountNumber', permission: 'sensitive-financiero-read', clearKey: 'account' as const },
-  { model: 'EmployeeBank', column: 'employeeBankAccountCardNumber', permission: 'sensitive-financiero-read', clearKey: 'card' as const },
-  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionDiagnosis', permission: 'sensitive-salud-read', clearKey: 'diagnosis' as const },
-  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionNotes', permission: 'sensitive-salud-read', clearKey: 'notes' as const },
+  { model: 'Person', column: 'personCurp', permission: 'sensitive-identificacion-read', clearValue: (f: SensitiveFixture, _e?: RemainingSensitiveFixture) => f.clear.curp },
+  { model: 'Person', column: 'personRfc', permission: 'sensitive-identificacion-read', clearValue: (f: SensitiveFixture, _e?: RemainingSensitiveFixture) => f.clear.rfc },
+  { model: 'Person', column: 'personImssNss', permission: 'sensitive-identificacion-read', clearValue: (f: SensitiveFixture, _e?: RemainingSensitiveFixture) => f.clear.nss },
+  { model: 'Person', column: 'personEmail', permission: 'sensitive-contacto-read', clearValue: (f: SensitiveFixture, _e?: RemainingSensitiveFixture) => f.clear.email },
+  { model: 'Person', column: 'personPhone', permission: 'sensitive-contacto-read', clearValue: (f: SensitiveFixture, _e?: RemainingSensitiveFixture) => f.clear.phone },
+  { model: 'Person', column: 'personPhoneSecondary', permission: 'sensitive-contacto-read', clearValue: (f: SensitiveFixture, _e?: RemainingSensitiveFixture) => f.clear.phoneSecondary },
+  { model: 'EmployeeBank', column: 'employeeBankAccountClabe', permission: 'sensitive-financiero-read', clearValue: (f: SensitiveFixture, _e?: RemainingSensitiveFixture) => f.clear.clabe },
+  { model: 'EmployeeBank', column: 'employeeBankAccountNumber', permission: 'sensitive-financiero-read', clearValue: (f: SensitiveFixture, _e?: RemainingSensitiveFixture) => f.clear.account },
+  { model: 'EmployeeBank', column: 'employeeBankAccountCardNumber', permission: 'sensitive-financiero-read', clearValue: (f: SensitiveFixture, _e?: RemainingSensitiveFixture) => f.clear.card },
+  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionDiagnosis', permission: 'sensitive-salud-read', clearValue: (f: SensitiveFixture, _e?: RemainingSensitiveFixture) => f.clear.diagnosis },
+  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionNotes', permission: 'sensitive-salud-read', clearValue: (f: SensitiveFixture, _e?: RemainingSensitiveFixture) => f.clear.notes },
+  { model: 'WorkDisabilityNote', column: 'workDisabilityNoteDescription', permission: 'sensitive-salud-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.disabilityDescription },
+  { model: 'TraumaticEventReport', column: 'traumaticEventReportInvolvedPeople', permission: 'sensitive-salud-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.traumaPeople },
+  { model: 'TraumaticEventReport', column: 'traumaticEventReportDescription', permission: 'sensitive-salud-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.traumaDescription },
+  { model: 'EmployeeLactationPeriod', column: 'employeeLactationPeriodNotes', permission: 'sensitive-salud-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.lactationNotes },
+  { model: 'EmployeeEmergencyContact', column: 'employeeEmergencyContactPhone', permission: 'sensitive-contacto-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_FIXED.phone },
+  { model: 'EmployeeSpouse', column: 'employeeSpousePhone', permission: 'sensitive-contacto-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_FIXED.phoneSecondary },
+  { model: 'EmpresaContratante', column: 'rfc', permission: 'sensitive-identificacion-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.empresaRfc },
 ] as const
 
-function recordIdFor(model: string, fixture: SensitiveFixture): number {
+function recordIdFor(
+  model: string,
+  fixture: SensitiveFixture,
+  extra?: RemainingSensitiveFixture
+): number {
   if (model === 'Person') return fixture.person.personId
   if (model === 'EmployeeBank') return fixture.bank.employeeBankId
   if (model === 'EmployeeMedicalCondition') return fixture.medical.employeeMedicalConditionId
+  if (!extra) throw new Error(`Se requiere RemainingSensitiveFixture para ${model}`)
+  if (model === 'WorkDisabilityNote') return extra.note.workDisabilityNoteId
+  if (model === 'TraumaticEventReport') return extra.trauma.traumaticEventReportId
+  if (model === 'EmployeeLactationPeriod') return extra.lactation.employeeLactationPeriodId
+  if (model === 'EmployeeEmergencyContact') return extra.emergency.employeeEmergencyContactId
+  if (model === 'EmployeeSpouse') return extra.spouse.employeeSpouseId
+  if (model === 'EmpresaContratante') return extra.empresa.empresaContratanteId
   throw new Error(`Modelo sin recordId mapeado en esta suite: ${model}`)
 }
 
@@ -73,27 +96,32 @@ test.group('Permiso de categoría en el revelado individual (USRH1787433076989)'
     assert.equal(after, before + 1)
   })
 
-  test('F.2 — las once columnas revelables devuelven 200 con su categoría y registran un asiento cada una', async ({ client, assert }) => {
-    for (const { model, column, permission, clearKey } of REVEALABLE_COLUMNS) {
-      await grantAcrossModules(actor!.role.roleId, [
-        { module: 'employees', slugs: [permission] },
-      ])
-      const recordId = recordIdFor(model, fixture!)
-      const before = await countRevealLogs(model, column, recordId)
+  test('F.2 — las dieciocho columnas revelables devuelven 200 con su categoría y registran un asiento cada una', async ({ client, assert }) => {
+    const extra = await createRemainingSensitiveFixture(actor!, fixture!)
+    try {
+      for (const { model, column, permission, clearValue } of REVEALABLE_COLUMNS) {
+        await grantAcrossModules(actor!.role.roleId, [
+          { module: 'employees', slugs: [permission] },
+        ])
+        const recordId = recordIdFor(model, fixture!, extra)
+        const before = await countRevealLogs(model, column, recordId)
 
-      const response = await client
-        .get(`/api/v1/pii/reveal/${model}/${column}/${recordId}`)
-        .loginAs(actor!.user)
-        .header('X-Business-Unit-Id', buHeader(actor!))
+        const response = await client
+          .get(`/api/v1/pii/reveal/${model}/${column}/${recordId}`)
+          .loginAs(actor!.user)
+          .header('X-Business-Unit-Id', buHeader(actor!))
 
-      response.assertStatus(200)
-      assert.equal(
-        response.body().data[column],
-        fixture!.clear[clearKey],
-        `${model}.${column} no devolvió el claro esperado`
-      )
-      const after = await countRevealLogs(model, column, recordId)
-      assert.equal(after, before + 1, `${model}.${column} no registró exactamente un asiento nuevo`)
+        response.assertStatus(200)
+        assert.equal(
+          response.body().data[column],
+          clearValue(fixture!, extra),
+          `${model}.${column} no devolvió el claro esperado`
+        )
+        const after = await countRevealLogs(model, column, recordId)
+        assert.equal(after, before + 1, `${model}.${column} no registró exactamente un asiento nuevo`)
+      }
+    } finally {
+      await cleanupRemainingSensitiveFixture(extra)
     }
   })
 

@@ -1,5 +1,5 @@
 import SensitiveFieldsCatalogService from '#services/sensitive_fields_catalog_service'
-import { MASK_CHAR, maskSensitiveValue } from '#helpers/sensitive_mask'
+import { SENSITIVE_MASK, maskSensitiveValue } from '#helpers/sensitive_mask'
 import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 
 const catalog = new SensitiveFieldsCatalogService()
@@ -22,15 +22,19 @@ export function sensitiveSerialize(
       return null
     }
 
+    if (value.trim() === '') {
+      return value
+    }
+
     if (category === null) {
-      return MASK_CHAR.repeat(5)
+      return SENSITIVE_MASK
     }
 
     if (SensitiveAccessContext.canRead(category)) {
       return value
     }
 
-    return maskSensitiveValue(value, category)
+    return maskSensitiveValue(value)
   }
 }
 
@@ -63,7 +67,7 @@ export function sensitiveSerializeNumeric(
 
 /**
  * Enmascara un valor leído de la propiedad del modelo (DTO que no pasa por Lucid `serialize`).
- * Cadena vacía se deja igual: no hay dato que tapar.
+ * Cadena vacía o en blanco se deja igual: no hay dato que tapar.
  */
 export function maskSensitiveDtoValue(
   model: string,
@@ -73,16 +77,16 @@ export function maskSensitiveDtoValue(
   if (value === null || value === undefined) {
     return null
   }
-  if (value === '') {
-    return ''
+  if (value.trim() === '') {
+    return value
   }
 
   const category = catalog.categoryOf(model, column)
   if (category === null) {
-    return MASK_CHAR.repeat(5)
+    return SENSITIVE_MASK
   }
   if (SensitiveAccessContext.canRead(category)) {
     return value
   }
-  return maskSensitiveValue(value, category)
+  return maskSensitiveValue(value)
 }

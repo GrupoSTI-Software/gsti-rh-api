@@ -152,6 +152,23 @@ export function onlyAccountOwnerError(): BillingSubscriptionServiceError {
   )
 }
 
+/**
+ * Solo el dueño de la cuenta contrata la suscripción. Mismo `code` y `key` que
+ * `onlyAccountOwnerError` (el cliente distingue la negativa igual); cambia el
+ * `detail`, porque la pantalla de contratación lo muestra tal cual y hablar del
+ * costo de un cambio confundía a quien intentó contratar.
+ */
+export function onlyAccountOwnerCanContractError(): BillingSubscriptionServiceError {
+  const detail = 'Solo el dueño de la cuenta puede contratar la suscripción.'
+  return new BillingSubscriptionServiceError(
+    detail,
+    BILLING_SUBSCRIPTION_ERROR_CODES.FORBIDDEN_ROLE,
+    403,
+    'solo-el-dueno-de-la-cuenta',
+    detail
+  )
+}
+
 /** La cantidad pedida no supera la contratada vigente (regla 5 — USRH1786107870850). */
 export function changeNotAnIncreaseError(
   contracted: number,

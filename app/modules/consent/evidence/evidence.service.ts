@@ -20,8 +20,8 @@ const CONSENT_EVIDENCE_MODULE_SLUG = 'consent-evidence'
  *  - Refleja la evidencia tal como el cimiento (USRH1783101935670) la registró; nunca la
  *    altera ni la recalcula (regla 6). Solo lectura: no expone ningún método de escritura.
  *  - `userConsentIp`/`userConsentUserAgent` se enmascaran por default
- *    (`maskSensitiveValue`, categoría `contacto`, ver `sensitive_fields.ts`); solo se
- *    devuelven en claro si `revealAllowed` es `true` (regla 4).
+ *    (`maskSensitiveValue`, máscara fija `SENSITIVE_MASK`); solo se devuelven en claro
+ *    si `revealAllowed` es `true` (regla 4).
  *  - `revealAllowed` lo decide el caller (controller) con
  *    `RoleService.hasExplicitAccess(roleId, 'consent-evidence', 'reveal')` — un check
  *    SIN el atajo de `root` de `hasAccess`, para que el revelado sea un permiso real y
@@ -127,6 +127,6 @@ export default class EvidenceService {
   /** Enmascara salvo que el caller tenga el permiso de revelado (regla 4 — sin fuga). */
   private reveal(value: string | null, revealAllowed: boolean): string | null {
     if (revealAllowed) return value
-    return maskSensitiveValue(value, 'contacto')
+    return maskSensitiveValue(value)
   }
 }

@@ -10,6 +10,7 @@
 */
 
 import { Env } from '@adonisjs/core/env'
+import { assertChannelBaseDomain } from '#modules/adms/channel/channel_secret'
 import { DateTime } from 'luxon'
 
 export default await Env.create(new URL('../', import.meta.url), {
@@ -143,6 +144,15 @@ export default await Env.create(new URL('../', import.meta.url), {
    * (USRH1788135907803)
    */
   ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS: Env.schema.number.optional(),
+  /**
+   * Ventana de frescura, en minutos, dentro de la cual la compensación del alta
+   * de empleado fallida puede liberar a la persona recién creada
+   * (USRH1789698261608). Sin definir aplica el default del accesor (60 min).
+   * El valor se satura al intervalo [1, 1440] fijado en código: fuera de rango
+   * no interrumpe el alta, se satura y queda en bitácora. No es configuración
+   * de negocio: no vive en `system_settings` y no se publica.
+   */
+  PERSON_RELEASE_WINDOW_MINUTES: Env.schema.number.optional(),
   /*
   |----------------------------------------------------------
   | Almacenamiento de objetos (DigitalOcean Spaces en produccion,
@@ -194,6 +204,18 @@ export default await Env.create(new URL('../', import.meta.url), {
   BASIC_AUTH_PASSWORD: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
+  | Usuario root inicial (solo lo consume 0008_user_seeder)
+  |----------------------------------------------------------
+  | Opcionales a propósito: el servidor no las usa al arrancar y exigirlas
+  | tumbaría entornos que nunca siembran. El seeder falla con un error
+  | explícito si faltan, en vez de crear a root sin credenciales.
+  */
+  /** Correo del usuario root de plataforma. */
+  ROOT_USER_EMAIL: Env.schema.string.optional({ format: 'email' }),
+  /** Contraseña inicial del usuario root de plataforma. Nunca vive en el repo. */
+  ROOT_USER_PASSWORD: Env.schema.string.optional(),
+  /*
+  |----------------------------------------------------------
   | Variables para el modo demo y hardening del endpoint demo
   |----------------------------------------------------------
   */
@@ -227,7 +249,17 @@ export default await Env.create(new URL('../', import.meta.url), {
    * checador de cualquiera que sepa la direccion del servidor.
    */
   ADMS_BRIDGE_TOKEN: Env.schema.string.optional(),
-  ADMS_CHANNEL_BASE_DOMAIN: Env.schema.string.optional(),
+  /**
+   * Dominio comun del canal: lo que va DETRAS del secreto en la direccion que
+   * teclea el instalador (`<secreto>.<este-dominio>`).
+   *
+   * Se valida al arrancar por la misma razon que la fecha de abajo: un valor
+   * mal escrito no falla, engaña. `hostLabelOf` deja de recortar la etiqueta,
+   * ningun equipo con secreto coincide, y el canal responde 404 a toda la
+   * flota sin un solo error en el log.
+   */
+  ADMS_CHANNEL_BASE_DOMAIN: (name: string, value?: string) =>
+    assertChannelBaseDomain(name, value),
   /**
    * Desde cuando un checador sin direccion propia deja de atenderse.
    *

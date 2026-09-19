@@ -2,11 +2,11 @@ import db from '@adonisjs/lucid/services/db'
 import { DateTime } from 'luxon'
 import { I18n } from '@adonisjs/i18n'
 import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
+import { toAbsencesBranch } from './attendance-stats.absences.js'
 import type {
+  AbsencesBranch,
   AttendanceStatsFilters,
-  CoverageActiveLoanRow,
-  CoverageShiftQuotaRow,
-  CoverageSiteRef,
+  CoverageRangeLoanRow,
   EmployeeCalendarBundle,
   EmployeeInfo,
 } from './dto/attendance-stats.dto.js'
@@ -129,8 +129,14 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
           .on('ebo.employee_id', 'e.employee_id')
           .andOnVal('ebo.employee_branch_office_active', 1)
       })
+      // La sucursal base solo cuenta si es de una unidad de negocio permitida:
+      // una de otra empresa no aporta nombre ni se usa como sucursal efectiva
+      // en cobertura. Es leftJoin, así que no cambia las filas de los KPIs.
       .leftJoin('branch_offices AS bo', (join) => {
-        join.on('bo.branch_office_id', 'ebo.branch_office_id').andOnNull('bo.branch_office_deleted_at')
+        join
+          .on('bo.branch_office_id', 'ebo.branch_office_id')
+          .andOnNull('bo.branch_office_deleted_at')
+          .andOnIn('bo.business_unit_id', allowedBusinessUnitIds)
       })
       .whereNull('e.employee_deleted_at')
       // Excluir empleados discriminados de asistencia (employee_assist_discriminator=1):
@@ -158,6 +164,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     const rows = await q
       .select(
         'e.employee_id AS employee_id',
+        'e.employee_slug AS employee_slug',
         'e.employee_code AS employee_code',
         'e.employee_payroll_code AS employee_payroll_code',
         'e.employee_first_name AS employee_first_name',
@@ -166,16 +173,24 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
         'e.employee_photo AS employee_photo',
         'e.department_id AS department_id',
         'd.department_name AS department_name',
+        'd.department_alias AS department_alias',
         'e.position_id AS position_id',
         'p.position_name AS position_name',
+        'p.position_alias AS position_alias',
         'e.business_unit_id AS business_unit_id',
         'bu.business_unit_name AS business_unit_name',
         'e.payroll_business_unit_id AS payroll_business_unit_id',
-        'ebo.branch_office_id AS branch_office_id',
+        // Del join a `bo`, no de `ebo`: así una sucursal base borrada o de otra
+        // empresa queda en NULL en lugar de colarse como sucursal efectiva.
+        'bo.branch_office_id AS branch_office_id',
         'bo.branch_office_name AS branch_office_name'
       )
       .orderBy('e.employee_first_name', 'asc')
       .orderBy('e.employee_last_name', 'asc')
+      // Desempate determinista entre homónimos y entre las filas de un colaborador
+      // con varias sucursales base activas; no cambia el orden por nombre.
+      .orderBy('e.employee_id', 'asc')
+      .orderBy('bo.branch_office_id', 'asc')
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return rows.map((r: any) => {
@@ -193,6 +208,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
       return {
         employee: {
           employeeId: Number(r.employee_id),
+          employeeSlug: String(r.employee_slug ?? ''),
           employeeCode: r.employee_code ?? null,
           employeePayrollCode: r.employee_payroll_code ?? null,
           employeeFirstName: r.employee_first_name ?? null,
@@ -205,6 +221,8 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
           payrollBusinessUnitId: Number(r.payroll_business_unit_id),
           branchOfficeId,
           branchOfficeName: r.branch_office_name ?? null,
+          departmentAlias: r.department_alias ?? null,
+          positionAlias: r.position_alias ?? null,
           department: departmentId !== null ? { departmentId, departmentName } : null,
           position:
             positionId !== null
@@ -652,7 +670,7 @@ ORDER BY sfd_full.employee_id, sfd_full.day
       )
     }
 
-    // Construir exceptions mínimas para que `aggregateCalendar` del service detecte
+    // Construir exceptions mínimas para que `aggregateCalendar` (attendance-stats.rules) detecte
     // contadores informativos. El service usa exception_type.exception_type_slug.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const exceptions: any[] = []
@@ -781,116 +799,205 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     return 'ontime'
   }
 
-  async getSitesByCompany(
-    companyId: number,
+  async getAbsencesEmployeeIds(
+    startDay: string,
+    endDay: string,
     allowedBusinessUnitIds: number[],
     branchOfficeIds?: number[]
-  ): Promise<CoverageSiteRef[]> {
+  ): Promise<number[]> {
     if (allowedBusinessUnitIds.length === 0) return []
 
-    const q = db
-      .from('branch_offices AS bo')
-      .whereNull('bo.branch_office_deleted_at')
-      .where('bo.empresa_contratante_id', companyId)
-      .whereIn('bo.business_unit_id', allowedBusinessUnitIds)
+    // db.from salta el mixin de tenant: el corte por empresa va explícito. Mismo
+    // criterio de plantilla que resolveEmployeesInScope (no borrados, sin
+    // discriminador de asistencia = 1). Sin join a sucursales: un id por colaborador.
+    const query = db
+      .from('employees AS e')
+      .whereNull('e.employee_deleted_at')
+      .whereRaw('COALESCE(e.employee_assist_discriminator, 0) <> 1')
+      .whereIn('e.business_unit_id', allowedBusinessUnitIds)
 
-    if (branchOfficeIds && branchOfficeIds.length > 0) {
-      q.whereIn('bo.branch_office_id', branchOfficeIds)
+    const uniqueBranchIds = [...new Set(branchOfficeIds ?? [])]
+    if (uniqueBranchIds.length > 0) {
+      query.where((universe) => {
+        universe
+          .whereExists((base) => {
+            base
+              .from('employee_branch_offices AS ebo')
+              .whereRaw('ebo.employee_id = e.employee_id')
+              .where('ebo.employee_branch_office_active', 1)
+              .whereIn('ebo.branch_office_id', uniqueBranchIds)
+          })
+          .orWhereExists((loan) => {
+            loan
+              .from('employee_temporary_assignments AS eta')
+              .innerJoin('branch_offices AS source_bo', 'source_bo.branch_office_id', 'eta.source_branch_id')
+              .whereRaw('eta.employee_id = e.employee_id')
+              .whereIn('source_bo.business_unit_id', allowedBusinessUnitIds)
+              .whereIn('eta.target_branch_id', uniqueBranchIds)
+              .whereNull('eta.employee_temporary_assignment_deleted_at')
+              .where('eta.start_date', '<=', endDay)
+              .where('eta.end_date', '>=', startDay)
+              .where((cancel) => {
+                cancel.whereNull('eta.cancelled_at').orWhere('eta.cancelled_at', '>', startDay)
+              })
+          })
+      })
     }
 
-    const rows = await q
-      .select('bo.branch_office_id AS branch_office_id', 'bo.branch_office_name AS branch_office_name')
-      .orderBy('bo.branch_office_name', 'asc')
+    const rows: Array<{ employee_id: number | string }> = await query
+      .select('e.employee_id AS employee_id')
+      .orderBy('e.employee_id', 'asc')
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return rows.map((r: any) => ({
-      branchOfficeId: Number(r.branch_office_id),
-      branchOfficeName: String(r.branch_office_name ?? ''),
-    }))
+    return rows.map((row) => Number(row.employee_id))
   }
 
-  async getShiftQuotasByBranchIds(branchOfficeIds: number[]): Promise<CoverageShiftQuotaRow[]> {
-    if (branchOfficeIds.length === 0) return []
-
-    const rows = await db
-      .from('branch_office_shift_quotas AS q')
-      .innerJoin('shifts AS s', 's.shift_id', 'q.shift_id')
-      .whereIn('q.branch_office_id', branchOfficeIds)
-      .whereNull('s.shift_deleted_at')
-      .where('s.shift_temp', 0)
-      .select(
-        'q.branch_office_id AS branch_office_id',
-        'q.shift_id AS shift_id',
-        's.shift_name AS shift_name',
-        'q.branch_office_shift_quota_required AS required',
-        'q.branch_office_shift_quota_minimum AS minimum'
-      )
-      .orderBy('q.branch_office_id', 'asc')
-      .orderBy('s.shift_name', 'asc')
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return rows.map((r: any) => ({
-      branchOfficeId: Number(r.branch_office_id),
-      shiftId: Number(r.shift_id),
-      shiftName: String(r.shift_name ?? ''),
-      required: Number(r.required),
-      minimum: Number(r.minimum),
-    }))
-  }
-
-  async getActiveLoansForDay(
-    day: string,
+  async getAbsencesBranches(
+    branchOfficeIds: number[],
     allowedBusinessUnitIds: number[]
-  ): Promise<CoverageActiveLoanRow[]> {
-    if (allowedBusinessUnitIds.length === 0) return []
+  ): Promise<AbsencesBranch[]> {
+    const uniqueIds = [...new Set(branchOfficeIds)]
+    if (uniqueIds.length === 0 || allowedBusinessUnitIds.length === 0) return []
 
-    const rows = await db
+    // db.from salta el mixin de tenant: el corte por empresa va explícito sobre
+    // la sucursal. La empresa contratante se lee cruda y `toAbsencesBranch`
+    // decide si está viva y es del tenant.
+    const rows: Array<{
+      branch_office_id: number | string
+      branch_office_name: string | null
+      empresa_contratante_id: number | string | null
+      empresa_contratante_razon_social: string | null
+      empresa_contratante_business_unit_id: number | string | null
+      empresa_contratante_deleted_at: Date | string | null
+    }> = await db
+      .from('branch_offices AS bo')
+      .leftJoin('empresas_contratantes AS ec', 'ec.empresa_contratante_id', 'bo.empresa_contratante_id')
+      .whereIn('bo.branch_office_id', uniqueIds)
+      .whereNull('bo.branch_office_deleted_at')
+      .whereIn('bo.business_unit_id', allowedBusinessUnitIds)
+      .select(
+        'bo.branch_office_id AS branch_office_id',
+        'bo.branch_office_name AS branch_office_name',
+        'ec.empresa_contratante_id AS empresa_contratante_id',
+        'ec.empresa_contratante_razon_social AS empresa_contratante_razon_social',
+        'ec.business_unit_id AS empresa_contratante_business_unit_id',
+        'ec.empresa_contratante_deleted_at AS empresa_contratante_deleted_at'
+      )
+
+    return rows.map((row) =>
+      toAbsencesBranch(
+        {
+          branchOfficeId: Number(row.branch_office_id),
+          name: String(row.branch_office_name ?? ''),
+          empresaContratante:
+            row.empresa_contratante_id === null
+              ? null
+              : {
+                  empresaContratanteId: Number(row.empresa_contratante_id),
+                  razonSocial: String(row.empresa_contratante_razon_social ?? ''),
+                  businessUnitId: Number(row.empresa_contratante_business_unit_id),
+                  isDeleted: row.empresa_contratante_deleted_at !== null,
+                },
+        },
+        allowedBusinessUnitIds
+      )
+    )
+  }
+
+  async getLoansForRange(
+    employeeIds: number[],
+    startDay: string,
+    endDay: string,
+    allowedBusinessUnitIds: number[]
+  ): Promise<CoverageRangeLoanRow[]> {
+    const uniqueEmployeeIds = [...new Set(employeeIds)]
+    if (uniqueEmployeeIds.length === 0 || allowedBusinessUnitIds.length === 0) return []
+
+    const rows: Array<{
+      assignment_id: number | string
+      employee_id: number | string
+      source_branch_id: number | string
+      target_branch_id: number | string
+      start_date: string
+      end_date: string
+      cancelled_at: string | null
+    }> = await db
       .from('employee_temporary_assignments AS eta')
       .innerJoin('employees AS e', 'e.employee_id', 'eta.employee_id')
-      .whereNull('e.employee_deleted_at')
-      .whereNull('eta.employee_temporary_assignment_deleted_at')
+      // Origen y destino deben ser sucursales de la empresa: un préstamo que
+      // apunte a otra no puede mover al colaborador.
+      .innerJoin('branch_offices AS source_bo', 'source_bo.branch_office_id', 'eta.source_branch_id')
+      .innerJoin('branch_offices AS target_bo', 'target_bo.branch_office_id', 'eta.target_branch_id')
+      .whereIn('source_bo.business_unit_id', allowedBusinessUnitIds)
+      .whereIn('target_bo.business_unit_id', allowedBusinessUnitIds)
       .whereIn('e.business_unit_id', allowedBusinessUnitIds)
-      .where('eta.start_date', '<=', day)
-      .where('eta.end_date', '>=', day)
-      .where((query) => {
-        query.whereNull('eta.cancelled_at').orWhere('eta.cancelled_at', '>', day)
+      .whereNull('e.employee_deleted_at')
+      .whereIn('eta.employee_id', uniqueEmployeeIds)
+      .whereNull('eta.employee_temporary_assignment_deleted_at')
+      .where('eta.start_date', '<=', endDay)
+      .where('eta.end_date', '>=', startDay)
+      // Cancelado a más tardar en startDay no mueve a nadie en el rango; la
+      // vigencia exacta por día se resuelve en memoria con cancelled_at.
+      .where((cancel) => {
+        cancel.whereNull('eta.cancelled_at').orWhere('eta.cancelled_at', '>', startDay)
       })
       .select(
         'eta.employee_temporary_assignment_id AS assignment_id',
         'eta.employee_id AS employee_id',
         'eta.source_branch_id AS source_branch_id',
         'eta.target_branch_id AS target_branch_id',
-        'eta.destination_shift_id AS destination_shift_id',
-        'eta.reason AS reason'
+        // Fechas como texto: sin conversión de zona horaria del driver.
+        db.raw("DATE_FORMAT(eta.start_date, '%Y-%m-%d') AS start_date"),
+        db.raw("DATE_FORMAT(eta.end_date, '%Y-%m-%d') AS end_date"),
+        db.raw("DATE_FORMAT(eta.cancelled_at, '%Y-%m-%d') AS cancelled_at")
       )
+      .orderBy('eta.start_date', 'desc')
+      .orderBy('eta.employee_temporary_assignment_id', 'desc')
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return rows.map((r: any) => ({
-      assignmentId: Number(r.assignment_id),
-      employeeId: Number(r.employee_id),
-      sourceBranchId: Number(r.source_branch_id),
-      targetBranchId: Number(r.target_branch_id),
-      destinationShiftId: r.destination_shift_id === null ? null : Number(r.destination_shift_id),
-      reason: typeof r.reason === 'string' ? r.reason : null,
+    return rows.map((row) => ({
+      assignmentId: Number(row.assignment_id),
+      employeeId: Number(row.employee_id),
+      sourceBranchId: Number(row.source_branch_id),
+      targetBranchId: Number(row.target_branch_id),
+      startDate: row.start_date,
+      endDate: row.end_date,
+      cancelledAt: row.cancelled_at,
     }))
   }
 
-  async getBranchOfficeNamesByIds(branchOfficeIds: number[]): Promise<Map<number, string>> {
-    const uniqueIds = [...new Set(branchOfficeIds.filter((id) => id > 0))]
-    if (uniqueIds.length === 0) return new Map()
+  async getEmployeeIdsInResponsibleScope(
+    userId: number,
+    employeeIds: number[],
+    allowedBusinessUnitIds: number[]
+  ): Promise<number[]> {
+    const uniqueIds = [...new Set(employeeIds)]
+    if (uniqueIds.length === 0 || allowedBusinessUnitIds.length === 0) return []
 
-    const rows = await db
-      .from('branch_offices AS bo')
-      .whereIn('bo.branch_office_id', uniqueIds)
-      .whereNull('bo.branch_office_deleted_at')
-      .select('bo.branch_office_id AS branch_office_id', 'bo.branch_office_name AS branch_office_name')
+    // Mismo criterio que `NoticeService.applyRoleScope`: a cargo vigente o el
+    // propio usuario. db.from salta el mixin de tenant, así que el corte por
+    // empresa va explícito sobre el empleado.
+    const rows: Array<{ employee_id: number | string }> = await db
+      .from('employees AS e')
+      .whereIn('e.employee_id', uniqueIds)
+      .whereIn('e.business_unit_id', allowedBusinessUnitIds)
+      .where((scoped) => {
+        scoped
+          .whereExists((responsible) => {
+            responsible
+              .from('user_responsible_employees AS ure')
+              .whereRaw('ure.employee_id = e.employee_id')
+              .where('ure.user_id', userId)
+              .whereNull('ure.user_responsible_employee_deleted_at')
+          })
+          .orWhereExists((ownUser) => {
+            ownUser
+              .from('users AS u')
+              .whereRaw('u.person_id = e.person_id')
+              .where('u.user_id', userId)
+          })
+      })
+      .select('e.employee_id AS employee_id')
 
-    const names = new Map<number, string>()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of rows as any[]) {
-      names.set(Number(r.branch_office_id), String(r.branch_office_name ?? ''))
-    }
-    return names
+    return rows.map((row) => Number(row.employee_id))
   }
 }
 

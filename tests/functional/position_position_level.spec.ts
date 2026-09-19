@@ -10,6 +10,7 @@ import PositionLevel from '#models/position_level'
 import PositionPositionLevel from '#models/position_position_level'
 import PositionPositionLevelService from '#services/position_position_level_service'
 import PositionPositionLevelServiceError from '#exceptions/position_position_level_service_error'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — configuración de niveles por puesto (USRH1785273891313).
@@ -25,8 +26,8 @@ import PositionPositionLevelServiceError from '#exceptions/position_position_lev
  */
 
 const TEST_PASSWORD = 'PositionPositionLevelTest123!'
-const ROOT_ROLE_ID = 3
-const NO_PERMISSION_ROLE_ID = 4 // empleado: sin permiso del módulo organization-chart
+const ROOT_ROLE = 'root'
+const NO_PERMISSION_ROLE = 'empleado' // sin permiso del módulo organization-chart
 
 function uniqueStamp(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 100000)}`
@@ -37,7 +38,7 @@ interface TestActor {
   person: Person
 }
 
-async function createTestActor(roleId: number, emailPrefix: string): Promise<TestActor> {
+async function createTestActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TestActor> {
   const stamp = uniqueStamp()
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
 
@@ -52,7 +53,8 @@ async function createTestActor(roleId: number, emailPrefix: string): Promise<Tes
   user.userEmail = email
   user.userPassword = TEST_PASSWORD
   user.userActive = 1
-  user.roleId = roleId
+  const role = await ensureRole(roleSlug)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -187,7 +189,7 @@ test.group('PositionPositionLevels - sin permiso (403, regla 14)', (group) => {
   let position: Position | null = null
 
   group.setup(async () => {
-    actor = await createTestActor(NO_PERMISSION_ROLE_ID, 'ppl-no-permiso')
+    actor = await createTestActor(NO_PERMISSION_ROLE, 'ppl-no-permiso')
     businessUnit = await createTestBusinessUnit('no-permiso')
     await actor.user.related('businessUnits').attach([businessUnit.businessUnitId])
     position = await createTestPosition(businessUnit.businessUnitId, 'no-permiso')
@@ -249,7 +251,7 @@ test.group('PositionPositionLevels - flujo feliz (root) CA-1/2/3/9/10/11', (grou
   let adHocRowId: number | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'ppl-root-happy')
+    root = await createTestActor(ROOT_ROLE, 'ppl-root-happy')
     businessUnit = await createTestBusinessUnit('happy')
     position = await createTestPosition(businessUnit.businessUnitId, 'happy')
     junior = await createCatalogLevel(businessUnit.businessUnitId, 'Junior', 1)
@@ -516,7 +518,7 @@ test.group('PositionPositionLevels - validaciones del bloque (CA-4/5/6/7)', (gro
   let foreignLevel: PositionLevel | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'ppl-root-valid')
+    root = await createTestActor(ROOT_ROLE, 'ppl-root-valid')
     businessUnit = await createTestBusinessUnit('valid')
     otherBusinessUnit = await createTestBusinessUnit('valid-other')
     position = await createTestPosition(businessUnit.businessUnitId, 'valid')
@@ -901,7 +903,7 @@ test.group('PositionPositionLevels - aislamiento multi-tenant (regla 13)', (grou
   let positionB: Position | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'ppl-root-tenant')
+    root = await createTestActor(ROOT_ROLE, 'ppl-root-tenant')
     businessUnitA = await createTestBusinessUnit('tenant-a')
     businessUnitB = await createTestBusinessUnit('tenant-b')
     positionB = await createTestPosition(businessUnitB.businessUnitId, 'tenant-b')
@@ -958,7 +960,7 @@ test.group('PositionPositionLevels - DELETE individual (CA-8/CA-11)', (group) =>
   let rowIds: number[] = []
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'ppl-root-delete')
+    root = await createTestActor(ROOT_ROLE, 'ppl-root-delete')
     businessUnit = await createTestBusinessUnit('delete')
     position = await createTestPosition(businessUnit.businessUnitId, 'delete')
     otherPosition = await createTestPosition(businessUnit.businessUnitId, 'delete-other')
@@ -1237,7 +1239,7 @@ test.group('PositionPositionLevels - isInUse real del catálogo (CA-6 de HU 01)'
   let level: PositionLevel | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'ppl-root-inuse')
+    root = await createTestActor(ROOT_ROLE, 'ppl-root-inuse')
     businessUnit = await createTestBusinessUnit('inuse')
     position = await createTestPosition(businessUnit.businessUnitId, 'inuse')
     level = await createCatalogLevel(businessUnit.businessUnitId, 'Usado', 1)

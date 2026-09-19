@@ -13,6 +13,14 @@ const SENSITIVE_CATEGORY_LABELS: Record<LegalCategory, string> = {
   biometrico: 'datos biométricos',
 }
 
+/** Sanea el header `X-Origin-Module`; valores inválidos se descartan sin bloquear el reveal. */
+function normalizeOriginModule(raw: string | undefined): string | null {
+  const trimmed = raw?.trim()
+  if (!trimmed) return null
+  if (!/^[A-Za-z0-9._:-]{1,100}$/.test(trimmed)) return null
+  return trimmed
+}
+
 /**
  * Controlador de reveal de datos personales sensibles.
  *
@@ -38,8 +46,11 @@ export default class PiiRevealController {
    *       the same database transaction before the value is returned (fail-closed).
    *
    *       Access is restricted to records belonging to the authenticated user's business
-   *       unit scope (anti-IDOR). If the field is not in the catalog, or the record does
-   *       not belong to the user's scope, a 404 is returned.
+   *       unit scope (anti-IDOR). If the record does not belong to the user's scope,
+   *       a 404 is returned. Supported models: Person, EmployeeBank,
+   *       EmployeeMedicalCondition, WorkDisabilityNote, TraumaticEventReport,
+   *       EmployeeLactationPeriod, EmployeeEmergencyContact, EmployeeSpouse,
+   *       EmpresaContratante.
    *     parameters:
    *       - in: path
    *         name: model
@@ -59,6 +70,15 @@ export default class PiiRevealController {
    *         schema:
    *           type: integer
    *         description: Primary key of the record
+   *       - in: header
+   *         name: X-Origin-Module
+   *         required: false
+   *         schema:
+   *           type: string
+   *           maxLength: 100
+   *         description: |
+   *           Pantalla de origen del reveal (p. ej. employees, compliance, repse).
+   *           Se sanea y persiste en la bitácora; valores inválidos se descartan sin bloquear.
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -76,7 +96,7 @@ export default class PiiRevealController {
    *                 data:
    *                   type: object
    *       '404':
-   *         description: Field not in catalog or record not in business unit scope
+   *         description: Record not found or not in business unit scope
    *         content:
    *           application/json:
    *             schema:
@@ -183,8 +203,7 @@ export default class PiiRevealController {
         response.status(422)
         return {
           title: 'El dato no se puede revelar por esta vía',
-          detail:
-            'Este dato sensible se consulta con el permiso de su categoría; no está disponible en el revelado individual.',
+          detail: 'Este dato sensible no está disponible en el revelado individual.',
           key: 'el-dato-no-se-puede-revelar-por-esta-via',
           code: SENSITIVE_DATA_READ_ERROR_CODES.NOT_REVEALABLE,
         }
@@ -210,6 +229,7 @@ export default class PiiRevealController {
         accessorIp: request.ip(),
         accessorUserAgent: request.header('User-Agent') ?? null,
         requestId: request.id() ?? null,
+        originModule: normalizeOriginModule(request.header('X-Origin-Module')),
       })
 
       if (!result) {

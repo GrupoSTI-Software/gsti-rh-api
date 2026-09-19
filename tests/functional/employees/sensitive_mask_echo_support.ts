@@ -5,12 +5,18 @@ import ExcelJS from 'exceljs'
 import type { Assert } from '@japa/assert'
 import Employee from '#models/employee'
 import Person from '#models/person'
-import { maskSensitiveValue } from '#helpers/sensitive_mask'
+import { SENSITIVE_MASK, maskSensitiveValue } from '#helpers/sensitive_mask'
 import { CLEAR_FIXED } from './sensitive_read_by_category_support.js'
 
-export const MASK_ECHO_RFC = maskSensitiveValue('VARL850602AB3', 'identificacion')!
-export const MASK_ECHO_PHONE_SECONDARY = maskSensitiveValue(CLEAR_FIXED.phoneSecondary, 'contacto')!
-export const MASK_ECHO_EMAIL = maskSensitiveValue('juan@empresa.com', 'contacto')!
+/** Eco actual: máscara fija (USRH1789328027039). */
+export const MASK_ECHO_RFC = maskSensitiveValue('VARL850602AB3')!
+export const MASK_ECHO_PHONE_SECONDARY = maskSensitiveValue(CLEAR_FIXED.phoneSecondary)!
+export const MASK_ECHO_EMAIL = maskSensitiveValue('juan@empresa.com')!
+
+/** Formas heredadas que el BO previo al despliegue puede reenviar al guardar. */
+export const MASK_ECHO_LEGACY_RFC = '•••••••••2AB3'
+export const MASK_ECHO_LEGACY_EMAIL = 'j•••@empresa.com'
+
 export const MASK_CORRUPT_A = '•••X1234ABCD'
 export const MASK_CORRUPT_B = 'VARL•50602AB3'
 export const MASK_EDITED_CARD = '••••••••••••••9999'
@@ -146,3 +152,6 @@ export async function countActivePersons(): Promise<number> {
   const row = await Person.query().whereNull('person_deleted_at').count('* as total')
   return Number(row[0].$extras.total)
 }
+
+/** Alias explícito para aserciones de máscara fija. */
+export { SENSITIVE_MASK }

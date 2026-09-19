@@ -7,8 +7,8 @@ import { SystemPermissionCatalogError } from '#exceptions/system_permission_cata
 
 /**
  * Blindaje de integridad del catálogo granular de Empleados (USRH1785766406722,
- * Task 4): reglas 13 (sync idempotente respaldado por catálogo válido) y 14
- * (duplicados detienen el registro antes de sync).
+ * Task 4): reglas 13 (siembra idempotente respaldada por un catálogo válido) y
+ * 14 (los duplicados se detienen antes de sembrar).
  */
 
 test.group('EMPLOYEES_PERMISSION_CATALOG — guardas de integridad (Task 4)', () => {
@@ -44,11 +44,11 @@ test.group('EMPLOYEES_PERMISSION_CATALOG — guardas de integridad (Task 4)', ()
     }
   })
 
-  test('validateCatalogIntegrity detiene duplicados antes de sync', ({ assert }) => {
+  test('validateCatalogIntegrity detiene duplicados antes de sembrar', ({ assert }) => {
     let caught: unknown
     try {
       validateCatalogIntegrity({
-        modules: [{ slug: 'employees', actionsEnumerated: true }],
+        modules: [{ slug: 'employees' }],
         actionsByModule: {
           employees: [
             {

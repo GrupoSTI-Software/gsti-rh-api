@@ -153,7 +153,7 @@ test.group('runWithSensitiveReadDecisions', () => {
     await runWithSensitiveReadDecisions(ctx, next)
 
     assert.isFalse(SensitiveAccessContext.canRead('contacto'))
-    assert.equal(person.serialize().personEmail, maskSensitiveValue(CLEAR_EMAIL, 'contacto'))
+    assert.equal(person.serialize().personEmail, maskSensitiveValue(CLEAR_EMAIL))
   })
 
   test('send posterior al run() serializa el correo en claro si contacto es true', async ({
@@ -170,7 +170,7 @@ test.group('runWithSensitiveReadDecisions', () => {
 
     assert.equal(sent.serialized?.personEmail, CLEAR_EMAIL)
     assert.equal(sent.serialized?.personFirstname, 'Ana')
-    assert.equal(sent.serialized?.personCurp, maskSensitiveValue(CLEAR_CURP, 'identificacion'))
+    assert.equal(sent.serialized?.personCurp, maskSensitiveValue(CLEAR_CURP))
   })
 
   test('finish posterior al run() serializa el correo en claro si contacto es true', async ({
@@ -189,7 +189,7 @@ test.group('runWithSensitiveReadDecisions', () => {
 
     assert.equal(sent.serialized?.personEmail, CLEAR_EMAIL)
     assert.equal(sent.serialized?.personFirstname, 'Ana')
-    assert.equal(sent.serialized?.personCurp, maskSensitiveValue(CLEAR_CURP, 'identificacion'))
+    assert.equal(sent.serialized?.personCurp, maskSensitiveValue(CLEAR_CURP))
   })
 })
 

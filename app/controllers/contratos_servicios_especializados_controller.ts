@@ -590,6 +590,11 @@ export default class ContratosServiciosEspecializadosController {
       // es un ZIP y el nombre no prueba nada.
       await assertSpreadsheetFile(file)
 
+      // Red de seguridad hoy INALCANZABLE: `assertSpreadsheetFile` corre arriba
+      // y rechaza antes los mismos casos con los mismos umbrales (el perfil
+      // `spreadsheet-import` declara `['xlsx']` y 10 MB, igual que el
+      // `request.file` de esta ruta). Se conserva por si la guarda transversal
+      // cambiara de perfil; su retiro queda anotado en el backlog de la fase 6.
       if (file.hasErrors) {
         const sizeError = file.errors.some((err) => err.type === 'size')
         return sizeError

@@ -972,7 +972,7 @@ export default class TraumaticEventRegistryReportService {
   private async fetchTradeName(): Promise<string> {
     try {
       const settingService = new SystemSettingService()
-      const setting = await settingService.getActive()
+      const setting = await settingService.resolveForActiveTenant()
       return setting?.systemSettingTradeName ?? ''
     } catch {
       return ''

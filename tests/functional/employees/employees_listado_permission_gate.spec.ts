@@ -10,6 +10,7 @@ import RoleDepartment from '#models/role_department'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'EmployeesListadoPermissionGate123!'
 
@@ -73,7 +74,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     roleSlug: `listado-${stamp}`,
     roleDescription: 'Rol temporal sin permisos de listado',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   const person = await Person.create({
@@ -107,11 +108,11 @@ async function cleanupActor(actor: TenantActor | null) {
 }
 
 async function createSystemActor(
-  roleSlug: string,
+  roleSlug: TestRoleSlug,
   emailPrefix: string,
   businessUnitId: number
 ): Promise<SystemActor> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).firstOrFail()
+  const role = await ensureRole(roleSlug)
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
   const person = await Person.create({

@@ -93,6 +93,10 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     assert,
   }) => {
     await grantOnly(actor!.role.roleId, [])
+    // El catálogo vigente declara `positions` con exigencia encendida
+    // (system_modules.constant.ts): leer rangos pide su propio permiso, aparte
+    // de la categoría sensible que prueba este caso.
+    await grantModuleAction(actor!.role.roleId, 'positions', 'salary-ranges-read')
     const salaryRes = await client
       .get(`/api/employees/${fixture!.employee.employeeId}/salary-history`)
       .loginAs(actor!.user)
@@ -119,6 +123,8 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     assert,
   }) => {
     await grantOnly(actor!.role.roleId, ['sensitive-financiero-read'])
+    // Misma razón que el caso anterior: `positions` exige su permiso de lectura de rangos.
+    await grantModuleAction(actor!.role.roleId, 'positions', 'salary-ranges-read')
     const salaryRes = await client
       .get(`/api/employees/${fixture!.employee.employeeId}/salary-history`)
       .loginAs(actor!.user)
@@ -152,7 +158,7 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     expectNeverDenied(response, assert)
     assert.equal(
       empresaRfcFromShow(response.body()),
-      maskSensitiveValue(CLEAR_REMAINING.empresaRfc, 'identificacion')
+      maskSensitiveValue(CLEAR_REMAINING.empresaRfc)
     )
   })
 
@@ -302,11 +308,11 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     const masked = extra!.consent.serialize()
     assert.equal(
       masked.userConsentIp,
-      maskSensitiveValue(CLEAR_REMAINING.consentIp, 'contacto')
+      maskSensitiveValue(CLEAR_REMAINING.consentIp)
     )
     assert.equal(
       masked.userConsentUserAgent,
-      maskSensitiveValue(CLEAR_REMAINING.consentUa, 'contacto')
+      maskSensitiveValue(CLEAR_REMAINING.consentUa)
     )
     const clear = SensitiveAccessContext.run(
       {

@@ -1,6 +1,7 @@
 import { test } from '@japa/runner'
 import type { Assert } from '@japa/assert'
 import User from '#models/user'
+import { ensureRole } from '#tests/helpers/ensure_role'
 import type { RegulationCoverageRow } from '../../app/modules/regulatory-coverage/dto/regulatory_coverage.dto.js'
 
 /**
@@ -9,7 +10,24 @@ import type { RegulationCoverageRow } from '../../app/modules/regulatory-coverag
  *
  * El middleware auth() responde 401 antes de llegar al controller cuando no hay token.
  * Los tests de forma de respuesta 200 requieren las tablas del marco regulatorio en BD.
+ * El permiso `regulatory-coverage:read` se prueba en
+ * `regulatory_coverage_permission_gate.spec.ts`; aquí se usa root para probar la forma.
  */
+
+/**
+ * Usuario root sembrado por 0008. Con la exigencia de `regulatory-coverage`
+ * encendida, "el primer usuario activo" dejaba el resultado al rol de la primera
+ * fila (la consulta ni siquiera ordenaba): cualquier usuario creado antes que
+ * root respondía 403. root pasa el gate por bypass.
+ */
+async function getRootUser(): Promise<User> {
+  const root = await ensureRole('root')
+  return User.query()
+    .whereNull('user_deleted_at')
+    .where('role_id', root.roleId)
+    .orderBy('user_id', 'asc')
+    .firstOrFail()
+}
 
 /**
  * El cliente HTTP de Japa v2 lanza excepción en respuestas 500+.
@@ -75,7 +93,7 @@ test.group('RegulatoryCoverage - auth & response', () => {
   })
 
   test('200 con autenticación devuelve la forma esperada', async ({ client, assert }) => {
-    const user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    const user = await getRootUser()
 
     let response
     try {

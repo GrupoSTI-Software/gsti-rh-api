@@ -28,8 +28,9 @@ test.group('employee_biometric_face_id_routes — PermissionGate Biométricos', 
     // Cuarta escritura del grupo: promover el rostro biometrico a foto de
     // perfil. El gate del router cubre solo `tab-foto-write`; la lectura
     // biometrica que la operacion tambien exige la evalua el controlador con
-    // `evaluateEnforced`, porque este middleware concede mientras la exigencia
-    // del modulo `employees` siga apagada.
+    // `evaluateEnforced`, porque este middleware concederia a cualquier
+    // autenticado si alguien apagara la exigencia del modulo `employees` en BD
+    // —hoy encendida— y el dato biometrico no puede colgar de ese interruptor.
     assert.include(
       compact(content),
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.useEmployeeFaceIdAsPhoto)'

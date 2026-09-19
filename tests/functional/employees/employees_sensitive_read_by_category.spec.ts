@@ -305,8 +305,8 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
       const response = await client.get('/api/auth/session').loginAs(actor!.user)
       expectNeverDenied(response, assert)
       const person = sessionPerson(response.body())
-      assert.equal(person.personEmail, maskSensitiveValue(actorEmail, 'contacto'))
-      assert.equal(person.personPhone, maskSensitiveValue(fixture!.clear.phone, 'contacto'))
+      assert.equal(person.personEmail, maskSensitiveValue(actorEmail))
+      assert.equal(person.personPhone, maskSensitiveValue(fixture!.clear.phone))
     } finally {
       actor!.person.personEmail = originalEmail
       actor!.person.personPhone = originalPhone
@@ -373,7 +373,7 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
       assert.equal(listedPerson.personEmail, fixture!.clear.email)
       assert.equal(
         listedPerson.personCurp,
-        maskSensitiveValue(fixture!.clear.curp, 'identificacion')
+        maskSensitiveValue(fixture!.clear.curp)
       )
     } finally {
       await cleanupSensitiveFixture(second)

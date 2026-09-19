@@ -14,6 +14,7 @@ import { getBusinessTimeZone, todayInBusinessZone, toCalendarIsoDate } from '#ut
 import WorkJournalService from './work_journal.service.js'
 import WorkJournalSealRunSummaryMail from '#mails/work_journal_seal_run_summary_mail'
 import SystemSettingNotificationEmail from '#models/system_setting_notification_email'
+import { indexSystemSettingsByBusinessUnitSlug } from '#helpers/system_settings_by_business_unit'
 import {
   resolveExpiredPayrollPeriod,
   type ExpiredPayrollPeriod,
@@ -298,30 +299,13 @@ export default class WorkJournalSealRunOrchestrator {
   }
 
   /**
-   * `SystemSetting` no tiene FK directa a `business_unit`: la relación real
-   * es `systemSettingBusinessUnits` (CSV de slugs) contra
-   * `businessUnit.businessUnitSlug` (mismo patrón que
-   * `EmployeeLactationNotificationService.indexSystemSettingsByBuSlug`).
+   * `SystemSetting` cuelga de su empresa por `business_unit_id`, así que el
+   * índice por slug lo arma la frontera única
+   * (`indexSystemSettingsByBusinessUnitSlug`). Antes cada consumidor partía el
+   * CSV `system_setting_business_units` y montaba su propio mapa.
    */
   private async fetchSettingsByBuSlug(): Promise<Map<string, SystemSetting>> {
-    const settings = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_active', 1)
-      .select('system_setting_id', 'system_setting_trade_name', 'system_setting_business_units', 'system_setting_active')
-
-    const map = new Map<string, SystemSetting>()
-    for (const setting of settings) {
-      const slugs = (setting.systemSettingBusinessUnits ?? '')
-        .split(',')
-        .map((s) => s.trim().toLowerCase())
-        .filter(Boolean)
-      for (const slug of slugs) {
-        if (!map.has(slug)) {
-          map.set(slug, setting)
-        }
-      }
-    }
-    return map
+    return indexSystemSettingsByBusinessUnitSlug()
   }
 
   /**
