@@ -169,6 +169,14 @@ export interface MySubscriptionResult {
    */
   renewal: TenantRenewalSnapshot | null
   /**
+   * Estado de la cuenta para cualquier usuario de la empresa.
+   *
+   * Va fuera de `subscription` porque no es dinero ni detalle del contrato:
+   * es el aviso de que la cuenta esta vencida, y todo el equipo necesita
+   * verlo. El recorte para quien no es dueno lo conserva.
+   */
+  accountStatus: BillingSubscription['billingSubscriptionStatus'] | null
+  /**
    * Mínimo contratable para empresas `self_service` (con o sin suscripción viva).
    * El muro de contratación lo ignora cuando hay suscripción viva; la pantalla de
    * ajuste de cantidad (orden 8) lo consume.
@@ -503,12 +511,16 @@ export default class BillingTenantService {
       minimumContractedEmployees = this.resolveMinimumContractedEmployees(activeEmployees)
     }
 
+    const renewal = await this.findRenewableSubscription(businessUnitId)
+
     return {
       businessUnitOrigin: businessUnit.businessUnitOrigin,
       subscription: subscription
         ? await this.toTenantSubscriptionSnapshot(subscription, businessUnitId)
         : null,
-      renewal: await this.findRenewableSubscription(businessUnitId),
+      renewal,
+      accountStatus:
+        subscription?.billingSubscriptionStatus ?? renewal?.status ?? null,
       minimumContractedEmployees,
     }
   }
