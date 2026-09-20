@@ -1,3 +1,4 @@
+import mail from '@adonisjs/mail/services/main'
 import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing_subscription'
@@ -9,6 +10,9 @@ import BusinessUnit, { type BusinessUnitOrigin } from '#models/business_unit'
 import BillingCatalogService, { type ResolvedPrice } from '#services/billing_catalog_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
 import EmployeeQuotaService from '#services/employee_quota_service'
+import SubscriptionRenewalRequestMail from '#mails/subscription_renewal_request_mail'
+import { INTERNAL_CONTACT_EMAIL } from '#constants/support_contact'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import {
@@ -697,6 +701,84 @@ export default class BillingTenantService {
    * @param businessUnitId - Empresa activa del tenant.
    * @returns Contratacion renovable, o `null` si no hay ninguna.
    */
+  /**
+   * Avisa al equipo de que un cliente quiere renovar su contratacion.
+   *
+   * No hay pasarela de cobro ni registro de la solicitud: el pago se acuerda
+   * fuera de la plataforma, asi que el correo es el disparo que el equipo
+   * recibe para responder con la referencia. Si no hay contratacion renovable
+   * no se manda nada, para que el buzon no reciba avisos de cuentas al
+   * corriente.
+   *
+   * @param params - Quien pide la renovacion.
+   * @param params.requesterName - Nombre de quien apreto el boton.
+   * @param params.requesterEmail - Correo al que el equipo puede responder.
+   * @returns La contratacion por la que se aviso.
+   * @throws Si la empresa no tiene contratacion vencida ni cancelada.
+   */
+  async requestRenewal(params: {
+    requesterName: string
+    requesterEmail: string
+  }): Promise<TenantRenewalSnapshot> {
+    const businessUnitId = TenantContext.getScope()[0]
+
+    if (!businessUnitId || businessUnitId <= 0) {
+      throw new BillingSubscriptionServiceError(
+        'No se pudo resolver la empresa activa del tenant',
+        BILLING_SUBSCRIPTION_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND,
+        500,
+        'empresa-no-resuelta',
+        'No se pudo determinar la empresa activa para solicitar la renovación.'
+      )
+    }
+
+    const businessUnit = await BusinessUnit.query()
+      .where('business_unit_id', businessUnitId)
+      .whereNull('business_unit_deleted_at')
+      .first()
+
+    const renewal = await this.findRenewableSubscription(businessUnitId)
+
+    if (!businessUnit || !renewal) {
+      throw new BillingSubscriptionServiceError(
+        `La empresa ${businessUnitId} no tiene contratación que renovar`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.NO_LIVE_SUBSCRIPTION,
+        422,
+        'sin-contratacion-que-renovar',
+        'Esta empresa no tiene una contratación vencida por renovar.'
+      )
+    }
+
+    const amount = new Intl.NumberFormat('es-MX', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(renewal.amount)
+
+    await mail.send(
+      new SubscriptionRenewalRequestMail({
+        to: INTERNAL_CONTACT_EMAIL,
+        from: resolveMailSender(),
+        language: 'es',
+        branding: {
+          tradeName: 'Valanserh',
+          backgroundImageLogo:
+            'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png',
+        },
+        companyName: businessUnit.businessUnitName,
+        planName: renewal.planName,
+        status: renewal.status,
+        amount,
+        currency: renewal.currency,
+        periodsOverdue: renewal.periodsOverdue,
+        contractedEmployees: renewal.contractedEmployees,
+        requesterName: params.requesterName,
+        requesterEmail: params.requesterEmail,
+      })
+    )
+
+    return renewal
+  }
+
   private async findRenewableSubscription(
     businessUnitId: number
   ): Promise<TenantRenewalSnapshot | null> {
