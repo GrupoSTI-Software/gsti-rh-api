@@ -9,6 +9,8 @@ import type { MySubscriptionResult } from '#services/billing_tenant_service'
 export interface MySubscriptionRestrictedResult {
   businessUnitOrigin: MySubscriptionResult['businessUnitOrigin']
   subscription: { hasLiveSubscription: true } | null
+  /** Siempre `null`: la contratacion renovable lleva importes y es del dueño. */
+  renewal: null
   minimumContractedEmployees: number | null
 }
 
@@ -34,6 +36,7 @@ export function restrictMySubscription(
   return {
     businessUnitOrigin: result.businessUnitOrigin,
     subscription: result.subscription ? { hasLiveSubscription: true } : null,
+    renewal: null,
     minimumContractedEmployees: result.minimumContractedEmployees,
   }
 }
