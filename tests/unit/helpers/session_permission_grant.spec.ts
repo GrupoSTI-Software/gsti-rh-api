@@ -4,10 +4,6 @@ import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
 
 const identificacionRead: Pick<ActionCatalogEntry<string>, 'slug' | 'legacyEquivalence'> = {
   slug: 'sensitive-identificacion-read',
-  legacyEquivalence: {
-    systemPermissionSlug: 'reveal-sensitive-data',
-    relation: 'broader',
-  },
 }
 
 const identificacionWrite: Pick<ActionCatalogEntry<string>, 'slug' | 'legacyEquivalence'> = {
@@ -27,10 +23,10 @@ test.group('isCatalogActionGranted', () => {
     assert.isTrue(isCatalogActionGranted(identificacionWrite, granted))
   })
 
-  test('concede lectura sensible si solo tiene el legacy broader', ({ assert }) => {
+  test('reveal-sensitive-data no sustituye la consulta por categoría', ({ assert }) => {
     const granted = new Set(['reveal-sensitive-data'])
 
-    assert.isTrue(isCatalogActionGranted(identificacionRead, granted))
+    assert.isFalse(isCatalogActionGranted(identificacionRead, granted))
     assert.isFalse(isCatalogActionGranted(identificacionWrite, granted))
   })
 

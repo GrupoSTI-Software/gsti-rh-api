@@ -1,6 +1,5 @@
 import SensitiveFieldsCatalogService from '#services/sensitive_fields_catalog_service'
 import { SENSITIVE_MASK, maskSensitiveValue } from '#helpers/sensitive_mask'
-import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 
 const catalog = new SensitiveFieldsCatalogService()
 
@@ -10,6 +9,9 @@ const catalog = new SensitiveFieldsCatalogService()
  * Resuelve la categoría una vez al evaluar el decorador (carga del módulo).
  * Si el par no está en el catálogo, tapa siempre con máscara total: nunca
  * en claro por omisión.
+ *
+ * Política de producto: el valor en claro **nunca** viaja en GET/listados;
+ * el rol y los permisos de consulta solo habilitan la UI y el reveal auditado.
  */
 export function sensitiveSerialize(
   model: string,
@@ -30,17 +32,14 @@ export function sensitiveSerialize(
       return SENSITIVE_MASK
     }
 
-    if (SensitiveAccessContext.canRead(category)) {
-      return value
-    }
-
     return maskSensitiveValue(value)
   }
 }
 
 /**
  * Fábrica de `serialize` para importes clasificados (USRH1787204602828).
- * Sin permiso devuelve `null`: `maskLastFour` sobre un importe filtra magnitud.
+ * Los importes sensibles no se entregan en claro por HTTP: sin permiso o con
+ * permiso de consulta devuelven `null` (el claro va por reveal/export dedicado).
  */
 export function sensitiveSerializeNumeric(
   model: string,
@@ -55,10 +54,6 @@ export function sensitiveSerializeNumeric(
 
     if (category === null) {
       return null
-    }
-
-    if (SensitiveAccessContext.canRead(category)) {
-      return value
     }
 
     return null
@@ -84,9 +79,6 @@ export function maskSensitiveDtoValue(
   const category = catalog.categoryOf(model, column)
   if (category === null) {
     return SENSITIVE_MASK
-  }
-  if (SensitiveAccessContext.canRead(category)) {
-    return value
   }
   return maskSensitiveValue(value)
 }

@@ -1170,7 +1170,6 @@ export default class EmployeeService {
     if (!match) {
       return null
     }
-
     return this.getById(match.employeeId, userResponsibleId)
   }
 

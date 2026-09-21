@@ -35,6 +35,7 @@ import { blindIndex } from '#utils/blind_index'
 import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
 import { normalizeRfc } from '../../../app/shared/validators/rfc.validator.js'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 
 export function countGateLookups(sqls: string[]) {
   const roles = sqls.filter((sql) => /from\s+[`"]?roles[`"]?/i.test(sql)).length
@@ -343,6 +344,7 @@ export async function createSensitiveFixture(
   })
   const positionId = Number(positionInsert[0])
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: CLEAR_FIXED.firstname,

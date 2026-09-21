@@ -16,6 +16,7 @@ import {
   grantModulePermissions,
   type TenantActor,
 } from '#tests/helpers/tenant_actor'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 import {
   asRecord,
   buHeader,
@@ -98,6 +99,7 @@ async function createRepseEmployee(
   })
   const positionId = Number(positionInsert[0])
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: 'Repse',

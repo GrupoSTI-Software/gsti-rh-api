@@ -645,7 +645,6 @@ const CATALOG_ENTRIES = [
     kind: 'read',
     section: 'datos-sensibles',
     exceptionProfile: 'standard',
-    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
     slug: 'sensitive-identificacion-write',
@@ -660,7 +659,6 @@ const CATALOG_ENTRIES = [
     kind: 'read',
     section: 'datos-sensibles',
     exceptionProfile: 'standard',
-    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
     slug: 'sensitive-contacto-write',
@@ -675,7 +673,6 @@ const CATALOG_ENTRIES = [
     kind: 'read',
     section: 'datos-sensibles',
     exceptionProfile: 'standard',
-    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
     slug: 'sensitive-financiero-write',
@@ -690,7 +687,6 @@ const CATALOG_ENTRIES = [
     kind: 'read',
     section: 'datos-sensibles',
     exceptionProfile: 'standard',
-    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
     slug: 'sensitive-salud-write',
@@ -705,7 +701,6 @@ const CATALOG_ENTRIES = [
     kind: 'read',
     section: 'datos-sensibles',
     exceptionProfile: 'standard',
-    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
     slug: 'sensitive-biometrico-write',
