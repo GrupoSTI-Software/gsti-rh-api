@@ -3163,5 +3163,11 @@
   "subscription_renewal_request.requester_label": "Quién lo solicitó",
   "subscription_renewal_request.requester_value": "{requesterName} · {requesterEmail}",
   "subscription_renewal_request.next_step": "La solicitud llegó desde la pantalla de cuenta vencida, así que el cliente ya sabe que el pago se realiza fuera de la plataforma y está esperando la referencia.",
-  "subscription_renewal_request.footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
+  "subscription_renewal_request.footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo.",
+  "tenant_role_unmanaged_title": "Rol no administrable",
+  "tenant_role_unmanaged_detail": "El dueño y el empleado son roles que la empresa estrena al nacer y no se administran desde Roles y permisos: el dueño entra por su rol y el empleado no accede al backoffice.",
+  "tenant_role_undeletable_title": "Rol indeleble",
+  "tenant_role_undeletable_detail": "Este rol es parte del juego que toda empresa estrena al nacer; puedes ajustar sus permisos, pero no eliminarlo.",
+  "tenant_role_rename_locked_title": "Nombre bloqueado",
+  "tenant_role_rename_locked_detail": "El administrador es un rol del sistema: puedes ajustar sus permisos, pero su nombre no se cambia."
 }

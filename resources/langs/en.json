@@ -3160,5 +3160,11 @@
   "subscription_renewal_request.requester_label": "Requested by",
   "subscription_renewal_request.requester_value": "{requesterName} · {requesterEmail}",
   "subscription_renewal_request.next_step": "The request came from the expired account screen, so the customer already knows payment happens outside the platform and is waiting for the reference.",
-  "subscription_renewal_request.footer": "This is an automated message from {tradeName}. Please do not reply to this email."
+  "subscription_renewal_request.footer": "This is an automated message from {tradeName}. Please do not reply to this email.",
+  "tenant_role_unmanaged_title": "Role cannot be managed",
+  "tenant_role_unmanaged_detail": "Owner and employee are roles every company starts with and are not managed from Roles and permissions: the owner is granted access by their role and the employee does not reach the backoffice.",
+  "tenant_role_undeletable_title": "Role cannot be deleted",
+  "tenant_role_undeletable_detail": "This role is part of the set every company starts with; you can adjust its permissions, but not delete it.",
+  "tenant_role_rename_locked_title": "Name is locked",
+  "tenant_role_rename_locked_detail": "The administrator is a system role: you can adjust its permissions, but its name cannot be changed."
 }
