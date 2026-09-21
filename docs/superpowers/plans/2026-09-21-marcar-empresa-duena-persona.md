@@ -8,7 +8,7 @@
 
 **Tech Stack:** AdonisJS 6 · Lucid (mixins, hooks, `AsyncLocalStorage` vía `TenantContext`) · MySQL (BD desechable `sae_pruebas`) · TypeScript estricto · Japa (`node ace test`)
 
-**Repo:** `gsti-rh-api` · **Rama:** `feature/USRH1789698261609-marcar-empresa-duena-persona` · **Target del PR:** `feature/USRH1789698261608-blindar-liberacion-persona` (cadena en serie, decisión de Wilvardo 2026-09-18; **no** `multitenant`)
+**Repo:** `gsti-rh-api` · **Rama:** `feature/USRH1789698261609-marcar-empresa-duena-persona`, apoyada sobre `feature/USRH1789698261608-blindar-liberacion-persona` (cadena en serie, decisión de Wilvardo 2026-09-18; **no** `multitenant`). **No se abre PR**: el trabajo se entrega en la rama, revisado con este plan y su manual de QA.
 
 **HU:** USRH1789698261609 — *Marcar la empresa dueña de la persona* · **Spec:** `~/Downloads/spec-USRH1789698261609.md` (los anexos A-D viven en Drive y **no fueron accesibles** desde esta cuenta; todo el código de este plan sale del repo, validado el 2026-09-21)
 
@@ -32,7 +32,7 @@ Copiadas del spec (§4, §9, §12, §14, §15). Cada tarea las hereda.
 - **Prohibido:** tocar `PersonService.syncCreate` · cambiar el default del mixin `with_business_unit_scope.ts` · `throw` en el hook · `onDelete` en la FK · cambiar texto o status del 404 de persona (`person_controller.ts:655-659`, `:846-851`, `:1004-1009`) · asignar la empresa desde el cuerpo de la petición · el fallback `|| 1` de `employee_controller.ts:472` · tocar `person_controller.ts`, `platform_user_controller.ts`, `employee_service.ts`, `user_service.ts`, `pii_reveal_service.ts`, `validators/person.ts`, `person_is_collaborator.ts`, los seeders de catálogo/producción (`0007`, `0029`, `0047`), demo, `resources/lang/**`, `system_modules.constant.ts`, `valanserh-bo`. (El seeder QA no versionado de la Tarea 6, `_tmp_do_not_commit_qa_seeder.ts`, no está en este alcance: es gitignored, no se despliega, y es el mismo mecanismo que usó la HU predecesora.)
 - **Mina estructural (va al TSDoc, no se arregla):** el mixin **no filtra escrituras**: `Person.query().where(...).update()` / `.delete()` escriben sin filtro de tenant aun con contexto activo (Lucid solo corre `before:fetch` en SELECT). Regla escrita: ningún update o delete masivo sobre `people` sin `where('business_unit_id', ...)` explícito. Los hooks de Lucid **no corren** en INSERT crudo de Knex.
 - **Orden de trabajo obligatorio (D11):** (1) migración, modelo, hook, `person_service`, signup → (2) helpers de fixtures → (3) **suite completa y triage** → (4) **solo entonces** rutas y sus specs. Al revés se mezclan dos cascadas y no se sabe qué rompió qué.
-- **Trip-wire (§16.1):** si el triage tras la **primera** corrida completa de `node ace test` pasa de **2 h**, se ejecuta el corte R1/R2 del spec **tal cual** y se reporta; no se absorbe en silencio. Cualquier archivo editado fuera de la "Estructura de archivos" de este plan se reporta en el PR.
+- **Trip-wire (§16.1):** si el triage tras la **primera** corrida completa de `node ace test` pasa de **2 h**, se ejecuta el corte R1/R2 del spec **tal cual** y se reporta; no se absorbe en silencio. Cualquier archivo editado fuera de la "Estructura de archivos" de este plan se reporta en el resumen de cierre (Tarea 7).
 - **TypeScript estricto, cero `any` nuevo.** `getScope()` devuelve `number[]`; el destructuring da `number | undefined`; `?? null` cierra contra `number | null`. `logger` de Adonis, nunca `console.*`.
 - **Tests contra `sae_pruebas`:** `node ace test` fija `NODE_ENV=test` y lee `.env.test`. La BD se siembra **una sola vez** con `NODE_ENV=test DB_DATABASE=sae_pruebas node ace migration:fresh --seed`, nunca en paralelo con otra migración (`GET_LOCK` global del servidor).
 - **Nada se retira a `__TO_DELETE__/`.** **No commitear `pnpm-lock.yaml` ni `pnpm-workspace.yaml`** (sucios por causas ajenas). Cada commit lista sus archivos; nunca `git add -A`.
@@ -47,13 +47,13 @@ Cada ancla del spec coincide con el código salvo lo siguiente. Hallazgos que **
 
 | # | Hallazgo | Evidencia | Qué cambia |
 |---|---|---|---|
-| 1 | **La columna no debe serializarse.** §9 dice `@column() declare businessUnitId`, pero §10 exige "cero campos nuevos en request o response" y CA-1 "la respuesta del API es la misma de antes: sin campo nuevo". `Zone` sí la expone; `Person` no debe. | `person.ts` ya usa `serializeAs: null` en las cuatro huellas | `@column({ serializeAs: null })`. El bloque `@swagger` **no** cambia (documenta la respuesta, y la respuesta no cambia). Se anota en el PR como aclaración de §9. |
+| 1 | **La columna no debe serializarse.** §9 dice `@column() declare businessUnitId`, pero §10 exige "cero campos nuevos en request o response" y CA-1 "la respuesta del API es la misma de antes: sin campo nuevo". `Zone` sí la expone; `Person` no debe. | `person.ts` ya usa `serializeAs: null` en las cuatro huellas | `@column({ serializeAs: null })`. El bloque `@swagger` **no** cambia (documenta la respuesta, y la respuesta no cambia). Se anota en el resumen de cierre (Tarea 7) como aclaración de §9. |
 | 2 | **`businessScope()` va antes de `sensitiveAccess()`, no al final de la cadena.** Los dos middlewares llaman `runWithSensitiveReadDecisions`, que envuelve `response.send/json/finish` en un `SensitiveAccessContext.run(store, …)`. Al anidarse, el wrapper del **primer** middleware montado es el más interno y **su store gana** al serializar. `businessScope` aplica el rol efectivo de la empresa (`applyEffectiveTenantRole`) **antes** de resolver las decisiones; si `sensitiveAccess` corriera primero, la respuesta se enmascararía con el rol de la cuenta, no con el de la empresa. | `sensitive_read_decisions.ts:98-107` (`reenterSensitiveReadOnResponse`), `business_unit_scope_middleware.ts` (rol efectivo → `TenantContext.run(... runWithSensitiveReadDecisions)`), precedente `exception_request_routes.ts:72-73` | Cadena final: `auth → businessScope → sensitiveAccess → sensitiveMaskEcho`. `sensitiveAccess` **se conserva** (quitarlo es cambio de alcance y el spec de montaje `sensitive_access_context_mounts.spec.ts` lo censa). |
-| 3 | **El radio de `tests/` es mayor que los 4 archivos de §13.** Hay un tercer helper compartido y dos fixtures locales que crean `Person` **sin** marca y luego la leen por HTTP con contexto (`PUT /api/persons/:id`, `GET /api/employees/*` con `preload('person')`): quedarían en 404 / `person: null`. Y `signup_system_settings.spec.ts` limpia la persona buscando `where('person_email', email)` contra un valor **cifrado** (nunca empata): la persona sobrevive, y con la FK `RESTRICT` el `BusinessUnit.query().delete()` del teardown fallará. | `tests/functional/employees/sensitive_read_by_category_support.ts:210,248,314` · `employees_expediente_read_permission_gate.spec.ts:85,122,180` · `employees_persona_domicilio_bancos_permission_gate.spec.ts:81,118,174` · `signup_system_settings.spec.ts:130-133` | Son el triage que D11 paso 3 anticipa ("61 specs crean Person fuera de HTTP"). Se arreglan en la Tarea 4 con el **mismo cambio de una línea** y se listan en el PR como radio real. No es cambio de contrato. |
+| 3 | **El radio de `tests/` es mayor que los 4 archivos de §13.** Hay un tercer helper compartido y dos fixtures locales que crean `Person` **sin** marca y luego la leen por HTTP con contexto (`PUT /api/persons/:id`, `GET /api/employees/*` con `preload('person')`): quedarían en 404 / `person: null`. Y `signup_system_settings.spec.ts` limpia la persona buscando `where('person_email', email)` contra un valor **cifrado** (nunca empata): la persona sobrevive, y con la FK `RESTRICT` el `BusinessUnit.query().delete()` del teardown fallará. | `tests/functional/employees/sensitive_read_by_category_support.ts:210,248,314` · `employees_expediente_read_permission_gate.spec.ts:85,122,180` · `employees_persona_domicilio_bancos_permission_gate.spec.ts:81,118,174` · `signup_system_settings.spec.ts:130-133` | Son el triage que D11 paso 3 anticipa ("61 specs crean Person fuera de HTTP"). Se arreglan en la Tarea 4 con el **mismo cambio de una línea** y se listan en el resumen de cierre (Tarea 7) como radio real. No es cambio de contrato. |
 | 4 | **CA-3 no tiene endpoint.** No existe listado de personas bajo `/api/platform/*`; el landlord solo crea (`POST /api/platform/users`) y precarga `person` en sesión. | `grep -rn "person" start/routes/platform_*.ts` | El conteo del landlord (V11) se cuadra con `Person.query()` **sin contexto** desde `node ace repl` contra `SELECT COUNT(*)`. Misma semántica (regla 7), sin endpoint inventado. |
-| 5 | **CA-8 tiene un oráculo residual por orden de comprobaciones**, fuera de alcance. En `update`/`delete`, `personIsCollaborator(id)` (deliberadamente sin scope) corre **antes** de buscar la persona: para el id de un colaborador de B, un usuario de A **sin** `tab-persona-write` recibe **403 `PERM.DENIED`**, y para un id inexistente, 404. Con el permiso (el caso del tester habitual), ambos dan 404 idéntico. | `person_controller.ts:641-649`, `:832-840`; `person_is_collaborator.ts` | **No se toca el controller** (§13). Se reporta a Wilvardo en el PR junto al oráculo de `verifyInfo` (CA-9) como herencia de la HU sucesora. V-CA-8 se ejecuta con un usuario **con** permiso de escritura. |
+| 5 | **CA-8 tiene un oráculo residual por orden de comprobaciones**, fuera de alcance. En `update`/`delete`, `personIsCollaborator(id)` (deliberadamente sin scope) corre **antes** de buscar la persona: para el id de un colaborador de B, un usuario de A **sin** `tab-persona-write` recibe **403 `PERM.DENIED`**, y para un id inexistente, 404. Con el permiso (el caso del tester habitual), ambos dan 404 idéntico. | `person_controller.ts:641-649`, `:832-840`; `person_is_collaborator.ts` | **No se toca el controller** (§13). Se reporta a Wilvardo junto al oráculo de `verifyInfo` (CA-9) como herencia de la HU sucesora. V-CA-8 se ejecuta con un usuario **con** permiso de escritura. |
 | 6 | Conteo de llamadas del spec E7: son **12** peticiones a `/api/persons` (7 sitios, uno en bucle de 6), no 9. | `person_store_subject_type_permission_gate.spec.ts` | Drift trivial. Todas llevan header. |
-| 7 | Rama real y target: `feature/USRH1789698261609-marcar-empresa-duena-persona` sobre `feature/USRH1789698261608-blindar-liberacion-persona` (ya con los 5 commits de la predecesora). | `git branch`, `git log` | Se usa la rama real; el PR apunta a la predecesora. |
+| 7 | Rama real y target: `feature/USRH1789698261609-marcar-empresa-duena-persona` sobre `feature/USRH1789698261608-blindar-liberacion-persona` (ya con los 5 commits de la predecesora). | `git branch`, `git log` | Se usa la rama real; el trabajo se apoya sobre la predecesora, sin abrir PR. |
 | 8 | Prefijo de migración: `date +%s000` hoy = `1790007401000` (13 dígitos, > `1789700400000`). | `ls database/migrations \| tail` | `make:migration` producirá el prefijo correcto sin intervención. |
 | 9 | El `.delete()` a nivel query de `adonis-lucid-soft-deletes` es **hard delete** (el paquete solo añade `restore`, `withTrashed`, `onlyTrashed`). | `node_modules/adonis-lucid-soft-deletes/build/chunk-63NPG5AD.js` | Los teardowns que borran la persona **antes** que la empresa siguen funcionando con la FK `RESTRICT`. Los que no la borran (hallazgo 3) fallan. |
 
@@ -124,7 +124,7 @@ Expected: `feature/USRH1789698261609-marcar-empresa-duena-persona`, solo ` M pnp
 TOKEN='<bearer del usuario de A>'; BU_A='<business_unit_public_id de A>'; curl -s "http://127.0.0.1:3333/api/persons?page=1&limit=1000" -H "Authorization: Bearer $TOKEN" -H "X-Business-Unit-Id: $BU_A" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const b=JSON.parse(s).data.persons;console.log(JSON.stringify({total:b.meta.total,ids:b.data.map(p=>p.personId).sort((a,c)=>a-c)}))})' > /tmp/persons-A-antes.json; cat /tmp/persons-A-antes.json | head -c 300
 ```
 
-Expected: un JSON `{"total":N,"ids":[...]}`. **Ojo:** en la BD de desarrollo actual (pre-HU) esa lista trae personas de **todas** las empresas —es el hueco que se cierra—; la captura sirve para demostrar que, tras la HU, A conserva **sus** personas. Si la BD de desarrollo no tiene dos empresas con personas, hacer la captura sobre `sae_pruebas` sembrada con el bloque QA de la Tarea 6 (las personas de la empresa A del seeder) y anotarlo en el PR.
+Expected: un JSON `{"total":N,"ids":[...]}`. **Ojo:** en la BD de desarrollo actual (pre-HU) esa lista trae personas de **todas** las empresas —es el hueco que se cierra—; la captura sirve para demostrar que, tras la HU, A conserva **sus** personas. Si la BD de desarrollo no tiene dos empresas con personas, hacer la captura sobre `sae_pruebas` sembrada con el bloque QA de la Tarea 6 (las personas de la empresa A del seeder) y anotarlo en el resumen de cierre.
 
 - [ ] Sembrar la BD desechable (nunca en paralelo con otra migración):
 
@@ -650,13 +650,13 @@ node ace test unit --files="person_business_unit_scope" && npm run typecheck
 
 Expected: PASS completo (4 + 2 + 4 + 7) y `tsc` limpio. Si `assert.rejects` no acepta regex en esta versión de `@japa/assert`, cambiar a `try { … ; assert.fail('debió rechazar') } catch (error) { assert.match(String((error as Error).message), /foreign key constraint fails/) }`.
 
-- [ ] **Step 5: Evidencia del DoD (va al PR)**
+- [ ] **Step 5: Evidencia del DoD (va al resumen de cierre)**
 
 ```bash
 grep -n "includeGlobal" app/models/person.ts; echo "exit=$?"
 ```
 
-Expected: sin salida y `exit=1` (grep no encontró nada). Pegar la línea en el PR.
+Expected: sin salida y `exit=1` (grep no encontró nada). Pegar la línea en el resumen de cierre.
 
 - [ ] **Step 6: Commit**
 
@@ -1538,7 +1538,7 @@ Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
 
 ---
 
-### Task 7: Verificación de cierre (V1-V15 del spec), DoD y PR
+### Task 7: Verificación de cierre (V1-V15 del spec) y DoD
 
 **Files:** ninguno nuevo. Verificación cruzada del diff completo.
 
@@ -1574,7 +1574,7 @@ Expected: las tres sin salida.
 git diff feature/USRH1789698261608-blindar-liberacion-persona...HEAD --stat | grep -vE "person\.ts|person_service\.ts|signup_draft_service\.ts|person_routes\.ts|add_business_unit_id_to_people_table|person_business_unit_scope|tenant_actor|employee_fixture|sensitive_read_by_category_support|employees_expediente_read_permission_gate|employees_persona_domicilio_bancos_permission_gate|signup_system_settings|signup_complete\.spec|person_store_subject_type_permission_gate|sensitive_access_context_mounts|qa-api|marcar-empresa-duena-persona"
 ```
 
-Expected: solo la línea de resumen (`N files changed`). Cualquier otro archivo es radio no previsto: se lista en el PR.
+Expected: solo la línea de resumen (`N files changed`). Cualquier otro archivo es radio no previsto: se lista en el resumen de cierre.
 
 - [ ] **Step 3: Verificación funcional contra el servidor local (V1-V3, V9: separación por resultado, no por status)**
 
@@ -1584,7 +1584,7 @@ Con el API corriendo sobre la BD de desarrollo (ya migrada y sembrada con el blo
 TOKEN='<bearer del usuario de A>'; BU_A='<business_unit_public_id de A>'; curl -s "http://127.0.0.1:3333/api/persons?page=1&limit=1000" -H "Authorization: Bearer $TOKEN" -H "X-Business-Unit-Id: $BU_A" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const b=JSON.parse(s).data.persons;console.log(JSON.stringify({total:b.meta.total,ids:b.data.map(p=>p.personId).sort((a,c)=>a-c)}))})' > /tmp/persons-A-despues.json; diff /tmp/persons-A-antes.json /tmp/persons-A-despues.json && echo 'IDS Y TOTAL IDENTICOS'
 ```
 
-Expected: si la BD de desarrollo tenía personas de varias empresas, el `diff` **mostrará** que desaparecieron las ajenas y las NULL: eso es el cierre del hueco, y lo que hay que verificar es que **todas** las personas que quedan tienen `business_unit_id` = A y que **todas** las personas con `business_unit_id` = A siguen (comparar contra `SELECT person_id FROM people WHERE business_unit_id = <A> AND person_deleted_at IS NULL ORDER BY person_id`). Si la captura previa se hizo sobre la empresa A del seeder QA, el `diff` sale vacío e imprime `IDS Y TOTAL IDENTICOS`. En ambos casos, pegar los dos JSON en el PR. **Un 200 con menos filas de las propias es la regresión que este paso existe para atrapar.**
+Expected: si la BD de desarrollo tenía personas de varias empresas, el `diff` **mostrará** que desaparecieron las ajenas y las NULL: eso es el cierre del hueco, y lo que hay que verificar es que **todas** las personas que quedan tienen `business_unit_id` = A y que **todas** las personas con `business_unit_id` = A siguen (comparar contra `SELECT person_id FROM people WHERE business_unit_id = <A> AND person_deleted_at IS NULL ORDER BY person_id`). Si la captura previa se hizo sobre la empresa A del seeder QA, el `diff` sale vacío e imprime `IDS Y TOTAL IDENTICOS`. En ambos casos, pegar los dos JSON en el resumen de cierre. **Un 200 con menos filas de las propias es la regresión que este paso existe para atrapar.**
 
 Después, con el header de B: ninguna fila devuelta tiene `business_unit_id` de A ni NULL (comprobar los ids contra `people` por SQL).
 
@@ -1620,20 +1620,24 @@ Si el entorno tiene un reloj checador de prueba: anotar la hora, disparar una si
 SELECT COUNT(*) AS personas_sin_marca_del_sync FROM people WHERE business_unit_id IS NULL AND person_created_at > '<inicio de la prueba>';
 ```
 
-Pegar el número en la HU y en el PR. Si no hay reloj de prueba, dejar constancia de que no se pudo medir y que el camino (`employee_controller.ts:360` → `employee_service.ts:208` → `PersonService.syncCreate`) sigue creando personas NULL.
+Pegar el número en la HU y en el resumen de cierre. Si no hay reloj de prueba, dejar constancia de que no se pudo medir y que el camino (`employee_controller.ts:360` → `employee_service.ts:208` → `PersonService.syncCreate`) sigue creando personas NULL.
 
-- [ ] **Step 8: Abrir el PR contra la rama de la predecesora**
+- [ ] **Step 8: Escribir el resumen de cierre (sin abrir PR)**
 
-```bash
-git push -u origin feature/USRH1789698261609-marcar-empresa-duena-persona
-gh pr create --base feature/USRH1789698261608-blindar-liberacion-persona --title "feat(USRH1789698261609): marcar la empresa dueña de la persona" --body-file - <<'EOF'
+**No se abre pull request para esta HU.** El trabajo se entrega en la rama tal cual, revisado con este plan y su manual de QA. En su lugar, se escribe el mismo contenido que llevaría un PR en un archivo local, para que Wilvardo o Noé lo lean directo o lo usen si más adelante deciden abrir uno:
+
+Crear `docs/superpowers/plans/2026-09-21-marcar-empresa-duena-persona-cierre.md` con:
+
+```markdown
+# Resumen de cierre — USRH1789698261609 Marcar la empresa dueña de la persona
+
 ## Qué cambia
 
 `people` registra su empresa dueña (`business_unit_id`, nullable, índice, FK **RESTRICT**). `Person` compone `withBusinessUnitScope()` **sin `includeGlobal`** (fail-closed: una fila NULL es invisible para todo inquilino) y un `@beforeCreate` tolerante que toma la empresa activa del contexto y deja NULL sin lanzar cuando no hay contexto. `PersonService.create` propaga la marca; el signup self-service crea la empresa antes que el dueño y lo marca en la misma transacción (sobrevive al bucle de colisión de slug). `/api/persons` y `/api/persons-get-places-of-birth` montan `businessScope()`: hoy cualquier inquilino listaba, leía, editaba y borraba expedientes de los demás.
 
 ## Qué NO cambia
 
-Ninguna pantalla, ningún campo de request ni de response (la columna no se serializa), ningún mensaje ni status salvo que `/api/persons*` ahora exige `X-Business-Unit-Id` (400 `BU.VAL.000` si falta; comportamiento ya existente del middleware). `PersonService.syncCreate` **no se toca** (D3, decisión de Wilvardo 2026-09-18): las personas del reloj checador nacen NULL e invisibles para su propio cliente. **Este PR no es el cierre completo de la marca de empresa.** Sin backfill: base limpia el 2026-09-28.
+Ninguna pantalla, ningún campo de request ni de response (la columna no se serializa), ningún mensaje ni status salvo que `/api/persons*` ahora exige `X-Business-Unit-Id` (400 `BU.VAL.000` si falta; comportamiento ya existente del middleware). `PersonService.syncCreate` **no se toca** (D3, decisión de Wilvardo 2026-09-18): las personas del reloj checador nacen NULL e invisibles para su propio cliente. **Esta HU no es el cierre completo de la marca de empresa.** Sin backfill: base limpia el 2026-09-28.
 
 ## Notas para revisión
 
@@ -1655,9 +1659,15 @@ Ninguna pantalla, ningún campo de request ni de response (la columna no se seri
 ## Pruebas
 
 Manual de QA de API hermano: `docs/superpowers/plans/2026-09-21-marcar-empresa-duena-persona-qa-api.md` (6 escenarios). Suite completa en verde antes y después de montar el scope de rutas.
+```
 
-🤖 Generated with [Claude Code](https://claude.com/claude-code)
-EOF
+Commit:
+
+```bash
+git add docs/superpowers/plans/2026-09-21-marcar-empresa-duena-persona-cierre.md
+git commit -m "docs(USRH1789698261609): resumen de cierre de la marca de empresa dueña de la persona
+
+Co-Authored-By: Claude Sonnet 5 <noreply@anthropic.com>"
 ```
 
 - [ ] **Step 9: Cerrar el ciclo en el spec y en Asana**
