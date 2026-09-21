@@ -357,6 +357,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate soft-rollout', (group) =
     const response = await client
       .put(`/api/persons/${fixture!.person.personId}`)
       .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
       .json({
         personFirstname: 'Soft',
         personLastname: 'Rollout',
@@ -550,6 +551,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
     const response = await client
       .put(`/api/persons/${fixture!.person.personId}`)
       .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
       .json({ personLastname: 'Inválido' })
 
     response.assertStatus(403)
@@ -574,6 +576,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
     const response = await client
       .put(`/api/persons/${customerPerson.personId}`)
       .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
       .json({ personFirstname: 'Cliente', personLastname: 'Actualizado' })
 
     assert.notEqual(response.status(), 403)
@@ -642,6 +645,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
     const personDeleteResponse = await client
       .delete(`/api/persons/${fixture!.person.personId}`)
       .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
     personDeleteResponse.assertStatus(403)
     assert.equal(personDeleteResponse.body()?.key, 'PERM.DENIED')
     assert.isNotNull(
