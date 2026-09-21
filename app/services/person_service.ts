@@ -54,6 +54,10 @@ export default class PersonService {
    */
   async create(person: Person, trx?: TransactionClientContract) {
     const newPerson = new Person()
+    // USRH1789698261609: la marca viaja con la persona que arma el llamador
+    // (signup self-service). Con contexto de tenant y sin marca, la pone el hook
+    // del modelo; sin contexto y sin marca queda null (persona de plataforma).
+    newPerson.businessUnitId = person.businessUnitId ?? null
     newPerson.personFirstname = person.personFirstname
     newPerson.personLastname = person.personLastname
     newPerson.personSecondLastname = person.personSecondLastname || ''

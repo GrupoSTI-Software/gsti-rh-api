@@ -330,7 +330,7 @@ export default class SignupDraftService {
     // dentro de la misma transacción del alta, y de ahí sale su `owner`.
     const tenantRoleProvisioningService = new TenantRoleProvisioningService()
 
-    // Armado completo del alta (Person → BusinessUnit → User → attach →
+    // Armado completo del alta (BusinessUnit → Person → User → attach →
     // system_settings) todo-o-nada: un fallo en cualquier paso revierte todo,
     // sin dejar datos huérfanos (USRH1783712837572).
     // El bucle acota el reintento ante colisión de slug: transacción nueva
@@ -340,7 +340,20 @@ export default class SignupDraftService {
     for (;;) {
     try {
       const result = await db.transaction(async (trx) => {
+        // La empresa nace ANTES que el expediente del dueño: la persona necesita
+        // la empresa para llevar su marca (USRH1789698261609, regla 3). El
+        // bucle de colisión de slug reintenta la transacción completa, así que
+        // nunca queda una persona sin marca de un intento abortado.
+        const businessUnitData = new BusinessUnit()
+        businessUnitData.businessUnitName = draft.signupDraftBusinessUnitName
+        businessUnitData.businessUnitSlug = slug
+        businessUnitData.businessUnitLegalName = draft.signupDraftBusinessUnitName
+        businessUnitData.businessUnitActive = 1
+        businessUnitData.businessUnitOrigin = 'self_service'
+        const trxBusinessUnit = await businessUnitService.create(businessUnitData, trx)
+
         const personData = new Person()
+        personData.businessUnitId = trxBusinessUnit.businessUnitId
         personData.personFirstname = draft.signupDraftFirstName
         personData.personLastname = draft.signupDraftLastName
         personData.personSecondLastname = draft.signupDraftSecondLastName ?? ''
@@ -356,14 +369,6 @@ export default class SignupDraftService {
         personData.personPlaceOfBirthState = ''
         personData.personPlaceOfBirthCity = ''
         const trxPerson = await personService.create(personData, trx)
-
-        const businessUnitData = new BusinessUnit()
-        businessUnitData.businessUnitName = draft.signupDraftBusinessUnitName
-        businessUnitData.businessUnitSlug = slug
-        businessUnitData.businessUnitLegalName = draft.signupDraftBusinessUnitName
-        businessUnitData.businessUnitActive = 1
-        businessUnitData.businessUnitOrigin = 'self_service'
-        const trxBusinessUnit = await businessUnitService.create(businessUnitData, trx)
 
         // Roles propios de la empresa, antes que el usuario: el alta necesita
         // el `owner` de ESTA empresa para asignárselo a quien la contrata.
