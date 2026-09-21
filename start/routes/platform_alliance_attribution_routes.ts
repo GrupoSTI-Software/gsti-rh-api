@@ -10,6 +10,7 @@ import { middleware } from '../kernel.js'
  *   POST   /api/platform/alliance-attributions
  *   GET    /api/platform/alliance-attributions/:allianceAttributionId
  *   GET    /api/platform/tenants/:businessUnitPublicId/alliance-attributions
+ *   GET    /api/platform/alliances/:allianceId/attributions
  *   PATCH  /api/platform/alliance-attributions/:allianceAttributionId
  *   POST   /api/platform/alliance-attributions/:allianceAttributionId/close
  *
@@ -29,6 +30,10 @@ router
     router.get(
       '/tenants/:businessUnitPublicId/alliance-attributions',
       '#controllers/alliance_attribution_controller.indexByTenant'
+    )
+    router.get(
+      '/alliances/:allianceId/attributions',
+      '#controllers/alliance_attribution_controller.indexByAlliance'
     )
     router.patch(
       '/alliance-attributions/:allianceAttributionId',

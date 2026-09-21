@@ -18,6 +18,8 @@ import type {
   AllianceAttributionView,
   CloseAllianceAttributionInput,
   CreateAllianceAttributionInput,
+  ListAllianceAttributionsByAllianceFilters,
+  ListAllianceAttributionsByAllianceResult,
   UpdateAllianceAttributionInput,
 } from '../interfaces/alliance_attribution_interface.js'
 
@@ -576,6 +578,54 @@ export default class AllianceAttributionService {
 
     const accrual = await this.loadAccrualByAttribution(rows.map((row) => row.allianceAttributionId))
     return this.toAllianceAttributionViews(rows, accrual)
+  }
+
+  /**
+   * Listado paginado de atribuciones de una alianza, vivas y cerradas.
+   * Orden: vivas primero; cerradas por fecha de cierre descendente; id
+   * descendente. El avance se resuelve con un solo agregado por página.
+   * Una empresa dada de baja sigue en la lista: su nombre se carga con
+   * `withTrashed` para no perder el rastro de dinero.
+   */
+  async listAllianceAttributionsByAlliance(
+    allianceId: number,
+    filters: ListAllianceAttributionsByAllianceFilters = {}
+  ): Promise<ListAllianceAttributionsByAllianceResult> {
+    assertPositiveAllianceId(allianceId)
+
+    const alliance = await Alliance.query().where('alliance_id', allianceId).first()
+    if (!alliance) {
+      throwFromCatalog(ALLIANCE_ERRORS.NOT_FOUND)
+    }
+
+    const page = filters.page ?? 1
+    const limit = Math.min(filters.limit ?? 20, 100)
+
+    const paginated = await AllianceAttribution.query()
+      .where('alliance_attributions.alliance_id', allianceId)
+      .preload('alliance')
+      .preload('businessUnit', (query) => {
+        query.withTrashed()
+      })
+      .orderByRaw('alliance_attribution_closed_at IS NULL DESC')
+      .orderBy('alliance_attribution_closed_at', 'desc')
+      .orderBy('alliance_attribution_id', 'desc')
+      .paginate(page, limit)
+
+    const rows = paginated.all()
+    const accrual = await this.loadAccrualByAttribution(
+      rows.map((row) => row.allianceAttributionId)
+    )
+
+    return {
+      data: this.toAllianceAttributionViews(rows, accrual),
+      meta: {
+        total: paginated.total,
+        page: paginated.currentPage,
+        limit: paginated.perPage,
+        lastPage: paginated.lastPage,
+      },
+    }
   }
 
   /**
