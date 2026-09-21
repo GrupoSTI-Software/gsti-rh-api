@@ -43,6 +43,7 @@ export async function createEmployeeFixture(
     personLastname: 'Fixture',
     personSecondLastname: prefix,
     personEmail: `employee-${prefix}-${stamp}@gsti-tests.local`,
+    businessUnitId,
   })
   const department = await createDepartmentFixture(businessUnitId, `Departamento ${prefix}`)
   const position = await createPositionFixture(businessUnitId, `Puesto ${prefix}`)

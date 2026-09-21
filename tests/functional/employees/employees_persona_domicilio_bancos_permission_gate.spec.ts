@@ -83,6 +83,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     personLastname: 'Test',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId: businessUnit.businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -120,6 +121,7 @@ async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): P
     personLastname: 'Sistema',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId: businessUnit.businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -176,6 +178,7 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
     personLastname: 'SoftRollout',
     personSecondLastname: prefix,
     personEmail: `employee-${prefix}-${stamp}@gsti-tests.local`,
+    businessUnitId,
   })
   const departmentInsert = await db.table('departments').insert({
     department_sync_id: stamp,
@@ -561,6 +564,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
       personLastname: 'PermissionGate',
       personSecondLastname: 'Prueba',
       personEmail: `customer-${stamp}@gsti-tests.local`,
+      businessUnitId: actor!.businessUnit.businessUnitId,
     })
     await db.table('customers').insert({
       person_id: customerPerson.personId,
