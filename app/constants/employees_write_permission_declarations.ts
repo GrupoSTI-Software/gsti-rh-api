@@ -29,7 +29,6 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   updateEmployeeContract: employeesStandard('tab-trabajo-write'),
   deleteEmployeeContract: employeesStandard('tab-trabajo-delete'),
   assignEmployeeBranchOffice: employeesStandard('tab-trabajo-write'),
-  unassignEmployeeBranchOffice: employeesStandard('tab-trabajo-delete'),
   createTemporaryAssignment: employeesStandard('tab-trabajo-write'),
   updateTemporaryAssignment: employeesStandard('tab-trabajo-write'),
   cancelTemporaryAssignment: employeesStandard('tab-trabajo-write'),
