@@ -34,32 +34,32 @@ export function respondUserAccessEmailMasked(
   }
 }
 
-type VineValidationMessage = { field?: unknown; rule?: unknown; message?: unknown }
-type VineValidationError = { code?: unknown; messages?: unknown }
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
 
-function isVineValidationError(error: unknown): error is VineValidationError {
-  return typeof error === 'object' && error !== null && 'code' in error && 'messages' in error
+function isDuplicatedEmailValidationMessage(message: unknown): boolean {
+  if (!isObjectRecord(message)) return false
+  return (
+    message.field === 'userEmail' &&
+    typeof message.rule === 'string' &&
+    message.rule.includes('unique')
+  )
 }
 
 /** El .unique() inline de createUserValidator (validators/user.ts:21-27). Rule observado: 'database.unique' (ver Tarea 2 Step 1). */
 export function isUserAccessEmailDuplicatedValidationError(error: unknown): boolean {
-  if (!isVineValidationError(error)) return false
+  if (!isObjectRecord(error)) return false
   if (error.code !== 'E_VALIDATION_ERROR') return false
   if (!Array.isArray(error.messages)) return false
-  return (error.messages as VineValidationMessage[]).some(
-    (m) =>
-      m.field === 'userEmail' &&
-      typeof m.rule === 'string' &&
-      m.rule.includes('unique')
-  )
+  return error.messages.some((message) => isDuplicatedEmailValidationMessage(message))
 }
 
 /** La perdedora de una carrera entre dos altas concurrentes (CA-11): MySQL 1062 sobre el índice. */
 export function isUserAccessEmailDuplicatedIndexError(error: unknown): boolean {
-  if (typeof error !== 'object' || error === null) return false
-  const e = error as { code?: unknown; errno?: unknown; message?: unknown }
-  if (e.code !== 'ER_DUP_ENTRY' && e.errno !== 1062) return false
-  return typeof e.message === 'string' && e.message.includes('users_email_active_unique')
+  if (!isObjectRecord(error)) return false
+  if (error.code !== 'ER_DUP_ENTRY' && error.errno !== 1062) return false
+  return typeof error.message === 'string' && error.message.includes('users_email_active_unique')
 }
 
 export function respondUserAccessEmailDuplicated(ctx: HttpContext): UserAccessEmailErrorBody {
