@@ -261,11 +261,11 @@ Usuario: **A**.
 
 ## 8. Checklist
 
-- [ ] Escenario 1 — Alta con correo de otra viva: 400 con título, detalle, clave y código
-- [ ] Escenario 2 — Edición con correo de otra viva: 400 igual y ninguna cuenta cambia
-- [ ] Escenario 3 — Edición con el propio correo: 201
-- [ ] Escenario 4 — Alta con correo de baja: 201
-- [ ] Escenario 5 — Alta en mayúsculas: 400 igual
-- [ ] Escenario 6 — Alta con acento: 400 igual
+- [x] Escenario 1 — Alta con correo de otra viva: 400 con título, detalle, clave y código
+- [x] Escenario 2 — Edición con correo de otra viva: 400 igual y ninguna cuenta cambia
+- [x] Escenario 3 — Edición con el propio correo: 201
+- [x] Escenario 4 — Alta con correo de baja: 201
+- [x] Escenario 5 — Alta en mayúsculas: 400 igual
+- [x] Escenario 6 — Alta con acento: 400 igual
 
 Sin paso de limpieza: el recorrido no enciende ningún interruptor global (no toca banderas de instancia; lo sembrado se restaura recorriendo el seeder).
