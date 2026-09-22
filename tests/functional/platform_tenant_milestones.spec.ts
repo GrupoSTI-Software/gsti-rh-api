@@ -19,6 +19,7 @@ import PlatformTenantMilestoneService, {
   type TenantMilestone,
 } from '#services/platform_tenant_milestone_service'
 import PlatformTrialService from '#services/platform_trial_service'
+import PlatformTrialController from '#controllers/platform_trial_controller'
 
 /**
  * USRH1789079078170 — `PlatformTenantMilestoneService.resolveMilestones` y su
@@ -321,6 +322,22 @@ function milestone(hitos: TenantMilestone[], clave: TenantMilestone['clave']): T
   return hitos.find((h) => h.clave === clave)!
 }
 
+/** Cuenta las consultas SQL reales ejecutadas durante `work()` (CA-11, mismo patrón que `alliance_attribution_accrual_progress.spec.ts:40-52`). */
+async function withSqlLog<T>(work: () => Promise<T>): Promise<{ result: T; sqls: string[] }> {
+  const sqls: string[] = []
+  const knex = db.connection().getWriteClient()
+  const onQuery = (query: { sql?: string }) => {
+    if (query.sql) sqls.push(query.sql)
+  }
+  knex.on('query', onQuery)
+  try {
+    const result = await work()
+    return { result, sqls }
+  } finally {
+    knex.off('query', onQuery)
+  }
+}
+
 // ─── Nivel servicio ──────────────────────────────────────────────────────────
 
 test.group('PlatformTenantMilestoneService.resolveMilestones (USRH1789079078170)', () => {
@@ -615,19 +632,176 @@ test.group('PlatformTenantMilestoneService.resolveMilestones (USRH1789079078170)
     }
   })
 
-  test('CA-11 · lote de N tenants: el número de tenants no cambia la forma del cálculo', async ({
+  test('CA-11 · el número de consultas SQL es fijo (ocho) y NO crece con el tamaño del lote', async ({
     assert,
   }) => {
-    const bus = [await createBu('ca11-1'), await createBu('ca11-2'), await createBu('ca11-3')]
+    const service = new PlatformTenantMilestoneService()
+    const uno = [await createBu('ca11-uno')]
+    const cinco = [
+      await createBu('ca11-a'),
+      await createBu('ca11-b'),
+      await createBu('ca11-c'),
+      await createBu('ca11-d'),
+      await createBu('ca11-e'),
+    ]
     try {
-      const service = new PlatformTenantMilestoneService()
-      const map = await service.resolveMilestones(bus.map((b) => b.businessUnitId))
-      assert.equal(map.size, 3)
-      for (const bu of bus) {
-        assert.lengthOf(map.get(bu.businessUnitId)!, 7)
+      const { result: mapUno, sqls: sqlsUno } = await withSqlLog(() =>
+        service.resolveMilestones(uno.map((b) => b.businessUnitId))
+      )
+      const { result: mapCinco, sqls: sqlsCinco } = await withSqlLog(() =>
+        service.resolveMilestones(cinco.map((b) => b.businessUnitId))
+      )
+
+      // Las ocho consultas fijas del servicio (una por hito, salvo el 1 que
+      // lleva dos). Ninguna se repite por tenant ni por hito adicional.
+      assert.equal(sqlsUno.length, 8, `con 1 tenant: ${sqlsUno.length} consultas`)
+      assert.equal(sqlsCinco.length, 8, `con 5 tenants: ${sqlsCinco.length} consultas`)
+      assert.equal(mapUno.size, 1)
+      assert.equal(mapCinco.size, 5)
+      for (const bu of cinco) {
+        assert.lengthOf(mapCinco.get(bu.businessUnitId)!, 7)
       }
     } finally {
-      for (const bu of bus) await cleanupBu(bu.businessUnitId)
+      for (const bu of [...uno, ...cinco]) await cleanupBu(bu.businessUnitId)
+    }
+  })
+
+  test('RN-15 · hito 1: la fecha es la MÁS TARDÍA entre departamento y puesto (departamento antes, puesto después)', async ({
+    assert,
+  }) => {
+    const bu = await createBu('rn15-dept-antes')
+    try {
+      const dept = await createDepartment(bu.businessUnitId, 'rn15')
+      await db
+        .from('departments')
+        .where('department_id', dept.departmentId)
+        .update({ department_created_at: '2026-09-01 09:00:00' })
+      const pos = await createPosition(bu.businessUnitId, 'rn15')
+      await db
+        .from('positions')
+        .where('position_id', pos.positionId)
+        .update({ position_created_at: '2026-09-04 09:00:00' })
+
+      const service = new PlatformTenantMilestoneService()
+      const map = await service.resolveMilestones([bu.businessUnitId])
+      const estructura = milestone(map.get(bu.businessUnitId)!, 'estructura')
+
+      assert.isTrue(estructura.cumplido)
+      // Puesto (jueves 4) es la más tardía, NUNCA departamento (lunes 1).
+      assert.equal(estructura.fecha, '2026-09-04')
+      assert.notEqual(estructura.fecha, '2026-09-01')
+    } finally {
+      await cleanupBu(bu.businessUnitId)
+    }
+  })
+
+  test('RN-15 · hito 1: la fecha es la MÁS TARDÍA entre departamento y puesto (puesto antes, departamento después)', async ({
+    assert,
+  }) => {
+    const bu = await createBu('rn15-pos-antes')
+    try {
+      const pos = await createPosition(bu.businessUnitId, 'rn15b')
+      await db
+        .from('positions')
+        .where('position_id', pos.positionId)
+        .update({ position_created_at: '2026-09-01 09:00:00' })
+      const dept = await createDepartment(bu.businessUnitId, 'rn15b')
+      await db
+        .from('departments')
+        .where('department_id', dept.departmentId)
+        .update({ department_created_at: '2026-09-04 09:00:00' })
+
+      const service = new PlatformTenantMilestoneService()
+      const map = await service.resolveMilestones([bu.businessUnitId])
+      const estructura = milestone(map.get(bu.businessUnitId)!, 'estructura')
+
+      // Ahora el departamento (jueves 4) es la más tardía, no el puesto (lunes 1).
+      assert.equal(estructura.fecha, '2026-09-04')
+    } finally {
+      await cleanupBu(bu.businessUnitId)
+    }
+  })
+
+  test('RN-16 · hito 4: la fecha del PAR es la más tardía entre usuario y empleado; entre pares, el MÍNIMO', async ({
+    assert,
+  }) => {
+    const bu = await createBu('rn16')
+    try {
+      const dept = await createDepartment(bu.businessUnitId, 'rn16')
+      const pos = await createPosition(bu.businessUnitId, 'rn16')
+
+      // Par 1: empleado nace primero (1 sep), usuario se liga después (5 sep)
+      // → la fecha del par es la del USUARIO (más tardía), NUNCA la del
+      // empleado.
+      const empleado1 = await createEmployee(bu.businessUnitId, dept.departmentId, pos.positionId, 'rn16-1')
+      await db
+        .from('employees')
+        .where('employee_id', empleado1.employeeId)
+        .update({ employee_created_at: '2026-09-01 09:00:00' })
+      const usuario1 = await createAppUserForEmployee(empleado1)
+      await db.from('users').where('user_id', usuario1.userId).update({ user_created_at: '2026-09-05 09:00:00' })
+
+      // Par 2: el administrador se da de alta con usuario primero (2 sep, el
+      // caso citado por RN-16) y se registra como empleado después (10 sep)
+      // → la fecha del par es la del EMPLEADO (más tardía), NUNCA la del
+      // usuario.
+      const empleado2 = await createEmployee(bu.businessUnitId, dept.departmentId, pos.positionId, 'rn16-2')
+      await db
+        .from('employees')
+        .where('employee_id', empleado2.employeeId)
+        .update({ employee_created_at: '2026-09-10 09:00:00' })
+      const usuario2 = await createAppUserForEmployee(empleado2)
+      await db.from('users').where('user_id', usuario2.userId).update({ user_created_at: '2026-09-02 09:00:00' })
+
+      const service = new PlatformTenantMilestoneService()
+      const map = await service.resolveMilestones([bu.businessUnitId])
+      const acceso = milestone(map.get(bu.businessUnitId)!, 'acceso-app')
+
+      assert.isTrue(acceso.cumplido)
+      // Par 1 → 2026-09-05 (más tardía del par). Par 2 → 2026-09-10 (más
+      // tardía del par). El MÍNIMO entre ambos pares es 2026-09-05.
+      assert.equal(acceso.fecha, '2026-09-05')
+    } finally {
+      await cleanupBu(bu.businessUnitId)
+    }
+  })
+
+  test('§13 · dos tenants con TODO capturado en uno y NADA en el otro: cero cruce en los SIETE hitos, no solo en estructura', async ({
+    assert,
+  }) => {
+    const buLleno = await createBu('s13-lleno')
+    const buVacio = await createBu('s13-vacio')
+    try {
+      const dept = await createDepartment(buLleno.businessUnitId, 's13')
+      const pos = await createPosition(buLleno.businessUnitId, 's13')
+      const shift = await createShift(buLleno.businessUnitId, 's13')
+      const employee = await createEmployee(buLleno.businessUnitId, dept.departmentId, pos.positionId, 's13')
+      await createEmployeeShift(employee.employeeId, shift.shiftId, buLleno.businessUnitId)
+      await createAppUserForEmployee(employee)
+      await createBiometric(employee.employeeId, buLleno.businessUnitId, 'completed_both')
+      await createAssistRow(buLleno.businessUnitId, employee, DateTime.utc(), 'manual')
+      await createProceedingFileForEmployee(employee, buLleno.businessUnitId)
+
+      const service = new PlatformTenantMilestoneService()
+      // Lote: los dos tenants juntos, en la misma llamada — es donde el
+      // `GROUP BY`/anti-join/corte por `employees` mal puesto se filtraría.
+      const map = await service.resolveMilestones([buLleno.businessUnitId, buVacio.businessUnitId])
+      const hitosLleno = map.get(buLleno.businessUnitId)!
+      const hitosVacio = map.get(buVacio.businessUnitId)!
+
+      for (const hito of hitosLleno) {
+        assert.isTrue(hito.cumplido, `lleno: ${hito.clave} debía estar cumplido`)
+        assert.isNotNull(hito.fecha, `lleno: ${hito.clave} debía tener fecha`)
+      }
+      // Ninguno de los SIETE hitos del tenant vacío se contagia del lleno,
+      // aunque se hayan resuelto en la MISMA llamada de lote.
+      for (const hito of hitosVacio) {
+        assert.isFalse(hito.cumplido, `vacío: ${hito.clave} no debía estar cumplido`)
+        assert.isNull(hito.fecha, `vacío: ${hito.clave} no debía tener fecha`)
+      }
+    } finally {
+      await cleanupBu(buLleno.businessUnitId)
+      await cleanupBu(buVacio.businessUnitId)
     }
   })
 
@@ -690,6 +864,49 @@ test.group('PlatformTrialService.getTenantTrial — bloque `hitos` (USRH17890790
         assert.deepEqual(Object.keys(hito).sort(), ['clave', 'cumplido', 'fecha', 'numero'])
       }
     } finally {
+      await cleanupBu(bu.businessUnitId)
+    }
+  })
+
+  test('CA-10 · si el cálculo de hitos falla, la ruta responde 500 PLT.MET.SYS_UNHANDLED — NUNCA un 200 con siete pendientes', async ({
+    assert,
+  }) => {
+    const bu = await createBu('ca10')
+    // Se rompe el cálculo de hitos a propósito (simula "la consulta lanza",
+    // §6/CA-10 del spec) sin tocar código de producción de forma permanente:
+    // se restaura el método real en el `finally`, exista o no fallo.
+    const original = PlatformTenantMilestoneService.prototype.resolveMilestones
+    PlatformTenantMilestoneService.prototype.resolveMilestones = async () => {
+      throw new Error('fallo simulado del cálculo de hitos (CA-10)')
+    }
+
+    try {
+      const controller = new PlatformTrialController()
+      const jsonBody: { status?: number; payload?: unknown } = {}
+      const fakeResponse = {
+        status(code: number) {
+          jsonBody.status = code
+          return this
+        },
+        json(payload: unknown) {
+          jsonBody.payload = payload
+          return payload
+        },
+      }
+
+      await controller.show({
+        params: { publicId: bu.businessUnitPublicId },
+        response: fakeResponse,
+      } as unknown as Parameters<PlatformTrialController['show']>[0])
+
+      assert.equal(jsonBody.status, 500)
+      const body = jsonBody.payload as { code?: string; key?: string; data?: unknown }
+      assert.equal(body.code, 'PLT.MET.SYS_UNHANDLED')
+      assert.equal(body.key, 'error-inesperado-al-obtener-la-prueba-del-tenant')
+      // Nunca un 200 disfrazado ni un bloque `hitos` con los siete en falso.
+      assert.isUndefined(body.data)
+    } finally {
+      PlatformTenantMilestoneService.prototype.resolveMilestones = original
       await cleanupBu(bu.businessUnitId)
     }
   })

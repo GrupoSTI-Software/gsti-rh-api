@@ -95,13 +95,13 @@ export default class PlatformTenantMilestoneService {
       return result
     }
 
-    const [departamentos, puestos, turnos, empleadoConTurno, accesoApp, biometrico, checada, expediente] =
+    const [departamentos, puestos, turnos, empleadoConTurno, accesoMap, biometrico, checada, expediente] =
       await Promise.all([
         this.queryDepartamentos(businessUnitIds),
         this.queryPuestos(businessUnitIds),
         this.queryTurnos(businessUnitIds),
         this.queryEmpleadoConTurno(businessUnitIds),
-        this.queryAccesoApp(businessUnitIds),
+        this.queryAccesoApp(businessUnitIds, businessUnitIds),
         this.queryBiometrico(businessUnitIds),
         this.queryChecada(businessUnitIds),
         this.queryExpediente(businessUnitIds),
@@ -111,7 +111,6 @@ export default class PlatformTenantMilestoneService {
     const posMap = rowsToMilestoneMap(puestos, businessUnitIds)
     const turnosMap = rowsToMilestoneMap(turnos, businessUnitIds)
     const empleadoMap = rowsToMilestoneMap(empleadoConTurno, businessUnitIds)
-    const accesoMap = rowsToMilestoneMap(accesoApp, businessUnitIds)
     const biometricoMap = rowsToMilestoneMap(biometrico, businessUnitIds)
     const checadaMap = rowsToMilestoneMap(checada, businessUnitIds)
     const expedienteMap = rowsToMilestoneMap(expediente, businessUnitIds)
@@ -261,7 +260,10 @@ export default class PlatformTenantMilestoneService {
    * alta del usuario y la del empleado ligado, por par, luego el mínimo entre
    * pares. El anti-join va contra el tipo `user` de la siembra demo.
    */
-  private async queryAccesoApp(buIds: number[]): Promise<RawMilestoneRow[]> {
+  private async queryAccesoApp(
+    buIds: number[],
+    allBuIds: number[]
+  ): Promise<Map<number, { fecha: string | null; cumplido: boolean }>> {
     const rows = await db
       .from('employees as e')
       .join('users as u', 'u.person_id', 'e.person_id')
@@ -282,7 +284,11 @@ export default class PlatformTenantMilestoneService {
       ])
 
     // Agregación en TypeScript: la fecha por PAR es la más tardía entre
-    // usuario y empleado; entre pares de la misma empresa, el mínimo.
+    // usuario y empleado; entre pares de la misma empresa, el mínimo. Estas
+    // fechas YA pasaron por `toBusinessCalendarDate` aquí — NUNCA vuelven a
+    // pasar por `rowsToMilestoneMap` (que las reconvertiría una segunda vez
+    // y correría el día hacia atrás: un bug real, detectado y corregido por
+    // el test de RN-16 "el mínimo entre pares").
     const byBu = new Map<number, { fechas: string[]; vivos: boolean }>()
     for (const row of rows as Array<{
       businessUnitId: number
@@ -301,10 +307,13 @@ export default class PlatformTenantMilestoneService {
       byBu.set(row.businessUnitId, acc)
     }
 
-    const result: RawMilestoneRow[] = []
+    const result = new Map<number, { fecha: string | null; cumplido: boolean }>()
+    for (const id of allBuIds) {
+      result.set(id, { fecha: null, cumplido: false })
+    }
     for (const [businessUnitId, acc] of byBu) {
-      const minFecha = acc.fechas.length > 0 ? acc.fechas.reduce((a, b) => (a < b ? a : b)) : null
-      result.push({ businessUnitId, minFecha, vivos: acc.vivos ? 1 : 0 })
+      const fecha = acc.fechas.length > 0 ? acc.fechas.reduce((a, b) => (a < b ? a : b)) : null
+      result.set(businessUnitId, { fecha, cumplido: acc.vivos })
     }
     return result
   }
