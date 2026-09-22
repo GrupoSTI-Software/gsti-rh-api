@@ -1,5 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import { USER_ACCESS_EMAIL_ERROR_CODES } from '#constants/user_access_email_error_codes'
+import { USER_ACCESS_EMAIL_ERRORS } from '#constants/user_access_email_error_codes'
 import { UserAccessEmailMaskedError } from '#exceptions/user_access_email_masked_error'
 import { MASK_CHAR } from '#helpers/sensitive_mask'
 
@@ -12,7 +12,7 @@ export type UserAccessEmailErrorBody = {
 
 export function assertUserAccessEmailNotMasked(value: unknown): void {
   if (typeof value === 'string' && value.includes(MASK_CHAR)) {
-    throw new UserAccessEmailMaskedError(USER_ACCESS_EMAIL_ERROR_CODES.MASKED)
+    throw new UserAccessEmailMaskedError(USER_ACCESS_EMAIL_ERRORS.MASKED.code)
   }
 }
 
@@ -24,12 +24,12 @@ export function respondUserAccessEmailMasked(
   ctx: HttpContext,
   error: UserAccessEmailMaskedError
 ): UserAccessEmailErrorBody {
-  ctx.response.status(422)
+  ctx.response.status(USER_ACCESS_EMAIL_ERRORS.MASKED.status)
 
   return {
     title: ctx.i18n.t('user_access_email_masked_title'),
     detail: ctx.i18n.t('user_access_email_masked_detail'),
-    key: 'no-fue-posible-guardar-el-correo-de-acceso',
+    key: USER_ACCESS_EMAIL_ERRORS.MASKED.key,
     code: error.errorCode,
   }
 }
@@ -63,11 +63,11 @@ export function isUserAccessEmailDuplicatedIndexError(error: unknown): boolean {
 }
 
 export function respondUserAccessEmailDuplicated(ctx: HttpContext): UserAccessEmailErrorBody {
-  ctx.response.status(400)
+  ctx.response.status(USER_ACCESS_EMAIL_ERRORS.DUPLICATED.status)
   return {
     title: ctx.i18n.t('user_access_email_duplicated_title'),
     detail: ctx.i18n.t('user_access_email_duplicated_detail'),
-    key: 'correo-de-acceso-ya-registrado',
-    code: USER_ACCESS_EMAIL_ERROR_CODES.DUPLICATED,
+    key: USER_ACCESS_EMAIL_ERRORS.DUPLICATED.key,
+    code: USER_ACCESS_EMAIL_ERRORS.DUPLICATED.code,
   }
 }

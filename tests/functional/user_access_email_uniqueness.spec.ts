@@ -27,10 +27,11 @@ import {
  * responde en un update exitoso (igual que el molde de aislamiento).
  * El cuerpo 400 se afirma íntegro con textos literales en español
  * (`resources/langs/es.json`, locale por defecto `es` en `config/i18n.ts`).
- * La limpieza combina ids registrados con un barrido por namespace (`ca*`):
+ * La limpieza combina ids registrados con un barrido por namespace (`mailuniq-`):
  * si una regresión creara una fila inesperada, esa fila nunca llegó a los
- * arreglos y el LIKE la alcanza igual (el actor usa `mailuniq-*`, fuera del
- * patrón, así que el barrido no toca nada ajeno al spec).
+ * arreglos y el LIKE la alcanza igual. El barrido excluye al actor propio
+ * (su correo también usa el prefijo `mailuniq-`) y no toca nada ajeno al
+ * spec: otros specs usan sus propios prefijos (calendario-gate, carpetas-area).
  */
 
 const TEST_PASSWORD = 'MailUniqAccess123!'
@@ -48,14 +49,21 @@ test.group('Unicidad del correo de acceso', (group) => {
   })
 
   group.teardown(async () => {
-    const leakedUsers = (await db
-      .from('users')
-      .select('user_id')
-      .where('user_email', 'like', 'ca%@gsti-tests.local%')) as Array<{ user_id: number }>
-    const leakedPeople = (await db
+    const ownUserId = actor?.user.userId
+    const ownPersonId = actor?.person.personId
+    const usersQuery = db.from('users').select('user_id').where('user_email', 'like', 'mailuniq-%')
+    if (ownUserId !== undefined && ownUserId !== null) {
+      usersQuery.whereNot('user_id', ownUserId)
+    }
+    const leakedUsers = (await usersQuery) as Array<{ user_id: number }>
+    const peopleQuery = db
       .from('people')
       .select('person_id')
-      .where('person_email', 'like', 'ca%-persona-%@gsti-tests.local')) as Array<{
+      .where('person_email', 'like', 'mailuniq-%')
+    if (ownPersonId !== undefined && ownPersonId !== null) {
+      peopleQuery.whereNot('person_id', ownPersonId)
+    }
+    const leakedPeople = (await peopleQuery) as Array<{
       person_id: number
     }>
     const allUserIds = [...new Set([...userIds, ...leakedUsers.map((row) => row.user_id)])]
@@ -155,11 +163,11 @@ test.group('Unicidad del correo de acceso', (group) => {
 
   test('CA-1 alta-con-correo-de-usuario-vivo', async ({ assert, client }) => {
     const tenant = required(actor, 'el actor')
-    const email = `ca1-vivo-${uniqueStamp()}@gsti-tests.local`
-    const created = await postUserOrFail(client, tenant, 'ca1', email)
+    const email = `mailuniq-ca1-vivo-${uniqueStamp()}@gsti-tests.local`
+    const created = await postUserOrFail(client, tenant, 'mailuniq-ca1', email)
     const before = await snapshotUser(created.userId)
 
-    const duplicatePerson = await createPerson('duplicada', personEmail('ca1'))
+    const duplicatePerson = await createPerson('duplicada', personEmail('mailuniq-ca1'))
     const response = await postUser(client, tenant, newUserBody(tenant, duplicatePerson, email))
 
     assertDuplicatedResponse(assert, response)
@@ -172,10 +180,10 @@ test.group('Unicidad del correo de acceso', (group) => {
 
   test('CA-2 edicion-con-correo-de-otro-usuario-vivo', async ({ assert, client }) => {
     const tenant = required(actor, 'el actor')
-    const emailA = `ca2-a-${uniqueStamp()}@gsti-tests.local`
-    const emailB = `ca2-b-${uniqueStamp()}@gsti-tests.local`
-    const userA = await postUserOrFail(client, tenant, 'ca2', emailA)
-    const userB = await postUserOrFail(client, tenant, 'ca2', emailB)
+    const emailA = `mailuniq-ca2-a-${uniqueStamp()}@gsti-tests.local`
+    const emailB = `mailuniq-ca2-b-${uniqueStamp()}@gsti-tests.local`
+    const userA = await postUserOrFail(client, tenant, 'mailuniq-ca2', emailA)
+    const userB = await postUserOrFail(client, tenant, 'mailuniq-ca2', emailB)
 
     const beforeA = await snapshotUser(userA.userId)
     const beforeB = await snapshotUser(userB.userId)
@@ -198,8 +206,8 @@ test.group('Unicidad del correo de acceso', (group) => {
 
   test('CA-3 edicion-conservando-el-propio-correo', async ({ assert, client }) => {
     const tenant = required(actor, 'el actor')
-    const email = `ca3-propio-${uniqueStamp()}@gsti-tests.local`
-    const created = await postUserOrFail(client, tenant, 'ca3', email)
+    const email = `mailuniq-ca3-propio-${uniqueStamp()}@gsti-tests.local`
+    const created = await postUserOrFail(client, tenant, 'mailuniq-ca3', email)
 
     const response = await putUser(client, tenant, created.userId, {
       userEmail: email,
@@ -218,8 +226,8 @@ test.group('Unicidad del correo de acceso', (group) => {
 
   test('CA-4 alta-con-correo-de-usuario-dado-de-baja', async ({ assert, client }) => {
     const tenant = required(actor, 'el actor')
-    const email = `ca4-baja-${uniqueStamp()}@gsti-tests.local`
-    const created = await postUserOrFail(client, tenant, 'ca4', email)
+    const email = `mailuniq-ca4-baja-${uniqueStamp()}@gsti-tests.local`
+    const created = await postUserOrFail(client, tenant, 'mailuniq-ca4', email)
 
     const holder = await User.findOrFail(created.userId)
     await holder.delete()
@@ -231,7 +239,7 @@ test.group('Unicidad del correo de acceso', (group) => {
       .first()
     assert.isNotNull(trashed, 'el titular debe quedar con borrado lógico')
 
-    const reused = await postUserOrFail(client, tenant, 'ca4', email)
+    const reused = await postUserOrFail(client, tenant, 'mailuniq-ca4', email)
     assert.notEqual(reused.userId, created.userId)
 
     const live = await liveUsersByEmail(email)
@@ -240,11 +248,11 @@ test.group('Unicidad del correo de acceso', (group) => {
   })
 
   test('CA-5 n-borrados-con-el-mismo-correo-conviven', async ({ assert }) => {
-    const email = `ca5-borradas-${uniqueStamp()}@gsti-tests.local`
+    const email = `mailuniq-ca5-borradas-${uniqueStamp()}@gsti-tests.local`
 
     const deletedIds: number[] = []
     for (let index = 0; index < 3; index++) {
-      const seed = await seedLiveUser('ca5', email)
+      const seed = await seedLiveUser('mailuniq-ca5', email)
       await seed.delete()
       deletedIds.push(seed.userId)
     }
@@ -256,13 +264,13 @@ test.group('Unicidad del correo de acceso', (group) => {
       .where('user_email', email)
     assert.lengthOf(trashed, 3, 'las tres borradas con el mismo correo conviven')
 
-    const firstLive = await seedLiveUser('ca5', email)
+    const firstLive = await seedLiveUser('mailuniq-ca5', email)
     const liveAfterFirst = await liveUsersByEmail(email)
     assert.lengthOf(liveAfterFirst, 1)
     assert.equal(liveAfterFirst[0].userId, firstLive.userId)
 
     const tenant = required(actor, 'el actor')
-    const extraPerson = await createPerson('extra', personEmail('ca5'))
+    const extraPerson = await createPerson('extra', personEmail('mailuniq-ca5'))
     let secondLiveError: unknown = null
     try {
       await User.create({
@@ -297,10 +305,10 @@ test.group('Unicidad del correo de acceso', (group) => {
 
   test('CA-6 alta-con-correo-de-usuario-inactivo-no-borrado', async ({ assert, client }) => {
     const tenant = required(actor, 'el actor')
-    const email = `ca6-inactivo-${uniqueStamp()}@gsti-tests.local`
-    await seedLiveUser('ca6', email, 0)
+    const email = `mailuniq-ca6-inactivo-${uniqueStamp()}@gsti-tests.local`
+    await seedLiveUser('mailuniq-ca6', email, 0)
 
-    const duplicatePerson = await createPerson('duplicada', personEmail('ca6'))
+    const duplicatePerson = await createPerson('duplicada', personEmail('mailuniq-ca6'))
     const response = await postUser(client, tenant, newUserBody(tenant, duplicatePerson, email))
 
     assertDuplicatedResponse(assert, response)
@@ -311,10 +319,10 @@ test.group('Unicidad del correo de acceso', (group) => {
 
   test('CA-7 variante-de-mayusculas', async ({ assert, client }) => {
     const tenant = required(actor, 'el actor')
-    const email = `ca7-juan-${uniqueStamp()}@gsti-tests.local`
-    await postUserOrFail(client, tenant, 'ca7', email)
+    const email = `mailuniq-ca7-juan-${uniqueStamp()}@gsti-tests.local`
+    await postUserOrFail(client, tenant, 'mailuniq-ca7', email)
 
-    const duplicatePerson = await createPerson('duplicada', personEmail('ca7'))
+    const duplicatePerson = await createPerson('duplicada', personEmail('mailuniq-ca7'))
     const response = await postUser(client, tenant, newUserBody(tenant, duplicatePerson, email.toUpperCase()))
 
     assertDuplicatedResponse(assert, response)
@@ -326,11 +334,11 @@ test.group('Unicidad del correo de acceso', (group) => {
   test('CA-8 variante-de-acento', async ({ assert, client }) => {
     const tenant = required(actor, 'el actor')
     const stamp = uniqueStamp()
-    const email = `ca8-jose-${stamp}@gsti-tests.local`
-    const accented = `ca8-josé-${stamp}@gsti-tests.local`
-    await postUserOrFail(client, tenant, 'ca8', email)
+    const email = `mailuniq-ca8-jose-${stamp}@gsti-tests.local`
+    const accented = `mailuniq-ca8-josé-${stamp}@gsti-tests.local`
+    await postUserOrFail(client, tenant, 'mailuniq-ca8', email)
 
-    const duplicatePerson = await createPerson('duplicada', personEmail('ca8'))
+    const duplicatePerson = await createPerson('duplicada', personEmail('mailuniq-ca8'))
     const response = await postUser(client, tenant, newUserBody(tenant, duplicatePerson, accented))
 
     assertDuplicatedResponse(assert, response)
@@ -340,9 +348,9 @@ test.group('Unicidad del correo de acceso', (group) => {
   })
 
   test('CA-9 espacios-alrededor-del-correo', async ({ assert }) => {
-    const trimmed = `ca9-espacios-${uniqueStamp()}@gsti-tests.local`
+    const trimmed = `mailuniq-ca9-espacios-${uniqueStamp()}@gsti-tests.local`
     const spaced = `${trimmed} `
-    const seed = await seedLiveUser('ca9', spaced)
+    const seed = await seedLiveUser('mailuniq-ca9', spaced)
     assert.equal(seed.userEmail, spaced)
 
     const generated = (await db
@@ -352,7 +360,7 @@ test.group('Unicidad del correo de acceso', (group) => {
     assert.equal(generated[0]?.user_email_active, trimmed, 'la generada recorta los espacios')
 
     const tenant = required(actor, 'el actor')
-    const extraPerson = await createPerson('extra', personEmail('ca9'))
+    const extraPerson = await createPerson('extra', personEmail('mailuniq-ca9'))
     let duplicateError: unknown = null
     try {
       await User.create({
