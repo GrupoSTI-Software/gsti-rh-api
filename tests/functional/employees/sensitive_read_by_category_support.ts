@@ -608,6 +608,7 @@ export function expectElevenMasked(
   expectMedicalMasked(medical, clear, assert)
 }
 
+/** @deprecated USRH1789328027048: GET ya no entrega claro con permiso; usar `expectElevenMasked`. */
 export function expectElevenClear(
   person: Record<string, unknown>,
   bank: Record<string, unknown>,

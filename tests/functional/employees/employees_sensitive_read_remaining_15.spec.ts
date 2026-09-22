@@ -117,7 +117,7 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     expectAmountNull(amounts.max, assert)
   })
 
-  test('CA-3: con sensitive-financiero-read los importes son number', async ({
+  test('CA-3: con sensitive-financiero-read los importes siguen null en GET', async ({
     client,
     assert,
   }) => {
@@ -129,7 +129,7 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', buHeader(actor!))
     expectNeverDenied(salaryRes, assert)
-    assert.equal(firstSalaryDaily(salaryRes.body()), CLEAR_REMAINING.salaryDaily)
+    expectAmountNull(firstSalaryDaily(salaryRes.body()), assert)
 
     const rangeRes = await client
       .get('/api/position-salary-ranges')
@@ -140,8 +140,8 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', buHeader(actor!))
     const amounts = rangeAmounts(rangeRes.body())
-    assert.equal(amounts.min, CLEAR_REMAINING.minSalaryDaily)
-    assert.equal(amounts.max, CLEAR_REMAINING.maxSalaryDaily)
+    expectAmountNull(amounts.min, assert)
+    expectAmountNull(amounts.max, assert)
   })
 
   test('CA-2: RFC de empresa contratante se enmascara sin identificacion', async ({
@@ -288,23 +288,27 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     assert.equal(stillMasked!.biometricData, MASK_CHAR.repeat(5))
   })
 
-  test('CA-1: serialize de FaceId tapa token y photoUrl', async ({ assert }) => {
+  test('CA-1: serialize de FaceId tapa token y photoUrl aunque haya permiso biométrico', async ({
+    assert,
+  }) => {
     await extra!.faceId.refresh()
     const masked = extra!.faceId.serialize()
     assert.equal(masked.employeeBiometricFaceIdToken, MASK_CHAR.repeat(5))
     assert.equal(masked.employeeBiometricFaceIdPhotoUrl, MASK_CHAR.repeat(5))
-    const clear = SensitiveAccessContext.run(
+    const stillMasked = SensitiveAccessContext.run(
       {
         read: { ...allDenied, biometrico: true },
         write: deniedWrite,
       },
       () => extra!.faceId.serialize()
     )
-    assert.equal(clear.employeeBiometricFaceIdToken, CLEAR_REMAINING.faceToken)
-    assert.equal(clear.employeeBiometricFaceIdPhotoUrl, CLEAR_REMAINING.facePhotoUrl)
+    assert.equal(stillMasked.employeeBiometricFaceIdToken, MASK_CHAR.repeat(5))
+    assert.equal(stillMasked.employeeBiometricFaceIdPhotoUrl, MASK_CHAR.repeat(5))
   })
 
-  test('UserConsent.serialize tapa IP y UA sin contacto', async ({ assert }) => {
+  test('UserConsent.serialize tapa IP y UA aunque haya permiso de contacto', async ({
+    assert,
+  }) => {
     if (!extra!.consent) {
       assert.isTrue(true)
       return
@@ -319,14 +323,20 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       masked.userConsentUserAgent,
       maskSensitiveValue(CLEAR_REMAINING.consentUa)
     )
-    const clear = SensitiveAccessContext.run(
+    const stillMasked = SensitiveAccessContext.run(
       {
         read: { ...allDenied, contacto: true },
         write: deniedWrite,
       },
       () => extra!.consent!.serialize()
     )
-    assert.equal(clear.userConsentIp, CLEAR_REMAINING.consentIp)
-    assert.equal(clear.userConsentUserAgent, CLEAR_REMAINING.consentUa)
+    assert.equal(
+      stillMasked.userConsentIp,
+      maskSensitiveValue(CLEAR_REMAINING.consentIp)
+    )
+    assert.equal(
+      stillMasked.userConsentUserAgent,
+      maskSensitiveValue(CLEAR_REMAINING.consentUa)
+    )
   })
 })

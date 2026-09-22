@@ -1029,13 +1029,13 @@ export default class ExceptionRequestsController {
       employeeId: employee.employeeId,
       exceptionTypeId: exceptionType.exceptionTypeId,
       exceptionRequestStatus,
-      exceptionRequestDescription: data.exceptionRequestDescription,
-      exceptionRequestCheckInTime: data.exceptionRequestCheckInTime,
-      exceptionRequestCheckOutTime: data.exceptionRequestCheckOutTime,
+              exceptionRequestDescription: data.exceptionRequestDescription,
+              exceptionRequestCheckInTime: data.exceptionRequestCheckInTime,
+              exceptionRequestCheckOutTime: data.exceptionRequestCheckOutTime,
       exceptionRequestPeriodInHours: data.exceptionRequestPeriodInHours ?? 0,
       requestedDate: data.requestedDate,
       daysToApply: data.daysToApply ?? 1,
-      userId: user.userId,
+              userId: user.userId,
       // El rol se lee de la sesión, no del cuerpo: es la marca que alimenta los
       // contadores de no leídas del backoffice y nadie se la asigna a sí mismo.
       createdByHr: puedeGestionarTerceros ? await this.isRhManager(user.roleId) : false,
@@ -1054,7 +1054,7 @@ export default class ExceptionRequestsController {
       // autorizado desde el backoffice no le pide nada a nadie.
       if (exceptionRequestStatus === 'pending') {
         await new ExceptionRequestNotificationService().notifyBatchCreated(creacion.batchId)
-      }
+    }
     }
 
     const dataInfo = {
@@ -1533,16 +1533,16 @@ export default class ExceptionRequestsController {
           .if(isTenantScopeActive(), (scoped) => {
             scoped.whereIn('employee_id', scopedEmployeeIds())
           })
-          .if(departmentId, (q) => {
-            q.whereHas('employee', (employeeQuery) => {
-              employeeQuery.where('departmentId', departmentId)
-            })
+        .if(departmentId, (q) => {
+          q.whereHas('employee', (employeeQuery) => {
+            employeeQuery.where('departmentId', departmentId)
           })
-          .if(positionId, (q) => {
-            q.whereHas('employee', (employeeQuery) => {
-              employeeQuery.where('positionId', positionId)
-            })
+        })
+        .if(positionId, (q) => {
+          q.whereHas('employee', (employeeQuery) => {
+            employeeQuery.where('positionId', positionId)
           })
+        })
           .if(branchOfficeId, (q) => {
             // La sucursal vigente del empleado: `employee_branch_office` con la
             // fila activa. El scope de empresa ya acoto los empleados, asi que
@@ -1556,28 +1556,28 @@ export default class ExceptionRequestsController {
           .if(exceptionTypeId, (q) => q.where('exceptionTypeId', exceptionTypeId))
           .if(dateFrom, (q) => q.where('requestedDate', '>=', dateFrom))
           .if(dateTo, (q) => q.where('requestedDate', '<=', dateTo))
-          .if(employeeName, (q) => {
-            q.whereHas('employee', (employeeQuery) => {
-              employeeQuery.where('employeeId', employeeName)
-            })
+        .if(employeeName, (q) => {
+          q.whereHas('employee', (employeeQuery) => {
+            employeeQuery.where('employeeId', employeeName)
           })
+        })
           .if(!hasFullVisibility, (q) => {
-            if (isRHH) {
-              // RRHH: solo solicitudes cuyo empleado NO tiene jefe directo con usuario vigente
-              q.whereHas('employee', (employeeQuery) => {
-                employeeQuery.whereDoesntHave('userResponsibleEmployee', (ureQ) => {
-                  ureQ.where('userResponsibleEmployeeDirectBoss', 1).whereHas('user', () => {})
-                })
+          if (isRHH) {
+            // RRHH: solo solicitudes cuyo empleado NO tiene jefe directo con usuario vigente
+            q.whereHas('employee', (employeeQuery) => {
+              employeeQuery.whereDoesntHave('userResponsibleEmployee', (ureQ) => {
+                ureQ.where('userResponsibleEmployeeDirectBoss', 1).whereHas('user', () => {})
               })
-            } else {
-              // Gerente/jefe: solo solicitudes de empleados cuyo jefe directo (primero) es el usuario actual
-              q.whereHas('employee', (employeeQuery) => {
-                employeeQuery.whereHas('userResponsibleEmployee', (ureQ) => {
-                  ureQ.where('userId', user.userId).where('userResponsibleEmployeeDirectBoss', 1)
-                })
+            })
+          } else {
+            // Gerente/jefe: solo solicitudes de empleados cuyo jefe directo (primero) es el usuario actual
+            q.whereHas('employee', (employeeQuery) => {
+              employeeQuery.whereHas('userResponsibleEmployee', (ureQ) => {
+                ureQ.where('userId', user.userId).where('userResponsibleEmployeeDirectBoss', 1)
               })
-            }
-          })
+            })
+          }
+        })
 
       const query = aplicarFiltrosComunes(ExceptionRequest.query())
         .preload('employee', (employeeQuery) => {
