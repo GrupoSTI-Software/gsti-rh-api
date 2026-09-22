@@ -49,6 +49,7 @@ import {
 import { normalizeToken } from '#helpers/employee_termination_record'
 import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
+import { USER_VALIDATION_ERROR_CODES } from '#constants/user_validation_error_codes'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
 import { canAccessBackoffice } from '#helpers/backoffice_access'
 
@@ -1668,6 +1669,16 @@ export default class UserController {
 
       assertUserAccessEmailNotMasked(userEmail)
 
+      if (personId === undefined || personId === null) {
+        response.status(400)
+        return {
+          title: i18n.t('user_person_required_title'),
+          detail: i18n.t('user_person_required_detail'),
+          key: 'persona-requerida',
+          code: USER_VALIDATION_ERROR_CODES.PERSON_REQUIRED,
+        }
+      }
+
       const businessUnits = await BusinessUnit.query()
         .whereIn('business_unit_id', businessUnitScope)
         .where('business_unit_active', 1)
@@ -2080,6 +2091,16 @@ export default class UserController {
       const userEmailType = request.input('userEmailType')
 
       assertUserAccessEmailNotMasked(userEmail)
+
+      if (personId === undefined || personId === null) {
+        response.status(400)
+        return {
+          title: i18n.t('user_person_required_title'),
+          detail: i18n.t('user_person_required_detail'),
+          key: 'persona-requerida',
+          code: USER_VALIDATION_ERROR_CODES.PERSON_REQUIRED,
+        }
+      }
 
       const user = {
         userId: userId,

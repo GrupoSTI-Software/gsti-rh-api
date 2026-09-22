@@ -3005,6 +3005,8 @@
   "user_access_email_masked_detail": "The access email contains the mask of a protected value. Type the full email or use the other email type; no changes were saved.",
   "user_access_email_duplicated_title": "This access email is already in use",
   "user_access_email_duplicated_detail": "Another active account uses this access email; use a different one or deactivate the account holding it. No changes were saved.",
+  "user_person_required_title": "Account record is missing",
+  "user_person_required_detail": "Indicate which record the account belongs to in order to save it. No changes were saved.",
   "sensitive_data_write_forbidden_title": "Not allowed to modify sensitive data",
   "sensitive_data_write_forbidden_detail": "You are not allowed to modify {category}. No data from the request was saved.",
   "sensitive_data_write_unresolved_title": "Write permission could not be determined",

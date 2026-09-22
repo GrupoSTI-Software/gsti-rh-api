@@ -3008,6 +3008,8 @@
   "user_access_email_masked_detail": "El correo de acceso contiene la máscara de un dato protegido. Captura el correo completo o usa el otro tipo de correo; no se guardó ningún cambio.",
   "user_access_email_duplicated_title": "Este correo de acceso ya está en uso",
   "user_access_email_duplicated_detail": "Otra cuenta activa usa este correo de acceso; usa uno distinto o da de baja la cuenta que lo tiene. No se guardó ningún cambio.",
+  "user_person_required_title": "Falta el expediente de la cuenta",
+  "user_person_required_detail": "Indica a qué expediente pertenece la cuenta para poder guardarla. No se guardó ningún cambio.",
   "sensitive_data_write_forbidden_title": "Sin permiso para modificar datos sensibles",
   "sensitive_data_write_forbidden_detail": "No tienes permiso para modificar {category}. Ningún dato de la petición se guardó.",
   "sensitive_data_write_unresolved_title": "No se pudo determinar el permiso de escritura",
