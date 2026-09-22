@@ -41,12 +41,12 @@ test.group('neutralizeSensitiveMaskEchoInBody', () => {
     })
   })
 
-  test('no elimina si el usuario tiene lectura de la categoría', ({ assert }) => {
+  test('elimina el eco aunque el usuario tenga lectura de la categoría', ({ assert }) => {
     const echo = maskSensitiveValue('VARL850602AB3')
     const body = { personRfc: echo }
     SensitiveAccessContext.run(readIdentificacionStore, () => {
       const out = neutralizeSensitiveMaskEchoInBody(body as Record<string, unknown>)
-      assert.equal(out.personRfc, echo)
+      assert.notProperty(out, 'personRfc')
     })
   })
 
