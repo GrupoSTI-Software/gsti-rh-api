@@ -14,6 +14,8 @@ export const listAllianceCommissionsValidator = vine.compile(
   vine.object({
     from: vine.string().trim().regex(ISO_DATE).optional(),
     to: vine.string().trim().regex(ISO_DATE).optional(),
+    /** Acota solo el detalle (regla 13); ausente = todas. */
+    status: vine.enum(['pending', 'paid'] as const).optional(),
     page: vine.number().min(1).withoutDecimals().optional(),
     limit: vine.number().min(1).withoutDecimals().max(100).optional(),
   })

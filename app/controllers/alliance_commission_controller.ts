@@ -45,6 +45,13 @@ export default class AllianceCommissionController {
    *           type: string
    *           format: date
    *       - in: query
+   *         name: status
+   *         required: false
+   *         description: Acota solo el detalle, nunca los totales (USRH1787719056820)
+   *         schema:
+   *           type: string
+   *           enum: [pending, paid]
+   *       - in: query
    *         name: page
    *         required: false
    *         schema:

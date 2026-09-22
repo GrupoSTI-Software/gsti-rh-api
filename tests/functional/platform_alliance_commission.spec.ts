@@ -3,6 +3,8 @@ import { test } from '@japa/runner'
 import Alliance from '#models/alliance'
 import AllianceAttribution from '#models/alliance_attribution'
 import AllianceCommission from '#models/alliance_commission'
+import AlliancePayout from '#models/alliance_payout'
+import AlliancePayoutCommission from '#models/alliance_payout_commission'
 import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingPayment from '#models/billing_payment'
@@ -223,6 +225,14 @@ async function cleanupFixture(params: {
   planIds?: number[]
 }) {
   if (params.allianceIds.length > 0) {
+    const existingPayouts = await AlliancePayout.query()
+      .whereIn('alliance_id', params.allianceIds)
+      .select('alliance_payout_id')
+    const payoutIds = existingPayouts.map((row) => row.alliancePayoutId)
+    if (payoutIds.length > 0) {
+      await AlliancePayoutCommission.query().whereIn('alliance_payout_id', payoutIds).delete()
+      await AlliancePayout.query().whereIn('alliance_payout_id', payoutIds).delete()
+    }
     await AllianceCommission.query().whereIn('alliance_id', params.allianceIds).delete()
   }
   if (params.unitIds.length > 0) {
@@ -253,6 +263,35 @@ async function cleanupFixture(params: {
 
 function url(allianceId: number | string): string {
   return `${BASE}/${allianceId}/commissions`
+}
+
+/**
+ * Crea una liquidación directamente en BD (sin pasar por el endpoint de
+ * liquidar): estas pruebas verifican lo que `GET …/commissions` deriva
+ * de una liquidación registrada, no el registro en sí (cubierto en
+ * `platform_alliance_payout.spec.ts`).
+ */
+async function createPayoutDirect(params: {
+  allianceId: number
+  commissionIds: number[]
+  paidOn: string
+  reference: string
+  createdByUserId: number
+}): Promise<AlliancePayout> {
+  const payout = await AlliancePayout.create({
+    allianceId: params.allianceId,
+    alliancePayoutPaidOn: DateTime.fromISO(params.paidOn, { zone: 'utc' }),
+    alliancePayoutReference: params.reference,
+    alliancePayoutAmountCents: 0,
+    alliancePayoutCreatedByUserId: params.createdByUserId,
+  })
+  for (const commissionId of params.commissionIds) {
+    await AlliancePayoutCommission.create({
+      alliancePayoutId: payout.alliancePayoutId,
+      allianceCommissionId: commissionId,
+    })
+  }
+  return payout
 }
 
 function assertNoInternalId(body: unknown, assert: { notInclude: (hay: string, n: string) => void }) {
@@ -344,11 +383,19 @@ test.group('GET /api/platform/alliances/:allianceId/commissions', (group) => {
       assert.equal(first.allianceCommissionBaseCents, 800_000)
       assert.equal(first.allianceCommissionPercent, 10)
       assert.equal(first.allianceCommissionAmountCents, 80_000)
+      assert.equal(first.allianceCommissionStatus, 'pending')
       assert.isNull(first.livePayout)
       assert.isString(first.createdAt)
-      assert.equal(Object.keys(first).length, 15)
+      assert.equal(Object.keys(first).length, 16)
 
-      assert.deepEqual(body.meta.totals, { accruedCount: 2, accruedCents: 240_000 })
+      assert.deepEqual(body.meta.totals, {
+        accruedCount: 2,
+        accruedCents: 240_000,
+        paidCount: 0,
+        paidCents: 0,
+        pendingCount: 2,
+        pendingCents: 240_000,
+      })
       void paymentY
     } finally {
       await cleanupFixture({
@@ -411,12 +458,26 @@ test.group('GET /api/platform/alliances/:allianceId/commissions', (group) => {
       filtered.assertStatus(200)
       assert.equal(filtered.body().data.length, 1)
       assert.equal(filtered.body().meta.total, 1)
-      assert.deepEqual(filtered.body().meta.totals, { accruedCount: 1, accruedCents: 80_000 })
+      assert.deepEqual(filtered.body().meta.totals, {
+        accruedCount: 1,
+        accruedCents: 80_000,
+        paidCount: 0,
+        paidCents: 0,
+        pendingCount: 1,
+        pendingCents: 80_000,
+      })
 
       const full = await client.get(url(alliance.allianceId)).loginAs(admin!.user)
       full.assertStatus(200)
       assert.equal(full.body().data.length, 2)
-      assert.deepEqual(full.body().meta.totals, { accruedCount: 2, accruedCents: 240_000 })
+      assert.deepEqual(full.body().meta.totals, {
+        accruedCount: 2,
+        accruedCents: 240_000,
+        paidCount: 0,
+        paidCents: 0,
+        pendingCount: 2,
+        pendingCents: 240_000,
+      })
     } finally {
       await cleanupFixture({
         allianceIds: [alliance.allianceId],
@@ -520,7 +581,14 @@ test.group('GET /api/platform/alliances/:allianceId/commissions', (group) => {
       response.assertStatus(200)
       assert.deepEqual(response.body().data, [])
       assert.equal(response.body().meta.total, 0)
-      assert.deepEqual(response.body().meta.totals, { accruedCount: 0, accruedCents: 0 })
+      assert.deepEqual(response.body().meta.totals, {
+        accruedCount: 0,
+        accruedCents: 0,
+        paidCount: 0,
+        paidCents: 0,
+        pendingCount: 0,
+        pendingCents: 0,
+      })
     } finally {
       await cleanupFixture({ allianceIds: [alliance.allianceId], unitIds: [] })
     }
@@ -845,6 +913,349 @@ test.group('GET /api/platform/alliances/:allianceId/commissions', (group) => {
       for (const row of withFilters.body().data) {
         assert.isNull(row.livePayout)
       }
+    } finally {
+      await cleanupFixture({
+        allianceIds: [alliance.allianceId],
+        unitIds: [unit.businessUnitId],
+        planIds: [planId],
+      })
+    }
+  })
+})
+
+/**
+ * Estado por pagar / pagada en el estado de cuenta (USRH1787719056820).
+ * `allianceCommissionStatus`, `livePayout`, filtro `status` y los cuatro
+ * totales nuevos, derivados de una liquidación registrada.
+ */
+test.group('GET /api/platform/alliances/:allianceId/commissions — estado de pago', (group) => {
+  let admin: TestActor | null = null
+
+  group.setup(async () => {
+    admin = await createActor('alliance-commission-payout', true)
+  })
+
+  group.teardown(async () => {
+    await cleanupActor(admin)
+  })
+
+  test('CA-16: comisiones liquidadas salen "paid" con rastro; el resto "pending"', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now() + 100
+    const planId = await createPublishedPlan(stamp)
+    const alliance = await createAllianceRow({ name: `Alianza estado ${stamp}`, percent: 10, term: 12 })
+    const unit = await createClientUnit('estado')
+    const attribution = await createAttribution({
+      allianceId: alliance.allianceId,
+      businessUnitId: unit.businessUnitId,
+      percent: 10,
+      term: 12,
+      startsAt: '2026-01-01',
+    })
+    const subscription = await createBareSubscription(unit.businessUnitId, planId)
+
+    try {
+      const { commission: c1 } = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: '2026-09-01',
+      })
+      const { commission: c2 } = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: '2026-09-05',
+      })
+      const { commission: c3 } = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: '2026-09-10',
+      })
+      const { commission: c4 } = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: '2026-09-15',
+      })
+      const { commission: c5 } = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: '2026-09-20',
+      })
+
+      await createPayoutDirect({
+        allianceId: alliance.allianceId,
+        commissionIds: [c1.allianceCommissionId, c2.allianceCommissionId, c3.allianceCommissionId],
+        paidOn: '2026-09-30',
+        reference: 'SPEI 0123456789',
+        createdByUserId: admin!.user.userId,
+      })
+
+      const response = await client.get(url(alliance.allianceId)).loginAs(admin!.user)
+      response.assertStatus(200)
+      const byId = new Map(
+        response.body().data.map((row: { allianceCommissionId: number }) => [row.allianceCommissionId, row])
+      )
+
+      for (const paid of [c1, c2, c3]) {
+        const row = byId.get(paid.allianceCommissionId) as {
+          allianceCommissionStatus: string
+          livePayout: { alliancePayoutId: number; paidOn: string; reference: string; createdByName: string } | null
+        }
+        assert.equal(row.allianceCommissionStatus, 'paid')
+        assert.isNotNull(row.livePayout)
+        assert.equal(row.livePayout!.paidOn, '2026-09-30')
+        assert.equal(row.livePayout!.reference, 'SPEI 0123456789')
+        assert.equal(row.livePayout!.createdByName, `${admin!.person.personFirstname} ${admin!.person.personLastname}`)
+      }
+      for (const pending of [c4, c5]) {
+        const row = byId.get(pending.allianceCommissionId) as {
+          allianceCommissionStatus: string
+          livePayout: unknown
+        }
+        assert.equal(row.allianceCommissionStatus, 'pending')
+        assert.isNull(row.livePayout)
+      }
+    } finally {
+      await cleanupFixture({
+        allianceIds: [alliance.allianceId],
+        unitIds: [unit.businessUnitId],
+        planIds: [planId],
+      })
+    }
+  })
+
+  test('CA-17: fila anulada por Query Builder vuelve a "pending", en detalle y en totales', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now() + 101
+    const planId = await createPublishedPlan(stamp)
+    const alliance = await createAllianceRow({ name: `Alianza anulada ${stamp}`, percent: 10, term: 12 })
+    const unit = await createClientUnit('anulada')
+    const attribution = await createAttribution({
+      allianceId: alliance.allianceId,
+      businessUnitId: unit.businessUnitId,
+      percent: 10,
+      term: 12,
+      startsAt: '2026-01-01',
+    })
+    const subscription = await createBareSubscription(unit.businessUnitId, planId)
+
+    try {
+      const { commission } = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: '2026-09-01',
+      })
+
+      const payout = await createPayoutDirect({
+        allianceId: alliance.allianceId,
+        commissionIds: [commission.allianceCommissionId],
+        paidOn: '2026-09-30',
+        reference: 'SPEI anulada',
+        createdByUserId: admin!.user.userId,
+      })
+
+      // La anulación por HTTP llega en USRH1787719056821; aquí se escribe
+      // por Query Builder directo, tal como lo hará esa pieza.
+      await AlliancePayoutCommission.query()
+        .where('alliance_payout_id', payout.alliancePayoutId)
+        .update({ alliancePayoutCommissionAnnulledAt: new Date() })
+
+      const response = await client.get(url(alliance.allianceId)).loginAs(admin!.user)
+      response.assertStatus(200)
+      const row = response
+        .body()
+        .data.find((item: { allianceCommissionId: number }) => item.allianceCommissionId === commission.allianceCommissionId)
+      assert.equal(row.allianceCommissionStatus, 'pending')
+      assert.isNull(row.livePayout)
+      assert.deepEqual(response.body().meta.totals, {
+        accruedCount: 1,
+        accruedCents: 80_000,
+        paidCount: 0,
+        paidCents: 0,
+        pendingCount: 1,
+        pendingCents: 80_000,
+      })
+    } finally {
+      await cleanupFixture({
+        allianceIds: [alliance.allianceId],
+        unitIds: [unit.businessUnitId],
+        planIds: [planId],
+      })
+    }
+  })
+
+  test('CA-18: el filtro de estado acota solo el detalle; status inválido responde 422', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now() + 102
+    const planId = await createPublishedPlan(stamp)
+    const alliance = await createAllianceRow({ name: `Alianza filtro estado ${stamp}`, percent: 10, term: 12 })
+    const unit = await createClientUnit('filtroestado')
+    const attribution = await createAttribution({
+      allianceId: alliance.allianceId,
+      businessUnitId: unit.businessUnitId,
+      percent: 10,
+      term: 12,
+      startsAt: '2026-01-01',
+    })
+    const subscription = await createBareSubscription(unit.businessUnitId, planId)
+
+    try {
+      const { commission: paid } = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: '2026-09-01',
+      })
+      const { commission: pending } = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: '2026-09-05',
+      })
+      await createPayoutDirect({
+        allianceId: alliance.allianceId,
+        commissionIds: [paid.allianceCommissionId],
+        paidOn: '2026-09-30',
+        reference: 'SPEI filtro',
+        createdByUserId: admin!.user.userId,
+      })
+
+      const withoutStatus = await client.get(url(alliance.allianceId)).loginAs(admin!.user)
+      const pendingOnly = await client.get(url(alliance.allianceId)).qs({ status: 'pending' }).loginAs(admin!.user)
+      const paidOnly = await client.get(url(alliance.allianceId)).qs({ status: 'paid' }).loginAs(admin!.user)
+
+      assert.equal(pendingOnly.body().data.length, 1)
+      assert.equal(pendingOnly.body().data[0].allianceCommissionId, pending.allianceCommissionId)
+      assert.equal(paidOnly.body().data.length, 1)
+      assert.equal(paidOnly.body().data[0].allianceCommissionId, paid.allianceCommissionId)
+      assert.equal(withoutStatus.body().data.length, 2)
+
+      assert.deepEqual(withoutStatus.body().meta.totals, pendingOnly.body().meta.totals)
+      assert.deepEqual(withoutStatus.body().meta.totals, paidOnly.body().meta.totals)
+
+      const invalidStatus = await client.get(url(alliance.allianceId)).qs({ status: 'otro' }).loginAs(admin!.user)
+      invalidStatus.assertStatus(422)
+      assert.equal(invalidStatus.body().code, ALLIANCE_ERROR_CODES.VAL_INPUT)
+    } finally {
+      await cleanupFixture({
+        allianceIds: [alliance.allianceId],
+        unitIds: [unit.businessUnitId],
+        planIds: [planId],
+      })
+    }
+  })
+
+  test('CA-19: devengado = pagado + por pagar, en monto y en conteo', async ({ client, assert }) => {
+    const stamp = Date.now() + 103
+    const planId = await createPublishedPlan(stamp)
+    const alliance = await createAllianceRow({ name: `Alianza totales pago ${stamp}`, percent: 10, term: 12 })
+    const unit = await createClientUnit('totalespago')
+    const attribution = await createAttribution({
+      allianceId: alliance.allianceId,
+      businessUnitId: unit.businessUnitId,
+      percent: 10,
+      term: 12,
+      startsAt: '2026-01-01',
+    })
+    const subscription = await createBareSubscription(unit.businessUnitId, planId)
+
+    try {
+      const paidOnDates = ['2026-09-01', '2026-09-05', '2026-09-10', '2026-09-15', '2026-09-20']
+      const commissions = []
+      for (const paidOn of paidOnDates) {
+        const { commission } = await addCommission({
+          allianceId: alliance.allianceId,
+          attributionId: attribution.allianceAttributionId,
+          businessUnitId: unit.businessUnitId,
+          subscriptionId: subscription.billingSubscriptionId,
+          periods: 1,
+          baseCents: 800_000,
+          percent: 10,
+          amountCents: 80_000,
+          paidOn,
+        })
+        commissions.push(commission)
+      }
+
+      await createPayoutDirect({
+        allianceId: alliance.allianceId,
+        commissionIds: commissions.slice(0, 3).map((c) => c.allianceCommissionId),
+        paidOn: '2026-09-30',
+        reference: 'SPEI totales',
+        createdByUserId: admin!.user.userId,
+      })
+
+      const response = await client.get(url(alliance.allianceId)).loginAs(admin!.user)
+      response.assertStatus(200)
+      assert.deepEqual(response.body().meta.totals, {
+        accruedCount: 5,
+        accruedCents: 400_000,
+        paidCount: 3,
+        paidCents: 240_000,
+        pendingCount: 2,
+        pendingCents: 160_000,
+      })
+
+      const excludingPaid = await client
+        .get(url(alliance.allianceId))
+        .qs({ from: '2026-09-14', to: '2026-09-30' })
+        .loginAs(admin!.user)
+      const totals = excludingPaid.body().meta.totals
+      assert.equal(totals.paidCount, 0)
+      assert.equal(totals.paidCents, 0)
+      assert.equal(totals.accruedCount, totals.paidCount + totals.pendingCount)
+      assert.equal(totals.accruedCents, totals.paidCents + totals.pendingCents)
     } finally {
       await cleanupFixture({
         allianceIds: [alliance.allianceId],
