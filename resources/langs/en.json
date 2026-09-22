@@ -438,6 +438,7 @@
   "name": "Name",
   "email": "Email",
   "user": "User",
+  "person": "Person",
   "customer": "Customer",
   "pilot": "Pilot",
   "shift": "Shift",
