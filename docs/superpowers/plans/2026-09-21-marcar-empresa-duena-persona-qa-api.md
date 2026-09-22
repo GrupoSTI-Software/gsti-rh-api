@@ -135,11 +135,28 @@ Headers: `Authorization: Bearer <token de A>`, `X-Business-Unit-Id: <identificad
 }
 ```
 
-**Response exacto:** `404`, con el mismo `title` y `message` del `GET`.
+**Response exacto:** `404`
+
+```json
+{
+  "type": "warning",
+  "title": "The person was not found",
+  "message": "The person was not found with the entered ID",
+  "data": {
+    "personId": "<person_id de PersonaB>",
+    "personFirstname": "Intruso",
+    "personLastname": "PersonaB",
+    "personSecondLastname": "Duena",
+    "personBirthday": null
+  }
+}
+```
+
+Mismo `title` y `message` que el `GET`, pero aquí `data` no es solo el identificador: es un eco de lo que se intentó guardar (por eso trae los tres campos del cuerpo enviado, más `personBirthday` en blanco aunque no se haya mandado). Si se envía un cuerpo distinto, `data` cambia para reflejarlo — el `title` y el `message` no.
 
 **Endpoint:** `DELETE /api/persons/<person_id de PersonaB>`
 
-**Response exacto:** `404`, con el mismo `title` y `message`.
+**Response exacto:** `404`, con el mismo `title`, `message` y forma de `data` (solo `personId`) que el `GET`.
 
 Comprobar en la base que el expediente de B sigue intacto:
 
@@ -147,7 +164,7 @@ Comprobar en la base que el expediente de B sigue intacto:
 SELECT person_firstname, person_deleted_at FROM people WHERE person_id = <person_id de PersonaB>;
 ```
 
-Debe traer `QA` y `person_deleted_at` vacío. Repetir los tres con un identificador inexistente (por ejemplo `999999999`): el `404` es idéntico, así que la respuesta no revela si el expediente existe en otra empresa.
+Debe traer `QA` y `person_deleted_at` vacío. Repetir los tres con un identificador inexistente (por ejemplo `999999999`): el `404` es idéntico en `title` y `message` en los tres casos (el `data` de `PUT` cambia según lo que se haya enviado, como se explicó arriba), así que la respuesta no revela si el expediente existe en otra empresa.
 
 Qué significa lo nuevo aquí:
 - `type` con valor `warning` y ese `title` / `message`: el sistema responde "no encontrado" tanto para un expediente ajeno como para uno que no existe; no distingue entre ambos a propósito.
