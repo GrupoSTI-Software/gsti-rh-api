@@ -31,6 +31,7 @@ Los ids no se inventan: se resuelven con estas consultas (los correos de acceso 
 SELECT role_id FROM roles WHERE role_slug = 'qa-credencial-admin' AND role_deleted_at IS NULL;
 SELECT user_id FROM users WHERE user_email = 'qa-credencial-titular@gsti-tests.local' AND user_deleted_at IS NULL;
 SELECT user_id FROM users WHERE user_email = 'qa-credencial-vecino@gsti-tests.local' AND user_deleted_at IS NULL;
+SELECT person_id FROM users WHERE user_email = 'qa-credencial-vecino@gsti-tests.local' AND user_deleted_at IS NULL;
 SELECT person_id FROM people WHERE person_firstname = 'QACred' AND person_lastname = 'Persona01';
 SELECT person_id FROM people WHERE person_firstname = 'QACred' AND person_lastname = 'Persona02';
 SELECT person_id FROM people WHERE person_firstname = 'QACred' AND person_lastname = 'Persona03';
@@ -96,11 +97,12 @@ Usuario: **A**. Identificador: el `user_id` de `qa-credencial-vecino@gsti-tests.
   "userEmail": "qa-credencial-titular@gsti-tests.local",
   "userActive": true,
   "roleId": "<role_id>",
+  "personId": "<person_id>",
   "userEmailType": "institutional"
 }
 ```
 
-(`<role_id>`: el `role_id` del rol `qa-credencial-admin` resuelto en Preparar.)
+(`<role_id>`: el `role_id` del rol `qa-credencial-admin` resuelto en Preparar. `<person_id>`: el `person_id` del vecino resuelto en Preparar — la edición lo exige aunque no cambie de persona; sin él la petición falla.)
 
 **Response exacto:** `400`
 
@@ -132,11 +134,12 @@ Usuario: **A**. Identificador: el `user_id` de `qa-credencial-vecino@gsti-tests.
   "userEmail": "qa-credencial-vecino@gsti-tests.local",
   "userActive": true,
   "roleId": "<role_id>",
+  "personId": "<person_id>",
   "userEmailType": "institutional"
 }
 ```
 
-(`<role_id>`: el `role_id` del rol `qa-credencial-admin` resuelto en Preparar.)
+(`<role_id>`: el `role_id` del rol `qa-credencial-admin` resuelto en Preparar. `<person_id>`: el `person_id` del vecino resuelto en Preparar — la edición lo exige aunque no cambie de persona; sin él la petición falla.)
 
 **Response exacto:** `201` con la cuenta actualizada:
 
