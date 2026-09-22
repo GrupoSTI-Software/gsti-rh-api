@@ -9,7 +9,8 @@ import {
 } from '#tests/helpers/tenant_actor'
 
 /**
- * USRH1789698261610 — criterios 1-6 de la HU por HTTP.
+ * USRH1789698261610 — criterios 1-6 de la HU por HTTP. Excepción: en el criterio 4
+ * el vaciado va por modelo (PUT no puede vaciar sensibles); la reutilización sí es HTTP.
  * Limpieza: las personas del caso salen ANTES que los actores (FK RESTRICT).
  */
 
@@ -177,7 +178,7 @@ test.group('unicidad de identidad por empresa', (group) => {
     assert.equal(second.status(), 422)
   })
 
-  test('criterio 4 — RFC vaciado queda libre en la misma empresa', async ({ assert, client }) => {
+  test('criterio 4 — liberación vía modelo + reutilización vía HTTP (PUT no puede vaciar sensibles)', async ({ assert, client }) => {
     const stamp = uniqueStamp()
     const rfc = `FREERFC${stamp}`.slice(0, 20)
     const first = await createPerson(client, actorA, 'FreeA', {

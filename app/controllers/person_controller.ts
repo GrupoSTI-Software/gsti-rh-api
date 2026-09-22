@@ -12,6 +12,8 @@ import {
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
 import { TenantContext } from '#utils/tenant_context'
+import type { PersonIdentityField } from '#constants/person_identity_error_codes'
+import { resolveRacedIdentityField } from '#helpers/person_identity_lookup'
 import {
   personIdentityDuplicatedFieldFromValidationError,
   personIdentityDuplicatedIndexFromError,
@@ -30,6 +32,27 @@ import {
   resolvePersonSubjectType,
   personSubjectRequiresCollaboratorWritePermission,
 } from '#constants/person_subject_type'
+
+type IdentityRecheckTarget = { person: Person; companyId: number }
+
+/**
+ * Carrera contra el UNIQUE por empresa (USRH1789698261610): MySQL reporta el
+ * índice en su propio orden, así que se reverifica con `verifyInfo`, que aplica
+ * CURP > RFC > NSS. El índice reportado queda solo como respaldo.
+ */
+async function racedIdentityField(
+  indexField: PersonIdentityField,
+  i18n: HttpContext['i18n'],
+  target: IdentityRecheckTarget | null
+): Promise<PersonIdentityField> {
+  if (!target) return indexField
+  try {
+    const recheck = await new PersonService(i18n).verifyInfo(target.person, target.companyId)
+    return resolveRacedIdentityField(recheck, indexField)
+  } catch {
+    return indexField
+  }
+}
 
 export default class PersonController {
   /**
@@ -350,6 +373,7 @@ export default class PersonController {
    */
   async store(ctx: HttpContext) {
     const { request, response, i18n } = ctx
+    let identityRecheck: IdentityRecheckTarget | null = null
     try {
       const subjectType = resolvePersonSubjectType(request.input('personSubjectType'))
       if (personSubjectRequiresCollaboratorWritePermission(subjectType)) {
@@ -393,6 +417,7 @@ export default class PersonController {
         personRfc: personRfc,
         personImssNss: personImssNss,
       } as Person
+      identityRecheck = { person, companyId: storeCompanyId }
       const personService = new PersonService(i18n)
       await request.validateUsing(createPersonValidator)
       const newPerson = await personService.create(person)
@@ -414,7 +439,10 @@ export default class PersonController {
       }
       const racedField = personIdentityDuplicatedIndexFromError(error)
       if (racedField) {
-        return respondPersonIdentityDuplicated(ctx, racedField)
+        return respondPersonIdentityDuplicated(
+          ctx,
+          await racedIdentityField(racedField, i18n, identityRecheck)
+        )
       }
       if (error.code === 'E_VALIDATION_ERROR') {
         const messageError = error.messages?.[0]?.message ?? 'Validation error'
@@ -614,6 +642,7 @@ export default class PersonController {
    */
   async update(ctx: HttpContext) {
     const { request, response, i18n } = ctx
+    let identityRecheck: IdentityRecheckTarget | null = null
     try {
       const personId = request.param('personId')
       const personFirstname = request.input('personFirstname')
@@ -667,6 +696,7 @@ export default class PersonController {
       if (!updateCompanyId) {
         return respondPersonIdentityMissingCompany(ctx)
       }
+      identityRecheck = { person, companyId: updateCompanyId }
       if (await personIsCollaborator(Number(personId))) {
         const allowed = await ensureSecondaryPermission(
           ctx,
@@ -738,7 +768,10 @@ export default class PersonController {
       }
       const racedField = personIdentityDuplicatedIndexFromError(error)
       if (racedField) {
-        return respondPersonIdentityDuplicated(ctx, racedField)
+        return respondPersonIdentityDuplicated(
+          ctx,
+          await racedIdentityField(racedField, i18n, identityRecheck)
+        )
       }
       if (error.code === 'E_VALIDATION_ERROR') {
         const messageError = error.messages?.[0]?.message ?? 'Validation error'

@@ -30,3 +30,25 @@ export async function livePersonWithIdentityExists(
     .first()
   return !!found
 }
+
+/** Resultado de `PersonService.verifyInfo`. */
+export type PersonIdentityRecheck =
+  | { status: 200 }
+  | { status: 400; missingCompany: true }
+  | { status: 422; field: PersonIdentityField | 'email' }
+
+/**
+ * Qué dato informar cuando el guardado perdió una carrera contra el UNIQUE.
+ *
+ * MySQL reporta el índice que chocó primero en SU orden, no en el de la HU. La
+ * reverificación (`verifyInfo`) aplica el orden CURP > RFC > NSS y por eso manda;
+ * el índice solo se usa si la reverificación ya no encuentra choque de identidad
+ * (p. ej. el ganador se dio de baja entre tanto) o no se pudo hacer.
+ */
+export function resolveRacedIdentityField(
+  recheck: PersonIdentityRecheck | null,
+  indexField: PersonIdentityField
+): PersonIdentityField {
+  if (recheck && recheck.status === 422 && recheck.field !== 'email') return recheck.field
+  return indexField
+}
