@@ -40,7 +40,10 @@ import {
 } from '#helpers/sensitive_data_write_api_error'
 import {
   assertUserAccessEmailNotMasked,
+  isUserAccessEmailDuplicatedIndexError,
+  isUserAccessEmailDuplicatedValidationError,
   isUserAccessEmailMaskedError,
+  respondUserAccessEmailDuplicated,
   respondUserAccessEmailMasked,
 } from '#helpers/user_access_email_api_error'
 import { normalizeToken } from '#helpers/employee_termination_record'
@@ -389,17 +392,19 @@ export default class UserController {
         }
       }
 
-      let userVerify = false
+      let verifiedUserId: number | null = null
       try {
-        await User.verifyCredentials(userEmail, userPassword)
-        userVerify = true
+        const verified = await User.verifyCredentials(userEmail, userPassword)
+        verifiedUserId = (verified as unknown as { userId?: unknown }).userId as number
+        // verifyCredentials devuelve el modelo; si la forma cambiara, el comparador de abajo cae a 404 (fail-closed)
       } catch (error) {
-        if (error.code !== 'E_INVALID_CREDENTIALS') {
+        const e = error as { code?: unknown }
+        if (e.code !== 'E_INVALID_CREDENTIALS') {
           throw error
         }
       }
 
-      if (!userVerify) {
+      if (verifiedUserId === null || user === null || user.userId !== verifiedUserId) {
         response.status(404)
         return {
           type: 'warning',
@@ -1640,6 +1645,17 @@ export default class UserController {
    *                 detail: { type: string, example: El correo de acceso contiene la máscara de un dato protegido. Captura el correo completo o usa el otro tipo de correo; no se guardó ningún cambio. }
    *                 key: { type: string, example: no-fue-posible-guardar-el-correo-de-acceso }
    *                 code: { type: string, example: USR.MAIL.001 }
+   *       '400':
+   *         description: El correo de acceso ya está en uso por otra cuenta activa. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Este correo de acceso ya está en uso }
+   *                 detail: { type: string, example: Otra cuenta activa usa este correo de acceso; usa uno distinto o da de baja la cuenta que lo tiene. No se guardó ningún cambio. }
+   *                 key: { type: string, example: correo-de-acceso-ya-registrado }
+   *                 code: { type: string, example: USR.MAIL.002 }
    */
   async store(ctx: HttpContext) {
     const { auth, request, response, i18n, businessUnitScope } = ctx
@@ -1736,6 +1752,7 @@ export default class UserController {
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (isUserAccessEmailMaskedError(error)) return respondUserAccessEmailMasked(ctx, error)
+      if (isUserAccessEmailDuplicatedValidationError(error) || isUserAccessEmailDuplicatedIndexError(error)) return respondUserAccessEmailDuplicated(ctx)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -2037,6 +2054,17 @@ export default class UserController {
    *                 detail: { type: string, example: El correo de acceso contiene la máscara de un dato protegido. Captura el correo completo o usa el otro tipo de correo; no se guardó ningún cambio. }
    *                 key: { type: string, example: no-fue-posible-guardar-el-correo-de-acceso }
    *                 code: { type: string, example: USR.MAIL.001 }
+   *       '400':
+   *         description: El correo de acceso ya está en uso por otra cuenta activa. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title: { type: string, example: Este correo de acceso ya está en uso }
+   *                 detail: { type: string, example: Otra cuenta activa usa este correo de acceso; usa uno distinto o da de baja la cuenta que lo tiene. No se guardó ningún cambio. }
+   *                 key: { type: string, example: correo-de-acceso-ya-registrado }
+   *                 code: { type: string, example: USR.MAIL.002 }
    */
   async update(ctx: HttpContext) {
     const { auth, request, response, i18n, scopedUser } = ctx
@@ -2062,16 +2090,10 @@ export default class UserController {
         userEmailType: userEmailType,
       } as User
       const previousUser = JSON.parse(JSON.stringify(currentUser))
-      const data = await request.validateUsing(updateUserValidator)
+      await request.validateUsing(updateUserValidator)
       const verifyInfo = await userService.verifyInfo(user)
       if (verifyInfo.status !== 200) {
-        response.status(verifyInfo.status)
-        return {
-          type: verifyInfo.type,
-          title: verifyInfo.title,
-          message: verifyInfo.message,
-          data: { ...data },
-        }
+        return respondUserAccessEmailDuplicated(ctx)
       }
       let personForEmailSync: Person | null = null
       if (userEmailType === 'personal') {
@@ -2123,6 +2145,7 @@ export default class UserController {
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (isUserAccessEmailMaskedError(error)) return respondUserAccessEmailMasked(ctx, error)
+      if (isUserAccessEmailDuplicatedValidationError(error) || isUserAccessEmailDuplicatedIndexError(error)) return respondUserAccessEmailDuplicated(ctx)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

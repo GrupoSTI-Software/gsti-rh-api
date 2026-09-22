@@ -239,7 +239,7 @@ export default class UserService {
       .where('user_email', user.userEmail)
       .first()
 
-    if (existEmail && user.userEmail) {
+    if (existEmail && user.userEmail !== undefined && user.userEmail !== null && user.userEmail !== '') {
       const entity = this.t('user')
       const param = this.t('email')
       return {
