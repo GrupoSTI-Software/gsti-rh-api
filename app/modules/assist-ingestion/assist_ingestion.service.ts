@@ -334,14 +334,20 @@ export type ResolvedPunchTime =
  * Sin hora declarada se usa el reloj del servidor y no se evalúa la ventana: un
  * equipo que no se ha actualizado sigue registrando exactamente como hoy.
  *
+ * La ventana hacia atrás se puede desactivar: la captura administrativa desde
+ * el backoffice corrige el pasado a propósito y su tope lo pone el alcance en
+ * días del rol (`admin_capture_scope`), no el hueco de conexión del canal.
+ *
  * @param declared hora que el equipo de origen declara, si la declara
  * @param receivedAt instante en que el servidor recibió la checada
  * @param legacyZone zona IANA del sitio con la que se lee el formato sin desfase (`YYYY-MM-DD HH:mm:ss`)
+ * @param options `enforceBackdateWindow` en `false` omite la ventana del canal
  */
 export function resolvePunchTime(
   declared: string | null | undefined,
   receivedAt: DateTime,
-  legacyZone: string = getBusinessTimeZone()
+  legacyZone: string = getBusinessTimeZone(),
+  options: { enforceBackdateWindow?: boolean } = {}
 ): ResolvedPunchTime {
   const received = receivedAt.toUTC()
 
@@ -364,7 +370,10 @@ export function resolvePunchTime(
   }
 
   const behindSeconds = received.diff(parsed, 'seconds').seconds
-  if (behindSeconds > getAssistPunchTimeMaxBackdateHours() * 3600) {
+  if (
+    options.enforceBackdateWindow !== false &&
+    behindSeconds > getAssistPunchTimeMaxBackdateHours() * 3600
+  ) {
     return { ok: false, rejection: ASSIST_INGESTION_PUNCH_TIME_OUT_OF_WINDOW }
   }
 

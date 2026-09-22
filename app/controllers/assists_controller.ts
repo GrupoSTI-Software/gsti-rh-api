@@ -31,6 +31,8 @@ import {
   mapIngestionResultToHttp,
   resolveAssistOrigin,
 } from '#modules/assist-ingestion/assist_ingestion.controller'
+import { resolveAdminCaptureRejection } from '#modules/assist-ingestion/admin_capture_scope'
+import { ASSIST_ORIGIN } from '#constants/assist_origin'
 import {
   ASSIST_INGESTION_EMPLOYEE_TERMINATED,
   ASSIST_INGESTION_FOREIGN_WRITE,
@@ -1377,10 +1379,22 @@ export default class AssistsController {
       }
 
       // La hora que vale es la hora en que ocurrió la checada, no la hora en que se
-      // logró entregar: si el equipo la declara, se respeta, siempre que caiga dentro
-      // de la ventana permitida y no se adelante al reloj del servidor.
+      // logró entregar: si el equipo la declara, se respeta, siempre que no se
+      // adelante al reloj del servidor.
+      //
+      // Hacia atrás hay dos topes distintos y la procedencia decide cuál rige. Un
+      // equipo entrega tarde lo que ya ocurrió y se mide con la ventana del canal,
+      // que existe para cubrir una caída de red. La captura administrativa corrige
+      // el pasado a propósito, así que se mide con los días que el rol de quien
+      // captura tiene autorizado modificar.
+      const assistOrigin = resolveAssistOrigin(payload.assistChannel, isOwner)
+      const isAdminCapture = assistOrigin === ASSIST_ORIGIN.ADMIN_CAPTURE
+
       const siteZone = await new SiteTimeZoneService().forEmployee(employee.employeeId)
-      const resolvedPunchTime = resolvePunchTime(assistPunchTime, DateTime.utc(), siteZone.zone)
+      const now = DateTime.utc()
+      const resolvedPunchTime = resolvePunchTime(assistPunchTime, now, siteZone.zone, {
+        enforceBackdateWindow: !isAdminCapture,
+      })
       if (!resolvedPunchTime.ok) {
         const rejection = resolvedPunchTime.rejection
         const detail = i18n.t(`${rejection.i18nBase}_message`, undefined, rejection.key)
@@ -1397,7 +1411,31 @@ export default class AssistsController {
 
       const dateTimePunchTime: DateTime = resolvedPunchTime.punchTimeUtc
 
-      const assistOrigin = resolveAssistOrigin(payload.assistChannel, isOwner)
+      if (isAdminCapture) {
+        const scopeRejection = await resolveAdminCaptureRejection({
+          user: auth.user,
+          punchTimeUtc: dateTimePunchTime,
+          zone: siteZone.zone,
+          now,
+        })
+        if (scopeRejection) {
+          const detail = i18n.t(
+            `${scopeRejection.i18nBase}_message`,
+            undefined,
+            scopeRejection.key
+          )
+          response.status(scopeRejection.status)
+          return {
+            type: 'warning',
+            title: i18n.t(`${scopeRejection.i18nBase}_title`, undefined, scopeRejection.key),
+            message: detail,
+            detail,
+            key: scopeRejection.key,
+            code: scopeRejection.code,
+          }
+        }
+      }
+
       const assistCreatedByUserId = isOwner ? null : (auth.user?.userId ?? null)
 
       const assist = {

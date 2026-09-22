@@ -17,6 +17,7 @@ import {
   ASSIST_INGESTION_FOREIGN_WRITE,
   ASSIST_INGESTION_INVALID_ITEM,
 } from './assist_ingestion.rejections.js'
+import { resolveAdminCaptureRejection } from './admin_capture_scope.js'
 import {
   assistBatchItemValidator,
   inspectAssistBatchEnvelope,
@@ -327,11 +328,34 @@ export default class AssistIngestionController {
       }
 
       // Una hora declarada sin desfase es hora civil del sitio del colaborador.
+      //
+      // La procedencia decide el tope hacia atrás, igual que en la captura suelta:
+      // la ventana del canal para lo que entrega un equipo, los días del rol para
+      // lo que captura una persona desde el backoffice.
+      const origin = resolveAssistOrigin(item.assistChannel, access.isOwner)
+      const isAdminCapture = origin === ASSIST_ORIGIN.ADMIN_CAPTURE
+
       const siteZone = await siteTimeZones.forEmployee(item.employeeId)
-      const resolvedPunchTime = resolvePunchTime(item.assistPunchTime, DateTime.utc(), siteZone.zone)
+      const now = DateTime.utc()
+      const resolvedPunchTime = resolvePunchTime(item.assistPunchTime, now, siteZone.zone, {
+        enforceBackdateWindow: !isAdminCapture,
+      })
       if (!resolvedPunchTime.ok) {
         results[index].error = rejectionBody(resolvedPunchTime.rejection, i18n)
         continue
+      }
+
+      if (isAdminCapture) {
+        const scopeRejection = await resolveAdminCaptureRejection({
+          user: auth.user,
+          punchTimeUtc: resolvedPunchTime.punchTimeUtc,
+          zone: siteZone.zone,
+          now,
+        })
+        if (scopeRejection) {
+          results[index].error = rejectionBody(scopeRejection, i18n)
+          continue
+        }
       }
 
       accepted.push({
@@ -343,7 +367,7 @@ export default class AssistIngestionController {
           longitude: item.assistLongitude ?? null,
           precision: item.assistPrecision ?? null,
         },
-        origin: resolveAssistOrigin(item.assistChannel, access.isOwner),
+        origin,
         createdByUserId: access.isOwner ? null : (auth.user?.userId ?? null),
         terminalSn: null,
         clientRef: item.clientRef ?? null,

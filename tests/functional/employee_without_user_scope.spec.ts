@@ -43,7 +43,7 @@ async function codesWithoutUser(scope: number[]): Promise<string[]> {
   const page = await TenantContext.run(scope, () =>
     employeeService().indexWithOutUser(FILTERS, scope)
   )
-  return page.all().map((employee) => employee.employeeCode)
+  return page.all().map((employee) => String(employee.employeeCode))
 }
 
 /** Acota un dato del `setup` que los casos ya dan por creado. */
@@ -54,7 +54,7 @@ function required<T>(value: T | null, label: string): T {
 
 const unitId = (unit: BusinessUnit | null): number => required(unit, 'unidad').businessUnitId
 const code = (fixture: EmployeeFixture | null): string =>
-  required(fixture, 'empleado').employee.employeeCode
+  String(required(fixture, 'empleado').employee.employeeCode)
 const personId = (fixture: EmployeeFixture | null): number =>
   required(fixture, 'empleado').person.personId
 
