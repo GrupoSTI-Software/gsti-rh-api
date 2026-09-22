@@ -17,7 +17,7 @@ cd gsti-rh-api
 node ace db:seed --files=database/seeders/_tmp_do_not_commit_qa_seeder.ts
 ```
 
-Deja listas dos empresas (A y B), un capturista en cada una, el mismo trabajador en ambas y un choque dentro de A. Volver a correr el seeder restaura lo que un escenario haya modificado.
+Deja listas dos empresas (A y B), un capturista en cada una, el mismo trabajador en A (`IdentCompartidoA`) y otro expediente en A con RFC distinto (`IdentChoqueA`); la copia en B la crea el Escenario 1. Volver a correr el seeder restaura A y quita `IdentCompartidoB` en B para que el Esc. 1 pueda repetirse.
 
 | | Correo | Contraseña | Variante |
 |---|---|---|---|
@@ -30,11 +30,13 @@ Identificadores públicos de las dos empresas, para el header `X-Business-Unit-I
 SELECT business_unit_slug, business_unit_public_id FROM business_units WHERE business_unit_slug IN ('qa-ident-a', 'qa-ident-b');
 ```
 
-Identificadores de los expedientes sembrados:
+Identificadores de los expedientes sembrados **antes del Escenario 1** (aún no debe existir `IdentCompartidoB`):
 
 ```sql
-SELECT person_id, person_lastname, business_unit_id FROM people WHERE person_second_lastname = 'Ident' AND person_lastname IN ('IdentCompartidoA', 'IdentCompartidoB', 'IdentChoqueA');
+SELECT person_id, person_lastname, business_unit_id FROM people WHERE person_second_lastname = 'Ident' AND person_lastname IN ('IdentCompartidoA', 'IdentChoqueA');
 ```
+
+Debe traer solo dos filas (`IdentCompartidoA` en A, `IdentChoqueA` en A). Tras el Escenario 1, el mismo `SELECT` ampliado a `'IdentCompartidoB'` debe mostrar la fila en B.
 
 ## 2. Escenario 1 — Alta en B de alguien que ya está en A: procede y no menciona a A
 
@@ -46,10 +48,10 @@ Headers: `Authorization: Bearer <token de B>`, `X-Business-Unit-Id: <identificad
 
 ```json
 {
-  "personFirstname": "Compartido",
-  "personLastname": "Nuevo",
+  "personFirstname": "QA",
+  "personLastname": "IdentCompartidoB",
   "personSecondLastname": "Ident",
-  "personEmail": "qa-ident-nuevo-b@gsti-tests.local",
+  "personEmail": "qa-ident-compartido-b@gsti-tests.local",
   "personCurp": "QAID800101HDFXXX01",
   "personRfc": "QAID800101AAA",
   "personImssNss": "12345678901"
@@ -63,7 +65,7 @@ Headers: `Authorization: Bearer <token de B>`, `X-Business-Unit-Id: <identificad
   "type": "success",
   "title": "Persons",
   "message": "The person was created successfully",
-  "data": { "person": { "personId": 123, "personFirstname": "Compartido", "...": "..." } }
+  "data": { "person": { "personId": 123, "personFirstname": "QA", "...": "..." } }
 }
 ```
 
@@ -76,7 +78,7 @@ Qué significa cada dato:
 
 ## 3. Escenario 2 — Repetir el RFC dentro de A: se rechaza diciendo qué dato y nada más
 
-Usuario: **A**. El expediente `IdentCompartidoA` ya tiene el RFC del cuerpo; `IdentChoqueA` es otro expediente en la misma empresa con RFC distinto (el PUT del final intenta repetir el RFC).
+Usuario: **A**. El expediente `IdentCompartidoA` ya tiene el RFC del cuerpo; `IdentChoqueA` es otro expediente en la misma empresa con RFC distinto (el PUT del final intenta repetir el RFC). No hay duplicado de RFC pre-sembrado: el rechazo se provoca en vivo con esta petición.
 
 **Endpoint:** `POST /api/persons`
 
@@ -119,7 +121,19 @@ Usuario: **B**.
 
 **Endpoint:** `POST /api/persons` con el mismo cuerpo del Escenario 1 pero `personEmail` igual al de un expediente de A (por ejemplo `qa-ident-compartido-a@gsti-tests.local`) y RFC/CURP/NSS distintos.
 
-**Response exacto:** `422` de validación (el mensaje del correo es de otra historia y no cambia aquí).
+**Response exacto:** `422`
+
+```json
+{
+  "type": "validation_error",
+  "title": "Validation error",
+  "message": "The provided data is invalid",
+  "error": "…",
+  "errors": [ … ]
+}
+```
+
+Campos fijados en el controller (`person_controller.ts`, rama `E_VALIDATION_ERROR` de `store`): `type`, `title`, `message` tal cual arriba; `error` = `error.messages?.[0]?.message ?? 'Validation error'`; `errors` = `error.messages`. El texto concreto del correo duplicado lo genera Vine (regla `unique` sobre `personEmail`) y no está hardcodeado en ese bloque.
 
 Qué significa: el correo personal no se aflojó con este cambio; dos empresas no pueden repetirlo. Es el punto que más atención pide en la revisión.
 
@@ -127,13 +141,31 @@ Qué significa: el correo personal no se aflojó con este cambio; dos empresas n
 
 Usuario: **A**.
 
-**Endpoint:** `PUT /api/persons/<person_id de IdentChoqueA>` con `{"personFirstname": "QA", "personLastname": "IdentChoqueA", "personRfc": ""}`
+El `PUT` no puede vaciar RFC enmascarado: el parser convierte `""` en null y la edición lo trata como “no actualizar”. Para simular lo que la app hace al guardar vacío (liberar la huella, Task 2), prepara con SQL:
 
-**Response exacto:** `200` o `201` de actualizado (el de edición exitosa de hoy).
+```sql
+UPDATE people SET person_rfc = '', person_rfc_hash = NULL WHERE person_id = <person_id de IdentChoqueA>;
+```
 
-Después, `POST /api/persons` en A con el RFC `QAID800101AAA` y otro correo: responde `201`. (Los datos son los ya explicados en el Escenario 1.)
+**Endpoint:** `POST /api/persons` en A con el RFC que tenía `IdentChoqueA` antes de vaciarlo (`QAID800102AAA`), otro correo y CURP/NSS distintos de los ya usados en A:
 
-Si al volver a correr el seeder el escenario deja de tener sentido, es normal: el seeder restaura el choque.
+```json
+{
+  "personFirstname": "QA",
+  "personLastname": "ReusoRfcA",
+  "personSecondLastname": "Ident",
+  "personEmail": "qa-ident-reuso-rfc-a@gsti-tests.local",
+  "personCurp": "QAID800103HDFXXX03",
+  "personRfc": "QAID800102AAA",
+  "personImssNss": "12345678903"
+}
+```
+
+Headers: `Authorization: Bearer <token de A>`, `X-Business-Unit-Id: <identificador público de A>`
+
+**Response exacto:** `201` (misma forma de éxito que el Escenario 1).
+
+Si al volver a correr el seeder se restaura el RFC de `IdentChoqueA`, es normal: el seeder no simula el vaciado del Esc. 4.
 
 ## 6. Escenario 5 — Sin empresa no hay respuesta sobre duplicados
 
