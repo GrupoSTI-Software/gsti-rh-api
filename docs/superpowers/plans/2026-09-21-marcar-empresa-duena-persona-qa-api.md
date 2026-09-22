@@ -317,10 +317,10 @@ Qué significa lo nuevo aquí:
 
 ## 9. Checklist
 
-- [ ] Escenario 1 — Alta desde A queda marcada con A y la respuesta no trae campo nuevo
-- [ ] Escenario 2 — A lista solo lo suyo; B lista solo lo suyo
-- [ ] Escenario 3 — GET/PUT/DELETE de un expediente de B desde A: 404 idéntico al inexistente y fila intacta
-- [ ] Escenario 4 — El expediente sin empresa es invisible para A y para B
-- [ ] Escenario 5 — Header de B, header ausente y header entero: rechazados
-- [ ] Escenario 6 — El dueño de la cuenta nueva queda dentro de su empresa y se ve a sí mismo
-- [ ] Escenario 7 — La plataforma crea su gente sin empresa, sin error, y ninguna empresa la ve
+- [x] Escenario 1 — Alta desde A queda marcada con A y la respuesta no trae campo nuevo
+- [x] Escenario 2 — A lista solo lo suyo; B lista solo lo suyo
+- [x] Escenario 3 — GET/PUT/DELETE de un expediente de B desde A: 404 idéntico al inexistente y fila intacta
+- [x] Escenario 4 — El expediente sin empresa es invisible para A y para B
+- [x] Escenario 5 — Header de B, header ausente y header entero: rechazados
+- [x] Escenario 6 — El dueño de la cuenta nueva queda dentro de su empresa y se ve a sí mismo
+- [x] Escenario 7 — La plataforma crea su gente sin empresa, sin error, y ninguna empresa la ve
