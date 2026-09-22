@@ -3,6 +3,9 @@ import db from '@adonisjs/lucid/services/db'
 import { PLATFORM_METRIC_ERROR_CODES } from '../constants/platform_metric_error_codes.js'
 import { PlatformMetricServiceError } from '../exceptions/platform_metric_service_error.js'
 import PlatformSubscriptionFlowService from './platform_subscription_flow_service.js'
+import PlatformTenantMilestoneService, {
+  type TenantMilestone,
+} from './platform_tenant_milestone_service.js'
 import {
   daysBetweenBusinessDates,
   getBusinessTimeZone,
@@ -188,11 +191,18 @@ export function resolveTenantTrialWindow(
  */
 export default class PlatformTrialService {
   private readonly flowService = new PlatformSubscriptionFlowService()
+  private readonly milestoneService = new PlatformTenantMilestoneService()
 
-  /** Ventana, estado y desenlace de una sola empresa por su `businessUnitPublicId`. */
+  /**
+   * Ventana, estado, desenlace **e hitos de puesta en marcha** de una sola
+   * empresa por su `businessUnitPublicId` (USRH1789079078170 §9.2/§10). Los
+   * siete hitos se calculan siempre, con o sin prueba (RN-20) — el bloque
+   * `hitos` es independiente de `prueba`.
+   */
   async getTenantTrial(publicId: string): Promise<{
     tenant: { publicId: string; nombre: string }
     prueba: PlatformTenantTrial | null
+    hitos: TenantMilestone[]
   }> {
     const bu = await db
       .from('business_units as bu')
@@ -232,9 +242,13 @@ export default class PlatformTrialService {
       }
     }
 
+    const milestoneMap = await this.milestoneService.resolveMilestones([buRow.buId])
+    const hitos = milestoneMap.get(buRow.buId)!
+
     return {
       tenant: { publicId, nombre: buRow.businessUnitName },
       prueba,
+      hitos,
     }
   }
 
