@@ -251,7 +251,22 @@ Comprobar en la base:
 SELECT p.business_unit_id, b.business_unit_name FROM people p JOIN business_units b ON b.business_unit_id = p.business_unit_id WHERE p.person_id = <data.user.personId>;
 ```
 
-Debe traer `QA Duena Signup`. Después, con el token que devolvió `complete` y el `business_unit_public_id` de esa empresa en el header, `GET /api/persons/<data.user.personId>` responde `200` con el propio expediente: el dueño se ve a sí mismo desde el primer momento.
+Debe traer `QA Duena Signup`. Después, con el token que devolvió `complete` y el `business_unit_public_id` de esa empresa en el header:
+
+**Endpoint:** `GET /api/persons/<data.user.personId>`
+
+**Response exacto:** `200`
+
+```json
+{
+  "type": "success",
+  "title": "Persons",
+  "message": "The person was found successfully",
+  "data": { "person": { "personId": "<data.user.personId>", "personFirstname": "Duena", "personLastname": "Signup", "...": "..." } }
+}
+```
+
+El dueño se ve a sí mismo desde el primer momento, sin necesitar ningún permiso de lectura adicional: el sistema reconoce que el expediente pedido es el suyo propio y no exige el permiso que normalmente pide para ver a un colaborador.
 
 Qué significa lo nuevo aquí:
 - `data.signupDraftId`: el número del registro a medio hacer, que se usa en los dos pasos siguientes.
