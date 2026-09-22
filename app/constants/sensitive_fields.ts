@@ -239,17 +239,18 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
     encrypted: true,
   },
 
-  // ─── ProveedorRepse: identificación (USRH1788551528001) ─────────────────────
+  // ─── ProveedorRepse: identificación (USRH1788551528001 / USRH1789328027052) ─
   // RFC del proveedor REPSE (moral o física). Cifrado AES; la huella solo se
   // escribe (providers.service.ts) y nadie la usa en WHERE: treatment
   // 'cifrar', no 'cifrar-buscable' (mismo criterio que BillingTaxReceipt).
-  // Sin maskedInApi hasta USRH1789328027052. Ancla: app/models/proveedor_repse.ts
+  // Ancla: app/models/proveedor_repse.ts
   {
     model: 'ProveedorRepse',
     column: 'rfc',
     legalCategory: 'identificacion',
     treatment: 'cifrar',
     encrypted: true,
+    maskedInApi: true,
   },
 
   // ─── Employee: financiero (VIGENTE, EN CLARO — cifrado en HU aparte) ──────

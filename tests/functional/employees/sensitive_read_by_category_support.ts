@@ -28,6 +28,7 @@ import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
 import EmployeeSalaryHistory from '#models/employee_salary_history'
 import PositionSalaryRange from '#models/position_salary_range'
 import EmpresaContratante from '#models/empresa_contratante'
+import ProveedorRepse from '#models/proveedor_repse'
 import UserConsent from '#models/user_consent'
 import LegalDocument from '#models/legal_document'
 import { TenantContext } from '#utils/tenant_context'
@@ -654,6 +655,9 @@ export const CLEAR_REMAINING = {
   facePhotoUrl: 's3://gsti-qa/face.jpg',
   empresaRfc: 'VACW850312J95',
   empresaRazon: 'QA Contratante Sensible SA de CV',
+  proveedorRfc: 'ASE930101AB1',
+  proveedorRazon: 'QA Proveedor REPSE Sensible SA de CV',
+  proveedorFolio: 'REPSE-QA-SENS-7052',
   salaryDaily: 1250.75,
   minSalaryDaily: 1000,
   maxSalaryDaily: 2000,
@@ -673,6 +677,7 @@ export interface RemainingSensitiveFixture {
   salary: EmployeeSalaryHistory
   range: PositionSalaryRange
   empresa: EmpresaContratante
+  proveedor: ProveedorRepse
   consent: UserConsent | null
 }
 
@@ -813,6 +818,17 @@ export async function createRemainingSensitiveFixture(
     rfcHash: blindIndex(normalizedRfc),
     domicilioFiscal: 'Calle QA 1, CDMX',
   })
+  const normalizedProveedorRfc = normalizeRfc(CLEAR_REMAINING.proveedorRfc)
+  const proveedor = await ProveedorRepse.create({
+    businessUnitId: actor.businessUnit.businessUnitId,
+    razonSocial: CLEAR_REMAINING.proveedorRazon,
+    rfc: CLEAR_REMAINING.proveedorRfc,
+    rfcHash: blindIndex(normalizedProveedorRfc),
+    folio: CLEAR_REMAINING.proveedorFolio,
+    objetoRegistrado: 'Servicios especializados QA',
+    folioVencimiento: DateTime.now().plus({ years: 1 }).startOf('day'),
+    periodicidadMeses: 1,
+  })
   const legal = await LegalDocument.query().first()
   let consent: UserConsent | null = null
   if (legal) {
@@ -839,6 +855,7 @@ export async function createRemainingSensitiveFixture(
     salary,
     range,
     empresa,
+    proveedor,
     consent,
   }
 }
@@ -850,6 +867,9 @@ export async function cleanupRemainingSensitiveFixture(
   if (extra.consent) {
     await UserConsent.query().where('user_consent_id', extra.consent.userConsentId).delete()
   }
+  await ProveedorRepse.query()
+    .where('proveedor_repse_id', extra.proveedor.proveedorRepseId)
+    .delete()
   await EmpresaContratante.query()
     .where('empresa_contratante_id', extra.empresa.empresaContratanteId)
     .delete()

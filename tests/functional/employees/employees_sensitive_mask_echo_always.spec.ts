@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import EmpresaContratante from '#models/empresa_contratante'
+import ProveedorRepse from '#models/proveedor_repse'
 import SystemModule from '#models/system_module'
 import { SENSITIVE_MASK } from '#helpers/sensitive_mask'
 import {
@@ -166,5 +167,57 @@ test.group('Eco de máscara siempre — USRH1789477675771', (group) => {
     const reloaded = await EmpresaContratante.findOrFail(empresa.empresaContratanteId)
     assert.equal(reloaded.razonSocial, 'Nueva Razon Con Read QA')
     assert.equal(reloaded.rfc, CLEAR_REMAINING.empresaRfc)
+  })
+
+  test('CA-4: PUT proveedor REPSE sin identificacion neutraliza RFC tapado', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor.role.roleId, [])
+    await grantModuleAction(actor.role.roleId, 'repse-providers', 'update')
+    const proveedor = extra.proveedor
+    const response = await client
+      .put(`/api/repse-providers/${proveedor.proveedorRepseId}`)
+      .loginAs(actor.user)
+      .header('X-Business-Unit-Id', buHeader(actor))
+      .json({
+        razonSocial: 'Nueva Razon Proveedor QA',
+        rfc: SENSITIVE_MASK,
+        folio: proveedor.folio,
+        objetoRegistrado: proveedor.objetoRegistrado,
+        folioVencimiento: proveedor.folioVencimiento.toISODate(),
+        periodicidadMeses: proveedor.periodicidadMeses,
+      })
+
+    assertMaskEchoAccepted(response, assert, 200)
+    const reloaded = await ProveedorRepse.findOrFail(proveedor.proveedorRepseId)
+    assert.equal(reloaded.razonSocial, 'Nueva Razon Proveedor QA')
+    assert.equal(reloaded.rfc, CLEAR_REMAINING.proveedorRfc)
+  })
+
+  test('CA-4: PUT proveedor REPSE con identificacion neutraliza RFC tapado', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor.role.roleId, ['sensitive-identificacion-read'])
+    await grantModuleAction(actor.role.roleId, 'repse-providers', 'update')
+    const proveedor = extra.proveedor
+    const response = await client
+      .put(`/api/repse-providers/${proveedor.proveedorRepseId}`)
+      .loginAs(actor.user)
+      .header('X-Business-Unit-Id', buHeader(actor))
+      .json({
+        razonSocial: 'Nueva Razon Proveedor Con Read QA',
+        rfc: MASK_ECHO_LEGACY_RFC,
+        folio: proveedor.folio,
+        objetoRegistrado: proveedor.objetoRegistrado,
+        folioVencimiento: proveedor.folioVencimiento.toISODate(),
+        periodicidadMeses: proveedor.periodicidadMeses,
+      })
+
+    assertMaskEchoAccepted(response, assert, 200)
+    const reloaded = await ProveedorRepse.findOrFail(proveedor.proveedorRepseId)
+    assert.equal(reloaded.razonSocial, 'Nueva Razon Proveedor Con Read QA')
+    assert.equal(reloaded.rfc, CLEAR_REMAINING.proveedorRfc)
   })
 })
