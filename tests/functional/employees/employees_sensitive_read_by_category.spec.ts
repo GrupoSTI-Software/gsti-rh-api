@@ -351,7 +351,8 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
     const second = await createSensitiveFixture(
       actor!.businessUnit.businessUnitId,
       'sens-ca8',
-      fixture!.searchToken
+      fixture!.searchToken,
+      { curp: 'ABCD123456MDFABC02', rfc: 'VACW850312J96', nss: '12345678902' }
     )
     try {
       const two = await withSqlLog(() => list())
