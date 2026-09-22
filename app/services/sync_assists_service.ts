@@ -94,6 +94,14 @@ export default class SyncAssistsService {
   private holidaysCache: Map<string, HolidayInterface> = new Map()
 
   /**
+   * Alcance con el que se llenó `holidaysCache`: rango de fechas y unidades
+   * de negocio. Una misma instancia puede calcular el calendario de varios
+   * empleados, y los festivos no son los mismos para todas las unidades.
+   * @private
+   */
+  private holidaysCacheScope: string | null = null
+
+  /**
    * Constructor del servicio de sincronización de asistencias.
    *
    * @param {I18n} [i18n] - Instancia de i18n para internacionalización. Si no se proporciona,
@@ -1185,7 +1193,7 @@ export default class SyncAssistsService {
     }
 
     // OPTIMIZACIÓN: Cargar holidays del rango en una sola consulta
-    await this.loadHolidaysInRange(timeCST, endDate)
+    await this.loadHolidaysInRange(timeCST, endDate, await this.resolveHolidayScope(employee))
 
     const { delayTolerance, faultTolerance } = await this.getTolerances()
     const TOLERANCE_DELAY_MINUTES = delayTolerance?.toleranceMinutes || 10
@@ -1512,9 +1520,29 @@ export default class SyncAssistsService {
    * const holiday = this.holidaysCache.get('2024-10-12') // Día de la raza
    * ```
    */
-  private async loadHolidaysInRange(dateStart: DateTime, dateEnd: DateTime) {
-    if (this.holidaysCache.size > 0) {
-      return // Ya están en caché
+  private async loadHolidaysInRange(
+    dateStart: DateTime,
+    dateEnd: DateTime,
+    businessUnitSlugs: string[]
+  ) {
+    const scope = [
+      dateStart.toFormat('yyyy-LL-dd'),
+      dateEnd.toFormat('yyyy-LL-dd'),
+      [...businessUnitSlugs].sort().join(','),
+    ].join('|')
+
+    if (this.holidaysCacheScope === scope) {
+      return // Ya están en caché para este rango y estas unidades
+    }
+
+    this.holidaysCache = new Map()
+    this.holidaysCacheScope = scope
+
+    // `HolidayService.index` descarta todo cuando no recibe unidades: sin
+    // alcance no hay festivos que aplicar, y preguntarlo sería una consulta
+    // que siempre vuelve vacía.
+    if (businessUnitSlugs.length === 0) {
+      return
     }
 
     const service = await new HolidayService(this.i18n as I18n).index(
@@ -1522,7 +1550,8 @@ export default class SyncAssistsService {
       dateEnd.toFormat('yyyy-LL-dd'),
       '',
       1,
-      10000
+      10000,
+      businessUnitSlugs
     )
 
     if (service.status === 200 && service.holidays) {
@@ -1531,6 +1560,27 @@ export default class SyncAssistsService {
         this.holidaysCache.set(holidayDate, holiday as HolidayInterface)
       })
     }
+  }
+
+  /**
+   * Unidades de negocio cuyos festivos aplican al calendario que se calcula.
+   * Un festivo se declara por unidad, así que el alcance es el del empleado
+   * en foco; sin empleado o sin unidad no se marca ningún día como festivo.
+   *
+   * @param employee - Empleado del calendario, si la consulta es individual.
+   * @returns Slugs de las unidades de negocio aplicables.
+   */
+  private async resolveHolidayScope(employee: Employee | null): Promise<string[]> {
+    if (!employee?.businessUnitId) {
+      return []
+    }
+
+    const businessUnit = await BusinessUnit.query()
+      .where('business_unit_id', employee.businessUnitId)
+      .where('business_unit_active', 1)
+      .first()
+
+    return businessUnit ? [businessUnit.businessUnitSlug] : []
   }
 
   private async isHoliday(checkAssist: AssistDayInterface) {
