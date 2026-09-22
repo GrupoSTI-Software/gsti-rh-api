@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import db from '@adonisjs/lucid/services/db'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
@@ -50,6 +51,9 @@ export async function createEmployeeFixture(
   const [employeeId] = await db.table('employees').insert({
     employee_sync_id: code,
     employee_code: code,
+    // La inserción por tabla se salta los hooks del modelo, y `employee_slug`
+    // es NOT NULL UNIQUE sin default: lo genera `Employee.assignSlug`.
+    employee_slug: randomUUID(),
     employee_first_name: 'Empleado',
     employee_last_name: 'Fixture',
     employee_second_last_name: prefix,

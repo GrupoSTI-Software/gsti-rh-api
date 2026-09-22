@@ -27,7 +27,6 @@ import { AssistSyncFilterInterface } from '../interfaces/assist_sync_filter_inte
 import AssistsService from './assist_service.js'
 import SystemSettingService from './system_setting_service.js'
 import Tolerance from '#models/tolerance'
-import { ShiftInterface } from '../interfaces/shift_interface.js'
 import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_service_index_interface.js'
 import EmployeeAssistCalendar from '#models/employee_assist_calendar'
 import Department from '#models/department'
@@ -37,6 +36,22 @@ import DepartmentService from './department_service.js'
 import { I18n } from '@adonisjs/i18n'
 import EmployeeService from './employee_service.js'
 import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
+import {
+  dayKeyOf,
+  nowInZone,
+  resolveSiteTimeZone,
+  shiftEndInstant,
+  shiftStartInstant,
+  toInstant,
+  wallTime,
+} from '#modules/attendance-time/attendance_clock'
+import {
+  bucketCheckIn,
+  bucketCheckOut,
+  minutesAfter,
+} from '#modules/attendance-time/attendance_bucketing'
+import { biometricStoredToUtc, parseBiometricStored } from '#modules/attendance-time/biometric_clock'
 
 /**
  * Servicio para la sincronización y procesamiento de asistencias de empleados.
@@ -116,9 +131,34 @@ export default class SyncAssistsService {
    * const service = new SyncAssistsService()
    * ```
    */
+  /**
+   * Zona IANA del sitio cuya asistencia se está calculando. La fija `index`
+   * una vez por llamada (sucursal base del empleado, luego empresa, luego
+   * sistema) y la leen todos los pasos del calendario. Arranca en la zona de
+   * negocio para las rutas que clasifican sin pasar por `index` (pruebas).
+   */
+  private siteZone: string = resolveSiteTimeZone([]).zone
+
+  private siteTimeZoneService = new SiteTimeZoneService()
+
   constructor(i18n?: I18n) {
     this.t = i18n?.formatMessage.bind(i18n) ?? (() => '')
     this.i18n = i18n
+  }
+
+  /** Zona IANA con la que se evalúa el calendario en curso. */
+  get timeZone(): string {
+    return this.siteZone
+  }
+
+  /**
+   * Un `DateTime` puede venir serializado (por `JSON.parse` de las copias del
+   * día) o nulo; se lleva siempre a la hora de pared del sitio y, si no hay
+   * valor, a un instante inválido que los `diff` posteriores descartan.
+   */
+  private zoned(value: DateTime | Date | string | null | undefined): DateTime {
+    if (value === null || value === undefined) return DateTime.invalid('missing')
+    return wallTime(value, this.siteZone)
   }
 
   private handleSkipCheckoutException(checkAssist: AssistDayInterface) {
@@ -558,10 +598,11 @@ export default class SyncAssistsService {
   async updateLocalData(externalData: ResponseApiAssistsDto) {
     const buCache = await this.buildSyncBusinessUnitCache(externalData.data)
     const counters = { duplicates: 0, skippedNoTenant: 0 }
+    const zoneCache = new Map<string, string>()
 
     for await (const item of externalData.data) {
       const businessUnitId = this.resolveSyncBusinessUnitId(item, buCache)
-      await this.persistBioTimeAssistItem(item, businessUnitId, counters)
+      await this.persistBioTimeAssistItem(item, businessUnitId, counters, zoneCache)
     }
 
     if (counters.duplicates > 0 || counters.skippedNoTenant > 0) {
@@ -587,6 +628,7 @@ export default class SyncAssistsService {
     const buCache =
       businessUnitId === null ? await this.buildSyncBusinessUnitCache(externalData.data) : null
     const counters = { duplicates: 0, skippedNoTenant: 0 }
+    const zoneCache = new Map<string, string>()
 
     for await (const item of externalData.data) {
       const resolvedBu =
@@ -595,7 +637,7 @@ export default class SyncAssistsService {
       const existingAssist = await Assist.findBy('assist_sync_id', item.id)
       if (existingAssist) continue
 
-      const saved = await this.persistBioTimeAssistItem(item, resolvedBu, counters)
+      const saved = await this.persistBioTimeAssistItem(item, resolvedBu, counters, zoneCache)
       if (saved) assists.push(saved)
     }
 
@@ -683,7 +725,49 @@ export default class SyncAssistsService {
     )
   }
 
-  private applyBioTimeFields(assist: Assist, item: DataAssistsDto) {
+  /**
+   * Zona del sitio de una checada del puente, cacheada por corrida: la del
+   * empleado (código dentro de la empresa) y, si no hay empleado, la de la
+   * empresa. Con ella el valor del checador se convierte a UTC real.
+   */
+  private async resolveBioTimeZone(
+    item: DataAssistsDto,
+    businessUnitId: number,
+    cache: Map<string, string>
+  ): Promise<string> {
+    const key = `${businessUnitId}:${item.emp_code ?? ''}`
+    const cached = cache.get(key)
+    if (cached) return cached
+
+    let zone: string | null = null
+    if (item.emp_code) {
+      const row: { employee_id: number | string } | null = await db
+        .from('employees')
+        .where('employee_code', item.emp_code)
+        .where('business_unit_id', businessUnitId)
+        .whereNull('employee_deleted_at')
+        .select('employee_id')
+        .first()
+      if (row) {
+        const resolved = await this.siteTimeZoneService.forEmployee(Number(row.employee_id))
+        zone = resolved.zone
+      }
+    }
+    if (!zone) {
+      const resolved = await this.siteTimeZoneService.forBusinessUnit(businessUnitId)
+      zone = resolved.zone
+    }
+    cache.set(key, zone)
+    return zone
+  }
+
+  /**
+   * Copia los campos del puente. `assistPunchTimeUtc` queda en UTC real: el
+   * checador manda pared más su propio offset, y esa regla vive en
+   * `biometric_clock`, que solo se usa aquí, al escribir. El valor crudo del
+   * equipo se conserva en `assistPunchTimeOrigin` para auditoría.
+   */
+  private applyBioTimeFields(assist: Assist, item: DataAssistsDto, siteZone: string) {
     assist.assistEmpCode = item.emp_code
     assist.assistTerminalSn = item.terminal_sn
     assist.assistTerminalAlias = item.terminal_alias
@@ -694,14 +778,19 @@ export default class SyncAssistsService {
     assist.assistEmpId = item.emp_id
     assist.assistTerminalId = item.terminal_id
     assist.assistPunchTime = DateTime.fromISO(item.punch_time_local.toString())
-    assist.assistPunchTimeUtc = DateTime.fromISO(item.punch_time.toString())
+    assist.assistPunchTimeUtc = biometricStoredToUtc(
+      parseBiometricStored(item.punch_time.toString()),
+      siteZone
+    )
     assist.assistPunchTimeOrigin = DateTime.fromISO(item.punch_time_origin_real.toString())
+    assist.assistPunchTimeNormalizedAt = DateTime.utc()
   }
 
   private async persistBioTimeAssistItem(
     item: DataAssistsDto,
     businessUnitId: number | null,
-    counters: { duplicates: number; skippedNoTenant: number }
+    counters: { duplicates: number; skippedNoTenant: number },
+    zoneCache: Map<string, string>
   ): Promise<Assist | null> {
     if (!businessUnitId) {
       counters.skippedNoTenant++
@@ -709,17 +798,18 @@ export default class SyncAssistsService {
     }
 
     const existingAssist = await Assist.findBy('assist_sync_id', item.id)
+    const siteZone = await this.resolveBioTimeZone(item, businessUnitId, zoneCache)
 
     try {
       if (existingAssist) {
-        this.applyBioTimeFields(existingAssist, item)
+        this.applyBioTimeFields(existingAssist, item, siteZone)
         existingAssist.businessUnitId = businessUnitId
         await existingAssist.save()
         return existingAssist
       }
 
       const newAssist = new Assist()
-      this.applyBioTimeFields(newAssist, item)
+      this.applyBioTimeFields(newAssist, item, siteZone)
       newAssist.assistSyncId = item.id
       newAssist.assistOrigin = ASSIST_ORIGIN.SYNC
       newAssist.businessUnitId = businessUnitId
@@ -1033,7 +1123,7 @@ export default class SyncAssistsService {
    *
    * @description
    * El proceso completo incluye:
-   * 1. Conversión de fechas a zona horaria UTC-6 (CST)
+   * 1. Resolución de la zona del sitio y de los límites del rango en esa zona
    * 2. Consulta de asistencias desde la base de datos
    * 3. Obtención de turnos asignados al empleado
    * 4. Agrupación de asistencias por día (optimizado con Map)
@@ -1042,27 +1132,7 @@ export default class SyncAssistsService {
    * 7. Retorno del calendario completo
    */
   async index(bodyParams: SyncAssistsServiceIndexInterface, paginator?: { page: number; limit: number }) {
-    const intialSyncDate = '2024-01-01T00:00:00.000-06:00'
-    const stringDate = `${bodyParams.date}T00:00:00.000-06:00`
-    const time = DateTime.fromISO(stringDate, { setZone: true })
-    const timeCST = time.setZone('UTC-6')
-    const filterInitialDate = timeCST.toFormat('yyyy-LL-dd HH:mm:ss')
-    const stringEndDate = `${bodyParams.dateEnd}T23:59:59.000-06:00`
-    const timeEnd = DateTime.fromISO(stringEndDate, { setZone: true })
-    const timeEndCST = timeEnd.setZone('UTC-6').plus({ days: 1 })
-    const filterEndDate = timeEndCST.toFormat('yyyy-LL-dd HH:mm:ss')
-    const query = Assist.query()
-      .where('assist_active', 1)
-    let employee = null
-
-    if (bodyParams.date && !bodyParams.dateEnd) {
-      query.where('assist_punch_time_origin', '>=', filterInitialDate)
-    }
-
-    if (bodyParams.dateEnd && bodyParams.date) {
-      query.where('assist_punch_time_origin', '>=', filterInitialDate)
-      query.where('assist_punch_time_origin', '<', filterEndDate)
-    }
+    let employee: Employee | null = null
 
     if (bodyParams.employeeID) {
       employee = await Employee.query()
@@ -1083,9 +1153,42 @@ export default class SyncAssistsService {
         }
       }
 
+    }
+
+    // La zona del sitio manda sobre todo el cálculo: la sucursal base del
+    // empleado, luego su empresa, luego el sistema. Se resuelve una vez.
+    const resolvedZone = employee
+      ? await this.siteTimeZoneService.forEmployee(employee.employeeId)
+      : resolveSiteTimeZone([])
+    this.siteZone = resolvedZone.zone
+    const zone = this.siteZone
+
+    // Límites del rango como instantes: inicio del primer día civil y fin del
+    // último (más un día de holgura, como siempre) en la zona del sitio. Se
+    // filtra por `assist_punch_time_utc`, que es UTC real; el valor crudo del
+    // checador (`origin`) no es un instante y no sirve para acotar.
+    const intialSyncDate = DateTime.fromISO('2024-01-01T00:00:00', { zone }).toISO() as string
+    const timeCST = DateTime.fromISO(`${bodyParams.date}T00:00:00`, { zone })
+    const filterInitialDate = timeCST.toUTC().toFormat('yyyy-LL-dd HH:mm:ss')
+    const stringEndDate = DateTime.fromISO(`${bodyParams.dateEnd}T23:59:59`, { zone }).toISO() as string
+    const timeEndCST = DateTime.fromISO(`${bodyParams.dateEnd}T23:59:59`, { zone }).plus({ days: 1 })
+    const filterEndDate = timeEndCST.toUTC().toFormat('yyyy-LL-dd HH:mm:ss')
+    const query = Assist.query()
+      .where('assist_active', 1)
+
+    if (bodyParams.date && !bodyParams.dateEnd) {
+      query.where('assist_punch_time_utc', '>=', filterInitialDate)
+    }
+
+    if (bodyParams.dateEnd && bodyParams.date) {
+      query.where('assist_punch_time_utc', '>=', filterInitialDate)
+      query.where('assist_punch_time_utc', '<', filterEndDate)
+    }
+
+    if (employee) {
       query.where('assist_emp_code', employee.employeeCode)
     }
-    query.orderBy('assist_punch_time_origin', 'desc')
+    query.orderBy('assist_punch_time_utc', 'desc')
 
     const assistDayCollection: AssistDayInterface[] = []
     const endDate = timeEndCST.minus({ days: 1 })
@@ -1115,8 +1218,7 @@ export default class SyncAssistsService {
 
     for (const item of assistListFlat) {
       const assist = item as AssistInterface
-      const assistDate = DateTime.fromISO(`${assist.assistPunchTimeUtc}`, { setZone: true }).setZone('UTC-6')
-      const dayKey = assistDate.toFormat('yyyy-LL-dd')
+      const dayKey = dayKeyOf(assist.assistPunchTimeUtc, zone)
 
       assist.assistUsed = false
 
@@ -1219,10 +1321,10 @@ export default class SyncAssistsService {
       ReturnType<typeof EmployeeTemporaryAssignmentService.listIntersectingAssistPeriod>
     > = []
     if (bodyParams.employeeID && bodyParams.date && bodyParams.dateEnd) {
-      const periodStart = DateTime.fromISO(bodyParams.date, { zone: 'UTC-6' })
+      const periodStart = DateTime.fromISO(bodyParams.date, { zone })
         .startOf('day')
         .toFormat('yyyy-MM-dd')
-      const periodEnd = DateTime.fromISO(bodyParams.dateEnd, { zone: 'UTC-6' })
+      const periodEnd = DateTime.fromISO(bodyParams.dateEnd, { zone })
         .startOf('day')
         .toFormat('yyyy-MM-dd')
       try {
@@ -1249,16 +1351,17 @@ export default class SyncAssistsService {
       data: {
         employeeCalendar,
         temporaryAssignments,
+        // Zona IANA del sitio: el cliente muestra las horas en ella, no en la del usuario.
+        timeZone: zone,
       },
     }
   }
 
   private getAssignedDateShift(compareDateTime: Date | DateTime, dailyShifs: ShiftRecordInterface[]) {
-    const DayTime = DateTime.fromISO(`${compareDateTime}`, { setZone: true })
-    const checkTime = DayTime.setZone('UTC-6')
+    const checkTime = wallTime(compareDateTime, this.siteZone)
 
     let availableShifts = dailyShifs.filter((shift) => {
-      const shiftDate = DateTime.fromJSDate(new Date(shift.employeShiftsApplySince)).setZone('UTC-6')
+      const shiftDate = DateTime.fromJSDate(new Date(shift.employeShiftsApplySince)).setZone(this.siteZone)
 
       if (checkTime >= shiftDate) {
         return shiftDate
@@ -1350,8 +1453,8 @@ export default class SyncAssistsService {
     if (employee) {
       await employee.load('person')
     }
-    const dateTimeStart = DateTime.fromISO(`${dateStart}`, { setZone: true }).setZone('UTC-6')
-    const dateTimeEnd = DateTime.fromISO(`${dateEnd}`, { setZone: true }).setZone('UTC-6')
+    const dateTimeStart = wallTime(dateStart, this.siteZone)
+    const dateTimeEnd = wallTime(dateEnd, this.siteZone)
 
     const daysBetween = Math.floor(dateTimeEnd.diff(dateTimeStart, 'days').days) + 1
     const assistList = employeeAssist
@@ -1400,7 +1503,7 @@ export default class SyncAssistsService {
 
     // Crear la lista de días
     for (let index = 0; index < daysBetween; index++) {
-      const currentDate = DateTime.fromISO(`${dateStart}`, { setZone: true }).setZone('UTC-6').plus({ days: index })
+      const currentDate = dateTimeStart.plus({ days: index })
       const dateShift = this.getAssignedDateShift(currentDate, employeeShifts)
       const fakeCheck: AssistDayInterface = {
         day: currentDate.toFormat('yyyy-LL-dd'),
@@ -1459,7 +1562,7 @@ export default class SyncAssistsService {
       this.calculateRawCalendar(dateAssistItem, assistList)
       this.handleSkipCheckinException(dateAssistItem)
       this.checkInStatus(dateAssistItem, TOLERANCE_FAULT_MINUTES, TOLERANCE_DELAY_MINUTES, isDiscriminated)
-      this.checkOutStatus(dateAssistItem, isDiscriminated)
+      this.checkOutStatus(dateAssistItem, isDiscriminated, this.siteZone, TOLERANCE_DELAY_MINUTES)
       this.isSundayBonus(dateAssistItem)
       this.isVacationDate(employeeID, dateAssistItem, employee)
       this.isWorkDisabilityDate(employeeID, dateAssistItem, employee)
@@ -1684,14 +1787,13 @@ export default class SyncAssistsService {
       return checkAssist
     }
 
-    const hourStart = checkAssist.assist.dateShift.shiftTimeStart
-    const dateYear = checkAssist.day.split('-')[0].toString().padStart(2, '0')
-    const dateMonth = checkAssist.day.split('-')[1].toString().padStart(2, '0')
-    const dateDay = checkAssist.day.split('-')[2].toString().padStart(2, '0')
-    const stringDate = `${dateYear}-${dateMonth}-${dateDay}T${hourStart}.000-06:00`
-    const timeToStart = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC').plus({ minutes: 1 })
-
-    checkAssist.assist.checkInDateTime = timeToStart
+    // Instante (UTC) del inicio del turno en la zona del sitio. El minuto de
+    // margen se conserva: es el borde que usa la ventana de correlación.
+    checkAssist.assist.checkInDateTime = shiftStartInstant(
+      checkAssist.day,
+      checkAssist.assist.dateShift.shiftTimeStart,
+      this.siteZone
+    ).plus({ minutes: 1 })
 
     return checkAssist
   }
@@ -1701,15 +1803,12 @@ export default class SyncAssistsService {
       return checkAssist
     }
 
-    const hourStart = checkAssist.assist.dateShift.shiftTimeStart
-    const dateYear = checkAssist.day.split('-')[0].toString().padStart(2, '0')
-    const dateMonth = checkAssist.day.split('-')[1].toString().padStart(2, '0')
-    const dateDay = checkAssist.day.split('-')[2].toString().padStart(2, '0')
-    const stringDate = `${dateYear}-${dateMonth}-${dateDay}T${hourStart}.000-06:00`
-    const timeToAdd = checkAssist.assist.dateShift.shiftActiveHours * 60 - 1
-    const timeToEnd = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC').plus({ minutes: timeToAdd })
-
-    checkAssist.assist.checkOutDateTime = timeToEnd
+    checkAssist.assist.checkOutDateTime = shiftEndInstant(
+      checkAssist.day,
+      checkAssist.assist.dateShift.shiftTimeStart,
+      checkAssist.assist.dateShift.shiftActiveHours,
+      this.siteZone
+    ).minus({ minutes: 1 })
 
     return checkAssist
   }
@@ -1795,15 +1894,10 @@ export default class SyncAssistsService {
    * ```
    */
   private async calculateRawCalendar(dateAssistItem: AssistDayInterface, assistList: AssistDayInterface[]) {
-    const startDay = DateTime.fromJSDate(new Date(`${dateAssistItem.assist.dateShiftApplySince}`)).setZone('UTC-6')
-    const evaluatedDay = DateTime.fromISO(`${dateAssistItem.day}T00:00:00.000-06:00`).setZone('UTC-6')
-    const checkOutDateTime = DateTime.fromJSDate(new Date(`${dateAssistItem.assist.checkOutDateTime}`)).setZone('UTC-6')
-
-    if (dateAssistItem.assist.assitFlatList) {
-      dateAssistItem.assist.assitFlatList = this.fixedCSTSummerTime(evaluatedDay.toJSDate(), dateAssistItem.assist.assitFlatList)
-    }
-
-    const checkInDateTime = DateTime.fromJSDate(new Date(`${dateAssistItem.assist.checkInDateTime}`)).setZone('UTC-6')
+    const startDay = this.zoned(dateAssistItem.assist.dateShiftApplySince)
+    const evaluatedDay = DateTime.fromISO(`${dateAssistItem.day}T00:00:00`, { zone: this.siteZone })
+    const checkOutDateTime = this.zoned(dateAssistItem.assist.checkOutDateTime)
+    const checkInDateTime = this.zoned(dateAssistItem.assist.checkInDateTime)
     const shangeShiftStartDay = dateAssistItem.assist.dateShift?.shiftIsChange ? evaluatedDay : startDay
 
     const calendarDayStatus = this.calendarDayStatus(dateAssistItem, evaluatedDay, shangeShiftStartDay, dateAssistItem.assist.shiftCalculateFlag)
@@ -1959,7 +2053,7 @@ export default class SyncAssistsService {
               dateAssistItem.assist.checkEatOut = calendarDay[2]
             }
 
-            const nowDate = DateTime.now().setZone('UTC-6')
+            const nowDate = nowInZone(this.siteZone)
             const diffOutNow = nowDate.diff(checkOutDateTime, 'milliseconds').milliseconds
 
             if (diffOutNow >= 0) {
@@ -2004,7 +2098,7 @@ export default class SyncAssistsService {
               dateAssistItem.assist.checkEatOut = assists[2]
             }
 
-            const nowDate = DateTime.now().setZone('UTC-6')
+            const nowDate = nowInZone(this.siteZone)
             const diffOutNow = nowDate.diff(checkOutDateTime, 'milliseconds').milliseconds
 
             if (diffOutNow >= 0) {
@@ -2111,7 +2205,13 @@ export default class SyncAssistsService {
    * // checkInStatus = 'fault'
    * ```
    */
-  private checkInStatus(checkAssist: AssistDayInterface, TOLERANCE_FAULT_MINUTES: number, TOLERANCE_DELAY_MINUTES: number, discriminated?: Boolean) {
+  private checkInStatus(
+    checkAssist: AssistDayInterface,
+    TOLERANCE_FAULT_MINUTES: number,
+    TOLERANCE_DELAY_MINUTES: number,
+    discriminated?: Boolean,
+    zone: string = this.siteZone
+  ) {
     if (!checkAssist?.assist?.dateShift) {
       return checkAssist
     }
@@ -2168,9 +2268,14 @@ export default class SyncAssistsService {
       return checkAssist
     }
 
-    const dayTimeToStart = this.getShiftCheckInTimeToStart(checkAssist.day, checkAssist.assist.dateShift)
-    const dayCheckInTime = DateTime.fromISO(checkAssist.assist.checkIn.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6')
-    const diffTime = dayCheckInTime.diff(dayTimeToStart, 'minutes').minutes
+    // Regla única: minutos completos de retraso contra el inicio del turno en
+    // la zona del sitio; los segundos no cuentan (`minutesAfter`).
+    const dayTimeToStart = shiftStartInstant(checkAssist.day, checkAssist.assist.dateShift.shiftTimeStart, zone)
+    const dayCheckInTime = toInstant(checkAssist.assist.checkIn.assistPunchTimeUtc)
+    const bucket = bucketCheckIn(minutesAfter(dayTimeToStart, dayCheckInTime), {
+      delayMinutes: TOLERANCE_DELAY_MINUTES,
+      faultMinutes: TOLERANCE_FAULT_MINUTES,
+    })
 
     // Si hay skip-checkin exception y hay checkIn, siempre marcar como ontime
     if (hasSkipCheckinException) {
@@ -2178,7 +2283,7 @@ export default class SyncAssistsService {
       return checkAssist
     }
 
-    if (diffTime > TOLERANCE_FAULT_MINUTES && !discriminated) {
+    if (bucket === 'fault' && !discriminated) {
       if (checkAssist.assist) {
         checkAssist.assist.checkInStatus = 'fault'
       }
@@ -2193,17 +2298,8 @@ export default class SyncAssistsService {
 
       return checkAssist
     }
-    if (diffTime > TOLERANCE_DELAY_MINUTES) {
-      checkAssist.assist.checkInStatus = 'delay'
-    }
 
-    if (diffTime <= TOLERANCE_DELAY_MINUTES) {
-      checkAssist.assist.checkInStatus = 'tolerance'
-    }
-
-    if (diffTime <= 0) {
-      checkAssist.assist.checkInStatus = 'ontime'
-    }
+    checkAssist.assist.checkInStatus = bucket
 
     if (discriminated) {
       checkAssist.assist.checkInStatus = ''
@@ -2211,7 +2307,12 @@ export default class SyncAssistsService {
     return checkAssist
   }
 
-  private checkOutStatus(checkAssist: AssistDayInterface, discriminated?: Boolean) {
+  private checkOutStatus(
+    checkAssist: AssistDayInterface,
+    discriminated?: Boolean,
+    zone: string = this.siteZone,
+    TOLERANCE_DELAY_MINUTES: number = 10
+  ) {
     if (!checkAssist?.assist?.dateShift) {
       return checkAssist
     }
@@ -2236,29 +2337,24 @@ export default class SyncAssistsService {
       // Si hay skip-checkin pero no hay checkout, verificar si hay registros "subidos"
       if (hasSkipCheckinException) {
         // Buscar el primer registro disponible (ahora en eatCheckIn o eatCheckOut).
-        // La checada se interpreta con el offset del biométrico del día para no
-        // adelantarla 1 h en verano (USRH1785436961903).
         let firstRecordTime: DateTime | null = null
 
         if (checkAssist.assist.checkEatIn) {
-          firstRecordTime = this.biometricPunchWallTime(checkAssist.assist.checkEatIn.assistPunchTimeUtc.toString(), checkAssist.day)
+          firstRecordTime = toInstant(checkAssist.assist.checkEatIn.assistPunchTimeUtc)
         } else if (checkAssist.assist.checkEatOut) {
-          firstRecordTime = this.biometricPunchWallTime(checkAssist.assist.checkEatOut.assistPunchTimeUtc.toString(), checkAssist.day)
+          firstRecordTime = toInstant(checkAssist.assist.checkEatOut.assistPunchTimeUtc)
         }
 
         if (firstRecordTime) {
-          // Calcular hora esperada de checkout
-          const hourStart = checkAssist.assist.dateShift.shiftTimeStart
-          const dateYear = checkAssist.day.split('-')[0].toString().padStart(2, '0')
-          const dateMonth = checkAssist.day.split('-')[1].toString().padStart(2, '0')
-          const dateDay = checkAssist.day.split('-')[2].toString().padStart(2, '0')
-          const stringDate = `${dateYear}-${dateMonth}-${dateDay}T${hourStart}.000-06:00`
-          const timeToAdd = checkAssist.assist.dateShift.shiftActiveHours * 60 - 1
-          const timeToEnd = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6').plus({ minutes: timeToAdd })
+          const timeToEnd = shiftEndInstant(
+            checkAssist.day,
+            checkAssist.assist.dateShift.shiftTimeStart,
+            checkAssist.assist.dateShift.shiftActiveHours,
+            zone
+          )
 
           // Si el primer registro es antes de la hora esperada de checkout, es salida anticipada
-          const diffTime = timeToEnd.diff(firstRecordTime, 'minutes').minutes
-          if (diffTime > 0) {
+          if (minutesAfter(firstRecordTime, timeToEnd) > 0) {
             checkAssist.assist.checkOutStatus = 'delay' // Salida anticipada
             return checkAssist
           }
@@ -2278,63 +2374,33 @@ export default class SyncAssistsService {
       return checkAssist
     }
 
-    // Calcular hora esperada de checkout
-    const hourStart = checkAssist.assist.dateShift.shiftTimeStart
-    const dateYear = checkAssist.day.split('-')[0].toString().padStart(2, '0')
-    const dateMonth = checkAssist.day.split('-')[1].toString().padStart(2, '0')
-    const dateDay = checkAssist.day.split('-')[2].toString().padStart(2, '0')
-    const stringDate = `${dateYear}-${dateMonth}-${dateDay}T${hourStart}.000-06:00`
-    const timeToAdd = checkAssist.assist.dateShift.shiftActiveHours * 60 - 1
-    const timeToEnd = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6').plus({ minutes: timeToAdd })
-
-    const currentNowTime = DateTime.now().setZone('UTC-6')
-
-    // Obtener hora real de checkout: se interpreta con el offset del biométrico
-    // del día evaluado (+5 verano / +6 resto) — misma referencia que la entrada
-    // ya corregida en attendance-stats; con `-6` fijo una salida puntual se leía
-    // 1 h antes y se marcaba anticipada en la ventana de verano (USRH1785436961903).
-    const checkTime = this.biometricPunchWallTime(
-      `${checkAssist.assist.checkOut.assistPunchTimeUtc}`,
-      checkAssist.day
+    // Fin del turno y salida real como instantes: la comparación no depende
+    // de si la salida cayó al día siguiente (turnos nocturnos) ni de la zona.
+    const timeToEnd = shiftEndInstant(
+      checkAssist.day,
+      checkAssist.assist.dateShift.shiftTimeStart,
+      checkAssist.assist.dateShift.shiftActiveHours,
+      zone
     )
+    const timeToCheckOut = toInstant(checkAssist.assist.checkOut.assistPunchTimeUtc)
+    const now = DateTime.utc()
 
-    // Si el checkout es del día siguiente, ajustar la comparación
-    const checkOutDay = checkTime.toFormat('yyyy-LL-dd')
-    const expectedDay = checkAssist.day
-
-    let timeToCheckOut: DateTime
-    if (checkOutDay > expectedDay) {
-      // Checkout es del día siguiente, usar la hora del checkout directamente
-      // y comparar con la hora esperada del día actual
-      timeToCheckOut = checkTime
-    } else {
-      // Checkout es del mismo día, usar formato normal
-      const checkTimeDateYear = checkTime.toFormat('yyyy-LL-dd TT').split(' ')[1]
-      const checkTimeStringDate = `${checkTime.toFormat('yyyy-LL-dd')}T${checkTimeDateYear}.000-06:00`
-      timeToCheckOut = DateTime.fromISO(checkTimeStringDate, { setZone: true }).setZone('UTC-6')
-    }
-
-    // Calcular diferencia: tiempo esperado - tiempo real
-    // Si diffTime > 0: salió antes (delay)
-    // Si diffTime <= 0: salió a tiempo o después (ontime)
-    const diffTime = timeToEnd.diff(timeToCheckOut, 'minutes').minutes
-    const diffTimeNow = currentNowTime.diff(timeToEnd, 'minutes').minutes
+    // Minutos completos de anticipación: positivo salió antes, cero o negativo
+    // salió a su hora o después.
+    const minutesEarly = minutesAfter(timeToCheckOut, timeToEnd)
+    const shiftAlreadyEnded = now > timeToEnd
+    const bucket = bucketCheckOut(minutesEarly, {
+      delayMinutes: TOLERANCE_DELAY_MINUTES,
+      faultMinutes: TOLERANCE_DELAY_MINUTES,
+    })
 
     // Si hay skip-checkin exception, usar lógica especial
     if (hasSkipCheckinException) {
-      // Si el checkout es después de la hora esperada (diffTime negativo o cero), es ontime
-      if (diffTime <= 0) {
-        checkAssist.assist.checkOutStatus = 'ontime'
-        return checkAssist
-      }
-      // Si el checkout es antes de la hora esperada (diffTime positivo), es delay (salida anticipada)
-      if (diffTime > 0) {
-        checkAssist.assist.checkOutStatus = 'delay'
-        return checkAssist
-      }
+      checkAssist.assist.checkOutStatus = minutesEarly <= 0 ? 'ontime' : 'delay'
+      return checkAssist
     }
 
-    if (diffTime > 0 && diffTimeNow > 0) {
+    if (minutesEarly > 0 && shiftAlreadyEnded) {
       if (checkAssist.assist.assitFlatList?.length === 3) {
         checkAssist.assist.checkEatOut = null
       }
@@ -2344,15 +2410,17 @@ export default class SyncAssistsService {
       }
     }
 
-    if (diffTime > 10 && (currentNowTime > timeToEnd)) {
+    // La salida anticipada solo se marca cuando el turno ya terminó: antes de
+    // eso el colaborador todavía puede volver a checar.
+    if (bucket === 'delay' && shiftAlreadyEnded) {
       checkAssist.assist.checkOutStatus = 'delay'
     }
 
-    if (diffTime <= 10) {
+    if (bucket === 'tolerance') {
       checkAssist.assist.checkOutStatus = 'tolerance'
     }
 
-    if (diffTime <= 0) {
+    if (bucket === 'ontime') {
       checkAssist.assist.checkOutStatus = 'ontime'
     }
 
@@ -2366,14 +2434,14 @@ export default class SyncAssistsService {
   private setNexCalendarDayCheckIns(assitFlatList: AssistInterface[], checkInDateTime: DateTime): AssistInterface[] {
     const calendarDay: AssistInterface[] = []
     assitFlatList.forEach((checkItem) => {
-      const punchTime = DateTime.fromISO(`${checkItem.assistPunchTimeUtc}`, { setZone: true }).setZone('UTC-6')
+      const punchTime = toInstant(checkItem.assistPunchTimeUtc)
 
       const diffToCheckStart = punchTime.diff(checkInDateTime.minus({ hours: 3 }), 'milliseconds').milliseconds
 
       if (diffToCheckStart > 0) {
-        checkItem.assistPunchTime = punchTime.setZone('UTC')
-        checkItem.assistPunchTimeUtc = punchTime.setZone('UTC')
-        checkItem.assistPunchTimeOrigin = punchTime.setZone('UTC')
+        checkItem.assistPunchTime = punchTime
+        checkItem.assistPunchTimeUtc = punchTime
+        checkItem.assistPunchTimeOrigin = punchTime
         calendarDay.push(checkItem)
       }
     })
@@ -2387,17 +2455,15 @@ export default class SyncAssistsService {
     const nextDay = assistList.find((assistDate) => assistDate.day === nextEvaluatedDay)
 
     if (nextDay && nextDay?.assist?.assitFlatList) {
-      const evaluatedSummerNextDay = new Date(nextDay?.day)
       const nexDayCheckList: AssistInterface[] = JSON.parse(JSON.stringify(nextDay.assist.assitFlatList))
-      const fixedNexDayCheckList = this.fixedCSTSummerTime(evaluatedSummerNextDay, nexDayCheckList)
-      fixedNexDayCheckList.forEach((checkItem) => {
-        const punchTime = DateTime.fromISO(`${checkItem.assistPunchTimeUtc}`, { setZone: true }).setZone('UTC-6')
+      nexDayCheckList.forEach((checkItem) => {
+        const punchTime = toInstant(checkItem.assistPunchTimeUtc)
         const diffToCheckOut = punchTime.diff(checkOutDateTime.plus({ hours: 3 }), 'milliseconds').milliseconds
 
         if (diffToCheckOut <= 0) {
-          checkItem.assistPunchTime = punchTime.setZone('UTC')
-          checkItem.assistPunchTimeUtc = punchTime.setZone('UTC')
-          checkItem.assistPunchTimeOrigin = punchTime.setZone('UTC')
+          checkItem.assistPunchTime = punchTime
+          checkItem.assistPunchTimeUtc = punchTime
+          checkItem.assistPunchTimeOrigin = punchTime
           calendarDay.push(checkItem)
         }
       })
@@ -2408,68 +2474,27 @@ export default class SyncAssistsService {
 
   private setCheckOnNextDayFlags(dateAssistItem: AssistDayInterface, checkInDateTime: DateTime): AssistDayInterface {
     if (dateAssistItem.assist.checkOut) {
-      const punchTimeOut = DateTime.fromISO(`${dateAssistItem.assist.checkOut.assistPunchTimeUtc}`, { setZone: true }).setZone('UTC-6')
+      const punchTimeOut = wallTime(dateAssistItem.assist.checkOut.assistPunchTimeUtc, this.siteZone)
       if (punchTimeOut.toFormat('yyyy-LL-dd') > checkInDateTime.toFormat('yyyy-LL-dd')) {
         dateAssistItem.assist.isCheckOutNextDay = true
       }
     }
 
     if (dateAssistItem.assist.checkEatIn) {
-      const punchTimeOut = DateTime.fromISO(`${dateAssistItem.assist.checkEatIn.assistPunchTimeUtc}`, { setZone: true }).setZone('UTC-6')
+      const punchTimeOut = wallTime(dateAssistItem.assist.checkEatIn.assistPunchTimeUtc, this.siteZone)
       if (punchTimeOut.toFormat('yyyy-LL-dd') > checkInDateTime.toFormat('yyyy-LL-dd')) {
         dateAssistItem.assist.isCheckInEatNextDay = true
       }
     }
 
     if (dateAssistItem.assist.checkEatOut) {
-      const punchTimeOut = DateTime.fromISO(`${dateAssistItem.assist.checkEatOut.assistPunchTimeUtc}`, { setZone: true }).setZone('UTC-6')
+      const punchTimeOut = wallTime(dateAssistItem.assist.checkEatOut.assistPunchTimeUtc, this.siteZone)
       if (punchTimeOut.toFormat('yyyy-LL-dd') > checkInDateTime.toFormat('yyyy-LL-dd')) {
         dateAssistItem.assist.isCheckOutEatNextDay = true
       }
     }
 
     return dateAssistItem
-  }
-
-  private getShiftCheckInTimeToStart(day: string, dateShift: ShiftInterface) {
-    const hourStart = dateShift.shiftTimeStart
-    const stringDate = `${day}T${hourStart}.000-06:00`
-    const timeToStart = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6').plus({ minutes: 1 })
-    return timeToStart
-  }
-
-  /**
-   * Offset del biométrico para un día (USRH1785436961903): el checador guarda
-   * `assist_punch_time_utc` como hora de pared + offset, aplicando SU horario
-   * de verano (primer domingo de abril → último domingo de octubre → +5; el
-   * resto del año → +6) aunque el DST civil ya no exista en México. Misma
-   * convención que `attendance-stats` (utc_offset del SQL) y
-   * `simulate_attendance`; unificarla en una sola fuente de verdad de zona
-   * horaria es trabajo aparte (ESB-04-02-04-03).
-   */
-  private biometricUtcOffsetHours(dayIso: string): number {
-    const year = Number(dayIso.slice(0, 4))
-    const aprilFirst = new Date(Date.UTC(year, 3, 1))
-    const dstStartDate = new Date(Date.UTC(year, 3, 1 + ((7 - aprilFirst.getUTCDay()) % 7)))
-    const octLast = new Date(Date.UTC(year, 9, 31))
-    const dstEndDate = new Date(Date.UTC(year, 9, 31 - octLast.getUTCDay()))
-    const dstStart = dstStartDate.toISOString().slice(0, 10)
-    const dstEnd = dstEndDate.toISOString().slice(0, 10)
-    return dayIso >= dstStart && dayIso <= dstEnd ? 5 : 6
-  }
-
-  /**
-   * Hora de pared real de una checada del biométrico, expresada en -06:00 para
-   * compararse con las horas civiles del turno del día evaluado. La marca
-   * almacenada = pared + offset del día; interpretarla con `-6` fijo (la
-   * convención vieja) la adelanta 1 h dentro de la ventana de verano del
-   * checador y hacía ver anticipada una salida puntual (USRH1785436961903).
-   */
-  private biometricPunchWallTime(punchUtc: string, dayIso: string): DateTime {
-    const offset = this.biometricUtcOffsetHours(dayIso)
-    return DateTime.fromISO(punchUtc, { setZone: true })
-      .setZone('UTC-6')
-      .plus({ hours: 6 - offset })
   }
 
   /**
@@ -2545,16 +2570,14 @@ export default class SyncAssistsService {
       return false
     }
 
-    const now = DateTime.now().setZone('UTC-6')
+    const now = DateTime.utc()
     const assignedShift = checkAssist.assist.dateShift
 
     if (!assignedShift) {
       return false
     }
 
-    const hourStart = assignedShift.shiftTimeStart
-    const stringDate = `${checkAssist.day}T${hourStart}.000-06:00`
-    const timeToStart = DateTime.fromISO(stringDate, { setZone: true }).setZone('UTC-6')
+    const timeToStart = shiftStartInstant(checkAssist.day, assignedShift.shiftTimeStart, this.siteZone)
     const diff = now.diff(timeToStart, 'seconds').seconds
 
     checkAssist.assist.isFutureDay = diff < 0
@@ -2563,7 +2586,7 @@ export default class SyncAssistsService {
   }
 
   private isSundayBonus(checkAssist: AssistDayInterface) {
-    const currentDate = DateTime.fromISO(`${checkAssist.day}T00:00:00.000-06:00`, { setZone: true }).setZone('UTC-6')
+    const currentDate = DateTime.fromISO(`${checkAssist.day}T00:00:00`, { zone: this.siteZone })
     const naturalDay = currentDate.toFormat('c')
     const isSunday = Number.parseInt(`${naturalDay}`) === 7
     const hasApplySundayBonusException = checkAssist?.assist?.exceptions?.some(
@@ -2575,7 +2598,7 @@ export default class SyncAssistsService {
 
     if (!checkAssist.assist.isSundayBonus && checkAssist?.assist?.assitFlatList) {
       checkAssist.assist.assitFlatList.forEach(assistFlat => {
-        const checkOutDate = DateTime.fromISO(`${assistFlat.assistPunchTimeUtc}`, { setZone: true }).setZone('UTC-6')
+        const checkOutDate = wallTime(assistFlat.assistPunchTimeUtc, this.siteZone)
         const checkOutNaturalDay = checkOutDate.toFormat('c')
         checkAssist.assist.isSundayBonus = Number.parseInt(`${checkOutNaturalDay}`) === 7
       })
@@ -2595,7 +2618,7 @@ export default class SyncAssistsService {
     }
     const isSunday =
       Number.parseInt(
-        DateTime.fromISO(`${checkAssist.day}T00:00:00.000-06:00`, { setZone: true }).setZone('UTC-6').toFormat('c'),
+        DateTime.fromISO(`${checkAssist.day}T00:00:00`, { zone: this.siteZone }).toFormat('c'),
         10
       ) === 7
     const hasApplySundayBonus = checkAssist.assist.exceptions.some(
@@ -2613,7 +2636,7 @@ export default class SyncAssistsService {
       return false
     }
 
-    const currentDate = DateTime.fromISO(`${checkAssist.day}T${checkAssist.assist.dateShift.shiftTimeStart}.000-06:00`, { setZone: true }).setZone('UTC-6')
+    const currentDate = DateTime.fromISO(`${checkAssist.day}T00:00:00`, { zone: this.siteZone })
     const naturalDay = currentDate.toFormat('c')
     const restDay = checkAssist.assist.dateShift.shiftRestDays
       .split(',')
@@ -2778,51 +2801,6 @@ export default class SyncAssistsService {
     return assist
   }
 
-  private getMexicoDSTChangeDates(year: number) {
-    const startDST = new Date(year, 3, 1)
-    startDST.setDate(1 + (7 - startDST.getDay()) % 7) // Asegura que es el primer domingo
-
-    // Último domingo de octubre (fin del horario de verano)
-    const endDST = new Date(year, 9, 31)
-    endDST.setDate(endDST.getDate() - endDST.getDay()) // Asegura que es el último domingo
-
-    return { startDST, endDST }
-  }
-
-  private checkDSTSummerTime(date: Date): boolean {
-    // México dejó de aplicar horario de verano en la mayor parte del territorio.
-    // Mantener el ajuste +1h en fixedCSTSummerTime para 2023+ corregía como si
-    // aún hubiera DST y desplazaba entradas/salidas válidas (mayo–octubre vs febrero).
-    if (date.getFullYear() >= 2023) {
-      return false
-    }
-
-    const year = date.getFullYear()
-    const { startDST, endDST } = this.getMexicoDSTChangeDates(year)
-
-    if (date >= startDST && date < endDST) {
-      // En horario de verano
-      return true
-    } else {
-      // En horario estándar
-      return false
-    }
-  }
-
-  private fixedCSTSummerTime(evaluatedDay: Date, assitFlatList: AssistInterface[]) {
-    const isSummerTime = this.checkDSTSummerTime(evaluatedDay)
-    const fixedList = assitFlatList.map((checkItem: any) => {
-      if (isSummerTime) {
-        checkItem.assistPunchTimeUtc = DateTime.fromISO(checkItem.assistPunchTimeUtc.toString()).setZone('UTC').plus({ hour: 1 })
-        checkItem.assistPunchTime = DateTime.fromISO(checkItem.assistPunchTime.toString()).setZone('UTC').plus({ hour: 1 })
-        checkItem.assistPunchTimeOrigin = DateTime.fromISO(checkItem.assistPunchTimeUtc.toString()).setZone('UTC').plus({ hour: 1 })
-      }
-      return checkItem
-    })
-
-    return fixedList
-  }
-
   private calendarDayStatus(dateAssistItem: AssistDayInterface, evaluatedDay: DateTime, startDay: DateTime, flag: string) {
     let daysBettweenStart = 0
     let isStartWorkday = true
@@ -2869,14 +2847,9 @@ export default class SyncAssistsService {
         const exception = checkAssist.assist.exceptions.find((ex) => ex.shiftExceptionCheckInTime)
 
         if (exception) {
-          const dateYear = checkAssist.day.split('-')[0].toString().padStart(2, '0')
-          const dateMonth = checkAssist.day.split('-')[1].toString().padStart(2, '0')
-          const dateDay = checkAssist.day.split('-')[2].toString().padStart(2, '0')
-          const DayTime = DateTime.fromISO(`${checkAssist.assist.checkIn?.assistPunchTimeUtc}`, { setZone: true })
-          const checkTime = DayTime.setZone('UTC-6')
-          const checkTimeTime = checkTime.toFormat('yyyy-LL-dd TT').split(' ')[1]
-          const stringInDateString = `${dateYear}-${dateMonth}-${dateDay}T${checkTimeTime.padStart(8, '0')}.000-06:00`
-          const timeCheckIn = DateTime.fromISO(stringInDateString, { setZone: true }).setZone('UTC-6')
+          // La hora autorizada por la excepción es hora de pared del sitio:
+          // la checada se compara en esa misma zona.
+          const timeCheckIn = this.zoned(checkAssist.assist.checkIn?.assistPunchTimeUtc)
 
           if (exception.shiftExceptionCheckInTime) {
             const shiftExceptionCheckInTime = DateTime.fromFormat(exception.shiftExceptionCheckInTime, 'HH:mm:ss')
@@ -2937,11 +2910,7 @@ export default class SyncAssistsService {
             return checkAssist
           }
 
-          const DayTime = DateTime.fromISO(`${checkAssist.assist.checkOut.assistPunchTimeUtc}`, { setZone: true })
-          const checkTime = DayTime.setZone('UTC-6')
-          const checkTimeDateYear = checkTime.toFormat('yyyy-LL-dd TT').split(' ')[1]
-          const checkTimeStringDate = `${checkTime.toFormat('yyyy-LL-dd')}T${checkTimeDateYear}.000-06:00`
-          const timeToCheckOut = DateTime.fromISO(checkTimeStringDate, { setZone: true }).setZone('UTC-6')
+          const timeToCheckOut = wallTime(checkAssist.assist.checkOut.assistPunchTimeUtc, this.siteZone)
 
           if (exception.shiftExceptionCheckOutTime) {
             const shiftExceptionCheckOutTime = DateTime.fromFormat(exception.shiftExceptionCheckOutTime, 'HH:mm:ss')
@@ -2984,15 +2953,14 @@ export default class SyncAssistsService {
     if (checkAssist.assist.checkInStatus === 'fault') {
       return checkAssist
     }
-    const hourStart = checkAssist.assist.dateShift.shiftTimeStart
-    const shiftActiveHours = checkAssist.assist.dateShift.shiftActiveHours
-    const day = checkAssist.day
+    const end = shiftEndInstant(
+      checkAssist.day,
+      checkAssist.assist.dateShift.shiftTimeStart,
+      checkAssist.assist.dateShift.shiftActiveHours,
+      this.siteZone
+    )
 
-    const stringDate = `${day}T${hourStart}`
-    const start = DateTime.fromISO(stringDate, { zone: 'UTC-6' })
-    const end = start.plus({ hours: shiftActiveHours })
-
-    const now = DateTime.now().setZone('UTC-6')
+    const now = DateTime.utc()
 
     if (end < now) {
       if (checkAssist.assist.checkIn && !checkAssist.assist.checkOut) {

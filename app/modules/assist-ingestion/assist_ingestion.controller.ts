@@ -6,6 +6,7 @@ import { ASSIST_CHANNEL, ASSIST_ORIGIN } from '#constants/assist_origin'
 import type { AssistChannel, AssistCreateFrom } from '#constants/assist_origin'
 import { ensureEmployeeAssistWrite } from '#helpers/ensure_employee_assist_write'
 import AssistIngestionService, { resolvePunchTime } from './assist_ingestion.service.js'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
 import {
   ASSIST_INGESTION_BATCH_MAX_BODY_BYTES,
   ASSIST_INGESTION_BATCH_MAX_ITEMS,
@@ -214,7 +215,7 @@ export default class AssistIngestionController {
    *                       description: |
    *                         Hora en que ocurrió la checada, obligatoria por elemento.
    *                         ISO-8601 con desfase explícito o el formato legado
-   *                         `YYYY-MM-DD HH:mm:ss` en UTC-6.
+   *                         `YYYY-MM-DD HH:mm:ss` en hora civil del sitio del colaborador.
    *                     assistType:
    *                       type: string
    *                       enum: [check, eatin, eatout]
@@ -284,6 +285,7 @@ export default class AssistIngestionController {
     // El permiso se resuelve una vez por colaborador distinto, nunca una vez por
     // entrega: evaluarlo una sola vez dejaría colar checadas ajenas detrás de un
     // primer elemento propio.
+    const siteTimeZones = new SiteTimeZoneService()
     const writeAccess = new Map<
       number,
       Awaited<ReturnType<typeof ensureEmployeeAssistWrite>>
@@ -324,7 +326,9 @@ export default class AssistIngestionController {
         continue
       }
 
-      const resolvedPunchTime = resolvePunchTime(item.assistPunchTime, DateTime.utc())
+      // Una hora declarada sin desfase es hora civil del sitio del colaborador.
+      const siteZone = await siteTimeZones.forEmployee(item.employeeId)
+      const resolvedPunchTime = resolvePunchTime(item.assistPunchTime, DateTime.utc(), siteZone.zone)
       if (!resolvedPunchTime.ok) {
         results[index].error = rejectionBody(resolvedPunchTime.rejection, i18n)
         continue

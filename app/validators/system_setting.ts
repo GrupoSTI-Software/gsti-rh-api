@@ -15,3 +15,13 @@ export const updateSystemSettingValidator = vine.compile(
     systemSettingMonthlyConversionFactor: vine.number().positive().max(31).optional(),
   })
 )
+
+/**
+ * Cuerpo de `PUT /api/system-settings/:systemSettingId/site-timezone`.
+ * La validez IANA la comprueba el servicio; aquí solo la forma.
+ */
+export const updateSiteTimezoneValidator = vine.compile(
+  vine.object({
+    businessUnitTimezone: vine.string().trim().minLength(1).maxLength(64),
+  })
+)

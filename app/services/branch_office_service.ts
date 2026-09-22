@@ -15,6 +15,7 @@ import {
   slugifyBranchOffice,
 } from '#helpers/branch_office_slug'
 import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
+import { isValidTimeZone } from '#modules/attendance-time/attendance_clock'
 
 function toIsoDateTimeString(value: unknown): string | null {
   if (value === null || value === undefined) {
@@ -54,6 +55,7 @@ export function serializeBranchOffice(row: BranchOffice, activeEmployeesCount?: 
     branchOfficeZipcode: row.branchOfficeZipcode,
     branchOfficeCity: row.branchOfficeCity,
     branchOfficeState: row.branchOfficeState,
+    branchOfficeTimezone: row.branchOfficeTimezone,
     branchOfficeIsDefault: row.branchOfficeIsDefault,
     activeEmployeesCount: activeEmployeesCount ?? null,
     branchOfficeIdealTemplateCount: row.branchOfficeIdealTemplateCount,
@@ -86,6 +88,23 @@ export default class BranchOfficeService {
     trx?: TransactionClientContract
   ): Promise<string> {
     return resolveUniqueBranchOfficeSlug(businessUnitId, baseSlug, excludeBranchOfficeId, trx)
+  }
+
+  /**
+   * La zona de la sucursal decide a qué hora se evalúa la asistencia de su
+   * personal: una zona que Luxon no reconoce se rechaza en lugar de guardarse
+   * y caer en silencio a la de la empresa.
+   */
+  private static assertTimeZone(zone: string | null | undefined): void {
+    if (zone === null || zone === undefined) return
+    if (isValidTimeZone(zone)) return
+    throw new BranchOfficeServiceError(
+      'La zona horaria de la sucursal no es un identificador IANA válido.',
+      BRANCH_OFFICE_ERROR_CODES.VAL_INPUT,
+      400,
+      'zona-horaria-invalida',
+      `"${zone}" no es una zona horaria reconocida; usa un identificador como America/Ciudad_Juarez.`
+    )
   }
 
   static assertBusinessUnitAllowed(businessUnitId: number, allowedBusinessUnitIds: number[]) {
@@ -263,6 +282,7 @@ export default class BranchOfficeService {
       branchOfficeZipcode?: string | null
       branchOfficeCity?: string | null
       branchOfficeState?: string | null
+      branchOfficeTimezone?: string | null
       branchOfficeIdealTemplateCount?: number | null
       branchOfficeMinActiveEmployeesPerShift?: number | null
       empresaContratanteId?: number | null
@@ -278,6 +298,8 @@ export default class BranchOfficeService {
       businessUnitId
     )
 
+    this.assertTimeZone(data.branchOfficeTimezone)
+
     const baseSlug = this.slugify(data.branchOfficeName)
     const slug = await this.resolveUniqueSlug(businessUnitId, baseSlug)
 
@@ -291,6 +313,7 @@ export default class BranchOfficeService {
       branchOfficeZipcode: data.branchOfficeZipcode ?? null,
       branchOfficeCity: data.branchOfficeCity ?? null,
       branchOfficeState: data.branchOfficeState ?? null,
+      branchOfficeTimezone: data.branchOfficeTimezone ?? null,
       branchOfficeIdealTemplateCount: data.branchOfficeIdealTemplateCount ?? null,
       branchOfficeMinActiveEmployeesPerShift: data.branchOfficeMinActiveEmployeesPerShift ?? null,
       empresaContratanteId: resolvedEmpresaContratanteId,
@@ -317,6 +340,7 @@ export default class BranchOfficeService {
       branchOfficeZipcode?: string | null
       branchOfficeCity?: string | null
       branchOfficeState?: string | null
+      branchOfficeTimezone?: string | null
       branchOfficeIdealTemplateCount?: number | null
       branchOfficeMinActiveEmployeesPerShift?: number | null
       empresaContratanteId?: number | null
@@ -367,6 +391,10 @@ export default class BranchOfficeService {
     if (data.branchOfficeZipcode !== undefined) branch.branchOfficeZipcode = data.branchOfficeZipcode
     if (data.branchOfficeCity !== undefined) branch.branchOfficeCity = data.branchOfficeCity
     if (data.branchOfficeState !== undefined) branch.branchOfficeState = data.branchOfficeState
+    if (data.branchOfficeTimezone !== undefined) {
+      this.assertTimeZone(data.branchOfficeTimezone)
+      branch.branchOfficeTimezone = data.branchOfficeTimezone
+    }
     if (data.branchOfficeIdealTemplateCount !== undefined) branch.branchOfficeIdealTemplateCount = data.branchOfficeIdealTemplateCount
     if (data.branchOfficeMinActiveEmployeesPerShift !== undefined) branch.branchOfficeMinActiveEmployeesPerShift = data.branchOfficeMinActiveEmployeesPerShift
 

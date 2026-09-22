@@ -1,6 +1,8 @@
 import { DateTime } from 'luxon'
 import Employee from '#models/employee'
 import SyncAssistsService from '#services/sync_assists_service'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
+import { getBusinessTimeZone } from '#utils/business_date'
 import { AssistError } from '#exceptions/assist_error'
 import { resolveAssistBusinessUnitId } from '#helpers/assist_business_unit_guard'
 import {
@@ -57,12 +59,6 @@ export interface AssistIngestionOptions {
 }
 
 /**
- * Zona con la que se recortan los días del rango de recálculo. Es la misma que
- * usa el recálculo directo; cambiarla movería los bordes de los dos caminos.
- */
-const CALENDAR_RECALC_ZONE = 'UTC-6'
-
-/**
  * Motor de ingesta de checadas.
  *
  * Resuelve el sujeto de cada elemento, descarta los gemelos que vienen repetidos
@@ -77,13 +73,16 @@ const CALENDAR_RECALC_ZONE = 'UTC-6'
 export default class AssistIngestionService {
   private readonly repository: AssistIngestionRepository
   private readonly calendarRecalc: CalendarRecalcRepository
+  private readonly siteTimeZones: SiteTimeZoneService
 
   constructor(
     repository: AssistIngestionRepository = new AssistIngestionRepositoryMysql(),
-    calendarRecalc: CalendarRecalcRepository = new CalendarRecalcRepositoryMysql()
+    calendarRecalc: CalendarRecalcRepository = new CalendarRecalcRepositoryMysql(),
+    siteTimeZones: SiteTimeZoneService = new SiteTimeZoneService()
   ) {
     this.repository = repository
     this.calendarRecalc = calendarRecalc
+    this.siteTimeZones = siteTimeZones
   }
 
   async ingest(
@@ -184,15 +183,19 @@ export default class AssistIngestionService {
       byEmployee.set(row.assist.assistEmpId, row.assist.businessUnitId)
     }
 
+    // Los días del rango se recortan en la zona del sitio de cada colaborador,
+    // la misma con la que el recálculo directo arma sus fechas.
+    const zones = await this.siteTimeZones.forEmployees([...ranges.keys()])
     const jobs: CalendarRecalcJob[] = []
     for (const [employeeId, range] of ranges) {
       const businessUnitId = byEmployee.get(employeeId)
       if (businessUnitId === undefined) continue
+      const zone = zones.get(employeeId)?.zone ?? getBusinessTimeZone()
       jobs.push({
         businessUnitId,
         employeeId,
-        from: range.from.setZone(CALENDAR_RECALC_ZONE).plus({ day: -1 }).startOf('day'),
-        to: range.to.setZone(CALENDAR_RECALC_ZONE).plus({ day: 1 }).startOf('day'),
+        from: range.from.setZone(zone).plus({ day: -1 }).startOf('day'),
+        to: range.to.setZone(zone).plus({ day: 1 }).startOf('day'),
       })
     }
     await this.calendarRecalc.enqueue(jobs)
@@ -242,11 +245,13 @@ export default class AssistIngestionService {
     const ranges = assistIngestionCalendarRanges(persisted)
     if (ranges.size === 0) return
 
+    const zones = await this.siteTimeZones.forEmployees([...ranges.keys()])
     const syncAssistsService = new SyncAssistsService()
     for (const [employeeID, range] of ranges) {
+      const zone = zones.get(employeeID)?.zone ?? getBusinessTimeZone()
       await syncAssistsService.setDateCalendar({
-        date: range.from.setZone('UTC-6').plus({ day: -1 }).toFormat('yyyy-MM-dd'),
-        dateEnd: range.to.setZone('UTC-6').plus({ day: 1 }).toFormat('yyyy-MM-dd'),
+        date: range.from.setZone(zone).plus({ day: -1 }).toFormat('yyyy-MM-dd'),
+        dateEnd: range.to.setZone(zone).plus({ day: 1 }).toFormat('yyyy-MM-dd'),
         employeeID,
       })
     }
@@ -311,7 +316,6 @@ function summarize(results: AssistIngestionItemResult[]): AssistIngestionSummary
 }
 
 const LEGACY_PUNCH_TIME_FORMAT = 'yyyy-MM-dd HH:mm:ss'
-const LEGACY_PUNCH_TIME_ZONE = 'UTC-6'
 /** ISO-8601 con desfase explícito: `Z`, `+HH:MM`, `-HH:MM` o sin dos puntos. */
 const EXPLICIT_OFFSET = /(?:Z|[+-]\d{2}:?\d{2})$/
 
@@ -332,10 +336,12 @@ export type ResolvedPunchTime =
  *
  * @param declared hora que el equipo de origen declara, si la declara
  * @param receivedAt instante en que el servidor recibió la checada
+ * @param legacyZone zona IANA del sitio con la que se lee el formato sin desfase (`YYYY-MM-DD HH:mm:ss`)
  */
 export function resolvePunchTime(
   declared: string | null | undefined,
-  receivedAt: DateTime
+  receivedAt: DateTime,
+  legacyZone: string = getBusinessTimeZone()
 ): ResolvedPunchTime {
   const received = receivedAt.toUTC()
 
@@ -346,7 +352,7 @@ export function resolvePunchTime(
   const value = declared.trim()
   const parsed = EXPLICIT_OFFSET.test(value)
     ? DateTime.fromISO(value, { setZone: true }).toUTC()
-    : DateTime.fromFormat(value, LEGACY_PUNCH_TIME_FORMAT, { zone: LEGACY_PUNCH_TIME_ZONE }).toUTC()
+    : DateTime.fromFormat(value, LEGACY_PUNCH_TIME_FORMAT, { zone: legacyZone }).toUTC()
 
   if (!parsed.isValid) {
     return { ok: false, rejection: ASSIST_INGESTION_PUNCH_TIME_FORMAT }

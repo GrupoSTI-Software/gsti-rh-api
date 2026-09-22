@@ -13,6 +13,8 @@ export const createBranchOfficeValidator = vine.compile(
     branchOfficeZipcode: vine.string().trim().maxLength(10).optional().nullable(),
     branchOfficeCity: vine.string().trim().maxLength(150).optional().nullable(),
     branchOfficeState: vine.string().trim().maxLength(150).optional().nullable(),
+    /** Zona IANA del sitio (p. ej. America/Ciudad_Juarez); nula hereda la de la empresa. */
+    branchOfficeTimezone: vine.string().trim().maxLength(64).optional().nullable(),
     /** GeoJSON serializado como string (p. ej. FeatureCollection) o texto libre; sin límite Vine — columna LONGTEXT */
     branchOfficeLocationAddress: vine.string().trim().optional().nullable(),
     branchOfficeIdealTemplateCount: vine.number().min(0).optional().nullable(),
@@ -34,6 +36,8 @@ export const updateBranchOfficeValidator = vine.compile(
     branchOfficeZipcode: vine.string().trim().maxLength(10).optional().nullable(),
     branchOfficeCity: vine.string().trim().maxLength(150).optional().nullable(),
     branchOfficeState: vine.string().trim().maxLength(150).optional().nullable(),
+    /** Zona IANA del sitio (p. ej. America/Ciudad_Juarez); nula hereda la de la empresa. */
+    branchOfficeTimezone: vine.string().trim().maxLength(64).optional().nullable(),
     /** GeoJSON serializado como string (p. ej. FeatureCollection) o texto libre; sin límite Vine — columna LONGTEXT */
     branchOfficeLocationAddress: vine.string().trim().optional().nullable(),
     branchOfficeIdealTemplateCount: vine.number().min(0).optional().nullable(),

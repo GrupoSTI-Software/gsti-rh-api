@@ -1,6 +1,7 @@
 import factory from '@adonisjs/lucid/factories'
 import { DateTime } from 'luxon'
 import Assist from '#models/assist'
+import { getBusinessTimeZone } from '#utils/business_date'
 
 // ---------------------------------------------------------------------------
 // Tipos auxiliares
@@ -8,8 +9,12 @@ import Assist from '#models/assist'
 
 export type AssistType = 'on_time' | 'tolerance' | 'delay' | 'fault'
 
-/** Zona del calendario de negocio (misma que usa SyncAssists en UTC-6 / México). */
-export const DEMO_ASSIST_CALENDAR_ZONE = 'America/Mexico_City'
+/**
+ * Zona del calendario demo: la de negocio del sistema. Las checadas se escriben
+ * como instante UTC real a partir de la hora civil en esta zona. Pendiente:
+ * tomar la zona de cada empresa demo cuando la siembra reciba la sucursal.
+ */
+export const DEMO_ASSIST_CALENDAR_ZONE = getBusinessTimeZone()
 
 export function demoAssistNow(): DateTime {
   return DateTime.now().setZone(DEMO_ASSIST_CALENDAR_ZONE)
