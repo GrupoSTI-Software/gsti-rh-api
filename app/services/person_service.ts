@@ -261,7 +261,13 @@ export default class PersonService {
     if (!column) return []
     const persons = await Person.query()
       .distinct(column)
-      .orWhereRaw('UPPER(??) LIKE ?', [column, `%${search.toUpperCase()}%`])
+      // USRH1789698261609: `whereRaw`, no `orWhereRaw`. Es la única condición
+      // previa de la query, así que el `or` era semánticamente inútil; con `or`
+      // quedaba expuesto a que un futuro `.orWhere*()` agregado aquí generara
+      // `A OR (B AND business_unit_id IN (...))` y filtrara filas de otro
+      // tenant por la rama A, porque el mixin de tenant inyecta su filtro AL
+      // FINAL. `whereRaw` cierra esa trampa estructuralmente.
+      .whereRaw('UPPER(??) LIKE ?', [column, `%${search.toUpperCase()}%`])
       .withTrashed()
       .orderBy(column)
 

@@ -305,6 +305,15 @@ export default class Person extends compose(
    * contexto, `Person` deja `null` y no interrumpe el alta de landlord, el seeder
    * raíz, el signup ni el sync biométrico. Si la persona ya trae marca (signup
    * self-service la asigna antes de guardar), no la pisa (regla 8).
+   *
+   * Asume que `TenantContext.getScope()` trae como mucho un elemento y toma
+   * SOLO el primero: hoy es correcto porque la única forma de que exista un
+   * `Person` con contexto de tenant activo es `businessScope()` (el middleware
+   * estricto), que siempre monta el scope con un solo id. `businessScopeOptional`
+   * (usado en otras rutas) sí puede correr con un scope de varios elementos; si
+   * alguna ruta bajo ese middleware alguna vez crea un `Person`, este hook
+   * tomaría una empresa arbitraria en silencio en vez de fallar. No hay ruta así
+   * hoy — no se arregla aquí, solo se deja constancia.
    */
   @beforeCreate()
   static assignBusinessUnitId(person: Person) {
