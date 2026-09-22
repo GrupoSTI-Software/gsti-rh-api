@@ -25,6 +25,12 @@ import {
  * rama `personal` lo exige) y sin filas de empleado, así que el alta no
  * sincroniza nada fuera de `users`. CA-3 espera 201: es lo que el controlador
  * responde en un update exitoso (igual que el molde de aislamiento).
+ * El cuerpo 400 se afirma íntegro con textos literales en español
+ * (`resources/langs/es.json`, locale por defecto `es` en `config/i18n.ts`).
+ * La limpieza combina ids registrados con un barrido por namespace (`ca*`):
+ * si una regresión creara una fila inesperada, esa fila nunca llegó a los
+ * arreglos y el LIKE la alcanza igual (el actor usa `mailuniq-*`, fuera del
+ * patrón, así que el barrido no toca nada ajeno al spec).
  */
 
 const TEST_PASSWORD = 'MailUniqAccess123!'
@@ -42,12 +48,24 @@ test.group('Unicidad del correo de acceso', (group) => {
   })
 
   group.teardown(async () => {
-    if (userIds.length > 0) {
-      await db.from('business_unit_users').whereIn('user_id', userIds).delete()
-      await db.from('users').whereIn('user_id', userIds).delete()
+    const leakedUsers = (await db
+      .from('users')
+      .select('user_id')
+      .where('user_email', 'like', 'ca%@gsti-tests.local%')) as Array<{ user_id: number }>
+    const leakedPeople = (await db
+      .from('people')
+      .select('person_id')
+      .where('person_email', 'like', 'ca%-persona-%@gsti-tests.local')) as Array<{
+      person_id: number
+    }>
+    const allUserIds = [...new Set([...userIds, ...leakedUsers.map((row) => row.user_id)])]
+    const allPersonIds = [...new Set([...personIds, ...leakedPeople.map((row) => row.person_id)])]
+    if (allUserIds.length > 0) {
+      await db.from('business_unit_users').whereIn('user_id', allUserIds).delete()
+      await db.from('users').whereIn('user_id', allUserIds).delete()
     }
-    if (personIds.length > 0) {
-      await db.from('people').whereIn('person_id', personIds).delete()
+    if (allPersonIds.length > 0) {
+      await db.from('people').whereIn('person_id', allPersonIds).delete()
     }
     await cleanupTenantActor(actor)
     actor = null
@@ -68,10 +86,15 @@ test.group('Unicidad del correo de acceso', (group) => {
     return person
   }
 
+  /** Correo de persona con prefijo del caso: cae dentro del barrido por namespace. */
+  function personEmail(ns: string): string {
+    return `${ns}-persona-${uniqueStamp()}@gsti-tests.local`
+  }
+
   /** Siembra directa en BD: la capa del índice, sin pasar por HTTP. */
-  async function seedLiveUser(email: string, active: number = 1): Promise<User> {
+  async function seedLiveUser(ns: string, email: string, active: number = 1): Promise<User> {
     const tenant = required(actor, 'el actor')
-    const person = await createPerson('seed', `persona-${uniqueStamp()}@gsti-tests.local`)
+    const person = await createPerson('seed', personEmail(ns))
     const user = await User.create({
       userEmail: email,
       userPassword: TEST_PASSWORD,
@@ -115,9 +138,10 @@ test.group('Unicidad del correo de acceso', (group) => {
   async function postUserOrFail(
     client: ApiClient,
     tenant: TenantActor,
+    ns: string,
     email: string
   ): Promise<{ userId: number; personId: number }> {
-    const person = await createPerson('alta', `persona-${uniqueStamp()}@gsti-tests.local`)
+    const person = await createPerson('alta', personEmail(ns))
     const response = await postUser(client, tenant, newUserBody(tenant, person, email))
     response.assertStatus(201)
     const body = response.body() as { data: { user: { userId: number } } }
@@ -132,25 +156,26 @@ test.group('Unicidad del correo de acceso', (group) => {
   test('CA-1 alta-con-correo-de-usuario-vivo', async ({ assert, client }) => {
     const tenant = required(actor, 'el actor')
     const email = `ca1-vivo-${uniqueStamp()}@gsti-tests.local`
-    const created = await postUserOrFail(client, tenant, email)
+    const created = await postUserOrFail(client, tenant, 'ca1', email)
+    const before = await snapshotUser(created.userId)
 
-    const duplicatePerson = await createPerson('duplicada', `persona-${uniqueStamp()}@gsti-tests.local`)
+    const duplicatePerson = await createPerson('duplicada', personEmail('ca1'))
     const response = await postUser(client, tenant, newUserBody(tenant, duplicatePerson, email))
 
     assertDuplicatedResponse(assert, response)
 
     const live = await liveUsersByEmail(email)
     assert.lengthOf(live, 1, 'el 400 no debe dejar una segunda fila viva')
-    assert.equal(live[0].userId, created.userId)
-    assert.equal(live[0].userEmail, email)
+    const after = await snapshotUser(created.userId)
+    assert.deepEqual(after, before, 'la fila existente no debe cambiar ante el 400')
   })
 
   test('CA-2 edicion-con-correo-de-otro-usuario-vivo', async ({ assert, client }) => {
     const tenant = required(actor, 'el actor')
     const emailA = `ca2-a-${uniqueStamp()}@gsti-tests.local`
     const emailB = `ca2-b-${uniqueStamp()}@gsti-tests.local`
-    const userA = await postUserOrFail(client, tenant, emailA)
-    const userB = await postUserOrFail(client, tenant, emailB)
+    const userA = await postUserOrFail(client, tenant, 'ca2', emailA)
+    const userB = await postUserOrFail(client, tenant, 'ca2', emailB)
 
     const beforeA = await snapshotUser(userA.userId)
     const beforeB = await snapshotUser(userB.userId)
@@ -174,7 +199,7 @@ test.group('Unicidad del correo de acceso', (group) => {
   test('CA-3 edicion-conservando-el-propio-correo', async ({ assert, client }) => {
     const tenant = required(actor, 'el actor')
     const email = `ca3-propio-${uniqueStamp()}@gsti-tests.local`
-    const created = await postUserOrFail(client, tenant, email)
+    const created = await postUserOrFail(client, tenant, 'ca3', email)
 
     const response = await putUser(client, tenant, created.userId, {
       userEmail: email,
@@ -194,7 +219,7 @@ test.group('Unicidad del correo de acceso', (group) => {
   test('CA-4 alta-con-correo-de-usuario-dado-de-baja', async ({ assert, client }) => {
     const tenant = required(actor, 'el actor')
     const email = `ca4-baja-${uniqueStamp()}@gsti-tests.local`
-    const created = await postUserOrFail(client, tenant, email)
+    const created = await postUserOrFail(client, tenant, 'ca4', email)
 
     const holder = await User.findOrFail(created.userId)
     await holder.delete()
@@ -206,7 +231,7 @@ test.group('Unicidad del correo de acceso', (group) => {
       .first()
     assert.isNotNull(trashed, 'el titular debe quedar con borrado lógico')
 
-    const reused = await postUserOrFail(client, tenant, email)
+    const reused = await postUserOrFail(client, tenant, 'ca4', email)
     assert.notEqual(reused.userId, created.userId)
 
     const live = await liveUsersByEmail(email)
@@ -219,7 +244,7 @@ test.group('Unicidad del correo de acceso', (group) => {
 
     const deletedIds: number[] = []
     for (let index = 0; index < 3; index++) {
-      const seed = await seedLiveUser(email)
+      const seed = await seedLiveUser('ca5', email)
       await seed.delete()
       deletedIds.push(seed.userId)
     }
@@ -231,13 +256,13 @@ test.group('Unicidad del correo de acceso', (group) => {
       .where('user_email', email)
     assert.lengthOf(trashed, 3, 'las tres borradas con el mismo correo conviven')
 
-    const firstLive = await seedLiveUser(email)
+    const firstLive = await seedLiveUser('ca5', email)
     const liveAfterFirst = await liveUsersByEmail(email)
     assert.lengthOf(liveAfterFirst, 1)
     assert.equal(liveAfterFirst[0].userId, firstLive.userId)
 
     const tenant = required(actor, 'el actor')
-    const extraPerson = await createPerson('extra', `persona-${uniqueStamp()}@gsti-tests.local`)
+    const extraPerson = await createPerson('extra', personEmail('ca5'))
     let secondLiveError: unknown = null
     try {
       await User.create({
@@ -273,9 +298,9 @@ test.group('Unicidad del correo de acceso', (group) => {
   test('CA-6 alta-con-correo-de-usuario-inactivo-no-borrado', async ({ assert, client }) => {
     const tenant = required(actor, 'el actor')
     const email = `ca6-inactivo-${uniqueStamp()}@gsti-tests.local`
-    await seedLiveUser(email, 0)
+    await seedLiveUser('ca6', email, 0)
 
-    const duplicatePerson = await createPerson('duplicada', `persona-${uniqueStamp()}@gsti-tests.local`)
+    const duplicatePerson = await createPerson('duplicada', personEmail('ca6'))
     const response = await postUser(client, tenant, newUserBody(tenant, duplicatePerson, email))
 
     assertDuplicatedResponse(assert, response)
@@ -287,9 +312,9 @@ test.group('Unicidad del correo de acceso', (group) => {
   test('CA-7 variante-de-mayusculas', async ({ assert, client }) => {
     const tenant = required(actor, 'el actor')
     const email = `ca7-juan-${uniqueStamp()}@gsti-tests.local`
-    await postUserOrFail(client, tenant, email)
+    await postUserOrFail(client, tenant, 'ca7', email)
 
-    const duplicatePerson = await createPerson('duplicada', `persona-${uniqueStamp()}@gsti-tests.local`)
+    const duplicatePerson = await createPerson('duplicada', personEmail('ca7'))
     const response = await postUser(client, tenant, newUserBody(tenant, duplicatePerson, email.toUpperCase()))
 
     assertDuplicatedResponse(assert, response)
@@ -303,9 +328,9 @@ test.group('Unicidad del correo de acceso', (group) => {
     const stamp = uniqueStamp()
     const email = `ca8-jose-${stamp}@gsti-tests.local`
     const accented = `ca8-josé-${stamp}@gsti-tests.local`
-    await postUserOrFail(client, tenant, email)
+    await postUserOrFail(client, tenant, 'ca8', email)
 
-    const duplicatePerson = await createPerson('duplicada', `persona-${uniqueStamp()}@gsti-tests.local`)
+    const duplicatePerson = await createPerson('duplicada', personEmail('ca8'))
     const response = await postUser(client, tenant, newUserBody(tenant, duplicatePerson, accented))
 
     assertDuplicatedResponse(assert, response)
@@ -317,7 +342,7 @@ test.group('Unicidad del correo de acceso', (group) => {
   test('CA-9 espacios-alrededor-del-correo', async ({ assert }) => {
     const trimmed = `ca9-espacios-${uniqueStamp()}@gsti-tests.local`
     const spaced = `${trimmed} `
-    const seed = await seedLiveUser(spaced)
+    const seed = await seedLiveUser('ca9', spaced)
     assert.equal(seed.userEmail, spaced)
 
     const generated = (await db
@@ -327,7 +352,7 @@ test.group('Unicidad del correo de acceso', (group) => {
     assert.equal(generated[0]?.user_email_active, trimmed, 'la generada recorta los espacios')
 
     const tenant = required(actor, 'el actor')
-    const extraPerson = await createPerson('extra', `persona-${uniqueStamp()}@gsti-tests.local`)
+    const extraPerson = await createPerson('extra', personEmail('ca9'))
     let duplicateError: unknown = null
     try {
       await User.create({
@@ -363,15 +388,20 @@ async function snapshotUser(userId: number): Promise<Record<string, unknown>> {
   }
 }
 
-/** El cuerpo exacto de USR.MAIL.002: forma fija más `key` y `code` literales. */
+/** Textos de USR.MAIL.002 en `resources/langs/es.json` (locale por defecto `es`). */
+const DUPLICATED_TITLE = 'Este correo de acceso ya está en uso'
+const DUPLICATED_DETAIL =
+  'Otra cuenta activa usa este correo de acceso; usa uno distinto o da de baja la cuenta que lo tiene. No se guardó ningún cambio.'
+
+/** El cuerpo exacto de USR.MAIL.002, objeto completo con textos literales. */
 function assertDuplicatedResponse(assert: Assert, response: ApiResponse): void {
   assert.equal(response.status(), 400, JSON.stringify(response.body()))
-  const body = response.body() as Record<string, unknown>
-  assert.deepEqual(Object.keys(body).sort(), ['code', 'detail', 'key', 'title'])
-  assert.equal(body.key, 'correo-de-acceso-ya-registrado')
-  assert.equal(body.code, 'USR.MAIL.002')
-  assert.isString(body.title)
-  assert.isString(body.detail)
+  assert.deepEqual(response.body(), {
+    title: DUPLICATED_TITLE,
+    detail: DUPLICATED_DETAIL,
+    key: 'correo-de-acceso-ya-registrado',
+    code: 'USR.MAIL.002',
+  })
 }
 
 function isDupIndexError(error: unknown): boolean {
