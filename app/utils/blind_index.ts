@@ -28,3 +28,13 @@ export function blindIndex(value: string): string {
   const normalized = value.trim().toUpperCase()
   return createHmac('sha256', env.get('BLIND_INDEX_KEY')).update(normalized).digest('hex')
 }
+
+/**
+ * Variante que libera la huella cuando el campo queda vacío (USRH1789698261610,
+ * regla 7). Un campo vaciado debe dejar de ocupar lugar: NULL no compite en los
+ * UNIQUE compuestos por empresa. Cadenas en blanco se tratan como vacías.
+ */
+export function blindIndexOrNull(value: string | null | undefined): string | null {
+  if (value === null || value === undefined || value.trim() === '') return null
+  return blindIndex(value)
+}

@@ -5,7 +5,7 @@ import type { BelongsTo, HasOne } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import encryption from '@adonisjs/core/services/encryption'
-import { blindIndex } from '#utils/blind_index'
+import { blindIndexOrNull } from '#utils/blind_index'
 import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
@@ -290,13 +290,18 @@ export default class Person extends compose(
    * Calcula las huellas de los identificadores antes de persistir.
    * Se ejecuta sobre los valores en claro (antes de que `prepare` los cifre).
    * Las huellas permiten validar unicidad sin descifrar (blind-index).
+   *
+   * Vaciar el campo libera la huella (USRH1789698261610, regla 7): antes solo
+   * se ponían y un RFC vaciado conservaba la anterior, bloqueando su reúso
+   * sin que ninguna pantalla lo mostrara. NULL tampoco compite en los UNIQUE
+   * compuestos por empresa, así que la baja también libera (regla 4).
    */
   @beforeSave()
   static calculateIdentifierHashes(person: Person) {
-    if (person.personCurp) person.personCurpHash = blindIndex(person.personCurp)
-    if (person.personRfc) person.personRfcHash = blindIndex(person.personRfc)
-    if (person.personImssNss) person.personImssNssHash = blindIndex(person.personImssNss)
-    if (person.personEmail) person.personEmailHash = blindIndex(person.personEmail)
+    person.personCurpHash = blindIndexOrNull(person.personCurp)
+    person.personRfcHash = blindIndexOrNull(person.personRfc)
+    person.personImssNssHash = blindIndexOrNull(person.personImssNss)
+    person.personEmailHash = blindIndexOrNull(person.personEmail)
   }
 
   /**
