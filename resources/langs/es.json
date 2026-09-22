@@ -533,6 +533,8 @@
   "assist_punch_time_format_message": "La hora de captura no tiene un formato válido. Envíala en formato ISO-8601 con desfase, por ejemplo 2026-08-30T08:05:00-06:00.",
   "assist_punch_time_future_title": "Hora de captura en el futuro",
   "assist_punch_time_future_message": "La hora de captura es posterior a la hora del servidor. Revisa el reloj del equipo e inténtalo de nuevo.",
+  "role_scope_day_out_of_range_title": "Fuera del alcance de tu rol",
+  "role_scope_day_out_of_range_message": "Tu rol no alcanza a modificar esa fecha. Pide el registro a un rol con más días de alcance.",
   "assist_punch_time_role_scope_title": "Fuera del alcance de tu rol",
   "assist_punch_time_role_scope_message": "Tu rol no alcanza a registrar asistencia de esa fecha. Pide el registro a un rol con más días de alcance.",
   "assist_punch_time_out_of_window_title": "Hora de captura fuera de la ventana permitida",

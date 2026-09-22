@@ -533,6 +533,8 @@
   "assist_punch_time_format_message": "The punch time format is not valid. Send it as ISO-8601 with offset, for example 2026-08-30T08:05:00-06:00.",
   "assist_punch_time_future_title": "Punch time in the future",
   "assist_punch_time_future_message": "The punch time is later than the server time. Check the device clock and try again.",
+  "role_scope_day_out_of_range_title": "Outside your role's range",
+  "role_scope_day_out_of_range_message": "Your role cannot modify that date. Ask a role with a wider range to register it.",
   "assist_punch_time_role_scope_title": "Outside your role's range",
   "assist_punch_time_role_scope_message": "Your role cannot register attendance for that date. Ask a role with a wider range to register it.",
   "assist_punch_time_out_of_window_title": "Punch time outside the allowed window",
