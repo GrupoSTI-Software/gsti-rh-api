@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { test } from '@japa/runner'
 import BusinessUnit from '#models/business_unit'
 import Person from '#models/person'
@@ -131,5 +133,13 @@ test.group('verifyInfo + resolveRacedIdentityField ante choque simultáneo CURP+
     loser.personRfc = rfc
     const recheck = await service.verifyInfo(loser, unit.businessUnitId)
     assert.equal(resolveRacedIdentityField(recheck, 'rfc'), 'curp')
+  })
+})
+
+test.group('carga masiva — paso de la empresa (contenido)', () => {
+  test('personWithCurpExists recibe la empresa de la fila', ({ assert }) => {
+    const content = readFileSync(join(process.cwd(), 'app/services/employee_service.ts'), 'utf-8')
+    assert.include(content, 'this.personWithCurpExists(employeeData.curp, businessUnitId)')
+    assert.include(content, "livePersonWithIdentityExists('curp', blindIndex(curp), businessUnitId)")
   })
 })
