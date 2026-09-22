@@ -12,6 +12,8 @@ Se prueba con un cliente de API (Postman, Insomnia, Bruno). La autenticación se
 
 **URL base:** `http://127.0.0.1:3333`
 
+**Headers obligatorios.** Cada petición de los Escenarios 1-6 lleva, además del token, el header `X-Business-Unit-Id` con el identificador público de la empresa del administrador (resuelto en Preparar). Sin ese header el sistema responde error antes de llegar al caso que se prueba.
+
 ## 1. Preparar (una sola vez)
 
 ```bash
@@ -33,6 +35,16 @@ SELECT person_id FROM people WHERE person_firstname = 'QACred' AND person_lastna
 SELECT person_id FROM people WHERE person_firstname = 'QACred' AND person_lastname = 'Persona02';
 SELECT person_id FROM people WHERE person_firstname = 'QACred' AND person_lastname = 'Persona03';
 SELECT person_id FROM people WHERE person_firstname = 'QACred' AND person_lastname = 'Persona04';
+```
+
+Identificador público de la empresa del administrador, para el header `X-Business-Unit-Id`:
+
+```sql
+SELECT b.business_unit_slug, b.business_unit_public_id
+FROM business_units b
+JOIN business_unit_users bu ON bu.business_unit_id = b.business_unit_id
+JOIN users u ON u.user_id = bu.user_id
+WHERE u.user_email = 'qa-credencial-admin@gsti-tests.local' AND u.user_deleted_at IS NULL;
 ```
 
 Casos que no se pueden provocar en este ambiente y no se recorren aquí: la revisión previa que aborta la migración ante duplicados, la convivencia de varias cuentas dadas de baja con el mismo correo, el correo de una cuenta desactivada pero no dada de baja, los espacios alrededor del correo sembrados directo en base, el ingreso con dos cuentas que ya comparten correo y dos altas simultáneas con el mismo correo.
