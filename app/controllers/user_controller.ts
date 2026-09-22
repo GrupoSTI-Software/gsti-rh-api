@@ -1583,24 +1583,35 @@ export default class UserController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: |
+   *           The parameters entered are invalid or essential data is missing to process the request.
+   *           También responde 400 cuando el correo de acceso ya está en uso por otra cuenta activa (código USR.MAIL.002): ningún campo se guardó.
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
+   *               oneOf:
+   *                 - type: object
+   *                   description: Parámetros inválidos o datos indispensables faltantes
+   *                   properties:
+   *                     type:
+   *                       type: string
+   *                       description: Type of response generated
+   *                     title:
+   *                       type: string
+   *                       description: Title of response generated
+   *                     message:
+   *                       type: string
+   *                       description: Message of response
+   *                     data:
+   *                       type: object
+   *                       description: List of parameters set by the client
+   *                 - type: object
+   *                   description: El correo de acceso ya está en uso por otra cuenta activa. Ningún campo se guardó.
+   *                   properties:
+   *                     title: { type: string, example: Este correo de acceso ya está en uso }
+   *                     detail: { type: string, example: Otra cuenta activa usa este correo de acceso; usa uno distinto o da de baja la cuenta que lo tiene. No se guardó ningún cambio. }
+   *                     key: { type: string, example: correo-de-acceso-ya-registrado }
+   *                     code: { type: string, example: USR.MAIL.002 }
    *       default:
    *         description: Unexpected error
    *         content:
@@ -1645,17 +1656,6 @@ export default class UserController {
    *                 detail: { type: string, example: El correo de acceso contiene la máscara de un dato protegido. Captura el correo completo o usa el otro tipo de correo; no se guardó ningún cambio. }
    *                 key: { type: string, example: no-fue-posible-guardar-el-correo-de-acceso }
    *                 code: { type: string, example: USR.MAIL.001 }
-   *       '400':
-   *         description: El correo de acceso ya está en uso por otra cuenta activa. Ningún campo se guardó.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 title: { type: string, example: Este correo de acceso ya está en uso }
-   *                 detail: { type: string, example: Otra cuenta activa usa este correo de acceso; usa uno distinto o da de baja la cuenta que lo tiene. No se guardó ningún cambio. }
-   *                 key: { type: string, example: correo-de-acceso-ya-registrado }
-   *                 code: { type: string, example: USR.MAIL.002 }
    */
   async store(ctx: HttpContext) {
     const { auth, request, response, i18n, businessUnitScope } = ctx
@@ -1992,24 +1992,35 @@ export default class UserController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: |
+   *           The parameters entered are invalid or essential data is missing to process the request.
+   *           También responde 400 cuando el correo de acceso ya está en uso por otra cuenta activa (código USR.MAIL.002): ningún campo se guardó.
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
+   *               oneOf:
+   *                 - type: object
+   *                   description: Parámetros inválidos o datos indispensables faltantes
+   *                   properties:
+   *                     type:
+   *                       type: string
+   *                       description: Type of response generated
+   *                     title:
+   *                       type: string
+   *                       description: Title of response generated
+   *                     message:
+   *                       type: string
+   *                       description: Message of response
+   *                     data:
+   *                       type: object
+   *                       description: List of parameters set by the client
+   *                 - type: object
+   *                   description: El correo de acceso ya está en uso por otra cuenta activa. Ningún campo se guardó.
+   *                   properties:
+   *                     title: { type: string, example: Este correo de acceso ya está en uso }
+   *                     detail: { type: string, example: Otra cuenta activa usa este correo de acceso; usa uno distinto o da de baja la cuenta que lo tiene. No se guardó ningún cambio. }
+   *                     key: { type: string, example: correo-de-acceso-ya-registrado }
+   *                     code: { type: string, example: USR.MAIL.002 }
    *       default:
    *         description: Unexpected error
    *         content:
@@ -2054,17 +2065,6 @@ export default class UserController {
    *                 detail: { type: string, example: El correo de acceso contiene la máscara de un dato protegido. Captura el correo completo o usa el otro tipo de correo; no se guardó ningún cambio. }
    *                 key: { type: string, example: no-fue-posible-guardar-el-correo-de-acceso }
    *                 code: { type: string, example: USR.MAIL.001 }
-   *       '400':
-   *         description: El correo de acceso ya está en uso por otra cuenta activa. Ningún campo se guardó.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 title: { type: string, example: Este correo de acceso ya está en uso }
-   *                 detail: { type: string, example: Otra cuenta activa usa este correo de acceso; usa uno distinto o da de baja la cuenta que lo tiene. No se guardó ningún cambio. }
-   *                 key: { type: string, example: correo-de-acceso-ya-registrado }
-   *                 code: { type: string, example: USR.MAIL.002 }
    */
   async update(ctx: HttpContext) {
     const { auth, request, response, i18n, scopedUser } = ctx
