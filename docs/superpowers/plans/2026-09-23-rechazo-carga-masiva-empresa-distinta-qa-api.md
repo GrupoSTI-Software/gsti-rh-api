@@ -51,7 +51,7 @@ Descargar la plantilla real con los headers anteriores. Para cada fila llenar es
 - `Nombre del empleado`
 - `Apellido paterno del empleado`
 
-En las dos columnas de empresa escribir exactamente `QA Carga Empresa A` o `QA Carga Empresa B`. El Escenario 1 también llena `CURP` en una fila para preparar el duplicado propio del Escenario 4.
+En las dos columnas de empresa escribir exactamente `QA Carga Empresa A` o `QA Carga Empresa B`. El Escenario 1 también llena `CURP` en una fila para preparar el duplicado propio del Escenario 5.
 
 **Endpoint de subida:** `POST /api/employees/import-excel`
 
@@ -196,7 +196,50 @@ Crear un archivo con:
 
 (Los datos son los ya explicados en los Escenarios 1 y 2.)
 
-## 5. Escenario 4 — Una CURP repetida en A se omite y el resto continúa
+## 5. Escenario 4 — Varias filas ofensoras: el rechazo las enumera todas
+
+Crear un archivo con:
+
+| Fila | Identificador de nómina | Unidad de negocio de trabajo | Unidad de negocio de nómina | Nombre del empleado | Apellido paterno del empleado |
+|---:|---|---|---|---|---|
+| 2 | `QA-CARGA-VARIAS-01` | `QA Carga Empresa B` | `QA Carga Empresa A` | `Carga` | `TrabajoAjeno` |
+| 3 | `QA-CARGA-VARIAS-02` | `QA Carga Empresa A` | `QA Carga Empresa A` | `Carga` | `Correcta` |
+| 4 | `QA-CARGA-VARIAS-03` | `QA Carga Empresa A` | `QA Carga Empresa B` | `Carga` | `NominaAjena` |
+
+**Endpoint:** `POST /api/employees/import-excel`
+
+**Response exacto:** `422`
+
+```json
+{
+  "type": "error",
+  "title": "El archivo declara otra empresa",
+  "message": "El archivo declara una empresa distinta de la activa en 2 fila(s): Fila 2 (trabajo «QA Carga Empresa B», nómina «QA Carga Empresa A»); Fila 4 (trabajo «QA Carga Empresa A», nómina «QA Carga Empresa B»). No se procesó ninguna fila: corrige las empresas del archivo y vuelve a subirlo.",
+  "detail": "El archivo declara una empresa distinta de la activa en 2 fila(s): Fila 2 (trabajo «QA Carga Empresa B», nómina «QA Carga Empresa A»); Fila 4 (trabajo «QA Carga Empresa A», nómina «QA Carga Empresa B»). No se procesó ninguna fila: corrige las empresas del archivo y vuelve a subirlo.",
+  "key": "empresa-distinta-en-archivo",
+  "code": "EMP.IMPORT.VAL_COMPANY",
+  "data": {
+    "offendingRows": [
+      {
+        "row": 2,
+        "businessUnit": "QA Carga Empresa B",
+        "payrollBusinessUnit": "QA Carga Empresa A"
+      },
+      {
+        "row": 4,
+        "businessUnit": "QA Carga Empresa A",
+        "payrollBusinessUnit": "QA Carga Empresa B"
+      }
+    ]
+  }
+}
+```
+
+Lo nuevo aquí es que `data.offendingRows` trae las dos filas que deben corregirse, no solo la primera.
+
+(Los datos son los ya explicados en el Escenario 2.)
+
+## 6. Escenario 5 — Una CURP repetida en A se omite y el resto continúa
 
 Este escenario usa la CURP creada en la fila 2 del Escenario 1.
 
@@ -244,13 +287,14 @@ Qué significa lo nuevo aquí:
 
 - `CURP duplicado`: esa fila se omitió porque la misma CURP ya pertenece a una persona activa de A; la otra fila sí se creó.
 
-El fallo de dato protegido a media carga (regla 5) no se puede provocar con esta base sembrada: requiere denegar una escritura sensible a mitad del guardado; se cubre con el unitario del predicado y la revisión del `catch`.
+El caso del fallo al guardar un dato protegido no se puede provocar con la base sembrada y no se recorre aquí; está cubierto por pruebas automáticas.
 
 Sin limpieza: este recorrido no toca ningún interruptor global.
 
-## 6. Checklist
+## 7. Checklist
 
 - [ ] Escenario 1 — Dos filas de A: `200`, ambas creadas y sin errores
 - [ ] Escenario 2 — Trabajo de B: `422`, fila 3 identificada y conteo de A intacto
 - [ ] Escenario 3 — Nómina de B: `422` y fila 3 identificada
-- [ ] Escenario 4 — CURP repetida en A: `200`, fila duplicada omitida y la otra creada
+- [ ] Escenario 4 — Dos filas ofensoras: `422`, filas 2 y 4 enumeradas
+- [ ] Escenario 5 — CURP repetida en A: `200`, fila duplicada omitida y la otra creada

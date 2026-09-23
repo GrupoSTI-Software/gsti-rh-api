@@ -28,6 +28,6 @@ sin catálogo, sin pantallas.
 
 Spec funcional `tests/functional/services/employee_import_company_scope.spec.ts`
 (5 casos, criterios 1-5; regla 5 en unitario del predicado + contenido del catch).
-Manual hermano (4 escenarios). Lo no revisable con base sembrada, declarado en el manual.
+Manual hermano (5 escenarios). Lo no revisable con base sembrada, declarado en el manual.
 
 Manual QA: escrito, pendiente de recorrido y verificación contra seed por el bloqueo descrito arriba.
