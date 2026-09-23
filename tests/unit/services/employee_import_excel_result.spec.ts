@@ -62,6 +62,20 @@ test.group('employee_service importFromExcel — USRH1789747321650', () => {
     assert.include(content, 'isCompanyMismatchError')
   })
 
+  test('regla 2: resuelve nombres declarados contra todas las activas; creación sigue en scope', ({
+    assert,
+  }) => {
+    const content = readFileSync(SERVICE_FILE, 'utf-8')
+
+    assert.include(content, 'allBusinessUnitsForResolution')
+    assert.include(content, 'this.mapBusinessUnit(employeeData.businessUnit, allBusinessUnitsForResolution)')
+    assert.include(
+      content,
+      'this.mapBusinessUnit(employeeData.payrollBusinessUnit, allBusinessUnitsForResolution)'
+    )
+    assert.include(content, 'businessUnits[0].businessUnitId')
+  })
+
   test('el rechazo se lanza antes de evaluar el cupo (cero escrituras por construcción)', ({
     assert,
   }) => {

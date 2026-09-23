@@ -2789,6 +2789,17 @@ export default class EmployeeService {
       }
       const businessUnits = await businessUnitsQuery
 
+      // USRH1789747321650 regla 2: los nombres declarados se resuelven contra
+      // TODAS las empresas activas, no solo las del scope. Con scope=[activa],
+      // la empresa ajena nunca estaría en `businessUnits`, `mapBusinessUnit`
+      // devolvería null y el caso de la historia sería invisible. La creación
+      // sigue usando `businessUnits` (scope): nada se crea ni se modifica
+      // fuera de la empresa activa.
+      const allBusinessUnitsForResolution = await BusinessUnit.query()
+        .whereNull('business_unit_deleted_at')
+        .where('business_unit_active', 1)
+        .select('businessUnitId', 'businessUnitName')
+
       const employeeTypes = await EmployeeType.query()
         .whereNull('employee_type_deleted_at')
         .select('employeeTypeId', 'employeeTypeName')
@@ -2942,7 +2953,7 @@ export default class EmployeeService {
           }
 
           // Mapear unidad de negocio de trabajo por nombre
-          let businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, businessUnits)
+          let businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, allBusinessUnitsForResolution)
           // USRH1789747321650 reglas 1 y 2: si el nombre resolvió a una empresa
           // real distinta de la activa, la fila condena el archivo completo.
           // Un nombre que no resuelve (null) conserva el comportamiento de hoy
@@ -2955,7 +2966,7 @@ export default class EmployeeService {
           }
 
           // Mapear unidad de negocio de nómina por nombre
-          let payrollBusinessUnitId = this.mapBusinessUnit(employeeData.payrollBusinessUnit, businessUnits)
+          let payrollBusinessUnitId = this.mapBusinessUnit(employeeData.payrollBusinessUnit, allBusinessUnitsForResolution)
           const declaredPayrollId = payrollBusinessUnitId
           // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
           if (payrollBusinessUnitId === null && businessUnits.length > 0) {
