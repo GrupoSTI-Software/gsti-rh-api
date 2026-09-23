@@ -73,4 +73,22 @@ test.group('employee_service importFromExcel — USRH1789747321650', () => {
     assert.isBelow(rejectIdx, quotaIdx)
     assert.isBelow(rejectIdx, loopIdx)
   })
+
+  test('regla 5: el catch de la pasada 2 re-lanza el error sensible antes de registrar fila fallida', ({
+    assert,
+  }) => {
+    const content = readFileSync(SERVICE_FILE, 'utf-8')
+
+    assert.include(content, 'if (shouldAbortImportOnRowError(error)) throw error')
+    // El catch externo ya re-lanzaba sensibles: no se duplica, se verifica.
+    assert.include(content, 'if (isSensitiveDataWriteError(error)) {')
+  })
+
+  test('regla 4 intacta: el duplicado de CURP sigue siendo salto de fila con el resto cargando', ({
+    assert,
+  }) => {
+    const content = readFileSync(SERVICE_FILE, 'utf-8')
+
+    assert.include(content, "rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })")
+  })
 })

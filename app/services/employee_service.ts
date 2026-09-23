@@ -34,6 +34,7 @@ import Customer from '#models/customer'
 import env from '#start/env'
 import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
 import { importRowErrorMessage } from '#helpers/person_identity_api_error'
+import { shouldAbortImportOnRowError } from '#helpers/employee_import_api_error'
 import { blindIndex } from '#utils/blind_index'
 import { TenantContext } from '#utils/tenant_context'
 import BusinessUnit from '#models/business_unit'
@@ -3113,6 +3114,12 @@ export default class EmployeeService {
           created++
           processed++
         } catch (error: any) {
+          // USRH1789747321650 regla 5 (restaura la intención del bloque
+          // comentado de la revisión sensitive-write-by-category): el fallo al
+          // guardar un dato protegido detiene la carga y se reporta vía 403
+          // del controlador. No es una fila fallida más ni desaparece del
+          // reporte. El `catch` externo ya re-lanza sensibles (`:3126-3128`).
+          if (shouldAbortImportOnRowError(error)) throw error
           skipped++
           rowErrors.push({ row: rowNumber, message: importRowErrorMessage(error) })
         }
