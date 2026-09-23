@@ -1,12 +1,13 @@
 import fs from 'node:fs'
 import type { HttpContext } from '@adonisjs/core/http'
-import ReportJobService from '#services/report_job_service'
+import ReportJobService, { buildReportJobFileName } from '#services/report_job_service'
 import UserService from '#services/user_service'
 import RoleService from '#services/role_service'
 import env from '#start/env'
 import type { ReportJobFilters, ReportJobType } from '#models/report_job'
 import Employee from '#models/employee'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { contentDisposition } from '#helpers/download_file_name'
 import { employeesAttendanceReportJobDeclaration } from '#constants/employees_download_permission_declarations'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
@@ -381,7 +382,8 @@ export default class ReportJobsController {
       )
       if (!allowed) return
 
-      const fileName = job.reportJobFileName ?? 'datos.xlsx'
+      const fileName =
+        job.reportJobFileName ?? buildReportJobFileName(job.reportJobType, job.reportJobFilters, null)
 
       // En desarrollo (key local), el API sirve el archivo directamente.
       if (reportJobService.isLocalKey(job.reportJobFileKey)) {
@@ -395,7 +397,7 @@ export default class ReportJobsController {
           }
         }
         response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        response.header('Content-Disposition', `attachment; filename="${fileName}"`)
+        response.header('Content-Disposition', contentDisposition(fileName))
         response.status(200)
         return response.stream(fs.createReadStream(localPath))
       }

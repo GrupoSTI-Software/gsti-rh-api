@@ -15,13 +15,12 @@ import EmployeeShiftService from './employee_shift_service.js'
 import DepartmentService from './department_service.js'
 import PDFDocument from 'pdfkit'
 import ExcelJS from 'exceljs'
-import SystemSetting from '#models/system_setting'
-import axios from 'axios'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { prepareAliasesForPersistence } from '#utils/org_alias_normalize'
 import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
 import OrgAliasUniquenessService from '#services/org_alias_uniqueness_service'
+import { REPORT_NEUTRAL_ARGB, REPORT_NEUTRAL_HEX } from '#constants/report_neutral_theme'
 
 export default class PositionService {
 
@@ -883,7 +882,7 @@ export default class PositionService {
   /**
    * Genera un documento PDF con la descripción y perfil completo de un puesto.
    *
-   * Construye un PDF en formato carta (Letter) con encabezado corporativo,
+   * Construye un PDF en formato carta (Letter) con encabezado de documento,
    * objetivo general, KPIs, perfil del puesto, perfil de evaluación
    * (psicométrico), competencias funcionales/técnicas, equipo asignado y
    * cuadro de firmas (Elaboró/Validó). El método utiliza `pdfkit` y aplica un
@@ -897,9 +896,8 @@ export default class PositionService {
    * - Solo se consideran puestos no eliminados (`position_deleted_at` nulo) y
    *   sus relaciones activas (funciones específicas, KPIs, competencias y
    *   perfiles de evaluación).
-   * - Si existe un logo configurado en `SystemSetting.systemSettingLogo`, se
-   *   descarga vía HTTP (timeout 8s); si la descarga falla, el documento se
-   *   genera sin logo (no es un error fatal).
+   * - Formato neutral (ver `#constants/report_neutral_theme`): sin logotipos
+   *   ni colores de marca; escala de grises con texto negro.
    * - El renderizado de secciones usa `ensureSpace()` para forzar saltos de
    *   página cuando no cabe el bloque siguiente y `drawPageHeader()` se
    *   registra en el evento `pageAdded` para reimprimir el encabezado.
@@ -929,21 +927,6 @@ export default class PositionService {
 
     if (!position) return null
 
-    // Obtener logo desde SystemSetting
-    const systemSetting = await SystemSetting.query().whereNull('system_setting_deleted_at').first()
-    let logoBuffer: Buffer | null = null
-    if (systemSetting?.systemSettingLogo) {
-      try {
-        const res = await axios.get(systemSetting.systemSettingLogo, {
-          responseType: 'arraybuffer',
-          timeout: 8000,
-        })
-        logoBuffer = Buffer.from(res.data)
-      } catch {
-        logoBuffer = null
-      }
-    }
-
     const DIRNAME = dirname(fileURLToPath(import.meta.url))
     const fontsDir = join(DIRNAME, '..', '..', 'resources', 'fonts')
 
@@ -953,7 +936,6 @@ export default class PositionService {
         margin: 40,
         info: {
           Title: 'Descripcion y Perfil de Puesto',
-          Creator: 'SAE API',
           Producer: 'PDFKit',
         },
       })
@@ -977,10 +959,11 @@ export default class PositionService {
       })
       doc.on('error', reject)
 
-      const navy = '#2E5FA3'
-      const white = '#FFFFFF'
-      const lightGray = '#F5F5F5'
-      const black = '#000000'
+      // Paleta neutral: sin colores de marca, escala de grises con texto negro
+      const black = REPORT_NEUTRAL_HEX.text
+      const muted = REPORT_NEUTRAL_HEX.textMuted
+      const headerFill = REPORT_NEUTRAL_HEX.headerFill
+      const lightGray = REPORT_NEUTRAL_HEX.subheaderFill
       const pageW = doc.page.width - 80
 
       const t = (key: string) => this.i18n.t(key)
@@ -1135,9 +1118,9 @@ export default class PositionService {
       const today = new Date().toLocaleDateString('es-MX')
 
       // ── Constantes de layout ──────────────────────────────────────────────
-      const logoColW = 120
-      const rightColX = 40 + logoColW
-      const rightColW = pageW - logoColW
+      // Sin columna de logo: el bloque de título y metadatos ocupa todo el ancho
+      const rightColX = 40
+      const rightColW = pageW
       const titleRowH = 22
       const metaRowH = 16
       const hHeight = titleRowH + metaRowH * 3
@@ -1172,22 +1155,11 @@ export default class PositionService {
         const hBot = hTop + hHeight
 
         doc.rect(40, hTop, pageW, hHeight).stroke()
-        doc.moveTo(rightColX, hTop).lineTo(rightColX, hBot).stroke()
         doc.moveTo(rightColX, row2Y).lineTo(40 + pageW, row2Y).stroke()
         doc.moveTo(rightColX, row3Y).lineTo(40 + pageW, row3Y).stroke()
         doc.moveTo(rightColX, row4Y).lineTo(40 + pageW, row4Y).stroke()
         doc.moveTo(rightSubX, row2Y).lineTo(rightSubX, row4Y).stroke()
         doc.moveTo(pagColX, row4Y).lineTo(pagColX, hBot).stroke()
-
-        if (logoBuffer) {
-          try {
-            doc.image(logoBuffer, 44, hTop + 4, {
-              fit: [logoColW - 8, hHeight - 8],
-              align: 'center',
-              valign: 'center',
-            })
-          } catch { /* sin logo */ }
-        }
 
         doc
           .fontSize(10).font('Bold').fillColor(black)
@@ -1206,13 +1178,13 @@ export default class PositionService {
       }
 
       // ── Función: secciones de contenido ───────────────────────────────────
-      const drawSectionHeader = (label: string, bgColor: string = navy) => {
+      const drawSectionHeader = (label: string) => {
         ensureSpace(40)
         const sY = doc.y
-        doc.rect(40, sY, pageW, 18).fillAndStroke(bgColor, black)
+        doc.rect(40, sY, pageW, 18).fillAndStroke(headerFill, black)
         doc
           .fontSize(9)
-          .fillColor(white)
+          .fillColor(black)
           .font('Bold')
           .text(label, 40, sY + 4, { width: pageW, align: 'center', lineBreak: false })
         doc.y = sY + 18
@@ -1485,11 +1457,11 @@ export default class PositionService {
 
         ensureSpace(28)
         const competencySubHeaderY = doc.y
-        doc.rect(40, competencySubHeaderY, halfW, 14).fillAndStroke('#2E5FA3', black)
-        doc.rect(40 + halfW, competencySubHeaderY, halfW, 14).fillAndStroke('#2E5FA3', black)
-        doc.fontSize(9).font('Bold').fillColor(white)
+        doc.rect(40, competencySubHeaderY, halfW, 14).fillAndStroke(lightGray, black)
+        doc.rect(40 + halfW, competencySubHeaderY, halfW, 14).fillAndStroke(lightGray, black)
+        doc.fontSize(9).font('Bold').fillColor(black)
           .text(t('profile_position.functional'), 40, competencySubHeaderY + 3, { width: halfW, align: 'center', lineBreak: false })
-        doc.fontSize(9).font('Bold').fillColor(white)
+        doc.fontSize(9).font('Bold').fillColor(black)
           .text(t('profile_position.technical'), 40 + halfW, competencySubHeaderY + 3, { width: halfW, align: 'center', lineBreak: false })
         doc.y = competencySubHeaderY + 14
 
@@ -1532,18 +1504,18 @@ export default class PositionService {
       }
 
       // ── EQUIPO ASIGNADO AL EMPLEADO ───────────────────────────────────────
-      drawSectionHeader(t('profile_position.assigned_equipment'), '#2E5FA3')
+      drawSectionHeader(t('profile_position.assigned_equipment'))
 
       ensureSpace(42)
       const equipSubY = doc.y
       const equipHalfW = pageW / 2
 
       // Sub-encabezados
-      doc.rect(40, equipSubY, equipHalfW, 14).fillAndStroke('#2E5FA3', black)
-      doc.rect(40 + equipHalfW, equipSubY, equipHalfW, 14).fillAndStroke('#2E5FA3', black)
-      doc.fontSize(9).font('Bold').fillColor(white)
+      doc.rect(40, equipSubY, equipHalfW, 14).fillAndStroke(lightGray, black)
+      doc.rect(40 + equipHalfW, equipSubY, equipHalfW, 14).fillAndStroke(lightGray, black)
+      doc.fontSize(9).font('Bold').fillColor(black)
         .text(t('profile_position.personal_security'), 40, equipSubY + 3, { width: equipHalfW, align: 'center', lineBreak: false })
-      doc.fontSize(9).font('Bold').fillColor(white)
+      doc.fontSize(9).font('Bold').fillColor(black)
         .text(t('profile_position.work_equipment'), 40 + equipHalfW, equipSubY + 3, { width: equipHalfW, align: 'center', lineBreak: false })
       doc.y = equipSubY + 14
 
@@ -1560,12 +1532,12 @@ export default class PositionService {
       const signSubY = doc.y
 
       // Sub-encabezados: ELABORÓ | (vacío) | VALIDÓ
-      doc.rect(40, signSubY, signColW, 16).fillAndStroke('#2E5FA3', black)
+      doc.rect(40, signSubY, signColW, 16).fillAndStroke(lightGray, black)
       doc.rect(40 + signColW, signSubY, signColW, 16).fillAndStroke(lightGray, black)
-      doc.rect(40 + signColW * 2, signSubY, signColW, 16).fillAndStroke('#2E5FA3', black)
-      doc.fontSize(9).font('Bold').fillColor(white)
+      doc.rect(40 + signColW * 2, signSubY, signColW, 16).fillAndStroke(lightGray, black)
+      doc.fontSize(9).font('Bold').fillColor(black)
         .text(t('profile_position.elaborated_by'), 40, signSubY + 4, { width: signColW, align: 'center', lineBreak: false })
-      doc.fontSize(9).font('Bold').fillColor(white)
+      doc.fontSize(9).font('Bold').fillColor(black)
         .text(t('profile_position.validated_by'), 40 + signColW * 2, signSubY + 4, { width: signColW, align: 'center', lineBreak: false })
 
       // Bordear las 3 celdas del área de firmas
@@ -1602,7 +1574,7 @@ export default class PositionService {
       // ── Pie de página ─────────────────────────────────────────────────────
       doc
         .fontSize(7)
-        .fillColor('#888888')
+        .fillColor(muted)
         .text(`Generado el ${today}`, 40, doc.y + 6, {
           width: pageW,
           align: 'right',
@@ -1619,7 +1591,7 @@ export default class PositionService {
    * Crea un workbook de `exceljs` con una sola hoja en orientación vertical
    * carta. El layout utiliza 12 columnas (A-L) para mantener proporciones
    * equivalentes a la versión PDF, con celdas combinadas (`mergeCells`) para
-   * armar el encabezado corporativo, los bloques de metadatos
+   * armar el encabezado, los bloques de metadatos
    * (Fecha de Emisión / Revisión / Dirección / Área-Cuenta), nombre del puesto,
    * objetivo general, KPIs, perfil del puesto, perfiles de evaluación
    * (psicométricos), competencias, equipo asignado y firmas.
@@ -1629,9 +1601,8 @@ export default class PositionService {
    *   central del tenant (resuelto vía `TenantContext`/`businessScope()`).
    * - Solo se consideran puestos no eliminados y relaciones activas
    *   (funciones específicas, KPIs, competencias y perfiles de evaluación).
-   * - Si existe logo en `SystemSetting`, se descarga (timeout 8s) y se inserta
-   *   como imagen anclada a las celdas A:B (filas 1-4). Detecta la extensión
-   *   automáticamente (png, jpeg o gif) por la URL.
+   * - Formato neutral (ver `#constants/report_neutral_theme`): sin logotipos
+   *   ni colores de marca; escala de grises con texto negro.
    * - El texto enriquecido HTML del objetivo general se convierte a `richText`
    *   mediante `htmlToRichText`, soportando negritas, cursivas, subrayado,
    *   listas ordenadas/desordenadas con indentación `ql-indent-N`.
@@ -1662,24 +1633,6 @@ export default class PositionService {
 
     if (!position) return null
 
-    const systemSetting = await SystemSetting.query().whereNull('system_setting_deleted_at').first()
-    let logoBuffer: Buffer | null = null
-    let logoExtension: 'png' | 'jpeg' | 'gif' = 'png'
-    if (systemSetting?.systemSettingLogo) {
-      try {
-        const logoRes = await axios.get(systemSetting.systemSettingLogo, {
-          responseType: 'arraybuffer',
-          timeout: 8000,
-        })
-        logoBuffer = Buffer.from(logoRes.data)
-        const logoUrl = systemSetting.systemSettingLogo.toLowerCase()
-        if (logoUrl.includes('.jpg') || logoUrl.includes('.jpeg')) logoExtension = 'jpeg'
-        else if (logoUrl.includes('.gif')) logoExtension = 'gif'
-      } catch {
-        logoBuffer = null
-      }
-    }
-
     const t = (key: string) => this.i18n.t(key)
     const today = new Date().toLocaleDateString('es-MX', {
       day: '2-digit',
@@ -1687,10 +1640,10 @@ export default class PositionService {
       year: 'numeric',
     })
 
-    const BLUE = 'FF2E5FA3'
-    const GRAY = 'FFF2F2F2'
-    const BLACK = 'FF000000'
-    const WHITE = 'FFFFFFFF'
+    // Paleta neutral: sin colores de marca, escala de grises con texto negro
+    const HEADER = REPORT_NEUTRAL_ARGB.headerFill
+    const GRAY = REPORT_NEUTRAL_ARGB.subheaderFill
+    const BLACK = REPORT_NEUTRAL_ARGB.text
 
     const borderAll: Partial<ExcelJS.Borders> = {
       top: { style: 'thin', color: { argb: BLACK } },
@@ -1700,7 +1653,6 @@ export default class PositionService {
     }
 
     const workbook = new ExcelJS.Workbook()
-    workbook.creator = 'SAE'
     workbook.title = t('profile_position.title')
 
     const sheet = workbook.addWorksheet(t('profile_position.title'), {
@@ -1838,10 +1790,10 @@ export default class PositionService {
       return cleaned
     }
 
-    const addSectionHeader = (label: string, bg = BLUE) => {
+    const addSectionHeader = (label: string) => {
       const row = sheet.addRow([label])
       mergeRow(row, 'A', LAST)
-      styleCell(row.getCell('A'), { bold: true, size: 10, color: WHITE, bg, align: 'center' })
+      styleCell(row.getCell('A'), { bold: true, size: 10, bg: HEADER, align: 'center' })
       row.height = 20
       return row
     }
@@ -1872,49 +1824,33 @@ export default class PositionService {
       return row
     }
 
-    // ── Encabezado: Logo + Título + Metadata ─────────────────────────────────
-    // A:B = logo (merged filas 1-4), C:L = contenido
-    const headerRow1 = sheet.addRow(['', '', t('profile_position.title')])
-    sheet.mergeCells(`C${headerRow1.number}:${LAST}${headerRow1.number}`)
-    styleCell(headerRow1.getCell('C'), { bold: true, size: 12, color: WHITE, bg: BLUE, align: 'center' })
+    // ── Encabezado: Título + Metadata (sin logo, ocupa A:L) ──────────────────
+    const headerRow1 = sheet.addRow([t('profile_position.title')])
+    sheet.mergeCells(`A${headerRow1.number}:${LAST}${headerRow1.number}`)
+    styleCell(headerRow1.getCell('A'), { bold: true, size: 12, bg: HEADER, align: 'center' })
     headerRow1.height = 26
 
-    // Metadata: C:G = izquierda, H:L = derecha
-    const headerRow2 = sheet.addRow(['', '', `${t('profile_position.implementation_date')}: ${today}`, '', '', '', '', `${t('profile_position.revision')}: 01`])
-    sheet.mergeCells(`C${headerRow2.number}:G${headerRow2.number}`)
+    // Metadata: A:G = izquierda, H:L = derecha
+    const headerRow2 = sheet.addRow([`${t('profile_position.implementation_date')}: ${today}`, '', '', '', '', '', '', `${t('profile_position.revision')}: 01`])
+    sheet.mergeCells(`A${headerRow2.number}:G${headerRow2.number}`)
     sheet.mergeCells(`H${headerRow2.number}:${LAST}${headerRow2.number}`)
-    styleCell(headerRow2.getCell('C'), { size: 8 })
+    styleCell(headerRow2.getCell('A'), { size: 8 })
     styleCell(headerRow2.getCell('H'), { size: 8 })
     headerRow2.height = 16
 
-    const headerRow3 = sheet.addRow(['', '', `${t('profile_position.control_key')}: ${position.positionCode ?? ''}`, '', '', '', '', `${t('profile_position.replaces_revision')}: 00`])
-    sheet.mergeCells(`C${headerRow3.number}:G${headerRow3.number}`)
+    const headerRow3 = sheet.addRow([`${t('profile_position.control_key')}: ${position.positionCode ?? ''}`, '', '', '', '', '', '', `${t('profile_position.replaces_revision')}: 00`])
+    sheet.mergeCells(`A${headerRow3.number}:G${headerRow3.number}`)
     sheet.mergeCells(`H${headerRow3.number}:${LAST}${headerRow3.number}`)
-    styleCell(headerRow3.getCell('C'), { size: 8 })
+    styleCell(headerRow3.getCell('A'), { size: 8 })
     styleCell(headerRow3.getCell('H'), { size: 8 })
     headerRow3.height = 16
 
-    const headerRow4 = sheet.addRow(['', '', `${t('profile_position.reason_for_change')}:`, '', '', '', '', `${t('profile_position.page')} 1`])
-    sheet.mergeCells(`C${headerRow4.number}:G${headerRow4.number}`)
+    const headerRow4 = sheet.addRow([`${t('profile_position.reason_for_change')}:`, '', '', '', '', '', '', `${t('profile_position.page')} 1`])
+    sheet.mergeCells(`A${headerRow4.number}:G${headerRow4.number}`)
     sheet.mergeCells(`H${headerRow4.number}:${LAST}${headerRow4.number}`)
-    styleCell(headerRow4.getCell('C'), { size: 8 })
+    styleCell(headerRow4.getCell('A'), { size: 8 })
     styleCell(headerRow4.getCell('H'), { size: 8, align: 'right' })
     headerRow4.height = 16
-
-    // Merge A:B para el logo (filas 1-4)
-    sheet.mergeCells(`A${headerRow1.number}:B${headerRow4.number}`)
-    const logoCell = sheet.getCell(`A${headerRow1.number}`)
-    logoCell.border = borderAll
-    logoCell.alignment = { horizontal: 'center', vertical: 'middle' }
-
-    if (logoBuffer) {
-      const imageId = workbook.addImage({ base64: logoBuffer.toString('base64'), extension: logoExtension })
-      sheet.addImage(imageId, {
-        tl: { col: 0, row: headerRow1.number - 0.85 } as ExcelJS.Anchor,
-        br: { col: 2, row: headerRow4.number - 0.15 } as ExcelJS.Anchor,
-        editAs: 'oneCell',
-      })
-    }
 
     // ── F. Emisión / F. Revisión ──────────────────────────────────────────────
     const emisionRow = sheet.addRow([`${t('profile_position.emission_date')}:`, '', '', today, '', '', `${t('profile_position.review_date')}:`, '', '', today])
@@ -2119,8 +2055,8 @@ export default class PositionService {
       const competencyHeaderRow = sheet.addRow([t('profile_position.functional'), '', '', '', '', '', t('profile_position.technical')])
       sheet.mergeCells(`A${competencyHeaderRow.number}:F${competencyHeaderRow.number}`)
       sheet.mergeCells(`G${competencyHeaderRow.number}:${LAST}${competencyHeaderRow.number}`)
-      styleCell(competencyHeaderRow.getCell('A'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
-      styleCell(competencyHeaderRow.getCell('G'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
+      styleCell(competencyHeaderRow.getCell('A'), { bold: true, bg: GRAY, align: 'center' })
+      styleCell(competencyHeaderRow.getCell('G'), { bold: true, bg: GRAY, align: 'center' })
       competencyHeaderRow.height = 18
 
       const numRows = Math.max(transversalCompetencies.length, technicalCompetencies.length, 1)
@@ -2142,8 +2078,8 @@ export default class PositionService {
     const equipHead = sheet.addRow([t('profile_position.personal_security'), '', '', '', '', '', t('profile_position.work_equipment')])
     sheet.mergeCells(`A${equipHead.number}:F${equipHead.number}`)
     sheet.mergeCells(`G${equipHead.number}:${LAST}${equipHead.number}`)
-    styleCell(equipHead.getCell('A'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
-    styleCell(equipHead.getCell('G'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
+    styleCell(equipHead.getCell('A'), { bold: true, bg: GRAY, align: 'center' })
+    styleCell(equipHead.getCell('G'), { bold: true, bg: GRAY, align: 'center' })
     equipHead.height = 18
 
     const equipRow = sheet.addRow(['', '', '', '', '', '', ''])
@@ -2157,8 +2093,8 @@ export default class PositionService {
     const signHead = sheet.addRow([t('profile_position.elaborated_by'), '', '', '', '', '', t('profile_position.validated_by')])
     sheet.mergeCells(`A${signHead.number}:F${signHead.number}`)
     sheet.mergeCells(`G${signHead.number}:${LAST}${signHead.number}`)
-    styleCell(signHead.getCell('A'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
-    styleCell(signHead.getCell('G'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
+    styleCell(signHead.getCell('A'), { bold: true, bg: GRAY, align: 'center' })
+    styleCell(signHead.getCell('G'), { bold: true, bg: GRAY, align: 'center' })
     signHead.height = 18
 
     const signRow = sheet.addRow([t('profile_position.signed_by'), '', '', '', '', '', t('profile_position.signed_by')])

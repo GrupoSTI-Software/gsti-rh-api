@@ -3,6 +3,9 @@ import db from '@adonisjs/lucid/services/db'
 import { PLATFORM_METRIC_ERROR_CODES } from '../constants/platform_metric_error_codes.js'
 import { PlatformMetricServiceError } from '../exceptions/platform_metric_service_error.js'
 import PlatformSubscriptionFlowService from './platform_subscription_flow_service.js'
+import PlatformTenantMilestoneService, {
+  type TenantMilestone,
+} from './platform_tenant_milestone_service.js'
 import {
   daysBetweenBusinessDates,
   getBusinessTimeZone,
@@ -188,11 +191,18 @@ export function resolveTenantTrialWindow(
  */
 export default class PlatformTrialService {
   private readonly flowService = new PlatformSubscriptionFlowService()
+  private readonly milestoneService = new PlatformTenantMilestoneService()
 
-  /** Ventana, estado y desenlace de una sola empresa por su `businessUnitPublicId`. */
+  /**
+   * Ventana, estado, desenlace **e hitos de puesta en marcha** de una sola
+   * empresa por su `businessUnitPublicId` (USRH1789079078170 §9.2/§10). Los
+   * siete hitos se calculan siempre, con o sin prueba (RN-20) — el bloque
+   * `hitos` es independiente de `prueba`.
+   */
   async getTenantTrial(publicId: string): Promise<{
     tenant: { publicId: string; nombre: string }
     prueba: PlatformTenantTrial | null
+    hitos: TenantMilestone[]
   }> {
     const bu = await db
       .from('business_units as bu')
@@ -232,10 +242,33 @@ export default class PlatformTrialService {
       }
     }
 
+    const milestoneMap = await this.milestoneService.resolveMilestones([buRow.buId])
+    const hitos = milestoneMap.get(buRow.buId)!
+
     return {
       tenant: { publicId, nombre: buRow.businessUnitName },
       prueba,
+      hitos,
     }
+  }
+
+  /**
+   * `business_unit_id` interno de un tenant por su `publicId`, o `null` si no
+   * existe o está borrado lógicamente (USRH1789079078171 §8.2). Se agrega
+   * como método propio y mínimo — no se toca la forma de `getTenantTrial`,
+   * que a propósito nunca expone el id interno en su respuesta HTTP — para
+   * que `PlatformTrialUsageService` pueda amarrar el scope del motor de
+   * asistencia (`allowedBusinessUnitIds`) sin resolver el tenant por su
+   * cuenta ni duplicar la lógica de 404.
+   */
+  async resolveBusinessUnitId(publicId: string): Promise<number | null> {
+    const bu = await db
+      .from('business_units')
+      .whereNull('business_unit_deleted_at')
+      .where('business_unit_public_id', publicId)
+      .select('business_unit_id as buId')
+      .first()
+    return (bu as { buId: number } | undefined)?.buId ?? null
   }
 
   /**

@@ -1,6 +1,7 @@
 import logger from '@adonisjs/core/services/logger'
 import { isFileIntakeError, respondFileIntakeError } from '#helpers/file_intake_api_error'
 import { assertSpreadsheetFile } from '#helpers/spreadsheet_intake_guard'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
 import type { HttpContext } from '@adonisjs/core/http'
 import ContratoServicioEspecializadoService, {
   type Anexo15dCreatePayload,
@@ -462,7 +463,9 @@ export default class ContratosServiciosEspecializadosController {
       )
       response.header(
         'Content-Disposition',
-        'attachment; filename=plantilla-importacion-contratos-servicios-especializados.xlsx'
+        contentDisposition(
+          buildDownloadFileName(['plantilla-importacion-contratos-servicios-especializados'], 'xlsx')
+        )
       )
       response.status(200)
       return response.send(buffer)

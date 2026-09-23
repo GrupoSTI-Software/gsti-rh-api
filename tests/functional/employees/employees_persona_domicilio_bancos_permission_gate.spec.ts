@@ -83,6 +83,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     personLastname: 'Test',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId: businessUnit.businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -120,6 +121,7 @@ async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): P
     personLastname: 'Sistema',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId: businessUnit.businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -176,6 +178,7 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
     personLastname: 'SoftRollout',
     personSecondLastname: prefix,
     personEmail: `employee-${prefix}-${stamp}@gsti-tests.local`,
+    businessUnitId,
   })
   const departmentInsert = await db.table('departments').insert({
     department_sync_id: stamp,
@@ -354,6 +357,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate soft-rollout', (group) =
     const response = await client
       .put(`/api/persons/${fixture!.person.personId}`)
       .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
       .json({
         personFirstname: 'Soft',
         personLastname: 'Rollout',
@@ -547,6 +551,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
     const response = await client
       .put(`/api/persons/${fixture!.person.personId}`)
       .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
       .json({ personLastname: 'Inválido' })
 
     response.assertStatus(403)
@@ -561,6 +566,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
       personLastname: 'PermissionGate',
       personSecondLastname: 'Prueba',
       personEmail: `customer-${stamp}@gsti-tests.local`,
+      businessUnitId: actor!.businessUnit.businessUnitId,
     })
     await db.table('customers').insert({
       person_id: customerPerson.personId,
@@ -570,6 +576,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
     const response = await client
       .put(`/api/persons/${customerPerson.personId}`)
       .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
       .json({ personFirstname: 'Cliente', personLastname: 'Actualizado' })
 
     assert.notEqual(response.status(), 403)
@@ -638,6 +645,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
     const personDeleteResponse = await client
       .delete(`/api/persons/${fixture!.person.personId}`)
       .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
     personDeleteResponse.assertStatus(403)
     assert.equal(personDeleteResponse.body()?.key, 'PERM.DENIED')
     assert.isNotNull(

@@ -44,6 +44,7 @@ import type {
 } from '../interfaces/complaint_interface.js'
 import type { ParsedComplaintReportDateRange } from '../helpers/complaint_report_date_range.js'
 import { randomStringFromAlphabet } from '../helpers/csprng_string.js'
+import { buildDownloadFileName, formatDownloadFileDate } from '#helpers/download_file_name'
 
 const PASSPHRASE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 /** Primer dígito del folio nunca es 0 (mismo rango 100000-999999 de siempre). */
@@ -545,9 +546,16 @@ export default class ComplaintService {
     })
   }
 
+  /** `reporte-quejas-{desde}-{hasta}.{xlsx|pdf}` con fechas ISO del periodo. */
   buildReportExportFilename(report: ComplaintReportResult, format: 'xlsx' | 'pdf'): string {
-    const extension = format === 'xlsx' ? 'xlsx' : 'pdf'
-    return `reporte-quejas_${report.period.from}_${report.period.to}.${extension}`
+    return buildDownloadFileName(
+      [
+        'reporte-quejas',
+        formatDownloadFileDate(report.period.from),
+        formatDownloadFileDate(report.period.to),
+      ],
+      format === 'xlsx' ? 'xlsx' : 'pdf'
+    )
   }
 
   private async emptyAggregatedReport(

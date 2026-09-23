@@ -5,6 +5,7 @@ import EmployeeShiftChangeService from '#services/employee_shift_change_service'
 import { createEmployeeShiftChangeValidator } from '#validators/employee_shift_change'
 import EmployeeShiftChange from '#models/employee_shift_changes'
 import { EmployeeShiftChangeFilterInterface } from '../interfaces/employee_shift_change_filter_interface.js'
+import { assertDayWithinRoleScope } from '#modules/role-scope/day_scope_guard'
 export default class EmployeeShiftChangeController {
   /**
    * @swagger
@@ -153,7 +154,7 @@ export default class EmployeeShiftChangeController {
    *                       type: string
    */
   @inject()
-  async store({ auth, request, response }: HttpContext) {
+  async store({ auth, request, response, i18n }: HttpContext) {
     try {
       const employeeShiftChangeService = new EmployeeShiftChangeService()
       await request.validateUsing(createEmployeeShiftChangeValidator)
@@ -195,6 +196,26 @@ export default class EmployeeShiftChangeController {
       } else {
         employeeShiftChangeDateToIsRestDay = 0
       }
+      // El cambio reescribe el turno de un día concreto, así que respeta los
+      // días que el rol de quien captura alcanza a modificar. Se revisan los dos
+      // lados: el recurso es simétrico y cada colaborador puede estar en un
+      // sitio con zona distinta, así que uno puede caer fuera y el otro dentro.
+      for (const side of [
+        { employeeId: employeeIdFrom, day: employeeShiftChangeDateFrom },
+        { employeeId: employeeIdTo, day: employeeShiftChangeDateTo },
+      ]) {
+        const rejection = await assertDayWithinRoleScope({
+          user: auth.user,
+          employeeId: side.employeeId,
+          day: side.day,
+          i18n,
+        })
+        if (rejection) {
+          response.status(rejection.status)
+          return rejection.body
+        }
+      }
+
       const employeeShiftChangeNote = request.input('employeeShiftChangeNote')
       const employeeShiftChange = {
         employeeIdFrom: employeeIdFrom,
@@ -416,7 +437,7 @@ export default class EmployeeShiftChangeController {
    *                     error:
    *                       type: string
    */
-  async delete({ auth, request, response }: HttpContext) {
+  async delete({ auth, request, response, i18n }: HttpContext) {
     try {
       const employeeShiftChangeId = request.param('employeeShiftChangeId')
       if (!employeeShiftChangeId) {
@@ -441,6 +462,29 @@ export default class EmployeeShiftChangeController {
           data: { employeeShiftChangeId },
         }
       }
+      // El borrado retira el registro y su espejo, así que mira los dos días.
+      for (const side of [
+        {
+          employeeId: currentEmployeeShiftChange.employeeIdFrom,
+          day: currentEmployeeShiftChange.employeeShiftChangeDateFrom,
+        },
+        {
+          employeeId: currentEmployeeShiftChange.employeeIdTo,
+          day: currentEmployeeShiftChange.employeeShiftChangeDateTo,
+        },
+      ]) {
+        const rejection = await assertDayWithinRoleScope({
+          user: auth.user,
+          employeeId: side.employeeId,
+          day: side.day,
+          i18n,
+        })
+        if (rejection) {
+          response.status(rejection.status)
+          return rejection.body
+        }
+      }
+
       const employeeShiftChangeService = new EmployeeShiftChangeService()
       const deleteEmployeeShiftChange = await employeeShiftChangeService.delete(
         currentEmployeeShiftChange

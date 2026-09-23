@@ -96,6 +96,13 @@ async function createEmployee(
   businessUnit: BusinessUnit,
   overrides: CreateEmployeeOverrides = {}
 ): Promise<Employee> {
+  // USRH1789698261609: sin marca, `Employee.query().preload('person')` bajo
+  // contexto de tenant activo (businessScope) no encuentra a `person` (scope
+  // fail-closed) y el badge revienta con `employee.person` undefined.
+  if (person.businessUnitId !== businessUnit.businessUnitId) {
+    person.businessUnitId = businessUnit.businessUnitId
+    await person.save()
+  }
   const stamp = uniqueStamp()
   const employee = new Employee()
   employee.employeeSyncId = Date.now()
@@ -243,7 +250,7 @@ test.group('EmployeeBadge - flujo feliz con folio REPSE vigente (E1/E2)', (group
     assert.include(response.header('content-disposition') ?? '', 'attachment')
     assert.include(
       response.header('content-disposition') ?? '',
-      `gafete-empleado-${employee!.employeeId}.pdf`
+      `gafete-${employee!.employeeSlug}.pdf`
     )
     assert.equal(response.header('cache-control'), 'private, no-store')
     assert.isAbove(Number(response.header('content-length')), 0)
@@ -263,7 +270,7 @@ test.group('EmployeeBadge - flujo feliz con folio REPSE vigente (E1/E2)', (group
     assert.include(response.header('content-disposition') ?? '', 'attachment')
     assert.include(
       response.header('content-disposition') ?? '',
-      `gafete-empleado-${employee!.employeeId}.png`
+      `gafete-${employee!.employeeSlug}.png`
     )
     assert.equal(response.header('cache-control'), 'private, no-store')
     assert.isAbove(Number(response.header('content-length')), 0)
@@ -830,7 +837,7 @@ test.group('EmployeeBadge - descarga masiva (E6)', (group) => {
 
     response.assertStatus(200)
     assert.equal(response.header('content-type'), 'application/pdf')
-    assert.include(response.header('content-disposition') ?? '', 'gafetes-empleados-')
+    assert.include(response.header('content-disposition') ?? '', 'gafetes-')
     assert.include(response.header('content-disposition') ?? '', '.pdf')
     assert.equal(response.header('cache-control'), 'private, no-store')
     assert.isUndefined(response.header('content-length'))
@@ -847,7 +854,7 @@ test.group('EmployeeBadge - descarga masiva (E6)', (group) => {
 
     response.assertStatus(200)
     assert.equal(response.header('content-type'), 'application/zip')
-    assert.include(response.header('content-disposition') ?? '', 'gafetes-empleados-')
+    assert.include(response.header('content-disposition') ?? '', 'gafetes-')
     assert.include(response.header('content-disposition') ?? '', '.zip')
     assert.equal(response.header('cache-control'), 'private, no-store')
     assert.equal(response.text().slice(0, 2), 'PK')
@@ -961,6 +968,11 @@ const B1_FOTO_PRIVADA = 'employees/photos/b1-gafete-offline.jpg'
  */
 test.group('EmployeeBadge - contrato para la app sin conexión (B1)', (group) => {
   let root: TestActor | null = null
+  // USRH1789698261609: `root.person` queda marcado con `vigenteBusinessUnit`
+  // (createEmployee lo marca con la empresa del primer empleado que juega).
+  // `vencidoEmployee` necesita su propia persona, marcada con la otra
+  // empresa: la misma fila de `people` no puede pertenecer a las dos a la vez.
+  let vencidoOwner: TestActor | null = null
   let vigenteBusinessUnit: BusinessUnit | null = null
   let vencidoBusinessUnit: BusinessUnit | null = null
   let vigenteRegistration: RepseRegistration | null = null
@@ -970,6 +982,7 @@ test.group('EmployeeBadge - contrato para la app sin conexión (B1)', (group) =>
 
   group.setup(async () => {
     root = await createTestActor(ROOT_ROLE, 'root-b1')
+    vencidoOwner = await createTestActor(ROOT_ROLE, 'root-b1-vencido')
     vigenteBusinessUnit = await createBusinessUnit('b1-vigente')
     vencidoBusinessUnit = await createBusinessUnit('b1-vencido')
     vigenteRegistration = await createRepseRegistration(
@@ -983,7 +996,7 @@ test.group('EmployeeBadge - contrato para la app sin conexión (B1)', (group) =>
     vigenteEmployee = await createEmployee(root.person, vigenteBusinessUnit, {
       employeePhoto: B1_FOTO_PRIVADA,
     })
-    vencidoEmployee = await createEmployee(root.person, vencidoBusinessUnit)
+    vencidoEmployee = await createEmployee(vencidoOwner.person, vencidoBusinessUnit)
   })
 
   group.teardown(async () => {
@@ -991,6 +1004,7 @@ test.group('EmployeeBadge - contrato para la app sin conexión (B1)', (group) =>
     await cleanupRepseRegistration(vigenteRegistration?.repseRegistrationId ?? null)
     await cleanupEmployee(vencidoEmployee?.employeeId ?? null)
     await cleanupEmployee(vigenteEmployee?.employeeId ?? null)
+    await cleanupTestActor(vencidoOwner)
     await cleanupTestActor(root)
     await deleteBusinessUnit(vencidoBusinessUnit)
     await deleteBusinessUnit(vigenteBusinessUnit)

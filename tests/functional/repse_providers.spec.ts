@@ -413,7 +413,7 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
    * contra el largo del buffer subido y, en cuanto el saneo dejó de ser un
    * no-op, esa igualdad pasó a afirmar justo lo contrario de la garantía del
    * sistema. Lo que sí debe cumplirse es que se entregue un PDF íntegro y como
-   * adjunto con su nombre original.
+   * adjunto con el nombre de la convención de descargas.
    */
   test('GET download entrega la evidencia saneada como adjunto (200)', async ({
     client,
@@ -427,7 +427,11 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     response.assertStatus(200)
     assert.equal(response.header('content-type'), 'application/pdf')
     assert.include(response.header('content-disposition') ?? '', 'attachment')
-    assert.include(response.header('content-disposition') ?? '', VALID_PDF_NAME)
+    // Nombre por convención de descargas, nunca el original del usuario.
+    assert.include(
+      response.header('content-disposition') ?? '',
+      `evidencia-validacion-repse-${validationId}.pdf`
+    )
     assert.isAbove(Number(response.header('content-length')), 0)
     /**
      * La firma se comprueba sobre los BYTES. japa no convierte a texto un

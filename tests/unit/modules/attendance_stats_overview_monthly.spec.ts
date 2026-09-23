@@ -113,6 +113,7 @@ function buildBundle(employeeId: number, calendar: AssistDayInterface[]): Employ
       businessUnit: null,
     },
     departmentName: null,
+    timeZone: 'America/Mexico_City',
     calendar,
   }
 }

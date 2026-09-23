@@ -1,25 +1,18 @@
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { DateTime } from 'luxon'
 import PDFDocument from 'pdfkit'
-import logger from '@adonisjs/core/services/logger'
 import { getBusinessTimeZone } from '#utils/business_date'
+import { REPORT_NEUTRAL_HEX, REPORT_NEUTRAL_PDF_FONTS } from '#constants/report_neutral_theme'
 import { MISSING_FIELD_ORDER } from './documents.constants.js'
 
-/**
- * Paleta de marca Valanserh (misma que los demás PDF del repo).
- * NO modificar sin actualizar la guía de DS Valanserh.
- */
-const BRAND_COLORS = {
-  primary: '#3D5DC0',
-  text: '#1F2937',
-  textMuted: '#6B7280',
-  textLight: '#FFFFFF',
-  border: '#D1D5DB',
-  borderLight: '#E5E7EB',
-} as const
+/** Paleta neutral compartida por todos los descargables (sin marca). */
+const PDF_COLORS = REPORT_NEUTRAL_HEX
 
-const PRODUCT_WORDMARK = 'Valanserh'
+/**
+ * Tipografía neutral: fuentes estándar de pdfkit (sin la tipografía de
+ * marca). Codifican WinAnsi, que cubre acentos, ñ, `§`, `—`, `–` y `•`.
+ */
+const FONT_REGULAR = REPORT_NEUTRAL_PDF_FONTS.regular
+const FONT_BOLD = REPORT_NEUTRAL_PDF_FONTS.bold
 
 /**
  * Leyenda de pie que el repo ya imprime en sus PDF. No cita artículo: la
@@ -28,9 +21,6 @@ const PRODUCT_WORDMARK = 'Valanserh'
  */
 const CONFIDENTIALITY_NOTE =
   'Documento confidencial — uso interno. Contiene datos personales protegidos por la Ley Federal de Protección de Datos Personales en Posesión de los Particulares.'
-
-/** Ruta relativa a `resources/fonts/` desde este archivo (4 niveles hasta la raíz). */
-const FONTS_DIR_REL = ['..', '..', '..', '..', 'resources', 'fonts'] as const
 
 /** Altura estimada del bloque de firmas: dos líneas + etiquetas + leyenda. */
 const SIGNATURES_BLOCK_H = 130
@@ -206,7 +196,7 @@ export interface SeparationLetterData {
 /**
  * Render de la constancia de separación (USRH1787433503686) con `pdfkit`.
  * Espejo de `traumatic_event_report_document_service`: construcción del
- * buffer, franja de marca, grid de datos, firmas y pie por página. Recibe
+ * buffer, encabezado neutral, grid de datos, firmas y pie por página. Recibe
  * un objeto de datos, nunca un id.
  *
  * Censo de datos personales: lo impreso (nombre, puesto, adscripción,
@@ -229,12 +219,9 @@ export default class SeparationLetterPdfService {
           Title: LETTER_TEXT.info.title,
           Author: data.legalName,
           Subject: LETTER_TEXT.info.subject,
-          Creator: PRODUCT_WORDMARK,
-          Producer: PRODUCT_WORDMARK,
+          Producer: 'PDFKit',
         },
       })
-
-      this.registerMulishFonts(doc)
 
       const chunks: Uint8Array[] = []
       doc.on('data', (chunk: Uint8Array) => chunks.push(chunk))
@@ -255,7 +242,7 @@ export default class SeparationLetterPdfService {
       const pageRange = doc.bufferedPageRange()
       for (let i = pageRange.start; i < pageRange.start + pageRange.count; i++) {
         doc.switchToPage(i)
-        this.renderBrandStrip(doc, data.tradeName)
+        this.renderPageHeader(doc, data.tradeName)
         this.renderPageFooter(doc, data, i - pageRange.start + 1, pageRange.count)
       }
 
@@ -274,15 +261,15 @@ export default class SeparationLetterPdfService {
 
     // Título + folio
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(16)
-      .fillColor(BRAND_COLORS.text)
+      .fillColor(PDF_COLORS.text)
       .text(LETTER_TEXT.title, margin, doc.y, { width: pageW, align: 'center' })
     doc.moveDown(0.2)
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(8)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(`${LETTER_TEXT.folioLabel} ${data.folio}`, margin, doc.y, {
         width: pageW,
         align: 'center',
@@ -291,9 +278,9 @@ export default class SeparationLetterPdfService {
 
     // Párrafo declarativo
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(10.5)
-      .fillColor(BRAND_COLORS.text)
+      .fillColor(PDF_COLORS.text)
       .text(
         LETTER_TEXT.declaration({
           legalName: data.legalName,
@@ -312,9 +299,9 @@ export default class SeparationLetterPdfService {
 
     // Fundamento
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(LETTER_TEXT.legalBasis, margin, doc.y, { width: pageW, align: 'justify', lineGap: 1 })
     doc.moveDown(1.2)
 
@@ -353,14 +340,14 @@ export default class SeparationLetterPdfService {
 
     const paint = (x: number, width: number, row: { label: string; value: string }) => {
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(8)
-        .fillColor(BRAND_COLORS.textMuted)
+        .fillColor(PDF_COLORS.textMuted)
         .text(row.label, x, rowTop, { width: width - 8, lineBreak: false, ellipsis: true })
       doc
-        .font('Mulish-SemiBold')
+        .font(FONT_BOLD)
         .fontSize(9.5)
-        .fillColor(BRAND_COLORS.text)
+        .fillColor(PDF_COLORS.text)
         .text(row.value, x, rowTop + 11, { width: width - 8, lineBreak: false, ellipsis: true })
     }
 
@@ -416,17 +403,17 @@ export default class SeparationLetterPdfService {
         .moveTo(x + 10, sigLineY)
         .lineTo(x + colW - 10, sigLineY)
         .lineWidth(0.8)
-        .strokeColor(BRAND_COLORS.border)
+        .strokeColor(PDF_COLORS.border)
         .stroke()
       doc
-        .font('Mulish-SemiBold')
+        .font(FONT_BOLD)
         .fontSize(8.5)
-        .fillColor(BRAND_COLORS.text)
+        .fillColor(PDF_COLORS.text)
         .text(column.label, x, sigLineY + 5, { width: colW, align: 'center', lineBreak: false })
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(8)
-        .fillColor(BRAND_COLORS.textMuted)
+        .fillColor(PDF_COLORS.textMuted)
         .text(column.detail, x + 6, sigLineY + 18, {
           width: colW - 12,
           align: 'center',
@@ -437,42 +424,49 @@ export default class SeparationLetterPdfService {
 
     doc.y = sigLineY + 40
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(8)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(LETTER_TEXT.signatures.autographNote, margin, doc.y, {
         width: pageW,
         align: 'center',
       })
   }
 
-  /** Franja de 24 px: wordmark a la izquierda, nombre comercial a la derecha. */
-  private renderBrandStrip(doc: PDFKit.PDFDocument, tradeName: string) {
-    const pageW = doc.page.width
-    const stripH = 24
+  /**
+   * Encabezado neutral de cada página: nombre comercial del patrón en texto
+   * negro a la derecha (identifica al emisor de la constancia; no es marca)
+   * y una línea delgada gris. Sin franja de color ni wordmark del producto.
+   *
+   * El cursor `doc.y` se restaura al terminar para evitar que un `text()`
+   * en coordenadas absolutas arrastre la Y y provoque una página en blanco.
+   */
+  private renderPageHeader(doc: PDFKit.PDFDocument, tradeName: string) {
     const margin = doc.page.margins.left
+    const pageW = doc.page.width - margin * 2
+    const ruleY = 38
     const savedY = doc.y
 
     doc.save()
-    doc.rect(0, 0, pageW, stripH).fill(BRAND_COLORS.primary)
-    doc
-      .font('Mulish-Bold')
-      .fontSize(10)
-      .fillColor(BRAND_COLORS.textLight)
-      .text(PRODUCT_WORDMARK, margin, 7, { width: pageW / 2 - margin, lineBreak: false, height: 12 })
     if (tradeName) {
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(9)
-        .fillColor(BRAND_COLORS.textLight)
-        .text(tradeName, pageW / 2, 8, {
-          width: pageW / 2 - margin,
+        .fillColor(PDF_COLORS.text)
+        .text(tradeName, margin, 24, {
+          width: pageW,
           align: 'right',
           lineBreak: false,
           ellipsis: true,
           height: 12,
         })
     }
+    doc
+      .moveTo(margin, ruleY)
+      .lineTo(margin + pageW, ruleY)
+      .lineWidth(0.5)
+      .strokeColor(PDF_COLORS.border)
+      .stroke()
     doc.restore()
     doc.y = savedY
   }
@@ -495,12 +489,12 @@ export default class SeparationLetterPdfService {
       .moveTo(margin, bottomY)
       .lineTo(margin + pageW, bottomY)
       .lineWidth(0.5)
-      .strokeColor(BRAND_COLORS.borderLight)
+      .strokeColor(PDF_COLORS.border)
       .stroke()
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(7.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
         `${LETTER_TEXT.footer.folio} ${data.folio} · ${LETTER_TEXT.footer.issuedAt} ${issuedAt}`,
         margin,
@@ -508,9 +502,9 @@ export default class SeparationLetterPdfService {
         { width: pageW / 2, align: 'left', lineBreak: false, height: 10 }
       )
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(7.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(`${LETTER_TEXT.footer.page} ${currentPage} / ${totalPages}`, margin + pageW / 2, bottomY + 8, {
         width: pageW / 2,
         align: 'right',
@@ -518,9 +512,9 @@ export default class SeparationLetterPdfService {
         height: 10,
       })
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(6.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(CONFIDENTIALITY_NOTE, margin, bottomY + 22, {
         width: pageW,
         align: 'center',
@@ -529,27 +523,6 @@ export default class SeparationLetterPdfService {
       })
     doc.restore()
     doc.y = savedY
-  }
-
-  /**
-   * Mulish con fallback a Helvetica. El `catch` LOGUEA `warn`: Helvetica
-   * (WinAnsi) reduce el repertorio de caracteres sin avisar.
-   */
-  private registerMulishFonts(doc: PDFKit.PDFDocument) {
-    const baseDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ...FONTS_DIR_REL)
-    try {
-      doc.registerFont('Mulish', path.join(baseDir, 'Mulish-Regular.ttf'))
-      doc.registerFont('Mulish-Bold', path.join(baseDir, 'Mulish-Bold.ttf'))
-      doc.registerFont('Mulish-SemiBold', path.join(baseDir, 'Mulish-SemiBold.ttf'))
-    } catch (error) {
-      logger.warn(
-        { err: error, fontsDir: baseDir },
-        'Constancia de separación: fuentes Mulish no disponibles, se usa Helvetica'
-      )
-      doc.registerFont('Mulish', 'Helvetica')
-      doc.registerFont('Mulish-Bold', 'Helvetica-Bold')
-      doc.registerFont('Mulish-SemiBold', 'Helvetica-Bold')
-    }
   }
 
   /** `YYYY-MM-DD` civil → `dd/MM/aaaa` (numérico, sin depender de locale). */
