@@ -23,6 +23,7 @@ import { applyVisibleDepartmentsScope } from '#helpers/apply_visible_departments
 import type {
   EmployeeImportResult,
   EmployeeImportRowError,
+  EmployeeImportCompanyMismatchRow,
 } from '../interfaces/employee_import_result_interface.js'
 import DepartmentService from './department_service.js'
 import PersonService from './person_service.js'
@@ -2837,6 +2838,13 @@ export default class EmployeeService {
       const rowErrors: EmployeeImportRowError[] = []
       const warnings: string[] = []
 
+      // USRH1789747321650 regla 1: el archivo es de una sola empresa, la activa.
+      // Misma fuente que el cupo (`resolveImportScopeBusinessUnitId`): el supuesto
+      // de la historia es que siempre hay una sola activa; sin ella no hay contra
+      // qué comparar y se propaga el mismo error que el cupo lanzaría.
+      const activeBusinessUnitId = this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)
+      const companyMismatchRows: EmployeeImportCompanyMismatchRow[] = []
+
       const rows: Array<{ row: any; rowNumber: number }> = []
       worksheet.eachRow({ includeEmpty: false }, (row: any, rowNumber: number) => {
         if (rowNumber <= headerRowNumber) return
@@ -2934,6 +2942,12 @@ export default class EmployeeService {
 
           // Mapear unidad de negocio de trabajo por nombre
           let businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, businessUnits)
+          // USRH1789747321650 reglas 1 y 2: si el nombre resolvió a una empresa
+          // real distinta de la activa, la fila condena el archivo completo.
+          // Un nombre que no resuelve (null) conserva el comportamiento de hoy
+          // (decisión de alcance: no es "otra empresa declarada", es captura
+          // incompleta; la regla 3 lo deja intacto).
+          const declaredWorkId = businessUnitId
           // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
           if (businessUnitId === null && businessUnits.length > 0) {
             businessUnitId = businessUnits[0].businessUnitId
@@ -2941,9 +2955,27 @@ export default class EmployeeService {
 
           // Mapear unidad de negocio de nómina por nombre
           let payrollBusinessUnitId = this.mapBusinessUnit(employeeData.payrollBusinessUnit, businessUnits)
+          const declaredPayrollId = payrollBusinessUnitId
           // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
           if (payrollBusinessUnitId === null && businessUnits.length > 0) {
             payrollBusinessUnitId = businessUnits[0].businessUnitId
+          }
+
+          // USRH1789747321650 reglas 1, 2 y 6: basta que CUALQUIERA de las dos
+          // columnas declare otra empresa. La fila se aparta y el archivo se
+          // rechaza entero DESPUÉS de revisar todas (el listado completo es
+          // parte del entregable, no un adorno). Vale también para filas de
+          // actualización: "alguna fila" no distingue altas de correcciones.
+          const declaresOtherCompany =
+            (declaredWorkId !== null && declaredWorkId !== activeBusinessUnitId) ||
+            (declaredPayrollId !== null && declaredPayrollId !== activeBusinessUnitId)
+          if (declaresOtherCompany) {
+            companyMismatchRows.push({
+              row: rowNumber,
+              businessUnit: String(employeeData.businessUnit ?? '').trim(),
+              payrollBusinessUnit: String(employeeData.payrollBusinessUnit ?? '').trim(),
+            })
+            continue
           }
 
           // Si no se especifica unidad de negocio de trabajo, usar la de nómina como fallback
@@ -2980,6 +3012,13 @@ export default class EmployeeService {
           skipped++
           rowErrors.push({ row: rowNumber, message: error.message })
         }
+      }
+
+      // USRH1789747321650 regla 6: el rechazo ocurre antes de tocar cualquier
+      // cosa (ni cupo que evaluar, ni fila que crear o modificar). Un rechazo a
+      // media carga dejaría media plantilla dada de alta.
+      if (companyMismatchRows.length > 0) {
+        throw this.createCompanyMismatchValidationError(companyMismatchRows)
       }
 
       await this.assertImportWithinQuota(allowedBusinessUnitIds, newEmployeesCount)
@@ -3282,6 +3321,30 @@ export default class EmployeeService {
     )
       ; (error as any).isRowLimitError = true
       ; (error as any).statusCode = 400
+    return error
+  }
+
+  /**
+   * Rechazo todo-o-nada: alguna fila declara una empresa distinta de la activa
+   * (USRH1789747321650, reglas 1, 2 y 6). El mensaje enumera TODAS las filas
+   * ofensoras con lo que cada una declaraba, para corregir de una vez. Solo
+   * nombres de empresa y números de fila: ningún dato personal.
+   */
+  private createCompanyMismatchValidationError(
+    offendingRows: EmployeeImportCompanyMismatchRow[]
+  ): Error {
+    const listing = offendingRows
+      .map(
+        (item) =>
+          `Fila ${item.row} (trabajo «${item.businessUnit}», nómina «${item.payrollBusinessUnit}»)`
+      )
+      .join('; ')
+    const error = new Error(
+      `El archivo declara una empresa distinta de la activa en ${offendingRows.length} fila(s): ${listing}. No se procesó ninguna fila: corrige las empresas del archivo y vuelve a subirlo.`
+    )
+    ;(error as any).isCompanyMismatchError = true
+    ;(error as any).statusCode = 422
+    ;(error as any).offendingRows = offendingRows
     return error
   }
 

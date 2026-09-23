@@ -47,3 +47,30 @@ test.group('employee_service importFromExcel — USRH1785169801695', () => {
     assert.include(content, 'limitReached: false')
   })
 })
+
+test.group('employee_service importFromExcel — USRH1789747321650', () => {
+  test('la pasada 1 compara ambas columnas resueltas y rechaza antes del cupo y de la pasada 2', ({
+    assert,
+  }) => {
+    const content = readFileSync(SERVICE_FILE, 'utf-8')
+
+    assert.include(content, 'this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)')
+    assert.include(content, 'const declaredWorkId = businessUnitId')
+    assert.include(content, 'const declaredPayrollId = payrollBusinessUnitId')
+    assert.include(content, 'companyMismatchRows.push({')
+    assert.include(content, 'throw this.createCompanyMismatchValidationError(companyMismatchRows)')
+    assert.include(content, 'isCompanyMismatchError')
+  })
+
+  test('el rechazo se lanza antes de evaluar el cupo (cero escrituras por construcción)', ({
+    assert,
+  }) => {
+    const content = readFileSync(SERVICE_FILE, 'utf-8')
+    const rejectIdx = content.indexOf('throw this.createCompanyMismatchValidationError(companyMismatchRows)')
+    const quotaIdx = content.indexOf('await this.assertImportWithinQuota(allowedBusinessUnitIds, newEmployeesCount)')
+    const loopIdx = content.indexOf('for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows)')
+    assert.isAbove(rejectIdx, 0)
+    assert.isBelow(rejectIdx, quotaIdx)
+    assert.isBelow(rejectIdx, loopIdx)
+  })
+})
