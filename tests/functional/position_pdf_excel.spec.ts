@@ -38,8 +38,8 @@ const MODULE = 'organization-chart'
 const MISSING_POSITION_ID = 999_999_999
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 /**
- * El PDF y el Excel se generan en memoria y el PDF descarga el logo de
- * `system_settings` (timeout propio de 8 s): más lento que el resto de la suite.
+ * El PDF y el Excel se generan en memoria (formato neutral, sin logo):
+ * más lentos que el resto de la suite.
  */
 const DOWNLOAD_TIMEOUT_MS = 30_000
 
