@@ -1,5 +1,6 @@
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { REPORT_NEUTRAL_HEX } from '#constants/report_neutral_theme'
 import { readEmployeePhotoBuffer } from '#helpers/employee_photo_source'
 import { createCanvas, GlobalFonts, loadImage } from '@napi-rs/canvas'
 import QRCode from 'qrcode'
@@ -7,7 +8,13 @@ import QRCode from 'qrcode'
 /** Contexto 2D de `@napi-rs/canvas` (incluye `drawImage` sobre buffers/imágenes). */
 type BadgeCanvasContext = NonNullable<ReturnType<ReturnType<typeof createCanvas>['getContext']>>
 
-/** Ruta relativa a `resources/fonts/` desde este archivo de servicio (Mulish, DS Valanserh). */
+/**
+ * Ruta relativa a `resources/fonts/` desde este archivo de servicio.
+ * Se usa Roboto (tipografía neutral empaquetada) en lugar de Mulish (DS Valanserh):
+ * el gafete es un descargable y no debe cargar identidad de marca. Se empaqueta
+ * el TTF en vez de depender de fuentes del sistema para que el render sea igual
+ * en cualquier servidor.
+ */
 const FONTS_DIR_REL = ['..', '..', '..', 'resources', 'fonts'] as const
 
 /** Ancho del master PNG @300 dpi (CR80 85.6 mm). */
@@ -19,27 +26,35 @@ const CANVAS_HEIGHT = 638
 /** Escala respecto al layout PDFKit en puntos (242.65 × 153.07). */
 const SCALE = CANVAS_WIDTH / 242.65
 
-/** Paleta de marca — franja superior y textos del gafete. */
-const BRAND_COLORS = {
-  primary: '#2B3A8F',
-  internalHeader: '#1A1A1A',
-  text: '#1F2937',
-  textMuted: '#6B7280',
-  textLight: '#FFFFFF',
+/**
+ * Paleta neutral del gafete (decisión de producto 2026-09-22): escala de grises
+ * con texto negro, legible al imprimir en blanco y negro. Solo se conservan los
+ * colores semánticos de estatus (vigente / no vigente), que no son marca.
+ */
+const BADGE_COLORS = {
+  /** Franja del gafete con folio REPSE: negro con texto blanco. */
+  stripFolio: REPORT_NEUTRAL_HEX.text,
+  stripFolioText: REPORT_NEUTRAL_HEX.textInverse,
+  /** Franja de identificación interna: gris claro con texto negro (distinguible en B/N). */
+  stripInternal: REPORT_NEUTRAL_HEX.headerFill,
+  stripInternalText: REPORT_NEUTRAL_HEX.text,
+  text: REPORT_NEUTRAL_HEX.text,
+  textMuted: REPORT_NEUTRAL_HEX.textMuted,
+  background: REPORT_NEUTRAL_HEX.background,
   vigente: '#1E8E5A',
   vigenteBg: '#DDF5E8',
   noVigente: '#C0392B',
   noVigenteBg: '#FCE8E6',
-  placeholderBg: '#F3F4F6',
-  placeholderStripe: '#E5E7EB',
-  placeholderFg: '#9CA3AF',
+  placeholderBg: REPORT_NEUTRAL_HEX.subheaderFill,
+  placeholderStripe: REPORT_NEUTRAL_HEX.headerFill,
+  placeholderFg: REPORT_NEUTRAL_HEX.textMuted,
 } as const
 
 /** Radio de esquinas de la foto del trabajador (espejo diseño BO). */
 const PHOTO_CORNER_RADIUS = 7
 
-const FONT_REGULAR = 'Mulish'
-const FONT_BOLD = 'Mulish-Bold'
+const FONT_REGULAR = 'BadgeRoboto'
+const FONT_BOLD = 'BadgeRoboto-Bold'
 
 let fontsRegistered = false
 
@@ -71,7 +86,7 @@ export default class BadgeRenderService {
     const canvas = createCanvas(CANVAS_WIDTH, CANVAS_HEIGHT)
     const ctx = canvas.getContext('2d')
 
-    ctx.fillStyle = '#FFFFFF'
+    ctx.fillStyle = BADGE_COLORS.background
     ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
     const hasFolio = !!input.folioRepse
@@ -98,17 +113,21 @@ export default class BadgeRenderService {
   // Render
   // ---------------------------------------------------------------------------
 
-  /** Franja sin logo (decisión de producto): solo el rótulo del tipo de gafete, alineado a la izquierda. */
+  /**
+   * Franja sin logo ni color de marca: solo el rótulo del tipo de gafete, alineado a la izquierda.
+   * El tipo (folio REPSE vs interno) se distingue por tono de gris, no por color.
+   */
   private renderTopStrip(ctx: BadgeCanvasContext, hasFolio: boolean) {
     const stripH = this.s(22)
-    const stripColor = hasFolio ? BRAND_COLORS.primary : BRAND_COLORS.internalHeader
+    const stripColor = hasFolio ? BADGE_COLORS.stripFolio : BADGE_COLORS.stripInternal
+    const stripTextColor = hasFolio ? BADGE_COLORS.stripFolioText : BADGE_COLORS.stripInternalText
 
     ctx.fillStyle = stripColor
     ctx.fillRect(0, 0, CANVAS_WIDTH, stripH)
 
     const headerText = hasFolio ? 'PERSONAL ESPECIALIZADO' : 'IDENTIFICACIÓN INTERNA'
     ctx.font = `${this.s(6.5)}px "${FONT_BOLD}"`
-    ctx.fillStyle = BRAND_COLORS.textLight
+    ctx.fillStyle = stripTextColor
     ctx.textAlign = 'left'
     ctx.textBaseline = 'alphabetic'
     ctx.fillText(headerText, this.s(8), this.s(7) + this.s(6.5))
@@ -145,10 +164,10 @@ export default class BadgeRenderService {
     w: number,
     h: number
   ) {
-    ctx.fillStyle = BRAND_COLORS.placeholderBg
+    ctx.fillStyle = BADGE_COLORS.placeholderBg
     ctx.fillRect(x, y, w, h)
 
-    ctx.strokeStyle = BRAND_COLORS.placeholderStripe
+    ctx.strokeStyle = BADGE_COLORS.placeholderStripe
     ctx.lineWidth = this.s(0.45)
     for (let offset = -h; offset < w + h; offset += this.s(7)) {
       ctx.beginPath()
@@ -158,7 +177,7 @@ export default class BadgeRenderService {
     }
 
     ctx.font = `${this.s(4.5)}px "${FONT_REGULAR}"`
-    ctx.fillStyle = BRAND_COLORS.placeholderFg
+    ctx.fillStyle = BADGE_COLORS.placeholderFg
     ctx.textAlign = 'center'
     ctx.textBaseline = 'middle'
     ctx.fillText('Sin foto cargada', x + w / 2, y + h / 2)
@@ -186,12 +205,12 @@ export default class BadgeRenderService {
     }
 
     ctx.font = `${this.s(9)}px "${FONT_BOLD}"`
-    ctx.fillStyle = BRAND_COLORS.text
+    ctx.fillStyle = BADGE_COLORS.text
     let currentY = this.drawWrappedText(ctx, input.nombreCompleto, x, y, width, this.s(9) + lineGap)
 
     currentY += this.s(3)
     ctx.font = `${this.s(6.5)}px "${FONT_REGULAR}"`
-    ctx.fillStyle = BRAND_COLORS.primary
+    ctx.fillStyle = BADGE_COLORS.text
     currentY = this.drawWrappedText(
       ctx,
       input.empresa,
@@ -204,7 +223,7 @@ export default class BadgeRenderService {
     if (hasPuesto) {
       currentY += this.s(2)
       ctx.font = `${this.s(6)}px "${FONT_REGULAR}"`
-      ctx.fillStyle = BRAND_COLORS.textMuted
+      ctx.fillStyle = BADGE_COLORS.textMuted
       this.drawWrappedText(ctx, input.puesto!, x, currentY, width, this.s(6) + this.s(0.5))
     }
 
@@ -217,11 +236,11 @@ export default class BadgeRenderService {
     const y = this.s(92)
 
     ctx.font = `${this.s(5.5)}px "${FONT_REGULAR}"`
-    ctx.fillStyle = BRAND_COLORS.textMuted
+    ctx.fillStyle = BADGE_COLORS.textMuted
     ctx.fillText('FOLIO REPSE', x, y)
 
     ctx.font = `${this.s(6.5)}px "${FONT_BOLD}"`
-    ctx.fillStyle = BRAND_COLORS.text
+    ctx.fillStyle = BADGE_COLORS.text
     this.drawSingleLineTruncated(ctx, input.folioRepse!, x, y + this.s(7), width)
 
     this.renderStatusBadge(ctx, x, y + this.s(17), input.folioVigente === true)
@@ -251,8 +270,8 @@ export default class BadgeRenderService {
     label?: string
   ) {
     const text = label ?? (vigente ? 'VIGENTE' : 'NO VIGENTE')
-    const textColor = vigente ? BRAND_COLORS.vigente : BRAND_COLORS.noVigente
-    const bgColor = vigente ? BRAND_COLORS.vigenteBg : BRAND_COLORS.noVigenteBg
+    const textColor = vigente ? BADGE_COLORS.vigente : BADGE_COLORS.noVigente
+    const bgColor = vigente ? BADGE_COLORS.vigenteBg : BADGE_COLORS.noVigenteBg
     const fontSize = this.s(5.5)
     const dotRadius = this.s(1.5)
     const paddingX = this.s(4)
@@ -288,7 +307,7 @@ export default class BadgeRenderService {
     ctx.drawImage(qrImage, x, y, size, size)
 
     ctx.font = `${this.s(4.5)}px "${FONT_REGULAR}"`
-    ctx.fillStyle = BRAND_COLORS.textMuted
+    ctx.fillStyle = BADGE_COLORS.textMuted
     ctx.textAlign = 'center'
     ctx.textBaseline = 'top'
     ctx.fillText('Escanea para verificar', x + size / 2, y + size + this.s(3))
@@ -301,7 +320,7 @@ export default class BadgeRenderService {
     const maxWidth = CANVAS_WIDTH - this.s(16)
 
     ctx.font = `${this.s(4)}px "${FONT_REGULAR}"`
-    ctx.fillStyle = BRAND_COLORS.textMuted
+    ctx.fillStyle = BADGE_COLORS.textMuted
     ctx.textAlign = 'center'
     ctx.textBaseline = 'alphabetic'
 
@@ -322,8 +341,8 @@ export default class BadgeRenderService {
     if (fontsRegistered) return
 
     const baseDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ...FONTS_DIR_REL)
-    GlobalFonts.registerFromPath(path.join(baseDir, 'Mulish-Regular.ttf'), FONT_REGULAR)
-    GlobalFonts.registerFromPath(path.join(baseDir, 'Mulish-Bold.ttf'), FONT_BOLD)
+    GlobalFonts.registerFromPath(path.join(baseDir, 'Roboto-Regular.ttf'), FONT_REGULAR)
+    GlobalFonts.registerFromPath(path.join(baseDir, 'Roboto-Bold.ttf'), FONT_BOLD)
     fontsRegistered = true
   }
 

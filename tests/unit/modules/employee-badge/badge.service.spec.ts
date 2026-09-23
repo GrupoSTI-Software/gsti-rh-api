@@ -25,6 +25,7 @@ function makeContext(overrides: Partial<BadgeEmployeeContext> = {}): BadgeEmploy
   return {
     employeeId: 4821,
     businessUnitId: 31,
+    employeeSlug: '3f2c1a9e-7b4d-4e21-9a0f-1c2d3e4f5a6b',
     employeeBadgeToken: FAKE_TOKEN,
     personFirstname: 'Gafete',
     personLastname: 'Unitario',

@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import type Position from '#models/position'
+import { buildDownloadFileName } from '#helpers/download_file_name'
 import {
   cleanupOrgChartFixtures,
   createPositionFixture,
@@ -38,8 +39,8 @@ const MODULE = 'organization-chart'
 const MISSING_POSITION_ID = 999_999_999
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
 /**
- * El PDF y el Excel se generan en memoria y el PDF descarga el logo de
- * `system_settings` (timeout propio de 8 s): más lento que el resto de la suite.
+ * El PDF y el Excel se generan en memoria (formato neutral, sin logo):
+ * más lentos que el resto de la suite.
  */
 const DOWNLOAD_TIMEOUT_MS = 30_000
 
@@ -105,7 +106,10 @@ test.group('Position PDF - GET /api/positions/get-pdf/:positionId', (group) => {
 
     const disposition = response.header('content-disposition')
     assert.exists(disposition)
-    assert.match(String(disposition), /perfil-puesto-\d+\.pdf/)
+    assert.include(
+      String(disposition),
+      `filename="${buildDownloadFileName(['perfil-puesto', target.positionName], 'pdf')}"`
+    )
 
     const contentLength = response.header('content-length')
     assert.exists(contentLength)
@@ -168,7 +172,10 @@ test.group('Position Excel - GET /api/positions/get-excel/:positionId', (group) 
 
     const disposition = response.header('content-disposition')
     assert.exists(disposition)
-    assert.match(String(disposition), /perfil-puesto-\d+\.xlsx/)
+    assert.include(
+      String(disposition),
+      `filename="${buildDownloadFileName(['perfil-puesto', target.positionName], 'xlsx')}"`
+    )
 
     const contentLength = response.header('content-length')
     assert.exists(contentLength)

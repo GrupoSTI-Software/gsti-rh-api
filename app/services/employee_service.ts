@@ -41,12 +41,9 @@ import EmployeeBank from '#models/employee_bank'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
 import VacationAuthorizationSignature from '#models/vacation_authorization_signature'
-import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
 import Shift from '#models/shift'
-import SystemSettingService from './system_setting_service.js'
-import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
-import sharp from 'sharp'
+import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 import EmployeeShiftService from './employee_shift_service.js'
 import EmployeeShift from '#models/employee_shift'
 import ShiftExceptionService from './shift_exception_service.js'
@@ -4724,54 +4721,6 @@ export default class EmployeeService {
   }
 
   /**
-   * Calcular la luminosidad de un color hexadecimal
-   * @param hexColor - Color en formato hex (con o sin #, con o sin alpha)
-   * @returns number - Luminosidad entre 0 (oscuro) y 255 (claro)
-   */
-  private calculateColorLuminosity(hexColor: string): number {
-    try {
-      // Remover # y alpha si existen
-      let color = hexColor.replace('#', '').toUpperCase()
-      // Si tiene 8 caracteres (ARGB), quitar los primeros 2 (alpha)
-      if (color.length === 8) {
-        color = color.substring(2)
-      }
-      // Si tiene 6 caracteres, usarlo directamente
-      if (color.length !== 6) {
-        return 128 // Valor por defecto si el formato no es válido
-      }
-
-      // Convertir hex a RGB
-      const r = Number.parseInt(color.substring(0, 2), 16)
-      const g = Number.parseInt(color.substring(2, 4), 16)
-      const b = Number.parseInt(color.substring(4, 6), 16)
-
-      // Calcular luminosidad usando la fórmula estándar
-      // 0.299*R + 0.587*G + 0.114*B
-      const luminosity = 0.299 * r + 0.587 * g + 0.114 * b
-
-      return luminosity
-    } catch (error) {
-      return 128 // Valor por defecto en caso de error
-    }
-  }
-
-  /**
-   * Determinar el color del texto basado en la luminosidad del fondo
-   * @param backgroundColor - Color de fondo en formato ARGB
-   * @returns string - Color del texto en formato ARGB ('FFFFFFFF' para blanco, 'FF001A04' para oscuro)
-   */
-  private getTextColorForBackground(backgroundColor: string): string {
-    // Extraer el color hex sin el alpha para calcular luminosidad
-    const hexColor = backgroundColor.length === 8 ? backgroundColor.substring(2) : backgroundColor
-    const luminosity = this.calculateColorLuminosity(hexColor)
-
-    // Si la luminosidad es menor a 128, el color es oscuro, usar texto blanco
-    // Si es mayor o igual a 128, el color es claro, usar texto oscuro
-    return luminosity < 128 ? 'FFFFFFFF' : 'FF001A04'
-  }
-
-  /**
    * Convertir color hexadecimal a formato ARGB para ExcelJS
    * @param hexColor - Color en formato hex (con o sin #)
    * @returns string - Color en formato ARGB (ej: 'FFE67E22')
@@ -4790,110 +4739,6 @@ export default class EmployeeService {
     }
     // Color por defecto si el formato no es válido
     return 'FFFFFFFF'
-  }
-
-  /**
-   * Obtener el color de la unidad de negocio activa desde SystemSetting
-   * @returns Promise<string> - Color en formato ARGB para ExcelJS (ej: 'FFD6FFDC')
-   */
-  private async getActiveBusinessUnitColor(): Promise<string> {
-    try {
-      // USRH1783821206455: la unidad ya no sale de la lista global — se toma
-      // la unidad seleccionada del request, activa vía TenantContext (el
-      // middleware businessScope() ya la fijó en los 3 llamadores de este método).
-      const [selectedBusinessUnitId] = TenantContext.getScope()
-      if (!selectedBusinessUnitId) {
-        return 'FFD6FFDC' // Color por defecto si no hay unidad seleccionada (ARGB)
-      }
-
-      const businessUnit = await BusinessUnit.find(selectedBusinessUnitId)
-      if (!businessUnit) {
-        return 'FFD6FFDC' // Color por defecto si la unidad no existe (ARGB)
-      }
-
-      // La configuración de la empresa se pide por su llave; antes se recorrían
-      // todas las activas buscando el slug dentro de su CSV.
-      const systemSettings = await SystemSetting.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_active', 1)
-        .where('business_unit_id', businessUnit.businessUnitId)
-
-      for (const systemSetting of systemSettings) {
-        {
-          if (systemSetting.systemSettingSidebarColor) {
-            // Remover el # si existe y convertir a ARGB (agregar FF al inicio para alpha)
-            let color = systemSetting.systemSettingSidebarColor.replace('#', '').toUpperCase()
-            // Si el color tiene 6 caracteres, agregar FF al inicio para formato ARGB
-            if (color.length === 6) {
-              color = 'FF' + color
-            }
-            // Si ya tiene 8 caracteres, asumir que ya está en formato ARGB
-            return color
-          }
-        }
-      }
-
-      return 'FFD6FFDC' // Color por defecto si no se encuentra (ARGB)
-    } catch (error) {
-      console.error('Error obteniendo color de unidad de negocio:', error)
-      return 'FFD6FFDC' // Color por defecto en caso de error (ARGB)
-    }
-  }
-
-  /**
-   * Obtener el logo del systemSetting
-   */
-  // USRH1783712837584: las rutas de `/api/employees` (`businessScope`
-  // middleware) ya resuelven el tenant en `TenantContext`; fail-closed
-  // silencioso — sin configuración propia se conserva el logo por defecto.
-  private async getLogo(): Promise<string> {
-    let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const businessUnitId = TenantContext.getScope()[0]
-    if (businessUnitId) {
-      const systemSettingService = new SystemSettingService()
-      try {
-        const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
-        if (systemSettingActive.systemSettingLogo) {
-          imageLogo = systemSettingActive.systemSettingLogo
-        }
-      } catch (error) {
-        if (!(error instanceof SystemSettingResolutionError)) throw error
-      }
-    }
-    return imageLogo
-  }
-
-  /**
-   * Agregar logo al worksheet
-   */
-  private async addImageLogo(workbook: any, worksheet: any, imageLogo: string) {
-    try {
-      const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-      const imageBuffer = imageResponse.data
-
-      const metadata = await sharp(imageBuffer).metadata()
-      const imageWidth = metadata.width ? metadata.width : 0
-      const imageHeight = metadata.height ? metadata.height : 0
-
-      const targetWidth = 139
-      const targetHeight = 49
-      const scale = Math.min(targetWidth / imageWidth, targetHeight / imageHeight)
-
-      const adjustedWidth = imageWidth * scale
-      const adjustedHeight = imageHeight * scale
-
-      const imageId = workbook.addImage({
-        buffer: imageBuffer,
-        extension: 'png',
-      })
-
-      worksheet.addImage(imageId, {
-        tl: { col: 0.28, row: 0.7 },
-        ext: { width: adjustedWidth, height: adjustedHeight },
-      })
-    } catch (error) {
-      console.error('Error loading logo:', error)
-    }
   }
 
   /**
@@ -5053,10 +4898,6 @@ export default class EmployeeService {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Empleados')
 
-    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
-
-    const logoUrl = await this.getLogo()
-    await this.addImageLogo(workbook, worksheet, logoUrl)
 
     const businessUnitsQuery = BusinessUnit.query()
       .where('business_unit_active', 1)
@@ -5188,7 +5029,9 @@ export default class EmployeeService {
       'Apellido paterno del empleado'
     ]
 
-    worksheet.getRow(1).height = 60
+    // La fila 1 (antes ocupada por el logo) se conserva vacía con alto normal:
+    // el importador y las referencias fijas de filas dependen de esta posición.
+    worksheet.getRow(1).height = 15
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
     worksheet.mergeCells(2, 1, 2, headers.length)
@@ -5206,10 +5049,12 @@ export default class EmployeeService {
     const headerRow = worksheet.addRow(headers)
     headerRow.height = 30
 
-    const requiredHeaderColor = activeBusinessUnitColor
-    const optionalHeaderColor = 'FFD6D6D6'
-    const requiredHeaderTextColor = this.getTextColorForBackground(requiredHeaderColor)
-    const optionalHeaderTextColor = 'FF001A04'
+    // Formato neutral: obligatorias en gris medio y opcionales en gris claro,
+    // ambas con texto negro, para conservar la distinción sin color de marca.
+    const requiredHeaderColor = REPORT_NEUTRAL_ARGB.headerFill
+    const optionalHeaderColor = REPORT_NEUTRAL_ARGB.subheaderFill
+    const requiredHeaderTextColor = REPORT_NEUTRAL_ARGB.text
+    const optionalHeaderTextColor = REPORT_NEUTRAL_ARGB.text
 
     headerRow.eachCell((cell, colNumber) => {
       const headerValue = headers[colNumber - 1]
@@ -5498,13 +5343,6 @@ export default class EmployeeService {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Plantilla de asignación de turnos')
 
-    // Obtener el color de la unidad de negocio activa
-    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
-
-    // Obtener logo y agregarlo
-    const logoUrl = await this.getLogo()
-    await this.addImageLogo(workbook, worksheet, logoUrl)
-
     // Convertir fechas a DateTime
     const startDateTime = DateTime.fromISO(startDate)
     const endDateTime = DateTime.fromISO(endDate)
@@ -5747,8 +5585,9 @@ export default class EmployeeService {
     // ==============================
     //       TÍTULO Y ENCABEZADOS
     // ==============================
-    // Fila del título (después del logo)
-    worksheet.getRow(1).height = 60
+    // La fila 1 (antes ocupada por el logo) se conserva vacía con alto normal:
+    // el importador y las referencias fijas de filas dependen de esta posición.
+    worksheet.getRow(1).height = 15
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
     worksheet.mergeCells(`A2:${String.fromCharCode(65 + 3 + dates.length)}2`)
@@ -5773,10 +5612,11 @@ export default class EmployeeService {
     const row2 = worksheet.addRow(headerRow2)
     row2.height = 30
 
-    const headerColor = activeBusinessUnitColor
-    const headerTextColor = this.getTextColorForBackground(headerColor)
-    const subHeaderColor = 'FF4472C4'
-    const subHeaderTextColor = 'FFFFFFFF'
+    // Formato neutral: encabezado en gris y fila de días en gris claro, texto negro
+    const headerColor = REPORT_NEUTRAL_ARGB.headerFill
+    const headerTextColor = REPORT_NEUTRAL_ARGB.text
+    const subHeaderColor = REPORT_NEUTRAL_ARGB.subheaderFill
+    const subHeaderTextColor = REPORT_NEUTRAL_ARGB.text
 
     // Aplicar formato a la primera fila de encabezados
     row1.eachCell((cell) => {
@@ -6072,19 +5912,15 @@ export default class EmployeeService {
 
       // ID Empleado (BD) - Columna A (oculta)
       worksheet.getCell(row, 1).value = employee.employeeId
-      worksheet.getCell(row, 1).protection = { locked: true }
 
       // Código de Empleado - Columna B
       worksheet.getCell(row, 2).value = employee.employeePayrollCode || 'Sin código'
-      worksheet.getCell(row, 2).protection = { locked: true }
 
       // Empleado - Columna C
       worksheet.getCell(row, 3).value = fullName
-      worksheet.getCell(row, 3).protection = { locked: true }
 
       // Posición - Columna D
       worksheet.getCell(row, 4).value = positionName
-      worksheet.getCell(row, 4).protection = { locked: true }
 
       // Aplicar formato a las primeras 4 columnas
       for (let col = 1; col <= 4; col++) {
@@ -6149,13 +5985,11 @@ export default class EmployeeService {
             pattern: 'solid',
             fgColor: { argb: cellColor }
           }
-          worksheet.getCell(row, colNumber).protection = { locked: true }
         } else {
-          // MODO TEMPLATE: Comportamiento normal (editable)
+          // MODO TEMPLATE: turnos por dropdown
           if (isHoliday) {
-            // Si es día festivo, solo poner "Día festivo" y proteger la celda
+            // Si es día festivo, precargar "Día festivo" (editable)
             worksheet.getCell(row, colNumber).value = 'Día festivo'
-            worksheet.getCell(row, colNumber).protection = { locked: true }
           } else {
             // Si NO es día festivo, agregar dropdown para turnos (editable)
             worksheet.getCell(row, colNumber).dataValidation = {
@@ -6167,7 +6001,6 @@ export default class EmployeeService {
               errorTitle: 'Valor inválido',
               error: 'Seleccione un turno válido o deje vacío'
             }
-            worksheet.getCell(row, colNumber).protection = { locked: false }
           }
         }
       })
@@ -6177,42 +6010,6 @@ export default class EmployeeService {
     //     OCULTAR COLUMNA ID
     // ==============================
     worksheet.getColumn(1).hidden = true
-
-    // ==============================
-    //     PROTEGER HOJA
-    // ==============================
-    // En modo reporte, proteger toda la hoja. En modo template, permitir editar turnos
-    if (isReport) {
-      await worksheet.protect('', {
-        selectLockedCells: true,
-        selectUnlockedCells: false,
-        formatCells: false,
-        formatColumns: false,
-        formatRows: false,
-        insertColumns: false,
-        insertRows: false,
-        deleteColumns: false,
-        deleteRows: false,
-        sort: false,
-        autoFilter: false,
-        pivotTables: false
-      })
-    } else {
-      await worksheet.protect('', {
-        selectLockedCells: true,
-        selectUnlockedCells: true,
-        formatCells: false,
-        formatColumns: false,
-        formatRows: false,
-        insertColumns: false,
-        insertRows: false,
-        deleteColumns: false,
-        deleteRows: false,
-        sort: false,
-        autoFilter: false,
-        pivotTables: false
-      })
-    }
 
     // ==============================
     //     CONGELAR ENCABEZADOS
@@ -6829,13 +6626,6 @@ export default class EmployeeService {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Reporte de Asistencia')
 
-    // Obtener el color de la unidad de negocio activa
-    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
-
-    // Obtener logo y agregarlo
-    const logoUrl = await this.getLogo()
-    await this.addImageLogo(workbook, worksheet, logoUrl)
-
     // Convertir fechas a DateTime
     const startDateTime = DateTime.fromISO(startDate)
     const endDateTime = DateTime.fromISO(endDate)
@@ -7193,7 +6983,9 @@ export default class EmployeeService {
     // ==============================
     //       TÍTULO Y ENCABEZADOS
     // ==============================
-    worksheet.getRow(1).height = 60
+    // La fila 1 (antes ocupada por el logo) se conserva vacía con alto normal:
+    // la inmovilización de paneles y el inicio de datos usan filas fijas.
+    worksheet.getRow(1).height = 15
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
     worksheet.mergeCells(`A2:${String.fromCharCode(65 + 5 + dates.length)}2`)
@@ -7219,10 +7011,11 @@ export default class EmployeeService {
     const row2 = worksheet.addRow(headerRow2)
     row2.height = 30
 
-    const headerColor = activeBusinessUnitColor
-    const headerTextColor = this.getTextColorForBackground(headerColor)
-    const subHeaderColor = 'd9d9d9' // Gris oscuro para fila de días de la semana
-    const subHeaderTextColor = '000000'
+    // Formato neutral: encabezado en gris y fila de días en gris claro, texto negro
+    const headerColor = REPORT_NEUTRAL_ARGB.headerFill
+    const headerTextColor = REPORT_NEUTRAL_ARGB.text
+    const subHeaderColor = REPORT_NEUTRAL_ARGB.subheaderFill
+    const subHeaderTextColor = REPORT_NEUTRAL_ARGB.text
 
     // Aplicar formato a la primera fila de encabezados (Departamento, Puesto, Nombre izq; resto centro)
     row1.eachCell((cell) => {

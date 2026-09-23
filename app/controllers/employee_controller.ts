@@ -6,7 +6,12 @@ import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeService from '#services/employee_service'
 import CalendarExportService from '#services/calendar_export_service'
-import { CALENDAR_EXPORT_FILE_NAMES } from '#constants/calendar_export'
+import { buildCalendarExportFileName } from '#constants/calendar_export'
+import {
+  buildDownloadFileName,
+  contentDisposition,
+  formatDownloadFileDate,
+} from '#helpers/download_file_name'
 import env from '#start/env'
 import { HttpContext } from '@adonisjs/core/http'
 import axios from 'axios'
@@ -36,7 +41,6 @@ import EmployeeShift from '#models/employee_shift'
 import EmployeeType from '#models/employee_type'
 import BusinessUnit from '#models/business_unit'
 import Position from '#models/position'
-import SystemSettingService from '#services/system_setting_service'
 import User from '#models/user'
 import Role from '#models/role'
 import AssistsService from '#services/assist_service'
@@ -71,7 +75,7 @@ import {
 } from '#constants/employee_work_schedule'
 import { I18n } from '@adonisjs/i18n'
 import { TenantContext } from '#utils/tenant_context'
-import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
+import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 import { isEmployeeTerminationRecordChanged } from '#helpers/employee_termination_record'
 import type { PersonReleaseContext } from '#helpers/person_release_guard'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
@@ -4084,42 +4088,16 @@ export default class EmployeeController {
         async (maskSensitive) => {
           const workbook = new ExcelJS.Workbook()
           const worksheet = workbook.addWorksheet('Employee Report')
-          const imageLogo = await this.getLogo()
-          const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-          const imageBuffer = imageResponse.data
-          const imageId = workbook.addImage({
-            buffer: imageBuffer,
-            extension: 'png',
-          })
-          worksheet.addImage(imageId, {
-            tl: { col: 0, row: 0 },
-            ext: { width: 139, height: 49 },
-          })
-          worksheet.getRow(1).height = 60
-          worksheet.mergeCells('A1:F1')
 
+          // Formato neutral: sin logo ni franjas de marca. El título ocupa la
+          // fila 1 y la fila 2 queda como separador antes del encabezado.
           const titleRow = worksheet.addRow(['Employee Report'])
-          let titleColor = '244062'
-          let titleFgColor = 'FFFFFFFF'
-          titleRow.font = { bold: true, size: 24, color: { argb: titleFgColor } }
+          titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
           titleRow.height = 42
           titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
-          worksheet.mergeCells('A2:K2')
-          worksheet.getCell('A2').fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: titleColor },
-          }
-          const periodRow = worksheet.addRow([''])
-          periodRow.font = { size: 15, color: { argb: titleFgColor } }
-          periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
-          worksheet.mergeCells('A3:K3')
-          let periodColor = '366092'
-          worksheet.getCell('A3').fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: periodColor },
-          }
+          worksheet.mergeCells(`A${titleRow.number}:K${titleRow.number}`)
+          const spacerRow = worksheet.addRow([''])
+          worksheet.mergeCells(`A${spacerRow.number}:K${spacerRow.number}`)
           this.addHeadRow(worksheet, employees, maskSensitive)
 
           for (const employee of employees) {
@@ -4147,7 +4125,10 @@ export default class EmployeeController {
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       )
-      response.header('Content-Disposition', 'attachment; filename=employees.xlsx')
+      response.header(
+        'Content-Disposition',
+        contentDisposition(buildDownloadFileName(['empleados', formatDownloadFileDate()], 'xlsx'))
+      )
       response.status(201).send(buffer)
     } catch (error) {
       const auditError = PiiExportService.formatAuditError(error, i18n)
@@ -4329,8 +4310,11 @@ export default class EmployeeController {
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       )
-      const filename = fillWithExisting ? 'plantilla-empleados-con-datos.xlsx' : 'plantilla-importacion-empleados.xlsx'
-      response.header('Content-Disposition', `attachment; filename=${filename}`)
+      const filename = buildDownloadFileName(
+        ['plantilla-importacion-empleados', fillWithExisting ? 'con-datos' : null],
+        'xlsx'
+      )
+      response.header('Content-Disposition', contentDisposition(filename))
       response.status(200)
       response.send(buffer)
     } catch (error: any) {
@@ -4576,41 +4560,19 @@ export default class EmployeeController {
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Shift Exceptions')
 
-      const imageLogo = await this.getLogo()
-      const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-      const imageBuffer = imageResponse.data
-      const imageId = workbook.addImage({
-        buffer: imageBuffer,
-        extension: 'png',
-      })
-      worksheet.addImage(imageId, {
-        tl: { col: 0.38, row: 0.99 },
-        ext: { width: 139, height: 50 },
-      })
-      worksheet.getRow(1).height = 60
-      worksheet.mergeCells('A1:G1')
-
+      // Formato neutral: sin logo ni franjas de marca; título en la fila 1 y
+      // periodo en la fila 2, ambos sin relleno y con texto negro/gris.
       const titleRow = worksheet.addRow(['Employee Shift Exceptions'])
-      titleRow.font = { bold: true, size: 24, color: { argb: 'FFFFFFFF' } }
+      titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      worksheet.mergeCells('A2:G2')
-      worksheet.getCell('A' + 2).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: '244062' },
-      }
+      worksheet.mergeCells(`A${titleRow.number}:G${titleRow.number}`)
 
       const periodRow = worksheet.addRow([
         `From: ${hireDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} , ${currentDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`,
       ])
-      periodRow.font = { italic: true, size: 12, color: { argb: 'FFFFFFFF' } }
-      worksheet.mergeCells('A3:G3')
+      periodRow.font = { italic: true, size: 12, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
+      worksheet.mergeCells(`A${periodRow.number}:G${periodRow.number}`)
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      worksheet.getCell('A3').fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: '365F8B' },
-      }
       const headerRow = worksheet.addRow([
         'Employee ID',
         'Employee Name',
@@ -4620,7 +4582,7 @@ export default class EmployeeController {
         'Shift Assigned',
         'Exception Notes',
       ])
-      headerRow.font = { bold: true, color: { argb: 'FFFFFF' } }
+      headerRow.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       worksheet.columns = [
         { key: 'employeeCode', width: 20 },
         { key: 'employeeName', width: 30 },
@@ -4633,11 +4595,11 @@ export default class EmployeeController {
       worksheet.columns.forEach((col) => {
         col.alignment = { horizontal: 'center', vertical: 'middle' }
       })
-      headerRow.eachCell((cell, colNumber) => {
+      headerRow.eachCell((cell) => {
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
-          fgColor: { argb: colNumber <= 5 ? '538DD5' : '16365C' },
+          fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
         }
         cell.alignment = { vertical: 'middle', horizontal: 'center' }
       })
@@ -4681,7 +4643,7 @@ export default class EmployeeController {
       )
       response.header(
         'Content-Disposition',
-        'attachment; filename="shift_exceptions_employee.xlsx"'
+        contentDisposition(buildDownloadFileName(['excepciones-turno', employee.employeeSlug], 'xlsx'))
 
       )
       response.status(201).send(buffer)
@@ -4723,47 +4685,22 @@ export default class EmployeeController {
       'Employee NSS',
     ])
 
-    let fgColor = 'FFFFFFF'
-    let color = '538DD5'
-    for (let col = 1; col <= 5; col++) {
-      const cell = worksheet.getCell(4, col)
+    // Encabezado neutral: gris claro con texto negro. Se toma la fila real
+    // del encabezado en vez de una posición fija.
+    headerRow.eachCell((cell) => {
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: color },
+        fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
       }
-    }
-
-    color = '16365C'
-    for (let col = 6; col <= 8; col++) {
-      const cell = worksheet.getCell(4, col)
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-    }
-
-    color = '538DD5'
-    for (let col = 9; col <= 11; col++) {
-      const cell = worksheet.getCell(4, col)
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-    }
+    })
 
     headerRow.height = 30
-    headerRow.font = { bold: true, color: { argb: fgColor } }
+    headerRow.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
 
     this.adjustColumnWidths(worksheet)
-    worksheet.views = [
-      { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-      { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-      { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-      { state: 'frozen', ySplit: 4 }, // Fija la cuarta fila
-    ]
+    // Fija título, separador y encabezado de columnas
+    worksheet.views = [{ state: 'frozen', ySplit: headerRow.number }]
     employees.forEach((employee) => {
       const masked = SENSITIVE_EXPORT_PLACEHOLDER
       const phone = maskSensitive ? masked : employee.person?.personPhone || ''
@@ -4798,32 +4735,6 @@ export default class EmployeeController {
 
   addRowExcelEmpty(worksheet: ExcelJS.Worksheet) {
     worksheet.addRow([])
-  }
-
-  /**
-   * Logo para reportes Excel generados dentro de la request del usuario
-   * (USRH1783712837584). Se resuelve por la empresa del usuario
-   * (`TenantContext`, poblado por el middleware `businessScope` de las rutas
-   * de `/api/employees`); fail-closed silencioso: si la empresa no tiene
-   * configuración propia, se conserva el logo por defecto en vez de filtrar
-   * el de otra empresa (antes `getActive()` sin scope podía devolver la
-   * configuración "activa" de cualquier empresa).
-   */
-  async getLogo() {
-    let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const businessUnitId = TenantContext.getScope()[0]
-    if (businessUnitId) {
-      const systemSettingService = new SystemSettingService()
-      try {
-        const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
-        if (systemSettingActive.systemSettingLogo) {
-          imageLogo = systemSettingActive.systemSettingLogo
-        }
-      } catch (error) {
-        if (!(error instanceof SystemSettingResolutionError)) throw error
-      }
-    }
-    return imageLogo
   }
 
   /**
@@ -7709,7 +7620,7 @@ export default class EmployeeController {
    *             description: Nombre del archivo descargable
    *             schema:
    *               type: string
-   *               example: 'attachment; filename="plantilla-asignacion-turnos.xlsx"'
+   *               example: 'attachment; filename="plantilla-asignacion-turnos-2026-09-01-2026-09-15.xlsx"'
    *       400:
    *         description: Parámetros inválidos o faltantes
    *         content:
@@ -7863,7 +7774,12 @@ export default class EmployeeController {
       )
       response.header(
         'Content-Disposition',
-        `attachment; filename="plantilla-asignacion-turnos-${startDate}-${endDate}.xlsx"`
+        contentDisposition(
+          buildDownloadFileName(
+            ['plantilla-asignacion-turnos', formatDownloadFileDate(startDate), formatDownloadFileDate(endDate)],
+            'xlsx'
+          )
+        )
       )
       response.status(200)
       return response.send(buffer)
@@ -8221,6 +8137,12 @@ export default class EmployeeController {
         businessUnitScope
       )
 
+      // Reporte de un solo empleado: el nombre lleva su slug (token opaco), nunca nombre ni número.
+      const singleEmployee =
+        employeeIds?.length === 1
+          ? await Employee.query().withTrashed().where('employee_id', employeeIds[0]).select('employee_slug').first()
+          : null
+
       // Configurar headers para la descarga del archivo
       response.header(
         'Content-Type',
@@ -8228,7 +8150,17 @@ export default class EmployeeController {
       )
       response.header(
         'Content-Disposition',
-        `attachment; filename="reporte-asistencia-${startDate}-${endDate}.xlsx"`
+        contentDisposition(
+          buildDownloadFileName(
+            [
+              'reporte-asistencia',
+              singleEmployee?.employeeSlug,
+              formatDownloadFileDate(startDate),
+              formatDownloadFileDate(endDate),
+            ],
+            'xlsx'
+          )
+        )
       )
       response.status(200)
       return response.send(buffer)
@@ -9098,7 +9030,7 @@ export default class EmployeeController {
           ? await exportService.birthdays(await employeeService.getBirthday(filters, businessUnitScope), year)
           : await exportService.anniversaries(await employeeService.getAnniversary(filters, businessUnitScope), year)
       response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      response.header('Content-Disposition', `attachment; filename=${year}-${CALENDAR_EXPORT_FILE_NAMES[kind]}`)
+      response.header('Content-Disposition', contentDisposition(buildCalendarExportFileName(kind, year)))
       return response.status(200).send(buffer)
     } catch (error) {
       response.status(500)
