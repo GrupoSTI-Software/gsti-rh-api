@@ -52,6 +52,7 @@ import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_writ
 import { USER_VALIDATION_ERROR_CODES } from '#constants/user_validation_error_codes'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
 import { canAccessBackoffice } from '#helpers/backoffice_access'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 
 /**
  * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
@@ -2743,7 +2744,7 @@ export default class UserController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
