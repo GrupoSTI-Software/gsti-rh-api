@@ -1,4 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { resolveStoredFileExtension } from '#helpers/stored_file_extension'
 import { isFileIntakeError, respondFileIntakeError } from '#helpers/file_intake_api_error'
 import type { MessagesProviderContact, FieldContext } from '@vinejs/vine/types'
 import {
@@ -178,9 +180,16 @@ export default class ValidationsController {
       const service = new ValidationsService()
       const { validacion, object } = await service.getEvidenceStream(providerId, validationId)
 
-      const safeName = validacion.evidenciaNombreArchivo.replace(/[^\w.\- ]/g, '_')
+      const fileName = buildDownloadFileName(
+        ['evidencia-validacion-repse', validacion.proveedorRepseValidacionId],
+        resolveStoredFileExtension({
+          storedPath: validacion.evidenciaStorageKey,
+          fileName: validacion.evidenciaNombreArchivo,
+          contentType: object.contentType || validacion.evidenciaMimeType,
+        })
+      )
       response.header('Content-Type', object.contentType || validacion.evidenciaMimeType)
-      response.header('Content-Disposition', `attachment; filename="${safeName}"`)
+      response.header('Content-Disposition', contentDisposition(fileName))
       response.header('Cache-Control', 'private, no-store')
       if (object.contentLength !== undefined) {
         response.header('Content-Length', String(object.contentLength))
