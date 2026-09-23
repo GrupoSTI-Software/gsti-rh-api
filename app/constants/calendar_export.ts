@@ -1,3 +1,5 @@
+import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
+
 /**
  * Reportes descargables del calendario unificado del backoffice.
  *
@@ -6,8 +8,11 @@
  * salen del catálogo de idiomas con el prefijo `calendar_export_`.
  */
 
-/** Relleno del encabezado en ARGB, el azul claro de los demás reportes. */
-export const CALENDAR_EXPORT_HEADER_FILL = 'FFCFE2F3'
+/**
+ * Relleno del encabezado en ARGB: el gris neutral compartido por todos los
+ * descargables (sin colores de marca, ver `report_neutral_theme.ts`).
+ */
+export const CALENDAR_EXPORT_HEADER_FILL = REPORT_NEUTRAL_ARGB.headerFill
 
 /** Ancho mínimo y máximo de columna en caracteres de Excel. */
 export const CALENDAR_EXPORT_COLUMN_MIN_WIDTH = 14

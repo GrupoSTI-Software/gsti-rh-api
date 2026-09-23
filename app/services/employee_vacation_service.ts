@@ -10,13 +10,7 @@ import { EmployeeVacationExcelRowInterface } from '../interfaces/employee_vacati
 import BusinessUnit from '#models/business_unit'
 import { EmployeeVacationUsedDaysExcelRowInterface } from '../interfaces/employee_vacation_used_days_excel_row_interface.js'
 import ShiftException from '#models/shift_exception'
-import { AssistExcelImageInterface } from '../interfaces/assist_excel_image_interface.js'
-import axios from 'axios'
-import env from '#start/env'
-import SystemSettingService from './system_setting_service.js'
-import { TenantContext } from '#utils/tenant_context'
-import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
-import sharp from 'sharp'
+import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 import { EmployeeVacationExcelRowSummaryInterface } from '../interfaces/employee_vacation_excel_row_summary_interface.js'
 import { EmployeeVacationExcelRowSummaryYearInterface } from '../interfaces/employee_vacation_excel_row_summary_year_interface.js'
 import { I18n } from '@adonisjs/i18n'
@@ -169,8 +163,6 @@ export default class EmployeeVacationService {
   }
 
   addHeadRow(worksheet: ExcelJS.Worksheet) {
-    let fgColor = 'FFFFFFF'
-    let color = '4EA72E'
     const headers = [
       this.t('vacation_summary_report_id'),
       this.t('employee'),
@@ -188,17 +180,17 @@ export default class EmployeeVacationService {
     }
     // Agregar los encabezados al worksheet
     const headerRow = worksheet.addRow(headers)
-    color = '156082'
+    // Formato neutral: encabezado gris con texto negro, sin colores de marca
     for (let col = 1; col <= 25; col++) {
       const cell = worksheet.getCell(1, col)
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: color },
+        fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
       }
     }
     headerRow.height = 24
-    headerRow.font = { bold: true, color: { argb: fgColor } }
+    headerRow.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
     const columnA = worksheet.getColumn(1)
     columnA.width = 15
     columnA.alignment = { vertical: 'middle', horizontal: 'center' }
@@ -370,7 +362,7 @@ export default class EmployeeVacationService {
       }
       for await (const year of years) {
         const sheet = workbook.addWorksheet(`${year} Vacations used`)
-        await this.addVacationUsedHeadRow(sheet, workbook)
+        this.addVacationUsedHeadRow(sheet)
         const rows = await this.addEmployeesVacationUsed(employees, year)
         await this.addRowVacationUsedToWorkSheet(rows, sheet)
         this.paintVacationUsedBorderAll(sheet, rows.length)
@@ -440,7 +432,8 @@ export default class EmployeeVacationService {
 
       return 0
     })
-    const fillColors = ['9FC5E8', 'CFE2F3']
+    // Bandas alternas por fecha en grises neutrales (sin colores de marca)
+    const fillColors = [REPORT_NEUTRAL_ARGB.subheaderFill, REPORT_NEUTRAL_ARGB.background]
 
     let lastDate = null
     let colorIndex = 0
@@ -471,73 +464,10 @@ export default class EmployeeVacationService {
   }
 
   /**
-   * USRH1783712837584: las rutas de `/api/employees-vacations` (`businessScope`
-   * middleware) ya resuelven el tenant en `TenantContext`; fail-closed
-   * silencioso — sin configuración propia se conserva el logo por defecto.
+   * Encabezado del reporte de vacaciones usadas. Formato neutral: sin la fila
+   * del logo, los encabezados de columna quedan en la fila 1.
    */
-  async getLogo() {
-    let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const businessUnitId = TenantContext.getScope()[0]
-    if (businessUnitId) {
-      const systemSettingService = new SystemSettingService()
-      try {
-        const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
-        if (systemSettingActive.systemSettingLogo) {
-          imageLogo = systemSettingActive.systemSettingLogo
-        }
-      } catch (error) {
-        if (!(error instanceof SystemSettingResolutionError)) throw error
-      }
-    }
-    return imageLogo
-  }
-
-  async addImageLogo(assistExcelImageInterface: AssistExcelImageInterface) {
-    const imageLogo = await this.getLogo()
-    const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-    const imageBuffer = imageResponse.data
-
-    const metadata = await sharp(imageBuffer).metadata()
-    const imageWidth = metadata.width ? metadata.width : 0
-    const imageHeight = metadata.height ? metadata.height : 0
-
-    const targetWidth = 139
-    const targetHeight = 49
-
-    const scale = Math.min(targetWidth / imageWidth, targetHeight / imageHeight)
-
-    let adjustedWidth = imageWidth * scale
-    let adjustedHeight = imageHeight * scale
-
-    if (assistExcelImageInterface.col === 14.2) {
-      const increaseFactor = 1.3
-      adjustedWidth *= increaseFactor
-      adjustedHeight *= increaseFactor
-    }
-
-    const imageId = assistExcelImageInterface.workbook.addImage({
-      buffer: imageBuffer,
-      extension: 'png',
-    })
-
-    assistExcelImageInterface.worksheet.addImage(imageId, {
-      tl: { col: assistExcelImageInterface.col, row: assistExcelImageInterface.row },
-      ext: { width: adjustedWidth, height: adjustedHeight },
-    })
-  }
-
-  async addVacationUsedHeadRow(worksheet: ExcelJS.Worksheet, workbook:  ExcelJS.Workbook) {
-    const assistExcelImageInterface = {
-      workbook: workbook,
-      worksheet: worksheet,
-      col: 0.28,
-      row: 0.7,
-    } as AssistExcelImageInterface
-    await this.addImageLogo(assistExcelImageInterface)
-    worksheet.getRow(1).height = 60
-    worksheet.mergeCells('A1:E1')
-    let fgColor = 'FFFFFFF'
-    let color = '4EA72E'
+  addVacationUsedHeadRow(worksheet: ExcelJS.Worksheet) {
     const headers = [
       this.t('date'),
       this.t('vacation_summary_report_id'),
@@ -548,17 +478,16 @@ export default class EmployeeVacationService {
 
     // Agregar los encabezados al worksheet
     const headerRow = worksheet.addRow(headers)
-    color = '156082'
     for (let col = 1; col <= 5; col++) {
-      const cell = worksheet.getCell(2, col)
+      const cell = headerRow.getCell(col)
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: color },
+        fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
       }
     }
     headerRow.height = 24
-    headerRow.font = { bold: true, color: { argb: fgColor } }
+    headerRow.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
     const columnA = worksheet.getColumn(1)
     columnA.width = 15
     columnA.alignment = { vertical: 'middle', horizontal: 'center' }
@@ -575,8 +504,7 @@ export default class EmployeeVacationService {
     columnE.width = 64
 
     worksheet.views = [
-      { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-      { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
+      { state: 'frozen', ySplit: 1 }, // Fija la fila de encabezados
     ]
     const row = worksheet.getRow(1)
     row.eachCell({ includeEmpty: true }, (cell) => {
@@ -585,7 +513,8 @@ export default class EmployeeVacationService {
   }
 
   paintVacationUsedBorderAll(worksheet: ExcelJS.Worksheet, rowCount: number) {
-    for (let rowIndex = 1; rowIndex <= rowCount + 2; rowIndex++) {
+    // Fila 1 = encabezados; los datos empiezan en la fila 2
+    for (let rowIndex = 1; rowIndex <= rowCount + 1; rowIndex++) {
       const row = worksheet.getRow(rowIndex)
       for (let colNumber = 1; colNumber <= 5; colNumber++) {
         const cell = row.getCell(colNumber)
@@ -671,7 +600,7 @@ export default class EmployeeVacationService {
       const title = this.formatSummaryReportTitle(start, end)
       const sheetName = this.t('vacation_summary_report_sheet_name')
       const sheet = workbook.addWorksheet(sheetName)
-      await this.addHeadRowSummary(workbook, sheet, title, years)
+      this.addHeadRowSummary(sheet, title, years)
       const rows = await this.addEmployeesSummary(employees, years)
       await this.addRowToWorkSheetSummary(rows, sheet)
       this.paintBorderAllSummary(sheet, rows.length, years)
@@ -696,29 +625,20 @@ export default class EmployeeVacationService {
     }
   }
 
-  async addHeadRowSummary(workbook: ExcelJS.Workbook ,worksheet: ExcelJS.Worksheet, title: string, years: number[]) {
-    let fgColor = 'FFFFFFF'
-    const imageLogo = await this.getLogo()
-    const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-    const imageBuffer = imageResponse.data
-    const imageId = workbook.addImage({
-      buffer: imageBuffer,
-      extension: 'png',
-    })
-    worksheet.addImage(imageId, {
-      tl: { col: 0.4, row: 0.5 },
-      ext: { width: 173, height: 64 },
-    })
-    worksheet.getRow(1).height = 64
+  /**
+   * Encabezado del resumen. Formato neutral: sin logo; la fila 1 conserva solo
+   * el título para no mover las filas fijas que usa `paintBorderAllSummary`
+   * (fila 3 = años, fila 4 = encabezados, datos desde la fila 5).
+   */
+  addHeadRowSummary(worksheet: ExcelJS.Worksheet, title: string, years: number[]) {
+    worksheet.getRow(1).height = 28
     worksheet.addRow([])
-    worksheet.mergeCells('A1:B1')
-    worksheet.getCell('C1').value = title
-    worksheet.mergeCells('C1:E1')
-    worksheet.getCell('C1').font = { size: 16 ,bold: true, color: { argb: '000000'} } // texto negro
-    worksheet.getCell('C1').alignment = { vertical: 'middle', horizontal: 'center' }
+    worksheet.getCell('A1').value = title
+    worksheet.mergeCells('A1:E1')
+    worksheet.getCell('A1').font = { size: 16, bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+    worksheet.getCell('A1').alignment = { vertical: 'middle', horizontal: 'center' }
     worksheet.addRow([])
     let cell = null
-    let color = '4EA72E'
     const headers = [
       this.t('vacation_summary_report_id'),
       this.t('employee'),
@@ -729,16 +649,15 @@ export default class EmployeeVacationService {
 
     // Agregar los encabezados al worksheet
     const headerRow = worksheet.addRow(headers)
-    color = '156082'
     for (let col = 1; col <= 5; col++) {
       cell = worksheet.getCell(4, col)
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: color },
+        fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
       }
     }
-    headerRow.font = { bold: true, color: { argb: fgColor } }
+    headerRow.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
 
     const labels = [
       this.t('vacation_summary_report_years'),
@@ -763,21 +682,20 @@ export default class EmployeeVacationService {
       cell = worksheet.getCell(`${startColLetter}${rowNumber}`)
       cell.value = year
       cell.alignment = { horizontal: 'center', vertical: 'middle' }
-      cell.font = { bold: true, color: { argb: 'FFFFFF' } }
+      cell.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
 
-      color = '156082'
       for (let col = startColIndex; col <= startColIndex + 4; col++) {
         cell = worksheet.getCell(3, col)
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
-          fgColor: { argb: color },
+          fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
         }
         cell = worksheet.getCell(4, col)
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
-          fgColor: { argb: color },
+          fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
         }
       }
       const labelsRow = 4
@@ -786,7 +704,7 @@ export default class EmployeeVacationService {
         const labelCell = worksheet.getCell(`${colLetter}${labelsRow}`)
         labelCell.value = label
         labelCell.alignment = { horizontal: 'center', vertical: 'middle' }
-        labelCell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
+        labelCell.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       }
       startColIndex += 6
     }
@@ -935,16 +853,18 @@ export default class EmployeeVacationService {
               horizontal: 'center',
             }
 
+            // Colores de estatus (sin saldo / disponible / aún no utilizable):
+            // semánticos, no de marca; se conservan en formato neutral.
             if ((j === 3 || j === 4) && rowIndex > 4) {
-              let bgColor = 'F2F2F2'
-              let color = '969696'
+              let bgColor = 'FFF2F2F2'
+              let color = 'FF969696'
               if (typeof cellYear.value === 'number' && cellYear.value > 0) {
-                bgColor = 'ECF1E0'
-                color = '50AE5D'
+                bgColor = 'FFECF1E0'
+                color = 'FF50AE5D'
                 if (j === 3 ) {
                   if (!canUseDays) {
-                    bgColor = 'FAEADB'
-                    color = 'D3722D'
+                    bgColor = 'FFFAEADB'
+                    color = 'FFD3722D'
                   }
                 }
               }
@@ -968,8 +888,9 @@ export default class EmployeeVacationService {
 
   /**
    * Genera el archivo Excel de plantilla para importación masiva de vacaciones.
-   * Diseño alineado con generateShiftAssignmentTemplate:
-   *  - Logo + color corporativo en encabezados
+   * Diseño:
+   *  - Formato neutral (report_neutral_theme): sin logo ni colores de la
+   *    empresa; encabezados en gris con texto negro
    *  - Columnas fijas (1–9): identificador nómina, nombre, departamento, puesto,
    *    unidad de negocio, unidad de nómina, sucursal, días a omitir, razón
    *  - Columnas de días (10+): tantas como el máximo de días posibles según
@@ -992,38 +913,6 @@ export default class EmployeeVacationService {
     code?: string
   }> {
     try {
-      // ── Obtener color corporativo y logo (igual que generateShiftAssignmentTemplate) ──
-      // USRH1783712837584: reutiliza el `allowedBusinessUnitIds` ya resuelto por
-      // el controller (middleware `businessScope`, siempre un único id) en vez
-      // de tocar TenantContext directamente. Fail-closed silencioso.
-      const systemSettingService = new SystemSettingService()
-      let headerColor = 'FFD6FFDC'
-      let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-      if (allowedBusinessUnitIds[0]) {
-        try {
-          const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(
-            allowedBusinessUnitIds[0]
-          )
-          if (systemSettingActive.systemSettingLogo) {
-            imageLogo = systemSettingActive.systemSettingLogo
-          }
-          if (systemSettingActive.systemSettingSidebarColor) {
-            let c = systemSettingActive.systemSettingSidebarColor.replace('#', '').toUpperCase()
-            headerColor = c.length === 6 ? 'FF' + c : c
-          }
-        } catch (error) {
-          if (!(error instanceof SystemSettingResolutionError)) throw error
-        }
-      }
-
-      // Calcular luminosidad para decidir color de texto sobre el header
-      const hexOnly = headerColor.length === 8 ? headerColor.substring(2) : headerColor
-      const redChannel = Number.parseInt(hexOnly.substring(0, 2), 16)
-      const greenChannel = Number.parseInt(hexOnly.substring(2, 4), 16)
-      const blueChannel = Number.parseInt(hexOnly.substring(4, 6), 16)
-      const luminosity = 0.299 * redChannel + 0.587 * greenChannel + 0.114 * blueChannel
-      const headerTextColor = luminosity < 128 ? 'FFFFFFFF' : 'FF001A04'
-
       // ── Obtener empleados según filtros ──
       const businessUnitIds = allowedBusinessUnitIds
 
@@ -1116,25 +1005,9 @@ export default class EmployeeVacationService {
       const workbook = new ExcelJS.Workbook()
       const ws = workbook.addWorksheet('Plantilla de Vacaciones')
 
-      // ── Agregar logo (igual que shift template) ──
-      try {
-        const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-        const imageBuffer = imageResponse.data
-        const metadata = await sharp(imageBuffer).metadata()
-        const iw = metadata.width ?? 1
-        const ih = metadata.height ?? 1
-        const scale = Math.min(139 / iw, 49 / ih)
-        const imageId = workbook.addImage({ buffer: imageBuffer, extension: 'png' })
-        ws.addImage(imageId, {
-          tl: { col: 0.28, row: 0.7 },
-          ext: { width: iw * scale, height: ih * scale },
-        })
-      } catch {
-        // Logo opcional; no bloquea la generación
-      }
-
-      // ── Fila 1: logo placeholder (altura 60, igual que shift template) ──
-      ws.getRow(1).height = 60
+      // ── Fila 1: vacía. Antes alojaba el logo; se conserva porque el
+      // importador lee los datos a partir de la fila 5 (plantillas ya
+      // descargadas siguen siendo válidas) ──
 
       // ── Fila 2: título ──
       const totalColCount = 9 + maxVacationCols
@@ -1144,8 +1017,7 @@ export default class EmployeeVacationService {
       titleRow.height = 28
       const titleCell = ws.getCell('A2')
       titleCell.value = 'PLANTILLA DE IMPORTACIÓN DE VACACIONES'
-      titleCell.font = { bold: true, size: 14, color: { argb: headerTextColor } }
-      titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: headerColor } }
+      titleCell.font = { bold: true, size: 14, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       titleCell.alignment = { vertical: 'middle', horizontal: 'center' }
 
       // ── Fila 3: encabezados fijos + encabezados de días ──
@@ -1167,11 +1039,14 @@ export default class EmployeeVacationService {
       ;[...FIXED_HEADERS, ...dayHeaders].forEach((val, idx) => {
         const cell = headerRow.getCell(idx + 1)
         cell.value = val
-        cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
+        cell.font = { bold: true, size: 9, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+        // Columnas fijas en gris medio; columnas de días en gris claro
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
-          fgColor: { argb: idx < 9 ? headerColor : 'FF4472C4' },
+          fgColor: {
+            argb: idx < 9 ? REPORT_NEUTRAL_ARGB.headerFill : REPORT_NEUTRAL_ARGB.subheaderFill,
+          },
         }
         cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
         cell.border = {
@@ -1189,10 +1064,10 @@ export default class EmployeeVacationService {
         const cell = subHeaderRow.getCell(idx + 1)
         cell.value = val
         if (idx >= 9) {
-          cell.font = { italic: true, size: 8, color: { argb: 'FFFFFFFF' } }
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF4472C4' } }
+          cell.font = { italic: true, size: 8, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: REPORT_NEUTRAL_ARGB.subheaderFill } }
         } else {
-          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: headerColor } }
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill } }
         }
         cell.alignment = { vertical: 'middle', horizontal: 'center' }
         cell.border = {
@@ -1208,19 +1083,23 @@ export default class EmployeeVacationService {
       FIXED_WIDTHS.forEach((w, i) => { ws.getColumn(i + 1).width = w })
       for (let c = 10; c <= totalColCount; c++) { ws.getColumn(c).width = 14 }
 
-      // ── Fills de datos ──
-      const FILL_EVEN: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } }
-      const FILL_ODD: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } }
-      const FILL_INFO: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9E1F2' } }
-      const FILL_EDITABLE: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD9F2E3' } }
-      // Zona 1 — días disponibles: siempre blanco (sin mezcla con gris)
-      const FILL_AVAILABLE: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFFFF' } }
+      // ── Fills de datos (escala de grises; la distinción entre zonas se
+      // conserva por intensidad de gris y grosor de borde) ──
+      const solidFill = (argb: string): ExcelJS.Fill => ({ type: 'pattern', pattern: 'solid', fgColor: { argb } })
+      const FILL_EVEN = solidFill(REPORT_NEUTRAL_ARGB.subheaderFill)
+      const FILL_ODD = solidFill(REPORT_NEUTRAL_ARGB.background)
+      // Columnas informativas (2–7): gris muy claro
+      const FILL_INFO = solidFill(REPORT_NEUTRAL_ARGB.subheaderFill)
+      // Columnas editables (8–9): blanco con borde negro
+      const FILL_EDITABLE = solidFill(REPORT_NEUTRAL_ARGB.background)
+      // Zona 1 — días disponibles: siempre blanco
+      const FILL_AVAILABLE = solidFill(REPORT_NEUTRAL_ARGB.background)
       // Zona 2 — días a futuro / dentro del periodo pero ya consumidos: gris oscuro
-      const FILL_FUTURE: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFD6D6D6' } }
-      // Zona 3 — fuera del periodo actual: azul claro
-      const FILL_USED: ExcelJS.Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFEAF4FB' } }
+      const FILL_FUTURE = solidFill(REPORT_NEUTRAL_ARGB.totalFill)
+      // Zona 3 — fuera del periodo actual: gris claro
+      const FILL_USED = solidFill(REPORT_NEUTRAL_ARGB.headerFill)
 
-      const BORDER_THIN = (color = 'FFD0D0D0') => ({
+      const BORDER_THIN = (color: string = REPORT_NEUTRAL_ARGB.border) => ({
         top: { style: 'thin' as const, color: { argb: color } },
         left: { style: 'thin' as const, color: { argb: color } },
         bottom: { style: 'thin' as const, color: { argb: color } },
@@ -1249,7 +1128,7 @@ export default class EmployeeVacationService {
           const cell = dataRow.getCell(colIdx + 1)
           cell.value = val
           cell.fill = colIdx === 0 ? rowFill : FILL_INFO
-          cell.font = { size: 9, color: { argb: 'FF1F3864' } }
+          cell.font = { size: 9, color: { argb: REPORT_NEUTRAL_ARGB.text } }
           cell.alignment = { vertical: 'middle', horizontal: colIdx === 0 ? 'center' : 'left', wrapText: true }
           cell.border = BORDER_THIN()
           // Solo bloqueamos la col 2 (nombre); el resto queda libre para no interferir con el scroll
@@ -1262,7 +1141,7 @@ export default class EmployeeVacationService {
         cellSkip.fill = FILL_EDITABLE
         cellSkip.font = { size: 9 }
         cellSkip.alignment = { vertical: 'middle', horizontal: 'center' }
-        cellSkip.border = BORDER_THIN('FF00A800')
+        cellSkip.border = BORDER_THIN(REPORT_NEUTRAL_ARGB.text)
         cellSkip.protection = { locked: false }
 
         // Col 9: Razón (editable)
@@ -1271,13 +1150,13 @@ export default class EmployeeVacationService {
         cellReason.fill = FILL_EDITABLE
         cellReason.font = { size: 9 }
         cellReason.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true }
-        cellReason.border = BORDER_THIN('FF00A800')
+        cellReason.border = BORDER_THIN(REPORT_NEUTRAL_ARGB.text)
         cellReason.protection = { locked: false }
 
         // Columnas de días (10 en adelante) — tres zonas visuales, todas editables:
-        //   [1..availableDays]       → blanco/gris alterno normal  (días disponibles netos)
-        //   [availableDays+1..totalDays] → azul muy suave          (días "a futuro", no desbloqueados aún)
-        //   [totalDays+1..maxVacationCols] → gris oscuro           (días ya usados u omitidos o fuera de periodo)
+        //   [1..availableDays]             → blanco      (días disponibles netos)
+        //   [availableDays+1..totalDays]   → gris oscuro (días "a futuro", ya consumidos en el periodo)
+        //   [totalDays+1..maxVacationCols] → gris claro  (fuera del periodo actual)
         for (let d = 1; d <= maxVacationCols; d++) {
           const cell = dataRow.getCell(9 + d)
           cell.value = ''
@@ -1287,18 +1166,18 @@ export default class EmployeeVacationService {
           if (d <= info.availableDays) {
             // Zona 1: días disponibles netos — siempre blanco
             cell.fill = FILL_AVAILABLE
-            cell.font = { size: 9, color: { argb: 'FF000000' } }
+            cell.font = { size: 9, color: { argb: REPORT_NEUTRAL_ARGB.text } }
             cell.border = BORDER_THIN()
           } else if (d <= info.totalDays) {
             // Zona 2: días a futuro / dentro del periodo pero ya consumidos — gris oscuro
             cell.fill = FILL_FUTURE
-            cell.font = { size: 9, color: { argb: 'FF888888' } }
-            cell.border = BORDER_THIN('FFAAAAAA')
+            cell.font = { size: 9, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
+            cell.border = BORDER_THIN()
           } else {
-            // Zona 3: fuera del periodo actual — azul claro
+            // Zona 3: fuera del periodo actual — gris claro
             cell.fill = FILL_USED
-            cell.font = { size: 9, color: { argb: 'FF5B9BD5' } }
-            cell.border = BORDER_THIN('FFADD8E6')
+            cell.font = { size: 9, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
+            cell.border = BORDER_THIN()
           }
         }
       })
@@ -1340,23 +1219,23 @@ export default class EmployeeVacationService {
         ['7. Si hay errores en alguna fila, NINGÚN dato se guarda. Se reporta fila y detalle.', false],
         ['8. Los días se registran del periodo más antiguo al más reciente.', false],
         ['   Los días a omitir también se descuentan del periodo más antiguo.', false],
-        ['9. Los días a futuro (fondo azul muy suave) corresponden a días dentro del periodo', false],
+        ['9. Los días a futuro (fondo gris oscuro) corresponden a días dentro del periodo', false],
         ['   del empleado que ya fueron consumidos. Si los utiliza, se asignarán al periodo', false],
         ['   vigente más próximo disponible.', false],
         ['', false],
         ['COLORES DE REFERENCIA', true],
-        ['Fondo azul claro (columnas 2–7): información de solo lectura.', false],
-        ['Fondo verde claro (columnas 8–9): campos editables.', false],
+        ['Fondo gris muy claro (columnas 2–7): información de solo lectura.', false],
+        ['Fondo blanco con borde negro (columnas 8–9): campos editables.', false],
         ['Fondo blanco (columnas 10+): días disponibles netos para ingresar fecha.', false],
         ['Fondo gris oscuro: días a futuro (dentro del periodo, ya consumidos). Editables.', false],
-        ['Fondo azul claro: días fuera del periodo actual. Editables para asignaciones futuras.', false],
+        ['Fondo gris claro: días fuera del periodo actual. Editables para asignaciones futuras.', false],
       ]
       instrLines.forEach(([text, isBold]) => {
         const row = wsInstr.addRow([text])
         row.getCell(1).font = {
           bold: isBold,
           size: isBold ? 12 : 10,
-          color: { argb: isBold ? 'FF1F3864' : 'FF000000' },
+          color: { argb: REPORT_NEUTRAL_ARGB.text },
         }
         row.height = isBold ? 22 : 16
       })
@@ -1438,7 +1317,7 @@ export default class EmployeeVacationService {
     }
 
     // ── 2. Recolectar filas de datos (a partir de la fila 5) ──
-    // Estructura de la plantilla: fila 1 = logo, fila 2 = título, fila 3 = encabezados, fila 4 = sub-encabezado
+    // Estructura de la plantilla: fila 1 = vacía (antes logo), fila 2 = título, fila 3 = encabezados, fila 4 = sub-encabezado
     const dataRows: any[] = []
     ws.eachRow({ includeEmpty: false }, (row, rowNumber) => {
       if (rowNumber >= 5) dataRows.push({ row, rowNumber })
