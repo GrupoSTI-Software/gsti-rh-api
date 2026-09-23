@@ -20,7 +20,7 @@ sin catálogo, sin pantallas.
 
 - No es fuga entre clientes: hoy todo caía en la activa; es claridad, no seguridad.
 - Se revisaron las DOS columnas (la de nómina tiene criterio propio).
-- Regla 5: lo que antes seguía ahora detiene con 403 — cambio declarado.
+- Regla 5: la guarda que re-lanza el fallo de dato protegido queda instalada, pero hoy es inalcanzable porque la importación corre unguarded y el permiso sensible se exige por cabeceras antes de las pasadas; el 403 que sí ocurre en importación es el de cabeceras.
 - Alcance: `null` no resuelto ≠ empresa distinta (ver Global Constraints).
 - Suite de importación en verde antes y después (incluida la sensible HTTP).
 
