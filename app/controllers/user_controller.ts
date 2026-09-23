@@ -40,12 +40,16 @@ import {
 } from '#helpers/sensitive_data_write_api_error'
 import {
   assertUserAccessEmailNotMasked,
+  isUserAccessEmailDuplicatedIndexError,
+  isUserAccessEmailDuplicatedValidationError,
   isUserAccessEmailMaskedError,
+  respondUserAccessEmailDuplicated,
   respondUserAccessEmailMasked,
 } from '#helpers/user_access_email_api_error'
 import { normalizeToken } from '#helpers/employee_termination_record'
 import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
+import { USER_VALIDATION_ERROR_CODES } from '#constants/user_validation_error_codes'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
 import { canAccessBackoffice } from '#helpers/backoffice_access'
 
@@ -389,17 +393,19 @@ export default class UserController {
         }
       }
 
-      let userVerify = false
+      let verifiedUserId: number | null = null
       try {
-        await User.verifyCredentials(userEmail, userPassword)
-        userVerify = true
+        const verified = await User.verifyCredentials(userEmail, userPassword)
+        verifiedUserId = (verified as unknown as { userId?: unknown }).userId as number
+        // verifyCredentials devuelve el modelo; si la forma cambiara, el comparador de abajo cae a 404 (fail-closed)
       } catch (error) {
-        if (error.code !== 'E_INVALID_CREDENTIALS') {
+        const e = error as { code?: unknown }
+        if (e.code !== 'E_INVALID_CREDENTIALS') {
           throw error
         }
       }
 
-      if (!userVerify) {
+      if (verifiedUserId === null || user === null || user.userId !== verifiedUserId) {
         response.status(404)
         return {
           type: 'warning',
@@ -1578,24 +1584,35 @@ export default class UserController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: |
+   *           The parameters entered are invalid or essential data is missing to process the request.
+   *           También responde 400 cuando el correo de acceso ya está en uso por otra cuenta activa (código USR.MAIL.002): ningún campo se guardó.
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
+   *               oneOf:
+   *                 - type: object
+   *                   description: Parámetros inválidos o datos indispensables faltantes
+   *                   properties:
+   *                     type:
+   *                       type: string
+   *                       description: Type of response generated
+   *                     title:
+   *                       type: string
+   *                       description: Title of response generated
+   *                     message:
+   *                       type: string
+   *                       description: Message of response
+   *                     data:
+   *                       type: object
+   *                       description: List of parameters set by the client
+   *                 - type: object
+   *                   description: El correo de acceso ya está en uso por otra cuenta activa. Ningún campo se guardó.
+   *                   properties:
+   *                     title: { type: string, example: Este correo de acceso ya está en uso }
+   *                     detail: { type: string, example: Otra cuenta activa usa este correo de acceso; usa uno distinto o da de baja la cuenta que lo tiene. No se guardó ningún cambio. }
+   *                     key: { type: string, example: correo-de-acceso-ya-registrado }
+   *                     code: { type: string, example: USR.MAIL.002 }
    *       default:
    *         description: Unexpected error
    *         content:
@@ -1652,6 +1669,16 @@ export default class UserController {
 
       assertUserAccessEmailNotMasked(userEmail)
 
+      if (personId === undefined || personId === null) {
+        response.status(400)
+        return {
+          title: i18n.t('user_person_required_title'),
+          detail: i18n.t('user_person_required_detail'),
+          key: 'persona-requerida',
+          code: USER_VALIDATION_ERROR_CODES.PERSON_REQUIRED,
+        }
+      }
+
       const businessUnits = await BusinessUnit.query()
         .whereIn('business_unit_id', businessUnitScope)
         .where('business_unit_active', 1)
@@ -1680,6 +1707,7 @@ export default class UserController {
           type: exist.type,
           title: exist.title,
           message: exist.message,
+          key: exist.key,
           data: { ...data },
         }
       }
@@ -1736,6 +1764,7 @@ export default class UserController {
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (isUserAccessEmailMaskedError(error)) return respondUserAccessEmailMasked(ctx, error)
+      if (isUserAccessEmailDuplicatedValidationError(error) || isUserAccessEmailDuplicatedIndexError(error)) return respondUserAccessEmailDuplicated(ctx)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -1975,24 +2004,35 @@ export default class UserController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: |
+   *           The parameters entered are invalid or essential data is missing to process the request.
+   *           También responde 400 cuando el correo de acceso ya está en uso por otra cuenta activa (código USR.MAIL.002): ningún campo se guardó.
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
+   *               oneOf:
+   *                 - type: object
+   *                   description: Parámetros inválidos o datos indispensables faltantes
+   *                   properties:
+   *                     type:
+   *                       type: string
+   *                       description: Type of response generated
+   *                     title:
+   *                       type: string
+   *                       description: Title of response generated
+   *                     message:
+   *                       type: string
+   *                       description: Message of response
+   *                     data:
+   *                       type: object
+   *                       description: List of parameters set by the client
+   *                 - type: object
+   *                   description: El correo de acceso ya está en uso por otra cuenta activa. Ningún campo se guardó.
+   *                   properties:
+   *                     title: { type: string, example: Este correo de acceso ya está en uso }
+   *                     detail: { type: string, example: Otra cuenta activa usa este correo de acceso; usa uno distinto o da de baja la cuenta que lo tiene. No se guardó ningún cambio. }
+   *                     key: { type: string, example: correo-de-acceso-ya-registrado }
+   *                     code: { type: string, example: USR.MAIL.002 }
    *       default:
    *         description: Unexpected error
    *         content:
@@ -2053,6 +2093,16 @@ export default class UserController {
 
       assertUserAccessEmailNotMasked(userEmail)
 
+      if (personId === undefined || personId === null) {
+        response.status(400)
+        return {
+          title: i18n.t('user_person_required_title'),
+          detail: i18n.t('user_person_required_detail'),
+          key: 'persona-requerida',
+          code: USER_VALIDATION_ERROR_CODES.PERSON_REQUIRED,
+        }
+      }
+
       const user = {
         userId: userId,
         userEmail: userEmail,
@@ -2062,16 +2112,10 @@ export default class UserController {
         userEmailType: userEmailType,
       } as User
       const previousUser = JSON.parse(JSON.stringify(currentUser))
-      const data = await request.validateUsing(updateUserValidator)
+      await request.validateUsing(updateUserValidator)
       const verifyInfo = await userService.verifyInfo(user)
       if (verifyInfo.status !== 200) {
-        response.status(verifyInfo.status)
-        return {
-          type: verifyInfo.type,
-          title: verifyInfo.title,
-          message: verifyInfo.message,
-          data: { ...data },
-        }
+        return respondUserAccessEmailDuplicated(ctx)
       }
       let personForEmailSync: Person | null = null
       if (userEmailType === 'personal') {
@@ -2123,6 +2167,7 @@ export default class UserController {
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (isUserAccessEmailMaskedError(error)) return respondUserAccessEmailMasked(ctx, error)
+      if (isUserAccessEmailDuplicatedValidationError(error) || isUserAccessEmailDuplicatedIndexError(error)) return respondUserAccessEmailDuplicated(ctx)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)

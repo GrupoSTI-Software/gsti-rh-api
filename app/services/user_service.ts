@@ -239,7 +239,7 @@ export default class UserService {
       .where('user_email', user.userEmail)
       .first()
 
-    if (existEmail && user.userEmail) {
+    if (existEmail && user.userEmail !== undefined && user.userEmail !== null && user.userEmail !== '') {
       const entity = this.t('user')
       const param = this.t('email')
       return {
@@ -259,6 +259,18 @@ export default class UserService {
     }
   }
 
+  /**
+   * Validaciones del alta de una cuenta: que la persona exista y que todavía
+   * no tenga cuenta.
+   *
+   * Una persona tiene UNA cuenta, y la pivote `business_unit_users` es la que
+   * le da acceso a cada empresa. Antes eso lo impedía de hecho el catálogo de
+   * empleados sin usuario, que excluía a toda persona con cuenta en cualquier
+   * empresa; ahora que ese catálogo mira solo la empresa activa, la regla se
+   * declara aquí, que es donde pertenece.
+   *
+   * @param user - Datos de la cuenta por crear o editar.
+   */
   async verifyInfoExist(user: User) {
     if (!user.userId) {
       const existUser = await Person.query()
@@ -273,7 +285,26 @@ export default class UserService {
           type: 'warning',
           title: this.t('entity_was_not_found', { entity }),
           message: this.t('entity_was_not_found_with_entered_id', { entity }),
+          key: 'persona-no-encontrada',
           data: { ...user },
+        }
+      }
+
+      if (user.personId) {
+        const personAccount = await User.query()
+          .whereNull('user_deleted_at')
+          .where('person_id', user.personId)
+          .first()
+
+        if (personAccount) {
+          return {
+            status: 400,
+            type: 'warning',
+            title: this.t('user_person_already_has_account_title'),
+            message: this.t('user_person_already_has_account_detail'),
+            key: 'persona-ya-tiene-cuenta',
+            data: { ...user },
+          }
         }
       }
     }
@@ -282,6 +313,7 @@ export default class UserService {
       type: 'success',
       title: this.t('info_verify_successfully'),
       message: this.t('info_verify_successfully'),
+      key: undefined,
       data: { ...user },
     }
   }

@@ -23,9 +23,10 @@ export const MASK_EDITED_CARD = '••••••••••••••9999'
 
 export function assertMaskEchoAccepted(
   response: { status: () => number; body: () => Record<string, unknown> },
-  assert: Assert
+  assert: Assert,
+  expectedStatus = 201
 ) {
-  assert.equal(response.status(), 201)
+  assert.equal(response.status(), expectedStatus)
   assert.notEqual(response.body()?.code, 'EMP.SENS.WRITE.FORBIDDEN')
   const messages = response.body()?.messages
   if (Array.isArray(messages)) {

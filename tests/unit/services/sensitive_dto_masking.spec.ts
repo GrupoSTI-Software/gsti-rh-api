@@ -46,6 +46,17 @@ test.group('DTO que no pasan por serialize', () => {
     assert.notMatch(source, /canRead\('salud'\)/)
   })
 
+  test('proveedor REPSE enmascara rfc con la fábrica', ({ assert }) => {
+    const source = readFileSync(
+      join(process.cwd(), 'app/modules/repse-providers/providers/providers.service.ts'),
+      'utf-8'
+    )
+    assert.include(source, "import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'")
+    assert.include(source, "maskSensitiveDtoValue('ProveedorRepse', 'rfc',")
+    assert.notMatch(source, /rfc:\s*row\.rfc/)
+    assert.notMatch(source, /canRead\('identificacion'\)/)
+  })
+
   test('contrato REPSE enmascara rfc de empresa contratante con la fábrica', ({ assert }) => {
     const source = readFileSync(
       join(process.cwd(), 'app/services/contrato_servicio_especializado_service.ts'),

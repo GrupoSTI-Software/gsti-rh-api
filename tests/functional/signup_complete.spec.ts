@@ -165,6 +165,15 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
       .firstOrFail()
     assert.equal(businessUnit.businessUnitOrigin, 'self_service')
 
+    // USRH1789698261609 (CA-4): el dueño de la cuenta nueva nace marcado con su
+    // empresa. Sin esto quedaría invisible dentro de la cuenta que acaba de crear.
+    const ownerPerson = await Person.query().where('person_id', createdPersonId).firstOrFail()
+    assert.equal(
+      ownerPerson.businessUnitId,
+      createdBusinessUnitId,
+      'el expediente del dueño debe quedar marcado con la empresa recién creada'
+    )
+
     const subscription = await BillingSubscription.query()
       .where('business_unit_id', createdBusinessUnitId)
       .first()

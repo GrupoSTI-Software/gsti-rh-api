@@ -15,6 +15,10 @@ import NotificationEmailService from '#services/notification_email_service'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { shiftExceptionTouchesVacation } from '#helpers/shift_exception_touches_vacation'
 import { EMPLOYEES_MANAGE_VACATION_PERMISSION } from '#constants/employees_write_permission_declarations'
+import {
+  assertDayWithinRoleScope,
+  assertDayWithinRoleScopeForEmployees,
+} from '#modules/role-scope/day_scope_guard'
 
 export default class ShiftExceptionController {
   /**
@@ -134,6 +138,21 @@ export default class ShiftExceptionController {
         : Array.from({ length: daysToApply }, (_, i) =>
             shiftExceptionsDate.plus({ days: i }).toISODate()
           )
+
+      // La excepción cubre un día concreto del pasado, igual que una captura
+      // manual de checada, así que respeta los días que el rol alcanza a
+      // modificar. Se juzga la primera fecha porque la tanda avanza hacia
+      // adelante: si la más antigua entra, las demás también.
+      const storeDayScopeRejection = await assertDayWithinRoleScope({
+        user: auth.user,
+        employeeId,
+        day: datesToCreate[0],
+        i18n,
+      })
+      if (storeDayScopeRejection) {
+        response.status(storeDayScopeRejection.status)
+        return storeDayScopeRejection.body
+      }
 
       for (const currentDate of datesToCreate) {
         const shiftException = {
@@ -314,6 +333,25 @@ export default class ShiftExceptionController {
       await request.validateUsing(createShiftExceptionValidator)
       const shiftExceptionService = new ShiftExceptionService(i18n)
       const currentShiftException = await ShiftException.findOrFail(params.id)
+
+      // La edición libera el día que tenía y ocupa el nuevo, así que los dos
+      // deben caer dentro del alcance del rol.
+      for (const side of [
+        { employeeId: currentShiftException.employeeId, day: currentShiftException.shiftExceptionsDate },
+        { employeeId, day: shiftExceptionsDate },
+      ]) {
+        const rejection = await assertDayWithinRoleScope({
+          user: auth.user,
+          employeeId: side.employeeId,
+          day: side.day,
+          i18n,
+        })
+        if (rejection) {
+          response.status(rejection.status)
+          return rejection.body
+        }
+      }
+
       if (
         await shiftExceptionTouchesVacation({
           currentExceptionTypeId: currentShiftException.exceptionTypeId,
@@ -422,6 +460,18 @@ export default class ShiftExceptionController {
     const { auth, request, params, response, i18n } = ctx
     try {
       const shiftException = await ShiftException.findOrFail(params.id)
+
+      const destroyDayScopeRejection = await assertDayWithinRoleScope({
+        user: auth.user,
+        employeeId: shiftException.employeeId,
+        day: shiftException.shiftExceptionsDate,
+        i18n,
+      })
+      if (destroyDayScopeRejection) {
+        response.status(destroyDayScopeRejection.status)
+        return destroyDayScopeRejection.body
+      }
+
       if (await shiftExceptionTouchesVacation({ currentExceptionTypeId: shiftException.exceptionTypeId })) {
         const allowed = await ensureSecondaryPermission(ctx, EMPLOYEES_MANAGE_VACATION_PERMISSION)
         if (!allowed) {
@@ -1011,6 +1061,21 @@ export default class ShiftExceptionController {
       }
 
       const employees = await employeesQuery
+
+      // La aplicación masiva escribe una sola fecha sobre muchas personas, y el
+      // tope del rol rige igual que en el alta de una. Se corta antes de
+      // escribir nada: aplicarla a medias dejaría sin saber a quién alcanzó.
+      const generalDayScopeRejection = await assertDayWithinRoleScopeForEmployees({
+        user: auth.user,
+        employeeIds: employees.map((employee) => employee.employeeId),
+        day: shiftExceptionsDateISO,
+        i18n,
+      })
+      if (generalDayScopeRejection) {
+        response.status(generalDayScopeRejection.status)
+        return generalDayScopeRejection.body
+      }
+
       const results = await Promise.allSettled(
         employees.map(async (employee) => {
           const shiftException = {

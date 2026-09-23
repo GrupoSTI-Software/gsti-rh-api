@@ -105,7 +105,7 @@ test.group('Máscara fija sin pistas — USRH1789328027039', (group) => {
     )
   })
 
-  test('CA-4: con identificación concedida llega en claro', async ({ client, assert }) => {
+  test('CA-4: con identificación concedida sigue enmascarado en GET', async ({ client, assert }) => {
     await grantOnly(actor.role.roleId, ['sensitive-identificacion-read'])
     const response = await client
       .get(`/api/employees/${fixture.employee.employeeId}`)
@@ -114,9 +114,9 @@ test.group('Máscara fija sin pistas — USRH1789328027039', (group) => {
 
     expectNeverDenied(response, assert)
     const person = employeePerson(response.body())
-    assert.equal(person.personCurp, fixture.clear.curp)
-    assert.equal(person.personRfc, fixture.clear.rfc)
-    assert.equal(person.personImssNss, fixture.clear.nss)
+    assert.equal(person.personCurp, SENSITIVE_MASK)
+    assert.equal(person.personRfc, SENSITIVE_MASK)
+    assert.equal(person.personImssNss, SENSITIVE_MASK)
     await grantOnly(actor.role.roleId, [])
   })
 

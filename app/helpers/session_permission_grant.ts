@@ -5,8 +5,11 @@ import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
  *
  * El sync persiste el slug nuevo cuando la equivalencia no es `exact`.
  * El árbol no puede preguntar solo el slug legacy: un rol con
- * `sensitive-identificacion-read` (y sin `reveal-sensitive-data`) debe
- * seguir viendo la acción permitida.
+ * `sensitive-identificacion-read` debe seguir viendo la acción permitida
+ * aunque no tenga el slug legacy equivalente de otra acción.
+ *
+ * Las lecturas `sensitive-*-read` no heredan de `reveal-sensitive-data`:
+ * consultar una categoría y revelar el dato son permisos distintos.
  *
  * @param action - Entrada del catálogo (slug nuevo + equivalencia opcional).
  * @param grantedSlugs - Slugs concedidos al rol en ese módulo.

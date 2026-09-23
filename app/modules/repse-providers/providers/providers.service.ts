@@ -17,6 +17,7 @@ import {
 } from '../repse_provider_dates.js'
 import ProvidersRepositoryMysql from './providers.repository.mysql.js'
 import type { ProvidersRepository } from './providers.repository.js'
+import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'
 import type { ProveedorRepseDto, ProveedorRepseListDto, ProveedorRepseReviewStatus } from './dto/providers.dto.js'
 
 export interface ProveedorRepseCreateInput {
@@ -300,7 +301,7 @@ export default class ProvidersService {
       proveedorRepseId: row.proveedorRepseId,
       businessUnitId: row.businessUnitId,
       razonSocial: row.razonSocial,
-      rfc: row.rfc ?? '',
+      rfc: maskSensitiveDtoValue('ProveedorRepse', 'rfc', row.rfc) ?? '',
       folio: row.folio,
       objetoRegistrado: row.objetoRegistrado,
       folioVencimiento: row.folioVencimiento.toISODate()!,

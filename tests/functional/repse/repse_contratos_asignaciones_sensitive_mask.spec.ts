@@ -211,7 +211,7 @@ test.group('REPSE contratos y asignaciones — máscara RFC/NSS USRH178947767576
     )
   })
 
-  test('CA-3: con identificación el RFC del contrato y el NSS de asignaciones llegan en claro', async ({
+  test('CA-3: con identificación el RFC del contrato y el NSS de asignaciones siguen enmascarados en GET', async ({
     client,
     assert,
   }) => {
@@ -222,7 +222,7 @@ test.group('REPSE contratos y asignaciones — máscara RFC/NSS USRH178947767576
 
     showResponse.assertStatus(200)
     const detail = contratoFromBody(showResponse.body())
-    assert.equal(contratanteFromContrato(detail).rfc, fixture.contratanteRfc)
+    assert.equal(contratanteFromContrato(detail).rfc, SENSITIVE_MASK)
 
     const listResponse = await client
       .get(`${CONTRATOS_BASE}/${fixture.contratoId}/asignaciones`)
@@ -235,10 +235,7 @@ test.group('REPSE contratos y asignaciones — máscara RFC/NSS USRH178947767576
       (item) => Number(empleadoFromAsignacion(item).id) === fixture.employeeConNss.employee.employeeId
     )
     assert.exists(row)
-    assert.equal(
-      empleadoFromAsignacion(row!).nss,
-      fixture.employeeConNss.nssClaro
-    )
+    assert.equal(empleadoFromAsignacion(row!).nss, SENSITIVE_MASK)
   })
 
   test('CA-5: editar, renovar y asignar no cambia el RFC ni el NSS guardados', async ({

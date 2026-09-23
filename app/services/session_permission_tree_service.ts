@@ -17,6 +17,7 @@ import type {
   SessionPermissionTreeVersion,
 } from '#constants/session_permission_tree'
 import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
+import { resolveSectionDisplayName } from '#constants/system_modules_menu/system_modules.constant'
 import { buildPermissionGateIdentity } from '#helpers/permission_gate_identity'
 import type { PermissionGateIdentity } from '#helpers/permission_gate_identity'
 import { decideSessionPermissionAction } from '#helpers/session_permission_decision'
@@ -118,7 +119,14 @@ export default class SessionPermissionTreeService {
         slug: moduleEntry.slug,
         active,
         permissionEnforcementActive,
-        sections: this.assembleSections(identity, active, moduleRow, actions, grantsByModuleId),
+        sections: this.assembleSections(
+          identity,
+          active,
+          moduleRow,
+          actions,
+          grantsByModuleId,
+          moduleEntry.slug
+        ),
       }
     })
   }
@@ -128,7 +136,8 @@ export default class SessionPermissionTreeService {
     moduleActive: boolean,
     moduleRow: SystemModule | undefined,
     actions: readonly ActionCatalogEntry<string>[],
-    grantsByModuleId: GrantsByModuleId
+    grantsByModuleId: GrantsByModuleId,
+    moduleSlug: string
   ): SessionPermissionSectionNode[] {
     const sections = new Map<string, SessionPermissionActionNode[]>()
     const grantedSlugs = moduleRow
@@ -159,6 +168,7 @@ export default class SessionPermissionTreeService {
 
     return Array.from(sections.entries()).map(([slug, actionsInSection]) => ({
       slug,
+      displayName: resolveSectionDisplayName(moduleSlug, slug),
       actions: actionsInSection,
     }))
   }

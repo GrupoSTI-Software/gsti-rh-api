@@ -198,6 +198,8 @@ export interface ToleranceThresholds {
 export interface EmployeeCalendarBundle {
   employee: EmployeeInfo
   departmentName: string | null
+  /** Zona IANA del sitio del colaborador: en ella se evalúa y se muestra su asistencia. */
+  timeZone: string
   calendar: AssistDayInterface[]
 }
 

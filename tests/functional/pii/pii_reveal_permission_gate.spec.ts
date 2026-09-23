@@ -38,6 +38,7 @@ const REVEALABLE_COLUMNS = [
   { model: 'EmployeeEmergencyContact', column: 'employeeEmergencyContactPhone', permission: 'sensitive-contacto-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_FIXED.phone },
   { model: 'EmployeeSpouse', column: 'employeeSpousePhone', permission: 'sensitive-contacto-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_FIXED.phoneSecondary },
   { model: 'EmpresaContratante', column: 'rfc', permission: 'sensitive-identificacion-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.empresaRfc },
+  { model: 'ProveedorRepse', column: 'rfc', permission: 'sensitive-identificacion-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.proveedorRfc },
 ] as const
 
 function recordIdFor(
@@ -55,6 +56,7 @@ function recordIdFor(
   if (model === 'EmployeeEmergencyContact') return extra.emergency.employeeEmergencyContactId
   if (model === 'EmployeeSpouse') return extra.spouse.employeeSpouseId
   if (model === 'EmpresaContratante') return extra.empresa.empresaContratanteId
+  if (model === 'ProveedorRepse') return extra.proveedor.proveedorRepseId
   throw new Error(`Modelo sin recordId mapeado en esta suite: ${model}`)
 }
 
@@ -96,7 +98,7 @@ test.group('Permiso de categoría en el revelado individual (USRH1787433076989)'
     assert.equal(after, before + 1)
   })
 
-  test('F.2 — las dieciocho columnas revelables devuelven 200 con su categoría y registran un asiento cada una', async ({ client, assert }) => {
+  test('F.2 — las diecinueve columnas revelables devuelven 200 con su categoría y registran un asiento cada una', async ({ client, assert }) => {
     const extra = await createRemainingSensitiveFixture(actor!, fixture!)
     try {
       for (const { model, column, permission, clearValue } of REVEALABLE_COLUMNS) {

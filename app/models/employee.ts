@@ -1,6 +1,14 @@
 import { DateTime } from 'luxon'
 import { randomUUID } from 'node:crypto'
-import { BaseModel, beforeCreate, belongsTo, column, hasMany, hasOne } from '@adonisjs/lucid/orm'
+import {
+  BaseModel,
+  afterCreate,
+  beforeCreate,
+  belongsTo,
+  column,
+  hasMany,
+  hasOne,
+} from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany, HasOne } from '@adonisjs/lucid/types/relations'
 import Department from './department.js'
 import Position from './position.js'
@@ -33,6 +41,7 @@ import type {
   EmployeeWorkSchedule,
 } from '#constants/employee_work_schedule'
 import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'
+import BranchOfficeProvisioningService from '#services/branch_office_provisioning_service'
 
 /**
  * @swagger
@@ -204,6 +213,47 @@ export default class Employee extends compose(BaseModel, SoftDeletes, withBusine
   static async assignEmployeeSlug(instance: Employee) {
     if (instance.employeeSlug) return
     instance.employeeSlug = randomUUID()
+  }
+
+  /**
+   * Ningún empleado nace sin sucursal.
+   *
+   * La pertenencia a sucursal es el eje por el que se reparten las encuestas:
+   * un empleado sin asignación activa no las recibe, y nadie nota la ausencia.
+   * Como hook queda invariante — cubre el alta del backoffice, la sincronía de
+   * biométricos, los importadores, el alta de usuario-empleado y la siembra
+   * demo, sin que ninguno tenga que acordarse. El destino es la sucursal
+   * default de la empresa, que se crea sola si todavía no existe.
+   *
+   * Corre dentro de la transacción del alta (`instance.$trx`): si el empleado
+   * se revierte, su asignación se va con él.
+   */
+  @afterCreate()
+  static async assignDefaultBranchOffice(instance: Employee) {
+    const trx = instance.$trx
+    const client = trx ? { client: trx } : {}
+
+    const active = await EmployeeBranchOffice.query(client)
+      .where('employeeId', instance.employeeId)
+      .where('employeeBranchOfficeActive', 1)
+      .first()
+    if (active) return
+
+    const branch = await BranchOfficeProvisioningService.ensureDefault(
+      instance.businessUnitId,
+      trx
+    )
+
+    await EmployeeBranchOffice.create(
+      {
+        employeeId: instance.employeeId,
+        businessUnitId: instance.businessUnitId,
+        branchOfficeId: branch.branchOfficeId,
+        employeeBranchOfficeActive: 1,
+        employeeBranchOfficeDeactivatedAt: null,
+      },
+      client
+    )
   }
 
   @column()
