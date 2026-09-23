@@ -9,6 +9,7 @@ import EmployeeLactationPeriod from '#models/employee_lactation_period'
 import EmployeeEmergencyContact from '#models/employee_emergency_contact'
 import EmployeeSpouse from '#models/employee_spouse'
 import EmpresaContratante from '#models/empresa_contratante'
+import ProveedorRepse from '#models/proveedor_repse'
 import SensitiveFieldsCatalogService from '#services/sensitive_fields_catalog_service'
 import PiiAccessLogService from '#services/pii_access_log_service'
 import type { PiiAccessInputInterface } from '../interfaces/pii_access_input_interface.js'
@@ -41,7 +42,7 @@ export type PiiRevealLogContext = Pick<
  *
  * Registry: Person, EmployeeBank, EmployeeMedicalCondition, WorkDisabilityNote,
  * TraumaticEventReport, EmployeeLactationPeriod, EmployeeEmergencyContact,
- * EmployeeSpouse, EmpresaContratante.
+ * EmployeeSpouse, EmpresaContratante, ProveedorRepse.
  */
 export default class PiiRevealService {
   private catalogService = new SensitiveFieldsCatalogService()
@@ -107,6 +108,8 @@ export default class PiiRevealService {
         return this.resolveEmployeeSpouse(column, recordId, buScope)
       case 'EmpresaContratante':
         return this.resolveEmpresaContratante(column, recordId, buScope)
+      case 'ProveedorRepse':
+        return this.resolveProveedorRepse(column, recordId, buScope)
       default:
         return null
     }
@@ -297,6 +300,25 @@ export default class PiiRevealService {
     return {
       value: this.readColumn(empresa, column),
       businessUnitId: empresa.businessUnitId,
+      subjectEmployeeId: null,
+    }
+  }
+
+  private async resolveProveedorRepse(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const proveedor = await ProveedorRepse.query()
+      .where('proveedorRepseId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .first()
+
+    if (!proveedor) return null
+
+    return {
+      value: this.readColumn(proveedor, column),
+      businessUnitId: proveedor.businessUnitId,
       subjectEmployeeId: null,
     }
   }

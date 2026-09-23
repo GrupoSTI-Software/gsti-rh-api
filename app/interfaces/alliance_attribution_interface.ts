@@ -77,3 +77,20 @@ export interface CloseAllianceAttributionInput {
   allianceAttributionClosedAt: string
   allianceAttributionCloseReason: string
 }
+
+/** Filtros del listado de atribuciones por alianza. */
+export interface ListAllianceAttributionsByAllianceFilters {
+  page?: number
+  limit?: number
+}
+
+/** Resultado paginado de atribuciones de una alianza. */
+export interface ListAllianceAttributionsByAllianceResult {
+  data: AllianceAttributionView[]
+  meta: {
+    total: number
+    page: number
+    limit: number
+    lastPage: number
+  }
+}

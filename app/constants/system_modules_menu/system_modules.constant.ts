@@ -1,8 +1,20 @@
 import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
-import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
-import { POSITIONS_PERMISSION_CATALOG } from '#constants/positions_permission_catalog'
-import { ATTENDANCE_MONITOR_PERMISSION_CATALOG } from '#constants/attendance_monitor_permission_catalog'
-import { ACCESS_POINT_PERMISSION_CATALOG } from '#constants/access_point_permission_catalog'
+import {
+  EMPLOYEES_PERMISSION_CATALOG,
+  EMPLOYEES_SECTION_LABELS,
+} from '#constants/employees_permission_catalog'
+import {
+  POSITIONS_PERMISSION_CATALOG,
+  POSITIONS_SECTION_LABELS,
+} from '#constants/positions_permission_catalog'
+import {
+  ATTENDANCE_MONITOR_PERMISSION_CATALOG,
+  ATTENDANCE_MONITOR_SECTION_LABELS,
+} from '#constants/attendance_monitor_permission_catalog'
+import {
+  ACCESS_POINT_PERMISSION_CATALOG,
+  ACCESS_POINT_SECTION_LABELS,
+} from '#constants/access_point_permission_catalog'
 
 /**
  * Fuente única del catálogo de módulos del sistema: menú (grupo, orden,
@@ -94,6 +106,52 @@ export const SYSTEM_MODULE_ACTION_CATALOGS = {
   'employees-attendance-monitor': ATTENDANCE_MONITOR_PERMISSION_CATALOG,
   'biometric-devices': ACCESS_POINT_PERMISSION_CATALOG,
 } as const satisfies Record<string, readonly ActionCatalogEntry<string>[]>
+
+/**
+ * Nombre legible de cada sección, por módulo. Es la fuente única: el árbol de
+ * permisos de sesión la serializa y el backoffice la pinta tal cual, en vez de
+ * mantener su propio diccionario de slugs.
+ *
+ * Un módulo sin entrada aquí sirve sus secciones sin nombre y el cliente
+ * decide cómo mostrarlas; las tablas por módulo ya fuerzan su propia
+ * exhaustividad con `satisfies`.
+ */
+export const SYSTEM_MODULE_SECTION_LABELS = {
+  'employees': EMPLOYEES_SECTION_LABELS,
+  'positions': POSITIONS_SECTION_LABELS,
+  'employees-attendance-monitor': ATTENDANCE_MONITOR_SECTION_LABELS,
+  'biometric-devices': ACCESS_POINT_SECTION_LABELS,
+} as const satisfies Record<keyof typeof SYSTEM_MODULE_ACTION_CATALOGS, Record<string, string>>
+
+/**
+ * Nombre legible de un módulo, derivado del catálogo (nunca transcrito).
+ *
+ * @param moduleSlug - Slug del módulo.
+ * @returns El `systemModuleName` declarado, o `null` si el slug no existe.
+ */
+export function resolveModuleDisplayName(moduleSlug: string): string | null {
+  return (
+    SYSTEM_MODULES.find((systemModule) => systemModule.systemModuleSlug === moduleSlug)
+      ?.systemModuleName ?? null
+  )
+}
+
+/**
+ * Nombre legible de una sección, o `null` si su módulo no declara etiquetas.
+ *
+ * @param moduleSlug - Slug del módulo dueño de la sección.
+ * @param sectionSlug - Slug de la sección.
+ * @returns El nombre declarado en el catálogo, o `null` si no hay ninguno.
+ */
+export function resolveSectionDisplayName(
+  moduleSlug: string,
+  sectionSlug: string
+): string | null {
+  const labels = (
+    SYSTEM_MODULE_SECTION_LABELS as Record<string, Record<string, string> | undefined>
+  )[moduleSlug]
+  return labels?.[sectionSlug] ?? null
+}
 
 /** Las acciones con `exemption` son apartados documentales: no tienen fila en BD. */
 function permissionsFromActionCatalog(

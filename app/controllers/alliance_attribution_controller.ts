@@ -3,6 +3,7 @@ import AllianceAttributionService from '#services/alliance_attribution_service'
 import {
   closeAllianceAttributionValidator,
   createAllianceAttributionValidator,
+  listAllianceAttributionsByAllianceValidator,
   updateAllianceAttributionValidator,
 } from '#validators/alliance_attribution'
 import { resolveAllianceApiError } from '../helpers/alliance_api_error.js'
@@ -214,6 +215,63 @@ export default class AllianceAttributionController {
     try {
       const views = await this.service.listAttributionsByTenant(params.businessUnitPublicId)
       return response.status(200).json({ type: 'success', data: views })
+    } catch (error) {
+      const { status, ...body } = resolveAllianceApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/alliances/{allianceId}/attributions:
+   *   get:
+   *     tags:
+   *       - Platform Alliances
+   *     summary: Listar las atribuciones de una alianza comercial
+   *     description: >
+   *       Devuelve las atribuciones de la alianza, vivas y cerradas, con
+   *       el avance del plazo (periodos devengados, restantes, si sigue
+   *       generando, motivo y monto acumulado). Orden: vivas primero;
+   *       cerradas por fecha de cierre más reciente. Una alianza sin
+   *       clientes responde 200 con lista vacía. Una alianza inexistente
+   *       o retirada responde 404.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: allianceId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: page
+   *         required: false
+   *         schema:
+   *           type: integer
+   *       - in: query
+   *         name: limit
+   *         required: false
+   *         schema:
+   *           type: integer
+   *           maximum: 100
+   *     responses:
+   *       '200':
+   *         description: Lista paginada de atribuciones de la alianza
+   *       '404':
+   *         description: Alianza no encontrada (PLT.ALL.NOT_FOUND)
+   *       '422':
+   *         description: Página o tamaño de página inválidos (PLT.ALL.VAL_INPUT)
+   */
+  async indexByAlliance({ params, request, response }: HttpContext) {
+    try {
+      const filters = await request.validateUsing(listAllianceAttributionsByAllianceValidator, {
+        data: request.qs(),
+      })
+      const result = await this.service.listAllianceAttributionsByAlliance(
+        Number(params.allianceId),
+        filters
+      )
+      return response.status(200).json({ type: 'success', ...result })
     } catch (error) {
       const { status, ...body } = resolveAllianceApiError(error)
       return response.status(status).json(body)

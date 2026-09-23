@@ -9,11 +9,13 @@ import ProveedorRepseValidacion from '#models/proveedor_repse_validacion'
 import RoleSystemPermission from '#models/role_system_permission'
 import { computeRfcCheckDigit } from '../../app/shared/validators/rfc.validator.js'
 import { REPSE_PROVIDER_TIMEZONE } from '#modules/repse-providers/repse_provider_dates'
+import { MAX_EVIDENCE_FILE_BYTES } from '#modules/repse-providers/validations/validations.service'
 import {
   grantModuleAction,
   type ModuleActionGrant,
 } from './employees/sensitive_read_by_category_support.js'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import { SENSITIVE_MASK } from '#helpers/sensitive_mask'
 
 /**
  * Tests funcionales — módulo "Proveedores REPSE" (USRH1784259105646, lado
@@ -78,6 +80,14 @@ async function buildValidPdfBuffer(): Promise<Buffer> {
 
 const VALID_PDF_BUFFER = await buildValidPdfBuffer()
 const VALID_PDF_NAME = 'evidencia-repse.pdf'
+
+/** Evita `Buffer.concat`: en este TS choca Buffer vs Uint8Array. */
+function paddedPdf(prefix: Buffer, minTotalBytes: number): Buffer {
+  const extraBytes = Math.max(0, minTotalBytes - prefix.length)
+  const bytes = new Uint8Array(prefix.length + extraBytes)
+  bytes.set(Uint8Array.from(prefix))
+  return Buffer.from(bytes)
+}
 
 function uniqueStamp(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 100000)}`
@@ -288,7 +298,7 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     providerId = provider.proveedorRepseId
   })
 
-  test('CA-2/CA-5: serialize() oculta rfc; GET list/detail lo devuelven en claro por DTO', async ({
+  test('CA-2/CA-5: serialize() oculta rfc; GET list/detail lo devuelven tapado por DTO', async ({
     client,
     assert,
   }) => {
@@ -306,7 +316,8 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
 
     detail.assertStatus(200)
-    assert.equal(detail.body().data.proveedorRepse.rfc, rfc)
+    assert.equal(detail.body().data.proveedorRepse.rfc, SENSITIVE_MASK)
+    assert.notEqual(detail.body().data.proveedorRepse.rfc, rfc)
 
     const list = await client
       .get('/api/repse-providers')
@@ -318,7 +329,8 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     const rows = list.body().data.proveedoresRepse.data as Array<{ proveedorRepseId: number; rfc: string }>
     const match = rows.find((item) => item.proveedorRepseId === providerId)
     assert.exists(match)
-    assert.equal(match!.rfc, rfc)
+    assert.equal(match!.rfc, SENSITIVE_MASK)
+    assert.notEqual(match!.rfc, rfc)
   })
 
   test('GET /api/repse-providers/:id devuelve el proveedor creado', async ({ client, assert }) => {
@@ -672,10 +684,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
   })
 
   test('POST validación con archivo demasiado grande responde 422', async ({ client, assert }) => {
-    const oversizedPdf = Buffer.concat([
-      VALID_PDF_BUFFER,
-      Buffer.alloc(11 * 1024 * 1024, 0),
-    ])
+    const oversizedPdf = paddedPdf(VALID_PDF_BUFFER, MAX_EVIDENCE_FILE_BYTES + 1024)
 
     const response = await client
       .post(`/api/repse-providers/${existingProviderId}/validations`)

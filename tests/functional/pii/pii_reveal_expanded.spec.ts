@@ -140,6 +140,60 @@ test.group('Revelado ampliado del expediente (USRH1788478865946)', (group) => {
     assert.equal(afterOrphan, beforeOrphan)
   })
 
+  test('CA-4 — RFC de proveedor REPSE revela sin titular y no aparece al filtrar por trabajador', async ({
+    client,
+    assert,
+  }) => {
+    await grantAcrossModules(actor!.role.roleId, [
+      { module: 'employees', slugs: ['sensitive-identificacion-read'] },
+      { module: 'sensitive-data-access-log', slugs: ['read'] },
+    ])
+    const recordId = extra!.proveedor.proveedorRepseId
+    const employeeId = fixture!.employee.employeeId
+    const before = await countRevealLogs('ProveedorRepse', 'rfc', recordId)
+
+    const response = await client
+      .get(`/api/v1/pii/reveal/ProveedorRepse/rfc/${recordId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .header('X-Origin-Module', 'repse-providers')
+    response.assertStatus(200)
+    assert.equal(response.body().data.rfc, CLEAR_REMAINING.proveedorRfc)
+
+    const after = await countRevealLogs('ProveedorRepse', 'rfc', recordId)
+    assert.equal(after, before + 1)
+
+    const log = await lastRevealLog('ProveedorRepse', 'rfc', recordId)
+    assert.isNotNull(log)
+    assert.equal(await countRevealLogSubjects(log!.piiAccessLogId), 0)
+
+    const listResponse = await client
+      .get('/api/v1/pii/access-logs')
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    listResponse.assertStatus(200)
+    const listRows = listResponse.body().data.data as Array<{
+      field?: { model?: string; column?: string }
+      subject?: unknown
+    }>
+    const proveedorRow = listRows.find(
+      (row) => row.field?.model === 'ProveedorRepse' && row.field?.column === 'rfc'
+    )
+    assert.isDefined(proveedorRow)
+    assert.notProperty(proveedorRow!, 'subject')
+
+    const filteredResponse = await client
+      .get(`/api/v1/pii/access-logs?employeeId=${employeeId}`)
+      .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', buHeader(actor!))
+    filteredResponse.assertStatus(200)
+    const filteredRows = filteredResponse.body().data.data as Array<{
+      field?: { model?: string }
+    }>
+    const filteredProveedor = filteredRows.some((row) => row.field?.model === 'ProveedorRepse')
+    assert.isFalse(filteredProveedor)
+  })
+
   test('CA-4 — RFC de empresa contratante revela sin titular y no aparece al filtrar por trabajador', async ({
     client,
     assert,

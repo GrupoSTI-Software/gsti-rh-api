@@ -33,7 +33,7 @@ test.group('sensitiveSerialize', () => {
     assert.equal(serialize('ABCD123456MDFABC01'), maskSensitiveValue('ABCD123456MDFABC01'))
   })
 
-  test('con permiso de la categoría entrega el valor en claro', ({ assert }) => {
+  test('con permiso de la categoría sigue enmascarando (claro solo por reveal)', ({ assert }) => {
     const serialize = sensitiveSerialize('Person', 'personEmail')
     SensitiveAccessContext.run(
       {
@@ -41,14 +41,12 @@ test.group('sensitiveSerialize', () => {
         write: deniedWrite,
       },
       () => {
-        assert.equal(serialize('juan@empresa.com'), 'juan@empresa.com')
+        assert.equal(serialize('juan@empresa.com'), SENSITIVE_MASK)
       }
     )
   })
 
-  test('sin permiso de la categoría enmascara; otra categoría en claro no abre esta', ({
-    assert,
-  }) => {
+  test('sin permiso de la categoría enmascara igual que con permiso', ({ assert }) => {
     const serializeClabe = sensitiveSerialize('EmployeeBank', 'employeeBankAccountClabe')
     SensitiveAccessContext.run(
       {
@@ -109,7 +107,7 @@ test.group('sensitiveSerializeNumeric', () => {
     assert.notEqual(serialize(1250.75), '•••0.75')
   })
 
-  test('con permiso de financiero entrega el number', ({ assert }) => {
+  test('con permiso de financiero sigue entregando null', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('PositionSalaryRange', 'minSalaryDaily')
     SensitiveAccessContext.run(
       {
@@ -117,8 +115,7 @@ test.group('sensitiveSerializeNumeric', () => {
         write: deniedWrite,
       },
       () => {
-        assert.equal(serialize(1250.75), 1250.75)
-        assert.equal(typeof serialize(1250.75), 'number')
+        assert.isNull(serialize(1250.75))
       }
     )
   })
@@ -147,7 +144,7 @@ test.group('sensitiveSerializeNumeric', () => {
     )
   })
 
-  test('Employee.dailySalary sin permiso financiero entrega null (no enmascarado por partes)', ({ assert }) => {
+  test('Employee.dailySalary sin permiso financiero entrega null', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
     SensitiveAccessContext.run(
       {
@@ -166,7 +163,7 @@ test.group('sensitiveSerializeNumeric', () => {
     )
   })
 
-  test('Employee.dailySalary con permiso financiero entrega el importe', ({ assert }) => {
+  test('Employee.dailySalary con permiso financiero sigue entregando null', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
     SensitiveAccessContext.run(
       {
@@ -180,8 +177,7 @@ test.group('sensitiveSerializeNumeric', () => {
         write: deniedWrite,
       },
       () => {
-        assert.equal(serialize(850.5), 850.5)
-        assert.equal(typeof serialize(850.5), 'number')
+        assert.isNull(serialize(850.5))
       }
     )
   })
@@ -195,7 +191,7 @@ test.group('maskSensitiveDtoValue', () => {
     )
   })
 
-  test('biométrico con permiso entrega el valor en claro', ({ assert }) => {
+  test('biométrico con permiso sigue enmascarando', ({ assert }) => {
     SensitiveAccessContext.run(
       {
         read: { ...allDenied, biometrico: true },
@@ -204,7 +200,7 @@ test.group('maskSensitiveDtoValue', () => {
       () => {
         assert.equal(
           maskSensitiveDtoValue('EmployeeBiometric', 'employeeBiometricData', 'Finger:1, Face'),
-          'Finger:1, Face'
+          SENSITIVE_MASK
         )
       }
     )
@@ -225,9 +221,8 @@ test.group('maskSensitiveDtoValue', () => {
     assert.equal(maskSensitiveDtoValue('Person', 'personRfc', '   '), '   ')
   })
 
-  test('la categoría sale del catálogo, no de un literal en el caller', ({ assert }) => {
+  test('no consulta SensitiveAccessContext en el helper', ({ assert }) => {
     const source = readFileSync(join(process.cwd(), 'app/helpers/sensitive_serialize.ts'), 'utf-8')
-    assert.notMatch(source, /canRead\('biometrico'\)/)
-    assert.notMatch(source, /canRead\('identificacion'\)/)
+    assert.notInclude(source, 'SensitiveAccessContext')
   })
 })

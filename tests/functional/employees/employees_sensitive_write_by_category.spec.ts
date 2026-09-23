@@ -262,23 +262,26 @@ test.group('Escritura sensible por categoría — HTTP', (group) => {
     await created.delete()
   })
 
-  test('CA-6: GET foto con token distinto sin biométrico-write responde 200 y renueva', async ({
+  test('CA-6: GET foto con token distinto sin biométrico-write responde 200 y no renueva', async ({
     client,
     assert,
   }) => {
     await grantOnly(actor!.role.roleId, ['tab-biometricos-read'])
-    const tokenNuevo = `face-token-ca6-${Date.now()}`
+    const tokenPersistido = extra!.faceId.employeeBiometricFaceIdToken
+    const tokenConsulta = `face-token-ca6-${Date.now()}`
     const response = await client
       .get(
-        `/api/employees/${fixture!.employee.employeeId}/biometric-face-id-with-token/${tokenNuevo}`
+        `/api/employees/${fixture!.employee.employeeId}/biometric-face-id-with-token/${tokenConsulta}`
       )
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', buHeader(actor!))
 
-    assert.notEqual(response.status(), 403)
+    assert.equal(response.status(), 200)
     assert.notEqual(response.body()?.code, 'EMP.SENS.WRITE.FORBIDDEN')
+    const data = response.body()?.data as Record<string, unknown> | undefined
+    assert.equal(data?.sameToken, false)
     await extra!.faceId.refresh()
-    assert.equal(extra!.faceId.employeeBiometricFaceIdToken, tokenNuevo)
+    assert.equal(extra!.faceId.employeeBiometricFaceIdToken, tokenPersistido)
   })
 
   test('CA-7: con interruptor OFF el cambio de CLABE sin financiero es 403', async ({

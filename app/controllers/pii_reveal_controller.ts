@@ -50,7 +50,7 @@ export default class PiiRevealController {
    *       a 404 is returned. Supported models: Person, EmployeeBank,
    *       EmployeeMedicalCondition, WorkDisabilityNote, TraumaticEventReport,
    *       EmployeeLactationPeriod, EmployeeEmergencyContact, EmployeeSpouse,
-   *       EmpresaContratante.
+   *       EmpresaContratante, ProveedorRepse.
    *     parameters:
    *       - in: path
    *         name: model
