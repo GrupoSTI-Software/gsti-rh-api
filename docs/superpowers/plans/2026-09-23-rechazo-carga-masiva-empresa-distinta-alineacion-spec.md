@@ -428,7 +428,27 @@ Agregar escenario: archivo con ambas columnas vacías → `200`, se crea con nor
 
 En el cierre: 409 + `archivo-de-otra-empresa`; detección cruda en scope con anti-requisito §12 explícito (sin padrón, sin oráculo); tope-20; saneo del catch (CA-11) con DoD grep; CA-7 por construcción (cero escrituras + aborto antes del cupo); CA-6 e2e superseded por `runUnguarded` (pendiente de confirmación Wilvardo solo si quiere el literal); lista de desviaciones conscientes (forma del error N1, ubicación del spec, `message=detail`, `data.offendingRows` aditivo, sin `userId` en el warn).
 
-- [ ] **Step 4: Commits**
+- [ ] **Step 4: Verificación cruzada manual vs implementación final (para pruebas manuales)**
+
+Después de las Tasks 7-10 en verde, releer el manual completo contra el código final y corregir drift (nunca al revés):
+
+```bash
+grep -n "employee_import_val_business_unit_title\|employee_import_val_business_unit_detail" resources/langs/es.json
+grep -n "No fue posible procesar esta fila" app/services/employee_service.ts resources/langs/es.json
+```
+
+Checklist de la verificación (una por una, en el manual):
+- [ ] Cada escenario de rechazo dice `409` con `key`/`code`/título del spec, byte por byte contra `es.json` y el helper.
+- [ ] Escenario multifila: las filas citadas coinciden con el layout real de la plantilla (cabecera = fila 1).
+- [ ] Escenario celda vacía: refleja lo que la Task 10 decidió (si el requerido eximió el vacío, dice `200`; si no, el escenario no existe).
+- [ ] Escenario duplicado: `rowErrors` con `CURP duplicado` literal.
+- [ ] El mensaje genérico de fila (`No fue posible procesar esta fila`) aparece donde el manual hable de filas fallidas inesperadas, si aplica.
+- [ ] Nota de una línea sobre el tope: listados de más de 20 filas se cortan con `… y N filas más.` (sin inventar escenario para provocarlo).
+- [ ] Tabla de usuarios, comando de seeder único y SQL de ids siguen vigentes (re-correr el seeder si hizo falta y confirmar empresas/usuario).
+
+Si algo difiere, **se corrige el manual**, no el código. Commit junto al Step 5.
+
+- [ ] **Step 5: Commits**
 
 ```bash
 git add docs/superpowers/plans/2026-09-23-rechazo-carga-masiva-empresa-distinta-qa-api.md
