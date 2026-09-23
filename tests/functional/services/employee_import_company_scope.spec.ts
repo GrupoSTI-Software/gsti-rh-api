@@ -8,11 +8,12 @@ import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import Person from '#models/person'
 import EmployeeService from '#services/employee_service'
+import { resolveEmployeeImportApiError } from '#helpers/employee_import_api_error'
 import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 
 /**
  * USRH1789747321650 — rechazo de carga masiva por empresa distinta.
- * Nivel servicio (como employee_import_quota.spec.ts): el 422 HTTP ya está
+ * Nivel servicio (como employee_import_quota.spec.ts): el 409 HTTP ya está
  * fijado en unitarios; aquí se prueba el todo-o-nada contra BD real.
  * Empresas `platform`: el cupo no estorba (`{ limit: null, source: 'none' }`).
  */
@@ -156,35 +157,21 @@ async function countPersonsIn(businessUnitId: number): Promise<number> {
 test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321650)', (group) => {
   let unitA: BusinessUnit
   let unitB: BusinessUnit
-  let unitSameName: BusinessUnit
 
   group.setup(async () => {
     unitA = await createPlatformUnit('A')
     unitB = await createPlatformUnit('B')
-    unitSameName = await createPlatformUnit('MismoNombre', unitA.businessUnitName)
   })
 
   group.teardown(async () => {
     await Employee.query()
-      .whereIn('business_unit_id', [
-        unitA.businessUnitId,
-        unitB.businessUnitId,
-        unitSameName.businessUnitId,
-      ])
+      .whereIn('business_unit_id', [unitA.businessUnitId, unitB.businessUnitId])
       .delete()
     await Person.query()
-      .whereIn('business_unit_id', [
-        unitA.businessUnitId,
-        unitB.businessUnitId,
-        unitSameName.businessUnitId,
-      ])
+      .whereIn('business_unit_id', [unitA.businessUnitId, unitB.businessUnitId])
       .delete()
     await BusinessUnit.query()
-      .whereIn('business_unit_id', [
-        unitA.businessUnitId,
-        unitB.businessUnitId,
-        unitSameName.businessUnitId,
-      ])
+      .whereIn('business_unit_id', [unitA.businessUnitId, unitB.businessUnitId])
       .delete()
   })
 
@@ -199,6 +186,18 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
     return SensitiveAccessContext.run(SENSITIVE_WRITE_ALLOWED, () =>
       getService().importFromExcel(asUploadFile(tmpPath), [unitA.businessUnitId])
     )
+  }
+
+  async function importFailsAsA(
+    rows: ImportRowInput[],
+    cleanup: (fn: () => Promise<void>) => void
+  ): Promise<CompanyMismatchError> {
+    try {
+      await importAsA(rows, cleanup)
+    } catch (error) {
+      return asCompanyMismatchError(error)
+    }
+    throw new Error('Se esperaba que la importación fuera rechazada')
   }
 
   test('criterio 1 — archivo todo de la activa: carga como hoy', async ({ assert, cleanup }) => {
@@ -225,29 +224,34 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
     assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployees + 2)
   })
 
-  test('nombre duplicado en otro tenant — el archivo se resuelve en la empresa activa', async ({
+  test('CA-8 — celdas de empresa vacías: 200, la vacía significa la activa', async ({
     assert,
     cleanup,
   }) => {
-    assert.equal(unitSameName.businessUnitName, unitA.businessUnitName)
-    assert.notEqual(unitSameName.businessUnitSlug, unitA.businessUnitSlug)
     const beforeEmployees = await countEmployeesIn(unitA.businessUnitId)
     const result = await importAsA(
       [
         {
-          payrollNum: `RC-SAME-1-${STAMP}`,
-          workUnitName: unitA.businessUnitName,
+          payrollNum: `RC-E-1-${STAMP}`,
+          workUnitName: '',
+          payrollUnitName: '',
           firstName: 'Carga',
-          lastName: 'NombreDuplicado',
+          lastName: 'Vacia',
+        },
+        {
+          payrollNum: `RC-E-2-${STAMP}`,
+          workUnitName: unitA.businessUnitName,
+          payrollUnitName: '',
+          firstName: 'Carga',
+          lastName: 'Mixta',
         },
       ],
       cleanup
     )
 
-    assert.equal(result.summary.created, 1)
+    assert.equal(result.summary.created, 2)
     assert.equal(result.rowErrors.length, 0)
-    assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployees + 1)
-    assert.equal(await countEmployeesIn(unitSameName.businessUnitId), 0)
+    assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployees + 2)
   })
 
   test('criterio 2 — una fila con trabajo distinto: rechazo completo, nada creado, fila identificada', async ({
@@ -269,6 +273,7 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
           {
             payrollNum: `RC-W-2-${STAMP}`,
             workUnitName: unitB.businessUnitName,
+            payrollUnitName: '',
             firstName: 'Carga',
             lastName: 'Mal',
           },
@@ -281,7 +286,7 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
     assert.exists(caught, 'debió rechazar el archivo completo')
     const mismatchError = asCompanyMismatchError(caught)
     assert.equal(mismatchError.isCompanyMismatchError, true)
-    assert.equal(mismatchError.statusCode, 422)
+    assert.equal(mismatchError.statusCode, 409)
     assert.equal(mismatchError.offendingRows.length, 1)
     assert.equal(mismatchError.offendingRows[0].row, 3)
     assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployeesA)
@@ -293,6 +298,7 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
     cleanup,
   }) => {
     const beforeEmployeesA = await countEmployeesIn(unitA.businessUnitId)
+    const beforePersonsA = await countPersonsIn(unitA.businessUnitId)
     let caught: unknown = null
     try {
       await importAsA(
@@ -313,51 +319,169 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
     assert.exists(caught, 'debió rechazar el archivo completo')
     const mismatchError = asCompanyMismatchError(caught)
     assert.equal(mismatchError.isCompanyMismatchError, true)
+    assert.equal(mismatchError.statusCode, 409)
     assert.equal(mismatchError.offendingRows.length, 1)
     assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployeesA)
+    assert.equal(await countPersonsIn(unitA.businessUnitId), beforePersonsA)
   })
 
-  test('criterio 4 — varias filas ofensoras: el rechazo las enumera todas', async ({
+  test('CA-9 — nombre real ajeno e inventado: respuestas indistinguibles', async ({
     assert,
     cleanup,
   }) => {
-    let caught: unknown = null
-    try {
-      await importAsA(
-        [
-          {
-            payrollNum: `RC-M-1-${STAMP}`,
-            workUnitName: unitB.businessUnitName,
-            firstName: 'Carga',
-            lastName: 'MalUno',
-          },
-          {
-            payrollNum: `RC-M-2-${STAMP}`,
-            workUnitName: unitA.businessUnitName,
-            firstName: 'Carga',
-            lastName: 'Bien',
-          },
-          {
-            payrollNum: `RC-M-3-${STAMP}`,
-            workUnitName: unitA.businessUnitName,
-            payrollUnitName: unitB.businessUnitName,
-            firstName: 'Carga',
-            lastName: 'MalDos',
-          },
-        ],
-        cleanup
-      )
-    } catch (error) {
-      caught = error
-    }
-    assert.exists(caught, 'debió rechazar el archivo completo')
-    const mismatchError = asCompanyMismatchError(caught)
-    assert.equal(mismatchError.offendingRows.length, 2)
+    const beforeEmployees = await countEmployeesIn(unitA.businessUnitId)
+    const beforePersons = await countPersonsIn(unitA.businessUnitId)
+    const realCompanyName = unitB.businessUnitName
+    const inventedCompanyName = `Empresa Inexistente ${STAMP}`
+    const asAReal = await importFailsAsA(
+      [
+        {
+          payrollNum: `RC-X-1-${STAMP}`,
+          workUnitName: realCompanyName,
+          payrollUnitName: '',
+          firstName: 'Carga',
+          lastName: 'Real',
+        },
+      ],
+      cleanup
+    )
+    const asAInvented = await importFailsAsA(
+      [
+        {
+          payrollNum: `RC-X-2-${STAMP}`,
+          workUnitName: inventedCompanyName,
+          payrollUnitName: '',
+          firstName: 'Carga',
+          lastName: 'Ficticia',
+        },
+      ],
+      cleanup
+    )
+    const realResolved = resolveEmployeeImportApiError(asAReal, 409)
+    const inventedResolved = resolveEmployeeImportApiError(asAInvented, 409)
+
+    assert.equal(asAReal.statusCode, asAInvented.statusCode)
+    assert.equal(asAReal.statusCode, 409)
+    assert.equal(realResolved.key, inventedResolved.key)
+    assert.equal(realResolved.errorCode, inventedResolved.errorCode)
+    assert.equal(realResolved.title, inventedResolved.title)
+    assert.include(realResolved.detail, realCompanyName)
+    assert.include(inventedResolved.detail, inventedCompanyName)
+    assert.equal(
+      realResolved.detail?.replace(realCompanyName, '<empresa>'),
+      inventedResolved.detail?.replace(inventedCompanyName, '<empresa>')
+    )
+    assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployees)
+    assert.equal(await countPersonsIn(unitA.businessUnitId), beforePersons)
+  })
+
+  test('criterio 4 — tres filas ofensoras no consecutivas: el rechazo cita las tres', async ({
+    assert,
+    cleanup,
+  }) => {
+    const mismatchError = await importFailsAsA(
+      [
+        {
+          payrollNum: `RC-M-1-${STAMP}`,
+          workUnitName: unitB.businessUnitName,
+          payrollUnitName: '',
+          firstName: 'Carga',
+          lastName: 'MalUno',
+        },
+        {
+          payrollNum: `RC-M-2-${STAMP}`,
+          workUnitName: unitA.businessUnitName,
+          firstName: 'Carga',
+          lastName: 'BienUno',
+        },
+        {
+          payrollNum: `RC-M-3-${STAMP}`,
+          workUnitName: unitA.businessUnitName,
+          payrollUnitName: unitB.businessUnitName,
+          firstName: 'Carga',
+          lastName: 'MalDos',
+        },
+        {
+          payrollNum: `RC-M-4-${STAMP}`,
+          workUnitName: unitA.businessUnitName,
+          firstName: 'Carga',
+          lastName: 'BienDos',
+        },
+        {
+          payrollNum: `RC-M-5-${STAMP}`,
+          workUnitName: `Fuera Tres ${STAMP}`,
+          payrollUnitName: '',
+          firstName: 'Carga',
+          lastName: 'MalTres',
+        },
+      ],
+      cleanup
+    )
+    const resolved = resolveEmployeeImportApiError(mismatchError, 409)
+
+    assert.equal(mismatchError.offendingRows.length, 3)
     assert.deepEqual(
       mismatchError.offendingRows.map((item) => item.row),
-      [2, 4]
+      [2, 4, 6]
     )
-    assert.match(mismatchError.message, /Fila 2.*Fila 4/s)
+    assert.match(resolved.detail ?? '', /fila 2.*fila 4.*fila 6/s)
+  })
+
+  test('tope-20 funcional — conserva 21 ofensoras y detail cita solo 20', async ({
+    assert,
+    cleanup,
+  }) => {
+    const beforeEmployees = await countEmployeesIn(unitA.businessUnitId)
+    const beforePersons = await countPersonsIn(unitA.businessUnitId)
+    const rows = Array.from({ length: 21 }, (_, index) => ({
+      payrollNum: `RC-T-${index + 1}-${STAMP}`,
+      workUnitName: `Fuera ${String(index + 1).padStart(2, '0')}`,
+      payrollUnitName: '',
+      firstName: 'Carga',
+      lastName: `Tope${index + 1}`,
+    }))
+    const mismatchError = await importFailsAsA(rows, cleanup)
+    const resolved = resolveEmployeeImportApiError(mismatchError, 409)
+
+    assert.equal(mismatchError.statusCode, 409)
+    assert.equal(mismatchError.offendingRows.length, 21)
+    assert.equal((resolved.data as { offendingRows: unknown[] }).offendingRows.length, 21)
+    assert.equal((resolved.detail?.match(/fila \d+/g) ?? []).length, 20)
+    assert.include(resolved.detail, '… y 1 filas más.')
+    assert.notInclude(resolved.detail, 'fila 22')
+    assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployees)
+    assert.equal(await countPersonsIn(unitA.businessUnitId), beforePersons)
+  })
+
+  test('CA-11 — excepción no reconocida en una fila: genérico + resto creado', async ({
+    assert,
+    cleanup,
+  }) => {
+    const beforeEmployees = await countEmployeesIn(unitA.businessUnitId)
+    const result = await importAsA(
+      [
+        {
+          payrollNum: 'X'.repeat(150),
+          workUnitName: unitA.businessUnitName,
+          firstName: 'Carga',
+          lastName: 'Rota',
+        },
+        {
+          payrollNum: `RC-U-2-${STAMP}`,
+          workUnitName: unitA.businessUnitName,
+          firstName: 'Carga',
+          lastName: 'Sana',
+        },
+      ],
+      cleanup
+    )
+
+    assert.equal(result.summary.created, 1)
+    assert.equal(result.rowErrors.length, 1)
+    assert.equal(result.rowErrors[0].message, 'No fue posible procesar esta fila')
+    const raw = JSON.stringify(result)
+    assert.notMatch(raw, /person_curp|ER_DUP_ENTRY|[0-9a-f]{64}/)
+    assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployees + 1)
   })
 
   test('criterio 5 / regla 4 — CURP ya registrada en la propia empresa: esa fila se salta, el resto carga', async ({
