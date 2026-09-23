@@ -49,44 +49,35 @@ test.group('employee_service importFromExcel — USRH1785169801695', () => {
 })
 
 test.group('employee_service importFromExcel — USRH1789747321650', () => {
-  test('la pasada 1 compara ambas columnas resueltas y rechaza antes del cupo y de la pasada 2', ({
+  test('la pasada 1 compara ambas celdas crudas en scope y limita el detalle del rechazo', ({
     assert,
   }) => {
     const content = readFileSync(SERVICE_FILE, 'utf-8')
 
     assert.include(content, 'this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)')
-    assert.include(content, 'const declaredWorkId = businessUnitId')
-    assert.include(content, 'const declaredPayrollId = payrollBusinessUnitId')
-    assert.include(content, 'companyMismatchRows.push({')
-    assert.include(content, 'throw this.createCompanyMismatchValidationError(companyMismatchRows)')
+    assert.include(content, 'declaredCells')
+    assert.include(content, "column === 'businessUnit'")
+    assert.include(content, 'hasImportCellValue(value)')
+    assert.include(content, 'mapBusinessUnit(typed, businessUnits)')
+    assert.include(content, 'activeBusinessUnit !== null')
+    assert.include(content, 'logger.warn')
+    assert.include(content, 'slice(0, 20)')
+    assert.include(content, 'filas más.')
+    assert.notInclude(content, 'allBusinessUnitsForResolution')
+    assert.notInclude(content, 'resolveBusinessUnitByName')
+    assert.notInclude(content, 'companyMismatchRows')
+    assert.notMatch(content, /rowErrors\.push\(\{ row: rowNumber, message: error\.message/)
     assert.include(content, 'isCompanyMismatchError')
     assert.include(content, 'if (error.isCompanyMismatchError) {')
-  })
-
-  test('regla 2: resuelve primero en scope, usa padrón completo como fallback y cachea por nombre', ({
-    assert,
-  }) => {
-    const content = readFileSync(SERVICE_FILE, 'utf-8')
-
-    assert.include(content, 'allBusinessUnitsForResolution')
-    assert.include(content, 'const businessUnitResolutionCache = new Map<string, number | null>()')
-    assert.include(
-      content,
-      'this.mapBusinessUnit(businessUnitName, businessUnits) ??\n          this.mapBusinessUnit(businessUnitName, allBusinessUnitsForResolution)'
-    )
-    assert.include(content, 'let businessUnitId = resolveBusinessUnitByName(employeeData.businessUnit)')
-    assert.include(
-      content,
-      'let payrollBusinessUnitId = resolveBusinessUnitByName(employeeData.payrollBusinessUnit)'
-    )
-    assert.include(content, 'businessUnits[0].businessUnitId')
   })
 
   test('el rechazo se lanza antes de evaluar el cupo (cero escrituras por construcción)', ({
     assert,
   }) => {
     const content = readFileSync(SERVICE_FILE, 'utf-8')
-    const rejectIdx = content.indexOf('throw this.createCompanyMismatchValidationError(companyMismatchRows)')
+    const rejectIdx = content.indexOf(
+      'throw this.createCompanyMismatchValidationError(foreignRows, activeBusinessUnit?.businessUnitName ?? \'\')'
+    )
     const quotaIdx = content.indexOf('await this.assertImportWithinQuota(allowedBusinessUnitIds, newEmployeesCount)')
     const loopIdx = content.indexOf('for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows)')
     assert.isAbove(rejectIdx, 0)
