@@ -50,7 +50,11 @@ export default class PiiRevealController {
    *       a 404 is returned. Supported models: Person, EmployeeBank,
    *       EmployeeMedicalCondition, WorkDisabilityNote, TraumaticEventReport,
    *       EmployeeLactationPeriod, EmployeeEmergencyContact, EmployeeSpouse,
-   *       EmpresaContratante, ProveedorRepse.
+   *       EmpresaContratante, ProveedorRepse, Employee, EmployeeSalaryHistory,
+   *       PositionSalaryRange, PositionSalaryRangeAudit.
+   *
+   *       Los importes salariales revelables devuelven `data[column]` como número JSON
+   *       finito o `null` (p. ej. `{ "dailySalary": 1250.75 }`).
    *     parameters:
    *       - in: path
    *         name: model

@@ -39,6 +39,14 @@ const REVEALABLE_COLUMNS = [
   { model: 'EmployeeSpouse', column: 'employeeSpousePhone', permission: 'sensitive-contacto-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_FIXED.phoneSecondary },
   { model: 'EmpresaContratante', column: 'rfc', permission: 'sensitive-identificacion-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.empresaRfc },
   { model: 'ProveedorRepse', column: 'rfc', permission: 'sensitive-identificacion-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.proveedorRfc },
+  { model: 'Employee', column: 'dailySalary', permission: 'sensitive-financiero-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.employeeDailySalary },
+  { model: 'EmployeeSalaryHistory', column: 'salaryDaily', permission: 'sensitive-financiero-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.salaryDaily },
+  { model: 'PositionSalaryRange', column: 'minSalaryDaily', permission: 'sensitive-financiero-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.minSalaryDaily },
+  { model: 'PositionSalaryRange', column: 'maxSalaryDaily', permission: 'sensitive-financiero-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.maxSalaryDaily },
+  { model: 'PositionSalaryRangeAudit', column: 'oldMinSalaryDaily', permission: 'sensitive-financiero-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => null },
+  { model: 'PositionSalaryRangeAudit', column: 'oldMaxSalaryDaily', permission: 'sensitive-financiero-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => null },
+  { model: 'PositionSalaryRangeAudit', column: 'newMinSalaryDaily', permission: 'sensitive-financiero-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.rangeAuditNewMinSalaryDaily },
+  { model: 'PositionSalaryRangeAudit', column: 'newMaxSalaryDaily', permission: 'sensitive-financiero-read', clearValue: (_f: SensitiveFixture, _e?: RemainingSensitiveFixture) => CLEAR_REMAINING.rangeAuditNewMaxSalaryDaily },
 ] as const
 
 function recordIdFor(
@@ -57,6 +65,10 @@ function recordIdFor(
   if (model === 'EmployeeSpouse') return extra.spouse.employeeSpouseId
   if (model === 'EmpresaContratante') return extra.empresa.empresaContratanteId
   if (model === 'ProveedorRepse') return extra.proveedor.proveedorRepseId
+  if (model === 'Employee') return fixture.employee.employeeId
+  if (model === 'EmployeeSalaryHistory') return extra.salary.employeeSalaryHistoryId
+  if (model === 'PositionSalaryRange') return extra.range.positionSalaryRangeId
+  if (model === 'PositionSalaryRangeAudit') return extra.rangeAudit.positionSalaryRangeAuditId
   throw new Error(`Modelo sin recordId mapeado en esta suite: ${model}`)
 }
 
@@ -98,7 +110,7 @@ test.group('Permiso de categoría en el revelado individual (USRH1787433076989)'
     assert.equal(after, before + 1)
   })
 
-  test('F.2 — las diecinueve columnas revelables devuelven 200 con su categoría y registran un asiento cada una', async ({ client, assert }) => {
+  test('F.2 — las veintisiete columnas revelables devuelven 200 con su categoría y registran un asiento cada una', async ({ client, assert }) => {
     const extra = await createRemainingSensitiveFixture(actor!, fixture!)
     try {
       for (const { model, column, permission, clearValue } of REVEALABLE_COLUMNS) {

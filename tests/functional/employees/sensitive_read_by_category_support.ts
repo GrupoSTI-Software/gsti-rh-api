@@ -27,6 +27,7 @@ import EmployeeBiometric from '#models/employee_biometric'
 import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
 import EmployeeSalaryHistory from '#models/employee_salary_history'
 import PositionSalaryRange from '#models/position_salary_range'
+import PositionSalaryRangeAudit from '#models/position_salary_range_audit'
 import EmpresaContratante from '#models/empresa_contratante'
 import ProveedorRepse from '#models/proveedor_repse'
 import UserConsent from '#models/user_consent'
@@ -659,8 +660,11 @@ export const CLEAR_REMAINING = {
   proveedorRazon: 'QA Proveedor REPSE Sensible SA de CV',
   proveedorFolio: 'REPSE-QA-SENS-7052',
   salaryDaily: 1250.75,
-  minSalaryDaily: 1000,
-  maxSalaryDaily: 2000,
+  employeeDailySalary: 1250.75,
+  minSalaryDaily: 380.5,
+  maxSalaryDaily: 520,
+  rangeAuditNewMinSalaryDaily: 380.5,
+  rangeAuditNewMaxSalaryDaily: 520,
   consentIp: '203.0.113.10',
   consentUa: 'QaAgent/1.0',
 } as const
@@ -676,6 +680,7 @@ export interface RemainingSensitiveFixture {
   faceId: EmployeeBiometricFaceId
   salary: EmployeeSalaryHistory
   range: PositionSalaryRange
+  rangeAudit: PositionSalaryRangeAudit
   empresa: EmpresaContratante
   proveedor: ProveedorRepse
   consent: UserConsent | null
@@ -793,8 +798,15 @@ export async function createRemainingSensitiveFixture(
     employeeBiometricFaceIdToken: CLEAR_REMAINING.faceToken,
     employeeBiometricFaceIdPhotoUrl: CLEAR_REMAINING.facePhotoUrl,
   })
+  await db
+    .from('employees')
+    .where('employee_id', base.employee.employeeId)
+    .update({ daily_salary: CLEAR_REMAINING.employeeDailySalary })
+  await base.employee.refresh()
+
   const salary = await EmployeeSalaryHistory.create({
     employeeId: base.employee.employeeId,
+    businessUnitId: actor.businessUnit.businessUnitId,
     salaryDaily: CLEAR_REMAINING.salaryDaily,
     validFrom: DateTime.now().startOf('day'),
     validTo: null,
@@ -809,6 +821,17 @@ export async function createRemainingSensitiveFixture(
     validFrom: DateTime.now().startOf('day'),
     validTo: null,
     createdBy: actor.user.userId,
+  })
+  const rangeAudit = await PositionSalaryRangeAudit.create({
+    rangeId: range.positionSalaryRangeId,
+    businessUnitId: actor.businessUnit.businessUnitId,
+    action: 'create',
+    oldMinSalaryDaily: null,
+    oldMaxSalaryDaily: null,
+    newMinSalaryDaily: CLEAR_REMAINING.rangeAuditNewMinSalaryDaily,
+    newMaxSalaryDaily: CLEAR_REMAINING.rangeAuditNewMaxSalaryDaily,
+    actorId: actor.user.userId,
+    reason: 'qa-reveal-salary-audit',
   })
   const normalizedRfc = normalizeRfc(CLEAR_REMAINING.empresaRfc)
   const empresa = await EmpresaContratante.create({
@@ -854,6 +877,7 @@ export async function createRemainingSensitiveFixture(
     faceId,
     salary,
     range,
+    rangeAudit,
     empresa,
     proveedor,
     consent,
@@ -872,6 +896,9 @@ export async function cleanupRemainingSensitiveFixture(
     .delete()
   await EmpresaContratante.query()
     .where('empresa_contratante_id', extra.empresa.empresaContratanteId)
+    .delete()
+  await PositionSalaryRangeAudit.query()
+    .where('position_salary_range_audit_id', extra.rangeAudit.positionSalaryRangeAuditId)
     .delete()
   await PositionSalaryRange.query()
     .where('position_salary_range_id', extra.range.positionSalaryRangeId)

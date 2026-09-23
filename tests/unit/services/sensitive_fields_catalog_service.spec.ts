@@ -155,6 +155,24 @@ test.group('SensitiveFieldsCatalogService.revealEligibility', () => {
     )
   })
 
+  test('los ocho importes salariales son revelables (USRH1788478865952)', ({ assert }) => {
+    const catalog = new SensitiveFieldsCatalogService()
+    const pairs = [
+      ['Employee', 'dailySalary'],
+      ['EmployeeSalaryHistory', 'salaryDaily'],
+      ['PositionSalaryRange', 'minSalaryDaily'],
+      ['PositionSalaryRange', 'maxSalaryDaily'],
+      ['PositionSalaryRangeAudit', 'oldMinSalaryDaily'],
+      ['PositionSalaryRangeAudit', 'oldMaxSalaryDaily'],
+      ['PositionSalaryRangeAudit', 'newMinSalaryDaily'],
+      ['PositionSalaryRangeAudit', 'newMaxSalaryDaily'],
+    ] as const
+    for (const [model, column] of pairs) {
+      assert.equal(catalog.revealEligibility(model, column), 'revealable', `${model}.${column}`)
+      assert.equal(catalog.categoryOf(model, column), 'financiero', `${model}.${column}`)
+    }
+  })
+
   test('las siete columnas nuevas del expediente son revelables (USRH1788478865946)', ({ assert }) => {
     const catalog = new SensitiveFieldsCatalogService()
     const pairs = [

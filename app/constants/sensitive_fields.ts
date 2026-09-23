@@ -258,18 +258,49 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // de nómina. Se clasifica y se oculta en serialización; NO se cifra todavía
   // (decisión de Wilvardo 2026-08-22). Entra en pendingEncryption() a propósito:
   // el indicador de brecha LFPDPPP sube en 1 hasta que la HU de cifrado lo cierre.
-  { model: 'Employee', column: 'dailySalary', legalCategory: 'financiero', treatment: 'cifrar', encrypted: false },
+  // Revelado individual con asiento (USRH1788478865952).
+  {
+    model: 'Employee',
+    column: 'dailySalary',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: false,
+    maskedInApi: true,
+  },
 
   // ─── EmployeeSalaryHistory: financiero (YA CIFRADO — patrón de referencia) ─
   // Cifrado AES-256-CBC vía prepare/consume en el modelo Lucid.
+  // Revelado individual con asiento (USRH1788478865952).
   // Ancla: app/models/employee_salary_history.ts:56-66
-  { model: 'EmployeeSalaryHistory', column: 'salaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+  {
+    model: 'EmployeeSalaryHistory',
+    column: 'salaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
 
   // ─── PositionSalaryRange: financiero (YA CIFRADO) ─────────────────────────
   // Mismo patrón prepare/consume que EmployeeSalaryHistory.
+  // Revelado individual con asiento (USRH1788478865952).
   // Ancla: app/models/position_salary_range.ts
-  { model: 'PositionSalaryRange', column: 'minSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
-  { model: 'PositionSalaryRange', column: 'maxSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+  {
+    model: 'PositionSalaryRange',
+    column: 'minSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+  {
+    model: 'PositionSalaryRange',
+    column: 'maxSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
 
   // ─── UserConsent: contacto (evidencia de aceptación, USRH1783101935670) ───
   // "Desde dónde se aceptó" un documento legal: refuerzo probatorio, nunca en WHERE,
@@ -299,9 +330,38 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   },
 
   // ─── PositionSalaryRangeAudit: financiero (YA CIFRADO, faltaba serialize) ──
-  // Espejo auditado del rango. Ancla: app/models/position_salary_range_audit.ts
-  { model: 'PositionSalaryRangeAudit', column: 'oldMinSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
-  { model: 'PositionSalaryRangeAudit', column: 'oldMaxSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
-  { model: 'PositionSalaryRangeAudit', column: 'newMinSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
-  { model: 'PositionSalaryRangeAudit', column: 'newMaxSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+  // Espejo auditado del rango. Revelado individual con asiento (USRH1788478865952).
+  // Ancla: app/models/position_salary_range_audit.ts
+  {
+    model: 'PositionSalaryRangeAudit',
+    column: 'oldMinSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+  {
+    model: 'PositionSalaryRangeAudit',
+    column: 'oldMaxSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+  {
+    model: 'PositionSalaryRangeAudit',
+    column: 'newMinSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+  {
+    model: 'PositionSalaryRangeAudit',
+    column: 'newMaxSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
 ] as const
