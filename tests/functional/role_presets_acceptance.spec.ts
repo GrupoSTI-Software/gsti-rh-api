@@ -9,6 +9,13 @@ import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import RolePresetService from '#services/role_preset_service'
 import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import {
+  cleanupTenantActor,
+  createTenantActor,
+  grantModulePermissions,
+  type TenantActor as GateActor,
+} from '#tests/helpers/tenant_actor'
 
 interface Actor {
   user: User
@@ -16,9 +23,9 @@ interface Actor {
   businessUnit: BusinessUnit
 }
 
-async function createActor(roleSlug = 'root'): Promise<Actor> {
+async function createActor(roleSlug: TestRoleSlug = 'root'): Promise<Actor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
-  const role = await Role.query().where('role_slug', roleSlug).firstOrFail()
+  const role = await ensureRole(roleSlug)
   const person = await Person.create({
     personFirstname: 'RolePresetAcceptance',
     personLastname: 'Test',
@@ -69,7 +76,7 @@ async function permission(moduleSlug: string, permissionSlug: string) {
 
 test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
   let actor: Actor | null = null
-  let lockedActor: Actor | null = null
+  let lockedActor: GateActor | null = null
   let role: Role
   let otherModule: SystemModule
   let otherPermission: SystemPermission
@@ -78,13 +85,16 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
   group.setup(async () => {
     const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
     actor = await createActor()
-    lockedActor = await createActor('rh-manager')
+    // Rol propio con roles-and-permissions:update: cruza el gate y el caso F
+    // sigue probando el bloqueo de roles de sistema.
+    lockedActor = await createTenantActor('role-preset-acceptance-admin')
+    await grantModulePermissions(lockedActor, 'roles-and-permissions', ['update'])
     role = await Role.create({
       roleName: `Acceptance role ${stamp}`,
       roleSlug: `acceptance-role-${stamp}`,
       roleDescription: 'Fixture de aceptación',
       roleActive: 1,
-      roleBusinessAccess: actor!.businessUnit.businessUnitSlug,
+      businessUnitId: actor!.businessUnit.businessUnitId,
       roleManagementDays: 10,
     })
     otherModule = await SystemModule.create({
@@ -120,7 +130,7 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
       .delete()
     await SystemModule.query().where('system_module_id', otherModule.systemModuleId).delete()
     await cleanupActor(actor)
-    await cleanupActor(lockedActor)
+    await cleanupTenantActor(lockedActor)
   })
 
   test('A: replace reporta granted/revoked/unchanged, aplica igual y conserva otro módulo', async ({
@@ -300,8 +310,17 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
     )
   })
 
-  test('F: rol sistema devuelve 403 y no modifica grants', async ({ client, assert }) => {
-    const owner = await Role.query().where('role_slug', 'owner').firstOrFail()
+  /**
+   * Antes: 403 `rol-sistema-bloqueado`, porque `owner` era una fila global que
+   * el candado de roles de sistema protegía de los tenants. Con roles por
+   * empresa no queda ningún rol de tenant compartido, y un rol sin empresa
+   * dueña no existe para quien pide: responde 404 y tampoco se toca.
+   */
+  test('F: un rol sin empresa dueña devuelve 404 y no modifica grants', async ({
+    client,
+    assert,
+  }) => {
+    const owner = await ensureRole('owner')
     const beforeGrants = await grants(owner.roleId)
     const before = beforeGrants.map((grant) => grant.systemPermissionId).sort()
     const response = await client
@@ -314,8 +333,7 @@ test.group('Aceptación de reglas de plantillas de roles (A–G)', (group) => {
         expectedPresetVersion: '1.0.0',
         baselinePermissionIds: before,
       })
-    response.assertStatus(403)
-    assert.equal(response.body().key, 'rol-sistema-bloqueado')
+    response.assertStatus(404)
     const after = await grants(owner.roleId)
     assert.deepEqual(after.map((grant) => grant.systemPermissionId).sort(), before)
   })

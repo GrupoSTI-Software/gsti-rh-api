@@ -1,5 +1,6 @@
 import env from '#start/env'
 import { defineConfig } from '@adonisjs/core/logger'
+import { LOG_REDACT_CENSOR, LOG_REDACT_PATHS } from '#constants/log_redact_paths'
 
 const loggerConfig = defineConfig({
   default: 'app',
@@ -13,6 +14,10 @@ const loggerConfig = defineConfig({
       enabled: true,
       name: env.get('APP_NAME'),
       level: env.get('LOG_LEVEL'),
+      redact: {
+        paths: [...LOG_REDACT_PATHS],
+        censor: LOG_REDACT_CENSOR,
+      },
       transport: {
         targets: [
           {

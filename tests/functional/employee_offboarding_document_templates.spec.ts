@@ -1,7 +1,6 @@
 import { test } from '@japa/runner'
 import { createHash } from 'node:crypto'
 import { DateTime } from 'luxon'
-import { PDFDocument, StandardFonts } from 'pdf-lib'
 import db from '@adonisjs/lucid/services/db'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
@@ -26,6 +25,10 @@ import {
   EMPLOYEE_OFFBOARDING_ORIGIN,
   EMPLOYEE_OFFBOARDING_STATUS,
 } from '#modules/employee-offboarding/offboardings/offboardings.constants'
+import {
+  buildTextFieldsTemplate,
+  VALID_TEMPLATE_FIELD_NAMES,
+} from '../fixtures/pdf-templates/build_pdf_template_fixtures.js'
 
 /**
  * USRH1788553841100 — plantillas propias del documento de salida: carga,
@@ -81,13 +84,14 @@ function sha256(buffer: Buffer): string {
   return createHash('sha256').update(buffer).digest('hex')
 }
 
-/** PDF REAL (pdf-lib): el perfil `pdf-document` recarga y re-serializa el archivo. */
+/**
+ * PDF REAL con los seis campos obligatorios del catálogo: pasa la revisión
+ * estructural (USRH1789097550387) y el contraste (USRH1789097550388). El
+ * perfil `pdf-document` lo recarga y re-serializa; el marcador distingue los
+ * bytes de cada versión.
+ */
 async function buildPdf(marker: string): Promise<Buffer> {
-  const pdf = await PDFDocument.create()
-  const page = pdf.addPage([595, 842])
-  const font = await pdf.embedFont(StandardFonts.Helvetica)
-  page.drawText(`Plantilla de prueba ${marker}`, { x: 50, y: 780, size: 14, font })
-  return Buffer.from(await pdf.save())
+  return buildTextFieldsTemplate(VALID_TEMPLATE_FIELD_NAMES, `Plantilla de prueba ${marker}`)
 }
 
 async function createBusinessUnit(prefix: string): Promise<BusinessUnit> {
@@ -111,7 +115,7 @@ async function findPermissions(actions: readonly string[]): Promise<SystemPermis
     .first()
   if (!systemModule) {
     throw new Error(
-      `Se requiere el módulo "${EMPLOYEE_OFFBOARDINGS_MODULE_SLUG}" en BD (seeder 0055) para este test.`
+      `Se requiere el módulo "${EMPLOYEE_OFFBOARDINGS_MODULE_SLUG}" en BD (seeder 0062) para este test.`
     )
   }
   const permissions = await SystemPermission.query()
@@ -137,8 +141,8 @@ async function createRole(
     roleSlug: `${FIXTURE_SLUG_PREFIX}${prefix}-${stamp}`,
     roleDescription: 'Rol temporal del spec de plantillas de salida',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
     roleManagementDays: 10,
+    businessUnitId: businessUnit.businessUnitId,
   })
   created.roleIds.push(role.roleId)
   for (const permission of await findPermissions(actions)) {
@@ -326,7 +330,7 @@ interface TemplateDto {
   originalFileName: string
   fileSizeBytes: number
   contentSha256: string
-  validationResult: unknown
+  validationResult: { passed: boolean } | null
   uploadedByUserId: number | null
   uploadedByUserName: string | null
   createdAt: string | null
@@ -455,7 +459,8 @@ test.group('Plantillas propias del documento de salida (USRH1788553841100)', (gr
     assert.strictEqual(versionOne.originalFileName, 'Constancia_Legal_v1.pdf')
     assert.isTrue(Number.isInteger(versionOne.fileSizeBytes) && versionOne.fileSizeBytes > 0)
     assert.match(versionOne.contentSha256, /^[0-9a-f]{64}$/)
-    assert.isNull(versionOne.validationResult)
+    // Dictamen de las dos etapas de la cadena: la plantilla de prueba pasa
+    assert.isTrue(versionOne.validationResult?.passed)
     assert.strictEqual(versionOne.uploadedByUserId, uploader.userId)
     assert.isString(versionOne.uploadedByUserName)
     assert.isNotEmpty(versionOne.uploadedByUserName)

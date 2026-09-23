@@ -122,7 +122,9 @@ test.group('employee_assessment_routes — PermissionGate Assessments', () => {
 })
 
 test.group('career_path_candidate_routes — PermissionGate Ruta de carrera', () => {
-  test('escrituras declaran permissionGate y lecturas no', async ({ assert }) => {
+  test('proponer y borrar declaran el gate de Empleados; cambiar estatus es de la bandeja', async ({
+    assert,
+  }) => {
     const content = await readFile(
       join(process.cwd(), 'start/routes/career_path_candidate_routes.ts'),
       'utf8'
@@ -133,21 +135,24 @@ test.group('career_path_candidate_routes — PermissionGate Ruta de carrera', ()
     )
     assert.include(
       compact(content),
-      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateCareerPathCandidateStatus)'
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteCareerPathCandidate)'
     )
+    // Aprobar con el permiso de proponer dejaba a la pestaña del expediente
+    // autorizar su propia propuesta: el PUT pide `hr-career-path:update`.
     assert.include(
       compact(content),
-      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteCareerPathCandidate)'
+      'permissionGate(HR_CAREER_PATH_PERMISSION_DECLARATIONS.updateCareerPathCandidateStatus)'
     )
     const matches =
       compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
       []
-    assert.equal(matches.length, 3)
+    assert.equal(matches.length, 2)
   })
 })
 
 test.group('Evaluaciones/Assessments/Ruta — total de gates en los cinco archivos', () => {
-  test('suma exactamente 16 permissionGate de declaraciones', async ({ assert }) => {
+  // 15: el cambio de estatus de candidatos pasó a la Bandeja de rutas de carrera.
+  test('suma exactamente 15 permissionGate de declaraciones', async ({ assert }) => {
     const files = [
       'start/routes/employee_evaluation.ts',
       'start/routes/employee_competency_evaluation.ts',
@@ -163,6 +168,6 @@ test.group('Evaluaciones/Assessments/Ruta — total de gates en los cinco archiv
         []
       total += matches.length
     }
-    assert.equal(total, 16)
+    assert.equal(total, 15)
   })
 })

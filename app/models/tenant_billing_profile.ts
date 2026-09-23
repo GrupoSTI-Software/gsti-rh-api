@@ -26,9 +26,12 @@ export default class TenantBillingProfile extends compose(
 
   /**
    * RFC del tenant — cifrado AES en reposo. Opcional hasta el momento de facturar.
+   * Nunca se serializa (molde `alliance_billing_profile.ts`): las salidas deliberadas
+   * son los DTO a mano `toView` (owner) y el snapshot fiscal de platform.
    */
   @column({
     columnName: 'tenant_billing_profile_rfc',
+    serializeAs: null,
     prepare: (value: string | null) =>
       value !== null && value !== undefined ? encryption.encrypt(value) : null,
     consume: (value: string | null) => {

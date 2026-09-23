@@ -1,8 +1,8 @@
 import type { PlatformDeviceErrorCode } from '../constants/platform_device_error_codes.js'
 
 /**
- * Error de dominio del catálogo de dispositivos de plataforma.
- * Espeja el patrón de `PlatformSystemModuleServiceError`.
+ * Error de dominio del catálogo de dispositivos de plataforma, con código HTTP,
+ * errorCode estable y key/detail opcionales para la respuesta título/detalle/key.
  */
 export class PlatformDeviceServiceError extends Error {
   readonly errorCode: PlatformDeviceErrorCode

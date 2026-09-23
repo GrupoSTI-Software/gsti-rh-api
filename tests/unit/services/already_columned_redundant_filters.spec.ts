@@ -56,12 +56,20 @@ test.group('telework-policy — candados manuales retirados', () => {
     assert.include(content, 'listByBusinessUnit(')
   })
 
-  test('telework_policy_notification.service.ts retiró el filtro redundante sobre BusinessUnit (ya scoped)', ({
+  /**
+   * Aquí el filtro por `business_unit_id` NO es redundante y por eso se exige:
+   * `SystemSetting` es de los pocos modelos SIN `withBusinessUnitScope()`, y
+   * este servicio corre en procesos batch, fuera del contexto de una petición.
+   * Antes el método ni siquiera usaba la empresa que recibía: tomaba la primera
+   * de la base y podía mandarle a un tenant la marca de otro.
+   */
+  test('telework_policy_notification.service.ts resuelve la marca por la empresa recibida', ({
     assert,
   }) => {
     const content = read('app/modules/telework-policy/telework_policy_notification.service.ts')
-    assert.notInclude(content, ".where('business_unit_id', businessUnitId)")
     assert.include(content, 'resolveBrandingForBusinessUnit(')
+    assert.include(content, ".where('business_unit_id', businessUnitId)")
+    assert.notInclude(content, 'systemSettingBusinessUnits')
   })
 })
 

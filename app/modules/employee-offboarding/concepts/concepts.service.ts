@@ -16,7 +16,7 @@ import ConceptsRepositoryMysql from './concepts.repository.mysql.js'
 import type { ConceptsRepository } from './concepts.repository.js'
 import { toOffboardingConceptDto, type OffboardingConceptDto } from './dto/concepts.dto.js'
 
-/** Acciones del módulo `employee-offboardings` sembradas por el seeder 0055. */
+/** Acciones del módulo `employee-offboardings` declaradas en `system_modules.constant.ts`. */
 export type EmployeeOffboardingAction = 'read' | 'create' | 'update' | 'delete'
 
 export interface OffboardingConceptCreateInput {

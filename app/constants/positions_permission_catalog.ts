@@ -3,6 +3,14 @@ import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
 /** Sección en inglés: positions no tiene pestañas de UI como employees. */
 export type PositionsSection = 'salary-ranges'
 
+/**
+ * Nombre legible de cada sección, serializado en el árbol de permisos de
+ * sesión. El slug es en inglés, el nombre visible no.
+ */
+export const POSITIONS_SECTION_LABELS = {
+  'salary-ranges': 'Rangos salariales',
+} as const satisfies Record<PositionsSection, string>
+
 export const POSITIONS_PERMISSION_CATALOG = [
   {
     slug: 'salary-ranges-read',
@@ -10,7 +18,7 @@ export const POSITIONS_PERMISSION_CATALOG = [
     kind: 'read',
     section: 'salary-ranges',
     exceptionProfile: 'standard',
-    // Sin legacyEquivalence: 0018 no siembra permisos con systemModuleId: 3.
+    // Sin legacyEquivalence: acción nueva, sin permiso previo equivalente.
   },
   {
     slug: 'salary-ranges-write',

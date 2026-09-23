@@ -1,5 +1,6 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
+import { TRAUMATIC_EVENT_REPORTS_REGISTRY_PERMISSION_DECLARATIONS } from '#constants/traumatic_event_reports_registry_permission_declarations'
 
 router
   .group(() => {
@@ -8,14 +9,26 @@ router
 
     // Registro auditable NOM-035 §5.8.c — declarar ANTES de /:id para que
     // el segmento literal "registry" no sea confundido con un identificador.
-    router.get(
-      '/traumatic-event-reports/registry',
-      '#controllers/traumatic_event_report_controller.registry'
-    )
-    router.get(
-      '/traumatic-event-reports/registry/export',
-      '#controllers/traumatic_event_report_controller.registryExport'
-    )
+    // Exigen el módulo del registro, no el de reportes: es el que protege la
+    // pantalla del backoffice. El resto de este grupo lo verifica su controller.
+    router
+      .get(
+        '/traumatic-event-reports/registry',
+        '#controllers/traumatic_event_report_controller.registry'
+      )
+      .use(
+        middleware.permissionGate(TRAUMATIC_EVENT_REPORTS_REGISTRY_PERMISSION_DECLARATIONS.registry)
+      )
+    router
+      .get(
+        '/traumatic-event-reports/registry/export',
+        '#controllers/traumatic_event_report_controller.registryExport'
+      )
+      .use(
+        middleware.permissionGate(
+          TRAUMATIC_EVENT_REPORTS_REGISTRY_PERMISSION_DECLARATIONS.registryExport
+        )
+      )
 
     // Documento imprimible NOM-035 §6.5 — declarar ANTES de /:id para que
     // el segmento "printable-document" no sea confundido con un ID numérico.

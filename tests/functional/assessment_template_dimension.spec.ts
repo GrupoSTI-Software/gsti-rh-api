@@ -1,8 +1,39 @@
 import { test } from '@japa/runner'
+import type { Group } from '@japa/runner/core'
 import db from '@adonisjs/lucid/services/db'
-import User from '#models/user'
+import type User from '#models/user'
 import AssessmentTemplate from '#models/assessment_template'
 import AssessmentTemplateDimension from '#models/assessment_template_dimension'
+import {
+  cleanupTenantActor,
+  createBypassActor,
+  required,
+  type TenantActor,
+} from '#tests/helpers/tenant_actor'
+
+/**
+ * Registra en el grupo un usuario root propio y lo borra al terminar.
+ *
+ * Por qué: los grupos tomaban el primer usuario de la BD. Con la exigencia de
+ * `assessment-templates` encendida y un gate en cada ruta de dimensiones, ese
+ * usuario responde 403 si su rol no es root u owner. Root pasa el gate por
+ * bypass standard; los permisos se prueban en
+ * `assessment_templates_permission_gate.spec.ts`.
+ */
+function useRootActor(group: Group, label: string): () => User {
+  let actor: TenantActor | null = null
+
+  group.setup(async () => {
+    actor = await createBypassActor('root', label)
+  })
+
+  group.teardown(async () => {
+    await cleanupTenantActor(actor)
+    actor = null
+  })
+
+  return () => required(actor, 'el actor root').user
+}
 
 /**
  * Tests funcionales — AssessmentTemplateDimensionController
@@ -62,10 +93,11 @@ test.group('AssessmentTemplateDimension - Setup global', (group) => {
 
 test.group('AssessmentTemplateDimension - index GET /', (group) => {
   let user: User
+  const rootUser = useRootActor(group, 'dimensiones')
   let template: AssessmentTemplate
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    user = rootUser()
     template = await AssessmentTemplate.create({
       assessmentTemplateName: 'Plantilla Index Dims Test',
       assessmentTemplateDescription: null,
@@ -133,11 +165,12 @@ test.group('AssessmentTemplateDimension - index GET /', (group) => {
 
 test.group('AssessmentTemplateDimension - store POST /', (group) => {
   let user: User
+  const rootUser = useRootActor(group, 'dimensiones')
   let template: AssessmentTemplate
   const createdDimIds: number[] = []
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    user = rootUser()
     template = await AssessmentTemplate.create({
       assessmentTemplateName: 'Plantilla Store Dim Test',
       assessmentTemplateDescription: null,
@@ -363,11 +396,12 @@ test.group('AssessmentTemplateDimension - store POST /', (group) => {
 
 test.group('AssessmentTemplateDimension - show GET /:id', (group) => {
   let user: User
+  const rootUser = useRootActor(group, 'dimensiones')
   let template: AssessmentTemplate
   let dimension: AssessmentTemplateDimension
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    user = rootUser()
     template = await AssessmentTemplate.create({
       assessmentTemplateName: 'Plantilla Show Dim Test',
       assessmentTemplateDescription: null,
@@ -428,11 +462,12 @@ test.group('AssessmentTemplateDimension - show GET /:id', (group) => {
 
 test.group('AssessmentTemplateDimension - update PUT /:id', (group) => {
   let user: User
+  const rootUser = useRootActor(group, 'dimensiones')
   let template: AssessmentTemplate
   let dimension: AssessmentTemplateDimension
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    user = rootUser()
     template = await AssessmentTemplate.create({
       assessmentTemplateName: 'Plantilla Update Dim Test',
       assessmentTemplateDescription: null,
@@ -567,10 +602,11 @@ test.group('AssessmentTemplateDimension - update PUT /:id', (group) => {
 
 test.group('AssessmentTemplateDimension - delete DELETE /:id', (group) => {
   let user: User
+  const rootUser = useRootActor(group, 'dimensiones')
   let template: AssessmentTemplate
 
   group.setup(async () => {
-    user = await User.query().whereNull('user_deleted_at').firstOrFail()
+    user = rootUser()
     template = await AssessmentTemplate.create({
       assessmentTemplateName: 'Plantilla Delete Dim Test',
       assessmentTemplateDescription: null,

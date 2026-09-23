@@ -147,10 +147,19 @@ export default class ReportJobsController {
 
       if (!filterDate || !filterDateEnd) {
         response.status(400)
+        const missing = [
+          !filterDate ? 'date' : null,
+          !filterDateEnd ? 'date-end' : null,
+        ].filter((field): field is string => field !== null)
         return {
           type: 'warning',
-          title: t('report_type'),
-          message: t('entity_is_not_valid', { entity: 'date' }),
+          title: t('report_job_dates_required_title'),
+          message: t('report_job_dates_required_message'),
+          data: {
+            date: filterDate ?? null,
+            'date-end': filterDateEnd ?? null,
+            missing,
+          },
         }
       }
 

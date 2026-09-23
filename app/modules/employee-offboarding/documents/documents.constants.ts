@@ -31,6 +31,13 @@ export const DOCUMENT_SIGNED_URL_EXPIRES_SECONDS = 5 * 60
  */
 export const DOCUMENT_MIME_TYPE = 'application/pdf'
 
+/**
+ * Formato civil de las fechas escritas en la plantilla propia
+ * (USRH1789097550389): el MISMO que imprime la plantilla del sistema, que
+ * conserva su literal privado (candado G-14). Zona de negocio.
+ */
+export const DOCUMENT_PRINTED_DATE_FORMAT = 'dd/LL/yyyy'
+
 /** Anchos de las columnas de snapshot (espejo de las tablas de origen). */
 export const DOCUMENT_EMPLOYEE_NAME_MAX_LENGTH = 255
 export const DOCUMENT_POSITION_NAME_MAX_LENGTH = 100

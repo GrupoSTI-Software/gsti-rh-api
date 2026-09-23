@@ -54,7 +54,6 @@ test.group('SystemSettingService.resolveByBusinessUnitId', (group) => {
     systemSettingA.systemSettingTradeName = `Trade A ${stamp}`
     systemSettingA.systemSettingSidebarColor = '#111111'
     systemSettingA.systemSettingActive = 1
-    systemSettingA.systemSettingBusinessUnits = businessUnitWithSettings.businessUnitSlug
     systemSettingA.systemSettingMonthlyConversionFactor = 30.4
     await systemSettingA.save()
 
@@ -63,7 +62,6 @@ test.group('SystemSettingService.resolveByBusinessUnitId', (group) => {
     systemSettingB.systemSettingTradeName = `Trade B ${stamp}`
     systemSettingB.systemSettingSidebarColor = '#222222'
     systemSettingB.systemSettingActive = 1
-    systemSettingB.systemSettingBusinessUnits = businessUnitB.businessUnitSlug
     systemSettingB.systemSettingMonthlyConversionFactor = 30.4
     await systemSettingB.save()
   })

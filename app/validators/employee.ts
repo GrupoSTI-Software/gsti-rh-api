@@ -63,9 +63,13 @@ export const createEmployeeValidator = vine.compile(
     employeeSecondLastName: vine.string().trim().minLength(0).maxLength(25).optional(),
     employeePayrollCode: vine.string().trim().minLength(0).maxLength(100).optional(),
     companyId: vine.number().min(1),
-    departmentId: vine.number().optional(),
+    // USRH1789328927556: la obligatoriedad se resuelve en store con
+    // requireEmployeeStructureForCreate (regla 1), para poder decir cuál
+    // falta o que faltan los dos. Vine solo acepta el valor; 0 y vacío
+    // los trata el controller como faltantes (regla 2) ANTES de validar.
+    departmentId: vine.number().nullable().optional(),
     departmentSyncId: vine.number().min(0).optional(),
-    positionId: vine.number().optional(),
+    positionId: vine.number().nullable().optional(),
     positionSyncId: vine.number().min(0).optional(),
     positionLevelConfigId: vine.number().min(1).nullable().optional(),
     employeeWorkSchedule: vine.enum(workScheduleValues),
@@ -107,9 +111,12 @@ export const updateEmployeeValidator = vine.compile(
     employeeSecondLastName: vine.string().trim().minLength(0).maxLength(25).optional(),
     employeePayrollCode: vine.string().trim().minLength(0).maxLength(100).optional(),
     companyId: vine.number().min(1),
-    departmentId: vine.number().min(1),
+    // USRH1788466831270, regla 1: al editar no son obligatorios. Ausente =
+    // conservar lo guardado; `null` = dejar sin asignar (regla 9). El alta
+    // los exige en store (USRH1789328927556), no en este validador.
+    departmentId: vine.number().min(1).nullable().optional(),
     departmentSyncId: vine.number().min(0).optional(),
-    positionId: vine.number().min(1),
+    positionId: vine.number().min(1).nullable().optional(),
     positionSyncId: vine.number().min(0).optional(),
     positionLevelConfigId: vine.number().min(1).nullable().optional(),
     employeeTypeId: vine.number().min(1),

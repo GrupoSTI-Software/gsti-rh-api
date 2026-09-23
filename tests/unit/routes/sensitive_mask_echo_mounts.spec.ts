@@ -19,9 +19,7 @@ const WRITE_ROUTE_FILES = [
   'start/routes/user_routes.ts',
   'start/routes/employee_routes.ts',
   'start/routes/synchronization_routes.ts',
-  'start/routes/pilot_routes.ts',
-  'start/routes/flight_attendant_routes.ts',
-  'start/routes/customer_routes.ts',
+  'start/routes/empresas_contratantes_routes.ts',
 ]
 
 test.group('Montaje sensitiveMaskEcho', () => {
@@ -36,6 +34,17 @@ test.group('Montaje sensitiveMaskEcho', () => {
       const source = readFileSync(join(ROOT, relative), 'utf-8')
       assert.include(source, 'middleware.sensitiveMaskEcho()', `${relative} debe montar sensitiveMaskEcho`)
     }
+  })
+
+  test('empresas_contratantes monta sensitiveMaskEcho después de businessScope', ({ assert }) => {
+    const source = readFileSync(
+      join(ROOT, 'start/routes/empresas_contratantes_routes.ts'),
+      'utf-8'
+    )
+    const businessScopeIdx = source.indexOf('middleware.businessScope()')
+    const echoIdx = source.indexOf('middleware.sensitiveMaskEcho()')
+    assert.isAbove(businessScopeIdx, -1)
+    assert.isAbove(echoIdx, businessScopeIdx)
   })
 
   test('person_routes monta sensitiveMaskEcho solo en /api/persons', ({ assert }) => {

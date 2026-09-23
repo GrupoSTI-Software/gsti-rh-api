@@ -41,7 +41,8 @@ import {
  * - La rama de administración exige el permiso `read` del módulo.
  * - Borrar da de baja las filas antes de tocar el almacenamiento.
  *
- * Las pruebas escriben sobre la base de desarrollo y limpian lo suyo; las que
+ * Las pruebas escriben sobre la BD desechable de la suite (`sae_pruebas`) y
+ * limpian lo suyo; las que
  * pasan por `POST /api/notices` requieren las migraciones `1788800000010` y
  * `1788800000011`, y la de binarios necesita el bucket de desarrollo.
  */
@@ -84,7 +85,6 @@ async function createActor(prefix: string, sharedUnit?: BusinessUnit): Promise<A
     roleSlug: `ciclo-avisos-${prefix}-${stamp}`,
     roleDescription: 'Rol temporal para el ciclo de vida de avisos',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
     roleManagementDays: 10,
   })
   const person = await Person.create({
@@ -219,8 +219,8 @@ test.group('Avisos — ciclo de vida (v2, segunda entrega)', (group) => {
       // la empresa; sin él se recorta a los colaboradores a cargo del usuario.
       ...(await grantFullEmployeeAccess(admin.role.roleId)),
     ]
-    // El listado de empleados —y con él `company`— solo alcanza a quien tiene
-    // departamento: los dos actores lo necesitan para contar como público.
+    // Departamento compartido para el escenario de público `department`. Desde
+    // USRH1788466831247 `company` alcanza también a quien no tiene departamento.
     sharedDepartment = await createDepartment(ana.businessUnit, 'Compartido')
     await assignDepartment(ana, sharedDepartment.departmentId)
     await assignDepartment(admin, sharedDepartment.departmentId)

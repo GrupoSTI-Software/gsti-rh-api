@@ -2,7 +2,6 @@ import mail from '@adonisjs/mail/services/main'
 import logger from '@adonisjs/core/services/logger'
 import env from '#start/env'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
-import SystemSetting from '#models/system_setting'
 import SystemSettingService from './system_setting_service.js'
 import SignupOtpMail from '#mails/signup_otp_mail'
 import WelcomeMail from '#mails/welcome_mail'
@@ -37,10 +36,10 @@ const OTP_VALIDITY_MINUTES = 10
 const DEFAULT_BACKOFFICE_URL = 'http://127.0.0.1:3000'
 
 /**
- * Branding inyectable en las plantillas. Se resuelve desde
- * `SystemSettingService.getActive()` y, ante ausencia de configuración activa,
- * aplica los mismos fallbacks del flujo de recuperación de contraseña
- * (`user_controller.ts:705`) para mantener consistencia con el resto del repo.
+ * Branding inyectable en las plantillas. Se resuelve desde la configuración de
+ * la empresa activa y, ante su ausencia —que es lo normal aquí: estos correos
+ * salen antes de que exista empresa—, aplica los mismos fallbacks del flujo de
+ * recuperación de contraseña (`user_controller.ts:705`).
  */
 interface AuthMailBranding {
   tradeName: string
@@ -295,7 +294,10 @@ export default class AuthMailService {
     try {
       const isWhiteLabel = false
       const systemSettingService = new SystemSettingService()
-      const active = (await systemSettingService.getActive()) as unknown as SystemSetting | null
+      // Los correos de autenticación salen ANTES de que exista empresa activa
+      // (verificación de alta, invitación), así que aquí normalmente no hay
+      // configuración que leer y manda la marca por defecto.
+      const active = await systemSettingService.resolveForActiveTenant()
 
       if (active && isWhiteLabel) {
         if (active.systemSettingLogo) {

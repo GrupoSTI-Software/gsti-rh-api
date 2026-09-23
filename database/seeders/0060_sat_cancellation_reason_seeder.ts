@@ -8,7 +8,6 @@ import {
 /**
  * Semilla idempotente de c_MotivoCancelacion (USRH1788288461952).
  *
- * Numeración `0060`: `0059` ya lo ocupa `0059_system_module_group_seeder`.
  * Es requisito de despliegue: sin estas 4 filas, GET /api/billing/sat-catalogs
  * responde 500 (`SAT.CAT.CATALOG_UNAVAILABLE`) porque la guarda del servicio
  * exige los tres catálogos poblados.

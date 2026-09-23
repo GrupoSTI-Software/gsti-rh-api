@@ -77,11 +77,63 @@ test.group('SensitiveFieldsCatalogService.categoryOf — Anexo A orden 31', () =
     assert.equal(catalog.categoryOf('PositionSalaryRange', 'maxSalaryDaily'), 'financiero')
   })
 
-  test('TenantBillingProfile.rfc está clasificado pero queda fuera de esta rebanada', ({
+  test('TenantBillingProfile.rfc está clasificado como identificacion', ({ assert }) => {
+    const catalog = new SensitiveFieldsCatalogService()
+    assert.equal(catalog.categoryOf('TenantBillingProfile', 'rfc'), 'identificacion')
+  })
+})
+
+test.group('SensitiveFieldsCatalogService — USRH1788551528001', () => {
+  test('TenantBillingProfile.rfc está clasificado y excluido de pendingEncryption', ({
     assert,
   }) => {
     const catalog = new SensitiveFieldsCatalogService()
     assert.equal(catalog.categoryOf('TenantBillingProfile', 'rfc'), 'identificacion')
+    assert.equal(catalog.revealEligibility('TenantBillingProfile', 'rfc'), 'not_revealable')
+    assert.isFalse(
+      catalog
+        .pendingEncryption()
+        .some((field) => field.model === 'TenantBillingProfile' && field.column === 'rfc')
+    )
+  })
+
+  test('ProveedorRepse.rfc está catalogado como identificacion y revealable', ({ assert }) => {
+    const catalog = new SensitiveFieldsCatalogService()
+    assert.equal(catalog.categoryOf('ProveedorRepse', 'rfc'), 'identificacion')
+    assert.equal(catalog.revealEligibility('ProveedorRepse', 'rfc'), 'revealable')
+    assert.isFalse(
+      catalog
+        .pendingEncryption()
+        .some((field) => field.model === 'ProveedorRepse' && field.column === 'rfc')
+    )
+  })
+
+  test('TeleworkPolicyAcknowledgement IP y user-agent están catalogados como contacto', ({
+    assert,
+  }) => {
+    const catalog = new SensitiveFieldsCatalogService()
+    assert.equal(
+      catalog.categoryOf('TeleworkPolicyAcknowledgement', 'teleworkPolicyAcknowledgementIp'),
+      'contacto'
+    )
+    assert.equal(
+      catalog.categoryOf('TeleworkPolicyAcknowledgement', 'teleworkPolicyAcknowledgementUserAgent'),
+      'contacto'
+    )
+    assert.equal(
+      catalog.revealEligibility('TeleworkPolicyAcknowledgement', 'teleworkPolicyAcknowledgementIp'),
+      'not_revealable'
+    )
+    assert.equal(
+      catalog.revealEligibility(
+        'TeleworkPolicyAcknowledgement',
+        'teleworkPolicyAcknowledgementUserAgent'
+      ),
+      'not_revealable'
+    )
+    assert.isFalse(
+      catalog.pendingEncryption().some((field) => field.model === 'TeleworkPolicyAcknowledgement')
+    )
   })
 })
 
@@ -98,9 +150,26 @@ test.group('SensitiveFieldsCatalogService.revealEligibility', () => {
       'not_revealable'
     )
     assert.equal(
-      catalog.revealEligibility('WorkDisabilityNote', 'workDisabilityNoteDescription'),
+      catalog.revealEligibility('EmployeeBiometricFaceId', 'employeeBiometricFaceIdPhotoUrl'),
       'not_revealable'
     )
+  })
+
+  test('las siete columnas nuevas del expediente son revelables (USRH1788478865946)', ({ assert }) => {
+    const catalog = new SensitiveFieldsCatalogService()
+    const pairs = [
+      ['WorkDisabilityNote', 'workDisabilityNoteDescription'],
+      ['TraumaticEventReport', 'traumaticEventReportInvolvedPeople'],
+      ['TraumaticEventReport', 'traumaticEventReportDescription'],
+      ['EmployeeLactationPeriod', 'employeeLactationPeriodNotes'],
+      ['EmployeeEmergencyContact', 'employeeEmergencyContactPhone'],
+      ['EmployeeSpouse', 'employeeSpousePhone'],
+      ['EmpresaContratante', 'rfc'],
+      ['ProveedorRepse', 'rfc'],
+    ] as const
+    for (const [model, column] of pairs) {
+      assert.equal(catalog.revealEligibility(model, column), 'revealable', `${model}.${column}`)
+    }
   })
 
   test('par ausente del catálogo no está clasificado', ({ assert }) => {

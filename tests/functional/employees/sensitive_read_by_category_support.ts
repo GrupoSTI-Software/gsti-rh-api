@@ -28,12 +28,15 @@ import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
 import EmployeeSalaryHistory from '#models/employee_salary_history'
 import PositionSalaryRange from '#models/position_salary_range'
 import EmpresaContratante from '#models/empresa_contratante'
+import ProveedorRepse from '#models/proveedor_repse'
 import UserConsent from '#models/user_consent'
 import LegalDocument from '#models/legal_document'
 import { TenantContext } from '#utils/tenant_context'
 import { blindIndex } from '#utils/blind_index'
 import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
 import { normalizeRfc } from '../../../app/shared/validators/rfc.validator.js'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 
 export function countGateLookups(sqls: string[]) {
   const roles = sqls.filter((sql) => /from\s+[`"]?roles[`"]?/i.test(sql)).length
@@ -203,7 +206,7 @@ export async function createActor(emailPrefix: string): Promise<TenantActor> {
     roleSlug: `sens-read-qa-${stamp}`,
     roleDescription: 'Rol temporal de lectura sensible por categoría',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   const person = await Person.create({
@@ -211,6 +214,7 @@ export async function createActor(emailPrefix: string): Promise<TenantActor> {
     personLastname: 'Qa',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId: businessUnit.businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -237,14 +241,11 @@ export async function cleanupActor(actor: TenantActor | null) {
 }
 
 export async function createSystemActor(
-  roleSlug: string,
+  roleSlug: TestRoleSlug,
   emailPrefix: string,
   businessUnitId: number
 ): Promise<SystemActor> {
-  const role = await Role.query()
-    .whereNull('role_deleted_at')
-    .where('role_slug', roleSlug)
-    .firstOrFail()
+  const role = await ensureRole(roleSlug)
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
   const person = await Person.create({
@@ -252,6 +253,7 @@ export async function createSystemActor(
     personLastname: 'Qa',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -323,6 +325,7 @@ export async function createSensitiveFixture(
     personCurp: clear.curp,
     personRfc: clear.rfc,
     personImssNss: clear.nss,
+    businessUnitId,
   })
   const departmentInsert = await db.table('departments').insert({
     department_sync_id: stamp,
@@ -345,6 +348,7 @@ export async function createSensitiveFixture(
   })
   const positionId = Number(positionInsert[0])
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: CLEAR_FIXED.firstname,
@@ -470,41 +474,6 @@ export function loginUserPerson(body: Record<string, unknown>) {
     : {}
 }
 
-export function customerPerson(body: Record<string, unknown>) {
-  const data =
-    body.data && typeof body.data === 'object'
-      ? (body.data as Record<string, unknown>)
-      : {}
-  const customer =
-    data.customer && typeof data.customer === 'object'
-      ? (data.customer as Record<string, unknown>)
-      : {}
-  return customer.person && typeof customer.person === 'object'
-    ? (customer.person as Record<string, unknown>)
-    : {}
-}
-
-export function nestedEmployeePerson(
-  body: Record<string, unknown>,
-  rootKey: 'pilot' | 'flightAttendant'
-) {
-  const data =
-    body.data && typeof body.data === 'object'
-      ? (body.data as Record<string, unknown>)
-      : {}
-  const root =
-    data[rootKey] && typeof data[rootKey] === 'object'
-      ? (data[rootKey] as Record<string, unknown>)
-      : {}
-  const employee =
-    root.employee && typeof root.employee === 'object'
-      ? (root.employee as Record<string, unknown>)
-      : {}
-  return employee.person && typeof employee.person === 'object'
-    ? (employee.person as Record<string, unknown>)
-    : {}
-}
-
 export function nestedBanks(body: Record<string, unknown>): Record<string, unknown>[] {
   const data =
     body.data && typeof body.data === 'object'
@@ -547,11 +516,11 @@ export function expectPersonContactoClear(person: Record<string, unknown>, clear
 }
 
 export function expectPersonContactoMasked(person: Record<string, unknown>, clear: ClearPii, assert: Assert) {
-  assert.equal(person.personEmail, maskSensitiveValue(clear.email, 'contacto'))
-  assert.equal(person.personPhone, maskSensitiveValue(clear.phone, 'contacto'))
+  assert.equal(person.personEmail, maskSensitiveValue(clear.email))
+  assert.equal(person.personPhone, maskSensitiveValue(clear.phone))
   assert.equal(
     person.personPhoneSecondary,
-    maskSensitiveValue(clear.phoneSecondary, 'contacto')
+    maskSensitiveValue(clear.phoneSecondary)
   )
 }
 
@@ -570,9 +539,9 @@ export function expectPersonIdentificacionMasked(
   clear: ClearPii,
   assert: Assert
 ) {
-  assert.equal(person.personCurp, maskSensitiveValue(clear.curp, 'identificacion'))
-  assert.equal(person.personRfc, maskSensitiveValue(clear.rfc, 'identificacion'))
-  assert.equal(person.personImssNss, maskSensitiveValue(clear.nss, 'identificacion'))
+  assert.equal(person.personCurp, maskSensitiveValue(clear.curp))
+  assert.equal(person.personRfc, maskSensitiveValue(clear.rfc))
+  assert.equal(person.personImssNss, maskSensitiveValue(clear.nss))
 }
 
 export function expectBankClear(bank: Record<string, unknown>, clear: ClearPii, assert: Assert) {
@@ -584,15 +553,15 @@ export function expectBankClear(bank: Record<string, unknown>, clear: ClearPii, 
 export function expectBankMasked(bank: Record<string, unknown>, clear: ClearPii, assert: Assert) {
   assert.equal(
     bank.employeeBankAccountClabe,
-    maskSensitiveValue(clear.clabe, 'financiero')
+    maskSensitiveValue(clear.clabe)
   )
   assert.equal(
     bank.employeeBankAccountNumber,
-    maskSensitiveValue(clear.account, 'financiero')
+    maskSensitiveValue(clear.account)
   )
   assert.equal(
     bank.employeeBankAccountCardNumber,
-    maskSensitiveValue(clear.card, 'financiero')
+    maskSensitiveValue(clear.card)
   )
 }
 
@@ -612,11 +581,11 @@ export function expectMedicalMasked(
 ) {
   assert.equal(
     medical.employeeMedicalConditionDiagnosis,
-    maskSensitiveValue(clear.diagnosis, 'salud')
+    maskSensitiveValue(clear.diagnosis)
   )
   assert.equal(
     medical.employeeMedicalConditionNotes,
-    maskSensitiveValue(clear.notes, 'salud')
+    maskSensitiveValue(clear.notes)
   )
 }
 
@@ -643,6 +612,7 @@ export function expectElevenMasked(
   expectMedicalMasked(medical, clear, assert)
 }
 
+/** @deprecated USRH1789328027048: GET ya no entrega claro con permiso; usar `expectElevenMasked`. */
 export function expectElevenClear(
   person: Record<string, unknown>,
   bank: Record<string, unknown>,
@@ -688,6 +658,9 @@ export const CLEAR_REMAINING = {
   facePhotoUrl: 's3://gsti-qa/face.jpg',
   empresaRfc: 'VACW850312J95',
   empresaRazon: 'QA Contratante Sensible SA de CV',
+  proveedorRfc: 'ASE930101AB1',
+  proveedorRazon: 'QA Proveedor REPSE Sensible SA de CV',
+  proveedorFolio: 'REPSE-QA-SENS-7052',
   salaryDaily: 1250.75,
   minSalaryDaily: 1000,
   maxSalaryDaily: 2000,
@@ -707,14 +680,31 @@ export interface RemainingSensitiveFixture {
   salary: EmployeeSalaryHistory
   range: PositionSalaryRange
   empresa: EmpresaContratante
+  proveedor: ProveedorRepse
   consent: UserConsent | null
 }
 
+/** Concesión que devuelve `grantModuleAction`. */
+export interface ModuleActionGrant {
+  grant: RoleSystemPermission
+  /**
+   * `true` solo si esta llamada creó la fila. Sobre un rol compartido (p. ej.
+   * `rh-manager`) la concesión puede existir de antes: el teardown retira
+   * únicamente lo que su spec creó, para no quitarle el permiso a nadie más.
+   */
+  created: boolean
+}
+
+/**
+ * Concede `moduleSlug:actionSlug` al rol, resuelto por slug, y devuelve la fila de
+ * concesión y si la creó, para que el spec que la pide sobre un rol compartido
+ * retire en su teardown solo la que creó.
+ */
 export async function grantModuleAction(
   roleId: number,
   moduleSlug: string,
   actionSlug: string
-) {
+): Promise<ModuleActionGrant> {
   const permission = await SystemPermission.query()
     .whereNull('system_permission_deleted_at')
     .where('system_permission_slug', actionSlug)
@@ -725,10 +715,18 @@ export async function grantModuleAction(
   if (!permission) {
     throw new Error(`Se requiere ${moduleSlug}:${actionSlug} en BD para este test.`)
   }
-  await RoleSystemPermission.firstOrCreate(
-    { roleId, systemPermissionId: permission.systemPermissionId },
-    { roleId, systemPermissionId: permission.systemPermissionId }
-  )
+  const existing = await RoleSystemPermission.query()
+    .where('role_id', roleId)
+    .where('system_permission_id', permission.systemPermissionId)
+    .first()
+  if (existing) {
+    return { grant: existing, created: false }
+  }
+  const grant = await RoleSystemPermission.create({
+    roleId,
+    systemPermissionId: permission.systemPermissionId,
+  })
+  return { grant, created: true }
 }
 
 export async function createRemainingSensitiveFixture(
@@ -823,6 +821,17 @@ export async function createRemainingSensitiveFixture(
     rfcHash: blindIndex(normalizedRfc),
     domicilioFiscal: 'Calle QA 1, CDMX',
   })
+  const normalizedProveedorRfc = normalizeRfc(CLEAR_REMAINING.proveedorRfc)
+  const proveedor = await ProveedorRepse.create({
+    businessUnitId: actor.businessUnit.businessUnitId,
+    razonSocial: CLEAR_REMAINING.proveedorRazon,
+    rfc: CLEAR_REMAINING.proveedorRfc,
+    rfcHash: blindIndex(normalizedProveedorRfc),
+    folio: CLEAR_REMAINING.proveedorFolio,
+    objetoRegistrado: 'Servicios especializados QA',
+    folioVencimiento: DateTime.now().plus({ years: 1 }).startOf('day'),
+    periodicidadMeses: 1,
+  })
   const legal = await LegalDocument.query().first()
   let consent: UserConsent | null = null
   if (legal) {
@@ -849,6 +858,7 @@ export async function createRemainingSensitiveFixture(
     salary,
     range,
     empresa,
+    proveedor,
     consent,
   }
 }
@@ -860,6 +870,9 @@ export async function cleanupRemainingSensitiveFixture(
   if (extra.consent) {
     await UserConsent.query().where('user_consent_id', extra.consent.userConsentId).delete()
   }
+  await ProveedorRepse.query()
+    .where('proveedor_repse_id', extra.proveedor.proveedorRepseId)
+    .delete()
   await EmpresaContratante.query()
     .where('empresa_contratante_id', extra.empresa.empresaContratanteId)
     .delete()
