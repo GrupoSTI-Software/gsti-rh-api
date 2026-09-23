@@ -5,7 +5,7 @@ import PDFDocument from 'pdfkit'
 import { REPORT_NEUTRAL_HEX } from '#constants/report_neutral_theme'
 import { EMPLOYEE_BADGE_ERROR_CODES } from '#constants/employee_badge_error_codes'
 import { EmployeeBadgeError } from '#exceptions/employee_badge_error'
-import { todayInBusinessZone } from '#utils/business_date'
+import { buildDownloadFileName, contentDisposition, formatDownloadFileDate } from '#helpers/download_file_name'
 import BadgeRepositoryMysql from './badge.repository.mysql.js'
 import BadgeRenderService from './badge_render.service.js'
 import BadgeService from './badge.service.js'
@@ -38,15 +38,18 @@ export interface BulkBadgeStreamInput {
   response: HttpContext['response']
 }
 
-/** Sanea el nombre de entrada del ZIP — espejo `expediente.controller.ts:510`. */
-export function sanitizeBulkEntryName(nombreCompleto: string): string {
-  return nombreCompleto.replace(/[^\w.\- ]/g, '_').replace(/\s+/g, '-')
+/**
+ * Nombre de un gafete individual (descarga suelta o entrada del ZIP):
+ * `gafete-{employeeSlug}.{ext}`. Sin nombre ni número del empleado; el slug
+ * es único, así que las entradas del ZIP no chocan.
+ */
+export function buildBadgeFileName(employeeSlug: string, extension: 'pdf' | 'png'): string {
+  return buildDownloadFileName(['gafete', employeeSlug], extension)
 }
 
-/** Nombre del archivo de descarga masiva con fecha de negocio. */
+/** Nombre del archivo de descarga masiva con fecha de negocio: `gafetes-{hoy}.{pdf|zip}`. */
 export function buildBulkDownloadFilename(formato: BulkBadgeFormat): string {
-  const date = todayInBusinessZone().toFormat('yyyy-MM-dd')
-  return `gafetes-empleados-${date}.${formato === 'pdf' ? 'pdf' : 'zip'}`
+  return buildDownloadFileName(['gafetes', formatDownloadFileDate()], formato === 'pdf' ? 'pdf' : 'zip')
 }
 
 /** Posición de celda en la cuadrícula LETTER (índice global 0-based). */
@@ -111,7 +114,7 @@ export default class BadgeBulkService {
     filename: string
   ): void {
     response.header('Content-Type', contentType)
-    response.header('Content-Disposition', `attachment; filename="${filename}"`)
+    response.header('Content-Disposition', contentDisposition(filename))
     response.header('Cache-Control', 'private, no-store')
     response.status(200)
   }
@@ -160,11 +163,7 @@ export default class BadgeBulkService {
       for (const employee of employees) {
         const renderContext = await this.badgeService.buildRenderContext(employee)
         const pngBuffer = await this.renderService.renderBadgePng(renderContext)
-        const entryName = `${employee.employeeId}-${sanitizeBulkEntryName(
-          renderContext.nombreCompleto
-        )}.png`
-
-        archive.append(pngBuffer, { name: entryName })
+        archive.append(pngBuffer, { name: buildBadgeFileName(employee.employeeSlug, 'png') })
       }
 
       await archive.finalize()

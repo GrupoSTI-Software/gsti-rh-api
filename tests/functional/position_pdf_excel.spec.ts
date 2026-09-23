@@ -1,5 +1,6 @@
 import { test } from '@japa/runner'
 import type Position from '#models/position'
+import { buildDownloadFileName } from '#helpers/download_file_name'
 import {
   cleanupOrgChartFixtures,
   createPositionFixture,
@@ -105,7 +106,10 @@ test.group('Position PDF - GET /api/positions/get-pdf/:positionId', (group) => {
 
     const disposition = response.header('content-disposition')
     assert.exists(disposition)
-    assert.match(String(disposition), /perfil-puesto-\d+\.pdf/)
+    assert.include(
+      String(disposition),
+      `filename="${buildDownloadFileName(['perfil-puesto', target.positionName], 'pdf')}"`
+    )
 
     const contentLength = response.header('content-length')
     assert.exists(contentLength)
@@ -168,7 +172,10 @@ test.group('Position Excel - GET /api/positions/get-excel/:positionId', (group) 
 
     const disposition = response.header('content-disposition')
     assert.exists(disposition)
-    assert.match(String(disposition), /perfil-puesto-\d+\.xlsx/)
+    assert.include(
+      String(disposition),
+      `filename="${buildDownloadFileName(['perfil-puesto', target.positionName], 'xlsx')}"`
+    )
 
     const contentLength = response.header('content-length')
     assert.exists(contentLength)

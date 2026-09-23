@@ -660,7 +660,7 @@ test.group('Emisión con la plantilla propia de la empresa (USRH1789097550389)',
     assert.strictEqual(dto.seniorityDays, 2664)
     assert.strictEqual(
       dto.fileName,
-      `constancia-de-separacion-CS-${offboardingB.employeeOffboardingId}-2026-0001.pdf`
+      `constancia-separacion-cs-${offboardingB.employeeOffboardingId}-2026-0001.pdf`
     )
 
     const [row] = await documentRows(offboardingB.employeeOffboardingId)

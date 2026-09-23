@@ -180,6 +180,7 @@ export default class BadgeRepositoryMysql implements BadgeRepository {
     return {
       employeeId: employee.employeeId,
       businessUnitId: employee.businessUnitId,
+      employeeSlug: employee.employeeSlug,
       employeeBadgeToken: employee.employeeBadgeToken,
       personFirstname: employee.person.personFirstname,
       personLastname: employee.person.personLastname,

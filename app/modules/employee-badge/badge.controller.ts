@@ -4,7 +4,8 @@ import { StandardResponseFormatter } from '#helpers/standard_response_formatter'
 import BadgeService from './badge.service.js'
 import BadgePdfService from './badge_pdf.service.js'
 import BadgeRenderService from './badge_render.service.js'
-import BadgeBulkService from './badge_bulk.service.js'
+import BadgeBulkService, { buildBadgeFileName } from './badge_bulk.service.js'
+import { contentDisposition } from '#helpers/download_file_name'
 import { bulkBadgesValidator } from './validators/bulk_badges.validator.js'
 import { parseEmployeeIdParam } from './validators/get_badge.validator.js'
 
@@ -231,7 +232,7 @@ export default class BadgeController {
     try {
       const employeeId = parseEmployeeIdParam(params.employeeId)
       const service = new BadgeService()
-      const { dto } = await service.getBadgeContextForPdf(employeeId, businessUnitScope)
+      const { dto, context } = await service.getBadgeContextForPdf(employeeId, businessUnitScope)
 
       const pdfService = new BadgePdfService()
       const buffer = await pdfService.buildBadgePdf({
@@ -245,9 +246,11 @@ export default class BadgeController {
         urlVerificacion: dto.urlVerificacion,
       })
 
-      const safeName = `gafete-empleado-${employeeId}`.replace(/[^\w.\- ]/g, '_')
       response.header('Content-Type', 'application/pdf')
-      response.header('Content-Disposition', `attachment; filename="${safeName}.pdf"`)
+      response.header(
+        'Content-Disposition',
+        contentDisposition(buildBadgeFileName(context.employeeSlug, 'pdf'))
+      )
       response.header('Cache-Control', 'private, no-store')
       response.header('Content-Length', String(buffer.length))
       response.status(200)
@@ -331,7 +334,7 @@ export default class BadgeController {
     try {
       const employeeId = parseEmployeeIdParam(params.employeeId)
       const service = new BadgeService()
-      const { dto } = await service.getBadgeContextForPdf(employeeId, businessUnitScope)
+      const { dto, context } = await service.getBadgeContextForPdf(employeeId, businessUnitScope)
 
       const renderService = new BadgeRenderService()
       const buffer = await renderService.renderBadgePng({
@@ -345,9 +348,11 @@ export default class BadgeController {
         urlVerificacion: dto.urlVerificacion,
       })
 
-      const safeName = `gafete-empleado-${employeeId}`.replace(/[^\w.\- ]/g, '_')
       response.header('Content-Type', 'image/png')
-      response.header('Content-Disposition', `attachment; filename="${safeName}.png"`)
+      response.header(
+        'Content-Disposition',
+        contentDisposition(buildBadgeFileName(context.employeeSlug, 'png'))
+      )
       response.header('Cache-Control', 'private, no-store')
       response.header('Content-Length', String(buffer.length))
       response.status(200)
@@ -369,7 +374,7 @@ export default class BadgeController {
    *
    *       **PDF:** documento LETTER con cuadrícula 2×4 (8 gafetes/hoja) y
    *       líneas de corte. **PNG:** ZIP con una imagen por trabajador
-   *       (`{employeeId}-{nombre}.png`). Streaming chunked — sin persistencia.
+   *       (`gafete-{employeeSlug}.png`). Streaming chunked — sin persistencia.
    *     tags: [EmployeeBadge]
    *     security:
    *       - bearerAuth: []

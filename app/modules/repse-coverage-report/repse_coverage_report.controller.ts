@@ -1,6 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import ExcelJS from 'exceljs'
 import { DateTime } from 'luxon'
+import { buildDownloadFileName, contentDisposition, formatDownloadFileDate } from '#helpers/download_file_name'
 import RepseCoverageReportService from './repse_coverage_report.service.js'
 import {
   getRepseCoverageReportExportValidator,
@@ -212,13 +213,16 @@ export default class RepseCoverageReportController {
       headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
 
       const buffer = await workbook.xlsx.writeBuffer()
-      const filename = `repse-coverage-report_${from.iso}_${to.iso}.xlsx`
+      const filename = buildDownloadFileName(
+        ['reporte-cobertura-repse', formatDownloadFileDate(from.iso), formatDownloadFileDate(to.iso)],
+        'xlsx'
+      )
 
       response.header(
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       )
-      response.header('Content-Disposition', `attachment; filename="${filename}"`)
+      response.header('Content-Disposition', contentDisposition(filename))
       return response.send(buffer)
     } catch (error) {
       return this.validationOrUnhandledError(error, ctx, 500)

@@ -389,7 +389,19 @@ export default class UploadService {
     }
   }
 
-  async getDownloadLink(filePath: string, expireSeconds = 60 * 60 * 24) {
+  /**
+   * URL firmada temporal de un objeto privado.
+   *
+   * @param responseContentDisposition Opcional: `Content-Disposition` que S3
+   *   devuelve al descargar (arma el valor con `contentDisposition` de
+   *   `#helpers/download_file_name`). Sin él, S3 no manda nombre y el
+   *   navegador usa el último segmento de la key.
+   */
+  async getDownloadLink(
+    filePath: string,
+    expireSeconds = 60 * 60 * 24,
+    responseContentDisposition?: string
+  ) {
     if (!filePath) {
       return { status: 404, data: null, message: 'file_path_not_found' }
     }
@@ -401,6 +413,7 @@ export default class UploadService {
         new GetObjectCommand({
           Bucket: this.BUCKET_NAME,
           Key: filePath,
+          ResponseContentDisposition: responseContentDisposition,
         }),
         { expiresIn: expireSeconds }
       )
