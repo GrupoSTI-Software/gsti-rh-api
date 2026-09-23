@@ -7358,6 +7358,23 @@ export default class EmployeeController {
         }
       }
 
+      // USRH1789747321650 reglas 1 y 6: el archivo declaraba otra empresa.
+      // Rechazo todo-o-nada con el listado de filas para corregir (422, no 400:
+      // las cabeceras y el formato eran válidos; lo inaceptable es el contenido).
+      if ((error as { isCompanyMismatchError?: boolean }).isCompanyMismatchError) {
+        const resolved = resolveEmployeeImportApiError(error, 422, i18n)
+        response.status(resolved.status)
+        return {
+          type: 'error',
+          title: resolved.title,
+          message: resolved.message,
+          detail: resolved.detail,
+          key: resolved.key,
+          code: resolved.errorCode,
+          data: resolved.data,
+        }
+      }
+
       // Detectar errores de validación de cabeceras
       if (
         (error as { isHeaderValidationError?: boolean }).isHeaderValidationError ||

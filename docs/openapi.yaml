@@ -5326,6 +5326,58 @@ paths:
                       contracted: 0
                       active: 12
                       incoming: 3
+        '422':
+          description: |
+            Alguna fila declara una empresa distinta de la activa (trabajo o nómina).
+            No se aplica ninguna fila del Excel (todo-o-nada).
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    example: error
+                  title:
+                    type: string
+                  message:
+                    type: string
+                  detail:
+                    type: string
+                  key:
+                    type: string
+                    example: empresa-distinta-en-archivo
+                  code:
+                    type: string
+                    example: EMP.IMPORT.VAL_COMPANY
+                  data:
+                    type: object
+                    properties:
+                      offendingRows:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            row:
+                              type: integer
+                            businessUnit:
+                              type: string
+                            payrollBusinessUnit:
+                              type: string
+              examples:
+                empresaDistinta:
+                  value:
+                    type: error
+                    title: El archivo declara otra empresa
+                    message: "El archivo declara una empresa distinta de la activa en 1 fila(s): Fila 3 (trabajo «Empresa B», nómina «Empresa A»). No se procesó ninguna fila: corrige las empresas del archivo y vuelve a subirlo."
+                    detail: "El archivo declara una empresa distinta de la activa en 1 fila(s): Fila 3 (trabajo «Empresa B», nómina «Empresa A»). No se procesó ninguna fila: corrige las empresas del archivo y vuelve a subirlo."
+                    key: empresa-distinta-en-archivo
+                    code: EMP.IMPORT.VAL_COMPANY
+                    data:
+                      offendingRows:
+                        - row: 3
+                          businessUnit: Empresa B
+                          payrollBusinessUnit: Empresa A
         '500':
           description: Error inesperado del servidor
           content:
