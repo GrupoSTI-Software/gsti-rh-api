@@ -670,7 +670,7 @@ test.group('Emisión con la plantilla propia de la empresa (USRH1789097550389)',
     // Render de pdfkit de la plantilla del sistema: sin formulario y con su productor
     const rendered = await PDFDocument.load(new Uint8Array(stored), { updateMetadata: false })
     assert.strictEqual(rendered.getForm().getFields().length, 0)
-    assert.strictEqual(rendered.getProducer(), 'Valanserh')
+    assert.strictEqual(rendered.getProducer(), 'PDFKit')
   })
 
   test('CA-3: subir otra versión no toca lo ya emitido', async ({ client, assert }) => {
