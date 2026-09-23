@@ -31,6 +31,12 @@ export interface SessionPermissionActionNode {
 
 export interface SessionPermissionSectionNode {
   slug: string
+  /**
+   * Nombre legible declarado en el catálogo del módulo
+   * (`SYSTEM_MODULE_SECTION_LABELS`). `null` cuando el módulo no declara
+   * etiquetas: el cliente decide entonces cómo mostrar el slug.
+   */
+  displayName: string | null
   actions: SessionPermissionActionNode[]
 }
 

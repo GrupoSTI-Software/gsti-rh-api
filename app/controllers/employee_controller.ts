@@ -2291,6 +2291,108 @@ export default class EmployeeController {
 
   /**
    * @swagger
+   * /api/employees/get-by-slug/{employeeSlug}:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: get employee by opaque slug
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: employeeSlug
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: Employee opaque token
+   *         required: true
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *       '400':
+   *         description: The slug was not provided
+   *       '404':
+   *         description: The employee was not found
+   *       '500':
+   *         description: Unexpected server error
+   */
+  /**
+   * Canjea el token opaco de la URL del Backoffice por el empleado.
+   *
+   * Espeja a `getById`: mismo filtro por usuario responsable y mismo gate, que
+   * se resuelve aquí adentro con `ensureEmployeeTabRead` porque necesita el id
+   * ya resuelto para saber qué pestañas puede leer quien pregunta. El alcance
+   * por empresa lo ponen `auth()` y `businessScope()` del prefijo — el token no
+   * es el control de acceso, solo evita que el nombre y el código de nómina
+   * viajen en la URL.
+   */
+  async getBySlug(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
+    try {
+      await auth.check()
+      const user = auth.user
+      let userResponsibleId = null
+      if (user) {
+        await user.preload('role')
+        if (user.role.roleSlug !== 'root') {
+          userResponsibleId = user?.userId
+        }
+      }
+
+      const employeeSlug = request.param('employeeSlug')
+      if (!employeeSlug) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The employee slug was not found',
+          data: { employeeSlug },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const showEmployee = await employeeService.getBySlug(employeeSlug, userResponsibleId)
+      if (!showEmployee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'The employee was not found',
+          message: 'The employee was not found with the entered slug',
+          data: { employeeSlug },
+        }
+      }
+
+      const allowed = await ensureEmployeeTabRead(
+        ctx,
+        showEmployee.employeeId,
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeById
+      )
+      if (!allowed) {
+        return
+      }
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Employees',
+        message: 'The employee was found successfully',
+        data: { employee: showEmployee },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
    * /api/employees/get-by-id/{employeeId}:
    *   get:
    *     security:
@@ -2571,7 +2673,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async indexWithOutUser({ request, response, i18n }: HttpContext) {
+  async indexWithOutUser({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const search = request.input('search')
       const departmentId = this.parseIdOrIds(request.input('departmentId'))
@@ -2588,7 +2690,7 @@ export default class EmployeeController {
         branchNameIds: branchNameIds,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.indexWithOutUser(filters)
+      const employees = await employeeService.indexWithOutUser(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',

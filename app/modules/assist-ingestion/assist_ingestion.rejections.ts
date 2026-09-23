@@ -101,3 +101,18 @@ export const ASSIST_INGESTION_PUNCH_TIME_OUT_OF_WINDOW: AssistIngestionRejection
   key: 'hora-de-captura-fuera-de-la-ventana-permitida',
   i18nBase: 'assist_punch_time_out_of_window',
 }
+
+/**
+ * La captura administrativa va más atrás de lo que el rol puede modificar.
+ *
+ * Es un motivo distinto del anterior y por eso tiene código propio: aquí no
+ * manda la ventana del canal sino el alcance en días del rol de quien captura,
+ * y la salida no es esperar ni reintentar, sino pedírselo a un rol con más
+ * alcance.
+ */
+export const ASSIST_INGESTION_PUNCH_TIME_ROLE_SCOPE: AssistIngestionRejection = {
+  status: 422,
+  code: ASSIST_ERROR_CODES.VAL_PUNCH_TIME_ROLE_SCOPE,
+  key: 'hora-de-captura-fuera-del-alcance-del-rol',
+  i18nBase: 'assist_punch_time_role_scope',
+}

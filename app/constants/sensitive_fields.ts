@@ -108,8 +108,8 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   { model: 'Person', column: 'personPhoneSecondary', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true, maskedInApi: true },
 
   // ─── EmployeeBank: financiero ──────────────────────────────────────────────
-  // Cifrados hoy vía employeeBankService.encrypt en employee_bank_controller.ts:165-176.
-  // No se usan en WHERE de SQL. Se muestran con últimos 4 dígitos (*LastNumbers) en la UI.
+  // Cifrados; no se usan en WHERE de SQL. Se entregan con máscara fija (USRH1789328027039).
+  // *LastNumbers se escriben en BD pero no se serializan.
   // Ancla: app/models/employee_bank.ts
   { model: 'EmployeeBank', column: 'employeeBankAccountClabe', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true, maskedInApi: true },
   { model: 'EmployeeBank', column: 'employeeBankAccountNumber', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true, maskedInApi: true },

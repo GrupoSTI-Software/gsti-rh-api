@@ -46,6 +46,31 @@ test.group('DTO que no pasan por serialize', () => {
     assert.notMatch(source, /canRead\('salud'\)/)
   })
 
+  test('contrato REPSE enmascara rfc de empresa contratante con la fábrica', ({ assert }) => {
+    const source = readFileSync(
+      join(process.cwd(), 'app/services/contrato_servicio_especializado_service.ts'),
+      'utf-8'
+    )
+    assert.include(source, "import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'")
+    assert.include(source, "maskSensitiveDtoValue('EmpresaContratante', 'rfc',")
+    assert.notMatch(source, /rfc:\s*row\.rfc/)
+    assert.notMatch(source, /canRead\('identificacion'\)/)
+  })
+
+  test('asignación REPSE enmascara nss del trabajador con la fábrica', ({ assert }) => {
+    const source = readFileSync(
+      join(process.cwd(), 'app/services/asignacion_contrato_especializado_service.ts'),
+      'utf-8'
+    )
+    assert.include(source, "import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'")
+    assert.match(
+      source,
+      /maskSensitiveDtoValue\(\s*'Person',\s*'personImssNss',/
+    )
+    assert.notMatch(source, /nss:\s*employee\.person\?\.personImssNss/)
+    assert.notMatch(source, /canRead\('identificacion'\)/)
+  })
+
   test('ATS enmascara involucrados y descripcion con la fábrica', ({ assert }) => {
     const source = readFileSync(
       join(process.cwd(), 'app/services/traumatic_event_report_service.ts'),

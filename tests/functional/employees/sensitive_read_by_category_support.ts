@@ -35,6 +35,7 @@ import { blindIndex } from '#utils/blind_index'
 import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
 import { normalizeRfc } from '../../../app/shared/validators/rfc.validator.js'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 
 export function countGateLookups(sqls: string[]) {
   const roles = sqls.filter((sql) => /from\s+[`"]?roles[`"]?/i.test(sql)).length
@@ -346,6 +347,7 @@ export async function createSensitiveFixture(
   })
   const positionId = Number(positionInsert[0])
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: CLEAR_FIXED.firstname,
@@ -513,11 +515,11 @@ export function expectPersonContactoClear(person: Record<string, unknown>, clear
 }
 
 export function expectPersonContactoMasked(person: Record<string, unknown>, clear: ClearPii, assert: Assert) {
-  assert.equal(person.personEmail, maskSensitiveValue(clear.email, 'contacto'))
-  assert.equal(person.personPhone, maskSensitiveValue(clear.phone, 'contacto'))
+  assert.equal(person.personEmail, maskSensitiveValue(clear.email))
+  assert.equal(person.personPhone, maskSensitiveValue(clear.phone))
   assert.equal(
     person.personPhoneSecondary,
-    maskSensitiveValue(clear.phoneSecondary, 'contacto')
+    maskSensitiveValue(clear.phoneSecondary)
   )
 }
 
@@ -536,9 +538,9 @@ export function expectPersonIdentificacionMasked(
   clear: ClearPii,
   assert: Assert
 ) {
-  assert.equal(person.personCurp, maskSensitiveValue(clear.curp, 'identificacion'))
-  assert.equal(person.personRfc, maskSensitiveValue(clear.rfc, 'identificacion'))
-  assert.equal(person.personImssNss, maskSensitiveValue(clear.nss, 'identificacion'))
+  assert.equal(person.personCurp, maskSensitiveValue(clear.curp))
+  assert.equal(person.personRfc, maskSensitiveValue(clear.rfc))
+  assert.equal(person.personImssNss, maskSensitiveValue(clear.nss))
 }
 
 export function expectBankClear(bank: Record<string, unknown>, clear: ClearPii, assert: Assert) {
@@ -550,15 +552,15 @@ export function expectBankClear(bank: Record<string, unknown>, clear: ClearPii, 
 export function expectBankMasked(bank: Record<string, unknown>, clear: ClearPii, assert: Assert) {
   assert.equal(
     bank.employeeBankAccountClabe,
-    maskSensitiveValue(clear.clabe, 'financiero')
+    maskSensitiveValue(clear.clabe)
   )
   assert.equal(
     bank.employeeBankAccountNumber,
-    maskSensitiveValue(clear.account, 'financiero')
+    maskSensitiveValue(clear.account)
   )
   assert.equal(
     bank.employeeBankAccountCardNumber,
-    maskSensitiveValue(clear.card, 'financiero')
+    maskSensitiveValue(clear.card)
   )
 }
 
@@ -578,11 +580,11 @@ export function expectMedicalMasked(
 ) {
   assert.equal(
     medical.employeeMedicalConditionDiagnosis,
-    maskSensitiveValue(clear.diagnosis, 'salud')
+    maskSensitiveValue(clear.diagnosis)
   )
   assert.equal(
     medical.employeeMedicalConditionNotes,
-    maskSensitiveValue(clear.notes, 'salud')
+    maskSensitiveValue(clear.notes)
   )
 }
 

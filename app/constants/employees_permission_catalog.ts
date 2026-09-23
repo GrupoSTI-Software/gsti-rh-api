@@ -71,6 +71,44 @@ export type EmployeesSection =
   | 'turnos'
   | 'app-colaborador'
 
+/**
+ * Nombre legible de cada sección del módulo, para la configuración de roles.
+ *
+ * Es la fuente única: el árbol de permisos de sesión lo serializa y el
+ * backoffice lo pinta tal cual, en vez de mantener su propio diccionario de
+ * slugs (que se desincronizaba en silencio y mostraba el slug humanizado).
+ *
+ * El `satisfies Record<EmployeesSection, string>` obliga a la exhaustividad:
+ * declarar una sección nueva en `EmployeesSection` sin ponerle nombre aquí
+ * rompe la compilación, en vez de aparecer mal escrita en pantalla.
+ */
+export const EMPLOYEES_SECTION_LABELS = {
+  'foto': 'Foto',
+  'trabajo': 'Trabajo',
+  'persona': 'Persona',
+  'condicion-medica': 'Condición médica',
+  'periodos-lactancia': 'Periodos de lactancia',
+  'expediente': 'Expediente',
+  'consentimiento': 'Consentimiento',
+  'domicilio': 'Domicilio',
+  'bancos': 'Bancos',
+  'responsable': 'Responsable',
+  'zonas': 'Zonas',
+  'asignados': 'Asignados',
+  'biometricos': 'Biométricos',
+  'anotaciones': 'Anotaciones',
+  'evaluaciones': 'Evaluaciones',
+  'assessments': 'Evaluaciones por parámetros',
+  'ruta-carrera': 'Ruta de carrera',
+  'certificaciones': 'Certificaciones',
+  'dispositivos': 'Dispositivos',
+  'listado': 'Listado',
+  'descargas': 'Descargas',
+  'datos-sensibles': 'Datos sensibles',
+  'turnos': 'Turnos',
+  'app-colaborador': 'App empleado',
+} as const satisfies Record<EmployeesSection, string>
+
 /** Secciones que corresponden a una pestaña del expediente (excluye las agrupadoras). */
 type TabSection = Exclude<
   EmployeesSection,
@@ -645,7 +683,6 @@ const CATALOG_ENTRIES = [
     kind: 'read',
     section: 'datos-sensibles',
     exceptionProfile: 'standard',
-    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
     slug: 'sensitive-identificacion-write',
@@ -660,7 +697,6 @@ const CATALOG_ENTRIES = [
     kind: 'read',
     section: 'datos-sensibles',
     exceptionProfile: 'standard',
-    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
     slug: 'sensitive-contacto-write',
@@ -675,7 +711,6 @@ const CATALOG_ENTRIES = [
     kind: 'read',
     section: 'datos-sensibles',
     exceptionProfile: 'standard',
-    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
     slug: 'sensitive-financiero-write',
@@ -690,7 +725,6 @@ const CATALOG_ENTRIES = [
     kind: 'read',
     section: 'datos-sensibles',
     exceptionProfile: 'standard',
-    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
     slug: 'sensitive-salud-write',
@@ -705,7 +739,6 @@ const CATALOG_ENTRIES = [
     kind: 'read',
     section: 'datos-sensibles',
     exceptionProfile: 'standard',
-    legacyEquivalence: { systemPermissionSlug: 'reveal-sensitive-data', relation: 'broader' },
   },
   {
     slug: 'sensitive-biometrico-write',
