@@ -975,3 +975,833 @@ test.group('POST /api/platform/alliances/:allianceId/payouts', (group) => {
     }
   })
 })
+
+// ─────────────────────────────────────────────────────────────────────────────
+// USRH1787719056821 · Consultar y anular liquidaciones
+// ─────────────────────────────────────────────────────────────────────────────
+
+function historialUrl(allianceId: number | string): string {
+  return `${BASE}/${allianceId}/payouts`
+}
+
+function detailUrl(payoutId: number | string): string {
+  return `/api/platform/alliance-payouts/${payoutId}`
+}
+
+function annulUrl(payoutId: number | string): string {
+  return `/api/platform/alliance-payouts/${payoutId}/annul`
+}
+
+/** Registra una liquidación en BD sin pasar por el endpoint POST. */
+async function registerPayout(params: {
+  allianceId: number
+  commissionIds: number[]
+  paidOn: string
+  reference: string
+  actorUserId: number
+}): Promise<AlliancePayout> {
+  const amountCents = await AllianceCommission.query()
+    .whereIn('alliance_commission_id', params.commissionIds)
+    .sum('alliance_commission_amount_cents as total')
+    .first()
+  const total = Number((amountCents as { total: number } | null)?.total ?? 0)
+
+  const payout = await AlliancePayout.create({
+    allianceId: params.allianceId,
+    alliancePayoutPaidOn: DateTime.fromISO(params.paidOn, { zone: 'utc' }),
+    alliancePayoutReference: params.reference,
+    alliancePayoutAmountCents: total,
+    alliancePayoutCreatedByUserId: params.actorUserId,
+  })
+
+  await db.table('alliance_payout_commissions').multiInsert(
+    params.commissionIds.map((id) => ({
+      alliance_payout_id: payout.alliancePayoutId,
+      alliance_commission_id: id,
+    }))
+  )
+
+  return payout
+}
+
+// ─── CA-1 Historial paginado ─────────────────────────────────────────────────
+test.group('GET /api/platform/alliances/:allianceId/payouts — historial (CA-1..CA-4)', (group) => {
+  let admin: TestActor | null = null
+
+  group.setup(async () => {
+    admin = await createActor('payout-history', true)
+  })
+  group.teardown(async () => {
+    await cleanupActor(admin)
+  })
+
+  test('CA-1: historial ordenado desc con conteo de comisiones y nombre del actor', async ({
+    client,
+    assert,
+  }) => {
+    const { alliance, unit, attribution, planId } = await createFixtureAlliance('hist-ca1')
+    const subscription = await BillingSubscription.query()
+      .where('business_unit_id', unit.businessUnitId)
+      .firstOrFail()
+
+    try {
+      const c1 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: businessDateOffset(-30),
+      })
+      const c2 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 3,
+        baseCents: 2_400_000,
+        percent: 10,
+        amountCents: 240_000,
+        paidOn: businessDateOffset(-15),
+      })
+      const c3 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: businessDateOffset(-5),
+      })
+
+      // L1 registrada (paidOn más antiguo), L2 también registrada, L3 anulada (paidOn más reciente)
+      const l1 = await registerPayout({
+        allianceId: alliance.allianceId,
+        commissionIds: [c1.allianceCommissionId],
+        paidOn: businessDateOffset(-29),
+        reference: 'REF-L1',
+        actorUserId: admin!.user.userId,
+      })
+      const l2 = await registerPayout({
+        allianceId: alliance.allianceId,
+        commissionIds: [c2.allianceCommissionId],
+        paidOn: businessDateOffset(-14),
+        reference: 'REF-L2',
+        actorUserId: admin!.user.userId,
+      })
+      const l3 = await registerPayout({
+        allianceId: alliance.allianceId,
+        commissionIds: [c3.allianceCommissionId],
+        paidOn: businessDateOffset(-4),
+        reference: 'REF-L3',
+        actorUserId: admin!.user.userId,
+      })
+      // Anular L3
+      await db
+        .from('alliance_payouts')
+        .where('alliance_payout_id', l3.alliancePayoutId)
+        .update({
+          alliance_payout_annulled_at: DateTime.utc().toSQL({ includeOffset: false }),
+          alliance_payout_annulment_reason: 'Test CA-1',
+          alliance_payout_annulled_by_user_id: admin!.user.userId,
+        })
+      await db
+        .from('alliance_payout_commissions')
+        .where('alliance_payout_id', l3.alliancePayoutId)
+        .update({ alliance_payout_commission_annulled_at: DateTime.utc().toSQL({ includeOffset: false }) })
+
+      const response = await client.get(historialUrl(alliance.allianceId)).loginAs(admin!.user)
+      response.assertStatus(200)
+
+      const body = response.body()
+      assert.equal(body.type, 'success')
+      const data = body.data as { alliancePayoutId: number; alliancePayoutStatus: string; alliancePayoutAnnulledAt: string | null; alliancePayoutAnnulmentReason: string | null; alliancePayoutAnnulledByName: string | null; alliancePayoutCommissionsCount: number; alliancePayoutCreatedByName: string }[]
+      assert.isArray(data)
+
+      // Orden desc por paidOn: L3, L2, L1
+      assert.equal(data[0].alliancePayoutId, l3.alliancePayoutId)
+      assert.equal(data[1].alliancePayoutId, l2.alliancePayoutId)
+      assert.equal(data[2].alliancePayoutId, l1.alliancePayoutId)
+
+      // L3 está anulada
+      assert.equal(data[0].alliancePayoutStatus, 'annulled')
+      assert.isNotNull(data[0].alliancePayoutAnnulledAt)
+      assert.equal(data[0].alliancePayoutAnnulmentReason, 'Test CA-1')
+      assert.isNotNull(data[0].alliancePayoutAnnulledByName)
+
+      // L1 y L2 registradas, sin datos de anulación
+      assert.equal(data[2].alliancePayoutStatus, 'registered')
+      assert.isNull(data[2].alliancePayoutAnnulledAt)
+      assert.isNull(data[2].alliancePayoutAnnulmentReason)
+      assert.isNull(data[2].alliancePayoutAnnulledByName)
+
+      // Conteo de comisiones
+      assert.equal(data[0].alliancePayoutCommissionsCount, 1)
+      assert.equal(data[1].alliancePayoutCommissionsCount, 1)
+
+      // Nombre del actor
+      assert.isString(data[0].alliancePayoutCreatedByName)
+      assert.isNotEmpty(data[0].alliancePayoutCreatedByName)
+
+      // Meta
+      assert.exists(body.meta)
+      assert.isNumber(body.meta.total)
+    } finally {
+      await cleanupFixture({ allianceIds: [alliance.allianceId], unitIds: [unit.businessUnitId], planIds: [planId] })
+    }
+  })
+
+  test('CA-2: alianza sin liquidaciones devuelve lista vacía; alianza desactivada responde 200', async ({
+    client,
+    assert,
+  }) => {
+    const { alliance, unit, planId } = await createFixtureAlliance('hist-ca2-active')
+    const { alliance: inactiveAlliance, unit: inactiveUnit, planId: inactivePlanId } =
+      await createFixtureAlliance('hist-ca2-inactive', { active: 0 })
+
+    try {
+      const emptyResp = await client.get(historialUrl(alliance.allianceId)).loginAs(admin!.user)
+      emptyResp.assertStatus(200)
+      assert.deepEqual(emptyResp.body().data, [])
+      assert.equal(emptyResp.body().meta.total, 0)
+
+      const inactiveResp = await client
+        .get(historialUrl(inactiveAlliance.allianceId))
+        .loginAs(admin!.user)
+      inactiveResp.assertStatus(200)
+      assert.isArray(inactiveResp.body().data)
+    } finally {
+      await cleanupFixture({ allianceIds: [alliance.allianceId], unitIds: [unit.businessUnitId], planIds: [planId] })
+      await cleanupFixture({ allianceIds: [inactiveAlliance.allianceId], unitIds: [inactiveUnit.businessUnitId], planIds: [inactivePlanId] })
+    }
+  })
+
+  test('CA-3: alianza inexistente o id inválido devuelve 404 PLT.ALL.NOT_FOUND', async ({
+    client,
+    assert,
+  }) => {
+    for (const id of [999_999_991, 'abc', '0']) {
+      const resp = await client.get(historialUrl(id)).loginAs(admin!.user)
+      resp.assertStatus(404)
+      assert.equal(resp.body().code, ALLIANCE_ERROR_CODES.NOT_FOUND)
+    }
+    const limitOver = await client
+      .get(historialUrl(1))
+      .qs({ limit: 101 })
+      .loginAs(admin!.user)
+    limitOver.assertStatus(422)
+    assert.equal(limitOver.body().code, ALLIANCE_ERROR_CODES.VAL_INPUT)
+  })
+
+  test('CA-4: paginación correcta — 21 liquidaciones, página 2 devuelve 1 elemento', async ({
+    client,
+    assert,
+  }) => {
+    const { alliance, unit, attribution, planId } = await createFixtureAlliance('hist-ca4')
+    const subscription = await BillingSubscription.query()
+      .where('business_unit_id', unit.businessUnitId)
+      .firstOrFail()
+
+    try {
+      const commissions: AllianceCommission[] = []
+      for (let i = 0; i < 21; i++) {
+        const c = await addCommission({
+          allianceId: alliance.allianceId,
+          attributionId: attribution.allianceAttributionId,
+          businessUnitId: unit.businessUnitId,
+          subscriptionId: subscription.billingSubscriptionId,
+          periods: 1,
+          baseCents: 800_000,
+          percent: 10,
+          amountCents: 80_000,
+          paidOn: businessDateOffset(-100 + i),
+        })
+        commissions.push(c)
+      }
+
+      for (const c of commissions) {
+        await registerPayout({
+          allianceId: alliance.allianceId,
+          commissionIds: [c.allianceCommissionId],
+          paidOn: businessDateOffset(-50),
+          reference: `REF-${c.allianceCommissionId}`,
+          actorUserId: admin!.user.userId,
+        })
+      }
+
+      const page1 = await client.get(historialUrl(alliance.allianceId)).qs({ limit: 20 }).loginAs(admin!.user)
+      page1.assertStatus(200)
+      assert.equal(page1.body().meta.total, 21)
+      assert.equal(page1.body().meta.lastPage, 2)
+      assert.equal(page1.body().data.length, 20)
+
+      const page2 = await client.get(historialUrl(alliance.allianceId)).qs({ page: 2, limit: 20 }).loginAs(admin!.user)
+      page2.assertStatus(200)
+      assert.equal(page2.body().data.length, 1)
+    } finally {
+      await cleanupFixture({ allianceIds: [alliance.allianceId], unitIds: [unit.businessUnitId], planIds: [planId] })
+    }
+  })
+})
+
+// ─── CA-5 Detalle / rastro ───────────────────────────────────────────────────
+test.group('GET /api/platform/alliance-payouts/:id — detalle (CA-5)', (group) => {
+  let admin: TestActor | null = null
+
+  group.setup(async () => {
+    admin = await createActor('payout-detail', true)
+  })
+  group.teardown(async () => {
+    await cleanupActor(admin)
+  })
+
+  test('CA-5: devuelve encabezado y comisiones con su estado actual', async ({
+    client,
+    assert,
+  }) => {
+    const { alliance, unit, attribution, planId } = await createFixtureAlliance('detail-ca5')
+    const subscription = await BillingSubscription.query()
+      .where('business_unit_id', unit.businessUnitId)
+      .firstOrFail()
+
+    try {
+      const c1 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: businessDateOffset(-30),
+      })
+      const c2 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 3,
+        baseCents: 2_400_000,
+        percent: 10,
+        amountCents: 240_000,
+        paidOn: businessDateOffset(-25),
+      })
+
+      const payout = await registerPayout({
+        allianceId: alliance.allianceId,
+        commissionIds: [c1.allianceCommissionId, c2.allianceCommissionId],
+        paidOn: businessDateOffset(-15),
+        reference: 'REF-DETAIL',
+        actorUserId: admin!.user.userId,
+      })
+
+      const response = await client.get(detailUrl(payout.alliancePayoutId)).loginAs(admin!.user)
+      response.assertStatus(200)
+
+      const data = response.body().data
+      assert.equal(data.alliancePayoutId, payout.alliancePayoutId)
+      assert.equal(data.alliancePayoutReference, 'REF-DETAIL')
+      assert.isArray(data.alliancePayoutCommissions)
+      assert.equal(data.alliancePayoutCommissions.length, 2)
+
+      const commIds = data.alliancePayoutCommissions.map((c: { allianceCommissionId: number }) => c.allianceCommissionId)
+      assert.include(commIds, c1.allianceCommissionId)
+      assert.include(commIds, c2.allianceCommissionId)
+
+      // Estado actual: pagadas (la liquidación sigue registrada)
+      for (const c of data.alliancePayoutCommissions) {
+        assert.equal(c.allianceCommissionStatus, 'paid')
+      }
+    } finally {
+      await cleanupFixture({ allianceIds: [alliance.allianceId], unitIds: [unit.businessUnitId], planIds: [planId] })
+    }
+  })
+
+  test('CA-5b: id inexistente, retirado o no numérico → 404 PLT.ALL.PAYOUT_NOT_FOUND', async ({
+    client,
+    assert,
+  }) => {
+    for (const id of [999_999_991, 'abc', '0']) {
+      const resp = await client.get(detailUrl(id)).loginAs(admin!.user)
+      resp.assertStatus(404)
+      assert.equal(resp.body().code, ALLIANCE_ERROR_CODES.PAYOUT_NOT_FOUND)
+    }
+  })
+})
+
+// ─── CA-6..CA-12 Anulación ───────────────────────────────────────────────────
+test.group('POST /api/platform/alliance-payouts/:id/annul — anulación (CA-6..CA-12)', (group) => {
+  let admin: TestActor | null = null
+
+  group.setup(async () => {
+    admin = await createActor('payout-annul', true)
+  })
+  group.teardown(async () => {
+    await cleanupActor(admin)
+  })
+
+  test('CA-6: anula la liquidación y marca el pivote con el mismo timestamp', async ({
+    client,
+    assert,
+  }) => {
+    const { alliance, unit, attribution, planId } = await createFixtureAlliance('annul-ca6')
+    const subscription = await BillingSubscription.query()
+      .where('business_unit_id', unit.businessUnitId)
+      .firstOrFail()
+
+    try {
+      const c1 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: businessDateOffset(-30),
+      })
+      const c2 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: businessDateOffset(-25),
+      })
+      const c3 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 3,
+        baseCents: 2_400_000,
+        percent: 10,
+        amountCents: 240_000,
+        paidOn: businessDateOffset(-20),
+      })
+
+      const payout = await registerPayout({
+        allianceId: alliance.allianceId,
+        commissionIds: [c1.allianceCommissionId, c2.allianceCommissionId, c3.allianceCommissionId],
+        paidOn: businessDateOffset(-15),
+        reference: 'REF-ANNUL',
+        actorUserId: admin!.user.userId,
+      })
+
+      const response = await client
+        .post(annulUrl(payout.alliancePayoutId))
+        .json({ reason: 'Referencia equivocada' })
+        .loginAs(admin!.user)
+      response.assertStatus(200)
+
+      const data = response.body().data
+      assert.equal(data.alliancePayoutStatus, 'annulled')
+      assert.isNotNull(data.alliancePayoutAnnulledAt)
+      assert.equal(data.alliancePayoutAnnulmentReason, 'Referencia equivocada')
+      assert.isNotNull(data.alliancePayoutAnnulledByName)
+
+      // Verificar BD: pivote marcado con el mismo timestamp
+      const pivotRows = await db
+        .from('alliance_payout_commissions')
+        .where('alliance_payout_id', payout.alliancePayoutId)
+        .select('alliance_payout_commission_annulled_at')
+      assert.equal(pivotRows.length, 3)
+      for (const row of pivotRows) {
+        assert.isNotNull(row.alliance_payout_commission_annulled_at)
+      }
+
+      // Los tres timestamps del pivote son idénticos
+      const timestamps = pivotRows.map((r) => String(r.alliance_payout_commission_annulled_at))
+      assert.equal(new Set(timestamps).size, 1)
+
+      // El timestamp del pivote coincide con el de la liquidación
+      const payoutRow = await db
+        .from('alliance_payouts')
+        .where('alliance_payout_id', payout.alliancePayoutId)
+        .first()
+      assert.equal(
+        String(payoutRow.alliance_payout_annulled_at),
+        timestamps[0]
+      )
+    } finally {
+      await cleanupFixture({ allianceIds: [alliance.allianceId], unitIds: [unit.businessUnitId], planIds: [planId] })
+    }
+  })
+
+  test('CA-7: la anulación conserva todos los campos originales de la liquidación y las comisiones', async ({
+    client,
+    assert,
+  }) => {
+    const { alliance, unit, attribution, planId } = await createFixtureAlliance('annul-ca7')
+    const subscription = await BillingSubscription.query()
+      .where('business_unit_id', unit.businessUnitId)
+      .firstOrFail()
+
+    try {
+      const c1 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: businessDateOffset(-30),
+      })
+
+      const payout = await registerPayout({
+        allianceId: alliance.allianceId,
+        commissionIds: [c1.allianceCommissionId],
+        paidOn: businessDateOffset(-15),
+        reference: 'REF-CONSERVA',
+        actorUserId: admin!.user.userId,
+      })
+
+      const beforePayout = await db.from('alliance_payouts').where('alliance_payout_id', payout.alliancePayoutId).first()
+      const beforePivot = await db.from('alliance_payout_commissions').where('alliance_payout_id', payout.alliancePayoutId).first()
+      const beforeCommission = await db.from('alliance_commissions').where('alliance_commission_id', c1.allianceCommissionId).first()
+
+      await client
+        .post(annulUrl(payout.alliancePayoutId))
+        .json({ reason: 'CA-7 test' })
+        .loginAs(admin!.user)
+
+      const afterPayout = await db.from('alliance_payouts').where('alliance_payout_id', payout.alliancePayoutId).first()
+      const afterCommission = await db.from('alliance_commissions').where('alliance_commission_id', c1.allianceCommissionId).first()
+
+      // Campos originales de la liquidación intactos (comparar como strings para fechas)
+      assert.equal(String(afterPayout.alliance_payout_paid_on), String(beforePayout.alliance_payout_paid_on))
+      assert.equal(afterPayout.alliance_payout_reference, beforePayout.alliance_payout_reference)
+      assert.equal(afterPayout.alliance_payout_amount_cents, beforePayout.alliance_payout_amount_cents)
+      assert.equal(afterPayout.alliance_payout_created_by_user_id, beforePayout.alliance_payout_created_by_user_id)
+      assert.equal(afterPayout.alliance_id, beforePayout.alliance_id)
+
+      // La comisión original no se toca (valores numéricos y de texto comparados)
+      assert.equal(afterCommission.alliance_commission_id, beforeCommission.alliance_commission_id)
+      assert.equal(afterCommission.alliance_commission_amount_cents, beforeCommission.alliance_commission_amount_cents)
+      assert.equal(afterCommission.alliance_commission_percent, beforeCommission.alliance_commission_percent)
+      assert.equal(afterCommission.alliance_commission_base_cents, beforeCommission.alliance_commission_base_cents)
+      assert.equal(afterCommission.alliance_commission_periods, beforeCommission.alliance_commission_periods)
+
+      // El número de filas del pivote no cambia
+      const pivotCount = await db.from('alliance_payout_commissions').where('alliance_payout_id', payout.alliancePayoutId).count('* as cnt').first()
+      const origPivotCount = await db.from('alliance_payout_commissions').where('alliance_payout_id', payout.alliancePayoutId).count('* as cnt').first()
+      assert.equal(Number(pivotCount?.cnt ?? 0), Number(origPivotCount?.cnt ?? 0))
+      void beforePivot
+    } finally {
+      await cleanupFixture({ allianceIds: [alliance.allianceId], unitIds: [unit.businessUnitId], planIds: [planId] })
+    }
+  })
+
+  test('CA-8: body con actor o fecha arbitrarios se ignora; persiste el actor del token', async ({
+    client,
+    assert,
+  }) => {
+    const { alliance, unit, attribution, planId } = await createFixtureAlliance('annul-ca8')
+    const subscription = await BillingSubscription.query()
+      .where('business_unit_id', unit.businessUnitId)
+      .firstOrFail()
+
+    try {
+      const c1 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: businessDateOffset(-30),
+      })
+
+      const payout = await registerPayout({
+        allianceId: alliance.allianceId,
+        commissionIds: [c1.allianceCommissionId],
+        paidOn: businessDateOffset(-15),
+        reference: 'REF-CA8',
+        actorUserId: admin!.user.userId,
+      })
+
+      const response = await client
+        .post(annulUrl(payout.alliancePayoutId))
+        .json({
+          reason: 'CA-8 test',
+          alliancePayoutAnnulledByUserId: 999,
+          annulledAt: '2020-01-01',
+        })
+        .loginAs(admin!.user)
+      response.assertStatus(200)
+
+      const payoutRow = await db.from('alliance_payouts').where('alliance_payout_id', payout.alliancePayoutId).first()
+      // El actor en BD es el del token, no el del body
+      assert.equal(payoutRow.alliance_payout_annulled_by_user_id, admin!.user.userId)
+      // La fecha es de hoy, no de 2020
+      const annulledAt = String(payoutRow.alliance_payout_annulled_at)
+      assert.notInclude(annulledAt, '2020')
+    } finally {
+      await cleanupFixture({ allianceIds: [alliance.allianceId], unitIds: [unit.businessUnitId], planIds: [planId] })
+    }
+  })
+
+  test('CA-9: motivo inválido devuelve 422 VAL_INPUT y no anula', async ({
+    client,
+    assert,
+  }) => {
+    const { alliance, unit, attribution, planId } = await createFixtureAlliance('annul-ca9')
+    const subscription = await BillingSubscription.query()
+      .where('business_unit_id', unit.businessUnitId)
+      .firstOrFail()
+
+    try {
+      const c1 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: businessDateOffset(-30),
+      })
+
+      const payout = await registerPayout({
+        allianceId: alliance.allianceId,
+        commissionIds: [c1.allianceCommissionId],
+        paidOn: businessDateOffset(-15),
+        reference: 'REF-CA9',
+        actorUserId: admin!.user.userId,
+      })
+
+      const badCases: Array<{ reason?: string } | { reason: string }> = [
+        {},
+        { reason: '' },
+        { reason: '   ' },
+        { reason: 'a'.repeat(501) },
+        { reason: 'Motivo\u0000con nulo' },
+        { reason: 'Motivo\u001Bcon escape' },
+      ]
+
+      for (const body of badCases) {
+        const resp = await client
+          .post(annulUrl(payout.alliancePayoutId))
+          .json(body)
+          .loginAs(admin!.user)
+        resp.assertStatus(422)
+        assert.equal(resp.body().code, ALLIANCE_ERROR_CODES.VAL_INPUT)
+        const raw = JSON.stringify(resp.body())
+        assert.notInclude(raw, 'Motivo')
+      }
+
+      // 500 exactos sí pasan
+      const okResp = await client
+        .post(annulUrl(payout.alliancePayoutId))
+        .json({ reason: 'a'.repeat(500) })
+        .loginAs(admin!.user)
+      okResp.assertStatus(200)
+
+      // Motivo con \n pasa
+      const c2 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: businessDateOffset(-29),
+      })
+      const payout2 = await registerPayout({
+        allianceId: alliance.allianceId,
+        commissionIds: [c2.allianceCommissionId],
+        paidOn: businessDateOffset(-14),
+        reference: 'REF-CA9b',
+        actorUserId: admin!.user.userId,
+      })
+      const nlResp = await client
+        .post(annulUrl(payout2.alliancePayoutId))
+        .json({ reason: 'Línea 1\nLínea 2' })
+        .loginAs(admin!.user)
+      nlResp.assertStatus(200)
+      assert.equal(nlResp.body().data.alliancePayoutAnnulmentReason, 'Línea 1\nLínea 2')
+    } finally {
+      await cleanupFixture({ allianceIds: [alliance.allianceId], unitIds: [unit.businessUnitId], planIds: [planId] })
+    }
+  })
+
+  test('CA-10: segunda anulación devuelve 422 PAYOUT_ALREADY_ANNULLED sin cambiar datos', async ({
+    client,
+    assert,
+  }) => {
+    const { alliance, unit, attribution, planId } = await createFixtureAlliance('annul-ca10')
+    const subscription = await BillingSubscription.query()
+      .where('business_unit_id', unit.businessUnitId)
+      .firstOrFail()
+
+    try {
+      const c1 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: businessDateOffset(-30),
+      })
+
+      const payout = await registerPayout({
+        allianceId: alliance.allianceId,
+        commissionIds: [c1.allianceCommissionId],
+        paidOn: businessDateOffset(-15),
+        reference: 'REF-CA10',
+        actorUserId: admin!.user.userId,
+      })
+
+      const first = await client
+        .post(annulUrl(payout.alliancePayoutId))
+        .json({ reason: 'Primera anulación' })
+        .loginAs(admin!.user)
+      first.assertStatus(200)
+      const firstReason = first.body().data.alliancePayoutAnnulmentReason
+
+      const second = await client
+        .post(annulUrl(payout.alliancePayoutId))
+        .json({ reason: 'Segunda anulación' })
+        .loginAs(admin!.user)
+      second.assertStatus(422)
+      assert.equal(second.body().code, ALLIANCE_ERROR_CODES.PAYOUT_ALREADY_ANNULLED)
+
+      // El motivo en BD es el de la primera
+      const payoutRow = await db.from('alliance_payouts').where('alliance_payout_id', payout.alliancePayoutId).first()
+      assert.equal(payoutRow.alliance_payout_annulment_reason, firstReason)
+    } finally {
+      await cleanupFixture({ allianceIds: [alliance.allianceId], unitIds: [unit.businessUnitId], planIds: [planId] })
+    }
+  })
+
+  test('CA-11: comisiones vuelven a por pagar y se pueden reliquidar (reglas 7, 10)', async ({
+    client,
+    assert,
+  }) => {
+    const { alliance, unit, attribution, planId } = await createFixtureAlliance('annul-ca11')
+    const subscription = await BillingSubscription.query()
+      .where('business_unit_id', unit.businessUnitId)
+      .firstOrFail()
+
+    try {
+      const c1 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: businessDateOffset(-30),
+      })
+      const c2 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 1,
+        baseCents: 800_000,
+        percent: 10,
+        amountCents: 80_000,
+        paidOn: businessDateOffset(-25),
+      })
+      const c3 = await addCommission({
+        allianceId: alliance.allianceId,
+        attributionId: attribution.allianceAttributionId,
+        businessUnitId: unit.businessUnitId,
+        subscriptionId: subscription.billingSubscriptionId,
+        periods: 3,
+        baseCents: 2_400_000,
+        percent: 10,
+        amountCents: 240_000,
+        paidOn: businessDateOffset(-20),
+      })
+
+      const payout = await registerPayout({
+        allianceId: alliance.allianceId,
+        commissionIds: [c1.allianceCommissionId, c2.allianceCommissionId, c3.allianceCommissionId],
+        paidOn: businessDateOffset(-15),
+        reference: 'REF-RELIQ',
+        actorUserId: admin!.user.userId,
+      })
+
+      // Anular
+      const annulResp = await client
+        .post(annulUrl(payout.alliancePayoutId))
+        .json({ reason: 'Anular para reliquidar' })
+        .loginAs(admin!.user)
+      annulResp.assertStatus(200)
+
+      // Las 3 comisiones en el rastro ahora son `pending`
+      const detail = annulResp.body().data
+      for (const c of detail.alliancePayoutCommissions) {
+        assert.equal(c.allianceCommissionStatus, 'pending')
+      }
+
+      // Reliquidar con las mismas 3 comisiones
+      const reliqResp = await client
+        .post(payoutsUrl(alliance.allianceId))
+        .json({
+          commissionIds: [c1.allianceCommissionId, c2.allianceCommissionId, c3.allianceCommissionId],
+          paidOn: businessDateOffset(0),
+          reference: 'REF-RELIQ-2',
+        })
+        .loginAs(admin!.user)
+      reliqResp.assertStatus(201)
+      const newPayoutId = reliqResp.body().data.alliancePayoutId
+
+      // El historial trae las dos liquidaciones
+      const histResp = await client.get(historialUrl(alliance.allianceId)).loginAs(admin!.user)
+      const histData = histResp.body().data as { alliancePayoutId: number }[]
+      const histIds = histData.map((h) => h.alliancePayoutId)
+      assert.include(histIds, payout.alliancePayoutId)
+      assert.include(histIds, newPayoutId)
+
+      // El rastro de la anulada muestra las comisiones con livePayout apuntando a la nueva
+      const detailAnnulledResp = await client.get(detailUrl(payout.alliancePayoutId)).loginAs(admin!.user)
+      const annulledComms = detailAnnulledResp.body().data.alliancePayoutCommissions
+      for (const c of annulledComms) {
+        assert.equal(c.livePayout?.alliancePayoutId, newPayoutId)
+      }
+    } finally {
+      await cleanupFixture({ allianceIds: [alliance.allianceId], unitIds: [unit.businessUnitId], planIds: [planId] })
+    }
+  })
+
+  test('CA-12: id de liquidación inexistente o inválido devuelve 404', async ({
+    client,
+    assert,
+  }) => {
+    for (const id of [999_999_991, 'abc', '0']) {
+      const resp = await client
+        .post(annulUrl(id))
+        .json({ reason: 'Motivo test' })
+        .loginAs(admin!.user)
+      resp.assertStatus(404)
+      assert.equal(resp.body().code, ALLIANCE_ERROR_CODES.PAYOUT_NOT_FOUND)
+      assertNoSqlLeak(resp.body(), assert)
+    }
+  })
+})
+

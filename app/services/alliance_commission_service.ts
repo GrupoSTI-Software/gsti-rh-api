@@ -314,6 +314,63 @@ export default class AllianceCommissionService {
   }
 
   /**
+   * Comisiones de una liquidación concreta con su estado ACTUAL (CA-5 de
+   * USRH1787719056821). Reutiliza el mismo constructor de columnas que el
+   * listado de comisiones por alianza: la derivación de "pagada" se escribe
+   * en un solo lugar (regla del spec, §7 "No reimplementar").
+   *
+   * Sin paginar: el límite del servicio de liquidación (200) garantiza que
+   * el conjunto siempre es manejable.
+   *
+   * @param alliancePayoutId - Id de la liquidación.
+   */
+  async listCommissionsOfPayout(alliancePayoutId: number): Promise<AllianceCommissionListItem[]> {
+    const rows = await db
+      .from('alliance_commissions as c')
+      .join(
+        'alliance_payout_commissions as apc_self',
+        'apc_self.alliance_commission_id',
+        'c.alliance_commission_id'
+      )
+      .where('apc_self.alliance_payout_id', alliancePayoutId)
+      .leftJoin('alliance_payout_commissions as apc', (join) => {
+        join
+          .on('apc.alliance_commission_id', 'c.alliance_commission_id')
+          .andOnVal('apc.alliance_payout_commission_is_live', 1)
+      })
+      .join('business_units as bu', 'bu.business_unit_id', 'c.business_unit_id')
+      .join('billing_payments as p', 'p.billing_payment_id', 'c.billing_payment_id')
+      .leftJoin('alliance_payouts as ap', 'ap.alliance_payout_id', 'apc.alliance_payout_id')
+      .leftJoin('users as ppu', 'ppu.user_id', 'ap.alliance_payout_created_by_user_id')
+      .leftJoin('people as ppe', 'ppe.person_id', 'ppu.person_id')
+      .select(
+        'c.alliance_commission_id as allianceCommissionId',
+        'c.alliance_id as allianceId',
+        'c.alliance_attribution_id as allianceAttributionId',
+        'bu.business_unit_public_id as businessUnitPublicId',
+        'bu.business_unit_name as businessUnitName',
+        'c.billing_payment_id as billingPaymentId',
+        'p.billing_subscription_id as billingSubscriptionId',
+        'p.billing_payment_paid_at as billingPaymentPaidAt',
+        db.raw("DATE_FORMAT(c.alliance_commission_paid_on, '%Y-%m-%d') as allianceCommissionAccruedOn"),
+        'c.alliance_commission_periods as allianceCommissionPeriods',
+        'c.alliance_commission_base_cents as allianceCommissionBaseCents',
+        'c.alliance_commission_percent as allianceCommissionPercent',
+        'c.alliance_commission_amount_cents as allianceCommissionAmountCents',
+        'c.alliance_commission_created_at as createdAt',
+        'ap.alliance_payout_id as livePayoutId',
+        db.raw("DATE_FORMAT(ap.alliance_payout_paid_on, '%Y-%m-%d') as livePayoutPaidOn"),
+        'ap.alliance_payout_reference as livePayoutReference',
+        db.raw(
+          "CONCAT_WS(' ', ppe.person_firstname, ppe.person_lastname) as livePayoutCreatedByName"
+        )
+      )
+      .orderBy('c.alliance_commission_id', 'asc')
+
+    return (rows as RawCommissionRow[]).map((row) => this.toListItem(row))
+  }
+
+  /**
    * Comisiones devengadas de una alianza, paginadas y con el total del
    * mismo rango (USRH1789529505468). Solo lectura: no recalcula ninguna
    * comisión (regla 10, 12).

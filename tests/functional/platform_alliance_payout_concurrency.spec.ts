@@ -14,6 +14,7 @@ import BusinessUnit from '#models/business_unit'
 import Person from '#models/person'
 import Role from '#models/role'
 import User from '#models/user'
+import db from '@adonisjs/lucid/services/db'
 import { ALLIANCE_ERROR_CODES } from '#constants/alliance_error_codes'
 import BillingCatalogService from '#services/billing_catalog_service'
 import { todayInBusinessZone, toBusinessDateString } from '#utils/business_date'
@@ -31,6 +32,10 @@ function payoutsUrl(allianceId: number): string {
   return `${BASE}/${allianceId}/payouts`
 }
 
+function annulUrl(payoutId: number): string {
+  return `/api/platform/alliance-payouts/${payoutId}/annul`
+}
+
 function businessDateOffset(days: number): string {
   return toBusinessDateString(todayInBusinessZone().plus({ days }))
 }
@@ -38,6 +43,12 @@ function businessDateOffset(days: number): string {
 interface TestActor {
   user: User
   person: Person
+}
+
+async function cleanupActor(actor: TestActor | null) {
+  if (!actor) return
+  await User.query().where('user_id', actor.user.userId).delete()
+  await Person.query().where('person_id', actor.person.personId).delete()
 }
 
 async function createActor(emailPrefix: string): Promise<TestActor> {
@@ -366,4 +377,171 @@ test.group('POST /api/platform/alliances/:allianceId/payouts — concurrencia', 
       })
     }
   })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CA-13 (USRH1787719056821) C6 · Liquidar vs anular en paralelo
+// ─────────────────────────────────────────────────────────────────────────────
+test.group('Concurrencia C6 — liquidar vs anular (CA-13 USRH1787719056821)', (group) => {
+  let admin: TestActor | null = null
+
+  group.setup(async () => {
+    admin = await createActor('annul-c6')
+  })
+  group.teardown(async () => {
+    await cleanupActor(admin)
+  })
+
+  test('CA-13-C6: 10 rondas — anular L1 y liquidar {C1,C2} en paralelo; por comisión ≤1 fila viva; si 409, reintento secuencial da 201', async ({
+    client,
+    assert,
+  }) => {
+    for (let round = 0; round < 10; round += 1) {
+      const fixture = await createFixture(`c6-${round}`)
+      try {
+        const c1 = await addCommission({
+          allianceId: fixture.alliance.allianceId,
+          attributionId: fixture.attribution.allianceAttributionId,
+          businessUnitId: fixture.unit.businessUnitId,
+          subscriptionId: fixture.subscription.billingSubscriptionId,
+          amountCents: 80_000,
+          paidOn: businessDateOffset(-2),
+        })
+        const c2 = await addCommission({
+          allianceId: fixture.alliance.allianceId,
+          attributionId: fixture.attribution.allianceAttributionId,
+          businessUnitId: fixture.unit.businessUnitId,
+          subscriptionId: fixture.subscription.billingSubscriptionId,
+          amountCents: 80_000,
+          paidOn: businessDateOffset(-1),
+        })
+
+        // L1 pre-registrada con {C1, C2}
+        const amountCents = c1.allianceCommissionAmountCents + c2.allianceCommissionAmountCents
+        const l1 = await AlliancePayout.create({
+          allianceId: fixture.alliance.allianceId,
+          alliancePayoutPaidOn: DateTime.fromISO(businessDateOffset(-1), { zone: 'utc' }),
+          alliancePayoutReference: `L1-c6-${round}`,
+          alliancePayoutAmountCents: amountCents,
+          alliancePayoutCreatedByUserId: admin!.user.userId,
+        })
+        await db.table('alliance_payout_commissions').multiInsert([
+          { alliance_payout_id: l1.alliancePayoutId, alliance_commission_id: c1.allianceCommissionId },
+          { alliance_payout_id: l1.alliancePayoutId, alliance_commission_id: c2.allianceCommissionId },
+        ])
+
+        // En paralelo: anular L1 y POST /payouts con {C1, C2}
+        const [annulResp, payResp] = await Promise.all([
+          client
+            .post(annulUrl(l1.alliancePayoutId))
+            .json({ reason: `C6 round ${round}` })
+            .loginAs(admin!.user),
+          client
+            .post(payoutsUrl(fixture.alliance.allianceId))
+            .json({ commissionIds: [c1.allianceCommissionId, c2.allianceCommissionId], paidOn: businessDateOffset(0), reference: `C6-pay-${round}` })
+            .loginAs(admin!.user),
+        ])
+
+        // La anulación siempre es 200
+        assert.equal(annulResp.status(), 200, `Ronda ${round}: anular L1`)
+        // El POST es 201 o 409, nunca 500
+        assert.notEqual(payResp.status(), 500, `Ronda ${round}: POST no debe ser 500`)
+
+        // Por comisión ≤1 fila viva en el pivote
+        for (const commId of [c1.allianceCommissionId, c2.allianceCommissionId]) {
+          const liveRows = await AlliancePayoutCommission.query()
+            .where('alliance_commission_id', commId)
+            .whereNull('alliance_payout_commission_annulled_at')
+          assert.isAtMost(liveRows.length, 1, `Ronda ${round}: comisión ${commId} en ≤1 liquidación`)
+        }
+
+        // Si el POST dio 409, un reintento secuencial debe dar 201
+        if (payResp.status() === 409) {
+          assert.equal(payResp.body().code, ALLIANCE_ERROR_CODES.COMMISSION_ALREADY_PAID)
+          const retryResp = await client
+            .post(payoutsUrl(fixture.alliance.allianceId))
+            .json({ commissionIds: [c1.allianceCommissionId, c2.allianceCommissionId], paidOn: businessDateOffset(0), reference: `C6-retry-${round}` })
+            .loginAs(admin!.user)
+          assert.equal(retryResp.status(), 201, `Ronda ${round}: reintento secuencial`)
+        }
+      } finally {
+        await cleanupFixture({
+          allianceId: fixture.alliance.allianceId,
+          unitId: fixture.unit.businessUnitId,
+          planId: fixture.planId,
+        })
+      }
+    }
+  }).timeout(120_000)
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CA-14 (USRH1787719056821) C7 · Dos anulaciones en paralelo de la misma liquidación
+// ─────────────────────────────────────────────────────────────────────────────
+test.group('Concurrencia C7 — anular vs anular (CA-14 USRH1787719056821)', (group) => {
+  let admin: TestActor | null = null
+
+  group.setup(async () => {
+    admin = await createActor('annul-c7')
+  })
+  group.teardown(async () => {
+    await cleanupActor(admin)
+  })
+
+  test('CA-14-C7: 10 rondas — dos anulaciones simultáneas; exactamente una 200 y una 422; motivo y actor en BD son los de la 200', async ({
+    client,
+    assert,
+  }) => {
+    for (let round = 0; round < 10; round += 1) {
+      const fixture = await createFixture(`c7-${round}`)
+      try {
+        const commission = await addCommission({
+          allianceId: fixture.alliance.allianceId,
+          attributionId: fixture.attribution.allianceAttributionId,
+          businessUnitId: fixture.unit.businessUnitId,
+          subscriptionId: fixture.subscription.billingSubscriptionId,
+          amountCents: 80_000,
+          paidOn: businessDateOffset(-1),
+        })
+
+        const l1 = await AlliancePayout.create({
+          allianceId: fixture.alliance.allianceId,
+          alliancePayoutPaidOn: DateTime.fromISO(businessDateOffset(-1), { zone: 'utc' }),
+          alliancePayoutReference: `L1-c7-${round}`,
+          alliancePayoutAmountCents: commission.allianceCommissionAmountCents,
+          alliancePayoutCreatedByUserId: admin!.user.userId,
+        })
+        await db.table('alliance_payout_commissions').insert({
+          alliance_payout_id: l1.alliancePayoutId,
+          alliance_commission_id: commission.allianceCommissionId,
+        })
+
+        const [r1, r2] = await Promise.all([
+          client
+            .post(annulUrl(l1.alliancePayoutId))
+            .json({ reason: `Motivo-A-${round}` })
+            .loginAs(admin!.user),
+          client
+            .post(annulUrl(l1.alliancePayoutId))
+            .json({ reason: `Motivo-B-${round}` })
+            .loginAs(admin!.user),
+        ])
+
+        const statuses = [r1.status(), r2.status()].sort((a, b) => a - b)
+        assert.deepEqual(statuses, [200, 422], `Ronda ${round}: exactamente una 200 y una 422`)
+        assert.notEqual(r1.status(), 500)
+        assert.notEqual(r2.status(), 500)
+
+        const winner = r1.status() === 200 ? r1 : r2
+        const payoutRow = await db.from('alliance_payouts').where('alliance_payout_id', l1.alliancePayoutId).first()
+        assert.equal(payoutRow.alliance_payout_annulment_reason, winner.body().data.alliancePayoutAnnulmentReason)
+      } finally {
+        await cleanupFixture({
+          allianceId: fixture.alliance.allianceId,
+          unitId: fixture.unit.businessUnitId,
+          planId: fixture.planId,
+        })
+      }
+    }
+  }).timeout(120_000)
 })

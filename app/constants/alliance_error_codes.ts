@@ -86,6 +86,17 @@ export const ALLIANCE_ERROR_CODES = {
    * registrada: no se paga dos veces (USRH1787719056820, regla 8).
    */
   COMMISSION_ALREADY_PAID: 'PLT.ALL.COMMISSION_ALREADY_PAID',
+  /**
+   * Liquidación no encontrada o id no numérico (USRH1787719056821, CA-5/CA-3).
+   * 404 uniforme: no distingue "inexistente" de "id inválido" — anti-enumeración.
+   */
+  PAYOUT_NOT_FOUND: 'PLT.ALL.PAYOUT_NOT_FOUND',
+  /**
+   * La liquidación ya estaba anulada cuando se intentó anularla de nuevo
+   * (USRH1787719056821, regla 9). También se devuelve cuando dos anulaciones
+   * concurrentes compiten y solo una gana (regla 11).
+   */
+  PAYOUT_ALREADY_ANNULLED: 'PLT.ALL.PAYOUT_ALREADY_ANNULLED',
   /** Error no tipado del módulo */
   SYS_UNHANDLED: 'PLT.ALL.SYS_UNHANDLED',
 } as const
@@ -320,6 +331,20 @@ export const ALLIANCE_ERRORS = {
       'Una o más comisiones ya están pagadas. No se puede liquidar dos veces la misma comisión.',
     code: ALLIANCE_ERROR_CODES.COMMISSION_ALREADY_PAID,
     status: 409,
+  },
+  PAYOUT_NOT_FOUND: {
+    key: 'liquidacion-no-encontrada',
+    title: 'Alianzas',
+    detail: 'La liquidación no fue encontrada.',
+    code: ALLIANCE_ERROR_CODES.PAYOUT_NOT_FOUND,
+    status: 404,
+  },
+  PAYOUT_ALREADY_ANNULLED: {
+    key: 'liquidacion-ya-anulada',
+    title: 'Alianzas',
+    detail: 'Esta liquidación ya fue anulada y no se puede volver a anular.',
+    code: ALLIANCE_ERROR_CODES.PAYOUT_ALREADY_ANNULLED,
+    status: 422,
   },
   SYS_UNHANDLED: {
     key: 'error-sistema',

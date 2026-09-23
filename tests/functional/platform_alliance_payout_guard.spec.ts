@@ -14,12 +14,15 @@ import AlliancePayout from '#models/alliance_payout'
  */
 
 const TEST_PASSWORD = 'AlliancePayoutGuard123!'
-const PAYOUT_AREA_ROUTE_COUNT = 1
+const PAYOUT_AREA_ROUTE_COUNT = 4
 
-type PayoutHttpMethod = 'post'
+type PayoutHttpMethod = 'get' | 'post'
 
 const PAYOUT_AREA_ROUTES: Array<{ method: PayoutHttpMethod; path: string }> = [
   { method: 'post', path: '/api/platform/alliances/1/payouts' },
+  { method: 'get', path: '/api/platform/alliances/1/payouts' },
+  { method: 'get', path: '/api/platform/alliance-payouts/1' },
+  { method: 'post', path: '/api/platform/alliance-payouts/1/annul' },
 ]
 
 interface TestActor {
@@ -119,6 +122,7 @@ test.group('Guard /api/platform/alliances/:allianceId/payouts — 403 sin platfo
       assert.isUndefined(response.body().code)
       assert.isUndefined(response.body().data)
       assert.notProperty(response.body(), 'alliancePayoutReference')
+      assert.notProperty(response.body(), 'alliancePayoutAnnulmentReason')
       assert.notProperty(response.body(), 'allianceCommissionAmountCents')
 
       const afterPayouts = await AlliancePayout.query().count('* as total')
