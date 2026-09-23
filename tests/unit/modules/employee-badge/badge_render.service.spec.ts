@@ -9,9 +9,11 @@ import BadgeRenderService, {
 const BASE_CONTEXT: BadgeRenderContext = {
   employeeId: 1,
   nombreCompleto: 'María Guadalupe Hernández López',
-  fotoUrl: null,
+  fotoPath: null,
   empresa: 'Servicios Especializados del Norte SA de CV',
   puesto: 'Supervisor de limpieza',
+  departamento: 'Operaciones',
+  numeroNomina: '27800180',
   folioRepse: 'AR12345/2024',
   folioVigente: true,
   urlVerificacion: 'https://app.example.com/gafete/verificar/abc123',
@@ -52,5 +54,33 @@ test.group('BadgeRenderService - formato neutral', () => {
       folioVigente: null,
     })
     assert.deepEqual(await pixelAt(png, 1000, 10), [0xd9, 0xd9, 0xd9])
+  })
+
+  test('dibuja la foto cuando el lector la entrega', async ({ assert }) => {
+    // Foto sintética de un solo color: si el render la dibuja, el centro del
+    // recuadro de la foto trae ese color en lugar del patrón de "Sin foto".
+    const photo = createCanvas(120, 150)
+    const photoCtx = photo.getContext('2d')
+    photoCtx.fillStyle = '#3366cc'
+    photoCtx.fillRect(0, 0, 120, 150)
+    const photoBuffer = photo.toBuffer('image/png')
+
+    class WithPhoto extends BadgeRenderService {
+      async fetchImageTolerant(storedPath: string | null): Promise<Buffer | null> {
+        return storedPath ? photoBuffer : null
+      }
+    }
+
+    const png = await new WithPhoto().renderBadgePng({
+      ...BASE_CONTEXT,
+      fotoPath: 'employees/1/photo.jpg',
+      folioRepse: null,
+      folioVigente: null,
+    })
+    // Centro del recuadro de la foto: x 10–68 pt, y 32–104 pt (escala 1011/242.65).
+    assert.deepEqual(await pixelAt(png, 162, 283), [0x33, 0x66, 0xcc])
+
+    const sampleOut = process.env.BADGE_SAMPLE_OUT_INTERNAL
+    if (sampleOut) writeFileSync(sampleOut, png)
   })
 })

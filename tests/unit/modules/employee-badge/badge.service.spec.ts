@@ -36,6 +36,8 @@ function makeContext(overrides: Partial<BadgeEmployeeContext> = {}): BadgeEmploy
     employeeActive: true,
     businessUnitActive: true,
     positionName: 'Operador',
+    departmentName: 'Operaciones',
+    payrollCode: '27800180',
     repseFolio: null,
     repseExpiresAt: null,
     ...overrides,
@@ -140,5 +142,20 @@ test.group('BadgeService - contrato del gafete (B1)', () => {
       'urlVerificacion',
       'vinculoVigente',
     ])
+  })
+
+  test('el render recibe la clave guardada de la foto aunque la URL pública sea null', async ({
+    assert,
+  }) => {
+    const context = makeContext({ employeePhoto: 'employees/4821/photo.jpg' })
+    const service = new BadgeService(makeRepository(context))
+
+    const { renderContext } = await service.getRenderContextInTenant(context.employeeId, [
+      context.businessUnitId,
+    ])
+
+    assert.equal(renderContext.fotoPath, 'employees/4821/photo.jpg')
+    assert.equal(renderContext.departamento, 'Operaciones')
+    assert.equal(renderContext.numeroNomina, '27800180')
   })
 })
