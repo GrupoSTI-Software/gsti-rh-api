@@ -3332,20 +3332,27 @@ export default class EmployeeService {
    */
   private createCompanyMismatchValidationError(
     offendingRows: EmployeeImportCompanyMismatchRow[]
-  ): Error {
+  ): Error & {
+    isCompanyMismatchError: true
+    statusCode: 422
+    offendingRows: EmployeeImportCompanyMismatchRow[]
+  } {
     const listing = offendingRows
       .map(
         (item) =>
           `Fila ${item.row} (trabajo «${item.businessUnit}», nómina «${item.payrollBusinessUnit}»)`
       )
       .join('; ')
-    const error = new Error(
-      `El archivo declara una empresa distinta de la activa en ${offendingRows.length} fila(s): ${listing}. No se procesó ninguna fila: corrige las empresas del archivo y vuelve a subirlo.`
+    return Object.assign(
+      new Error(
+        `El archivo declara una empresa distinta de la activa en ${offendingRows.length} fila(s): ${listing}. No se procesó ninguna fila: corrige las empresas del archivo y vuelve a subirlo.`
+      ),
+      {
+        isCompanyMismatchError: true as const,
+        statusCode: 422 as const,
+        offendingRows,
+      }
     )
-    ;(error as any).isCompanyMismatchError = true
-    ;(error as any).statusCode = 422
-    ;(error as any).offendingRows = offendingRows
-    return error
   }
 
   /**
