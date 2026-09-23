@@ -331,9 +331,9 @@ Sin limpieza: este recorrido no toca ningún interruptor global.
 
 ## 8. Checklist
 
-- [ ] Escenario 1 — Dos filas de A: `200`, ambas creadas y sin errores
-- [ ] Escenario 2 — Trabajo de B: `409`, fila 3 identificada y conteo de A intacto
-- [ ] Escenario 3 — Nómina de B: `409` y fila 3 identificada
-- [ ] Escenario 4 — Dos filas ofensoras: `409`, filas 2 y 4 enumeradas
-- [ ] Escenario 5 — Celdas de empresa vacías: `200`, ambas creadas
-- [ ] Escenario 6 — CURP repetida en A: `200`, fila duplicada omitida y la otra creada
+- [x] Escenario 1 — Dos filas de A: `200`, ambas creadas y sin errores
+- [x] Escenario 2 — Trabajo de B: `409`, fila 3 identificada y conteo de A intacto
+- [x] Escenario 3 — Nómina de B: `409` y fila 3 identificada
+- [x] Escenario 4 — Dos filas ofensoras: `409`, filas 2 y 4 enumeradas
+- [x] Escenario 5 — Celdas de empresa vacías: `200`, ambas creadas
+- [x] Escenario 6 — CURP repetida en A: `200`, fila duplicada omitida y la otra creada
