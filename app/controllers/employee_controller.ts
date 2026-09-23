@@ -882,9 +882,9 @@ export default class EmployeeController {
    *                 required: true
    *                 default: 1
    *               dailySalary:
-   *                 type: number
+   *                 type: string
    *                 nullable: true
-   *                 description: Daily salary. Nullable in API responses for users without financial-data read permission (returns null). On creation, an absent value defaults to 0 (unchanged create-path behavior).
+   *                 description: Salario diario. En respuestas GET con valor se entrega enmascarado (`•••••`); sin valor, null. El completo solo por reveal. En alta, ausente = 0.
    *                 required: false
    *                 default: 0
    *               payrollBusinessUnitId:
@@ -1433,7 +1433,7 @@ export default class EmployeeController {
    *               dailySalary:
    *                 type: number
    *                 nullable: true
-   *                 description: Salario diario. Ausente, `null` o no numérico = no modificar el valor actual. El `0` explícito es válido y sí se persiste (genera asiento de historial si cambió).
+   *                 description: Salario diario. Ausente, `null`, no numérico o marcador `•••••` = no modificar el valor actual. El `0` explícito es válido y sí se persiste (genera asiento de historial si cambió). En respuestas GET con valor se entrega enmascarado.
    *                 required: false
    *               payrollBusinessUnitId:
    *                 type: number

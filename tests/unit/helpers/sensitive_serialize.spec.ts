@@ -125,23 +125,22 @@ test.group('sensitiveSerializeNumeric', () => {
     assert.isNull(serialize(null))
   })
 
-  test('sin clasificación entrega null (fail-closed de importe)', ({ assert }) => {
+  test('cero se entrega tapado como cualquier importe capturado', ({ assert }) => {
+    const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
+    assert.equal(serialize(0), SENSITIVE_MASK)
+    assert.equal(serialize('0.0000'), SENSITIVE_MASK)
+  })
+
+  test('par no clasificado con valor también se tapa (fail-closed de presencia)', ({
+    assert,
+  }) => {
     const serialize = sensitiveSerializeNumeric('Employee', 'employeeTeleworkPercentage')
-    SensitiveAccessContext.run(
-      {
-        read: {
-          identificacion: true,
-          contacto: true,
-          financiero: true,
-          salud: true,
-          biometrico: true,
-        },
-        write: deniedWrite,
-      },
-      () => {
-        assert.isNull(serialize(999))
-      }
-    )
+    assert.equal(serialize(999), SENSITIVE_MASK)
+  })
+
+  test('importe decimal como string del driver se entrega tapado', ({ assert }) => {
+    const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
+    assert.equal(serialize('1250.7500'), SENSITIVE_MASK)
   })
 
   test('Employee.dailySalary sin permiso financiero entrega máscara fija', ({ assert }) => {
