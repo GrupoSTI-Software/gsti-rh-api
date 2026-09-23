@@ -35,6 +35,13 @@ export interface BadgeEmployeeContext {
   departmentName: string | null
   /** Número de nómina (`employee_payroll_code`); `null` si no se capturó. */
   payrollCode: string | null
+  /** Persona del empleado: registro al que se atribuye la lectura del NSS en la bitácora. */
+  personId: number
+  /**
+   * NSS descifrado. Solo viaja al render del gafete descargable, nunca al JSON
+   * (E1/E3); cada gafete que lo imprime deja asiento en la bitácora de PII.
+   */
+  nss: string | null
   repseFolio: string | null
   repseExpiresAt: DateTime | null
 }

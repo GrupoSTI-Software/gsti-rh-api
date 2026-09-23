@@ -14,6 +14,7 @@ const BASE_CONTEXT: BadgeRenderContext = {
   puesto: 'Supervisor de limpieza',
   departamento: 'Operaciones',
   numeroNomina: '27800180',
+  nss: '12345678901',
   folioRepse: 'AR12345/2024',
   folioVigente: true,
   urlVerificacion: 'https://app.example.com/gafete/verificar/abc123',

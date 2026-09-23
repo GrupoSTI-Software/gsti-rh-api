@@ -9,6 +9,7 @@ import { buildDownloadFileName, contentDisposition, formatDownloadFileDate } fro
 import BadgeRepositoryMysql from './badge.repository.mysql.js'
 import BadgeRenderService from './badge_render.service.js'
 import BadgeService from './badge.service.js'
+import BadgeNssAuditService, { type BadgeAccessor } from './badge_nss_audit.service.js'
 import type { BadgeRepository } from './badge.repository.js'
 import type { BadgeEmployeeContext } from './dto/badge.dto.js'
 
@@ -35,6 +36,8 @@ export interface BulkBadgeStreamInput {
   empleadoIds: number[]
   formato: BulkBadgeFormat
   businessUnitIds: number[]
+  /** Quién genera el lote; cada NSS impreso se registra a su nombre. */
+  accessor: BadgeAccessor
   response: HttpContext['response']
 }
 
@@ -74,15 +77,18 @@ export default class BadgeBulkService {
   private readonly repository: BadgeRepository
   private readonly badgeService: BadgeService
   private readonly renderService: BadgeRenderService
+  private readonly nssAuditService: BadgeNssAuditService
 
   constructor(
     repository: BadgeRepository = new BadgeRepositoryMysql(),
     badgeService: BadgeService = new BadgeService(repository),
-    renderService: BadgeRenderService = new BadgeRenderService()
+    renderService: BadgeRenderService = new BadgeRenderService(),
+    nssAuditService: BadgeNssAuditService = new BadgeNssAuditService()
   ) {
     this.repository = repository
     this.badgeService = badgeService
     this.renderService = renderService
+    this.nssAuditService = nssAuditService
   }
 
   async streamBulk(input: BulkBadgeStreamInput): Promise<void> {
@@ -100,6 +106,10 @@ export default class BadgeBulkService {
         'gafete-no-encontrado'
       )
     }
+
+    // Todos los asientos del NSS antes de abrir el stream: una vez enviados los
+    // encabezados ya no se puede responder con error, y sin bitácora no hay lote.
+    await this.nssAuditService.recordNssDisclosures(employees, input.accessor)
 
     if (input.formato === 'png') {
       await this.streamBulkZip(employees, input.response)

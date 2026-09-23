@@ -73,7 +73,11 @@ export default class BadgeService {
   async getRenderContextInTenant(
     employeeId: number,
     businessUnitIds: number[]
-  ): Promise<{ renderContext: BadgeRenderContext; employeeSlug: string }> {
+  ): Promise<{
+    renderContext: BadgeRenderContext
+    employeeSlug: string
+    context: BadgeEmployeeContext
+  }> {
     const context = await this.repository.findActiveEmployeeInTenant(employeeId, businessUnitIds)
     if (!context) {
       throw new EmployeeBadgeError(
@@ -84,7 +88,7 @@ export default class BadgeService {
       )
     }
     const renderContext = await this.buildRenderContext(context)
-    return { renderContext, employeeSlug: context.employeeSlug }
+    return { renderContext, employeeSlug: context.employeeSlug, context }
   }
 
   /**
@@ -114,6 +118,7 @@ export default class BadgeService {
       puesto: context.positionName,
       departamento: context.departmentName,
       numeroNomina: context.payrollCode,
+      nss: context.nss,
       folioRepse,
       folioVigente,
       urlVerificacion,

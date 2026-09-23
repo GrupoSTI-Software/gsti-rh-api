@@ -200,6 +200,8 @@ export default class BadgeRepositoryMysql implements BadgeRepository {
       positionName: employee.position?.positionName ?? null,
       departmentName: employee.department?.departmentName ?? null,
       payrollCode: employee.employeePayrollCode?.trim() || null,
+      personId: employee.person.personId,
+      nss: employee.person.personImssNss?.trim() || null,
       repseFolio: registration?.folio ?? null,
       repseExpiresAt: registration?.expiresAt ?? null,
     }

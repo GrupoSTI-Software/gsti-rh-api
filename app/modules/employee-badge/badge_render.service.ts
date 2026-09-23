@@ -71,6 +71,8 @@ export interface BadgeRenderContext {
   departamento: string | null
   /** Número de nómina del empleado; `null` si no se capturó. */
   numeroNomina: string | null
+  /** NSS completo; su impresión se registra en la bitácora antes de entregar el archivo. */
+  nss: string | null
   folioRepse: string | null
   folioVigente: boolean | null
   urlVerificacion: string
@@ -253,25 +255,30 @@ export default class BadgeRenderService {
   }
 
   /**
-   * Datos de nómina bajo la foto, como campos de credencial (rótulo y valor).
-   * La columna de la foto queda libre en los dos tipos de gafete: el bloque
-   * REPSE y la insignia de colaborador viven a la derecha.
+   * Datos de nómina bajo la foto, como campos de credencial (rótulo y valor):
+   * número de nómina y NSS, en ese orden y sin hueco si falta alguno. La
+   * columna de la foto queda libre en los dos tipos de gafete: el bloque REPSE
+   * y la insignia de colaborador viven a la derecha.
    */
   private renderPayrollFields(ctx: BadgeCanvasContext, input: BadgeRenderContext) {
-    const numeroNomina = input.numeroNomina?.trim()
-    if (!numeroNomina) return
+    const fields = [
+      { label: 'NO. DE NÓMINA', value: input.numeroNomina?.trim() },
+      { label: 'NSS', value: input.nss?.trim() },
+    ].filter((field): field is { label: string; value: string } => !!field.value)
 
     const x = this.s(10)
     const width = this.s(58)
-    const y = this.s(113)
+    fields.forEach((field, index) => {
+      const y = this.s(113 + index * 16)
 
-    ctx.font = `${this.s(4)}px "${FONT_BOLD}"`
-    ctx.fillStyle = BADGE_COLORS.textMuted
-    ctx.fillText('NO. DE NÓMINA', x, y)
+      ctx.font = `${this.s(4)}px "${FONT_BOLD}"`
+      ctx.fillStyle = BADGE_COLORS.textMuted
+      ctx.fillText(field.label, x, y)
 
-    ctx.font = `${this.s(6)}px "${FONT_BOLD}"`
-    ctx.fillStyle = BADGE_COLORS.text
-    this.drawSingleLineTruncated(ctx, numeroNomina, x, y + this.s(7), width)
+      ctx.font = `${this.s(6)}px "${FONT_BOLD}"`
+      ctx.fillStyle = BADGE_COLORS.text
+      this.drawSingleLineTruncated(ctx, field.value, x, y + this.s(7), width)
+    })
   }
 
   private renderFolioBlock(ctx: BadgeCanvasContext, input: BadgeRenderContext) {
