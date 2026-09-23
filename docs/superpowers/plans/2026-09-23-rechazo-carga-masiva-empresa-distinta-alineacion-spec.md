@@ -108,7 +108,7 @@ En `app/controllers/employee_controller.ts`: `resolveEmployeeImportApiError(erro
 
 - [ ] **Step 5: Specs unitarios actualizados**
 
-En `tests/unit/helpers/employee_import_company_mismatch.spec.ts`: 409, `VAL_BUSINESS_UNIT`, `archivo-de-otra-empresa`, PII-case intacto; agregar caso de tope: factory con 21 filas → `message`/`detail` contiene `… y 1 filas más.` (ver Task 8 Step 4 por el formato exacto). En `tests/unit/controllers/employee_import_excel_controller.spec.ts`: `'409':` + literales nuevos (retirar menciones al 422 de empresa).
+En `tests/unit/helpers/employee_import_company_mismatch.spec.ts`: 409, `VAL_BUSINESS_UNIT`, `archivo-de-otra-empresa`, PII-case intacto; agregar caso de tope: factory con 21 filas → `message`/`detail` contiene `… y 1 filas más.` y solo cita 20 filas (ver Task 8 Step 4 por el formato exacto; el truncado funcional con archivo de 21 filas vive en Task 10 Step 4c). En `tests/unit/controllers/employee_import_excel_controller.spec.ts`: `'409':` + literales nuevos (retirar menciones al 422 de empresa).
 
 - [ ] **Step 6: Verde + typecheck**
 
@@ -159,19 +159,28 @@ Sustituir todo el bloque de comparación (desde `resolveBusinessUnitByName`/`dec
           // los iguala). Vacía = activa, no ofende (CA-8). Con activa
           // desconocida (inactiva/baja) no se evalúa nada: fail-closed intacto.
           if (activeBusinessUnit !== null) {
-            for (const cell of [employeeData.businessUnit, employeeData.payrollBusinessUnit]) {
-              const typed = String(cell ?? '').trim()
-              if (
-                this.hasImportCellValue(cell) &&
-                this.mapBusinessUnit(cell, businessUnits) === null
-              ) {
-                foreignRows.push({ row: rowNumber, businessUnit: typed, payrollBusinessUnit: typed })
+            const declaredCells: Array<{ value: unknown; column: 'businessUnit' | 'payrollBusinessUnit' }> = [
+              { value: employeeData.businessUnit, column: 'businessUnit' },
+              { value: employeeData.payrollBusinessUnit, column: 'payrollBusinessUnit' },
+            ]
+            for (const { value, column } of declaredCells) {
+              const typed = String(value ?? '').trim()
+              if (this.hasImportCellValue(value) && this.mapBusinessUnit(typed, businessUnits) === null) {
+                foreignRows.push({
+                  row: rowNumber,
+                  businessUnit: column === 'businessUnit' ? typed : '',
+                  payrollBusinessUnit: column === 'payrollBusinessUnit' ? typed : '',
+                })
               }
             }
           }
 ```
 
-Notas vinculantes: `companyMismatchRows`, `allBusinessUnitsForResolution`, `resolveBusinessUnitByName` y `businessUnitResolutionCache` se **eliminan** (el caché y el padrón sobran: la lista es de 1 elemento; el caso de nombre duplicado entre tenants desaparece por construcción). El tipo `EmployeeImportCompanyMismatchRow` (`{row, businessUnit, payrollBusinessUnit}`) se reutiliza poniendo el valor tecleado en ambas (una entrada por celda ofensora; el `detail` cita cada una). Los fallbacks a `businessUnits[0]` y la creación quedan byte-identicas (regla 3).
+Notas vinculantes: `companyMismatchRows`, `allBusinessUnitsForResolution`, `resolveBusinessUnitByName` y `businessUnitResolutionCache` se **eliminan** (el caché y el padrón sobran: la lista es de 1 elemento; el caso de nombre duplicado entre tenants desaparece por construcción). El tipo `EmployeeImportCompanyMismatchRow` se reutiliza tal cual, con **solo la columna ofensora con valor** (la otra en `''`): así el reporte y los tests distinguen trabajo de nómina sin nada resuelto en base. Los fallbacks a `businessUnits[0]` y la creación quedan byte-identicas (regla 3).
+
+- [ ] **Step 2b: Eximir las columnas de empresa del requerido (CA-8, el spec manda)**
+
+`collectMissingRequiredImportFields` exige hoy `businessUnit` y `payrollBusinessUnit`: una celda vacía moriría como `'Falta el campo obligatorio'` antes de zona 2 y CA-8 sería imposible. En ese método, **eliminar únicamente** los dos bloques que empujan `'Unidad de negocio de trabajo'` y `'Unidad de negocio de nómina'` (conservar identificador de nómina, nombre y apellido paterno). La celda vacía cae entonces al fallback existente = activa. Verificar impacto con `grep -rn "collectMissingRequiredImportFields\|Falta el campo obligatorio" tests/ app/ | grep -v "employee_import_company_scope"` y actualizar el contenido afectado si cita esas líneas literal.
 
 - [ ] **Step 3: Aborto + warn estructurado (zona 3 + §12)**
 
@@ -190,7 +199,7 @@ Sustituir el `throw this.createCompanyMismatchValidationError(companyMismatchRow
           },
           'Carga masiva rechazada: el archivo declara empresas distintas de la activa'
         )
-        throw this.createCompanyMismatchValidationError(foreignRows)
+        throw this.createCompanyMismatchValidationError(foreignRows, activeBusinessUnit?.businessUnitName ?? '')
       }
 ```
 
@@ -207,12 +216,14 @@ Sustituir `createCompanyMismatchValidationError` por:
    * lo que el usuario tecleó (su propio dato), nunca nada resuelto en base.
    */
   private createCompanyMismatchValidationError(
-    offendingRows: EmployeeImportCompanyMismatchRow[]
+    offendingRows: EmployeeImportCompanyMismatchRow[],
+    activeName: string
   ): Error & { isCompanyMismatchError: true; statusCode: 409; offendingRows: EmployeeImportCompanyMismatchRow[] } {
-    const activeName = activeBusinessUnitName // ver nota: se pasa como parámetro
+    const labelOf = (item: EmployeeImportCompanyMismatchRow): string =>
+      item.businessUnit !== '' ? item.businessUnit : item.payrollBusinessUnit
     const shown = offendingRows.slice(0, 20)
     const listing = shown
-      .map((item) => `fila ${item.row} («${item.businessUnit}»)`)
+      .map((item) => `fila ${item.row} («${labelOf(item)}»)`)
       .join(', ')
     const tail =
       offendingRows.length > shown.length ? ` … y ${offendingRows.length - shown.length} filas más.` : ''
@@ -227,7 +238,7 @@ Sustituir `createCompanyMismatchValidationError` por:
   }
 ```
 
-Nota vinculante: `activeBusinessUnitName` sale de `activeBusinessUnit.businessUnitName`; como la factory es método sin acceso al scope local, se pasa como **parámetro** (`createCompanyMismatchValidationError(offendingRows, activeName)`). El `statusCode` del error tipado pasa a 409 (el `catch` externo y el controlador leen la bandera, no el número, pero el número viaja correcto).
+Nota vinculante: `activeName` es parámetro (la factory es método sin acceso al scope local); en el sitio de llamada `foreignRows.length > 0` implica `activeBusinessUnit !== null` (solo ahí se empuja), así que `?? ''` nunca aflora. El `statusCode` del error tipado pasa a 409 (el `catch` externo y el controlador leen la bandera, no el número, pero el número viaja correcto).
 
 - [ ] **Step 5: Borrar el bloque comentado conservando la llave (zona 4)**
 
@@ -244,11 +255,17 @@ Expected: ambos limpios.
 En `tests/unit/services/employee_import_excel_result.spec.ts`, grupo USRH1789747321650: retirar asserts de `allBusinessUnitsForResolution`/`resolveBusinessUnitByName`/caché y del `422`; agregar:
 
 ```ts
-    assert.include(content, 'this.mapBusinessUnit(cell, businessUnits)')
-    assert.include(content, 'hasImportCellValue(cell)')
+    assert.include(content, 'declaredCells')
+    assert.include(content, "column === 'businessUnit'")
+    assert.include(content, 'hasImportCellValue(value)')
+    assert.include(content, 'mapBusinessUnit(typed, businessUnits)')
     assert.include(content, 'activeBusinessUnit !== null')
     assert.include(content, 'logger.warn')
+    assert.include(content, 'slice(0, 20)')
+    assert.include(content, 'filas más.')
     assert.notInclude(content, 'allBusinessUnitsForResolution')
+    assert.notInclude(content, 'resolveBusinessUnitByName')
+    assert.notInclude(content, 'companyMismatchRows')
     assert.notMatch(content, /rowErrors\.push\(\{ row: rowNumber, message: error\.message/)
 ```
 
@@ -327,9 +344,11 @@ git commit -m "fix(USRH1789747321650): sanear mensaje de fila a genérico con tr
 
 **Interfaces:**
 - Consumes: `importFromExcel(file, [unitAId])` + contexto sensible permitido (infra existente de la spec).
-- Produces: casos CA-1 (variante vacía), CA-8, CA-9, CA-4 con 3 ofensoras, tope-20 (unitario en Task 7) + suite en verde.
+- Produces: casos CA-1 (variante vacía), CA-8, CA-9, CA-4 con 3 ofensoras, tope-20 funcional (Step 4c; el sintético vive en Task 7) + suite en verde.
 
-- [ ] **Step 1: Adaptar contrato (409) y retirar el caso de nombre duplicado**
+- [ ] **Step 1: Adaptar contrato (409), retirar el caso de nombre duplicado y extender el cero-escrituras**
+
+En la spec: `statusCode` esperado 422 → 409; `isCompanyMismatchError` intacto; el caso "tercera empresa con mismo nombre carga normal" se **retira** (obsoleto: sin salir del scope, el nombre ajeno idéntico es indistinguible del propio y carga — es CA-1, no un caso). Donde asertaba textos viejos, usar los del spec §10. En los casos de rechazo (CA-9 y tope-20 si incluye filas válidas), extender los conteos antes/después a domicilios y contactos del scope (`employee_addresses`, `employee_contacts` — resolver el nombre exacto de tabla en el codebase); si no hay helper de conteo para esas tablas, documentar en el reporte que CA-2/CA-3 queda cubierto por construcción (el aborto precede a toda creación) más conteos de `persons`/`employees`.
 
 En la spec: `statusCode` esperado 422 → 409; `isCompanyMismatchError` intacto; el caso "tercera empresa con mismo nombre carga normal" se **retira** (obsoleto: sin salir del scope, el nombre ajeno idéntico es indistinguible del propio y carga — es CA-1, no un caso). Donde asertaba textos viejos, usar los del spec §10.
 
@@ -352,7 +371,7 @@ En la spec: `statusCode` esperado 422 → 409; `isCompanyMismatchError` intacto;
   })
 ```
 
-(Precondición: `collectMissingRequiredImportFields` exige las columnas no vacías… **verificar al implementar**: si el validador de requeridos rechaza la celda vacía con `'Falta el campo obligatorio'`, CA-8 choca con él y el spec manda igual (celda vacía = activa). En ese caso el fix es eximir del requerido solo la evaluación de empresa, no el resto — reportarlo como hallazgo del implementador antes de tocar el validador de requeridos. No inventar: leer `collectMissingRequiredImportFields` primero.)
+(Precondición resuelta en Task 8 Step 2b: las columnas de empresa quedaron exentas del requerido, así que la celda vacía llega a zona 2 y cae al fallback = activa. Si el contenido de `collectMissingRequiredImportFields` u otro validador la rechaza igual, es un hallazgo del implementador contra la Task 8, no un cambio de alcance.)
 
 - [ ] **Step 3: Agregar CA-9 (indistinguible ajena vs inventada)**
 
@@ -370,7 +389,11 @@ En la spec: `statusCode` esperado 422 → 409; `isCompanyMismatchError` intacto;
 
 - [ ] **Step 4: CA-4 con tres ofensoras no consecutivas (ya existe: verificar que cita las tres)**
 
-El caso 4 actual usa 2 ofensoras; llevarlo a **3 no consecutivas** y asertar las 3 filas en `offendingRows` y en el `detail`. El tope-20 queda en el unitario de la Task 7 (21 filas sintéticas).
+El caso 4 actual usa 2 ofensoras; llevarlo a **3 no consecutivas** y asertar las 3 filas en `offendingRows` y en el `detail`. El truncado funcional con archivo real vive en el Step 4c siguiente; el tope sintético queda en el unitario de la Task 7.
+
+- [ ] **Step 4c: Tope-20 funcional (archivo de 21 ofensoras)**
+
+Caso nuevo: 21 filas, todas con empresa ajena (nombres sintéticos distintos, p. ej. `Fuera 01`…`Fuera 21`): 409 con `data.offendingRows` de 21 entradas y `detail` que cita solo 20 con cierre `… y 1 filas más.` Cero escrituras.
 
 - [ ] **Step 4b: CA-11 sintético (error desconocido → genérico, resto sigue)**
 
@@ -461,8 +484,8 @@ git commit -m "docs(USRH1789747321650): alinear cierre con el spec técnico"
 
 ## Self-review (hecho al escribir el addendum)
 
-**Cobertura del spec.** CA-1 (incluye variante vacía vía CA-8) → Tasks 8+10+11. CA-2/CA-3 (409, cero escrituras en BD incl. direcciones/contactos — el conteo de `persons`/`employees` ya existe; direcciones/contactos: el aborto precede a toda creación, cubierto por construcción) → Tasks 7+8+10. CA-4 (tres + tope-20) → Tasks 8 (factory) + 7 (unit 21 filas) + 10 (3 no consecutivas). CA-5 → intacto (pre-chequeo no lanza; N3 cubierto por caso existente). CA-6 e2e → documentado como superseded (único punto que pide confirmación). CA-7 → por construcción + orden-testeado. CA-8 → Task 10 caso nuevo (con bandera de choque con el requerido). CA-9/CA-10 → diseño crudo-en-scope + caso comparativo + warn sin nombres. CA-11 → Task 9 + DoD grep + caso sintético: **pendiente** — el plan no incluye caso funcional sintético de error desconocido; agregarlo en Task 10 Step 4b: forzar en una fila un valor que rompa escritura (p. ej. CURP larguísima que viole columna) y asertar `message:'No fue posible procesar esta fila'` + resto creado. **Se agrega como Step 4b.**
+**Cobertura del spec.** CA-1 (incluye variante vacía vía CA-8) → Tasks 8+10+11. CA-2/CA-3 (409, cero escrituras en BD incl. direcciones/contactos — el conteo de `persons`/`employees` ya existe; direcciones/contactos: el aborto precede a toda creación, cubierto por construcción) → Tasks 7+8+10. CA-4 (tres + tope-20) → Tasks 8 (factory) + 7 (unit 21 filas) + 10 (3 no consecutivas). CA-5 → intacto (pre-chequeo no lanza; N3 cubierto por caso existente). CA-6 e2e → documentado como superseded (único punto que pide confirmación). CA-7 → por construcción + orden-testeado. CA-8 → Task 10 caso nuevo (con bandera de choque con el requerido). CA-9/CA-10 → diseño crudo-en-scope + caso comparativo + warn sin nombres. CA-11 → Task 9 + DoD grep + Step 4b sintético (esta sesión). CA-4 tope-20 → triple red: factory sintética (Task 7), truncado funcional con 21 filas (Task 10 Step 4c), 3 ofensoras no consecutivas (Task 10 Step 4).esar esta fila'` + resto creado. **Se agrega como Step 4b.**
 
-**Placeholders.** Ninguno funcional: códigos, llaves, textos, mensajes, comandos y firmas van literales. Quedan: verificación de `collectMissingRequiredImportFields` vs CA-8 (bandera explícita al implementador), `userId` no plumbeado (desviación declarada), y salidas locales (tokens, ids).
+**Placeholders.** Ninguno funcional: códigos, llaves, textos, mensajes, comandos y firmas van literales. Quedan: exención del requerido verificada al implementar Task 8 Step 2b (reportar hallazgo si otro validador choca), `userId` no plumbeado (desviación declarada), nombres exactos de tablas de domicilios/contactos (resolver en Task 10 Step 1), y salidas locales (tokens, ids).
 
 **Consistencia.** `foreignRows:{row, declared}` vs tipo reutilizado `{row, businessUnit, payrollBusinessUnit}`: el plan fija reutilizar el tipo con el valor tecleado en ambos campos (una entrada por celda). `statusCode:409` en error, rama y OpenAPI. `VAL_BUSINESS_UNIT` en constante/helper/spec/OpenAPI/manual. Tres claves i18n en ambos idiomas; retirar las `company_*`.
