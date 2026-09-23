@@ -62,7 +62,7 @@ test.group('employee_service importFromExcel — escala con archivos de miles de
   }) => {
     const content = readFileSync(SERVICE_FILE, 'utf-8')
 
-    assert.include(content, "import { EMPLOYEE_IMPORT_UPLOAD } from '#constants/employee_import_error_codes'")
+    assert.include(content, "import { EMPLOYEE_IMPORT_UPLOAD, EMPLOYEE_IMPORT_ERROR_CODES } from '#constants/employee_import_error_codes'")
     assert.include(content, 'if (rows.length > EMPLOYEE_IMPORT_UPLOAD.maxDataRows)')
     assert.include(content, 'private createRowLimitValidationError(rowCount: number): Error')
     assert.include(content, 'error.isHeaderValidationError || error.isRowLimitError')
