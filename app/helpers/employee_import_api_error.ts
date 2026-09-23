@@ -4,6 +4,8 @@ import {
   EMPLOYEE_IMPORT_UPLOAD,
   type EmployeeImportErrorCode,
 } from '../constants/employee_import_error_codes.js'
+import { isSensitiveDataWriteError } from './sensitive_data_write_api_error.js'
+import type { EmployeeImportCompanyMismatchRow } from '../interfaces/employee_import_result_interface.js'
 
 export type EmployeeImportValFileErrorData = {
   multipartField: typeof EMPLOYEE_IMPORT_UPLOAD.multipartField
@@ -13,6 +15,10 @@ export type EmployeeImportValFileErrorData = {
   maxFileSizeLabel: string
 }
 
+export type EmployeeImportValCompanyErrorData = {
+  offendingRows: EmployeeImportCompanyMismatchRow[]
+}
+
 export type ResolvedEmployeeImportError = {
   message: string
   title: string
@@ -20,7 +26,7 @@ export type ResolvedEmployeeImportError = {
   errorCode: EmployeeImportErrorCode | string
   key?: string
   detail?: string
-  data?: EmployeeImportValFileErrorData | null
+  data?: EmployeeImportValFileErrorData | EmployeeImportValCompanyErrorData | null
 }
 
 export function buildEmployeeImportValFileErrorData(): EmployeeImportValFileErrorData {
@@ -45,10 +51,17 @@ function translate(i18n: I18n | undefined, key: string, fallback: string): strin
 export type EmployeeImportValFileReason = 'missing' | 'invalid_type' | 'too_large'
 
 /** Error de validación de archivo (sin adjunto o no Excel). */
+export type ResolvedEmployeeImportValFileError = Omit<
+  ResolvedEmployeeImportError,
+  'data'
+> & {
+  data: EmployeeImportValFileErrorData
+}
+
 export function resolveEmployeeImportValFileError(
   i18n?: I18n,
   options?: { reason?: EmployeeImportValFileReason; detail?: string }
-): ResolvedEmployeeImportError {
+): ResolvedEmployeeImportValFileError {
   const reason = options?.reason ?? 'invalid_type'
   const field = EMPLOYEE_IMPORT_UPLOAD.multipartField
   const extensions = EMPLOYEE_IMPORT_UPLOAD.acceptedExtensions.join(', ')
@@ -148,6 +161,30 @@ export function resolveEmployeeImportApiError(
     }
   }
 
+  if ((err as { isCompanyMismatchError?: boolean })?.isCompanyMismatchError) {
+    // USRH1789747321650 reglas 1, 2 y 6: el archivo es de una sola empresa.
+    // `err.message` ya trae el conteo y el listado de filas (interpolados en
+    // `createCompanyMismatchValidationError`); el fallback i18n es genérico.
+    const companyDetail =
+      err.message ??
+      translate(
+        i18n,
+        'employee_import_val_company_message',
+        'Alguna fila del archivo declara una empresa distinta de la que tienes activa. No se procesó ninguna fila.'
+      )
+    return {
+      title: translate(i18n, 'employee_import_val_company_title', 'El archivo declara otra empresa'),
+      message: companyDetail,
+      detail: companyDetail,
+      status: 422,
+      errorCode: EMPLOYEE_IMPORT_ERROR_CODES.VAL_COMPANY,
+      key: 'empresa-distinta-en-archivo',
+      data: {
+        offendingRows: (err as { offendingRows?: EmployeeImportCompanyMismatchRow[] }).offendingRows ?? [],
+      },
+    }
+  }
+
   if (fallbackStatus >= 500) {
     const detail = translate(
       i18n,
@@ -170,4 +207,14 @@ export function resolveEmployeeImportApiError(
     i18n,
     typeof err?.message === 'string' ? { detail: err.message } : undefined
   )
+}
+
+/**
+ * ¿Este error de fila debe detener toda la importación? (USRH1789747321650,
+ * regla 5). Solo el fallo al guardar un dato protegido: no es una fila
+ * fallida más y nunca se registra como tal. Cualquier otro error sigue el
+ * camino por fila de siempre.
+ */
+export function shouldAbortImportOnRowError(error: unknown): boolean {
+  return isSensitiveDataWriteError(error)
 }
