@@ -1385,17 +1385,39 @@ export default class EmployeeService {
     }
   }
 
-  async indexWithOutUser(filters: EmployeeFilterSearchInterface) {
+  /**
+   * Empleados de la empresa activa que todavía no tienen cuenta de usuario
+   * EN ELLA.
+   *
+   * La exclusión se mide con la misma regla que el listado de usuarios
+   * (`UserService.index`): una cuenta cuenta para la empresa solo si está
+   * ligada a ella en `business_unit_users`. Antes se medía contra todas las
+   * cuentas del sistema, así que una cuenta de otra empresa —o huérfana de la
+   * pivote— dejaba al empleado fuera del catálogo sin que nadie pudiera verla
+   * ni corregirla desde la pantalla.
+   *
+   * Sin empresa en el alcance no hay catálogo que ofrecer.
+   *
+   * @param filters - Búsqueda, estructura y paginación del catálogo.
+   * @param allowedBusinessUnitIds - Alcance de empresas de quien consulta.
+   */
+  async indexWithOutUser(
+    filters: EmployeeFilterSearchInterface,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     const personUsed = await User.query()
       .whereNull('user_deleted_at')
+      .whereHas('businessUnits', (subQuery) => {
+        subQuery.whereIn('business_units.business_unit_id', allowedBusinessUnitIds)
+      })
       .select('person_id')
       .distinct('person_id')
       .orderBy('person_id')
-    const persons = [] as Array<number>
-    for await (const user of personUsed) {
-      persons.push(user.personId)
-    }
+    const persons = personUsed.map((user) => user.personId)
     const employees = await Employee.query()
+      .if(allowedBusinessUnitIds.length === 0, (query) => {
+        query.whereRaw('1 = 0')
+      })
       .if(filters.search, (query) => {
         query.whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
           `%${filters.search.toUpperCase()}%`,

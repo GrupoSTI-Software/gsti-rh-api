@@ -214,6 +214,7 @@ export async function createActor(emailPrefix: string): Promise<TenantActor> {
     personLastname: 'Qa',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId: businessUnit.businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -252,6 +253,7 @@ export async function createSystemActor(
     personLastname: 'Qa',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -323,6 +325,7 @@ export async function createSensitiveFixture(
     personCurp: clear.curp,
     personRfc: clear.rfc,
     personImssNss: clear.nss,
+    businessUnitId,
   })
   const departmentInsert = await db.table('departments').insert({
     department_sync_id: stamp,

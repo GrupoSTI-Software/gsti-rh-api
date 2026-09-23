@@ -87,11 +87,6 @@ router
         middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.assignEmployeeBranchOffice)
       )
     router
-      .delete('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.unassign')
-      .use(
-        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.unassignEmployeeBranchOffice)
-      )
-    router
       .get(
         '/:employeeId/branch-offices/history',
         '#controllers/employee_branch_office_controller.history'

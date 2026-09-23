@@ -1,11 +1,21 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
 import env from '#start/env'
 import Assist from '#models/assist'
-import BusinessUnit from '#models/business_unit'
-import BusinessUnitUser from '#models/business_unit_user'
-import Employee from '#models/employee'
+import Role from '#models/role'
 import User from '#models/user'
+import {
+  cleanupEmployeeFixture,
+  createEmployeeFixture,
+  type EmployeeFixture,
+} from '#tests/helpers/employee_fixture'
+import {
+  cleanupTenantActor,
+  createTenantActor,
+  grantModulePermissions,
+  type TenantActor,
+} from '#tests/helpers/tenant_actor'
 import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
 import { TenantContext } from '#utils/tenant_context'
 import {
@@ -24,60 +34,93 @@ import { resolvePunchTime } from '#modules/assist-ingestion/assist_ingestion.ser
 
 const createdAssistIds = new Set<number>()
 
+/** Lo llena el setup del grupo; los helpers de este archivo lo leen. */
+let fixture: Fixture
+
+const MODULE_SLUG = 'employees-attendance-monitor'
+const CAPTURE_PERMISSION = 'add-assist-manual'
+
 interface Fixture {
+  actor: TenantActor
+  employeeFixture: EmployeeFixture
   businessUnitId: number
   publicId: string
   employeeId: number
 }
 
+/**
+ * Empresa, actor y colaborador propios del spec.
+ *
+ * Antes tomaba "el primer empleado con usuario en pivote" de la base, que en una
+ * base recién sembrada no existe: el setup fallaba antes del primer caso. Armar
+ * el suyo también le da al spec un rol que puede mover para probar el alcance.
+ */
 async function resolveFixture(): Promise<Fixture> {
-  const employees = await TenantContext.runUnscoped(async () => {
-    return Employee.query()
-      .whereNull('employee_deleted_at')
-      .whereNotNull('business_unit_id')
-      .select('employee_id', 'business_unit_id')
-  }, 'empleados para fixtures de ventana de hora de captura')
+  const actor = await createTenantActor('assist-window')
+  await grantModulePermissions(actor, MODULE_SLUG, [CAPTURE_PERMISSION])
 
-  for (const employee of employees) {
-    if (!employee.businessUnitId) continue
-    const pivot = await BusinessUnitUser.query()
-      .where('businessUnitId', employee.businessUnitId)
-      .first()
-    const businessUnit = await BusinessUnit.query()
-      .where('businessUnitId', employee.businessUnitId)
-      .first()
-    if (!pivot || !businessUnit) continue
+  const employeeFixture = await createEmployeeFixture(actor.businessUnit.businessUnitId, 'window')
 
-    return {
-      businessUnitId: employee.businessUnitId,
-      publicId: String(businessUnit.businessUnitPublicId),
-      employeeId: employee.employeeId,
-    }
+  return {
+    actor,
+    employeeFixture,
+    businessUnitId: actor.businessUnit.businessUnitId,
+    publicId: String(actor.businessUnit.businessUnitPublicId),
+    employeeId: employeeFixture.employee.employeeId,
   }
-
-  throw new Error('Se requiere una unidad con empleado activo y usuario en pivote.')
 }
 
-async function getUserForBusinessUnit(businessUnitId: number): Promise<User> {
-  const pivot = await BusinessUnitUser.query().where('businessUnitId', businessUnitId).firstOrFail()
-  return User.query().whereNull('user_deleted_at').where('user_id', pivot.userId).firstOrFail()
+async function getUserForBusinessUnit(_businessUnitId: number): Promise<User> {
+  return fixture.actor.user
+}
+
+/** Rol del actor con su valor original, para devolverlo al terminar el caso. */
+interface RoleScopeBackup {
+  role: Role
+  previousDays: number | null
+}
+
+/** Fija los días de alcance del rol del actor durante un caso. */
+async function withRoleManagementDays(user: User, days: number | null): Promise<RoleScopeBackup> {
+  const role = await Role.query().where('role_id', user.roleId).firstOrFail()
+  const previousDays = role.roleManagementDays
+  role.roleManagementDays = days
+  await role.save()
+  return { role, previousDays }
+}
+
+/** Devuelve el rol a los días que tenía antes del caso. */
+async function restoreRoleManagementDays(backup: RoleScopeBackup): Promise<void> {
+  backup.role.roleManagementDays = backup.previousDays
+  await backup.role.save()
 }
 
 test.group('Assists — ventana de hora de captura (USRH1788135907803)', (group) => {
-  let fixture: Fixture
-
   group.setup(async () => {
     fixture = await resolveFixture()
   })
 
   group.teardown(async () => {
-    if (createdAssistIds.size === 0) return
-    await TenantContext.runUnscoped(async () => {
-      await Assist.query()
-        .withTrashed()
-        .whereIn('assist_id', [...createdAssistIds])
+    if (createdAssistIds.size > 0) {
+      await TenantContext.runUnscoped(async () => {
+        await Assist.query()
+          .withTrashed()
+          .whereIn('assist_id', [...createdAssistIds])
+          .delete()
+      }, 'limpieza de fixtures de ventana de hora de captura')
+    }
+
+    if (fixture?.employeeId) {
+      // El alta de una checada deja calendario clasificado colgado del
+      // colaborador, y su FK impide borrarlo mientras exista.
+      await db
+        .from('employee_assist_calendars')
+        .where('employee_id', fixture.employeeId)
         .delete()
-    }, 'limpieza de fixtures de ventana de hora de captura')
+    }
+
+    await cleanupEmployeeFixture(fixture?.employeeFixture ?? null)
+    await cleanupTenantActor(fixture?.actor ?? null)
   })
 
   test('la misma hora de pared en los dos formatos guarda el mismo instante', ({ assert }) => {
@@ -255,7 +298,7 @@ test.group('Assists — ventana de hora de captura (USRH1788135907803)', (group)
         employeeId: fixture.employeeId,
         assistType: 'check',
         assistPunchTime: stale.toISO(),
-        assistChannel: 'backoffice',
+        assistChannel: 'app',
       })
       .loginAs(user)
       .header('X-Business-Unit-Id', fixture.publicId)
@@ -264,6 +307,82 @@ test.group('Assists — ventana de hora de captura (USRH1788135907803)', (group)
     assert.equal(response.body().code, ASSIST_ERROR_CODES.VAL_PUNCH_TIME_OUT_OF_WINDOW)
     assert.equal(response.body().key, 'hora-de-captura-fuera-de-la-ventana-permitida')
     assert.notMatch(response.body().detail, /\d+\s*(h|hora|hour)/i)
+  })
+
+  test('la captura desde el backoffice no se mide con la ventana del canal', async ({
+    client,
+    assert,
+  }) => {
+    const user = await getUserForBusinessUnit(fixture.businessUnitId)
+    const role = await withRoleManagementDays(user, null)
+    const stale = DateTime.utc().startOf('second').minus({ days: 30 })
+
+    try {
+      // El mismo instante que el canal de la app rechaza: quien corrige el pasado
+      // desde el backoffice lo hace a propósito, y su rol no declara tope.
+      const response = await client
+        .post('/api/v1/assists')
+        .json({
+          employeeId: fixture.employeeId,
+          assistType: 'check',
+          assistPunchTime: stale.toISO(),
+          assistChannel: 'backoffice',
+        })
+        .loginAs(user)
+        .header('X-Business-Unit-Id', fixture.publicId)
+
+      response.assertStatus(201)
+      const body = response.body()
+      createdAssistIds.add(body.data.assist.assistId)
+      assert.equal(
+        DateTime.fromISO(body.data.assist.assistPunchTimeUtc, { zone: 'utc' }).toISO(),
+        stale.toISO()
+      )
+    } finally {
+      await restoreRoleManagementDays(role)
+    }
+  })
+
+  test('el rol con días de alcance corta la captura administrativa más vieja', async ({
+    client,
+    assert,
+  }) => {
+    const user = await getUserForBusinessUnit(fixture.businessUnitId)
+    const role = await withRoleManagementDays(user, 3)
+
+    try {
+      const outOfScope = await client
+        .post('/api/v1/assists')
+        .json({
+          employeeId: fixture.employeeId,
+          assistType: 'check',
+          assistPunchTime: DateTime.utc().minus({ days: 10 }).toISO(),
+          assistChannel: 'backoffice',
+        })
+        .loginAs(user)
+        .header('X-Business-Unit-Id', fixture.publicId)
+
+      outOfScope.assertStatus(422)
+      assert.equal(outOfScope.body().code, ASSIST_ERROR_CODES.VAL_PUNCH_TIME_ROLE_SCOPE)
+      assert.equal(outOfScope.body().key, 'hora-de-captura-fuera-del-alcance-del-rol')
+
+      // Dentro del alcance sí pasa, aunque quede muy por fuera de la ventana del canal.
+      const inScope = await client
+        .post('/api/v1/assists')
+        .json({
+          employeeId: fixture.employeeId,
+          assistType: 'check',
+          assistPunchTime: DateTime.utc().startOf('second').minus({ days: 2 }).toISO(),
+          assistChannel: 'backoffice',
+        })
+        .loginAs(user)
+        .header('X-Business-Unit-Id', fixture.publicId)
+
+      inScope.assertStatus(201)
+      createdAssistIds.add(inScope.body().data.assist.assistId)
+    } finally {
+      await restoreRoleManagementDays(role)
+    }
   })
 
   test('una hora futura se rechaza también en la captura administrativa', async ({
@@ -291,6 +410,65 @@ test.group('Assists — ventana de hora de captura (USRH1788135907803)', (group)
         ASSIST_ERROR_CODES.VAL_PUNCH_TIME_FUTURE,
         `el canal ${assistChannel} no tiene margen propio`
       )
+    }
+  })
+
+  test('el lote aplica el alcance del rol solo a los elementos del backoffice', async ({
+    client,
+    assert,
+  }) => {
+    const user = await getUserForBusinessUnit(fixture.businessUnitId)
+    const role = await withRoleManagementDays(user, 3)
+    const now = DateTime.utc().startOf('second')
+
+    try {
+      const response = await client
+        .post('/api/v1/assists/batch')
+        .json({
+          assists: [
+            {
+              clientRef: 'captura-dentro-del-alcance',
+              employeeId: fixture.employeeId,
+              assistType: 'check',
+              // Otra hora que la del caso suelto: la misma sería la misma checada.
+              assistPunchTime: now.minus({ days: 1, hours: 7 }).toISO(),
+              assistChannel: 'backoffice',
+            },
+            {
+              clientRef: 'captura-fuera-del-alcance',
+              employeeId: fixture.employeeId,
+              assistType: 'check',
+              assistPunchTime: now.minus({ days: 10 }).toISO(),
+              assistChannel: 'backoffice',
+            },
+            {
+              clientRef: 'equipo-fuera-de-la-ventana',
+              employeeId: fixture.employeeId,
+              assistType: 'check',
+              assistPunchTime: now.minus({ days: 10 }).toISO(),
+              assistChannel: 'kiosk',
+            },
+          ],
+        })
+        .loginAs(user)
+        .header('X-Business-Unit-Id', fixture.publicId)
+
+      response.assertStatus(200)
+      const results = response.body().data.results
+      for (const result of results) {
+        if (result.assistId) createdAssistIds.add(result.assistId)
+      }
+
+      // Dos días atrás rebasan la ventana del canal y aun así entran: el tope
+      // de la captura administrativa son los tres días del rol.
+      assert.equal(results[0].outcome, 'inserted')
+      assert.equal(results[1].outcome, 'rejected')
+      assert.equal(results[1].error.code, ASSIST_ERROR_CODES.VAL_PUNCH_TIME_ROLE_SCOPE)
+      // El mismo instante por un equipo sigue midiéndose con la ventana.
+      assert.equal(results[2].outcome, 'rejected')
+      assert.equal(results[2].error.code, ASSIST_ERROR_CODES.VAL_PUNCH_TIME_OUT_OF_WINDOW)
+    } finally {
+      await restoreRoleManagementDays(role)
     }
   })
 
