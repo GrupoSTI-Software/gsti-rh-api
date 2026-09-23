@@ -21,8 +21,7 @@ export default class BadgePdfService {
         size: CR80_SIZE,
         margin: 0,
         info: {
-          Title: `Gafete del empleado #${input.employeeId}`,
-          Creator: 'Valanserh',
+          Title: 'Gafete',
           Producer: 'PDFKit',
         },
       })

@@ -2,6 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import type { Readable } from 'node:stream'
 import { ZipArchive } from 'archiver'
 import PDFDocument from 'pdfkit'
+import { REPORT_NEUTRAL_HEX } from '#constants/report_neutral_theme'
 import { EMPLOYEE_BADGE_ERROR_CODES } from '#constants/employee_badge_error_codes'
 import { EmployeeBadgeError } from '#exceptions/employee_badge_error'
 import { todayInBusinessZone } from '#utils/business_date'
@@ -25,7 +26,8 @@ const VERTICAL_MARGIN = (792 - 4 * BULK_CELL_HEIGHT - 3 * GUTTER) / 2
 
 const CUT_MARK_LENGTH = 8
 const CUT_MARK_OFFSET = 4
-const CUT_MARK_COLOR = '#9CA3AF'
+/** Guías de corte en gris neutral de la paleta compartida. */
+const CUT_MARK_COLOR = REPORT_NEUTRAL_HEX.border
 
 export type BulkBadgeFormat = 'pdf' | 'png'
 
