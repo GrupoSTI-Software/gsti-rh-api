@@ -1,11 +1,21 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
+import { PDFDocument } from 'pdf-lib'
 import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import ProveedorRepse from '#models/proveedor_repse'
 import ProveedorRepseValidacion from '#models/proveedor_repse_validacion'
+import RoleSystemPermission from '#models/role_system_permission'
 import { computeRfcCheckDigit } from '../../app/shared/validators/rfc.validator.js'
+import { REPSE_PROVIDER_TIMEZONE } from '#modules/repse-providers/repse_provider_dates'
+import { MAX_EVIDENCE_FILE_BYTES } from '#modules/repse-providers/validations/validations.service'
+import {
+  grantModuleAction,
+  type ModuleActionGrant,
+} from './employees/sensitive_read_by_category_support.js'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import { SENSITIVE_MASK } from '#helpers/sensitive_mask'
 
 /**
  * Tests funcionales — módulo "Proveedores REPSE" (USRH1784259105646, lado
@@ -22,13 +32,62 @@ import { computeRfcCheckDigit } from '../../app/shared/validators/rfc.validator.
  */
 
 const TEST_PASSWORD = 'RepseProviderTest123!'
-const ROOT_ROLE_ID = 3
-const NO_PERMISSION_ROLE_ID = 4 // empleado: no tiene permiso del módulo repse-providers
-const RH_MANAGER_ROLE_ID = 2 // tiene permiso granular vía el seeder 0052
 
-/** PDF mínimo válido (magic bytes reales `%PDF-`). */
-const VALID_PDF_BUFFER = Buffer.from('%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%%EOF', 'utf-8')
+/**
+ * "Hoy" en la zona de negocio del módulo, NO en la del proceso.
+ *
+ * El runtime ancla todas sus reglas de fecha a `REPSE_PROVIDER_TIMEZONE`
+ * (ver `repse_provider_dates.ts`), mientras que el proceso de pruebas corre en
+ * UTC. Con `DateTime.now().toISODate()` la fixture mandaba la fecha UTC: a
+ * partir de las 18:00 de México eso ya es el día siguiente, el runtime lo leía
+ * como futuro y respondía 422 `fecha-futura`. La suite pasaba o fallaba según
+ * la hora a la que se corriera; estas funciones la vuelven independiente de ella.
+ */
+function fechaHoyNegocio(): string {
+  return DateTime.now().setZone(REPSE_PROVIDER_TIMEZONE).toISODate()!
+}
+
+/** La misma fecha de negocio desplazada en días (negativo = pasado). */
+function fechaNegocioDesplazada(dias: number): string {
+  return DateTime.now().setZone(REPSE_PROVIDER_TIMEZONE).plus({ days: dias }).toISODate()!
+}
+const ROOT_ROLE = 'root'
+const NO_PERMISSION_ROLE = 'empleado' // no tiene permiso del módulo repse-providers
+// Sin concesiones sembradas: el setup del grupo de pruebas de permiso granular le
+// concede repse-providers:create y lo retira en su teardown.
+const RH_MANAGER_ROLE = 'rh-manager'
+
+/**
+ * PDF de verdad, no solo los magic bytes.
+ *
+ * La fixture anterior (`%PDF-1.4\n1 0 obj<<>>endobj\n%%EOF`) pasaba la
+ * detección por magic bytes, pero no es un documento: no tiene catálogo. El
+ * intake, después de aceptarlo, lo reescribe para quitarle los metadatos
+ * identificantes (`FileIntakeService.transformPdf`), y ahí `pdf-lib` reventaba
+ * con "Cannot read properties of undefined (reading 'Pages')". El archivo se
+ * rechazaba con 422 `archivo-no-procesable` y los seis casos que suben
+ * evidencia jamás llegaban a ejercitar la bitácora que dicen probar.
+ *
+ * Se construye igual que `buildPdf()` en
+ * `tests/unit/services/file_intake_service.spec.ts`, que es la referencia del
+ * propio intake.
+ */
+async function buildValidPdfBuffer(): Promise<Buffer> {
+  const doc = await PDFDocument.create()
+  doc.addPage()
+  return Buffer.from(await doc.save())
+}
+
+const VALID_PDF_BUFFER = await buildValidPdfBuffer()
 const VALID_PDF_NAME = 'evidencia-repse.pdf'
+
+/** Evita `Buffer.concat`: en este TS choca Buffer vs Uint8Array. */
+function paddedPdf(prefix: Buffer, minTotalBytes: number): Buffer {
+  const extraBytes = Math.max(0, minTotalBytes - prefix.length)
+  const bytes = new Uint8Array(prefix.length + extraBytes)
+  bytes.set(Uint8Array.from(prefix))
+  return Buffer.from(bytes)
+}
 
 function uniqueStamp(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 100000)}`
@@ -39,7 +98,7 @@ interface TestActor {
   person: Person
 }
 
-async function createTestActor(roleId: number, emailPrefix: string): Promise<TestActor> {
+async function createTestActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TestActor> {
   const stamp = uniqueStamp()
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
 
@@ -54,7 +113,8 @@ async function createTestActor(roleId: number, emailPrefix: string): Promise<Tes
   user.userEmail = email
   user.userPassword = TEST_PASSWORD
   user.userActive = 1
-  user.roleId = roleId
+  const role = await ensureRole(roleSlug)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -137,7 +197,7 @@ test.group('RepseProviders - sin permiso (403)', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    actor = await createTestActor(NO_PERMISSION_ROLE_ID, 'no-permiso')
+    actor = await createTestActor(NO_PERMISSION_ROLE, 'no-permiso')
     businessUnit = await createSecondaryBusinessUnit('no-permiso')
     await actor.user.related('businessUnits').attach([businessUnit.businessUnitId])
   })
@@ -193,11 +253,12 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
   let root: TestActor | null = null
   let businessUnit: BusinessUnit | null = null
   let providerId: number | null = null
+  let createdProviderRfc: string | null = null
   let validationId: number | null = null
   let otherProviderId: number | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-happy')
+    root = await createTestActor(ROOT_ROLE, 'root-happy')
     businessUnit = await createSecondaryBusinessUnit('happy')
   })
 
@@ -212,13 +273,15 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     client,
     assert,
   }) => {
+    createdProviderRfc = randomRfc()
+
     const response = await client
       .post('/api/repse-providers')
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .json({
         razonSocial: 'Servicios Especializados Acme S.A. de C.V.',
-        rfc: randomRfc(),
+        rfc: createdProviderRfc,
         folio: randomFolio('HAPPY'),
         objetoRegistrado: 'Servicios de limpieza industrial',
         folioVencimiento: '2027-01-01',
@@ -233,6 +296,41 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     assert.equal(provider.reviewStatus, 'pending_first_validation')
     assert.isNull(provider.nextReviewAt)
     providerId = provider.proveedorRepseId
+  })
+
+  test('CA-2/CA-5: serialize() oculta rfc; GET list/detail lo devuelven tapado por DTO', async ({
+    client,
+    assert,
+  }) => {
+    const rfc = createdProviderRfc!
+    const row = await ProveedorRepse.findOrFail(providerId!)
+    const serialized = row.serialize()
+
+    assert.isUndefined(serialized.rfc)
+    assert.isUndefined(serialized.rfcHash)
+    assert.equal(row.rfc, rfc)
+
+    const detail = await client
+      .get(`/api/repse-providers/${providerId}`)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    detail.assertStatus(200)
+    assert.equal(detail.body().data.proveedorRepse.rfc, SENSITIVE_MASK)
+    assert.notEqual(detail.body().data.proveedorRepse.rfc, rfc)
+
+    const list = await client
+      .get('/api/repse-providers')
+      .qs({ page: 1, limit: 50 })
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+
+    list.assertStatus(200)
+    const rows = list.body().data.proveedoresRepse.data as Array<{ proveedorRepseId: number; rfc: string }>
+    const match = rows.find((item) => item.proveedorRepseId === providerId)
+    assert.exists(match)
+    assert.equal(match!.rfc, SENSITIVE_MASK)
+    assert.notEqual(match!.rfc, rfc)
   })
 
   test('GET /api/repse-providers/:id devuelve el proveedor creado', async ({ client, assert }) => {
@@ -275,7 +373,7 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     client,
     assert,
   }) => {
-    const fecha = DateTime.now().toISODate()!
+    const fecha = fechaHoyNegocio()
 
     const response = await client
       .post(`/api/repse-providers/${providerId}/validations`)
@@ -306,7 +404,18 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     assert.notEqual(provider.reviewStatus, 'pending_first_validation')
   })
 
-  test('GET download descarga la evidencia de la validación (200, mismo archivo subido)', async ({
+  /**
+   * Lo que baja es la evidencia SANEADA, no el archivo tal cual se subió.
+   *
+   * El intake reescribe todo PDF para quitarle autor, título y demás metadatos
+   * identificantes antes de guardarlo, así que el objeto almacenado pesa
+   * distinto que el original a propósito. El caso comparaba `content-length`
+   * contra el largo del buffer subido y, en cuanto el saneo dejó de ser un
+   * no-op, esa igualdad pasó a afirmar justo lo contrario de la garantía del
+   * sistema. Lo que sí debe cumplirse es que se entregue un PDF íntegro y como
+   * adjunto con el nombre de la convención de descargas.
+   */
+  test('GET download entrega la evidencia saneada como adjunto (200)', async ({
     client,
     assert,
   }) => {
@@ -318,8 +427,22 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     response.assertStatus(200)
     assert.equal(response.header('content-type'), 'application/pdf')
     assert.include(response.header('content-disposition') ?? '', 'attachment')
-    assert.include(response.header('content-disposition') ?? '', VALID_PDF_NAME)
-    assert.equal(response.header('content-length'), String(VALID_PDF_BUFFER.length))
+    // Nombre por convención de descargas, nunca el original del usuario.
+    assert.include(
+      response.header('content-disposition') ?? '',
+      `evidencia-validacion-repse-${validationId}.pdf`
+    )
+    assert.isAbove(Number(response.header('content-length')), 0)
+    /**
+     * La firma se comprueba sobre los BYTES. japa no convierte a texto un
+     * `application/pdf` —`response.text()` es `undefined` aquí, a diferencia del
+     * xlsx de la plantilla de contratos, que sí pasa por un parser de texto— y
+     * leerlo así hacía reventar el caso con "Cannot read properties of
+     * undefined". El cuerpo llega como Buffer.
+     */
+    const evidencia: Buffer = response.body()
+    assert.isTrue(Buffer.isBuffer(evidencia), 'La descarga debe llegar como binario')
+    assert.equal(evidencia.subarray(0, 5).toString('latin1'), '%PDF-')
   })
 
   test('GET download de validación inexistente responde 404 con key validacion-no-encontrada', async ({
@@ -400,7 +523,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
   let existingFolio: string | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-val')
+    root = await createTestActor(ROOT_ROLE, 'root-val')
     businessUnit = await createSecondaryBusinessUnit('val')
 
     existingFolio = randomFolio('DUPCHECK')
@@ -537,7 +660,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .field('estatus', 'vigente')
-      .field('fecha', DateTime.now().toISODate()!)
+      .field('fecha', fechaHoyNegocio())
 
     response.assertStatus(422)
     assert.equal(response.body().key, 'evidencia-invalida')
@@ -553,7 +676,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .field('estatus', 'vigente')
-      .field('fecha', DateTime.now().toISODate()!)
+      .field('fecha', fechaHoyNegocio())
       .file('archivo', Buffer.from('contenido de texto plano, no es evidencia válida'), {
         filename: 'evidencia.txt',
         contentType: 'text/plain',
@@ -565,17 +688,14 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
   })
 
   test('POST validación con archivo demasiado grande responde 422', async ({ client, assert }) => {
-    const oversizedPdf = Buffer.concat([
-      VALID_PDF_BUFFER,
-      Buffer.alloc(11 * 1024 * 1024, 0),
-    ])
+    const oversizedPdf = paddedPdf(VALID_PDF_BUFFER, MAX_EVIDENCE_FILE_BYTES + 1024)
 
     const response = await client
       .post(`/api/repse-providers/${existingProviderId}/validations`)
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .field('estatus', 'vigente')
-      .field('fecha', DateTime.now().toISODate()!)
+      .field('fecha', fechaHoyNegocio())
       .file('archivo', oversizedPdf, { filename: VALID_PDF_NAME, contentType: 'application/pdf' })
 
     response.assertStatus(422)
@@ -592,7 +712,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .field('estatus', 'status_invalido')
-      .field('fecha', DateTime.now().toISODate()!)
+      .field('fecha', fechaHoyNegocio())
       .file('archivo', VALID_PDF_BUFFER, { filename: VALID_PDF_NAME, contentType: 'application/pdf' })
 
     response.assertStatus(422)
@@ -610,7 +730,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .header('Accept-Language', 'en')
       .field('estatus', 'status_invalido')
-      .field('fecha', DateTime.now().toISODate()!)
+      .field('fecha', fechaHoyNegocio())
       .file('archivo', VALID_PDF_BUFFER, { filename: VALID_PDF_NAME, contentType: 'application/pdf' })
 
     response.assertStatus(422)
@@ -664,7 +784,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
         rfc: randomRfc(),
         folio: randomFolio('VENCIDO'),
         objetoRegistrado: 'Servicio con folio vencido',
-        folioVencimiento: DateTime.now().minus({ days: 1 }).toISODate(),
+        folioVencimiento: fechaNegocioDesplazada(-1),
       })
 
     response.assertStatus(422)
@@ -680,7 +800,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
       .put(`/api/repse-providers/${existingProviderId}`)
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
-      .json({ folioVencimiento: DateTime.now().minus({ days: 1 }).toISODate() })
+      .json({ folioVencimiento: fechaNegocioDesplazada(-1) })
 
     response.assertStatus(422)
     assert.equal(response.body().key, 'folio-vencimiento-pasado')
@@ -695,7 +815,7 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
       .loginAs(root!.user)
       .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
       .field('estatus', 'vigente')
-      .field('fecha', DateTime.now().plus({ days: 1 }).toISODate()!)
+      .field('fecha', fechaNegocioDesplazada(1))
       .file('archivo', VALID_PDF_BUFFER, { filename: VALID_PDF_NAME, contentType: 'application/pdf' })
 
     response.assertStatus(422)
@@ -707,8 +827,8 @@ test.group('RepseProviders - validaciones de entrada (422/409)', (group) => {
     client,
     assert,
   }) => {
-    const hoy = DateTime.now().toISODate()!
-    const ayer = DateTime.now().minus({ days: 1 }).toISODate()!
+    const hoy = fechaHoyNegocio()
+    const ayer = fechaNegocioDesplazada(-1)
 
     const first = await client
       .post(`/api/repse-providers/${existingProviderId}/validations`)
@@ -739,7 +859,7 @@ test.group('RepseProviders - coherencia de reviewStatus/nextReviewAt', (group) =
   let periodicidadProviderId: number | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-coherencia')
+    root = await createTestActor(ROOT_ROLE, 'root-coherencia')
     businessUnit = await createSecondaryBusinessUnit('coherencia')
   })
 
@@ -797,7 +917,7 @@ test.group('RepseProviders - coherencia de reviewStatus/nextReviewAt', (group) =
     createResponse.assertStatus(201)
     periodicidadProviderId = createResponse.body().data.proveedorRepse.proveedorRepseId
 
-    const fecha = DateTime.now().toISODate()!
+    const fecha = fechaHoyNegocio()
     const validationResponse = await client
       .post(`/api/repse-providers/${periodicidadProviderId}/validations`)
       .loginAs(root!.user)
@@ -834,7 +954,7 @@ test.group('RepseProviders - aislamiento multi-tenant (root, scope por selecció
   let providerIdA: number | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-tenant')
+    root = await createTestActor(ROOT_ROLE, 'root-tenant')
     businessUnitA = await createSecondaryBusinessUnit('tenant-a')
     businessUnitB = await createSecondaryBusinessUnit('tenant-b')
 
@@ -902,7 +1022,7 @@ test.group('RepseProviders - i18n (Accept-Language)', (group) => {
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-i18n')
+    root = await createTestActor(ROOT_ROLE, 'root-i18n')
     businessUnit = await createSecondaryBusinessUnit('i18n')
   })
 
@@ -986,20 +1106,30 @@ test.group('RepseProviders - permiso granular vía rol rh-manager (no root)', (g
   let actor: TestActor | null = null
   let businessUnit: BusinessUnit | null = null
   let providerId: number | null = null
+  let createGrant: ModuleActionGrant | null = null
 
   group.setup(async () => {
-    actor = await createTestActor(RH_MANAGER_ROLE_ID, 'rh-manager')
+    actor = await createTestActor(RH_MANAGER_ROLE, 'rh-manager')
     businessUnit = await createSecondaryBusinessUnit('rh-manager')
     await actor.user.related('businessUnits').attach([businessUnit.businessUnitId])
+    // El seeder 0052 que concedía este permiso está retirado: el spec lo concede
+    // por slug y lo retira al terminar, porque rh-manager es un rol compartido.
+    createGrant = await grantModuleAction(actor.user.roleId, 'repse-providers', 'create')
   })
 
   group.teardown(async () => {
+    // Solo si este grupo la creó: una concesión previa sobre el rol compartido se queda.
+    if (createGrant?.created) {
+      await RoleSystemPermission.query()
+        .where('role_system_permission_id', createGrant.grant.roleSystemPermissionId)
+        .delete()
+    }
     await cleanupProveedor(providerId)
     await cleanupTestActor(actor)
     await deleteBusinessUnit(businessUnit)
   })
 
-  test('rh-manager puede crear un proveedor gracias al permiso seedeado (0052)', async ({
+  test('rh-manager puede crear un proveedor con el permiso granular create', async ({
     client,
     assert,
   }) => {

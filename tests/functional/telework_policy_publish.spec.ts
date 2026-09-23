@@ -9,6 +9,7 @@ import Employee from '#models/employee'
 import TeleworkPolicy from '#models/telework_policy'
 import TeleworkPolicyNotificationLog from '#models/telework_policy_notification_log'
 import TeleworkPolicyAcknowledgement from '#models/telework_policy_acknowledgement'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 /**
  * Tests funcionales — publicar/difundir la Política de Teletrabajo y
@@ -36,15 +37,15 @@ import TeleworkPolicyAcknowledgement from '#models/telework_policy_acknowledgeme
  */
 
 const TEST_PASSWORD = 'TeleworkPolicyPublishTest123!'
-const ROOT_ROLE_ID = 3
-const NO_PERMISSION_ROLE_ID = 4 // empleado: no tiene el permiso 'telework-policy'
+const ROOT_ROLE = 'root'
+const NO_PERMISSION_ROLE = 'empleado' // no tiene el permiso 'telework-policy'
 
 interface TestActor {
   user: User
   person: Person
 }
 
-async function createTestActor(roleId: number, emailPrefix: string): Promise<TestActor> {
+async function createTestActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TestActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
 
@@ -59,7 +60,8 @@ async function createTestActor(roleId: number, emailPrefix: string): Promise<Tes
   user.userEmail = email
   user.userPassword = TEST_PASSWORD
   user.userActive = 1
-  user.roleId = roleId
+  const role = await ensureRole(roleSlug)
+  user.roleId = role.roleId
   user.personId = person.personId
   user.userEmailType = 'institutional'
   await user.save()
@@ -192,7 +194,7 @@ test.group('TeleworkPolicy publish/acknowledgements - sin permiso (403)', (group
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    actor = await createTestActor(NO_PERMISSION_ROLE_ID, 'no-permiso-publish')
+    actor = await createTestActor(NO_PERMISSION_ROLE, 'no-permiso-publish')
     businessUnit = await getPrimaryBusinessUnit()
     await actor.user.related('businessUnits').attach([businessUnit.businessUnitId])
   })
@@ -254,7 +256,7 @@ test.group('TeleworkPolicy publish/acknowledgements - sin permiso (403)', (group
 })
 
 test.group('TeleworkPolicy publish/acknowledgements - aislamiento entre empresas', (group) => {
-  const RH_MANAGER_ROLE_ID = 2
+  const RH_MANAGER_ROLE = 'rh-manager'
 
   let rhManagerA: TestActor | null = null
   let businessUnitA: BusinessUnit | null = null
@@ -271,7 +273,7 @@ test.group('TeleworkPolicy publish/acknowledgements - aislamiento entre empresas
     businessUnitB.businessUnitActive = 1
     await businessUnitB.save()
 
-    rhManagerA = await createTestActor(RH_MANAGER_ROLE_ID, 'rh-manager-a-publish')
+    rhManagerA = await createTestActor(RH_MANAGER_ROLE, 'rh-manager-a-publish')
     await rhManagerA.user.related('businessUnits').attach([businessUnitA.businessUnitId])
   })
 
@@ -315,7 +317,7 @@ test.group('TeleworkPolicy publish/acknowledgements - flujo completo (root)', (g
 
   group.setup(async () => {
     mail.fake()
-    root = await createTestActor(ROOT_ROLE_ID, 'root-publish')
+    root = await createTestActor(ROOT_ROLE, 'root-publish')
     businessUnit = await getPrimaryBusinessUnit()
 
     // Determinismo: la empresa arranca sin ninguna política previa.
@@ -707,7 +709,7 @@ test.group('TeleworkPolicy publish/acknowledgements - i18n (Accept-Language)', (
   let businessUnit: BusinessUnit | null = null
 
   group.setup(async () => {
-    root = await createTestActor(ROOT_ROLE_ID, 'root-publish-i18n')
+    root = await createTestActor(ROOT_ROLE, 'root-publish-i18n')
     businessUnit = await getPrimaryBusinessUnit()
     await TeleworkPolicy.query()
       .where('business_unit_id', businessUnit.businessUnitId)

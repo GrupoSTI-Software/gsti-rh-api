@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import { TenantContext } from '#utils/tenant_context'
+import { getBusinessTimeZone } from '#utils/business_date'
 import AccessPointProfile from '#models/access_point_profile'
 import AccessPointEmployee, {
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS,
@@ -22,6 +23,7 @@ import {
   ADMS_CAPACITY_SOURCE,
   ADMS_HEALTH_OFFLINE_THRESHOLD_SECONDS,
   ADMS_HEALTH_STATUS,
+  type AdmsCapacitySource,
   type AdmsHealthStatus,
 } from './health.constants.js'
 import type {
@@ -44,6 +46,19 @@ const UNCONFIRMED_SYNC_STATUSES = [
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED,
   ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_FAILED,
 ]
+
+/**
+ * Capacidad que GSTI tecleo para el modelo, ya extraida del catalogo.
+ *
+ * Se pasa asi y no como modelo de Lucid para que `occupancyOf` siga siendo una
+ * funcion pura que se prueba con un objeto literal.
+ */
+export interface ModelCapacity {
+  users: number | null
+  fingerprints: number | null
+  faces: number | null
+  transactions: number | null
+}
 
 /** El catalogo de modelos es de plataforma, no de una empresa. */
 const MODEL_UNSCOPED_REASON =
@@ -83,6 +98,7 @@ export default class HealthService {
       .where('access_point_id', accessPoint.accessPointId)
       .first()
     const stamps = await this.progress.listFor(accessPoint.accessPointId)
+    const catalogModel = await this.modelOf(accessPoint)
     const queue = await this.queueOf(accessPoint, now)
     const openIncidents = await this.openIncidentsOf(accessPoint.accessPointId)
     const enrollment = await this.enrollmentOf(accessPoint.accessPointId)
@@ -100,7 +116,7 @@ export default class HealthService {
       deviceName: accessPoint.accessPointDeviceName ?? null,
       mac: accessPoint.accessPointMac ?? null,
       ip: accessPoint.accessPointIp ?? null,
-      model: await this.modelOf(accessPoint),
+      model: catalogModel?.dto ?? null,
       active: accessPoint.accessPointActive === 1,
       status: statusOf(accessPoint.accessPointLastConnection, now),
       lastSeenAt: accessPoint.accessPointLastConnection?.toISO() ?? null,
@@ -121,8 +137,9 @@ export default class HealthService {
         measuredAt: profile?.accessPointProfileClockMeasuredAt?.toISO() ?? null,
         syncedAt: profile?.accessPointProfileClockSyncedAt?.toISO() ?? null,
         status: profile?.accessPointProfileClockSyncStatus ?? null,
+        timezone: timezoneOf(accessPoint.accessPointTimezone ?? null),
       },
-      occupancy: occupancyOf(profile),
+      occupancy: occupancyOf(profile, catalogModel?.capacity ?? null),
       enrollment,
       queue,
       openIncidents,
@@ -213,6 +230,17 @@ export default class HealthService {
       .orderBy('device_command_id', 'asc')
       .first()
 
+    /**
+     * Se busca por `failed_at`, no por estado: un comando que fallo y luego se
+     * reencolo y paso ya no esta en `failed`, pero su codigo de retorno sigue
+     * siendo la pista de lo que le pasa al equipo.
+     */
+    const lastFailed = await DeviceCommand.query()
+      .where('access_point_id', accessPoint.accessPointId)
+      .whereNotNull('device_command_failed_at')
+      .orderBy('device_command_failed_at', 'desc')
+      .first()
+
     const pending = byStatus.get(DEVICE_COMMAND_STATUS.PENDING) ?? 0
     const lastSeen = accessPoint.accessPointLastConnection
     const staleSince = now.minus({ minutes: DEVICE_COMMAND_STALE_PENDING_MINUTES })
@@ -227,6 +255,14 @@ export default class HealthService {
         oldest?.deviceCommandCreatedAt !== undefined && oldest.deviceCommandCreatedAt !== null
           ? Math.max(0, Math.round(now.diff(oldest.deviceCommandCreatedAt, 'seconds').seconds))
           : null,
+      lastFailure: lastFailed
+        ? {
+            kind: lastFailed.deviceCommandKind,
+            returnCode: lastFailed.deviceCommandReturnCode ?? null,
+            error: lastFailed.deviceCommandLastError ?? null,
+            failedAt: lastFailed.deviceCommandFailedAt?.toISO() ?? null,
+          }
+        : null,
     }
   }
 
@@ -235,7 +271,9 @@ export default class HealthService {
    * plataforma. Un equipo dado de alta a mano no lo tiene, y ahi el Backoffice
    * cae a la imagen generica en vez de mostrar una que no corresponde.
    */
-  private async modelOf(accessPoint: AccessPoint): Promise<DeviceModelDto | null> {
+  private async modelOf(
+    accessPoint: AccessPoint
+  ): Promise<{ dto: DeviceModelDto; capacity: ModelCapacity } | null> {
     if (!accessPoint.platformDeviceId) return null
     const row = await TenantContext.runUnscoped(
       () =>
@@ -247,17 +285,34 @@ export default class HealthService {
             'm.platform_device_model_id',
             'm.platform_device_model_brand',
             'm.platform_device_model_name',
-            'm.platform_device_model_slug'
+            'm.platform_device_model_slug',
+            'm.platform_device_model_max_user_count',
+            'm.platform_device_model_max_finger_count',
+            'm.platform_device_model_max_face_count',
+            'm.platform_device_model_max_att_log_count'
           )
           .first(),
       MODEL_UNSCOPED_REASON
     )
     if (!row) return null
+
+    /** Un maximo sin capturar es `null`, no cero: cero seria "no le cabe nada". */
+    const numberOrNull = (value: unknown): number | null =>
+      value === null || value === undefined ? null : Number(value)
+
     return {
-      platformDeviceModelId: Number(row.platform_device_model_id),
-      brand: String(row.platform_device_model_brand),
-      name: String(row.platform_device_model_name),
-      slug: String(row.platform_device_model_slug),
+      dto: {
+        platformDeviceModelId: Number(row.platform_device_model_id),
+        brand: String(row.platform_device_model_brand),
+        name: String(row.platform_device_model_name),
+        slug: String(row.platform_device_model_slug),
+      },
+      capacity: {
+        users: numberOrNull(row.platform_device_model_max_user_count),
+        fingerprints: numberOrNull(row.platform_device_model_max_finger_count),
+        faces: numberOrNull(row.platform_device_model_max_face_count),
+        transactions: numberOrNull(row.platform_device_model_max_att_log_count),
+      },
     }
   }
 
@@ -300,6 +355,25 @@ export default class HealthService {
   }
 }
 
+/**
+ * Zona con la que se leen las checadas de un equipo, y de donde sale.
+ *
+ * La del equipo manda sobre la de la empresa: una sede no siempre esta en la
+ * misma franja, y usar la de la empresa para todas manda las checadas de las
+ * demas al dia equivocado.
+ *
+ * @param deviceZone - Zona IANA propia del equipo, o `null` si no tiene.
+ * @returns La zona efectiva y su procedencia.
+ */
+export function timezoneOf(deviceZone: string | null): {
+  zone: string
+  source: 'device' | 'business'
+} {
+  return deviceZone
+    ? { zone: deviceZone, source: 'device' }
+    : { zone: getBusinessTimeZone(), source: 'business' }
+}
+
 /** Un equipo que nunca llamo no esta "caido": casi siempre es red o alta mal hecha. */
 export function statusOf(lastSeen: DateTime | null, now: DateTime): AdmsHealthStatus {
   if (lastSeen === null) return ADMS_HEALTH_STATUS.NEVER
@@ -309,31 +383,71 @@ export function statusOf(lastSeen: DateTime | null, now: DateTime): AdmsHealthSt
     : ADMS_HEALTH_STATUS.OFFLINE
 }
 
-export function occupancyOf(profile: AccessPointProfile | null): OccupancySlot[] {
+/**
+ * Ocupacion por modalidad, cruzando lo que el equipo dice tener con el maximo
+ * que corresponda.
+ *
+ * @param profile - Perfil que el aparato declaro de si mismo.
+ * @param model - Modelo del catalogo, con la capacidad que tecleo GSTI.
+ * @returns Un slot por modalidad, cada uno diciendo de donde salio su maximo.
+ */
+export function occupancyOf(
+  profile: AccessPointProfile | null,
+  catalog?: ModelCapacity | null
+): OccupancySlot[] {
   const slot = (
     modality: OccupancySlot['modality'],
     count: number | null | undefined,
-    capacity: number | null | undefined
+    declared: number | null | undefined,
+    fromCatalog: number | null | undefined
   ): OccupancySlot => {
     const usable = count ?? null
-    const limit = capacity ?? null
+
+    /**
+     * El catalogo manda cuando esta capturado: lo que el firmware anuncia
+     * suele ser un tope por lote, no lo que le cabe al aparato.
+     */
+    const catalogLimit = fromCatalog ?? null
+    const declaredLimit = declared ?? null
+    const limit = catalogLimit ?? declaredLimit
+
+    let source: AdmsCapacitySource = ADMS_CAPACITY_SOURCE.UNKNOWN
+    if (catalogLimit !== null) source = ADMS_CAPACITY_SOURCE.CATALOG
+    else if (declaredLimit !== null) source = ADMS_CAPACITY_SOURCE.DECLARED
+
     return {
       modality,
       count: usable,
       capacity: limit,
-      capacitySource: limit === null ? ADMS_CAPACITY_SOURCE.UNKNOWN : ADMS_CAPACITY_SOURCE.DECLARED,
+      capacitySource: source,
       ratio: usable !== null && limit !== null && limit > 0 ? usable / limit : null,
     }
   }
 
   return [
-    slot('users', profile?.accessPointProfileUserCount, profile?.accessPointProfileMaxUserCount),
-    slot('fingerprints', profile?.accessPointProfileFpCount, profile?.accessPointProfileMaxFingerCount),
-    slot('faces', profile?.accessPointProfileFaceCount, profile?.accessPointProfileMaxFaceCount),
+    slot(
+      'users',
+      profile?.accessPointProfileUserCount,
+      profile?.accessPointProfileMaxUserCount,
+      catalog?.users
+    ),
+    slot(
+      'fingerprints',
+      profile?.accessPointProfileFpCount,
+      profile?.accessPointProfileMaxFingerCount,
+      catalog?.fingerprints
+    ),
+    slot(
+      'faces',
+      profile?.accessPointProfileFaceCount,
+      profile?.accessPointProfileMaxFaceCount,
+      catalog?.faces
+    ),
     slot(
       'transactions',
       profile?.accessPointProfileTransactionCount,
-      profile?.accessPointProfileMaxAttLogCount
+      profile?.accessPointProfileMaxAttLogCount,
+      catalog?.transactions
     ),
   ]
 }

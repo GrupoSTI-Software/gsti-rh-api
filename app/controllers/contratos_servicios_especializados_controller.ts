@@ -1,6 +1,7 @@
 import logger from '@adonisjs/core/services/logger'
 import { isFileIntakeError, respondFileIntakeError } from '#helpers/file_intake_api_error'
 import { assertSpreadsheetFile } from '#helpers/spreadsheet_intake_guard'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
 import type { HttpContext } from '@adonisjs/core/http'
 import ContratoServicioEspecializadoService, {
   type Anexo15dCreatePayload,
@@ -462,7 +463,9 @@ export default class ContratosServiciosEspecializadosController {
       )
       response.header(
         'Content-Disposition',
-        'attachment; filename=plantilla-importacion-contratos-servicios-especializados.xlsx'
+        contentDisposition(
+          buildDownloadFileName(['plantilla-importacion-contratos-servicios-especializados'], 'xlsx')
+        )
       )
       response.status(200)
       return response.send(buffer)
@@ -590,6 +593,11 @@ export default class ContratosServiciosEspecializadosController {
       // es un ZIP y el nombre no prueba nada.
       await assertSpreadsheetFile(file)
 
+      // Red de seguridad hoy INALCANZABLE: `assertSpreadsheetFile` corre arriba
+      // y rechaza antes los mismos casos con los mismos umbrales (el perfil
+      // `spreadsheet-import` declara `['xlsx']` y 10 MB, igual que el
+      // `request.file` de esta ruta). Se conserva por si la guarda transversal
+      // cambiara de perfil; su retiro queda anotado en el backlog de la fase 6.
       if (file.hasErrors) {
         const sizeError = file.errors.some((err) => err.type === 'size')
         return sizeError

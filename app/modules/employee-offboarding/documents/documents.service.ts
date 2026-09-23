@@ -1,25 +1,38 @@
 import { createHash } from 'node:crypto'
+import { DateTime } from 'luxon'
 import { cuid } from '@adonisjs/core/helpers'
 import db from '@adonisjs/lucid/services/db'
+import logger from '@adonisjs/core/services/logger'
 import type { I18n } from '@adonisjs/i18n'
 import RoleService from '#services/role_service'
 import SystemSettingService from '#services/system_setting_service'
 import UploadService from '#services/upload_service'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
 import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
 import {
   daysBetweenBusinessDates,
+  getBusinessTimeZone,
   toCalendarIsoDate,
   todayInBusinessZone,
 } from '#utils/business_date'
+import type EmployeeOffboardingDocumentTemplate from '#models/employee_offboarding_document_template'
 import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '../concepts/concepts.constants.js'
 import { buildUserNamesMap } from '../offboardings/dto/offboardings.dto.js'
+import DocumentTemplatesRepositoryMysql from '../document-templates/document_templates.repository.mysql.js'
+import type { DocumentTemplatesRepository } from '../document-templates/document_templates.repository.js'
+import { fieldByKey, type OffboardingDocumentFieldKey } from './document_fields.constants.js'
+import DocumentTemplateFillService, {
+  type DocumentTemplateFieldValues,
+  type DocumentTemplateFillFailure,
+} from './document_template_fill.service.js'
 import {
   DOCUMENT_DEPARTMENT_NAME_MAX_LENGTH,
   DOCUMENT_EMPLOYEE_NAME_MAX_LENGTH,
   DOCUMENT_LEGAL_NAME_MAX_LENGTH,
   DOCUMENT_MIME_TYPE,
   DOCUMENT_POSITION_NAME_MAX_LENGTH,
+  DOCUMENT_PRINTED_DATE_FORMAT,
   DOCUMENT_SIGNED_URL_EXPIRES_SECONDS,
   DOCUMENTS_S3_FOLDER,
   MISSING_FIELD_LABEL_KEY,
@@ -31,13 +44,25 @@ import type { DocumentsRepository } from './documents.repository.js'
 import SeparationLetterPdfService, {
   collectMissingSeparationLetterFields,
   computeSeniority,
+  formatSeniority,
   sanitizeRenderText,
   type MissingSeparationLetterField,
 } from './separation_letter_pdf.service.js'
-import { toDocumentDto, type EmployeeOffboardingDocumentDto } from './dto/documents.dto.js'
+import {
+  templateVersionNumberOf,
+  toDocumentDto,
+  type EmployeeOffboardingDocumentDto,
+} from './dto/documents.dto.js'
 
 /** Acciones del módulo `employee-offboardings` que usa este slice (regla 14). */
 export type EmployeeOffboardingDocumentAction = 'read' | 'create'
+
+/** Salida del render, venga de la plantilla propia o de la del sistema. */
+interface RenderedDocument {
+  buffer: Buffer
+  /** Opcionales del catálogo que la plantilla propia trae sin admitir texto; vacío con la del sistema. */
+  skippedFieldKeys: OffboardingDocumentFieldKey[]
+}
 
 /**
  * Reglas de negocio de los documentos del expediente (USRH1787433503686):
@@ -51,22 +76,35 @@ export type EmployeeOffboardingDocumentAction = 'read' | 'create'
  * frente a la regla 8 de USRH1786568279596 — el candado de solo lectura
  * de esa historia vive por slice (pendientes y comprobantes) y este slice
  * no lo aplica. Elevado a Wilvardo, no cambiado en silencio.
+ *
+ * Plantilla propia (USRH1789097550389): al emitir se resuelve la versión
+ * vigente de la empresa dueña del expediente; si existe, el documento se
+ * produce sobre ella con los MISMOS valores saneados, se aplana y la
+ * emisión queda amarrada a esa versión. Sin plantilla propia, el camino de
+ * siempre. Una vigente no recuperable es error explícito, jamás caída
+ * silenciosa a la del sistema (regla 6).
  */
 export default class DocumentsService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
   private readonly locale: string
   private readonly repository: DocumentsRepository
   private readonly pdfService: SeparationLetterPdfService
+  private readonly templatesRepository: DocumentTemplatesRepository
+  private readonly fillService: DocumentTemplateFillService
 
   constructor(
     i18n: I18n,
     repository: DocumentsRepository = new DocumentsRepositoryMysql(),
-    pdfService: SeparationLetterPdfService = new SeparationLetterPdfService()
+    pdfService: SeparationLetterPdfService = new SeparationLetterPdfService(),
+    templatesRepository: DocumentTemplatesRepository = new DocumentTemplatesRepositoryMysql(),
+    fillService: DocumentTemplateFillService = new DocumentTemplateFillService()
   ) {
     this.t = i18n.formatMessage.bind(i18n)
     this.locale = i18n.locale
     this.repository = repository
     this.pdfService = pdfService
+    this.templatesRepository = templatesRepository
+    this.fillService = fillService
   }
 
   /**
@@ -81,11 +119,7 @@ export default class DocumentsService {
       throw this.forbiddenError()
     }
     const roleService = new RoleService()
-    const hasAccess = await roleService.hasAccess(
-      roleId,
-      EMPLOYEE_OFFBOARDINGS_MODULE_SLUG,
-      action
-    )
+    const hasAccess = await roleService.hasAccess(roleId, EMPLOYEE_OFFBOARDINGS_MODULE_SLUG, action)
     if (!hasAccess) {
       throw this.forbiddenError()
     }
@@ -93,10 +127,11 @@ export default class DocumentsService {
 
   /**
    * Emite la constancia (orden deliberado): expediente en alcance → baja
-   * ejecutada → una sola emisión → completitud → render → sello → subida
-   * privada → fila. Render y subida van fuera de transacción; si la fila
-   * falla tras subir queda un objeto huérfano en S3, nunca una fila que
-   * apunte a un objeto inexistente.
+   * ejecutada → datos saneados → plantilla propia resuelta y leída →
+   * completitud → render (propia o del sistema) → sello → subida privada →
+   * fila. Render y subida van fuera de transacción; si la fila falla tras
+   * subir queda un objeto huérfano en S3, nunca una fila que apunte a un
+   * objeto inexistente.
    */
   async issue(
     employeeOffboardingId: number,
@@ -150,6 +185,18 @@ export default class DocumentsService {
       ? REFERENCE_DATE_SOURCE.TERMINATED
       : REFERENCE_DATE_SOURCE.PLANNED
 
+    // Plantilla propia (USRH1789097550389, reglas 1, 6 y 9): resuelta AL
+    // EMITIR por el BU SNAPSHOTEADO del expediente — nunca el del encabezado —
+    // y leída UNA sola vez, fuera del bucle de folio y de la transacción (I/O
+    // de red). Sin buffer no se emite nada y no se cae a la del sistema. Va
+    // antes de la guarda a propósito (R-12): USRH1789097550392 la hará
+    // dinámica sobre la plantilla ya resuelta.
+    const template = await this.templatesRepository.resolveCurrent(
+      offboarding.businessUnitId,
+      documentType
+    )
+    const templateBuffer = template ? await this.readTemplateOrFail(template) : null
+
     // Regla 1 — guarda PURA en un punto único, antes de gastar CPU o red:
     // el 422 enumera cada dato con su pestaña destino (regla 2).
     const missing = collectMissingSeparationLetterFields({
@@ -192,23 +239,45 @@ export default class DocumentsService {
         expectedCount + 1
       )
 
-      // Regla 7 de H1a: sin departamento se imprime la unidad de adscripción
-      const buffer = await this.renderOrFail({
-        folio,
-        employeeName,
-        positionName,
-        departmentOrUnit,
-        legalName,
-        hireDateIso,
-        referenceDateIso,
-        seniority: computeSeniority(hireDateIso, referenceDateIso),
-        tradeName: await this.resolveTradeName(offboarding.businessUnitId),
-        issuedAt,
-      })
+      // Regla 7 de H1a: sin departamento se imprime la unidad de adscripción.
+      // Regla 2 (USRH1789097550389): la plantilla propia recibe EXACTAMENTE los
+      // valores que imprime la del sistema; no hay segunda ruta de datos.
+      const seniority = computeSeniority(hireDateIso, referenceDateIso)
+      const tradeName = await this.resolveTradeName(offboarding.businessUnitId)
+      const rendered: RenderedDocument = templateBuffer
+        ? await this.fillTemplateOrFail(templateBuffer, documentType, {
+            legal_name: legalName,
+            trade_name: tradeName,
+            employee_name: employeeName,
+            position_name: positionName,
+            department_or_unit: departmentOrUnit,
+            hire_date: this.formatCalendarDate(hireDateIso),
+            separation_date: this.formatCalendarDate(referenceDateIso),
+            seniority: formatSeniority(seniority),
+            folio,
+            issue_date: issuedAt.toFormat(DOCUMENT_PRINTED_DATE_FORMAT),
+          })
+        : {
+            buffer: await this.renderOrFail({
+              folio,
+              employeeName,
+              positionName,
+              departmentOrUnit,
+              legalName,
+              hireDateIso,
+              referenceDateIso,
+              seniority,
+              tradeName,
+              issuedAt,
+            }),
+            skippedFieldKeys: [],
+          }
+      const buffer = rendered.buffer
 
       const contentHash = createHash('sha256').update(buffer).digest('hex')
-      // Nombre solo con folio y literales del sistema: nunca datos personales
-      const fileName = this.sanitizeFileName(`constancia-de-separacion-${folio}.pdf`)
+      // Nombre solo con folio y literales del sistema: nunca datos personales.
+      // La key de S3 lleva además un prefijo único; el nombre de descarga no.
+      const fileName = this.buildSeparationLetterFileName(folio)
       const storedKey = await new UploadService().uploadPrivateBuffer(
         `${DOCUMENTS_S3_FOLDER}/${offboarding.employeeOffboardingId}/${cuid()}-${fileName}`,
         buffer,
@@ -267,13 +336,30 @@ export default class DocumentsService {
             employeeOffboardingDocumentContentHash: contentHash,
             employeeOffboardingDocumentGeneratedByUserId: generatedByUserId,
             employeeOffboardingDocumentSupersededDocumentId: supersededDocumentId,
+            // Regla 4: amarrada a la versión resuelta; `null` = plantilla del sistema
+            employeeOffboardingDocumentTemplateVersionId:
+              template?.employeeOffboardingDocumentTemplateId ?? null,
           },
           trx
         )
       })
 
       if (record) {
-        return await this.toDto(record)
+        // Identificadores y claves del catálogo: nunca nombres, valores, buffer ni URL
+        logger.info(
+          {
+            offboardingId: offboarding.employeeOffboardingId,
+            documentType,
+            documentId: record.employeeOffboardingDocumentId,
+            templateVersionId: template?.employeeOffboardingDocumentTemplateId ?? null,
+            skippedFieldKeys: rendered.skippedFieldKeys,
+          },
+          'Documento de salida emitido'
+        )
+        return await this.toDto(
+          record,
+          template ? Number(template.employeeOffboardingDocumentTemplateVersionNumber) : null
+        )
       }
     }
 
@@ -302,7 +388,9 @@ export default class DocumentsService {
       ),
     ]
     const userNamesById = buildUserNamesMap(await this.repository.findUsersByIds(userIds))
-    return records.map((record) => toDocumentDto(record, userNamesById))
+    return records.map((record) =>
+      toDocumentDto(record, userNamesById, templateVersionNumberOf(record))
+    )
   }
 
   /** URL pre-firmada de 300 s (regla 16). Se pide una nueva en cada clic. */
@@ -320,9 +408,15 @@ export default class DocumentsService {
       throw this.documentNotFoundError()
     }
 
+    // `inline`: el BO la abre en pestaña, pero al guardarla lleva el nombre
+    // limpio por folio y no la key de S3 con su prefijo único.
     const url = await new UploadService().getDownloadLink(
       record.employeeOffboardingDocumentFile,
-      DOCUMENT_SIGNED_URL_EXPIRES_SECONDS
+      DOCUMENT_SIGNED_URL_EXPIRES_SECONDS,
+      contentDisposition(
+        this.buildSeparationLetterFileName(record.employeeOffboardingDocumentFolio),
+        'inline'
+      )
     )
     // `getDownloadLink` no lanza: devuelve null u objeto en error. Nunca `!url`.
     if (typeof url !== 'string') {
@@ -358,6 +452,55 @@ export default class DocumentsService {
     return buffer
   }
 
+  /**
+   * Regla 6 — `readStoredFileBuffer` devuelve `null` sin lanzar: la guarda es
+   * obligatoria y el fallo es explícito. Jamás fallback a la del sistema.
+   */
+  private async readTemplateOrFail(template: EmployeeOffboardingDocumentTemplate): Promise<Buffer> {
+    const buffer = await new UploadService().readStoredFileBuffer(
+      template.employeeOffboardingDocumentTemplateStorageKey
+    )
+    if (!buffer || buffer.byteLength === 0) {
+      throw this.templateUnavailableError()
+    }
+    return buffer
+  }
+
+  /**
+   * Regla 7 — el llenado devuelve un fallo tipado; aquí se traduce al error de
+   * dominio: dato no imprimible = 422 corregible por el usuario; el resto = 500.
+   */
+  private async fillTemplateOrFail(
+    templateBuffer: Buffer,
+    documentType: EmployeeOffboardingDocumentType,
+    values: DocumentTemplateFieldValues
+  ): Promise<RenderedDocument> {
+    const result = await this.fillService.fill(templateBuffer, documentType, values)
+    if (result.ok) {
+      return { buffer: result.buffer, skippedFieldKeys: result.skippedFieldKeys }
+    }
+    if (result.failure.reason === 'unrenderable_text') {
+      throw this.templateTextUnrenderableError(result.failure.fieldKey)
+    }
+    throw this.templateFillFailedError(result.failure)
+  }
+
+  /**
+   * Fecha civil como la imprime la plantilla del sistema (zona de negocio).
+   * Copia declarada del privado de `separation_letter_pdf.service.ts`, que
+   * no se edita (candado G-14).
+   */
+  private formatCalendarDate(iso: string): string {
+    return DateTime.fromISO(iso, { zone: getBusinessTimeZone() }).toFormat(
+      DOCUMENT_PRINTED_DATE_FORMAT
+    )
+  }
+
+  /** Etiqueta del catálogo en el idioma de la petición; el `key` solo si el catálogo no la tuviera. */
+  private fieldLabel(fieldKey: OffboardingDocumentFieldKey): string {
+    return this.t(fieldByKey(fieldKey)?.labelKey ?? fieldKey)
+  }
+
   /** Nombre comercial para el membrete; cosmético, nunca bloquea (fail-closed del setting). */
   private async resolveTradeName(businessUnitId: number): Promise<string> {
     try {
@@ -368,18 +511,18 @@ export default class DocumentsService {
     }
   }
 
-  private async toDto(record: Parameters<typeof toDocumentDto>[0]) {
+  private async toDto(
+    record: Parameters<typeof toDocumentDto>[0],
+    templateVersionNumber: number | null
+  ) {
     const userId = record.employeeOffboardingDocumentGeneratedByUserId
     const users = userId ? await this.repository.findUsersByIds([userId]) : []
-    return toDocumentDto(record, buildUserNamesMap(users))
+    return toDocumentDto(record, buildUserNamesMap(users), templateVersionNumber)
   }
 
-  /** Lista blanca ASCII, colapsa `..`, corte a 100 (tercera copia privada del precedente). */
-  private sanitizeFileName(rawName: string): string {
-    return `${rawName}`
-      .replace(/[^a-zA-Z0-9._-]/g, '_')
-      .replace(/\.{2,}/g, '.')
-      .slice(0, 100)
+  /** `constancia-separacion-{folio saneado}.pdf`, p. ej. `constancia-separacion-cs-45-2026-0001.pdf`. */
+  private buildSeparationLetterFileName(folio: string): string {
+    return buildDownloadFileName(['constancia-separacion', folio], 'pdf')
   }
 
   private forbiddenError() {
@@ -487,6 +630,52 @@ export default class DocumentsService {
       httpStatus: 500,
       title: this.t('employee_offboarding_document_issue_error_title'),
       detail: this.t('employee_offboarding_document_storage_failed_detail'),
+    })
+  }
+
+  /** Regla 6: hay vigente registrada pero su objeto no se leyó. No es 404: la plantilla existe. */
+  private templateUnavailableError() {
+    return new EmployeeOffboardingServiceError({
+      key: 'plantilla-vigente-no-recuperable',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_TEMPLATE_UNAVAILABLE,
+      httpStatus: 500,
+      title: this.t('employee_offboarding_document_issue_error_title'),
+      detail: this.t('employee_offboarding_document_template_unavailable_detail'),
+    })
+  }
+
+  /** Regla 7: 422 porque lo corrige el usuario en la ficha; nombra el dato, nunca su valor. */
+  private templateTextUnrenderableError(fieldKey: OffboardingDocumentFieldKey) {
+    return new EmployeeOffboardingServiceError({
+      key: 'dato-no-imprimible-en-la-plantilla',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_TEMPLATE_TEXT_UNRENDERABLE,
+      httpStatus: 422,
+      title: this.t('employee_offboarding_document_issue_error_title'),
+      detail: this.t('employee_offboarding_document_template_text_unrenderable_detail', {
+        field: this.fieldLabel(fieldKey),
+      }),
+    })
+  }
+
+  /**
+   * Regla 7: un solo `code` para "no se pudo producir el documento"; el
+   * `detail` distingue la causa (ICU `select`) y nombra el hueco cuando lo hay.
+   */
+  private templateFillFailedError(failure: DocumentTemplateFillFailure) {
+    const cause =
+      failure.reason === 'required_field_unwritable'
+        ? 'field'
+        : failure.reason === 'fields_left_after_flatten'
+          ? 'flatten'
+          : 'other'
+    const field =
+      failure.reason === 'required_field_unwritable' ? this.fieldLabel(failure.fieldKey) : ''
+    return new EmployeeOffboardingServiceError({
+      key: 'documento-no-generado-con-plantilla',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_TEMPLATE_FILL_FAILED,
+      httpStatus: 500,
+      title: this.t('employee_offboarding_document_issue_error_title'),
+      detail: this.t('employee_offboarding_document_template_fill_failed_detail', { cause, field }),
     })
   }
 

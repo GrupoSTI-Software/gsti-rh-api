@@ -20,6 +20,7 @@ import {
   complaintReportExportValidator,
 } from '#validators/complaint'
 import { parseComplaintReportDateRange } from '../helpers/complaint_report_date_range.js'
+import { contentDisposition } from '#helpers/download_file_name'
 
 /** 5 fallos / 15 min por folio — regla 2 (USRH1783115930049). */
 const CONSULT_STATUS_FOLIO_LIMIT = { requests: 5, duration: '15 minutes' } as const
@@ -1624,7 +1625,7 @@ export default class ComplaintController {
    *           Content-Disposition:
    *             schema:
    *               type: string
-   *             description: Attachment filename (`reporte-quejas_{from}_{to}.{xlsx|pdf}`)
+   *             description: Attachment filename (`reporte-quejas-{from}-{to}.{xlsx|pdf}`)
    *           Content-Length:
    *             schema:
    *               type: integer
@@ -1770,7 +1771,7 @@ export default class ComplaintController {
           'Content-Type',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response.header('Content-Disposition', `attachment; filename="${filename}"`)
+        response.header('Content-Disposition', contentDisposition(filename))
         response.header('Content-Length', buffer.length.toString())
         response.status(200)
         return response.send(buffer)
@@ -1778,7 +1779,7 @@ export default class ComplaintController {
 
       const pdfBuffer = await complaintService.buildReportPdf(report, i18n)
       response.header('Content-Type', 'application/pdf')
-      response.header('Content-Disposition', `attachment; filename="${filename}"`)
+      response.header('Content-Disposition', contentDisposition(filename))
       response.header('Content-Length', pdfBuffer.length.toString())
       response.status(200)
       return response.send(pdfBuffer)

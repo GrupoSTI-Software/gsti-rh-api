@@ -8,6 +8,11 @@ import type { DateTime } from 'luxon'
 export interface BadgeEmployeeContext {
   employeeId: number
   businessUnitId: number
+  /**
+   * Token opaco del empleado (UUID, `NOT NULL` y único). Es lo único del
+   * empleado que puede ir en el nombre de un archivo descargable.
+   */
+  employeeSlug: string
   employeeBadgeToken: string | null
   personFirstname: string
   personLastname: string

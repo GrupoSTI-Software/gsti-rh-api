@@ -9,6 +9,7 @@ import Employee from '#models/employee'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'EmployeesWriteSoftRolloutTest123!'
 
@@ -52,7 +53,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     roleSlug: `employees-write-soft-rollout-${stamp}`,
     roleDescription: 'Rol temporal sin permisos de empleados',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   const person = await Person.create({
@@ -156,8 +157,8 @@ async function grantOnly(roleId: number, permissionSlugs: string[]) {
   }
 }
 
-async function createSystemActor(roleSlug: string, emailPrefix: string): Promise<SystemActor> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).firstOrFail()
+async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<SystemActor> {
+  const role = await ensureRole(roleSlug)
   const businessUnit = await BusinessUnit.query()
     .whereNull('business_unit_deleted_at')
     .where('business_unit_active', 1)

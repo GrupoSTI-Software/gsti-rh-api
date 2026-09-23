@@ -290,6 +290,20 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
     assert.doesNotThrow(() => validateCatalogIntegrity(SYSTEM_PERMISSION_CATALOG))
   })
 
+  test('las lecturas sensitive-*-read no heredan reveal-sensitive-data', ({ assert }) => {
+    for (const slug of [
+      'sensitive-identificacion-read',
+      'sensitive-contacto-read',
+      'sensitive-financiero-read',
+      'sensitive-salud-read',
+      'sensitive-biometrico-read',
+    ]) {
+      const action = EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === slug)
+      assert.exists(action, slug)
+      assert.isUndefined(action!.legacyEquivalence)
+    }
+  })
+
   test('declara manage-employee-supplies en expediente, independiente de manage-files', ({
     assert,
   }) => {

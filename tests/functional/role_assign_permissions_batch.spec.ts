@@ -6,6 +6,14 @@ import BusinessUnit from '#models/business_unit'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import {
+  cleanupTenantActor,
+  createTenantActor,
+  grantModulePermissions,
+  type TenantActor as GateActor,
+} from '#tests/helpers/tenant_actor'
+import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
 
 const TEST_PASSWORD = 'RoleAssignBatchTest123!'
 
@@ -19,16 +27,10 @@ interface TenantActor {
  * Crea un actor de tenant con el rol indicado por slug (`root` para bypasear
  * el bloqueo de roles de sistema, cualquier otro slug no-root para probarlo).
  */
-async function createActor(roleSlug: string, emailPrefix: string): Promise<TenantActor> {
+async function createActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<TenantActor> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
-  const role = await Role.query()
-    .whereNull('role_deleted_at')
-    .where('role_slug', roleSlug)
-    .first()
-  if (!role) {
-    throw new Error(`Se requiere el rol "${roleSlug}" en BD para este test.`)
-  }
+  const role = await ensureRole(roleSlug)
 
   const person = new Person()
   person.personFirstname = 'RoleAssignBatch'
@@ -70,7 +72,7 @@ async function cleanupActor(actor: TenantActor | null) {
 test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766406741)', (group) => {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   let actor: TenantActor | null = null
-  let nonRootActor: TenantActor | null = null
+  let nonRootActor: GateActor | null = null
   let roleA: Role
   let roleB: Role
   let ownerRole: Role
@@ -79,29 +81,35 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
 
   group.setup(async () => {
     actor = await createActor('root', 'role-assign-batch-root')
-    nonRootActor = await createActor('rh-manager', 'role-assign-batch-rh')
+    // Rol propio con roles-and-permissions:update: cruza el gate y deja que el
+    // caso pruebe el bloqueo de roles de sistema, que es lo que le toca.
+    nonRootActor = await createTenantActor('role-assign-batch-admin')
+    await grantModulePermissions(nonRootActor, 'roles-and-permissions', ['update'])
 
+    // Los dos fixtures pertenecen a la empresa del actor root, que es quien los
+    // usa en los casos de éxito y de rollback. Antes no tenían dueño y los
+    // alcanzaban los dos actores a la vez gracias al CSV: eso era precisamente
+    // lo que permitía que un rol viviera en dos empresas, y ya no existe. El
+    // caso del actor no root trabaja sobre su propio rol.
+    const fixturesBusinessUnitId = actor!.businessUnit.businessUnitId
     roleA = await Role.create({
       roleName: `Test Assign Batch Role A ${stamp}`,
       roleSlug: `test-assign-batch-role-a-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
       roleManagementDays: 10,
+      businessUnitId: fixturesBusinessUnitId,
     })
     roleB = await Role.create({
       roleName: `Test Assign Batch Role B ${stamp}`,
       roleSlug: `test-assign-batch-role-b-${stamp}`,
       roleDescription: 'Fixture de test',
       roleActive: 1,
-      roleBusinessAccess: '',
       roleManagementDays: 10,
+      businessUnitId: fixturesBusinessUnitId,
     })
-    // Rol de sistema ya seedeado en BD (no se crea ni se borra en este test).
-    ownerRole = await Role.query()
-      .whereNull('role_deleted_at')
-      .where('role_slug', 'owner')
-      .firstOrFail()
+    // Rol de sistema legacy: 0006 ya no lo siembra; se asegura por slug y no se borra.
+    ownerRole = await ensureRole('owner')
 
     systemModule = await SystemModule.create({
       systemModuleName: 'Test Assign Batch Module',
@@ -137,7 +145,7 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
     await Role.query().where('role_id', roleA.roleId).delete()
     await Role.query().where('role_id', roleB.roleId).delete()
     await cleanupActor(actor)
-    await cleanupActor(nonRootActor)
+    await cleanupTenantActor(nonRootActor)
   })
 
   test('éxito: actualiza days y grants de todos los roles del lote', async ({ client, assert }) => {
@@ -233,12 +241,25 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
     assert.lengthOf(grantsAfterB, grantsBeforeB.length)
   })
 
-  test('rol de sistema en el lote: 403, identifica el rol y no escribe nada', async ({
-    client,
-    assert,
-  }) => {
-    const seedA = await Role.query().where('role_id', roleA.roleId).firstOrFail()
-    const previousDays = seedA.roleManagementDays
+  /**
+   * Antes este caso metía en el lote el `owner` global y esperaba 403
+   * `rol-sistema-bloqueado-lote`. Ya no hay roles de tenant compartidos: un rol
+   * que no es de la empresa activa —sea de otra o sea de la plataforma— no
+   * existe para quien pide, y el lote se cae con 404 antes de escribir nada.
+   * Lo que se sigue garantizando es lo mismo: la atomicidad del conjunto.
+   */
+  test('un rol ajeno en el lote: 404 y no escribe nada', async ({ client, assert }) => {
+    // Un rol de su empresa distinto al de su sesión: sobre el propio hay otro
+    // bloqueo (escalamiento de privilegios) que respondería antes.
+    const ownTenantRole = await Role.create({
+      roleName: `Rol de la empresa del actor ${stamp}`,
+      roleSlug: `role-assign-batch-own-tenant-${stamp}`,
+      roleDescription: 'Fixture de test',
+      roleActive: 1,
+      roleManagementDays: 10,
+      businessUnitId: nonRootActor!.businessUnit.businessUnitId,
+    })
+    const previousDays = ownTenantRole.roleManagementDays
 
     const response = await client
       .post('/api/roles/assign-batch')
@@ -250,7 +271,7 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
       .json({
         roles: [
           {
-            roleId: roleA.roleId,
+            roleId: ownTenantRole.roleId,
             permissions: [permission.systemPermissionId],
             roleManagementDays: 55,
           },
@@ -262,11 +283,41 @@ test.group('POST /api/roles/assign-batch — atomicidad de conjunto (USRH1785766
         ],
       })
 
-    response.assertStatus(403)
-    assert.equal(response.body().key, 'rol-sistema-bloqueado-lote')
-    assert.equal(response.body().data.roleSlug, 'owner')
+    response.assertStatus(404)
 
-    const reloadedA = await Role.query().where('role_id', roleA.roleId).firstOrFail()
-    assert.equal(reloadedA.roleManagementDays, previousDays)
+    const reloaded = await Role.query().where('role_id', ownTenantRole.roleId).firstOrFail()
+    assert.equal(reloaded.roleManagementDays, previousDays)
+  })
+
+  test('sin roles-and-permissions:update el gate niega antes de revisar el lote', async ({
+    client,
+    assert,
+  }) => {
+    const seedA = await Role.query().where('role_id', roleA.roleId).firstOrFail()
+    const previousDays = seedA.roleManagementDays
+
+    await grantModulePermissions(nonRootActor!, 'roles-and-permissions', [])
+    try {
+      const response = await client
+        .post('/api/roles/assign-batch')
+        .loginAs(nonRootActor!.user)
+        .header('X-Business-Unit-Id', nonRootActor!.businessUnit.businessUnitPublicId)
+        .json({
+          roles: [
+            {
+              roleId: roleA.roleId,
+              permissions: [permission.systemPermissionId],
+              roleManagementDays: 66,
+            },
+          ],
+        })
+
+      response.assertStatus(403)
+      assert.equal(response.body().key, PERMISSION_GATE_ERROR_CODES.DENIED)
+      const reloadedA = await Role.query().where('role_id', roleA.roleId).firstOrFail()
+      assert.equal(reloadedA.roleManagementDays, previousDays)
+    } finally {
+      await grantModulePermissions(nonRootActor!, 'roles-and-permissions', ['update'])
+    }
   })
 })

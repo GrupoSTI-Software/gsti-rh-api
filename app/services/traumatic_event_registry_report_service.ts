@@ -1,36 +1,28 @@
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { DateTime } from 'luxon'
 import PDFDocument from 'pdfkit'
 import TraumaticEventReport from '#models/traumatic_event_report'
 import SystemSettingService from '#services/system_setting_service'
 import { SENSITIVE_EXPORT_PLACEHOLDER } from '#constants/sensitive_export_placeholder'
+import { REPORT_NEUTRAL_HEX, REPORT_NEUTRAL_PDF_FONTS } from '#constants/report_neutral_theme'
 import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
 import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
 
 // ---------------------------------------------------------------------------
-// Constantes de marca (misma paleta que el reporte de lactancia)
+// Constantes de formato neutral (sin marca)
 // ---------------------------------------------------------------------------
 
-const BRAND_COLORS = {
-  primary: '#3D5DC0',
-  primarySoft: '#EEF1FB',
-  text: '#1F2937',
-  textMuted: '#6B7280',
-  textLight: '#FFFFFF',
-  border: '#D1D5DB',
-  borderLight: '#E5E7EB',
-  bgZebra: '#F8FAFC',
-  bgCard: '#FFFFFF',
-  accent: '#0EA5E9',
-} as const
+/** Paleta neutral compartida por todos los descargables. */
+const PDF_COLORS = REPORT_NEUTRAL_HEX
 
-const PRODUCT_WORDMARK = 'Valanserh'
+/**
+ * Tipografía neutral: fuentes estándar de pdfkit (sin la tipografía de
+ * marca). Codifican WinAnsi, que cubre acentos, ñ, `§`, `—`, `–` y `•`.
+ */
+const FONT_REGULAR = REPORT_NEUTRAL_PDF_FONTS.regular
+const FONT_BOLD = REPORT_NEUTRAL_PDF_FONTS.bold
 
 const CONFIDENTIALITY_NOTE =
   'Documento confidencial — uso interno. Contiene datos personales protegidos por la Ley Federal de Protección de Datos Personales en Posesión de los Particulares.'
-
-const FONTS_DIR_REL = ['..', '..', 'resources', 'fonts'] as const
 
 const REPORT_TIMEZONE = 'America/Mexico_City'
 
@@ -347,14 +339,11 @@ export default class TraumaticEventRegistryReportService {
         bufferPages: true,
         info: {
           Title: 'Registro de eventos traumáticos — NOM-035 §5.8.c',
-          Author: tradeName || PRODUCT_WORDMARK,
+          Author: tradeName,
           Subject: 'Traumatic Events Registry Report - NOM-035',
-          Creator: PRODUCT_WORDMARK,
           Producer: 'PDFKit',
         },
       })
-
-      this.registerMulishFonts(doc)
 
       const chunks: Uint8Array[] = []
       doc.on('data', (chunk: Uint8Array) => chunks.push(chunk))
@@ -388,7 +377,7 @@ export default class TraumaticEventRegistryReportService {
       for (let i = pageRange.start; i < pageRange.start + totalPages; i++) {
         doc.switchToPage(i)
         const pageIndex = i - pageRange.start
-        this.renderBrandStrip(doc, tradeName)
+        this.renderPageHeader(doc, tradeName)
         this.renderPageFooter(doc, folio, generatedAt, pageIndex + 1, totalPages)
       }
 
@@ -400,33 +389,40 @@ export default class TraumaticEventRegistryReportService {
   // Bloques visuales del PDF
   // ---------------------------------------------------------------------------
 
-  private renderBrandStrip(doc: PDFKit.PDFDocument, tradeName: string) {
-    const pageW = doc.page.width
-    const stripH = 24
+  /**
+   * Encabezado neutral de cada página: nombre comercial del patrón (dato
+   * que identifica al emisor, no marca) en texto gris a la derecha y una
+   * línea delgada gris. Sin franja de color ni wordmark del producto.
+   *
+   * El cursor `doc.y` se restaura al terminar para evitar que un `text()`
+   * en coordenadas absolutas arrastre la Y y provoque una página en blanco.
+   */
+  private renderPageHeader(doc: PDFKit.PDFDocument, tradeName: string) {
     const margin = doc.page.margins.left
+    const pageW = doc.page.width - margin * 2
+    const ruleY = 38
     const savedY = doc.y
 
     doc.save()
-    doc.rect(0, 0, pageW, stripH).fill(BRAND_COLORS.primary)
-    doc
-      .font('Mulish-Bold')
-      .fontSize(10)
-      .fillColor(BRAND_COLORS.textLight)
-      .text(PRODUCT_WORDMARK, margin, 7, { width: pageW / 2 - margin, lineBreak: false, height: 12 })
-
     if (tradeName) {
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(9)
-        .fillColor(BRAND_COLORS.textLight)
-        .text(tradeName, pageW / 2, 8, {
-          width: pageW / 2 - margin,
+        .fillColor(PDF_COLORS.textMuted)
+        .text(tradeName, margin, 24, {
+          width: pageW,
           align: 'right',
           lineBreak: false,
           ellipsis: true,
           height: 12,
         })
     }
+    doc
+      .moveTo(margin, ruleY)
+      .lineTo(margin + pageW, ruleY)
+      .lineWidth(0.5)
+      .strokeColor(PDF_COLORS.border)
+      .stroke()
     doc.restore()
     doc.y = savedY
   }
@@ -443,9 +439,9 @@ export default class TraumaticEventRegistryReportService {
     doc.y = doc.page.margins.top + 8
 
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(18)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text('Registro de eventos traumáticos — NOM-035 §5.8.c', margin, doc.y, {
         width: pageW,
         align: 'left',
@@ -454,9 +450,9 @@ export default class TraumaticEventRegistryReportService {
     doc.moveDown(0.3)
     const metaLeft = tradeName || 'Empresa sin nombre comercial configurado'
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(10)
-      .fillColor(BRAND_COLORS.text)
+      .fillColor(PDF_COLORS.text)
       .text(`${metaLeft}   Folio: ${folio}`, margin, doc.y, {
         width: pageW,
         align: 'left',
@@ -465,9 +461,9 @@ export default class TraumaticEventRegistryReportService {
 
     doc.moveDown(0.15)
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
         `Generado: ${generatedAt.toFormat('dd/LL/yyyy HH:mm')} (CDMX)`,
         margin,
@@ -477,9 +473,9 @@ export default class TraumaticEventRegistryReportService {
 
     doc.moveDown(0.4)
     doc
-      .font('Mulish-SemiBold')
+      .font(FONT_BOLD)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.text)
+      .fillColor(PDF_COLORS.text)
       .text(`Filtros aplicados: ${this.formatFilters(filters)}`, margin, doc.y, {
         width: pageW,
         align: 'left',
@@ -493,16 +489,16 @@ export default class TraumaticEventRegistryReportService {
     const pageW = doc.page.width - margin * 2
 
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(11)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text('Fundamento legal', margin, doc.y, { width: pageW, align: 'left' })
 
     doc.moveDown(0.2)
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.text)
+      .fillColor(PDF_COLORS.text)
       .text(
         'NOM-035-STPS-2018, numeral 5.8.c. El patrón debe conservar el registro de los ' +
           'trabajadores que vivieron acontecimientos traumáticos severos y fueron sujetos ' +
@@ -527,22 +523,22 @@ export default class TraumaticEventRegistryReportService {
     const totalExams = items.reduce((s, i) => s + i.examsCount, 0)
 
     const blocks = [
-      { value: items.length, label: 'eventos registrados', color: BRAND_COLORS.primary },
-      { value: totalReferrals, label: 'canalizaciones', color: BRAND_COLORS.accent },
-      { value: totalExams, label: 'exámenes practicados', color: BRAND_COLORS.accent },
+      { value: items.length, label: 'eventos registrados', color: PDF_COLORS.text },
+      { value: totalReferrals, label: 'canalizaciones', color: PDF_COLORS.text },
+      { value: totalExams, label: 'exámenes practicados', color: PDF_COLORS.text },
     ]
 
     blocks.forEach((block, idx) => {
       const x = margin + blockW * idx
       doc
-        .font('Mulish-Bold')
+        .font(FONT_BOLD)
         .fontSize(28)
         .fillColor(block.color)
         .text(String(block.value), x, startY, { width: blockW, align: 'center', lineBreak: false })
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(9)
-        .fillColor(BRAND_COLORS.textMuted)
+        .fillColor(PDF_COLORS.textMuted)
         .text(block.label, x, startY + 32, { width: blockW, align: 'center', lineBreak: false })
     })
 
@@ -577,16 +573,16 @@ export default class TraumaticEventRegistryReportService {
     doc
       .roundedRect(x, y, pageW, cardH, 6)
       .lineWidth(0.7)
-      .strokeColor(BRAND_COLORS.borderLight)
-      .fillAndStroke(BRAND_COLORS.bgCard, BRAND_COLORS.borderLight)
-    doc.rect(x, y, 3.5, cardH).fill(BRAND_COLORS.primary)
+      .strokeColor(PDF_COLORS.border)
+      .fillAndStroke(PDF_COLORS.background, PDF_COLORS.border)
+    doc.rect(x, y, 3.5, cardH).fill(PDF_COLORS.textMuted)
     doc.restore()
 
     // Cabecera: nombre del empleado
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(13)
-      .fillColor(BRAND_COLORS.text)
+      .fillColor(PDF_COLORS.text)
       .text(item.employee.fullName, innerX, y + innerPad, {
         width: innerW - 140,
         lineBreak: false,
@@ -595,9 +591,9 @@ export default class TraumaticEventRegistryReportService {
 
     // Tipo de evento alineado a la derecha
     doc
-      .font('Mulish-SemiBold')
+      .font(FONT_BOLD)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text(item.traumaticEventType.traumaticEventTypeName, x + pageW - 140 - innerPad, y + innerPad + 2, {
         width: 140,
         align: 'right',
@@ -611,9 +607,9 @@ export default class TraumaticEventRegistryReportService {
       ? SENSITIVE_EXPORT_PLACEHOLDER
       : item.employee.personCurp
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
         curpValue ? `CURP: ${curpValue}` : 'CURP: no registrado',
         innerX,
@@ -621,9 +617,9 @@ export default class TraumaticEventRegistryReportService {
         { width: innerW / 2, lineBreak: false, ellipsis: true }
       )
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
         `Fecha de ocurrencia: ${this.formatDateDmy(item.occurredAt)}`,
         innerX + innerW / 2,
@@ -633,9 +629,9 @@ export default class TraumaticEventRegistryReportService {
 
     // Código de empleado
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
         item.employee.employeeCode ? `Cód. empleado: ${item.employee.employeeCode}` : '',
         innerX,
@@ -646,9 +642,9 @@ export default class TraumaticEventRegistryReportService {
     // Canalizaciones
     const refY = metaY + 30
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text(`Canalizaciones (${item.referralsCount})`, innerX, refY, {
         width: innerW / 2,
         lineBreak: false,
@@ -656,19 +652,19 @@ export default class TraumaticEventRegistryReportService {
 
     if (item.referrals.length === 0) {
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(9)
-        .fillColor(BRAND_COLORS.textMuted)
+        .fillColor(PDF_COLORS.textMuted)
         .text('Sin canalizaciones registradas', innerX, refY + 13, { width: innerW / 2, lineBreak: false })
     } else {
       const colW = innerW / 2 - 8
       let bulletY = refY + 14
-      doc.font('Mulish').fontSize(9)
+      doc.font(FONT_REGULAR).fontSize(9)
       for (const ref of item.referrals) {
         const bulletText = `• ${this.institutionTypeLabel(ref.institutionType)}: ${ref.institutionName} (${this.formatDateDmy(ref.referredAt)})`
         const lineH = doc.heightOfString(bulletText, { width: colW })
         doc
-          .fillColor(BRAND_COLORS.text)
+          .fillColor(PDF_COLORS.text)
           .text(bulletText, innerX, bulletY, { width: colW })
         bulletY += lineH + 3
       }
@@ -677,9 +673,9 @@ export default class TraumaticEventRegistryReportService {
     // Exámenes
     const examStartX = innerX + innerW / 2
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text(`Exámenes (${item.examsCount})`, examStartX, refY, {
         width: innerW / 2,
         lineBreak: false,
@@ -687,19 +683,19 @@ export default class TraumaticEventRegistryReportService {
 
     if (item.exams.length === 0) {
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(9)
-        .fillColor(BRAND_COLORS.textMuted)
+        .fillColor(PDF_COLORS.textMuted)
         .text('Sin exámenes registrados', examStartX, refY + 14, { width: innerW / 2, lineBreak: false })
     } else {
       const examColW = innerW / 2 - 8
       let examBulletY = refY + 14
-      doc.font('Mulish').fontSize(9)
+      doc.font(FONT_REGULAR).fontSize(9)
       for (const exam of item.exams) {
         const examText = `• ${this.examTypeLabel(exam.examType)} — ${this.outcomeLabel(exam.outcome)} (${this.formatDateDmy(exam.performedAt)})`
         const lineH = doc.heightOfString(examText, { width: examColW })
         doc
-          .fillColor(BRAND_COLORS.text)
+          .fillColor(PDF_COLORS.text)
           .text(examText, examStartX, examBulletY, { width: examColW })
         examBulletY += lineH + 3
       }
@@ -722,9 +718,9 @@ export default class TraumaticEventRegistryReportService {
     }
 
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(12)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text('Resumen tabular', margin, doc.y, { width: pageW, align: 'left' })
     doc.moveDown(0.3)
 
@@ -734,15 +730,15 @@ export default class TraumaticEventRegistryReportService {
 
     let y = doc.y
     doc.save()
-    doc.rect(margin, y, pageW, headerH).fill(BRAND_COLORS.primary)
+    doc.rect(margin, y, pageW, headerH).fill(PDF_COLORS.headerFill)
     doc.restore()
 
     let x = margin
     headers.forEach((header, i) => {
       doc
-        .font('Mulish-Bold')
+        .font(FONT_BOLD)
         .fontSize(8.5)
-        .fillColor(BRAND_COLORS.textLight)
+        .fillColor(PDF_COLORS.text)
         .text(header, x + 6, y + 7, {
           width: colWidths[i] - 12,
           align: i >= 3 ? 'center' : 'left',
@@ -760,7 +756,7 @@ export default class TraumaticEventRegistryReportService {
       }
       if (idx % 2 === 1) {
         doc.save()
-        doc.rect(margin, y, pageW, rowH).fill(BRAND_COLORS.bgZebra)
+        doc.rect(margin, y, pageW, rowH).fill(PDF_COLORS.subheaderFill)
         doc.restore()
       }
 
@@ -775,9 +771,9 @@ export default class TraumaticEventRegistryReportService {
 
       row.forEach((cell, i) => {
         doc
-          .font('Mulish')
+          .font(FONT_REGULAR)
           .fontSize(9)
-          .fillColor(BRAND_COLORS.text)
+          .fillColor(PDF_COLORS.text)
           .text(cell, x + 4, y + 6, {
             width: colWidths[i] - 8,
             align: i >= 3 ? 'center' : 'left',
@@ -795,7 +791,7 @@ export default class TraumaticEventRegistryReportService {
       .moveTo(margin, y)
       .lineTo(margin + pageW, y)
       .lineWidth(0.5)
-      .strokeColor(BRAND_COLORS.borderLight)
+      .strokeColor(PDF_COLORS.border)
       .stroke()
     doc.y = y + 6
   }
@@ -805,17 +801,17 @@ export default class TraumaticEventRegistryReportService {
     const pageW = doc.page.width - margin * 2
     doc.moveDown(2)
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(13)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text('Sin registros en el periodo seleccionado', margin, doc.y, {
         width: pageW,
         align: 'center',
       })
       .moveDown(0.4)
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(10)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
         'No se encontraron eventos traumáticos que cumplan con los filtros aplicados. Ajusta los filtros y vuelve a generar el reporte.',
         margin,
@@ -841,13 +837,13 @@ export default class TraumaticEventRegistryReportService {
       .moveTo(margin, bottomY)
       .lineTo(margin + pageW, bottomY)
       .lineWidth(0.5)
-      .strokeColor(BRAND_COLORS.borderLight)
+      .strokeColor(PDF_COLORS.border)
       .stroke()
 
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(7.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
         `Folio ${folio} · Generado ${generatedAt.toFormat('dd/LL/yyyy HH:mm')} (CDMX)`,
         margin,
@@ -856,9 +852,9 @@ export default class TraumaticEventRegistryReportService {
       )
 
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(7.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(`Página ${currentPage} / ${totalPages}`, margin + pageW / 2, bottomY + 8, {
         width: pageW / 2,
         align: 'right',
@@ -867,9 +863,9 @@ export default class TraumaticEventRegistryReportService {
       })
 
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(6.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(CONFIDENTIALITY_NOTE, margin, bottomY + 22, {
         width: pageW,
         align: 'center',
@@ -972,28 +968,10 @@ export default class TraumaticEventRegistryReportService {
   private async fetchTradeName(): Promise<string> {
     try {
       const settingService = new SystemSettingService()
-      const setting = await settingService.getActive()
+      const setting = await settingService.resolveForActiveTenant()
       return setting?.systemSettingTradeName ?? ''
     } catch {
       return ''
-    }
-  }
-
-  private registerMulishFonts(doc: PDFKit.PDFDocument) {
-    try {
-      const baseDir = path.resolve(
-        path.dirname(fileURLToPath(import.meta.url)),
-        ...FONTS_DIR_REL
-      )
-      doc.registerFont('Mulish', path.join(baseDir, 'Mulish-Regular.ttf'))
-      doc.registerFont('Mulish-Bold', path.join(baseDir, 'Mulish-Bold.ttf'))
-      doc.registerFont('Mulish-SemiBold', path.join(baseDir, 'Mulish-SemiBold.ttf'))
-      doc.registerFont('Mulish-Italic', path.join(baseDir, 'Mulish-Italic.ttf'))
-    } catch {
-      doc.registerFont('Mulish', 'Helvetica')
-      doc.registerFont('Mulish-Bold', 'Helvetica-Bold')
-      doc.registerFont('Mulish-SemiBold', 'Helvetica-Bold')
-      doc.registerFont('Mulish-Italic', 'Helvetica-Oblique')
     }
   }
 

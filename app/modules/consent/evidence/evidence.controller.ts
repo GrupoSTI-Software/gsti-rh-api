@@ -1,5 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import ExcelJS from 'exceljs'
+import { buildDownloadFileName, contentDisposition, formatDownloadFileDate } from '#helpers/download_file_name'
 import { assertConsentEvidenceAccess } from '#helpers/consent_evidence_rbac'
 import { CONSENT_EVIDENCE_ERROR_CODES } from '#constants/consent_evidence_error_codes'
 import type { LegalDocumentType } from '#models/legal_document'
@@ -127,8 +128,8 @@ export default class EvidenceController {
    *                     documentType: biometric_consent
    *                     version: "1.0"
    *                     acceptedAt: "2026-07-02T10:00:00.000-06:00"
-   *                     ip: "••••••••••.10.0.5"
-   *                     userAgent: "••••••••••••••••••••••••••Safari"
+   *                     ip: "•••••"
+   *                     userAgent: "•••••"
    *                 meta: { total: 1, perPage: 20, currentPage: 1, lastPage: 1 }
    *       401:
    *         description: Access token ausente, inválido o expirado
@@ -359,13 +360,16 @@ export default class EvidenceController {
     headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
 
     const buffer = await workbook.xlsx.writeBuffer()
-    const filename = `evidencia-aceptaciones_${Date.now()}.xlsx`
+    const filename = buildDownloadFileName(
+      ['evidencia-consentimientos', formatDownloadFileDate()],
+      'xlsx'
+    )
 
     response.header(
       'Content-Type',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
     )
-    response.header('Content-Disposition', `attachment; filename="${filename}"`)
+    response.header('Content-Disposition', contentDisposition(filename))
     return response.send(buffer)
   }
 

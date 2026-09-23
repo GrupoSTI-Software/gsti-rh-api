@@ -1,0 +1,42 @@
+name: Contrato del catálogo de módulos y permisos
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+      - multitenant
+  push:
+    branches:
+      - main
+      - develop
+      - multitenant
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  catalogo:
+    name: Verificar fuente única del catálogo
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout del código
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version-file: '.nvmrc'
+          cache: 'npm'
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      # Solo los specs de app/constants/: validan que el catálogo de módulos,
+      # grupos y permisos se declare únicamente en
+      # app/constants/system_modules_menu/system_modules.constant.ts y que toda
+      # ruta tome su gate de un import de #constants/*_permission_declarations.
+      # No requieren base de datos.
+      - name: Contrato del catálogo
+        run: node ace test unit --files="constants/"

@@ -57,7 +57,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     roleSlug: `persona-subject-${stamp}`,
     roleDescription: 'Rol temporal QA alta persona',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   const person = await Person.create({
@@ -88,6 +88,11 @@ async function cleanupActor(actor: TenantActor | null) {
   await BusinessUnit.query()
     .where('business_unit_id', actor.businessUnit.businessUnitId)
     .delete()
+}
+
+/** Header de empresa activa: el middleware exige el UUID v4 público, no el id entero. */
+function buHeader(actor: TenantActor): string {
+  return actor.businessUnit.businessUnitPublicId
 }
 
 function personPayload(suffix: string, subjectType?: string) {
@@ -148,13 +153,21 @@ test.group('Alta/listado persona — exigencia OFF', (group) => {
   test('sin personSubjectType y sin permiso no responde PERM.DENIED', async ({ client, assert }) => {
     const payload = personPayload('off-ausente')
     createdEmails.push(payload.personEmail)
-    const response = await client.post('/api/persons').loginAs(actor!.user).json(payload)
+    const response = await client
+      .post('/api/persons')
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .loginAs(actor!.user)
+      .json(payload)
     assert.notEqual(response.status(), 403)
     assert.notEqual(response.body()?.key, 'PERM.DENIED')
   })
 
   test('GET /api/persons sin tab-persona-read no responde PERM.DENIED', async ({ client, assert }) => {
-    const response = await client.get('/api/persons').qs({ page: 1, limit: 10 }).loginAs(actor!.user)
+    const response = await client
+      .get('/api/persons')
+      .qs({ page: 1, limit: 10 })
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .loginAs(actor!.user)
     assert.notEqual(response.status(), 403)
     assert.notEqual(response.body()?.key, 'PERM.DENIED')
   })
@@ -193,15 +206,29 @@ test.group('Alta/listado persona — exigencia ON', (group) => {
     }
   })
 
-  test('ausente, collaborator y valor-invalido sin write dan 403 y no crean fila', async ({
+  test('ausente, collaborator, valor-invalido y destinos de aviación sin write dan 403 y no crean fila', async ({
     client,
     assert,
   }) => {
     await grantEmployeesOnly(actor!.role.roleId, [])
-    for (const subject of [undefined, 'collaborator', 'valor-invalido'] as const) {
+    // customer, flight-attendant y pilot se retiraron con aviación: ya no
+    // eximen de tab-persona-write.
+    const subjects = [
+      undefined,
+      'collaborator',
+      'valor-invalido',
+      'customer',
+      'flight-attendant',
+      'pilot',
+    ] as const
+    for (const subject of subjects) {
       const payload = personPayload(`on-${String(subject)}`, subject)
       const before = await countByEmail(payload.personEmail)
-      const response = await client.post('/api/persons').loginAs(actor!.user).json(payload)
+      const response = await client
+        .post('/api/persons')
+        .header('X-Business-Unit-Id', buHeader(actor!))
+        .loginAs(actor!.user)
+        .json(payload)
       assert.equal(response.status(), 403)
       assert.equal(response.body()?.key, 'PERM.DENIED')
       assert.equal(await countByEmail(payload.personEmail), before)
@@ -211,18 +238,29 @@ test.group('Alta/listado persona — exigencia ON', (group) => {
   test('valor-invalido con write llega al validador y responde 422', async ({ client, assert }) => {
     await grantEmployeesOnly(actor!.role.roleId, ['tab-persona-write'])
     const payload = personPayload('on-invalid-with-write', 'valor-invalido')
-    const response = await client.post('/api/persons').loginAs(actor!.user).json(payload)
+    const response = await client
+      .post('/api/persons')
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .loginAs(actor!.user)
+      .json(payload)
     assert.equal(response.status(), 422)
     assert.equal(await countByEmail(payload.personEmail), 0)
   })
 
-  test('destinos no colaborador no exigen tab-persona-write', async ({ client, assert }) => {
+  test('system-user, el único destino no colaborador vivo, no exige tab-persona-write', async ({
+    client,
+    assert,
+  }) => {
     // Aísla tab-persona-write de EMP.SENS.WRITE.FORBIDDEN sobre personEmail.
     await grantEmployeesOnly(actor!.role.roleId, ['sensitive-contacto-write'])
-    for (const subject of ['customer', 'flight-attendant', 'pilot', 'system-user'] as const) {
+    for (const subject of ['system-user'] as const) {
       const payload = personPayload(`on-${subject}`, subject)
       createdEmails.push(payload.personEmail)
-      const response = await client.post('/api/persons').loginAs(actor!.user).json(payload)
+      const response = await client
+        .post('/api/persons')
+        .header('X-Business-Unit-Id', buHeader(actor!))
+        .loginAs(actor!.user)
+        .json(payload)
       assert.notEqual(response.status(), 403)
       assert.notEqual(response.body()?.key, 'PERM.DENIED')
     }
@@ -233,12 +271,20 @@ test.group('Alta/listado persona — exigencia ON', (group) => {
     assert,
   }) => {
     await grantEmployeesOnly(actor!.role.roleId, [])
-    const denied = await client.get('/api/persons').qs({ page: 1, limit: 10 }).loginAs(actor!.user)
+    const denied = await client
+      .get('/api/persons')
+      .qs({ page: 1, limit: 10 })
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .loginAs(actor!.user)
     assert.equal(denied.status(), 403)
     assert.equal(denied.body()?.key, 'PERM.DENIED')
 
     await grantEmployeesOnly(actor!.role.roleId, ['tab-persona-read'])
-    const allowed = await client.get('/api/persons').qs({ page: 1, limit: 10 }).loginAs(actor!.user)
+    const allowed = await client
+      .get('/api/persons')
+      .qs({ page: 1, limit: 10 })
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .loginAs(actor!.user)
     assert.notEqual(allowed.status(), 403)
     assert.notEqual(allowed.body()?.key, 'PERM.DENIED')
   })

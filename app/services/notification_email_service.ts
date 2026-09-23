@@ -7,7 +7,9 @@ import mail from '@adonisjs/mail/services/main'
 import { DateTime } from 'luxon'
 import axios from 'axios'
 import env from '#start/env'
+import { buildDownloadFileName, formatDownloadFileDate } from '#helpers/download_file_name'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { indexSystemSettingsByBusinessUnitSlug } from '#helpers/system_settings_by_business_unit'
 
 /**
  * Service class for sending notification emails when vacation or permission requests are approved
@@ -162,7 +164,7 @@ export default class NotificationEmailService {
             // Attach Excel file if generated successfully
             if (excelBuffer) {
               message.attachData(excelBuffer, {
-                filename: `permisos-${exceptionDate}.xlsx`,
+                filename: buildDownloadFileName(['permisos', formatDownloadFileDate(exceptionDate)], 'xlsx'),
                 contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
               })
             }
@@ -213,25 +215,11 @@ export default class NotificationEmailService {
    * @returns Promise<SystemSetting | null> - The matching system setting or null
    */
   private async findSystemSettingByBusinessUnit(businessUnitSlug: string): Promise<SystemSetting | null> {
-    const systemSettings = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_active', 1)
+    // Resuelve por la llave, con el índice compartido. Antes recorría todas las
+    // configuraciones activas partiendo su CSV de slugs.
+    const index = await indexSystemSettingsByBusinessUnitSlug()
 
-    for (const systemSetting of systemSettings) {
-      if (systemSetting.systemSettingBusinessUnits) {
-        // Split the business units string and convert to lowercase
-        const businessUnits = systemSetting.systemSettingBusinessUnits
-          .split(',')
-          .map(unit => unit.trim().toLowerCase())
-
-        // Check if the business unit slug matches any of the configured units
-        if (businessUnits.includes(businessUnitSlug)) {
-          return systemSetting
-        }
-      }
-    }
-
-    return null
+    return index.get(businessUnitSlug.trim().toLowerCase()) ?? null
   }
 
   /**
@@ -344,7 +332,7 @@ export default class NotificationEmailService {
             // Attach Excel file if generated successfully
             if (excelBuffer) {
               message.attachData(excelBuffer, {
-                filename: `permisos-${exceptionDate}.xlsx`,
+                filename: buildDownloadFileName(['permisos', formatDownloadFileDate(exceptionDate)], 'xlsx'),
                 contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
               })
             }

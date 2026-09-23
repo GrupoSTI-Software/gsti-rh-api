@@ -1,7 +1,8 @@
 import Icon from '#models/icon'
 import HolidayService from '#services/holiday_service'
 import CalendarExportService from '#services/calendar_export_service'
-import { CALENDAR_EXPORT_FILE_NAMES } from '#constants/calendar_export'
+import { buildCalendarExportFileName } from '#constants/calendar_export'
+import { contentDisposition } from '#helpers/download_file_name'
 import Holiday from '../models/holiday.js'
 import { createOrUpdateHolidayValidator } from '../validators/holiday.js'
 import { HttpContext } from '@adonisjs/core/http'
@@ -254,6 +255,8 @@ export default class HolidayController {
    *                   example: Resource fetched
    *                 data:
    *                   $ref: '#/components/schemas/Holiday'
+   *       403:
+   *         description: Sin permiso `calendar:read` (negativa del permissionGate, key `PERM.DENIED`)
    *       404:
    *         description: Resource not found
    */
@@ -472,7 +475,7 @@ export default class HolidayController {
       const holidays = (service.holidays as unknown as { all(): Holiday[] }).all()
       const buffer = await new CalendarExportService(i18n).holidays(holidays, year)
       response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      response.header('Content-Disposition', `attachment; filename=${year}-${CALENDAR_EXPORT_FILE_NAMES.holidays}`)
+      response.header('Content-Disposition', contentDisposition(buildCalendarExportFileName('holidays', year)))
       return response.status(200).send(buffer)
     } catch (error) {
       return response.status(500).json({

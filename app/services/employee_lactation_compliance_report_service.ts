@@ -1,11 +1,10 @@
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { DateTime } from 'luxon'
 import PDFDocument from 'pdfkit'
 import db from '@adonisjs/lucid/services/db'
 import EmployeeLactationPeriod from '#models/employee_lactation_period'
 import SystemSettingService from '#services/system_setting_service'
 import { SENSITIVE_EXPORT_PLACEHOLDER } from '#constants/sensitive_export_placeholder'
+import { REPORT_NEUTRAL_HEX, REPORT_NEUTRAL_PDF_FONTS } from '#constants/report_neutral_theme'
 import { ELP_ERROR_CODES } from '../constants/employee_lactation_period_error_codes.js'
 import {
   LACTATION_COMPLIANCE_STATUS,
@@ -16,15 +15,13 @@ import {
 import { EmployeeLactationPeriodError } from '../exceptions/employee_lactation_period_error.js'
 
 /**
- * Paleta de marca **Valanserh** definida en la guía oficial del PDF
- * (HU USRH1780441847121). El primario es `#3D5DC0`; los chips de estado
- * usan verde/ámbar/rojo según norma. NO modificar sin actualizar la guía
- * de DS Valanserh.
+ * Colores del PDF. La estructura (títulos, tablas, bordes, pies) sale de la
+ * paleta neutral compartida: sin colores de marca. Los colores de estado
+ * (activa / por vencer / vencida) se conservan porque transmiten
+ * información de cumplimiento, no identidad.
  */
-const BRAND_COLORS = {
-  primary: '#3D5DC0',
-  primaryDark: '#2E47A3',
-  primarySoft: '#EEF1FB',
+const PDF_COLORS = {
+  ...REPORT_NEUTRAL_HEX,
   active: '#15803D',
   activeSoft: '#DCFCE7',
   activeBorder: '#86EFAC',
@@ -34,25 +31,14 @@ const BRAND_COLORS = {
   expired: '#B91C1C',
   expiredSoft: '#FEE2E2',
   expiredBorder: '#FCA5A5',
-  text: '#1F2937',
-  textMuted: '#6B7280',
-  textLight: '#FFFFFF',
-  noteAmber: '#92400E',
-  noteAmberBg: '#FEF3C7',
-  noteAmberBorder: '#F59E0B',
-  border: '#D1D5DB',
-  borderLight: '#E5E7EB',
-  bgZebra: '#F8FAFC',
-  bgSoft: '#F9FAFB',
-  bgCard: '#FFFFFF',
 } as const
 
 /**
- * Wordmark del producto. Va a la izquierda en la franja de marca de cada
- * página, tal como pide la guía: "franja primaria + wordmark Valanserh +
- * nombre de la empresa cliente".
+ * Tipografía neutral: fuentes estándar de pdfkit (sin la tipografía de
+ * marca). Codifican WinAnsi, que cubre acentos, ñ, `§`, `—`, `–` y `•`.
  */
-const PRODUCT_WORDMARK = 'Valanserh'
+const FONT_REGULAR = REPORT_NEUTRAL_PDF_FONTS.regular
+const FONT_BOLD = REPORT_NEUTRAL_PDF_FONTS.bold
 
 /**
  * Leyenda de confidencialidad del pie. Espeja literalmente la guía
@@ -60,13 +46,6 @@ const PRODUCT_WORDMARK = 'Valanserh'
  */
 const CONFIDENTIALITY_NOTE =
   'Documento confidencial — uso interno. Contiene datos personales protegidos por la Ley Federal de Protección de Datos Personales en Posesión de los Particulares.'
-
-/**
- * Pre-resuelve la ruta al directorio de fuentes para no calcularlo en cada
- * generación. Los TTF deben estar en `resources/fonts/`. Mulish es la
- * fuente oficial del DS Valanserh.
- */
-const FONTS_DIR_REL = ['..', '..', 'resources', 'fonts'] as const
 
 /**
  * Filtros aceptados por el reporte de cumplimiento. Coinciden 1-a-1 con el
@@ -593,7 +572,7 @@ export default class EmployeeLactationComplianceReportService {
   /**
    * Renderiza el PDF en memoria según la **Guía de implementación
    * USRH1780441847121** del paquete de evidencia de lactancia. Estructura
-   * del documento (todas las páginas comparten franja de marca + footer):
+   * del documento (todas las páginas comparten encabezado neutral + footer):
    *
    *   1. **Página 1 (cabecera)**: título, meta de empresa (nombre comercial
    *      + folio + fecha de generación CDMX), filtros aplicados, bloque
@@ -604,7 +583,7 @@ export default class EmployeeLactationComplianceReportService {
    *      documentales adjuntas. Si la duración supera 6 meses se agrega la
    *      nota ámbar de "política voluntaria" (LFT 170 IV).
    *   3. **Resumen tabular** al final con una fila por empleada.
-   *   4. **Encabezado de marca** (franja `#3D5DC0`) y **pie de página**
+   *   4. **Encabezado neutral** (nombre comercial + línea gris) y **pie de página**
    *      (folio · fecha · Página X · leyenda de confidencialidad) en
    *      TODAS las páginas, repetidos.
    *
@@ -624,20 +603,17 @@ export default class EmployeeLactationComplianceReportService {
     return new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({
         size: 'LETTER',
-        // Margen superior generoso para que la banda de marca (24px) no
+        // Margen superior generoso para que el encabezado (hasta y=38) no
         // pise el contenido; el footer reserva ~60px desde el fondo.
         margins: { top: 60, bottom: 70, left: 48, right: 48 },
         bufferPages: true,
         info: {
           Title: 'Reporte de cumplimiento — Periodos de lactancia',
-          Author: tradeName || PRODUCT_WORDMARK,
+          Author: tradeName,
           Subject: 'Compliance Report - Lactation Periods',
-          Creator: PRODUCT_WORDMARK,
           Producer: 'PDFKit',
         },
       })
-
-      this.registerMulishFonts(doc)
 
       const chunks: Uint8Array[] = []
       doc.on('data', (chunk: Uint8Array) => chunks.push(chunk))
@@ -666,7 +642,7 @@ export default class EmployeeLactationComplianceReportService {
         this.renderSummaryTable(doc, items)
       }
 
-      // Pintamos la franja de marca y el pie en cada página después de
+      // Pintamos el encabezado y el pie en cada página después de
       // generar todo el contenido (las tarjetas pueden haber añadido
       // páginas extra). `bufferPages: true` nos permite re-visitar.
       const pageRange = doc.bufferedPageRange()
@@ -674,7 +650,7 @@ export default class EmployeeLactationComplianceReportService {
       for (let i = pageRange.start; i < pageRange.start + totalPages; i++) {
         doc.switchToPage(i)
         const pageIndex = i - pageRange.start
-        this.renderBrandStrip(doc, tradeName)
+        this.renderPageHeader(doc, tradeName)
         this.renderPageFooter(doc, folio, generatedAt, pageIndex + 1, totalPages)
       }
 
@@ -687,53 +663,45 @@ export default class EmployeeLactationComplianceReportService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Franja superior de marca. Coincide en todas las páginas: fondo
-   * primario `#3D5DC0`, wordmark "Valanserh" a la izquierda y el nombre
-   * comercial de la empresa cliente a la derecha.
+   * Encabezado neutral de cada página: nombre comercial del patrón (dato
+   * que identifica al emisor, no marca) en texto gris a la derecha y una
+   * línea delgada gris. Sin franja de color ni wordmark del producto.
    *
-   * El cursor `doc.y` se restaura al margen superior al terminar para
-   * evitar que un `text()` posterior accidentalmente arrastre la
-   * coordenada Y y cause overflow → página en blanco extra (defecto
-   * crónico de pdfkit con `text()` en coords absolutas cerca del borde).
+   * El cursor `doc.y` se restaura al terminar para evitar que un `text()`
+   * en coordenadas absolutas arrastre la Y y provoque una página en blanco.
    */
-  private renderBrandStrip(doc: PDFKit.PDFDocument, tradeName: string) {
-    const pageW = doc.page.width
-    const stripH = 24
+  private renderPageHeader(doc: PDFKit.PDFDocument, tradeName: string) {
     const margin = doc.page.margins.left
+    const pageW = doc.page.width - margin * 2
+    const ruleY = 38
     const savedY = doc.y
 
     doc.save()
-    doc.rect(0, 0, pageW, stripH).fill(BRAND_COLORS.primary)
-
-    doc
-      .font('Mulish-Bold')
-      .fontSize(10)
-      .fillColor(BRAND_COLORS.textLight)
-      .text(PRODUCT_WORDMARK, margin, 7, {
-        width: pageW / 2 - margin,
-        lineBreak: false,
-        height: 12,
-      })
-
     if (tradeName) {
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(9)
-        .fillColor(BRAND_COLORS.textLight)
-        .text(tradeName, pageW / 2, 8, {
-          width: pageW / 2 - margin,
+        .fillColor(PDF_COLORS.textMuted)
+        .text(tradeName, margin, 24, {
+          width: pageW,
           align: 'right',
           lineBreak: false,
           ellipsis: true,
           height: 12,
         })
     }
+    doc
+      .moveTo(margin, ruleY)
+      .lineTo(margin + pageW, ruleY)
+      .lineWidth(0.5)
+      .strokeColor(PDF_COLORS.border)
+      .stroke()
     doc.restore()
     doc.y = savedY
   }
 
   /**
-   * Bloque de cabecera de la primera página (debajo de la franja de marca):
+   * Bloque de cabecera de la primera página (debajo del encabezado):
    * título principal, meta del cliente (tradeName · Folio · Generado en
    * CDMX) y los filtros aplicados.
    */
@@ -750,9 +718,9 @@ export default class EmployeeLactationComplianceReportService {
     doc.y = doc.page.margins.top + 8
 
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(18)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text('Reporte de cumplimiento — Periodos de lactancia', margin, doc.y, {
         width: pageW,
         align: 'left',
@@ -763,9 +731,9 @@ export default class EmployeeLactationComplianceReportService {
       ? `${tradeName}`
       : 'Empresa sin nombre comercial configurado'
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(10)
-      .fillColor(BRAND_COLORS.text)
+      .fillColor(PDF_COLORS.text)
       .text(`${metaLeft}   Folio: ${folio}`, margin, doc.y, {
         width: pageW,
         align: 'left',
@@ -774,9 +742,9 @@ export default class EmployeeLactationComplianceReportService {
 
     doc.moveDown(0.15)
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
         `Generado: ${generatedAt.toFormat('dd/LL/yyyy HH:mm')} (CDMX)`,
         margin,
@@ -786,9 +754,9 @@ export default class EmployeeLactationComplianceReportService {
 
     doc.moveDown(0.4)
     doc
-      .font('Mulish-SemiBold')
+      .font(FONT_BOLD)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.text)
+      .fillColor(PDF_COLORS.text)
       .text(`Filtros aplicados: ${this.formatFilters(filters)}`, margin, doc.y, {
         width: pageW,
         align: 'left',
@@ -807,16 +775,16 @@ export default class EmployeeLactationComplianceReportService {
     const pageW = doc.page.width - margin * 2
 
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(11)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text('Fundamento legal', margin, doc.y, { width: pageW, align: 'left' })
 
     doc.moveDown(0.2)
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.text)
+      .fillColor(PDF_COLORS.text)
       .text(
         'Ley Federal del Trabajo, artículo 170, fracciones II y IV · NOM-037-STPS-2023, ' +
           'numeral 5.2.h. Este documento consolida los periodos de lactancia registrados, la ' +
@@ -833,7 +801,8 @@ export default class EmployeeLactationComplianceReportService {
   /**
    * Resumen con conteos por estado (4 conteos en una fila): total de
    * empleadas + activas + por vencer + vencidas. Cada conteo es un número
-   * grande en primario con su etiqueta debajo.
+   * grande (negro para el total, color de estado para el resto) con su
+   * etiqueta debajo.
    */
   private renderStatusSummary(
     doc: PDFKit.PDFDocument,
@@ -845,16 +814,16 @@ export default class EmployeeLactationComplianceReportService {
     const blockW = pageW / 4
 
     const blocks: Array<{ value: number; label: string; color: string }> = [
-      { value: summary.total, label: 'empleadas', color: BRAND_COLORS.primary },
-      { value: summary.active, label: 'activas', color: BRAND_COLORS.active },
-      { value: summary.expiring, label: 'por vencer', color: BRAND_COLORS.expiring },
-      { value: summary.expired, label: 'vencida(s)', color: BRAND_COLORS.expired },
+      { value: summary.total, label: 'empleadas', color: PDF_COLORS.text },
+      { value: summary.active, label: 'activas', color: PDF_COLORS.active },
+      { value: summary.expiring, label: 'por vencer', color: PDF_COLORS.expiring },
+      { value: summary.expired, label: 'vencida(s)', color: PDF_COLORS.expired },
     ]
 
     blocks.forEach((block, idx) => {
       const x = margin + blockW * idx
       doc
-        .font('Mulish-Bold')
+        .font(FONT_BOLD)
         .fontSize(28)
         .fillColor(block.color)
         .text(String(block.value), x, startY, {
@@ -863,9 +832,9 @@ export default class EmployeeLactationComplianceReportService {
           lineBreak: false,
         })
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(9)
-        .fillColor(BRAND_COLORS.textMuted)
+        .fillColor(PDF_COLORS.textMuted)
         .text(block.label, x, startY + 32, {
           width: blockW,
           align: 'center',
@@ -914,16 +883,16 @@ export default class EmployeeLactationComplianceReportService {
     doc
       .roundedRect(x, y, pageW, cardH, 6)
       .lineWidth(0.7)
-      .strokeColor(BRAND_COLORS.borderLight)
-      .fillAndStroke(BRAND_COLORS.bgCard, BRAND_COLORS.borderLight)
+      .strokeColor(PDF_COLORS.border)
+      .fillAndStroke(PDF_COLORS.background, PDF_COLORS.border)
     doc.rect(x, y, 3.5, cardH).fill(this.statusColor(item.status))
     doc.restore()
 
     // Cabecera: nombre + chip de estado en esquina superior derecha.
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(13)
-      .fillColor(BRAND_COLORS.text)
+      .fillColor(PDF_COLORS.text)
       .text(item.employee.fullName, innerX, y + innerPad, {
         width: innerW - 110,
         lineBreak: false,
@@ -944,9 +913,9 @@ export default class EmployeeLactationComplianceReportService {
       ? SENSITIVE_EXPORT_PLACEHOLDER
       : item.employee.personCurp
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
         curpValue ? `CURP ${curpValue}` : 'CURP no registrado',
         innerX,
@@ -954,9 +923,9 @@ export default class EmployeeLactationComplianceReportService {
         { width: innerW / 2, lineBreak: false, ellipsis: true }
       )
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(periodLine, innerX + innerW / 2, metaY, {
         width: innerW / 2,
         align: 'right',
@@ -989,18 +958,18 @@ export default class EmployeeLactationComplianceReportService {
       const cellX = innerX + colW * col
       const cellY = gridY + row * 22
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(8)
-        .fillColor(BRAND_COLORS.textMuted)
+        .fillColor(PDF_COLORS.textMuted)
         .text(cell.label, cellX, cellY, {
           width: colW - 8,
           lineBreak: false,
           ellipsis: true,
         })
       doc
-        .font('Mulish-SemiBold')
+        .font(FONT_BOLD)
         .fontSize(9.5)
-        .fillColor(BRAND_COLORS.text)
+        .fillColor(PDF_COLORS.text)
         .text(cell.value, cellX, cellY + 10, {
           width: colW - 8,
           lineBreak: false,
@@ -1013,9 +982,9 @@ export default class EmployeeLactationComplianceReportService {
     // NO se imprime nombre original ni clave de S3).
     const evidencesY = gridY + 50
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text('Evidencia documental adjunta', innerX, evidencesY, {
         width: innerW,
         lineBreak: false,
@@ -1023,9 +992,9 @@ export default class EmployeeLactationComplianceReportService {
 
     if (item.evidences.length === 0) {
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(9)
-        .fillColor(BRAND_COLORS.expiring)
+        .fillColor(PDF_COLORS.expiring)
         .text('Pendiente de adjuntar', innerX, evidencesY + 14, {
           width: innerW,
           lineBreak: false,
@@ -1034,9 +1003,9 @@ export default class EmployeeLactationComplianceReportService {
       let bulletY = evidencesY + 14
       for (const ev of item.evidences) {
         doc
-          .font('Mulish')
+          .font(FONT_REGULAR)
           .fontSize(9)
-          .fillColor(BRAND_COLORS.text)
+          .fillColor(PDF_COLORS.text)
           .text(
             `• ${this.evidenceCategoryLabel(ev.category)} (cargada el ${this.formatDateDmy(ev.uploadedAt)})`,
             innerX,
@@ -1052,7 +1021,7 @@ export default class EmployeeLactationComplianceReportService {
 
   /**
    * "Resumen tabular" al final, según la guía. Tabla simple con cabecera
-   * primaria y filas zebra: Empleada · Periodo · Tipo · Modalidad · Estado
+   * gris y filas alternadas: Empleada · Periodo · Tipo · Modalidad · Estado
    * · Días aplic.
    */
   private renderSummaryTable(doc: PDFKit.PDFDocument, items: ComplianceReportItem[]) {
@@ -1071,9 +1040,9 @@ export default class EmployeeLactationComplianceReportService {
     }
 
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(12)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text('Resumen tabular', margin, doc.y, { width: pageW, align: 'left' })
     doc.moveDown(0.3)
 
@@ -1088,15 +1057,15 @@ export default class EmployeeLactationComplianceReportService {
     // Cabecera.
     let y = doc.y
     doc.save()
-    doc.rect(margin, y, pageW, headerH).fill(BRAND_COLORS.primary)
+    doc.rect(margin, y, pageW, headerH).fill(PDF_COLORS.headerFill)
     doc.restore()
 
     let x = margin
     headers.forEach((header, i) => {
       doc
-        .font('Mulish-Bold')
+        .font(FONT_BOLD)
         .fontSize(8.5)
-        .fillColor(BRAND_COLORS.textLight)
+        .fillColor(PDF_COLORS.text)
         .text(header, x + 6, y + 7, {
           width: colWidths[i] - 12,
           align: i === headers.length - 1 ? 'center' : 'left',
@@ -1114,7 +1083,7 @@ export default class EmployeeLactationComplianceReportService {
       }
       if (idx % 2 === 1) {
         doc.save()
-        doc.rect(margin, y, pageW, rowH).fill(BRAND_COLORS.bgZebra)
+        doc.rect(margin, y, pageW, rowH).fill(PDF_COLORS.subheaderFill)
         doc.restore()
       }
 
@@ -1134,9 +1103,9 @@ export default class EmployeeLactationComplianceReportService {
         const isStatus = i === 4
         const isCount = i === 5
         doc
-          .font(isStatus ? 'Mulish-Bold' : 'Mulish')
+          .font(isStatus ? FONT_BOLD : FONT_REGULAR)
           .fontSize(9)
-          .fillColor(isStatus ? this.statusColor(item.status) : BRAND_COLORS.text)
+          .fillColor(isStatus ? this.statusColor(item.status) : PDF_COLORS.text)
           .text(cell, x + 4, y + 6, {
             width: colWidths[i] - 8,
             align: isCount ? 'center' : 'left',
@@ -1155,7 +1124,7 @@ export default class EmployeeLactationComplianceReportService {
       .moveTo(margin, y)
       .lineTo(margin + pageW, y)
       .lineWidth(0.5)
-      .strokeColor(BRAND_COLORS.borderLight)
+      .strokeColor(PDF_COLORS.border)
       .stroke()
     doc.y = y + 6
   }
@@ -1170,17 +1139,17 @@ export default class EmployeeLactationComplianceReportService {
     const pageW = doc.page.width - margin * 2
     doc.moveDown(2)
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(13)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text('Sin registros en el periodo seleccionado', margin, doc.y, {
         width: pageW,
         align: 'center',
       })
       .moveDown(0.4)
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(10)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
         'No se encontraron periodos de lactancia que cumplan con los filtros aplicados. Ajusta los filtros y vuelve a generar el reporte.',
         margin,
@@ -1220,13 +1189,13 @@ export default class EmployeeLactationComplianceReportService {
       .moveTo(margin, bottomY)
       .lineTo(margin + pageW, bottomY)
       .lineWidth(0.5)
-      .strokeColor(BRAND_COLORS.borderLight)
+      .strokeColor(PDF_COLORS.border)
       .stroke()
 
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(7.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
         `Folio ${folio} · Generado ${generatedAt.toFormat('dd/LL/yyyy HH:mm')} (CDMX)`,
         margin,
@@ -1235,9 +1204,9 @@ export default class EmployeeLactationComplianceReportService {
       )
 
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(7.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(`Página ${currentPage} / ${totalPages}`, margin + pageW / 2, bottomY + 8, {
         width: pageW / 2,
         align: 'right',
@@ -1248,9 +1217,9 @@ export default class EmployeeLactationComplianceReportService {
     // La leyenda es larga; bajamos el tamaño a 6.5pt para que SIEMPRE
     // entre en una sola línea con margen visual.
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(6.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(CONFIDENTIALITY_NOTE, margin, bottomY + 22, {
         width: pageW,
         align: 'center',
@@ -1286,7 +1255,7 @@ export default class EmployeeLactationComplianceReportService {
       .lineWidth(0.8)
       .fillAndStroke(bg, border)
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(9)
       .fillColor(fg)
       .text(label, x, y + (height - 9) / 2, {
@@ -1298,21 +1267,21 @@ export default class EmployeeLactationComplianceReportService {
   }
 
   private statusColor(status: LactationComplianceStatusValue): string {
-    if (status === LACTATION_COMPLIANCE_STATUS.ACTIVE) return BRAND_COLORS.active
-    if (status === LACTATION_COMPLIANCE_STATUS.EXPIRING) return BRAND_COLORS.expiring
-    return BRAND_COLORS.expired
+    if (status === LACTATION_COMPLIANCE_STATUS.ACTIVE) return PDF_COLORS.active
+    if (status === LACTATION_COMPLIANCE_STATUS.EXPIRING) return PDF_COLORS.expiring
+    return PDF_COLORS.expired
   }
 
   private statusBgColor(status: LactationComplianceStatusValue): string {
-    if (status === LACTATION_COMPLIANCE_STATUS.ACTIVE) return BRAND_COLORS.activeSoft
-    if (status === LACTATION_COMPLIANCE_STATUS.EXPIRING) return BRAND_COLORS.expiringSoft
-    return BRAND_COLORS.expiredSoft
+    if (status === LACTATION_COMPLIANCE_STATUS.ACTIVE) return PDF_COLORS.activeSoft
+    if (status === LACTATION_COMPLIANCE_STATUS.EXPIRING) return PDF_COLORS.expiringSoft
+    return PDF_COLORS.expiredSoft
   }
 
   private statusBorderColor(status: LactationComplianceStatusValue): string {
-    if (status === LACTATION_COMPLIANCE_STATUS.ACTIVE) return BRAND_COLORS.activeBorder
-    if (status === LACTATION_COMPLIANCE_STATUS.EXPIRING) return BRAND_COLORS.expiringBorder
-    return BRAND_COLORS.expiredBorder
+    if (status === LACTATION_COMPLIANCE_STATUS.ACTIVE) return PDF_COLORS.activeBorder
+    if (status === LACTATION_COMPLIANCE_STATUS.EXPIRING) return PDF_COLORS.expiringBorder
+    return PDF_COLORS.expiredBorder
   }
 
   /**
@@ -1355,40 +1324,16 @@ export default class EmployeeLactationComplianceReportService {
 
   /**
    * Lee `systemSettingTradeName` del setting activo del tenant. Es el
-   * único dato del SystemSetting que la guía pide imprimir; el logo
-   * institucional se reemplazó por el wordmark "Valanserh" de marca de
-   * producto.
+   * único dato del SystemSetting que se imprime: identifica al patrón
+   * emisor. Formato neutral: sin logotipos de la empresa ni del producto.
    */
   private async fetchTradeName(): Promise<string> {
     try {
       const settingService = new SystemSettingService()
-      const setting = await settingService.getActive()
+      const setting = await settingService.resolveForActiveTenant()
       return setting?.systemSettingTradeName ?? ''
     } catch {
       return ''
-    }
-  }
-
-  /**
-   * Registra las cuatro variantes Mulish que usa el PDF (Regular, Bold,
-   * SemiBold e Italic). Si por alguna razón los TTF no existen en disco
-   * (deploy roto), hace fallback a Helvetica para no caer el render.
-   */
-  private registerMulishFonts(doc: PDFKit.PDFDocument) {
-    try {
-      const baseDir = path.resolve(
-        path.dirname(fileURLToPath(import.meta.url)),
-        ...FONTS_DIR_REL
-      )
-      doc.registerFont('Mulish', path.join(baseDir, 'Mulish-Regular.ttf'))
-      doc.registerFont('Mulish-Bold', path.join(baseDir, 'Mulish-Bold.ttf'))
-      doc.registerFont('Mulish-SemiBold', path.join(baseDir, 'Mulish-SemiBold.ttf'))
-      doc.registerFont('Mulish-Italic', path.join(baseDir, 'Mulish-Italic.ttf'))
-    } catch {
-      doc.registerFont('Mulish', 'Helvetica')
-      doc.registerFont('Mulish-Bold', 'Helvetica-Bold')
-      doc.registerFont('Mulish-SemiBold', 'Helvetica-Bold')
-      doc.registerFont('Mulish-Italic', 'Helvetica-Oblique')
     }
   }
 

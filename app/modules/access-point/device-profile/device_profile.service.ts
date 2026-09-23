@@ -169,7 +169,30 @@ export default class DeviceProfileService {
       )
     }
 
-    const layout = attlogLayoutFor(parsed.platform)
+    /**
+     * Lo que el equipo NO declara en este mensaje no deja de ser cierto.
+     *
+     * Un volcado de opciones puede venir parcial --el firmware manda lo que le
+     * toca segun el comando, y los hay que solo traen un punado de claves-- y
+     * escribir `null` encima borraba conocimiento bueno: un mensaje con tres
+     * campos dejaba la ficha sin firmware, sin version de rostro y sin
+     * conteos, y nada en pantalla explicaba por que. El perfil es "lo ultimo
+     * que el equipo declaro de CADA cosa", no "lo que declaro la ultima vez".
+     *
+     * Borrar un dato sigue siendo posible: el equipo manda el valor nuevo y
+     * ese si pisa. Lo que no puede es borrarse por omision.
+     */
+    const keep = <T>(current: T | null | undefined, before: T | null | undefined): T | null =>
+      current ?? before ?? null
+
+    const platform = keep(parsed.platform, previous.accessPointProfilePlatform)
+
+    /**
+     * La disposicion se recalcula con la plataforma EFECTIVA, no con la del
+     * mensaje: si esta no la trae, seguimos sabiendo leer sus checadas igual
+     * que hace un minuto.
+     */
+    const layout = attlogLayoutFor(platform)
     const layoutKnown = layout !== null
     /**
      * El equipo ya declaro una plataforma que si sabemos leer: los avisos que
@@ -211,40 +234,103 @@ export default class DeviceProfileService {
     }
 
     const patch: DeviceProfilePatch = {
-      accessPointProfilePlatform: parsed.platform,
-      accessPointProfileFwVersion: parsed.fwVersion,
-      accessPointProfilePushVersion: parsed.pushVersion,
-      accessPointProfileOemVendor: parsed.oemVendor,
+      accessPointProfilePlatform: platform,
+      accessPointProfileFwVersion: keep(parsed.fwVersion, previous.accessPointProfileFwVersion),
+      accessPointProfilePushVersion: keep(
+        parsed.pushVersion,
+        previous.accessPointProfilePushVersion
+      ),
+      accessPointProfileOemVendor: keep(parsed.oemVendor, previous.accessPointProfileOemVendor),
       accessPointProfileLayoutKnown: layoutKnown ? 1 : 0,
-      accessPointProfileFpVersion: versions.fpVersion,
-      accessPointProfileFaceVersion: versions.faceVersion,
-      accessPointProfileFvVersion: versions.fvVersion,
-      accessPointProfilePvVersion: versions.pvVersion,
+      accessPointProfileFpVersion: keep(versions.fpVersion, previous.accessPointProfileFpVersion),
+      accessPointProfileFaceVersion: keep(
+        versions.faceVersion,
+        previous.accessPointProfileFaceVersion
+      ),
+      accessPointProfileFvVersion: keep(versions.fvVersion, previous.accessPointProfileFvVersion),
+      accessPointProfilePvVersion: keep(versions.pvVersion, previous.accessPointProfilePvVersion),
       accessPointProfileVersionsSource:
-        Object.keys(versions.source).length > 0 ? versions.source : null,
-      accessPointProfileMultiBioDataSupport: parsed.multiBioDataSupport,
-      accessPointProfileMultiBioPhotoSupport: parsed.multiBioPhotoSupport,
-      accessPointProfileMultiBioVersion: parsed.multiBioVersion,
-      accessPointProfileMaxMultiBioDataCount: parsed.maxMultiBioDataCount,
-      accessPointProfileMaxMultiBioPhotoCount: parsed.maxMultiBioPhotoCount,
-      accessPointProfileMaxFaceCount: parsed.maxFaceCount,
-      accessPointProfileMaxUserPhotoCount: parsed.maxUserPhotoCount,
-      accessPointProfileMaxUserCount: parsed.maxUserCount,
-      accessPointProfileMaxFingerCount: parsed.maxFingerCount,
-      accessPointProfileMaxAttLogCount: parsed.maxAttLogCount,
-      accessPointProfileUserCount: parsed.userCount,
-      accessPointProfileFpCount: parsed.fpCount,
-      accessPointProfileFaceCount: parsed.faceCount,
-      accessPointProfileTransactionCount: parsed.transactionCount,
-      accessPointProfileFingerFunOn: parsed.fingerFunOn,
-      accessPointProfileFaceFunOn: parsed.faceFunOn,
-      accessPointProfilePhotoFunOn: parsed.photoFunOn,
-      accessPointProfileUserPicUrlFunOn: parsed.userPicUrlFunOn,
-      accessPointProfileSipEnableUnit: parsed.sipEnableUnit,
-      accessPointProfileVisualIntercomFunOn: parsed.visualIntercomFunOn,
-      accessPointProfileSubcontractingUpgradeFunOn: parsed.subcontractingUpgradeFunOn,
-      accessPointProfileVideoProtocol: parsed.videoProtocol,
-      accessPointProfileOptionsRaw: body.length > 0 ? clampBytes(body, OPTIONS_RAW_MAX_BYTES) : null,
+        Object.keys(versions.source).length > 0
+          ? versions.source
+          : previous.accessPointProfileVersionsSource,
+      accessPointProfileMultiBioDataSupport: keep(
+        parsed.multiBioDataSupport,
+        previous.accessPointProfileMultiBioDataSupport
+      ),
+      accessPointProfileMultiBioPhotoSupport: keep(
+        parsed.multiBioPhotoSupport,
+        previous.accessPointProfileMultiBioPhotoSupport
+      ),
+      accessPointProfileMultiBioVersion: keep(
+        parsed.multiBioVersion,
+        previous.accessPointProfileMultiBioVersion
+      ),
+      accessPointProfileMaxMultiBioDataCount: keep(
+        parsed.maxMultiBioDataCount,
+        previous.accessPointProfileMaxMultiBioDataCount
+      ),
+      accessPointProfileMaxMultiBioPhotoCount: keep(
+        parsed.maxMultiBioPhotoCount,
+        previous.accessPointProfileMaxMultiBioPhotoCount
+      ),
+      accessPointProfileMaxFaceCount: keep(
+        parsed.maxFaceCount,
+        previous.accessPointProfileMaxFaceCount
+      ),
+      accessPointProfileMaxUserPhotoCount: keep(
+        parsed.maxUserPhotoCount,
+        previous.accessPointProfileMaxUserPhotoCount
+      ),
+      accessPointProfileMaxUserCount: keep(
+        parsed.maxUserCount,
+        previous.accessPointProfileMaxUserCount
+      ),
+      accessPointProfileMaxFingerCount: keep(
+        parsed.maxFingerCount,
+        previous.accessPointProfileMaxFingerCount
+      ),
+      accessPointProfileMaxAttLogCount: keep(
+        parsed.maxAttLogCount,
+        previous.accessPointProfileMaxAttLogCount
+      ),
+      accessPointProfileUserCount: keep(parsed.userCount, previous.accessPointProfileUserCount),
+      accessPointProfileFpCount: keep(parsed.fpCount, previous.accessPointProfileFpCount),
+      accessPointProfileFaceCount: keep(parsed.faceCount, previous.accessPointProfileFaceCount),
+      accessPointProfileTransactionCount: keep(
+        parsed.transactionCount,
+        previous.accessPointProfileTransactionCount
+      ),
+      accessPointProfileFingerFunOn: keep(
+        parsed.fingerFunOn,
+        previous.accessPointProfileFingerFunOn
+      ),
+      accessPointProfileFaceFunOn: keep(parsed.faceFunOn, previous.accessPointProfileFaceFunOn),
+      accessPointProfilePhotoFunOn: keep(parsed.photoFunOn, previous.accessPointProfilePhotoFunOn),
+      accessPointProfileUserPicUrlFunOn: keep(
+        parsed.userPicUrlFunOn,
+        previous.accessPointProfileUserPicUrlFunOn
+      ),
+      accessPointProfileSipEnableUnit: keep(
+        parsed.sipEnableUnit,
+        previous.accessPointProfileSipEnableUnit
+      ),
+      accessPointProfileVisualIntercomFunOn: keep(
+        parsed.visualIntercomFunOn,
+        previous.accessPointProfileVisualIntercomFunOn
+      ),
+      accessPointProfileSubcontractingUpgradeFunOn: keep(
+        parsed.subcontractingUpgradeFunOn,
+        previous.accessPointProfileSubcontractingUpgradeFunOn
+      ),
+      accessPointProfileVideoProtocol: keep(
+        parsed.videoProtocol,
+        previous.accessPointProfileVideoProtocol
+      ),
+      accessPointProfileOptionsRaw:
+        body.length > 0
+          ? clampBytes(body, OPTIONS_RAW_MAX_BYTES)
+          : previous.accessPointProfileOptionsRaw,
+      /** Cuando se leyo: esto si es de esta peticion, siempre. */
       accessPointProfileOptionsReadAt: device.receivedAt,
     }
     /**

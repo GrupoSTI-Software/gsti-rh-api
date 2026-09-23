@@ -1,6 +1,11 @@
 import { HttpContext } from '@adonisjs/core/http'
 import Tolerance from '../models/tolerance.js'
+import SystemSetting from '#models/system_setting'
 import ToleranceService from '#services/tolerance_service'
+import SystemSettingService from '#services/system_setting_service'
+import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
+import { resolveOptionalTenantBusinessUnitId } from '#helpers/resolve_optional_tenant_business_unit_id'
+import { findSystemSettingInScope } from '#helpers/system_setting_tenant_scope'
 
 export default class TolerancesController {
   /**
@@ -69,6 +74,13 @@ export default class TolerancesController {
   async store({ request, response }: HttpContext) {
     const data = request.only(['toleranceName', 'toleranceMinutes', 'systemSettingId'])
 
+    // El `systemSettingId` llega del cliente: sin resolverlo dentro de la
+    // empresa activa se podían sembrar tolerancias en la configuración ajena.
+    const systemSetting = await findSystemSettingInScope(data.systemSettingId)
+    if (!systemSetting) {
+      return response.notFound({ message: 'Tolerance not found' })
+    }
+
     const tolerance = await Tolerance.create({
       toleranceName: data.toleranceName,
       toleranceMinutes: data.toleranceMinutes,
@@ -105,7 +117,7 @@ export default class TolerancesController {
    *         description: Tolerance not found
    */
   async show({ params, response }: HttpContext) {
-    const tolerance = await Tolerance.find(params.id)
+    const tolerance = await new ToleranceService().findInScope(params.id)
     if (!tolerance) {
       return response.notFound({ message: 'Tolerance not found' })
     }
@@ -150,7 +162,7 @@ export default class TolerancesController {
    *         description: Tolerance not found
    */
   async update({ params, request, response }: HttpContext) {
-    const tolerance = await Tolerance.find(params.id)
+    const tolerance = await new ToleranceService().findInScope(params.id)
     if (!tolerance) {
       return response.notFound({ message: 'Tolerance not found' })
     }
@@ -183,7 +195,7 @@ export default class TolerancesController {
    *         description: Tolerance not found
    */
   async destroy({ params, response }: HttpContext) {
-    const tolerance = await Tolerance.find(params.id)
+    const tolerance = await new ToleranceService().findInScope(params.id)
     if (!tolerance) {
       return response.notFound({ message: 'Tolerance not found' })
     }
@@ -195,20 +207,28 @@ export default class TolerancesController {
 
   /**
    * @swagger
-   * /api/tolerances/get-tardiness-tolerance/{systemSettingId}:
+   * /api/tolerances/get-tardiness-tolerance:
    *   get:
    *     security:
    *       - bearerAuth: []
    *     tags:
    *       - Tolerances
-   *     summary: get tardiness tolerance
+   *     summary: Tolerancia de retardo de la empresa que pide (Monitor de asistencia)
+   *     description: >-
+   *       Ruta literal, sin parámetros. La empresa se resuelve del encabezado
+   *       `X-Business-Unit-Id`, ahora obligatorio: el grupo monta `businessScope()`
+   *       y sin encabezado la respuesta es 400. Responde `data.tardinessTolerance`
+   *       con el objeto Tolerance de esa empresa, o `null` si no tiene una
+   *       configurada; el backoffice cae entonces a su valor por omisión.
    *     parameters:
-   *       - name: systemSettingId
-   *         in: query
+   *       - name: X-Business-Unit-Id
+   *         in: header
    *         required: true
-   *         description: System setting id
+   *         description: >-
+   *           Empresa activa. Antes era opcional y se caía a la ficha base; el
+   *           corte de empresa del grupo lo volvió obligatorio.
    *         schema:
-   *           type: number
+   *           type: string
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -290,11 +310,73 @@ export default class TolerancesController {
    *                     error:
    *                       type: string
    */
-  async getTardinessTolerance({ params, response }: HttpContext) {
+  /**
+   * La ruta es literal (`/get-tardiness-tolerance`) y no lleva `systemSettingId`:
+   * el Monitor de asistencia pide la tolerancia de retardo de la empresa activa,
+   * no la de una empresa que él elija. Antes leía `params.systemSettingId`, que
+   * aquí siempre es `undefined`, y la consulta reventaba con `".where" expects
+   * value to be defined`; el defecto quedaba tapado porque `/:systemSettingId`
+   * se registraba primero y atendía esta ruta en su lugar.
+   *
+   * La empresa sale del encabezado `X-Business-Unit-Id`, no de
+   * `SystemSettingService.getActive()` sin argumentos: esa rama filtra
+   * `whereNull('business_unit_id')` y devuelve SIEMPRE la ficha base
+   * (GrupoSTI), nunca la del tenant que pide. Como las fichas de empresa
+   * siempre llevan `business_unit_id` y el backoffice ESCRIBE la tolerancia en
+   * la ficha del tenant, el Monitor de cualquier empresa provisionada acababa
+   * mostrando, en silencio, la tolerancia de otra.
+   *
+   * `getActive()` sin scope queda solo para el llamador sin encabezado, que es
+   * el contrato legacy de esta ruta.
+   */
+  private async resolveTardinessSystemSetting(ctx: HttpContext): Promise<SystemSetting | null> {
+    const systemSettingService = new SystemSettingService()
+    const { businessUnitId, notInScope } = await resolveOptionalTenantBusinessUnitId(ctx)
+
+    // Empresa fuera del alcance del usuario: no se cae a la base, que sería
+    // servir la configuración de otra empresa.
+    if (notInScope) return null
+    // Sin empresa identificada no hay configuración que servir: antes caía al
+    // registro base de plataforma, que ya no existe —y servirlo era dar la
+    // tolerancia de nadie como si fuera la propia—.
+    if (businessUnitId === null) return null
+
     try {
+      return await systemSettingService.resolveByBusinessUnitId(businessUnitId)
+    } catch (error) {
+      // La empresa no tiene ficha propia: mismo contrato que "no la tiene
+      // configurada", el backoffice cae a su valor por omisión.
+      if (error instanceof SystemSettingResolutionError) return null
+      throw error
+    }
+  }
+
+  /**
+   * Tolerancia de retardo de la empresa que pide. La consume el Monitor de
+   * asistencia del backoffice.
+   *
+   * Sin ficha resuelta responde `tardinessTolerance: null` y el backoffice cae a
+   * su valor por omisión, igual que cuando la empresa no la tiene configurada.
+   */
+  async getTardinessTolerance(ctx: HttpContext) {
+    const { response } = ctx
+    try {
+      const systemSettingActive = await this.resolveTardinessSystemSetting(ctx)
+      if (!systemSettingActive) {
+        response.status(200)
+        return {
+          type: 'success',
+          title: 'Tolerance',
+          message: 'The tardiness tolerance found successfully',
+          data: {
+            tardinessTolerance: null,
+          },
+        }
+      }
+
       const toleranceService = new ToleranceService()
       const tardinessTolerance = await toleranceService.getTardinessTolerance(
-        params.systemSettingId
+        systemSettingActive.systemSettingId
       )
       response.status(200)
       return {

@@ -1,4 +1,5 @@
 import type EmployeeOffboardingDocument from '#models/employee_offboarding_document'
+import { DOCUMENT_TEMPLATE_VERSION_NUMBER_EXTRA } from '../documents.repository.js'
 
 /**
  * Documento emitido tal como viaja al cliente (USRH1787433503686). NUNCA
@@ -27,12 +28,23 @@ export interface EmployeeOffboardingDocumentDto {
   issuedByUserId: number | null
   issuedByUserName: string | null
   supersededDocumentId: number | null
+  /** Versión de plantilla propia con la que salió; `null` = plantilla del sistema (USRH1789097550389). */
+  templateVersionId: number | null
+  /** Número legible de esa versión (K-4), derivado por join; `null` sin versión. */
+  templateVersionNumber: number | null
+}
+
+/** Número de versión proyectado por el adaptador en `$extras`; `null` cuando no hay versión. */
+export function templateVersionNumberOf(record: EmployeeOffboardingDocument): number | null {
+  const raw: unknown = record.$extras[DOCUMENT_TEMPLATE_VERSION_NUMBER_EXTRA]
+  return raw === null || raw === undefined ? null : Number(raw)
 }
 
 /** Serializa la emisión sin exponer jamás la Key de S3. */
 export function toDocumentDto(
   record: EmployeeOffboardingDocument,
-  userNamesById: Map<number, string>
+  userNamesById: Map<number, string>,
+  templateVersionNumber: number | null
 ): EmployeeOffboardingDocumentDto {
   const issuedByUserId = record.employeeOffboardingDocumentGeneratedByUserId ?? null
   return {
@@ -54,8 +66,9 @@ export function toDocumentDto(
     isCurrent: Boolean(record.employeeOffboardingDocumentIsCurrent),
     issuedAt: record.employeeOffboardingDocumentCreatedAt?.toISO() ?? null,
     issuedByUserId,
-    issuedByUserName:
-      issuedByUserId !== null ? (userNamesById.get(issuedByUserId) ?? null) : null,
+    issuedByUserName: issuedByUserId !== null ? userNamesById.get(issuedByUserId) ?? null : null,
     supersededDocumentId: record.employeeOffboardingDocumentSupersededDocumentId ?? null,
+    templateVersionId: record.employeeOffboardingDocumentTemplateVersionId ?? null,
+    templateVersionNumber,
   }
 }
