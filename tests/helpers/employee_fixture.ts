@@ -57,6 +57,9 @@ export async function createEmployeeFixture(
     employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: code,
     employee_code: code,
+    // La inserción por tabla se salta los hooks del modelo, y `employee_slug`
+    // es NOT NULL UNIQUE sin default: lo genera `Employee.assignSlug`.
+    employee_slug: randomUUID(),
     employee_first_name: 'Empleado',
     employee_last_name: 'Fixture',
     employee_second_last_name: prefix,
