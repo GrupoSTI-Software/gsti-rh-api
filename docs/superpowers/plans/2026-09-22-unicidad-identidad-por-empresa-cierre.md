@@ -65,3 +65,18 @@ criterios 1-6). Manual hermano:
 `docs/superpowers/plans/2026-09-22-unicidad-identidad-por-empresa-qa-api.md`
 (5 escenarios, lo recorre una persona). Fixture CA-8 ajustado (RFC distintos
 por persona; defaults intactos para write/mask-echo).
+
+## Notas operativas
+
+- Las columnas generadas `*_active` dependen de `person_*_hash` y de
+  `person_deleted_at`: una migración futura que altere o elimine cualquiera de
+  ellas falla por esa dependencia. La salida es correr antes el `down()` de
+  `1790106682775_add_person_identity_active_uniques_to_people_table` y volver a
+  aplicarla después.
+- El UNIQUE sobre una columna VIRTUAL se construye con INPLACE, no INSTANT:
+  recorre la tabla. Sobre la BD limpia del 2026-09-28 no importa; con volumen sí.
+- El correo sigue único de forma global (regla 5 de la HU): su 422 revela que el
+  correo existe en otra empresa. Canal de enumeración aceptado, no defecto.
+- La historia de reincorporación debe traducir el `ER_DUP_ENTRY` al restaurar
+  una persona dada de baja igual que lo hacen el alta y la edición por HTTP;
+  si no, el choque con el UNIQUE sale como 500 con el texto crudo de MySQL.

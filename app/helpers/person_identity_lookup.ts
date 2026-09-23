@@ -10,9 +10,11 @@ const HASH_COLUMN: Record<PersonIdentityField, string> = {
 /**
  * ¿Hay OTRO expediente vivo de esta empresa con la misma huella? (USRH1789698261610)
  *
- * La empresa es parámetro explícito, no contexto implícito: así el mismo chequeo
- * sirve con contexto HTTP, sin contexto (REPL, jobs) y en validadores. Sin empresa
- * devuelve falso y NUNCA un veredicto (regla 10): el 400 lo pone quien llama.
+ * La empresa es parámetro explícito y acota la consulta, pero `Person.query()`
+ * sigue llevando el mixin de tenant: con el scope vacío inyecta `1 = 0` y el
+ * chequeo no encuentra nada. Por HTTP no se alcanza (el middleware rechaza
+ * antes) y el UNIQUE de la BD es el respaldo. Sin empresa devuelve falso y
+ * NUNCA un veredicto (regla 10): el 400 lo pone quien llama.
  * El correo no pasa por aquí: sigue global (regla 5).
  */
 export async function livePersonWithIdentityExists(

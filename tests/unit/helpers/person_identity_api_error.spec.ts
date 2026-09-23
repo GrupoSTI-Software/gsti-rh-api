@@ -3,6 +3,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import {
   personIdentityDuplicatedFieldFromValidationError,
   personIdentityDuplicatedIndexFromError,
+  importRowErrorMessage,
   respondPersonIdentityDuplicated,
   respondPersonIdentityMissingCompany,
 } from '#helpers/person_identity_api_error'
@@ -42,9 +43,36 @@ test.group('detectores de duplicado de identidad', () => {
   test('índice: mapea ER_DUP_ENTRY por nombre de índice compuesto', ({ assert }) => {
     const rfc = { code: 'ER_DUP_ENTRY', errno: 1062, message: "Duplicate entry '7-abc' for key 'people.people_rfc_company_unique'" }
     const other = { code: 'ER_DUP_ENTRY', errno: 1062, message: "Duplicate entry 'x' for key 'users.users_email_active_unique'" }
+    const curp = { code: 'ER_DUP_ENTRY', errno: 1062, message: "Duplicate entry '7-abc' for key 'people.people_curp_company_unique'" }
+    const nss = { code: 'ER_DUP_ENTRY', errno: 1062, message: "Duplicate entry '7-abc' for key 'people.people_imss_nss_company_unique'" }
     assert.equal(personIdentityDuplicatedIndexFromError(rfc), 'rfc')
+    assert.equal(personIdentityDuplicatedIndexFromError(curp), 'curp')
+    assert.equal(personIdentityDuplicatedIndexFromError(nss), 'nss')
     assert.isNull(personIdentityDuplicatedIndexFromError(other))
     assert.isNull(personIdentityDuplicatedIndexFromError({ code: 'E_VALIDATION_ERROR', messages: [] }))
+  })
+})
+
+test.group('mensaje de fila de la importación masiva', () => {
+  const hash = 'a'.repeat(64)
+  const dup = (index: string) => ({
+    code: 'ER_DUP_ENTRY',
+    errno: 1062,
+    message: `Duplicate entry '7-${hash}' for key 'people.${index}'`,
+  })
+
+  test('choque contra el UNIQUE compuesto: mensaje de negocio sin huella', ({ assert }) => {
+    const rfc = importRowErrorMessage(dup('people_rfc_company_unique'))
+    assert.equal(rfc, 'RFC duplicado')
+    assert.equal(importRowErrorMessage(dup('people_curp_company_unique')), 'CURP duplicado')
+    assert.equal(importRowErrorMessage(dup('people_imss_nss_company_unique')), 'NSS duplicado')
+    assert.notMatch(rfc, /[0-9a-f]{64}|people_rfc_company_unique|Duplicate entry/)
+  })
+
+  test('cualquier otro error conserva su mensaje', ({ assert }) => {
+    assert.equal(importRowErrorMessage(new Error('Fecha inválida')), 'Fecha inválida')
+    const otherDup = dup('users_email_active_unique')
+    assert.equal(importRowErrorMessage(otherDup), otherDup.message)
   })
 })
 

@@ -665,7 +665,6 @@ export default class PersonController {
       const personPlaceOfBirthCity = request.input('personPlaceOfBirthCity')
       const updateCompanyId = ctx.businessUnitScope?.[0] ?? TenantContext.getScope()[0] ?? null
       const person = {
-        businessUnitId: updateCompanyId,
         personId: personId,
         personFirstname: personFirstname,
         personLastname: personLastname,

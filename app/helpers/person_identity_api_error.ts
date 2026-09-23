@@ -60,6 +60,17 @@ export function personIdentityDuplicatedIndexFromError(error: unknown): PersonId
   return found ?? null
 }
 
+/**
+ * Mensaje de una fila fallida de la importación masiva. Un choque contra el
+ * UNIQUE compuesto se informa como negocio; el texto crudo de MySQL trae la
+ * huella de 64 hex y nunca llega al resultado.
+ */
+export function importRowErrorMessage(error: unknown): string {
+  const racedField = personIdentityDuplicatedIndexFromError(error)
+  if (racedField) return `${racedField.toUpperCase()} duplicado`
+  return isObjectRecord(error) && typeof error.message === 'string' ? error.message : String(error)
+}
+
 const TITLE_KEY: Record<PersonIdentityField, string> = {
   curp: 'person_identity_duplicated_curp_title',
   nss: 'person_identity_duplicated_nss_title',
