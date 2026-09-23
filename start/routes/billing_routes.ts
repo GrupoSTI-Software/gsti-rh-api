@@ -43,6 +43,14 @@ router
       '/subscription',
       '#controllers/billing_tenant_controller.contractSubscription'
     )
+    // Aviso comercial, no un cobro: la cuota evita que el boton repetido
+    // inunde el buzon del equipo.
+    router
+      .post(
+        '/subscription/renewal-request',
+        '#controllers/billing_tenant_controller.requestRenewal'
+      )
+      .use(billingSubscriptionChangeRateLimit)
     router
       .get(
         '/subscription/change-preview',

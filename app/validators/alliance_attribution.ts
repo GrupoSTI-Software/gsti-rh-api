@@ -43,3 +43,14 @@ export const closeAllianceAttributionValidator = vine.compile(
     allianceAttributionCloseReason: vine.string().trim().minLength(1).maxLength(500),
   })
 )
+
+/**
+ * Query para `GET /api/platform/alliances/:allianceId/attributions`.
+ * `limit` se topa en 100; el servicio usa 20 por omisión.
+ */
+export const listAllianceAttributionsByAllianceValidator = vine.compile(
+  vine.object({
+    page: vine.number().min(1).withoutDecimals().optional(),
+    limit: vine.number().min(1).withoutDecimals().max(100).optional(),
+  })
+)

@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import { resolveRemainingTermPeriods } from '#helpers/alliance_commission'
 import AllianceAttribution from '#models/alliance_attribution'
 import AllianceCommission from '#models/alliance_commission'
 import { getBusinessTimeZone, toBusinessDateString } from '#utils/business_date'
@@ -88,8 +89,9 @@ export default class AllianceCommissionService {
 
     const term = attribution.allianceAttributionTermPeriods
     const accrued = await this.sumAccruedPeriods(attribution.allianceAttributionId, trx)
-    const remaining = term === null ? input.periodsCovered : Math.max(0, term - accrued)
-    const periodsConsumed = Math.min(input.periodsCovered, remaining)
+    const remaining = resolveRemainingTermPeriods(term, accrued)
+    const periodsConsumed =
+      remaining === null ? input.periodsCovered : Math.min(input.periodsCovered, remaining)
 
     if (periodsConsumed < 1) {
       return

@@ -278,8 +278,6 @@ export default class EmployeeService {
       // Guardar empleado
       await newEmployee.save()
 
-      await this.updateEmployeeSlug(newEmployee)
-
       // Asignar usuarios responsables
       await this.setUserResponsible(newEmployee.employeeId, employee.usersResponsible ? employee.usersResponsible : [])
 
@@ -351,7 +349,6 @@ export default class EmployeeService {
     currentEmployee.positionSyncId = employee.positionId
     currentEmployee.employeeLastSynchronizationAt = new Date()
     await currentEmployee.save()
-    await this.updateEmployeeSlug(currentEmployee)
     return currentEmployee
   }
 
@@ -770,7 +767,6 @@ export default class EmployeeService {
         await this.verifyEmployeeLimit(employee.businessUnitId, trx)
         newEmployee.useTransaction(trx)
         await newEmployee.save()
-        await this.updateEmployeeSlug(newEmployee, trx)
         await this.setUserResponsible(
           newEmployee.employeeId,
           usersResponsible ? usersResponsible : [],
@@ -888,7 +884,6 @@ export default class EmployeeService {
       })
     }
 
-    await this.updateEmployeeSlug(currentEmployee)
     await currentEmployee.load('businessUnit')
     return currentEmployee
   }
@@ -1079,52 +1074,6 @@ export default class EmployeeService {
   }
 
   /**
-   * Público desde USRH1785438246847: la siembra demo del onboarding lo reusa
-   * para poblar el slug del empleado de práctica dentro de su transacción.
-   */
-  async updateEmployeeSlug(employee: Employee, trx?: TransactionClientContract) {
-    if (!employee.employeeId) {
-      return
-    }
-
-    const slug = this.generateEmployeeSlug(employee)
-    await Employee.query({ client: trx })
-      .where('employee_id', employee.employeeId)
-      .update({ employee_slug: slug })
-    employee.employeeSlug = slug
-  }
-
-  private generateEmployeeSlug(employee: Employee) {
-    const firstNamePart = this.normalizeSlugSegment(employee.employeeFirstName)
-    const lastNamePart = this.normalizeSlugSegment(employee.employeeLastName)
-    const secondLastNamePart = this.normalizeSlugSegment(employee.employeeSecondLastName)
-    const namePart =
-      [firstNamePart, lastNamePart, secondLastNamePart].filter((part) => part).join('-') || 'sin-nombre'
-
-    const payrollPart = this.normalizeSlugSegment(employee.employeePayrollCode, 'sin-codigo')
-    const idPart = employee.employeeId ? `${employee.employeeId}` : '0'
-
-    return `${namePart}---${payrollPart}---${idPart}`.toLowerCase()
-  }
-
-  private normalizeSlugSegment(value?: string | null, fallback = '') {
-    if (!value) {
-      return fallback
-    }
-
-    return value
-      .toString()
-      .trim()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/[^a-zA-Z0-9\-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .toLowerCase()
-  }
-
-  /**
    * Reactivar un empleado eliminado (soft delete)
    * @param currentEmployee - Empleado a reactivar
    * @returns Promise<Employee>
@@ -1201,6 +1150,27 @@ export default class EmployeeService {
       .withTrashed()
       .first()
     return employee ? employee : null
+  }
+
+  /**
+   * Canjea el token opaco de la URL del Backoffice por el empleado.
+   *
+   * Resuelve el id y delega en `getById` en vez de repetir su query: el filtro
+   * por usuario responsable, los preloads y el `withTrashed` viven en un solo
+   * lugar. La búsqueda del slug hereda el alcance por empresa del mixin
+   * `withBusinessUnitScope`, así que un token de otra empresa no resuelve.
+   */
+  async getBySlug(employeeSlug: string, userResponsibleId?: number | null) {
+    const match = await Employee.query()
+      .where('employee_slug', employeeSlug)
+      .select('employee_id')
+      .withTrashed()
+      .first()
+
+    if (!match) {
+      return null
+    }
+    return this.getById(match.employeeId, userResponsibleId)
   }
 
   async getNewPosition(
@@ -1415,17 +1385,39 @@ export default class EmployeeService {
     }
   }
 
-  async indexWithOutUser(filters: EmployeeFilterSearchInterface) {
+  /**
+   * Empleados de la empresa activa que todavía no tienen cuenta de usuario
+   * EN ELLA.
+   *
+   * La exclusión se mide con la misma regla que el listado de usuarios
+   * (`UserService.index`): una cuenta cuenta para la empresa solo si está
+   * ligada a ella en `business_unit_users`. Antes se medía contra todas las
+   * cuentas del sistema, así que una cuenta de otra empresa —o huérfana de la
+   * pivote— dejaba al empleado fuera del catálogo sin que nadie pudiera verla
+   * ni corregirla desde la pantalla.
+   *
+   * Sin empresa en el alcance no hay catálogo que ofrecer.
+   *
+   * @param filters - Búsqueda, estructura y paginación del catálogo.
+   * @param allowedBusinessUnitIds - Alcance de empresas de quien consulta.
+   */
+  async indexWithOutUser(
+    filters: EmployeeFilterSearchInterface,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     const personUsed = await User.query()
       .whereNull('user_deleted_at')
+      .whereHas('businessUnits', (subQuery) => {
+        subQuery.whereIn('business_units.business_unit_id', allowedBusinessUnitIds)
+      })
       .select('person_id')
       .distinct('person_id')
       .orderBy('person_id')
-    const persons = [] as Array<number>
-    for await (const user of personUsed) {
-      persons.push(user.personId)
-    }
+    const persons = personUsed.map((user) => user.personId)
     const employees = await Employee.query()
+      .if(allowedBusinessUnitIds.length === 0, (query) => {
+        query.whereRaw('1 = 0')
+      })
       .if(filters.search, (query) => {
         query.whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
           `%${filters.search.toUpperCase()}%`,
@@ -4153,8 +4145,6 @@ export default class EmployeeService {
 
     await employee.save()
 
-    // Generar slug único después de guardar (necesita employeeId)
-    await this.updateEmployeeSlug(employee)
 
     return employee
   }
@@ -7819,7 +7809,6 @@ export default class EmployeeService {
     }
 
     await employee.save()
-    await this.updateEmployeeSlug(employee)
     return employee
   }
 
