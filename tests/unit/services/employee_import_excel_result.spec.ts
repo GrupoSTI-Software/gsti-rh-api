@@ -95,6 +95,22 @@ test.group('employee_service importFromExcel — USRH1789747321650', () => {
     assert.include(content, 'if (isSensitiveDataWriteError(error)) {')
   })
 
+  test('CA-11: el catch de la pasada 2 redacta identidad duplicada o mensaje genérico con traza al log', ({
+    assert,
+  }) => {
+    const content = readFileSync(SERVICE_FILE, 'utf-8')
+
+    assert.include(content, 'personIdentityDuplicatedIndexFromError(error) !== null')
+    assert.include(content, 'message: controlledMessage')
+    assert.include(content, "'Fila de carga masiva no procesada'")
+    assert.include(content, "message: 'No fue posible procesar esta fila'")
+    const pass2Catch = content.slice(content.indexOf('for (const { rowNumber, employeeData, businessUnitId'))
+    assert.notInclude(
+      pass2Catch,
+      'rowErrors.push({ row: rowNumber, message: importRowErrorMessage(error) })'
+    )
+  })
+
   test('regla 4 intacta: el duplicado de CURP sigue siendo salto de fila con el resto cargando', ({
     assert,
   }) => {

@@ -33,7 +33,10 @@ import FlightAttendant from '#models/flight_attendant'
 import Customer from '#models/customer'
 import env from '#start/env'
 import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
-import { importRowErrorMessage } from '#helpers/person_identity_api_error'
+import {
+  importRowErrorMessage,
+  personIdentityDuplicatedIndexFromError,
+} from '#helpers/person_identity_api_error'
 import { shouldAbortImportOnRowError } from '#helpers/employee_import_api_error'
 import { blindIndex } from '#utils/blind_index'
 import { TenantContext } from '#utils/tenant_context'
@@ -3080,8 +3083,25 @@ export default class EmployeeService {
           // Esta guarda hoy es inalcanzable: la importación corre en `runUnguarded` y el permiso
           // sensible se exige por cabeceras antes de las pasadas; se conserva como defensa futura.
           if (shouldAbortImportOnRowError(error)) throw error
-          skipped++
-          rowErrors.push({ row: rowNumber, message: importRowErrorMessage(error) })
+          // Spec §7 zona 6 (CA-11): lo que el importador redacta viaja tal cual;
+          // lo no reconocido sale genérico y su traza va al log del servidor.
+          // Criterio de procedencia, no manejador por tipo: cubre por omisión
+          // índices, drivers y excepciones futuras sin conocerlas.
+          const controlledMessage =
+            personIdentityDuplicatedIndexFromError(error) !== null
+              ? importRowErrorMessage(error)
+              : null
+          if (controlledMessage !== null) {
+            skipped++
+            rowErrors.push({ row: rowNumber, message: controlledMessage })
+          } else {
+            logger.error(
+              { err: error, row: rowNumber, businessUnitId },
+              'Fila de carga masiva no procesada'
+            )
+            skipped++
+            rowErrors.push({ row: rowNumber, message: 'No fue posible procesar esta fila' })
+          }
         }
       }
 
