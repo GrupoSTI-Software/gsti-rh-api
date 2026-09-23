@@ -17,6 +17,9 @@ import { middleware } from '../kernel.js'
  *   PUT    /api/platform/alliances/:allianceId/billing-profile → upsert perfil
  *   GET    /api/platform/alliances/:allianceId/code            → código de la alianza
  *   GET    /api/platform/alliances/:allianceId/code/qr-url     → URL firmada del QR
+ *
+ * Ver también: GET /api/platform/alliances/:allianceId/commissions
+ * (comisiones devengadas), declarada en `platform_alliance_commission_routes.ts`.
  */
 router
   .group(() => {

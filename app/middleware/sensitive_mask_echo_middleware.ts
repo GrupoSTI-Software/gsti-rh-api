@@ -5,8 +5,8 @@ import { neutralizeSensitiveMaskEchoInBody } from '#helpers/sensitive_mask_echo_
 const WRITE_METHODS = new Set(['POST', 'PUT', 'PATCH'])
 
 /**
- * Elimina del cuerpo las claves del catálogo sensible cuyo valor sea eco de máscara
- * y el usuario no tenga lectura de la categoría (USRH1787433076990).
+ * Elimina del cuerpo las claves del catálogo sensible cuyo valor sea eco de máscara,
+ * tenga o no el usuario lectura de la categoría (USRH1787433076990, USRH1789477675771).
  * Requiere `SensitiveAccessContext` abierto (businessScope o sensitiveAccess previo).
  */
 export default class SensitiveMaskEchoMiddleware {

@@ -1,10 +1,19 @@
 import Employee from '#models/employee'
 import EmployeeBiometricFaceIdService from '#services/employee_biometric_face_id_service'
+import PiiAccessLogService from '#services/pii_access_log_service'
 import UploadService from '#services/upload_service'
 import { HttpContext } from '@adonisjs/core/http'
 import { inject } from '@adonisjs/core'
 import { ensureEmployeeBiometricRead } from '#helpers/ensure_employee_biometric_read'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
+
+/** Sanea el header `X-Origin-Module`; valores inválidos se descartan sin bloquear el stream. */
+function normalizeOriginModule(raw: string | undefined): string | null {
+  const trimmed = raw?.trim()
+  if (!trimmed) return null
+  if (!/^[A-Za-z0-9._:-]{1,100}$/.test(trimmed)) return null
+  return trimmed
+}
 
 /**
  * Controlador proxy para servir el binario de la foto biométrica de un empleado
@@ -156,6 +165,36 @@ export default class EmployeeBiometricPhotosController {
     }
 
     const objectKey = biometricFaceId.employeeBiometricFaceIdPhotoUrl
+
+    // El asiento se escribe ANTES de leer el bucket. Si la auditoría falla, no
+    // se entregan bytes: la bitácora debe registrar el intento de acceso al
+    // rostro aunque el almacenamiento falle después.
+    try {
+      await new PiiAccessLogService().record({
+        businessUnitId: currentEmployee.businessUnitId,
+        accessorUserId: ctx.auth.user!.userId,
+        model: 'EmployeeBiometricFaceId',
+        modelColumn: 'employeeBiometricFaceIdPhotoUrl',
+        recordId: biometricFaceId.employeeBiometricFaceIdId,
+        subjectEmployeeId: employeeId,
+        accessorIp: request.ip(),
+        accessorUserAgent: request.header('User-Agent') ?? null,
+        requestId: request.id() ?? null,
+        originModule: normalizeOriginModule(request.header('X-Origin-Module')),
+      })
+    } catch (error: any) {
+      logger.error(
+        { err: error, employeeId, recordId: biometricFaceId.employeeBiometricFaceIdId },
+        'Error inesperado al registrar acceso a foto biométrica'
+      )
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Error del servidor',
+        message: 'Ocurrió un error inesperado al registrar el acceso a la foto biométrica',
+        error: error?.message,
+      }
+    }
 
     try {
       const object = await uploadService.getObjectStream(objectKey)

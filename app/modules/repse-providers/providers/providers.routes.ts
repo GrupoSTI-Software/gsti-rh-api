@@ -16,3 +16,4 @@ router
   .prefix('/api/repse-providers')
   .use(middleware.auth())
   .use(middleware.businessScope())
+  .use(middleware.sensitiveMaskEcho())
