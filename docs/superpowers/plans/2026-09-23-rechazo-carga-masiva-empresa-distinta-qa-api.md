@@ -1,5 +1,3 @@
-> Estado: pendiente de verificación contra seed (el seeder compartido aborta en un bloque previo, ajeno a esta HU).
-
 # Prueba manual API — Rechazo de carga masiva por empresa distinta
 
 **Problema:** un archivo de empleados podía mezclar empresas y cargarse entero en la empresa activa sin avisar que algunas filas declaraban otra empresa.
