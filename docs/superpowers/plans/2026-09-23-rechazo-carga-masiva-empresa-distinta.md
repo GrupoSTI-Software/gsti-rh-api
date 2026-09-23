@@ -309,9 +309,9 @@ git commit -m "feat(USRH1789747321650): contrato del rechazo por empresa distint
 - Consumes: `resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)` (misma fuente que el cupo); `mapBusinessUnit(nombre, businessUnits)` (resolución existente por nombre); tipo `EmployeeImportCompanyMismatchRow` (Task 1).
 - Produces: `createCompanyMismatchValidationError(offendingRows)` → `Error` con `isCompanyMismatchError`, `statusCode 422`, `offendingRows`. Lanzado DESPUÉS del loop de filas y ANTES de `assertImportWithinQuota` y de la pasada 2.
 
-- [ ] **Step 1: Resolver la empresa activa al inicio de la pasada 1**
+- [ ] **Step 1: Resolver la empresa activa y el caché justo antes del loop de filas**
 
-Dentro de `importFromExcel`, en el bloque `SensitiveAccessContext.runUnguarded`, inmediatamente DESPUÉS de la declaración de contadores (ancla: `const rowErrors: EmployeeImportRowError[] = []` / `const warnings: string[] = []`), insertar:
+Inmediatamente ANTES del `for (const { row, rowNumber } of rows)` de la pasada 1 (después del corte por `maxDataRows` y de la validación de cabeceras, para no enmascarar sus 400 con un 500 de scope), insertar:
 
 ```ts
       // USRH1789747321650 regla 1: el archivo es de una sola empresa, la activa.
@@ -320,6 +320,25 @@ Dentro de `importFromExcel`, en el bloque `SensitiveAccessContext.runUnguarded`,
       // qué comparar y se propaga el mismo error que el cupo lanzaría.
       const activeBusinessUnitId = this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)
       const companyMismatchRows: EmployeeImportCompanyMismatchRow[] = []
+
+      // Caché por nombre normalizado: un archivo repite 2-3 nombres en todas sus
+      // filas; sin caché serían 2 llamadas a `mapBusinessUnit` (Levenshtein sobre
+      // el padrón completo) por fila dentro de una sola petición HTTP.
+      const businessUnitResolutionCache = new Map<string, number | null>()
+      const resolveBusinessUnitByName = (businessUnitName: string): number | null => {
+        const normalizedName = String(businessUnitName ?? '').trim().toLowerCase()
+        if (businessUnitResolutionCache.has(normalizedName)) {
+          return businessUnitResolutionCache.get(normalizedName) ?? null
+        }
+        // Nombres no únicos entre tenants: primero en el scope (si resuelve ahí,
+        // es la activa); solo si no resuelve se consulta el padrón completo para
+        // distinguir "otra empresa real" de "nombre no resuelto".
+        const businessUnitId =
+          this.mapBusinessUnit(businessUnitName, businessUnits) ??
+          this.mapBusinessUnit(businessUnitName, allBusinessUnitsForResolution)
+        businessUnitResolutionCache.set(normalizedName, businessUnitId)
+        return businessUnitId
+      }
 ```
 
 Agregar el import del tipo junto a los existentes (`:23-26`):
@@ -354,10 +373,10 @@ Inmediatamente DESPUÉS de la consulta filtrada de `businessUnits` (ancla: el `i
 Sustituir el bloque de mapeo actual (ancla exacta `:2935-2952`, desde `// Mapear unidad de negocio de trabajo por nombre` hasta la línea de `finalPayrollBusinessUnitId`):
 
 ```ts
-          // Mapear unidad de negocio de trabajo por nombre
-          // (contra TODAS las activas — Step 1b: con solo el scope, la empresa
-          // ajena nunca resolvería y el rechazo sería inalcanzable)
-          let businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, allBusinessUnitsForResolution)
+          // Mapear unidad de negocio de trabajo por nombre (scope primero + caché —
+          // Steps 1 y 1b: con solo el padrón completo, un nombre compartido con
+          // otro tenant resolvería ajeno y rechazaría archivos legítimos)
+          let businessUnitId = resolveBusinessUnitByName(employeeData.businessUnit)
           // USRH1789747321650 reglas 1 y 2: si el nombre resolvió a una empresa
           // real distinta de la activa, la fila condena el archivo completo.
           // Un nombre que no resuelve (null) conserva el comportamiento de hoy
@@ -369,8 +388,8 @@ Sustituir el bloque de mapeo actual (ancla exacta `:2935-2952`, desde `// Mapear
             businessUnitId = businessUnits[0].businessUnitId
           }
 
-          // Mapear unidad de negocio de nómina por nombre (todas las activas, igual que trabajo)
-          let payrollBusinessUnitId = this.mapBusinessUnit(employeeData.payrollBusinessUnit, allBusinessUnitsForResolution)
+          // Mapear unidad de negocio de nómina por nombre (scope primero + caché, igual que trabajo)
+          let payrollBusinessUnitId = resolveBusinessUnitByName(employeeData.payrollBusinessUnit)
           const declaredPayrollId = payrollBusinessUnitId
           // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
           if (payrollBusinessUnitId === null && businessUnits.length > 0) {
@@ -470,8 +489,8 @@ test.group('employee_service importFromExcel — USRH1789747321650', () => {
 
     assert.include(content, 'this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)')
     assert.include(content, 'allBusinessUnitsForResolution')
-    assert.include(content, 'this.mapBusinessUnit(employeeData.businessUnit, allBusinessUnitsForResolution)')
-    assert.include(content, 'this.mapBusinessUnit(employeeData.payrollBusinessUnit, allBusinessUnitsForResolution)')
+    assert.include(content, 'resolveBusinessUnitByName')
+    assert.include(content, 'businessUnitResolutionCache')
     assert.include(content, 'const declaredWorkId = businessUnitId')
     assert.include(content, 'const declaredPayrollId = payrollBusinessUnitId')
     assert.include(content, 'companyMismatchRows.push({')
@@ -540,6 +559,9 @@ por:
           // guardar un dato protegido detiene la carga y se reporta vía 403
           // del controlador. No es una fila fallida más ni desaparece del
           // reporte. El `catch` externo ya re-lanza sensibles (`:3126-3128`).
+          // Nota honesta: esta guarda hoy es inalcanzable porque la importación
+          // corre en `runUnguarded` y el permiso sensible se exige por cabeceras
+          // antes de las pasadas; se conserva como defensa futura.
           if (shouldAbortImportOnRowError(error)) throw error
           skipped++
           rowErrors.push({ row: rowNumber, message: importRowErrorMessage(error) })
@@ -973,8 +995,7 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
     assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployeesA)
   })
 
-  test('criterio 4 — varias filas ofensoras: el rechazo las enumera todas', async ({ assert, cleanup }) => {
-    try {
+  test('criterio 4 — varias filas ofensoras: el rechazo las enumera todas', async ({ assert, cleanup }) => {    try {
       await importAsA(
         [
           { payrollNum: `RC-M-1-${STAMP}`, workUnitName: unitB.businessUnitName, firstName: 'Carga', lastName: 'MalUno' },
