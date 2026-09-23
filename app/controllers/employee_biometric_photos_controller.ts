@@ -50,7 +50,7 @@ export default class EmployeeBiometricPhotosController {
    *           Cache-Control:
    *             schema:
    *               type: string
-   *             description: private, max-age=300
+   *             description: private, no-store
    *           ETag:
    *             schema:
    *               type: string
@@ -214,7 +214,11 @@ export default class EmployeeBiometricPhotosController {
       }
 
       response.header('Content-Type', object.contentType || 'image/jpeg')
-      response.header('Cache-Control', 'private, max-age=300')
+      // Sin caché en el navegador: con `max-age` la foto recién reemplazada
+      // seguía mostrando la anterior hasta 5 minutos (misma URL), y cada vista
+      // servida desde caché no pasaba por la bitácora de acceso de arriba. Es
+      // un dato biométrico: tampoco debe quedar copia en disco del navegador.
+      response.header('Cache-Control', 'private, no-store')
       if (object.contentLength !== undefined) {
         response.header('Content-Length', String(object.contentLength))
       }
