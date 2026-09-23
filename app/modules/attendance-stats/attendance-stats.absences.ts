@@ -271,7 +271,7 @@ export function buildAbsencesResponse(input: BuildAbsencesInput): AbsencesRespon
     for (const assistDay of bundle.calendar) {
       if (assistDay.day < startDay || assistDay.day > endDay) continue
       if (!isEvaluableDay(assistDay)) continue
-      if (classifyDay(assistDay, thresholds).clean.faults !== 1) continue
+      if (classifyDay(assistDay, thresholds, bundle.timeZone).clean.faults !== 1) continue
 
       const loan = selectLoanForDay(employeeLoans, assistDay.day)
       const effectiveBranchId = resolveEffectiveBranchId(homeBranchId, loan)

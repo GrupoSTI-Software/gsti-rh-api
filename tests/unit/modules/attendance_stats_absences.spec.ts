@@ -161,6 +161,7 @@ function buildBundle(params: {
       businessUnit: null,
     },
     departmentName,
+    timeZone: 'America/Mexico_City',
     calendar: params.calendar,
   }
 }

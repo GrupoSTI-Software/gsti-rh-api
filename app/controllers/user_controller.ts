@@ -1680,6 +1680,7 @@ export default class UserController {
           type: exist.type,
           title: exist.title,
           message: exist.message,
+          key: exist.key,
           data: { ...data },
         }
       }

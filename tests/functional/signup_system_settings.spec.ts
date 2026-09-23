@@ -127,10 +127,6 @@ async function cleanupTenant(businessUnitName: string, email: string) {
     await BusinessUnitUser.query().where('user_id', user.userId).delete()
     await User.query().where('user_id', user.userId).delete()
   }
-  const person = await Person.query().where('person_email', email).first()
-  if (person) {
-    await Person.query().where('person_id', person.personId).delete()
-  }
   if (businessUnit) {
     // Los roles propios de la empresa salen antes que ella: la FK
     // `roles_business_unit_id_foreign` es RESTRICT a propósito, para que una
@@ -150,6 +146,9 @@ async function cleanupTenant(businessUnitName: string, email: string) {
         .where('business_unit_id', businessUnit.businessUnitId)
         .delete()
     }
+    // Las personas de la empresa salen antes que ella: `people.business_unit_id`
+    // es FK RESTRICT (USRH1789698261609). Buscar por correo no sirve: viaja cifrado.
+    await Person.query().where('business_unit_id', businessUnit.businessUnitId).delete()
     await BusinessUnit.query().where('business_unit_id', businessUnit.businessUnitId).delete()
   }
   await SignupDraft.query().withTrashed().where('signup_draft_email', email).delete()
