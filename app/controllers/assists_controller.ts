@@ -31,6 +31,8 @@ import {
   mapIngestionResultToHttp,
   resolveAssistOrigin,
 } from '#modules/assist-ingestion/assist_ingestion.controller'
+import { resolveAdminCaptureRejection } from '#modules/assist-ingestion/admin_capture_scope'
+import { ASSIST_ORIGIN } from '#constants/assist_origin'
 import {
   ASSIST_INGESTION_EMPLOYEE_TERMINATED,
   ASSIST_INGESTION_FOREIGN_WRITE,
@@ -40,6 +42,7 @@ import {
   storeAssistValidator,
 } from '#modules/assist-ingestion/validators/store_assist.validator'
 import type { StoreAssistPayload } from '#modules/assist-ingestion/validators/store_assist.validator'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
 import { employeeSynchronizeAssistsValidator } from '#validators/assist_employee_synchronize'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
@@ -319,9 +322,12 @@ export default class AssistsController {
    *     responses:
    *       200:
    *         description: |
-   *           Incluye `data.employeeCalendar` y `data.temporaryAssignments`: préstamos temporales
-   *           del empleado cuyo rango [startDate, endDate] intersecta el periodo `date`–`date-end`
-   *           (YYYY-MM-DD, UTC-6). Vacío `[]` si no aplica o sin préstamos en el rango.
+   *           Incluye `data.employeeCalendar`, `data.temporaryAssignments` (préstamos temporales
+   *           del empleado cuyo rango [startDate, endDate] intersecta el periodo `date`–`date-end`,
+   *           YYYY-MM-DD en la zona del sitio; vacío `[]` si no aplica) y `data.timeZone`: zona
+   *           IANA del sitio del empleado (sucursal base, luego empresa, luego sistema) con la que
+   *           se calculó el calendario. Las checadas son instantes UTC y el cliente las muestra
+   *           en `data.timeZone`, no en la zona de quien consulta.
    *         content:
    *           application/json:
    *             schema:
@@ -1373,9 +1379,22 @@ export default class AssistsController {
       }
 
       // La hora que vale es la hora en que ocurrió la checada, no la hora en que se
-      // logró entregar: si el equipo la declara, se respeta, siempre que caiga dentro
-      // de la ventana permitida y no se adelante al reloj del servidor.
-      const resolvedPunchTime = resolvePunchTime(assistPunchTime, DateTime.utc())
+      // logró entregar: si el equipo la declara, se respeta, siempre que no se
+      // adelante al reloj del servidor.
+      //
+      // Hacia atrás hay dos topes distintos y la procedencia decide cuál rige. Un
+      // equipo entrega tarde lo que ya ocurrió y se mide con la ventana del canal,
+      // que existe para cubrir una caída de red. La captura administrativa corrige
+      // el pasado a propósito, así que se mide con los días que el rol de quien
+      // captura tiene autorizado modificar.
+      const assistOrigin = resolveAssistOrigin(payload.assistChannel, isOwner)
+      const isAdminCapture = assistOrigin === ASSIST_ORIGIN.ADMIN_CAPTURE
+
+      const siteZone = await new SiteTimeZoneService().forEmployee(employee.employeeId)
+      const now = DateTime.utc()
+      const resolvedPunchTime = resolvePunchTime(assistPunchTime, now, siteZone.zone, {
+        enforceBackdateWindow: !isAdminCapture,
+      })
       if (!resolvedPunchTime.ok) {
         const rejection = resolvedPunchTime.rejection
         const detail = i18n.t(`${rejection.i18nBase}_message`, undefined, rejection.key)
@@ -1392,7 +1411,31 @@ export default class AssistsController {
 
       const dateTimePunchTime: DateTime = resolvedPunchTime.punchTimeUtc
 
-      const assistOrigin = resolveAssistOrigin(payload.assistChannel, isOwner)
+      if (isAdminCapture) {
+        const scopeRejection = await resolveAdminCaptureRejection({
+          user: auth.user,
+          punchTimeUtc: dateTimePunchTime,
+          zone: siteZone.zone,
+          now,
+        })
+        if (scopeRejection) {
+          const detail = i18n.t(
+            `${scopeRejection.i18nBase}_message`,
+            undefined,
+            scopeRejection.key
+          )
+          response.status(scopeRejection.status)
+          return {
+            type: 'warning',
+            title: i18n.t(`${scopeRejection.i18nBase}_title`, undefined, scopeRejection.key),
+            message: detail,
+            detail,
+            key: scopeRejection.key,
+            code: scopeRejection.code,
+          }
+        }
+      }
+
       const assistCreatedByUserId = isOwner ? null : (auth.user?.userId ?? null)
 
       const assist = {

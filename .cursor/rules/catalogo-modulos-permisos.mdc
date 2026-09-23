@@ -21,7 +21,7 @@ Su única fuente es `app/constants/system_modules_menu/system_modules.constant.t
 
 @.claude/rules/catalogo-modulos-permisos.md
 
-## Los tres errores que ya costaron caro
+## Los cuatro errores que ya costaron caro
 
 1. **Crear un archivo nuevo** con una lista, enum, tipo unión o mapa de módulos o permisos.
    Se desincroniza y nadie se entera. Si necesitas otra vista, **derívala por código** de
@@ -32,6 +32,19 @@ Su única fuente es `app/constants/system_modules_menu/system_modules.constant.t
 3. **Escribir un id o un slug a mano.** El id lo asigna la BD; el slug se importa de la
    declaración que ya existe (`#constants/<modulo>_permission_declarations` o el catálogo
    de acciones del módulo).
+4. **Dejar una sección sin nombre.** El nombre visible es parte del catálogo: las acciones lo
+   llevan en su `displayName` y las secciones en `<MODULO>_SECTION_LABELS`, declarado con
+   `satisfies Record<<Modulo>Section, string>` para que olvidarlo no compile. Sin él, el
+   cliente pinta el slug humanizado —así salió "Salary Ranges" en una pantalla en español—.
+   Un cliente NUNCA traduce un slug del catálogo; si hay que renombrar algo de cara al
+   usuario, se renombra aquí.
+
+## Roles sembrados del tenant
+
+`owner`, `admin` y `empleado` se deciden por slug en todo el runtime. Las guardas de
+`app/helpers/system_role_lock.ts` las aplica todo endpoint que edite, elimine o reasigne
+permisos de un rol: `owner` y `empleado` no se administran, ninguno de los tres se elimina y
+`admin` no se renombra (sus permisos sí se ajustan).
 
 ## Verificación
 

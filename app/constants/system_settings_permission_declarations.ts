@@ -50,6 +50,8 @@ export const SYSTEM_SETTINGS_PERMISSION_DECLARATIONS = {
   updateBirthdayEmailsStatus: systemSettingsStandard('update'),
   updateAnniversaryEmailsStatus: systemSettingsStandard('update'),
   updateAttendanceFaultHrEmailsStatus: systemSettingsStandard('update'),
+  /** Zona horaria del sitio de la empresa: vive en `business_units` pero se edita desde Reglas de operación. */
+  updateSiteTimezone: systemSettingsStandard('update'),
   uploadEmployeeApplicationIcon: systemSettingsStandard('update'),
   destroySystemSetting: systemSettingsStandard('delete'),
 
