@@ -253,6 +253,25 @@ export default class PlatformTrialService {
   }
 
   /**
+   * `business_unit_id` interno de un tenant por su `publicId`, o `null` si no
+   * existe o está borrado lógicamente (USRH1789079078171 §8.2). Se agrega
+   * como método propio y mínimo — no se toca la forma de `getTenantTrial`,
+   * que a propósito nunca expone el id interno en su respuesta HTTP — para
+   * que `PlatformTrialUsageService` pueda amarrar el scope del motor de
+   * asistencia (`allowedBusinessUnitIds`) sin resolver el tenant por su
+   * cuenta ni duplicar la lógica de 404.
+   */
+  async resolveBusinessUnitId(publicId: string): Promise<number | null> {
+    const bu = await db
+      .from('business_units')
+      .whereNull('business_unit_deleted_at')
+      .where('business_unit_public_id', publicId)
+      .select('business_unit_id as buId')
+      .first()
+    return (bu as { buId: number } | undefined)?.buId ?? null
+  }
+
+  /**
    * Ventana, estado y desenlace de un lote de empresas, por `businessUnitId`.
    * Clave del mapa = `businessUnitId`; sin entrada para la que no tuvo
    * prueba. Una sola consulta con `whereIn` para la ventana y una sola
