@@ -27,8 +27,10 @@ import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'
  *            type: number
  *            description: Unidad de negocio dueña (defensa en profundidad, USRH1783821206584)
  *          salaryDaily:
- *            type: number
- *            description: Salario diario vigente en este período (cifrado en BD). Sin permiso de lectura financiera se entrega null, nunca enmascarado por partes.
+ *            oneOf:
+ *              - type: number
+ *              - type: string
+ *            description: Salario diario vigente en este período (cifrado en BD). En GET/listado se entrega la máscara fija cuando hay dato; el claro solo por reveal.
  *          validFrom:
  *            type: string
  *            description: Inicio del período de vigencia

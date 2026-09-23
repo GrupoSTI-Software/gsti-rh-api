@@ -11,6 +11,7 @@ import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import PositionSalaryRangeService from '#services/position_salary_range_service'
 import PositionSalaryRangeAudit from '#models/position_salary_range_audit'
+import { SENSITIVE_MASK } from '#helpers/sensitive_mask'
 
 const TEST_PASSWORD = 'PositionsSalaryRangeGate123!'
 
@@ -25,10 +26,10 @@ interface AuditRow {
   action?: string
   actorId?: number
   reason?: string | null
-  oldMinSalaryDaily?: number | null
-  oldMaxSalaryDaily?: number | null
-  newMinSalaryDaily?: number | null
-  newMaxSalaryDaily?: number | null
+  oldMinSalaryDaily?: number | string | null
+  oldMaxSalaryDaily?: number | string | null
+  newMinSalaryDaily?: number | string | null
+  newMaxSalaryDaily?: number | string | null
 }
 
 async function permissionId(moduleSlug: string, permissionSlug: string): Promise<number> {
@@ -195,7 +196,7 @@ test.group('Bitácora de rango — lectura financiera (interruptor OFF)', (group
     }
   })
 
-  test('sin sensitive-financiero-read los 4 importes salen null y el resto intacto', async ({
+  test('sin sensitive-financiero-read los 4 importes salen enmascarados y el resto intacto', async ({
     client,
     assert,
   }) => {
@@ -214,20 +215,20 @@ test.group('Bitácora de rango — lectura financiera (interruptor OFF)', (group
     assert.equal(createRow!.reason, 'motivo-visible')
     assert.isNull(createRow!.oldMinSalaryDaily)
     assert.isNull(createRow!.oldMaxSalaryDaily)
-    assert.isNull(createRow!.newMinSalaryDaily)
-    assert.isNull(createRow!.newMaxSalaryDaily)
+    assert.equal(createRow!.newMinSalaryDaily, SENSITIVE_MASK)
+    assert.equal(createRow!.newMaxSalaryDaily, SENSITIVE_MASK)
 
     const updateRow = rows.find((row) => row.action === 'update')
     assert.exists(updateRow)
     assert.equal(updateRow!.actorId, actor!.user.userId)
     assert.equal(updateRow!.reason, 'motivo-actualizacion')
-    assert.isNull(updateRow!.oldMinSalaryDaily)
-    assert.isNull(updateRow!.oldMaxSalaryDaily)
-    assert.isNull(updateRow!.newMinSalaryDaily)
-    assert.isNull(updateRow!.newMaxSalaryDaily)
+    assert.equal(updateRow!.oldMinSalaryDaily, SENSITIVE_MASK)
+    assert.equal(updateRow!.oldMaxSalaryDaily, SENSITIVE_MASK)
+    assert.equal(updateRow!.newMinSalaryDaily, SENSITIVE_MASK)
+    assert.equal(updateRow!.newMaxSalaryDaily, SENSITIVE_MASK)
   })
 
-  test('con sensitive-financiero-read los importes siguen null en GET (claro solo por reveal)', async ({
+  test('con sensitive-financiero-read los importes siguen enmascarados en GET (claro solo por reveal)', async ({
     client,
     assert,
   }) => {
@@ -241,18 +242,18 @@ test.group('Bitácora de rango — lectura financiera (interruptor OFF)', (group
     const rows = (response.body()?.data ?? []) as AuditRow[]
     const createRow = rows.find((row) => row.action === 'create')
     assert.exists(createRow)
-    assert.isNull(createRow!.newMinSalaryDaily)
-    assert.isNull(createRow!.newMaxSalaryDaily)
+    assert.equal(createRow!.newMinSalaryDaily, SENSITIVE_MASK)
+    assert.equal(createRow!.newMaxSalaryDaily, SENSITIVE_MASK)
     assert.isNull(createRow!.oldMinSalaryDaily)
     assert.isNull(createRow!.oldMaxSalaryDaily)
     assert.equal(createRow!.reason, 'motivo-visible')
 
     const updateRow = rows.find((row) => row.action === 'update')
     assert.exists(updateRow)
-    assert.isNull(updateRow!.oldMinSalaryDaily)
-    assert.isNull(updateRow!.oldMaxSalaryDaily)
-    assert.isNull(updateRow!.newMinSalaryDaily)
-    assert.isNull(updateRow!.newMaxSalaryDaily)
+    assert.equal(updateRow!.oldMinSalaryDaily, SENSITIVE_MASK)
+    assert.equal(updateRow!.oldMaxSalaryDaily, SENSITIVE_MASK)
+    assert.equal(updateRow!.newMinSalaryDaily, SENSITIVE_MASK)
+    assert.equal(updateRow!.newMaxSalaryDaily, SENSITIVE_MASK)
     assert.equal(updateRow!.reason, 'motivo-actualizacion')
   })
 })

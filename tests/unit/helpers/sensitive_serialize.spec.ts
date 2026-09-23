@@ -101,13 +101,13 @@ test.group('sensitiveSerialize', () => {
 })
 
 test.group('sensitiveSerializeNumeric', () => {
-  test('sin permiso entrega null, nunca máscara parcial', ({ assert }) => {
+  test('sin permiso entrega máscara fija, nunca máscara parcial', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('EmployeeSalaryHistory', 'salaryDaily')
-    assert.isNull(serialize(1250.75))
+    assert.equal(serialize(1250.75), SENSITIVE_MASK)
     assert.notEqual(serialize(1250.75), '•••0.75')
   })
 
-  test('con permiso de financiero sigue entregando null', ({ assert }) => {
+  test('con permiso de financiero sigue entregando máscara fija', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('PositionSalaryRange', 'minSalaryDaily')
     SensitiveAccessContext.run(
       {
@@ -115,7 +115,7 @@ test.group('sensitiveSerializeNumeric', () => {
         write: deniedWrite,
       },
       () => {
-        assert.isNull(serialize(1250.75))
+        assert.equal(serialize(1250.75), SENSITIVE_MASK)
       }
     )
   })
@@ -144,7 +144,7 @@ test.group('sensitiveSerializeNumeric', () => {
     )
   })
 
-  test('Employee.dailySalary sin permiso financiero entrega null', ({ assert }) => {
+  test('Employee.dailySalary sin permiso financiero entrega máscara fija', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
     SensitiveAccessContext.run(
       {
@@ -158,12 +158,12 @@ test.group('sensitiveSerializeNumeric', () => {
         write: deniedWrite,
       },
       () => {
-        assert.isNull(serialize(850.5))
+        assert.equal(serialize(850.5), SENSITIVE_MASK)
       }
     )
   })
 
-  test('Employee.dailySalary con permiso financiero sigue entregando null', ({ assert }) => {
+  test('Employee.dailySalary con permiso financiero sigue entregando máscara fija', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
     SensitiveAccessContext.run(
       {
@@ -177,7 +177,7 @@ test.group('sensitiveSerializeNumeric', () => {
         write: deniedWrite,
       },
       () => {
-        assert.isNull(serialize(850.5))
+        assert.equal(serialize(850.5), SENSITIVE_MASK)
       }
     )
   })

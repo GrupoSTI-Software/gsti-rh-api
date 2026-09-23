@@ -985,6 +985,11 @@ export function expectAmountNull(value: unknown, assert: Assert) {
   assert.notEqual(value, '•••0.75')
 }
 
+export function expectAmountMasked(value: unknown, assert: Assert) {
+  assert.equal(value, MASK_CHAR.repeat(5))
+  assert.notEqual(value, '•••0.75')
+}
+
 export async function prepareSensitiveJourney(
   roleId: number,
   employeeSlugs: string[],

@@ -39,17 +39,22 @@ export function sensitiveSerialize(
 }
 
 /**
- * Fábrica de `serialize` para importes clasificados (USRH1787204602828).
- * Los importes sensibles no se entregan en claro por HTTP: sin permiso o con
- * permiso de consulta devuelven `null` (el claro va por reveal/export dedicado).
+ * Fábrica de `serialize` para importes clasificados (USRH1787204602828,
+ * USRH1789477675774).
+ *
+ * Política de producto: el valor en claro **nunca** viaja en GET/listados;
+ * el claro solo sale por `GET /api/v1/pii/reveal` con asiento en bitácora.
+ * Si hay importe clasificado, se entrega la máscara fija `SENSITIVE_MASK`
+ * (misma semántica que `sensitiveSerialize` en texto), nunca `null` ni
+ * máscara parcial numérica.
  */
 export function sensitiveSerializeNumeric(
   model: string,
   column: string
-): (value: number | null) => number | null {
+): (value: number | null) => string | null {
   const category = catalog.categoryOf(model, column)
 
-  return (value: number | null): number | null => {
+  return (value: number | null): string | null => {
     if (value === null || value === undefined) {
       return null
     }
@@ -58,7 +63,7 @@ export function sensitiveSerializeNumeric(
       return null
     }
 
-    return null
+    return SENSITIVE_MASK
   }
 }
 

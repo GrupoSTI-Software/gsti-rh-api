@@ -19,7 +19,7 @@ import {
   emergencyBody,
   emergencyPhonesFromEmployeeList,
   empresaRfcFromIndex,
-  expectAmountNull,
+  expectAmountMasked,
   expectMaskedHealth,
   expectNeverDenied,
   firstSalaryDaily,
@@ -263,10 +263,10 @@ test.group('Lectura sensible — 15 columnas restantes — E2E Japa', (group) =>
       maskSensitiveValue(CLEAR_FIXED.phone)
     )
 
-    expectAmountNull(firstSalaryDaily(surfaces.salaryRes.body()), assert)
+    expectAmountMasked(firstSalaryDaily(surfaces.salaryRes.body()), assert)
     const amounts = rangeAmounts(surfaces.rangeRes.body())
-    expectAmountNull(amounts.min, assert)
-    expectAmountNull(amounts.max, assert)
+    expectAmountMasked(amounts.min, assert)
+    expectAmountMasked(amounts.max, assert)
 
     assert.equal(
       empresaRfcFromIndex(
