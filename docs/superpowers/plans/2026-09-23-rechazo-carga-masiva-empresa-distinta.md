@@ -332,13 +332,32 @@ import type {
 } from '../interfaces/employee_import_result_interface.js'
 ```
 
+- [ ] **Step 1b: Cargar todas las empresas activas para resolución de nombres**
+
+Inmediatamente DESPUÉS de la consulta filtrada de `businessUnits` (ancla: el `if (allowedBusinessUnitIds.length > 0)` con `businessUnitsQuery.whereIn(...)` y `const businessUnits = await businessUnitsQuery`), insertar:
+
+```ts
+      // USRH1789747321650 regla 2: los nombres declarados se resuelven contra
+      // TODAS las empresas activas, no solo las del scope. Con scope=[activa],
+      // la empresa ajena nunca estaría en `businessUnits`, `mapBusinessUnit`
+      // devolvería null y el caso de la historia sería invisible (lo demostró
+      // el funcional de la Task 5). La creación sigue usando `businessUnits`
+      // (scope): nada se crea ni se modifica fuera de la empresa activa.
+      const allBusinessUnitsForResolution = await BusinessUnit.query()
+        .whereNull('business_unit_deleted_at')
+        .where('business_unit_active', 1)
+        .select('businessUnitId', 'businessUnitName')
+```
+
 - [ ] **Step 2: Comparar las dos columnas resueltas dentro del loop de filas**
 
 Sustituir el bloque de mapeo actual (ancla exacta `:2935-2952`, desde `// Mapear unidad de negocio de trabajo por nombre` hasta la línea de `finalPayrollBusinessUnitId`):
 
 ```ts
           // Mapear unidad de negocio de trabajo por nombre
-          let businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, businessUnits)
+          // (contra TODAS las activas — Step 1b: con solo el scope, la empresa
+          // ajena nunca resolvería y el rechazo sería inalcanzable)
+          let businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, allBusinessUnitsForResolution)
           // USRH1789747321650 reglas 1 y 2: si el nombre resolvió a una empresa
           // real distinta de la activa, la fila condena el archivo completo.
           // Un nombre que no resuelve (null) conserva el comportamiento de hoy
@@ -350,8 +369,8 @@ Sustituir el bloque de mapeo actual (ancla exacta `:2935-2952`, desde `// Mapear
             businessUnitId = businessUnits[0].businessUnitId
           }
 
-          // Mapear unidad de negocio de nómina por nombre
-          let payrollBusinessUnitId = this.mapBusinessUnit(employeeData.payrollBusinessUnit, businessUnits)
+          // Mapear unidad de negocio de nómina por nombre (todas las activas, igual que trabajo)
+          let payrollBusinessUnitId = this.mapBusinessUnit(employeeData.payrollBusinessUnit, allBusinessUnitsForResolution)
           const declaredPayrollId = payrollBusinessUnitId
           // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
           if (payrollBusinessUnitId === null && businessUnits.length > 0) {
@@ -374,6 +393,22 @@ Sustituir el bloque de mapeo actual (ancla exacta `:2935-2952`, desde `// Mapear
             })
             continue
           }
+```
+
+- [ ] **Step 3b: El `catch` externo deja pasar el rechazo (no lo envuelve)**
+
+El `catch` externo de `importFromExcel` (ancla: el comentario `// Errores de validación (cabeceras inválidas o tope de filas) se` + `if (error.isHeaderValidationError || error.isRowLimitError)`) re-lanza los errores tipados y envuelve el resto en `Error genérico`. Sin passthrough, el rechazo de la Step 3 llegaría al controlador como 500 sin `offendingRows`. Agregar junto a las otras condiciones, mismo estilo (el `catch` ya es `(error: any)` existente: leer la bandera no agrega `any` nuevo):
+
+```ts
+      if (error.isCompanyMismatchError) {
+        throw error
+      }
+```
+
+Y al test de contenido de la Step 5 agregar:
+
+```ts
+    assert.include(content, 'if (error.isCompanyMismatchError) {')
 ```
 
 - [ ] **Step 3: Lanzar el rechazo entero antes del cupo y antes de la pasada 2**
@@ -434,6 +469,9 @@ test.group('employee_service importFromExcel — USRH1789747321650', () => {
     const content = readFileSync(SERVICE_FILE, 'utf-8')
 
     assert.include(content, 'this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)')
+    assert.include(content, 'allBusinessUnitsForResolution')
+    assert.include(content, 'this.mapBusinessUnit(employeeData.businessUnit, allBusinessUnitsForResolution)')
+    assert.include(content, 'this.mapBusinessUnit(employeeData.payrollBusinessUnit, allBusinessUnitsForResolution)')
     assert.include(content, 'const declaredWorkId = businessUnitId')
     assert.include(content, 'const declaredPayrollId = payrollBusinessUnitId')
     assert.include(content, 'companyMismatchRows.push({')
@@ -508,10 +546,10 @@ por:
         }
 ```
 
-Y agregar el import junto al de `importRowErrorMessage` (`:35`):
+Agregar el import en su propia línea (el predicado vive en `employee_import_api_error`, no junto a `importRowErrorMessage`):
 
 ```ts
-import { importRowErrorMessage, shouldAbortImportOnRowError } from '#helpers/person_identity_api_error'
+import { shouldAbortImportOnRowError } from '#helpers/employee_import_api_error'
 ```
 
 - [ ] **Step 2: Test de contenido (el `catch` externo ya re-lanza: no se toca)**
@@ -712,6 +750,7 @@ git commit -m "feat(USRH1789747321650): responder 422 con las filas ofensoras an
 **Interfaces:**
 - Consumes: `EmployeeService#importFromExcel(file, [unitAId])` directo (nivel servicio, como `employee_import_quota.spec.ts`: sin ruido de auth/gate); `BusinessUnit` origen `platform` (sin plan: `resolveQuota` devuelve `{ limit: null, source: 'none' }` y el cupo pasa); `Person`/`Employee` para conteos antes/después.
 - Produces: 6 casos (criterios 1-6 de la HU). El rechazo se aserta por el error tipado (`isCompanyMismatchError`, `offendingRows`, cero escrituras); el 422 HTTP ya quedó fijado en Tasks 1 y 4.
+- Infra obligatoria (hallazgo de la primera ejecución): las llamadas a `importFromExcel` van envueltas en `SensitiveAccessContext.run` con un store de escritura permitida (precedente: `tests/unit/services/employee_import_sensitive_headers.spec.ts`), porque las cabeceras CURP/RFC/NSS/salario/contacto activan `assertExcelSensitiveHeadersWritable` ANTES de la lógica de empresa. Y cero `any`: `isCompanyMismatchError`/`offendingRows` se leen con un tipo explícito de forma (`unknown` + predicado), nunca `(error as any)`.
 
 - [ ] **Step 1: Escribir la spec que falla**
 
