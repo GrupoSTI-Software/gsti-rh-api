@@ -6,7 +6,12 @@ import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeService from '#services/employee_service'
 import CalendarExportService from '#services/calendar_export_service'
-import { CALENDAR_EXPORT_FILE_NAMES } from '#constants/calendar_export'
+import { buildCalendarExportFileName } from '#constants/calendar_export'
+import {
+  buildDownloadFileName,
+  contentDisposition,
+  formatDownloadFileDate,
+} from '#helpers/download_file_name'
 import env from '#start/env'
 import { HttpContext } from '@adonisjs/core/http'
 import axios from 'axios'
@@ -4120,7 +4125,10 @@ export default class EmployeeController {
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       )
-      response.header('Content-Disposition', 'attachment; filename=employees.xlsx')
+      response.header(
+        'Content-Disposition',
+        contentDisposition(buildDownloadFileName(['empleados', formatDownloadFileDate()], 'xlsx'))
+      )
       response.status(201).send(buffer)
     } catch (error) {
       const auditError = PiiExportService.formatAuditError(error, i18n)
@@ -4302,8 +4310,11 @@ export default class EmployeeController {
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       )
-      const filename = fillWithExisting ? 'plantilla-empleados-con-datos.xlsx' : 'plantilla-importacion-empleados.xlsx'
-      response.header('Content-Disposition', `attachment; filename=${filename}`)
+      const filename = buildDownloadFileName(
+        ['plantilla-importacion-empleados', fillWithExisting ? 'con-datos' : null],
+        'xlsx'
+      )
+      response.header('Content-Disposition', contentDisposition(filename))
       response.status(200)
       response.send(buffer)
     } catch (error: any) {
@@ -4632,7 +4643,7 @@ export default class EmployeeController {
       )
       response.header(
         'Content-Disposition',
-        'attachment; filename="shift_exceptions_employee.xlsx"'
+        contentDisposition(buildDownloadFileName(['excepciones-turno', employee.employeeSlug], 'xlsx'))
 
       )
       response.status(201).send(buffer)
@@ -7609,7 +7620,7 @@ export default class EmployeeController {
    *             description: Nombre del archivo descargable
    *             schema:
    *               type: string
-   *               example: 'attachment; filename="plantilla-asignacion-turnos.xlsx"'
+   *               example: 'attachment; filename="plantilla-asignacion-turnos-2026-09-01-2026-09-15.xlsx"'
    *       400:
    *         description: Parámetros inválidos o faltantes
    *         content:
@@ -7763,7 +7774,12 @@ export default class EmployeeController {
       )
       response.header(
         'Content-Disposition',
-        `attachment; filename="plantilla-asignacion-turnos-${startDate}-${endDate}.xlsx"`
+        contentDisposition(
+          buildDownloadFileName(
+            ['plantilla-asignacion-turnos', formatDownloadFileDate(startDate), formatDownloadFileDate(endDate)],
+            'xlsx'
+          )
+        )
       )
       response.status(200)
       return response.send(buffer)
@@ -8121,6 +8137,12 @@ export default class EmployeeController {
         businessUnitScope
       )
 
+      // Reporte de un solo empleado: el nombre lleva su slug (token opaco), nunca nombre ni número.
+      const singleEmployee =
+        employeeIds?.length === 1
+          ? await Employee.query().withTrashed().where('employee_id', employeeIds[0]).select('employee_slug').first()
+          : null
+
       // Configurar headers para la descarga del archivo
       response.header(
         'Content-Type',
@@ -8128,7 +8150,17 @@ export default class EmployeeController {
       )
       response.header(
         'Content-Disposition',
-        `attachment; filename="reporte-asistencia-${startDate}-${endDate}.xlsx"`
+        contentDisposition(
+          buildDownloadFileName(
+            [
+              'reporte-asistencia',
+              singleEmployee?.employeeSlug,
+              formatDownloadFileDate(startDate),
+              formatDownloadFileDate(endDate),
+            ],
+            'xlsx'
+          )
+        )
       )
       response.status(200)
       return response.send(buffer)
@@ -8998,7 +9030,7 @@ export default class EmployeeController {
           ? await exportService.birthdays(await employeeService.getBirthday(filters, businessUnitScope), year)
           : await exportService.anniversaries(await employeeService.getAnniversary(filters, businessUnitScope), year)
       response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      response.header('Content-Disposition', `attachment; filename=${year}-${CALENDAR_EXPORT_FILE_NAMES[kind]}`)
+      response.header('Content-Disposition', contentDisposition(buildCalendarExportFileName(kind, year)))
       return response.status(200).send(buffer)
     } catch (error) {
       response.status(500)

@@ -3,10 +3,32 @@ import { assertSpreadsheetFile } from '#helpers/spreadsheet_intake_guard'
 import logger from '@adonisjs/core/services/logger'
 import { EmployeeVacationExcelFilterInterface } from '../interfaces/employee_vacation_excel_filter_interface.js'
 import EmployeeVacationService from '#services/employee_vacation_service'
+import {
+  buildDownloadFileName,
+  contentDisposition,
+  formatDownloadFileDate,
+} from '#helpers/download_file_name'
 import { resolveEmployeeImportApiError } from '../helpers/employee_import_api_error.js'
 import { EMPLOYEE_IMPORT_ERROR_CODES } from '../constants/employee_import_error_codes.js'
 
 export default class EmployeeVacationController {
+  /**
+   * `Content-Disposition` de los reportes de vacaciones: `{tipo}-{desde}-{hasta}.xlsx`.
+   * Una fecha ausente se omite en vez de sustituirse por hoy, que mentiría sobre el periodo.
+   */
+  private vacationReportDisposition(prefix: string, startDate?: string, endDate?: string): string {
+    return contentDisposition(
+      buildDownloadFileName(
+        [
+          prefix,
+          startDate ? formatDownloadFileDate(startDate) : null,
+          endDate ? formatDownloadFileDate(endDate) : null,
+        ],
+        'xlsx'
+      )
+    )
+  }
+
   /**
    * @swagger
    * /api/employees-vacations/get-excel:
@@ -128,7 +150,10 @@ export default class EmployeeVacationController {
           'Content-Type',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+        response.header(
+          'Content-Disposition',
+          this.vacationReportDisposition('reporte-vacaciones', filterStartDate, filterEndDate)
+        )
         response.status(201)
         response.send(buffer.buffer)
       } else {
@@ -263,7 +288,10 @@ export default class EmployeeVacationController {
           'Content-Type',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+        response.header(
+          'Content-Disposition',
+          this.vacationReportDisposition('vacaciones-utilizadas', filterStartDate, filterEndDate)
+        )
         response.status(201)
         response.send(buffer.buffer)
       } else {
@@ -407,7 +435,10 @@ export default class EmployeeVacationController {
           'Content-Type',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+        response.header(
+          'Content-Disposition',
+          this.vacationReportDisposition('resumen-vacaciones', filterStartDate, filterEndDate)
+        )
         response.status(201)
         response.send(buffer.buffer)
       } else {
@@ -555,7 +586,7 @@ export default class EmployeeVacationController {
         )
         response.header(
           'Content-Disposition',
-          'attachment; filename=plantilla_importacion_vacaciones.xlsx'
+          contentDisposition(buildDownloadFileName(['plantilla-importacion-vacaciones'], 'xlsx'))
         )
         response.status(201)
         response.send(result.buffer)

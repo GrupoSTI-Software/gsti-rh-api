@@ -16,6 +16,15 @@ import { AssistSyncFilterInterface } from '../interfaces/assist_sync_filter_inte
 import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_interface.js'
 import { PermissionsDatesExcelFilterInterface } from '../interfaces/permissions_dates_excel_filter_interface.js'
 import env from '#start/env'
+import {
+  buildDownloadFileName,
+  contentDisposition,
+  formatDownloadFileDate,
+} from '#helpers/download_file_name'
+import {
+  ASSISTANCE_REPORT_FILE_PREFIX,
+  type AssistanceReportFileKind,
+} from '#constants/assistance_report_file'
 import RoleService from '#services/role_service'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { ensureEmployeeAssistWrite } from '#helpers/ensure_employee_assist_write'
@@ -60,6 +69,39 @@ export default class AssistsController {
   private async assertCanSeePayroll(userRoleId: number): Promise<boolean> {
     const roleService = new RoleService()
     return roleService.hasAccess(userRoleId, ATTENDANCE_MONITOR_MODULE_SLUG, 'see-payroll')
+  }
+
+  /**
+   * Nombre de descarga de los Excel síncronos de asistencia según `reportType`
+   * (`Assistance Report`, `Incident Summary`, `Incident Summary Payroll`).
+   *
+   * @param reportType - Tipo recibido del cliente (ya validado por el endpoint).
+   * @param filterDate - Inicio del periodo tal como llegó.
+   * @param filterDateEnd - Fin del periodo tal como llegó.
+   * @param employeeSlug - Slug del empleado si el reporte es de uno solo; nunca su nombre o número.
+   */
+  private assistanceReportFileName(
+    reportType: string,
+    filterDate: string | undefined,
+    filterDateEnd: string | undefined,
+    employeeSlug: string | null = null
+  ): string {
+    const kinds: Record<string, AssistanceReportFileKind> = {
+      'Assistance Report': 'assistance',
+      'Incident Summary': 'incidentSummary',
+      'Incident Summary Payroll': 'incidentSummaryPayroll',
+    }
+    const prefix = ASSISTANCE_REPORT_FILE_PREFIX[kinds[reportType] ?? 'assistance']
+    return buildDownloadFileName(
+      [
+        prefix,
+        employeeSlug,
+        // Una fecha ausente se omite: sustituirla por hoy mentiría sobre el periodo.
+        filterDate ? formatDownloadFileDate(filterDate) : null,
+        filterDateEnd ? formatDownloadFileDate(filterDateEnd) : null,
+      ],
+      'xlsx'
+    )
   }
 
   /**
@@ -531,7 +573,12 @@ export default class AssistsController {
             'Content-Type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
           )
-          response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+          response.header(
+            'Content-Disposition',
+            contentDisposition(
+              this.assistanceReportFileName(reportType, filterDate, filterDateEnd, employee.employeeSlug)
+            )
+          )
           response.status(201)
           response.send(buffer.buffer)
         } else {
@@ -662,7 +709,10 @@ export default class AssistsController {
           'Content-Type',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+        response.header(
+          'Content-Disposition',
+          contentDisposition(this.assistanceReportFileName('Assistance Report', filterDate, filterDateEnd))
+        )
         response.status(201)
         response.send(buffer.buffer)
       } else {
@@ -829,7 +879,10 @@ export default class AssistsController {
             'Content-Type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
           )
-          response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+          response.header(
+            'Content-Disposition',
+            contentDisposition(this.assistanceReportFileName(reportType, filterDate, filterDateEnd))
+          )
           response.status(201)
           response.send(buffer.buffer)
         } else {
@@ -1005,7 +1058,10 @@ export default class AssistsController {
             'Content-Type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
           )
-          response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+          response.header(
+            'Content-Disposition',
+            contentDisposition(this.assistanceReportFileName(reportType, filterDate, filterDateEnd))
+          )
           response.status(201)
           response.send(buffer.buffer)
         } else if (buffer.status === 400) {
@@ -1652,7 +1708,10 @@ export default class AssistsController {
       const buffer = await assistService.getFormatPayRoll(date, businessUnitScope)
       if (buffer.status === 201) {
         response.header('Content-Type', 'text/csv')
-        response.header('Content-Disposition', 'attachment; filename="file.csv"')
+        response.header(
+          'Content-Disposition',
+          contentDisposition(buildDownloadFileName(['formato-nomina', formatDownloadFileDate(date)], 'csv'))
+        )
         response.status(201)
         response.send(buffer.buffer)
       } else {
@@ -2139,7 +2198,15 @@ export default class AssistsController {
 
       if (result.buffer) {
         response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        response.header('Content-Disposition', 'attachment; filename="permisos-fechas.xlsx"')
+        response.header(
+          'Content-Disposition',
+          contentDisposition(
+            buildDownloadFileName(
+              ['permisos', formatDownloadFileDate(filterDate), formatDownloadFileDate(filterDateEnd)],
+              'xlsx'
+            )
+          )
+        )
         return response.send(result.buffer)
       } else {
         response.status(result.status || 500)

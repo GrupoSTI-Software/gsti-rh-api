@@ -1,4 +1,5 @@
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
+import { buildDownloadFileName } from '#helpers/download_file_name'
 
 /**
  * Reportes descargables del calendario unificado del backoffice.
@@ -21,11 +22,22 @@ export const CALENDAR_EXPORT_COLUMN_MAX_WIDTH = 48
 /** Formato de fecha de las celdas: el mismo que exhibe el calendario. */
 export const CALENDAR_EXPORT_DATE_FORMAT = 'yyyy-LL-dd'
 
-/** Nombre de archivo sugerido por reporte; el año se antepone en el controlador. */
+/** Nombre base (sin año ni extensión) del archivo de cada reporte. */
 export const CALENDAR_EXPORT_FILE_NAMES = {
-  holidays: 'festividades.xlsx',
-  birthdays: 'cumpleanos.xlsx',
-  anniversaries: 'aniversarios.xlsx',
+  holidays: 'festividades',
+  birthdays: 'cumpleanos',
+  anniversaries: 'aniversarios',
 } as const
 
 export type CalendarExportKind = keyof typeof CALENDAR_EXPORT_FILE_NAMES
+
+/**
+ * Nombre de descarga del reporte del calendario: `{tipo}-{año}.xlsx`.
+ *
+ * @param kind - Reporte (festividades, cumpleaños o aniversarios).
+ * @param year - Año exportado.
+ * @returns P. ej. `cumpleanos-2026.xlsx`.
+ */
+export function buildCalendarExportFileName(kind: CalendarExportKind, year: number): string {
+  return buildDownloadFileName([CALENDAR_EXPORT_FILE_NAMES[kind], year], 'xlsx')
+}
