@@ -15,7 +15,7 @@ export type EmployeeImportValFileErrorData = {
   maxFileSizeLabel: string
 }
 
-export type EmployeeImportValCompanyErrorData = {
+export type EmployeeImportValBusinessUnitErrorData = {
   offendingRows: EmployeeImportCompanyMismatchRow[]
 }
 
@@ -26,7 +26,7 @@ export type ResolvedEmployeeImportError = {
   errorCode: EmployeeImportErrorCode | string
   key?: string
   detail?: string
-  data?: EmployeeImportValFileErrorData | EmployeeImportValCompanyErrorData | null
+  data?: EmployeeImportValFileErrorData | EmployeeImportValBusinessUnitErrorData | null
 }
 
 export function buildEmployeeImportValFileErrorData(): EmployeeImportValFileErrorData {
@@ -163,22 +163,26 @@ export function resolveEmployeeImportApiError(
 
   if ((err as { isCompanyMismatchError?: boolean })?.isCompanyMismatchError) {
     // USRH1789747321650 reglas 1, 2 y 6: el archivo es de una sola empresa.
-    // `err.message` ya trae el conteo y el listado de filas (interpolados en
+    // `err.message` ya trae el listado de filas (interpolado en
     // `createCompanyMismatchValidationError`); el fallback i18n es genérico.
     const companyDetail =
       err.message ??
       translate(
         i18n,
-        'employee_import_val_company_message',
-        'Alguna fila del archivo declara una empresa distinta de la que tienes activa. No se procesó ninguna fila.'
+        'employee_import_val_business_unit_detail',
+        'Alguna fila del archivo declara una empresa distinta de la que tienes activa. No se procesó ninguna fila: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo.'
       )
     return {
-      title: translate(i18n, 'employee_import_val_company_title', 'El archivo declara otra empresa'),
+      title: translate(
+        i18n,
+        'employee_import_val_business_unit_title',
+        'El archivo tiene empleados de otra empresa'
+      ),
       message: companyDetail,
       detail: companyDetail,
-      status: 422,
-      errorCode: EMPLOYEE_IMPORT_ERROR_CODES.VAL_COMPANY,
-      key: 'empresa-distinta-en-archivo',
+      status: 409,
+      errorCode: EMPLOYEE_IMPORT_ERROR_CODES.VAL_BUSINESS_UNIT,
+      key: 'archivo-de-otra-empresa',
       data: {
         offendingRows: (err as { offendingRows?: EmployeeImportCompanyMismatchRow[] }).offendingRows ?? [],
       },

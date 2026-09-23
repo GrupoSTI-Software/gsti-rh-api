@@ -10,7 +10,7 @@ export const EMPLOYEE_IMPORT_ERROR_CODES = {
   /** Filas de datos por encima del máximo soportado en una sola petición síncrona */
   VAL_ROWS: 'EMP.IMPORT.VAL_ROWS',
   /** Alguna fila declara una empresa distinta de la activa (trabajo o nómina) */
-  VAL_COMPANY: 'EMP.IMPORT.VAL_COMPANY',
+  VAL_BUSINESS_UNIT: 'EMP.IMPORT.VAL_BUSINESS_UNIT',
   /** Fallo inesperado durante la importación */
   SERVER: 'EMP.IMPORT.SERVER',
   /** Fallo inesperado durante la importación masiva de turnos (USRH1786595131487) */

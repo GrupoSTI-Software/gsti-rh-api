@@ -42,13 +42,13 @@ test.group('employee_controller importFromExcel — errores estándar', () => {
 })
 
 test.group('employee_controller importFromExcel — USRH1789747321650', () => {
-  test('422 por empresa distinta antes de la rama 400; responde key, code y data', ({ assert }) => {
+  test('409 por empresa distinta antes de la rama 400; responde key, code y data', ({ assert }) => {
     const content = readFileSync(CONTROLLER_FILE, 'utf-8')
     const methodStart = content.indexOf('async importFromExcel')
     const methodBody = content.slice(methodStart, methodStart + 9000)
 
     assert.include(methodBody, 'isCompanyMismatchError')
-    assert.include(methodBody, 'resolveEmployeeImportApiError(error, 422')
+    assert.include(methodBody, 'resolveEmployeeImportApiError(error, 409')
     assert.include(methodBody, 'code: resolved.errorCode')
     assert.include(methodBody, 'data: resolved.data')
 
@@ -57,16 +57,18 @@ test.group('employee_controller importFromExcel — USRH1789747321650', () => {
     assert.isBelow(mismatchIdx, headersIdx)
   })
 
-  test('OpenAPI documenta el 422 de empresa distinta en import-excel', ({ assert }) => {
+  test('OpenAPI documenta el 409 de empresa distinta en import-excel', ({ assert }) => {
     const openapiFile = join(process.cwd(), 'docs/openapi.yaml')
     const content = readFileSync(openapiFile, 'utf-8')
     const sectionStart = content.indexOf('/api/employees/import-excel:')
     const sectionEnd = content.indexOf('/api/employees/{employeeId}/temporary-assignments:')
     const section = content.slice(sectionStart, sectionEnd)
 
-    assert.include(section, "'422':")
-    assert.include(section, 'empresa-distinta-en-archivo')
-    assert.include(section, 'EMP.IMPORT.VAL_COMPANY')
+    assert.include(section, "'409':")
+    assert.include(section, 'archivo-de-otra-empresa')
+    assert.include(section, 'EMP.IMPORT.VAL_BUSINESS_UNIT')
     assert.include(section, 'offendingRows')
+    assert.notInclude(section, 'empresa-distinta-en-archivo')
+    assert.notInclude(section, 'EMP.IMPORT.VAL_COMPANY')
   })
 })

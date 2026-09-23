@@ -5295,12 +5295,45 @@ paths:
                       contentType: multipart/form-data
         '409':
           description: |
-            El archivo rebasa el cupo de empleados o la empresa self-service no tiene plan vigente.
+            El archivo rebasa el cupo de empleados, la empresa self-service no tiene plan vigente,
+            o alguna fila declara una empresa distinta de la activa (trabajo o nómina).
             No se aplica ninguna fila del Excel (todo-o-nada).
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/EmployeeImportQuotaApiError'
+                oneOf:
+                  - $ref: '#/components/schemas/EmployeeImportQuotaApiError'
+                  - type: object
+                    properties:
+                      type:
+                        type: string
+                        example: error
+                      title:
+                        type: string
+                      message:
+                        type: string
+                      detail:
+                        type: string
+                      key:
+                        type: string
+                        example: archivo-de-otra-empresa
+                      code:
+                        type: string
+                        example: EMP.IMPORT.VAL_BUSINESS_UNIT
+                      data:
+                        type: object
+                        properties:
+                          offendingRows:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                row:
+                                  type: integer
+                                businessUnit:
+                                  type: string
+                                payrollBusinessUnit:
+                                  type: string
               examples:
                 cupoRebasado:
                   value:
@@ -5326,58 +5359,25 @@ paths:
                       contracted: 0
                       active: 12
                       incoming: 3
-        '422':
-          description: |
-            Alguna fila declara una empresa distinta de la activa (trabajo o nómina).
-            No se aplica ninguna fila del Excel (todo-o-nada).
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  type:
-                    type: string
-                    example: error
-                  title:
-                    type: string
-                  message:
-                    type: string
-                  detail:
-                    type: string
-                  key:
-                    type: string
-                    example: empresa-distinta-en-archivo
-                  code:
-                    type: string
-                    example: EMP.IMPORT.VAL_COMPANY
-                  data:
-                    type: object
-                    properties:
-                      offendingRows:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            row:
-                              type: integer
-                            businessUnit:
-                              type: string
-                            payrollBusinessUnit:
-                              type: string
-              examples:
-                empresaDistinta:
+                otraEmpresa:
                   value:
                     type: error
-                    title: El archivo declara otra empresa
-                    message: "El archivo declara una empresa distinta de la activa en 1 fila(s): Fila 3 (trabajo «Empresa B», nómina «Empresa A»). No se procesó ninguna fila: corrige las empresas del archivo y vuelve a subirlo."
-                    detail: "El archivo declara una empresa distinta de la activa en 1 fila(s): Fila 3 (trabajo «Empresa B», nómina «Empresa A»). No se procesó ninguna fila: corrige las empresas del archivo y vuelve a subirlo."
-                    key: empresa-distinta-en-archivo
-                    code: EMP.IMPORT.VAL_COMPANY
+                    title: El archivo tiene empleados de otra empresa
+                    message: "La empresa activa es «Acme». Estas filas declaran otra: fila 12 («Otra SA»), fila 13 («Otra SA»), fila 40 («Otra SA»). … y 5 filas más. No se aplicó ninguna línea del archivo: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo."
+                    detail: "La empresa activa es «Acme». Estas filas declaran otra: fila 12 («Otra SA»), fila 13 («Otra SA»), fila 40 («Otra SA»). … y 5 filas más. No se aplicó ninguna línea del archivo: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo."
+                    key: archivo-de-otra-empresa
+                    code: EMP.IMPORT.VAL_BUSINESS_UNIT
                     data:
                       offendingRows:
-                        - row: 3
-                          businessUnit: Empresa B
-                          payrollBusinessUnit: Empresa A
+                        - row: 12
+                          businessUnit: Otra SA
+                          payrollBusinessUnit: ''
+                        - row: 13
+                          businessUnit: Otra SA
+                          payrollBusinessUnit: ''
+                        - row: 40
+                          businessUnit: ''
+                          payrollBusinessUnit: Otra SA
         '500':
           description: Error inesperado del servidor
           content:

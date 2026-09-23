@@ -7167,7 +7167,8 @@ export default class EmployeeController {
    *                   example: EMP.SENS.WRITE.IMPORT_FORBIDDEN
    *       409:
    *         description: |
-   *           El archivo rebasa el cupo de empleados o la empresa self-service no tiene plan vigente.
+   *           El archivo rebasa el cupo de empleados, la empresa self-service no tiene plan vigente,
+   *           o alguna fila declara una empresa distinta de la activa (trabajo o nómina).
    *           No se aplica ninguna fila del Excel (todo-o-nada).
    *         content:
    *           application/json:
@@ -7185,21 +7186,35 @@ export default class EmployeeController {
    *                   type: string
    *                 key:
    *                   type: string
-   *                   enum: [cupo-empleados-agotado-importacion, sin-plan-contratado-importacion]
+   *                   enum: [cupo-empleados-agotado-importacion, sin-plan-contratado-importacion, archivo-de-otra-empresa]
    *                 code:
    *                   type: string
-   *                   enum: [EMP.IMPORT.QUOTA_EXCEEDED, EMP.IMPORT.NO_PLAN]
+   *                   enum: [EMP.IMPORT.QUOTA_EXCEEDED, EMP.IMPORT.NO_PLAN, EMP.IMPORT.VAL_BUSINESS_UNIT]
    *                 data:
-   *                   type: object
-   *                   description: Solo cantidades; nunca identificadores internos de empresa
-   *                   properties:
-   *                     contracted:
-   *                       type: integer
-   *                     active:
-   *                       type: integer
-   *                     incoming:
-   *                       type: integer
-   *                       description: Altas nuevas en el archivo (filas sin ID Empleado)
+   *                   oneOf:
+   *                     - type: object
+   *                       description: Solo cantidades; nunca identificadores internos de empresa
+   *                       properties:
+   *                         contracted:
+   *                           type: integer
+   *                         active:
+   *                           type: integer
+   *                         incoming:
+   *                           type: integer
+   *                           description: Altas nuevas en el archivo (filas sin ID Empleado)
+   *                     - type: object
+   *                       properties:
+   *                         offendingRows:
+   *                           type: array
+   *                           items:
+   *                             type: object
+   *                             properties:
+   *                               row:
+   *                                 type: integer
+   *                               businessUnit:
+   *                                 type: string
+   *                               payrollBusinessUnit:
+   *                                 type: string
    *             examples:
    *               cupoRebasado:
    *                 value:
@@ -7225,6 +7240,25 @@ export default class EmployeeController {
    *                     contracted: 0
    *                     active: 12
    *                     incoming: 3
+   *               otraEmpresa:
+   *                 value:
+   *                   type: error
+   *                   title: El archivo tiene empleados de otra empresa
+   *                   message: "La empresa activa es «Acme». Estas filas declaran otra: fila 12 («Otra SA»), fila 13 («Otra SA»), fila 40 («Otra SA»). … y 5 filas más. No se aplicó ninguna línea del archivo: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo."
+   *                   detail: "La empresa activa es «Acme». Estas filas declaran otra: fila 12 («Otra SA»), fila 13 («Otra SA»), fila 40 («Otra SA»). … y 5 filas más. No se aplicó ninguna línea del archivo: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo."
+   *                   key: archivo-de-otra-empresa
+   *                   code: EMP.IMPORT.VAL_BUSINESS_UNIT
+   *                   data:
+   *                     offendingRows:
+   *                       - row: 12
+   *                         businessUnit: Otra SA
+   *                         payrollBusinessUnit: ''
+   *                       - row: 13
+   *                         businessUnit: Otra SA
+   *                         payrollBusinessUnit: ''
+   *                       - row: 40
+   *                         businessUnit: ''
+   *                         payrollBusinessUnit: Otra SA
    *       500:
    *         description: Error inesperado del servidor
    *         content:
@@ -7359,10 +7393,10 @@ export default class EmployeeController {
       }
 
       // USRH1789747321650 reglas 1 y 6: el archivo declaraba otra empresa.
-      // Rechazo todo-o-nada con el listado de filas para corregir (422, no 400:
-      // las cabeceras y el formato eran válidos; lo inaceptable es el contenido).
+      // Rechazo todo-o-nada con el listado de filas para corregir (409, mismo
+      // camino que cupo: no se aplica ninguna línea del archivo).
       if ((error as { isCompanyMismatchError?: boolean }).isCompanyMismatchError) {
-        const resolved = resolveEmployeeImportApiError(error, 422, i18n)
+        const resolved = resolveEmployeeImportApiError(error, 409, i18n)
         response.status(resolved.status)
         return {
           type: 'error',
