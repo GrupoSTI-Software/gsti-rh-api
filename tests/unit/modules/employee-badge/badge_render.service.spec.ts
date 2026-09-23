@@ -84,4 +84,31 @@ test.group('BadgeRenderService - formato neutral', () => {
     const sampleOut = process.env.BADGE_SAMPLE_OUT_INTERNAL
     if (sampleOut) writeFileSync(sampleOut, png)
   })
+
+  test('recorta la foto en lugar de deformarla', async ({ assert }) => {
+    // Foto horizontal con franjas rojas en los extremos y azul al centro: al
+    // recortar tipo "cover" los extremos quedan fuera y el borde izquierdo del
+    // recuadro muestra azul; estirada, mostraría rojo.
+    const photo = createCanvas(400, 100)
+    const photoCtx = photo.getContext('2d')
+    photoCtx.fillStyle = '#3366cc'
+    photoCtx.fillRect(0, 0, 400, 100)
+    photoCtx.fillStyle = '#cc0000'
+    photoCtx.fillRect(0, 0, 100, 100)
+    photoCtx.fillRect(300, 0, 100, 100)
+    const photoBuffer = photo.toBuffer('image/png')
+
+    class WithWidePhoto extends BadgeRenderService {
+      async fetchImageTolerant(): Promise<Buffer | null> {
+        return photoBuffer
+      }
+    }
+
+    const png = await new WithWidePhoto().renderBadgePng({
+      ...BASE_CONTEXT,
+      fotoPath: 'employees/1/photo.jpg',
+    })
+    // Borde izquierdo del recuadro de la foto (x ≈ 12 pt), a media altura.
+    assert.deepEqual(await pixelAt(png, 52, 283), [0x33, 0x66, 0xcc])
+  })
 })
