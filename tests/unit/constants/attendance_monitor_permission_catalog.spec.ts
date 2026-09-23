@@ -4,8 +4,8 @@ import {
 } from '#constants/attendance_monitor_permission_catalog'
 import { SYSTEM_PERMISSION_CATALOG } from '#constants/system_permission_catalog'
 
-/** Los 11 slugs sembrados con `systemModuleId: 7` en 0018_system_permission_seeder.ts. */
-const SEEDED_MODULE_7_SLUGS = [
+/** Los 11 slugs legados del monitor (legacyEquivalence exacta contra su propio slug). */
+const LEGACY_MONITOR_SLUGS = [
   'read',
   'read-time-worked',
   'consecutive-faults',
@@ -20,11 +20,11 @@ const SEEDED_MODULE_7_SLUGS = [
 ] as const
 
 test.group('Catálogo employees-attendance-monitor — USRH1787433076991', () => {
-  test('enumera exactamente las 11 acciones ya sembradas del módulo 7', ({ assert }) => {
+  test('enumera exactamente las 11 acciones legadas del monitor', ({ assert }) => {
     assert.lengthOf(ATTENDANCE_MONITOR_PERMISSION_CATALOG, 11)
     assert.deepEqual(
       [...ATTENDANCE_MONITOR_PERMISSION_CATALOG.map((action) => action.slug)].sort(),
-      [...SEEDED_MODULE_7_SLUGS].sort()
+      [...LEGACY_MONITOR_SLUGS].sort()
     )
   })
 
@@ -63,7 +63,9 @@ test.group('Catálogo employees-attendance-monitor — USRH1787433076991', () =>
     assert.lengthOf(bySection.get('asistencia') ?? [], 3)
   })
 
-  test('ninguna acción se declara exenta de la revisión de consistencia', ({ assert }) => {
+  test('ninguna acción se declara exenta: las 11 tienen fila en system_permissions', ({
+    assert,
+  }) => {
     for (const action of ATTENDANCE_MONITOR_PERMISSION_CATALOG) {
       assert.notProperty(action, 'exemption', action.slug)
     }
@@ -76,7 +78,7 @@ test.group('Índice maestro — registro del monitor de asistencia', () => {
       (entry) => entry.slug === 'employees-attendance-monitor'
     )
     assert.exists(moduleEntry)
-    assert.isTrue(moduleEntry!.actionsEnumerated)
+    assert.property(SYSTEM_PERMISSION_CATALOG.actionsByModule, 'employees-attendance-monitor')
   })
 
   test('actionsByModule expone exactamente las 11 acciones del catálogo del monitor', ({
@@ -90,8 +92,10 @@ test.group('Índice maestro — registro del monitor de asistencia', () => {
     )
   })
 
+  // Afirma la intención (no se pisó ningún catálogo previo) y no la lista
+  // exacta: cada catálogo tipado nuevo rompía este spec sin motivo.
   test('los módulos ya enumerados siguen enumerados (no se pisó nada)', ({ assert }) => {
-    assert.deepEqual(Object.keys(SYSTEM_PERMISSION_CATALOG.actionsByModule).sort(), [
+    assert.includeMembers(Object.keys(SYSTEM_PERMISSION_CATALOG.actionsByModule), [
       'employees',
       'employees-attendance-monitor',
       'positions',

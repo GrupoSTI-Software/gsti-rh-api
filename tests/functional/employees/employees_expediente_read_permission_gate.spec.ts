@@ -15,6 +15,8 @@ import InsuranceCoverageType from '#models/insurance_coverage_type'
 import ProceedingFile from '#models/proceeding_file'
 import ProceedingFileType from '#models/proceeding_file_type'
 import EmployeeAnnotation from '#models/employee_annotation'
+import { grantModuleAction } from './sensitive_read_by_category_support.js'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'EmployeesExpedienteReadPermissionGate123!'
 
@@ -77,7 +79,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     roleSlug: `expediente-lectura-${stamp}`,
     roleDescription: 'Rol temporal sin permisos de lectura del expediente',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   const person = await Person.create({
@@ -85,6 +87,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     personLastname: 'Test',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId: businessUnit.businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -110,11 +113,11 @@ async function cleanupActor(actor: TenantActor | null) {
 }
 
 async function createSystemActor(
-  roleSlug: string,
+  roleSlug: TestRoleSlug,
   emailPrefix: string,
   businessUnitId: number
 ): Promise<SystemActor> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).firstOrFail()
+  const role = await ensureRole(roleSlug)
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
   const person = await Person.create({
@@ -122,6 +125,7 @@ async function createSystemActor(
     personLastname: 'Sistema',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -180,6 +184,7 @@ async function createEmployeeFixture(
       personLastname: 'Expediente',
       personSecondLastname: prefix,
       personEmail: `employee-${prefix}-${stamp}@gsti-tests.local`,
+      businessUnitId,
     }))
   const departmentInsert = await db.table('departments').insert({
     department_sync_id: stamp,
@@ -327,6 +332,11 @@ test.group('Expediente lectura — PermissionGate soft-rollout', (group) => {
   })
 
   test('con exigencia apagada, GET users no responde PERM.DENIED', async ({ client, assert }) => {
+    // `users` nace con exigencia encendida en el catálogo vigente
+    // (system_modules.constant.ts) y no depende del interruptor de employees que
+    // apaga este suite. Se concede users:read para que el caso siga probando solo
+    // que el soft-rollout de employees no agrega una negación.
+    await grantModuleAction(actor!.role.roleId, 'users', 'read')
     const list = await client
       .get('/api/users/')
       .loginAs(actor!.user)
@@ -365,6 +375,7 @@ test.group('Expediente lectura — PermissionGate exigencia ON', (group) => {
       personLastname: 'Cliente',
       personSecondLastname: 'Expediente',
       personEmail: `customer-${Date.now()}@gsti-tests.local`,
+      businessUnitId: actor.businessUnit.businessUnitId,
     })
   })
 

@@ -98,8 +98,7 @@ export const DEMO_DEFAULT_SHIFT_NAME = '08:00 to 17:00 - Rest (Sat, Sun)'
  *       shiftDayStart:        shiftData.shiftDayStart,
  *       shiftTemp:            shiftData.shiftTemp,
  *       shiftColor:           shiftData.shiftColor,
- *       shiftBusinessUnits:   businessUnits,
- *     }).create()
+ * *     }).create()
  *   }
  */
 export const ShiftFactory = factory
@@ -115,7 +114,6 @@ export const ShiftFactory = factory
       shiftDayStart:        1,
       shiftTemp:            0,
       shiftColor:           '#ffffff',
-      shiftBusinessUnits:   '',
       shiftLunchTime:       null,
       shiftCompensableLunchSchedule: null,
     }

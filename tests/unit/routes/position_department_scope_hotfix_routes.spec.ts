@@ -8,22 +8,38 @@ import { test } from '@japa/runner'
  * (ni siquiera `auth()`), permitiendo acceso sin sesión. Estos tests validan
  * únicamente el contenido del archivo de rutas (sin levantar servidor ni BD)
  * para que una regresión futura que vuelva a quitar el middleware falle rápido.
+ *
+ * Se compara sin espacios ni saltos: desde que el organigrama exige permisos,
+ * cada ruta encadena su `permissionGate` y la declaración ocupa varias líneas.
+ * Qué gate lleva cada ruta lo cuida
+ * `supplies_organization_chart_permission_gate_routes.spec.ts`.
  */
 
 const POSITION_ROUTES_FILE = join(process.cwd(), 'start/routes/position_routes.ts')
 const DEPARTMENT_ROUTES_FILE = join(process.cwd(), 'start/routes/department_routes.ts')
 
+const compact = (content: string) => content.replace(/\s+/g, '')
+
+const readCompact = (file: string) => compact(readFileSync(file, 'utf-8'))
+
+const routeDeclaration = (method: string, path: string, handler: string) =>
+  compact(`router.${method}('${path}', '#controllers/${handler}')`)
+
+/** Desde la ruta dada hasta el siguiente `router.group` (o el fin del archivo). */
+function groupBlockFrom(content: string, declaration: string): string | null {
+  const groupStart = content.indexOf(declaration)
+  if (groupStart === -1) return null
+  const groupEnd = content.indexOf('router.group', groupStart + 1)
+  return groupEnd === -1 ? content.slice(groupStart) : content.slice(groupStart, groupEnd)
+}
+
 test.group('Positions — hotfix de scope en rutas de escritura', () => {
   test('el grupo store/update/delete/get monta auth() y businessScope()', ({ assert }) => {
-    const content = readFileSync(POSITION_ROUTES_FILE, 'utf-8')
-
-    const groupStart = content.indexOf("router.post('/', '#controllers/position_controller.store')")
-    assert.isAbove(groupStart, -1, 'no se encontró el grupo de escritura de posiciones')
-
-    // El bloque del grupo debe cerrar con el prefix y montar ambos middlewares
-    // antes de la siguiente declaración de grupo (o fin de archivo).
-    const groupEnd = content.indexOf('router\n  .group', groupStart + 1)
-    const block = groupEnd === -1 ? content.slice(groupStart) : content.slice(groupStart, groupEnd)
+    const block = groupBlockFrom(
+      readCompact(POSITION_ROUTES_FILE),
+      routeDeclaration('post', '/', 'position_controller.store')
+    )
+    assert.isNotNull(block, 'no se encontró el grupo de escritura de posiciones')
 
     assert.include(block, "prefix('/api/positions')")
     assert.include(block, 'middleware.auth()')
@@ -31,24 +47,22 @@ test.group('Positions — hotfix de scope en rutas de escritura', () => {
   })
 
   test('las rutas store/update/delete/get siguen expuestas', ({ assert }) => {
-    const content = readFileSync(POSITION_ROUTES_FILE, 'utf-8')
+    const content = readCompact(POSITION_ROUTES_FILE)
 
-    assert.include(content, "router.post('/', '#controllers/position_controller.store')")
-    assert.include(content, "router.put('/:positionId', '#controllers/position_controller.update')")
-    assert.include(content, "router.delete('/:positionId', '#controllers/position_controller.delete')")
-    assert.include(content, "router.get('/', '#controllers/position_controller.get')")
+    assert.include(content, routeDeclaration('post', '/', 'position_controller.store'))
+    assert.include(content, routeDeclaration('put', '/:positionId', 'position_controller.update'))
+    assert.include(content, routeDeclaration('delete', '/:positionId', 'position_controller.delete'))
+    assert.include(content, routeDeclaration('get', '/', 'position_controller.get'))
   })
 })
 
 test.group('Departments — hotfix de scope en rutas de escritura', () => {
   test('el grupo show/store/update/delete/force-delete monta auth() y businessScope()', ({ assert }) => {
-    const content = readFileSync(DEPARTMENT_ROUTES_FILE, 'utf-8')
-
-    const groupStart = content.indexOf("router.get('/organization', '#controllers/department_controller.getOrganization')")
-    assert.isAbove(groupStart, -1, 'no se encontró el grupo de escritura de departamentos')
-
-    const groupEnd = content.indexOf('router.group', groupStart + 1)
-    const block = groupEnd === -1 ? content.slice(groupStart) : content.slice(groupStart, groupEnd)
+    const block = groupBlockFrom(
+      readCompact(DEPARTMENT_ROUTES_FILE),
+      routeDeclaration('get', '/organization', 'department_controller.getOrganization')
+    )
+    assert.isNotNull(block, 'no se encontró el grupo de escritura de departamentos')
 
     assert.include(block, "prefix('/api/departments')")
     assert.include(block, 'middleware.auth()')
@@ -56,13 +70,16 @@ test.group('Departments — hotfix de scope en rutas de escritura', () => {
   })
 
   test('las rutas show/store/sync-positions/update/delete/force-delete siguen expuestas', ({ assert }) => {
-    const content = readFileSync(DEPARTMENT_ROUTES_FILE, 'utf-8')
+    const content = readCompact(DEPARTMENT_ROUTES_FILE)
 
-    assert.include(content, "router.get('/:departmentId', '#controllers/department_controller.show')")
-    assert.include(content, "router.post('/', '#controllers/department_controller.store')")
-    assert.include(content, "router.post('/sync-positions', '#controllers/department_controller.syncPositions')")
-    assert.include(content, "router.put('/:departmentId', '#controllers/department_controller.update')")
-    assert.include(content, "router.delete('/:departmentId', '#controllers/department_controller.delete')")
-    assert.include(content, "router.delete('/:departmentId/force-delete', '#controllers/department_controller.forceDelete')")
+    assert.include(content, routeDeclaration('get', '/:departmentId', 'department_controller.show'))
+    assert.include(content, routeDeclaration('post', '/', 'department_controller.store'))
+    assert.include(content, routeDeclaration('post', '/sync-positions', 'department_controller.syncPositions'))
+    assert.include(content, routeDeclaration('put', '/:departmentId', 'department_controller.update'))
+    assert.include(content, routeDeclaration('delete', '/:departmentId', 'department_controller.delete'))
+    assert.include(
+      content,
+      routeDeclaration('delete', '/:departmentId/force-delete', 'department_controller.forceDelete')
+    )
   })
 })

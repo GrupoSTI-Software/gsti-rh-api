@@ -2,15 +2,66 @@ import db from '@adonisjs/lucid/services/db'
 import { DateTime } from 'luxon'
 import { I18n } from '@adonisjs/i18n'
 import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
+import {
+  dayKeyOf,
+  nowInZone,
+  shiftEndInstant,
+  shiftStartInstant,
+  toInstant,
+  utcOffsetHours,
+} from '#modules/attendance-time/attendance_clock'
+import {
+  bucketCheckIn,
+  bucketCheckOut,
+  minutesAfter,
+} from '#modules/attendance-time/attendance_bucketing'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
 import type {
+  AttendanceTolerances,
+  EmployeeSiteTimeZoneMap,
+} from '#modules/attendance-time/attendance_time.interface'
+import { toAbsencesBranch } from './attendance-stats.absences.js'
+import type {
+  AbsencesBranch,
   AttendanceStatsFilters,
-  CoverageActiveLoanRow,
-  CoverageShiftQuotaRow,
-  CoverageSiteRef,
+  CoverageRangeLoanRow,
   EmployeeCalendarBundle,
   EmployeeInfo,
 } from './dto/attendance-stats.dto.js'
 import type { AttendanceStatsRepository } from './attendance-stats.repository.js'
+import { getBusinessTimeZone } from '#utils/business_date'
+
+/** Zona del sistema cuando un colaborador no trae zona resuelta. */
+const DEFAULT_ZONE_FALLBACK = (): string => getBusinessTimeZone()
+
+/** Fila cruda de `runBulkStatusQuery`: una por (colaborador, día). */
+interface BulkStatusRow {
+  employee_id: number | string
+  day: string | Date
+  shift_id: number | string | null
+  shift_time_start: string | null
+  shift_active_hours: number | string | null
+  shift_rest_days: string | null
+  first_punch_utc: string | Date | null
+  last_punch_utc: string | Date | null
+  punch_count: number | string
+  late_arrival_time: string | null
+  early_departure_time: string | null
+  has_vacation_exc: number | string
+  has_absence_exc: number | string
+  has_nuevo_ingreso_exc: number | string
+  has_skip_checkout_exc: number | string
+  has_skip_checkin_exc: number | string
+  has_day_excluding_exc: number | string
+  is_holiday: number | string
+  is_work_disability: number | string
+  is_rest_day: number | string
+}
+
+/** Excepción mínima que las reglas leen por `exceptionTypeSlug`. */
+interface MinimalException {
+  exceptionType: { exceptionTypeSlug: string; exceptionTypeIsGeneral: number }
+}
 
 /**
  * Implementación MySQL del repositorio — versión SQL puro.
@@ -30,13 +81,15 @@ import type { AttendanceStatsRepository } from './attendance-stats.repository.js
  *    aggregate este impacto es marginal (los counters totales sobre el período
  *    son los mismos, solo la atribución per-día cambia).
  *
- * 2. Zona horaria / DST:
- *    assists.assist_punch_time_utc guarda la hora del biométrico, que SÍ aplica
- *    horario de verano: +5 en verano (DST) y +6 el resto del año. Por eso el
- *    turno se convierte a UTC con el mismo offset por día (ver utc_offset y
- *    computeMexicoDST). Aunque México abolió el DST civil en 2022, los relojes
- *    de los biométricos siguen registrando con DST — verificado contra datos
- *    reales (check-in de las 08:00 aparece ~14:00 en invierno y ~13:00 en verano).
+ * 2. Zona horaria:
+ *    assists.assist_punch_time_utc es un instante UTC real (quien escribe la
+ *    checada ya convirtió la hora del equipo). La hora del turno es hora civil
+ *    del sitio del colaborador, cuya zona IANA resuelve `SiteTimeZoneService`
+ *    (sucursal, empresa, sistema). El SQL solo usa un offset aproximado por
+ *    empleado (`utc_offset`, el del inicio del rango) para la ventana de
+ *    correlación de checadas, que tiene 3 h de margen; los instantes exactos del
+ *    turno, el día futuro y el día de hoy se calculan en TS con la zona, así que
+ *    un sitio con horario de verano (Ciudad Juárez) clasifica bien cada día.
  *
  * 3. Excepciones especiales:
  *    Solo una lista explícita de excepciones hace el día NO-EVALUABLE (rest-day,
@@ -56,8 +109,16 @@ import type { AttendanceStatsRepository } from './attendance-stats.repository.js
 export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRepository {
   // i18n se acepta por compatibilidad con la interfaz (constructor toma i18n)
   // aunque esta versión SQL-puro no lo usa (no se llaman strings traducidos).
+  private siteTimeZones: SiteTimeZoneService
+
+  /**
+   * @param _i18n Aceptado por compatibilidad con la interfaz; esta versión no traduce.
+   * @param siteTimeZones Resolutor de zona por colaborador; las pruebas inyectan uno con repositorio falso.
+   */
   // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
-  constructor(_i18n: I18n) {}
+  constructor(_i18n: I18n, siteTimeZones?: SiteTimeZoneService) {
+    this.siteTimeZones = siteTimeZones ?? new SiteTimeZoneService()
+  }
 
   async getEmployeeCalendars(
     filters: AttendanceStatsFilters,
@@ -70,6 +131,10 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     if (employees.length === 0) return []
 
     const employeeIds = employees.map((e) => e.employee.employeeId)
+
+    // Zona del sitio de cada colaborador: con ella se calculan en TS los
+    // instantes del turno y, aproximado, el offset de la ventana SQL.
+    const zones = await this.siteTimeZones.forEmployees(employeeIds)
 
     // 2. Tolerancias desde SystemSetting (1 query).
     // - Delay: límite del bucket tolerance (1..Delay min tarde = tolerance, > Delay = delay).
@@ -88,8 +153,10 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     const delay = tolerances.find((t: any) => t.tolerance_name === 'Delay')
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const fault = tolerances.find((t: any) => t.tolerance_name === 'Fault')
-    const TOLERANCE_DELAY = delay?.tolerance_minutes ?? 10
-    const TOLERANCE_FAULT = fault?.tolerance_minutes ?? 30
+    const attendanceTolerances: AttendanceTolerances = {
+      delayMinutes: Number(delay?.tolerance_minutes ?? 10),
+      faultMinutes: Number(fault?.tolerance_minutes ?? 30),
+    }
 
     // 3. THE BIG QUERY — una sola query que retorna 1 fila por (employee, day)
     // con todos los flags y datos pre-computados. El status final se bucketea
@@ -97,18 +164,45 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     const rows = await this.runBulkStatusQuery(
       employeeIds,
       filters.startDay,
-      filters.endDay
+      filters.endDay,
+      this.groupEmployeesByUtcOffset(employeeIds, zones, filters.startDay)
     )
 
     // 4. Agrupar por employee y formatear como AssistDayInterface[].
-    const calendarByEmployee = this.groupRowsByEmployee(rows, TOLERANCE_DELAY, TOLERANCE_FAULT)
+    const calendarByEmployee = this.groupRowsByEmployee(rows, attendanceTolerances, zones)
 
     // 5. Construir bundles.
     return employees.map((emp) => ({
       employee: emp.employee,
       departmentName: emp.departmentName,
+      timeZone: this.zoneOf(zones, emp.employee.employeeId),
       calendar: calendarByEmployee.get(emp.employee.employeeId) ?? [],
     }))
+  }
+
+  /** Zona IANA del colaborador; la del sistema si no se resolvió (no debería pasar). */
+  private zoneOf(zones: EmployeeSiteTimeZoneMap, employeeId: number): string {
+    return zones.get(employeeId)?.zone ?? DEFAULT_ZONE_FALLBACK()
+  }
+
+  /**
+   * Offset aproximado por colaborador para la ventana SQL de correlación de
+   * checadas: el de su zona al inicio del rango. Si el rango cruza un cambio de
+   * horario de verano el error es de 1 h, dentro del margen de 3 h de la
+   * ventana; la clasificación exacta no usa este valor.
+   */
+  private groupEmployeesByUtcOffset(
+    employeeIds: number[],
+    zones: EmployeeSiteTimeZoneMap,
+    startDay: string
+  ): Map<number, number[]> {
+    const groups = new Map<number, number[]>()
+    for (const employeeId of employeeIds) {
+      const offset = utcOffsetHours(this.zoneOf(zones, employeeId), startDay)
+      if (!groups.has(offset)) groups.set(offset, [])
+      groups.get(offset)!.push(employeeId)
+    }
+    return groups
   }
 
   private async resolveEmployeesInScope(
@@ -129,8 +223,14 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
           .on('ebo.employee_id', 'e.employee_id')
           .andOnVal('ebo.employee_branch_office_active', 1)
       })
+      // La sucursal base solo cuenta si es de una unidad de negocio permitida:
+      // una de otra empresa no aporta nombre ni se usa como sucursal efectiva
+      // en cobertura. Es leftJoin, así que no cambia las filas de los KPIs.
       .leftJoin('branch_offices AS bo', (join) => {
-        join.on('bo.branch_office_id', 'ebo.branch_office_id').andOnNull('bo.branch_office_deleted_at')
+        join
+          .on('bo.branch_office_id', 'ebo.branch_office_id')
+          .andOnNull('bo.branch_office_deleted_at')
+          .andOnIn('bo.business_unit_id', allowedBusinessUnitIds)
       })
       .whereNull('e.employee_deleted_at')
       // Excluir empleados discriminados de asistencia (employee_assist_discriminator=1):
@@ -158,6 +258,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
     const rows = await q
       .select(
         'e.employee_id AS employee_id',
+        'e.employee_slug AS employee_slug',
         'e.employee_code AS employee_code',
         'e.employee_payroll_code AS employee_payroll_code',
         'e.employee_first_name AS employee_first_name',
@@ -166,16 +267,24 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
         'e.employee_photo AS employee_photo',
         'e.department_id AS department_id',
         'd.department_name AS department_name',
+        'd.department_alias AS department_alias',
         'e.position_id AS position_id',
         'p.position_name AS position_name',
+        'p.position_alias AS position_alias',
         'e.business_unit_id AS business_unit_id',
         'bu.business_unit_name AS business_unit_name',
         'e.payroll_business_unit_id AS payroll_business_unit_id',
-        'ebo.branch_office_id AS branch_office_id',
+        // Del join a `bo`, no de `ebo`: así una sucursal base borrada o de otra
+        // empresa queda en NULL en lugar de colarse como sucursal efectiva.
+        'bo.branch_office_id AS branch_office_id',
         'bo.branch_office_name AS branch_office_name'
       )
       .orderBy('e.employee_first_name', 'asc')
       .orderBy('e.employee_last_name', 'asc')
+      // Desempate determinista entre homónimos y entre las filas de un colaborador
+      // con varias sucursales base activas; no cambia el orden por nombre.
+      .orderBy('e.employee_id', 'asc')
+      .orderBy('bo.branch_office_id', 'asc')
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return rows.map((r: any) => {
@@ -193,6 +302,7 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
       return {
         employee: {
           employeeId: Number(r.employee_id),
+          employeeSlug: String(r.employee_slug ?? ''),
           employeeCode: r.employee_code ?? null,
           employeePayrollCode: r.employee_payroll_code ?? null,
           employeeFirstName: r.employee_first_name ?? null,
@@ -205,6 +315,8 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
           payrollBusinessUnitId: Number(r.payroll_business_unit_id),
           branchOfficeId,
           branchOfficeName: r.branch_office_name ?? null,
+          departmentAlias: r.department_alias ?? null,
+          positionAlias: r.position_alias ?? null,
           department: departmentId !== null ? { departmentId, departmentName } : null,
           position:
             positionId !== null
@@ -235,15 +347,17 @@ export default class AttendanceStatsRepositoryMysql implements AttendanceStatsRe
   private async runBulkStatusQuery(
     employeeIds: number[],
     startDay: string,
-    endDay: string
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ): Promise<any[]> {
+    endDay: string,
+    offsetGroups: Map<number, number[]>
+  ): Promise<BulkStatusRow[]> {
     const empIdList = employeeIds.join(',')
-    const today = DateTime.now().setZone('UTC-6').toFormat('yyyy-LL-dd')
 
-    // Bounds del horario de verano para el año del rango. Se pasan al SQL para
-    // que utc_offset use +5 dentro de DST y +6 fuera.
-    const { dstStart, dstEnd } = computeMexicoDST(Number(startDay.slice(0, 4)))
+    // utc_offset por colaborador: horas que separan la pared del sitio de UTC al
+    // inicio del rango. Los ids ya están validados como enteros por el scope.
+    const offsetCases = [...offsetGroups.entries()]
+      .map(([offset, ids]) => `WHEN e.employee_id IN (${ids.join(',')}) THEN ${offset}`)
+      .join(' ')
+    const utcOffsetExpression = offsetCases.length > 0 ? `(CASE ${offsetCases} ELSE 6 END)` : '6'
 
     const sql = `
 WITH RECURSIVE date_range AS (
@@ -252,11 +366,11 @@ WITH RECURSIVE date_range AS (
   SELECT DATE_ADD(d, INTERVAL 1 DAY) FROM date_range WHERE d < DATE(?)
 ),
 emp_day AS (
-  -- utc_offset: horas a sumar a la hora local México para obtener el valor que
-  -- guarda assists.assist_punch_time_utc. El biométrico registra hora local CON
-  -- horario de verano: +5 en verano (DST, abr-oct) y +6 el resto del año.
+  -- utc_offset: horas a sumar a la hora de pared del sitio del colaborador para
+  -- llegar a UTC (aproximado: el del inicio del rango, ver groupEmployeesByUtcOffset).
+  -- Solo alimenta la ventana de correlación de checadas; no clasifica.
   SELECT e.employee_id, e.employee_code, e.business_unit_id, bu.business_unit_slug, dr.d AS day,
-    (CASE WHEN dr.d BETWEEN ? AND ? THEN 5 ELSE 6 END) AS utc_offset
+    ${utcOffsetExpression} AS utc_offset
   FROM employees e
   CROSS JOIN date_range dr
   LEFT JOIN business_units bu ON bu.business_unit_id = e.business_unit_id
@@ -491,46 +605,10 @@ SELECT /*+ NO_MERGE(sfd_full) */
       AND FIND_IN_SET(WEEKDAY(sfd_full.day) + 1, sfd_full.shift_rest_days) > 0
     THEN 1
     ELSE 0
-  END) AS is_rest_day,
-  -- is_future_day: el turno del día AÚN NO INICIA en tiempo real (ahora < inicio).
-  -- Un día "futuro" no cuenta como falta: cubre días calendario posteriores y el
-  -- día en curso cuyo turno todavía no comenzó (ej: turno nocturno consultado por
-  -- la mañana).
-  --
-  -- OJO — aquí NO se usa shift_start_utc. Ese valor lleva el offset DST del
-  -- biométrico (+5 en verano) para alinearse con assist_punch_time_utc, que vive
-  -- en ese "UTC falso" 1 h atrasado del UTC real. Pero UTC_TIMESTAMP() es UTC
-  -- real, y la hora del turno es hora civil de México (UTC-6 fijo desde que se
-  -- abolió el DST civil en 2022). Comparar UTC real contra shift_start_utc (+5)
-  -- adelantaba el inicio del turno 1 h en verano y marcaba falta a empleados
-  -- cuyo turno aún no empezaba. Por eso el instante real de inicio se calcula
-  -- con +6 (offset civil), no con utc_offset.
-  (CASE WHEN sfd_full.shift_time_start IS NOT NULL
-        AND UTC_TIMESTAMP() < TIMESTAMPADD(HOUR, 6, TIMESTAMP(sfd_full.day, sfd_full.shift_time_start))
-        THEN 1 ELSE 0 END) AS is_future_day,
-  -- is_today: el día en curso. La regla "sin checkout → fault" NO aplica a hoy
-  -- (la jornada no terminó y el sync puede tener lag en traer la salida).
-  (CASE WHEN sfd_full.day = DATE(?) THEN 1 ELSE 0 END) AS is_today,
-  -- expected_check_in_utc = shift_start_utc base (de sfd_full), o la hora del
-  -- permiso late-arrival convertida a UTC (offset fijo UTC-6) si existe.
-  (CASE
-    WHEN sfd_full.shift_start_utc IS NULL THEN NULL
-    WHEN lap.check_in_time IS NOT NULL
-      THEN TIMESTAMPADD(HOUR,
-        sfd_full.utc_offset,
-        TIMESTAMP(sfd_full.day, lap.check_in_time))
-    ELSE sfd_full.shift_start_utc
-  END) AS expected_check_in_utc,
-  -- expected_check_out_utc = shift_end_utc base (de sfd_full), o la hora del
-  -- permiso early-departure convertida a UTC (offset fijo UTC-6) si existe.
-  (CASE
-    WHEN sfd_full.shift_end_utc IS NULL THEN NULL
-    WHEN edp.check_out_time IS NOT NULL
-      THEN TIMESTAMPADD(HOUR,
-        sfd_full.utc_offset,
-        TIMESTAMP(sfd_full.day, edp.check_out_time))
-    ELSE sfd_full.shift_end_utc
-  END) AS expected_check_out_utc
+  END) AS is_rest_day
+  -- El día futuro, el día de hoy y los instantes esperados de entrada y salida
+  -- (turno o permiso) se calculan en TS con la zona IANA del colaborador: el SQL
+  -- no conoce el horario de verano de cada sitio.
 FROM sfd_full
 LEFT JOIN punches_for_shift p ON p.employee_id = sfd_full.employee_id AND p.day = sfd_full.day
 LEFT JOIN late_arrival_perm lap ON lap.employee_id = sfd_full.employee_id AND lap.day = sfd_full.day
@@ -543,8 +621,6 @@ ORDER BY sfd_full.employee_id, sfd_full.day
     const bindings = [
       `${startDay}`,
       `${endDay}`,
-      `${dstStart}`,
-      `${dstEnd}`,
       `${startDay}`,
       `${endDay}`,
       `${startDay}`,
@@ -555,60 +631,89 @@ ORDER BY sfd_full.employee_id, sfd_full.day
       `${endDay}`,
       `${startDay}`,
       `${endDay}`,
-      `${today}`,
     ]
 
-    const result = await db.rawQuery(sql, bindings)
+    const result: unknown = await db.rawQuery(sql, bindings)
     // mysql2 result shape: [rows, fields]
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows = Array.isArray(result) ? (result[0] as any[]) : (result as any[])
-    return rows
+    const rows = Array.isArray(result) && Array.isArray(result[0]) ? result[0] : result
+    return rows as BulkStatusRow[]
   }
 
   /**
    * Convierte las filas crudas del SQL a AssistDayInterface[] agrupados por employee_id.
    * El status (ontime/tolerance/delay/fault para check-in; equivalentes para check-out)
-   * se computa aquí en TS porque MySQL no permite condicionales encadenadas elegantes.
+   * se computa aquí en TS con la zona del sitio de cada colaborador.
    */
   private groupRowsByEmployee(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    rows: any[],
-    toleranceDelay: number,
-    toleranceFault: number
+    rows: BulkStatusRow[],
+    tolerances: AttendanceTolerances,
+    zones: EmployeeSiteTimeZoneMap
   ): Map<number, AssistDayInterface[]> {
     const out = new Map<number, AssistDayInterface[]>()
-    for (const r of rows) {
-      const empId = Number(r.employee_id)
-      const day = this.formatDay(r.day)
-      const dayInterface = this.buildAssistDayInterface(r, toleranceDelay, toleranceFault, day)
-      if (!out.has(empId)) out.set(empId, [])
-      out.get(empId)!.push(dayInterface)
+    for (const row of rows) {
+      const employeeId = Number(row.employee_id)
+      const day = this.formatDay(row.day)
+      const zone = this.zoneOf(zones, employeeId)
+      const dayInterface = this.buildAssistDayInterface(row, tolerances, day, zone)
+      if (!out.has(employeeId)) out.set(employeeId, [])
+      out.get(employeeId)!.push(dayInterface)
     }
     return out
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private formatDay(raw: any): string {
+  private formatDay(raw: string | Date): string {
     if (typeof raw === 'string') return raw.slice(0, 10)
     if (raw instanceof Date) return raw.toISOString().slice(0, 10)
     return String(raw).slice(0, 10)
   }
 
+  /**
+   * Instante esperado de entrada: la hora del permiso late-arrival si existe,
+   * si no la del turno, ambas como hora civil del sitio. `null` sin turno.
+   */
+  private expectedCheckIn(row: BulkStatusRow, day: string, zone: string): DateTime | null {
+    if (row.shift_time_start === null) return null
+    const clockTime = row.late_arrival_time ?? row.shift_time_start
+    const instant = shiftStartInstant(day, String(clockTime), zone)
+    return instant.isValid ? instant : null
+  }
+
+  /**
+   * Instante esperado de salida: la hora del permiso early-departure si existe,
+   * si no el fin del turno (inicio más horas activas). `null` sin turno.
+   */
+  private expectedCheckOut(row: BulkStatusRow, day: string, zone: string): DateTime | null {
+    if (row.shift_time_start === null) return null
+    if (row.early_departure_time !== null && row.early_departure_time !== undefined) {
+      const permitted = shiftStartInstant(day, String(row.early_departure_time), zone)
+      return permitted.isValid ? permitted : null
+    }
+    if (row.shift_active_hours === null || row.shift_active_hours === undefined) return null
+    const instant = shiftEndInstant(day, String(row.shift_time_start), Number(row.shift_active_hours), zone)
+    return instant.isValid ? instant : null
+  }
+
   private buildAssistDayInterface(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    r: any,
-    toleranceDelay: number,
-    toleranceFault: number,
-    day: string
+    row: BulkStatusRow,
+    tolerances: AttendanceTolerances,
+    day: string,
+    zone: string
   ): AssistDayInterface {
-    const isHoliday = Number(r.is_holiday) === 1
-    const isVacation = Number(r.has_vacation_exc) === 1
-    const isWorkDisability = Number(r.is_work_disability) === 1
-    const isRestDay = Number(r.is_rest_day) === 1
-    const isFutureDay = Number(r.is_future_day) === 1
-    const isToday = Number(r.is_today) === 1
-    const hasDayExcludingExc = Number(r.has_day_excluding_exc) === 1
-    const hasShift = r.shift_time_start !== null
+    const isHoliday = Number(row.is_holiday) === 1
+    const isVacation = Number(row.has_vacation_exc) === 1
+    const isWorkDisability = Number(row.is_work_disability) === 1
+    const isRestDay = Number(row.is_rest_day) === 1
+    const hasDayExcludingExc = Number(row.has_day_excluding_exc) === 1
+    const hasShift = row.shift_time_start !== null
+
+    // Día futuro: el turno del día aún no inicia en tiempo real. Cubre los días
+    // posteriores y el día en curso cuyo turno todavía no comienza (turno
+    // nocturno consultado por la mañana). Día de hoy: la regla "sin checkout →
+    // falta" no aplica a la jornada en curso.
+    const now = nowInZone(zone)
+    const shiftStart = hasShift ? shiftStartInstant(day, String(row.shift_time_start), zone) : null
+    const isFutureDay = shiftStart !== null && shiftStart.isValid && now.toUTC() < shiftStart
+    const isToday = dayKeyOf(now, zone) === day
 
     let checkInStatus = ''
     let checkOutStatus = ''
@@ -617,54 +722,61 @@ ORDER BY sfd_full.employee_id, sfd_full.day
       // El check-out existe SOLO si hay >= 2 punches (first != last). Con 1 punch
       // ese punch es el check-in y no hubo salida — first_punch_utc === last_punch_utc
       // por el MIN/MAX, así que distinguimos con punch_count.
-      const punchCount = Number(r.punch_count) || 0
-      const checkOutPunch = punchCount >= 2 ? r.last_punch_utc : null
+      const punchCount = Number(row.punch_count) || 0
+      const checkOutPunch = punchCount >= 2 ? row.last_punch_utc : null
+      const expectedCheckIn = this.expectedCheckIn(row, day, zone)
+      const expectedCheckOut = this.expectedCheckOut(row, day, zone)
 
-      const hasSkipCheckoutExc = Number(r.has_skip_checkout_exc) === 1
-      const hasSkipCheckinExc = Number(r.has_skip_checkin_exc) === 1
+      const hasSkipCheckoutExc = Number(row.has_skip_checkout_exc) === 1
+      const hasSkipCheckinExc = Number(row.has_skip_checkin_exc) === 1
 
       if (hasSkipCheckinExc) {
         // skip-checkin: el empleado tiene permiso de iniciar turno sin marcar
         // entrada. Si registró al menos un punch en el día → ontime; si no marcó
-        // nada → fault. Replica sync_assists_service.checkInStatus (1896-1917).
+        // nada → fault. Replica sync_assists_service.checkInStatus.
         checkInStatus = punchCount >= 1 ? 'ontime' : 'fault'
       } else {
-        // ontime/tolerance/delay/fault → solo basado en check-in vs shift_start.
+        // ontime/tolerance/delay/fault → solo basado en check-in vs inicio esperado.
         // El checkout NO afecta esos buckets, salvo para escalar a fault si nunca
-        // se registró checkout pasados 30 min del fin de turno (regla negocio Willy).
+        // se registró checkout pasados `faultMinutes` del fin de turno (regla de negocio).
         // La escalación NO aplica: (a) al día de hoy — la jornada sigue en curso;
         // (b) si el día tiene excepción skip-checkout — el empleado tiene permiso
         // de salir sin marcar, así que la salida ausente no es falta.
         checkInStatus = this.computeCheckInStatus(
-          r.first_punch_utc,
-          r.expected_check_in_utc,
-          toleranceDelay,
-          toleranceFault,
+          row.first_punch_utc,
+          expectedCheckIn,
+          tolerances,
           checkOutPunch,
-          isToday || hasSkipCheckoutExc ? null : r.expected_check_out_utc
+          isToday || hasSkipCheckoutExc ? null : expectedCheckOut
         )
       }
       // checkOutStatus se conserva solo para el contador independiente earlyOut.
-      checkOutStatus = this.computeCheckOutStatus(
-        checkOutPunch,
-        r.expected_check_out_utc,
-        toleranceDelay
-      )
+      checkOutStatus = this.computeCheckOutStatus(checkOutPunch, expectedCheckOut, tolerances)
     }
 
-    // Construir exceptions mínimas para que `aggregateCalendar` del service detecte
+    // Construir exceptions mínimas para que `aggregateCalendar` (attendance-stats.rules) detecte
     // contadores informativos. El service usa exception_type.exception_type_slug.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const exceptions: any[] = []
-    if (Number(r.has_absence_exc) === 1) {
+    const exceptions: MinimalException[] = []
+    if (Number(row.has_absence_exc) === 1) {
       exceptions.push({ exceptionType: { exceptionTypeSlug: 'absence-from-work', exceptionTypeIsGeneral: 0 } })
     }
-    if (Number(r.has_nuevo_ingreso_exc) === 1) {
+    if (Number(row.has_nuevo_ingreso_exc) === 1) {
       exceptions.push({ exceptionType: { exceptionTypeSlug: 'nuevo-ingreso', exceptionTypeIsGeneral: 0 } })
     }
     if (isVacation) {
       exceptions.push({ exceptionType: { exceptionTypeSlug: 'vacation', exceptionTypeIsGeneral: 0 } })
     }
+
+    // El calendario en memoria reutiliza la forma del sync; los campos que aquí
+    // no aplican van nulos y el turno solo lleva lo que las reglas consumen.
+    const dateShift = hasShift
+      ? ({
+          shiftId: row.shift_id ? Number(row.shift_id) : null,
+          shiftTimeStart: row.shift_time_start,
+          shiftActiveHours: row.shift_active_hours,
+          shiftRestDays: row.shift_rest_days,
+        } as unknown as AssistDayInterface['assist']['dateShift'])
+      : null
 
     return {
       day,
@@ -673,13 +785,7 @@ ORDER BY sfd_full.employee_id, sfd_full.day
         checkOut: null,
         checkEatIn: null,
         checkEatOut: null,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        dateShift: hasShift ? ({
-          shiftId: r.shift_id ? Number(r.shift_id) : null,
-          shiftTimeStart: r.shift_time_start,
-          shiftActiveHours: r.shift_active_hours,
-          shiftRestDays: r.shift_rest_days,
-        } as any) : null,
+        dateShift,
         dateShiftApplySince: null,
         employeeShiftId: null,
         shiftCalculateFlag: '',
@@ -696,63 +802,41 @@ ORDER BY sfd_full.employee_id, sfd_full.day
         isBirthday: false,
         holiday: null,
         hasExceptions: hasDayExcludingExc,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        exceptions: exceptions as any,
+        exceptions: exceptions as unknown as AssistDayInterface['assist']['exceptions'],
         assitFlatList: [],
       },
     }
   }
 
   /**
-   * Bucketea check-in vs shift_start_efectivo con granularidad de MINUTO.
-   * El diff se mide contra shift_start y se trunca con Math.floor — los segundos
-   * no cuentan (08:00:53 → 0 min):
-   * - diff <= 0 min: ontime (llegar antes y el primer minuto, 08:00:00–08:00:59)
-   * - 1 min .. toleranceDelay (10 default): tolerance
-   * - toleranceDelay+1 .. toleranceFault (30 default): delay
-   * - > toleranceFault: fault
+   * Bucketea check-in vs inicio esperado con granularidad de MINUTO (los
+   * segundos se truncan: 08:00:53 → 0 min → ontime; 08:01:00 → tolerance).
    *
-   * Regla extra (negocio): si pasó >= toleranceFault min del expected_check_out_utc
-   * y NO hay checkout punch, el día se escala a fault aunque el check-in fuera bueno.
+   * Regla extra (negocio): si pasó >= faultMinutes del fin esperado y NO hay
+   * checkout punch, el día se escala a fault aunque el check-in fuera bueno.
    * El checkout solo afecta para determinar fault, no los buckets ontime/tolerance/delay.
    */
   private computeCheckInStatus(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    firstPunchUtc: any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expectedCheckInUtc: any,
-    toleranceDelay: number,
-    toleranceFault: number,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    lastPunchUtc: any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expectedCheckOutUtc: any
+    firstPunchUtc: string | Date | null,
+    expectedCheckIn: DateTime | null,
+    tolerances: AttendanceTolerances,
+    lastPunchUtc: string | Date | null,
+    expectedCheckOut: DateTime | null
   ): string {
-    if (!expectedCheckInUtc) return ''
+    if (!expectedCheckIn) return ''
 
     let status: string
     if (!firstPunchUtc) {
       status = 'fault'
     } else {
-      // Math.floor trunca los segundos: el minuto incompleto no cuenta como
-      // tardanza. ontime cubre el primer minuto del turno (08:00:00–08:00:59);
-      // desde 08:01:00 ya es tolerance. Sin gracia adicional.
-      const diffMinutes = Math.floor(
-        (new Date(firstPunchUtc).getTime() - new Date(expectedCheckInUtc).getTime()) / 60000
-      )
-      if (diffMinutes > toleranceFault) status = 'fault'
-      else if (diffMinutes > toleranceDelay) status = 'delay'
-      else if (diffMinutes <= 0) status = 'ontime'
-      else status = 'tolerance'
+      status = bucketCheckIn(minutesAfter(expectedCheckIn, toInstant(firstPunchUtc)), tolerances)
     }
 
-    // Regla "no checkout pasados 30 min del fin de turno → fault" — solo
+    // Regla "no checkout pasados faultMinutes del fin de turno → fault" — solo
     // escala si el día ya pasó el threshold y no hay punch de salida.
-    if (status !== 'fault' && !lastPunchUtc && expectedCheckOutUtc) {
-      const now = Date.now()
-      const checkoutDeadline =
-        new Date(expectedCheckOutUtc).getTime() + toleranceFault * 60000
-      if (now >= checkoutDeadline) {
+    if (status !== 'fault' && !lastPunchUtc && expectedCheckOut) {
+      const checkoutDeadline = expectedCheckOut.plus({ minutes: tolerances.faultMinutes })
+      if (DateTime.utc() >= checkoutDeadline) {
         status = 'fault'
       }
     }
@@ -761,161 +845,219 @@ ORDER BY sfd_full.employee_id, sfd_full.day
   }
 
   /**
-   * Replica la lógica de sync_assists_service.checkOutStatus (lines 2100-2110).
-   * diffMinutes > 0 = salió antes del fin del turno (= early-out → 'delay' en el modelo).
+   * Misma regla que la salida del sync: `delay` = salió antes del fin esperado
+   * más allá de la tolerancia (salida anticipada), `tolerance` dentro de ella.
    */
   private computeCheckOutStatus(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    lastPunchUtc: any,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    expectedCheckOutUtc: any,
-    toleranceDelay: number
+    lastPunchUtc: string | Date | null,
+    expectedCheckOut: DateTime | null,
+    tolerances: AttendanceTolerances
   ): string {
     if (!lastPunchUtc) return ''
-    if (!expectedCheckOutUtc) return ''
-    const punchTime = new Date(lastPunchUtc).getTime()
-    const expectedTime = new Date(expectedCheckOutUtc).getTime()
-    const diffMinutes = (expectedTime - punchTime) / 60000
-    if (diffMinutes > toleranceDelay) return 'delay'
-    if (diffMinutes > 0) return 'tolerance'
-    return 'ontime'
+    if (!expectedCheckOut) return ''
+    const minutesEarly = minutesAfter(toInstant(lastPunchUtc), expectedCheckOut)
+    return bucketCheckOut(minutesEarly, tolerances)
   }
 
-  async getSitesByCompany(
-    companyId: number,
+  async getAbsencesEmployeeIds(
+    startDay: string,
+    endDay: string,
     allowedBusinessUnitIds: number[],
     branchOfficeIds?: number[]
-  ): Promise<CoverageSiteRef[]> {
+  ): Promise<number[]> {
     if (allowedBusinessUnitIds.length === 0) return []
 
-    const q = db
-      .from('branch_offices AS bo')
-      .whereNull('bo.branch_office_deleted_at')
-      .where('bo.empresa_contratante_id', companyId)
-      .whereIn('bo.business_unit_id', allowedBusinessUnitIds)
+    // db.from salta el mixin de tenant: el corte por empresa va explícito. Mismo
+    // criterio de plantilla que resolveEmployeesInScope (no borrados, sin
+    // discriminador de asistencia = 1). Sin join a sucursales: un id por colaborador.
+    const query = db
+      .from('employees AS e')
+      .whereNull('e.employee_deleted_at')
+      .whereRaw('COALESCE(e.employee_assist_discriminator, 0) <> 1')
+      .whereIn('e.business_unit_id', allowedBusinessUnitIds)
 
-    if (branchOfficeIds && branchOfficeIds.length > 0) {
-      q.whereIn('bo.branch_office_id', branchOfficeIds)
+    const uniqueBranchIds = [...new Set(branchOfficeIds ?? [])]
+    if (uniqueBranchIds.length > 0) {
+      query.where((universe) => {
+        universe
+          .whereExists((base) => {
+            base
+              .from('employee_branch_offices AS ebo')
+              .whereRaw('ebo.employee_id = e.employee_id')
+              .where('ebo.employee_branch_office_active', 1)
+              .whereIn('ebo.branch_office_id', uniqueBranchIds)
+          })
+          .orWhereExists((loan) => {
+            loan
+              .from('employee_temporary_assignments AS eta')
+              .innerJoin('branch_offices AS source_bo', 'source_bo.branch_office_id', 'eta.source_branch_id')
+              .whereRaw('eta.employee_id = e.employee_id')
+              .whereIn('source_bo.business_unit_id', allowedBusinessUnitIds)
+              .whereIn('eta.target_branch_id', uniqueBranchIds)
+              .whereNull('eta.employee_temporary_assignment_deleted_at')
+              .where('eta.start_date', '<=', endDay)
+              .where('eta.end_date', '>=', startDay)
+              .where((cancel) => {
+                cancel.whereNull('eta.cancelled_at').orWhere('eta.cancelled_at', '>', startDay)
+              })
+          })
+      })
     }
 
-    const rows = await q
-      .select('bo.branch_office_id AS branch_office_id', 'bo.branch_office_name AS branch_office_name')
-      .orderBy('bo.branch_office_name', 'asc')
+    const rows: Array<{ employee_id: number | string }> = await query
+      .select('e.employee_id AS employee_id')
+      .orderBy('e.employee_id', 'asc')
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return rows.map((r: any) => ({
-      branchOfficeId: Number(r.branch_office_id),
-      branchOfficeName: String(r.branch_office_name ?? ''),
-    }))
+    return rows.map((row) => Number(row.employee_id))
   }
 
-  async getShiftQuotasByBranchIds(branchOfficeIds: number[]): Promise<CoverageShiftQuotaRow[]> {
-    if (branchOfficeIds.length === 0) return []
-
-    const rows = await db
-      .from('branch_office_shift_quotas AS q')
-      .innerJoin('shifts AS s', 's.shift_id', 'q.shift_id')
-      .whereIn('q.branch_office_id', branchOfficeIds)
-      .whereNull('s.shift_deleted_at')
-      .where('s.shift_temp', 0)
-      .select(
-        'q.branch_office_id AS branch_office_id',
-        'q.shift_id AS shift_id',
-        's.shift_name AS shift_name',
-        'q.branch_office_shift_quota_required AS required',
-        'q.branch_office_shift_quota_minimum AS minimum'
-      )
-      .orderBy('q.branch_office_id', 'asc')
-      .orderBy('s.shift_name', 'asc')
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return rows.map((r: any) => ({
-      branchOfficeId: Number(r.branch_office_id),
-      shiftId: Number(r.shift_id),
-      shiftName: String(r.shift_name ?? ''),
-      required: Number(r.required),
-      minimum: Number(r.minimum),
-    }))
-  }
-
-  async getActiveLoansForDay(
-    day: string,
+  async getAbsencesBranches(
+    branchOfficeIds: number[],
     allowedBusinessUnitIds: number[]
-  ): Promise<CoverageActiveLoanRow[]> {
-    if (allowedBusinessUnitIds.length === 0) return []
+  ): Promise<AbsencesBranch[]> {
+    const uniqueIds = [...new Set(branchOfficeIds)]
+    if (uniqueIds.length === 0 || allowedBusinessUnitIds.length === 0) return []
 
-    const rows = await db
+    // db.from salta el mixin de tenant: el corte por empresa va explícito sobre
+    // la sucursal. La empresa contratante se lee cruda y `toAbsencesBranch`
+    // decide si está viva y es del tenant.
+    const rows: Array<{
+      branch_office_id: number | string
+      branch_office_name: string | null
+      empresa_contratante_id: number | string | null
+      empresa_contratante_razon_social: string | null
+      empresa_contratante_business_unit_id: number | string | null
+      empresa_contratante_deleted_at: Date | string | null
+    }> = await db
+      .from('branch_offices AS bo')
+      .leftJoin('empresas_contratantes AS ec', 'ec.empresa_contratante_id', 'bo.empresa_contratante_id')
+      .whereIn('bo.branch_office_id', uniqueIds)
+      .whereNull('bo.branch_office_deleted_at')
+      .whereIn('bo.business_unit_id', allowedBusinessUnitIds)
+      .select(
+        'bo.branch_office_id AS branch_office_id',
+        'bo.branch_office_name AS branch_office_name',
+        'ec.empresa_contratante_id AS empresa_contratante_id',
+        'ec.empresa_contratante_razon_social AS empresa_contratante_razon_social',
+        'ec.business_unit_id AS empresa_contratante_business_unit_id',
+        'ec.empresa_contratante_deleted_at AS empresa_contratante_deleted_at'
+      )
+
+    return rows.map((row) =>
+      toAbsencesBranch(
+        {
+          branchOfficeId: Number(row.branch_office_id),
+          name: String(row.branch_office_name ?? ''),
+          empresaContratante:
+            row.empresa_contratante_id === null
+              ? null
+              : {
+                  empresaContratanteId: Number(row.empresa_contratante_id),
+                  razonSocial: String(row.empresa_contratante_razon_social ?? ''),
+                  businessUnitId: Number(row.empresa_contratante_business_unit_id),
+                  isDeleted: row.empresa_contratante_deleted_at !== null,
+                },
+        },
+        allowedBusinessUnitIds
+      )
+    )
+  }
+
+  async getLoansForRange(
+    employeeIds: number[],
+    startDay: string,
+    endDay: string,
+    allowedBusinessUnitIds: number[]
+  ): Promise<CoverageRangeLoanRow[]> {
+    const uniqueEmployeeIds = [...new Set(employeeIds)]
+    if (uniqueEmployeeIds.length === 0 || allowedBusinessUnitIds.length === 0) return []
+
+    const rows: Array<{
+      assignment_id: number | string
+      employee_id: number | string
+      source_branch_id: number | string
+      target_branch_id: number | string
+      start_date: string
+      end_date: string
+      cancelled_at: string | null
+    }> = await db
       .from('employee_temporary_assignments AS eta')
       .innerJoin('employees AS e', 'e.employee_id', 'eta.employee_id')
-      .whereNull('e.employee_deleted_at')
-      .whereNull('eta.employee_temporary_assignment_deleted_at')
+      // Origen y destino deben ser sucursales de la empresa: un préstamo que
+      // apunte a otra no puede mover al colaborador.
+      .innerJoin('branch_offices AS source_bo', 'source_bo.branch_office_id', 'eta.source_branch_id')
+      .innerJoin('branch_offices AS target_bo', 'target_bo.branch_office_id', 'eta.target_branch_id')
+      .whereIn('source_bo.business_unit_id', allowedBusinessUnitIds)
+      .whereIn('target_bo.business_unit_id', allowedBusinessUnitIds)
       .whereIn('e.business_unit_id', allowedBusinessUnitIds)
-      .where('eta.start_date', '<=', day)
-      .where('eta.end_date', '>=', day)
-      .where((query) => {
-        query.whereNull('eta.cancelled_at').orWhere('eta.cancelled_at', '>', day)
+      .whereNull('e.employee_deleted_at')
+      .whereIn('eta.employee_id', uniqueEmployeeIds)
+      .whereNull('eta.employee_temporary_assignment_deleted_at')
+      .where('eta.start_date', '<=', endDay)
+      .where('eta.end_date', '>=', startDay)
+      // Cancelado a más tardar en startDay no mueve a nadie en el rango; la
+      // vigencia exacta por día se resuelve en memoria con cancelled_at.
+      .where((cancel) => {
+        cancel.whereNull('eta.cancelled_at').orWhere('eta.cancelled_at', '>', startDay)
       })
       .select(
         'eta.employee_temporary_assignment_id AS assignment_id',
         'eta.employee_id AS employee_id',
         'eta.source_branch_id AS source_branch_id',
         'eta.target_branch_id AS target_branch_id',
-        'eta.destination_shift_id AS destination_shift_id',
-        'eta.reason AS reason'
+        // Fechas como texto: sin conversión de zona horaria del driver.
+        db.raw("DATE_FORMAT(eta.start_date, '%Y-%m-%d') AS start_date"),
+        db.raw("DATE_FORMAT(eta.end_date, '%Y-%m-%d') AS end_date"),
+        db.raw("DATE_FORMAT(eta.cancelled_at, '%Y-%m-%d') AS cancelled_at")
       )
+      .orderBy('eta.start_date', 'desc')
+      .orderBy('eta.employee_temporary_assignment_id', 'desc')
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    return rows.map((r: any) => ({
-      assignmentId: Number(r.assignment_id),
-      employeeId: Number(r.employee_id),
-      sourceBranchId: Number(r.source_branch_id),
-      targetBranchId: Number(r.target_branch_id),
-      destinationShiftId: r.destination_shift_id === null ? null : Number(r.destination_shift_id),
-      reason: typeof r.reason === 'string' ? r.reason : null,
+    return rows.map((row) => ({
+      assignmentId: Number(row.assignment_id),
+      employeeId: Number(row.employee_id),
+      sourceBranchId: Number(row.source_branch_id),
+      targetBranchId: Number(row.target_branch_id),
+      startDate: row.start_date,
+      endDate: row.end_date,
+      cancelledAt: row.cancelled_at,
     }))
   }
 
-  async getBranchOfficeNamesByIds(branchOfficeIds: number[]): Promise<Map<number, string>> {
-    const uniqueIds = [...new Set(branchOfficeIds.filter((id) => id > 0))]
-    if (uniqueIds.length === 0) return new Map()
+  async getEmployeeIdsInResponsibleScope(
+    userId: number,
+    employeeIds: number[],
+    allowedBusinessUnitIds: number[]
+  ): Promise<number[]> {
+    const uniqueIds = [...new Set(employeeIds)]
+    if (uniqueIds.length === 0 || allowedBusinessUnitIds.length === 0) return []
 
-    const rows = await db
-      .from('branch_offices AS bo')
-      .whereIn('bo.branch_office_id', uniqueIds)
-      .whereNull('bo.branch_office_deleted_at')
-      .select('bo.branch_office_id AS branch_office_id', 'bo.branch_office_name AS branch_office_name')
+    // Mismo criterio que `NoticeService.applyRoleScope`: a cargo vigente o el
+    // propio usuario. db.from salta el mixin de tenant, así que el corte por
+    // empresa va explícito sobre el empleado.
+    const rows: Array<{ employee_id: number | string }> = await db
+      .from('employees AS e')
+      .whereIn('e.employee_id', uniqueIds)
+      .whereIn('e.business_unit_id', allowedBusinessUnitIds)
+      .where((scoped) => {
+        scoped
+          .whereExists((responsible) => {
+            responsible
+              .from('user_responsible_employees AS ure')
+              .whereRaw('ure.employee_id = e.employee_id')
+              .where('ure.user_id', userId)
+              .whereNull('ure.user_responsible_employee_deleted_at')
+          })
+          .orWhereExists((ownUser) => {
+            ownUser
+              .from('users AS u')
+              .whereRaw('u.person_id = e.person_id')
+              .where('u.user_id', userId)
+          })
+      })
+      .select('e.employee_id AS employee_id')
 
-    const names = new Map<number, string>()
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const r of rows as any[]) {
-      names.set(Number(r.branch_office_id), String(r.branch_office_name ?? ''))
-    }
-    return names
+    return rows.map((row) => Number(row.employee_id))
   }
 }
 
-/**
- * Computa los bounds del horario de verano para un año dado.
- * Replica sync_assists_service.getMexicoDSTChangeDates: inicio = primer domingo
- * de abril, fin = último domingo de octubre.
- *
- * Los relojes de los biométricos registran las marcaciones aplicando DST: dentro
- * de esta ventana el offset efectivo es UTC-5, fuera de ella UTC-6. Por eso el
- * turno (hora local) se convierte a UTC con el offset correspondiente al día.
- */
-function computeMexicoDST(year: number): { dstStart: string; dstEnd: string } {
-  // Primer domingo de abril.
-  const aprilFirst = new Date(Date.UTC(year, 3, 1))
-  const aprilFirstDow = aprilFirst.getUTCDay() // 0=Sun..6=Sat
-  const dstStartDate = new Date(Date.UTC(year, 3, 1 + ((7 - aprilFirstDow) % 7)))
-
-  // Último domingo de octubre.
-  const octLast = new Date(Date.UTC(year, 9, 31))
-  const octLastDow = octLast.getUTCDay()
-  const dstEndDate = new Date(Date.UTC(year, 9, 31 - octLastDow))
-
-  return {
-    dstStart: dstStartDate.toISOString().slice(0, 10),
-    dstEnd: dstEndDate.toISOString().slice(0, 10),
-  }
-}

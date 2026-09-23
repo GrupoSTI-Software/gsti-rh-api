@@ -76,9 +76,11 @@ export default class ProveedorRepse extends compose(BaseModel, SoftDeletes, with
    * de identificación fiscal), mismo patrón que `EmpresaContratante.rfc`. La
    * unicidad no se impone sobre este campo (un proveedor puede tener varios
    * folios en el tiempo); la unicidad de negocio vive sobre `folio`.
+   * Nunca se serializa: la salida deliberada es el DTO a mano de `providers.service.ts`.
    */
   @column({
     columnName: 'proveedor_repse_rfc',
+    serializeAs: null,
     prepare: (value: string | null) =>
       value !== null && value !== undefined ? encryption.encrypt(value) : null,
     consume: (value: string | null) => {

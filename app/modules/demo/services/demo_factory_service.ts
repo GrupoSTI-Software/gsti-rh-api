@@ -63,6 +63,7 @@ import { ShiftExceptionFactory } from '../factories/shift_exception_factory.js'
 import { EmployeeVacationArchiveFactory } from '../factories/employee_vacation_archive_factory.js'
 import { EmployeeVacationArchiveContentFactory } from '../factories/employee_vacation_archive_content_factory.js'
 import { ExceptionRequestFactory } from '../factories/exception_request_factory.js'
+import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
 
 async function demoDbCounts(tag: string, label: string): Promise<void> {
   const q = async (table: string): Promise<number> => {
@@ -457,7 +458,6 @@ export default class DemoFactoryService {
           shiftDayStart: shiftData.shiftDayStart,
           shiftTemp: shiftData.shiftTemp,
           shiftColor: shiftData.shiftColor,
-          shiftBusinessUnits: systemBusiness,
           // Unidad dueña (USRH1783821206521): NOT NULL tras la migración de aislamiento.
           businessUnitId,
         }).create()
@@ -596,7 +596,13 @@ export default class DemoFactoryService {
         .first()
       if (existingUser) continue
 
-      let roleId: number = roleEmployee?.roleId ?? 3
+      if (!roleEmployee) {
+        throw new Error(
+          `[demo_factory_service] Rol no encontrado por slug: ${DEMO_ROLE_RULES.roles.employee}. ` +
+            'Verifica que 0006_role_seeder haya corrido antes de generar la demo.'
+        )
+      }
+      let roleId: number = roleEmployee.roleId
 
       if (directorPos && emp.positionId === directorPos.positionId) {
         roleId = roleDirector?.roleId ?? roleId
@@ -610,15 +616,20 @@ export default class DemoFactoryService {
         personId: emp.person.personId,
       }).create()
 
-      if (activeBusinessUnitIds.length > 0) {
-        await demoUser.related('businessUnits').attach(activeBusinessUnitIds)
-      }
+      await attachBusinessUnitsWithRole(demoUser, activeBusinessUnitIds, demoUser.roleId)
 
       result.users.created++
     }
 
     // --- 6b. Usuarios root extra + empleados root ---------------------------
     const rootRole = await Role.query().where('role_slug', DEMO_ROLE_RULES.roles.root).first()
+    if (!rootRole) {
+      throw new Error(
+        `[demo_factory_service] Rol no encontrado por slug: ${DEMO_ROLE_RULES.roles.root}. ` +
+          'Verifica que 0006_role_seeder haya corrido antes de generar la demo.'
+      )
+    }
+    const rootRoleId = rootRole.roleId
 
     for (const [index, rootData] of DEMO_ROOT_USERS.entries()) {
       const existingUser = await User.query()
@@ -648,13 +659,11 @@ export default class DemoFactoryService {
       const rootDemoUser = await UserFactory.merge({
         userEmail: rootData.email,
         userPassword: DEMO_DEFAULT_PASSWORD,
-        roleId: rootRole?.roleId ?? 1,
+        roleId: rootRoleId,
         personId: rootPerson.personId,
       }).create()
 
-      if (activeBusinessUnitIds.length > 0) {
-        await rootDemoUser.related('businessUnits').attach(activeBusinessUnitIds)
-      }
+      await attachBusinessUnitsWithRole(rootDemoUser, activeBusinessUnitIds, rootDemoUser.roleId)
 
       result.users.created++
 

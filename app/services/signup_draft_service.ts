@@ -25,7 +25,8 @@ import { resolveSignupApiError } from '#helpers/signup_api_error'
 import { resolveBillingSubscriptionApiError } from '#helpers/billing_subscription_api_error'
 import { planNotSelectedError } from '#helpers/billing_tenant_error'
 import { BillingSubscriptionServiceError } from '#exceptions/billing_subscription_service_error'
-import RoleService from '#services/role_service'
+import TenantRoleProvisioningService from '#services/tenant_role_provisioning_service'
+import BranchOfficeProvisioningService from '#services/branch_office_provisioning_service'
 
 export interface StartSignupData {
   firstName: string
@@ -325,39 +326,12 @@ export default class SignupDraftService {
 
     const billingPlan = await BillingPlan.find(billingPlanId)
     const billingPlanName = billingPlan?.billingPlanName ?? `Plan #${billingPlanId}`
-    // El registro self-service asigna el rol owner (dueño de la cuenta contratada),
-    // resuelto por slug y nunca hardcodeado: distinto del rol interno usado antes (roleId 1).
-    const roleService = new RoleService()
-    const ownerRole = await roleService.findRoleBySlug('owner')
-    if (!ownerRole) {
-      logger.error(
-        'SignupDraftService.complete: el rol "owner" no existe en el catálogo de roles.'
-      )
-      return {
-        status: 500,
-        type: 'error',
-        title: this.t('signup_owner_role_missing_title'),
-        message: this.t('signup_owner_role_missing_detail'),
-        detail: this.t('signup_owner_role_missing_detail'),
-        key: 'rol-owner-no-encontrado',
-        code: 'SIGNUP.ROLE.OWNER_NOT_FOUND.001',
-        data: {},
-      }
-    }
+    // El dueño de la cuenta ya no se busca en un catálogo global: la empresa
+    // estrena su propio juego de roles (dueño, administrador y colaborador)
+    // dentro de la misma transacción del alta, y de ahí sale su `owner`.
+    const tenantRoleProvisioningService = new TenantRoleProvisioningService()
 
-    // UserService.create ya ejecuta related('businessUnits').attach(businessUnitIds) internamente.
-    // const userData = new User()
-    // userData.userEmail = draft.signupDraftEmail
-    // userData.userPassword = data.password
-    // userData.userActive = 1
-    // userData.roleId = ownerRole.roleId
-    // userData.personId = person.personId
-    // userData.userToken = ''
-    // userData.pinCode = ''
-    // userData.userEmailType = 'personal'
-    // const user = await userService.create(userData, [businessUnit.businessUnitId])
-
-    // Armado completo del alta (Person → BusinessUnit → User → attach →
+    // Armado completo del alta (BusinessUnit → Person → User → attach →
     // system_settings) todo-o-nada: un fallo en cualquier paso revierte todo,
     // sin dejar datos huérfanos (USRH1783712837572).
     // El bucle acota el reintento ante colisión de slug: transacción nueva
@@ -367,7 +341,20 @@ export default class SignupDraftService {
     for (;;) {
     try {
       const result = await db.transaction(async (trx) => {
+        // La empresa nace ANTES que el expediente del dueño: la persona necesita
+        // la empresa para llevar su marca (USRH1789698261609, regla 3). El
+        // bucle de colisión de slug reintenta la transacción completa, así que
+        // nunca queda una persona sin marca de un intento abortado.
+        const businessUnitData = new BusinessUnit()
+        businessUnitData.businessUnitName = draft.signupDraftBusinessUnitName
+        businessUnitData.businessUnitSlug = slug
+        businessUnitData.businessUnitLegalName = draft.signupDraftBusinessUnitName
+        businessUnitData.businessUnitActive = 1
+        businessUnitData.businessUnitOrigin = 'self_service'
+        const trxBusinessUnit = await businessUnitService.create(businessUnitData, trx)
+
         const personData = new Person()
+        personData.businessUnitId = trxBusinessUnit.businessUnitId
         personData.personFirstname = draft.signupDraftFirstName
         personData.personLastname = draft.signupDraftLastName
         personData.personSecondLastname = draft.signupDraftSecondLastName ?? ''
@@ -384,20 +371,19 @@ export default class SignupDraftService {
         personData.personPlaceOfBirthCity = ''
         const trxPerson = await personService.create(personData, trx)
 
-        const businessUnitData = new BusinessUnit()
-        businessUnitData.businessUnitName = draft.signupDraftBusinessUnitName
-        businessUnitData.businessUnitSlug = slug
-        businessUnitData.businessUnitLegalName = draft.signupDraftBusinessUnitName
-        businessUnitData.businessUnitActive = 1
-        businessUnitData.businessUnitOrigin = 'self_service'
-        const trxBusinessUnit = await businessUnitService.create(businessUnitData, trx)
+        // Roles propios de la empresa, antes que el usuario: el alta necesita
+        // el `owner` de ESTA empresa para asignárselo a quien la contrata.
+        const tenantRoles = await tenantRoleProvisioningService.provision(
+          trxBusinessUnit.businessUnitId,
+          trx
+        )
 
         // UserService.create ya ejecuta related('businessUnits').attach(businessUnitIds) internamente.
         const userData = new User()
         userData.userEmail = draft.signupDraftEmail
         userData.userPassword = data.password
         userData.userActive = 1
-        userData.roleId = ownerRole.roleId
+        userData.roleId = tenantRoles.owner.roleId
         userData.personId = trxPerson.personId
         userData.userToken = ''
         userData.pinCode = ''
@@ -418,6 +404,12 @@ export default class SignupDraftService {
           },
           trx
         )
+
+        // Sucursal default de la empresa nueva: destino garantizado de todo
+        // empleado que no traiga sucursal propia. Va en la misma transacción
+        // (fail-closed): un tenant sin default rompería la invariante desde
+        // el primer empleado.
+        await BranchOfficeProvisioningService.ensureDefault(trxBusinessUnit.businessUnitId, trx)
 
         const trxSubscription = await billingSubscriptionService.createSubscription(
           {

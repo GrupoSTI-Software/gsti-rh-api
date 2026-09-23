@@ -13,6 +13,7 @@ import BillingVolumeTier from '#models/billing_volume_tier'
 import BillingSubscription from '#models/billing_subscription'
 import BillingCatalogService from '#services/billing_catalog_service'
 import SelfServiceSubscriptionCreatedMail from '#mails/self_service_subscription_created_mail'
+import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
  * Test funcional — flujo completo de signup self-service (USRH1783712837561 +
@@ -31,6 +32,8 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
   let mailFake: ReturnType<typeof mail.fake> | null = null
 
   group.setup(async () => {
+    // El alta self-service asigna owner por slug y 0006 ya no lo siembra.
+    await ensureRole('owner')
     mailFake = mail.fake()
     signupEmail = `owner-signup-${Date.now()}@gsti-tests.local`
 
@@ -161,6 +164,15 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
       .where('business_unit_id', createdBusinessUnitId)
       .firstOrFail()
     assert.equal(businessUnit.businessUnitOrigin, 'self_service')
+
+    // USRH1789698261609 (CA-4): el dueño de la cuenta nueva nace marcado con su
+    // empresa. Sin esto quedaría invisible dentro de la cuenta que acaba de crear.
+    const ownerPerson = await Person.query().where('person_id', createdPersonId).firstOrFail()
+    assert.equal(
+      ownerPerson.businessUnitId,
+      createdBusinessUnitId,
+      'el expediente del dueño debe quedar marcado con la empresa recién creada'
+    )
 
     const subscription = await BillingSubscription.query()
       .where('business_unit_id', createdBusinessUnitId)

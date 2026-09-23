@@ -1,5 +1,6 @@
 import User from '#models/user'
 import vine from '@vinejs/vine'
+import { noMaskCharRule } from './no_mask_char_rule.js'
 
 /**
  * Validadores del módulo de usuarios (tenant).
@@ -16,6 +17,7 @@ export const createUserValidator = vine.compile(
         .trim()
         .minLength(0)
         .maxLength(200)
+        .use(noMaskCharRule())
         .unique(async (_db, value) => {
           const existingEmail = await User.query()
             .whereNull('user_deleted_at')
@@ -42,7 +44,7 @@ export const createUserValidator = vine.compile(
 export const updateUserValidator = vine.compile(
   vine
     .object({
-      userEmail: vine.string().trim().minLength(0).maxLength(200),
+      userEmail: vine.string().trim().minLength(0).maxLength(200).use(noMaskCharRule()),
       userActive: vine.boolean(),
       roleId: vine.number().min(1),
     })

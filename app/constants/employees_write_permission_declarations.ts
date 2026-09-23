@@ -29,7 +29,6 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   updateEmployeeContract: employeesStandard('tab-trabajo-write'),
   deleteEmployeeContract: employeesStandard('tab-trabajo-delete'),
   assignEmployeeBranchOffice: employeesStandard('tab-trabajo-write'),
-  unassignEmployeeBranchOffice: employeesStandard('tab-trabajo-delete'),
   createTemporaryAssignment: employeesStandard('tab-trabajo-write'),
   updateTemporaryAssignment: employeesStandard('tab-trabajo-write'),
   cancelTemporaryAssignment: employeesStandard('tab-trabajo-write'),
@@ -73,6 +72,19 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   createEmployeeMedicalCondition: employeesStandard('tab-condicion-medica-write'),
   updateEmployeeMedicalCondition: employeesStandard('tab-condicion-medica-write'),
   deleteEmployeeMedicalCondition: employeesStandard('tab-condicion-medica-delete'),
+  // Catálogo de tipos, propiedades y valores de condición médica: mismas casillas
+  // que la condición del colaborador. Borrar pide -delete y no -write, igual que
+  // `deleteEmployeeMedicalCondition`: un tipo borrado deja sin tipo a todas las
+  // condiciones de la empresa que lo usaban.
+  createMedicalConditionType: employeesStandard('tab-condicion-medica-write'),
+  updateMedicalConditionType: employeesStandard('tab-condicion-medica-write'),
+  deleteMedicalConditionType: employeesStandard('tab-condicion-medica-delete'),
+  createMedicalConditionTypeProperty: employeesStandard('tab-condicion-medica-write'),
+  updateMedicalConditionTypeProperty: employeesStandard('tab-condicion-medica-write'),
+  deleteMedicalConditionTypeProperty: employeesStandard('tab-condicion-medica-delete'),
+  createMedicalConditionPropertyValue: employeesStandard('tab-condicion-medica-write'),
+  updateMedicalConditionPropertyValue: employeesStandard('tab-condicion-medica-write'),
+  deleteMedicalConditionPropertyValue: employeesStandard('tab-condicion-medica-delete'),
   createEmployeeLactationPeriod: employeesStandard('tab-periodos-lactancia-write'),
   updateEmployeeLactationPeriod: employeesStandard('tab-periodos-lactancia-write'),
   deleteEmployeeLactationPeriod: employeesStandard('tab-periodos-lactancia-delete'),
@@ -101,12 +113,29 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   createEmployeeProceedingFile: employeesStandard('tab-expediente-write'),
   updateEmployeeProceedingFile: employeesStandard('tab-expediente-write'),
   deleteEmployeeProceedingFile: employeesStandard('tab-expediente-delete'),
+  // Carpetas (tipos) del expediente del colaborador. Su único formulario es
+  // `proceedingFileTypeFolderForm` montado en `components/proceedingFiles`, que
+  // el backoffice solo muestra con `canManageFiles` (`employees:manage-files`).
+  // La edición y la baja comparten ruta con las carpetas de la empresa y las
+  // decide el controller por área.
+  //
+  // Acepta las DOS casillas en OR porque el gate compara slugs literales y no
+  // aplica la equivalencia legada del catálogo (`tab-expediente-write` declara
+  // `manage-files` como su legado `broader`), mientras el árbol de sesión —del
+  // que depende la pantalla— sí la aplica. Sin el OR, un rol con solo
+  // `manage-files` veía el botón y recibía 403, y uno con solo
+  // `tab-expediente-write` podía escribir por API sin ver nunca el botón.
+  // Cuando el punto 3 unifique la decisión de legado, esto vuelve a un solo slug.
+  createEmployeeProceedingFileType: employeesStandard([
+    'tab-expediente-write',
+    'manage-files',
+  ]),
   storeProceedingFileTypeProperty: employeesStandard('tab-expediente-write'),
   storeMultipleProceedingFileTypeProperties: employeesStandard('tab-expediente-write'),
   deleteProceedingFileTypeProperty: employeesStandard('tab-expediente-delete'),
-  createCertification: employeesStandard('tab-certificaciones-write'),
-  updateCertification: employeesStandard('tab-certificaciones-write'),
-  deleteCertification: employeesStandard('tab-certificaciones-delete'),
+  // El CRUD del catálogo de certificaciones pasó a su módulo propio
+  // (`certifications_permission_declarations.ts`): la pestaña del empleado solo
+  // gobierna la carga y baja de cumplimientos.
   createEmployeeCertificationUpload: employeesStandard('tab-certificaciones-write'),
   deleteEmployeeCertificationUpload: employeesStandard('tab-certificaciones-delete'),
   createEmployeeShift: employeesStandard('manage-shift'),
@@ -165,8 +194,9 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   createEmployeeAssessment: employeesStandard('tab-assessments-write'),
   updateEmployeeAssessment: employeesStandard('tab-assessments-write'),
   deleteEmployeeAssessment: employeesStandard('tab-assessments-delete'),
+  // Cambiar estatus (aprobar, rechazar, desactivar) es de la Bandeja de rutas de
+  // carrera (`hr_career_path_permission_declarations.ts`): proponer no da aprobar.
   createCareerPathCandidate: employeesStandard('tab-ruta-carrera-write'),
-  updateCareerPathCandidateStatus: employeesStandard('tab-ruta-carrera-write'),
   deleteCareerPathCandidate: employeesStandard('tab-ruta-carrera-delete'),
   createEmployeeZone: employeesStandard('tab-zonas-write'),
   updateEmployeeZone: employeesStandard('tab-zonas-write'),
@@ -211,13 +241,20 @@ export const EMPLOYEES_PERSON_COLLABORATOR_WRITE_PERMISSION: PermissionGateOptio
 export const EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION: PermissionGateOptions =
   employeesStandard('tab-persona-delete')
 
-/** Permiso cuando se escribe un proceeding file / valor de propiedad del área employee. */
+/**
+ * Permiso cuando se escribe una carpeta del área `employee`.
+ *
+ * Igual que `createEmployeeProceedingFileType`, acepta también `manage-files`:
+ * es la única casilla con la que el backoffice muestra los botones de editar y
+ * borrar carpeta (`proceedingFileTypeFolder/index.vue`, `v-if="canManageFiles"`),
+ * y el gate no aplica por su cuenta la equivalencia legada del catálogo.
+ */
 export const EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_WRITE_PERMISSION: PermissionGateOptions =
-  employeesStandard('tab-expediente-write')
+  employeesStandard(['tab-expediente-write', 'manage-files'])
 
-/** Permiso cuando se elimina un proceeding file / valor de propiedad del área employee. */
+/** Permiso cuando se elimina una carpeta del área `employee`. Mismo motivo del OR. */
 export const EMPLOYEES_PROCEEDING_FILE_EMPLOYEE_AREA_DELETE_PERMISSION: PermissionGateOptions =
-  employeesStandard('tab-expediente-delete')
+  employeesStandard(['tab-expediente-delete', 'manage-files'])
 
 /** Permiso secundario cuando la escritura de excepción / aceptación de solicitud asienta o altera vacaciones. */
 export const EMPLOYEES_MANAGE_VACATION_PERMISSION: PermissionGateOptions =

@@ -6,10 +6,13 @@ import EmployeeOffboarding from '#models/employee_offboarding'
 import EmployeeOffboardingDocument from '#models/employee_offboarding_document'
 import User from '#models/user'
 import { TenantContext } from '#utils/tenant_context'
-import type {
-  DocumentsRepository,
-  EmployeeOffboardingDocumentCreateData,
+import {
+  DOCUMENT_TEMPLATE_VERSION_NUMBER_EXTRA,
+  type DocumentsRepository,
+  type EmployeeOffboardingDocumentCreateData,
 } from './documents.repository.js'
+
+const TEMPLATES_TABLE = 'employee_offboarding_document_templates'
 
 /**
  * Adaptador MySQL de los documentos del expediente (USRH1787433503686).
@@ -123,7 +126,18 @@ export default class DocumentsRepositoryMysql implements DocumentsRepository {
     employeeOffboardingId: number,
     filters: { includeSuperseded: boolean; documentType?: string }
   ): Promise<EmployeeOffboardingDocument[]> {
+    // Número legible de la versión de plantilla por join (K-4): solo lectura
+    // de la tabla de plantillas; ninguna columna suya se hidrata en el modelo.
     return await EmployeeOffboardingDocument.query()
+      .select(`${EmployeeOffboardingDocument.table}.*`)
+      .select(
+        `${TEMPLATES_TABLE}.employee_offboarding_document_template_version_number as ${DOCUMENT_TEMPLATE_VERSION_NUMBER_EXTRA}`
+      )
+      .leftJoin(
+        TEMPLATES_TABLE,
+        `${TEMPLATES_TABLE}.employee_offboarding_document_template_id`,
+        `${EmployeeOffboardingDocument.table}.employee_offboarding_document_template_version_id`
+      )
       .where('employee_offboarding_id', employeeOffboardingId)
       .whereNull('employee_offboarding_document_deleted_at')
       .if(!filters.includeSuperseded, (query) => {

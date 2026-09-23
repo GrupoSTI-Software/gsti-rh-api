@@ -27,6 +27,87 @@ export function generateChannelSecret(): string {
 }
 
 /**
+ * Etiqueta de dominio valida: letras, digitos y guiones internos.
+ *
+ * Sin punto final y sin guion en los extremos, que es lo que acepta el DNS y
+ * lo que `hostLabelOf` va a comparar despues contra el `Host` de la peticion.
+ */
+const DOMAIN_LABEL = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/
+
+/**
+ * Valida el dominio comun del canal, o explica por que no sirve.
+ *
+ * Se comprueba al arrancar porque el modo de fallo es mudo y caro: un valor
+ * que `hostLabelOf` no sabe recortar hace que NINGUN equipo con secreto
+ * coincida, y el canal responde 404 a toda la flota sin un solo error en el
+ * log. El caso real que lo motivo fue `*.valanserh.app`: el asterisco es
+ * sintaxis de DNS, aqui solo va el dominio, y con el puesto el sufijo buscado
+ * pasa a ser `.*.valanserh.app`, que ningun `Host` trae jamas.
+ *
+ * @param name - Nombre de la variable, para el mensaje de error.
+ * @param value - Valor crudo del entorno.
+ * @returns El dominio normalizado, o `undefined` cuando esta vacio (convivencia).
+ * @throws Error si el valor no es un dominio que el canal pueda comparar.
+ */
+export function assertChannelBaseDomain(name: string, value?: string): string | undefined {
+  if (value === undefined || value.trim() === '') return undefined
+
+  const raw = value.trim()
+  const domain = raw.toLowerCase()
+
+  const rechazo = (motivo: string): never => {
+    throw new Error(
+      `${name} tiene que ser el dominio comun del canal, sin nada mas ` +
+        `(por ejemplo adms.valanserh.app). Llego "${raw}": ${motivo}`
+    )
+  }
+
+  if (domain.includes('*')) {
+    rechazo('el comodin va en el registro DNS, aqui va el dominio pelon')
+  }
+  if (domain.includes('://')) rechazo('sobra el esquema')
+  if (domain.includes('/')) rechazo('sobra la ruta: el equipo solo teclea un nombre de servidor')
+  if (domain.includes(':')) rechazo('sobra el puerto')
+  if (/\s/.test(domain)) rechazo('tiene espacios')
+  if (domain.startsWith('.') || domain.endsWith('.')) rechazo('sobra el punto de los extremos')
+
+  const labels = domain.split('.')
+  if (labels.length < 2) {
+    rechazo('le falta al menos un punto: el secreto va como etiqueta delante de este dominio')
+  }
+  if (!labels.every((label) => DOMAIN_LABEL.test(label))) {
+    rechazo('alguna etiqueta no es valida para DNS')
+  }
+
+  return domain
+}
+
+/**
+ * La direccion completa que se teclea en el menu del checador.
+ *
+ * El secreto no se teclea solo: va como etiqueta delante del dominio comun, y
+ * eso es lo que el aparato resuelve por DNS. Mostrarle al operador los 14
+ * caracteres pelones lo obliga a saberse el formato de memoria -- y a
+ * inventarselo mal cuando no se lo sabe.
+ *
+ * Devuelve `null` sin dominio base configurado: ahi no hay direccion que dar,
+ * porque el canal todavia atiende por el dominio comun.
+ *
+ * @param secret - Secreto del punto de acceso, o `null` en un equipo anterior al canal.
+ * @param baseDomain - Dominio comun del canal (`ADMS_CHANNEL_BASE_DOMAIN`).
+ * @returns El nombre completo del host, o `null` si no hay direccion propia que teclear.
+ */
+export function channelAddressOf(
+  secret: string | null | undefined,
+  baseDomain: string | null | undefined
+): string | null {
+  if (!secret || !baseDomain) return null
+  const base = baseDomain.trim().toLowerCase()
+  if (base.length === 0) return null
+  return `${secret.trim().toLowerCase()}.${base}`
+}
+
+/**
  * La etiqueta propia del `Host`, o `null` si la peticion llego al dominio comun.
  *
  * Hace falta el dominio base para distinguir `<secreto>.adms.valanserh.com` de

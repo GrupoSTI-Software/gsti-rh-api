@@ -1,108 +1,129 @@
 import { test } from '@japa/runner'
-import User from '#models/user'
+import db from '@adonisjs/lucid/services/db'
 import Shift from '#models/shift'
+import {
+  assertModuleEnforced,
+  businessUnitHeaders,
+  cleanupTenantActor,
+  createTenantActor,
+  grantModulePermissions,
+  required,
+  uniqueTestName,
+  type TenantActor,
+} from '#tests/helpers/tenant_actor'
 
 /**
- * USRH1783821206521 — verificación end-to-end contra BD real con datos
- * representativos (multi-tenant ya poblado): un usuario de la unidad A no
- * debe poder ver ni borrar un turno de la unidad B por acceso directo.
+ * USRH1783821206521 — un usuario de la unidad A no debe poder ver ni borrar
+ * un turno de la unidad B por acceso directo.
  *
- * BU1 (sae, business_unit_id=1) y BU6 (cima, business_unit_id=6) tienen
- * datos reales y usuarios propios en la BD restablecida.
+ * Antes tomaba usuarios, unidades y turnos de una BD de desarrollo (sae/cima,
+ * ids fijos) y en una BD limpia fallaba en el setup. Ahora cada unidad y su
+ * usuario nacen aquí con un rol propio. Con la exigencia de `shifts` encendida
+ * el gate corre antes que el controller: los casos de escritura siembran la
+ * concesión justa para que el 404 que se prueba venga del aislamiento y no de
+ * un 403 del permiso.
  */
 
-const BU1_PUBLIC_ID = 'a76db057-2292-49a0-9f1b-911e328d93b0' // sae
-const BU6_PUBLIC_ID = '8c3617a4-c942-4ba7-aee6-2ac32d4ab5ef' // cima
-
-const BU1_SHIFT_ID = 1 // '08:00 to 18:00 - Rest (Sat, Sun)', business_unit_id = 1
-const BU6_SHIFT_ID = 122 // '08:00 to 17:00 - Rest (Sat,Sun)', business_unit_id = 6
-
-async function getUserByEmail(email: string): Promise<User> {
-  return User.query().whereNull('user_deleted_at').where('user_email', email).firstOrFail()
+async function createShiftFixture(actor: TenantActor, prefix: string): Promise<Shift> {
+  return Shift.create({
+    shiftName: uniqueTestName(prefix),
+    shiftCalculateFlag: '',
+    shiftDayStart: 1,
+    shiftTimeStart: '08:00',
+    shiftActiveHours: 8,
+    shiftRestDays: '0',
+    shiftAccumulatedFault: 1,
+    businessUnitId: actor.businessUnit.businessUnitId,
+    shiftTemp: 0,
+  })
 }
 
-test.group('Shift — aislamiento por tenant (BD real)', (group) => {
-  let tempShiftId: number
+test.group('Shift — aislamiento por tenant', (group) => {
+  let tenantA: TenantActor | null = null
+  let tenantB: TenantActor | null = null
+  let shiftA: Shift | null = null
+  let shiftB: Shift | null = null
 
   group.setup(async () => {
-    // Turno temporal en BU6, fuera del scope de BU1, para probar destroy cross-tenant
-    // sin arriesgar datos reales existentes.
-    const shift = new Shift()
-    shift.shiftName = `TEST-TENANT-ISOLATION-${Date.now()}`
-    shift.shiftCalculateFlag = ''
-    shift.shiftDayStart = 1
-    shift.shiftTimeStart = '08:00'
-    shift.shiftActiveHours = 8
-    shift.shiftRestDays = '0'
-    shift.shiftAccumulatedFault = 1
-    shift.shiftBusinessUnits = 'cima'
-    shift.businessUnitId = 6
-    shift.shiftTemp = 0
-    await shift.save()
-    tempShiftId = shift.shiftId
+    await assertModuleEnforced('shifts')
+    tenantA = await createTenantActor('turnos-aislamiento-a')
+    tenantB = await createTenantActor('turnos-aislamiento-b')
+    shiftA = await createShiftFixture(tenantA, 'Turno unidad A')
+    shiftB = await createShiftFixture(tenantB, 'Turno unidad B')
   })
 
   group.teardown(async () => {
-    if (tempShiftId) {
-      await Shift.query().where('shiftId', tempShiftId).delete()
+    for (const tenant of [tenantA, tenantB]) {
+      if (tenant) {
+        await db.from('shifts').where('business_unit_id', tenant.businessUnit.businessUnitId).delete()
+      }
+      await cleanupTenantActor(tenant)
     }
   })
 
-  test('usuario de BU1 puede ver un turno propio de BU1', async ({ client, assert }) => {
-    const user = await getUserByEmail('betosimon@sae.com.mx')
+  test('usuario de A puede ver un turno propio de A', async ({ client, assert }) => {
+    const tenant = required(tenantA, 'la unidad A')
+    const ownShift = required(shiftA, 'el turno de A')
 
     const response = await client
-      .get(`/api/shift/${BU1_SHIFT_ID}`)
-      .loginAs(user)
-      .header('X-Business-Unit-Id', BU1_PUBLIC_ID)
+      .get(`/api/shift/${ownShift.shiftId}`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
 
     response.assertStatus(200)
-    assert.equal(response.body().data.shiftId, BU1_SHIFT_ID)
+    assert.equal(response.body().data.shiftId, ownShift.shiftId)
   })
 
-  test('usuario de BU1 recibe 404 uniforme al pedir un turno de BU6 por id directo', async ({
+  test('usuario de A recibe 404 uniforme al pedir un turno de B por id directo', async ({
     client,
   }) => {
-    const user = await getUserByEmail('betosimon@sae.com.mx')
+    const tenant = required(tenantA, 'la unidad A')
+    const foreignShift = required(shiftB, 'el turno de B')
 
     const response = await client
-      .get(`/api/shift/${BU6_SHIFT_ID}`)
-      .loginAs(user)
-      .header('X-Business-Unit-Id', BU1_PUBLIC_ID)
+      .get(`/api/shift/${foreignShift.shiftId}`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
 
     response.assertStatus(404)
     response.assertBodyContains({ key: 'turno-no-encontrado', code: 'SFT.NF.001' })
   })
 
-  test('usuario de BU6 recibe 404 uniforme al pedir un turno de BU1 por id directo', async ({
+  test('usuario de B recibe 404 uniforme al pedir un turno de A por id directo', async ({
     client,
   }) => {
-    const user = await getUserByEmail('jdsimon@cima-aviacion.com.mx')
+    const tenant = required(tenantB, 'la unidad B')
+    const foreignShift = required(shiftA, 'el turno de A')
 
     const response = await client
-      .get(`/api/shift/${BU1_SHIFT_ID}`)
-      .loginAs(user)
-      .header('X-Business-Unit-Id', BU6_PUBLIC_ID)
+      .get(`/api/shift/${foreignShift.shiftId}`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
 
     response.assertStatus(404)
     response.assertBodyContains({ key: 'turno-no-encontrado', code: 'SFT.NF.001' })
   })
 
-  test('DELETE de un turno ajeno responde 404 y NO lo borra (shiftDeletedAt intacto)', async ({
+  test('DELETE de un turno ajeno con shifts:delete responde 404 y NO lo borra', async ({
     client,
     assert,
   }) => {
-    const user = await getUserByEmail('betosimon@sae.com.mx') // BU1
+    const tenant = required(tenantA, 'la unidad A')
+    const foreignShift = required(shiftB, 'el turno de B')
+    await grantModulePermissions(tenant, 'shifts', ['delete'])
 
     const response = await client
-      .delete(`/api/shift/${tempShiftId}`) // turno real de BU6
-      .loginAs(user)
-      .header('X-Business-Unit-Id', BU1_PUBLIC_ID)
+      .delete(`/api/shift/${foreignShift.shiftId}`)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
 
     response.assertStatus(404)
     response.assertBodyContains({ key: 'turno-no-encontrado', code: 'SFT.NF.001' })
 
-    const stillAlive = await Shift.query().where('shiftId', tempShiftId).whereNull('shiftDeletedAt').first()
+    const stillAlive = await Shift.query()
+      .where('shiftId', foreignShift.shiftId)
+      .whereNull('shiftDeletedAt')
+      .first()
     assert.isNotNull(stillAlive, 'el turno ajeno no debió borrarse')
   })
 
@@ -110,32 +131,33 @@ test.group('Shift — aislamiento por tenant (BD real)', (group) => {
     client,
     assert,
   }) => {
-    const user = await getUserByEmail('jdsimon@cima-aviacion.com.mx') // BU6
+    const tenant = required(tenantB, 'la unidad B')
+    const ownShift = required(shiftB, 'el turno de B')
+    const foreignShift = required(shiftA, 'el turno de A')
 
     const response = await client
       .get('/api/shift')
       .qs({ limit: 500 })
-      .loginAs(user)
-      .header('X-Business-Unit-Id', BU6_PUBLIC_ID)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
 
     response.assertStatus(200)
-    const ids: number[] = response.body().data.data.map((s: any) => s.shiftId)
-    assert.include(ids, BU6_SHIFT_ID)
-    assert.include(ids, tempShiftId)
-    assert.notInclude(ids, BU1_SHIFT_ID, 'el listado de BU6 no debe incluir turnos de BU1')
+    const ids = (response.body().data.data as { shiftId: number }[]).map((shift) => shift.shiftId)
+    assert.include(ids, ownShift.shiftId)
+    assert.notInclude(ids, foreignShift.shiftId, 'el listado de B no debe incluir turnos de A')
   })
 
-  test('store (creación) estampa businessUnitId con la unidad seleccionada', async ({
+  test('store (creación) con shifts:create estampa businessUnitId con la unidad seleccionada', async ({
     client,
     assert,
   }) => {
-    const user = await getUserByEmail('jdsimon@cima-aviacion.com.mx') // BU6
-    const uniqueName = `TEST-STORE-${Date.now()}`
+    const tenant = required(tenantB, 'la unidad B')
+    await grantModulePermissions(tenant, 'shifts', ['create'])
 
     const response = await client
       .post('/api/shift')
       .json({
-        shiftName: uniqueName,
+        shiftName: uniqueTestName('TEST-STORE'),
         shiftTimeStart: '09:00',
         shiftActiveHours: 8,
         shiftRestDays: '0',
@@ -143,15 +165,11 @@ test.group('Shift — aislamiento por tenant (BD real)', (group) => {
         shiftTemp: 0,
         shiftCalculateFlag: '',
       })
-      .loginAs(user)
-      .header('X-Business-Unit-Id', BU6_PUBLIC_ID)
+      .loginAs(tenant.user)
+      .headers(businessUnitHeaders(tenant))
 
     response.assertStatus(201)
-    const createdId = response.body().data.shiftId
-    const row = await Shift.query().where('shiftId', createdId).firstOrFail()
-    assert.equal(row.businessUnitId, 6)
-
-    // limpieza
-    await Shift.query().where('shiftId', createdId).delete()
+    const row = await Shift.query().where('shiftId', response.body().data.shiftId).firstOrFail()
+    assert.equal(row.businessUnitId, tenant.businessUnit.businessUnitId)
   })
 })

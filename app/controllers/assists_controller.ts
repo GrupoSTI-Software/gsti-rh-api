@@ -31,6 +31,8 @@ import {
   mapIngestionResultToHttp,
   resolveAssistOrigin,
 } from '#modules/assist-ingestion/assist_ingestion.controller'
+import { resolveAdminCaptureRejection } from '#modules/assist-ingestion/admin_capture_scope'
+import { ASSIST_ORIGIN } from '#constants/assist_origin'
 import {
   ASSIST_INGESTION_EMPLOYEE_TERMINATED,
   ASSIST_INGESTION_FOREIGN_WRITE,
@@ -40,6 +42,8 @@ import {
   storeAssistValidator,
 } from '#modules/assist-ingestion/validators/store_assist.validator'
 import type { StoreAssistPayload } from '#modules/assist-ingestion/validators/store_assist.validator'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
+import { employeeSynchronizeAssistsValidator } from '#validators/assist_employee_synchronize'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -56,11 +60,6 @@ export default class AssistsController {
   private async assertCanSeePayroll(userRoleId: number): Promise<boolean> {
     const roleService = new RoleService()
     return roleService.hasAccess(userRoleId, ATTENDANCE_MONITOR_MODULE_SLUG, 'see-payroll')
-  }
-
-  private async assertCanSyncAssist(userRoleId: number): Promise<boolean> {
-    const roleService = new RoleService()
-    return roleService.hasAccess(userRoleId, ATTENDANCE_MONITOR_MODULE_SLUG, 'sync-assist')
   }
 
   /**
@@ -121,34 +120,10 @@ export default class AssistsController {
    *                   type: string
    *                   example: Ya se encuentra un proceso en sincronización, por favor espere
    *       403:
-   *         description: Sin permiso `sync-assist` (key `sin-autorizacion-para-sincronizar-asistencia`, code `AST.AUTHZ.003`).
-   *         content:
-   *           application/json:
-   *             example:
-   *               type: warning
-   *               title: Sin autorización para sincronizar asistencia
-   *               message: No tienes autorización para sincronizar la asistencia desde el equipo biométrico.
-   *               detail: No tienes autorización para sincronizar la asistencia desde el equipo biométrico.
-   *               key: sin-autorizacion-para-sincronizar-asistencia
-   *               code: AST.AUTHZ.003
+   *         description: Sin permiso `sync-assist` del módulo `employees-attendance-monitor` (permissionGate, key `PERM.DENIED` / `PERM.UNRESOLVED`).
    */
   @inject()
-  async synchronize({ auth, request, response, i18n }: HttpContext) {
-    const t = i18n.formatMessage.bind(i18n)
-    const userRoleId = auth.user?.roleId
-    if (!userRoleId || !(await this.assertCanSyncAssist(userRoleId))) {
-      const detail = t('assist_sync_forbidden_message')
-      response.status(403)
-      return {
-        type: 'warning',
-        title: t('assist_sync_forbidden_title'),
-        message: detail,
-        detail,
-        key: 'sin-autorizacion-para-sincronizar-asistencia',
-        code: ASSIST_ERROR_CODES.AUTHZ_SYNC,
-      }
-    }
-
+  async synchronize({ request, response, i18n }: HttpContext) {
     const dateParamApi = request.input('date')
     const page = request.input('page')
 
@@ -213,21 +188,61 @@ export default class AssistsController {
    *                 message:
    *                   type: string
    *                   example: Ya se encuentra un proceso en sincronización, por favor espere
+   *       403:
+   *         description: Sin permiso `sync-assist` del módulo `employees-attendance-monitor` (permissionGate, key `PERM.DENIED` / `PERM.UNRESOLVED`).
+   *       422:
+   *         description: Rango o colaborador ausente o mal formado (key `datos-invalidos-para-sincronizar-asistencia`, code `AST.VAL.010`).
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: warning
+   *               title: Datos inválidos para sincronizar asistencia
+   *               message: El campo startDate es obligatorio
+   *               detail: El campo startDate es obligatorio
+   *               key: datos-invalidos-para-sincronizar-asistencia
+   *               code: AST.VAL.010
    */
   @inject()
-  async employeeSynchronize(
-    { auth, request, response, i18n }: HttpContext
-  ) {
-    const startDate = request.input('startDate')
-    const endDate = request.input('endDate')
-    const empCode = request.input('empCode')
+  async employeeSynchronize({ auth, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     const userId = auth.user?.userId
     const rawHeaders = request.request.rawHeaders
+
+    // Se valida contra `request.all()` —query y cuerpo— porque el panel de
+    // asistencia manda el rango en el query string, igual que la captura de
+    // checadas. Sin esto, un rango ausente llegaba como `undefined` al servicio
+    // y salía como un 400 crudo de `Invalid time value`.
+    let payload: { startDate: string; endDate: string; empCode: string }
+    try {
+      payload = await employeeSynchronizeAssistsValidator.validate(request.all())
+    } catch (validationError) {
+      const detail =
+        firstValidationIssue(validationError)?.message ??
+        t(
+          'assist_employee_sync_invalid_range_message',
+          undefined,
+          'Indica la fecha inicial, la fecha final y el colaborador a sincronizar.'
+        )
+      response.status(422)
+      return {
+        type: 'warning',
+        title: t(
+          'assist_employee_sync_invalid_range_title',
+          undefined,
+          'Datos inválidos para sincronizar asistencia'
+        ),
+        message: detail,
+        detail,
+        key: 'datos-invalidos-para-sincronizar-asistencia',
+        code: ASSIST_ERROR_CODES.VAL_SYNC_RANGE,
+      }
+    }
+
     try {
       const filters = {
-        startDate: startDate,
-        endDate: endDate,
-        empCode: empCode,
+        startDate: payload.startDate,
+        endDate: payload.endDate,
+        empCode: payload.empCode,
         page: 1,
         limit: 5000,
         userId: userId ? userId : 0,
@@ -307,9 +322,12 @@ export default class AssistsController {
    *     responses:
    *       200:
    *         description: |
-   *           Incluye `data.employeeCalendar` y `data.temporaryAssignments`: préstamos temporales
-   *           del empleado cuyo rango [startDate, endDate] intersecta el periodo `date`–`date-end`
-   *           (YYYY-MM-DD, UTC-6). Vacío `[]` si no aplica o sin préstamos en el rango.
+   *           Incluye `data.employeeCalendar`, `data.temporaryAssignments` (préstamos temporales
+   *           del empleado cuyo rango [startDate, endDate] intersecta el periodo `date`–`date-end`,
+   *           YYYY-MM-DD en la zona del sitio; vacío `[]` si no aplica) y `data.timeZone`: zona
+   *           IANA del sitio del empleado (sucursal base, luego empresa, luego sistema) con la que
+   *           se calculó el calendario. Las checadas son instantes UTC y el cliente las muestra
+   *           en `data.timeZone`, no en la zona de quien consulta.
    *         content:
    *           application/json:
    *             schema:
@@ -1361,9 +1379,22 @@ export default class AssistsController {
       }
 
       // La hora que vale es la hora en que ocurrió la checada, no la hora en que se
-      // logró entregar: si el equipo la declara, se respeta, siempre que caiga dentro
-      // de la ventana permitida y no se adelante al reloj del servidor.
-      const resolvedPunchTime = resolvePunchTime(assistPunchTime, DateTime.utc())
+      // logró entregar: si el equipo la declara, se respeta, siempre que no se
+      // adelante al reloj del servidor.
+      //
+      // Hacia atrás hay dos topes distintos y la procedencia decide cuál rige. Un
+      // equipo entrega tarde lo que ya ocurrió y se mide con la ventana del canal,
+      // que existe para cubrir una caída de red. La captura administrativa corrige
+      // el pasado a propósito, así que se mide con los días que el rol de quien
+      // captura tiene autorizado modificar.
+      const assistOrigin = resolveAssistOrigin(payload.assistChannel, isOwner)
+      const isAdminCapture = assistOrigin === ASSIST_ORIGIN.ADMIN_CAPTURE
+
+      const siteZone = await new SiteTimeZoneService().forEmployee(employee.employeeId)
+      const now = DateTime.utc()
+      const resolvedPunchTime = resolvePunchTime(assistPunchTime, now, siteZone.zone, {
+        enforceBackdateWindow: !isAdminCapture,
+      })
       if (!resolvedPunchTime.ok) {
         const rejection = resolvedPunchTime.rejection
         const detail = i18n.t(`${rejection.i18nBase}_message`, undefined, rejection.key)
@@ -1380,7 +1411,31 @@ export default class AssistsController {
 
       const dateTimePunchTime: DateTime = resolvedPunchTime.punchTimeUtc
 
-      const assistOrigin = resolveAssistOrigin(payload.assistChannel, isOwner)
+      if (isAdminCapture) {
+        const scopeRejection = await resolveAdminCaptureRejection({
+          user: auth.user,
+          punchTimeUtc: dateTimePunchTime,
+          zone: siteZone.zone,
+          now,
+        })
+        if (scopeRejection) {
+          const detail = i18n.t(
+            `${scopeRejection.i18nBase}_message`,
+            undefined,
+            scopeRejection.key
+          )
+          response.status(scopeRejection.status)
+          return {
+            type: 'warning',
+            title: i18n.t(`${scopeRejection.i18nBase}_title`, undefined, scopeRejection.key),
+            message: detail,
+            detail,
+            key: scopeRejection.key,
+            code: scopeRejection.code,
+          }
+        }
+      }
+
       const assistCreatedByUserId = isOwner ? null : (auth.user?.userId ?? null)
 
       const assist = {
@@ -1719,6 +1774,8 @@ export default class AssistsController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso `delete-check-assist` del módulo `employees-attendance-monitor` (permissionGate, key `PERM.DENIED` / `PERM.UNRESOLVED`).
    */
   async inactivate({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)

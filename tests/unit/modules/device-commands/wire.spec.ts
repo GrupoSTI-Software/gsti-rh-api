@@ -128,6 +128,58 @@ test.group('Acuse del checador', () => {
     assert.equal(parsed?.dump, '~Platform=ZAM180_TFT,UserCount=3')
   })
 
+  /**
+   * Cuerpo real del SpeedFace V5L del parque, recortado de la captura del
+   * spike (`adms-probe/capture/2026-08-11T21-53-26-892Z-0004-devicecmd_ack`).
+   *
+   * El volcado viene una clave por linea, y la mitad de esas claves --las que
+   * no llevan `~`-- encajaban en la gramatica de pares del acuse: se guardaban
+   * como campos y nunca llegaban al perfil. Sobrevivian solo los `~Max*`, que
+   * es exactamente lo que se vio en la ficha el 2026-09-11.
+   */
+  test('el volcado del INFO llega entero, con claves con y sin virgulilla', ({ assert }) => {
+    const body = [
+      'ID=1786485203822&Return=0&CMD=INFO',
+      '~DeviceName=SpeedFace-V5L',
+      'MAC=00:17:61:13:20:21',
+      'TransactionCount=0',
+      '~MaxAttLogCount=20',
+      'UserCount=4',
+      '~MaxUserCount=100',
+      'FPVersion=10',
+      'FaceVersion=39',
+      'PvVersion=12',
+      'FWVersion=ZAM180-NF50VA-Ver3.4.9',
+      'PushVersion=Ver 2.0.33S-20220623',
+    ].join('\n')
+
+    const parsed = parseDeviceCmdBody(body)
+
+    assert.equal(parsed?.id, 1786485203822)
+    assert.equal(parsed?.returnCode, 0)
+    assert.equal(parsed?.cmd, 'INFO')
+    for (const clave of [
+      '~DeviceName=SpeedFace-V5L',
+      'MAC=00:17:61:13:20:21',
+      'UserCount=4',
+      'FPVersion=10',
+      'FaceVersion=39',
+      'PvVersion=12',
+      'FWVersion=ZAM180-NF50VA-Ver3.4.9',
+      'PushVersion=Ver 2.0.33S-20220623',
+    ]) {
+      assert.include(parsed?.dump ?? '', clave, `el volcado perdio ${clave}`)
+    }
+  })
+
+  /** Los demas comandos si traen campos en las lineas siguientes: eso no cambia. */
+  test('en un acuse que no es INFO las lineas siguientes siguen siendo campos', ({ assert }) => {
+    const parsed = parseDeviceCmdBody('ID=12&Return=0\nCMD=DATA UPDATE USERINFO\n')
+
+    assert.equal(parsed?.cmd, 'DATA UPDATE USERINFO')
+    assert.isTrue(parsed?.dump === null || parsed?.dump === '')
+  })
+
   test('un cuerpo sin identificador no se inventa: devuelve nulo', ({ assert }) => {
     assert.isNull(parseDeviceCmdBody('Return=0&CMD=DATA'))
     assert.isNull(parseDeviceCmdBody(''))

@@ -130,7 +130,7 @@ async function findPermissions(actions: readonly string[]): Promise<SystemPermis
     .first()
   if (!systemModule) {
     throw new Error(
-      `Se requiere el módulo "${EMPLOYEE_OFFBOARDINGS_MODULE_SLUG}" en BD (seeder 0055) para este test.`
+      `Se requiere el módulo "${EMPLOYEE_OFFBOARDINGS_MODULE_SLUG}" en BD (seeder 0062) para este test.`
     )
   }
   const permissions = await SystemPermission.query()
@@ -156,8 +156,8 @@ async function createRole(
     roleSlug: `${FIXTURE_SLUG_PREFIX}${prefix}-${stamp}`,
     roleDescription: 'Rol temporal del spec del catálogo de campos',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
     roleManagementDays: 10,
+    businessUnitId: businessUnit.businessUnitId,
   })
   created.roleIds.push(role.roleId)
   for (const permission of await findPermissions(actions)) {

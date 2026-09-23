@@ -17,6 +17,7 @@ import type {
   SessionPermissionTreeVersion,
 } from '#constants/session_permission_tree'
 import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
+import { resolveSectionDisplayName } from '#constants/system_modules_menu/system_modules.constant'
 import { buildPermissionGateIdentity } from '#helpers/permission_gate_identity'
 import type { PermissionGateIdentity } from '#helpers/permission_gate_identity'
 import { decideSessionPermissionAction } from '#helpers/session_permission_decision'
@@ -105,7 +106,7 @@ export default class SessionPermissionTreeService {
       const permissionEnforcementActive = moduleRow?.systemModulePermissionEnforcementActive ?? false
       const actions = this.catalog.actionsByModule[moduleEntry.slug] ?? []
 
-      if (!moduleEntry.actionsEnumerated || actions.length === 0) {
+      if (actions.length === 0) {
         return {
           slug: moduleEntry.slug,
           active,
@@ -118,7 +119,14 @@ export default class SessionPermissionTreeService {
         slug: moduleEntry.slug,
         active,
         permissionEnforcementActive,
-        sections: this.assembleSections(identity, active, moduleRow, actions, grantsByModuleId),
+        sections: this.assembleSections(
+          identity,
+          active,
+          moduleRow,
+          actions,
+          grantsByModuleId,
+          moduleEntry.slug
+        ),
       }
     })
   }
@@ -128,7 +136,8 @@ export default class SessionPermissionTreeService {
     moduleActive: boolean,
     moduleRow: SystemModule | undefined,
     actions: readonly ActionCatalogEntry<string>[],
-    grantsByModuleId: GrantsByModuleId
+    grantsByModuleId: GrantsByModuleId,
+    moduleSlug: string
   ): SessionPermissionSectionNode[] {
     const sections = new Map<string, SessionPermissionActionNode[]>()
     const grantedSlugs = moduleRow
@@ -159,6 +168,7 @@ export default class SessionPermissionTreeService {
 
     return Array.from(sections.entries()).map(([slug, actionsInSection]) => ({
       slug,
+      displayName: resolveSectionDisplayName(moduleSlug, slug),
       actions: actionsInSection,
     }))
   }
@@ -205,8 +215,9 @@ export default class SessionPermissionTreeService {
   }
 
   private async computeEnumeratedPermissionMax(modulesBySlug: ModulesBySlug): Promise<DateTime> {
+    // Un módulo es enumerado cuando tiene clave en `actionsByModule`.
     const enumeratedModuleIds = this.catalog.modules
-      .filter((moduleEntry) => moduleEntry.actionsEnumerated)
+      .filter((moduleEntry) => Object.hasOwn(this.catalog.actionsByModule, moduleEntry.slug))
       .map((moduleEntry) => modulesBySlug.get(moduleEntry.slug)?.systemModuleId)
       .filter((systemModuleId): systemModuleId is number => typeof systemModuleId === 'number')
 
@@ -236,11 +247,9 @@ export default class SessionPermissionTreeService {
   }
 
   private computeCatalogDigest(): string {
+    // Los módulos sin catálogo tipado aportan `[]`: el digest solo depende de
+    // las acciones tipadas y su orden, así el BO no invalida su caché de más.
     const typedActions = this.catalog.modules.flatMap((moduleEntry) => {
-      if (!moduleEntry.actionsEnumerated) {
-        return []
-      }
-
       const actions = this.catalog.actionsByModule[moduleEntry.slug] ?? []
       return actions.map(
         (action) => `${moduleEntry.slug}:${action.slug}:${action.exceptionProfile}`

@@ -122,26 +122,40 @@ test.group('Apertura del contexto de lectura sensible', () => {
     assert.include(accessLogsGroup?.chain ?? '', '.use(middleware.businessScopeOptional())')
   })
 
-  test('los cuatro grupos con solo auth() montan sensitiveAccess y no businessScope', ({
+  test('los tres grupos de person_routes montan businessScope; /api/persons lo monta antes que sensitiveAccess', ({
     assert,
   }) => {
-    const files = [
-      'start/routes/person_routes.ts',
-      'start/routes/customer_routes.ts',
-      'start/routes/pilot_routes.ts',
-      'start/routes/flight_attendant_routes.ts',
-    ]
-    for (const relative of files) {
-      const source = readFileSync(join(ROOT, relative), 'utf-8')
-      assert.include(source, 'middleware.sensitiveAccess()', relative)
+    // USRH1789698261609: `/api/persons` era el único grupo con rutas de
+    // escritura que abría el contexto sensible sin acotar por empresa; hoy
+    // cualquier inquilino leía, editaba y borraba expedientes de los demás.
+    // El orden importa: los dos middlewares envuelven la serialización con
+    // `runWithSensitiveReadDecisions` y gana el store del PRIMERO montado;
+    // `businessScope` aplica el rol efectivo de la empresa antes de decidir.
+    const source = readFileSync(join(ROOT, 'start/routes/person_routes.ts'), 'utf-8')
+    const groups = extractRouteGroups(source)
+    const persons = groups.find((group) => group.chain.includes(".prefix('/api/persons')"))
+    const getEmployee = groups.find((group) =>
+      group.chain.includes(".prefix('/api/person-get-employee')")
+    )
+    const placesOfBirth = groups.find((group) =>
+      group.chain.includes(".prefix('/api/persons-get-places-of-birth')")
+    )
+
+    assert.isDefined(persons)
+    assert.isDefined(getEmployee)
+    assert.isDefined(placesOfBirth)
+    for (const group of [persons!, getEmployee!, placesOfBirth!]) {
+      assert.include(group.chain, '.use(middleware.businessScope())')
     }
 
-    const persons = readFileSync(join(ROOT, 'start/routes/person_routes.ts'), 'utf-8')
-    assert.include(persons, "prefix('/api/persons')")
-    assert.match(
-      persons,
-      /prefix\('\/api\/persons'\)[\s\S]*?\.use\(middleware\.auth\(\)\)[\s\S]*?\.use\(middleware\.sensitiveAccess\(\)\)/
-    )
+    const chain = persons!.chain
+    const authIdx = chain.indexOf('.use(middleware.auth())')
+    const scopeIdx = chain.indexOf('.use(middleware.businessScope())')
+    const sensitiveIdx = chain.indexOf('.use(middleware.sensitiveAccess())')
+    assert.isAbove(authIdx, -1)
+    assert.isAbove(scopeIdx, authIdx)
+    assert.isAbove(sensitiveIdx, scopeIdx)
+    assert.notInclude(chain, 'permissionGate', 'sin gate de grupo: PUT/DELETE evalúan por vínculo en el controller')
   })
 
   test('cada GRUPO con rutas de escritura de los 10 modelos abre businessScope o sensitiveAccess', ({

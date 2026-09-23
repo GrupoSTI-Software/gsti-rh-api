@@ -63,7 +63,8 @@ export interface SensitiveField {
    */
   readonly encrypted: boolean
   /**
-   * Marca de elegibilidad para el endpoint de revelado (`GET /reveal/:token`).
+   * Marca de elegibilidad para el revelado individual
+   * (`GET /api/v1/pii/reveal/:model/:column/:recordId`).
    *
    * A partir de USRH1787204602825 el enmascaramiento en serialización ya no
    * se decide con esta bandera: lo decide el permiso de lectura de la
@@ -71,13 +72,12 @@ export interface SensitiveField {
    * campo puede pedirse completo por el flujo de revelado con motivo.
    *
    * Ausencia (o `false`) = el campo aún no entra a ese flujo de revelado.
-   * No cambiar ninguna entrada del arreglo en esta historia.
    */
   readonly maskedInApi?: true
 }
 
 /**
- * Catálogo maestro de campos personales sensibles de Valanserh (32 columnas).
+ * Catálogo maestro de campos personales sensibles de Valanserh.
  *
  * Exclusiones justificadas (no se incluyen porque no son datos sensibles de la persona):
  *   - `workDisabilityPeriodFile`           — ruta S3, no dato clínico.
@@ -108,8 +108,8 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   { model: 'Person', column: 'personPhoneSecondary', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true, maskedInApi: true },
 
   // ─── EmployeeBank: financiero ──────────────────────────────────────────────
-  // Cifrados hoy vía employeeBankService.encrypt en employee_bank_controller.ts:165-176.
-  // No se usan en WHERE de SQL. Se muestran con últimos 4 dígitos (*LastNumbers) en la UI.
+  // Cifrados; no se usan en WHERE de SQL. Se entregan con máscara fija (USRH1789328027039).
+  // *LastNumbers se escriben en BD pero no se serializan.
   // Ancla: app/models/employee_bank.ts
   { model: 'EmployeeBank', column: 'employeeBankAccountClabe', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true, maskedInApi: true },
   { model: 'EmployeeBank', column: 'employeeBankAccountNumber', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true, maskedInApi: true },
@@ -175,34 +175,34 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // ─── WorkDisabilityNote: salud (sensible reforzado) ───────────────────────
   // Nota descriptiva de incapacidad; no se busca en SQL.
   // Ancla: app/models/work_disability_note.ts
-  { model: 'WorkDisabilityNote', column: 'workDisabilityNoteDescription', legalCategory: 'salud', treatment: 'cifrar', encrypted: true },
+  { model: 'WorkDisabilityNote', column: 'workDisabilityNoteDescription', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
 
   // ─── TraumaticEventReport: salud (sensible reforzado) ─────────────────────
   // Datos del reporte de acontecimiento traumático severo (ATS NOM-035).
   // Ancla: app/models/traumatic_event_report.ts
-  { model: 'TraumaticEventReport', column: 'traumaticEventReportInvolvedPeople', legalCategory: 'salud', treatment: 'cifrar', encrypted: true },
-  { model: 'TraumaticEventReport', column: 'traumaticEventReportDescription', legalCategory: 'salud', treatment: 'cifrar', encrypted: true },
+  { model: 'TraumaticEventReport', column: 'traumaticEventReportInvolvedPeople', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+  { model: 'TraumaticEventReport', column: 'traumaticEventReportDescription', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
 
   // ─── EmployeeLactationPeriod: salud (sensible reforzado) ──────────────────
   // Notas del período de lactancia; no se buscan en SQL.
   // Ancla: app/models/employee_lactation_period.ts
-  { model: 'EmployeeLactationPeriod', column: 'employeeLactationPeriodNotes', legalCategory: 'salud', treatment: 'cifrar', encrypted: true },
+  { model: 'EmployeeLactationPeriod', column: 'employeeLactationPeriodNotes', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
 
   // ─── EmployeeEmergencyContact: contacto ───────────────────────────────────
   // Teléfono del contacto de emergencia del trabajador; no se busca en SQL.
   // Ancla: app/models/employee_emergency_contact.ts
-  { model: 'EmployeeEmergencyContact', column: 'employeeEmergencyContactPhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
+  { model: 'EmployeeEmergencyContact', column: 'employeeEmergencyContactPhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true, maskedInApi: true },
 
   // ─── EmployeeSpouse: contacto ─────────────────────────────────────────────
   // Teléfono del cónyuge; no se busca en SQL.
   // Ancla: app/models/employee_spouse.ts
-  { model: 'EmployeeSpouse', column: 'employeeSpousePhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
+  { model: 'EmployeeSpouse', column: 'employeeSpousePhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true, maskedInApi: true },
 
   // ─── EmpresaContratante: identificación (deuda clasificada) ───────────────
   // RFC de persona moral con restricción UNIQUE en BD → se busca por igualdad.
   // Cifrar requiere blind-index; es el caso de mayor complejidad de migración.
   // Ancla: app/models/empresa_contratante.ts (columna `rfc`)
-  { model: 'EmpresaContratante', column: 'rfc', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true },
+  { model: 'EmpresaContratante', column: 'rfc', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true, maskedInApi: true },
 
   // ─── TenantBillingProfile: identificación (USRH1786737531057) ─────────────
   // RFC fiscal del tenant; cifrado AES + blind index para búsqueda interna.
@@ -239,6 +239,19 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
     encrypted: true,
   },
 
+  // ─── ProveedorRepse: identificación (USRH1788551528001) ─────────────────────
+  // RFC del proveedor REPSE (moral o física). Cifrado AES; la huella solo se
+  // escribe (providers.service.ts) y nadie la usa en WHERE: treatment
+  // 'cifrar', no 'cifrar-buscable' (mismo criterio que BillingTaxReceipt).
+  // Sin maskedInApi hasta USRH1789328027052. Ancla: app/models/proveedor_repse.ts
+  {
+    model: 'ProveedorRepse',
+    column: 'rfc',
+    legalCategory: 'identificacion',
+    treatment: 'cifrar',
+    encrypted: true,
+  },
+
   // ─── Employee: financiero (VIGENTE, EN CLARO — cifrado en HU aparte) ──────
   // Dato vivo del que se derivan EmployeeSalaryHistory.salaryDaily y el cálculo
   // de nómina. Se clasifica y se oculta en serialización; NO se cifra todavía
@@ -264,6 +277,25 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // ciphertext crudo. Ancla: app/models/user_consent.ts
   { model: 'UserConsent', column: 'userConsentIp', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
   { model: 'UserConsent', column: 'userConsentUserAgent', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
+
+  // ─── TeleworkPolicyAcknowledgement: contacto (acuse NOM-037) ───────────────
+  // Gemelo de UserConsent: desde dónde se dio por recibida la política. Nunca en
+  // WHERE; nunca se serializa (serializeAs: null en el modelo). Fallo-cerrado.
+  // Ancla: app/models/telework_policy_acknowledgement.ts
+  {
+    model: 'TeleworkPolicyAcknowledgement',
+    column: 'teleworkPolicyAcknowledgementIp',
+    legalCategory: 'contacto',
+    treatment: 'cifrar',
+    encrypted: true,
+  },
+  {
+    model: 'TeleworkPolicyAcknowledgement',
+    column: 'teleworkPolicyAcknowledgementUserAgent',
+    legalCategory: 'contacto',
+    treatment: 'cifrar',
+    encrypted: true,
+  },
 
   // ─── PositionSalaryRangeAudit: financiero (YA CIFRADO, faltaba serialize) ──
   // Espejo auditado del rango. Ancla: app/models/position_salary_range_audit.ts

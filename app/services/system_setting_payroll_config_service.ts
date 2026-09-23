@@ -1,6 +1,16 @@
-import SystemSetting from '#models/system_setting'
 import SystemSettingPayrollConfig from '#models/system_setting_payroll_config'
+import {
+  findSystemSettingInScope,
+  isTenantScopeActive,
+  scopedSystemSettingIds,
+} from '#helpers/system_setting_tenant_scope'
 
+/**
+ * Configuración de nómina de una empresa. Ni este modelo ni `SystemSetting`
+ * componen el mixin de empresa, así que el corte se aplica a mano: el
+ * `systemSettingId` llega del cliente y comprobar solo su existencia permitía
+ * escribir el régimen de pago de otro tenant.
+ */
 export default class SystemSettingPayrollConfigService {
 
   async create(systemSettingPayrollConfig: SystemSettingPayrollConfig) {
@@ -44,6 +54,9 @@ export default class SystemSettingPayrollConfigService {
     const systemSettingPayrollConfig = await SystemSettingPayrollConfig.query()
       .whereNull('system_setting_payroll_config_deleted_at')
       .where('system_setting_payroll_config_id', systemSettingPayrollConfigId)
+      .if(isTenantScopeActive(), (query) => {
+        query.whereIn('system_setting_id', scopedSystemSettingIds())
+      })
       .first()
     return systemSettingPayrollConfig ? systemSettingPayrollConfig : null
   }
@@ -76,10 +89,9 @@ export default class SystemSettingPayrollConfigService {
 
   async verifyInfoExist(systemSettingPayrollConfig: SystemSettingPayrollConfig) {
     if (!systemSettingPayrollConfig.systemSettingPayrollConfigId) {
-      const existSystemSetting = await SystemSetting.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_id', systemSettingPayrollConfig.systemSettingId)
-        .first()
+      const existSystemSetting = await findSystemSettingInScope(
+        systemSettingPayrollConfig.systemSettingId
+      )
 
       if (!existSystemSetting && systemSettingPayrollConfig.systemSettingId) {
         return {

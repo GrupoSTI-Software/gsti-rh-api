@@ -1,5 +1,6 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
+import { DOCUMENTS_EXPIRATION_MATRIX_PERMISSION_DECLARATIONS } from '#constants/documents_expiration_matrix_permission_declarations'
 
 router
   .group(() => {
@@ -8,10 +9,17 @@ router
       '#controllers/repse_registrations_controller.index'
     )
     // ANTES de `/:id` — rutas literales no deben colisionar con un id numérico.
-    router.get(
-      '/repse-registrations/get-expired-and-expiring',
-      '#controllers/repse_registrations_controller.getExpiredAndExpiring'
-    )
+    // Solo lo lee la Matriz de vencimientos: exige su `read`, no el de REPSE.
+    router
+      .get(
+        '/repse-registrations/get-expired-and-expiring',
+        '#controllers/repse_registrations_controller.getExpiredAndExpiring'
+      )
+      .use(
+        middleware.permissionGate(
+          DOCUMENTS_EXPIRATION_MATRIX_PERMISSION_DECLARATIONS.getExpiredAndExpiringRepseRegistrations
+        )
+      )
     router.post(
       '/repse-registrations/notifications/run-expiring-check',
       '#controllers/repse_registrations_controller.runExpiringCheck'
