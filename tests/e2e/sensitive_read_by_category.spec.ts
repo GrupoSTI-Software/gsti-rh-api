@@ -1,11 +1,6 @@
-import { randomUUID } from 'node:crypto'
 import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
-import { DateTime } from 'luxon'
 import { maskSensitiveValue } from '#helpers/sensitive_mask'
-import Customer from '#models/customer'
-import FlightAttendant from '#models/flight_attendant'
-import Pilot from '#models/pilot'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import {
@@ -19,25 +14,17 @@ import {
   createActor,
   createSensitiveFixture,
   createSystemActor,
-  customerPerson,
   employeeBankBody,
   employeePerson,
-  expectBankClear,
   expectBankMasked,
-  expectContactoClearIdentificacionMasked,
-  expectElevenClear,
-  expectMedicalMasked,
+  expectElevenMasked,
   expectNeverDenied,
-  expectPersonContactoMasked,
-  expectPersonIdentificacionClear,
-  expectPersonIdentificacionMasked,
   grantAdditionally,
   grantOnly,
   loginUserPerson,
   loginWeb,
   medicalConditionBody,
   nestedBanks,
-  nestedEmployeePerson,
   permissionId,
   personShowBody,
   revokeSlugs,
@@ -125,8 +112,8 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
       const response = await loginWeb(client, actorEmail, TEST_PASSWORD)
       expectNeverDenied(response, assert)
       const person = loginUserPerson(response.body())
-      assert.equal(person.personEmail, maskSensitiveValue(actorEmail, 'contacto'))
-      assert.equal(person.personPhone, maskSensitiveValue(fixture!.clear.phone, 'contacto'))
+      assert.equal(person.personEmail, maskSensitiveValue(actorEmail))
+      assert.equal(person.personPhone, maskSensitiveValue(fixture!.clear.phone))
       assert.notEqual(person.personEmail, actorEmail)
     } finally {
       actor!.person.personEmail = originalPersonEmail
@@ -136,7 +123,7 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     }
   })
 
-  test('E.2: ficha con Bearer del login y contacto destapa email del colaborador', async ({
+  test('E.2: ficha con Bearer del login y contacto sigue entregando email tapado', async ({
     client,
     assert,
   }) => {
@@ -150,11 +137,11 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
       .header('X-Business-Unit-Id', buHeader(actor!))
     expectNeverDenied(response, assert)
     const person = employeePerson(response.body())
-    assert.equal(person.personEmail, fixture!.clear.email)
-    assert.equal(person.personCurp, maskSensitiveValue(fixture!.clear.curp, 'identificacion'))
+    assert.equal(person.personEmail, maskSensitiveValue(fixture!.clear.email))
+    assert.equal(person.personCurp, maskSensitiveValue(fixture!.clear.curp))
   })
 
-  test('E.3: solo sensitive-identificacion-read destapa CURP/RFC/NSS; contacto y bancos tapados', async ({
+  test('E.3: solo sensitive-identificacion-read deja las 11 tapadas en GET', async ({
     client,
     assert,
   }) => {
@@ -163,31 +150,7 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     expectNeverDenied(employeeRes, assert)
     expectNeverDenied(bankRes, assert)
     expectNeverDenied(medicalRes, assert)
-    const person = employeePerson(employeeRes.body())
-    expectPersonIdentificacionClear(person, fixture!.clear, assert)
-    expectPersonContactoMasked(person, fixture!.clear, assert)
-    expectBankMasked(employeeBankBody(bankRes.body()), fixture!.clear, assert)
-    expectMedicalMasked(medicalConditionBody(medicalRes.body()), fixture!.clear, assert)
-  })
-
-  test('E.4: solo sensitive-financiero-read destapa CLABE/cuenta/tarjeta; persona tapada', async ({
-    client,
-    assert,
-  }) => {
-    await grantOnly(actor!.role.roleId, ['sensitive-financiero-read'])
-    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(client, actor!, fixture!)
-    expectNeverDenied(bankRes, assert)
-    expectBankClear(employeeBankBody(bankRes.body()), fixture!.clear, assert)
-    expectPersonContactoMasked(employeePerson(employeeRes.body()), fixture!.clear, assert)
-    expectPersonIdentificacionMasked(employeePerson(employeeRes.body()), fixture!.clear, assert)
-    expectMedicalMasked(medicalConditionBody(medicalRes.body()), fixture!.clear, assert)
-  })
-
-  test('E.5: las cinco lecturas entregan las 11 en claro', async ({ client, assert }) => {
-    await grantOnly(actor!.role.roleId, [...FIVE_READS])
-    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(client, actor!, fixture!)
-    expectNeverDenied(employeeRes, assert)
-    expectElevenClear(
+    expectElevenMasked(
       employeePerson(employeeRes.body()),
       employeeBankBody(bankRes.body()),
       medicalConditionBody(medicalRes.body()),
@@ -196,7 +159,39 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     )
   })
 
-  test('E.6: super-administrador con las cinco lecturas recibe las 11 en claro', async ({
+  test('E.4: solo sensitive-financiero-read deja las 11 tapadas en GET', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, ['sensitive-financiero-read'])
+    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(client, actor!, fixture!)
+    expectNeverDenied(bankRes, assert)
+    expectElevenMasked(
+      employeePerson(employeeRes.body()),
+      employeeBankBody(bankRes.body()),
+      medicalConditionBody(medicalRes.body()),
+      fixture!.clear,
+      assert
+    )
+  })
+
+  test('E.5: las cinco lecturas siguen entregando las 11 tapadas en GET', async ({
+    client,
+    assert,
+  }) => {
+    await grantOnly(actor!.role.roleId, [...FIVE_READS])
+    const { employeeRes, bankRes, medicalRes } = await getThreeSurfaces(client, actor!, fixture!)
+    expectNeverDenied(employeeRes, assert)
+    expectElevenMasked(
+      employeePerson(employeeRes.body()),
+      employeeBankBody(bankRes.body()),
+      medicalConditionBody(medicalRes.body()),
+      fixture!.clear,
+      assert
+    )
+  })
+
+  test('E.6: super-administrador con las cinco lecturas recibe las 11 tapadas', async ({
     client,
     assert,
   }) => {
@@ -222,7 +217,7 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
         fixture!
       )
       expectNeverDenied(employeeRes, assert)
-      expectElevenClear(
+      expectElevenMasked(
         employeePerson(employeeRes.body()),
         employeeBankBody(bankRes.body()),
         medicalConditionBody(medicalRes.body()),
@@ -248,91 +243,15 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
       .header('X-Business-Unit-Id', buHeader(actor!))
     expectNeverDenied(response, assert)
     const person = personShowBody(response.body())
-    assert.equal(person.personEmail, maskSensitiveValue(fixture!.clear.email, 'contacto'))
-    assert.equal(person.personCurp, maskSensitiveValue(fixture!.clear.curp, 'identificacion'))
+    assert.equal(person.personEmail, maskSensitiveValue(fixture!.clear.email))
+    assert.equal(person.personCurp, maskSensitiveValue(fixture!.clear.curp))
   })
 
-  test('E.8: GET /api/customers/:id con contacto destapa email; sin identificación', async ({
-    client,
-    assert,
-  }) => {
-    await grantOnly(actor!.role.roleId, ['sensitive-contacto-read'])
-    const customer = await Customer.create({
-      customerUuid: randomUUID(),
-      personId: fixture!.person.personId,
-    })
-    try {
-      const response = await client
-        .get(`/api/customers/${customer.customerId}`)
-        .loginAs(actor!.user)
-      expectNeverDenied(response, assert)
-      expectContactoClearIdentificacionMasked(
-        customerPerson(response.body()),
-        fixture!.clear,
-        assert
-      )
-    } finally {
-      await Customer.query().where('customer_id', customer.customerId).delete()
-    }
-  })
+  // E.8 a E.10 (GET de clientes, pilotos y sobrecargos) se retiraron junto con
+  // las rutas de aviación; la numeración se conserva para no romper la
+  // trazabilidad con el plan de pruebas.
 
-  // Las rutas de aviacion quedaron desregistradas a la espera de la baja del modulo; este caso debe eliminarse junto con pilots/flight-attendants.
-  test('E.9: GET /api/pilots/:id serializa person anidado con las mismas reglas', async ({
-    client,
-    assert,
-  }) => {
-    await grantOnly(actor!.role.roleId, ['sensitive-contacto-read'])
-    const pilot = await Pilot.create({
-      employeeId: fixture!.employee.employeeId,
-      pilotHireDate: DateTime.utc(),
-    })
-    try {
-      const response = await client.get(`/api/pilots/${pilot.pilotId}`).loginAs(actor!.user)
-      expectNeverDenied(response, assert)
-      expectContactoClearIdentificacionMasked(
-        nestedEmployeePerson(response.body(), 'pilot'),
-        fixture!.clear,
-        assert
-      )
-    } finally {
-      await Pilot.query().where('pilot_id', pilot.pilotId).delete()
-    }
-  }).skip(
-    true,
-    'Rutas de aviacion desregistradas a la espera de la baja del modulo; este caso se elimina junto con pilots/flight-attendants.'
-  )
-
-  // Las rutas de aviacion quedaron desregistradas a la espera de la baja del modulo; este caso debe eliminarse junto con pilots/flight-attendants.
-  test('E.10: GET /api/flight-attendants/:id serializa person anidado con las mismas reglas', async ({
-    client,
-    assert,
-  }) => {
-    await grantOnly(actor!.role.roleId, ['sensitive-contacto-read'])
-    const attendant = await FlightAttendant.create({
-      employeeId: fixture!.employee.employeeId,
-      flightAttendantHireDate: DateTime.utc(),
-    })
-    try {
-      const response = await client
-        .get(`/api/flight-attendants/${attendant.flightAttendantId}`)
-        .loginAs(actor!.user)
-      expectNeverDenied(response, assert)
-      expectContactoClearIdentificacionMasked(
-        nestedEmployeePerson(response.body(), 'flightAttendant'),
-        fixture!.clear,
-        assert
-      )
-    } finally {
-      await FlightAttendant.query()
-        .where('flight_attendant_id', attendant.flightAttendantId)
-        .delete()
-    }
-  }).skip(
-    true,
-    'Rutas de aviacion desregistradas a la espera de la baja del modulo; este caso se elimina junto con pilots/flight-attendants.'
-  )
-
-  test('E.11: GET /api/employees/:id/banks con financiero destapa CLABE', async ({
+  test('E.11: GET /api/employees/:id/banks con financiero sigue entregando CLABE tapada', async ({
     client,
     assert,
   }) => {
@@ -346,7 +265,7 @@ test.group('Lectura sensible por categoría — E2E Japa', (group) => {
     assert.isAbove(banks.length, 0)
     const match = banks.find((row) => Number(row.employeeBankId) === fixture!.bank.employeeBankId)
     assert.exists(match)
-    expectBankClear(match as Record<string, unknown>, fixture!.clear, assert)
+    expectBankMasked(match as Record<string, unknown>, fixture!.clear, assert)
   })
 
   test('E.12: GET ficha sin Authorization es 401 y el cuerpo no trae CURP ni email claros', async ({

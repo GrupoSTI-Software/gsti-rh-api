@@ -22,6 +22,9 @@ import {
   slugConflictError,
 } from '../helpers/business_unit_signup_errors.js'
 import { toCalendarIsoDate, toBusinessDateString } from '../utils/business_date.js'
+import TenantRoleProvisioningService from '#services/tenant_role_provisioning_service'
+import BranchOfficeProvisioningService from '#services/branch_office_provisioning_service'
+import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
 
 // ---------------------------------------------------------------------------
 // Tipos públicos
@@ -104,6 +107,7 @@ export default class AdditionalBusinessUnitService {
     )
     const systemSettingService = new SystemSettingService()
     const subscriptionService = new BillingSubscriptionService()
+    const tenantRoleProvisioningService = new TenantRoleProvisioningService()
 
     // 3.3 Slug opaco fuera de la transacción (USRH1787932877000)
     let slug = buService.generateOpaqueSlug()
@@ -159,10 +163,23 @@ export default class AdditionalBusinessUnitService {
           buData.businessUnitOrigin = 'self_service'
           const newBu = await buService.create(buData, trx)
 
+          // 3.4b-bis Roles propios de la empresa nueva (dueño, administrador y
+          //     colaborador). Van antes del vínculo porque de aquí sale el rol
+          //     con el que el creador entra a SU empresa nueva: quien la da de
+          //     alta es su dueño, aunque en otra empresa sea otra cosa.
+          const tenantRoles = await tenantRoleProvisioningService.provision(
+            newBu.businessUnitId,
+            trx
+          )
+
           // 3.4c Vincular usuario (UNIQUE business_unit_id + user_id)
           //     useTransaction hace que related().attach() use la misma TRX.
           user.useTransaction(trx)
-          await user.related('businessUnits').attach([newBu.businessUnitId])
+          await attachBusinessUnitsWithRole(
+            user,
+            [newBu.businessUnitId],
+            tenantRoles.owner.roleId
+          )
 
           // 3.4d Configuración mínima del tenant nuevo
           await systemSettingService.createForTenant(
@@ -173,6 +190,10 @@ export default class AdditionalBusinessUnitService {
             },
             trx
           )
+
+          // 3.4d-bis Sucursal default de la empresa nueva: mismo criterio que el
+          // alta self-service. Sin ella, su primer empleado nacería sin destino.
+          await BranchOfficeProvisioningService.ensureDefault(newBu.businessUnitId, trx)
 
           // 3.4e Suscripción — sin periodo de prueba (ADDITIONAL_BUSINESS_UNIT_SKIPS_TRIAL)
           const subscription = await subscriptionService.createSubscription(

@@ -504,7 +504,7 @@ Alta/edición/baja registra también en colección **`log_certifications`** (Mon
 
 ## Empresas contratantes REPSE (`ECNT.*`)
 
-Módulo: catálogo de empresas contratantes bajo `/api/empresas-contratantes`. Permisos: `compliance-contratantes` / `read`, `create`, `update`, `delete` o `gestion`.
+Módulo: catálogo de empresas contratantes bajo `/api/empresas-contratantes`. Permisos: `repse-registrations` / `read`, `create`, `update`, `delete` o `gestion`.
 
 | Código | Escenario | HTTP | Key |
 |--------|-----------|------|-----|
@@ -522,7 +522,7 @@ Módulo: catálogo de empresas contratantes bajo `/api/empresas-contratantes`. P
 
 ## Contratos de servicios especializados REPSE (`CSE.*`)
 
-Módulo: contratos B2B con anexo 15-D LFT bajo `/api/contratos-servicios-especializados`. Permisos: `compliance-contratos` / `read`, `create`, `update`, `delete` o `gestion`. Filtro `estatus` admite varios valores (CSV o repetido).
+Módulo: contratos B2B con anexo 15-D LFT bajo `/api/contratos-servicios-especializados`. Permisos: `repse-registrations` / `read`, `create`, `update`, `delete` o `gestion`. Filtro `estatus` admite varios valores (CSV o repetido).
 
 | Código | Escenario | HTTP | Key |
 |--------|-----------|------|-----|
@@ -541,7 +541,7 @@ Módulo: contratos B2B con anexo 15-D LFT bajo `/api/contratos-servicios-especia
 
 ## Documentos firmados de contrato REPSE (`DCE.*`)
 
-Módulo: documentos PDF bajo `/api/contratos-servicios-especializados/{contratoId}/documentos`. Permisos: `compliance-contratos` / `read`, `create`, `update` o `gestion`. Tamaño máximo del PDF: `MAX_FILE_BYTES` en `documento_contrato_especializado_service.ts` (mensajes de error muestran el valor en MB/KB derivado de esa constante).
+Módulo: documentos PDF bajo `/api/contratos-servicios-especializados/{contratoId}/documentos`. Permisos: `repse-registrations` / `read`, `create`, `update` o `gestion`. Tamaño máximo del PDF: `MAX_FILE_BYTES` en `documento_contrato_especializado_service.ts` (mensajes de error muestran el valor en MB/KB derivado de esa constante).
 
 | Código | Escenario | HTTP | Key |
 |--------|-----------|------|-----|
@@ -577,7 +577,7 @@ Cross-tenant o contrato inexistente reutiliza `CSE.NF.001` / key `contrato-no-en
 
 ## Asignaciones de trabajadores a contratos REPSE (`ACE.*`)
 
-Módulo: asignaciones bajo `/api/contratos-servicios-especializados/{contratoId}/asignaciones`. Permisos: `compliance-contratos` / `read`, `create`, `update`, `delete` o `gestion`.
+Módulo: asignaciones bajo `/api/contratos-servicios-especializados/{contratoId}/asignaciones`. Permisos: `repse-registrations` / `read`, `create`, `update`, `delete` o `gestion`.
 
 | Código | Escenario | HTTP | Key |
 |--------|-----------|------|-----|

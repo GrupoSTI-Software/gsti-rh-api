@@ -11,7 +11,6 @@ import ProceedingFileTypeService from './proceeding_file_type_service.js'
 import { ProceedingFileTypeEmailExpiredAndExpiringInterface } from '../interfaces/proceeding_file_type_email_expired_and_expiring_interface.js'
 import { SetProceedingFileToEmailInterface } from '../interfaces/set_proceeding_file_to_email_interface.js'
 import SystemSettingService from './system_setting_service.js'
-import SystemSetting from '#models/system_setting'
 import EmployeeProceedingFileType from '#models/employee_proceeding_file_type'
 import SystemSettingProceedingFile from '#models/system_setting_proceeding_file'
 import { LogStore } from '#models/MongoDB/log_store'
@@ -316,7 +315,7 @@ export default class ProceedingFileService {
       // hermana batch (USRH1783713925140) en vez de forzar un fail-closed que
       // rompería el reporte.
       const systemSettingService = new SystemSettingService()
-      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+      const systemSettingActive = await systemSettingService.resolveForActiveTenant()
       if (systemSettingActive) {
         if ( systemSettingActive.systemSettingLogo) {
           backgroundImageLogo = systemSettingActive.systemSettingLogo

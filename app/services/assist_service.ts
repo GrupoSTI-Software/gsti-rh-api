@@ -16,12 +16,12 @@ import { ShiftExceptionInterface } from '../interfaces/shift_exception_interface
 import axios from 'axios'
 import { AssistIncidentExcelRowInterface } from '../interfaces/assist_incident_excel_row_interface.js'
 import Assist from '#models/assist'
-import Tolerance from '#models/tolerance'
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogAssist } from '../interfaces/MongoDB/log_assist.js'
 import BusinessUnit from '#models/business_unit'
 import env from '#start/env'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { resolveOrgAliasDisplay } from '#utils/org_alias_display'
 import SystemSettingService from './system_setting_service.js'
 import SystemSetting from '#models/system_setting'
 import { AssistIncidentPayrollExcelRowInterface } from '../interfaces/assist_incident_payroll_excel_row_interface.js'
@@ -38,7 +38,8 @@ import WorkDisability from '#models/work_disability'
 import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_interface.js'
 import { I18n } from '@adonisjs/i18n'
 import Holiday from '#models/holiday'
-import ToleranceService from './tolerance_service.js'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
+import { resolveSiteTimeZone, wallTime, dayKeyOf, toInstant } from '#modules/attendance-time/attendance_clock'
 import EmployeeShift from '#models/employee_shift'
 import User from '#models/user'
 import mail from '@adonisjs/mail/services/main'
@@ -55,6 +56,15 @@ import {
 import EffectiveService from '#modules/working-time-rules/effective/effective.service'
 import { AssistIncidentSummaryV2ExcelRowInterface } from '../interfaces/assist_incident_summary_v2_excel_row_interface.js'
 import { AssistIncidentSummaryV2CalendarExcelFilterInterface } from '../interfaces/assist_incident_summary_v2_calendar_excel_filter_interface.js'
+import { PLATFORM_FALLBACK_TRADE_NAME } from '#constants/system_setting_defaults'
+
+/**
+ * Defaults de tolerancia cuando no hay empresa en contexto o la empresa no tiene
+ * la suya configurada. Son los valores que estos métodos ya usaban en duro.
+ */
+const DEFAULT_DELAY_TOLERANCE_MINUTES = 10
+const DEFAULT_TARDINESS_TOLERANCE_MINUTES = 3
+const DEFAULT_TOLERANCE_COUNT_PER_ABSENCE = 3
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -66,6 +76,19 @@ export default class AssistsService {
     this.t = i18n.formatMessage.bind(i18n)
     this.i18n = i18n
     this.localeToUse = i18n.locale
+  }
+
+  /**
+   * Zona IANA del sitio del calendario en curso. La devuelve el sync junto con
+   * cada calendario (`data.timeZone`); los reportes se recorren empleado por
+   * empleado, así que un solo valor vivo basta y cada fila se formatea en la
+   * hora del sitio y no en la del servidor.
+   */
+  private siteZone: string = resolveSiteTimeZone([]).zone
+
+  /** Toma la zona con la que el sync calculó el calendario recién obtenido. */
+  private adoptCalendarZone(data: { timeZone?: string } | null | undefined): void {
+    this.siteZone = data?.timeZone ?? resolveSiteTimeZone([]).zone
   }
 
   /**
@@ -176,6 +199,7 @@ export default class AssistsService {
       { page: 1, limit: 999999999999999 }
     )
     const data: any = result.data
+    this.adoptCalendarZone(data)
     const rows = [] as AssistExcelRowInterface[]
     if (data) {
       const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
@@ -260,6 +284,7 @@ export default class AssistsService {
         { page, limit }
       )
       const data: any = result.data
+      this.adoptCalendarZone(data)
       const rows = [] as AssistExcelRowInterface[]
       if (data) {
         const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
@@ -343,6 +368,7 @@ export default class AssistsService {
         { page, limit }
       )
       const data: any = result.data
+      this.adoptCalendarZone(data)
       const rows = [] as AssistExcelRowInterface[]
       const tardies = await this.getTardiesTolerance()
       const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
@@ -445,6 +471,7 @@ export default class AssistsService {
           { page, limit }
         )
         const data: any = result.data
+        this.adoptCalendarZone(data)
         if (data) {
           const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
           let newRows = [] as AssistExcelRowInterface[]
@@ -517,6 +544,7 @@ export default class AssistsService {
           { page, limit }
         )
         const data: any = result.data
+        this.adoptCalendarZone(data)
         if (data) {
           const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
           let newRows = [] as AssistIncidentExcelRowInterface[]
@@ -607,6 +635,7 @@ export default class AssistsService {
             { page, limit }
           )
           const data: any = result.data
+          this.adoptCalendarZone(data)
           if (data) {
             const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
             let newRows = [] as AssistExcelRowInterface[]
@@ -744,6 +773,7 @@ export default class AssistsService {
             { page, limit }
           )
           const data: any = result.data
+          this.adoptCalendarZone(data)
           if (data) {
             const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
             let newRows = [] as AssistIncidentExcelRowInterface[]
@@ -912,6 +942,7 @@ export default class AssistsService {
               { page, limit }
             )
             const data: any = result.data
+            this.adoptCalendarZone(data)
             if (data) {
               const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
               let newRows = [] as AssistExcelRowInterface[]
@@ -1087,6 +1118,7 @@ export default class AssistsService {
             { page: 1, limit: 999999999999999 }
           )
           const data: any = result.data
+          this.adoptCalendarZone(data)
           if (data) {
             const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
             const newRows = await this.addRowCalendar(employee, employeeCalendar)
@@ -1434,6 +1466,8 @@ export default class AssistsService {
   private buildIncidentSummaryRow(
     filters: AssistIncidentSummaryV2CalendarExcelFilterInterface
   ): AssistIncidentSummaryV2ExcelRowInterface {
+    // TODO(USRH1788466831291): misma regla que #utils/org_alias_display.
+    // Converger al helper cuando se toque este reporte.
     let department = filters.employee.department?.departmentAlias
       ? filters.employee.department.departmentAlias
       : ''
@@ -1558,8 +1592,8 @@ export default class AssistsService {
       }
       const checkInTime = calendar.assist.checkIn?.assistPunchTimeUtc
       const checkOutTime = calendar.assist.checkOut?.assistPunchTimeUtc
-      const firstCheckTime = checkInTime ? DateTime.fromISO(checkInTime.toString(), { zone: 'UTC-6' }) : null
-      const lastCheckTime = checkOutTime ? DateTime.fromISO(checkOutTime.toString(), { zone: 'UTC-6' }) : null
+      const firstCheckTime = checkInTime ? toInstant(checkInTime) : null
+      const lastCheckTime = checkOutTime ? toInstant(checkOutTime) : null
       if (firstCheckTime && lastCheckTime && firstCheckTime.isValid && lastCheckTime.isValid) {
         const duration = lastCheckTime.diff(firstCheckTime, 'minutes')
         const hours = Math.floor(duration.as('minutes') / 60)
@@ -1568,14 +1602,10 @@ export default class AssistsService {
       }
       if (calendar.assist.dateShift?.shiftCompensableLunchSchedule !== 1) {
         const checkInLunch = calendar.assist.checkEatIn?.assistPunchTimeUtc
-          ? DateTime.fromISO(calendar.assist.checkEatIn.assistPunchTimeUtc.toString(), {
-              setZone: true,
-            }).setZone('UTC-6')
+          ? toInstant(calendar.assist.checkEatIn.assistPunchTimeUtc)
           : null
         const checkOutLunch = calendar.assist.checkEatOut?.assistPunchTimeUtc
-          ? DateTime.fromISO(calendar.assist.checkEatOut.assistPunchTimeUtc.toString(), {
-              setZone: true,
-            }).setZone('UTC-6')
+          ? toInstant(calendar.assist.checkEatOut.assistPunchTimeUtc)
           : null
         if (checkInLunch && checkOutLunch) {
           const durationInMinutes = checkOutLunch.diff(checkInLunch, 'minutes').as('minutes')
@@ -1973,6 +2003,7 @@ export default class AssistsService {
             { page: 1, limit: 999999999999999 }
           )
           const data: any = result.data
+          this.adoptCalendarZone(data)
           if (data) {
             hasEmployees = true
             const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
@@ -2044,6 +2075,7 @@ export default class AssistsService {
       { page: 1, limit: 999999999999999 }
     )
     const data: any = result.data
+    this.adoptCalendarZone(data)
     const rowsIncident: AssistIncidentSummaryV2ExcelRowInterface[] = []
     const totalRowIncident = {} as AssistIncidentSummaryV2ExcelRowInterface
     this.cleanIncidentSummaryTotalRow(totalRowIncident)
@@ -2239,6 +2271,7 @@ export default class AssistsService {
       { page: 1, limit: 999999999999999 }
     )
     const data: any = result.data
+    this.adoptCalendarZone(data)
     const tardies = await this.getTardiesTolerance()
     const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
 
@@ -2355,6 +2388,7 @@ export default class AssistsService {
               { page, limit }
             )
             const data: any = result.data
+            this.adoptCalendarZone(data)
             if (data) {
               const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
               let newRows = [] as AssistIncidentExcelRowInterface[]
@@ -2596,10 +2630,9 @@ export default class AssistsService {
     if (!checkAssist?.assist?.checkIn?.assistPunchTimeUtc) {
       return ''
     }
-    const timeCheckIn = DateTime.fromISO(
-      checkAssist.assist.checkIn.assistPunchTimeUtc.toString(),
-      { setZone: true }
-    ).setZone('UTC-6').setLocale(this.localeToUse)
+    const timeCheckIn = wallTime(checkAssist.assist.checkIn.assistPunchTimeUtc, this.siteZone).setLocale(
+      this.localeToUse
+    )
     return timeCheckIn.toFormat('MMM d, yyyy, h:mm:ss a')
   }
 
@@ -2608,11 +2641,10 @@ export default class AssistsService {
       return ''
     }
 
-    const now = DateTime.now().toFormat('yyyy-LL-dd')
-    const timeCheckOut = DateTime.fromISO(
-      checkAssist.assist.checkOut.assistPunchTimeUtc.toString(),
-      { setZone: true }
-    ).setZone('UTC-6').setLocale(this.localeToUse)
+    const now = DateTime.now().setZone(this.siteZone).toFormat('yyyy-LL-dd')
+    const timeCheckOut = wallTime(checkAssist.assist.checkOut.assistPunchTimeUtc, this.siteZone).setLocale(
+      this.localeToUse
+    )
     if (timeCheckOut.toFormat('yyyy-LL-dd') === now) {
       checkAssist.assist.checkOutStatus = ''
       return ''
@@ -2755,16 +2787,16 @@ export default class AssistsService {
       if (!calendar.assist.dateShift) {
         status = ''
       }
-      let department = employee.department.departmentAlias
-        ? employee.department.departmentAlias
-        : ''
-      department =
-        department === '' && employee.department?.departmentName
-          ? employee.department.departmentName
-          : ''
-      let position = employee.position.positionAlias ? employee.position.positionAlias : ''
-      position =
-        position === '' && employee.position?.positionName ? employee.position.positionName : ''
+      const department = resolveOrgAliasDisplay(
+        employee.department?.departmentAlias,
+        employee.department?.departmentName,
+        Boolean(employee.department?.deletedAt)
+      )
+      const position = resolveOrgAliasDisplay(
+        employee.position?.positionAlias,
+        employee.position?.positionName,
+        Boolean(employee.position?.deletedAt)
+      )
       let shiftName = ''
       let shiftStartDate = ''
       let shiftEndsDate = ''
@@ -2781,8 +2813,8 @@ export default class AssistsService {
       const checkInTime = calendar.assist.checkIn?.assistPunchTimeUtc
       const checkOutTime = calendar.assist.checkOut?.assistPunchTimeUtc
 
-      const firstCheckTime = checkInTime ? DateTime.fromISO(checkInTime.toString(), { zone: 'UTC-6' }) : null
-      const lastCheckTime = checkOutTime ? DateTime.fromISO(checkOutTime.toString(), { zone: 'UTC-6' }) : null
+      const firstCheckTime = checkInTime ? toInstant(checkInTime) : null
+      const lastCheckTime = checkOutTime ? toInstant(checkOutTime) : null
 
       if (firstCheckTime && lastCheckTime && firstCheckTime.isValid && lastCheckTime.isValid) {
         const durationInMinutes = lastCheckTime.diff(firstCheckTime, 'minutes').as('minutes')
@@ -2796,10 +2828,10 @@ export default class AssistsService {
         hoursWorked += timeInDecimal
       }
 
-      const rowCheckInTime = calendar.assist.checkIn?.assistPunchTimeUtc && !calendar.assist.isFutureDay ? DateTime.fromISO(calendar.assist.checkIn.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6').toFormat('ff') : ''
-      const rowLunchTime = calendar.assist?.checkEatIn?.assistPunchTimeUtc ? DateTime.fromISO(calendar.assist.checkEatIn.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6').setLocale(this.localeToUse).toFormat('MMM d, yyyy, h:mm:ss a') : ''
-      const rowReturnLunchTime = calendar?.assist?.checkEatOut?.assistPunchTimeUtc ? DateTime.fromISO(calendar.assist.checkEatOut.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6').setLocale(this.localeToUse).toFormat('MMM d, yyyy, h:mm:ss a') : ''
-      const rowCheckOutTime = calendar.assist.checkOut?.assistPunchTimeUtc && !calendar.assist.isFutureDay ? DateTime.fromISO(calendar.assist.checkOut?.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6').toFormat('ff') : ''
+      const rowCheckInTime = calendar.assist.checkIn?.assistPunchTimeUtc && !calendar.assist.isFutureDay ? wallTime(calendar.assist.checkIn.assistPunchTimeUtc, this.siteZone).toFormat('ff') : ''
+      const rowLunchTime = calendar.assist?.checkEatIn?.assistPunchTimeUtc ? wallTime(calendar.assist.checkEatIn.assistPunchTimeUtc, this.siteZone).setLocale(this.localeToUse).toFormat('MMM d, yyyy, h:mm:ss a') : ''
+      const rowReturnLunchTime = calendar?.assist?.checkEatOut?.assistPunchTimeUtc ? wallTime(calendar.assist.checkEatOut.assistPunchTimeUtc, this.siteZone).setLocale(this.localeToUse).toFormat('MMM d, yyyy, h:mm:ss a') : ''
+      const rowCheckOutTime = calendar.assist.checkOut?.assistPunchTimeUtc && !calendar.assist.isFutureDay ? wallTime(calendar.assist.checkOut.assistPunchTimeUtc, this.siteZone).toFormat('ff') : ''
 
       rows.push({
         code: employee.employeeCode.toString(),
@@ -3009,11 +3041,11 @@ export default class AssistsService {
     filters: AssistIncidentSummaryCalendarExcelFilterInterface
   ) {
     const rows = [] as AssistIncidentExcelRowInterface[]
-    let department = filters.employee.department.departmentAlias ? filters.employee.department.departmentAlias : ''
-    department =
-      department === '' && filters.employee.department?.departmentName
-        ? filters.employee.department.departmentName
-        : ''
+    const department = resolveOrgAliasDisplay(
+      filters.employee.department?.departmentAlias,
+      filters.employee.department?.departmentName,
+      Boolean(filters.employee.department?.deletedAt)
+    )
     let daysWorked = 0
     let daysOnTime = 0
     let tolerances = 0
@@ -3116,8 +3148,8 @@ export default class AssistsService {
         const checkInTime = calendar.assist.checkIn?.assistPunchTimeUtc
         const checkOutTime = calendar.assist.checkOut?.assistPunchTimeUtc
 
-        const firstCheckTime = checkInTime ? DateTime.fromISO(checkInTime.toString(), { zone: 'UTC-6' }) : null
-        const lastCheckTime = checkOutTime ? DateTime.fromISO(checkOutTime.toString(), { zone: 'UTC-6' }) : null
+        const firstCheckTime = checkInTime ? toInstant(checkInTime) : null
+        const lastCheckTime = checkOutTime ? toInstant(checkOutTime) : null
 
         if (firstCheckTime && lastCheckTime && firstCheckTime.isValid && lastCheckTime.isValid) {
           const duration = lastCheckTime.diff(firstCheckTime, 'minutes')
@@ -3574,6 +3606,7 @@ export default class AssistsService {
           { page: 1, limit: 100 }
         )
         const data: any = result.data
+        this.adoptCalendarZone(data)
         if (data) {
           const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
           const faults = await this.getFaultsFromEmployeeCalendar(employeeCalendar, tardies, toleranceCountPerAbsences)
@@ -3734,31 +3767,23 @@ export default class AssistsService {
     return payPeriodNumber
   }
 
+  /** Logo de la empresa activa; el del entorno cuando no hay empresa o no tiene uno. */
   async getLogo() {
     let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      if (systemSettingActive.systemSettingLogo) {
-        imageLogo = systemSettingActive.systemSettingLogo
-      }
+    const systemSetting = await new SystemSettingService().resolveForActiveTenant()
+
+    if (systemSetting?.systemSettingLogo) {
+      imageLogo = systemSetting.systemSettingLogo
     }
+
     return imageLogo
   }
 
+  /** Retardos que suman una falta, según la empresa activa. */
   async getToleranceCountPerAbsence() {
-    let tolerancePerAbsence = 0
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      if (systemSettingActive.systemSettingToleranceCountPerAbsence) {
-        tolerancePerAbsence = systemSettingActive.systemSettingToleranceCountPerAbsence
-      }
-    }
-    if (tolerancePerAbsence === 0) {
-      tolerancePerAbsence = 3
-    }
-    return tolerancePerAbsence
+    const systemSetting = await new SystemSettingService().resolveForActiveTenant()
+
+    return systemSetting?.systemSettingToleranceCountPerAbsence || DEFAULT_TOLERANCE_COUNT_PER_ABSENCE
   }
 
   /**
@@ -3862,6 +3887,7 @@ export default class AssistsService {
         { page: params.page, limit: params.limit }
       )
       const data: any = result.data
+      this.adoptCalendarZone(data)
       if (!data?.employeeCalendar) {
         await params.onEmployeeIterated?.()
         continue
@@ -4126,6 +4152,8 @@ export default class AssistsService {
    filters: AssistIncidentPayrollCalendarExcelFilterInterface
   ) {
     const rows = [] as AssistIncidentPayrollExcelRowInterface[]
+    // TODO(USRH1788466831291): misma regla que #utils/org_alias_display.
+    // Converger al helper cuando se toque este reporte.
     let department = filters.employee.department?.departmentAlias ? filters.employee.department.departmentAlias : ''
     department =
       department === '' && filters.employee.department?.departmentName
@@ -4486,16 +4514,11 @@ export default class AssistsService {
       .orderBy('business_unit_id')
   }
 
+  /** Nombre comercial de la empresa activa, para encabezar sus reportes. */
   async getTradeName() {
-    let tradeName = 'BO'
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      if (systemSettingActive.systemSettingTradeName) {
-        tradeName = systemSettingActive.systemSettingTradeName
-      }
-    }
-    return tradeName
+    const systemSetting = await new SystemSettingService().resolveForActiveTenant()
+
+    return systemSetting?.systemSettingTradeName || PLATFORM_FALLBACK_TRADE_NAME
   }
 
   paintBorderAll(worksheet: ExcelJS.Worksheet, rowCount: number) {
@@ -4572,26 +4595,38 @@ export default class AssistsService {
     return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
   }
 
+  /** Margen de impuntualidad de la empresa activa. */
   async getTardiesTolerance() {
-    let tardies = 0
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      const tolerance = await Tolerance.query()
-        .whereNull('tolerance_deleted_at')
-        .where('tolerance_name', 'TardinessTolerance')
-        .where('systemSettingId', systemSettingActive.systemSettingId)
-        .first()
+    return this.resolveTenantToleranceMinutes(
+      'TardinessTolerance',
+      DEFAULT_TARDINESS_TOLERANCE_MINUTES
+    )
+  }
 
-      if (tolerance) {
-        tardies = tolerance.toleranceMinutes
-      }
+  /**
+   * Minutos de una tolerancia DE LA EMPRESA ACTIVA, con su default si la empresa
+   * no la tiene configurada o si no hay empresa en contexto.
+   *
+   * Los tres métodos que la consultan resolvían antes por la configuración de
+   * PLATAFORMA: la tolerancia de un cliente salía de una fila global que
+   * ninguno de ellos podía ver ni ajustar, y la que sí ajustaban desde su
+   * backoffice no la miraba nadie.
+   */
+  private async resolveTenantToleranceMinutes(
+    toleranceName: string,
+    defaultMinutes: number
+  ): Promise<number> {
+    const systemSetting = await new SystemSettingService().resolveForActiveTenant()
+
+    if (!systemSetting) {
+      return defaultMinutes
     }
 
-    if (tardies === 0) {
-      tardies = 3
-    }
-    return tardies
+    const tolerance = systemSetting.systemSettingTolerances.find(
+      (item) => item.toleranceName === toleranceName
+    )
+
+    return tolerance?.toleranceMinutes ?? defaultMinutes
   }
 
   getVacationBonus(employee: Employee, datePay: string) {
@@ -4676,23 +4711,7 @@ export default class AssistsService {
   }
 
   async getAssistFlatList (filters: AssistFlatFilterInterface) {
-    const stringDate = `${filters.dateStart}T00:00:00.000-06:00`
-    const time = DateTime.fromISO(stringDate, { setZone: true })
-    const timeCST = time.setZone('UTC-6')
-    const filterInitialDate = timeCST.toFormat('yyyy-LL-dd HH:mm:ss')
-    const stringEndDate = `${filters.dateEnd}T23:59:59.000-06:00`
-    const timeEnd = DateTime.fromISO(stringEndDate, { setZone: true })
-    const timeEndCST = timeEnd.setZone('UTC-6').plus({ days: 1 })
-    const filterEndDate = timeEndCST.toFormat('yyyy-LL-dd HH:mm:ss')
-    const query = Assist.query()
-      .where('assist_active', 1)
-    let employee = null
-
-
-    if (filters.dateEnd && filters.dateStart) {
-      query.where('assist_punch_time_origin', '>=', filterInitialDate)
-      query.where('assist_punch_time_origin', '<=', filterEndDate)
-    }
+    let employee: Employee | null = null
 
     if (filters.employeeId) {
       employee = await Employee.query()
@@ -4703,11 +4722,34 @@ export default class AssistsService {
       if (!employee) {
         return []
       }
+    }
 
+    // Zona del sitio del empleado (o del sistema sin empleado): acota el
+    // rango como instantes y agrupa las checadas por su día civil ahí.
+    const resolvedZone = employee
+      ? await new SiteTimeZoneService().forEmployee(employee.employeeId)
+      : resolveSiteTimeZone([])
+    const zone = resolvedZone.zone
+    const filterInitialDate = DateTime.fromISO(`${filters.dateStart}T00:00:00`, { zone })
+      .toUTC()
+      .toFormat('yyyy-LL-dd HH:mm:ss')
+    const filterEndDate = DateTime.fromISO(`${filters.dateEnd}T23:59:59`, { zone })
+      .plus({ days: 1 })
+      .toUTC()
+      .toFormat('yyyy-LL-dd HH:mm:ss')
+    const query = Assist.query()
+      .where('assist_active', 1)
+
+    if (filters.dateEnd && filters.dateStart) {
+      query.where('assist_punch_time_utc', '>=', filterInitialDate)
+      query.where('assist_punch_time_utc', '<=', filterEndDate)
+    }
+
+    if (employee) {
       query.where('assist_emp_code', employee.employeeCode)
     }
 
-    query.orderBy('assist_punch_time_origin', 'desc')
+    query.orderBy('assist_punch_time_utc', 'desc')
 
     const assistList = await query.paginate(1, 500)
     const assistListFlat = assistList.toJSON().data as AssistInterface[]
@@ -4717,10 +4759,7 @@ export default class AssistsService {
 
     for await (const item of assistListFlat) {
       const assist = item as AssistInterface
-      const assistDate = DateTime
-        .fromISO(`${assist.assistPunchTimeUtc}`, { setZone: true })
-        .setZone('UTC-6')
-      const assistDayStr = assistDate.toFormat('yyyy-LL-dd')
+      const assistDayStr = dayKeyOf(assist.assistPunchTimeUtc, zone)
 
       const existDay = assistDayCollection.find((itemAssistDay) => itemAssistDay.day === assistDayStr)
 
@@ -4728,10 +4767,7 @@ export default class AssistsService {
         let dayAssist: AssistInterface[] = []
 
         for await (const dayItem of assistListFlat) {
-          const currentDay = DateTime
-            .fromISO(`${dayItem.assistPunchTimeUtc}`, { setZone: true })
-            .setZone('UTC-6')
-            .toFormat('yyyy-LL-dd')
+          const currentDay = dayKeyOf(dayItem.assistPunchTimeUtc, zone)
 
           if (currentDay === assistDayStr) {
             dayAssist.push(dayItem)
@@ -4778,7 +4814,7 @@ export default class AssistsService {
         employeeService,
         {
           search: '',
-          departmentId: 0,
+          departmentId: departmentsList,
           positionId: 0,
           page: 1,
           limit: 999999,
@@ -5078,7 +5114,12 @@ export default class AssistsService {
         })
 
 
+      const siteTimeZoneService = new SiteTimeZoneService()
       for await(const employee of employees) {
+        // Las checadas de demostración se escriben en UTC real desde la hora
+        // de pared del sitio del empleado.
+        const resolvedDemoZone = await siteTimeZoneService.forEmployee(employee.employeeId)
+        const demoZone = resolvedDemoZone.zone
         const hourStart = employee.employeeShifts[0].shift.shiftTimeStart
         const activeHours = employee.employeeShifts[0].shift.shiftActiveHours
         const restDays = employee.employeeShifts[0].shift.shiftRestDays.split(',').map(Number)
@@ -5180,7 +5221,7 @@ export default class AssistsService {
 
           // Crear DateTime base con la hora de inicio
           const baseTimeString = `${dateString} ${hour}:${minute}:00`
-          const baseTime = DateTime.fromFormat(baseTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' })
+          const baseTime = DateTime.fromFormat(baseTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: demoZone })
 
           // Aplicar variación de minutos (puede ser negativa)
           const punchTime = baseTime.plus({ minutes: minutesVariation }).toUTC()
@@ -5221,7 +5262,7 @@ export default class AssistsService {
 
           // Formatear la fecha/hora en formato yyyy-MM-dd HH:mm:ss
           const punchTimeString = `${dateString} ${String(finalHour).padStart(2, '0')}:${String(finalMinute).padStart(2, '0')}:${String(finalSecond).padStart(2, '0')}`
-          const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' }).toUTC()
+          const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: demoZone }).toUTC()
 
           const createAssist = new Assist()
           createAssist.assistEmpId = employee.employeeId
@@ -5261,7 +5302,7 @@ export default class AssistsService {
 
           // Formatear la fecha/hora en formato yyyy-MM-dd HH:mm:ss
           const punchTimeString = `${dateString} ${String(finalHour).padStart(2, '0')}:${String(finalMinute).padStart(2, '0')}:${String(finalSecond).padStart(2, '0')}`
-          const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' }).toUTC()
+          const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: demoZone }).toUTC()
 
           const createAssist = new Assist()
           createAssist.assistEmpId = employee.employeeId
@@ -5331,29 +5372,14 @@ export default class AssistsService {
    * @returns {Promise<number>} La tolerancia de retardo en minutos
    */
   async getDelayToleranceMinutes(): Promise<number> {
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    let delayToleranceMinutes = 10 // Default
-    if (systemSettingActive) {
-      const toleranceService = new ToleranceService()
-      const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
-      const delayTolerance = tolerances.find((t) => t.toleranceName === 'Delay')
-      if (delayTolerance) delayToleranceMinutes = delayTolerance.toleranceMinutes
-    }
-    return delayToleranceMinutes
+    return this.resolveTenantToleranceMinutes('Delay', DEFAULT_DELAY_TOLERANCE_MINUTES)
   }
 
   async getTardinessToleranceMinutes(): Promise<number> {
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    let tardinessToleranceMinutes = 10 // Default
-    if (systemSettingActive) {
-      const toleranceService = new ToleranceService()
-      const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
-      const tardinessTolerance = tolerances.find((t) => t.toleranceName === 'TardinessTolerance')
-      if (tardinessTolerance) tardinessToleranceMinutes = tardinessTolerance.toleranceMinutes
-    }
-    return tardinessToleranceMinutes
+    return this.resolveTenantToleranceMinutes(
+      'TardinessTolerance',
+      DEFAULT_DELAY_TOLERANCE_MINUTES
+    )
   }
 
   async getFaultsAndDelaysFromEmployeeCalendar(employeeCalendar: AssistDayInterface[], tardies: number, toleranceCountPerAbsences: number) {
@@ -5396,8 +5422,10 @@ export default class AssistsService {
 
   async verifyAttendanceLock(userId: number, type: string) {
     try {
-      const systemSettingService = new SystemSettingService()
-      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+      // El bloqueo por faltas se decide con la configuración de LA EMPRESA
+      // ACTIVA. Antes leía la de plataforma, así que todos los clientes
+      // compartían el mismo umbral sin poder ajustarlo.
+      const systemSettingActive = await new SystemSettingService().resolveForActiveTenant()
       if (!systemSettingActive) {
         return {
           status: 404,
@@ -5448,6 +5476,7 @@ export default class AssistsService {
         { page, limit }
       )
       const data: any = resultAssists.data
+      this.adoptCalendarZone(data)
       let faults = 0
       let delays = 0
 

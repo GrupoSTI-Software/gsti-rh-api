@@ -1,0 +1,23 @@
+---
+description: Migraciones AdonisJS Lucid — nunca await sobre this.schema, prefijo de 13 dígitos, no renombrar migraciones mergeadas.
+globs:
+  - database/migrations/**
+alwaysApply: false
+---
+
+# Migraciones Lucid
+
+**Lee la regla completa:** `.claude/rules/migraciones-lucid.md`
+
+@.claude/rules/migraciones-lucid.md
+
+Lo que nunca se hace:
+
+- `await this.schema.alterTable(...)` — el `await` ejecuta el SQL DOS VECES.
+- Escribir el timestamp a mano. Siempre `node ace make:migration <nombre>` (prefijo de 13 dígitos exactos).
+- Renombrar una migración ya mergeada: Lucid la vuelve a ejecutar y revienta toda BD donde ya corrió.
+- Sembrar catálogo de módulos o permisos desde una migración. Ver `.claude/rules/catalogo-modulos-permisos.md`.
+
+Verificación antes de PR: `NODE_ENV=test DB_DATABASE=sae_pruebas node ace migration:fresh --seed`
+sobre `sae_pruebas`. Nunca contra la BD de desarrollo compartida. `migration:run` incremental
+NO detecta errores de orden.

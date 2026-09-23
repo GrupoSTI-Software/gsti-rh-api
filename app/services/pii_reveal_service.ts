@@ -2,6 +2,13 @@ import db from '@adonisjs/lucid/services/db'
 import Person from '#models/person'
 import EmployeeBank from '#models/employee_bank'
 import EmployeeMedicalCondition from '#models/employee_medical_condition'
+import WorkDisability from '#models/work_disability'
+import WorkDisabilityNote from '#models/work_disability_note'
+import TraumaticEventReport from '#models/traumatic_event_report'
+import EmployeeLactationPeriod from '#models/employee_lactation_period'
+import EmployeeEmergencyContact from '#models/employee_emergency_contact'
+import EmployeeSpouse from '#models/employee_spouse'
+import EmpresaContratante from '#models/empresa_contratante'
 import SensitiveFieldsCatalogService from '#services/sensitive_fields_catalog_service'
 import PiiAccessLogService from '#services/pii_access_log_service'
 import type { PiiAccessInputInterface } from '../interfaces/pii_access_input_interface.js'
@@ -14,50 +21,32 @@ export interface PiiRevealResult {
   value: unknown
 }
 
+/** Registro resuelto con empresa propia y titular opcional (USRH1788478865946). */
+export interface ResolvedSensitiveRecord {
+  value: unknown
+  businessUnitId: number
+  subjectEmployeeId: number | null
+}
+
 /**
  * Datos de contexto de red que el caller provee para el log de auditoría.
- * (Los campos `model`, `modelColumn`, `recordId` y `businessUnitId` los resuelve
- * el servicio internamente; el caller solo aporta quién y desde dónde.)
  */
 export type PiiRevealLogContext = Pick<
   PiiAccessInputInterface,
-  'accessorUserId' | 'accessorIp' | 'accessorUserAgent' | 'requestId'
+  'accessorUserId' | 'accessorIp' | 'accessorUserAgent' | 'requestId' | 'originModule'
 >
 
 /**
  * Servicio de reveal de datos personales sensibles.
  *
- * Responsabilidades:
- *   1. Validar que el campo solicitado esté marcado como `maskedInApi` en el catálogo.
- *   2. Localizar el registro con validación de scope de unidad de negocio (anti-IDOR).
- *   3. Confirmar el log de auditoría y devolver el valor en claro en la misma transacción
- *      (fail-closed: si el log falla, el dato no se revela).
- *
- * Registry de modelos soportados (primer corte HU USRH1783019898097):
- *   - `Person`                   — scope vía `employee.businessUnitId`
- *   - `EmployeeBank`             — scope vía JOIN a `employees`
- *   - `EmployeeMedicalCondition` — scope vía `employee.businessUnitId`
- *
- * Ref: USRH1783019898097 §4 — mecanismo de reveal transaccional.
+ * Registry: Person, EmployeeBank, EmployeeMedicalCondition, WorkDisabilityNote,
+ * TraumaticEventReport, EmployeeLactationPeriod, EmployeeEmergencyContact,
+ * EmployeeSpouse, EmpresaContratante.
  */
 export default class PiiRevealService {
   private catalogService = new SensitiveFieldsCatalogService()
   private logService = new PiiAccessLogService()
 
-  /**
-   * Revela el valor en claro de un campo sensible para el registro indicado,
-   * registrando el acceso de forma transaccional antes de devolver el valor.
-   *
-   * @param model    — nombre de la clase Lucid (p.ej. `'Person'`).
-   * @param column   — propiedad camelCase del campo (p.ej. `'personCurp'`).
-   * @param recordId — PK del registro.
-   * @param buScope  — lista de `businessUnitId` accesibles por el usuario.
-   * @param logCtx   — contexto de red para el log de auditoría.
-   * @returns        — `{ value }` si el registro existe y el usuario tiene acceso,
-   *                   `null` si el campo no está en el catálogo o el registro no
-   *                   pertenece al scope del usuario.
-   * @throws         — cualquier error de BD se propaga (fail-closed).
-   */
   async reveal(
     model: string,
     column: string,
@@ -78,6 +67,8 @@ export default class PiiRevealService {
           model,
           modelColumn: column,
           recordId,
+          subjectEmployeeId: resolved.subjectEmployeeId,
+          originModule: logCtx.originModule ?? null,
           ...logCtx,
         },
         trx
@@ -87,14 +78,16 @@ export default class PiiRevealService {
     return { value: resolved.value }
   }
 
-  // ─── registry privado ──────────────────────────────────────────────────────
+  private readColumn(row: object, column: string): unknown {
+    return (row as Record<string, unknown>)[column]
+  }
 
   private async resolveRecord(
     model: string,
     column: string,
     recordId: number,
     buScope: number[]
-  ): Promise<{ value: unknown; businessUnitId: number } | null> {
+  ): Promise<ResolvedSensitiveRecord | null> {
     switch (model) {
       case 'Person':
         return this.resolvePerson(column, recordId, buScope)
@@ -102,6 +95,18 @@ export default class PiiRevealService {
         return this.resolveEmployeeBank(column, recordId, buScope)
       case 'EmployeeMedicalCondition':
         return this.resolveEmployeeMedicalCondition(column, recordId, buScope)
+      case 'WorkDisabilityNote':
+        return this.resolveWorkDisabilityNote(column, recordId, buScope)
+      case 'TraumaticEventReport':
+        return this.resolveTraumaticEventReport(column, recordId, buScope)
+      case 'EmployeeLactationPeriod':
+        return this.resolveEmployeeLactationPeriod(column, recordId, buScope)
+      case 'EmployeeEmergencyContact':
+        return this.resolveEmployeeEmergencyContact(column, recordId, buScope)
+      case 'EmployeeSpouse':
+        return this.resolveEmployeeSpouse(column, recordId, buScope)
+      case 'EmpresaContratante':
+        return this.resolveEmpresaContratante(column, recordId, buScope)
       default:
         return null
     }
@@ -111,18 +116,18 @@ export default class PiiRevealService {
     column: string,
     recordId: number,
     buScope: number[]
-  ): Promise<{ value: unknown; businessUnitId: number } | null> {
+  ): Promise<ResolvedSensitiveRecord | null> {
     const person = await Person.query()
       .where('personId', recordId)
-      .whereHas('employee', (q) => q.whereIn('businessUnitId', buScope))
-      .preload('employee')
+      .preload('employee', (q) => q.whereIn('businessUnitId', buScope))
       .first()
 
-    if (!person || !person.employee) return null
+    if (!person?.employee) return null
 
     return {
-      value: (person as unknown as Record<string, unknown>)[column],
+      value: this.readColumn(person, column),
       businessUnitId: person.employee.businessUnitId,
+      subjectEmployeeId: person.employee.employeeId,
     }
   }
 
@@ -130,14 +135,17 @@ export default class PiiRevealService {
     column: string,
     recordId: number,
     buScope: number[]
-  ): Promise<{ value: unknown; businessUnitId: number } | null> {
+  ): Promise<ResolvedSensitiveRecord | null> {
     const scopeRow = await db
       .from('employee_banks')
       .join('employees', 'employees.employee_id', 'employee_banks.employee_id')
       .whereIn('employees.business_unit_id', buScope)
       .where('employee_banks.employee_bank_id', recordId)
       .whereNull('employee_banks.employee_bank_deleted_at')
-      .select('employees.business_unit_id as businessUnitId')
+      .select(
+        'employees.business_unit_id as businessUnitId',
+        'employees.employee_id as employeeId'
+      )
       .first()
 
     if (!scopeRow) return null
@@ -146,8 +154,9 @@ export default class PiiRevealService {
     if (!bank) return null
 
     return {
-      value: (bank as unknown as Record<string, unknown>)[column],
-      businessUnitId: scopeRow.businessUnitId,
+      value: this.readColumn(bank, column),
+      businessUnitId: Number(scopeRow.businessUnitId),
+      subjectEmployeeId: Number(scopeRow.employeeId),
     }
   }
 
@@ -155,18 +164,140 @@ export default class PiiRevealService {
     column: string,
     recordId: number,
     buScope: number[]
-  ): Promise<{ value: unknown; businessUnitId: number } | null> {
+  ): Promise<ResolvedSensitiveRecord | null> {
     const condition = await EmployeeMedicalCondition.query()
       .where('employeeMedicalConditionId', recordId)
       .whereHas('employee', (q) => q.whereIn('businessUnitId', buScope))
       .preload('employee')
       .first()
 
-    if (!condition || !condition.employee) return null
+    if (!condition?.employee) return null
 
     return {
-      value: (condition as unknown as Record<string, unknown>)[column],
+      value: this.readColumn(condition, column),
       businessUnitId: condition.employee.businessUnitId,
+      subjectEmployeeId: condition.employee.employeeId,
+    }
+  }
+
+  private async resolveWorkDisabilityNote(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const note = await WorkDisabilityNote.query()
+      .where('workDisabilityNoteId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .first()
+
+    if (!note) return null
+
+    const disability = await WorkDisability.query()
+      .where('workDisabilityId', note.workDisabilityId)
+      .whereIn('businessUnitId', buScope)
+      .first()
+
+    if (!disability) return null
+
+    return {
+      value: this.readColumn(note, column),
+      businessUnitId: note.businessUnitId,
+      subjectEmployeeId: disability.employeeId,
+    }
+  }
+
+  private async resolveTraumaticEventReport(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const report = await TraumaticEventReport.query()
+      .where('traumaticEventReportId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .first()
+
+    if (!report) return null
+
+    return {
+      value: this.readColumn(report, column),
+      businessUnitId: report.businessUnitId,
+      subjectEmployeeId: report.employeeId,
+    }
+  }
+
+  private async resolveEmployeeLactationPeriod(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const period = await EmployeeLactationPeriod.query()
+      .where('employeeLactationPeriodId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .first()
+
+    if (!period) return null
+
+    return {
+      value: this.readColumn(period, column),
+      businessUnitId: period.businessUnitId,
+      subjectEmployeeId: period.employeeId,
+    }
+  }
+
+  private async resolveEmployeeEmergencyContact(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const contact = await EmployeeEmergencyContact.query()
+      .where('employeeEmergencyContactId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .first()
+
+    if (!contact) return null
+
+    return {
+      value: this.readColumn(contact, column),
+      businessUnitId: contact.businessUnitId,
+      subjectEmployeeId: contact.employeeId,
+    }
+  }
+
+  private async resolveEmployeeSpouse(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const spouse = await EmployeeSpouse.query()
+      .where('employeeSpouseId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .first()
+
+    if (!spouse) return null
+
+    return {
+      value: this.readColumn(spouse, column),
+      businessUnitId: spouse.businessUnitId,
+      subjectEmployeeId: spouse.employeeId,
+    }
+  }
+
+  private async resolveEmpresaContratante(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const empresa = await EmpresaContratante.query()
+      .where('empresaContratanteId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .first()
+
+    if (!empresa) return null
+
+    return {
+      value: this.readColumn(empresa, column),
+      businessUnitId: empresa.businessUnitId,
+      subjectEmployeeId: null,
     }
   }
 }

@@ -1,14 +1,22 @@
 import { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import AttendanceStatsService from './attendance-stats.service.js'
 import { getAttendanceStatsValidator } from './validators/get-attendance-stats.validator.js'
-import { getAttendanceCoverageValidator } from './validators/get-attendance-coverage.validator.js'
-import type { AttendanceStatsFilters, ResolvedScope } from './dto/attendance-stats.dto.js'
+import {
+  getAttendanceAbsencesValidator,
+  splitBranchOfficeIdsQuery,
+} from './validators/get-attendance-absences.validator.js'
+import type {
+  AbsencesFilters,
+  AttendanceStatsFilters,
+  ResolvedScope,
+} from './dto/attendance-stats.dto.js'
 
 /**
  * Controller del módulo attendance-stats.
  *
- * Expone 3 endpoints de agregación de asistencias para reemplazar el patrón
- * actual de N requests al calendar individual desde el frontend.
+ * Expone los endpoints de agregación de asistencias que reemplazan el patrón
+ * de N requests al calendar individual desde el frontend.
  */
 export default class AttendanceStatsController {
 
@@ -22,7 +30,9 @@ export default class AttendanceStatsController {
    *
    *       Incluye además `daily`: un arreglo con las mismas estadísticas desglosadas por cada día del rango `[startDay, endDay]` inclusive, ordenado ascendente. Los días sin registros evaluables aparecen con `totalAvailable: 0`.
    *
-   *       **Huso horario**: `startDay`/`endDay` se interpretan como días laborales en huso México (UTC-6). El servidor no acepta `Timezone` header; el cliente es responsable de enviar la fecha mexicana correcta (no la fecha local del cliente si está fuera de México).
+   *       **Serie mensual** (modo anual del monitor): con `granularity=month` agrega `monthly`, un arreglo `{ month: 'yyyy-MM', statistics }` con una entrada por cada mes calendario entre `startDay` y `endDay` inclusive, ordenado ascendente. Cada mes suma los contadores de sus días con el mismo cierre al 100% que `statistics`; `employeesQty` cuenta los empleados con al menos un día evaluable en ese mes. Los meses sin registros aparecen en cero. Con `granularity=day`, vacío (`granularity=`) o sin el parámetro la respuesta no trae `monthly`; `statistics` y `daily` no cambian en ningún caso.
+   *
+   *       **Huso horario**: `startDay`/`endDay` son días civiles del sitio de cada colaborador (zona IANA de su sucursal, o de la empresa). El servidor no acepta `Timezone` header; el cliente envía la fecha civil del sitio, no la local del observador.
    *     security:
    *       - bearerAuth: []
    *     tags: [AttendanceStats]
@@ -50,6 +60,11 @@ export default class AttendanceStatsController {
    *       - name: branchOfficeIds
    *         in: query
    *         schema: { type: string, example: "5,7" }
+   *       - name: granularity
+   *         in: query
+   *         required: false
+   *         description: Serie adicional. `day` (default) solo trae `daily`; `month` agrega `monthly`. Vacío equivale a omitirlo; cualquier otro valor responde 400. Solo aplica a overview.
+   *         schema: { type: string, enum: [day, month], default: day }
    *     responses:
    *       200: { description: OK }
    *       400: { description: Validation error }
@@ -69,7 +84,7 @@ export default class AttendanceStatsController {
    *     description: |
    *       Array con un objeto por departamento (clean counters + informational + porcentajes).
    *
-   *       **Huso horario**: `startDay`/`endDay` se interpretan como días laborales en huso México (UTC-6). El servidor no acepta `Timezone` header.
+   *       **Huso horario**: `startDay`/`endDay` son días civiles del sitio de cada colaborador (zona IANA de su sucursal, o de la empresa). El servidor no acepta `Timezone` header.
    *     security: [{ bearerAuth: [] }]
    *     tags: [AttendanceStats]
    *     parameters:
@@ -99,7 +114,7 @@ export default class AttendanceStatsController {
    *     description: |
    *       Array con un objeto por empleado (clean counters + informational + porcentajes). No incluye el calendar individual — para detalle día por día usar /api/v1/employee-assist-calendars.
    *
-   *       **Huso horario**: `startDay`/`endDay` se interpretan como días laborales en huso México (UTC-6). El servidor no acepta `Timezone` header.
+   *       **Huso horario**: `startDay`/`endDay` son días civiles del sitio de cada colaborador (zona IANA de su sucursal, o de la empresa). El servidor no acepta `Timezone` header.
    *     security: [{ bearerAuth: [] }]
    *     tags: [AttendanceStats]
    *     parameters:
@@ -123,12 +138,41 @@ export default class AttendanceStatsController {
 
   /**
    * @swagger
-   * /api/v1/attendance-stats/coverage:
+   * /api/v1/attendance-stats/absences:
    *   get:
-   *     summary: Cobertura de plantilla por sitio y turno
+   *     summary: Ausencias por día con sucursal efectiva y empresa contratante
    *     description: |
-   *       Compara presentes contra cuota por sitio de servicio y turno del día.
-   *       Requiere día único (startDay igual a endDay) y companyId.
+   *       Motor único del drawer de Ausencias del monitor: quién faltó cada día del periodo
+   *       `[startDay, endDay]` inclusive (máximo 62 días) y en qué sucursal efectiva. El cliente agrupa
+   *       las mismas entradas en Organigrama (por departamento), Sucursales (sucursal sin empresa
+   *       contratante o sin sucursal) y Clientes REPSE (sucursal con empresa contratante).
+   *
+   *       Un colaborador faltó el día D cuando D es evaluable (no es futuro, descanso, vacaciones,
+   *       festivo, incapacidad ni excepción no general) y el día cuenta exactamente una falta. La
+   *       sucursal efectiva es el destino del préstamo temporal vigente ese día (no borrado, sin
+   *       cancelar a esa fecha, origen y destino del tenant; con varios gana el de inicio más reciente
+   *       y, empatando, el de id mayor) o, sin préstamo, la sucursal base activa HOY (con varias, la de
+   *       id menor); `null` si no tiene ninguna. Para periodos pasados no se reconstruye la asignación
+   *       histórica.
+   *
+   *       Universo: la plantilla del tenant (no borrados, sin discriminador de asistencia). Con
+   *       `branchOfficeIds`, solo quien tiene base activa en esas sucursales o un préstamo hacia ellas
+   *       en el periodo; sus faltas salen con la sucursal efectiva de cada día aunque sea otra.
+   *
+   *       Sin permiso propio (paridad con el drawer): nunca responde 403 por permiso. Días, empleados
+   *       y sucursales solo incluyen colaboradores que el usuario puede ver con la regla del listado
+   *       de empleados.
+   *
+   *       `days` trae todos los días del periodo (con `entries` vacío si nadie faltó); `entries` va
+   *       ordenado por nombre completo y, empatando, por id. `employees` lista una vez a cada
+   *       colaborador de `days`, con alias de puesto y departamento cuando existe. `branches` solo
+   *       trae las sucursales referenciadas; la empresa contratante solo si está viva y es del tenant.
+   *
+   *       La empresa contratante exige además el permiso `shift-coverage` del módulo
+   *       `employees-attendance-monitor` (root y owner pasan). Sin él, `empresaContratanteId` y
+   *       `empresaContratanteName` van en `null` en todas las sucursales, con la misma forma de `data`.
+   *
+   *       Los errores traen `title`, `detail` y `key`.
    *     security:
    *       - bearerAuth: []
    *     tags: [AttendanceStats]
@@ -136,118 +180,106 @@ export default class AttendanceStatsController {
    *       - name: X-Business-Unit-Id
    *         in: header
    *         required: true
-   *         schema: { type: integer, example: 1 }
+   *         description: Código público (UUID v4) de la unidad de negocio activa.
+   *         schema: { type: string, format: uuid }
    *       - name: startDay
    *         in: query
    *         required: true
-   *         schema: { type: string, format: date, example: "2026-06-14" }
+   *         schema: { type: string, format: date, example: "2026-09-01" }
    *       - name: endDay
    *         in: query
    *         required: true
-   *         schema: { type: string, format: date, example: "2026-06-14" }
-   *       - name: companyId
-   *         in: query
-   *         required: true
-   *         description: ID de empresa contratante.
-   *         schema: { type: integer, minimum: 1, example: 1 }
+   *         schema: { type: string, format: date, example: "2026-09-15" }
    *       - name: branchOfficeIds
    *         in: query
-   *         schema: { type: string, example: "1,2" }
-   *       - name: employeeIds
-   *         in: query
-   *         schema: { type: string, example: "1,2" }
-   *       - name: businessUnitId
+   *         description: CSV de IDs de sucursales que acotan el universo. Cada pieza debe ser un entero decimal sin signo ni ceros a la izquierda (1 a Number.MAX_SAFE_INTEGER); notaciones como 0x10, 1e3 o 5.0 responden 400 entrada-invalida con details, nunca se ignoran.
+   *         schema: { type: string, example: "5,7" }
+   *       - name: payrollBusinessUnitId
    *         in: query
    *         schema: { type: integer }
    *     responses:
    *       '200':
-   *         description: Cobertura calculada correctamente
+   *         description: Ausencias calculadas correctamente
    *         content:
    *           application/json:
    *             schema:
-   *               $ref: '#/components/schemas/AttendanceCoverageSuccess'
+   *               $ref: '#/components/schemas/AttendanceAbsencesSuccess'
    *       '400':
-   *         description: Entrada inválida o día único requerido
+   *         description: Entrada inválida (entrada-invalida, con details por campo; incluye fecha inexistente y branchOfficeIds inválido), rango inválido (rango-invalido) o de más de 62 días (rango-maximo-excedido)
    *         content:
    *           application/json:
    *             schema:
-   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
+   *               $ref: '#/components/schemas/ApiError'
    *       '401':
    *         description: No autenticado
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
    *       '403':
-   *         description: Scope insuficiente
+   *         description: Scope insuficiente (scope-insuficiente)
    *         content:
    *           application/json:
    *             schema:
-   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
-   *       '404':
-   *         description: Empresa contratante no encontrada
-   *         content:
-   *           application/json:
-   *             schema:
-   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
+   *               $ref: '#/components/schemas/ApiError'
    *       '500':
    *         description: Error interno del servidor
    *         content:
    *           application/json:
    *             schema:
-   *               $ref: '#/components/schemas/AttendanceCoverageApiError'
+   *               $ref: '#/components/schemas/ApiError'
    */
-  async coverage(ctx: HttpContext) {
-    const { request, response, i18n, businessUnitScope } = ctx
+  async absences(ctx: HttpContext) {
+    const { request, response, i18n, businessUnitScope, auth } = ctx
     const t = i18n.formatMessage.bind(i18n)
 
     try {
+      const user = auth.getUserOrFail()
       const raw = {
         startDay: request.input('startDay'),
         endDay: request.input('endDay'),
-        companyId: this.parseId(request.input('companyId')),
-        departmentIds: this.parseIdList(request.input('departmentIds')),
-        employeeIds: this.parseIdList(request.input('employeeIds')),
-        businessUnitId: this.parseId(request.input('businessUnitId')),
+        // Sin parseIdList: un id inválido responde 400 en vez de quitar el filtro de sucursales.
+        branchOfficeIds: splitBranchOfficeIdsQuery(request.input('branchOfficeIds')),
         payrollBusinessUnitId: this.parseId(request.input('payrollBusinessUnitId')),
-        branchOfficeIds: this.parseIdList(
-          request.input('branchOfficeIds') ?? request.input('branchNameIds')
-        ),
       }
 
-      let validated
+      let filters: AbsencesFilters
       try {
-        validated = await getAttendanceCoverageValidator.validate(raw)
+        filters = await getAttendanceAbsencesValidator.validate(raw)
       } catch (e: unknown) {
         const messages = (e as { messages?: unknown })?.messages
         return response.status(400).json({
           type: 'error',
           title: t('validation_error'),
           message: t('attendance_stats_invalid_input'),
+          detail: t('attendance_stats_invalid_input'),
           key: 'entrada-invalida',
           details: messages,
         })
       }
 
-      const filters = validated
       const service = new AttendanceStatsService(i18n)
       const scope: ResolvedScope = { allowedBusinessUnitIds: businessUnitScope }
-      const result = await service.getCoverage(filters, scope)
+      const result = await service.getAbsences(filters, scope, {
+        userId: user.userId,
+        roleId: user.roleId,
+      })
+      const isError = result.status >= 400
 
       return response.status(result.status).json({
         type: result.type,
         title: result.title,
         message: result.message,
+        // Los errores de este endpoint llevan title/detail/key; message se conserva por el envoltorio del módulo.
+        ...(isError ? { detail: result.message } : {}),
         key: result.key,
         data: result.data,
       })
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error)
+      // El detalle va al log, nunca a la respuesta: puede traer SQL o rutas internas.
+      logger.error({ err: error }, 'attendance-stats: error inesperado al calcular las ausencias por día')
       return response.status(500).json({
         type: 'error',
         title: t('server_error'),
         message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: message,
+        detail: t('an_unexpected_error_has_occurred_on_the_server'),
+        key: 'error-inesperado',
       })
     }
   }
@@ -274,6 +306,8 @@ export default class AttendanceStatsController {
         branchOfficeIds: this.parseIdList(
           request.input('branchOfficeIds') ?? request.input('branchNameIds')
         ),
+        // Solo overview lee granularity; en los otros dos se ignora. El vacío equivale a omitirlo.
+        ...(op === 'overview' ? { granularity: request.input('granularity') || undefined } : {}),
       }
 
       let validated
@@ -319,12 +353,11 @@ export default class AttendanceStatsController {
         data: result.data,
       })
     } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : String(error)
+      logger.error({ err: error, op }, 'attendance-stats: error inesperado al calcular estadísticas')
       return response.status(500).json({
         type: 'error',
         title: t('server_error'),
         message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: message,
       })
     }
   }

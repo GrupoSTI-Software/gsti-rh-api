@@ -1077,8 +1077,10 @@ export default class EmployeeBiometricFaceIdController {
       }
 
       // Los DOS permisos antes de leer nada: el gate del router solo cubre la
-      // escritura de la foto y ademas pasa por `evaluate`, que concede mientras
-      // el modulo `employees` tenga la exigencia apagada.
+      // escritura de la foto y ademas pasa por `evaluate`, que concederia a
+      // cualquier autenticado si alguien apagara la exigencia de `employees` en
+      // BD —hoy encendida—. El dato es biometrico y no puede colgar de ese
+      // interruptor, asi que aqui se resuelve con `evaluateEnforced`.
       const permitido = await ensureBiometricFaceToPhotoCopy(
         ctx,
         EMPLOYEES_READ_PERMISSION_DECLARATIONS.getBiometricFaceId,

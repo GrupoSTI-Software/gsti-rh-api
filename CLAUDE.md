@@ -1,20 +1,32 @@
 # Reglas del proyecto — valanserh-api
 
+Las reglas viven UNA sola vez, en `.claude/rules/`. Este archivo solo las importa, y
+`.cursor/rules/*.mdc` apunta a los mismos archivos: nada se copia entre formatos.
+
 @.claude/rules/design-principles.md
+@.claude/rules/catalogo-modulos-permisos.md
+@.claude/rules/migraciones-lucid.md
+@.claude/rules/higiene-repo.md
+@.claude/rules/idioma.md
+@.cursorrules
 
-## Migraciones (AdonisJS Lucid)
+## La que más se rompe, primero
 
-- NUNCA usar `await` con `this.schema` dentro de `up()`/`down()`: el getter `schema` registra cada builder y Lucid los ejecuta de forma diferida al terminar el método; como los builders de Knex son thenables, el `await` manual provoca que el SQL se ejecute DOS VECES.
-- Síntoma de la doble ejecución: los `ALTER MODIFY` pasan en silencio (idempotentes), pero los `ADD COLUMN` fallan con "Duplicate column name" y dejan columnas huérfanas (creadas en BD pero sin registro en `adonis_schema`).
-- Correcto: `this.schema.alterTable(...)` / `this.schema.raw(...)` sin `await`. El orden entre varias llamadas se respeta (se ejecutan en secuencia al terminar `up()`).
-- Incorrecto: `await this.schema.alterTable(...)`
-- Si al migrar aparece "Duplicate column name", sospechar de columna huérfana: comparar `SHOW COLUMNS` contra `adonis_schema`; si la columna coincide con lo que crearía la migración, registrarla manualmente con `INSERT` en `adonis_schema` en lugar de eliminarla.
+El catálogo de módulos, grupos y permisos tiene **una sola fuente**:
+`app/constants/system_modules_menu/system_modules.constant.ts`.
 
-## node_modules — intocable para agentes
+No se crean archivos nuevos que enumeren módulos o permisos, no se siembra catálogo desde
+migraciones, no se escriben ids ni slugs a mano. Lee `.claude/rules/catalogo-modulos-permisos.md`
+ANTES de tocar `app/constants/`, `database/seeders/`, `database/migrations/` o `start/routes/`.
 
-Los agentes (Claude Code, Cursor o cualquier asistente de IA) no deben ni pueden modificar, crear ni renombrar archivos dentro de `node_modules/` ni de ningún directorio de dependencias instaladas.
+## Verificación que no es negociable
 
-- `node_modules/` es artefacto de instalación: se regenera con el package manager y cualquier edición manual se pierde en el siguiente install, creando divergencia silenciosa entre entornos.
-- Un fix a una dependencia va por `package.json` (cambio de versión, `overrides`) o `patch-package` — nunca editando el paquete instalado.
-- Sobre `node_modules/` solo se permite lectura (inspeccionar código de dependencias) y regeneración completa vía el package manager (`npm install`, `npm ci`).
-- Única excepción: invalidar caches de build (`node_modules/.cache` y similares) cuando el usuario lo autorice explícitamente en la sesión.
+```
+node ace test unit --files="constants/"
+```
+
+Corre en `pre-push` y en el workflow `catalogo-modulos-permisos` de GitHub Actions. Si tu cambio
+lo truena, el cambio está mal — no el test.
+
+La suite `unit` completa NO pasa sin la BD `sae_pruebas` levantada; por eso el guardrail está
+acotado a `constants/`, que no toca base de datos.

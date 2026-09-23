@@ -1,4 +1,7 @@
 import SystemSetting from '#models/system_setting'
+import BusinessUnit from '#models/business_unit'
+import type { I18n } from '@adonisjs/i18n'
+import { isValidTimeZone } from '#modules/attendance-time/attendance_clock'
 import SystemSettingPayrollConfig from '#models/system_setting_payroll_config'
 import { DateTime } from 'luxon'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
@@ -9,6 +12,9 @@ import {
   tenantDefaultContent,
 } from '../constants/system_setting_defaults.js'
 import type { TenantProvisioningTargetInterface } from '../interfaces/tenant_provisioning_target_interface.js'
+import Tolerance from '#models/tolerance'
+import { TENANT_TOLERANCE_DEFAULTS } from '#constants/system_setting_defaults'
+import { TenantContext } from '#utils/tenant_context'
 
 export default class SystemSettingService {
   /**
@@ -72,7 +78,6 @@ export default class SystemSettingService {
     target.systemSettingBanner = source.systemSettingBanner
     target.systemSettingFavicon = source.systemSettingFavicon
     target.systemSettingActive = source.systemSettingActive
-    target.systemSettingBusinessUnits = source.systemSettingBusinessUnits
     target.systemSettingToleranceCountPerAbsence = source.systemSettingToleranceCountPerAbsence
     target.systemSettingRestrictFutureVacation = source.systemSettingRestrictFutureVacation
     target.systemSettingMaxAbsencesBeforeAttendanceLock = source.systemSettingMaxAbsencesBeforeAttendanceLock
@@ -106,7 +111,6 @@ export default class SystemSettingService {
     currentSystemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock
     currentSystemSetting.systemSettingMonthlyConversionFactor =
       systemSetting.systemSettingMonthlyConversionFactor ?? currentSystemSetting.systemSettingMonthlyConversionFactor
-    currentSystemSetting.systemSettingBusinessUnits = systemSetting.systemSettingBusinessUnits
     await currentSystemSetting.save()
     return currentSystemSetting
   }
@@ -126,29 +130,31 @@ export default class SystemSettingService {
     return systemSetting ? systemSetting : null
   }
 
-  async getActive(allowedBusinessUnitSlugs: string[] = []) {
-    if (allowedBusinessUnitSlugs.length === 0) {
-      const baseSystemSetting = await SystemSetting.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_active', 1)
-        .whereNull('business_unit_id')
-        .preload('systemSettingTolerances')
-        .first()
-      return baseSystemSetting ?? null
+  /**
+   * Configuración de la EMPRESA ACTIVA de la petición.
+   *
+   * Es lo que necesita casi todo el runtime: el motor de asistencia, la marca de
+   * los reportes y las tolerancias. Antes esos consumidores llamaban a
+   * `getActive()`, que devuelve la fila de plataforma, así que un cliente veía
+   * los valores de otro —o los de nadie—.
+   *
+   * Devuelve `null` cuando no hay una empresa activa identificada (procesos
+   * batch, rutas sin `businessScope`) o cuando esa empresa aún no tiene
+   * configuración. Quien llama decide su default; nunca se cae a la fila de otra
+   * empresa.
+   */
+  async resolveForActiveTenant(): Promise<SystemSetting | null> {
+    const scope = TenantContext.getScope()
+
+    if (scope.length !== 1) {
+      return null
     }
 
-    const slugs = allowedBusinessUnitSlugs
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_active', 1)
+      .where('business_unit_id', scope[0])
       .preload('systemSettingTolerances')
-      .andWhere((query) => {
-        query.andWhere((subQuery) => {
-          slugs.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, system_setting_business_units)', [business.trim()])
-          })
-        })
-      })
       .first()
 
     return systemSetting ?? null
@@ -311,6 +317,80 @@ export default class SystemSettingService {
     }
   }
 
+  /**
+   * Cambia la zona horaria del sitio de la empresa dueña de la configuración.
+   *
+   * La zona se guarda en `business_units.business_unit_timezone` porque la
+   * consumen la asistencia y el canal ADMS; la configuración solo es la puerta
+   * de entrada (Reglas de operación) y el corte de alcance. Una zona que Luxon
+   * no reconoce se rechaza: guardada, movería la hora de toda la plantilla.
+   */
+  async updateSiteTimezone(
+    systemSettingId: number,
+    businessUnitTimezone: string,
+    businessUnitScope: number[],
+    i18n: I18n
+  ) {
+    const systemSetting = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
+      .first()
+
+    if (!systemSetting) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'System setting not found',
+        message: 'The system setting was not found with the entered ID',
+        key: 'configuracion-no-encontrada',
+        data: { systemSettingId },
+      }
+    }
+
+    const zone = businessUnitTimezone.trim()
+    if (!isValidTimeZone(zone)) {
+      return {
+        status: 400,
+        type: 'error',
+        title: i18n.formatMessage('system_setting_timezone_invalid_title'),
+        message: i18n.formatMessage('system_setting_timezone_invalid_detail'),
+        key: 'zona-horaria-invalida',
+        data: { businessUnitTimezone },
+      }
+    }
+
+    const businessUnit = systemSetting.businessUnitId
+      ? await BusinessUnit.query()
+          .where('business_unit_id', systemSetting.businessUnitId)
+          .whereIn('business_unit_id', businessUnitScope)
+          .first()
+      : null
+
+    if (!businessUnit) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'Business unit not found',
+        message: 'The business unit of the system setting was not found',
+        key: 'empresa-no-encontrada',
+        data: { systemSettingId },
+      }
+    }
+
+    businessUnit.businessUnitTimezone = zone
+    await businessUnit.save()
+
+    return {
+      status: 200,
+      type: 'success',
+      title: i18n.formatMessage('resources'),
+      message: i18n.formatMessage('resources_were_found_successfully'),
+      key: undefined,
+      data: { businessUnitTimezone: zone },
+    }
+  }
+
   async updateBirthdayEmailsStatus(
     systemSettingId: number,
     birthdayEmailsEnabled: boolean,
@@ -446,7 +526,7 @@ export default class SystemSettingService {
     target: TenantProvisioningTargetInterface,
     trx: TransactionClientContract
   ): Promise<SystemSetting> {
-    const { businessUnitId, businessUnitSlug, businessUnitName } = target
+    const { businessUnitId, businessUnitName } = target
     const content = tenantDefaultContent(businessUnitName)
 
     const existing = await SystemSetting.query({ client: trx })
@@ -462,19 +542,59 @@ export default class SystemSettingService {
 
       existing.useTransaction(trx)
       Object.assign(existing, content)
-      existing.systemSettingBusinessUnits = businessUnitSlug
       // `restore()` limpia `deletedAt` y persiste en una sola escritura
       // (incluye el contenido recién asignado, ya marcado como dirty).
       await existing.restore()
+      await this.seedTenantTolerances(existing.systemSettingId, trx)
       return existing
     }
 
     const created = new SystemSetting()
     Object.assign(created, content)
     created.businessUnitId = businessUnitId
-    created.systemSettingBusinessUnits = businessUnitSlug
     created.useTransaction(trx)
     await created.save()
+    await this.seedTenantTolerances(created.systemSettingId, trx)
+
     return created
+  }
+
+  /**
+   * Tolerancias de asistencia propias de la empresa.
+   *
+   * Antes no se sembraban: las tres filas (`Delay`, `Fault`,
+   * `TardinessTolerance`) colgaban del registro base de plataforma y el motor de
+   * asistencia las leía de ahí para TODOS los clientes. Una empresa que ajustaba
+   * su tolerancia desde el backoffice creaba las suyas, pero el motor seguía
+   * mirando las globales. Ahora nacen con la empresa.
+   *
+   * Idempotente por el par (configuración, nombre): reejecutar no duplica ni
+   * pisa el valor que el cliente haya ajustado.
+   */
+  private async seedTenantTolerances(
+    systemSettingId: number,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    const existing = await Tolerance.query({ client: trx })
+      .where('system_setting_id', systemSettingId)
+      .select('tolerance_name')
+
+    const present = new Set(existing.map((tolerance) => tolerance.toleranceName))
+    const missing = TENANT_TOLERANCE_DEFAULTS.filter(
+      (tolerance) => !present.has(tolerance.toleranceName)
+    )
+
+    if (missing.length === 0) {
+      return
+    }
+
+    await Tolerance.createMany(
+      missing.map((tolerance) => ({
+        toleranceName: tolerance.toleranceName,
+        toleranceMinutes: tolerance.toleranceMinutes,
+        systemSettingId,
+      })),
+      { client: trx }
+    )
   }
 }

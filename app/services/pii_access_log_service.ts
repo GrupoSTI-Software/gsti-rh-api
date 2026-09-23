@@ -83,8 +83,26 @@ export default class PiiAccessLogService {
       log.piiAccessLogAccessorIp = input.accessorIp
       log.piiAccessLogAccessorUserAgent = input.accessorUserAgent ?? null
       log.piiAccessLogRequestId = input.requestId ?? null
+      log.piiAccessLogOriginModule = input.originModule?.trim() || null
       log.useTransaction(client)
       await log.save()
+
+      const subjectEmployeeId = input.subjectEmployeeId
+      if (
+        subjectEmployeeId !== undefined &&
+        subjectEmployeeId !== null &&
+        Number.isInteger(subjectEmployeeId) &&
+        subjectEmployeeId > 0
+      ) {
+        await PiiAccessLogSubject.create(
+          {
+            piiAccessLogId: log.piiAccessLogId,
+            employeeId: subjectEmployeeId,
+          },
+          { client }
+        )
+      }
+
       return log
     }
 
@@ -435,7 +453,16 @@ export default class PiiAccessLogService {
         .orWhere((revealCase) => {
           revealCase.whereNull('pii_access_log_export_key').where((modelMatch) => {
             modelMatch
-              .where((personCase) => {
+              .whereExists((subquery) => {
+                subquery
+                  .from('pii_access_log_subjects')
+                  .whereRaw(
+                    'pii_access_log_subjects.pii_access_log_id = pii_access_logs.pii_access_log_id'
+                  )
+                  .where('pii_access_log_subjects.employee_id', employeeId)
+                  .whereNull('pii_access_log_subjects.pii_access_log_subject_deleted_at')
+              })
+              .orWhere((personCase) => {
                 personCase
                   .where('pii_access_log_model', 'Person')
                   .whereExists((subquery) => {
@@ -488,13 +515,45 @@ export default class PiiAccessLogService {
     const result = new Map<number, PiiAccessLogSubjectRefInterface>()
     if (revealRows.length === 0) return result
 
-    const personRecordIds = revealRows
+    const logIds = revealRows.map((row) => row.piiAccessLogId)
+    const subjectRows = await db
+      .from('pii_access_log_subjects')
+      .join('employees', 'employees.employee_id', 'pii_access_log_subjects.employee_id')
+      .whereIn('pii_access_log_subjects.pii_access_log_id', logIds)
+      .whereNull('pii_access_log_subjects.pii_access_log_subject_deleted_at')
+      .whereNull('employees.employee_deleted_at')
+      .select(
+        'pii_access_log_subjects.pii_access_log_id as piiAccessLogId',
+        'employees.employee_id as employeeId',
+        'employees.employee_first_name as employeeFirstName',
+        'employees.employee_last_name as employeeLastName',
+        'employees.employee_second_last_name as employeeSecondLastName'
+      )
+
+    const resolvedLogIds = new Set<number>()
+    for (const row of subjectRows) {
+      const logId = Number(row.piiAccessLogId)
+      result.set(logId, {
+        employeeId: Number(row.employeeId),
+        displayName: this.formatEmployeeDisplayName({
+          employeeFirstName: String(row.employeeFirstName ?? ''),
+          employeeLastName: String(row.employeeLastName ?? ''),
+          employeeSecondLastName: String(row.employeeSecondLastName ?? ''),
+        }),
+      })
+      resolvedLogIds.add(logId)
+    }
+
+    const unresolvedRows = revealRows.filter((row) => !resolvedLogIds.has(row.piiAccessLogId))
+    if (unresolvedRows.length === 0) return result
+
+    const personRecordIds = unresolvedRows
       .filter((row) => row.piiAccessLogModel === 'Person')
       .map((row) => row.piiAccessLogRecordId!)
-    const bankRecordIds = revealRows
+    const bankRecordIds = unresolvedRows
       .filter((row) => row.piiAccessLogModel === 'EmployeeBank')
       .map((row) => row.piiAccessLogRecordId!)
-    const conditionRecordIds = revealRows
+    const conditionRecordIds = unresolvedRows
       .filter((row) => row.piiAccessLogModel === 'EmployeeMedicalCondition')
       .map((row) => row.piiAccessLogRecordId!)
 
@@ -575,7 +634,7 @@ export default class PiiAccessLogService {
       }
     }
 
-    for (const row of revealRows) {
+    for (const row of unresolvedRows) {
       let subject: PiiAccessLogSubjectRefInterface | undefined
 
       if (row.piiAccessLogModel === 'Person') {

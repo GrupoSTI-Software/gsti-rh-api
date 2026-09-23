@@ -14,6 +14,7 @@ import InsuranceCoverageType from '#models/insurance_coverage_type'
 import EmployeeMedicalCondition from '#models/employee_medical_condition'
 import WorkDisability from '#models/work_disability'
 import { TenantContext } from '#utils/tenant_context'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 
 const TEST_PASSWORD = 'EmployeesSaludLactanciaIncapSoftRollout123!'
 
@@ -79,7 +80,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     roleSlug: `salud-lactancia-incap-${stamp}`,
     roleDescription: 'Rol temporal sin permisos de sección',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   const person = await Person.create({
@@ -111,8 +112,8 @@ async function cleanupActor(actor: TenantActor | null) {
   await BusinessUnit.query().where('business_unit_id', actor.businessUnit.businessUnitId).delete()
 }
 
-async function createSystemActor(roleSlug: string, emailPrefix: string): Promise<SystemActor> {
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', roleSlug).firstOrFail()
+async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): Promise<SystemActor> {
+  const role = await ensureRole(roleSlug)
   const businessUnit = await BusinessUnit.query()
     .whereNull('business_unit_deleted_at')
     .where('business_unit_active', 1)

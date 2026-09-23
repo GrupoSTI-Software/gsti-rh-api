@@ -34,6 +34,8 @@ import { TenantContext } from '#utils/tenant_context'
 import { blindIndex } from '#utils/blind_index'
 import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
 import { normalizeRfc } from '../../../app/shared/validators/rfc.validator.js'
+import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 
 export function countGateLookups(sqls: string[]) {
   const roles = sqls.filter((sql) => /from\s+[`"]?roles[`"]?/i.test(sql)).length
@@ -203,7 +205,7 @@ export async function createActor(emailPrefix: string): Promise<TenantActor> {
     roleSlug: `sens-read-qa-${stamp}`,
     roleDescription: 'Rol temporal de lectura sensible por categoría',
     roleActive: 1,
-    roleBusinessAccess: businessUnit.businessUnitSlug,
+    businessUnitId: businessUnit.businessUnitId,
     roleManagementDays: 10,
   })
   const person = await Person.create({
@@ -237,14 +239,11 @@ export async function cleanupActor(actor: TenantActor | null) {
 }
 
 export async function createSystemActor(
-  roleSlug: string,
+  roleSlug: TestRoleSlug,
   emailPrefix: string,
   businessUnitId: number
 ): Promise<SystemActor> {
-  const role = await Role.query()
-    .whereNull('role_deleted_at')
-    .where('role_slug', roleSlug)
-    .firstOrFail()
+  const role = await ensureRole(roleSlug)
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const email = `${emailPrefix}-${stamp}@gsti-tests.local`
   const person = await Person.create({
@@ -345,6 +344,7 @@ export async function createSensitiveFixture(
   })
   const positionId = Number(positionInsert[0])
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: CLEAR_FIXED.firstname,
@@ -470,41 +470,6 @@ export function loginUserPerson(body: Record<string, unknown>) {
     : {}
 }
 
-export function customerPerson(body: Record<string, unknown>) {
-  const data =
-    body.data && typeof body.data === 'object'
-      ? (body.data as Record<string, unknown>)
-      : {}
-  const customer =
-    data.customer && typeof data.customer === 'object'
-      ? (data.customer as Record<string, unknown>)
-      : {}
-  return customer.person && typeof customer.person === 'object'
-    ? (customer.person as Record<string, unknown>)
-    : {}
-}
-
-export function nestedEmployeePerson(
-  body: Record<string, unknown>,
-  rootKey: 'pilot' | 'flightAttendant'
-) {
-  const data =
-    body.data && typeof body.data === 'object'
-      ? (body.data as Record<string, unknown>)
-      : {}
-  const root =
-    data[rootKey] && typeof data[rootKey] === 'object'
-      ? (data[rootKey] as Record<string, unknown>)
-      : {}
-  const employee =
-    root.employee && typeof root.employee === 'object'
-      ? (root.employee as Record<string, unknown>)
-      : {}
-  return employee.person && typeof employee.person === 'object'
-    ? (employee.person as Record<string, unknown>)
-    : {}
-}
-
 export function nestedBanks(body: Record<string, unknown>): Record<string, unknown>[] {
   const data =
     body.data && typeof body.data === 'object'
@@ -547,11 +512,11 @@ export function expectPersonContactoClear(person: Record<string, unknown>, clear
 }
 
 export function expectPersonContactoMasked(person: Record<string, unknown>, clear: ClearPii, assert: Assert) {
-  assert.equal(person.personEmail, maskSensitiveValue(clear.email, 'contacto'))
-  assert.equal(person.personPhone, maskSensitiveValue(clear.phone, 'contacto'))
+  assert.equal(person.personEmail, maskSensitiveValue(clear.email))
+  assert.equal(person.personPhone, maskSensitiveValue(clear.phone))
   assert.equal(
     person.personPhoneSecondary,
-    maskSensitiveValue(clear.phoneSecondary, 'contacto')
+    maskSensitiveValue(clear.phoneSecondary)
   )
 }
 
@@ -570,9 +535,9 @@ export function expectPersonIdentificacionMasked(
   clear: ClearPii,
   assert: Assert
 ) {
-  assert.equal(person.personCurp, maskSensitiveValue(clear.curp, 'identificacion'))
-  assert.equal(person.personRfc, maskSensitiveValue(clear.rfc, 'identificacion'))
-  assert.equal(person.personImssNss, maskSensitiveValue(clear.nss, 'identificacion'))
+  assert.equal(person.personCurp, maskSensitiveValue(clear.curp))
+  assert.equal(person.personRfc, maskSensitiveValue(clear.rfc))
+  assert.equal(person.personImssNss, maskSensitiveValue(clear.nss))
 }
 
 export function expectBankClear(bank: Record<string, unknown>, clear: ClearPii, assert: Assert) {
@@ -584,15 +549,15 @@ export function expectBankClear(bank: Record<string, unknown>, clear: ClearPii, 
 export function expectBankMasked(bank: Record<string, unknown>, clear: ClearPii, assert: Assert) {
   assert.equal(
     bank.employeeBankAccountClabe,
-    maskSensitiveValue(clear.clabe, 'financiero')
+    maskSensitiveValue(clear.clabe)
   )
   assert.equal(
     bank.employeeBankAccountNumber,
-    maskSensitiveValue(clear.account, 'financiero')
+    maskSensitiveValue(clear.account)
   )
   assert.equal(
     bank.employeeBankAccountCardNumber,
-    maskSensitiveValue(clear.card, 'financiero')
+    maskSensitiveValue(clear.card)
   )
 }
 
@@ -612,11 +577,11 @@ export function expectMedicalMasked(
 ) {
   assert.equal(
     medical.employeeMedicalConditionDiagnosis,
-    maskSensitiveValue(clear.diagnosis, 'salud')
+    maskSensitiveValue(clear.diagnosis)
   )
   assert.equal(
     medical.employeeMedicalConditionNotes,
-    maskSensitiveValue(clear.notes, 'salud')
+    maskSensitiveValue(clear.notes)
   )
 }
 
@@ -710,11 +675,27 @@ export interface RemainingSensitiveFixture {
   consent: UserConsent | null
 }
 
+/** Concesión que devuelve `grantModuleAction`. */
+export interface ModuleActionGrant {
+  grant: RoleSystemPermission
+  /**
+   * `true` solo si esta llamada creó la fila. Sobre un rol compartido (p. ej.
+   * `rh-manager`) la concesión puede existir de antes: el teardown retira
+   * únicamente lo que su spec creó, para no quitarle el permiso a nadie más.
+   */
+  created: boolean
+}
+
+/**
+ * Concede `moduleSlug:actionSlug` al rol, resuelto por slug, y devuelve la fila de
+ * concesión y si la creó, para que el spec que la pide sobre un rol compartido
+ * retire en su teardown solo la que creó.
+ */
 export async function grantModuleAction(
   roleId: number,
   moduleSlug: string,
   actionSlug: string
-) {
+): Promise<ModuleActionGrant> {
   const permission = await SystemPermission.query()
     .whereNull('system_permission_deleted_at')
     .where('system_permission_slug', actionSlug)
@@ -725,10 +706,18 @@ export async function grantModuleAction(
   if (!permission) {
     throw new Error(`Se requiere ${moduleSlug}:${actionSlug} en BD para este test.`)
   }
-  await RoleSystemPermission.firstOrCreate(
-    { roleId, systemPermissionId: permission.systemPermissionId },
-    { roleId, systemPermissionId: permission.systemPermissionId }
-  )
+  const existing = await RoleSystemPermission.query()
+    .where('role_id', roleId)
+    .where('system_permission_id', permission.systemPermissionId)
+    .first()
+  if (existing) {
+    return { grant: existing, created: false }
+  }
+  const grant = await RoleSystemPermission.create({
+    roleId,
+    systemPermissionId: permission.systemPermissionId,
+  })
+  return { grant, created: true }
 }
 
 export async function createRemainingSensitiveFixture(

@@ -1,4 +1,5 @@
 import vine from '@vinejs/vine'
+import { ATTENDANCE_STATS_GRANULARITIES } from '../dto/attendance-stats.dto.js'
 
 /**
  * Validador compartido por los 3 endpoints de attendance-stats.
@@ -8,6 +9,7 @@ import vine from '@vinejs/vine'
  *   VineJS no expone comparación cross-field con mensajes custom).
  * - Acepta IDs como número o como string CSV ("1,2,3") y los normaliza
  *   en el controller antes de invocar el validador.
+ * - `granularity`: opcional, `day` o `month`; solo lo usa overview.
  */
 export const getAttendanceStatsValidator = vine.compile(
   vine.object({
@@ -18,6 +20,7 @@ export const getAttendanceStatsValidator = vine.compile(
     businessUnitId: vine.number().positive().optional(),
     payrollBusinessUnitId: vine.number().positive().optional(),
     branchOfficeIds: vine.array(vine.number().positive()).optional(),
+    granularity: vine.enum(ATTENDANCE_STATS_GRANULARITIES).optional(),
   })
 )
 

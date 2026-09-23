@@ -127,8 +127,8 @@ export default class EvidenceController {
    *                     documentType: biometric_consent
    *                     version: "1.0"
    *                     acceptedAt: "2026-07-02T10:00:00.000-06:00"
-   *                     ip: "••••••••••.10.0.5"
-   *                     userAgent: "••••••••••••••••••••••••••Safari"
+   *                     ip: "•••••"
+   *                     userAgent: "•••••"
    *                 meta: { total: 1, perPage: 20, currentPage: 1, lastPage: 1 }
    *       401:
    *         description: Access token ausente, inválido o expirado

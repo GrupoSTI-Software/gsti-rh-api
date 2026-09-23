@@ -1,4 +1,5 @@
 import type { EmployeeOffboardingDocumentType } from '../documents/documents.constants.js'
+import type { DocumentTemplateStructuralVerdict } from '#helpers/pdf_template_safety'
 
 /**
  * Resultado de la revisión de una versión de plantilla (K-1, 2026-09-05).
@@ -14,5 +15,6 @@ export type DocumentTemplateValidationResult = {
   recognized: string[]
   unrecognized: { fieldName: string; suggestedFieldKey: string | null }[]
   missingRequired: string[]
-  structural?: { stage: string; reason: string; detail: string }
+  /** Parte estructural del dictamen; la escribe USRH1789097550387 y la conserva ESB-05-07-08. */
+  structural?: DocumentTemplateStructuralVerdict
 }

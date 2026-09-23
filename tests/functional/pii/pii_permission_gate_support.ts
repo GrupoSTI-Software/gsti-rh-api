@@ -7,8 +7,11 @@ export {
   cleanupActor,
   createSensitiveFixture,
   cleanupSensitiveFixture,
+  createRemainingSensitiveFixture,
+  cleanupRemainingSensitiveFixture,
   buHeader,
   CLEAR_FIXED,
+  CLEAR_REMAINING,
   createSystemActor,
   cleanupSystemActor,
 } from '../employees/sensitive_read_by_category_support.js'
@@ -16,6 +19,7 @@ export type {
   TenantActor,
   SystemActor,
   SensitiveFixture,
+  RemainingSensitiveFixture,
   ClearPii,
 } from '../employees/sensitive_read_by_category_support.js'
 
@@ -75,6 +79,36 @@ export async function countRevealLogs(
  * FK a `users.user_id` y `business_units.business_unit_id`; sin este paso
  * `cleanupActor` / `cleanupSystemActor` fallan al borrar el actor.
  */
+export async function countRevealLogSubjects(piiAccessLogId: number): Promise<number> {
+  const row = await db
+    .from('pii_access_log_subjects')
+    .where('pii_access_log_id', piiAccessLogId)
+    .count('* as total')
+    .first()
+  return Number(row?.total ?? 0)
+}
+
+export async function lastRevealLog(
+  model: string,
+  column: string,
+  recordId: number
+): Promise<{ piiAccessLogId: number; originModule: string | null } | null> {
+  const row = await db
+    .from('pii_access_logs')
+    .where('pii_access_log_model', model)
+    .where('pii_access_log_model_column', column)
+    .where('pii_access_log_record_id', recordId)
+    .whereNull('pii_access_log_export_key')
+    .orderBy('pii_access_log_id', 'desc')
+    .select('pii_access_log_id', 'pii_access_log_origin_module')
+    .first()
+  if (!row) return null
+  return {
+    piiAccessLogId: Number(row.pii_access_log_id),
+    originModule: row.pii_access_log_origin_module ?? null,
+  }
+}
+
 export async function cleanupRevealLogs(filters: {
   userId?: number
   businessUnitId?: number

@@ -55,7 +55,7 @@ test.group('Anexo C fix — exception-requests abre SensitiveAccessContext', (gr
     exceptionRequest = await ExceptionRequest.create({
       employeeId: fixture.employee.employeeId,
       exceptionTypeId: exceptionType.exceptionTypeId,
-      exceptionRequestStatus: 'requested',
+      exceptionRequestStatus: 'pending',
       exceptionRequestDescription: 'Anexo C fix coverage',
       userId: actor.user.userId,
       requestedDate: new Date(),
@@ -86,6 +86,10 @@ test.group('Anexo C fix — exception-requests abre SensitiveAccessContext', (gr
       .get('/api/exception-requests/')
       .qs({ employeeId: fixture!.employee.employeeId })
       .loginAs(actor!.user)
+      // `businessScope` exige el header de empresa desde que se monto en el
+      // grupo de rutas (antes el listado cruzaba empresas). Sin el, la peticion
+      // muere en 400 BU.VAL.000 y el spec no llegaba a probar dailySalary.
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
 
     expectNeverDenied(response, assert)
     const rows = response.body().data.data as Record<string, unknown>[]
@@ -106,6 +110,10 @@ test.group('Anexo C fix — exception-requests abre SensitiveAccessContext', (gr
       .get('/api/exception-requests/')
       .qs({ employeeId: fixture!.employee.employeeId })
       .loginAs(actor!.user)
+      // `businessScope` exige el header de empresa desde que se monto en el
+      // grupo de rutas (antes el listado cruzaba empresas). Sin el, la peticion
+      // muere en 400 BU.VAL.000 y el spec no llegaba a probar dailySalary.
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
 
     expectNeverDenied(response, assert)
     const rows = response.body().data.data as Record<string, unknown>[]

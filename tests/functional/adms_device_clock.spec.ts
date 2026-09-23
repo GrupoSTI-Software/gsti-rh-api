@@ -1,6 +1,5 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
-import env from '#start/env'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
@@ -11,13 +10,13 @@ import DeviceCommand from '#models/device_command'
 import Employee from '#models/employee'
 import { fromZkDateTime } from '#modules/device-commands/wire/zk_datetime'
 import { TenantContext } from '#utils/tenant_context'
+import { admsChannelGet, admsChannelPost } from '#tests/helpers/adms_channel_request'
 
 /**
  * Rebanada 5 de extremo a extremo. Lo que se demuestra aqui es lo que la
  * bateria dejo claro que hay que demostrar: la correccion del reloj NO se da
  * por buena con el acuse del equipo, sino con una checada real.
  */
-const BASE = `http://${env.get('HOST')}:${env.get('PORT')}`
 const STAMP = `${Date.now()}`
 const SERIAL = `TEST-ADMS-K-${STAMP}`
 
@@ -30,32 +29,26 @@ function localTimeWithDrift(zone: string, driftSeconds: number): string {
     .toFormat('yyyy-MM-dd HH:mm:ss')
 }
 
-async function postAttlog(body: string): Promise<Response> {
-  return fetch(`${BASE}/iclock/cdata?SN=${SERIAL}&table=ATTLOG&Stamp=9999`, {
-    method: 'POST',
-    headers: { 'content-type': 'text/plain' },
-    body,
-  })
-}
-
-async function get(path: string): Promise<Response> {
-  return fetch(`${BASE}${path}`, { method: 'GET' })
-}
-
-async function postText(path: string, body: string): Promise<Response> {
-  return fetch(`${BASE}${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/octet-stream' },
-    body,
-  })
-}
-
 test.group('ADMS reloj del checador (rebanada 5)', (group) => {
   let accessPoint: AccessPoint
   let employee: Employee
   let businessUnitId: number
   let zone: string
   const createdAssistIds: number[] = []
+
+  /** Toda peticion viaja por la direccion propia del equipo, como la manda el aparato. */
+  const postAttlog = (body: string): Promise<Response> =>
+    admsChannelPost(
+      `/iclock/cdata?SN=${SERIAL}&table=ATTLOG&Stamp=9999`,
+      body,
+      accessPoint.accessPointChannelSecret
+    )
+
+  const get = (path: string): Promise<Response> =>
+    admsChannelGet(path, accessPoint.accessPointChannelSecret)
+
+  const postText = (path: string, body: string): Promise<Response> =>
+    admsChannelPost(path, body, accessPoint.accessPointChannelSecret, 'application/octet-stream')
 
   group.setup(async () => {
     await TenantContext.runUnscoped(async () => {

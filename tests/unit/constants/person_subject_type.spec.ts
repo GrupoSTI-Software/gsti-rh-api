@@ -16,18 +16,26 @@ test.group('resolvePersonSubjectType — fail-closed', () => {
     assert.equal(resolvePersonSubjectType('CUSTOMER'), 'collaborator')
   })
 
-  test('los cinco literales se reconocen tal cual, con trim', ({ assert }) => {
+  test('los literales vigentes se reconocen tal cual, con trim', ({ assert }) => {
+    assert.deepEqual([...PERSON_SUBJECT_TYPES], ['collaborator', 'system-user'])
     for (const literal of PERSON_SUBJECT_TYPES) {
       assert.equal(resolvePersonSubjectType(literal), literal)
       assert.equal(resolvePersonSubjectType(`  ${literal}  `), literal)
     }
   })
 
+  test('los destinos de aviación retirados resuelven a collaborator y exigen permiso', ({
+    assert,
+  }) => {
+    for (const retired of ['customer', 'flight-attendant', 'pilot']) {
+      const resolved = resolvePersonSubjectType(retired)
+      assert.equal(resolved, 'collaborator')
+      assert.isTrue(personSubjectRequiresCollaboratorWritePermission(resolved))
+    }
+  })
+
   test('solo collaborator exige permiso de escritura de persona', ({ assert }) => {
     assert.isTrue(personSubjectRequiresCollaboratorWritePermission('collaborator'))
-    assert.isFalse(personSubjectRequiresCollaboratorWritePermission('customer'))
-    assert.isFalse(personSubjectRequiresCollaboratorWritePermission('flight-attendant'))
-    assert.isFalse(personSubjectRequiresCollaboratorWritePermission('pilot'))
     assert.isFalse(personSubjectRequiresCollaboratorWritePermission('system-user'))
   })
 })

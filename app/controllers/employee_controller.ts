@@ -13,6 +13,11 @@ import axios from 'axios'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { createEmployeeValidator } from '../validators/employee.js'
 import { updateEmployeeValidator } from '../validators/employee.js'
+import EmployeeStructureService, {
+  requireEmployeeStructureForCreate,
+  resolveEmployeeStructureUpdate,
+} from '#services/employee_structure_service'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
 import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
@@ -68,6 +73,7 @@ import { I18n } from '@adonisjs/i18n'
 import { TenantContext } from '#utils/tenant_context'
 import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
 import { isEmployeeTerminationRecordChanged } from '#helpers/employee_termination_record'
+import type { PersonReleaseContext } from '#helpers/person_release_guard'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { EMPLOYEES_TERMINATION_RECORD_PERMISSION } from '#constants/employees_write_permission_declarations'
 import EmployeeQuotaService from '#services/employee_quota_service'
@@ -368,6 +374,11 @@ export default class EmployeeController {
       const hireDate = request.input('hireDate')
 
       const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(auth.user!)
+      // USRH1789698261608: traza de la compensación del alta por sincronización.
+      const releaseContext: PersonReleaseContext = {
+        actorUserId: auth.user?.userId ?? null,
+        businessUnitScope: allowedIds,
+      }
       const businessUnits = await BusinessUnit.query()
         .where('business_unit_active', 1)
         .whereIn('business_unit_id', allowedIds)
@@ -466,7 +477,7 @@ export default class EmployeeController {
             employee.businessUnitId = businessUnitApply?.businessUnitId || 1
             employeeCountSaved += 1
 
-            await this.verify(employee, employeeService)
+            await this.verify(employee, employeeService, releaseContext)
           }
         }
         response.status(201)
@@ -1130,33 +1141,72 @@ export default class EmployeeController {
         employeeIgnoreConsecutiveAbsences: employeeIgnoreConsecutiveAbsences,
         employeeAuthorizeAnyZones: employeeAuthorizeAnyZones,
       } as Employee
-      if (!employee.departmentId || employee.departmentId.toString() === '0') {
-        const department = await Department.query()
-          .whereNull('department_deleted_at')
-          .where('department_name', 'Sin departamento')
-          .first()
-        if (department) {
-          employee.departmentId = department.departmentId
-        }
-      }
-      if (!employee.positionId || employee.positionId.toString() === '0') {
-        const position = await Position.query()
-          .whereNull('position_deleted_at')
-          .where('position_name', 'Sin posición')
-          .first()
-        if (position) {
-          employee.positionId = position.positionId
-        }
-      }
       const employeeService = new EmployeeService(i18n)
+      // USRH1789698261608: actor y scope del acto, solo para la traza de la
+      // liberación. `personId` llega crudo del payload: se castea aquí y el
+      // helper vuelve a normalizar (doble cinturón).
+      const releaseContext: PersonReleaseContext = {
+        actorUserId: auth.user?.userId ?? null,
+        businessUnitScope,
+      }
+      const requiredStructure = requireEmployeeStructureForCreate({
+        departmentId: departmentId,
+        positionId: positionId,
+      })
+      if (!requiredStructure.ok) {
+        if (personId) {
+          await employeeService.releasePersonIfOrphan(Number(personId), releaseContext)
+        }
+        const messageKey =
+          requiredStructure.missing === 'both'
+            ? 'employee_structure_required_both'
+            : `employee_${requiredStructure.missing}_required`
+        response.status(400)
+        return {
+          type: 'warning',
+          title: i18n.t(`${messageKey}_title`),
+          message: i18n.t(`${messageKey}_message`),
+          detail: i18n.t(`${messageKey}_message`),
+          key: 'alta-empleado-invalida',
+        }
+      }
       const data = await request.validateUsing(createEmployeeValidator)
+      employee.departmentId = data.departmentId ?? employee.departmentId
+      employee.positionId = data.positionId ?? employee.positionId
+      const structureCheck = await new EmployeeStructureService().verifyAssignable({
+        departmentId: Number(employee.departmentId),
+        positionId: Number(employee.positionId),
+        businessUnitId: Number(employee.businessUnitId),
+        departmentIdToVerify: Number(employee.departmentId),
+        positionIdToVerify: Number(employee.positionId),
+      })
+      if (!structureCheck.ok) {
+        await ScopeDeniedLogService.log({
+          domain: structureCheck.field,
+          action: 'assign-to-employee',
+          requestedId: structureCheck.requestedId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        if (personId) {
+          await employeeService.releasePersonIfOrphan(Number(personId), releaseContext)
+        }
+        response.status(400)
+        return {
+          type: 'warning',
+          title: i18n.t(`employee_${structureCheck.field}_not_in_business_unit_title`),
+          message: i18n.t(`employee_${structureCheck.field}_not_in_business_unit_message`),
+          detail: i18n.t(`employee_${structureCheck.field}_not_in_business_unit_message`),
+          key: 'alta-empleado-invalida',
+        }
+      }
       const exist = await employeeService.verifyInfoExist(employee)
       if (exist.status !== 200) {
         // USRH1785436961832: el alta se rechaza (p. ej. catálogo faltante) —
         // se libera la persona creada para este acto, si quedó huérfana, para
         // que el reintento no choque con "personEmail has already been taken".
         if (personId) {
-          await employeeService.releasePersonIfOrphan(personId)
+          await employeeService.releasePersonIfOrphan(Number(personId), releaseContext)
         }
         response.status(exist.status)
         return {
@@ -1171,7 +1221,7 @@ export default class EmployeeController {
       const verifyInfo = await employeeService.verifyInfo(employee)
       if (verifyInfo.status !== 200) {
         if (personId) {
-          await employeeService.releasePersonIfOrphan(personId)
+          await employeeService.releasePersonIfOrphan(Number(personId), releaseContext)
         }
         response.status(verifyInfo.status)
         return {
@@ -1184,9 +1234,7 @@ export default class EmployeeController {
         }
       }
       // Pertenencia del nivel de puesto (USRH1785964117188): corre contra el
-      // positionId EFECTIVO (post-fallback "Sin posición") y antes de toda
-      // persistencia; el rechazo burbujea al catch, que libera la persona
-      // huérfana del acto.
+      // positionId del alta (ya exigido y verificado) y antes de persistir.
       const positionLevelConfigId = data.positionLevelConfigId ?? null
       await new EmployeePositionLevelService().assertAssignable({
         positionLevelConfigId,
@@ -1216,7 +1264,7 @@ export default class EmployeeController {
         }
       }
 
-      const newEmployee = await employeeService.create(employee, usersResponsible)
+      const newEmployee = await employeeService.create(employee, usersResponsible, releaseContext)
       if (newEmployee) {
         response.status(201)
         return {
@@ -1234,7 +1282,10 @@ export default class EmployeeController {
       const failedPersonId = Number(request.input('personId')) || 0
       if (failedPersonId > 0) {
         const employeeService = new EmployeeService(i18n)
-        await employeeService.releasePersonIfOrphan(failedPersonId)
+        await employeeService.releasePersonIfOrphan(failedPersonId, {
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
       }
       if (error instanceof EmployeePositionLevelError) {
         const resolved = resolveEmployeePositionLevelApiError(error, error.httpStatus, i18n)
@@ -1267,6 +1318,19 @@ export default class EmployeeController {
       if (workScheduleError) {
         response.status(400)
         return workScheduleError
+      }
+      if (error?.code === 'E_VALIDATION_ERROR') {
+        // Regla 4 (USRH1789328927556): un dato mal formado es un rechazo por
+        // datos, no un error del servidor. Con 500 el BO abre la pantalla de
+        // error general y el usuario pierde lo capturado.
+        response.status(400)
+        return {
+          type: 'warning',
+          title: i18n.t('validation_error'),
+          message: error.messages?.[0]?.message ?? i18n.t('validation_error'),
+          errors: error.messages,
+          key: 'alta-empleado-invalida',
+        }
       }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
@@ -1729,6 +1793,45 @@ export default class EmployeeController {
         }
       }
 
+      // Estructura (USRH1788466831270): departamento y puesto no son
+      // obligatorios al editar. Clave ausente = conservar lo guardado (aunque
+      // esté vacío); null = dejar sin asignar. Solo lo DISTINTO de lo guardado
+      // —o todo, si cambia de empresa— tiene que existir, estar vigente y ser
+      // de la empresa del empleado; reenviar lo mismo nunca bloquea (regla 4).
+      const structure = resolveEmployeeStructureUpdate(
+        {
+          departmentId: currentEmployee.departmentId,
+          positionId: currentEmployee.positionId,
+          businessUnitId: currentEmployee.businessUnitId,
+        },
+        {
+          departmentId: data.departmentId,
+          positionId: data.positionId,
+          businessUnitId: Number(employee.businessUnitId),
+        }
+      )
+      const structureCheck = await new EmployeeStructureService().verifyAssignable(structure)
+      if (!structureCheck.ok) {
+        // Registro de accesos bloqueados: qué id se pidió y quién, sin datos
+        // del empleado. Inexistente, eliminado y ajeno son indistinguibles.
+        await ScopeDeniedLogService.log({
+          domain: structureCheck.field,
+          action: 'assign-to-employee',
+          requestedId: structureCheck.requestedId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        response.status(400)
+        return {
+          type: 'warning',
+          title: i18n.t(`employee_${structureCheck.field}_not_in_business_unit_title`),
+          message: i18n.t(`employee_${structureCheck.field}_not_in_business_unit_message`),
+          data: { ...data },
+        }
+      }
+      employee.departmentId = structure.departmentId
+      employee.positionId = structure.positionId
+
       // Nivel de puesto (USRH1785964117188): propiedad ausente = no tocar el
       // nivel actual; null explícito = limpiar. La pertenencia corre contra
       // el positionId del payload ANTES de persistir, con la exención de
@@ -1737,7 +1840,9 @@ export default class EmployeeController {
         const positionLevelConfigId = data.positionLevelConfigId ?? null
         await new EmployeePositionLevelService().assertAssignable({
           positionLevelConfigId,
-          effectivePositionId: employee.positionId,
+          // Regla 7 (USRH1788466831270): el puesto efectivo es el resuelto
+          // arriba —el del payload o, si no vino, el guardado—.
+          effectivePositionId: structure.positionId,
           businessUnitScope,
           previousPositionLevelConfigId: currentEmployee.positionLevelConfigId,
           currentPositionId: currentEmployee.positionId,
@@ -1797,6 +1902,18 @@ export default class EmployeeController {
       if (workScheduleError) {
         response.status(400)
         return workScheduleError
+      }
+      if (error?.code === 'E_VALIDATION_ERROR') {
+        // Regla 8 (USRH1788466831270): un dato mal formado es un rechazo por
+        // datos, no un error del servidor. Con 500 el BO abre la pantalla de
+        // error general y el usuario pierde lo capturado.
+        response.status(400)
+        return {
+          type: 'warning',
+          title: i18n.t('validation_error'),
+          message: error.messages?.[0]?.message ?? i18n.t('validation_error'),
+          errors: error.messages,
+        }
       }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
@@ -2174,6 +2291,108 @@ export default class EmployeeController {
 
   /**
    * @swagger
+   * /api/employees/get-by-slug/{employeeSlug}:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: get employee by opaque slug
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: employeeSlug
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: Employee opaque token
+   *         required: true
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *       '400':
+   *         description: The slug was not provided
+   *       '404':
+   *         description: The employee was not found
+   *       '500':
+   *         description: Unexpected server error
+   */
+  /**
+   * Canjea el token opaco de la URL del Backoffice por el empleado.
+   *
+   * Espeja a `getById`: mismo filtro por usuario responsable y mismo gate, que
+   * se resuelve aquí adentro con `ensureEmployeeTabRead` porque necesita el id
+   * ya resuelto para saber qué pestañas puede leer quien pregunta. El alcance
+   * por empresa lo ponen `auth()` y `businessScope()` del prefijo — el token no
+   * es el control de acceso, solo evita que el nombre y el código de nómina
+   * viajen en la URL.
+   */
+  async getBySlug(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
+    try {
+      await auth.check()
+      const user = auth.user
+      let userResponsibleId = null
+      if (user) {
+        await user.preload('role')
+        if (user.role.roleSlug !== 'root') {
+          userResponsibleId = user?.userId
+        }
+      }
+
+      const employeeSlug = request.param('employeeSlug')
+      if (!employeeSlug) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The employee slug was not found',
+          data: { employeeSlug },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const showEmployee = await employeeService.getBySlug(employeeSlug, userResponsibleId)
+      if (!showEmployee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'The employee was not found',
+          message: 'The employee was not found with the entered slug',
+          data: { employeeSlug },
+        }
+      }
+
+      const allowed = await ensureEmployeeTabRead(
+        ctx,
+        showEmployee.employeeId,
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeById
+      )
+      if (!allowed) {
+        return
+      }
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Employees',
+        message: 'The employee was found successfully',
+        data: { employee: showEmployee },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
    * /api/employees/get-by-id/{employeeId}:
    *   get:
    *     security:
@@ -2454,7 +2673,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async indexWithOutUser({ request, response, i18n }: HttpContext) {
+  async indexWithOutUser({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const search = request.input('search')
       const departmentId = this.parseIdOrIds(request.input('departmentId'))
@@ -2471,7 +2690,7 @@ export default class EmployeeController {
         branchNameIds: branchNameIds,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.indexWithOutUser(filters)
+      const employees = await employeeService.indexWithOutUser(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
@@ -4474,13 +4693,17 @@ export default class EmployeeController {
     }
   }
 
-  private async verify(employee: BiometricEmployeeInterface, employeeService: EmployeeService) {
+  private async verify(
+    employee: BiometricEmployeeInterface,
+    employeeService: EmployeeService,
+    releaseContext: PersonReleaseContext
+  ) {
     const existEmployee = await Employee.query()
       .where('employee_code', employee.empCode)
       .withTrashed()
       .first()
     if (!existEmployee) {
-      await employeeService.syncCreate(employee)
+      await employeeService.syncCreate(employee, releaseContext)
     }
   }
 
@@ -4997,6 +5220,11 @@ export default class EmployeeController {
       const zones = await employeeService.getZones(employeeId)
       const coordinates = []
       for (const zone of zones) {
+        // `zone.zone` puede llegar nulo desde que Zone está acotada por empresa:
+        // una asignación cuya zona no pertenece al alcance activo (o sigue sin
+        // empresa porque falta el backfill) no precarga la relación. Antes esto
+        // reventaba el mapa del Monitor con un 500; ahora se omite la geocerca.
+        if (!zone.zone?.zonePolygon) continue
         const polygon = JSON.parse(zone.zone.zonePolygon)
         coordinates.push(polygon.features[0].geometry.coordinates)
       }
@@ -6770,6 +6998,11 @@ export default class EmployeeController {
     try {
       const employees = request.input('employees')
       const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(auth.user!)
+      // USRH1789698261608: traza de la compensación del alta por sincronización.
+      const releaseContext: PersonReleaseContext = {
+        actorUserId: auth.user?.userId ?? null,
+        businessUnitScope: allowedIds,
+      }
       const businessUnits = await BusinessUnit.query()
         .where('business_unit_active', 1)
         .whereIn('business_unit_id', allowedIds)
@@ -6845,7 +7078,7 @@ export default class EmployeeController {
             employee.usersResponsible = usersResponsible
             employee.businessUnitId = businessUnitApply?.businessUnitId || 1
             employeeCountSaved += 1
-            await this.verify(employee, employeeService)
+            await this.verify(employee, employeeService, releaseContext)
           }
         }
         response.status(201)
