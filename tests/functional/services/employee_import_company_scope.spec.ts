@@ -126,10 +126,10 @@ function asUploadFile(tmpPath: string) {
   }
 }
 
-async function createPlatformUnit(tag: string): Promise<BusinessUnit> {
+async function createPlatformUnit(tag: string, businessUnitName?: string): Promise<BusinessUnit> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   const businessUnit = new BusinessUnit()
-  businessUnit.businessUnitName = `Rechazo Carga ${tag} ${stamp}`
+  businessUnit.businessUnitName = businessUnitName ?? `Rechazo Carga ${tag} ${stamp}`
   businessUnit.businessUnitSlug = `rechazo-carga-${tag.toLowerCase()}-${stamp}`
   businessUnit.businessUnitLegalName = `Rechazo Carga ${tag} Legal ${stamp}`
   businessUnit.businessUnitActive = 1
@@ -156,22 +156,35 @@ async function countPersonsIn(businessUnitId: number): Promise<number> {
 test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321650)', (group) => {
   let unitA: BusinessUnit
   let unitB: BusinessUnit
-  const personIds: number[] = []
+  let unitSameName: BusinessUnit
 
   group.setup(async () => {
     unitA = await createPlatformUnit('A')
     unitB = await createPlatformUnit('B')
+    unitSameName = await createPlatformUnit('MismoNombre', unitA.businessUnitName)
   })
 
   group.teardown(async () => {
     await Employee.query()
-      .whereIn('business_unit_id', [unitA.businessUnitId, unitB.businessUnitId])
+      .whereIn('business_unit_id', [
+        unitA.businessUnitId,
+        unitB.businessUnitId,
+        unitSameName.businessUnitId,
+      ])
       .delete()
     await Person.query()
-      .whereIn('business_unit_id', [unitA.businessUnitId, unitB.businessUnitId])
+      .whereIn('business_unit_id', [
+        unitA.businessUnitId,
+        unitB.businessUnitId,
+        unitSameName.businessUnitId,
+      ])
       .delete()
     await BusinessUnit.query()
-      .whereIn('business_unit_id', [unitA.businessUnitId, unitB.businessUnitId])
+      .whereIn('business_unit_id', [
+        unitA.businessUnitId,
+        unitB.businessUnitId,
+        unitSameName.businessUnitId,
+      ])
       .delete()
   })
 
@@ -210,14 +223,31 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
     assert.equal(result.summary.created, 2)
     assert.equal(result.rowErrors.length, 0)
     assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployees + 2)
-    const created = await Employee.query()
-      .where('business_unit_id', unitA.businessUnitId)
-      .orderBy('employee_id', 'desc')
-      .limit(2)
-    for (const employee of created) {
-      const person = await Person.findOrFail(employee.personId)
-      personIds.push(person.personId)
-    }
+  })
+
+  test('nombre duplicado en otro tenant — el archivo se resuelve en la empresa activa', async ({
+    assert,
+    cleanup,
+  }) => {
+    assert.equal(unitSameName.businessUnitName, unitA.businessUnitName)
+    assert.notEqual(unitSameName.businessUnitSlug, unitA.businessUnitSlug)
+    const beforeEmployees = await countEmployeesIn(unitA.businessUnitId)
+    const result = await importAsA(
+      [
+        {
+          payrollNum: `RC-SAME-1-${STAMP}`,
+          workUnitName: unitA.businessUnitName,
+          firstName: 'Carga',
+          lastName: 'NombreDuplicado',
+        },
+      ],
+      cleanup
+    )
+
+    assert.equal(result.summary.created, 1)
+    assert.equal(result.rowErrors.length, 0)
+    assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployees + 1)
+    assert.equal(await countEmployeesIn(unitSameName.businessUnitId), 0)
   })
 
   test('criterio 2 — una fila con trabajo distinto: rechazo completo, nada creado, fila identificada', async ({
@@ -226,6 +256,7 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
   }) => {
     const beforeEmployeesA = await countEmployeesIn(unitA.businessUnitId)
     const beforePersonsA = await countPersonsIn(unitA.businessUnitId)
+    let caught: unknown = null
     try {
       await importAsA(
         [
@@ -244,14 +275,15 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
         ],
         cleanup
       )
-      assert.fail('debió rechazar el archivo completo')
     } catch (error) {
-      const mismatchError = asCompanyMismatchError(error)
-      assert.equal(mismatchError.isCompanyMismatchError, true)
-      assert.equal(mismatchError.statusCode, 422)
-      assert.equal(mismatchError.offendingRows.length, 1)
-      assert.equal(mismatchError.offendingRows[0].row, 3)
+      caught = error
     }
+    assert.exists(caught, 'debió rechazar el archivo completo')
+    const mismatchError = asCompanyMismatchError(caught)
+    assert.equal(mismatchError.isCompanyMismatchError, true)
+    assert.equal(mismatchError.statusCode, 422)
+    assert.equal(mismatchError.offendingRows.length, 1)
+    assert.equal(mismatchError.offendingRows[0].row, 3)
     assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployeesA)
     assert.equal(await countPersonsIn(unitA.businessUnitId), beforePersonsA)
   })
@@ -261,6 +293,7 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
     cleanup,
   }) => {
     const beforeEmployeesA = await countEmployeesIn(unitA.businessUnitId)
+    let caught: unknown = null
     try {
       await importAsA(
         [
@@ -274,12 +307,13 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
         ],
         cleanup
       )
-      assert.fail('debió rechazar el archivo completo')
     } catch (error) {
-      const mismatchError = asCompanyMismatchError(error)
-      assert.equal(mismatchError.isCompanyMismatchError, true)
-      assert.equal(mismatchError.offendingRows.length, 1)
+      caught = error
     }
+    assert.exists(caught, 'debió rechazar el archivo completo')
+    const mismatchError = asCompanyMismatchError(caught)
+    assert.equal(mismatchError.isCompanyMismatchError, true)
+    assert.equal(mismatchError.offendingRows.length, 1)
     assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployeesA)
   })
 
@@ -287,6 +321,7 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
     assert,
     cleanup,
   }) => {
+    let caught: unknown = null
     try {
       await importAsA(
         [
@@ -312,16 +347,17 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
         ],
         cleanup
       )
-      assert.fail('debió rechazar el archivo completo')
     } catch (error) {
-      const mismatchError = asCompanyMismatchError(error)
-      assert.equal(mismatchError.offendingRows.length, 2)
-      assert.deepEqual(
-        mismatchError.offendingRows.map((item) => item.row),
-        [2, 4]
-      )
-      assert.match(mismatchError.message, /Fila 2.*Fila 4/s)
+      caught = error
     }
+    assert.exists(caught, 'debió rechazar el archivo completo')
+    const mismatchError = asCompanyMismatchError(caught)
+    assert.equal(mismatchError.offendingRows.length, 2)
+    assert.deepEqual(
+      mismatchError.offendingRows.map((item) => item.row),
+      [2, 4]
+    )
+    assert.match(mismatchError.message, /Fila 2.*Fila 4/s)
   })
 
   test('criterio 5 / regla 4 — CURP ya registrada en la propia empresa: esa fila se salta, el resto carga', async ({
@@ -335,7 +371,6 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
     seeded.personCurp = `RCCURPSEED${STAMP}`.slice(0, 18)
     seeded.businessUnitId = unitA.businessUnitId
     await seeded.save()
-    personIds.push(seeded.personId)
 
     const beforeEmployees = await countEmployeesIn(unitA.businessUnitId)
     const result = await importAsA(
@@ -360,11 +395,5 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
     assert.equal(result.rowErrors.length, 1)
     assert.equal(result.rowErrors[0].message, 'CURP duplicado')
     assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployees + 1)
-    const created = await Employee.query()
-      .where('business_unit_id', unitA.businessUnitId)
-      .orderBy('employee_id', 'desc')
-      .firstOrFail()
-    const person = await Person.findOrFail(created.personId)
-    personIds.push(person.personId)
   })
 })

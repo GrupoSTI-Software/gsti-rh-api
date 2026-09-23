@@ -2850,13 +2850,6 @@ export default class EmployeeService {
       const rowErrors: EmployeeImportRowError[] = []
       const warnings: string[] = []
 
-      // USRH1789747321650 regla 1: el archivo es de una sola empresa, la activa.
-      // Misma fuente que el cupo (`resolveImportScopeBusinessUnitId`): el supuesto
-      // de la historia es que siempre hay una sola activa; sin ella no hay contra
-      // qué comparar y se propaga el mismo error que el cupo lanzaría.
-      const activeBusinessUnitId = this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)
-      const companyMismatchRows: EmployeeImportCompanyMismatchRow[] = []
-
       const rows: Array<{ row: any; rowNumber: number }> = []
       worksheet.eachRow({ includeEmpty: false }, (row: any, rowNumber: number) => {
         if (rowNumber <= headerRowNumber) return
@@ -2908,6 +2901,27 @@ export default class EmployeeService {
       let newEmployeesCount = 0
       const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number | null; payrollBusinessUnitId: number | null; isUpdate: boolean }> = []
 
+      const businessUnitResolutionCache = new Map<string, number | null>()
+      const resolveBusinessUnitByName = (businessUnitName: string): number | null => {
+        const normalizedName = String(businessUnitName ?? '').trim().toLowerCase()
+        if (businessUnitResolutionCache.has(normalizedName)) {
+          return businessUnitResolutionCache.get(normalizedName) ?? null
+        }
+
+        const businessUnitId =
+          this.mapBusinessUnit(businessUnitName, businessUnits) ??
+          this.mapBusinessUnit(businessUnitName, allBusinessUnitsForResolution)
+        businessUnitResolutionCache.set(normalizedName, businessUnitId)
+        return businessUnitId
+      }
+
+      // USRH1789747321650 regla 1: el archivo es de una sola empresa, la activa.
+      // Misma fuente que el cupo (`resolveImportScopeBusinessUnitId`): el supuesto
+      // de la historia es que siempre hay una sola activa; sin ella no hay contra
+      // qué comparar y se propaga el mismo error que el cupo lanzaría.
+      const activeBusinessUnitId = this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)
+      const companyMismatchRows: EmployeeImportCompanyMismatchRow[] = []
+
       for (const { row, rowNumber } of rows) {
         totalRows++
 
@@ -2952,8 +2966,11 @@ export default class EmployeeService {
             continue
           }
 
-          // Mapear unidad de negocio de trabajo por nombre
-          let businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, allBusinessUnitsForResolution)
+          // Mapear unidad de negocio de trabajo por nombre: primero en el scope
+          // (si resuelve ahí, es la activa); solo si no resuelve se consulta el
+          // padrón completo para distinguir "otra empresa real" de "nombre no
+          // resuelto" (USRH1789747321650, reglas 1 y 2; nombres no únicos entre tenants).
+          let businessUnitId = resolveBusinessUnitByName(employeeData.businessUnit)
           // USRH1789747321650 reglas 1 y 2: si el nombre resolvió a una empresa
           // real distinta de la activa, la fila condena el archivo completo.
           // Un nombre que no resuelve (null) conserva el comportamiento de hoy
@@ -2965,8 +2982,8 @@ export default class EmployeeService {
             businessUnitId = businessUnits[0].businessUnitId
           }
 
-          // Mapear unidad de negocio de nómina por nombre
-          let payrollBusinessUnitId = this.mapBusinessUnit(employeeData.payrollBusinessUnit, allBusinessUnitsForResolution)
+          // Mapear unidad de negocio de nómina por nombre con la misma prioridad de scope.
+          let payrollBusinessUnitId = resolveBusinessUnitByName(employeeData.payrollBusinessUnit)
           const declaredPayrollId = payrollBusinessUnitId
           // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
           if (payrollBusinessUnitId === null && businessUnits.length > 0) {
@@ -2978,6 +2995,7 @@ export default class EmployeeService {
           // rechaza entero DESPUÉS de revisar todas (el listado completo es
           // parte del entregable, no un adorno). Vale también para filas de
           // actualización: "alguna fila" no distingue altas de correcciones.
+          // Las filas inválidas salen antes de esta comprobación y no entran en `companyMismatchRows`.
           const declaresOtherCompany =
             (declaredWorkId !== null && declaredWorkId !== activeBusinessUnitId) ||
             (declaredPayrollId !== null && declaredPayrollId !== activeBusinessUnitId)
@@ -3130,6 +3148,8 @@ export default class EmployeeService {
           // guardar un dato protegido detiene la carga y se reporta vía 403
           // del controlador. No es una fila fallida más ni desaparece del
           // reporte. El `catch` externo ya re-lanza sensibles (`:3126-3128`).
+          // Esta guarda hoy es inalcanzable: la importación corre en `runUnguarded` y el permiso
+          // sensible se exige por cabeceras antes de las pasadas; se conserva como defensa futura.
           if (shouldAbortImportOnRowError(error)) throw error
           skipped++
           rowErrors.push({ row: rowNumber, message: importRowErrorMessage(error) })

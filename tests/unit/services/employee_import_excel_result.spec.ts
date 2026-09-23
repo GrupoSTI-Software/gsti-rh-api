@@ -63,16 +63,21 @@ test.group('employee_service importFromExcel — USRH1789747321650', () => {
     assert.include(content, 'if (error.isCompanyMismatchError) {')
   })
 
-  test('regla 2: resuelve nombres declarados contra todas las activas; creación sigue en scope', ({
+  test('regla 2: resuelve primero en scope, usa padrón completo como fallback y cachea por nombre', ({
     assert,
   }) => {
     const content = readFileSync(SERVICE_FILE, 'utf-8')
 
     assert.include(content, 'allBusinessUnitsForResolution')
-    assert.include(content, 'this.mapBusinessUnit(employeeData.businessUnit, allBusinessUnitsForResolution)')
+    assert.include(content, 'const businessUnitResolutionCache = new Map<string, number | null>()')
     assert.include(
       content,
-      'this.mapBusinessUnit(employeeData.payrollBusinessUnit, allBusinessUnitsForResolution)'
+      'this.mapBusinessUnit(businessUnitName, businessUnits) ??\n          this.mapBusinessUnit(businessUnitName, allBusinessUnitsForResolution)'
+    )
+    assert.include(content, 'let businessUnitId = resolveBusinessUnitByName(employeeData.businessUnit)')
+    assert.include(
+      content,
+      'let payrollBusinessUnitId = resolveBusinessUnitByName(employeeData.payrollBusinessUnit)'
     )
     assert.include(content, 'businessUnits[0].businessUnitId')
   })

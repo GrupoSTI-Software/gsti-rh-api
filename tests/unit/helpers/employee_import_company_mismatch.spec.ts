@@ -30,13 +30,24 @@ test.group('rechazo por empresa distinta — resolvedor', () => {
     assert.deepEqual((resolved.data as { offendingRows: unknown }).offendingRows, offendingRows)
   })
 
-  test('el cuerpo no incluye datos personales, solo filas y nombres de empresa', ({ assert }) => {
-    const error = new Error('mismatch')
-    ;(error as any).isCompanyMismatchError = true
-    ;(error as any).offendingRows = [{ row: 2, businessUnit: 'Empresa B', payrollBusinessUnit: 'Empresa B' }]
+  test('fuera de message/detail el cuerpo no incluye datos personales del error crudo', ({ assert }) => {
+    const hash = 'a'.repeat(64)
+    const dirtyMessage = `ER_DUP_ENTRY valor privado para person_curp ${hash}`
+    const error = Object.assign(new Error(dirtyMessage), {
+      isCompanyMismatchError: true,
+      offendingRows: [
+        { row: 2, businessUnit: 'Empresa B', payrollBusinessUnit: 'Empresa B' },
+      ],
+    })
 
-    const raw = JSON.stringify(resolveEmployeeImportApiError(error, 422))
-    assert.notMatch(raw, /CURP|RFC|NSS|person_|ER_DUP_ENTRY|[0-9a-f]{64}/)
+    const resolved = resolveEmployeeImportApiError(error, 422)
+    // `message` y `detail` propagan `err.message` literalmente por contrato.
+    assert.equal(resolved.message, dirtyMessage)
+    assert.equal(resolved.detail, dirtyMessage)
+    const raw = JSON.stringify(resolved, (key, value) =>
+      key === 'message' || key === 'detail' ? undefined : value
+    )
+    assert.notMatch(raw, /CURP|RFC|NSS|person_|ER_DUP_ENTRY|[0-9a-f]{64}/i)
   })
 
   test('un error común no toma la rama de empresa distinta', ({ assert }) => {
