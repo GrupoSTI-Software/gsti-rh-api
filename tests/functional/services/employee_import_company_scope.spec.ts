@@ -80,8 +80,11 @@ type ImportRowInput = {
 type CompanyMismatchError = Error & {
   isCompanyMismatchError: true
   statusCode: number
-  offendingRows: Array<{ row: number }>
+  offendingRows: Array<{ row: number; businessUnit: string; payrollBusinessUnit: string }>
 }
+
+/** Más larga que el recorte de 80 caracteres del eco en el texto del rechazo. */
+const LONG_FOREIGN_NAME = `Empresa Ajena Con Nombre Larguisimo ${'X'.repeat(90)} ${STAMP}`
 
 function asCompanyMismatchError(error: unknown): CompanyMismatchError {
   return error as CompanyMismatchError
@@ -127,12 +130,23 @@ function asUploadFile(tmpPath: string) {
   }
 }
 
+/**
+ * Los nombres de las dos empresas son deliberadamente distantes entre sí: si
+ * solo cambiaran en una letra, un veredicto por parecido las confundiría y el
+ * caso de rechazo pasaría en verde sin probar nada.
+ */
+const PLATFORM_UNIT_NAMES: Record<string, string> = {
+  A: 'Alfa Importacion',
+  B: 'Zulu Contraparte',
+}
+
 async function createPlatformUnit(tag: string, businessUnitName?: string): Promise<BusinessUnit> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
+  const baseName = PLATFORM_UNIT_NAMES[tag] ?? `Rechazo Carga ${tag}`
   const businessUnit = new BusinessUnit()
-  businessUnit.businessUnitName = businessUnitName ?? `Rechazo Carga ${tag} ${stamp}`
+  businessUnit.businessUnitName = businessUnitName ?? `${baseName} ${stamp}`
   businessUnit.businessUnitSlug = `rechazo-carga-${tag.toLowerCase()}-${stamp}`
-  businessUnit.businessUnitLegalName = `Rechazo Carga ${tag} Legal ${stamp}`
+  businessUnit.businessUnitLegalName = `${baseName} Legal ${stamp}`
   businessUnit.businessUnitActive = 1
   businessUnit.businessUnitOrigin = 'platform'
   await businessUnit.save()
@@ -409,7 +423,9 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
         },
         {
           payrollNum: `RC-M-5-${STAMP}`,
-          workUnitName: `Fuera Tres ${STAMP}`,
+          // Celda larguísima a propósito: el eco del texto tecleado se recorta
+          // a 80 caracteres para que no viaje entera en todo el mensaje.
+          workUnitName: LONG_FOREIGN_NAME,
           payrollUnitName: '',
           firstName: 'Carga',
           lastName: 'MalTres',
@@ -425,9 +441,13 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
       [2, 4, 6]
     )
     assert.match(resolved.detail ?? '', /fila 2.*fila 4.*fila 6/s)
+    assert.include(resolved.detail ?? '', LONG_FOREIGN_NAME.slice(0, 80))
+    assert.notInclude(resolved.detail ?? '', LONG_FOREIGN_NAME)
+    // El reporte por celda conserva el texto tecleado completo.
+    assert.equal(mismatchError.offendingRows[2].businessUnit, LONG_FOREIGN_NAME)
   })
 
-  test('tope-20 funcional — conserva 21 ofensoras y detail cita solo 20', async ({
+  test('tope-20 funcional — 21 filas ofensoras: el detalle cita 20 filas y agrupa las dos celdas de una', async ({
     assert,
     cleanup,
   }) => {
@@ -436,7 +456,9 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
     const rows = Array.from({ length: 21 }, (_, index) => ({
       payrollNum: `RC-T-${index + 1}-${STAMP}`,
       workUnitName: `Fuera ${String(index + 1).padStart(2, '0')}`,
-      payrollUnitName: '',
+      // La primera fila ofende en las dos columnas: son dos celdas, pero el
+      // texto la cita una sola vez con sus dos valores.
+      payrollUnitName: index === 0 ? 'Nomina Fuera 01' : '',
       firstName: 'Carga',
       lastName: `Tope${index + 1}`,
     }))
@@ -444,9 +466,10 @@ test.group('EmployeeService.importFromExcel — empresa distinta (USRH1789747321
     const resolved = resolveEmployeeImportApiError(mismatchError, 409)
 
     assert.equal(mismatchError.statusCode, 409)
-    assert.equal(mismatchError.offendingRows.length, 21)
-    assert.equal((resolved.data as { offendingRows: unknown[] }).offendingRows.length, 21)
+    assert.equal(mismatchError.offendingRows.length, 22)
+    assert.equal((resolved.data as { offendingRows: unknown[] }).offendingRows.length, 22)
     assert.equal((resolved.detail?.match(/fila \d+/g) ?? []).length, 20)
+    assert.include(resolved.detail, 'fila 2 («Fuera 01», «Nomina Fuera 01»)')
     assert.include(resolved.detail, '… y 1 filas más.')
     assert.notInclude(resolved.detail, 'fila 22')
     assert.equal(await countEmployeesIn(unitA.businessUnitId), beforeEmployees)

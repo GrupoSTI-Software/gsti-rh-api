@@ -2,7 +2,7 @@
 
 **Problema:** un archivo de empleados podía mezclar empresas y cargarse entero en la empresa activa sin avisar que algunas filas declaraban otra empresa.
 
-**Solución:** si una fila declara una empresa de trabajo o de nómina distinta de la activa, se rechaza el archivo completo antes de crear o modificar a alguien. La respuesta explica el motivo y enumera todas las filas que deben corregirse.
+**Solución:** si una fila declara una empresa de trabajo o de nómina distinta de la activa, se rechaza el archivo completo antes de crear o modificar a alguien. La respuesta explica el motivo y enumera todas las filas que deben corregirse. El texto del rechazo cita cada fila una sola vez, con el o los nombres que ahí se escribieron; la lista de abajo (`offendingRows`) trae una entrada por celda de empresa señalada, así que una fila con las dos columnas equivocadas aparece dos veces en esa lista: una por la columna de trabajo y otra por la de nómina.
 
 Ejemplo: es como entregar a una escuela una lista de asistencia que también incluye alumnos de otra escuela. En vez de guardar toda la lista en la escuela equivocada, se devuelve completa indicando cuáles renglones pertenecen a la otra.
 
@@ -149,10 +149,13 @@ AND employee_deleted_at IS NULL;
 
 Qué significa cada dato nuevo:
 
+- `type`: aquí vale `error`, es decir, no se procesó el archivo: ninguna fila se guardó.
+- `title`: motivo del rechazo en una frase, para mostrar al usuario.
+- `message`: el mismo texto de `detail` (el envelope repite ambos para no romper a quien lea uno u otro).
 - `detail`: explicación completa del rechazo (empresa activa, filas citadas y que no se guardó nada); coincide con `message`.
 - `key`: clave estable del rechazo; `archivo-de-otra-empresa` significa que al menos una celda de empresa en el archivo no corresponde a la activa.
 - `code`: código estable del catálogo; `EMP.IMPORT.VAL_BUSINESS_UNIT` identifica el rechazo por empresa en la importación.
-- `data.offendingRows`: todas las filas que deben corregirse (una entrada por celda ofensora).
+- `data.offendingRows`: todo lo que debe corregirse, con una entrada por celda de empresa señalada; si una misma fila tiene mal las dos columnas, aparece en dos entradas (el texto del rechazo, en cambio, la cita una sola vez).
 - `row`: número de la fila en el Excel (la fila 1 es la cabecera).
 - `businessUnit`: texto tecleado en la columna de trabajo cuando esa celda es la ofensora; vacío si la ofensa fue solo en nómina.
 - `payrollBusinessUnit`: texto tecleado en la columna de nómina cuando esa celda es la ofensora; vacío si la ofensa fue solo en trabajo.
@@ -190,7 +193,7 @@ Crear un archivo con:
 }
 ```
 
-(Los datos son los ya explicados en los Escenarios 1 y 2.)
+(Todos los datos de esta respuesta son los ya explicados en el Escenario 2. Lo único distinto es cuál de las dos columnas quedó señalada: aquí el nombre ajeno viaja en `payrollBusinessUnit` y `businessUnit` va vacío.)
 
 ## 5. Escenario 4 — Varias filas ofensoras: el rechazo las enumera todas
 

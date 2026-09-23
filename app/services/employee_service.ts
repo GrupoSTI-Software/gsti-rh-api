@@ -2889,8 +2889,9 @@ export default class EmployeeService {
       // de la historia es que siempre hay una sola activa; sin ella no hay contra
       // qué comparar y se propaga el mismo error que el cupo lanzaría.
       const activeBusinessUnitId = this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)
-      // Spec §7 zona 1: el nombre de la activa sale de la lista ya filtrada
-      // (un elemento). Sin consulta extra y sin rozar el anti-requisito §12.
+      // El nombre de la activa sale de la lista ya filtrada por alcance (un
+      // elemento): sin consulta extra y sin consultar nunca el padrón completo
+      // de empresas.
       const activeBusinessUnit =
         businessUnits.find((unit) => unit.businessUnitId === activeBusinessUnitId) ?? null
       const foreignRows: EmployeeImportCompanyMismatchRow[] = []
@@ -2939,18 +2940,30 @@ export default class EmployeeService {
             continue
           }
 
-          // Spec §7 zona 2: la comparación es sobre la celda cruda contra la
-          // lista de un elemento. Comparar ids nunca detecta nada (el fallback
-          // los iguala). Vacía = activa, no ofende (CA-8). Con activa
-          // desconocida (inactiva/baja) no se evalúa nada: fail-closed intacto.
+          // La comparación es sobre la celda tecleada contra el nombre de la
+          // empresa activa, normalizando ambos igual (sin espacios sobrantes y
+          // sin distinguir mayúsculas). Es igualdad de texto, no parecido: un
+          // nombre a pocas letras del de la activa es otra empresa, y dejarlo
+          // pasar por similitud cargaría el archivo ajeno en silencio.
+          // `mapBusinessUnit` queda solo para elegir el id a asignar más
+          // abajo; comparar ids nunca detecta nada porque el valor alternativo
+          // los iguala. Celda vacía significa la activa y no ofende. Con la
+          // activa desconocida (inactiva o dada de baja) no se evalúa nada: el
+          // cierre seguro de hoy queda intacto.
           if (activeBusinessUnit !== null) {
+            const activeBusinessUnitName = this.normalizeBusinessUnitCell(
+              activeBusinessUnit.businessUnitName
+            )
             const declaredCells: Array<{ value: unknown; column: 'businessUnit' | 'payrollBusinessUnit' }> = [
               { value: employeeData.businessUnit, column: 'businessUnit' },
               { value: employeeData.payrollBusinessUnit, column: 'payrollBusinessUnit' },
             ]
             for (const { value, column } of declaredCells) {
               const typed = String(value ?? '').trim()
-              if (this.hasImportCellValue(value) && this.mapBusinessUnit(typed, businessUnits) === null) {
+              if (
+                this.hasImportCellValue(value) &&
+                this.normalizeBusinessUnitCell(typed) !== activeBusinessUnitName
+              ) {
                 foreignRows.push({
                   row: rowNumber,
                   businessUnit: column === 'businessUnit' ? typed : '',
@@ -3004,18 +3017,25 @@ export default class EmployeeService {
 
         } catch (error: any) {
           skipped++
-          rowErrors.push({ row: rowNumber, message: importRowErrorMessage(error) })
+          rowErrors.push({
+            row: rowNumber,
+            message: this.resolveImportRowErrorMessage(error, rowNumber, activeBusinessUnitId),
+          })
         }
       }
 
-      // Spec §7 zona 3: todo-o-nada en el mismo punto que el cupo, antes de
-      // escribir la primera fila. Sin warn estructurado no hay lanzamiento.
+      // Todo-o-nada en el mismo punto donde se valida el cupo, antes de
+      // escribir la primera fila. El aviso al log del servidor es parte del
+      // rechazo: no se lanza sin dejar constancia. Nunca lleva nombres del
+      // archivo ni el texto del error (entrada no confiable, con datos
+      // personales pegados a veces); solo números de fila y conteos.
       if (foreignRows.length > 0) {
+        const offendingRowNumbers = [...new Set(foreignRows.map((item) => item.row))]
         logger.warn(
           {
             businessUnitId: activeBusinessUnitId,
-            rows: foreignRows.map((item) => item.row),
-            rowCount: foreignRows.length,
+            rows: offendingRowNumbers,
+            rowCount: offendingRowNumbers.length,
             totalRows,
           },
           'Carga masiva rechazada: el archivo declara empresas distintas de la activa'
@@ -3083,25 +3103,11 @@ export default class EmployeeService {
           // Esta guarda hoy es inalcanzable: la importación corre en `runUnguarded` y el permiso
           // sensible se exige por cabeceras antes de las pasadas; se conserva como defensa futura.
           if (shouldAbortImportOnRowError(error)) throw error
-          // Spec §7 zona 6 (CA-11): lo que el importador redacta viaja tal cual;
-          // lo no reconocido sale genérico y su traza va al log del servidor.
-          // Criterio de procedencia, no manejador por tipo: cubre por omisión
-          // índices, drivers y excepciones futuras sin conocerlas.
-          const controlledMessage =
-            personIdentityDuplicatedIndexFromError(error) !== null
-              ? importRowErrorMessage(error)
-              : null
-          if (controlledMessage !== null) {
-            skipped++
-            rowErrors.push({ row: rowNumber, message: controlledMessage })
-          } else {
-            logger.error(
-              { err: error, row: rowNumber, businessUnitId },
-              'Fila de carga masiva no procesada'
-            )
-            skipped++
-            rowErrors.push({ row: rowNumber, message: 'No fue posible procesar esta fila' })
-          }
+          skipped++
+          rowErrors.push({
+            row: rowNumber,
+            message: this.resolveImportRowErrorMessage(error, rowNumber, businessUnitId),
+          })
         }
       }
 
@@ -3315,22 +3321,75 @@ export default class EmployeeService {
   }
 
   /**
-   * Rechazo todo-o-nada por empresa distinta (USRH1789747321650, spec §10).
-   * `detail` con tope de 20 filas y cierre `… y N filas más.` El listado cita
-   * lo que el usuario tecleó (su propio dato), nunca nada resuelto en base.
+   * Error redactado por el propio importador para una fila: su mensaje está
+   * escrito para quien subió el archivo y puede viajar tal cual. La bandera
+   * es lo que lo identifica (mismo patrón que `isRowLimitError` y
+   * `isHeaderValidationError`); nunca se reconoce por el texto.
+   */
+  private createImportRowMessageError(message: string): Error {
+    const error = new Error(message)
+      ; (error as any).isImportRowMessageError = true
+    return error
+  }
+
+  /**
+   * Mensaje que ve quien subió el archivo cuando una fila falla.
+   *
+   * El criterio es de procedencia, no de tipo de excepción: viaja tal cual lo
+   * que el importador redacta (lo marcado con `isImportRowMessageError` y la
+   * familia de identidad duplicada que se traduce a negocio); cualquier otra
+   * excepción sale con un texto genérico y su traza queda en el log del
+   * servidor. Así quedan cubiertos por omisión índices, controladores de base
+   * de datos y fallas futuras sin tener que conocerlas de antemano.
+   */
+  private resolveImportRowErrorMessage(
+    error: unknown,
+    rowNumber: number,
+    businessUnitId: number | null
+  ): string {
+    const isOwnMessage =
+      (typeof error === 'object' && error !== null && (error as any).isImportRowMessageError === true) ||
+      personIdentityDuplicatedIndexFromError(error) !== null
+    if (isOwnMessage) return importRowErrorMessage(error)
+
+    logger.error({ err: error, row: rowNumber, businessUnitId }, 'Fila de carga masiva no procesada')
+    return 'No fue posible procesar esta fila'
+  }
+
+  /**
+   * Rechazo todo-o-nada por empresa distinta (USRH1789747321650).
+   * El texto habla de filas, así que se agrupa por fila: una cita por fila con
+   * el valor —o los dos valores— que ahí se tecleó, tope de 20 filas y cierre
+   * `… y N filas más.` con las filas restantes. `offendingRows` sigue yendo por
+   * celda para que el reporte distinga trabajo de nómina. El listado cita lo
+   * que el usuario tecleó (su propio dato), nunca nada resuelto en base, y lo
+   * recorta a `MAX_OFFENDING_CELL_ECHO_LENGTH` para que una celda larguísima no
+   * se repita entera en todo el mensaje.
    */
   private createCompanyMismatchValidationError(
     offendingRows: EmployeeImportCompanyMismatchRow[],
     activeName: string
   ): Error & { isCompanyMismatchError: true; statusCode: 409; offendingRows: EmployeeImportCompanyMismatchRow[] } {
-    const labelOf = (item: EmployeeImportCompanyMismatchRow): string =>
-      item.businessUnit !== '' ? item.businessUnit : item.payrollBusinessUnit
-    const shown = offendingRows.slice(0, 20)
+    const MAX_OFFENDING_ROWS_SHOWN = 20
+    const MAX_OFFENDING_CELL_ECHO_LENGTH = 80
+    const echoOf = (value: string): string => value.slice(0, MAX_OFFENDING_CELL_ECHO_LENGTH)
+    const typedValuesByRow = new Map<number, string[]>()
+    for (const item of offendingRows) {
+      const typedValues = typedValuesByRow.get(item.row) ?? []
+      for (const value of [item.businessUnit, item.payrollBusinessUnit]) {
+        if (value !== '' && !typedValues.includes(echoOf(value))) typedValues.push(echoOf(value))
+      }
+      typedValuesByRow.set(item.row, typedValues)
+    }
+    const offendingRowNumbers = [...typedValuesByRow.keys()]
+    const shown = offendingRowNumbers.slice(0, MAX_OFFENDING_ROWS_SHOWN)
     const listing = shown
-      .map((item) => `fila ${item.row} («${labelOf(item)}»)`)
+      .map((row) => `fila ${row} («${(typedValuesByRow.get(row) ?? []).join('», «')}»)`)
       .join(', ')
     const tail =
-      offendingRows.length > shown.length ? ` … y ${offendingRows.length - shown.length} filas más.` : ''
+      offendingRowNumbers.length > shown.length
+        ? ` … y ${offendingRowNumbers.length - shown.length} filas más.`
+        : ''
     const error = new Error(
       `La empresa activa es «${activeName}». Estas filas declaran otra: ${listing}.${tail} No se aplicó ninguna línea del archivo: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo.`
     )
@@ -3977,7 +4036,9 @@ export default class EmployeeService {
     } while (existingCodes.includes(code) && attempts < 100)
 
     if (attempts >= 100) {
-      throw new Error('No se pudo generar un código de empleado único')
+      // Mensaje propio del importador: viaja tal cual a la fila fallida por la
+      // bandera, no por el texto.
+      throw this.createImportRowMessageError('No se pudo generar un código de empleado único')
     }
 
     return code
@@ -4056,6 +4117,15 @@ export default class EmployeeService {
 
     // Generar código único
     return this.generateUniqueEmployeeCode(existingCodes)
+  }
+
+  /**
+   * Normaliza el nombre de una empresa para compararlo: sin espacios sobrantes
+   * y sin distinguir mayúsculas, igual que la coincidencia exacta de
+   * `mapBusinessUnit`.
+   */
+  private normalizeBusinessUnitCell(businessUnitName: string): string {
+    return String(businessUnitName ?? '').trim().toLowerCase()
   }
 
   /**

@@ -6,37 +6,13 @@ import {
 import { EMPLOYEE_IMPORT_ERROR_CODES } from '#constants/employee_import_error_codes'
 import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
-import type { EmployeeImportCompanyMismatchRow } from '../../../app/interfaces/employee_import_result_interface.js'
-
-/** USRH1789747321650 reglas 1, 2, 5 y 6 a nivel de contrato (puro, sin BD). */
 
 /**
- * Factory mínima alineada con Task 8 Step 4 (el servicio la sustituirá en Task 8).
- * Solo para probar el resolver con mensaje truncado a 20 filas.
+ * USRH1789747321650 reglas 1, 2, 5 y 6 a nivel de contrato (puro, sin BD).
+ * Aquí solo se prueba lo que hace el resolvedor con el error tipado: propagar
+ * mensaje, detalle y filas ofensoras. El tope de 20 filas del texto lo redacta
+ * el servicio y se verifica en el funcional con un archivo real.
  */
-function buildCompanyMismatchErrorLikeTask8(
-  offendingRows: EmployeeImportCompanyMismatchRow[],
-  activeName: string
-) {
-  const labelOf = (item: EmployeeImportCompanyMismatchRow): string =>
-    item.businessUnit !== '' ? item.businessUnit : item.payrollBusinessUnit
-  const shown = offendingRows.slice(0, 20)
-  const listing = shown.map((item) => `fila ${item.row} («${labelOf(item)}»)`).join(', ')
-  const tail =
-    offendingRows.length > shown.length
-      ? ` … y ${offendingRows.length - shown.length} filas más.`
-      : ''
-  return Object.assign(
-    new Error(
-      `La empresa activa es «${activeName}». Estas filas declaran otra: ${listing}.${tail} No se aplicó ninguna línea del archivo: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo.`
-    ),
-    {
-      isCompanyMismatchError: true as const,
-      statusCode: 409 as const,
-      offendingRows,
-    }
-  )
-}
 
 test.group('rechazo por empresa distinta — resolvedor', () => {
   test('isCompanyMismatchError resuelve 409 con key, code y todas las filas ofensoras', ({ assert }) => {
@@ -57,24 +33,6 @@ test.group('rechazo por empresa distinta — resolvedor', () => {
     assert.equal(resolved.title, 'El archivo tiene empleados de otra empresa')
     assert.isString(resolved.detail)
     assert.deepEqual((resolved.data as { offendingRows: unknown }).offendingRows, offendingRows)
-  })
-
-  test('tope de 20 filas en message/detail: cita 20 y cierra con … y N filas más.', ({ assert }) => {
-    const offendingRows: EmployeeImportCompanyMismatchRow[] = Array.from({ length: 21 }, (_, index) => ({
-      row: index + 2,
-      businessUnit: `Empresa X ${index + 2}`,
-      payrollBusinessUnit: '',
-    }))
-    const error = buildCompanyMismatchErrorLikeTask8(offendingRows, 'Empresa activa QA')
-
-    const resolved = resolveEmployeeImportApiError(error, 409)
-
-    assert.include(resolved.message, '… y 1 filas más.')
-    assert.include(resolved.detail, '… y 1 filas más.')
-    assert.notInclude(resolved.message, 'fila 22')
-    assert.notInclude(resolved.detail, 'fila 22')
-    const citedRows = (resolved.message.match(/fila \d+/g) ?? []).length
-    assert.equal(citedRows, 20)
   })
 
   test('fuera de message/detail el cuerpo no incluye datos personales del error crudo', ({ assert }) => {

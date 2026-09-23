@@ -186,7 +186,6 @@
   "employee_import_val_rows_title": "Too many rows in the file",
   "employee_import_val_rows_message": "The file exceeds the maximum number of data rows allowed per import. Split the file into smaller batches.",
   "employee_import_val_business_unit_title": "The file contains employees from another company",
-  "employee_import_val_business_unit_message": "Some row in the file declares a company different from your active one. No rows were processed: upload one file per company, or switch the active company and try again.",
   "employee_import_val_business_unit_detail": "Some row in the file declares a company different from your active one. No rows were processed: upload one file per company, or switch the active company and try again.",
   "employee_import_server_title": "Server error",
   "employee_import_server_message": "An unexpected error occurred during import.",
