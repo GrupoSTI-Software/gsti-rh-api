@@ -3177,6 +3177,9 @@ export default class EmployeeService {
       if (error.isHeaderValidationError || error.isRowLimitError) {
         throw error
       }
+      if (error.isCompanyMismatchError) {
+        throw error
+      }
       if (error instanceof EmployeeQuotaError) {
         throw error
       }

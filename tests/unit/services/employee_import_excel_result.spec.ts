@@ -60,6 +60,7 @@ test.group('employee_service importFromExcel — USRH1789747321650', () => {
     assert.include(content, 'companyMismatchRows.push({')
     assert.include(content, 'throw this.createCompanyMismatchValidationError(companyMismatchRows)')
     assert.include(content, 'isCompanyMismatchError')
+    assert.include(content, 'if (error.isCompanyMismatchError) {')
   })
 
   test('regla 2: resuelve nombres declarados contra todas las activas; creación sigue en scope', ({
