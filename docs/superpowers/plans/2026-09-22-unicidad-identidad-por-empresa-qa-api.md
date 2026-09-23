@@ -119,7 +119,23 @@ Repetir editando: `PUT /api/persons/<person_id de IdentChoqueA>` con `{"personFi
 
 Usuario: **B**.
 
-**Endpoint:** `POST /api/persons` con el mismo cuerpo del Escenario 1 pero `personEmail` igual al de un expediente de A (por ejemplo `qa-ident-compartido-a@gsti-tests.local`) y RFC/CURP/NSS distintos.
+**Endpoint:** `POST /api/persons`
+
+Headers: `Authorization: Bearer <token de B>`, `X-Business-Unit-Id: <identificador público de B>`
+
+Mismo cuerpo del Escenario 1 pero con `personEmail` igual al de un expediente de A y RFC/CURP/NSS distintos (frescos, sin usar en A ni en B):
+
+```json
+{
+  "personFirstname": "QA",
+  "personLastname": "IdentCompartidoB",
+  "personSecondLastname": "Ident",
+  "personEmail": "qa-ident-compartido-a@gsti-tests.local",
+  "personCurp": "QAID800104HDFXXX04",
+  "personRfc": "QAID800104AAA",
+  "personImssNss": "12345678904"
+}
+```
 
 **Response exacto:** `422`
 
@@ -142,6 +158,8 @@ Qué significa: el correo personal no se aflojó con este cambio; dos empresas n
 Usuario: **A**.
 
 El `PUT` no puede vaciar RFC enmascarado: el parser convierte `""` en null y la edición lo trata como “no actualizar”. Para simular lo que la app hace al guardar vacío (liberar la huella, Task 2), prepara con SQL:
+
+Limitación conocida (fuera del alcance de esta HU, se deja como está): por el `PUT /api/persons` no hay forma de dejar el RFC vacío; `""` y `null` caen en “no actualizar”.
 
 ```sql
 UPDATE people SET person_rfc = '', person_rfc_hash = NULL WHERE person_id = <person_id de IdentChoqueA>;
@@ -188,8 +206,8 @@ Qué significa cada dato:
 
 ## 7. Checklist
 
-- [ ] Escenario 1 — Alta en B de alguien de A: 201 sin mencionar a A
-- [ ] Escenario 2 — Alta y edición con RFC repetido en A: 422 con `key` y `code` del dato, sin datos internos
-- [ ] Escenario 3 — Mismo correo en A y B: se rechaza (unicidad global intacta)
-- [ ] Escenario 4 — RFC vaciado en A se reutiliza en A: 201
-- [ ] Escenario 5 — Sin header: 400 sin veredicto sobre el duplicado
+- [x] Escenario 1 — Alta en B de alguien de A: 201 sin mencionar a A
+- [x] Escenario 2 — Alta y edición con RFC repetido en A: 422 con `key` y `code` del dato, sin datos internos
+- [x] Escenario 3 — Mismo correo en A y B: se rechaza (unicidad global intacta)
+- [x] Escenario 4 — RFC vaciado en A se reutiliza en A: 201
+- [x] Escenario 5 — Sin header: 400 sin veredicto sobre el duplicado
