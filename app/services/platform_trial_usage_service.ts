@@ -14,6 +14,7 @@ import {
 } from '../constants/platform_metric_error_codes.js'
 import { PlatformMetricServiceError } from '../exceptions/platform_metric_service_error.js'
 import { ASSIST_ORIGIN } from '../constants/assist_origin.js'
+import { getBusinessTimeZone } from '../utils/business_date.js'
 import PlatformTrialService from './platform_trial_service.js'
 
 // ─── Tipos de retorno (contrato fijado por USRH1789079078171) ───────────────
@@ -147,63 +148,41 @@ export function toCanales(rows: AssistOriginCountRow[]): TrialCanalesChecadas {
 }
 
 /**
- * Bounds del horario de verano de México para un año (RN-5, día civil).
- * Duplica deliberadamente `computeMexicoDST`
- * (`attendance-stats.repository.mysql.ts:1013-1022`) y `getMexicoDSTChangeDates`
- * (`sync_assists_service.ts:2731-2740`): es la misma convención de las dos,
- * y unificarla en una sola fuente de verdad de zona horaria es trabajo aparte
- * (ESB-04-02-04-03, ya declarado en esos dos archivos). No se importa desde
- * `attendance-stats` porque ese módulo no se toca (RB-9 heredado de
- * USRH1789079078171) y no exporta el símbolo.
- */
-function computeMexicoDstBounds(year: number): { dstStart: string; dstEnd: string } {
-  const aprilFirst = new Date(Date.UTC(year, 3, 1))
-  const dstStartDate = new Date(Date.UTC(year, 3, 1 + ((7 - aprilFirst.getUTCDay()) % 7)))
-
-  const octLast = new Date(Date.UTC(year, 9, 31))
-  const dstEndDate = new Date(Date.UTC(year, 9, 31 - octLast.getUTCDay()))
-
-  return {
-    dstStart: dstStartDate.toISOString().slice(0, 10),
-    dstEnd: dstEndDate.toISOString().slice(0, 10),
-  }
-}
-
-/**
- * Offset (horas) que suma el biométrico a la hora de pared para escribir
- * `assist_punch_time_utc` en el día civil `dayIso` (RN-5): +5 en horario de
- * verano (primer domingo de abril a último domingo de octubre), +6 el resto
- * del año. Misma convención DST-aware que `attendance-stats` y
- * `sync_assists_service` — ver `computeMexicoDstBounds`.
- */
-function biometricUtcOffsetHours(dayIso: string): number {
-  const { dstStart, dstEnd } = computeMexicoDstBounds(Number(dayIso.slice(0, 4)))
-  return dayIso >= dstStart && dayIso <= dstEnd ? 5 : 6
-}
-
-/**
  * Bordes de `assist_punch_time_utc` que delimitan la ventana de la prueba en
  * día civil de México, INCLUSIVE en ambos extremos (RN-5: "el día de inicio y
- * el día de fin entran completos"). Mismo cálculo que `day_start_utc`/
- * `day_end_utc` del motor (`attendance-stats.repository.mysql.ts:354-359`),
- * aplicado una sola vez a los dos extremos de la ventana en vez de por cada
- * día — este desglose no necesita un punto por día (RN-29 es de la
- * frecuencia, no del canal).
+ * el día de fin entran completos").
+ *
+ * Post-`multitenant` (integrado a esta rama tras USRH1789079078172):
+ * `assist_punch_time_utc` es un instante UTC real para todos los canales —
+ * quien escribe la checada ya convierte la hora del equipo
+ * (`attendance-stats.repository.mysql.ts:2-13`, `attendance_clock.ts:11-18`).
+ * Por eso el borde se resuelve con conversión de zona IANA lisa y llana
+ * (`America/Mexico_City`, sin horario de verano desde 2022 pero con el DST
+ * histórico correcto para fechas anteriores, porque la propia tzdata de
+ * IANA ya lo modela) — **nunca** un offset calculado a mano: ese cálculo
+ * quedó centralizado en `attendance_clock.ts` ("Nunca se calcula un offset a
+ * mano fuera de este slice", línea 18) y esta función respeta esa regla.
+ *
+ * Este desglose usa la zona de negocio (México), no la del sitio del
+ * colaborador (`SiteTimeZoneService`): la ventana de la prueba es una fecha
+ * de facturación a nivel tenant (RN-5 dice "día civil de México" a secas),
+ * no una fecha de turno por sucursal.
  */
 export function resolveVentanaUtcBounds(
   inicio: string,
   fin: string
 ): { startUtc: string; endUtc: string } {
+  const zone = getBusinessTimeZone()
   // `toSQL` de Luxon no tiene opción para omitir milisegundos (esa es de
   // `toISO`); se recorta el sufijo `.000` a mano — siempre 23 caracteres
   // (`yyyy-MM-dd HH:mm:ss.SSS`), nunca variable, porque parte de un
   // `DateTime` construido en este mismo archivo sin fracción de segundo.
-  const startUtc = DateTime.fromISO(`${inicio}T00:00:00`, { zone: 'utc' })
-    .plus({ hours: biometricUtcOffsetHours(inicio) })
+  const startUtc = DateTime.fromISO(`${inicio}T00:00:00`, { zone })
+    .toUTC()
     .toSQL({ includeOffset: false })!
     .slice(0, 19)
-  const endUtc = DateTime.fromISO(`${fin}T23:59:59`, { zone: 'utc' })
-    .plus({ hours: biometricUtcOffsetHours(fin) })
+  const endUtc = DateTime.fromISO(`${fin}T23:59:59`, { zone })
+    .toUTC()
     .toSQL({ includeOffset: false })!
     .slice(0, 19)
   return { startUtc, endUtc }
@@ -355,6 +334,12 @@ export default class PlatformTrialUsageService {
    * canal) queda fuera por el propio `whereNotNull` (RN-3). `assist_active`
    * respeta la misma convención que el motor: solo `= 1`, sin excluir
    * `assist_deleted_at` (deuda declarada, `attendance-stats.repository.mysql.ts:384-385`).
+   *
+   * `assist_punch_time_utc` se lee como instante UTC real (post-`multitenant`,
+   * ver `resolveVentanaUtcBounds`); no depende de que el respaldo
+   * `attendance:backfill-biotime-utc` ya haya corrido sobre el histórico —
+   * esa garantía es responsabilidad de esa migración/comando, no de este
+   * servicio, igual que el resto de `attendance-stats` la asume sin marcarla.
    */
   private async resolveCanales(
     businessUnitId: number,
