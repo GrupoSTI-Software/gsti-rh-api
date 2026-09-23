@@ -895,9 +895,8 @@ export default class EmployeeVacationService {
    *    unidad de negocio, unidad de nómina, sucursal, días a omitir, razón
    *  - Columnas de días (10+): tantas como el máximo de días posibles según
    *    el VacationSetting más alto de todos los empleados
-   *  - Por empleado: solo se desbloquean las celdas de días que le corresponden
-   *    según sus días disponibles actuales (total − usados − deducciones previas)
-   *  - Las celdas bloqueadas (sin días disponibles) aparecen en gris con candado
+   *  - Por empleado: las celdas de días se colorean según sus días disponibles
+   *    actuales (total − usados − deducciones previas); todas son editables
    */
   async generateVacationImportTemplate(
     filters: EmployeeVacationExcelFilterInterface,
@@ -1113,8 +1112,7 @@ export default class EmployeeVacationService {
         dataRow.height = 22
         const rowFill = ei % 2 === 0 ? FILL_EVEN : FILL_ODD
 
-        // Columnas informativas (1–7): solo lectura visualmente.
-        // Solo col 2 (nombre) queda bloqueada para el scroll; las demás son informativas pero no bloqueadas en protección.
+        // Columnas informativas (1–7): diferenciadas solo visualmente, la hoja no se protege.
         const fixedValues = [
           info.payrollId,
           info.fullName,
@@ -1131,8 +1129,6 @@ export default class EmployeeVacationService {
           cell.font = { size: 9, color: { argb: REPORT_NEUTRAL_ARGB.text } }
           cell.alignment = { vertical: 'middle', horizontal: colIdx === 0 ? 'center' : 'left', wrapText: true }
           cell.border = BORDER_THIN()
-          // Solo bloqueamos la col 2 (nombre); el resto queda libre para no interferir con el scroll
-          cell.protection = { locked: colIdx === 1 }
         })
 
         // Col 8: Días a omitir (editable)
@@ -1142,7 +1138,6 @@ export default class EmployeeVacationService {
         cellSkip.font = { size: 9 }
         cellSkip.alignment = { vertical: 'middle', horizontal: 'center' }
         cellSkip.border = BORDER_THIN(REPORT_NEUTRAL_ARGB.text)
-        cellSkip.protection = { locked: false }
 
         // Col 9: Razón (editable)
         const cellReason = dataRow.getCell(9)
@@ -1151,9 +1146,8 @@ export default class EmployeeVacationService {
         cellReason.font = { size: 9 }
         cellReason.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true }
         cellReason.border = BORDER_THIN(REPORT_NEUTRAL_ARGB.text)
-        cellReason.protection = { locked: false }
 
-        // Columnas de días (10 en adelante) — tres zonas visuales, todas editables:
+        // Columnas de días (10 en adelante) — tres zonas visuales:
         //   [1..availableDays]             → blanco      (días disponibles netos)
         //   [availableDays+1..totalDays]   → gris oscuro (días "a futuro", ya consumidos en el periodo)
         //   [totalDays+1..maxVacationCols] → gris claro  (fuera del periodo actual)
@@ -1161,7 +1155,6 @@ export default class EmployeeVacationService {
           const cell = dataRow.getCell(9 + d)
           cell.value = ''
           cell.alignment = { vertical: 'middle', horizontal: 'center' }
-          cell.protection = { locked: false }
 
           if (d <= info.availableDays) {
             // Zona 1: días disponibles netos — siempre blanco
@@ -1180,22 +1173,6 @@ export default class EmployeeVacationService {
             cell.border = BORDER_THIN()
           }
         }
-      })
-
-      // ── Proteger hoja: solo celdas marcadas como locked=false son editables ──
-      await ws.protect('', {
-        selectLockedCells: true,
-        selectUnlockedCells: true,
-        formatCells: false,
-        formatColumns: false,
-        formatRows: false,
-        insertColumns: false,
-        insertRows: false,
-        deleteColumns: false,
-        deleteRows: false,
-        sort: false,
-        autoFilter: false,
-        pivotTables: false,
       })
 
       // ── Congelar encabezados (filas 1–4) y solo col B (nombre) ──
@@ -1224,7 +1201,7 @@ export default class EmployeeVacationService {
         ['   vigente más próximo disponible.', false],
         ['', false],
         ['COLORES DE REFERENCIA', true],
-        ['Fondo gris muy claro (columnas 2–7): información de solo lectura.', false],
+        ['Fondo gris muy claro (columnas 2–7): información de referencia.', false],
         ['Fondo blanco con borde negro (columnas 8–9): campos editables.', false],
         ['Fondo blanco (columnas 10+): días disponibles netos para ingresar fecha.', false],
         ['Fondo gris oscuro: días a futuro (dentro del periodo, ya consumidos). Editables.', false],

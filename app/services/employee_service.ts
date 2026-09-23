@@ -5912,19 +5912,15 @@ export default class EmployeeService {
 
       // ID Empleado (BD) - Columna A (oculta)
       worksheet.getCell(row, 1).value = employee.employeeId
-      worksheet.getCell(row, 1).protection = { locked: true }
 
       // Código de Empleado - Columna B
       worksheet.getCell(row, 2).value = employee.employeePayrollCode || 'Sin código'
-      worksheet.getCell(row, 2).protection = { locked: true }
 
       // Empleado - Columna C
       worksheet.getCell(row, 3).value = fullName
-      worksheet.getCell(row, 3).protection = { locked: true }
 
       // Posición - Columna D
       worksheet.getCell(row, 4).value = positionName
-      worksheet.getCell(row, 4).protection = { locked: true }
 
       // Aplicar formato a las primeras 4 columnas
       for (let col = 1; col <= 4; col++) {
@@ -5989,13 +5985,11 @@ export default class EmployeeService {
             pattern: 'solid',
             fgColor: { argb: cellColor }
           }
-          worksheet.getCell(row, colNumber).protection = { locked: true }
         } else {
-          // MODO TEMPLATE: Comportamiento normal (editable)
+          // MODO TEMPLATE: turnos por dropdown
           if (isHoliday) {
-            // Si es día festivo, solo poner "Día festivo" y proteger la celda
+            // Si es día festivo, precargar "Día festivo" (editable)
             worksheet.getCell(row, colNumber).value = 'Día festivo'
-            worksheet.getCell(row, colNumber).protection = { locked: true }
           } else {
             // Si NO es día festivo, agregar dropdown para turnos (editable)
             worksheet.getCell(row, colNumber).dataValidation = {
@@ -6007,7 +6001,6 @@ export default class EmployeeService {
               errorTitle: 'Valor inválido',
               error: 'Seleccione un turno válido o deje vacío'
             }
-            worksheet.getCell(row, colNumber).protection = { locked: false }
           }
         }
       })
@@ -6017,42 +6010,6 @@ export default class EmployeeService {
     //     OCULTAR COLUMNA ID
     // ==============================
     worksheet.getColumn(1).hidden = true
-
-    // ==============================
-    //     PROTEGER HOJA
-    // ==============================
-    // En modo reporte, proteger toda la hoja. En modo template, permitir editar turnos
-    if (isReport) {
-      await worksheet.protect('', {
-        selectLockedCells: true,
-        selectUnlockedCells: false,
-        formatCells: false,
-        formatColumns: false,
-        formatRows: false,
-        insertColumns: false,
-        insertRows: false,
-        deleteColumns: false,
-        deleteRows: false,
-        sort: false,
-        autoFilter: false,
-        pivotTables: false
-      })
-    } else {
-      await worksheet.protect('', {
-        selectLockedCells: true,
-        selectUnlockedCells: true,
-        formatCells: false,
-        formatColumns: false,
-        formatRows: false,
-        insertColumns: false,
-        insertRows: false,
-        deleteColumns: false,
-        deleteRows: false,
-        sort: false,
-        autoFilter: false,
-        pivotTables: false
-      })
-    }
 
     // ==============================
     //     CONGELAR ENCABEZADOS
