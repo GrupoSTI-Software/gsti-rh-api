@@ -1,4 +1,6 @@
 import type { I18n } from '@adonisjs/i18n'
+import db from '@adonisjs/lucid/services/db'
+import { DateTime } from 'luxon'
 import AttendanceStatsService from '../modules/attendance-stats/attendance-stats.service.js'
 import type {
   AttendanceStatsFilters,
@@ -11,6 +13,7 @@ import {
   TRIAL_USAGE_METRIC_ERROR_TEXTS,
 } from '../constants/platform_metric_error_codes.js'
 import { PlatformMetricServiceError } from '../exceptions/platform_metric_service_error.js'
+import { ASSIST_ORIGIN } from '../constants/assist_origin.js'
 import PlatformTrialService from './platform_trial_service.js'
 
 // ─── Tipos de retorno (contrato fijado por USRH1789079078171) ───────────────
@@ -37,6 +40,26 @@ export interface TrialFrecuencia {
 
 export interface TrialFrecuenciaDia extends TrialFrecuencia {
   dia: string
+}
+
+/**
+ * Desglose por canal de las checadas de la prueba (USRH1789079078172).
+ *
+ * Los seis campos son el vocabulario cerrado de `ASSIST_ORIGIN`
+ * (`assist_origin`) traducido literal — no se agregan, no se fusionan (RN-1).
+ * Salen SIEMPRE los seis, en `0` cuando no se usaron (RN-2): un canal ausente
+ * se leería como "no tengo el dato"; en `0` se lee como "esa vía no se usó".
+ * `total` es la suma exacta de los seis (RN-4).
+ */
+export interface TrialCanalesChecadas {
+  autoservicio: number
+  capturaAdministrador: number
+  sincronizacion: number
+  manualLegado: number
+  /** Reservado para el kiosco por conexión permanente (RN-5 de Anexo). Hoy siempre `0` (Supuestos y decisiones abiertas). */
+  dispositivo: number
+  checadorAdms: number
+  total: number
 }
 
 /**
@@ -70,6 +93,120 @@ function toFrecuencia(stats: OverviewStatistics): TrialFrecuencia {
     empleadoDiasEvaluables: base,
     empleadosEvaluados: stats.employeesQty,
   }
+}
+
+/** Fila cruda de la agrupación `GROUP BY assist_origin` sobre `assists`. */
+interface AssistOriginCountRow {
+  origin: string | null
+  cantidad: number | string
+}
+
+/**
+ * Vocabulario cerrado `assist_origin` → campo del desglose (RN-1, USRH1789079078172).
+ * Traducción literal, uno a uno con `ASSIST_ORIGIN` (`app/constants/assist_origin.ts`).
+ */
+const ORIGIN_TO_CANAL: Record<string, keyof Omit<TrialCanalesChecadas, 'total'>> = {
+  [ASSIST_ORIGIN.SELF_SERVICE]: 'autoservicio',
+  [ASSIST_ORIGIN.ADMIN_CAPTURE]: 'capturaAdministrador',
+  [ASSIST_ORIGIN.SYNC]: 'sincronizacion',
+  [ASSIST_ORIGIN.MANUAL]: 'manualLegado',
+  [ASSIST_ORIGIN.DEVICE]: 'dispositivo',
+  [ASSIST_ORIGIN.ADMS]: 'checadorAdms',
+}
+
+/**
+ * Traduce las filas crudas de `GROUP BY assist_origin` al desglose de seis
+ * canales + total (RN-1/RN-2/RN-4). Puro — sin base de datos, es lo que
+ * prueba `tests/unit/services/platform_trial_channels.spec.ts`.
+ *
+ * Una fila con `origin` fuera del vocabulario cerrado (no debería ocurrir:
+ * la query ya filtra `whereNotNull` y el dominio solo escribe los seis
+ * valores de `ASSIST_ORIGIN`) se ignora sin sumar al total y sin lanzar —
+ * un origen inesperado no es motivo de 500 en esta traducción.
+ */
+export function toCanales(rows: AssistOriginCountRow[]): TrialCanalesChecadas {
+  const canales: TrialCanalesChecadas = {
+    autoservicio: 0,
+    capturaAdministrador: 0,
+    sincronizacion: 0,
+    manualLegado: 0,
+    dispositivo: 0,
+    checadorAdms: 0,
+    total: 0,
+  }
+
+  for (const row of rows) {
+    const campo = row.origin ? ORIGIN_TO_CANAL[row.origin] : undefined
+    if (!campo) continue
+    const cantidad = Number(row.cantidad)
+    canales[campo] = cantidad
+    canales.total += cantidad
+  }
+
+  return canales
+}
+
+/**
+ * Bounds del horario de verano de México para un año (RN-5, día civil).
+ * Duplica deliberadamente `computeMexicoDST`
+ * (`attendance-stats.repository.mysql.ts:1013-1022`) y `getMexicoDSTChangeDates`
+ * (`sync_assists_service.ts:2731-2740`): es la misma convención de las dos,
+ * y unificarla en una sola fuente de verdad de zona horaria es trabajo aparte
+ * (ESB-04-02-04-03, ya declarado en esos dos archivos). No se importa desde
+ * `attendance-stats` porque ese módulo no se toca (RB-9 heredado de
+ * USRH1789079078171) y no exporta el símbolo.
+ */
+function computeMexicoDstBounds(year: number): { dstStart: string; dstEnd: string } {
+  const aprilFirst = new Date(Date.UTC(year, 3, 1))
+  const dstStartDate = new Date(Date.UTC(year, 3, 1 + ((7 - aprilFirst.getUTCDay()) % 7)))
+
+  const octLast = new Date(Date.UTC(year, 9, 31))
+  const dstEndDate = new Date(Date.UTC(year, 9, 31 - octLast.getUTCDay()))
+
+  return {
+    dstStart: dstStartDate.toISOString().slice(0, 10),
+    dstEnd: dstEndDate.toISOString().slice(0, 10),
+  }
+}
+
+/**
+ * Offset (horas) que suma el biométrico a la hora de pared para escribir
+ * `assist_punch_time_utc` en el día civil `dayIso` (RN-5): +5 en horario de
+ * verano (primer domingo de abril a último domingo de octubre), +6 el resto
+ * del año. Misma convención DST-aware que `attendance-stats` y
+ * `sync_assists_service` — ver `computeMexicoDstBounds`.
+ */
+function biometricUtcOffsetHours(dayIso: string): number {
+  const { dstStart, dstEnd } = computeMexicoDstBounds(Number(dayIso.slice(0, 4)))
+  return dayIso >= dstStart && dayIso <= dstEnd ? 5 : 6
+}
+
+/**
+ * Bordes de `assist_punch_time_utc` que delimitan la ventana de la prueba en
+ * día civil de México, INCLUSIVE en ambos extremos (RN-5: "el día de inicio y
+ * el día de fin entran completos"). Mismo cálculo que `day_start_utc`/
+ * `day_end_utc` del motor (`attendance-stats.repository.mysql.ts:354-359`),
+ * aplicado una sola vez a los dos extremos de la ventana en vez de por cada
+ * día — este desglose no necesita un punto por día (RN-29 es de la
+ * frecuencia, no del canal).
+ */
+export function resolveVentanaUtcBounds(
+  inicio: string,
+  fin: string
+): { startUtc: string; endUtc: string } {
+  // `toSQL` de Luxon no tiene opción para omitir milisegundos (esa es de
+  // `toISO`); se recorta el sufijo `.000` a mano — siempre 23 caracteres
+  // (`yyyy-MM-dd HH:mm:ss.SSS`), nunca variable, porque parte de un
+  // `DateTime` construido en este mismo archivo sin fracción de segundo.
+  const startUtc = DateTime.fromISO(`${inicio}T00:00:00`, { zone: 'utc' })
+    .plus({ hours: biometricUtcOffsetHours(inicio) })
+    .toSQL({ includeOffset: false })!
+    .slice(0, 19)
+  const endUtc = DateTime.fromISO(`${fin}T23:59:59`, { zone: 'utc' })
+    .plus({ hours: biometricUtcOffsetHours(fin) })
+    .toSQL({ includeOffset: false })!
+    .slice(0, 19)
+  return { startUtc, endUtc }
 }
 
 /**
@@ -120,11 +257,14 @@ export default class PlatformTrialUsageService {
     ventana: { inicio: string; fin: string } | null
     frecuencia: TrialFrecuencia | null
     serie: TrialFrecuenciaDia[]
+    canales: TrialCanalesChecadas | null
   }> {
     const { tenant, prueba } = await this.trialService.getTenantTrial(publicId)
 
     if (!prueba) {
-      return { tenant, ventana: null, frecuencia: null, serie: [] }
+      // Ausencia explícita, NUNCA un desglose en ceros (RN-7, USRH1789079078172):
+      // una empresa que nunca tuvo prueba no recibe canales.
+      return { tenant, ventana: null, frecuencia: null, serie: [], canales: null }
     }
 
     // `getTenantTrial` ya probó que el tenant existe (lanzó 404 si no); esta
@@ -133,13 +273,16 @@ export default class PlatformTrialUsageService {
     // bajo transacciones normales; se cubre de forma defensiva, sin motor.
     const businessUnitId = await this.trialService.resolveBusinessUnitId(publicId)
     if (businessUnitId === null) {
-      return { tenant, ventana: null, frecuencia: null, serie: [] }
+      return { tenant, ventana: null, frecuencia: null, serie: [], canales: null }
     }
 
     const ventana = { inicio: prueba.inicio, fin: prueba.finEfectivo }
-    const { frecuencia, serie } = await this.runMotor(businessUnitId, ventana)
+    const [{ frecuencia, serie }, canales] = await Promise.all([
+      this.runMotor(businessUnitId, ventana),
+      this.resolveCanales(businessUnitId, ventana),
+    ])
 
-    return { tenant, ventana, frecuencia, serie }
+    return { tenant, ventana, frecuencia, serie, canales }
   }
 
   /**
@@ -195,5 +338,41 @@ export default class PlatformTrialUsageService {
     }))
 
     return { frecuencia, serie }
+  }
+
+  /**
+   * Desglose por canal de las checadas de la prueba (USRH1789079078172).
+   *
+   * Conteo aparte del motor de asistencia (RN-1 a RN-10 del ticket): NO
+   * corre `AttendanceStatsService`, solo agrupa `assists` por `assist_origin`
+   * dentro de la ventana ya resuelta `[inicio, finEfectivo]`, en día civil de
+   * México (RN-5). Aislamiento por tenant explícito con `business_unit_id`
+   * exacto (RN-8, misma disciplina que `runMotor`/RB-10 de 078171) — Knex
+   * crudo, sin scope de Lucid, porque esta consulta corre a nivel Panel, por
+   * encima de todas las empresas (mismo patrón que `platform_trial_service.ts`).
+   *
+   * `assist_origin IS NULL` (checadas de la demo del recorrido guiado, sin
+   * canal) queda fuera por el propio `whereNotNull` (RN-3). `assist_active`
+   * respeta la misma convención que el motor: solo `= 1`, sin excluir
+   * `assist_deleted_at` (deuda declarada, `attendance-stats.repository.mysql.ts:384-385`).
+   */
+  private async resolveCanales(
+    businessUnitId: number,
+    ventana: { inicio: string; fin: string }
+  ): Promise<TrialCanalesChecadas> {
+    const { startUtc, endUtc } = resolveVentanaUtcBounds(ventana.inicio, ventana.fin)
+
+    const rows = await db
+      .from('assists')
+      .where('business_unit_id', businessUnitId)
+      .where('assist_active', 1)
+      .whereNotNull('assist_origin')
+      .andWhere('assist_punch_time_utc', '>=', startUtc)
+      .andWhere('assist_punch_time_utc', '<=', endUtc)
+      .groupBy('assist_origin')
+      .select('assist_origin as origin')
+      .count('* as cantidad')
+
+    return toCanales(rows as AssistOriginCountRow[])
   }
 }

@@ -14,16 +14,19 @@ import Holiday from '#models/holiday'
 import ExceptionType from '#models/exception_type'
 import ShiftException from '#models/shift_exception'
 import { createTenantTrialFixture } from './helpers/platform_trial_fixture.js'
+import { ASSIST_ORIGIN } from '#constants/assist_origin'
 
 /**
  * USRH1789079078171 — contrato de `GET /api/platform/metrics/tenants/:publicId/trial/usage`.
+ * USRH1789079078172 — el bloque `canales` de la misma respuesta.
  *
  * Las reglas puras (traducción del motor, `sin-base` nunca `0`, mapeo del
- * fallo) se prueban en `tests/unit/services/platform_trial_frequency.spec.ts`
- * con un `OverviewResponse` de fixture. Aquí se prueba lo que solo la base de
- * datos real y el transporte pueden romper: el motor corriendo de verdad
- * sobre datos sembrados, el aislamiento entre dos tenants (F13) y el borde
- * de cancelación (RB-9).
+ * fallo, traducción de `assist_origin`, borde DST-aware) se prueban en
+ * `tests/unit/services/platform_trial_frequency.spec.ts` y
+ * `tests/unit/services/platform_trial_channels.spec.ts` con fixtures, sin
+ * BD. Aquí se prueba lo que solo la base de datos real y el transporte
+ * pueden romper: el motor corriendo de verdad sobre datos sembrados, el
+ * aislamiento entre dos tenants (F13 / RN-8) y el borde de cancelación (RB-9).
  *
  * **Disciplina de aserción (obligatoria, §5 del spec).** La suite funcional
  * no trunca ni transacciona entre pruebas (`tests/bootstrap.ts`): ningún
@@ -39,9 +42,19 @@ const TEST_PASSWORD = 'TrialUsageMetricsTest123!'
 const BASE_URL = '/api/platform/metrics/tenants'
 
 /** Llaves exactas del payload. Lista cerrada: si alguien agrega un campo, este test lo detiene. */
-const EXPECTED_DATA_KEYS = ['tenant', 'ventana', 'frecuencia', 'serie']
+const EXPECTED_DATA_KEYS = ['tenant', 'ventana', 'frecuencia', 'serie', 'canales']
 const EXPECTED_FRECUENCIA_KEYS = ['estado', 'porcentaje', 'registros', 'empleadoDiasEvaluables', 'empleadosEvaluados']
 const EXPECTED_SERIE_DIA_KEYS = [...EXPECTED_FRECUENCIA_KEYS, 'dia']
+/** Llaves exactas del desglose por canal (USRH1789079078172). Seis canales + total. */
+const EXPECTED_CANALES_KEYS = [
+  'autoservicio',
+  'capturaAdministrador',
+  'sincronizacion',
+  'manualLegado',
+  'dispositivo',
+  'checadorAdms',
+  'total',
+]
 
 interface TestActor {
   user: User
@@ -294,6 +307,9 @@ test.group('GET /trial/usage — contrato y transporte (USRH1789079078171)', (gr
       assert.isNull(body.data.ventana)
       assert.isNull(body.data.frecuencia)
       assert.deepEqual(body.data.serie, [])
+      // RN-7 (078172): tenant sin prueba → ausencia explícita, NUNCA un
+      // desglose en ceros que se leería como "prueba sin uso".
+      assert.isNull(body.data.canales)
     } finally {
       await fixture.cleanup()
     }
@@ -846,6 +862,331 @@ test.group('GET /trial/usage — contrato y transporte (USRH1789079078171)', (gr
       assert.equal(data.frecuencia.estado, 'con-base')
     } finally {
       await cleanupBu(tenant.businessUnitId)
+      await fixture.cleanup()
+    }
+  })
+})
+
+/**
+ * `assist_origin = NULL` — checadas de la demo del recorrido guiado o
+ * históricos previos a USRH1787157820192 (RN-3): no entran a ningún canal ni
+ * al total. `createAssistRow` no admite `null` en su firma (`origin: string`);
+ * se crea con un origen cualquiera y se limpia la columna a mano.
+ */
+async function createAssistRowWithoutOrigin(
+  businessUnitId: number,
+  employee: Employee,
+  punchTime: DateTime
+): Promise<void> {
+  const assist = await createAssistRow(businessUnitId, employee, punchTime, ASSIST_ORIGIN.MANUAL)
+  await db.from('assists').where('assist_id', assist.assistId).update({ assist_origin: null })
+}
+
+test.group('GET /trial/usage — desglose por canal `canales` (USRH1789079078172)', (group) => {
+  let admin: TestActor | null = null
+
+  group.setup(async () => {
+    admin = await createActor('usage-channels-admin', true)
+  })
+
+  group.teardown(async () => {
+    await cleanupActor(admin)
+  })
+
+  test('CA-1 · varias vías: los seis canales traen su conteo y el total es la suma exacta', async ({
+    client,
+    assert,
+  }) => {
+    const fixture = await createTenantTrialFixture([
+      { tag: 'canal01', trialDays: 3, subscribedAtOverride: '2021-06-01', trialEndsAtOverride: '2021-06-03' },
+    ])
+    const tenant = fixture.tenants[0]!
+    try {
+      const employee = await seedEmployeeWithShift(tenant.businessUnitId, 'canal01')
+      await createAssistRow(
+        tenant.businessUnitId,
+        employee,
+        DateTime.fromISO('2021-06-01T13:00:00', { zone: 'utc' }),
+        ASSIST_ORIGIN.SELF_SERVICE
+      )
+      await createAssistRow(
+        tenant.businessUnitId,
+        employee,
+        DateTime.fromISO('2021-06-01T21:00:00', { zone: 'utc' }),
+        ASSIST_ORIGIN.SELF_SERVICE
+      )
+      await createAssistRow(
+        tenant.businessUnitId,
+        employee,
+        DateTime.fromISO('2021-06-02T13:00:00', { zone: 'utc' }),
+        ASSIST_ORIGIN.ADMIN_CAPTURE
+      )
+      await createAssistRow(
+        tenant.businessUnitId,
+        employee,
+        DateTime.fromISO('2021-06-02T21:00:00', { zone: 'utc' }),
+        ASSIST_ORIGIN.SYNC
+      )
+      await createAssistRow(
+        tenant.businessUnitId,
+        employee,
+        DateTime.fromISO('2021-06-03T13:00:00', { zone: 'utc' }),
+        ASSIST_ORIGIN.MANUAL
+      )
+      await createAssistRow(
+        tenant.businessUnitId,
+        employee,
+        DateTime.fromISO('2021-06-03T21:00:00', { zone: 'utc' }),
+        ASSIST_ORIGIN.ADMS
+      )
+
+      const response = await client
+        .get(`${BASE_URL}/${tenant.businessUnitPublicId}/trial/usage`)
+        .loginAs(admin!.user)
+
+      response.assertStatus(200)
+      const data = response.body().data
+      assert.deepEqual(Object.keys(data.canales).sort(), EXPECTED_CANALES_KEYS.sort())
+      assert.equal(data.canales.autoservicio, 2)
+      assert.equal(data.canales.capturaAdministrador, 1)
+      assert.equal(data.canales.sincronizacion, 1)
+      assert.equal(data.canales.manualLegado, 1)
+      assert.equal(data.canales.checadorAdms, 1)
+      // RN-5 declarado: "dispositivo" está reservado, hoy nunca tiene checadas.
+      assert.equal(data.canales.dispositivo, 0)
+      // RN-4: el total es la suma exacta de los seis.
+      assert.equal(
+        data.canales.total,
+        data.canales.autoservicio +
+          data.canales.capturaAdministrador +
+          data.canales.sincronizacion +
+          data.canales.manualLegado +
+          data.canales.dispositivo +
+          data.canales.checadorAdms
+      )
+    } finally {
+      await cleanupBu(tenant.businessUnitId)
+      await fixture.cleanup()
+    }
+  })
+
+  test('CA-2 · todo lo capturó el administrador: ese canal trae todas, los otros cinco en cero', async ({
+    client,
+    assert,
+  }) => {
+    // El caso que le da valor al ticket: una empresa que "parece sana" en
+    // frecuencia pero no adoptó la forma de registrar — se ve solo en canales.
+    const fixture = await createTenantTrialFixture([
+      { tag: 'canal02', trialDays: 3, subscribedAtOverride: '2021-06-10', trialEndsAtOverride: '2021-06-12' },
+    ])
+    const tenant = fixture.tenants[0]!
+    try {
+      const employee = await seedEmployeeWithShift(tenant.businessUnitId, 'canal02')
+      for (const day of ['2021-06-10', '2021-06-11', '2021-06-12']) {
+        await seedOnTimeDay(tenant.businessUnitId, employee, day, ASSIST_ORIGIN.ADMIN_CAPTURE)
+      }
+
+      const response = await client
+        .get(`${BASE_URL}/${tenant.businessUnitPublicId}/trial/usage`)
+        .loginAs(admin!.user)
+
+      response.assertStatus(200)
+      const data = response.body().data
+      assert.isAbove(data.canales.capturaAdministrador, 0)
+      assert.equal(data.canales.total, data.canales.capturaAdministrador)
+      assert.equal(data.canales.autoservicio, 0)
+      assert.equal(data.canales.sincronizacion, 0)
+      assert.equal(data.canales.manualLegado, 0)
+      assert.equal(data.canales.dispositivo, 0)
+      assert.equal(data.canales.checadorAdms, 0)
+      // RN-6: el canal no tiene por qué cuadrar con la frecuencia — no se
+      // exige ninguna relación entre `canales.total` y `frecuencia.registros`.
+    } finally {
+      await cleanupBu(tenant.businessUnitId)
+      await fixture.cleanup()
+    }
+  })
+
+  test('CA-3 · prueba viva sin checadas todavía: los seis canales y el total salen en cero, sin error', async ({
+    client,
+    assert,
+  }) => {
+    const fixture = await createTenantTrialFixture([{ tag: 'canal03', trialDays: 5 }])
+    const tenant = fixture.tenants[0]!
+    try {
+      await seedEmployeeWithShift(tenant.businessUnitId, 'canal03')
+
+      const response = await client
+        .get(`${BASE_URL}/${tenant.businessUnitPublicId}/trial/usage`)
+        .loginAs(admin!.user)
+
+      response.assertStatus(200)
+      const data = response.body().data
+      assert.deepEqual(Object.keys(data.canales).sort(), EXPECTED_CANALES_KEYS.sort())
+      for (const campo of EXPECTED_CANALES_KEYS) {
+        assert.equal(data.canales[campo], 0, `canal "${campo}" debía salir en 0, no ausente ni error`)
+      }
+    } finally {
+      await cleanupBu(tenant.businessUnitId)
+      await fixture.cleanup()
+    }
+  })
+
+  test('CA-4 · prueba terminada: solo cuentan las checadas de su ventana, ni antes del inicio ni después del fin', async ({
+    client,
+    assert,
+  }) => {
+    const fixture = await createTenantTrialFixture([
+      { tag: 'canal04', trialDays: 3, subscribedAtOverride: '2021-07-01', trialEndsAtOverride: '2021-07-03' },
+    ])
+    const tenant = fixture.tenants[0]!
+    try {
+      const employee = await seedEmployeeWithShift(tenant.businessUnitId, 'canal04')
+      // Dentro de la ventana [2021-07-01, 2021-07-03].
+      await createAssistRow(
+        tenant.businessUnitId,
+        employee,
+        DateTime.fromISO('2021-07-02T15:00:00', { zone: 'utc' }),
+        ASSIST_ORIGIN.SELF_SERVICE
+      )
+      // Antes del inicio de la ventana.
+      await createAssistRow(
+        tenant.businessUnitId,
+        employee,
+        DateTime.fromISO('2021-06-28T15:00:00', { zone: 'utc' }),
+        ASSIST_ORIGIN.SELF_SERVICE
+      )
+      // Después del fin de la ventana.
+      await createAssistRow(
+        tenant.businessUnitId,
+        employee,
+        DateTime.fromISO('2021-07-10T15:00:00', { zone: 'utc' }),
+        ASSIST_ORIGIN.SELF_SERVICE
+      )
+
+      const response = await client
+        .get(`${BASE_URL}/${tenant.businessUnitPublicId}/trial/usage`)
+        .loginAs(admin!.user)
+
+      response.assertStatus(200)
+      const data = response.body().data
+      // Exactamente una checada cuenta — la de dentro de la ventana. Las de
+      // fuera (antes/después) están fuera del corte por construcción.
+      assert.equal(data.canales.autoservicio, 1)
+      assert.equal(data.canales.total, 1)
+    } finally {
+      await cleanupBu(tenant.businessUnitId)
+      await fixture.cleanup()
+    }
+  })
+
+  test('RN-3 · checadas sin canal (demo del recorrido guiado) no se suman a ningún canal ni al total', async ({
+    client,
+    assert,
+  }) => {
+    const fixture = await createTenantTrialFixture([
+      { tag: 'canal05', trialDays: 3, subscribedAtOverride: '2021-07-15', trialEndsAtOverride: '2021-07-17' },
+    ])
+    const tenant = fixture.tenants[0]!
+    try {
+      const employee = await seedEmployeeWithShift(tenant.businessUnitId, 'canal05')
+      await createAssistRowWithoutOrigin(
+        tenant.businessUnitId,
+        employee,
+        DateTime.fromISO('2021-07-16T15:00:00', { zone: 'utc' })
+      )
+      // Una checada CON canal, para comprobar que la ausencia de canal no
+      // rompe el conteo de las demás.
+      await createAssistRow(
+        tenant.businessUnitId,
+        employee,
+        DateTime.fromISO('2021-07-16T21:00:00', { zone: 'utc' }),
+        ASSIST_ORIGIN.SELF_SERVICE
+      )
+
+      const response = await client
+        .get(`${BASE_URL}/${tenant.businessUnitPublicId}/trial/usage`)
+        .loginAs(admin!.user)
+
+      response.assertStatus(200)
+      const data = response.body().data
+      assert.equal(data.canales.autoservicio, 1)
+      // El total NUNCA cuenta la checada sin canal: 1, no 2.
+      assert.equal(data.canales.total, 1)
+    } finally {
+      await cleanupBu(tenant.businessUnitId)
+      await fixture.cleanup()
+    }
+  })
+
+  test('RN-8 · aislamiento entre empresas: el desglose de una NUNCA incluye checadas de otra', async ({
+    client,
+    assert,
+  }) => {
+    // El propio ticket es explícito: "solo se detecta con dos empresas
+    // sembradas" — un `GROUP BY assist_origin` sin `WHERE business_unit_id`
+    // da un total plausible que no se ve mal y esconde la fuga.
+    const fixture = await createTenantTrialFixture([
+      { tag: 'canal06-a', trialDays: 3, subscribedAtOverride: '2021-08-01', trialEndsAtOverride: '2021-08-03' },
+    ])
+    const tenantA = fixture.tenants[0]!
+    try {
+      const employeeA = await seedEmployeeWithShift(tenantA.businessUnitId, 'canal06-a')
+      await createAssistRow(
+        tenantA.businessUnitId,
+        employeeA,
+        DateTime.fromISO('2021-08-02T15:00:00', { zone: 'utc' }),
+        ASSIST_ORIGIN.SELF_SERVICE
+      )
+
+      const antes = await client
+        .get(`${BASE_URL}/${tenantA.businessUnitPublicId}/trial/usage`)
+        .loginAs(admin!.user)
+      antes.assertStatus(200)
+      const dataAntes = antes.body().data
+
+      const fixtureB = await createTenantTrialFixture([
+        { tag: 'canal06-b', trialDays: 3, subscribedAtOverride: '2021-08-01', trialEndsAtOverride: '2021-08-03' },
+      ])
+      const tenantB = fixtureB.tenants[0]!
+      try {
+        const employeeB = await seedEmployeeWithShift(tenantB.businessUnitId, 'canal06-b')
+        // Muchas más checadas en B, mismo canal, MISMA ventana civil que A.
+        await createAssistRow(
+          tenantB.businessUnitId,
+          employeeB,
+          DateTime.fromISO('2021-08-02T14:00:00', { zone: 'utc' }),
+          ASSIST_ORIGIN.SELF_SERVICE
+        )
+        await createAssistRow(
+          tenantB.businessUnitId,
+          employeeB,
+          DateTime.fromISO('2021-08-02T15:30:00', { zone: 'utc' }),
+          ASSIST_ORIGIN.SELF_SERVICE
+        )
+        await createAssistRow(
+          tenantB.businessUnitId,
+          employeeB,
+          DateTime.fromISO('2021-08-02T16:30:00', { zone: 'utc' }),
+          ASSIST_ORIGIN.SELF_SERVICE
+        )
+
+        const despues = await client
+          .get(`${BASE_URL}/${tenantA.businessUnitPublicId}/trial/usage`)
+          .loginAs(admin!.user)
+        despues.assertStatus(200)
+        const dataDespues = despues.body().data
+
+        // Delta CERO en A: sembrar B no le suma ni una checada.
+        assert.deepEqual(dataDespues.canales, dataAntes.canales)
+        assert.equal(dataDespues.canales.autoservicio, 1)
+        assert.equal(dataDespues.canales.total, 1)
+      } finally {
+        await cleanupBu(tenantB.businessUnitId)
+        await fixtureB.cleanup()
+      }
+    } finally {
+      await cleanupBu(tenantA.businessUnitId)
       await fixture.cleanup()
     }
   })

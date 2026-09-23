@@ -5,13 +5,20 @@ import { resolvePlatformMetricApiError } from '../helpers/platform_metric_api_er
 
 /**
  * Frecuencia de registro de la prueba de un tenant, con su serie diaria
- * (USRH1789079078171).
+ * (USRH1789079078171), y el desglose por canal de sus checadas
+ * (USRH1789079078172).
  *
  * Consulta de plataforma, sin pantalla: corre el mismo motor que el propio
  * cliente ve en su monitor de asistencia sobre el tramo medido de su prueba,
  * y distingue sin ambigüedad **sin base** (no hay a quién medir), **0 %**
  * (había a quién medir y nadie registró) y **fallo del cálculo** (500
  * dedicado, nunca un número bajo).
+ *
+ * `canales` es un conteo aparte, NO una lectura del motor: agrupa las
+ * checadas por `assist_origin` (seis canales cerrados, siempre presentes) sin
+ * mirar si el día fue evaluable. Por eso su total nunca tiene por qué
+ * cuadrar con `frecuencia.registros` — son unidades distintas (checadas vs.
+ * empleado-días).
  */
 export default class PlatformTrialUsageController {
   /**
@@ -41,6 +48,16 @@ export default class PlatformTrialUsageController {
    *       (L-2); un tenant con toda su plantilla marcada como no sujeta a
    *       asistencia sale `sin-base` aunque tenga gente (L-3).
    *
+   *       `canales` trae siempre los seis canales cerrados (autoservicio,
+   *       captura del administrador, sincronización, manual legado,
+   *       dispositivo —reservado, hoy siempre en 0— y checador ADMS) más un
+   *       total. En 0 cuando esa vía no se usó; `null` cuando el tenant nunca
+   *       tuvo prueba (nunca un desglose en ceros disfrazando "sin prueba").
+   *       Checadas sin canal (histórico previo o demo del recorrido guiado)
+   *       no entran a ningún canal ni al total. La app del empleado y la
+   *       tableta en modo kiosco no se distinguen entre sí: ambas caen en
+   *       `autoservicio`.
+   *
    *       Requiere sesión válida y `is_platform_admin = 1`.
    *     security:
    *       - bearerAuth: []
@@ -66,7 +83,7 @@ export default class PlatformTrialUsageController {
    * @tag Platform · Prueba de tenants
    * @operationId getPlatformTenantTrialUsage
    * @security [{"bearerAuth": []}]
-   * @responseBody 200 - {"type": "success", "data": {"tenant": {"publicId": "3f2b…", "nombre": "Aceros del Norte"}, "ventana": {"inicio": "2026-09-01", "fin": "2026-09-05"}, "frecuencia": {"estado": "con-base", "porcentaje": 71.4, "registros": 15, "empleadoDiasEvaluables": 21, "empleadosEvaluados": 3}, "serie": [{"dia": "2026-09-01", "estado": "sin-base", "porcentaje": null, "registros": 0, "empleadoDiasEvaluables": 0, "empleadosEvaluados": 0}, {"dia": "2026-09-02", "estado": "con-base", "porcentaje": 66.7, "registros": 2, "empleadoDiasEvaluables": 3, "empleadosEvaluados": 3}]}}
+   * @responseBody 200 - {"type": "success", "data": {"tenant": {"publicId": "3f2b…", "nombre": "Aceros del Norte"}, "ventana": {"inicio": "2026-09-01", "fin": "2026-09-05"}, "frecuencia": {"estado": "con-base", "porcentaje": 71.4, "registros": 15, "empleadoDiasEvaluables": 21, "empleadosEvaluados": 3}, "serie": [{"dia": "2026-09-01", "estado": "sin-base", "porcentaje": null, "registros": 0, "empleadoDiasEvaluables": 0, "empleadosEvaluados": 0}, {"dia": "2026-09-02", "estado": "con-base", "porcentaje": 66.7, "registros": 2, "empleadoDiasEvaluables": 3, "empleadosEvaluados": 3}], "canales": {"autoservicio": 2, "capturaAdministrador": 13, "sincronizacion": 0, "manualLegado": 0, "dispositivo": 0, "checadorAdms": 0, "total": 15}}}
    * @responseBody 404 - {"title": "No fue posible obtener el uso de la prueba", "detail": "La empresa solicitada no existe o no está disponible.", "key": "tenant-no-encontrado", "code": "PLT.MET.TENANT_NOT_FOUND"}
    * @responseBody 403 - {"title": "string", "detail": "string", "key": "AUTH.PLATFORM.FORBIDDEN"}
    * @responseBody 500 - {"title": "No fue posible obtener el uso de la prueba", "detail": "No fue posible calcular el uso de la prueba en este momento.", "key": "no-fue-posible-obtener-el-uso-de-la-prueba", "code": "PLT.MET.USAGE_UNAVAILABLE"}
