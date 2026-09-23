@@ -13,6 +13,8 @@ export interface DeviceBindingInput {
   employeeDeviceType: string
   employeeDeviceOs: string
   employeeId: number
+  /** Empresa del colaborador: el celular se amarra dentro de ella. */
+  businessUnitId: number
 }
 
 /**
@@ -40,7 +42,7 @@ export default class EmployeeDeviceService {
     this.t = i18n.formatMessage.bind(i18n)
   }
   async create(
-    employeeDevice: Pick<EmployeeDevice, keyof DeviceBindingInput>,
+    employeeDevice: Pick<EmployeeDevice, Exclude<keyof DeviceBindingInput, 'businessUnitId'>>,
     trx?: TransactionClientContract
   ) {
     const newEmployeeDevice = new EmployeeDevice()
@@ -82,15 +84,17 @@ export default class EmployeeDeviceService {
   /**
    * Amarra el celular al colaborador que acaba de iniciar sesión en la app.
    *
-   * Un celular pertenece al último colaborador que entró en él. Si era de otro,
-   * su registro se da de baja con `delete` (que conserva el token original como
-   * prefijo) y se crea uno nuevo para quien entra: ese historial es el rastro
-   * con el que RH detecta celulares que rotan entre personas. Solo debe
-   * llamarse después de validar la contraseña.
+   * Dentro de una empresa, un celular pertenece al último colaborador que entró
+   * en él. Si era de otro, su registro se da de baja con `delete` (que conserva
+   * el token original como prefijo) y se crea uno nuevo para quien entra: ese
+   * historial es el rastro con el que RH detecta celulares que rotan entre
+   * personas. En otra empresa el mismo celular tiene su propio registro y no se
+   * toca. Solo debe llamarse después de validar la contraseña.
    */
   async bindToEmployee(input: DeviceBindingInput): Promise<DeviceBindingResult> {
     const current = await EmployeeDevice.query()
       .where('employee_device_token', input.employeeDeviceToken)
+      .where('business_unit_id', input.businessUnitId)
       .first()
 
     if (current && current.employeeId === input.employeeId) {

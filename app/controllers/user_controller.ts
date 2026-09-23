@@ -356,6 +356,7 @@ export default class UserController {
           employeeDeviceType: request.input('deviceType') || 'Unknown',
           employeeDeviceOs: request.input('deviceOs') || 'Unknown',
           employeeId: currentEmployee.employeeId,
+          businessUnitId: currentEmployee.businessUnitId,
         })
 
         if (binding.status === 'inactive') {

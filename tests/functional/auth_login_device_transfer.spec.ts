@@ -16,9 +16,10 @@ import {
  * Login de la app con celular (`deviceOrigin: 'app'` + `deviceToken`).
  *
  * - El celular solo se amarra con la contraseña ya validada.
- * - Un celular de otro colaborador se transfiere a quien entra y la sesión de
- *   la app del dueño anterior se cierra si ese era su equipo más reciente.
- * - La sesión del backoffice de ese colaborador no se toca.
+ * - Dentro de una empresa, un celular de otro colaborador se transfiere a quien
+ *   entra y la sesión de la app del dueño anterior se cierra si ese era su
+ *   equipo más reciente. La sesión del backoffice de ese colaborador no se toca.
+ * - En otra empresa el mismo celular se registra aparte y no afecta a nadie.
  */
 
 const PASSWORD = 'DeviceTransfer123!'
@@ -51,6 +52,14 @@ async function cleanupAppUser(appUser: AppUser | null): Promise<void> {
   await cleanupTenantActor(actor)
 }
 
+/** Muda al colaborador a la empresa de otro: su fixture conserva la propia para limpiarla. */
+async function moveToBusinessUnitOf(appUser: AppUser, target: AppUser): Promise<void> {
+  await db
+    .from('employees')
+    .where('employee_id', appUser.employee.employee.employeeId)
+    .update({ business_unit_id: target.employee.businessUnitId })
+}
+
 async function countTokens(userId: number, origin: 'app' | 'web'): Promise<number> {
   const rows = await db
     .from('api_tokens')
@@ -79,8 +88,15 @@ test.group('Login app — celular transferible entre colaboradores', (group) => 
   })
 
   group.each.teardown(async () => {
-    await cleanupAppUser(owner)
+    // Los celulares salen primero: tras mudar a un colaborador, el suyo cuelga
+    // de la empresa del otro y bloquearía borrarla.
+    const employeeIds = [owner, other]
+      .filter((appUser): appUser is AppUser => appUser !== null)
+      .map((appUser) => appUser.employee.employee.employeeId)
+    await db.from('employee_devices').whereIn('employee_id', employeeIds).delete()
+    // `other` primero: mudado, su empleado cuelga de la empresa de `owner`.
     await cleanupAppUser(other)
+    await cleanupAppUser(owner)
     owner = null
     other = null
   })
@@ -107,6 +123,7 @@ test.group('Login app — celular transferible entre colaboradores', (group) => 
     client,
     assert,
   }) => {
+    await moveToBusinessUnitOf(other!, owner!)
     const deviceToken = uniqueToken()
     const ownerLogin = await login(client, owner!, deviceToken)
     ownerLogin.assertStatus(200)
@@ -124,6 +141,7 @@ test.group('Login app — celular transferible entre colaboradores', (group) => 
     client,
     assert,
   }) => {
+    await moveToBusinessUnitOf(other!, owner!)
     const deviceToken = uniqueToken()
     const ownerLogin = await login(client, owner!, deviceToken)
     ownerLogin.assertStatus(200)
@@ -141,5 +159,24 @@ test.group('Login app — celular transferible entre colaboradores', (group) => 
     otherLogin.assertStatus(200)
 
     assert.equal(await countTokens(owner!.actor.user.userId, 'web'), 1)
+  })
+
+  test('en otra empresa el mismo celular se registra aparte y nadie pierde su sesión', async ({
+    client,
+    assert,
+  }) => {
+    const deviceToken = uniqueToken()
+    const ownerLogin = await login(client, owner!, deviceToken)
+    ownerLogin.assertStatus(200)
+
+    const otherLogin = await login(client, other!, deviceToken)
+
+    otherLogin.assertStatus(200)
+    assert.equal(await countTokens(owner!.actor.user.userId, 'app'), 2)
+    const devices = await db
+      .from('employee_devices')
+      .where('employee_device_token', deviceToken)
+      .whereNull('employee_device_deleted_at')
+    assert.lengthOf(devices, 2)
   })
 })

@@ -21,19 +21,36 @@ import {
 
 const service = () => new EmployeeDeviceService(i18nManager.locale(i18nManager.defaultLocale))
 
-const deviceInput = (token: string, employeeId: number) => ({
+const deviceInput = (
+  token: string,
+  fixture: EmployeeFixture,
+  businessUnitId: number = fixture.businessUnitId
+) => ({
   employeeDeviceToken: token,
   employeeDeviceModel: 'Modelo',
   employeeDeviceBrand: 'Marca',
   employeeDeviceType: 'phone',
   employeeDeviceOs: 'ios',
-  employeeId,
+  employeeId: fixture.employee.employeeId,
+  businessUnitId,
 })
+
+/**
+ * Pasa al colaborador a la empresa de otro fixture. Solo cambia la empresa del
+ * registro: el fixture conserva la suya para que la limpieza borre su propio
+ * organigrama.
+ */
+async function moveToBusinessUnitOf(fixture: EmployeeFixture, target: EmployeeFixture) {
+  await db
+    .from('employees')
+    .where('employee_id', fixture.employee.employeeId)
+    .update({ business_unit_id: target.businessUnitId })
+}
 
 const uniqueToken = () => `spec-device-${Date.now()}-${Math.floor(Math.random() * 100_000)}`
 
 test.group('EmployeeDeviceService.bindToEmployee', (group) => {
-  // Cada colaborador en su propia empresa: el celular también cambia de manos entre tenants.
+  // Cada colaborador nace en su propia empresa; los casos de la misma empresa lo mudan.
   let ownerActor: TenantActor | null = null
   let otherActor: TenantActor | null = null
   let owner: EmployeeFixture | null = null
@@ -63,7 +80,7 @@ test.group('EmployeeDeviceService.bindToEmployee', (group) => {
 
   test('un celular nuevo queda a nombre de quien inicia sesión', async ({ assert }) => {
     const token = uniqueToken()
-    const result = await service().bindToEmployee(deviceInput(token, owner!.employee.employeeId))
+    const result = await service().bindToEmployee(deviceInput(token, owner!))
 
     assert.equal(result.status, 'bound')
     const device = await EmployeeDevice.query().where('employee_device_token', token).firstOrFail()
@@ -72,8 +89,8 @@ test.group('EmployeeDeviceService.bindToEmployee', (group) => {
 
   test('el mismo colaborador en su propio celular no crea otro registro', async ({ assert }) => {
     const token = uniqueToken()
-    await service().bindToEmployee(deviceInput(token, owner!.employee.employeeId))
-    const result = await service().bindToEmployee(deviceInput(token, owner!.employee.employeeId))
+    await service().bindToEmployee(deviceInput(token, owner!))
+    const result = await service().bindToEmployee(deviceInput(token, owner!))
 
     assert.equal(result.status, 'bound')
     const rows = await db
@@ -84,9 +101,12 @@ test.group('EmployeeDeviceService.bindToEmployee', (group) => {
   })
 
   test('un celular ajeno se transfiere y deja rastro del dueño anterior', async ({ assert }) => {
+    await moveToBusinessUnitOf(other!, owner!)
     const token = uniqueToken()
-    await service().bindToEmployee(deviceInput(token, owner!.employee.employeeId))
-    const result = await service().bindToEmployee(deviceInput(token, other!.employee.employeeId))
+    await service().bindToEmployee(deviceInput(token, owner!))
+    const result = await service().bindToEmployee(
+      deviceInput(token, other!, owner!.businessUnitId)
+    )
 
     assert.equal(result.status, 'transferred')
     if (result.status !== 'transferred') return
@@ -108,28 +128,51 @@ test.group('EmployeeDeviceService.bindToEmployee', (group) => {
   test('si el dueño anterior ya usa otro celular, su sesión no se considera en ese equipo', async ({
     assert,
   }) => {
+    await moveToBusinessUnitOf(other!, owner!)
     const shared = uniqueToken()
-    await service().bindToEmployee(deviceInput(shared, owner!.employee.employeeId))
+    await service().bindToEmployee(deviceInput(shared, owner!))
     // Llega después a su celular nuevo: ese es ahora su equipo más reciente.
     await new Promise((resolve) => setTimeout(resolve, 1100))
-    await service().bindToEmployee(deviceInput(uniqueToken(), owner!.employee.employeeId))
+    await service().bindToEmployee(deviceInput(uniqueToken(), owner!))
 
-    const result = await service().bindToEmployee(deviceInput(shared, other!.employee.employeeId))
+    const result = await service().bindToEmployee(
+      deviceInput(shared, other!, owner!.businessUnitId)
+    )
 
     assert.equal(result.status, 'transferred')
     if (result.status !== 'transferred') return
     assert.isFalse(result.previousOwnerUsedItLast)
   })
 
+  test('un celular de otra empresa se registra aparte y no toca al otro tenant', async ({
+    assert,
+  }) => {
+    const token = uniqueToken()
+    await service().bindToEmployee(deviceInput(token, owner!))
+
+    const result = await service().bindToEmployee(deviceInput(token, other!))
+
+    assert.equal(result.status, 'bound')
+    const rows = await db
+      .from('employee_devices')
+      .where('employee_device_token', token)
+      .whereNull('employee_device_deleted_at')
+      .orderBy('employee_id')
+    assert.deepEqual(
+      rows.map((row) => row.employee_id).sort(),
+      [owner!.employee.employeeId, other!.employee.employeeId].sort()
+    )
+  })
+
   test('un celular desactivado para el mismo colaborador sigue bloqueado', async ({ assert }) => {
     const token = uniqueToken()
-    await service().bindToEmployee(deviceInput(token, owner!.employee.employeeId))
+    await service().bindToEmployee(deviceInput(token, owner!))
     await db
       .from('employee_devices')
       .where('employee_device_token', token)
       .update({ employee_device_active: 0 })
 
-    const result = await service().bindToEmployee(deviceInput(token, owner!.employee.employeeId))
+    const result = await service().bindToEmployee(deviceInput(token, owner!))
 
     assert.equal(result.status, 'inactive')
   })
