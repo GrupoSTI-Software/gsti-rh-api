@@ -6,6 +6,8 @@ import EmployeeSupplie from '#models/employee_supplie'
 import ExcelJS from 'exceljs'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 import { DateTime } from 'luxon'
+import { getBusinessTimeZone } from '#utils/business_date'
+import { REPORT_LOCALE } from '#helpers/report_locale'
 
 /**
  * Textos del reporte de activos. El reporte sale siempre en español, sin
@@ -49,9 +51,6 @@ const ASSIGNMENT_STATUS_LABEL: Record<string, string> = {
 }
 
 const REPORT_DATE_FORMAT = 'dd/MM/yyyy'
-
-/** Zona para el respaldo de fecha de alta (TIMESTAMP en UTC). */
-const REPORT_TIME_ZONE = 'America/Mexico_City'
 
 /**
  * Fecha de calendario de una columna DATE: la conexión está en UTC, así que
@@ -310,7 +309,7 @@ export default class SupplieService {
       worksheet.mergeCells('A1:M1')
 
       // Fila 2: fecha de generación en texto secundario
-      const currentDate = DateTime.now().setLocale('es').toFormat("d 'de' LLLL 'de' yyyy")
+      const currentDate = DateTime.now().setLocale(REPORT_LOCALE).toFormat("d 'de' LLLL 'de' yyyy")
       const periodRow = worksheet.addRow([`${REPORT_TEXT.generatedOn} ${currentDate}`])
       periodRow.font = { size: 15, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
@@ -470,7 +469,7 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
             assignment.employeeSupplyAssignamentDate
               ? calendarDate(assignment.employeeSupplyAssignamentDate)
               : (assignment.employeeSupplyCreatedAt
-                  ?.setZone(REPORT_TIME_ZONE)
+                  ?.setZone(getBusinessTimeZone())
                   .toFormat(REPORT_DATE_FORMAT) ?? ''),
             calendarDate(assignment.employeeSupplyExpirationDate),
             calendarDate(assignment.employeeSupplyRetirementDate),
