@@ -12,6 +12,7 @@ import {
   REPORT_DATE_FORMAT,
   REPORT_LOCALE,
 } from '#helpers/report_locale'
+import { frozenHeaderViews } from '#helpers/report_sheet_views'
 
 /**
  * Textos del reporte de activos. El reporte sale siempre en español, sin
@@ -370,18 +371,7 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
   const widths = [15, 40, 25, 15, 15, 45, 30, 30, 20, 25, 25, 25, 40]
   widths.forEach((w, i) => (worksheet.getColumn(i + 1).width = w))
 
-  // La celda superior izquierda del panel desplazable va debajo de lo
-  // congelado: con 'A1' (dentro de las filas fijas) Excel da el libro por
-  // dañado y ofrece repararlo al abrirlo.
-  const firstScrollableCell = `A${headerRow.number + 1}`
-  worksheet.views = [
-    {
-      state: 'frozen',
-      ySplit: headerRow.number,
-      topLeftCell: firstScrollableCell,
-      activeCell: firstScrollableCell,
-    },
-  ]
+  worksheet.views = frozenHeaderViews(headerRow.number)
 }
 
 

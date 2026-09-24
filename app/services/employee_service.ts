@@ -6849,10 +6849,10 @@ export default class EmployeeService {
     const PERMISSION_SLUGS = new Set(['absence-from-work', 'late-arrival', 'rest-day', 'nuevo-ingreso'])
 
     // Fondo gris claro solo para las columnas de información del empleado (Departamento, Puesto, Nómina, Nombre)
-    const EMPLOYEE_INFO_BG = 'f2f2f2'
+    const EMPLOYEE_INFO_BG = 'FFF2F2F2'
 
     // Días/horas futuros: texto "próximo" con fondo y texto gris claro (considera hora de inicio del turno)
-    const PROXIMO_BG = 'FFFFFF'
+    const PROXIMO_BG = 'FFFFFFFF'
     const PROXIMO_TEXT_COLOR = 'FF808080'
 
     // Función para obtener color según estado de asistencia (gama de la imagen: verde, naranja, azul claro, rojo claro)
@@ -6869,11 +6869,11 @@ export default class EmployeeService {
         case 'ontime':
           return 'FFC6EFCE' // Verde claro
         case 'tolerance':
-          return 'b7d8fa' // Azul claro
+          return 'FFB7D8FA' // Azul claro
         case 'delay':
           return 'FFFFC000' // Naranja
         case 'fault':
-          return 'ffaaa3' // Rojo claro
+          return 'FFFFAAA3' // Rojo claro
         case 'exception':
           return 'FFFFFFFF'
         default:

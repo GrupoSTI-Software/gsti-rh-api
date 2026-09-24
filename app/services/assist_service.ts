@@ -60,6 +60,7 @@ import {
   REPORT_DATE_FORMAT,
   REPORT_LOCALE,
 } from '#helpers/report_locale'
+import { frozenHeaderViews } from '#helpers/report_sheet_views'
 
 /**
  * Defaults de tolerancia cuando no hay empresa en contexto o la empresa no tiene
@@ -74,15 +75,6 @@ const REPORT_DATE_TIME_FORMAT = 'dd/MM/yyyy HH:mm:ss'
 
 /** Celda sin dato en los archivos descargables. */
 const REPORT_NO_DATA = '—'
-
-/**
- * Una sola vista con las filas `1..headerRow` congeladas. ExcelJS escribe un
- * `<sheetView>` por cada entrada de `views` y Excel solo aplica la primera:
- * con varias entradas se congelaba la fila 1, no el encabezado.
- */
-function frozenHeaderViews(headerRow: number): Array<Partial<ExcelJS.WorksheetViewFrozen>> {
-  return [{ state: 'frozen', ySplit: headerRow, topLeftCell: `A${headerRow + 1}` }]
-}
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string

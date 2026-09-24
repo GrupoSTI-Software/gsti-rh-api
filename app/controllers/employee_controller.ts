@@ -9089,7 +9089,7 @@ export default class EmployeeController {
         userResponsibleId,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const exportService = new CalendarExportService(i18n)
+      const exportService = new CalendarExportService()
       const buffer =
         kind === 'birthdays'
           ? await exportService.birthdays(await employeeService.getBirthday(filters, businessUnitScope), year)

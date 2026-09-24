@@ -1,6 +1,5 @@
 import ExcelJS from 'exceljs'
 import { DateTime } from 'luxon'
-import type { I18n } from '@adonisjs/i18n'
 import { reportI18n } from '#helpers/report_locale'
 import Employee from '#models/employee'
 import Holiday from '#models/holiday'
@@ -30,11 +29,8 @@ interface SheetSpec {
 export default class CalendarExportService {
   private readonly t: (key: string, data?: Record<string, unknown>) => string
 
-  /**
-   * Los Excel salen siempre en español (`report_locale.ts`): el traductor de
-   * la petición se ignora y se acepta solo para no romper a quien lo pasa.
-   */
-  constructor(_requestI18n?: I18n) {
+  /** Los Excel salen siempre en español (`report_locale.ts`). */
+  constructor() {
     const i18n = reportI18n()
     this.t = i18n.formatMessage.bind(i18n)
   }

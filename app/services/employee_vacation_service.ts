@@ -20,6 +20,7 @@ import {
   REPORT_LOCALE,
   reportI18n,
 } from '#helpers/report_locale'
+import { frozenHeaderViews } from '#helpers/report_sheet_views'
 import ExceptionType from '#models/exception_type'
 import ShiftExceptionService from './shift_exception_service.js'
 import VacationSetting from '#models/vacation_setting'
@@ -751,12 +752,7 @@ export default class EmployeeVacationService {
     columnE.width = 16
     columnE.alignment = { vertical: 'middle', horizontal: 'center' }
 
-    worksheet.views = [
-      { state: 'frozen', ySplit: 1 },
-      { state: 'frozen', ySplit: 2 },
-      { state: 'frozen', ySplit: 3 },
-      { state: 'frozen', ySplit: 4 },
-    ]
+    worksheet.views = frozenHeaderViews(4)
     const row = worksheet.getRow(1)
     row.eachCell({ includeEmpty: true }, (currentCell) => {
       currentCell.alignment = { vertical: 'middle', horizontal: 'center' }

@@ -32,7 +32,7 @@ test.group('Descargables en español', () => {
     holiday.holidayDate = '2026-09-16'
     holiday.holidayIsOfficialRestDay = true
 
-    const buffer = await new CalendarExportService(i18nManager.locale('en')).holidays([holiday], 2026)
+    const buffer = await new CalendarExportService().holidays([holiday], 2026)
     const sheet = await firstSheet(buffer)
 
     assert.equal(sheet.name, '2026 Festividades')
@@ -54,7 +54,7 @@ test.group('Descargables en español', () => {
     // Orden alfabético del texto dd/MM pondría el 02/12 antes del 15/03.
     const employees = [build('Dic', '1990-12-02'), build('Mar', '1985-03-15')]
 
-    const buffer = await new CalendarExportService(i18nManager.locale('en')).birthdays(employees, 2026)
+    const buffer = await new CalendarExportService().birthdays(employees, 2026)
     const sheet = await firstSheet(buffer)
 
     assert.equal(sheet.name, '2026 Cumpleaños')
