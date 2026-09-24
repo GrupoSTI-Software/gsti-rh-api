@@ -13,6 +13,20 @@ import axios from 'axios'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { createEmployeeValidator } from '../validators/employee.js'
 import { updateEmployeeValidator } from '../validators/employee.js'
+import db from '@adonisjs/lucid/services/db'
+import {
+  emailMirrorActorFromContext,
+  mirrorEmployeeEmailToUserEmail,
+  toPublicEmailMirrorOutcome,
+} from '#helpers/person_user_email_mirror'
+import {
+  isEmailMirrorConflictError,
+  isEmailMirrorRefusedError,
+  isUserAccessEmailDuplicatedIndexError,
+  respondEmailMirrorConflict,
+  respondEmailMirrorRefused,
+  respondUserAccessEmailDuplicated,
+} from '#helpers/user_access_email_api_error'
 import EmployeeStructureService, {
   requireEmployeeStructureForCreate,
   resolveEmployeeStructureUpdate,
@@ -1537,7 +1551,10 @@ export default class EmployeeController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: >-
+   *           The parameters entered are invalid or essential data is missing to process the request.
+   *           Además de los rechazos existentes, responde 400 cuando el correo institucional ya lo usa
+   *           otra cuenta de acceso viva (USR.MAIL.002). Ningún campo se guardó.
    *         content:
    *           application/json:
    *             schema:
@@ -1555,6 +1572,8 @@ export default class EmployeeController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '403':
+   *         description: La cuenta de acceso del empleado no pertenece a las empresas del actor (USR.MAIL.005). Nada se guardó.
    *       '422':
    *         description: Nivel de puesto rechazado — no pertenece a los niveles configurados del puesto del payload, o está inactivo para una asignación nueva
    *         content:
@@ -1768,7 +1787,9 @@ export default class EmployeeController {
       }
 
       const employeeService = new EmployeeService(i18n)
-      const data = await request.validateUsing(updateEmployeeValidator)
+      const data = await request.validateUsing(updateEmployeeValidator, {
+        meta: { employeeId: currentEmployee.employeeId },
+      })
       const exist = await employeeService.verifyInfoExist(employee)
 
       if (exist.status !== 200) {
@@ -1858,34 +1879,35 @@ export default class EmployeeController {
         employee.dailySalary = dailySalaryFinite
       }
 
-      const previousEmail = currentEmployee.employeeBusinessEmail
-      const actorId = auth.user?.userId
-
-      const updateEmployee = await employeeService.update(currentEmployee, employee, {
-        changedBy: actorId,
-        salaryChangeReason,
+      const actor = emailMirrorActorFromContext(ctx)
+      const { updateEmployee, emailMirror } = await db.transaction(async (trx) => {
+        const persisted = await employeeService.update(
+          currentEmployee,
+          employee,
+          { changedBy: actor.userId, salaryChangeReason },
+          trx
+        )
+        // El origen es lo PERSISTIDO, no el payload: una sola fuente.
+        const outcome = await mirrorEmployeeEmailToUserEmail({
+          personId: currentEmployee.personId,
+          employeeBusinessEmail: persisted.employeeBusinessEmail,
+          actor,
+          trx,
+        })
+        return { updateEmployee: persisted, emailMirror: outcome }
       })
 
-      if (updateEmployee) {
-        const user = await User.query()
-          .where('person_id', currentEmployee.personId)
-          .where('user_email', previousEmail)
-          .whereNull('user_deleted_at')
-          .first()
-        if (user) {
-          user.userEmail = employee.employeeBusinessEmail
-          await user.save()
-        }
-
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Employees',
-          message: 'The employee was updated successfully',
-          data: { employee: updateEmployee },
-        }
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Employees',
+        message: 'The employee was updated successfully',
+        data: { employee: updateEmployee, emailMirror: toPublicEmailMirrorOutcome(emailMirror) },
       }
     } catch (error) {
+      if (isEmailMirrorConflictError(error)) return respondEmailMirrorConflict(ctx, error)
+      if (isEmailMirrorRefusedError(error)) return respondEmailMirrorRefused(ctx, error)
+      if (isUserAccessEmailDuplicatedIndexError(error)) return respondUserAccessEmailDuplicated(ctx)
       if (error instanceof EmployeePositionLevelError) {
         const resolved = resolveEmployeePositionLevelApiError(error, error.httpStatus, i18n)
         response.status(resolved.status)
