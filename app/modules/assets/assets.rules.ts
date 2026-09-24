@@ -3,7 +3,10 @@ import type { DateTime } from 'luxon'
 import EmployeeSupplie from '#models/employee_supplie'
 import EmployeeSupplieAssignationPhoto from '#models/employee_supplie_assignation_photo'
 import Supplie from '#models/supplie'
-import { MAX_ASSIGNATION_PHOTOS_PER_ASSIGNMENT } from './assets.constants.js'
+import {
+  MAX_ASSIGNATION_PHOTOS_PER_ASSIGNMENT,
+  OPEN_ASSIGNMENT_STATUSES,
+} from './assets.constants.js'
 import { AssetError } from './assets.error.js'
 
 /**
@@ -37,7 +40,7 @@ export async function assertFileNumberAvailable(
 }
 
 /**
- * Un activo tiene a lo más un resguardo `active`. Con transacción, bloquea la
+ * Un activo tiene a lo más un resguardo abierto (`active` o `shipping`). Con transacción, bloquea la
  * fila del activo (`FOR UPDATE`) para que dos altas simultáneas no pasen ambas.
  *
  * @throws AssetError 409 `activo-ya-tiene-resguardo-activo`.
@@ -52,7 +55,7 @@ export async function assertNoOtherActiveAssignment(
   }
   const query = EmployeeSupplie.query(clientOf(trx))
     .where('supplyId', supplyId)
-    .where('employeeSupplyStatus', 'active')
+    .whereIn('employeeSupplyStatus', [...OPEN_ASSIGNMENT_STATUSES])
   if (excludeEmployeeSupplyId !== undefined) {
     query.whereNot('employeeSupplyId', excludeEmployeeSupplyId)
   }
@@ -60,14 +63,14 @@ export async function assertNoOtherActiveAssignment(
 }
 
 /**
- * No se borra un activo en resguardo.
+ * No se borra un activo con un resguardo abierto (`active` o `shipping`).
  *
  * @throws AssetError 409 `activo-con-resguardo-activo`.
  */
 export async function assertAssetWithoutActiveAssignment(supplyId: number): Promise<void> {
   const active = await EmployeeSupplie.query()
     .where('supplyId', supplyId)
-    .where('employeeSupplyStatus', 'active')
+    .whereIn('employeeSupplyStatus', [...OPEN_ASSIGNMENT_STATUSES])
     .first()
   if (active) throw AssetError.assetHasActiveAssignment()
 }
@@ -103,7 +106,7 @@ export async function assertAssignationPhotoCapacity(
 }
 
 /**
- * Cierra los resguardos activos del activo (los pasa a `retired`) con el motivo
+ * Cierra los resguardos abiertos del activo (`active` o `shipping`; los pasa a `retired`) con el motivo
  * y la fecha de la baja. Devuelve los resguardos cerrados.
  */
 export async function closeActiveAssignments(
@@ -114,7 +117,7 @@ export async function closeActiveAssignments(
 ): Promise<EmployeeSupplie[]> {
   const active = await EmployeeSupplie.query(clientOf(trx))
     .where('supplyId', supplyId)
-    .where('employeeSupplyStatus', 'active')
+    .whereIn('employeeSupplyStatus', [...OPEN_ASSIGNMENT_STATUSES])
   for (const assignment of active) {
     assignment.useTransaction(trx)
     assignment.employeeSupplyStatus = 'retired'

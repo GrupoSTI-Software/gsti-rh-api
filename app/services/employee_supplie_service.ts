@@ -4,6 +4,11 @@ import { EmployeeSupplieFilterSearchInterface } from '../interfaces/employee_sup
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import { assertNoOtherActiveAssignment } from '#modules/assets/assets.rules'
+import { OPEN_ASSIGNMENT_STATUSES } from '#modules/assets/assets.constants'
+
+/** El estado deja el activo comprometido con un colaborador. */
+const isOpenStatus = (status: string): boolean =>
+  (OPEN_ASSIGNMENT_STATUSES as readonly string[]).includes(status)
 
 export default class EmployeeSupplieService {
   /**
@@ -75,7 +80,7 @@ export default class EmployeeSupplieService {
     const status = data.employeeSupplyStatus || 'active'
 
     return db.transaction(async (trx) => {
-      if (status === 'active') {
+      if (isOpenStatus(status)) {
         await assertNoOtherActiveAssignment(data.supplyId, undefined, trx)
       }
 
@@ -111,10 +116,10 @@ export default class EmployeeSupplieService {
   }) {
     const employeeSupply = await EmployeeSupplie.findOrFail(id)
 
-    // Un activo tiene a lo más un resguardo `active` (el que resulte de la edición).
+    // Un activo tiene a lo más un resguardo abierto (el que resulte de la edición).
     const resultingSupplyId = data.supplyId ?? employeeSupply.supplyId
     const resultingStatus = data.employeeSupplyStatus ?? employeeSupply.employeeSupplyStatus
-    if (resultingStatus === 'active') {
+    if (isOpenStatus(resultingStatus)) {
       await assertNoOtherActiveAssignment(resultingSupplyId, employeeSupply.employeeSupplyId)
     }
 

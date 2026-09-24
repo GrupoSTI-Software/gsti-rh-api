@@ -55,7 +55,7 @@ export class AssetError extends Error {
       ASSET_ERROR_KEYS.ACTIVE_ASSIGNMENT_EXISTS,
       'asset_active_assignment_exists',
       'El activo ya está asignado',
-      'El activo tiene un resguardo activo. Registra la devolución antes de asignarlo de nuevo.'
+      'El activo tiene un resguardo activo o en envío. Registra la devolución antes de asignarlo de nuevo.'
     )
   }
 
@@ -66,7 +66,7 @@ export class AssetError extends Error {
       ASSET_ERROR_KEYS.ASSET_HAS_ACTIVE_ASSIGNMENT,
       'asset_has_active_assignment',
       'No fue posible eliminar el activo',
-      'El activo tiene un resguardo activo. Registra la devolución antes de eliminarlo.'
+      'El activo tiene un resguardo activo o en envío. Registra la devolución antes de eliminarlo.'
     )
   }
 

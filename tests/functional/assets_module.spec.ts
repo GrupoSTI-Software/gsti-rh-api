@@ -721,6 +721,66 @@ test.group('Activos — módulo de lectura y reglas de servidor', (group) => {
     const deleted = await call(client, actor, 'delete', `/api/supplies/${freeAssetId}`)
     deleted.assertStatus(200)
   })
+
+  test('el PUT genérico no da de baja: solo reactiva', async ({ client, assert }) => {
+    const actor = required(owner, 'owner')
+    const response = await call(client, actor, 'put', `/api/supplies/${assignedAssetId}`, {
+      supplyStatus: 'lost',
+    })
+    // El controlador legacy responde toda falla de validación con 400.
+    response.assertStatus(400)
+    const detail: AssetDetailDto = await dataOf(
+      call(client, actor, 'get', `/api/assets/${assignedAssetId}`)
+    )
+    assert.equal(detail.status, 'active')
+  })
+
+  test('un resguardo en envío compromete el activo: bloquea otro, el borrado y la baja lo cierra', async ({
+    client,
+    assert,
+  }) => {
+    const actor = required(owner, 'owner')
+    const employeeId = required(fixture, 'empleado').employee.employeeId
+
+    const shipping = await call(client, actor, 'post', '/api/employee-supplies', {
+      employeeId,
+      supplyId: assignedAssetId,
+      employeeSupplyStatus: 'shipping',
+      employeeSupplyAssignamentDate: '2026-09-21',
+    })
+    shipping.assertStatus(201)
+    const shippingId: number = shipping.body().data.employeeSupply.employeeSupplyId
+
+    const second = await call(client, actor, 'post', '/api/employee-supplies', {
+      employeeId,
+      supplyId: assignedAssetId,
+      employeeSupplyAssignamentDate: '2026-09-22',
+    })
+    second.assertStatus(409)
+    assert.equal(second.body().key, ASSET_ERROR_KEYS.ACTIVE_ASSIGNMENT_EXISTS)
+
+    const deleted = await call(client, actor, 'delete', `/api/supplies/${assignedAssetId}`)
+    deleted.assertStatus(409)
+    assert.equal(deleted.body().key, ASSET_ERROR_KEYS.ASSET_HAS_ACTIVE_ASSIGNMENT)
+
+    const deactivated = await call(
+      client,
+      actor,
+      'post',
+      `/api/supplies/${assignedAssetId}/deactivate`,
+      { supplyStatus: 'damaged', supplyDeactivationReason: 'Llegó dañada' }
+    )
+    deactivated.assertStatus(200)
+    const closed = deactivated.body().data.supplie.closedAssignments
+    assert.lengthOf(closed, 1)
+    assert.equal(closed[0].employeeSupplyId, shippingId)
+    const row = await db
+      .from('employee_supplies')
+      .where('employee_supply_id', shippingId)
+      .select('employee_supply_status')
+      .firstOrFail()
+    assert.equal(row.employee_supply_status, 'retired')
+  })
 })
 
 test.group('Activos — permisos de las rutas nuevas', (group) => {
