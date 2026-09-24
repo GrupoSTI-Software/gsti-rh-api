@@ -44,6 +44,7 @@ interface AssetRow {
   employee_supply_additions: string | null
   employee_id: number | null
   employee_slug: string | null
+  employee_photo: string | null
   employee_first_name: string | null
   employee_last_name: string | null
   employee_second_last_name: string | null
@@ -156,6 +157,7 @@ const ASSET_COLUMNS = [
   'es.employee_supply_additions',
   'e.employee_id',
   'e.employee_slug',
+  'e.employee_photo',
   'e.employee_first_name',
   'e.employee_last_name',
   'e.employee_second_last_name',
@@ -242,6 +244,7 @@ function toAssetItem(row: AssetRow): AssetListItemDto {
             employee: {
               employeeId: row.employee_id,
               employeeSlug: row.employee_slug ?? '',
+              employeePhoto: textOrNull(row.employee_photo),
               name: fullName([
                 row.employee_first_name,
                 row.employee_last_name,
@@ -410,6 +413,7 @@ export default class AssetsRepositoryMysql implements AssetsRepository {
       retirement_date: string | null
       employee_id: number
       employee_slug: string | null
+      employee_photo: string | null
       employee_first_name: string | null
       employee_last_name: string | null
       employee_second_last_name: string | null
@@ -433,6 +437,7 @@ export default class AssetsRepositoryMysql implements AssetsRepository {
         'es.employee_supply_retirement_reason',
         'e.employee_id',
         'e.employee_slug',
+        'e.employee_photo',
         'e.employee_first_name',
         'e.employee_last_name',
         'e.employee_second_last_name',
@@ -493,6 +498,7 @@ export default class AssetsRepositoryMysql implements AssetsRepository {
       employee: {
         employeeId: row.employee_id,
         employeeSlug: row.employee_slug ?? '',
+        employeePhoto: textOrNull(row.employee_photo),
         name: fullName([row.employee_first_name, row.employee_last_name, row.employee_second_last_name]),
         positionName: textOrNull(row.position_name),
       },

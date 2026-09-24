@@ -403,6 +403,7 @@ test.group('Activos — módulo de lectura y reglas de servidor', (group) => {
     assert.equal(assigned.activeAssignment?.notes, 'Incluye cargador')
     assert.equal(assigned.activeAssignment?.employee.employeeId, employee.employeeId)
     assert.equal(assigned.activeAssignment?.employee.employeeSlug, employee.employeeSlug)
+    assert.equal(assigned.activeAssignment?.employee.employeePhoto, employee.employeePhoto ?? null)
     assert.equal(assigned.activeAssignment?.employee.name, 'Empleado Fixture activos')
     assert.isString(assigned.activeAssignment?.employee.positionName)
     assert.isString(assigned.activeAssignment?.employee.departmentName)

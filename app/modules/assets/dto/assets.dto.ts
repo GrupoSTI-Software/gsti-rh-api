@@ -5,6 +5,8 @@ export interface AssetEmployeeDto {
   employeeId: number
   /** Slug del detalle del empleado en el BO (`/employees/<slug>`). */
   employeeSlug: string
+  /** Ruta guardada de la foto; se sirve en `GET /api/employees/:id/photo`. `null` sin foto. */
+  employeePhoto: string | null
   name: string
   positionName: string | null
   departmentName: string | null
@@ -93,6 +95,8 @@ export interface AssetAssignmentDto {
   employee: {
     employeeId: number
     employeeSlug: string
+    /** Ruta guardada de la foto; se sirve en `GET /api/employees/:id/photo`. */
+    employeePhoto: string | null
     name: string
     positionName: string | null
   }

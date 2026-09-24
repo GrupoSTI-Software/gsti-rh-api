@@ -25,6 +25,7 @@ import {
  *       properties:
  *         employeeId: { type: integer, example: 57 }
  *         employeeSlug: { type: string, example: "3f1c0e9a-4b7d-4c43-9f3e-0b8c2a1d6e55" }
+ *         employeePhoto: { type: string, nullable: true, description: "Ruta guardada; la imagen se sirve en GET /api/employees/{id}/photo" }
  *         name: { type: string, example: "Ana López Ruiz" }
  *         positionName: { type: string, nullable: true, example: "Analista" }
  *         departmentName: { type: string, nullable: true, example: "Finanzas" }
@@ -285,7 +286,7 @@ export default class AssetsController {
    *                   notes: "Incluye cargador"
    *                   retirementReason: "Cambio de equipo"
    *                   retirementDate: "2026-08-01"
-   *                   employee: { employeeId: 57, employeeSlug: "3f1c0e9a-...", name: "Ana López Ruiz", positionName: "Analista" }
+   *                   employee: { employeeId: 57, employeeSlug: "3f1c0e9a-...", employeePhoto: null, name: "Ana López Ruiz", positionName: "Analista" }
    *                   contracts: [{ id: 88, fileName: "responsiva.pdf" }]
    *                   photos: [{ photoId: 301, kind: assignation }, { photoId: 322, kind: return }]
    *       '403': { description: "Sin `supplies:read` (gate)." }
