@@ -119,17 +119,24 @@ Qué significa lo nuevo aquí — `data.emailMirror.reason`, con todos sus valor
 - `email-type-mismatch`: la cuenta es de otro tipo de correo y no le corresponde este cambio.
 - `no-live-counterpart`: no hay una cuenta ni un colaborador activo a quién copiarle (Escenario 13).
 - `already-in-sync`: los dos lados ya tenían el mismo correo (Escenario 14).
-- `source-email-empty`: el correo se guardó vacío y no hay nada que copiar (Escenario 15).
+- `source-email-empty`: la petición no trajo un correo nuevo, así que no hay nada que copiar (Escenario 15).
 
 ### Escenario 3 — Colaborador con cuenta institucional: el correo de trabajo se copia a la cuenta
 
 Usuario: **A**.
+
+Antes de editar, consulta `GET /api/employees/<QA-ESPEJO-EMP-03>` y copia los valores que traiga de `employeeFirstName`, `employeeLastName`, `employeeSecondLastName`, `employeePayrollCode` y `employeeHireDate` en el body de abajo (donde dice `"<lo que trajo el GET>"`), sin cambiarlos. El endpoint de edición trata estos campos como reemplazo total si vienen en el body: mandarlos tal cual evita que la edición borre datos del colaborador que no tienen nada que ver con este caso.
 
 **Endpoint:** `PUT /api/employees/<QA-ESPEJO-EMP-03>`
 
 ```json
 {
   "employeeCode": "QA-ESPEJO-EMP-03",
+  "employeeFirstName": "<lo que trajo el GET>",
+  "employeeLastName": "<lo que trajo el GET>",
+  "employeeSecondLastName": "<lo que trajo el GET>",
+  "employeePayrollCode": "<lo que trajo el GET>",
+  "employeeHireDate": "<lo que trajo el GET>",
   "companyId": 1,
   "employeeTypeId": 1,
   "employeeWorkScheduleHybridConfig": null,
@@ -508,7 +515,7 @@ Usuario: **A**.
 
 (Los datos son los ya explicados en el Escenario 2.)
 
-### Escenario 15 — Expediente guardado con el correo vacío: no hay nada que copiar
+### Escenario 15 — Expediente guardado sin mandar el correo: no hay nada que copiar
 
 Usuario: **A**.
 
@@ -556,4 +563,4 @@ Consulta de confirmación: `GET /api/users/<vacio15>` → `userEmail` sigue en `
 - [ ] Escenario 12 — Sin permiso de datos de contacto: 403, nada cambia
 - [ ] Escenario 13 — Persona sin cuenta: se omite
 - [ ] Escenario 14 — Correo ya sincronizado: se omite
-- [ ] Escenario 15 — Correo vacío: se omite
+- [ ] Escenario 15 — Correo sin mandar: se omite

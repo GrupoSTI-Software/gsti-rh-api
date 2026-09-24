@@ -1790,6 +1790,13 @@ export default class EmployeeController {
       const data = await request.validateUsing(updateEmployeeValidator, {
         meta: { employeeId: currentEmployee.employeeId },
       })
+      // B7: se escribe el valor validado (con trim), no el crudo del request —
+      // mismo criterio que person_controller.ts y user_controller.ts. Sin esto
+      // el correo institucional persistido podía traer espacios que el
+      // espejo, al normalizar, no reflejaba en la credencial.
+      if (data.employeeBusinessEmail !== undefined) {
+        employee.employeeBusinessEmail = data.employeeBusinessEmail
+      }
       const exist = await employeeService.verifyInfoExist(employee)
 
       if (exist.status !== 200) {

@@ -2170,7 +2170,16 @@ export default class UserController {
         }
       }
 
+      // El bodyparser convierte `""` en `null` antes de Vine, y el enum opcional
+      // acepta null como "no enviado". Restaurar la cadena vacía hace que el
+      // enum la rechace (422) sin cambiar el "conservar el tipo guardado" que
+      // aplica cuando el campo se omite del todo (mismo criterio que store()).
+      const payload = { ...request.all() }
+      if (Object.hasOwn(payload, 'userEmailType') && payload.userEmailType === null) {
+        payload.userEmailType = ''
+      }
       const data = await request.validateUsing(updateUserValidator, {
+        data: payload,
         meta: { userId, currentPersonId: currentUser.personId },
       })
       // H1 y riesgo nº1: sin el campo se CONSERVA el tipo guardado. Aplicar aquí

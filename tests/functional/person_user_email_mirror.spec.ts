@@ -139,7 +139,11 @@ test.group('Espejo — PUT /api/employees/:id (M6)', (group) => {
     assert.deepEqual(response.body().data.emailMirror, { status: 'written', target: 'users' })
     const persistedEmployee = await readEmployeeRow(employee.employeeId)
     const persistedUser = await readUserRow(user.userId)
-    assert.equal(persistedUser.user_email, persistedEmployee.employee_business_email.trim())
+    // B7: el correo institucional se persiste ya recortado (valor validado,
+    // no el crudo del request), así que las dos mitades deben coincidir
+    // exactamente, sin necesidad de `.trim()` en la aserción.
+    assert.equal(persistedEmployee.employee_business_email, nuevo)
+    assert.equal(persistedUser.user_email, persistedEmployee.employee_business_email)
   })
 
   test('CA-10 sin cuenta de acceso: la omisión se declara (no-live-counterpart)', async ({ client, assert }) => {
@@ -589,6 +593,33 @@ test.group('Espejo — PUT /api/users/:id (M4/M5)', (group) => {
     response.assertStatus(422)
     const row = await readUserRow(user.userId)
     assert.equal(row.person_id, person.personId)
+  })
+
+  test('[SEGURIDAD] cuenta propia con persona de OTRA empresa: el correo no cruza de tenant', async ({ client, assert }) => {
+    // updateUserValidator exime de existencia/alcance a `personId` cuando es
+    // el que la cuenta YA tiene (comentario en app/validators/user.ts) —
+    // el único guardia real de la dirección credencial→expediente es el
+    // `withBusinessUnitScope()` del modelo `Person` dentro de la propia
+    // transacción del espejo. Este caso fija esa protección: sin ella, un
+    // `personId` legítimamente sin cambiar filtraría un correo a una persona
+    // de una empresa que el actor no administra.
+    const w = world!
+    const foreign = await createForeignBusinessUnit(w.registry)
+    const email = `ca-cross-${stamp()}@correo.com`
+    const person = await createPersonIn(w.registry, foreign, email)
+    const user = await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], {
+      userEmail: email,
+      userEmailType: 'personal',
+    })
+    const nuevo = `ca-cross-nuevo-${stamp()}@correo.com`
+
+    const response = await putUser(client, w.full, user, { userEmail: nuevo, userEmailType: 'personal' })
+
+    response.assertStatus(201)
+    assert.deepEqual(response.body().data.emailMirror, { status: 'skipped', reason: 'no-live-counterpart' })
+    const row = await readUserRow(user.userId)
+    assert.equal(row.user_email, nuevo)
+    assert.equal(await readPersonEmail(person.personId), email)
   })
 })
 
