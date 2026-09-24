@@ -18,19 +18,15 @@ router
       .use(middleware.permissionGate(SUPPLIES_PERMISSION_DECLARATIONS.showAssetsSummary))
     router
       .get('/assets/:supplyId', '#modules/assets/assets.controller.show')
-      .where('supplyId', router.matchers.number())
       .use(middleware.permissionGate(SUPPLIES_PERMISSION_DECLARATIONS.showAsset))
     router
       .get('/assets/:supplyId/assignments', '#modules/assets/assets.controller.assignments')
-      .where('supplyId', router.matchers.number())
       .use(middleware.permissionGate(SUPPLIES_PERMISSION_DECLARATIONS.indexAssetAssignments))
     router
       .get('/assets/:supplyId/value-history', '#modules/assets/assets.controller.valueHistory')
-      .where('supplyId', router.matchers.number())
       .use(middleware.permissionGate(SUPPLIES_PERMISSION_DECLARATIONS.showAssetValueHistory))
     router
       .put('/assets/:supplyId/characteristic-values', '#modules/assets/assets.controller.upsertCharacteristicValues')
-      .where('supplyId', router.matchers.number())
       .use(
         middleware.permissionGate(SUPPLIES_PERMISSION_DECLARATIONS.upsertAssetCharacteristicValues)
       )
@@ -40,14 +36,12 @@ router
 
     router
       .get('/employee-supplies-response-contracts/:id/file', '#modules/assets/asset_files.controller.responseContract')
-      .where('id', router.matchers.number())
       .use(middleware.permissionGate(SUPPLIES_PERMISSION_DECLARATIONS.downloadSupplyResponseContract))
     router
       .get(
         '/employee-supply-assignation-photos/photo/:photoId/file',
         '#modules/assets/asset_files.controller.assignationPhoto'
       )
-      .where('photoId', router.matchers.number())
       .use(middleware.permissionGate(SUPPLIES_PERMISSION_DECLARATIONS.downloadSupplyAssignationPhoto))
   })
   .prefix('/api')
