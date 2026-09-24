@@ -61,6 +61,7 @@ import {
   REPORT_LOCALE,
 } from '#helpers/report_locale'
 import { frozenHeaderViews } from '#helpers/report_sheet_views'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
 
 /**
  * Defaults de tolerancia cuando no hay empresa en contexto o la empresa no tiene
@@ -73,8 +74,32 @@ const DEFAULT_TOLERANCE_COUNT_PER_ABSENCE = 3
 /** Fecha y hora de checada en los archivos descargables (reloj de 24 h). */
 const REPORT_DATE_TIME_FORMAT = 'dd/MM/yyyy HH:mm:ss'
 
-/** Celda sin dato en los archivos descargables. */
-const REPORT_NO_DATA = '—'
+/**
+ * Horas decimales como `HH:mm` en los archivos descargables. Redondea los
+ * minutos TOTALES antes de partirlos en horas y minutos: redondear solo la
+ * fracción daba "07:60" con 7.999 h. Un valor negativo lleva `-` delante.
+ */
+export function formatDecimalHours(decimal: number): string {
+  if (!Number.isFinite(decimal)) return '00:00'
+  const totalMinutes = Math.round(Math.abs(decimal) * 60)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  const clock = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+  return decimal < 0 && totalMinutes > 0 ? `-${clock}` : clock
+}
+
+/**
+ * Día de calendario de una columna DATE (medianoche UTC) o de un
+ * `yyyy-MM-dd`, en UTC: leerlo en la zona del servidor lo corre un día.
+ */
+function utcCalendarDay(value: Date | string | null | undefined): DateTime {
+  if (!value) return DateTime.invalid('fecha vacía')
+  const parsed =
+    value instanceof Date
+      ? DateTime.fromJSDate(value, { zone: 'utc' })
+      : DateTime.fromISO(String(value).slice(0, 10), { zone: 'utc' })
+  return parsed.startOf('day')
+}
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -242,6 +267,7 @@ export default class AssistsService {
     await this.addRowToWorkSheet(rows, worksheet, status)
     await onProgress(1, 1)
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return {
       status: 201,
@@ -316,6 +342,7 @@ export default class AssistsService {
       if (employee.deletedAt) {
         await this.paintEmployeeTerminated(worksheet, 'C', 4)
       }
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -396,6 +423,7 @@ export default class AssistsService {
       }
       await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
       await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -528,6 +556,7 @@ export default class AssistsService {
       await this.addRowIncidentToWorkSheet(rowsIncident, worksheet)
       // hasta aquí era lo de asistencia
       // Crear un buffer del archivo Excel
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -629,6 +658,7 @@ export default class AssistsService {
       // Añadir columnas de datos (encabezados)
       this.addHeadRow(worksheet)
       await this.addRowToWorkSheet(rows, worksheet)
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -733,6 +763,7 @@ export default class AssistsService {
       await rowsIncident.push(totalRowByDepartmentIncident)
       await rowsIncident.push(totalRowIncident)
       await this.addRowIncidentToWorkSheet(rowsIncident, worksheet)
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -799,6 +830,7 @@ export default class AssistsService {
       await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
       await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
       // Crear un buffer del archivo Excel
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -912,6 +944,7 @@ export default class AssistsService {
       // Añadir columnas de datos (encabezados)
       this.addHeadRow(worksheet)
       await this.addRowToWorkSheet(rows, worksheet)
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -1063,6 +1096,7 @@ export default class AssistsService {
     worksheet.views = frozenHeaderViews(4)
     this.addHeadRow(worksheet)
     await this.addRowToWorkSheet(rows, worksheet)
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return {
       status: 201,
@@ -1129,13 +1163,10 @@ export default class AssistsService {
   }
 
   private formatIncidentSummaryTimeDifference(hoursDiff: number): string {
-    if (hoursDiff === 0) {
+    const formatted = formatDecimalHours(Math.abs(hoursDiff))
+    if (formatted === '00:00') {
       return '0:00'
     }
-    const absHours = Math.abs(hoursDiff)
-    const hours = Math.floor(absHours)
-    const minutes = Math.round((absHours - hours) * 60)
-    const formatted = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
     return hoursDiff < 0 ? `-${formatted}` : `+${formatted}`
   }
 
@@ -1530,7 +1561,11 @@ export default class AssistsService {
       workBusinessUnit: filters.employee.businessUnit?.businessUnitName || '',
       payrollBusinessUnit: filters.employee.payrollBusinessUnit?.businessUnitName || '',
       employeeId: filters.employee.employeePayrollCode?.toString() || '',
-      employeeName: `${filters.employee.person?.personFirstname} ${filters.employee.person?.personLastname} ${filters.employee.person?.personSecondLastname}`,
+      employeeName: reportFullName(
+        filters.employee.person?.personFirstname,
+        filters.employee.person?.personLastname,
+        filters.employee.person?.personSecondLastname
+      ),
       department,
       daysWorked,
       daysOnTime,
@@ -1595,8 +1630,8 @@ export default class AssistsService {
       this.t('work_business_unit'),
       this.t('payroll_business_unit'),
       this.t('department'),
-      `${this.t('employee')} ID`,
-      `${this.t('employee')} ${this.t('name')}`,
+      this.t('report_employee_id'),
+      this.t('report_employee_name'),
       this.t('days_worked'),
       this.t('on_time'),
       this.t('tolerances'),
@@ -1920,6 +1955,7 @@ export default class AssistsService {
     this.addHeadRowIncidentSummaryV2(worksheet, canDisplayPaymentsSummary, canDisplayDiscountsSummary)
     this.addIncidentSummaryRowsToWorksheet(rowsIncident, worksheet, canDisplayPaymentsSummary, canDisplayDiscountsSummary)
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return {
       status: 201,
@@ -1997,6 +2033,7 @@ export default class AssistsService {
     this.addIncidentSummaryRowsToWorksheet(rowsIncident, worksheet, canDisplayPaymentsSummary, canDisplayDiscountsSummary)
     await onProgress(1, 1)
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return {
       status: 201,
@@ -2111,6 +2148,7 @@ export default class AssistsService {
     await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
     await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return {
       status: 201,
@@ -2179,6 +2217,7 @@ export default class AssistsService {
     await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
     await onProgress(1, 1)
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return {
       status: 201,
@@ -2288,6 +2327,7 @@ export default class AssistsService {
       }
       await rowsIncident.push(totalRowIncident)
       await this.addRowIncidentToWorkSheet(rowsIncident, worksheet)
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -2369,6 +2409,7 @@ export default class AssistsService {
       await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
       await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
       // Crear un buffer del archivo Excel
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -2498,12 +2539,6 @@ export default class AssistsService {
     return day
   }
 
-  private calendarDayMonth(dateYear: number, dateMonth: number, dateDay: number) {
-    const date = DateTime.local(dateYear, dateMonth, dateDay, 0).setLocale(this.localeToUse)
-    const day = date.toFormat('dd/MMMM')
-    return day
-  }
-
   private chekInTime(checkAssist: AssistDayInterface) {
     if (!checkAssist?.assist?.checkIn?.assistPunchTimeUtc) {
       return ''
@@ -2532,8 +2567,8 @@ export default class AssistsService {
 
   addHeadRow(worksheet: ExcelJS.Worksheet) {
     const headerRow = worksheet.addRow([
-      `${this.t('employee')} ID`,
-      `${this.t('employee')} ${this.t('name')}`,
+      this.t('report_employee_id'),
+      this.t('report_employee_name'),
       this.t('department'),
       this.t('position'),
       this.t('date'),
@@ -2623,10 +2658,7 @@ export default class AssistsService {
           exceptions.push(exception)
         }
       }
-      const day = this.dateDay(calendar.day)
-      const month = this.dateMonth(calendar.day)
-      const year = this.dateYear(calendar.day)
-      const calendarDay = this.calendarDayMonth(year, month, day)
+      const calendarDay = formatReportCalendarDate(calendar.day)
       const firstCheck = this.chekInTime(calendar)
       const lastCheck = this.chekOutTime(calendar)
       let status = calendar.assist.checkInStatus
@@ -2661,12 +2693,12 @@ export default class AssistsService {
       let shiftEndsDate = ''
       let hoursWorked = 0
       if (calendar && calendar.assist && calendar.assist.dateShift) {
-        shiftName = calendar.assist.dateShift.shiftName
-        shiftStartDate = calendar.assist.dateShift.shiftTimeStart
+        shiftName = reportText(calendar.assist.dateShift.shiftName)
+        shiftStartDate = reportText(calendar.assist.dateShift.shiftTimeStart)
         const hoursToAddParsed = calendar.assist.dateShift.shiftActiveHours
         const time = DateTime.fromFormat(shiftStartDate, 'HH:mm:ss')
         const newTime = time.plus({ hours: hoursToAddParsed })
-        shiftEndsDate = newTime.toFormat('HH:mm:ss')
+        shiftEndsDate = newTime.isValid ? newTime.toFormat('HH:mm:ss') : ''
       }
 
       const checkInTime = calendar.assist.checkIn?.assistPunchTimeUtc
@@ -2694,7 +2726,11 @@ export default class AssistsService {
 
       rows.push({
         code: employee.employeeCode.toString(),
-        name: `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
+        name: reportFullName(
+          employee.person?.personFirstname,
+          employee.person?.personLastname,
+          employee.person?.personSecondLastname
+        ),
         department: department,
         position: position,
         date: calendarDay,
@@ -2806,8 +2842,8 @@ export default class AssistsService {
   addHeadRowIncident(worksheet: ExcelJS.Worksheet) {
     const headerRow = worksheet.addRow([
       this.t('department'),
-      `${this.t('employee')} ID`,
-      `${this.t('employee')} ${this.t('name')}`,
+      this.t('report_employee_id'),
+      this.t('report_employee_name'),
       this.t('days_worked'),
       this.t('on_time'),
       this.t('tolerances'),
@@ -3024,7 +3060,11 @@ export default class AssistsService {
     earlyOutsFaults = this.getFaultsFromDelays(earlyOuts, filters.tardies)
     rows.push({
       employeeId: filters.employee.employeeCode.toString(),
-      employeeName: `${filters.employee.person?.personFirstname} ${filters.employee.person?.personLastname} ${filters.employee.person?.personSecondLastname}`,
+      employeeName: reportFullName(
+        filters.employee.person?.personFirstname,
+        filters.employee.person?.personLastname,
+        filters.employee.person?.personSecondLastname
+      ),
       department: department,
       daysWorked: daysWorked,
       daysOnTime: daysOnTime,
@@ -3400,20 +3440,18 @@ export default class AssistsService {
 
   async getFormatPayRoll(date: string, allowedBusinessUnitIds: number[] = []) {
     try {
-      const monthPeriod = Number.parseInt(DateTime.fromJSDate(new Date(date)).toFormat('LL'))
-      const yearPeriod = Number.parseInt(DateTime.fromJSDate(new Date(date)).toFormat('yyyy'))
-      const dayPeriod = Number.parseInt(DateTime.fromJSDate(new Date(date)).toFormat('dd'))
-      const dateLocal = DateTime.local(yearPeriod, monthPeriod, dayPeriod)
-      const startOfWeek = dateLocal.startOf('week')
+      // Fecha de pago = día de calendario: se lee en UTC, no en la zona del
+      // servidor (con otra zona el periodo y el año se corrían un día).
+      const payDay = utcCalendarDay(date)
+      const startOfWeek = payDay.startOf('week')
       const thursday = startOfWeek.plus({ days: 3 })
       const start = thursday.minus({ days: 24 })
-      const firstDayPeriod = start.minus({ days: 1 }).startOf('day').setZone('utc')
+      const firstDayPeriod = start.minus({ days: 1 }).startOf('day')
       const tardies = await this.getTardiesTolerance()
       const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
       const syncAssistsService = new SyncAssistsService(this.i18n)
       const period = this.calculatePayPeriod(date)
-      const dateNew = new Date(date)
-      const year = dateNew.getFullYear()
+      const year = payDay.year
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Inc SA2 p01')
       const businessUnitsList = allowedBusinessUnitIds
@@ -3433,7 +3471,7 @@ export default class AssistsService {
         .whereNull('employee_deleted_at')
         .orderBy('employee_id')
       const firstDate = firstDayPeriod.toFormat('yyyy-MM-dd')
-      const lastDate = firstDayPeriod.plus({ days: 13 }).startOf('day').setZone('utc')
+      const lastDate = firstDayPeriod.plus({ days: 13 }).startOf('day')
       let faultsTotal = 0
       for await (const employee of employees) {
         const result = await syncAssistsService.index(
@@ -3465,6 +3503,7 @@ export default class AssistsService {
           }
         }
       }
+      blankMissingTexts(workbook)
       const buffer = await workbook.csv.writeBuffer()
 
       return {
@@ -3577,20 +3616,20 @@ export default class AssistsService {
   }
 
   isPayThursday(dateToCheck: string, referencePayDate: string): boolean {
-    const referenceDate = new Date(referencePayDate)
-    const targetDate = new Date(dateToCheck)
-    if (Number.isNaN(referenceDate.getTime())) {
+    // Días de calendario en UTC: con la zona del servidor el jueves caía en miércoles.
+    const referenceDate = utcCalendarDay(referencePayDate)
+    const targetDate = utcCalendarDay(dateToCheck)
+    if (!referenceDate.isValid) {
       return false
     }
-    if (Number.isNaN(targetDate.getTime())) {
+    if (!targetDate.isValid) {
       return false
     }
-    const isThursday = targetDate.getDay() === 4
+    const isThursday = targetDate.weekday === 4
     if (!isThursday) {
       return false
     }
-    const differenceInMilliseconds = targetDate.getTime() - referenceDate.getTime()
-    const differenceInDays = Math.abs(differenceInMilliseconds / (1000 * 60 * 60 * 24))
+    const differenceInDays = Math.abs(targetDate.diff(referenceDate, 'days').days)
 
     return differenceInDays % 14 === 0
   }
@@ -3780,8 +3819,8 @@ export default class AssistsService {
     const headerCells = [
       this.t('work_business_unit'),
       this.t('payroll_business_unit'),
-      `${this.t('employee')} ${this.t('name')}`,
-      `${this.t('employee')} ID`,
+      this.t('report_employee_name'),
+      this.t('report_employee_id'),
       this.t('department'),
       this.t('company'),
       this.t('fault'),
@@ -4115,7 +4154,11 @@ export default class AssistsService {
     rows.push({
       workBusinessUnit: workBusinessUnit,
       payrollBusinessUnit: company,
-      employeeName: `${filters.employee.person?.personFirstname} ${filters.employee.person?.personLastname} ${filters.employee.person?.personSecondLastname}`,
+      employeeName: reportFullName(
+        filters.employee.person?.personFirstname,
+        filters.employee.person?.personLastname,
+        filters.employee.person?.personSecondLastname
+      ),
       employeeId: filters.employee.employeePayrollCode?.toString() || '',
       department: department,
       company: company,
@@ -4300,9 +4343,7 @@ export default class AssistsService {
   }
 
   decimalToTimeString(decimal: number): string {
-    const hours = Math.floor(decimal)
-    const minutes = Math.round((decimal - hours) * 60)
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+    return formatDecimalHours(decimal)
   }
 
   /** Margen de impuntualidad de la empresa activa. */
@@ -4359,17 +4400,16 @@ export default class AssistsService {
   }
 
   isFirstPayMonth(dateString: string) {
-    const date = new Date(dateString)
-    const dayOfMonth = date.getDate()
+    const dayOfMonth = utcCalendarDay(dateString).day
 
     return dayOfMonth >= 1 && dayOfMonth <= 15
   }
 
   isAnniversaryInPayMonth(hireDate: string, datePay: string) {
-    const hire = new Date(hireDate)
-    const pay = new Date(datePay)
+    const hire = utcCalendarDay(hireDate)
+    const pay = utcCalendarDay(datePay)
 
-    return hire.getMonth() === pay.getMonth()
+    return hire.isValid && pay.isValid && hire.month === pay.month
   }
 
   async getDaysWorkDisability(employee: Employee, datePay: string) {
@@ -4642,16 +4682,19 @@ export default class AssistsService {
 
         // Agregar excepciones de turno al reporte
         for (const exception of shiftExceptions) {
-          const employeeName = `${exception.employee.person.personFirstname} ${exception.employee.person.personLastname}`
-          const departmentName = exception.employee.department?.departmentName || REPORT_NO_DATA
-          const positionName = exception.employee.position?.positionName || REPORT_NO_DATA
+          const employeeName = reportFullName(
+            exception.employee.person?.personFirstname,
+            exception.employee.person?.personLastname
+          )
+          const departmentName = exception.employee.department?.departmentName || ''
+          const positionName = exception.employee.position?.positionName || ''
           const exceptionDate = formatReportCalendarDate(exception.shiftExceptionsDate)
-          const exceptionType = exception.exceptionType?.exceptionTypeTypeName || REPORT_NO_DATA
+          const exceptionType = exception.exceptionType?.exceptionTypeTypeName || ''
           const description = exception.shiftExceptionsDescription || ''
           const checkInTime = exception.shiftExceptionCheckInTime || ''
           const checkOutTime = exception.shiftExceptionCheckOutTime || ''
-          const payrollBuName = exception.employee.payrollBusinessUnit?.businessUnitName || REPORT_NO_DATA
-          const workBuName = exception.employee.businessUnit?.businessUnitName || REPORT_NO_DATA
+          const payrollBuName = exception.employee.payrollBusinessUnit?.businessUnitName || ''
+          const workBuName = exception.employee.businessUnit?.businessUnitName || ''
 
           worksheet.addRow([
             workBuName,
@@ -4671,17 +4714,26 @@ export default class AssistsService {
         // Agregar incapacidades laborales al reporte
         for (const disability of workDisabilities) {
           for (const period of disability.workDisabilityPeriods) {
-            const employeeName = `${disability.employee.person.personFirstname} ${disability.employee.person.personLastname}`
-            const departmentName = disability.employee.department?.departmentName || REPORT_NO_DATA
-            const positionName = disability.employee.position?.positionName || REPORT_NO_DATA
-            const payrollBuName = disability.employee.payrollBusinessUnit?.businessUnitName || REPORT_NO_DATA
-            const workBuName = disability.employee.businessUnit?.businessUnitName || REPORT_NO_DATA
+            const employeeName = reportFullName(
+              disability.employee.person?.personFirstname,
+              disability.employee.person?.personLastname
+            )
+            const departmentName = disability.employee.department?.departmentName || ''
+            const positionName = disability.employee.position?.positionName || ''
+            const payrollBuName = disability.employee.payrollBusinessUnit?.businessUnitName || ''
+            const workBuName = disability.employee.businessUnit?.businessUnitName || ''
 
             // Generar fechas para cada día del período de incapacidad
-            const periodStart = DateTime.fromJSDate(new Date(period.workDisabilityPeriodStartDate))
-            const periodEnd = DateTime.fromJSDate(new Date(period.workDisabilityPeriodEndDate))
-            const reportStart = DateTime.fromISO(filterDate)
-            const reportEnd = DateTime.fromISO(filterDateEnd)
+            // Todo en días de calendario UTC: el periodo es columna DATE y el
+            // rango del reporte es `yyyy-MM-dd`; mezclar zona del servidor y
+            // medianoche UTC recortaba o añadía un día.
+            const periodStart = utcCalendarDay(period.workDisabilityPeriodStartDate)
+            const periodEnd = utcCalendarDay(period.workDisabilityPeriodEndDate)
+            const reportStart = utcCalendarDay(filterDate)
+            const reportEnd = utcCalendarDay(filterDateEnd)
+            if (!periodStart.isValid || !periodEnd.isValid) {
+              continue
+            }
 
             // Calcular el rango de fechas que se superpone con el período del reporte
             const startRange = periodStart > reportStart ? periodStart : reportStart
@@ -4699,8 +4751,7 @@ export default class AssistsService {
                 employeeName,
                 departmentName,
                 positionName,
-                // El recorrido parte de medianoche UTC (columna DATE): se lee en UTC.
-                currentDate.toUTC().toFormat(REPORT_DATE_FORMAT),
+                currentDate.toFormat(REPORT_DATE_FORMAT),
                 disabilityType,
                 description,
                 '',
@@ -4729,6 +4780,7 @@ export default class AssistsService {
       ]
 
       // Generar buffer
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
 
       return {

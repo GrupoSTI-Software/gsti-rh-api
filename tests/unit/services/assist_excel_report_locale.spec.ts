@@ -103,7 +103,8 @@ test.group('Reportes de asistencia en español', () => {
     assertFrozenAtHeader(assert, sheet, 4)
     const headers = rowTexts(sheet, 4)
     assert.includeMembers(headers, [
-      'Empleado ID',
+      'ID de empleado',
+      'Nombre del empleado',
       'Departamento',
       'Fecha',
       'Entrada',
