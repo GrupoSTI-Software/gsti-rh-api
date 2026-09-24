@@ -12,7 +12,9 @@ import ContratoServicioEspecializado, {
 import EmpresaContratante from '#models/empresa_contratante'
 import { CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES } from '../constants/contrato_servicio_especializado_error_codes.js'
 import { ContratoServicioEspecializadoError } from '../exceptions/contrato_servicio_especializado_error.js'
-import RepseSpecializedService from '#models/repse_specialized_service'
+import RepseSpecializedService, {
+  type RepseSpecializedServiceStatus,
+} from '#models/repse_specialized_service'
 import {
   assertServiciosRegistradosRequeridos,
   findActiveRepseFolioForTenant,
@@ -59,6 +61,8 @@ export type ContratoServicioEspecializadoUpdatePayload = Partial<
   anexo15d?: Anexo15dUpdatePayload
   serviciosRegistradosIds?: number[]
 }
+
+const SERVICIO_ACTIVO: RepseSpecializedServiceStatus = 'active'
 
 function toIsoDateTimeString(value: unknown): string | null {
   if (value === null || value === undefined) {
@@ -112,6 +116,32 @@ function assertDateRangeOrFail(
       'La fecha fin no puede ser anterior a la fecha inicio.'
     )
   }
+}
+
+/**
+ * Un servicio `inactive` ya no se puede ligar a un contrato. Los que ya
+ * estaban ligados se conservan (editar el contrato no obliga a quitarlos);
+ * solo se rechazan los inactivos que el payload intenta agregar.
+ */
+function assertServiciosActivosOYaLigados(
+  servicios: RepseSpecializedService[],
+  yaLigadosIds: ReadonlySet<number>
+) {
+  const inactivosNuevos = servicios.filter(
+    (servicio) =>
+      servicio.status !== SERVICIO_ACTIVO && !yaLigadosIds.has(servicio.repseSpecializedServiceId)
+  )
+  if (inactivosNuevos.length === 0) {
+    return
+  }
+  const nombres = inactivosNuevos.map((servicio) => servicio.name).join(', ')
+  throw new ContratoServicioEspecializadoError(
+    'Uno o más servicios registrados están inactivos y no se pueden ligar al contrato.',
+    CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.SERVICIO_REGISTRADO_INACTIVO,
+    422,
+    'servicio-registrado-inactivo',
+    `Servicios inactivos: ${nombres}. Actívalos o quítalos del contrato.`
+  )
 }
 
 function serializeServiciosRegistrados(services: RepseSpecializedService[]) {
@@ -184,7 +214,8 @@ export default class ContratoServicioEspecializadoService {
     const normalizedNumero = payload.numeroContrato.trim()
     await this.assertNumeroContratoUniqueInTenant(normalizedNumero)
     const servicioIds = assertServiciosRegistradosRequeridos(payload.serviciosRegistradosIds)
-    await findRepseSpecializedServicesInTenantOrFail(servicioIds)
+    const servicios = await findRepseSpecializedServicesInTenantOrFail(servicioIds)
+    assertServiciosActivosOYaLigados(servicios, new Set())
 
     const row = await db.transaction(async (trx) => {
       const contrato = new ContratoServicioEspecializado()
@@ -402,7 +433,11 @@ export default class ContratoServicioEspecializadoService {
     let servicioIds: number[] | undefined
     if (payload.serviciosRegistradosIds !== undefined) {
       servicioIds = assertServiciosRegistradosRequeridos(payload.serviciosRegistradosIds)
-      await findRepseSpecializedServicesInTenantOrFail(servicioIds)
+      const servicios = await findRepseSpecializedServicesInTenantOrFail(servicioIds)
+      assertServiciosActivosOYaLigados(
+        servicios,
+        await this.findServiciosLigadosIds(current.contratoServicioEspecializadoId)
+      )
     }
 
     await db.transaction(async (trx) => {
@@ -512,6 +547,15 @@ export default class ContratoServicioEspecializadoService {
       { contratoId: row.contratoServicioEspecializadoId, numeroContrato: row.numeroContrato },
       'Contrato de servicios especializados eliminado lógicamente'
     )
+  }
+
+  /** Ids de servicios del catálogo ya ligados al contrato (pivote `contrato_servicio_repse`). */
+  private async findServiciosLigadosIds(contratoServicioEspecializadoId: number) {
+    const rows: Array<{ repse_specialized_service_id: number }> = await db
+      .from('contrato_servicio_repse')
+      .where('contrato_servicio_especializado_id', contratoServicioEspecializadoId)
+      .select('repse_specialized_service_id')
+    return new Set(rows.map((row) => Number(row.repse_specialized_service_id)))
   }
 
   private async findForSerialization(contratoServicioEspecializadoId: number) {

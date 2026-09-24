@@ -303,6 +303,8 @@
   "contrato_servicio_especializado_servicios_registrados_requeridos_message": "Debe indicar al menos un servicio del catálogo REPSE registrado.",
   "contrato_servicio_especializado_servicio_registrado_not_found_title": "Servicio registrado no encontrado",
   "contrato_servicio_especializado_servicio_registrado_not_found_message": "Uno o más servicios registrados no existen o no pertenecen al tenant actual.",
+  "contrato_servicio_especializado_servicio_registrado_inactivo_title": "Servicio registrado inactivo",
+  "contrato_servicio_especializado_servicio_registrado_inactivo_message": "Uno o más servicios registrados están inactivos y no se pueden ligar al contrato.",
   "contrato_servicio_especializado_forbidden_title": "Sin permiso",
   "contrato_servicio_especializado_forbidden_message": "No tienes permiso para gestionar contratos de servicios especializados.",
   "contrato_servicio_especializado_unexpected_error_message": "Ocurrió un error inesperado al procesar el contrato.",

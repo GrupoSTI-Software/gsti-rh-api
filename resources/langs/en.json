@@ -303,6 +303,8 @@
   "contrato_servicio_especializado_servicios_registrados_requeridos_message": "At least one registered REPSE catalog service is required.",
   "contrato_servicio_especializado_servicio_registrado_not_found_title": "Registered service not found",
   "contrato_servicio_especializado_servicio_registrado_not_found_message": "One or more registered services do not exist or do not belong to the current tenant.",
+  "contrato_servicio_especializado_servicio_registrado_inactivo_title": "Inactive registered service",
+  "contrato_servicio_especializado_servicio_registrado_inactivo_message": "One or more registered services are inactive and cannot be linked to the contract.",
   "contrato_servicio_especializado_forbidden_title": "Forbidden",
   "contrato_servicio_especializado_forbidden_message": "You do not have permission to manage specialized service contracts.",
   "contrato_servicio_especializado_unexpected_error_message": "An unexpected error occurred while processing the contract.",
