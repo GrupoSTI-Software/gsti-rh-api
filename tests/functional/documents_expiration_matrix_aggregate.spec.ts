@@ -1,10 +1,13 @@
 import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
 import db from '@adonisjs/lucid/services/db'
+import i18nManager from '@adonisjs/i18n/services/main'
 import CertificationCategory from '#models/certification_category'
 import Certification from '#models/certification'
 import Department from '#models/department'
 import Position from '#models/position'
+import UserService from '#services/user_service'
+import { TenantContext } from '#utils/tenant_context'
 import { toBusinessDateString, todayInBusinessZone } from '#utils/business_date'
 import {
   cleanupEmployeeFixture,
@@ -17,12 +20,15 @@ import {
   assertPermissionDenied,
   businessUnitHeaders,
   cleanupTenantActor,
+  cleanupUnitUser,
+  createBypassUserInBusinessUnit,
   createTenantActor,
   grantModulePermissions,
   required,
   setModuleEnforcement,
   uniqueTestName,
   type TenantActor,
+  type UnitUser,
 } from '#tests/helpers/tenant_actor'
 
 /**
@@ -65,6 +71,11 @@ function getMatrix(client: ApiClient, actor: TenantActor) {
   return client.get(MATRIX_URL).loginAs(actor.user).headers(businessUnitHeaders(actor))
 }
 
+/** Matriz vista por un usuario prestado a la empresa del actor. */
+function getMatrixAs(client: ApiClient, unitUser: UnitUser, actor: TenantActor) {
+  return client.get(MATRIX_URL).loginAs(unitUser.user).headers(businessUnitHeaders(actor))
+}
+
 function getItemFile(client: ApiClient, actor: TenantActor, key: string) {
   return client
     .get(`${MATRIX_URL}/items/${key}/file`)
@@ -86,6 +97,11 @@ test.group('Matriz de vencimientos agregada', (group) => {
   let employeeContractId: number | null = null
   let roleDepartmentId: number | null = null
   let contractTypeName = ''
+  /** Dueño de la empresa del actor, sin filas en `role_departments`. */
+  let companyOwner: UnitUser | null = null
+  /** Otra empresa con su propio departamento: el owner no debe alcanzarlo. */
+  let foreignActor: TenantActor | null = null
+  let foreignFixture: EmployeeFixture | null = null
 
   group.setup(async () => {
     await assertModuleEnforced(MATRIX)
@@ -191,6 +207,10 @@ test.group('Matriz de vencimientos agregada', (group) => {
       employee_contract_created_at: now,
     })
     employeeContractId = Number(insertedContractId)
+
+    companyOwner = await createBypassUserInBusinessUnit('owner', 'matriz-owner', actor.businessUnit.businessUnitId)
+    foreignActor = await createTenantActor('matriz-ajena')
+    foreignFixture = await createEmployeeFixture(foreignActor.businessUnit.businessUnitId, 'matriz-ajena')
   })
 
   group.teardown(async () => {
@@ -224,6 +244,9 @@ test.group('Matriz de vencimientos agregada', (group) => {
         await db.from('business_unit_certifications').whereIn('certification_id', certificationIds).delete()
         await db.from('certifications').whereIn('certification_id', certificationIds).delete()
       }
+      await cleanupUnitUser(companyOwner)
+      await cleanupEmployeeFixture(foreignFixture)
+      await cleanupTenantActor(foreignActor)
       await cleanupEmployeeFixture(fixture)
       await cleanupTenantActor(actor)
     } finally {
@@ -319,6 +342,51 @@ test.group('Matriz de vencimientos agregada', (group) => {
     assert.isTrue(
       downloadable.find((item) => item.key === `employee-file-${employeeProceedingFileId}`)?.hasFile
     )
+  })
+
+  test('owner sin role_departments ve expediente y contrato de su empresa', async ({
+    client,
+    assert,
+  }) => {
+    const tenant = required(actor, 'el actor')
+    const ownerUser = required(companyOwner, 'el owner')
+    const ownerRoleDepartments = await db
+      .from('role_departments')
+      .where('role_id', ownerUser.user.roleId)
+      .whereNull('role_department_deleted_at')
+      .count('* as total')
+    assert.equal(Number(ownerRoleDepartments[0].total), 0, 'el owner no tiene departamentos asignados')
+
+    const response = await getMatrixAs(client, ownerUser, tenant)
+    response.assertStatus(200)
+    const items: MatrixItemBody[] = response.body().data.items
+    assert.exists(items.find((item) => item.key === `employee-file-${employeeProceedingFileId}`))
+    assert.exists(items.find((item) => item.key === `employee-contract-${employeeContractId}`))
+  })
+
+  test('owner: departamentos de su empresa y nunca los de otra', async ({ assert }) => {
+    const tenant = required(actor, 'el actor')
+    const ownerUser = required(companyOwner, 'el owner')
+    const ownDepartmentId = required(
+      required(fixture, 'el empleado').employee.departmentId,
+      'el departamento propio'
+    )
+    const foreignDepartmentId = required(
+      required(foreignFixture, 'el empleado ajeno').employee.departmentId,
+      'el departamento ajeno'
+    )
+    const userService = new UserService(i18nManager.locale('es'))
+
+    const withTenant = await TenantContext.run([tenant.businessUnit.businessUnitId], () =>
+      userService.getRoleDepartments(ownerUser.user.userId)
+    )
+    assert.include(withTenant, ownDepartmentId)
+    assert.notInclude(withTenant, foreignDepartmentId)
+
+    // Sin contexto de empresa (jobs, comandos) se acota a sus empresas asignadas.
+    const withoutTenant = await userService.getRoleDepartments(ownerUser.user.userId)
+    assert.include(withoutTenant, ownDepartmentId)
+    assert.notInclude(withoutTenant, foreignDepartmentId)
   })
 
   test('una fuente sin permiso no aporta items y no tumba la matriz', async ({ client, assert }) => {

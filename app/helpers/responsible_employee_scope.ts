@@ -7,6 +7,15 @@
  */
 const FULL_STAFF_ROLE_SLUGS: readonly string[] = ['root', 'owner']
 
+/**
+ * Indica si el rol ve toda la plantilla de su empresa (`root` u `owner`).
+ * Es la misma regla con la que se decide el candado de colaboradores a cargo
+ * y el alcance de departamentos (`UserService.getRoleDepartments`).
+ */
+export function hasFullStaffAccess(roleSlug: string | null | undefined): boolean {
+  return !!roleSlug && FULL_STAFF_ROLE_SLUGS.includes(roleSlug)
+}
+
 interface ResponsibleScopeUser {
   userId: number
   role: { roleSlug: string }
@@ -20,7 +29,7 @@ interface ResponsibleScopeUser {
  *   el `userId` de la sesión en cualquier otro caso.
  */
 export function resolveResponsibleUserId(user: ResponsibleScopeUser | undefined): number | null {
-  if (!user || FULL_STAFF_ROLE_SLUGS.includes(user.role.roleSlug)) {
+  if (!user || hasFullStaffAccess(user.role.roleSlug)) {
     return null
   }
   return user.userId
