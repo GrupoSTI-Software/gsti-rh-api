@@ -76,7 +76,7 @@ import {
 import { I18n } from '@adonisjs/i18n'
 import { TenantContext } from '#utils/tenant_context'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
-import { getBusinessTimeZone } from '#utils/business_date'
+import { getBusinessTimeZone, toCalendarIsoDate } from '#utils/business_date'
 import { EMPLOYEE_WORK_SCHEDULE, type EmployeeWorkSchedule } from '#constants/employee_work_schedule'
 import { isEmployeeTerminationRecordChanged } from '#helpers/employee_termination_record'
 import type { PersonReleaseContext } from '#helpers/person_release_guard'
@@ -88,7 +88,31 @@ import {
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
 import { formatReportCalendarDate, REPORT_DATE_FORMAT } from '#helpers/report_locale'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
+import { frozenHeaderViews } from '#helpers/report_sheet_views'
 import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
+
+/**
+ * Lo que el reporte de empleados lee de cada empleado (con departamento,
+ * puesto y persona precargados). Todo opcional: un dato ausente sale en blanco.
+ */
+interface EmployeesListReportEmployee {
+  employeeCode?: string | number | null
+  employeeHireDate?: DateTime | Date | string | null
+  employeeWorkSchedule?: string | null
+  department?: { departmentName?: string | null } | null
+  position?: { positionName?: string | null } | null
+  person?: {
+    personFirstname?: string | null
+    personLastname?: string | null
+    personSecondLastname?: string | null
+    personGender?: string | null
+    personPhone?: string | null
+    personCurp?: string | null
+    personRfc?: string | null
+    personImssNss?: string | null
+  } | null
+}
 
 /** Modalidad de trabajo como se escribe en los descargables (mismas etiquetas que la plantilla de importación). */
 const EMPLOYEE_WORK_SCHEDULE_REPORT_LABEL: Record<EmployeeWorkSchedule, string> = {
@@ -4098,37 +4122,8 @@ export default class EmployeeController {
           originModule: 'employees',
         },
         async (maskSensitive) => {
-          const workbook = new ExcelJS.Workbook()
-          const worksheet = workbook.addWorksheet('Reporte de empleados')
-
-          // Formato neutral: sin logo ni franjas de marca. El título ocupa la
-          // fila 1 y la fila 2 queda como separador antes del encabezado.
-          const titleRow = worksheet.addRow(['Reporte de empleados'])
-          titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
-          titleRow.height = 42
-          titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
-          worksheet.mergeCells(`A${titleRow.number}:K${titleRow.number}`)
-          const spacerRow = worksheet.addRow([''])
-          worksheet.mergeCells(`A${spacerRow.number}:K${spacerRow.number}`)
-          this.addHeadRow(worksheet, employees, maskSensitive)
-
-          for (const employee of employees) {
-            const department = await Department.find(employee.departmentId)
-            const departmentName = department?.departmentName || 'N/A'
-            const hireDate = employee.employeeHireDate
-              ? employee.employeeHireDate.toFormat('yyyy-MM-dd')
-              : ''
-            worksheet.addRow({
-              employeeId: employee.employeeId,
-              employeeFirstName: `${employee.person?.personFirstname}`,
-              employeeLastName: `${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
-              departmentName,
-              positionName: employee.positionId,
-              employeeHireDate: hireDate,
-            })
-          }
-          this.addRowExcelEmpty(worksheet)
-
+          const workbook = this.buildEmployeesListWorkbook(employees, maskSensitive)
+          blankMissingTexts(workbook)
           return workbook.xlsx.writeBuffer()
         }
       )
@@ -4554,7 +4549,7 @@ export default class EmployeeController {
         employee.employeeHireDate instanceof DateTime
           ? employee.employeeHireDate.toJSDate()
           : new Date(employee.employeeHireDate)
-      const currentDate = DateTime.local().toJSDate()
+      const currentDate = DateTime.now().toJSDate()
 
       const shiftExceptions = await ShiftException.query()
         .where('employeeId', employeeId)
@@ -4565,7 +4560,8 @@ export default class EmployeeController {
       const employeeShifts = await EmployeeShift.query()
         .where('employeeId', employeeId)
         .whereNull('deletedAt') // Excluir registros eliminados
-        .whereBetween('employeShiftsApplySince', [hireDate, currentDate])
+        // Sin cota inferior: el turno vigente al contratar pudo asignarse antes.
+        .where('employeShiftsApplySince', '<=', currentDate)
         .preload('shift')
 
       // Crear un mapa de fechas y turnos para facilitar la asociación
@@ -4616,37 +4612,38 @@ export default class EmployeeController {
         cell.alignment = { vertical: 'middle', horizontal: 'center' }
       })
 
+      const employeeName = reportFullName(
+        employee.person?.personFirstname,
+        employee.person?.personLastname,
+        employee.person?.personSecondLastname
+      )
       shiftExceptions.forEach((exception) => {
-        const shiftsForDate = employeeShifts
-          .filter(
-            (employeeShift) =>
-              new Date(employeeShift.employeShiftsApplySince).toDateString() !==
-              new Date(exception.shiftExceptionsDate).toDateString()
-          )
-          .map((employeeShift) => employeeShift.shift?.shiftName) // Obtén los nombres de los turnos
-
-        const shiftNames = shiftsForDate.length > 0 ? shiftsForDate.join(', ') : 'Sin turno'
+        // "Sin turno" es un estado real (ese día no había turno asignado), no
+        // un dato ausente: por eso se conserva y no se deja en blanco.
+        const shiftName = this.resolveVigentShiftName(employeeShifts, exception.shiftExceptionsDate)
+        const exceptionTypeName = reportText(exception.exceptionType?.exceptionTypeTypeName)
+        const description = reportText(exception.shiftExceptionsDescription)
 
         const row = worksheet.addRow({
           employeeCode: employee.employeeCode,
-          employeeName: `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
-          department: employee.department?.departmentName || 'Sin departamento',
-          position: employee.position?.positionName || 'Sin puesto',
+          employeeName,
+          department: reportText(employee.department?.departmentName),
+          position: reportText(employee.position?.positionName),
           date: formatReportCalendarDate(exception.shiftExceptionsDate),
-          shiftAssigned: shiftNames,
-          exceptionNotes: exception.shiftExceptionsDescription || 'Sin notas',
+          shiftAssigned: shiftName ?? 'Sin turno',
+          exceptionNotes: description,
         })
-        const exceptionNotesCell = row.getCell('exceptionNotes')
-        const exceptionTypeName = exception.exceptionType?.exceptionTypeTypeName || 'Sin tipo'
-        const description = exception.shiftExceptionsDescription || 'Sin notas'
-        exceptionNotesCell.value = {
-          richText: [
-            { text: exceptionTypeName + ': ', font: { bold: true } },
-            { text: description },
-          ],
+        if (exceptionTypeName) {
+          row.getCell('exceptionNotes').value = {
+            richText: [
+              { text: exceptionTypeName + ': ', font: { bold: true } },
+              { text: description },
+            ],
+          }
         }
       })
 
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
 
       response.header(
@@ -4667,6 +4664,42 @@ export default class EmployeeController {
     }
   }
 
+  /**
+   * Nombre del turno vigente en una fecha: la asignación con el mayor
+   * `applySince` anterior o igual a esa fecha (a igual fecha, la creada al
+   * final). Fechas comparadas como día civil (`toCalendarIsoDate`), igual que
+   * el resto de la vigencia de turnos. `null` si ese día no había turno.
+   */
+  resolveVigentShiftName(
+    employeeShifts: Array<
+      Pick<EmployeeShift, 'employeShiftsApplySince'> & {
+        employeShiftsCreatedAt?: DateTime | null
+        shift?: { shiftName?: string | null } | null
+      }
+    >,
+    date: Date | string
+  ): string | null {
+    const day = toCalendarIsoDate(date)
+    if (!day) return null
+    let vigent: (typeof employeeShifts)[number] | null = null
+    let vigentSince = ''
+    for (const assignment of employeeShifts) {
+      const since = toCalendarIsoDate(assignment.employeShiftsApplySince)
+      if (!since || since > day) continue
+      const newer =
+        since > vigentSince ||
+        (since === vigentSince &&
+          (assignment.employeShiftsCreatedAt?.toMillis() ?? 0) >
+            (vigent?.employeShiftsCreatedAt?.toMillis() ?? 0))
+      if (newer) {
+        vigent = assignment
+        vigentSince = since
+      }
+    }
+    const name = reportText(vigent?.shift?.shiftName)
+    return name || null
+  }
+
   private async verify(
     employee: BiometricEmployeeInterface,
     employeeService: EmployeeService,
@@ -4681,8 +4714,37 @@ export default class EmployeeController {
     }
   }
 
+  /**
+   * Libro del reporte de empleados: título, separador, encabezado y una fila
+   * por empleado en una sola pasada. Departamento y puesto llegan precargados
+   * en la consulta; aquí no se consulta la base por fila.
+   */
+  buildEmployeesListWorkbook(
+    employees: EmployeesListReportEmployee[],
+    maskSensitive = false
+  ): ExcelJS.Workbook {
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('Reporte de empleados')
+
+    // Formato neutral: sin logo ni franjas de marca. El título ocupa la
+    // fila 1 y la fila 2 queda como separador antes del encabezado.
+    const titleRow = worksheet.addRow(['Reporte de empleados'])
+    titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+    titleRow.height = 42
+    titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
+    worksheet.mergeCells(`A${titleRow.number}:K${titleRow.number}`)
+    const spacerRow = worksheet.addRow([''])
+    worksheet.mergeCells(`A${spacerRow.number}:K${spacerRow.number}`)
+    this.addHeadRow(worksheet, employees, maskSensitive)
+    return workbook
+  }
+
   // Método para agregar fila de encabezado
-  addHeadRow(worksheet: ExcelJS.Worksheet, employees: any[], maskSensitive = false) {
+  addHeadRow(
+    worksheet: ExcelJS.Worksheet,
+    employees: EmployeesListReportEmployee[],
+    maskSensitive = false
+  ) {
     const headerRow = worksheet.addRow([
       'Código de empleado',
       'Nombre del empleado',
@@ -4712,7 +4774,7 @@ export default class EmployeeController {
 
     this.adjustColumnWidths(worksheet)
     // Fija título, separador y encabezado de columnas
-    worksheet.views = [{ state: 'frozen', ySplit: headerRow.number }]
+    worksheet.views = frozenHeaderViews(headerRow.number)
     employees.forEach((employee) => {
       const masked = SENSITIVE_EXPORT_PLACEHOLDER
       const phone = maskSensitive ? masked : employee.person?.personPhone || ''
@@ -4722,15 +4784,19 @@ export default class EmployeeController {
 
       worksheet.addRow([
         employee.employeeCode,
-        `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
-        employee.department?.departmentName || '',
-        employee.position?.positionName || '',
+        reportFullName(
+          employee.person?.personFirstname,
+          employee.person?.personLastname,
+          employee.person?.personSecondLastname
+        ),
+        reportText(employee.department?.departmentName),
+        reportText(employee.position?.positionName),
         formatReportCalendarDate(employee.employeeHireDate),
         EMPLOYEE_WORK_SCHEDULE_REPORT_LABEL[employee.employeeWorkSchedule as EmployeeWorkSchedule] ??
           employee.employeeWorkSchedule ??
           '',
         phone,
-        employee.person?.personGender || '',
+        reportText(employee.person?.personGender),
         curp,
         rfc,
         nss,
@@ -4745,10 +4811,6 @@ export default class EmployeeController {
       column.width = width
       column.alignment = { vertical: 'middle', horizontal: 'center' }
     })
-  }
-
-  addRowExcelEmpty(worksheet: ExcelJS.Worksheet) {
-    worksheet.addRow([])
   }
 
   /**

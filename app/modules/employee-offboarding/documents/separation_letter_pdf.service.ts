@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 import PDFDocument from 'pdfkit'
 import { getBusinessTimeZone } from '#utils/business_date'
+import { reportText } from '#helpers/report_text'
 import { REPORT_NEUTRAL_HEX, REPORT_NEUTRAL_PDF_FONTS } from '#constants/report_neutral_theme'
 import { MISSING_FIELD_ORDER } from './documents.constants.js'
 
@@ -133,15 +134,16 @@ export function formatSeniority(parts: SeniorityParts): string {
 /**
  * Saneado del texto que entra al PDF Y al snapshot (si divergieran, el
  * snapshot dejaría de servir para auditar): elimina controles C0/C1 y los
- * controles bidireccionales, colapsa espacios y recorta.
+ * controles bidireccionales, colapsa espacios y recorta. Un dato ausente
+ * ("null"/"undefined" interpolado) queda en blanco (`reportText`).
  */
-export function sanitizeRenderText(value: string): string {
-  return Array.from(`${value}`)
-    .filter((char) => !isControlChar(char.codePointAt(0) ?? 0))
-    .join('')
-    .replace(BIDI_CONTROLS, '')
-    .replace(/\s+/g, ' ')
-    .trim()
+export function sanitizeRenderText(value: string | null | undefined): string {
+  return reportText(
+    Array.from(reportText(value))
+      .filter((char) => !isControlChar(char.codePointAt(0) ?? 0))
+      .join('')
+      .replace(BIDI_CONTROLS, '')
+  )
 }
 
 /** Datos que bloquean la emisión (USRH1787433503689, regla 1). */

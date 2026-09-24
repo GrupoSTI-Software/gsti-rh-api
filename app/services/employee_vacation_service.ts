@@ -21,6 +21,8 @@ import {
   reportI18n,
 } from '#helpers/report_locale'
 import { frozenHeaderViews } from '#helpers/report_sheet_views'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
+import { toBusinessDateString } from '#utils/business_date'
 import ExceptionType from '#models/exception_type'
 import ShiftExceptionService from './shift_exception_service.js'
 import VacationSetting from '#models/vacation_setting'
@@ -141,6 +143,7 @@ export default class EmployeeVacationService {
         this.paintBorderAll(sheet, rows.length)
       }
       // Crear un buffer del archivo Excel
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -271,9 +274,13 @@ export default class EmployeeVacationService {
       }
       const newRow = {
         employeeCode: employee.employeePayrollCode?.toString() || '',
-        employeeName: `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
-        department: employee.department ? employee.department.departmentName : '',
-        position: employee.position ? employee.position.positionName : '',
+        employeeName: reportFullName(
+          employee.person?.personFirstname,
+          employee.person?.personLastname,
+          employee.person?.personSecondLastname
+        ),
+        department: reportText(employee.department?.departmentName),
+        position: reportText(employee.position?.positionName),
         employeeHireDate: employee.employeeHireDate
           ? this.getDate(employee.employeeHireDate.toString())
           : '',
@@ -393,6 +400,7 @@ export default class EmployeeVacationService {
         this.paintVacationUsedBorderAll(sheet, rows.length)
       }
       // Crear un buffer del archivo Excel
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -433,9 +441,13 @@ export default class EmployeeVacationService {
             const newRow = {
               date: this.getDateFromHttp(shiftException.shiftExceptionsDate.toString()),
               employeeCode: employee.employeePayrollCode?.toString() || '',
-              employeeName: `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
-              department: employee.department ? employee.department.departmentName : '',
-              position: employee.position ? employee.position.positionName : '',
+              employeeName: reportFullName(
+          employee.person?.personFirstname,
+          employee.person?.personLastname,
+          employee.person?.personSecondLastname
+        ),
+              department: reportText(employee.department?.departmentName),
+              position: reportText(employee.position?.positionName),
             } as EmployeeVacationUsedDaysExcelRowInterface
             rows.push(newRow)
           }
@@ -631,6 +643,7 @@ export default class EmployeeVacationService {
       this.paintBorderAllSummary(sheet, rows.length, years)
 
       // Crear un buffer del archivo Excel
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -812,9 +825,9 @@ export default class EmployeeVacationService {
           employee.employeePayrollCode?.toString() || employee.employeePayrollNum?.toString() || '',
         employeeCode:
           employee.employeePayrollCode?.toString() || employee.employeePayrollNum?.toString() || '',
-        employeeName: `${employee.employeeFirstName} ${employee.employeeLastName}`,
-        department: employee.department ? employee.department.departmentName : '',
-        position: employee.position ? employee.position.positionName : '',
+        employeeName: reportFullName(employee.employeeFirstName, employee.employeeLastName),
+        department: reportText(employee.department?.departmentName),
+        position: reportText(employee.position?.positionName),
         employeeHireDate: employee.employeeHireDate
           ? this.getDate(employee.employeeHireDate.toString())
           : '',
@@ -826,7 +839,9 @@ export default class EmployeeVacationService {
   }
 
   paintBorderAllSummary(worksheet: ExcelJS.Worksheet, rowCount: number, years: number[]) {
-    const today = DateTime.now()
+    // Hoy como día civil de la zona de negocio, leído en UTC igual que la
+    // fecha de ingreso (`parseReportDate`), para comparar días sin desfase.
+    const today = DateTime.fromISO(toBusinessDateString(), { zone: 'utc' })
     const rowTempYear = worksheet.getRow(3)
     for (let rowIndex = 1; rowIndex <= rowCount + 4; rowIndex++) {
       const row = worksheet.getRow(rowIndex)
@@ -1238,6 +1253,7 @@ export default class EmployeeVacationService {
       })
       wsInstr.getColumn(1).width = 95
 
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return { status: 201, buffer: Buffer.from(buffer) }
     } catch (error: any) {

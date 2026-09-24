@@ -9,6 +9,7 @@ import { isValidBadgeTokenFormat } from './validators/verify_badge.validator.js'
 import type { BadgeRepository } from './badge.repository.js'
 import type { BadgeEmployeeContext, GafeteDto, GafeteVerificacionDto } from './dto/badge.dto.js'
 import type { BadgeRenderContext } from './badge_render.service.js'
+import { reportFullName, reportText } from '#helpers/report_text'
 
 /** Fallback espejo de `magic_link_service.ts` cuando `BACKOFFICE_URL` no está definida. */
 const DEFAULT_BACKOFFICE_URL = 'http://127.0.0.1:3000'
@@ -114,11 +115,13 @@ export default class BadgeService {
       // cuenta, y con objetos privados la URL pública es `null` aunque la foto
       // exista. Pasarle la URL dejaba todo gafete descargable sin retrato.
       fotoPath: context.employeePhoto,
-      empresa: context.businessUnitLegalName || context.businessUnitName,
-      puesto: context.positionName,
-      departamento: context.departmentName,
-      numeroNomina: context.payrollCode,
-      nss: context.nss,
+      // Todo texto impreso pasa por `reportText`: un dato ausente no se
+      // dibuja (ni como "null"); los opcionales vacíos quedan en `null`.
+      empresa: reportText(context.businessUnitLegalName || context.businessUnitName),
+      puesto: reportText(context.positionName) || null,
+      departamento: reportText(context.departmentName) || null,
+      numeroNomina: reportText(context.payrollCode) || null,
+      nss: reportText(context.nss) || null,
       folioRepse,
       folioVigente,
       urlVerificacion,
@@ -213,11 +216,7 @@ export default class BadgeService {
   }
 
   private buildFullName(firstname: string, lastname: string, secondLastname: string): string {
-    return [firstname, lastname, secondLastname]
-      .map((part) => part?.trim())
-      .filter((part) => !!part)
-      .join(' ')
-      .replace(/\s+/g, ' ')
+    return reportFullName(firstname, lastname, secondLastname)
   }
 
   /**
