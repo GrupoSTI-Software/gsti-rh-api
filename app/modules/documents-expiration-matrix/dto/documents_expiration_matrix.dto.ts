@@ -46,8 +46,13 @@ export interface ExpirationMatrixItemDto {
   daysToExpire: number
   owner: ExpirationMatrixOwnerDto
   /**
-   * Id con el que el módulo dueño abre el recurso cuando no es el de la llave
-   * (certificación: `certificationId`); `null` en el resto.
+   * Id con el que el módulo dueño abre el recurso cuando no es el de la llave:
+   * - `certification`: `certificationId` (panel de la certificación).
+   * - `company-file`: `proceedingFileTypeId` (carpeta del tipo en el expediente
+   *   de la empresa).
+   * - `supply`: `supplyTypeId` (listado de `/supplies` del tipo); `null` si el
+   *   tipo del insumo está dado de baja.
+   * `null` en el resto de las fuentes.
    */
   targetId: number | null
   /** `true` solo si hay archivo y el usuario puede descargarlo. */

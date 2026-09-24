@@ -6,6 +6,9 @@ import CertificationCategory from '#models/certification_category'
 import Certification from '#models/certification'
 import Department from '#models/department'
 import Position from '#models/position'
+import Supplie from '#models/supplie'
+import SupplyType from '#models/supply_type'
+import SystemSetting from '#models/system_setting'
 import UserService from '#services/user_service'
 import { TenantContext } from '#utils/tenant_context'
 import { toBusinessDateString, todayInBusinessZone } from '#utils/business_date'
@@ -102,6 +105,14 @@ test.group('Matriz de vencimientos agregada', (group) => {
   /** Otra empresa con su propio departamento: el owner no debe alcanzarlo. */
   let foreignActor: TenantActor | null = null
   let foreignFixture: EmployeeFixture | null = null
+  let supplyTypeId: number | null = null
+  let supplyId: number | null = null
+  let employeeSupplyId: number | null = null
+  /** Ficha creada por el spec (la empresa del actor nace sin ella). */
+  let createdSystemSettingId: number | null = null
+  let companyFileTypeId: number | null = null
+  let companyProceedingFileId: number | null = null
+  let companyFileId: number | null = null
 
   group.setup(async () => {
     await assertModuleEnforced(MATRIX)
@@ -208,6 +219,71 @@ test.group('Matriz de vencimientos agregada', (group) => {
     })
     employeeContractId = Number(insertedContractId)
 
+    // Insumo asignado que vence en la ventana: su targetId es el tipo del insumo.
+    const supplyType = await SupplyType.create({
+      businessUnitId: actor.businessUnit.businessUnitId,
+      supplyTypeName: uniqueTestName('Tipo matriz'),
+      supplyTypeSlug: `tipo-insumo-matriz-${stamp}`,
+    })
+    supplyTypeId = supplyType.supplyTypeId
+    const supply = await Supplie.create({
+      businessUnitId: actor.businessUnit.businessUnitId,
+      supplyFileNumber: Number(`${Date.now()}${Math.floor(Math.random() * 100)}`.slice(-9)),
+      supplyName: uniqueTestName('Activo matriz'),
+      supplyTypeId: supplyType.supplyTypeId,
+      supplyStatus: 'active',
+    })
+    supplyId = supply.supplyId
+    const [insertedEmployeeSupplyId] = await db.table('employee_supplies').insert({
+      employee_id: fixture.employee.employeeId,
+      business_unit_id: actor.businessUnit.businessUnitId,
+      supply_id: supply.supplyId,
+      employee_supply_status: 'active',
+      employee_supply_expiration_date: dayOffset(7),
+      employee_supply_created_at: now,
+    })
+    employeeSupplyId = Number(insertedEmployeeSupplyId)
+
+    // Expediente de la empresa: su targetId es el tipo de expediente (la carpeta).
+    const existingSetting = await SystemSetting.query()
+      .where('business_unit_id', actor.businessUnit.businessUnitId)
+      .first()
+    const setting =
+      existingSetting ??
+      (await SystemSetting.create({
+        businessUnitId: actor.businessUnit.businessUnitId,
+        systemSettingTradeName: uniqueTestName('Empresa matriz'),
+        systemSettingSidebarColor: '#111111',
+        systemSettingActive: 1,
+        systemSettingMonthlyConversionFactor: 30.4,
+      }))
+    if (!existingSetting) createdSystemSettingId = setting.systemSettingId
+    const [insertedCompanyTypeId] = await db.table('proceeding_file_types').insert({
+      proceeding_file_type_name: `Tipo empresa matriz ${stamp}`,
+      proceeding_file_type_slug: `tipo-empresa-matriz-${stamp}`,
+      proceeding_file_type_area_to_use: 'system-setting',
+      proceeding_file_type_created_at: now,
+      proceeding_file_type_updated_at: now,
+    })
+    companyFileTypeId = Number(insertedCompanyTypeId)
+    const [insertedCompanyProceedingFileId] = await db.table('proceeding_files').insert({
+      proceeding_file_name: `empresa-matriz-${stamp}.pdf`,
+      proceeding_file_path: `pruebas/empresa-matriz-${stamp}.pdf`,
+      proceeding_file_type_id: companyFileTypeId,
+      proceeding_file_expiration_at: `${dayOffset(12)} 00:00:00`,
+      proceeding_file_active: 1,
+      proceeding_file_uuid: `pf-empresa-matriz-${stamp}`,
+      proceeding_file_created_at: now,
+      proceeding_file_updated_at: now,
+    })
+    companyProceedingFileId = Number(insertedCompanyProceedingFileId)
+    const [insertedCompanyFileId] = await db.table('system_setting_proceeding_files').insert({
+      system_setting_id: setting.systemSettingId,
+      proceeding_file_id: companyProceedingFileId,
+      system_setting_proceeding_file_created_at: now,
+    })
+    companyFileId = Number(insertedCompanyFileId)
+
     companyOwner = await createBypassUserInBusinessUnit('owner', 'matriz-owner', actor.businessUnit.businessUnitId)
     foreignActor = await createTenantActor('matriz-ajena')
     foreignFixture = await createEmployeeFixture(foreignActor.businessUnit.businessUnitId, 'matriz-ajena')
@@ -243,6 +319,30 @@ test.group('Matriz de vencimientos agregada', (group) => {
       if (certificationIds.length > 0) {
         await db.from('business_unit_certifications').whereIn('certification_id', certificationIds).delete()
         await db.from('certifications').whereIn('certification_id', certificationIds).delete()
+      }
+      if (companyFileId !== null) {
+        await db
+          .from('system_setting_proceeding_files')
+          .where('system_setting_proceeding_file_id', companyFileId)
+          .delete()
+      }
+      if (companyProceedingFileId !== null) {
+        await db.from('proceeding_files').where('proceeding_file_id', companyProceedingFileId).delete()
+      }
+      if (companyFileTypeId !== null) {
+        await db.from('proceeding_file_types').where('proceeding_file_type_id', companyFileTypeId).delete()
+      }
+      if (createdSystemSettingId !== null) {
+        await db.from('system_settings').where('system_setting_id', createdSystemSettingId).delete()
+      }
+      if (employeeSupplyId !== null) {
+        await db.from('employee_supplies').where('employee_supply_id', employeeSupplyId).delete()
+      }
+      if (supplyId !== null) {
+        await db.from('supplies').where('supply_id', supplyId).delete()
+      }
+      if (supplyTypeId !== null) {
+        await db.from('supply_types').where('supply_type_id', supplyTypeId).delete()
       }
       await cleanupUnitUser(companyOwner)
       await cleanupEmployeeFixture(foreignFixture)
@@ -387,6 +487,25 @@ test.group('Matriz de vencimientos agregada', (group) => {
     const withoutTenant = await userService.getRoleDepartments(ownerUser.user.userId)
     assert.include(withoutTenant, ownDepartmentId)
     assert.notInclude(withoutTenant, foreignDepartmentId)
+  })
+
+  test('targetId: tipo del insumo y tipo del expediente de la empresa', async ({
+    client,
+    assert,
+  }) => {
+    const tenant = required(actor, 'el actor')
+    await grantModulePermissions(tenant, MATRIX, ['read'])
+
+    const response = await getMatrix(client, tenant)
+    response.assertStatus(200)
+    const items: MatrixItemBody[] = response.body().data.items
+    const supplyItem = items.find((item) => item.key === `supply-${employeeSupplyId}`)
+    const companyItem = items.find((item) => item.key === `company-file-${companyFileId}`)
+
+    assert.exists(supplyItem)
+    assert.equal(supplyItem?.targetId, supplyTypeId, 'supplyTypeId para abrir /supplies por tipo')
+    assert.exists(companyItem)
+    assert.equal(companyItem?.targetId, companyFileTypeId, 'proceedingFileTypeId de la carpeta')
   })
 
   test('una fuente sin permiso no aporta items y no tumba la matriz', async ({ client, assert }) => {

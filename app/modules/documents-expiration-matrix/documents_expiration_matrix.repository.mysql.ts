@@ -38,6 +38,7 @@ interface EmployeeContractRow extends EmployeeOwnerRow {
 
 interface CompanyFileRow {
   system_setting_proceeding_file_id: number
+  proceeding_file_type_id: number
   proceeding_file_type_name: string
   proceeding_file_name: string | null
   proceeding_file_path: string | null
@@ -74,6 +75,7 @@ interface ProviderFolioRow {
 
 interface SupplyRow extends EmployeeOwnerRow {
   employee_supply_id: number
+  supply_type_id: number | null
   supply_name: string
   supply_file_number: number | null
   supply_type_name: string | null
@@ -289,6 +291,7 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
 
     const rows: CompanyFileRow[] = await query.select(
       'sspf.system_setting_proceeding_file_id',
+      'pft.proceeding_file_type_id',
       'pft.proceeding_file_type_name',
       'pf.proceeding_file_name',
       'pf.proceeding_file_path',
@@ -304,6 +307,7 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
       return {
         source: 'company-file',
         id: row.system_setting_proceeding_file_id,
+        targetId: row.proceeding_file_type_id,
         documentName: textOrNull(row.proceeding_file_type_name),
         reference: textOrNull(row.proceeding_file_name),
         expiresAt: row.expires_at,
@@ -485,6 +489,7 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
 
     const rows: SupplyRow[] = await query.select(
       'es.employee_supply_id',
+      'st.supply_type_id',
       's.supply_name',
       's.supply_file_number',
       'st.supply_type_name',
@@ -499,6 +504,8 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
       return {
         source: 'supply',
         id: row.employee_supply_id,
+        // Tipo vigente del insumo: con el tipo dado de baja no hay a dónde abrir.
+        targetId: row.supply_type_id ?? undefined,
         documentName: supplyName && typeName ? `${supplyName} (${typeName})` : supplyName,
         reference: textOrNull(row.supply_file_number),
         expiresAt: row.expires_at,
