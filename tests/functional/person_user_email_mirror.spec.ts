@@ -591,3 +591,91 @@ test.group('Espejo — PUT /api/users/:id (M4/M5)', (group) => {
     assert.equal(row.person_id, person.personId)
   })
 })
+
+test.group('Espejo — CA-7 igualdad-de-trato-en-los-seis-caminos', (group) => {
+  group.setup(async () => {
+    world = await createMirrorWorld()
+  })
+  group.teardown(async () => {
+    await cleanupMirrorWorld(world)
+    world = null
+  })
+
+  function as(client: ApiClient, method: 'put' | 'post', url: string, body: Record<string, unknown>) {
+    const w = world!
+    return client[method](url).loginAs(w.full.user).headers(businessUnitHeader(w.full.businessUnit)).json(body)
+  }
+
+  test('M1 y M6 → mismo cuerpo USR.MAIL.002; M2 y M4 → USR.MAIL.003; M3 y M5 → USR.MAIL.004; nada se guarda', async ({ client, assert }) => {
+    const w = world!
+    const bu = w.full.businessUnit
+    const role = w.full.role
+
+    // Correos ocupados, uno por destino.
+    const ocupadoCuenta = `ca7-cuenta-${stamp()}@x.com`
+    await createUserFor(w.registry, await createPersonIn(w.registry, bu, null), role, [bu], { userEmail: ocupadoCuenta, userEmailType: 'institutional' })
+    const ocupadoPersonal = `ca7-personal-${stamp()}@x.com`
+    await createPersonIn(w.registry, bu, ocupadoPersonal)
+    const ocupadoEmpresa = `ca7-empresa-${stamp()}@x.com`
+    await createEmployeeFor(w.registry, await createPersonIn(w.registry, bu, null), bu, ocupadoEmpresa)
+
+    // M1: expediente de una persona con cuenta personal.
+    const m1Email = `ca7-m1-${stamp()}@x.com`
+    const m1Person = await createPersonIn(w.registry, bu, m1Email)
+    const m1User = await createUserFor(w.registry, m1Person, role, [bu], { userEmail: m1Email, userEmailType: 'personal' })
+    const m1 = await as(client, 'put', `/api/persons/${m1Person.personId}`, personBody(m1Person, { personEmail: ocupadoCuenta }))
+
+    // M6: empleado con cuenta institucional.
+    const m6Email = `ca7-m6-${stamp()}@x.com`
+    const m6Person = await createPersonIn(w.registry, bu, null)
+    const m6Employee = await createEmployeeFor(w.registry, m6Person, bu, m6Email)
+    const m6User = await createUserFor(w.registry, m6Person, role, [bu], { userEmail: m6Email, userEmailType: 'institutional' })
+    const m6 = await as(client, 'put', `/api/employees/${m6Employee.employeeId}`, employeeBody(m6Employee, { employeeBusinessEmail: ocupadoCuenta }))
+
+    // M2: alta personal. M3: alta institucional.
+    const m2Person = await createPersonIn(w.registry, bu, `ca7-m2-${stamp()}@x.com`)
+    const m2 = await as(client, 'post', '/api/users', { userEmail: ocupadoPersonal, userActive: true, roleId: role.roleId, personId: m2Person.personId, userEmailType: 'personal' })
+    const m3Person = await createPersonIn(w.registry, bu, null)
+    const m3Employee = await createEmployeeFor(w.registry, m3Person, bu, `ca7-m3-${stamp()}@x.com`)
+    const m3 = await as(client, 'post', '/api/users', { userEmail: ocupadoEmpresa, userActive: true, roleId: role.roleId, personId: m3Person.personId, userEmailType: 'institutional' })
+
+    // M4: edición personal. M5: edición institucional.
+    const m4Email = `ca7-m4-${stamp()}@x.com`
+    const m4Person = await createPersonIn(w.registry, bu, m4Email)
+    const m4User = await createUserFor(w.registry, m4Person, role, [bu], { userEmail: m4Email, userEmailType: 'personal' })
+    const m4 = await as(client, 'put', `/api/users/${m4User.userId}`, userBody(m4User, { userEmail: ocupadoPersonal }))
+    const m5Email = `ca7-m5-${stamp()}@x.com`
+    const m5Person = await createPersonIn(w.registry, bu, null)
+    const m5Employee = await createEmployeeFor(w.registry, m5Person, bu, m5Email)
+    const m5User = await createUserFor(w.registry, m5Person, role, [bu], { userEmail: m5Email, userEmailType: 'institutional' })
+    const m5 = await as(client, 'put', `/api/users/${m5User.userId}`, userBody(m5User, { userEmail: ocupadoEmpresa }))
+
+    for (const response of [m1, m2, m3, m4, m5, m6]) response.assertStatus(400)
+    assert.deepEqual(m1.body(), m6.body())
+    assert.equal(m1.body().code, 'USR.MAIL.002')
+    assert.deepEqual(m2.body(), m4.body())
+    assert.equal(m2.body().code, 'USR.MAIL.003')
+    assert.deepEqual(m3.body(), m5.body())
+    assert.equal(m3.body().code, 'USR.MAIL.004')
+
+    // Mismo efecto: nada se guardó en ninguno.
+    const m1UserRow = await readUserRow(m1User.userId)
+    const m6EmployeeRow = await readEmployeeRow(m6Employee.employeeId)
+    const m6UserRow = await readUserRow(m6User.userId)
+    const m3EmployeeRow = await readEmployeeRow(m3Employee.employeeId)
+    const m4UserRow = await readUserRow(m4User.userId)
+    const m5UserRow = await readUserRow(m5User.userId)
+    const m5EmployeeRow = await readEmployeeRow(m5Employee.employeeId)
+    assert.equal(await readPersonEmail(m1Person.personId), m1Email)
+    assert.equal(m1UserRow.user_email, m1Email)
+    assert.equal(m6EmployeeRow.employee_business_email, m6Email)
+    assert.equal(m6UserRow.user_email, m6Email)
+    assert.isNull(await User.query().where('person_id', m2Person.personId).whereNull('user_deleted_at').first())
+    assert.isNull(await User.query().where('person_id', m3Person.personId).whereNull('user_deleted_at').first())
+    assert.notEqual(m3EmployeeRow.employee_business_email, ocupadoEmpresa)
+    assert.equal(m4UserRow.user_email, m4Email)
+    assert.equal(await readPersonEmail(m4Person.personId), m4Email)
+    assert.equal(m5UserRow.user_email, m5Email)
+    assert.equal(m5EmployeeRow.employee_business_email, m5Email)
+  })
+})
