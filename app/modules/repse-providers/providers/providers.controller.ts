@@ -37,7 +37,10 @@ export default class ProvidersController {
    *     description: |
    *       Devuelve el catálogo de proveedores REPSE de la(s) empresa(s)
    *       contratante(s) del tenant autenticado, con el indicador de próxima
-   *       revisión (`nextReviewAt` + `reviewStatus`).
+   *       revisión (`nextReviewAt` + `reviewStatus`) y la validación más
+   *       reciente de la bitácora (`lastValidationAt` en `YYYY-MM-DD` +
+   *       `lastValidationEstatus` `vigente`/`no_vigente`; ambos `null` si aún no
+   *       tiene validaciones).
    *
    *       **Contrato i18n:** `title` y `message` varían con `Accept-Language`;
    *       el payload siempre va en `data.proveedoresRepse` (clave estable).
@@ -108,6 +111,8 @@ export default class ProvidersController {
    *                       periodicidadMeses: 1
    *                       nextReviewAt: "2026-08-01"
    *                       reviewStatus: on_track
+   *                       lastValidationAt: "2026-07-01"
+   *                       lastValidationEstatus: vigente
    *                       proveedorRepseCreatedAt: "2026-07-17T10:00:00.000-06:00"
    *                       proveedorRepseUpdatedAt: null
    *             examples:
@@ -131,6 +136,8 @@ export default class ProvidersController {
    *                           periodicidadMeses: 1
    *                           nextReviewAt: "2026-08-01"
    *                           reviewStatus: on_track
+   *                           lastValidationAt: "2026-07-01"
+   *                           lastValidationEstatus: vigente
    *                           proveedorRepseCreatedAt: "2026-07-17T10:00:00.000-06:00"
    *                           proveedorRepseUpdatedAt: null
    *       '400':
@@ -210,6 +217,8 @@ export default class ProvidersController {
    *   get:
    *     summary: Obtener un proveedor REPSE por id
    *     description: |
+   *       Incluye `lastValidationAt` (`YYYY-MM-DD`) y `lastValidationEstatus`
+   *       (`vigente`/`no_vigente`) de la validación más reciente; `null` si no tiene.
    *       Payload estable en `data.proveedorRepse` (title/message i18n vía Accept-Language).
    *     tags: [RepseProviders]
    *     security:
@@ -248,6 +257,8 @@ export default class ProvidersController {
    *                   periodicidadMeses: 1
    *                   nextReviewAt: null
    *                   reviewStatus: pending_first_validation
+   *                   lastValidationAt: null
+   *                   lastValidationEstatus: null
    *                   proveedorRepseCreatedAt: "2026-07-17T10:00:00.000-06:00"
    *                   proveedorRepseUpdatedAt: null
    *       '401':
@@ -342,6 +353,8 @@ export default class ProvidersController {
    *                   periodicidadMeses: 1
    *                   nextReviewAt: null
    *                   reviewStatus: pending_first_validation
+   *                   lastValidationAt: null
+   *                   lastValidationEstatus: null
    *                   proveedorRepseCreatedAt: "2026-07-17T10:00:00.000-06:00"
    *                   proveedorRepseUpdatedAt: null
    *       '401':
@@ -433,7 +446,7 @@ export default class ProvidersController {
    *         description: Actualizado
    *         content:
    *           application/json:
-   *             example: { type: success, title: "Proveedor REPSE", message: "Proveedor REPSE actualizado correctamente", data: { proveedorRepse: { proveedorRepseId: 1, businessUnitId: 1, razonSocial: "Servicios Especializados Acme S.A. de C.V.", rfc: "ASE930101AB1", folio: "REPSE-12345", objetoRegistrado: "Servicios de limpieza industrial", folioVencimiento: "2027-06-01", periodicidadMeses: 1, nextReviewAt: null, reviewStatus: pending_first_validation, proveedorRepseCreatedAt: "2026-07-17T10:00:00.000-06:00", proveedorRepseUpdatedAt: "2026-07-17T11:00:00.000-06:00" } } }
+   *             example: { type: success, title: "Proveedor REPSE", message: "Proveedor REPSE actualizado correctamente", data: { proveedorRepse: { proveedorRepseId: 1, businessUnitId: 1, razonSocial: "Servicios Especializados Acme S.A. de C.V.", rfc: "ASE930101AB1", folio: "REPSE-12345", objetoRegistrado: "Servicios de limpieza industrial", folioVencimiento: "2027-06-01", periodicidadMeses: 1, nextReviewAt: null, reviewStatus: pending_first_validation, lastValidationAt: null, lastValidationEstatus: null, proveedorRepseCreatedAt: "2026-07-17T10:00:00.000-06:00", proveedorRepseUpdatedAt: "2026-07-17T11:00:00.000-06:00" } } }
    *       '401':
    *         description: Sin autenticación
    *         content:
@@ -513,7 +526,7 @@ export default class ProvidersController {
    *         description: Borrado lógico aplicado
    *         content:
    *           application/json:
-   *             example: { type: success, title: "Proveedor REPSE", message: "Proveedor REPSE eliminado correctamente", data: { proveedorRepse: { proveedorRepseId: 1, businessUnitId: 1, razonSocial: "Servicios Especializados Acme S.A. de C.V.", rfc: "ASE930101AB1", folio: "REPSE-12345", objetoRegistrado: "Servicios de limpieza industrial", folioVencimiento: "2027-01-01", periodicidadMeses: 1, nextReviewAt: null, reviewStatus: pending_first_validation, proveedorRepseCreatedAt: "2026-07-17T10:00:00.000-06:00", proveedorRepseUpdatedAt: null } } }
+   *             example: { type: success, title: "Proveedor REPSE", message: "Proveedor REPSE eliminado correctamente", data: { proveedorRepse: { proveedorRepseId: 1, businessUnitId: 1, razonSocial: "Servicios Especializados Acme S.A. de C.V.", rfc: "ASE930101AB1", folio: "REPSE-12345", objetoRegistrado: "Servicios de limpieza industrial", folioVencimiento: "2027-01-01", periodicidadMeses: 1, nextReviewAt: null, reviewStatus: pending_first_validation, lastValidationAt: null, lastValidationEstatus: null, proveedorRepseCreatedAt: "2026-07-17T10:00:00.000-06:00", proveedorRepseUpdatedAt: null } } }
    *       '401':
    *         description: Sin autenticación
    *         content:
