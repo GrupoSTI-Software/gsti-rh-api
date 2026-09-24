@@ -16,6 +16,18 @@ import { reportI18n } from '#helpers/report_locale'
 const noProgress = async () => {}
 const FILTERS = { filterDate: '2026-08-01', filterDateEnd: '2026-08-15', businessUnitId: 1 }
 
+/** Una sola vista, congelada hasta la fila del encabezado (Excel solo aplica la primera). */
+function assertFrozenAtHeader(
+  assert: { lengthOf: (value: unknown[], n: number) => void; equal: (a: unknown, b: unknown) => void },
+  sheet: ExcelJS.Worksheet,
+  headerRow: number
+): void {
+  const views = sheet.views as Array<Partial<ExcelJS.WorksheetViewFrozen>>
+  assert.lengthOf(views, 1)
+  assert.equal(views[0].ySplit, headerRow)
+  assert.equal(views[0].topLeftCell, `A${headerRow + 1}`)
+}
+
 async function loadSheet(buffer: ExcelJS.Buffer | undefined): Promise<ExcelJS.Worksheet> {
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.load(buffer as ArrayBuffer)
@@ -88,6 +100,7 @@ test.group('Reportes de asistencia en español', () => {
     const sheet = await loadSheet('buffer' in result ? result.buffer : undefined)
     assert.equal(sheet.name, 'Reporte de asistencias')
     assert.equal(sheet.getCell('A2').value, 'Reporte de asistencias')
+    assertFrozenAtHeader(assert, sheet, 4)
     const headers = rowTexts(sheet, 4)
     assert.includeMembers(headers, [
       'Empleado ID',
@@ -108,6 +121,7 @@ test.group('Reportes de asistencia en español', () => {
     const sheet = await loadSheet('buffer' in result ? result.buffer : undefined)
     assert.equal(sheet.name, 'Resumen de incidencias')
     assert.match(String(sheet.getCell('B1').value), /^Reporte resumido Desde 1 de agosto de 2026 hasta/)
+    assertFrozenAtHeader(assert, sheet, 3)
     const headers = rowTexts(sheet, 3)
     assert.includeMembers(headers, ['Unidad de negocio de trabajo', 'Días trabajados', 'A tiempo', 'Pagar', 'Descuentos'])
     for (const header of headers) {
@@ -129,6 +143,7 @@ test.group('Reportes de asistencia en español', () => {
     assert.equal(sheet.name, 'Resumen incidencias nómina')
     assert.equal(sheet.getCell('A1').value, 'Resumen de incidencias para nómina')
     assert.match(String(sheet.getCell('F2').value), /^Incidencias .+ Desde 1 de agosto de 2026 hasta/)
+    assertFrozenAtHeader(assert, sheet, 5)
     assert.includeMembers(rowTexts(sheet, 5), ['Empresa', 'Falta', 'Retardo', 'Otros'])
   })
 })

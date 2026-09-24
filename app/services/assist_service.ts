@@ -81,6 +81,15 @@ const REPORT_NO_DATA = '—'
 const reportCalendarDate = (value: Date | string): string =>
   DateTime.fromJSDate(new Date(value), { zone: 'utc' }).toFormat(REPORT_DATE_FORMAT)
 
+/**
+ * Una sola vista con las filas `1..headerRow` congeladas. ExcelJS escribe un
+ * `<sheetView>` por cada entrada de `views` y Excel solo aplica la primera:
+ * con varias entradas se congelaba la fila 1, no el encabezado.
+ */
+function frozenHeaderViews(headerRow: number): Array<Partial<ExcelJS.WorksheetViewFrozen>> {
+  return [{ state: 'frozen', ySplit: headerRow, topLeftCell: `A${headerRow + 1}` }]
+}
+
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
   private i18n: I18n
@@ -241,12 +250,7 @@ export default class AssistsService {
     periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
     periodRow.height = 30
     worksheet.mergeCells('A3:Q3')
-    worksheet.views = [
-      { state: 'frozen', ySplit: 1 },
-      { state: 'frozen', ySplit: 2 },
-      { state: 'frozen', ySplit: 3 },
-      { state: 'frozen', ySplit: 4 },
-    ]
+    worksheet.views = frozenHeaderViews(4)
     this.addHeadRow(worksheet)
     const status = employee.deletedAt ? 'Terminated' : 'Active'
     await this.addRowToWorkSheet(rows, worksheet, status)
@@ -495,12 +499,7 @@ export default class AssistsService {
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       periodRow.height = 30
       worksheet.mergeCells('A3:P3')
-      worksheet.views = [
-        { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-        { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-        { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-        { state: 'frozen', ySplit: 4 }, // Fija la cuarta fila
-      ]
+      worksheet.views = frozenHeaderViews(4)
       // Añadir columnas de datos (encabezados)
       this.addHeadRow(worksheet)
       await this.addRowToWorkSheet(rows, worksheet)
@@ -640,12 +639,7 @@ export default class AssistsService {
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       periodRow.height = 30
       worksheet.mergeCells('A3:P3')
-      worksheet.views = [
-        { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-        { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-        { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-        { state: 'frozen', ySplit: 4 }, // Fija la cuarta fila
-      ]
+      worksheet.views = frozenHeaderViews(4)
       // Añadir columnas de datos (encabezados)
       this.addHeadRow(worksheet)
       await this.addRowToWorkSheet(rows, worksheet)
@@ -928,12 +922,7 @@ export default class AssistsService {
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       periodRow.height = 30
       worksheet.mergeCells('A3:Q3')
-      worksheet.views = [
-        { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-        { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-        { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-        { state: 'frozen', ySplit: 4 }, // Fija la cuarta fila
-      ]
+      worksheet.views = frozenHeaderViews(4)
       // Añadir columnas de datos (encabezados)
       this.addHeadRow(worksheet)
       await this.addRowToWorkSheet(rows, worksheet)
@@ -1085,12 +1074,7 @@ export default class AssistsService {
     periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
     periodRow.height = 30
     worksheet.mergeCells('A3:Q3')
-    worksheet.views = [
-      { state: 'frozen', ySplit: 1 },
-      { state: 'frozen', ySplit: 2 },
-      { state: 'frozen', ySplit: 3 },
-      { state: 'frozen', ySplit: 4 },
-    ]
+    worksheet.views = frozenHeaderViews(4)
     this.addHeadRow(worksheet)
     await this.addRowToWorkSheet(rows, worksheet)
     const buffer = await workbook.xlsx.writeBuffer()
@@ -1611,11 +1595,7 @@ export default class AssistsService {
       lastColumn = canDisplayPaymentsSummary ? 'AB' : 'AA'
     }
     worksheet.mergeCells(`B1:${lastColumn}1`)
-    worksheet.views = [
-      { state: 'frozen', ySplit: 1 },
-      { state: 'frozen', ySplit: 2 },
-      { state: 'frozen', ySplit: 3 },
-    ]
+    worksheet.views = frozenHeaderViews(3)
     worksheet.addRow([])
   }
 
@@ -3210,11 +3190,7 @@ export default class AssistsService {
     worksheet.getCell('B1').font = { bold: true, size: 18, color: { argb: REPORT_NEUTRAL_ARGB.text } }
     worksheet.getCell('B1').alignment = { horizontal: 'center', vertical: 'middle' }
     worksheet.mergeCells('B1:R1')
-    worksheet.views = [
-      { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-      { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-      { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-    ]
+    worksheet.views = frozenHeaderViews(3)
     worksheet.addRow([])
   }
 
@@ -3811,12 +3787,7 @@ export default class AssistsService {
     bannerCell.font = { bold: true, size: 16, color: { argb: REPORT_NEUTRAL_ARGB.text } }
     bannerCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
 
-    worksheet.views = [
-      { state: 'frozen', ySplit: 1 },
-      { state: 'frozen', ySplit: 2 },
-      { state: 'frozen', ySplit: 3 },
-      { state: 'frozen', ySplit: 5 },
-    ]
+    worksheet.views = frozenHeaderViews(5)
   }
 
   addHeadRowIncidentPayroll(worksheet: ExcelJS.Worksheet) {
