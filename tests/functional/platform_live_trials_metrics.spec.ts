@@ -16,16 +16,24 @@ import PlatformTenantMilestoneService from '#services/platform_tenant_milestone_
 import { createTenantTrialFixture } from './helpers/platform_trial_fixture.js'
 
 /**
- * USRH1789079078173 — contrato de `GET /api/platform/metrics/trials/live`.
+ * USRH1789079078173 — contrato de `GET /api/platform/metrics/trials/live`
+ * (spec técnico `spec-USRH1789079078173.md`, adjunto al ticket de Asana).
  *
- * Las reglas puras (orden, RN-6 por `businessUnitId`, degradado a
- * `no-disponible`, propagación del fallo del universo/hitos) se prueban en
- * `tests/unit/services/platform_live_trials_service.spec.ts` con dobles, sin
- * BD. Aquí se prueba lo que solo la base de datos real y el transporte
- * pueden romper: el universo de verdad (excluye terminadas/sin
- * prueba/borradas), el motor de asistencia corriendo por tenant sin mezclar
- * empresas, y que la fila de la lista es EXACTAMENTE igual a lo que entregan
- * las consultas individuales de esa misma empresa (RN-12).
+ * Las reglas puras (comparador de orden, cruce por `businessUnitId`,
+ * degradado por fila, propagación del fallo global, conteo de invocaciones
+ * al motor) se prueban en `tests/unit/services/platform_live_trial_order.spec.ts`
+ * con dobles, sin BD. Aquí se prueba lo que solo la base de datos real y el
+ * transporte HTTP pueden romper: el universo de verdad (excluye
+ * terminadas/sin prueba/borradas), el motor de asistencia corriendo por
+ * tenant sin mezclar empresas, y que la fila de la lista es EXACTAMENTE
+ * igual a lo que entregan las consultas individuales de esa misma empresa
+ * (RN-38).
+ *
+ * **Piso de tres tenants (CA-02, obligatorio).** Con un solo tenant sembrado,
+ * cruzar los tres insumos por posición del arreglo coincide con cruzar por
+ * `businessUnitId` — el bug pasaría la prueba estando mal. Por eso el
+ * escenario central de atribución siembra tres, con valores deliberadamente
+ * distintos.
  *
  * El guard (401/403/200) ya está cubierto en `platform_trial_guard.spec.ts`.
  */
@@ -35,8 +43,10 @@ const LIST_URL = '/api/platform/metrics/trials/live'
 const TRIAL_URL = (publicId: string) => `/api/platform/metrics/tenants/${publicId}/trial`
 const USAGE_URL = (publicId: string) => `/api/platform/metrics/tenants/${publicId}/trial/usage`
 
-const EXPECTED_ROW_KEYS = ['tenant', 'fin', 'diasRestantes', 'hitosCumplidos', 'frecuencia']
-const EXPECTED_FRECUENCIA_KEYS = ['estado', 'porcentaje', 'registros', 'empleadoDiasEvaluables', 'empleadosEvaluados']
+/** Lista cerrada de llaves — §9 del spec técnico. */
+const EXPECTED_DATA_KEYS = ['total', 'pruebas']
+const EXPECTED_ROW_KEYS = ['tenant', 'fin', 'diasRestantes', 'hitosCumplidos', 'hitosTotales', 'frecuencia']
+const EXPECTED_FRECUENCIA_KEYS = ['estado', 'porcentaje']
 
 interface TestActor {
   user: User
@@ -148,7 +158,7 @@ async function createEmployeeShift(employeeId: number, shiftId: number, business
   await es.save()
 }
 
-/** Empleado con turno propio, sin checadas. */
+/** Empleado con turno propio, sin checadas → `sin-base`. */
 async function seedEmployeeWithShift(businessUnitId: number, tag: string): Promise<Employee> {
   const dept = await createDepartment(businessUnitId, tag)
   const pos = await createPosition(businessUnitId, tag)
@@ -241,7 +251,23 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
     assert.isUndefined(response.body().code)
   })
 
-  test('CA · deja fuera pruebas terminadas, sin prueba y suscripciones borradas — solo entran las vivas', async ({
+  test('CA-07 · sin ninguna prueba viva sembrada por este spec, la fila del control jamás aparece con datos ajenos (control de forma)', async ({
+    client,
+    assert,
+  }) => {
+    // No se puede vaciar la BD real para probar "universo vacío" en la
+    // suite funcional (P8: no se trunca entre specs) — ese caso exacto vive
+    // en la spec unitaria. Aquí se comprueba el contrato mínimo: `total` y
+    // `pruebas` siempre presentes y coherentes entre sí.
+    const response = await client.get(LIST_URL).loginAs(admin!.user)
+    response.assertStatus(200)
+    const body = response.body() as { type: string; data: { total: number; pruebas: unknown[] } }
+    assert.equal(body.type, 'success')
+    assert.deepEqual(Object.keys(body.data).sort(), EXPECTED_DATA_KEYS.sort())
+    assert.equal(body.data.total, body.data.pruebas.length)
+  })
+
+  test('CA-06 · deja fuera pruebas terminadas y sin prueba/borradas; la vencida-sin-cerrar SÍ aparece con 0 días', async ({
     client,
     assert,
   }) => {
@@ -250,27 +276,32 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
       { tag: 'live01-terminada', trialDays: 7, status: 'active' },
       { tag: 'live01-sin-prueba', trialDays: 0, skipTrial: true },
       { tag: 'live01-borrada', trialDays: 7, subscriptionDeleted: true },
+      // RN-06: el fin ya pasó y el proceso diario todavía no cierra —
+      // sigue viva, con diasRestantes: 0.
+      { tag: 'live01-vencida-sin-cerrar', trialDays: 3, subscribedAtOverride: '2020-01-01', trialEndsAtOverride: '2020-01-03' },
     ])
     try {
       await seedEmployeeWithShift(fixture.tenants[0]!.businessUnitId, 'live01-viva')
 
       const response = await client.get(LIST_URL).loginAs(admin!.user)
       response.assertStatus(200)
-      const body = response.body() as { type: string; data: Array<{ tenant: { publicId: string } }> }
-      assert.equal(body.type, 'success')
+      const body = response.body() as { data: { pruebas: Array<{ tenant: { publicId: string }; diasRestantes: number }> } }
 
-      const publicIds = body.data.map((r) => r.tenant.publicId)
-      assert.include(publicIds, fixture.tenants[0]!.businessUnitPublicId)
-      assert.notInclude(publicIds, fixture.tenants[1]!.businessUnitPublicId)
-      assert.notInclude(publicIds, fixture.tenants[2]!.businessUnitPublicId)
-      assert.notInclude(publicIds, fixture.tenants[3]!.businessUnitPublicId)
+      const porPublicId = new Map(body.data.pruebas.map((r) => [r.tenant.publicId, r]))
+      assert.isTrue(porPublicId.has(fixture.tenants[0]!.businessUnitPublicId))
+      assert.isFalse(porPublicId.has(fixture.tenants[1]!.businessUnitPublicId))
+      assert.isFalse(porPublicId.has(fixture.tenants[2]!.businessUnitPublicId))
+      assert.isFalse(porPublicId.has(fixture.tenants[3]!.businessUnitPublicId))
+
+      assert.isTrue(porPublicId.has(fixture.tenants[4]!.businessUnitPublicId))
+      assert.equal(porPublicId.get(fixture.tenants[4]!.businessUnitPublicId)!.diasRestantes, 0)
     } finally {
       for (const t of fixture.tenants) await cleanupBu(t.businessUnitId)
       await fixture.cleanup()
     }
   })
 
-  test('CA · forma exacta de una fila: lista cerrada de llaves, tenant y frecuencia con su forma completa', async ({
+  test('CA-01/§9 · forma exacta de una fila: lista cerrada de llaves, tenant y frecuencia reducida', async ({
     client,
     assert,
   }) => {
@@ -283,8 +314,8 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
 
       const response = await client.get(LIST_URL).loginAs(admin!.user)
       response.assertStatus(200)
-      const body = response.body() as { data: Array<Record<string, unknown>> }
-      const fila = body.data.find(
+      const body = response.body() as { data: { pruebas: Array<Record<string, unknown>> } }
+      const fila = body.data.pruebas.find(
         (r) => (r.tenant as { publicId: string }).publicId === tenant.businessUnitPublicId
       )!
 
@@ -295,73 +326,113 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
       assert.equal(fila.fin, '2026-09-30')
       assert.typeOf(fila.diasRestantes, 'number')
       assert.typeOf(fila.hitosCumplidos, 'number')
+      assert.equal(fila.hitosTotales, 7)
       assert.isAtLeast(fila.hitosCumplidos as number, 0)
-      assert.isAtMost(fila.hitosCumplidos as number, 7)
+      assert.isAtMost(fila.hitosCumplidos as number, fila.hitosTotales as number)
     } finally {
       await cleanupBu(tenant.businessUnitId)
       await fixture.cleanup()
     }
   })
 
-  test('RN-6/RN-12 · dos empresas con valores DISTINTOS: cada fila trae exactamente lo de SU empresa, igual que las consultas individuales', async ({
+  test('CA-02/RN-38 · tres tenants con valores DISTINTOS: cada fila trae exactamente lo de SU empresa, igual que las consultas individuales', async ({
     client,
     assert,
   }) => {
-    // Ventanas VIVAS de verdad (fin en el futuro respecto a "hoy" real) para
-    // que `diasRestantes` sea distinto y positivo en ambas — con la ventana
-    // ya vencida, ambas caerían en 0 y la aserción de distinción no diría
-    // nada (RN-12 exige comparar valores realmente distintos, no ceros).
+    // Piso obligatorio de tres tenants (§5 del spec): con uno o dos, cruzar
+    // por posición del arreglo puede coincidir con cruzar por
+    // `businessUnitId` y el bug pasaría la prueba estando mal.
     const finA = DateTime.utc().plus({ days: 8 }).toISODate()!
     const finB = DateTime.utc().plus({ days: 18 }).toISODate()!
+    const finC = DateTime.utc().plus({ days: 28 }).toISODate()!
     const fixture = await createTenantTrialFixture([
       { tag: 'live03-a', trialDays: 8, trialEndsAtOverride: finA },
       { tag: 'live03-b', trialDays: 18, trialEndsAtOverride: finB },
+      { tag: 'live03-c', trialDays: 28, trialEndsAtOverride: finC },
     ])
-    const [a, b] = fixture.tenants
+    const [a, b, c] = fixture.tenants
     try {
-      // A: con-base, con checadas y un departamento propio (1 hito).
-      const employeeA = await seedEmployeeWithShift(a!.businessUnitId, 'live03-a')
-      await seedOnTimeDay(a!.businessUnitId, employeeA, DateTime.utc().toISODate()!, 'app')
+      // A: sin-base (nadie con turno), 1 hito (solo un departamento propio).
+      await createDepartment(a!.businessUnitId, 'live03-a')
 
-      // B: sin-base (nadie con turno), cero hitos.
+      // B: con-base, con checadas, 4 hitos.
+      const deptB = await createDepartment(b!.businessUnitId, 'live03-b')
+      const posB = await createPosition(b!.businessUnitId, 'live03-b')
+      const shiftB = await createShift(b!.businessUnitId, 'live03-b')
+      const employeeB = await createEmployee(b!.businessUnitId, deptB.departmentId, posB.positionId, 'live03-b')
+      await createEmployeeShift(employeeB.employeeId, shiftB.shiftId, b!.businessUnitId)
+      await seedOnTimeDay(b!.businessUnitId, employeeB, DateTime.utc().toISODate()!, 'app')
+
+      // C: con-base con porcentaje 0 (turno pero SIN checadas), 6 hitos.
+      const employeeC = await seedEmployeeWithShift(c!.businessUnitId, 'live03-c')
+      await createDepartment(c!.businessUnitId, 'live03-c-extra')
+      void employeeC
 
       const response = await client.get(LIST_URL).loginAs(admin!.user)
       response.assertStatus(200)
-      const body = response.body() as { data: Array<Record<string, unknown>> }
+      const body = response.body() as { data: { pruebas: Array<Record<string, unknown>> } }
 
-      const filaA = body.data.find(
+      const filaA = body.data.pruebas.find(
         (r) => (r.tenant as { publicId: string }).publicId === a!.businessUnitPublicId
       )!
-      const filaB = body.data.find(
+      const filaB = body.data.pruebas.find(
         (r) => (r.tenant as { publicId: string }).publicId === b!.businessUnitPublicId
       )!
+      const filaC = body.data.pruebas.find(
+        (r) => (r.tenant as { publicId: string }).publicId === c!.businessUnitPublicId
+      )!
 
-      assert.equal((filaA.frecuencia as { estado: string }).estado, 'con-base')
-      assert.equal((filaB.frecuencia as { estado: string }).estado, 'sin-base')
+      assert.equal((filaA.frecuencia as { estado: string }).estado, 'sin-base')
+      assert.equal((filaB.frecuencia as { estado: string }).estado, 'con-base')
+      assert.isAbove((filaB.frecuencia as { porcentaje: number }).porcentaje, 0)
+      assert.equal((filaC.frecuencia as { estado: string }).estado, 'con-base')
+      assert.equal((filaC.frecuencia as { porcentaje: number }).porcentaje, 0)
+
       assert.notEqual(filaA.fin, filaB.fin)
+      assert.notEqual(filaB.fin, filaC.fin)
       assert.notEqual(filaA.diasRestantes, filaB.diasRestantes)
 
-      // RN-12: la fila de la lista es EXACTAMENTE lo que entregan las
-      // consultas individuales de esa misma empresa — nunca un cálculo
-      // aparte que pudiera desviarse.
-      const trialA = await client.get(TRIAL_URL(a!.businessUnitPublicId)).loginAs(admin!.user)
-      const usageA = await client.get(USAGE_URL(a!.businessUnitPublicId)).loginAs(admin!.user)
-      const hitosCumplidosIndividual = (
-        trialA.body().data.hitos as Array<{ cumplido: boolean }>
-      ).filter((h) => h.cumplido).length
+      // RN-38: la fila de la lista es EXACTAMENTE lo que entregan las
+      // consultas individuales de esa misma empresa.
+      for (const [tenantRef, fila] of [
+        [a!, filaA],
+        [b!, filaB],
+        [c!, filaC],
+      ] as const) {
+        const trialResp = await client.get(TRIAL_URL(tenantRef.businessUnitPublicId)).loginAs(admin!.user)
+        const usageResp = await client.get(USAGE_URL(tenantRef.businessUnitPublicId)).loginAs(admin!.user)
+        const hitosCumplidosIndividual = (
+          trialResp.body().data.hitos as Array<{ cumplido: boolean }>
+        ).filter((h) => h.cumplido).length
 
-      assert.equal(filaA.hitosCumplidos, hitosCumplidosIndividual)
-      assert.deepEqual(filaA.frecuencia, usageA.body().data.frecuencia)
-      assert.equal(filaA.fin, trialA.body().data.prueba.fin)
-      assert.equal(filaA.diasRestantes, trialA.body().data.prueba.diasRestantes)
+        assert.equal(fila.hitosCumplidos, hitosCumplidosIndividual, `hitosCumplidos de ${tenantRef.tag}`)
+        assert.equal(fila.fin, trialResp.body().data.prueba.fin, `fin de ${tenantRef.tag}`)
+        assert.equal(
+          fila.diasRestantes,
+          trialResp.body().data.prueba.diasRestantes,
+          `diasRestantes de ${tenantRef.tag}`
+        )
+        const frecuenciaIndividual = usageResp.body().data.frecuencia as { estado: string; porcentaje: number | null }
+        assert.equal(
+          (fila.frecuencia as { estado: string }).estado,
+          frecuenciaIndividual.estado,
+          `frecuencia.estado de ${tenantRef.tag}`
+        )
+        assert.equal(
+          (fila.frecuencia as { porcentaje: number | null }).porcentaje,
+          frecuenciaIndividual.porcentaje,
+          `frecuencia.porcentaje de ${tenantRef.tag}`
+        )
+      }
     } finally {
       await cleanupBu(a!.businessUnitId)
       await cleanupBu(b!.businessUnitId)
+      await cleanupBu(c!.businessUnitId)
       await fixture.cleanup()
     }
   })
 
-  test('RN-10 · orden: sin-base antes que con-base, y con-base de menor a mayor porcentaje', async ({
+  test('CA-04 · orden: sin-base antes que con-base, y con-base de menor a mayor porcentaje', async ({
     client,
     assert,
   }) => {
@@ -372,11 +443,8 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
     ])
     const [sinBase, bajo, alto] = fixture.tenants
     try {
-      // sinBase: nadie con turno.
-      // bajo: con turno, pocas checadas.
       const empleadoBajo = await seedEmployeeWithShift(bajo!.businessUnitId, 'live04-bajo')
       await seedOnTimeDay(bajo!.businessUnitId, empleadoBajo, '2026-07-02', 'app')
-      // alto: con turno, checadas todos los días de la ventana.
       const empleadoAlto = await seedEmployeeWithShift(alto!.businessUnitId, 'live04-alto')
       for (const day of ['2026-07-02', '2026-07-03', '2026-07-04', '2026-07-05', '2026-07-06']) {
         await seedOnTimeDay(alto!.businessUnitId, empleadoAlto, day, 'app')
@@ -384,25 +452,23 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
 
       const response = await client.get(LIST_URL).loginAs(admin!.user)
       response.assertStatus(200)
-      const body = response.body() as { data: Array<Record<string, unknown>> }
+      const body = response.body() as { data: { pruebas: Array<Record<string, unknown>> } }
 
-      const idxSinBase = body.data.findIndex(
+      const idxSinBase = body.data.pruebas.findIndex(
         (r) => (r.tenant as { publicId: string }).publicId === sinBase!.businessUnitPublicId
       )
-      const idxBajo = body.data.findIndex(
+      const idxBajo = body.data.pruebas.findIndex(
         (r) => (r.tenant as { publicId: string }).publicId === bajo!.businessUnitPublicId
       )
-      const idxAlto = body.data.findIndex(
+      const idxAlto = body.data.pruebas.findIndex(
         (r) => (r.tenant as { publicId: string }).publicId === alto!.businessUnitPublicId
       )
 
       assert.isAbove(idxSinBase, -1)
       assert.isAbove(idxBajo, -1)
       assert.isAbove(idxAlto, -1)
-      // sin-base siempre antes que cualquier con-base.
       assert.isBelow(idxSinBase, idxBajo)
       assert.isBelow(idxSinBase, idxAlto)
-      // Dentro de con-base: menor porcentaje (bajo) antes que mayor (alto).
       assert.isBelow(idxBajo, idxAlto)
     } finally {
       await cleanupBu(sinBase!.businessUnitId)
@@ -412,7 +478,7 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
     }
   })
 
-  test('RN-8 · el fallo del motor para UNA empresa la marca no-disponible; el listado sigue en 200 con las demás intactas', async ({
+  test('CA-03/RN-53 · el fallo del motor para UNA empresa la marca no-disponible; el listado sigue en 200 con las demás intactas y al final del orden', async ({
     client,
     assert,
   }) => {
@@ -430,7 +496,7 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
       ventana: { inicio: string; fin: string }
     ) {
       if (businessUnitId === rota!.businessUnitId) {
-        throw new Error('fallo simulado del motor para esta empresa (RN-8)')
+        throw new Error('fallo simulado del motor para esta empresa (RN-53)')
       }
       return original.call(this, businessUnitId, ventana)
     }
@@ -440,12 +506,12 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
 
       const response = await client.get(LIST_URL).loginAs(admin!.user)
       response.assertStatus(200)
-      const body = response.body() as { data: Array<Record<string, unknown>> }
+      const body = response.body() as { data: { pruebas: Array<Record<string, unknown>> } }
 
-      const filaOk = body.data.find(
+      const filaOk = body.data.pruebas.find(
         (r) => (r.tenant as { publicId: string }).publicId === ok!.businessUnitPublicId
       )!
-      const filaRota = body.data.find(
+      const filaRota = body.data.pruebas.find(
         (r) => (r.tenant as { publicId: string }).publicId === rota!.businessUnitPublicId
       )!
 
@@ -453,23 +519,15 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
       assert.isDefined(filaRota)
       assert.notEqual((filaOk.frecuencia as { estado: string }).estado, 'no-disponible')
 
-      const frecuenciaRota = filaRota.frecuencia as {
-        estado: string
-        porcentaje: unknown
-        registros: number
-        empleadoDiasEvaluables: number
-        empleadosEvaluados: number
-      }
+      const frecuenciaRota = filaRota.frecuencia as { estado: string; porcentaje: unknown }
       assert.equal(frecuenciaRota.estado, 'no-disponible')
       assert.isNull(frecuenciaRota.porcentaje)
-      assert.equal(frecuenciaRota.registros, 0)
-      assert.equal(frecuenciaRota.empleadoDiasEvaluables, 0)
-      assert.equal(frecuenciaRota.empleadosEvaluados, 0)
-      // `no-disponible` va al FINAL, después de sin-base y con-base (RN-10).
-      const idxRota = body.data.findIndex(
+
+      // no-disponible va al FINAL, después de sin-base y con-base (RN-36).
+      const idxRota = body.data.pruebas.findIndex(
         (r) => (r.tenant as { publicId: string }).publicId === rota!.businessUnitPublicId
       )
-      assert.equal(idxRota, body.data.length - 1)
+      assert.equal(idxRota, body.data.pruebas.length - 1)
     } finally {
       PlatformTrialUsageService.prototype.resolveFrecuencia = original
       await cleanupBu(ok!.businessUnitId)
@@ -478,15 +536,13 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
     }
   })
 
-  test('RN-9 · si el universo entero de pruebas falla, responde 500 explícito — NUNCA una lista parcial disfrazada de 200', async ({
+  test('regla local "fallo global ≠ fallo de fila" · si el universo entero de pruebas falla, responde 500 explícito — NUNCA una lista parcial disfrazada de 200', async ({
     client,
     assert,
   }) => {
-    // Rompe el universo a propósito (§6/CA-10 del molde de 078170), se
-    // restaura en el `finally` exista o no fallo.
     const original = PlatformTrialService.prototype.listLiveTrials
     PlatformTrialService.prototype.listLiveTrials = async () => {
-      throw new Error('fallo simulado del universo de pruebas vivas (RN-9)')
+      throw new Error('fallo simulado del universo de pruebas vivas')
     }
 
     try {
@@ -499,14 +555,14 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
       response.assertStatus(500)
       const body = response.body() as { code?: string; key?: string; data?: unknown }
       assert.equal(body.code, 'PLT.MET.SYS_UNHANDLED')
-      assert.equal(body.key, 'error-inesperado-al-obtener-el-listado-de-pruebas-vivas')
+      assert.equal(body.key, 'error-inesperado-al-obtener-las-pruebas-vivas')
       assert.isUndefined(body.data)
     } finally {
       PlatformTrialService.prototype.listLiveTrials = original
     }
   })
 
-  test('RN-9 · si el lote de hitos falla, responde 500 explícito — NUNCA una lista parcial disfrazada de 200', async ({
+  test('regla local "fallo global ≠ fallo de fila" · si el lote de hitos falla, responde 500 explícito — NUNCA una lista parcial disfrazada de 200', async ({
     client,
     assert,
   }) => {
@@ -515,7 +571,7 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
     ])
     const original = PlatformTenantMilestoneService.prototype.resolveMilestones
     PlatformTenantMilestoneService.prototype.resolveMilestones = async () => {
-      throw new Error('fallo simulado del lote de hitos (RN-9)')
+      throw new Error('fallo simulado del lote de hitos')
     }
 
     try {
@@ -528,7 +584,7 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
       response.assertStatus(500)
       const body = response.body() as { code?: string; key?: string; data?: unknown }
       assert.equal(body.code, 'PLT.MET.SYS_UNHANDLED')
-      assert.equal(body.key, 'error-inesperado-al-obtener-el-listado-de-pruebas-vivas')
+      assert.equal(body.key, 'error-inesperado-al-obtener-las-pruebas-vivas')
       assert.isUndefined(body.data)
     } finally {
       PlatformTenantMilestoneService.prototype.resolveMilestones = original
@@ -537,7 +593,7 @@ test.group('GET /api/platform/metrics/trials/live (USRH1789079078173)', (group) 
     }
   })
 
-  test('la respuesta no publica identificadores internos ni identidad de personas', async ({
+  test('RN-41 · la respuesta no publica identificadores internos ni identidad de personas', async ({
     client,
     assert,
   }) => {

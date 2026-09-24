@@ -1,5 +1,5 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import PlatformLiveTrialsService from '#services/platform_live_trials_service'
+import PlatformLiveTrialService from '#services/platform_live_trial_service'
 import { LIVE_TRIALS_METRIC_ERROR_TEXTS } from '../constants/platform_metric_error_codes.js'
 import { resolvePlatformMetricApiError } from '../helpers/platform_metric_api_error.js'
 
@@ -13,7 +13,7 @@ import { resolvePlatformMetricApiError } from '../helpers/platform_metric_api_er
  * ordenada por quién necesita más ayuda — sin el recorte de 7 días ni el
  * tope de 100 empresas que arrastra la tarjeta actual del Panel.
  */
-export default class PlatformLiveTrialsController {
+export default class PlatformLiveTrialController {
   /**
    * @swagger
    * /api/platform/metrics/trials/live:
@@ -25,8 +25,8 @@ export default class PlatformLiveTrialsController {
    *       Devuelve TODAS las pruebas en curso (sin umbral de días, sin tope
    *       de cantidad), cada una con el nombre y el identificador público de
    *       su empresa, su fecha de fin, sus días restantes, cuántos de los
-   *       siete hitos de puesta en marcha lleva cumplidos hoy y su
-   *       frecuencia de registro.
+   *       siete hitos de puesta en marcha lleva cumplidos hoy (y de cuántos
+   *       en total) y su frecuencia de registro.
    *
    *       Orden: primero las empresas `sin-base` (no hay a quién medir);
    *       después las `con-base`, de menor a mayor porcentaje; al final las
@@ -42,14 +42,14 @@ export default class PlatformLiveTrialsController {
    *       de pruebas o de los hitos en lote (algo que rompe TODA la lista)
    *       responde 500.
    *
-   *       Sin pruebas vivas, responde una lista vacía, no un error.
+   *       Sin pruebas vivas, responde `{"total":0,"pruebas":[]}`, no un error.
    *
    *       Requiere sesión válida y is_platform_admin = 1.
    *     security:
    *       - bearerAuth: []
    *     responses:
    *       '200':
-   *         description: Listado de pruebas vivas, ordenado por quién necesita más ayuda (puede ser vacío)
+   *         description: Listado de pruebas vivas, ordenado por quién necesita más ayuda (puede venir vacío)
    *       '403':
    *         description: Sin permisos de administrador de plataforma. Respuesta del guard, sin campo code.
    *       '500':
@@ -61,13 +61,13 @@ export default class PlatformLiveTrialsController {
    * @tag Platform · Prueba de tenants
    * @operationId getPlatformLiveTrials
    * @security [{"bearerAuth": []}]
-   * @responseBody 200 - {"type": "success", "data": [{"tenant": {"publicId": "3f2b…", "nombre": "Aceros del Norte"}, "fin": "2026-10-01", "diasRestantes": 5, "hitosCumplidos": 3, "frecuencia": {"estado": "con-base", "porcentaje": 40.0, "registros": 8, "empleadoDiasEvaluables": 20, "empleadosEvaluados": 3}}]}
+   * @responseBody 200 - {"type": "success", "data": {"total": 1, "pruebas": [{"tenant": {"publicId": "3f2b…", "nombre": "Aceros del Norte"}, "fin": "2026-10-01", "diasRestantes": 5, "hitosCumplidos": 3, "hitosTotales": 7, "frecuencia": {"estado": "con-base", "porcentaje": 40.0}}]}}
    * @responseBody 403 - {"title": "string", "detail": "string", "key": "AUTH.PLATFORM.FORBIDDEN"}
-   * @responseBody 500 - {"title": "Error inesperado al obtener el listado de pruebas vivas", "detail": "string", "key": "error-inesperado-al-obtener-el-listado-de-pruebas-vivas", "code": "PLT.MET.SYS_UNHANDLED"}
+   * @responseBody 500 - {"title": "Error inesperado al obtener las pruebas vivas", "detail": "string", "key": "error-inesperado-al-obtener-las-pruebas-vivas", "code": "PLT.MET.SYS_UNHANDLED"}
    */
   async index({ response, i18n }: HttpContext) {
     try {
-      const service = new PlatformLiveTrialsService(i18n)
+      const service = new PlatformLiveTrialService(i18n)
       const data = await service.listLiveTrials()
       return response.status(200).json({ type: 'success', data })
     } catch (error) {
