@@ -13,6 +13,7 @@ import SystemSetting from '#models/system_setting'
 import UserService from '#services/user_service'
 import { TenantContext } from '#utils/tenant_context'
 import { toBusinessDateString, todayInBusinessZone } from '#utils/business_date'
+import { createDepartmentFixture } from '#tests/helpers/org_chart_fixtures'
 import {
   cleanupEmployeeFixture,
   createEmployeeFixture,
@@ -41,8 +42,9 @@ import {
  * única de 30 días, orden, dueño empleado con puesto y departamento, fuente
  * sin permiso fuera y 404 de descarga sin archivo.
  *
- * La fuente de empleado que se prueba es `certification` (sin scope de
- * departamentos del rol); `provider-folio` sirve para la fuente sin permiso.
+ * Las fuentes con dueño empleado se acotan a los departamentos del rol: el
+ * actor ve solo el departamento del empleado del fixture; `provider-folio`
+ * sirve para la fuente sin permiso.
  * `employees` puede venir con la exigencia apagada de otros specs: se enciende
  * aquí y se restaura al terminar.
  */
@@ -88,6 +90,60 @@ function getItemFile(client: ApiClient, actor: TenantActor, key: string) {
     .headers(businessUnitHeaders(actor))
 }
 
+const uniqueSpecStamp = () => `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
+
+/** Número de inventario único (la columna es UNIQUE y de 9 dígitos a lo más). */
+const uniqueSupplyFileNumber = () =>
+  Number(`${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-9))
+
+/** Empleado extra de la empresa, insertado por tabla como en `employee_fixture`. */
+interface ExtraEmployee {
+  employeeId: number
+  personId: number
+}
+
+async function insertExtraEmployee(
+  businessUnitId: number,
+  departmentId: number,
+  positionId: number,
+  label: string
+): Promise<ExtraEmployee> {
+  const person = await Person.create({
+    personFirstname: 'Empleado',
+    personLastname: 'Matriz',
+    personSecondLastname: label,
+    personEmail: `employee-${label}-${uniqueSpecStamp()}@gsti-tests.local`,
+    businessUnitId,
+  })
+  const code = `EMP-${uniqueSpecStamp()}`.slice(0, 40)
+  const [employeeId] = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
+    employee_sync_id: code,
+    employee_code: code,
+    employee_first_name: 'Empleado',
+    employee_last_name: 'Matriz',
+    employee_second_last_name: label,
+    company_id: businessUnitId,
+    business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
+    department_id: departmentId,
+    position_id: positionId,
+    person_id: person.personId,
+    employee_type_id: 1,
+    employee_work_schedule: 'Onsite',
+    employee_business_email: `employee-work-${label}-${uniqueSpecStamp()}@gsti-tests.local`,
+    employee_created_at: new Date(),
+  })
+  return { employeeId: Number(employeeId), personId: person.personId }
+}
+
+/** Borra el empleado extra antes que el organigrama de su unidad. */
+async function cleanupExtraEmployee(extra: ExtraEmployee | null): Promise<void> {
+  if (!extra) return
+  await db.from('employees').where('employee_id', extra.employeeId).delete()
+  await Person.query().where('person_id', extra.personId).delete()
+}
+
 test.group('Matriz de vencimientos agregada', (group) => {
   let actor: TenantActor | null = null
   let fixture: EmployeeFixture | null = null
@@ -115,6 +171,11 @@ test.group('Matriz de vencimientos agregada', (group) => {
   let companyFileTypeId: number | null = null
   let companyProceedingFileId: number | null = null
   let companyFileId: number | null = null
+  /** Empleado de otro departamento de la misma empresa, fuera del rol del actor. */
+  let otherDepartmentEmployee: ExtraEmployee | null = null
+  let otherDepartmentCertificationId: number | null = null
+  let otherDepartmentSupplyId: number | null = null
+  let otherDepartmentEmployeeSupplyId: number | null = null
 
   group.setup(async () => {
     await assertModuleEnforced(MATRIX)
@@ -286,6 +347,46 @@ test.group('Matriz de vencimientos agregada', (group) => {
     })
     companyFileId = Number(insertedCompanyFileId)
 
+    // Certificación y activo de un empleado de otro departamento: el rol del
+    // actor no lo alcanza; el owner sí (todos los departamentos de su empresa).
+    const otherDepartment = await createDepartmentFixture(
+      actor.businessUnit.businessUnitId,
+      'Departamento fuera del rol'
+    )
+    otherDepartmentEmployee = await insertExtraEmployee(
+      actor.businessUnit.businessUnitId,
+      otherDepartment.departmentId,
+      required(fixture.employee.positionId, 'el puesto'),
+      'otro-depto'
+    )
+    const [insertedOtherCertificationId] = await db.table('employee_certifications').insert({
+      employee_id: otherDepartmentEmployee.employeeId,
+      business_unit_id: actor.businessUnit.businessUnitId,
+      certification_id: certificationIds[0],
+      employee_certification_complied_at: dayOffset(-300),
+      employee_certification_expires_at: dayOffset(4),
+      employee_certification_document_url: null,
+      employee_certification_created_at: now,
+    })
+    otherDepartmentCertificationId = Number(insertedOtherCertificationId)
+    const otherSupply = await Supplie.create({
+      businessUnitId: actor.businessUnit.businessUnitId,
+      supplyFileNumber: uniqueSupplyFileNumber(),
+      supplyName: uniqueTestName('Activo otro depto'),
+      supplyTypeId: supplyType.supplyTypeId,
+      supplyStatus: 'active',
+    })
+    otherDepartmentSupplyId = otherSupply.supplyId
+    const [insertedOtherEmployeeSupplyId] = await db.table('employee_supplies').insert({
+      employee_id: otherDepartmentEmployee.employeeId,
+      business_unit_id: actor.businessUnit.businessUnitId,
+      supply_id: otherSupply.supplyId,
+      employee_supply_status: 'active',
+      employee_supply_expiration_date: dayOffset(6),
+      employee_supply_created_at: now,
+    })
+    otherDepartmentEmployeeSupplyId = Number(insertedOtherEmployeeSupplyId)
+
     companyOwner = await createBypassUserInBusinessUnit('owner', 'matriz-owner', actor.businessUnit.businessUnitId)
     foreignActor = await createTenantActor('matriz-ajena')
     foreignFixture = await createEmployeeFixture(foreignActor.businessUnit.businessUnitId, 'matriz-ajena')
@@ -293,6 +394,19 @@ test.group('Matriz de vencimientos agregada', (group) => {
 
   group.teardown(async () => {
     try {
+      if (otherDepartmentEmployeeSupplyId !== null) {
+        await db.from('employee_supplies').where('employee_supply_id', otherDepartmentEmployeeSupplyId).delete()
+      }
+      if (otherDepartmentSupplyId !== null) {
+        await db.from('supplies').where('supply_id', otherDepartmentSupplyId).delete()
+      }
+      if (otherDepartmentCertificationId !== null) {
+        await db
+          .from('employee_certifications')
+          .where('employee_certification_id', otherDepartmentCertificationId)
+          .delete()
+      }
+      await cleanupExtraEmployee(otherDepartmentEmployee)
       if (employeeContractId !== null) {
         await db.from('employee_contracts').where('employee_contract_id', employeeContractId).delete()
       }
@@ -491,6 +605,43 @@ test.group('Matriz de vencimientos agregada', (group) => {
     assert.notInclude(withoutTenant, foreignDepartmentId)
   })
 
+  test('certificación y activo: el rol limitado no ve otro departamento; el owner sí', async ({
+    client,
+    assert,
+  }) => {
+    const tenant = required(actor, 'el actor')
+    const ownerUser = required(companyOwner, 'el owner')
+    const certificationKey = `certification-${otherDepartmentCertificationId}`
+    const supplyKey = `supply-${otherDepartmentEmployeeSupplyId}`
+    await grantModulePermissions(tenant, MATRIX, ['read'])
+    await addRoleModulePermissions(tenant.role, EMPLOYEES, ['tab-certificaciones-read'])
+
+    const limited = await getMatrix(client, tenant)
+    limited.assertStatus(200)
+    const limitedKeys = (limited.body().data.items as MatrixItemBody[]).map((item) => item.key)
+    assert.notInclude(limitedKeys, certificationKey, 'certificación de otro departamento fuera')
+    assert.notInclude(limitedKeys, supplyKey, 'activo de otro departamento fuera')
+    assert.include(limitedKeys, `supply-${employeeSupplyId}`, 'el activo de su departamento sí')
+    for (const key of [certificationKey, supplyKey]) {
+      const download = await getItemFile(client, tenant, key)
+      download.assertStatus(404)
+      assert.equal(download.body().key, 'vencimiento-no-encontrado', `${key}: la descarga tampoco lo ve`)
+    }
+
+    const asOwner = await getMatrixAs(client, ownerUser, tenant)
+    asOwner.assertStatus(200)
+    const ownerKeys = (asOwner.body().data.items as MatrixItemBody[]).map((item) => item.key)
+    assert.include(ownerKeys, certificationKey)
+    assert.include(ownerKeys, supplyKey)
+    // El owner sí resuelve la llave: responde que no hay archivo, no que no existe.
+    const ownerDownload = await client
+      .get(`${MATRIX_URL}/items/${supplyKey}/file`)
+      .loginAs(ownerUser.user)
+      .headers(businessUnitHeaders(tenant))
+    ownerDownload.assertStatus(404)
+    assert.equal(ownerDownload.body().key, 'archivo-no-encontrado')
+  })
+
   test('targetId: tipo del insumo y tipo del expediente de la empresa', async ({
     client,
     assert,
@@ -569,19 +720,12 @@ interface SupersedeCase {
   kept: SupersedePair
 }
 
-const uniqueSpecStamp = () => `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
-
-/** Número de inventario único (la columna es UNIQUE y de 9 dígitos a lo más). */
-const uniqueSupplyFileNumber = () =>
-  Number(`${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-9))
-
 test.group('Matriz de vencimientos: tope por registro más nuevo', (group) => {
   let actor: TenantActor | null = null
   let fixture: EmployeeFixture | null = null
   let employeesEnforcementBefore = false
   /** Segundo empleado del mismo departamento: el tope de contratos es por empleado. */
-  let siblingEmployeeId: number | null = null
-  let siblingPersonId: number | null = null
+  let sibling: ExtraEmployee | null = null
   let createdSystemSettingId: number | null = null
   const proceedingFileTypeIds: number[] = []
   const proceedingFileIds: number[] = []
@@ -609,34 +753,12 @@ test.group('Matriz de vencimientos: tope por registro más nuevo', (group) => {
       role_department_created_at: now,
     })
 
-    const sibling = await Person.create({
-      personFirstname: 'Empleado',
-      personLastname: 'Tope',
-      personSecondLastname: 'Hermano',
-      personEmail: `employee-tope-${uniqueSpecStamp()}@gsti-tests.local`,
+    sibling = await insertExtraEmployee(
       businessUnitId,
-    })
-    siblingPersonId = sibling.personId
-    const siblingCode = `EMP-${uniqueSpecStamp()}`.slice(0, 40)
-    const [insertedSiblingId] = await db.table('employees').insert({
-      employee_slug: opaqueEmployeeSlug(),
-      employee_sync_id: siblingCode,
-      employee_code: siblingCode,
-      employee_first_name: 'Empleado',
-      employee_last_name: 'Tope',
-      employee_second_last_name: 'Hermano',
-      company_id: businessUnitId,
-      business_unit_id: businessUnitId,
-      payroll_business_unit_id: businessUnitId,
-      department_id: employee.departmentId,
-      position_id: employee.positionId,
-      person_id: sibling.personId,
-      employee_type_id: 1,
-      employee_work_schedule: 'Onsite',
-      employee_business_email: `employee-work-tope-${uniqueSpecStamp()}@gsti-tests.local`,
-      employee_created_at: now,
-    })
-    siblingEmployeeId = Number(insertedSiblingId)
+      required(employee.departmentId, 'el departamento'),
+      required(employee.positionId, 'el puesto'),
+      'tope'
+    )
 
     const insertProceedingFileType = async (area: 'employee' | 'system-setting') => {
       const stamp = uniqueSpecStamp()
@@ -743,7 +865,7 @@ test.group('Matriz de vencimientos: tope por registro más nuevo', (group) => {
     }
     cases.set('employee-contract', {
       replaced: await contractPair(employee.employeeId, 10),
-      kept: await contractPair(required(siblingEmployeeId, 'el segundo empleado'), -10),
+      kept: await contractPair(sibling.employeeId, -10),
     })
 
     // Insumos: mismo empleado y mismo tipo de insumo, asignación activa.
@@ -799,12 +921,7 @@ test.group('Matriz de vencimientos: tope por registro más nuevo', (group) => {
       if (createdSystemSettingId !== null) {
         await db.from('system_settings').where('system_setting_id', createdSystemSettingId).delete()
       }
-      if (siblingEmployeeId !== null) {
-        await db.from('employees').where('employee_id', siblingEmployeeId).delete()
-      }
-      if (siblingPersonId !== null) {
-        await Person.query().where('person_id', siblingPersonId).delete()
-      }
+      await cleanupExtraEmployee(sibling)
       await cleanupEmployeeFixture(fixture)
       await cleanupTenantActor(actor)
     } finally {

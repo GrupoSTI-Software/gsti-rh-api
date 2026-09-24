@@ -32,8 +32,9 @@ export interface ExpirationMatrixFilter {
   /** Unidades de negocio de la petición (scope del tenant). Vacío = sin resultados. */
   businessUnitIds: readonly number[]
   /**
-   * Departamentos visibles para el rol. Solo acota las fuentes que hoy se
-   * acotan por departamento: `employee-file` y `employee-contract`.
+   * Departamentos visibles para el rol. Acota las fuentes con dueño empleado
+   * (`employee-file`, `employee-contract`, `certification` y `supply`) por el
+   * departamento del empleado. Vacío = esas fuentes sin resultados.
    */
   departmentIds: readonly number[]
   /** Acota a un solo registro (descarga por llave). */

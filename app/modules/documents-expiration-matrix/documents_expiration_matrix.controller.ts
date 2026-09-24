@@ -58,11 +58,12 @@ export default class DocumentsExpirationMatrixController {
    *         `employees:download-employee-contract` y `employees:tab-trabajo-read`.
    *       - `company-file`: expediente de la ficha activa de la empresa.
    *       - `certification`: `employees:tab-certificaciones-read` (última por
-   *         empleado y certificación).
+   *         empleado y certificación), acotado a los departamentos del rol.
    *       - `repse-folio`: folios REPSE activos de la empresa. Constancia con
    *         `repse-registrations` read o gestion.
    *       - `provider-folio`: `repse-providers` read o gestion. Sin archivo.
-   *       - `supply`: insumos asignados activos; archivo = resguardo más reciente.
+   *       - `supply`: insumos asignados activos, acotado a los departamentos
+   *         del rol; archivo = resguardo más reciente.
    *
    *       `hasFile` es `true` solo si hay archivo y la sesión puede abrirlo.
    *     tags: [DocumentsExpirationMatrix]

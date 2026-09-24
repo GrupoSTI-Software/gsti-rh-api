@@ -60,12 +60,10 @@ export async function resolveExpirationMatrixAccess(
     allowsAll(ctx, [sourcePermissions.readProviderFolios]),
   ])
 
-  // Departamentos del rol: solo se consultan si alguna fuente de expediente los usa.
+  // Departamentos del rol: acotan todas las fuentes con dueño empleado. Insumos
+  // siempre se leen, así que se consultan en cada petición autenticada.
   const user = ctx.auth.user
-  const departmentIds =
-    readEmployeeFiles && user
-      ? await new UserService(ctx.i18n).getRoleDepartments(user.userId)
-      : []
+  const departmentIds = user ? await new UserService(ctx.i18n).getRoleDepartments(user.userId) : []
 
   return {
     businessUnitIds: TenantContext.getScope(),

@@ -388,7 +388,7 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
    * puesto borrado no saca al empleado: su condición va en el ON del join.
    */
   async findCertifications(filter: ExpirationMatrixFilter): Promise<ExpirationMatrixRecord[]> {
-    if (filter.businessUnitIds.length === 0) return []
+    if (filter.businessUnitIds.length === 0 || filter.departmentIds.length === 0) return []
 
     const latestIds = db
       .from('employee_certifications as ec_inner')
@@ -406,6 +406,7 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
       .whereNull('ec.employee_certification_deleted_at')
       .whereNull('e.employee_deleted_at')
       .whereIn('e.business_unit_id', [...filter.businessUnitIds])
+      .whereIn('e.department_id', [...filter.departmentIds])
       .where('ec.employee_certification_expires_at', '<', dayAfter(filter.horizon))
     joinEmployeeOrgChart(query, 'e.position_id', 'e.department_id')
     if (filter.id !== undefined) {
@@ -515,7 +516,7 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
    * con un join a su id máximo por asignación: sin consulta por insumo.
    */
   async findSupplies(filter: ExpirationMatrixFilter): Promise<ExpirationMatrixRecord[]> {
-    if (filter.businessUnitIds.length === 0) return []
+    if (filter.businessUnitIds.length === 0 || filter.departmentIds.length === 0) return []
 
     /** Resguardo vigente: el de id más alto no borrado de la asignación. */
     const latestResponseContractId = db.knexRawQuery(
@@ -541,6 +542,7 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
       .whereNull('e.employee_deleted_at')
       .whereIn('es.business_unit_id', [...filter.businessUnitIds])
       .whereIn('e.business_unit_id', [...filter.businessUnitIds])
+      .whereIn('e.department_id', [...filter.departmentIds])
       .where('es.employee_supply_expiration_date', '<', dayAfter(filter.horizon))
       // Tope: una asignación activa más nueva del mismo tipo de insumo al
       // empleado la sustituye.
