@@ -66,6 +66,37 @@ export const ALLIANCE_ERROR_CODES = {
    * devengados. 422: regla sobre el propio recurso.
    */
   ATTRIBUTION_TERM_BELOW_ACCRUED: 'PLT.ALL.ATTRIBUTION_TERM_BELOW_ACCRUED',
+  /**
+   * La fecha en que se pagó a la alianza es posterior a hoy de negocio
+   * (USRH1787719056820, regla 4).
+   */
+  PAYOUT_DATE_IN_FUTURE: 'PLT.ALL.PAYOUT_DATE_IN_FUTURE',
+  /**
+   * La fecha en que se pagó es anterior a la comisión más reciente del
+   * conjunto que liquida (USRH1787719056820, regla 4).
+   */
+  PAYOUT_DATE_BEFORE_ACCRUAL: 'PLT.ALL.PAYOUT_DATE_BEFORE_ACCRUAL',
+  /**
+   * Alguna comisión del conjunto a liquidar no existe o es de otra
+   * alianza; misma respuesta en los dos casos (USRH1787719056820, regla 7).
+   */
+  COMMISSION_NOT_FOUND: 'PLT.ALL.COMMISSION_NOT_FOUND',
+  /**
+   * Alguna comisión del conjunto ya pertenece a una liquidación
+   * registrada: no se paga dos veces (USRH1787719056820, regla 8).
+   */
+  COMMISSION_ALREADY_PAID: 'PLT.ALL.COMMISSION_ALREADY_PAID',
+  /**
+   * Liquidación no encontrada o id no numérico (USRH1787719056821, CA-5/CA-3).
+   * 404 uniforme: no distingue "inexistente" de "id inválido" — anti-enumeración.
+   */
+  PAYOUT_NOT_FOUND: 'PLT.ALL.PAYOUT_NOT_FOUND',
+  /**
+   * La liquidación ya estaba anulada cuando se intentó anularla de nuevo
+   * (USRH1787719056821, regla 9). También se devuelve cuando dos anulaciones
+   * concurrentes compiten y solo una gana (regla 11).
+   */
+  PAYOUT_ALREADY_ANNULLED: 'PLT.ALL.PAYOUT_ALREADY_ANNULLED',
   /** Error no tipado del módulo */
   SYS_UNHANDLED: 'PLT.ALL.SYS_UNHANDLED',
 } as const
@@ -269,6 +300,50 @@ export const ALLIANCE_ERRORS = {
     detail:
       'El plazo no puede quedar por debajo de los periodos ya devengados de esta atribución.',
     code: ALLIANCE_ERROR_CODES.ATTRIBUTION_TERM_BELOW_ACCRUED,
+    status: 422,
+  },
+  PAYOUT_DATE_IN_FUTURE: {
+    key: 'fecha-de-pago-en-el-futuro',
+    title: 'Alianzas',
+    detail: 'La fecha en que se pagó no puede ser posterior a hoy.',
+    code: ALLIANCE_ERROR_CODES.PAYOUT_DATE_IN_FUTURE,
+    status: 422,
+  },
+  PAYOUT_DATE_BEFORE_ACCRUAL: {
+    key: 'fecha-de-pago-anterior-a-la-comision',
+    title: 'Alianzas',
+    detail:
+      'La fecha en que se pagó no puede ser anterior a la comisión más reciente incluida.',
+    code: ALLIANCE_ERROR_CODES.PAYOUT_DATE_BEFORE_ACCRUAL,
+    status: 422,
+  },
+  COMMISSION_NOT_FOUND: {
+    key: 'comision-no-encontrada',
+    title: 'Alianzas',
+    detail: 'Una o más comisiones no fueron encontradas.',
+    code: ALLIANCE_ERROR_CODES.COMMISSION_NOT_FOUND,
+    status: 404,
+  },
+  COMMISSION_ALREADY_PAID: {
+    key: 'comision-ya-pagada',
+    title: 'Alianzas',
+    detail:
+      'Una o más comisiones ya están pagadas. No se puede liquidar dos veces la misma comisión.',
+    code: ALLIANCE_ERROR_CODES.COMMISSION_ALREADY_PAID,
+    status: 409,
+  },
+  PAYOUT_NOT_FOUND: {
+    key: 'liquidacion-no-encontrada',
+    title: 'Alianzas',
+    detail: 'La liquidación no fue encontrada.',
+    code: ALLIANCE_ERROR_CODES.PAYOUT_NOT_FOUND,
+    status: 404,
+  },
+  PAYOUT_ALREADY_ANNULLED: {
+    key: 'liquidacion-ya-anulada',
+    title: 'Alianzas',
+    detail: 'Esta liquidación ya fue anulada y no se puede volver a anular.',
+    code: ALLIANCE_ERROR_CODES.PAYOUT_ALREADY_ANNULLED,
     status: 422,
   },
   SYS_UNHANDLED: {

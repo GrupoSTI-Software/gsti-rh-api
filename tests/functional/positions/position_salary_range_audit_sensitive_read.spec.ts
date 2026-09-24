@@ -227,7 +227,7 @@ test.group('Bitácora de rango — lectura financiera (interruptor OFF)', (group
     assert.isNull(updateRow!.newMaxSalaryDaily)
   })
 
-  test('con sensitive-financiero-read los importes nuevos de create son numéricos', async ({
+  test('con sensitive-financiero-read los importes siguen null en GET (claro solo por reveal)', async ({
     client,
     assert,
   }) => {
@@ -241,18 +241,18 @@ test.group('Bitácora de rango — lectura financiera (interruptor OFF)', (group
     const rows = (response.body()?.data ?? []) as AuditRow[]
     const createRow = rows.find((row) => row.action === 'create')
     assert.exists(createRow)
-    assert.equal(createRow!.newMinSalaryDaily, 275.25)
-    assert.equal(createRow!.newMaxSalaryDaily, 410.5)
+    assert.isNull(createRow!.newMinSalaryDaily)
+    assert.isNull(createRow!.newMaxSalaryDaily)
     assert.isNull(createRow!.oldMinSalaryDaily)
     assert.isNull(createRow!.oldMaxSalaryDaily)
     assert.equal(createRow!.reason, 'motivo-visible')
 
     const updateRow = rows.find((row) => row.action === 'update')
     assert.exists(updateRow)
-    assert.equal(updateRow!.oldMinSalaryDaily, 275.25)
-    assert.equal(updateRow!.oldMaxSalaryDaily, 410.5)
-    assert.equal(updateRow!.newMinSalaryDaily, 290.75)
-    assert.equal(updateRow!.newMaxSalaryDaily, 425)
+    assert.isNull(updateRow!.oldMinSalaryDaily)
+    assert.isNull(updateRow!.oldMaxSalaryDaily)
+    assert.isNull(updateRow!.newMinSalaryDaily)
+    assert.isNull(updateRow!.newMaxSalaryDaily)
     assert.equal(updateRow!.reason, 'motivo-actualizacion')
   })
 })

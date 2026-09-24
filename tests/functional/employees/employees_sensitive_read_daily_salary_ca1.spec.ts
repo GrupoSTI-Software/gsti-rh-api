@@ -18,7 +18,11 @@ import {
 /**
  * CA-1 (USRH1787433076994): `Employee.dailySalary` en `GET /api/employees/:id`
  * y en el listado. Sin `sensitive-financiero-read` debe entregarse `null`
- * (nunca `0`, nunca cadena enmascarada). Con el permiso, el número real.
+ * (nunca `0`, nunca cadena enmascarada).
+ *
+ * Desde USRH1789328027048 el permiso financiero ya no entrega el importe en
+ * GET/listado: `sensitiveSerializeNumeric` devuelve `null` siempre; el claro
+ * sale por `GET /api/v1/pii/reveal` (USRH1788478865952).
  */
 const DAILY_SALARY = 850.5
 
@@ -70,7 +74,7 @@ test.group('CA-1 — Employee.dailySalary oculto en GET y listado', (group) => {
     assert.notTypeOf(employee.dailySalary, 'string')
   })
 
-  test('CA-1: GET /api/employees/:id con sensitive-financiero-read entrega el número real', async ({
+  test('CA-1: GET /api/employees/:id con sensitive-financiero-read sigue entregando dailySalary null', async ({
     client,
     assert,
   }) => {
@@ -82,17 +86,9 @@ test.group('CA-1 — Employee.dailySalary oculto en GET y listado', (group) => {
 
     expectNeverDenied(response, assert)
     const employee = response.body().data.employee as Record<string, unknown>
-    // Nota (hallazgo de Task 10, preexistente, fuera de alcance de esta US):
-    // `Employee.dailySalary` es `decimal` en MySQL sin `consume` numérico en
-    // el modelo (a diferencia de `EmployeeSalaryHistory.salaryDaily`, que sí
-    // castea con `Number(...)` en su `consume` de cifrado). El driver mysql2
-    // devuelve `'850.5000'` (string), no `850.5` (number), y esto es así
-    // desde antes de esta US — no lo introdujo la clasificación financiera.
-    // Lo que exige CA-1 (valor real, nunca 0, nunca máscara parcial) se
-    // cumple igual: se verifica por valor numérico, no por `typeof`.
-    assert.equal(Number(employee.dailySalary), DAILY_SALARY)
+    assert.isNull(employee.dailySalary)
     assert.notEqual(employee.dailySalary, 0)
-    assert.notInclude(String(employee.dailySalary), '*')
+    assert.notTypeOf(employee.dailySalary, 'string')
   })
 
   test('CA-1: listado de empleados sin sensitive-financiero-read entrega dailySalary null', async ({
@@ -116,7 +112,7 @@ test.group('CA-1 — Employee.dailySalary oculto en GET y listado', (group) => {
     assert.notTypeOf(row!.dailySalary, 'string')
   })
 
-  test('CA-1: listado de empleados con sensitive-financiero-read entrega el número real', async ({
+  test('CA-1: listado de empleados con sensitive-financiero-read sigue entregando dailySalary null', async ({
     client,
     assert,
   }) => {
@@ -136,10 +132,9 @@ test.group('CA-1 — Employee.dailySalary oculto en GET y listado', (group) => {
       (item) => Number(item.employeeId ?? item.employee_id) === fixture!.employee.employeeId
     )
     assert.exists(row)
-    // Ver nota de tipo decimal-string en el test equivalente de GET :id arriba.
-    assert.equal(Number(row!.dailySalary), DAILY_SALARY)
+    assert.isNull(row!.dailySalary)
     assert.notEqual(row!.dailySalary, 0)
-    assert.notInclude(String(row!.dailySalary), '*')
+    assert.notTypeOf(row!.dailySalary, 'string')
   })
 
   test('humo: la persona anidada sigue en claro (no se rompió el resto de la ficha)', async ({

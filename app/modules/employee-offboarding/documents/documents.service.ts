@@ -7,6 +7,7 @@ import type { I18n } from '@adonisjs/i18n'
 import RoleService from '#services/role_service'
 import SystemSettingService from '#services/system_setting_service'
 import UploadService from '#services/upload_service'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
 import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
 import {
@@ -274,8 +275,9 @@ export default class DocumentsService {
       const buffer = rendered.buffer
 
       const contentHash = createHash('sha256').update(buffer).digest('hex')
-      // Nombre solo con folio y literales del sistema: nunca datos personales
-      const fileName = this.sanitizeFileName(`constancia-de-separacion-${folio}.pdf`)
+      // Nombre solo con folio y literales del sistema: nunca datos personales.
+      // La key de S3 lleva además un prefijo único; el nombre de descarga no.
+      const fileName = this.buildSeparationLetterFileName(folio)
       const storedKey = await new UploadService().uploadPrivateBuffer(
         `${DOCUMENTS_S3_FOLDER}/${offboarding.employeeOffboardingId}/${cuid()}-${fileName}`,
         buffer,
@@ -406,9 +408,15 @@ export default class DocumentsService {
       throw this.documentNotFoundError()
     }
 
+    // `inline`: el BO la abre en pestaña, pero al guardarla lleva el nombre
+    // limpio por folio y no la key de S3 con su prefijo único.
     const url = await new UploadService().getDownloadLink(
       record.employeeOffboardingDocumentFile,
-      DOCUMENT_SIGNED_URL_EXPIRES_SECONDS
+      DOCUMENT_SIGNED_URL_EXPIRES_SECONDS,
+      contentDisposition(
+        this.buildSeparationLetterFileName(record.employeeOffboardingDocumentFolio),
+        'inline'
+      )
     )
     // `getDownloadLink` no lanza: devuelve null u objeto en error. Nunca `!url`.
     if (typeof url !== 'string') {
@@ -512,12 +520,9 @@ export default class DocumentsService {
     return toDocumentDto(record, buildUserNamesMap(users), templateVersionNumber)
   }
 
-  /** Lista blanca ASCII, colapsa `..`, corte a 100 (tercera copia privada del precedente). */
-  private sanitizeFileName(rawName: string): string {
-    return `${rawName}`
-      .replace(/[^a-zA-Z0-9._-]/g, '_')
-      .replace(/\.{2,}/g, '.')
-      .slice(0, 100)
+  /** `constancia-separacion-{folio saneado}.pdf`, p. ej. `constancia-separacion-cs-45-2026-0001.pdf`. */
+  private buildSeparationLetterFileName(folio: string): string {
+    return buildDownloadFileName(['constancia-separacion', folio], 'pdf')
   }
 
   private forbiddenError() {

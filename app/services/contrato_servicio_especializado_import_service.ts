@@ -16,6 +16,7 @@ import { ContratoServicioEspecializadoError } from '../exceptions/contrato_servi
 import { resolveContratoServicioEspecializadoApiError } from '../helpers/contrato_servicio_especializado_api_error.js'
 import { findRepseSpecializedServicesByNamesInTenant } from '../helpers/repse_tenant_scope.js'
 import { normalizeRfc } from '../shared/validators/rfc.validator.js'
+import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 
 /**
  * Motor de importación de contratos de servicios especializados por Excel
@@ -231,8 +232,9 @@ export default class ContratoServicioEspecializadoImportService {
     sheet.addRow(CONTRATO_IMPORT_FIELDS.map((field) => field.header))
     const headerRow = sheet.getRow(1)
     headerRow.eachCell((cell) => {
-      cell.font = { bold: true, color: { argb: 'FFFFFFFF' } }
-      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F3864' } }
+      // Formato neutral: encabezado gris con texto negro, sin colores de marca.
+      cell.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill } }
     })
 
     sheet.addRow([
@@ -320,7 +322,7 @@ export default class ContratoServicioEspecializadoImportService {
       row.getCell(1).font = {
         bold: isBold,
         size: isBold ? 12 : 10,
-        color: { argb: isBold ? 'FF1F3864' : 'FF000000' },
+        color: { argb: REPORT_NEUTRAL_ARGB.text },
       }
       row.height = isBold ? 22 : 16
     })

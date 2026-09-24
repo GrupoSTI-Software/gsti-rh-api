@@ -65,11 +65,19 @@ export default class BadgeService {
     return this.buildGafeteDto(context)
   }
 
-  /** Contexto completo (sin QR) para armar el PDF (E2). Reutiliza la misma resolución que E1. */
-  async getBadgeContextForPdf(
+  /**
+   * Contexto de render de un empleado del tenant para E2 (PDF) y E5 (PNG).
+   * Misma resolución que E1 y el mismo `buildRenderContext` que el lote (E6):
+   * los tres descargables salen idénticos.
+   */
+  async getRenderContextInTenant(
     employeeId: number,
     businessUnitIds: number[]
-  ): Promise<{ dto: GafeteDto; context: BadgeEmployeeContext }> {
+  ): Promise<{
+    renderContext: BadgeRenderContext
+    employeeSlug: string
+    context: BadgeEmployeeContext
+  }> {
     const context = await this.repository.findActiveEmployeeInTenant(employeeId, businessUnitIds)
     if (!context) {
       throw new EmployeeBadgeError(
@@ -79,8 +87,8 @@ export default class BadgeService {
         'gafete-no-encontrado'
       )
     }
-    const dto = await this.buildGafeteDto(context)
-    return { dto, context }
+    const renderContext = await this.buildRenderContext(context)
+    return { renderContext, employeeSlug: context.employeeSlug, context }
   }
 
   /**
@@ -102,9 +110,15 @@ export default class BadgeService {
         context.personLastname,
         context.personSecondLastname
       ),
-      fotoUrl: this.resolvePhotoUrl(context.employeePhoto),
+      // La clave guardada, no la URL pública: el render lee el binario por su
+      // cuenta, y con objetos privados la URL pública es `null` aunque la foto
+      // exista. Pasarle la URL dejaba todo gafete descargable sin retrato.
+      fotoPath: context.employeePhoto,
       empresa: context.businessUnitLegalName || context.businessUnitName,
       puesto: context.positionName,
+      departamento: context.departmentName,
+      numeroNomina: context.payrollCode,
+      nss: context.nss,
       folioRepse,
       folioVigente,
       urlVerificacion,
@@ -207,10 +221,10 @@ export default class BadgeService {
   }
 
   /**
-   * URL de la foto para el contrato del gafete. `null` cuando el objeto es
-   * privado, de modo que `fotoFaltante` diga la verdad en vez de entregar una
-   * URL que el cliente no puede resolver. El PDF del gafete no depende de esto:
-   * lee el binario del bucket por su cuenta.
+   * URL de la foto para el contrato JSON del gafete (E1/E3). `null` cuando el
+   * objeto es privado, de modo que `fotoFaltante` diga la verdad en vez de
+   * entregar una URL que el cliente no puede resolver. Los descargables no
+   * usan esto: `buildRenderContext` les pasa la clave guardada.
    */
   private resolvePhotoUrl(photo: string | null): string | null {
     return resolvePublicAssetUrl(photo)

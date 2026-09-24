@@ -11,7 +11,6 @@ import {
   cleanupActor,
   cleanupRemainingSensitiveFixture,
   cleanupSensitiveFixture,
-  CLEAR_FIXED,
   CLEAR_REMAINING,
   createActor,
   createRemainingSensitiveFixture,
@@ -118,7 +117,7 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     expectAmountNull(amounts.max, assert)
   })
 
-  test('CA-3: con sensitive-financiero-read los importes son number', async ({
+  test('CA-3: con sensitive-financiero-read los importes siguen null en GET', async ({
     client,
     assert,
   }) => {
@@ -130,7 +129,7 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', buHeader(actor!))
     expectNeverDenied(salaryRes, assert)
-    assert.equal(firstSalaryDaily(salaryRes.body()), CLEAR_REMAINING.salaryDaily)
+    expectAmountNull(firstSalaryDaily(salaryRes.body()), assert)
 
     const rangeRes = await client
       .get('/api/position-salary-ranges')
@@ -141,8 +140,8 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', buHeader(actor!))
     const amounts = rangeAmounts(rangeRes.body())
-    assert.equal(amounts.min, CLEAR_REMAINING.minSalaryDaily)
-    assert.equal(amounts.max, CLEAR_REMAINING.maxSalaryDaily)
+    expectAmountNull(amounts.min, assert)
+    expectAmountNull(amounts.max, assert)
   })
 
   test('CA-2: RFC de empresa contratante se enmascara sin identificacion', async ({
@@ -158,11 +157,11 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     expectNeverDenied(response, assert)
     assert.equal(
       empresaRfcFromShow(response.body()),
-      maskSensitiveValue(CLEAR_REMAINING.empresaRfc, 'identificacion')
+      maskSensitiveValue(CLEAR_REMAINING.empresaRfc)
     )
   })
 
-  test('CA-2: RFC de empresa contratante llega en claro con identificacion', async ({
+  test('CA-2: RFC de empresa contratante sigue enmascarado con identificacion en GET', async ({
     client,
     assert,
   }) => {
@@ -173,10 +172,16 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', buHeader(actor!))
     expectNeverDenied(response, assert)
-    assert.equal(empresaRfcFromShow(response.body()), CLEAR_REMAINING.empresaRfc)
+    assert.equal(
+      empresaRfcFromShow(response.body()),
+      maskSensitiveValue(CLEAR_REMAINING.empresaRfc)
+    )
   })
 
-  test('CA-4: solo sensitive-salud-read destapa las 6 de salud', async ({ client, assert }) => {
+  test('CA-4: solo sensitive-salud-read deja las 6 de salud tapadas en GET', async ({
+    client,
+    assert,
+  }) => {
     await grantOnly(actor!.role.roleId, ['sensitive-salud-read', 'read'])
     await grantModuleAction(actor!.role.roleId, 'traumatic-event-reports', 'read')
     const medicalRes = await client
@@ -187,16 +192,16 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       .header('X-Business-Unit-Id', buHeader(actor!))
     expectNeverDenied(medicalRes, assert)
     const medical = medicalConditionBody(medicalRes.body())
-    assert.equal(medical.employeeMedicalConditionDiagnosis, CLEAR_FIXED.diagnosis)
-    assert.equal(medical.employeeMedicalConditionNotes, CLEAR_FIXED.notes)
+    expectMaskedHealth(medical.employeeMedicalConditionDiagnosis, assert)
+    expectMaskedHealth(medical.employeeMedicalConditionNotes, assert)
 
     const noteRes = await client
       .get(`/api/work-disability-notes/${extra!.note.workDisabilityNoteId}`)
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', buHeader(actor!))
-    assert.equal(
+    expectMaskedHealth(
       workDisabilityNoteBody(noteRes.body()).workDisabilityNoteDescription,
-      CLEAR_REMAINING.disabilityDescription
+      assert
     )
 
     const lactationRes = await client
@@ -212,7 +217,7 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       (row) => row.employeeLactationPeriodId === extra!.lactation.employeeLactationPeriodId
     )
     assert.exists(lactationRow)
-    assert.equal(lactationRow!.employeeLactationPeriodNotes, CLEAR_REMAINING.lactationNotes)
+    expectMaskedHealth(lactationRow!.employeeLactationPeriodNotes, assert)
 
     const traumaRes = await client
       .get(`/api/traumatic-event-reports/${extra!.trauma.traumaticEventReportId}`)
@@ -220,8 +225,8 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       .header('X-Business-Unit-Id', buHeader(actor!))
     expectNeverDenied(traumaRes, assert)
     const trauma = traumaRes.body()?.data?.traumaticEventReport as Record<string, unknown>
-    assert.equal(trauma.traumaticEventReportInvolvedPeople, CLEAR_REMAINING.traumaPeople)
-    assert.equal(trauma.traumaticEventReportDescription, CLEAR_REMAINING.traumaDescription)
+    expectMaskedHealth(trauma.traumaticEventReportInvolvedPeople, assert)
+    expectMaskedHealth(trauma.traumaticEventReportDescription, assert)
   })
 
   test('CA-4: sin salud las 4 columnas nuevas van tapadas', async ({ client, assert }) => {
@@ -263,7 +268,7 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     assert.notInclude(JSON.stringify(response.body()), CLEAR_REMAINING.biometricData)
   })
 
-  test('CA-2: getEnrollmentStatus tapa biometricData sin ALS y lo destapa con biometrico', async ({
+  test('CA-2: getEnrollmentStatus siempre tapa biometricData aunque haya permiso biométrico', async ({
     assert,
   }) => {
     const service = new EmployeeBiometricService(fakeI18n())
@@ -273,33 +278,37 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     assert.include(masked!.fingers, 1)
     assert.isTrue(masked!.face)
 
-    const clear = await SensitiveAccessContext.run(
+    const stillMasked = await SensitiveAccessContext.run(
       {
         read: { ...allDenied, biometrico: true },
         write: deniedWrite,
       },
       () => service.getEnrollmentStatus(fixture!.employee.employeeId)
     )
-    assert.equal(clear!.biometricData, CLEAR_REMAINING.biometricData)
+    assert.equal(stillMasked!.biometricData, MASK_CHAR.repeat(5))
   })
 
-  test('CA-1: serialize de FaceId tapa token y photoUrl', async ({ assert }) => {
+  test('CA-1: serialize de FaceId tapa token y photoUrl aunque haya permiso biométrico', async ({
+    assert,
+  }) => {
     await extra!.faceId.refresh()
     const masked = extra!.faceId.serialize()
     assert.equal(masked.employeeBiometricFaceIdToken, MASK_CHAR.repeat(5))
     assert.equal(masked.employeeBiometricFaceIdPhotoUrl, MASK_CHAR.repeat(5))
-    const clear = SensitiveAccessContext.run(
+    const stillMasked = SensitiveAccessContext.run(
       {
         read: { ...allDenied, biometrico: true },
         write: deniedWrite,
       },
       () => extra!.faceId.serialize()
     )
-    assert.equal(clear.employeeBiometricFaceIdToken, CLEAR_REMAINING.faceToken)
-    assert.equal(clear.employeeBiometricFaceIdPhotoUrl, CLEAR_REMAINING.facePhotoUrl)
+    assert.equal(stillMasked.employeeBiometricFaceIdToken, MASK_CHAR.repeat(5))
+    assert.equal(stillMasked.employeeBiometricFaceIdPhotoUrl, MASK_CHAR.repeat(5))
   })
 
-  test('UserConsent.serialize tapa IP y UA sin contacto', async ({ assert }) => {
+  test('UserConsent.serialize tapa IP y UA aunque haya permiso de contacto', async ({
+    assert,
+  }) => {
     if (!extra!.consent) {
       assert.isTrue(true)
       return
@@ -308,20 +317,26 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     const masked = extra!.consent.serialize()
     assert.equal(
       masked.userConsentIp,
-      maskSensitiveValue(CLEAR_REMAINING.consentIp, 'contacto')
+      maskSensitiveValue(CLEAR_REMAINING.consentIp)
     )
     assert.equal(
       masked.userConsentUserAgent,
-      maskSensitiveValue(CLEAR_REMAINING.consentUa, 'contacto')
+      maskSensitiveValue(CLEAR_REMAINING.consentUa)
     )
-    const clear = SensitiveAccessContext.run(
+    const stillMasked = SensitiveAccessContext.run(
       {
         read: { ...allDenied, contacto: true },
         write: deniedWrite,
       },
       () => extra!.consent!.serialize()
     )
-    assert.equal(clear.userConsentIp, CLEAR_REMAINING.consentIp)
-    assert.equal(clear.userConsentUserAgent, CLEAR_REMAINING.consentUa)
+    assert.equal(
+      stillMasked.userConsentIp,
+      maskSensitiveValue(CLEAR_REMAINING.consentIp)
+    )
+    assert.equal(
+      stillMasked.userConsentUserAgent,
+      maskSensitiveValue(CLEAR_REMAINING.consentUa)
+    )
   })
 })

@@ -33,6 +33,29 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
  *           type: string
  *           nullable: true
  *           description: Ubicación o delimitación; típicamente GeoJSON RFC 7946 como string (p. ej. FeatureCollection con LineString/Polygon), mismo criterio que zonePolygon en zonas
+ *         branchOfficeStreet:
+ *           type: string
+ *           nullable: true
+ *           description: Calle y numero del domicilio de la sucursal
+ *         branchOfficeSettlement:
+ *           type: string
+ *           nullable: true
+ *           description: Colonia del domicilio
+ *         branchOfficeZipcode:
+ *           type: string
+ *           nullable: true
+ *           description: Codigo postal del domicilio
+ *         branchOfficeCity:
+ *           type: string
+ *           nullable: true
+ *           description: Ciudad del domicilio
+ *         branchOfficeState:
+ *           type: string
+ *           nullable: true
+ *           description: Estado del domicilio
+ *         branchOfficeIsDefault:
+ *           type: integer
+ *           description: 1 si es la sucursal default de la empresa (destino de los empleados sin sucursal y no eliminable). Exactamente una viva por unidad de negocio
  *         branchOfficeIdealTemplateCount:
  *           type: integer
  *           nullable: true
@@ -79,6 +102,39 @@ export default class BranchOffice extends compose(BaseModel, SoftDeletes, withBu
 
   @column()
   declare branchOfficeLocationAddress: string | null
+
+  /**
+   * Domicilio legible de la sucursal. Es dato distinto de
+   * `branchOfficeLocationAddress`, que guarda la geocerca en GeoJSON: este se
+   * imprime en los documentos del personal asignado a la sucursal.
+   */
+  @column()
+  declare branchOfficeStreet: string | null
+
+  @column()
+  declare branchOfficeSettlement: string | null
+
+  @column()
+  declare branchOfficeZipcode: string | null
+
+  @column()
+  declare branchOfficeCity: string | null
+
+  @column()
+  declare branchOfficeState: string | null
+
+  /** Zona IANA del sitio; nula hereda la de la empresa. */
+  @column()
+  declare branchOfficeTimezone: string | null
+
+  /**
+   * Marca de sucursal default de la empresa: destino de todo empleado que no
+   * tenga otra, y no eliminable mientras la tenga. Exactamente una viva por
+   * empresa, garantizado por el UNIQUE sobre la columna generada
+   * `branch_office_default_bu`. Se transfiere, no se apaga.
+   */
+  @column()
+  declare branchOfficeIsDefault: number
 
   @column()
   declare branchOfficeIdealTemplateCount: number | null
