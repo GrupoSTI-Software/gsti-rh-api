@@ -44,13 +44,19 @@ No se provocan aquí la negativa de datos sensibles que llega después de haber 
 
 ## 2. Escenarios
 
-Los `<Nombre>` de las rutas y los bodies son los `person_id`, `user_id` o `employee_id` resueltos en Preparar para la persona de ese nombre (p. ej. `<Personal01>` es el `person_id` de `QAEspejo Personal01`; `<personal01>` es el `user_id` de la cuenta con ese correo). `<role_id_limitado>` es el `role_id` de `qa-espejo-limitado` resuelto en Preparar.
+Cada escenario usa un `Nombre` (el `person_lastname` de la primera consulta, p. ej. `Personal01`). Los ids de las rutas y de los bodies se escriben `<Nombre.personId>`, `<Nombre.userId>` o `<Nombre.employeeId>`:
+
+- **`<Nombre.personId>`:** columna `person_id` de la **primera** consulta, en el renglón de ese `Nombre`.
+- **`<Nombre.userId>`:** en la **segunda** consulta, el renglón cuya columna `person_id` sea igual al `<Nombre.personId>` que ya anotaste. Búscalo por `person_id`, no por correo: varios escenarios cambian el correo de la cuenta a la mitad del recorrido.
+- **`<Nombre.employeeId>`:** en la **tercera** consulta, el renglón cuyo `employee_code` es el que indica el escenario (p. ej. `QA-ESPEJO-EMP-03`). Es la columna `employee_id` (numérica) la que va en la URL — el código nunca va en la URL, solo dentro del body como `employeeCode`.
+
+`<role_id_limitado>` es el `role_id` de `qa-espejo-limitado`, de la cuarta consulta.
 
 ### Escenario 1 — Expediente con cuenta personal: el correo nuevo se copia a la cuenta
 
 Usuario: **A**.
 
-**Endpoint:** `PUT /api/persons/<Personal01>`
+**Endpoint:** `PUT /api/persons/<Personal01.personId>`
 
 ```json
 {
@@ -74,7 +80,7 @@ Usuario: **A**.
 }
 ```
 
-Consulta de confirmación: `GET /api/users/<personal01>` → `userEmail` es `qa-espejo-personal01-nuevo@gsti-tests.local`.
+Consulta de confirmación: `GET /api/users/<Personal01.userId>` → `userEmail` es `qa-espejo-personal01-nuevo@gsti-tests.local`.
 
 Qué significa cada dato:
 - `type`: cómo salió la petición; aquí vale `success` (se guardó lo pedido).
@@ -89,7 +95,7 @@ Qué significa cada dato:
 
 Usuario: **A**.
 
-**Endpoint:** `PUT /api/persons/<Institucional02>`
+**Endpoint:** `PUT /api/persons/<Institucional02.personId>`
 
 ```json
 {
@@ -113,7 +119,7 @@ Usuario: **A**.
 }
 ```
 
-Consulta de confirmación: `GET /api/users/<empresa02>` → `userEmail` sigue en `qa-espejo-empresa02@gsti-tests.local`.
+Consulta de confirmación: `GET /api/users/<Institucional02.userId>` → `userEmail` sigue en `qa-espejo-empresa02@gsti-tests.local`.
 
 Qué significa lo nuevo aquí — `data.emailMirror.reason`, con todos sus valores (los cuatro se provocan en este manual, así que no hay línea de "no observable"):
 - `email-type-mismatch`: la cuenta es de otro tipo de correo y no le corresponde este cambio.
@@ -125,9 +131,9 @@ Qué significa lo nuevo aquí — `data.emailMirror.reason`, con todos sus valor
 
 Usuario: **A**.
 
-Antes de editar, consulta `GET /api/employees/<QA-ESPEJO-EMP-03>` y copia los valores que traiga de `employeeFirstName`, `employeeLastName`, `employeeSecondLastName`, `employeePayrollCode` y `employeeHireDate` en el body de abajo (donde dice `"<lo que trajo el GET>"`), sin cambiarlos. El endpoint de edición trata estos campos como reemplazo total si vienen en el body: mandarlos tal cual evita que la edición borre datos del colaborador que no tienen nada que ver con este caso.
+Antes de editar, consulta `GET /api/employees/<Colaborador03.employeeId>` y copia los valores que traiga de `employeeFirstName`, `employeeLastName`, `employeeSecondLastName`, `employeePayrollCode` y `employeeHireDate` en el body de abajo (donde dice `"<lo que trajo el GET>"`), sin cambiarlos. El endpoint de edición trata estos campos como reemplazo total si vienen en el body: mandarlos tal cual evita que la edición borre datos del colaborador que no tienen nada que ver con este caso.
 
-**Endpoint:** `PUT /api/employees/<QA-ESPEJO-EMP-03>`
+**Endpoint:** `PUT /api/employees/<Colaborador03.employeeId>`
 
 ```json
 {
@@ -158,7 +164,7 @@ Antes de editar, consulta `GET /api/employees/<QA-ESPEJO-EMP-03>` y copia los va
 }
 ```
 
-Consulta de confirmación: `GET /api/users/<empresa03>` → `userEmail` es `qa-espejo-empresa03-nuevo@gsti-tests.local`.
+Consulta de confirmación: `GET /api/users/<Colaborador03.userId>` → `userEmail` es `qa-espejo-empresa03-nuevo@gsti-tests.local`.
 
 (Los datos son los ya explicados en el Escenario 1.)
 
@@ -166,14 +172,14 @@ Consulta de confirmación: `GET /api/users/<empresa03>` → `userEmail` es `qa-e
 
 Usuario: **A**.
 
-**Endpoint:** `PUT /api/users/<personal04>`
+**Endpoint:** `PUT /api/users/<Personal04.userId>`
 
 ```json
 {
   "userEmail": "qa-espejo-personal04-nuevo@gsti-tests.local",
   "userActive": true,
   "roleId": "<role_id_limitado>",
-  "personId": "<Personal04>",
+  "personId": "<Personal04.personId>",
   "userEmailType": "personal"
 }
 ```
@@ -192,7 +198,7 @@ Usuario: **A**.
 }
 ```
 
-Consulta de confirmación: `GET /api/persons/<Personal04>` → `personEmail` es `qa-espejo-personal04-nuevo@gsti-tests.local`.
+Consulta de confirmación: `GET /api/persons/<Personal04.personId>` → `personEmail` es `qa-espejo-personal04-nuevo@gsti-tests.local`.
 
 Qué significa lo nuevo aquí — del `GET` de confirmación, `personEmail`: el correo particular de la persona en su expediente.
 
@@ -200,14 +206,14 @@ Qué significa lo nuevo aquí — del `GET` de confirmación, `personEmail`: el 
 
 Usuario: **A**.
 
-**Endpoint:** `PUT /api/users/<empresa05>`
+**Endpoint:** `PUT /api/users/<Colaborador05.userId>`
 
 ```json
 {
   "userEmail": "qa-espejo-empresa05-nuevo@gsti-tests.local",
   "userActive": true,
   "roleId": "<role_id_limitado>",
-  "personId": "<Colaborador05>"
+  "personId": "<Colaborador05.personId>"
 }
 ```
 
@@ -227,7 +233,7 @@ Usuario: **A**.
 }
 ```
 
-Consulta de confirmación: `GET /api/users/<empresa05>` → `userEmailType` sigue en `institutional`; `GET /api/employees/<QA-ESPEJO-EMP-05>` → `employeeBusinessEmail` es `qa-espejo-empresa05-nuevo@gsti-tests.local`.
+Consulta de confirmación: `GET /api/users/<Colaborador05.userId>` → `userEmailType` sigue en `institutional`; `GET /api/employees/<Colaborador05.employeeId>` → `employeeBusinessEmail` es `qa-espejo-empresa05-nuevo@gsti-tests.local`.
 
 Qué significa lo nuevo aquí:
 - `userEmailType`, con todos sus valores: `personal` (el correo particular de la persona) o `institutional` (el correo de trabajo que da la empresa).
@@ -244,7 +250,7 @@ Usuario: **A**. Persona: `Libre06` (sin cuenta viva).
   "userEmail": "qa-espejo-libre06@gsti-tests.local",
   "userActive": true,
   "roleId": "<role_id_limitado>",
-  "personId": "<Libre06>",
+  "personId": "<Libre06.personId>",
   "userEmailType": "Personal"
 }
 ```
@@ -269,7 +275,7 @@ Qué significa lo nuevo aquí:
 
 Usuario: **A**.
 
-**Endpoint:** `PUT /api/persons/<Personal07>`
+**Endpoint:** `PUT /api/persons/<Personal07.personId>`
 
 ```json
 {
@@ -290,7 +296,7 @@ Usuario: **A**.
 }
 ```
 
-Consulta de confirmación: `GET /api/persons/<Personal07>` → `personFirstname` sigue en `QAEspejo` y `personEmail` sin cambio; `GET /api/users/<personal07>` → `userEmail` sin cambio.
+Consulta de confirmación: `GET /api/persons/<Personal07.personId>` → `personFirstname` sigue en `QAEspejo` y `personEmail` sin cambio; `GET /api/users/<Personal07.userId>` → `userEmail` sin cambio.
 
 Qué significa lo nuevo aquí:
 - `title`: el encabezado corto del rechazo: ese correo ya tiene dueña entre las cuentas vivas.
@@ -309,7 +315,7 @@ Usuario: **A**. Persona: `Libre08` (sin cuenta viva).
   "userEmail": "qa-espejo-ocupado-personal@gsti-tests.local",
   "userActive": true,
   "roleId": "<role_id_limitado>",
-  "personId": "<Libre08>",
+  "personId": "<Libre08.personId>",
   "userEmailType": "personal"
 }
 ```
@@ -332,14 +338,14 @@ Qué significa lo nuevo aquí:
 
 Usuario: **A**.
 
-**Endpoint:** `PUT /api/users/<empresa09>`
+**Endpoint:** `PUT /api/users/<Colaborador09.userId>`
 
 ```json
 {
   "userEmail": "qa-espejo-ocupado-empresa@gsti-tests.local",
   "userActive": true,
   "roleId": "<role_id_limitado>",
-  "personId": "<Colaborador09>",
+  "personId": "<Colaborador09.personId>",
   "userEmailType": "institutional"
 }
 ```
@@ -355,7 +361,7 @@ Usuario: **A**.
 }
 ```
 
-Consulta de confirmación: `GET /api/users/<empresa09>` y `GET /api/employees/<QA-ESPEJO-EMP-09>` → los dos siguen en `qa-espejo-empresa09@gsti-tests.local`.
+Consulta de confirmación: `GET /api/users/<Colaborador09.userId>` y `GET /api/employees/<Colaborador09.employeeId>` → los dos siguen en `qa-espejo-empresa09@gsti-tests.local`.
 
 Qué significa lo nuevo aquí:
 - `key`/`code`: `correo-institucional-ya-registrado` / `USR.MAIL.004` — aquí el que ya está ocupado es el correo de trabajo de otro colaborador activo.
@@ -364,7 +370,7 @@ Qué significa lo nuevo aquí:
 
 Usuario: **A**.
 
-**Endpoint:** `PUT /api/persons/<Fuera10>`
+**Endpoint:** `PUT /api/persons/<Fuera10.personId>`
 
 ```json
 {
@@ -385,7 +391,7 @@ Usuario: **A**.
 }
 ```
 
-Consulta de confirmación: `GET /api/persons/<Fuera10>` → `personEmail` sin cambio.
+Consulta de confirmación: `GET /api/persons/<Fuera10.personId>` → `personEmail` sin cambio.
 
 Qué significa lo nuevo aquí:
 - `title`/`detail`: la cuenta de acceso de esta persona pertenece a una empresa que A no administra; el rechazo no dice a cuál, ni el correo que tenía.
@@ -395,7 +401,7 @@ Qué significa lo nuevo aquí:
 
 Usuario: **A**.
 
-**Endpoint:** `PUT /api/persons/<Doble11>`
+**Endpoint:** `PUT /api/persons/<Doble11.personId>`
 
 ```json
 {
@@ -416,7 +422,7 @@ Usuario: **A**.
 }
 ```
 
-Consulta de confirmación: `GET /api/persons/<Doble11>` → `personEmail` sin cambio.
+Consulta de confirmación: `GET /api/persons/<Doble11.personId>` → `personEmail` sin cambio.
 
 Qué significa lo nuevo aquí:
 - `title`/`detail`: la persona tiene más de una cuenta viva y el sistema no adivina a cuál le corresponde el cambio; el mensaje no dice cuántas cuentas hay ni cuáles.
@@ -426,14 +432,14 @@ Qué significa lo nuevo aquí:
 
 Usuario: **B**.
 
-**Endpoint:** `PUT /api/users/<personal12>`
+**Endpoint:** `PUT /api/users/<Personal12.userId>`
 
 ```json
 {
   "userEmail": "qa-espejo-personal12-nuevo@gsti-tests.local",
   "userActive": true,
   "roleId": "<role_id_limitado>",
-  "personId": "<Personal12>",
+  "personId": "<Personal12.personId>",
   "userEmailType": "personal"
 }
 ```
@@ -449,7 +455,7 @@ Usuario: **B**.
 }
 ```
 
-Consulta de confirmación (con **A**): `GET /api/users/<personal12>` → `userEmail` sin cambio; `GET /api/persons/<Personal12>` → `personEmail` sin cambio.
+Consulta de confirmación (con **A**): `GET /api/users/<Personal12.userId>` → `userEmail` sin cambio; `GET /api/persons/<Personal12.personId>` → `personEmail` sin cambio.
 
 Qué significa lo nuevo aquí:
 - `title`/`detail`: B puede editar cuentas, pero cambiar el correo de acceso también movería el correo personal del expediente, y B no tiene permiso sobre datos de contacto; no se guardó nada, ni el correo de la cuenta ni el del expediente.
@@ -459,7 +465,7 @@ Qué significa lo nuevo aquí:
 
 Usuario: **A**.
 
-**Endpoint:** `PUT /api/persons/<SinCuenta13>`
+**Endpoint:** `PUT /api/persons/<SinCuenta13.personId>`
 
 ```json
 {
@@ -489,7 +495,7 @@ Usuario: **A**.
 
 Usuario: **A**.
 
-**Endpoint:** `PUT /api/persons/<Sincronizada14>`
+**Endpoint:** `PUT /api/persons/<Sincronizada14.personId>`
 
 ```json
 {
@@ -519,7 +525,7 @@ Usuario: **A**.
 
 Usuario: **A**.
 
-**Endpoint:** `PUT /api/persons/<Vacio15>`
+**Endpoint:** `PUT /api/persons/<Vacio15.personId>`
 
 ```json
 {
@@ -543,7 +549,7 @@ Usuario: **A**.
 }
 ```
 
-Consulta de confirmación: `GET /api/users/<vacio15>` → `userEmail` sigue en `qa-espejo-vacio15@gsti-tests.local`.
+Consulta de confirmación: `GET /api/users/<Vacio15.userId>` → `userEmail` sigue en `qa-espejo-vacio15@gsti-tests.local`.
 
 (Los datos son los ya explicados en el Escenario 2.)
 
