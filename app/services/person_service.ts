@@ -2,7 +2,7 @@ import Employee from '#models/employee'
 import Person from '#models/person'
 import { blindIndex } from '#utils/blind_index'
 import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
-import { TenantContext } from '#utils/tenant_context'
+import { personEmailExistsGlobally } from '#helpers/person_email_global_uniqueness'
 import { DateTime } from 'luxon'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { PersonFilterSearchInterface } from '../interfaces/person_filter_search_interface.js'
@@ -247,17 +247,9 @@ export default class PersonService {
     }
 
     if (person.personEmail && person.personEmail.trim() !== '') {
-      const emailHash = blindIndex(person.personEmail)
-      const existing = await TenantContext.runUnscoped(
-        () =>
-          Person.query()
-            .whereNull('person_deleted_at')
-            .where('person_email_hash', emailHash)
-            .if(excludePersonId > 0, (query) => query.whereNot('person_id', excludePersonId))
-            .first(),
-        'person-identity: verificación global de correo personal (regla 5, USRH1789698261610)'
-      )
-      if (existing) return { status: 422, field: 'email' }
+      if (await personEmailExistsGlobally(person.personEmail, excludePersonId)) {
+        return { status: 422, field: 'email' }
+      }
     }
 
     return { status: 200 }
