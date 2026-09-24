@@ -5468,7 +5468,7 @@ export default class EmployeeService {
   ): Promise<Buffer> {
 
     const workbook = new ExcelJS.Workbook()
-    const worksheet = workbook.addWorksheet('Plantilla de asignación de turnos')
+    const worksheet = workbook.addWorksheet('Asignación de turnos')
 
     // Convertir fechas a DateTime
     const startDateTime = DateTime.fromISO(startDate)
