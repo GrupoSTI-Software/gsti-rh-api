@@ -7,6 +7,7 @@ import Employee from '#models/employee'
 import Person from '#models/person'
 import Role from '#models/role'
 import User from '#models/user'
+import { LogStore } from '#models/MongoDB/log_store'
 import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
 import type { UserEmailTypeValue } from '#constants/user_email_type'
 import {
@@ -267,4 +268,19 @@ export function assertNoDisclosure(
   assert.notInclude(raw, 'ER_DUP_ENTRY')
   assert.notInclude(raw, 'users_email_active_unique')
   assert.notInclude(raw, 'userPassword')
+}
+
+export type CapturedLog = { collection: string; payload: Record<string, unknown> }
+
+/** Reemplaza `LogStore.set` durante el caso (mismo molde que employee_store_transactional). */
+export function captureLogStore(cleanup: (fn: () => void) => void): CapturedLog[] {
+  const original = LogStore.set
+  const captured: CapturedLog[] = []
+  LogStore.set = async (collectionName: string, logData: Record<string, unknown>) => {
+    captured.push({ collection: collectionName, payload: logData })
+  }
+  cleanup(() => {
+    LogStore.set = original
+  })
+  return captured
 }

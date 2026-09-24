@@ -2,6 +2,7 @@
 import User from '../models/user.js'
 import Ws from '#services/ws'
 import { HttpContext } from '@adonisjs/core/http'
+import db from '@adonisjs/lucid/services/db'
 import ApiToken from '../models/api_token.js'
 import { uuid } from 'uuidv4'
 import mail from '@adonisjs/mail/services/main'
@@ -41,15 +42,26 @@ import {
 import {
   assertUserAccessEmailNotMasked,
   isUserAccessEmailDuplicatedIndexError,
+  isEmailMirrorConflictError,
+  isEmailMirrorRefusedError,
   isUserAccessEmailDuplicatedValidationError,
   isUserAccessEmailMaskedError,
+  respondEmailMirrorConflict,
+  respondEmailMirrorRefused,
   respondUserAccessEmailDuplicated,
   respondUserAccessEmailMasked,
 } from '#helpers/user_access_email_api_error'
 import { normalizeToken } from '#helpers/employee_termination_record'
 import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
+import { USER_EMAIL_TYPE_DEFAULT, type UserEmailTypeValue } from '#constants/user_email_type'
 import { USER_VALIDATION_ERROR_CODES } from '#constants/user_validation_error_codes'
+import {
+  emailMirrorActorFromContext,
+  mirrorUserEmailToRecord,
+  toPublicEmailMirrorOutcome,
+  type EmailMirrorOutcome,
+} from '#helpers/person_user_email_mirror'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
 import { canAccessBackoffice } from '#helpers/backoffice_access'
 
@@ -97,6 +109,12 @@ function assertContactoEmailWriteAllowed(
     throw new SensitiveDataWriteError(SENSITIVE_DATA_WRITE_ERROR_CODES.UNRESOLVED)
   }
   throw new SensitiveDataWriteError(SENSITIVE_DATA_WRITE_ERROR_CODES.FORBIDDEN, 'contacto')
+}
+
+/** Correo personal que el espejo sobrescribió, para el registro de auditoría. */
+function previousPersonEmailOf(outcome: EmailMirrorOutcome): string | null {
+  if (outcome.status !== 'written' || outcome.target !== 'people') return null
+  return outcome.previousValue
 }
 
 export default class UserController {
@@ -1564,6 +1582,24 @@ export default class UserController {
    *                 data:
    *                   type: object
    *                   description: Processed object
+   *                   properties:
+   *                     user:
+   *                       type: object
+   *                       description: Cuenta de acceso creada
+   *                     emailMirror:
+   *                       type: object
+   *                       description: Resultado del espejo del correo de la credencial hacia el expediente
+   *                       properties:
+   *                         status:
+   *                           type: string
+   *                           enum: [written, skipped]
+   *                           description: written si se copió el correo al expediente; skipped si no se escribió
+   *                         target:
+   *                           type: string
+   *                           description: Destino de la copia cuando status es written (people o employees)
+   *                         reason:
+   *                           type: string
+   *                           description: Motivo de la omisión cuando status es skipped
    *       '404':
    *         description: Resource not found
    *         content:
@@ -1587,6 +1623,7 @@ export default class UserController {
    *         description: |
    *           The parameters entered are invalid or essential data is missing to process the request.
    *           También responde 400 cuando el correo de acceso ya está en uso por otra cuenta activa (código USR.MAIL.002): ningún campo se guardó.
+   *           También 400 cuando el correo ya lo usa otra persona (USR.MAIL.003, tipo `personal`) u otro empleado vivo (USR.MAIL.004, tipo `institutional`). Ningún campo se guardó.
    *         content:
    *           application/json:
    *             schema:
@@ -1647,7 +1684,9 @@ export default class UserController {
    *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
    *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '422':
-   *         description: El correo de acceso contiene la máscara de un dato protegido. Ningún campo se guardó.
+   *         description: |
+   *           El correo de acceso contiene la máscara de un dato protegido. Ningún campo se guardó.
+   *           Datos inválidos, incluido `userEmailType` fuera de `institutional` | `personal`.
    *         content:
    *           application/json:
    *             schema:
@@ -1659,13 +1698,12 @@ export default class UserController {
    *                 code: { type: string, example: USR.MAIL.001 }
    */
   async store(ctx: HttpContext) {
-    const { auth, request, response, i18n, businessUnitScope } = ctx
+    const { request, response, i18n, businessUnitScope } = ctx
     try {
       const userEmail = request.input('userEmail')
       const userActive = request.input('userActive')
       const roleId = request.input('roleId')
       const personId = request.input('personId')
-      const userEmailType = request.input('userEmailType')
 
       assertUserAccessEmailNotMasked(userEmail)
 
@@ -1687,19 +1725,29 @@ export default class UserController {
 
       const businessUnitIds = businessUnits.map((unit) => unit.businessUnitId)
 
+      const userService = new UserService(i18n)
+      // El bodyparser convierte `""` en `null` antes de Vine, y el enum opcional
+      // acepta null como "no enviado". Restaurar la cadena vacía hace que el
+      // enum la rechace (422) sin cambiar el default cuando el campo se omite.
+      const payload = { ...request.all() }
+      if (Object.hasOwn(payload, 'userEmailType') && payload.userEmailType === null) {
+        payload.userEmailType = ''
+      }
+      const data = await request.validateUsing(createUserValidator, { data: payload })
+      // H1: el tipo se resuelve UNA vez y es lo que se persiste; el guard y el
+      // destino del espejo leen este mismo valor.
+      const userEmailType: UserEmailTypeValue = data.userEmailType ?? USER_EMAIL_TYPE_DEFAULT
       const user = {
-        userEmail: userEmail,
+        userEmail: data.userEmail,
         userPassword: generateProvisionalPassword(),
         userActive: userActive,
         roleId: roleId,
-        personId: personId,
-        userEmailType: userEmailType,
+        personId: data.personId,
+        userEmailType,
         userToken: generateInvitationToken(),
         userTokenExpiresAt: buildInvitationTokenExpiresAt(),
         userPasswordSetAt: null,
       } as User
-      const userService = new UserService(i18n)
-      const data = await request.validateUsing(createUserValidator)
       const exist = await userService.verifyInfoExist(user)
       if (exist.status !== 200) {
         response.status(exist.status)
@@ -1710,68 +1758,67 @@ export default class UserController {
           data: { ...data },
         }
       }
-      let personForEmailSync: Person | null = null
       if (userEmailType === 'personal') {
-        personForEmailSync = await Person.query()
-          .where('person_id', personId)
+        const personForGuard = await Person.query()
+          .where('person_id', data.personId)
           .whereNull('person_deleted_at')
           .first()
-        if (personForEmailSync) {
-          // Verificar el permiso de `contacto` ANTES de crear el `User`: evita dejar
-          // un `User` huérfano si el correo de la persona no puede actualizarse.
-          assertContactoEmailWriteAllowed(personForEmailSync.personEmail, userEmail)
-        }
+        // Fuera de la transacción: falla rápido antes de escribir nada.
+        if (personForGuard) assertContactoEmailWriteAllowed(personForGuard.personEmail, data.userEmail)
       }
 
-      const newUser = await userService.create(user, businessUnitIds)
-      if (newUser) {
-        if (newUser.userEmailType === 'personal') {
-          if (personForEmailSync) {
-            personForEmailSync.personEmail = newUser.userEmail
-            await personForEmailSync.save()
-          }
-        } else {
-          const employee = await Employee.query()
-            .where('person_id', personId)
-            .whereNull('employee_deleted_at')
-            .first()
-          if (employee) {
-            employee.employeeBusinessEmail = newUser.userEmail
-            await employee.save()
-          }
-        }
+      const actor = emailMirrorActorFromContext(ctx)
+      const { newUser, emailMirror } = await db.transaction(async (trx) => {
+        const created = await userService.create(user, businessUnitIds, trx)
+        const outcome = await mirrorUserEmailToRecord({
+          personId: created.personId,
+          userEmail: created.userEmail,
+          userEmailType: created.userEmailType,
+          actor,
+          trx,
+        })
+        return { newUser: created, emailMirror: outcome }
+      })
 
-        const rawHeaders = request.request.rawHeaders
-        const userId = auth.user?.userId
-        if (userId) {
-          const logUser = await userService.createActionLog(rawHeaders, 'store')
-          logUser.user_id = userId
-          logUser.record_current = JSON.parse(JSON.stringify(newUser))
-          await userService.saveActionOnLog(logUser)
-        }
+      const rawHeaders = request.request.rawHeaders
+      const logUser = await userService.createActionLog(rawHeaders, 'store')
+      logUser.user_id = actor.userId
+      logUser.record_current = JSON.parse(JSON.stringify(newUser))
+      const previousPersonEmail = previousPersonEmailOf(emailMirror)
+      if (previousPersonEmail) logUser.record_previous_person_email = previousPersonEmail
+      await userService.saveActionOnLog(logUser)
 
-        await dispatchUserInvitationEmail(newUser)
+      await dispatchUserInvitationEmail(newUser)
 
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Users',
-          message: 'The user was created successfully',
-          data: { user: newUser },
-        }
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Users',
+        message: 'The user was created successfully',
+        data: { user: newUser, emailMirror: toPublicEmailMirrorOutcome(emailMirror) },
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (isUserAccessEmailMaskedError(error)) return respondUserAccessEmailMasked(ctx, error)
       if (isUserAccessEmailDuplicatedValidationError(error) || isUserAccessEmailDuplicatedIndexError(error)) return respondUserAccessEmailDuplicated(ctx)
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      if (isEmailMirrorConflictError(error)) return respondEmailMirrorConflict(ctx, error)
+      if (isEmailMirrorRefusedError(error)) return respondEmailMirrorRefused(ctx, error)
+      if (error.code === 'E_VALIDATION_ERROR') {
+        response.status(422)
+        return {
+          type: 'validation_error',
+          title: 'Validation error',
+          message: 'The provided data is invalid',
+          error: error.messages?.[0]?.message ?? 'Validation error',
+          errors: error.messages,
+        }
+      }
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
-        error: messageError,
+        error: error.message,
       }
     }
   }

@@ -6,6 +6,7 @@ import type Person from '#models/person'
 import {
   assertNoDisclosure,
   businessUnitHeader,
+  captureLogStore,
   cleanupMirrorWorld,
   createEmployeeFor,
   createForeignBusinessUnit,
@@ -57,7 +58,7 @@ test.group('Espejo correo ↔ credencial — tipo de correo (CA-6)', (group) => 
           personId: person.personId,
           userEmailType: invalid,
         })
-      assert.oneOf(response.status(), [422, 500], `status para "${invalid}"`)
+      response.assertStatus(422)
       assert.notEqual(response.status(), 201)
       const created = await User.query().where('person_id', person.personId).whereNull('user_deleted_at').first()
       assert.isNull(created)
@@ -327,5 +328,120 @@ test.group('Espejo — PUT /api/persons/:id (M1)', (group) => {
     const rowB = await readUserRow(b.userId)
     assert.equal(rowA.user_email, a.userEmail)
     assert.equal(rowB.user_email, b.userEmail)
+  })
+})
+
+test.group('Espejo — POST /api/users (M2/M3)', (group) => {
+  group.setup(async () => {
+    world = await createMirrorWorld()
+  })
+  group.teardown(async () => {
+    await cleanupMirrorWorld(world)
+    world = null
+  })
+
+  function postUser(client: ApiClient, personId: number, userEmail: string, userEmailType?: string) {
+    const w = world!
+    return client
+      .post('/api/users')
+      .loginAs(w.full.user)
+      .headers(businessUnitHeader(w.full.businessUnit))
+      .json({
+        userEmail,
+        userActive: true,
+        roleId: w.full.role.roleId,
+        personId,
+        ...(userEmailType === undefined ? {} : { userEmailType }),
+      })
+  }
+
+  test('personal: escribe person_email y guarda la imagen previa solo en log_users', async ({ client, assert, cleanup }) => {
+    const w = world!
+    const logs = captureLogStore(cleanup)
+    const anterior = `alta-anterior-${stamp()}@correo.com`
+    const person = await createPersonIn(w.registry, w.full.businessUnit, anterior)
+    const nuevo = `alta-nuevo-${stamp()}@correo.com`
+
+    const response = await postUser(client, person.personId, nuevo, 'personal')
+
+    response.assertStatus(201)
+    const createdUser = await User.query().where('person_id', person.personId).whereNull('user_deleted_at').firstOrFail()
+    w.registry.userIds.push(createdUser.userId)
+    assert.deepEqual(response.body().data.emailMirror, { status: 'written', target: 'people' })
+    assert.equal(await readPersonEmail(person.personId), nuevo)
+    assert.notInclude(JSON.stringify(response.body()), anterior)
+    const entry = logs.find((log) => log.collection === 'log_users')
+    assert.equal(entry?.payload.record_previous_person_email, anterior)
+  })
+
+  test('CA-4 el-correo-personal-no-se-borra: institucional escribe el correo de empresa', async ({ client, assert }) => {
+    const w = world!
+    const personal = `ca4-p-${stamp()}@correo.com`
+    const person = await createPersonIn(w.registry, w.full.businessUnit, personal)
+    const employee = await createEmployeeFor(w.registry, person, w.full.businessUnit, `ca4-e-${stamp()}@empresa.com`)
+    const nuevo = `ca4-n-${stamp()}@empresa.com`
+
+    const response = await postUser(client, person.personId, nuevo, 'institutional')
+
+    response.assertStatus(201)
+    w.registry.userIds.push(response.body().data.user.userId)
+    assert.deepEqual(response.body().data.emailMirror, { status: 'written', target: 'employees' })
+    const employeeRow = await readEmployeeRow(employee.employeeId)
+    assert.equal(employeeRow.employee_business_email, nuevo)
+    assert.equal(await readPersonEmail(person.personId), personal)
+  })
+
+  test('sin userEmailType el alta persiste institutional (default de la columna)', async ({ client, assert }) => {
+    const w = world!
+    const person = await createPersonIn(w.registry, w.full.businessUnit, null)
+    const response = await postUser(client, person.personId, `default-${stamp()}@empresa.com`)
+    response.assertStatus(201)
+    const userId = response.body().data.user.userId
+    w.registry.userIds.push(userId)
+    const userRow = await readUserRow(userId)
+    assert.equal(userRow.user_email_type, 'institutional')
+  })
+
+  test('CA-10 omision-explicita-sin-puesto-vivo en el alta institucional', async ({ client, assert }) => {
+    const w = world!
+    const person = await createPersonIn(w.registry, w.full.businessUnit, null)
+    const response = await postUser(client, person.personId, `ca10u-${stamp()}@empresa.com`, 'institutional')
+    response.assertStatus(201)
+    w.registry.userIds.push(response.body().data.user.userId)
+    assert.deepEqual(response.body().data.emailMirror, { status: 'skipped', reason: 'no-live-counterpart' })
+  })
+
+  test('CA-8 personal con correo de otra persona: 400 USR.MAIL.003 y no se crea la cuenta', async ({ client, assert }) => {
+    const w = world!
+    const ocupado = `ca8p-${stamp()}@correo.com`
+    const duena = await createPersonIn(w.registry, w.full.businessUnit, ocupado)
+    const anterior = `ca8p-mio-${stamp()}@correo.com`
+    const person = await createPersonIn(w.registry, w.full.businessUnit, anterior)
+
+    const response = await postUser(client, person.personId, ocupado, 'personal')
+
+    response.assertStatus(400)
+    assert.equal(response.body().code, 'USR.MAIL.003')
+    assert.equal(response.body().key, 'correo-personal-ya-registrado')
+    assertNoDisclosure(assert, response.body(), [ocupado, duena.personId, person.personId])
+    assert.isNull(await User.query().where('person_id', person.personId).whereNull('user_deleted_at').first())
+    assert.equal(await readPersonEmail(person.personId), anterior)
+  })
+
+  test('CA-8 institucional con correo de otro empleado: 400 USR.MAIL.004 y no se crea la cuenta', async ({ client, assert }) => {
+    const w = world!
+    const ocupado = `ca8e-${stamp()}@empresa.com`
+    await createEmployeeFor(w.registry, await createPersonIn(w.registry, w.full.businessUnit, null), w.full.businessUnit, ocupado)
+    const person = await createPersonIn(w.registry, w.full.businessUnit, null)
+    const propio = `ca8e-propio-${stamp()}@empresa.com`
+    const employee = await createEmployeeFor(w.registry, person, w.full.businessUnit, propio)
+
+    const response = await postUser(client, person.personId, ocupado, 'institutional')
+
+    response.assertStatus(400)
+    assert.equal(response.body().code, 'USR.MAIL.004')
+    assert.isNull(await User.query().where('person_id', person.personId).whereNull('user_deleted_at').first())
+    const employeeRow = await readEmployeeRow(employee.employeeId)
+    assert.equal(employeeRow.employee_business_email, propio)
   })
 })
