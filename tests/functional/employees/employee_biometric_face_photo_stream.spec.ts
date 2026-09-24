@@ -265,6 +265,8 @@ test.group('Employee biometric face photo stream', (group) => {
 
     response.assertStatus(200)
     response.assertHeader('content-type', 'image/jpeg')
+    // Sin caché: la foto reemplazada se ve al instante y cada vista se asienta.
+    response.assertHeader('cache-control', 'private, no-store')
     assert.equal(await countRevealLogs(
       'EmployeeBiometricFaceId',
       'employeeBiometricFaceIdPhotoUrl',

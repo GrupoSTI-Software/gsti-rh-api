@@ -9,6 +9,7 @@ import Employee from '#models/employee'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { contentDisposition } from '#helpers/download_file_name'
 import { employeesAttendanceReportJobDeclaration } from '#constants/employees_download_permission_declarations'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -207,7 +208,7 @@ export default class ReportJobsController {
       }
 
       let userResponsibleId: number | null = null
-      if (user.role.roleSlug !== 'root') {
+      if (resolveResponsibleUserId(user) !== null) {
         userResponsibleId = user.userId
       }
 

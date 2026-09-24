@@ -1,6 +1,8 @@
 import Employee from '#models/employee'
 import Person from '#models/person'
 import { blindIndex } from '#utils/blind_index'
+import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
+import { TenantContext } from '#utils/tenant_context'
 import { DateTime } from 'luxon'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { PersonFilterSearchInterface } from '../interfaces/person_filter_search_interface.js'
@@ -193,62 +195,72 @@ export default class PersonService {
     return employee ? employee : null
   }
 
-  async verifyInfo(person: Person) {
-    const duplicates: string[] = []
+  /**
+   * Verifica duplicados de identidad antes de guardar (USRH1789698261610).
+   *
+   * RFC, CURP y NSS se comparan SOLO dentro de la empresa indicada (reglas 1 y 2);
+   * el correo personal se compara en todo el sistema, como hoy (regla 5). Sin
+   * empresa no hay veredicto: se informa y quien llama responde 400 (regla 10).
+   * Solo cuentan los vivos: la baja libera (regla 4). Ante varios choques se
+   * informa el primero (CURP, RFC, NSS, correo): el mensaje dice un dato y nada más.
+   */
+  async verifyInfo(
+    person: Person,
+    businessUnitId: number | null | undefined
+  ): Promise<
+    | { status: 200 }
+    | { status: 400; missingCompany: true }
+    | { status: 422; field: 'curp' | 'rfc' | 'nss' | 'email' }
+  > {
+    if (!businessUnitId) return { status: 400, missingCompany: true }
 
-    if (person.personCurp) {
-      const existing = await Person.query()
-        .whereNull('person_deleted_at')
-        .where('person_curp_hash', blindIndex(person.personCurp))
-        .if(person.personId > 0, (q) => q.whereNot('person_id', person.personId))
-        .first()
-      if (existing) duplicates.push('CURP')
+    const excludePersonId = person.personId > 0 ? person.personId : 0
+
+    if (person.personCurp && person.personCurp.trim() !== '') {
+      const exists = await livePersonWithIdentityExists(
+        'curp',
+        blindIndex(person.personCurp),
+        businessUnitId,
+        excludePersonId
+      )
+      if (exists) return { status: 422, field: 'curp' }
     }
 
-    if (person.personRfc) {
-      const existing = await Person.query()
-        .whereNull('person_deleted_at')
-        .where('person_rfc_hash', blindIndex(person.personRfc))
-        .if(person.personId > 0, (q) => q.whereNot('person_id', person.personId))
-        .first()
-      if (existing) duplicates.push('RFC')
+    if (person.personRfc && person.personRfc.trim() !== '') {
+      const exists = await livePersonWithIdentityExists(
+        'rfc',
+        blindIndex(person.personRfc),
+        businessUnitId,
+        excludePersonId
+      )
+      if (exists) return { status: 422, field: 'rfc' }
     }
 
-    if (person.personImssNss) {
-      const existing = await Person.query()
-        .whereNull('person_deleted_at')
-        .where('person_imss_nss_hash', blindIndex(person.personImssNss))
-        .if(person.personId > 0, (q) => q.whereNot('person_id', person.personId))
-        .first()
-      if (existing) duplicates.push('NSS')
+    if (person.personImssNss && person.personImssNss.trim() !== '') {
+      const exists = await livePersonWithIdentityExists(
+        'nss',
+        blindIndex(person.personImssNss),
+        businessUnitId,
+        excludePersonId
+      )
+      if (exists) return { status: 422, field: 'nss' }
     }
 
-    if (person.personEmail) {
-      const existing = await Person.query()
-        .whereNull('person_deleted_at')
-        .where('person_email_hash', blindIndex(person.personEmail))
-        .if(person.personId > 0, (q) => q.whereNot('person_id', person.personId))
-        .first()
-      if (existing) duplicates.push('correo electrónico')
+    if (person.personEmail && person.personEmail.trim() !== '') {
+      const emailHash = blindIndex(person.personEmail)
+      const existing = await TenantContext.runUnscoped(
+        () =>
+          Person.query()
+            .whereNull('person_deleted_at')
+            .where('person_email_hash', emailHash)
+            .if(excludePersonId > 0, (query) => query.whereNot('person_id', excludePersonId))
+            .first(),
+        'person-identity: verificación global de correo personal (regla 5, USRH1789698261610)'
+      )
+      if (existing) return { status: 422, field: 'email' }
     }
 
-    if (duplicates.length > 0) {
-      return {
-        status: 422,
-        type: 'warning',
-        title: 'Dato duplicado',
-        message: `Ya existe un trabajador con el mismo valor en: ${duplicates.join(', ')}`,
-        data: { ...person },
-      }
-    }
-
-    return {
-      status: 200,
-      type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verifiy successfully',
-      data: { ...person },
-    }
+    return { status: 200 }
   }
 
   async getPlacesOfBirth(search: string, field: 'countries' | 'states' | 'cities') {

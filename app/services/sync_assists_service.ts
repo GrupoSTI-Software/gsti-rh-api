@@ -1568,10 +1568,10 @@ export default class SyncAssistsService {
       this.isWorkDisabilityDate(employeeID, dateAssistItem, employee)
       this.validTime(dateAssistItem)
       this.handleSkipCheckoutException(dateAssistItem) // aqui se llama la logica para manejar el check-out basado en la ultima hora registrada si existe una excepcion de skip-checkout
-      this.hasSomeExceptionTimeCheckIn(dateAssistItem, TOLERANCE_DELAY_MINUTES)
-      this.hasSomeExceptionTimeCheckOut(dateAssistItem)
+      this.hasSomeExceptionTimeCheckIn(dateAssistItem, TOLERANCE_DELAY_MINUTES, isDiscriminated)
+      this.hasSomeExceptionTimeCheckOut(dateAssistItem, isDiscriminated)
       this.hasSomeException(employeeID, dateAssistItem, employee)
-      this.verifyCheckOutToday(dateAssistItem)
+      this.verifyCheckOutToday(dateAssistItem, isDiscriminated)
       this.applySundayBonusStatusOverride(dateAssistItem)
 
       if (dateAssistItem.assist.dateShift) {
@@ -2837,8 +2837,13 @@ export default class SyncAssistsService {
     }
   }
 
-  private hasSomeExceptionTimeCheckIn(checkAssist: AssistDayInterface, TOLERANCE_DELAY_MINUTES: number) {
-    if (!checkAssist) {
+  private hasSomeExceptionTimeCheckIn(
+    checkAssist: AssistDayInterface,
+    TOLERANCE_DELAY_MINUTES: number,
+    discriminated: boolean = false
+  ) {
+    // Discriminado de asistencia: la entrada no se evalúa, ni contra la hora de la excepción.
+    if (!checkAssist || discriminated) {
       return checkAssist
     }
 
@@ -2886,8 +2891,12 @@ export default class SyncAssistsService {
     return checkAssist
   }
 
-  private async hasSomeExceptionTimeCheckOut(checkAssist: AssistDayInterface) {
-    if (!checkAssist) {
+  private async hasSomeExceptionTimeCheckOut(
+    checkAssist: AssistDayInterface,
+    discriminated: boolean = false
+  ) {
+    // Discriminado de asistencia: la salida no se evalúa, ni contra la hora de la excepción.
+    if (!checkAssist || discriminated) {
       return checkAssist
     }
 
@@ -2931,8 +2940,9 @@ export default class SyncAssistsService {
     return checkAssist
   }
 
-  verifyCheckOutToday(checkAssist: AssistDayInterface) {
-    if (!checkAssist?.assist?.dateShift) {
+  verifyCheckOutToday(checkAssist: AssistDayInterface, discriminated: boolean = false) {
+    // Discriminado de asistencia: una entrada sin salida no se convierte en falta.
+    if (!checkAssist?.assist?.dateShift || discriminated) {
       return checkAssist
     }
 

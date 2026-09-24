@@ -10,6 +10,7 @@ import {
 } from '#helpers/download_file_name'
 import { resolveEmployeeImportApiError } from '../helpers/employee_import_api_error.js'
 import { EMPLOYEE_IMPORT_ERROR_CODES } from '../constants/employee_import_error_codes.js'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 
 export default class EmployeeVacationController {
   /**
@@ -118,7 +119,7 @@ export default class EmployeeVacationController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -258,7 +259,7 @@ export default class EmployeeVacationController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -403,7 +404,7 @@ export default class EmployeeVacationController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -539,7 +540,7 @@ export default class EmployeeVacationController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }

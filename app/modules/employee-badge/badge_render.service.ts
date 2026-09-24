@@ -53,6 +53,14 @@ const BADGE_COLORS = {
 /** Radio de esquinas de la foto del trabajador (espejo diseño BO). */
 const PHOTO_CORNER_RADIUS = 7
 
+/**
+ * Anclaje vertical del recorte cuando la foto es más alta que el recuadro:
+ * 0 recorta todo de abajo, 0.5 reparte. En un retrato la cara está en el
+ * tercio superior, así que se recorta sobre todo de abajo para no cortar la
+ * frente.
+ */
+const PHOTO_CROP_ANCHOR_Y = 0.25
+
 const FONT_REGULAR = 'BadgeRoboto'
 const FONT_BOLD = 'BadgeRoboto-Bold'
 
@@ -61,9 +69,18 @@ let fontsRegistered = false
 export interface BadgeRenderContext {
   employeeId: number
   nombreCompleto: string
-  fotoUrl: string | null
+  /**
+   * Lo que guarda `employeePhoto`: key del bucket o URL del servidor de
+   * biométricos. No es la URL pública, que es `null` para objetos privados.
+   */
+  fotoPath: string | null
   empresa: string
   puesto: string | null
+  departamento: string | null
+  /** Número de nómina del empleado; `null` si no se capturó. */
+  numeroNomina: string | null
+  /** NSS completo; su impresión se registra en la bitácora antes de entregar el archivo. */
+  nss: string | null
   folioRepse: string | null
   folioVigente: boolean | null
   urlVerificacion: string
@@ -79,7 +96,7 @@ export default class BadgeRenderService {
     this.ensureFontsRegistered()
 
     const [fotoBuffer, qrBuffer] = await Promise.all([
-      this.fetchImageTolerant(input.fotoUrl),
+      this.fetchImageTolerant(input.fotoPath),
       QRCode.toBuffer(input.urlVerificacion, { margin: 0, width: 512 }),
     ])
 
@@ -104,7 +121,7 @@ export default class BadgeRenderService {
     }
 
     this.renderQr(ctx, qrImage)
-    this.renderFooter(ctx, input.urlVerificacion)
+    this.renderPayrollFields(ctx, input)
 
     return canvas.toBuffer('image/png')
   }
@@ -148,7 +165,11 @@ export default class BadgeRenderService {
     ctx.clip()
 
     if (fotoImage) {
-      ctx.drawImage(fotoImage, x, y, w, h)
+      // Recorte tipo `object-fit: cover`: llena el recuadro sin deformar la
+      // foto. Estirarla al recuadro aplastaba cualquier foto que no tuviera
+      // su misma proporción.
+      const crop = this.coverCrop(fotoImage.width, fotoImage.height, w, h)
+      ctx.drawImage(fotoImage, crop.sx, crop.sy, crop.sw, crop.sh, x, y, w, h)
       ctx.restore()
       return
     }
@@ -224,10 +245,52 @@ export default class BadgeRenderService {
       currentY += this.s(2)
       ctx.font = `${this.s(6)}px "${FONT_REGULAR}"`
       ctx.fillStyle = BADGE_COLORS.textMuted
-      this.drawWrappedText(ctx, input.puesto!, x, currentY, width, this.s(6) + this.s(0.5))
+      currentY = this.drawWrappedText(
+        ctx,
+        input.puesto!,
+        x,
+        currentY,
+        width,
+        this.s(6) + this.s(0.5)
+      )
+    }
+
+    const departamento = input.departamento?.trim()
+    if (departamento) {
+      currentY += this.s(1)
+      ctx.font = `${this.s(5.5)}px "${FONT_REGULAR}"`
+      ctx.fillStyle = BADGE_COLORS.textMuted
+      this.drawWrappedText(ctx, departamento, x, currentY, width, this.s(5.5) + this.s(0.5))
     }
 
     ctx.restore()
+  }
+
+  /**
+   * Datos de nómina bajo la foto, como campos de credencial (rótulo y valor):
+   * número de nómina y NSS, en ese orden y sin hueco si falta alguno. La
+   * columna de la foto queda libre en los dos tipos de gafete: el bloque REPSE
+   * y la insignia de colaborador viven a la derecha.
+   */
+  private renderPayrollFields(ctx: BadgeCanvasContext, input: BadgeRenderContext) {
+    const fields = [
+      { label: 'NO. DE NÓMINA', value: input.numeroNomina?.trim() },
+      { label: 'NSS', value: input.nss?.trim() },
+    ].filter((field): field is { label: string; value: string } => !!field.value)
+
+    const x = this.s(10)
+    const width = this.s(58)
+    fields.forEach((field, index) => {
+      const y = this.s(113 + index * 16)
+
+      ctx.font = `${this.s(4)}px "${FONT_BOLD}"`
+      ctx.fillStyle = BADGE_COLORS.textMuted
+      ctx.fillText(field.label, x, y)
+
+      ctx.font = `${this.s(6)}px "${FONT_BOLD}"`
+      ctx.fillStyle = BADGE_COLORS.text
+      this.drawSingleLineTruncated(ctx, field.value, x, y + this.s(7), width)
+    })
   }
 
   private renderFolioBlock(ctx: BadgeCanvasContext, input: BadgeRenderContext) {
@@ -315,26 +378,35 @@ export default class BadgeRenderService {
     ctx.textBaseline = 'alphabetic'
   }
 
-  private renderFooter(ctx: BadgeCanvasContext, urlVerificacion: string) {
-    const footerText = this.formatVerificationFooter(urlVerificacion)
-    const maxWidth = CANVAS_WIDTH - this.s(16)
-
-    ctx.font = `${this.s(4)}px "${FONT_REGULAR}"`
-    ctx.fillStyle = BADGE_COLORS.textMuted
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'alphabetic'
-
-    const truncated = this.truncateText(ctx, footerText, maxWidth)
-    ctx.fillText(truncated, CANVAS_WIDTH / 2, this.s(144.07))
-    ctx.textAlign = 'left'
-  }
-
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
 
   private s(value: number): number {
     return value * SCALE
+  }
+
+  /**
+   * Región de la foto que llena un recuadro sin deformarla (`object-fit:
+   * cover`). Si sobra ancho se recorta parejo de los lados; si sobra alto,
+   * según `PHOTO_CROP_ANCHOR_Y`.
+   */
+  private coverCrop(
+    sourceWidth: number,
+    sourceHeight: number,
+    boxWidth: number,
+    boxHeight: number
+  ): { sx: number; sy: number; sw: number; sh: number } {
+    const sourceRatio = sourceWidth / sourceHeight
+    const boxRatio = boxWidth / boxHeight
+
+    if (sourceRatio > boxRatio) {
+      const sw = sourceHeight * boxRatio
+      return { sx: (sourceWidth - sw) / 2, sy: 0, sw, sh: sourceHeight }
+    }
+
+    const sh = sourceWidth / boxRatio
+    return { sx: 0, sy: (sourceHeight - sh) * PHOTO_CROP_ANCHOR_Y, sw: sourceWidth, sh }
   }
 
   private ensureFontsRegistered() {
@@ -344,16 +416,6 @@ export default class BadgeRenderService {
     GlobalFonts.registerFromPath(path.join(baseDir, 'Roboto-Regular.ttf'), FONT_REGULAR)
     GlobalFonts.registerFromPath(path.join(baseDir, 'Roboto-Bold.ttf'), FONT_BOLD)
     fontsRegistered = true
-  }
-
-  private formatVerificationFooter(urlVerificacion: string): string {
-    try {
-      const parsed = new URL(urlVerificacion)
-      const pathBase = parsed.pathname.replace(/\/[^/]+$/, '') || parsed.pathname
-      return `Escanea el QR · ${parsed.host}${pathBase}`
-    } catch {
-      return `Escanea el QR · ${urlVerificacion.replace(/^https?:\/\//, '')}`
-    }
   }
 
   /**

@@ -138,6 +138,8 @@ export type FindContratoInTenantOptions = {
   notFoundKey?: string
   /** Incluye subconsulta de fecha_vencimiento del documento firmado vigente en `$extras`. */
   withDocumentoVigenteFecha?: boolean
+  /** Incluye además los datos de tarjeta (`ContratoServicioEspecializado.withResumenTarjeta`). */
+  withResumenTarjeta?: boolean
 }
 
 /**
@@ -170,7 +172,9 @@ export async function findContratoInTenantOrFail(
     .whereNull('contrato_servicio_especializado_deleted_at')
     .whereIn('business_unit_id', allowed)
 
-  if (options.withDocumentoVigenteFecha) {
+  if (options.withResumenTarjeta) {
+    query = ContratoServicioEspecializado.withResumenTarjeta(query)
+  } else if (options.withDocumentoVigenteFecha) {
     query = ContratoServicioEspecializado.withDocumentoVigenteFechaVencimiento(query)
   }
 

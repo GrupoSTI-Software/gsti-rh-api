@@ -3,7 +3,7 @@ import { join } from 'node:path'
 import { test } from '@japa/runner'
 
 /**
- * USRH1783691644909 — los 7 grupos de rutas REPSE deben montar
+ * USRH1783691644909 — los grupos de rutas REPSE deben montar
  * `auth()` + `businessScope()`. Recreado tras pérdida de archivos untracked
  * — ver commit cbaba6cc.
  */
@@ -14,6 +14,7 @@ const REPSE_ROUTE_FILES = [
   'repse_registration_routes.ts',
   'repse_specialized_service_routes.ts',
   'repse_coverage_report_routes.ts',
+  'repse_panorama_routes.ts',
   'contratos_servicios_especializados_routes.ts',
   'asignaciones_contrato_especializado_routes.ts',
   'documentos_contrato_especializado_routes.ts',
