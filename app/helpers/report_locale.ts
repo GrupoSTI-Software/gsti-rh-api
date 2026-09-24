@@ -36,3 +36,13 @@ export function formatReportCalendarDate(value: DateTime | Date | string | null 
       : DateTime.fromISO(value, { zone: 'utc' })
   return parsed.isValid ? parsed.toFormat(REPORT_DATE_FORMAT) : ''
 }
+
+/**
+ * Sello de generación de un reporte: `dd/MM/yyyy HH:mm (GMT-6)`, en la zona de
+ * la fecha recibida. La zona se escribe como desfase para que siga a la zona
+ * configurada y no a una etiqueta escrita a mano.
+ */
+export function formatReportGeneratedAt(value: DateTime): string {
+  const local = value.setLocale(REPORT_LOCALE)
+  return `${local.toFormat('dd/LL/yyyy HH:mm')} (${local.toFormat('ZZZZ')})`
+}

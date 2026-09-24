@@ -8,6 +8,8 @@ import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes
 import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
 import type Employee from '#models/employee'
 import type Person from '#models/person'
+import { getBusinessTimeZone } from '#utils/business_date'
+import { formatReportGeneratedAt } from '#helpers/report_locale'
 import { reportFullName, reportText } from '#helpers/report_text'
 
 // ---------------------------------------------------------------------------
@@ -27,7 +29,7 @@ const FONT_BOLD = REPORT_NEUTRAL_PDF_FONTS.bold
 const CONFIDENTIALITY_NOTE =
   'Documento confidencial — uso interno. Contiene datos personales protegidos por la Ley Federal de Protección de Datos Personales en Posesión de los Particulares.'
 
-const REPORT_TIMEZONE = 'America/Mexico_City'
+const REPORT_TIMEZONE = getBusinessTimeZone()
 
 // ---------------------------------------------------------------------------
 // Interfaces públicas
@@ -469,7 +471,7 @@ export default class TraumaticEventRegistryReportService {
       .fontSize(9.5)
       .fillColor(PDF_COLORS.textMuted)
       .text(
-        `Generado: ${generatedAt.toFormat('dd/LL/yyyy HH:mm')} (CDMX)`,
+        `Generado: ${formatReportGeneratedAt(generatedAt)}`,
         margin,
         doc.y,
         { width: pageW, align: 'left', lineBreak: false }
@@ -855,7 +857,7 @@ export default class TraumaticEventRegistryReportService {
       .fontSize(7.5)
       .fillColor(PDF_COLORS.textMuted)
       .text(
-        `Folio ${folio} · Generado ${generatedAt.toFormat('dd/LL/yyyy HH:mm')} (CDMX)`,
+        `Folio ${folio} · Generado ${formatReportGeneratedAt(generatedAt)}`,
         margin,
         bottomY + 8,
         { width: pageW / 2, align: 'left', lineBreak: false, height: 10 }

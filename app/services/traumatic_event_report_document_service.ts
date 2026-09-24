@@ -6,6 +6,8 @@ import TraumaticEventReportService from '#services/traumatic_event_report_servic
 import { REPORT_NEUTRAL_HEX, REPORT_NEUTRAL_PDF_FONTS } from '#constants/report_neutral_theme'
 import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
 import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
+import { getBusinessTimeZone } from '#utils/business_date'
+import { formatReportGeneratedAt } from '#helpers/report_locale'
 import { reportFullName, reportText } from '#helpers/report_text'
 
 /** Paleta neutral compartida por todos los descargables (sin marca). */
@@ -21,8 +23,8 @@ const FONT_BOLD = REPORT_NEUTRAL_PDF_FONTS.bold
 const CONFIDENTIALITY_NOTE =
   'Documento confidencial — uso interno. Contiene datos personales protegidos por la Ley Federal de Protección de Datos Personales en Posesión de los Particulares.'
 
-/** Zona horaria del proyecto (CDMX). */
-const REPORT_TIMEZONE = 'America/Mexico_City'
+/** Zona de negocio configurada (`APP_BUSINESS_TIMEZONE`, CDMX por omisión). */
+const REPORT_TIMEZONE = getBusinessTimeZone()
 
 /**
  * Campos que deben estar poblados para generar el escrito §6.5.
@@ -289,7 +291,7 @@ export default class TraumaticEventReportDocumentService {
       .fontSize(9)
       .fillColor(PDF_COLORS.textMuted)
       .text(
-        `Generado: ${generatedAt.toFormat('dd/LL/yyyy HH:mm')} (CDMX)   ·   Reporte #${report.traumaticEventReportId}`,
+        `Generado: ${formatReportGeneratedAt(generatedAt)}   ·   Reporte #${report.traumaticEventReportId}`,
         margin,
         doc.y,
         { width: pageW, align: 'left', lineBreak: false }
@@ -558,7 +560,7 @@ export default class TraumaticEventReportDocumentService {
       .fontSize(7.5)
       .fillColor(PDF_COLORS.textMuted)
       .text(
-        `Folio ${folio} · Generado ${generatedAt.toFormat('dd/LL/yyyy HH:mm')} (CDMX)`,
+        `Folio ${folio} · Generado ${formatReportGeneratedAt(generatedAt)}`,
         margin,
         bottomY + 8,
         { width: pageW / 2, align: 'left', lineBreak: false, height: 10 }

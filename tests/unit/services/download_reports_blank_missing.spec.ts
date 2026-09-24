@@ -2,7 +2,8 @@ import { test } from '@japa/runner'
 import ExcelJS from 'exceljs'
 import { DateTime } from 'luxon'
 import CalendarExportService from '#services/calendar_export_service'
-import ComplaintService, { humanizeCategorySlug } from '#services/complaint_service'
+import ComplaintService from '#services/complaint_service'
+import { humanizeCategorySlug } from '#services/complaint_category_service'
 import SupplieService from '#services/supplie_service'
 import {
   positionProfileImplementationDate,

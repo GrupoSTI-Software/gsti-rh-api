@@ -12,7 +12,7 @@ import ComplaintAttachmentService from '#services/complaint_attachment_service'
 import ComplaintStatusHistoryService from '#services/complaint_status_history_service'
 import ComplaintNotificationService from '#services/complaint_notification_service'
 import ComplaintIdentityRevealService from '#services/complaint_identity_reveal_service'
-import ComplaintCategoryService from '#services/complaint_category_service'
+import ComplaintCategoryService, { humanizeCategorySlug } from '#services/complaint_category_service'
 import { blankMissingTexts } from '#helpers/report_text'
 import RetentionGuardService from '#services/retention_guard_service'
 import { COMPLAINT_ERROR_CODES } from '#constants/complaint_error_codes'
@@ -809,10 +809,4 @@ export default class ComplaintService {
       'AUTH.COMPLAINT.FOLIO_GENERATION_FAILED'
     )
   }
-}
-
-/** `acoso-sexual` → `Acoso sexual`: texto legible de un slug sin traducción. */
-export function humanizeCategorySlug(slug: string): string {
-  const words = slug.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
-  return words.length === 0 ? '' : words.charAt(0).toUpperCase() + words.slice(1)
 }

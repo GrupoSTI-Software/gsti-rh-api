@@ -14,6 +14,8 @@ import {
 } from '../constants/employee_lactation_compliance_status.js'
 import { EmployeeLactationPeriodError } from '../exceptions/employee_lactation_period_error.js'
 import { reportFullName, reportText } from '#helpers/report_text'
+import { getBusinessTimeZone } from '#utils/business_date'
+import { formatReportGeneratedAt } from '#helpers/report_locale'
 
 /**
  * Colores del PDF. La estructura (títulos, tablas, bordes, pies) sale de la
@@ -145,12 +147,13 @@ export interface ComplianceReportPaginated {
 }
 
 /**
- * Zona horaria de referencia del proyecto (CDMX). Coincide con la usada por
- * `EmployeeLactationPeriodService` para evitar drift por timezone al calcular
- * `today` y al comparar contra `employee_lactation_period_end_date` que es
- * un `DATE` puro en BD.
+ * Zona de negocio configurada (`APP_BUSINESS_TIMEZONE`, CDMX por omisión) para
+ * calcular `today` y compararlo contra `employee_lactation_period_end_date`,
+ * que es un `DATE` puro en BD. `EmployeeLactationPeriodService` y
+ * `EmployeeLactationNotificationService` todavía fijan CDMX / UTC-6 a mano:
+ * coinciden solo mientras la zona de negocio sea la de omisión.
  */
-const REPORT_TIMEZONE = 'America/Mexico_City'
+const REPORT_TIMEZONE = getBusinessTimeZone()
 
 /**
  * Servicio del reporte de cumplimiento de periodos de lactancia.
@@ -741,7 +744,7 @@ export default class EmployeeLactationComplianceReportService {
       .fontSize(9.5)
       .fillColor(PDF_COLORS.textMuted)
       .text(
-        `Generado: ${generatedAt.toFormat('dd/LL/yyyy HH:mm')} (CDMX)`,
+        `Generado: ${formatReportGeneratedAt(generatedAt)}`,
         margin,
         doc.y,
         { width: pageW, align: 'left', lineBreak: false }
@@ -1194,7 +1197,7 @@ export default class EmployeeLactationComplianceReportService {
       .fontSize(7.5)
       .fillColor(PDF_COLORS.textMuted)
       .text(
-        `Folio ${folio} · Generado ${generatedAt.toFormat('dd/LL/yyyy HH:mm')} (CDMX)`,
+        `Folio ${folio} · Generado ${formatReportGeneratedAt(generatedAt)}`,
         margin,
         bottomY + 8,
         { width: pageW / 2, align: 'left', lineBreak: false, height: 10 }
