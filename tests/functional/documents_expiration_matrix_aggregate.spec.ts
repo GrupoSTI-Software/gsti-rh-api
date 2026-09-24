@@ -93,9 +93,8 @@ function getItemFile(client: ApiClient, actor: TenantActor, key: string) {
 
 const uniqueSpecStamp = () => `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
 
-/** Número de inventario único (la columna es UNIQUE y de 9 dígitos a lo más). */
-const uniqueSupplyFileNumber = () =>
-  Number(`${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-9))
+/** Folio único de la corrida (texto; único por empresa). */
+const uniqueSupplyFileNumber = () => `MATRIZ-${Date.now()}-${Math.floor(Math.random() * 1000)}`
 
 /** Empleado extra de la empresa, insertado por tabla como en `employee_fixture`. */
 interface ExtraEmployee {
@@ -295,7 +294,7 @@ test.group('Matriz de vencimientos agregada', (group) => {
     supplyTypeId = supplyType.supplyTypeId
     const supply = await Supplie.create({
       businessUnitId: actor.businessUnit.businessUnitId,
-      supplyFileNumber: Number(`${Date.now()}${Math.floor(Math.random() * 100)}`.slice(-9)),
+      supplyFileNumber: uniqueSupplyFileNumber(),
       supplyName: uniqueTestName('Activo matriz'),
       supplyTypeId: supplyType.supplyTypeId,
       supplyStatus: 'active',

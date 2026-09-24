@@ -77,7 +77,7 @@ interface SupplyRow extends EmployeeOwnerRow {
   employee_supply_id: number
   supply_type_id: number | null
   supply_name: string
-  supply_file_number: number | null
+  supply_file_number: string | null
   supply_type_name: string | null
   employee_supply_response_contract_file: string | null
   expires_at: string

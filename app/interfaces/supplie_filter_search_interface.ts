@@ -5,6 +5,6 @@ export interface SupplieFilterSearchInterface {
   supplyTypeId?: number
   supplyName?: string
   supplyStatus?: 'active' | 'inactive' | 'lost' | 'damaged'
-  supplyFileNumber?: number
+  supplyFileNumber?: string
   includeDeleted?: boolean
 }

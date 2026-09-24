@@ -1,9 +1,41 @@
+import db from '@adonisjs/lucid/services/db'
 import Supplie from '#models/supplie'
+import SupplyType from '#models/supply_type'
+import SupplyValueHistory from '#models/supply_value_history'
 import EmployeeSupplie from '#models/employee_supplie'
 import ExcelJS from 'exceljs'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 import { DateTime } from 'luxon'
 import { SupplieFilterSearchInterface } from '../interfaces/supplie_filter_search_interface.js'
+import {
+  ACQUISITION_VALUE_HISTORY_NOTE,
+  type AssetDeactivationStatus,
+  type AssetStatus,
+} from '#modules/assets/assets.constants'
+import {
+  assertAssetWithoutActiveAssignment,
+  assertFileNumberAvailable,
+  closeActiveAssignments,
+} from '#modules/assets/assets.rules'
+
+interface SupplyCreateInput {
+  supplyFileNumber: string
+  supplyName: string
+  supplySerialNumber?: string | null
+  supplyDescription?: string
+  supplyTypeId: number
+  supplyStatus?: AssetStatus
+  supplyAcquisitionDate?: string | null
+  supplyAcquisitionValue?: number | null
+}
+
+type SupplyUpdateInput = Partial<SupplyCreateInput>
+
+interface SupplyDeactivationInput {
+  supplyStatus?: AssetDeactivationStatus
+  supplyDeactivationReason: string
+  supplyDeactivationDate?: string
+}
 
 export default class SupplieService {
   /**
@@ -26,7 +58,8 @@ export default class SupplieService {
         builder
           .whereILike('supplyName', `%${filters.search}%`)
           .orWhereILike('supplyDescription', `%${filters.search}%`)
-          .orWhere('supplyFileNumber', filters.search as unknown as number)
+          .orWhereILike('supplyFileNumber', `%${filters.search}%`)
+          .orWhereILike('supplySerialNumber', `%${filters.search}%`)
       })
     }
 
@@ -57,101 +90,119 @@ export default class SupplieService {
   }
 
   /**
-   * Create new supply
+   * Alta de un activo. El folio es único por empresa (la del tipo, que es la
+   * que el modelo le asigna). Con valor de adquisición, el historial nace con
+   * su primer registro ("Valor de adquisición"), en la misma transacción.
+   *
+   * @throws AssetError 409 `folio-de-activo-duplicado`.
    */
-  static async create(data: {
-    supplyFileNumber: number
-    supplyName: string
-    supplyDescription?: string
-    supplyTypeId: number
-    supplyStatus?: 'active' | 'inactive' | 'lost' | 'damaged'
-    supplyAcquisitionDate?: string | null
-    supplyAcquisitionValue?: number | null
-  }) {
-    // Check if file number already exists
-    const existingSupply = await Supplie.query()
-      .where('supplyFileNumber', data.supplyFileNumber)
-      .first()
+  static async create(data: SupplyCreateInput) {
+    const supplyType = await SupplyType.findOrFail(data.supplyTypeId)
+    await assertFileNumberAvailable(supplyType.businessUnitId, data.supplyFileNumber)
 
-    if (existingSupply) {
-      throw new Error('Supply with this file number already exists')
-    }
+    return db.transaction(async (trx) => {
+      const supply = new Supplie()
+      supply.useTransaction(trx)
+      supply.businessUnitId = supplyType.businessUnitId
+      supply.merge({
+        supplyFileNumber: data.supplyFileNumber,
+        supplyName: data.supplyName,
+        supplySerialNumber: data.supplySerialNumber ?? null,
+        supplyDescription: data.supplyDescription ?? null,
+        supplyTypeId: data.supplyTypeId,
+        supplyStatus: data.supplyStatus ?? 'active',
+        supplyAcquisitionDate: data.supplyAcquisitionDate
+          ? DateTime.fromISO(data.supplyAcquisitionDate)
+          : null,
+        supplyAcquisitionValue: data.supplyAcquisitionValue ?? null,
+      })
+      await supply.save()
 
-    const createData: any = { ...data }
-
-    if (data.supplyAcquisitionDate) {
-      createData.supplyAcquisitionDate = DateTime.fromISO(data.supplyAcquisitionDate)
-    }
-
-    return await Supplie.create(createData)
+      if (data.supplyAcquisitionValue !== null && data.supplyAcquisitionValue !== undefined) {
+        // La empresa va explícita: el hook la resolvería consultando el activo
+        // fuera de la transacción, donde todavía no existe.
+        await SupplyValueHistory.create(
+          {
+            businessUnitId: supply.businessUnitId,
+            supplyId: supply.supplyId,
+            supplyValueHistoryCost: data.supplyAcquisitionValue,
+            supplyValueHistoryCurrentValue: data.supplyAcquisitionValue,
+            supplyValueHistoryNotes: ACQUISITION_VALUE_HISTORY_NOTE,
+          },
+          { client: trx }
+        )
+      }
+      return supply
+    })
   }
 
   /**
-   * Update supply
+   * Edición de un activo. Volver a `active` (reactivar) limpia el motivo y la
+   * fecha de baja.
+   *
+   * @throws AssetError 409 `folio-de-activo-duplicado`.
    */
-  static async update(id: number, data: {
-    supplyFileNumber?: number
-    supplyName?: string
-    supplyDescription?: string
-    supplyTypeId?: number
-    supplyStatus?: 'active' | 'inactive' | 'lost' | 'damaged'
-    supplyAcquisitionDate?: string | null
-    supplyAcquisitionValue?: number | null
-  }) {
+  static async update(id: number, data: SupplyUpdateInput) {
     const supply = await Supplie.findOrFail(id)
 
-    // Check if file number already exists (excluding current record)
-    if (data.supplyFileNumber) {
-      const existingSupply = await Supplie.query()
-        .where('supplyFileNumber', data.supplyFileNumber)
-        .where('supplyId', '!=', id)
-        .first()
-
-      if (existingSupply) {
-        throw new Error('Supply with this file number already exists')
-      }
+    if (data.supplyFileNumber !== undefined && data.supplyFileNumber !== supply.supplyFileNumber) {
+      await assertFileNumberAvailable(supply.businessUnitId, data.supplyFileNumber, supply.supplyId)
     }
 
-    const updateData: any = { ...data }
-
-    if (data.supplyAcquisitionDate !== undefined) {
-      updateData.supplyAcquisitionDate = data.supplyAcquisitionDate
-        ? DateTime.fromISO(data.supplyAcquisitionDate)
+    const { supplyAcquisitionDate, ...rest } = data
+    supply.merge(rest)
+    if (supplyAcquisitionDate !== undefined) {
+      supply.supplyAcquisitionDate = supplyAcquisitionDate
+        ? DateTime.fromISO(supplyAcquisitionDate)
         : null
     }
-
-    supply.merge(updateData)
+    if (data.supplyStatus === 'active') {
+      supply.supplyDeactivationReason = null
+      supply.supplyDeactivationDate = null
+    }
     await supply.save()
 
     return supply
   }
 
   /**
-   * Delete supply (soft delete)
+   * Borrado lógico. Un activo en resguardo no se borra.
+   *
+   * @throws AssetError 409 `activo-con-resguardo-activo`.
    */
   static async delete(id: number) {
     const supply = await Supplie.findOrFail(id)
+    await assertAssetWithoutActiveAssignment(supply.supplyId)
     await supply.delete()
     return supply
   }
 
   /**
-   * Deactivate supply with reason
+   * Baja del activo: pasa al estado destino (`inactive` por omisión, `lost` o
+   * `damaged`) con motivo y fecha, y cierra su resguardo activo (lo pasa a
+   * `retired` con el mismo motivo y fecha), todo en una transacción.
    */
-  static async deactivate(id: number, data: {
-    supplyDeactivationReason: string
-    supplyDeactivationDate?: string
-  }) {
+  static async deactivate(id: number, data: SupplyDeactivationInput) {
     const supply = await Supplie.findOrFail(id)
-
-    supply.supplyStatus = 'inactive'
-    supply.supplyDeactivationReason = data.supplyDeactivationReason
-    supply.supplyDeactivationDate = data.supplyDeactivationDate
+    const date = data.supplyDeactivationDate
       ? DateTime.fromISO(data.supplyDeactivationDate)
       : DateTime.now()
 
-    await supply.save()
-    return supply
+    return db.transaction(async (trx) => {
+      supply.useTransaction(trx)
+      supply.supplyStatus = data.supplyStatus ?? 'inactive'
+      supply.supplyDeactivationReason = data.supplyDeactivationReason
+      supply.supplyDeactivationDate = date
+      await supply.save()
+
+      const closedAssignments = await closeActiveAssignments(
+        supply.supplyId,
+        data.supplyDeactivationReason,
+        date,
+        trx
+      )
+      return { supply, closedAssignments }
+    })
   }
 
   /**
