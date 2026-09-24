@@ -76,7 +76,7 @@ export default class SupplyTypeService {
     const base = slugifyFileNamePart(name) || 'tipo-de-activo'
     const taken = await SupplyType.query()
       .where((query) => {
-        query.where('supplyTypeSlug', base).orWhereLike('supplyTypeSlug', `${base}-%`)
+        query.where('supplyTypeSlug', base).orWhere('supplyTypeSlug', 'like', `${base}-%`)
       })
       .select('supplyTypeSlug')
     const used = new Set(taken.map((row) => row.supplyTypeSlug))
