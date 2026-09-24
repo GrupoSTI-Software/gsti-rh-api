@@ -504,7 +504,7 @@ export default class SuppliesController {
         )
         response.header(
           'Content-Disposition',
-          contentDisposition(buildDownloadFileName(['reporte-insumos', formatDownloadFileDate()], 'xlsx'))
+          contentDisposition(buildDownloadFileName(['reporte-activos', formatDownloadFileDate()], 'xlsx'))
         )
         response.status(201)
         response.send(result.buffer)

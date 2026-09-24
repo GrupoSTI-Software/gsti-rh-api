@@ -6,6 +6,59 @@ import EmployeeSupplie from '#models/employee_supplie'
 import ExcelJS from 'exceljs'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 import { DateTime } from 'luxon'
+
+/**
+ * Textos del reporte de activos. El reporte sale siempre en español, sin
+ * importar el idioma de la petición.
+ */
+const REPORT_TEXT = {
+  sheet: 'Activos',
+  title: 'Reporte de activos y resguardos',
+  generatedOn: 'Generado el',
+  notAssigned: 'Sin asignar',
+  noData: '—',
+} as const
+
+const REPORT_HEADERS = [
+  'Folio',
+  'Activo',
+  'Tipo',
+  'Estado del activo',
+  'No. de colaborador',
+  'Colaborador',
+  'Departamento',
+  'Puesto',
+  'Estado del resguardo',
+  'Fecha de asignación',
+  'Vencimiento',
+  'Fecha de devolución',
+  'Motivo de devolución',
+] as const
+
+const ASSET_STATUS_LABEL: Record<string, string> = {
+  active: 'En operación',
+  inactive: 'Baja',
+  lost: 'Extraviado',
+  damaged: 'Dañado',
+}
+
+const ASSIGNMENT_STATUS_LABEL: Record<string, string> = {
+  active: 'Activo',
+  retired: 'Devuelto',
+  shipping: 'En envío',
+}
+
+const REPORT_DATE_FORMAT = 'dd/MM/yyyy'
+
+/** Zona para el respaldo de fecha de alta (TIMESTAMP en UTC). */
+const REPORT_TIME_ZONE = 'America/Mexico_City'
+
+/**
+ * Fecha de calendario de una columna DATE: la conexión está en UTC, así que
+ * se lee en UTC para no correrla un día al pasarla a la zona del sitio.
+ */
+const calendarDate = (value: DateTime | null | undefined): string =>
+  value ? value.toUTC().toFormat(REPORT_DATE_FORMAT) : ''
 import { SupplieFilterSearchInterface } from '../interfaces/supplie_filter_search_interface.js'
 import {
   ACQUISITION_VALUE_HISTORY_NOTE,
@@ -247,18 +300,18 @@ export default class SupplieService {
       // Formato neutral (report_neutral_theme): sin logo ni colores de la
       // empresa, así que el reporte ya no consulta la configuración del sistema.
       const workbook = new ExcelJS.Workbook()
-      const worksheet = workbook.addWorksheet('Supplies Report')
+      const worksheet = workbook.addWorksheet(REPORT_TEXT.sheet)
 
       // Fila 1: título en negro, sin relleno
-      const titleRow = worksheet.addRow(['Supplies and Assignments Report'])
+      const titleRow = worksheet.addRow([REPORT_TEXT.title])
       titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       titleRow.height = 42
       titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
       worksheet.mergeCells('A1:M1')
 
       // Fila 2: fecha de generación en texto secundario
-      const currentDate = DateTime.now().toFormat('DDDD')
-      const periodRow = worksheet.addRow([`Generated on: ${currentDate}`])
+      const currentDate = DateTime.now().setLocale('es').toFormat("d 'de' LLLL 'de' yyyy")
+      const periodRow = worksheet.addRow([`${REPORT_TEXT.generatedOn} ${currentDate}`])
       periodRow.font = { size: 15, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       periodRow.height = 30
@@ -295,23 +348,7 @@ export default class SupplieService {
    * Add header row
    */
 private static addHeadRow(worksheet: ExcelJS.Worksheet) {
-  const headers = [
-    'File Number',
-    'Supply Name',
-    'Supply Type',
-    'Supply Status',
-    'Employee ID',
-    'Employee Name',
-    'Department',
-    'Position',
-    'Assignment Status',
-    'Assignment Date',
-    'Expiration Date',
-    'Retirement Date',
-    'Retirement Reason',
-  ]
-
-  const headerRow = worksheet.addRow(headers)
+  const headerRow = worksheet.addRow([...REPORT_HEADERS])
 
   headerRow.eachCell((cell) => {
     cell.fill = {
@@ -397,46 +434,46 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
           const person = employee?.person
 
           const employeeName = person
-            ? `${person.personFirstname || ''} ${person.personLastname || ''} ${person.personSecondLastname || ''}`.trim()
-            : 'N/A'
+            ? `${person.personFirstname || ''} ${person.personLastname || ''} ${person.personSecondLastname || ''}`
+                .replace(/\s+/g, ' ')
+                .trim()
+            : REPORT_TEXT.noData
 
           // Get department name
-          let departmentName = 'N/A'
+          let departmentName: string = REPORT_TEXT.noData
           if (employee?.department) {
-            departmentName = employee.department.departmentAlias || employee.department.departmentName || 'N/A'
+            departmentName =
+              employee.department.departmentAlias ||
+              employee.department.departmentName ||
+              REPORT_TEXT.noData
           }
 
           // Get position name
-          let positionName = 'N/A'
+          let positionName: string = REPORT_TEXT.noData
           if (employee?.position) {
-            positionName = employee.position.positionAlias || employee.position.positionName || 'N/A'
+            positionName =
+              employee.position.positionAlias || employee.position.positionName || REPORT_TEXT.noData
           }
 
           worksheet.addRow([
             supply.supplyFileNumber,
             supply.supplyName,
-            supply.supplyType?.supplyTypeName || 'N/A',
-            supply.supplyStatus,
-            employee?.employeeCode || 'N/A',
+            supply.supplyType?.supplyTypeName || REPORT_TEXT.noData,
+            ASSET_STATUS_LABEL[supply.supplyStatus] ?? supply.supplyStatus,
+            employee?.employeeCode || REPORT_TEXT.noData,
             employeeName,
             departmentName,
             positionName,
-            assignment.employeeSupplyStatus,
-            assignment.employeeSupplyCreatedAt
-              ? DateTime.fromJSDate(assignment.employeeSupplyCreatedAt.toJSDate())
-                  .setZone('UTC-6')
-                  .toFormat('MMM d, yyyy, h:mm:ss a')
-              : '',
-            assignment.employeeSupplyExpirationDate
-              ? DateTime.fromJSDate(assignment.employeeSupplyExpirationDate.toJSDate())
-                  .setZone('UTC-6')
-                  .toFormat('MMM d, yyyy, h:mm:ss a')
-              : '',
-            assignment.employeeSupplyRetirementDate
-              ? DateTime.fromJSDate(assignment.employeeSupplyRetirementDate.toJSDate())
-                  .setZone('UTC-6')
-                  .toFormat('MMM d, yyyy, h:mm:ss a')
-              : '',
+            ASSIGNMENT_STATUS_LABEL[assignment.employeeSupplyStatus] ??
+              assignment.employeeSupplyStatus,
+            // Fecha de asignación capturada; sin ella, la de alta del registro.
+            assignment.employeeSupplyAssignamentDate
+              ? calendarDate(assignment.employeeSupplyAssignamentDate)
+              : (assignment.employeeSupplyCreatedAt
+                  ?.setZone(REPORT_TIME_ZONE)
+                  .toFormat(REPORT_DATE_FORMAT) ?? ''),
+            calendarDate(assignment.employeeSupplyExpirationDate),
+            calendarDate(assignment.employeeSupplyRetirementDate),
             assignment.employeeSupplyRetirementReason || '',
           ])
 
@@ -450,10 +487,10 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
         worksheet.addRow([
           supply.supplyFileNumber,
           supply.supplyName,
-          supply.supplyType?.supplyTypeName || 'N/A',
-          supply.supplyStatus,
+          supply.supplyType?.supplyTypeName || REPORT_TEXT.noData,
+          ASSET_STATUS_LABEL[supply.supplyStatus] ?? supply.supplyStatus,
           '',
-          'Not Assigned',
+          REPORT_TEXT.notAssigned,
           '',
           '',
           '',

@@ -21,6 +21,17 @@ test.group('Reporte Excel de insumos', () => {
     assert.equal(view.topLeftCell, 'A4')
   })
 
+  test('el reporte sale en español', async ({ assert }) => {
+    const result = await SupplieService.getExcelReport()
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(result.buffer as ArrayBuffer)
+    const sheet = workbook.worksheets[0]
+    assert.equal(sheet.name, 'Activos')
+    assert.equal(sheet.getCell('A1').value, 'Reporte de activos y resguardos')
+    assert.match(String(sheet.getCell('A2').value), /^Generado el \d{1,2} de [a-z]+ de \d{4}$/)
+    assert.deepEqual((sheet.getRow(3).values as unknown[]).slice(1, 4), ['Folio', 'Activo', 'Tipo'])
+  })
+
   test('los colores de celda son ARGB de 8 dígitos', async ({ assert }) => {
     const result = await SupplieService.getExcelReport()
     const workbook = new ExcelJS.Workbook()
