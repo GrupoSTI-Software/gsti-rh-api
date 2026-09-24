@@ -21,6 +21,9 @@ router
       '/tenants/:publicId/trial/usage',
       '#controllers/platform_trial_usage_controller.show'
     )
+    // USRH1789079078173: listado de TODAS las pruebas vivas, con hitos y frecuencia.
+    // Fuera de /tenants/:publicId — no es de una empresa, es del universo completo.
+    router.get('/trials/live', '#controllers/platform_live_trials_controller.index')
   })
   .prefix('/api/platform/metrics')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])

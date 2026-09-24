@@ -125,3 +125,19 @@ export const TRIAL_USAGE_METRIC_ERROR_TEXTS: PlatformMetricErrorTexts = {
   unhandledTitle: 'Error inesperado al obtener el uso de la prueba',
   unhandledKey: 'error-inesperado-al-obtener-el-uso-de-la-prueba',
 }
+
+/**
+ * Textos del listado de pruebas vivas (USRH1789079078173).
+ *
+ * El fallo del universo o de los hitos en lote (RN-9: rompe TODA la lista)
+ * llega aquí sin controlar y sale como `PLT.MET.SYS_UNHANDLED` (500) con
+ * estos textos. El fallo de la frecuencia de UNA sola empresa **nunca**
+ * llega a este helper — esa fila se degrada a `no-disponible` (RN-8) dentro
+ * del propio servicio, sin lanzar.
+ */
+export const LIVE_TRIALS_METRIC_ERROR_TEXTS: PlatformMetricErrorTexts = {
+  failureTitle: 'No fue posible obtener el listado de pruebas vivas',
+  failureKey: 'no-fue-posible-obtener-el-listado-de-pruebas-vivas',
+  unhandledTitle: 'Error inesperado al obtener el listado de pruebas vivas',
+  unhandledKey: 'error-inesperado-al-obtener-el-listado-de-pruebas-vivas',
+}
