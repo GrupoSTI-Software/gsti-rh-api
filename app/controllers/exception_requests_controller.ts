@@ -959,9 +959,19 @@ export default class ExceptionRequestsController {
       EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateExceptionRequest
     )
 
-    const empleadoDeLaSesion = puedeGestionarTerceros ? null : await resolveSessionEmployee(user)
+    // Tener la facultad no convierte cada alta en una a nombre de un tercero:
+    // quien la tiene y también es colaborador pide sus propios permisos desde
+    // la app, que nunca manda `employeeId`. La ausencia del dato es lo que
+    // marca el autoservicio, y en esa rama valen las mismas reglas que para
+    // cualquier colaborador.
+    const esAutoservicio = !puedeGestionarTerceros || data.employeeId === undefined
 
-    if (!puedeGestionarTerceros && !empleadoDeLaSesion) {
+    const empleadoDeLaSesion = esAutoservicio ? await resolveSessionEmployee(user) : null
+    const employeeId = esAutoservicio ? empleadoDeLaSesion?.employeeId : data.employeeId
+
+    // Fuera del autoservicio el dato viene en el cuerpo por definición, así que
+    // aquí solo cae la sesión sin expediente.
+    if (employeeId === undefined) {
       return response.status(403).json({
         type: 'error',
         title: 'Forbidden',
@@ -969,20 +979,9 @@ export default class ExceptionRequestsController {
       })
     }
 
-    const employeeId = empleadoDeLaSesion?.employeeId ?? data.employeeId
-
-    // Quien registra a nombre de un tercero tiene que decir de quién se trata.
-    // En el autoservicio el dato no viaja porque el servidor ya lo sabe, y la
-    // guarda anterior ya garantizó que la sesión tiene expediente.
-    if (!employeeId) {
-      return response.status(400).json({
-        error: 'employeeId is required when registering on behalf of an employee.',
-      })
-    }
-
-    const exceptionRequestStatus = puedeGestionarTerceros
-      ? (data.exceptionRequestStatus ?? SELF_SERVICE_INITIAL_STATUS)
-      : SELF_SERVICE_INITIAL_STATUS
+    const exceptionRequestStatus = esAutoservicio
+      ? SELF_SERVICE_INITIAL_STATUS
+      : (data.exceptionRequestStatus ?? SELF_SERVICE_INITIAL_STATUS)
 
     const employee = await Employee.query()
       .where('employeeId', employeeId)
@@ -1015,7 +1014,7 @@ export default class ExceptionRequestsController {
     // app: un tipo reservado para captura interna no se solicita desde el
     // teléfono aunque su id se conozca.
     if (
-      !puedeGestionarTerceros &&
+      esAutoservicio &&
       (!exceptionType.exceptionTypeCanEmployeeRequests || exceptionType.exceptionTypeActive !== 1)
     ) {
       return response.status(403).json({
@@ -1038,7 +1037,7 @@ export default class ExceptionRequestsController {
               userId: user.userId,
       // El rol se lee de la sesión, no del cuerpo: es la marca que alimenta los
       // contadores de no leídas del backoffice y nadie se la asigna a sí mismo.
-      createdByHr: puedeGestionarTerceros ? await this.isRhManager(user.roleId) : false,
+      createdByHr: esAutoservicio ? false : await this.isRhManager(user.roleId),
     })
 
     let comprobante: Record<string, unknown> | null = null

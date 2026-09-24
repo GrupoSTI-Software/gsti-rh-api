@@ -53,6 +53,7 @@ import {
 import type { StoreAssistPayload } from '#modules/assist-ingestion/validators/store_assist.validator'
 import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
 import { employeeSynchronizeAssistsValidator } from '#validators/assist_employee_synchronize'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -806,7 +807,7 @@ export default class AssistsController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -985,7 +986,7 @@ export default class AssistsController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -2159,7 +2160,7 @@ export default class AssistsController {
 
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }

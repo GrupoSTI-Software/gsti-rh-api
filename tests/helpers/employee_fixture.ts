@@ -63,6 +63,7 @@ export async function createEmployeeFixture(
     employee_second_last_name: prefix,
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     department_id: department.departmentId,
     position_id: position.positionId,
     person_id: person.personId,

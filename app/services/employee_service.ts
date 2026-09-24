@@ -23,6 +23,7 @@ import { applyVisibleDepartmentsScope } from '#helpers/apply_visible_departments
 import type {
   EmployeeImportResult,
   EmployeeImportRowError,
+  EmployeeImportCompanyMismatchRow,
 } from '../interfaces/employee_import_result_interface.js'
 import DepartmentService from './department_service.js'
 import PersonService from './person_service.js'
@@ -31,6 +32,12 @@ import VacationSetting from '#models/vacation_setting'
 import FlightAttendant from '#models/flight_attendant'
 import Customer from '#models/customer'
 import env from '#start/env'
+import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
+import {
+  importRowErrorMessage,
+  personIdentityDuplicatedIndexFromError,
+} from '#helpers/person_identity_api_error'
+import { shouldAbortImportOnRowError } from '#helpers/employee_import_api_error'
 import { blindIndex } from '#utils/blind_index'
 import { TenantContext } from '#utils/tenant_context'
 import BusinessUnit from '#models/business_unit'
@@ -675,15 +682,6 @@ export default class EmployeeService {
     const missing: string[] = []
     if (!employeeData.employeeNumber || employeeData.employeeNumber.toString().trim() === '') {
       missing.push('Identificador de nómina')
-    }
-    if (!employeeData.businessUnit || employeeData.businessUnit.toString().trim() === '') {
-      missing.push('Unidad de negocio de trabajo')
-    }
-    if (
-      !employeeData.payrollBusinessUnit ||
-      employeeData.payrollBusinessUnit.toString().trim() === ''
-    ) {
-      missing.push('Unidad de negocio de nómina')
     }
     if (!employeeData.firstName || employeeData.firstName.toString().trim() === '') {
       missing.push('Nombre del empleado')
@@ -2875,6 +2873,18 @@ export default class EmployeeService {
       let newEmployeesCount = 0
       const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number | null; payrollBusinessUnitId: number | null; isUpdate: boolean }> = []
 
+      // USRH1789747321650 regla 1: el archivo es de una sola empresa, la activa.
+      // Misma fuente que el cupo (`resolveImportScopeBusinessUnitId`): el supuesto
+      // de la historia es que siempre hay una sola activa; sin ella no hay contra
+      // qué comparar y se propaga el mismo error que el cupo lanzaría.
+      const activeBusinessUnitId = this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)
+      // El nombre de la activa sale de la lista ya filtrada por alcance (un
+      // elemento): sin consulta extra y sin consultar nunca el padrón completo
+      // de empresas.
+      const activeBusinessUnit =
+        businessUnits.find((unit) => unit.businessUnitId === activeBusinessUnitId) ?? null
+      const foreignRows: EmployeeImportCompanyMismatchRow[] = []
+
       for (const { row, rowNumber } of rows) {
         totalRows++
 
@@ -2919,14 +2929,45 @@ export default class EmployeeService {
             continue
           }
 
-          // Mapear unidad de negocio de trabajo por nombre
+          // La comparación es sobre la celda tecleada contra el nombre de la
+          // empresa activa, normalizando ambos igual (sin espacios sobrantes y
+          // sin distinguir mayúsculas). Es igualdad de texto, no parecido: un
+          // nombre a pocas letras del de la activa es otra empresa, y dejarlo
+          // pasar por similitud cargaría el archivo ajeno en silencio.
+          // `mapBusinessUnit` queda solo para elegir el id a asignar más
+          // abajo; comparar ids nunca detecta nada porque el valor alternativo
+          // los iguala. Celda vacía significa la activa y no ofende. Con la
+          // activa desconocida (inactiva o dada de baja) no se evalúa nada: el
+          // cierre seguro de hoy queda intacto.
+          if (activeBusinessUnit !== null) {
+            const activeBusinessUnitName = this.normalizeBusinessUnitCell(
+              activeBusinessUnit.businessUnitName
+            )
+            const declaredCells: Array<{ value: unknown; column: 'businessUnit' | 'payrollBusinessUnit' }> = [
+              { value: employeeData.businessUnit, column: 'businessUnit' },
+              { value: employeeData.payrollBusinessUnit, column: 'payrollBusinessUnit' },
+            ]
+            for (const { value, column } of declaredCells) {
+              const typed = String(value ?? '').trim()
+              if (
+                this.hasImportCellValue(value) &&
+                this.normalizeBusinessUnitCell(typed) !== activeBusinessUnitName
+              ) {
+                foreignRows.push({
+                  row: rowNumber,
+                  businessUnit: column === 'businessUnit' ? typed : '',
+                  payrollBusinessUnit: column === 'payrollBusinessUnit' ? typed : '',
+                })
+              }
+            }
+          }
+
           let businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, businessUnits)
           // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
           if (businessUnitId === null && businessUnits.length > 0) {
             businessUnitId = businessUnits[0].businessUnitId
           }
 
-          // Mapear unidad de negocio de nómina por nombre
           let payrollBusinessUnitId = this.mapBusinessUnit(employeeData.payrollBusinessUnit, businessUnits)
           // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
           if (payrollBusinessUnitId === null && businessUnits.length > 0) {
@@ -2965,8 +3006,30 @@ export default class EmployeeService {
 
         } catch (error: any) {
           skipped++
-          rowErrors.push({ row: rowNumber, message: error.message })
+          rowErrors.push({
+            row: rowNumber,
+            message: this.resolveImportRowErrorMessage(error, rowNumber, activeBusinessUnitId),
+          })
         }
+      }
+
+      // Todo-o-nada en el mismo punto donde se valida el cupo, antes de
+      // escribir la primera fila. El aviso al log del servidor es parte del
+      // rechazo: no se lanza sin dejar constancia. Nunca lleva nombres del
+      // archivo ni el texto del error (entrada no confiable, con datos
+      // personales pegados a veces); solo números de fila y conteos.
+      if (foreignRows.length > 0) {
+        const offendingRowNumbers = [...new Set(foreignRows.map((item) => item.row))]
+        logger.warn(
+          {
+            businessUnitId: activeBusinessUnitId,
+            rows: offendingRowNumbers,
+            rowCount: offendingRowNumbers.length,
+            totalRows,
+          },
+          'Carga masiva rechazada: el archivo declara empresas distintas de la activa'
+        )
+        throw this.createCompanyMismatchValidationError(foreignRows, activeBusinessUnit?.businessUnitName ?? '')
       }
 
       await this.assertImportWithinQuota(allowedBusinessUnitIds, newEmployeesCount)
@@ -2990,52 +3053,12 @@ export default class EmployeeService {
 
           // Crear nuevo empleado: verificar CURP duplicado antes de crear
           if (this.hasImportCellValue(employeeData.curp)) {
-            const curpExists = await this.personWithCurpExists(employeeData.curp)
+            const curpExists = await this.personWithCurpExists(employeeData.curp, businessUnitId)
             if (curpExists) {
               skipped++
               rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })
               continue
             }
-
-            // Crear nuevo empleado: verificar CURP duplicado antes de crear
-          //   if (this.hasImportCellValue(employeeData.curp)) {
-          //     const curpExists = await this.personWithCurpExists(employeeData.curp)
-          //     if (curpExists) {
-          //       skipped++
-          //       rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })
-          //       continue
-          //     }
-          //   }
-
-          //   let employeeCode = employeeData.employeeNumber
-          //   if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
-          //     employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
-          //   }
-          //   existingEmployeeCodes.push(employeeCode)
-
-          //   const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
-          //   const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
-
-          //   const person = await this.createPerson(employeeData)
-          //   const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
-          //   if (employeeData.employeeWorkScheduleHybridAttempt) {
-          //     // El empleado nuevo queda con Onsite (default de `createEmployee`).
-          //     // Se avisa a RH para que ajuste la modalidad desde el sistema.
-          //     warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'create'))
-          //   }
-          //   await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
-          //   await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
-
-          //   createdEmployees.push(newEmployee)
-          //   created++
-          //   processed++
-          // } catch (error: any) {
-          //   // Una denegación por dato sensible no es un error de fila: aborta
-          //   // toda la importación con un 403 (Important 2, revisión final de
-          //   // sensitive-write-by-category). No se registra como fila fallida.
-          //   if (isSensitiveDataWriteError(error)) throw error
-          //   skipped++
-          //   rowErrors.push({ row: rowNumber, message: error.message })
           }
 
           let employeeCode = employeeData.employeeNumber
@@ -3047,7 +3070,7 @@ export default class EmployeeService {
           const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
           const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
 
-          const person = await this.createPerson(employeeData)
+          const person = await this.createPerson(employeeData, businessUnitId!)
           const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
           if (employeeData.employeeWorkScheduleHybridAttempt) {
             // El empleado nuevo queda con Onsite (default de `createEmployee`).
@@ -3061,8 +3084,19 @@ export default class EmployeeService {
           created++
           processed++
         } catch (error: any) {
+          // USRH1789747321650 regla 5 (restaura la intención del bloque
+          // comentado de la revisión sensitive-write-by-category): el fallo al
+          // guardar un dato protegido detiene la carga y se reporta vía 403
+          // del controlador. No es una fila fallida más ni desaparece del
+          // reporte. El `catch` externo ya re-lanza sensibles (`:3126-3128`).
+          // Esta guarda hoy es inalcanzable: la importación corre en `runUnguarded` y el permiso
+          // sensible se exige por cabeceras antes de las pasadas; se conserva como defensa futura.
+          if (shouldAbortImportOnRowError(error)) throw error
           skipped++
-          rowErrors.push({ row: rowNumber, message: error.message })
+          rowErrors.push({
+            row: rowNumber,
+            message: this.resolveImportRowErrorMessage(error, rowNumber, businessUnitId),
+          })
         }
       }
 
@@ -3105,6 +3139,9 @@ export default class EmployeeService {
       // propagan tal cual — ya traen `statusCode`/mensaje listos para el
       // controlador, no son fallos internos que deban enmascararse.
       if (error.isHeaderValidationError || error.isRowLimitError) {
+        throw error
+      }
+      if (error.isCompanyMismatchError) {
         throw error
       }
       if (error instanceof EmployeeQuotaError) {
@@ -3232,16 +3269,18 @@ export default class EmployeeService {
   }
 
   /**
-   * Verificar si ya existe una persona con el CURP dado (para evitar duplicados al crear empleados).
-   * Compara por huella HMAC-SHA256 (blind-index) porque person_curp está cifrado en reposo.
+   * Verificar si ya existe una persona viva de la MISMA empresa con la CURP dada
+   * (USRH1789698261610, regla 1). Compara por huella HMAC-SHA256 (blind-index)
+   * porque person_curp está cifrado en reposo. Sin empresa no hay veredicto
+   * (regla 10): la fila ya se rechazó antes por falta de unidad.
    */
-  private async personWithCurpExists(curp: string): Promise<boolean> {
+  private async personWithCurpExists(
+    curp: string,
+    businessUnitId: number | null | undefined
+  ): Promise<boolean> {
     if (!curp || typeof curp !== 'string' || curp.trim() === '') return false
-    const found = await Person.query()
-      .whereNull('person_deleted_at')
-      .where('person_curp_hash', blindIndex(curp))
-      .first()
-    return !!found
+    if (!businessUnitId) return false
+    return livePersonWithIdentityExists('curp', blindIndex(curp), businessUnitId)
   }
 
   /**
@@ -3268,6 +3307,86 @@ export default class EmployeeService {
       ; (error as any).isRowLimitError = true
       ; (error as any).statusCode = 400
     return error
+  }
+
+  /**
+   * Error redactado por el propio importador para una fila: su mensaje está
+   * escrito para quien subió el archivo y puede viajar tal cual. La bandera
+   * es lo que lo identifica (mismo patrón que `isRowLimitError` y
+   * `isHeaderValidationError`); nunca se reconoce por el texto.
+   */
+  private createImportRowMessageError(message: string): Error {
+    const error = new Error(message)
+      ; (error as any).isImportRowMessageError = true
+    return error
+  }
+
+  /**
+   * Mensaje que ve quien subió el archivo cuando una fila falla.
+   *
+   * El criterio es de procedencia, no de tipo de excepción: viaja tal cual lo
+   * que el importador redacta (lo marcado con `isImportRowMessageError` y la
+   * familia de identidad duplicada que se traduce a negocio); cualquier otra
+   * excepción sale con un texto genérico y su traza queda en el log del
+   * servidor. Así quedan cubiertos por omisión índices, controladores de base
+   * de datos y fallas futuras sin tener que conocerlas de antemano.
+   */
+  private resolveImportRowErrorMessage(
+    error: unknown,
+    rowNumber: number,
+    businessUnitId: number | null
+  ): string {
+    const isOwnMessage =
+      (typeof error === 'object' && error !== null && (error as any).isImportRowMessageError === true) ||
+      personIdentityDuplicatedIndexFromError(error) !== null
+    if (isOwnMessage) return importRowErrorMessage(error)
+
+    logger.error({ err: error, row: rowNumber, businessUnitId }, 'Fila de carga masiva no procesada')
+    return 'No fue posible procesar esta fila'
+  }
+
+  /**
+   * Rechazo todo-o-nada por empresa distinta (USRH1789747321650).
+   * El texto habla de filas, así que se agrupa por fila: una cita por fila con
+   * el valor —o los dos valores— que ahí se tecleó, tope de 20 filas y cierre
+   * `… y N filas más.` con las filas restantes. `offendingRows` sigue yendo por
+   * celda para que el reporte distinga trabajo de nómina. El listado cita lo
+   * que el usuario tecleó (su propio dato), nunca nada resuelto en base, y lo
+   * recorta a `MAX_OFFENDING_CELL_ECHO_LENGTH` para que una celda larguísima no
+   * se repita entera en todo el mensaje.
+   */
+  private createCompanyMismatchValidationError(
+    offendingRows: EmployeeImportCompanyMismatchRow[],
+    activeName: string
+  ): Error & { isCompanyMismatchError: true; statusCode: 409; offendingRows: EmployeeImportCompanyMismatchRow[] } {
+    const MAX_OFFENDING_ROWS_SHOWN = 20
+    const MAX_OFFENDING_CELL_ECHO_LENGTH = 80
+    const echoOf = (value: string): string => value.slice(0, MAX_OFFENDING_CELL_ECHO_LENGTH)
+    const typedValuesByRow = new Map<number, string[]>()
+    for (const item of offendingRows) {
+      const typedValues = typedValuesByRow.get(item.row) ?? []
+      for (const value of [item.businessUnit, item.payrollBusinessUnit]) {
+        if (value !== '' && !typedValues.includes(echoOf(value))) typedValues.push(echoOf(value))
+      }
+      typedValuesByRow.set(item.row, typedValues)
+    }
+    const offendingRowNumbers = [...typedValuesByRow.keys()]
+    const shown = offendingRowNumbers.slice(0, MAX_OFFENDING_ROWS_SHOWN)
+    const listing = shown
+      .map((row) => `fila ${row} («${(typedValuesByRow.get(row) ?? []).join('», «')}»)`)
+      .join(', ')
+    const tail =
+      offendingRowNumbers.length > shown.length
+        ? ` … y ${offendingRowNumbers.length - shown.length} filas más.`
+        : ''
+    const error = new Error(
+      `La empresa activa es «${activeName}». Estas filas declaran otra: ${listing}.${tail} No se aplicó ninguna línea del archivo: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo.`
+    )
+    return Object.assign(error, {
+      isCompanyMismatchError: true as const,
+      statusCode: 409 as const,
+      offendingRows,
+    })
   }
 
   /**
@@ -3906,7 +4025,9 @@ export default class EmployeeService {
     } while (existingCodes.includes(code) && attempts < 100)
 
     if (attempts >= 100) {
-      throw new Error('No se pudo generar un código de empleado único')
+      // Mensaje propio del importador: viaja tal cual a la fila fallida por la
+      // bandera, no por el texto.
+      throw this.createImportRowMessageError('No se pudo generar un código de empleado único')
     }
 
     return code
@@ -3985,6 +4106,15 @@ export default class EmployeeService {
 
     // Generar código único
     return this.generateUniqueEmployeeCode(existingCodes)
+  }
+
+  /**
+   * Normaliza el nombre de una empresa para compararlo: sin espacios sobrantes
+   * y sin distinguir mayúsculas, igual que la coincidencia exacta de
+   * `mapBusinessUnit`.
+   */
+  private normalizeBusinessUnitCell(businessUnitName: string): string {
+    return String(businessUnitName ?? '').trim().toLowerCase()
   }
 
   /**
@@ -4068,8 +4198,9 @@ export default class EmployeeService {
   /**
    * Crear persona
    */
-  private async createPerson(employeeData: any) {
+  private async createPerson(employeeData: any, businessUnitId: number) {
     const person = new Person()
+    person.businessUnitId = businessUnitId
     person.personFirstname = employeeData.firstName || ''
     person.personLastname = employeeData.lastName || ''
     person.personSecondLastname = employeeData.secondLastName || ''

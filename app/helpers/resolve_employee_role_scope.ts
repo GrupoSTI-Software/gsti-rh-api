@@ -2,6 +2,7 @@ import type { I18n } from '@adonisjs/i18n'
 import User from '#models/user'
 import RoleService from '#services/role_service'
 import UserService from '#services/user_service'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 
 /**
  * Alcance de colaboradores que un usuario puede ver, con la misma regla que
@@ -52,8 +53,10 @@ export async function resolveEmployeeRoleScope(
     hasAccessToFullEmployees
   )
 
+  // Root y owner ven toda la plantilla (regla única de `resolveResponsibleUserId`);
+  // el resto, sin acceso completo, queda acotado a sus colaboradores a cargo.
   return {
     departmentsList,
-    userResponsibleId: !isRoot && !hasAccessToFullEmployees ? user.userId : null,
+    userResponsibleId: hasAccessToFullEmployees ? null : resolveResponsibleUserId(user),
   }
 }

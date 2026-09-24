@@ -11,6 +11,15 @@ import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
+import { TenantContext } from '#utils/tenant_context'
+import type { PersonIdentityField } from '#constants/person_identity_error_codes'
+import { resolveRacedIdentityField } from '#helpers/person_identity_lookup'
+import {
+  personIdentityDuplicatedFieldFromValidationError,
+  personIdentityDuplicatedIndexFromError,
+  respondPersonIdentityDuplicated,
+  respondPersonIdentityMissingCompany,
+} from '#helpers/person_identity_api_error'
 import {
   EMPLOYEES_PERSON_COLLABORATOR_WRITE_PERMISSION,
   EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION,
@@ -23,6 +32,27 @@ import {
   resolvePersonSubjectType,
   personSubjectRequiresCollaboratorWritePermission,
 } from '#constants/person_subject_type'
+
+type IdentityRecheckTarget = { person: Person; companyId: number }
+
+/**
+ * Carrera contra el UNIQUE por empresa (USRH1789698261610): MySQL reporta el
+ * índice en su propio orden, así que se reverifica con `verifyInfo`, que aplica
+ * CURP > RFC > NSS. El índice reportado queda solo como respaldo.
+ */
+async function racedIdentityField(
+  indexField: PersonIdentityField,
+  i18n: HttpContext['i18n'],
+  target: IdentityRecheckTarget | null
+): Promise<PersonIdentityField> {
+  if (!target) return indexField
+  try {
+    const recheck = await new PersonService(i18n).verifyInfo(target.person, target.companyId)
+    return resolveRacedIdentityField(recheck, indexField)
+  } catch {
+    return indexField
+  }
+}
 
 export default class PersonController {
   /**
@@ -343,6 +373,7 @@ export default class PersonController {
    */
   async store(ctx: HttpContext) {
     const { request, response, i18n } = ctx
+    let identityRecheck: IdentityRecheckTarget | null = null
     try {
       const subjectType = resolvePersonSubjectType(request.input('personSubjectType'))
       if (personSubjectRequiresCollaboratorWritePermission(subjectType)) {
@@ -353,6 +384,12 @@ export default class PersonController {
         if (!allowed) {
           return
         }
+      }
+      // USRH1789698261610: sin empresa no hay veredicto de duplicados (regla 10).
+      // En HTTP el middleware ya la exige; esta guardia cubre cualquier otro camino.
+      const storeCompanyId = ctx.businessUnitScope?.[0] ?? TenantContext.getScope()[0] ?? null
+      if (!storeCompanyId) {
+        return respondPersonIdentityMissingCompany(ctx)
       }
       const personFirstname = request.input('personFirstname')
       const personLastname = request.input('personLastname')
@@ -368,6 +405,7 @@ export default class PersonController {
       const personRfc = request.input('personRfc')
       const personImssNss = request.input('personImssNss')
       const person = {
+        businessUnitId: storeCompanyId,
         personFirstname: personFirstname,
         personLastname: personLastname,
         personSecondLastname: personSecondLastname || '',
@@ -379,6 +417,7 @@ export default class PersonController {
         personRfc: personRfc,
         personImssNss: personImssNss,
       } as Person
+      identityRecheck = { person, companyId: storeCompanyId }
       const personService = new PersonService(i18n)
       await request.validateUsing(createPersonValidator)
       const newPerson = await personService.create(person)
@@ -393,6 +432,18 @@ export default class PersonController {
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
+      // USRH1789698261610 regla 6: el rechazo habla de negocio, nunca de BD.
+      const duplicatedField = personIdentityDuplicatedFieldFromValidationError(error)
+      if (duplicatedField) {
+        return respondPersonIdentityDuplicated(ctx, duplicatedField)
+      }
+      const racedField = personIdentityDuplicatedIndexFromError(error)
+      if (racedField) {
+        return respondPersonIdentityDuplicated(
+          ctx,
+          await racedIdentityField(racedField, i18n, identityRecheck)
+        )
+      }
       if (error.code === 'E_VALIDATION_ERROR') {
         const messageError = error.messages?.[0]?.message ?? 'Validation error'
         response.status(422)
@@ -591,6 +642,7 @@ export default class PersonController {
    */
   async update(ctx: HttpContext) {
     const { request, response, i18n } = ctx
+    let identityRecheck: IdentityRecheckTarget | null = null
     try {
       const personId = request.param('personId')
       const personFirstname = request.input('personFirstname')
@@ -611,6 +663,7 @@ export default class PersonController {
       const personPlaceOfBirthCountry = request.input('personPlaceOfBirthCountry')
       const personPlaceOfBirthState = request.input('personPlaceOfBirthState')
       const personPlaceOfBirthCity = request.input('personPlaceOfBirthCity')
+      const updateCompanyId = ctx.businessUnitScope?.[0] ?? TenantContext.getScope()[0] ?? null
       const person = {
         personId: personId,
         personFirstname: personFirstname,
@@ -638,6 +691,11 @@ export default class PersonController {
           data: { ...person },
         }
       }
+      // USRH1789698261610: sin empresa no hay veredicto de duplicados (regla 10).
+      if (!updateCompanyId) {
+        return respondPersonIdentityMissingCompany(ctx)
+      }
+      identityRecheck = { person, companyId: updateCompanyId }
       if (await personIsCollaborator(Number(personId))) {
         const allowed = await ensureSecondaryPermission(
           ctx,
@@ -663,13 +721,19 @@ export default class PersonController {
       const previousEmail = currentPerson.personEmail
       const personService = new PersonService(i18n)
       const data = await request.validateUsing(updatePersonValidator)
-      const verifyInfo = await personService.verifyInfo(person)
-      if (verifyInfo.status !== 200) {
-        response.status(verifyInfo.status)
+      const identityCheck = await personService.verifyInfo(person, updateCompanyId)
+      if (identityCheck.status === 400) {
+        return respondPersonIdentityMissingCompany(ctx)
+      }
+      if (identityCheck.status === 422 && identityCheck.field !== 'email') {
+        return respondPersonIdentityDuplicated(ctx, identityCheck.field)
+      }
+      if (identityCheck.status === 422) {
+        response.status(422)
         return {
-          type: verifyInfo.type,
-          title: verifyInfo.title,
-          message: verifyInfo.message,
+          type: 'warning',
+          title: 'Dato duplicado',
+          message: 'Ya existe un trabajador con el mismo valor en: correo electrónico',
           data: { ...data },
         }
       }
@@ -696,6 +760,18 @@ export default class PersonController {
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
+      // USRH1789698261610 regla 6: el rechazo habla de negocio, nunca de BD.
+      const duplicatedField = personIdentityDuplicatedFieldFromValidationError(error)
+      if (duplicatedField) {
+        return respondPersonIdentityDuplicated(ctx, duplicatedField)
+      }
+      const racedField = personIdentityDuplicatedIndexFromError(error)
+      if (racedField) {
+        return respondPersonIdentityDuplicated(
+          ctx,
+          await racedIdentityField(racedField, i18n, identityRecheck)
+        )
+      }
       if (error.code === 'E_VALIDATION_ERROR') {
         const messageError = error.messages?.[0]?.message ?? 'Validation error'
         response.status(422)
