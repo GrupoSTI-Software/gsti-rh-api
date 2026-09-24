@@ -11,6 +11,7 @@ import type { ExpirationMatrixEmployeeOwnerDto } from './dto/documents_expiratio
 /** Columnas del empleado dueño, comunes a las fuentes de empleado. */
 interface EmployeeOwnerRow {
   employee_id: number
+  employee_slug: string | null
   employee_first_name: string | null
   employee_last_name: string | null
   employee_second_last_name: string | null
@@ -47,6 +48,7 @@ interface CompanyFileRow {
 
 interface CertificationRow extends EmployeeOwnerRow {
   employee_certification_id: number
+  certification_id: number
   certification_name: string
   certification_category_name: string | null
   employee_certification_document_url: string | null
@@ -84,6 +86,7 @@ type QueryBuilder = DatabaseQueryBuilderContract
 /** Columnas del empleado dueño con puesto y departamento por nombre. */
 const EMPLOYEE_OWNER_COLUMNS = [
   'e.employee_id',
+  'e.employee_slug',
   'e.employee_first_name',
   'e.employee_last_name',
   'e.employee_second_last_name',
@@ -128,6 +131,7 @@ function toEmployeeOwner(row: EmployeeOwnerRow): ExpirationMatrixEmployeeOwnerDt
   return {
     kind: 'employee',
     employeeId: row.employee_id,
+    employeeSlug: textOrNull(row.employee_slug),
     name,
     positionName: textOrNull(row.position_name),
     departmentName: textOrNull(row.department_name),
@@ -346,6 +350,7 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
 
     const rows: CertificationRow[] = await query.select(
       'ec.employee_certification_id',
+      'ec.certification_id',
       'ec.employee_certification_document_url',
       'c.certification_name',
       'cc.certification_category_name',
@@ -356,6 +361,7 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
     return rows.map((row) => ({
       source: 'certification',
       id: row.employee_certification_id,
+      targetId: row.certification_id,
       documentName: textOrNull(row.certification_name),
       reference: textOrNull(row.certification_category_name),
       expiresAt: row.expires_at,

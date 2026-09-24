@@ -8,6 +8,8 @@ import type { ExpirationMatrixOwnerDto } from './dto/documents_expiration_matrix
 export interface ExpirationMatrixRecord {
   source: ExpirationMatrixSource
   id: number
+  /** Id con el que el módulo dueño abre el recurso cuando no es `id` (certificación). */
+  targetId?: number
   /** `null` cuando la fuente no tiene nombre propio (el service pone la etiqueta genérica). */
   documentName: string | null
   reference: string | null

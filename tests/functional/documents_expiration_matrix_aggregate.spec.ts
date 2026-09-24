@@ -48,8 +48,10 @@ interface MatrixItemBody {
   expiresAt: string
   daysToExpire: number
   hasFile: boolean
+  targetId: number | null
   owner: {
     kind: string
+    employeeSlug?: string | null
     name: string
     positionName?: string | null
     departmentName?: string | null
@@ -276,6 +278,9 @@ test.group('Matriz de vencimientos agregada', (group) => {
     assert.equal(owner.departmentName, department.departmentName)
     assert.equal(owner.employeeCode, String(employee.employeeCode))
     assert.isFalse(certificationItems[0].hasFile, 'sin documento no hay archivo')
+    assert.equal(owner.employeeSlug, employee.employeeSlug, 'slug para enlazar al detalle')
+    // Offsets creados en orden [30, -5, 31]: el primer item (-5) es el segundo.
+    assert.equal(certificationItems[0].targetId, certificationIds[1], 'certificationId del panel')
 
     assert.notExists(
       items.find((item) => item.source === 'provider-folio'),

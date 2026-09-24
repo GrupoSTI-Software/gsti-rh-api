@@ -4,6 +4,8 @@ import type { ExpirationMatrixSource } from '../documents_expiration_matrix.cons
 export interface ExpirationMatrixEmployeeOwnerDto {
   kind: 'employee'
   employeeId: number
+  /** Slug del detalle del empleado en el BO (`/employees/<slug>`). */
+  employeeSlug: string | null
   name: string
   positionName: string | null
   departmentName: string | null
@@ -43,6 +45,11 @@ export interface ExpirationMatrixItemDto {
   /** Días naturales hasta el vencimiento en zona de negocio; negativo si ya venció. */
   daysToExpire: number
   owner: ExpirationMatrixOwnerDto
+  /**
+   * Id con el que el módulo dueño abre el recurso cuando no es el de la llave
+   * (certificación: `certificationId`); `null` en el resto.
+   */
+  targetId: number | null
   /** `true` solo si hay archivo y el usuario puede descargarlo. */
   hasFile: boolean
 }

@@ -197,6 +197,7 @@ export default class DocumentsExpirationMatrixService {
       expiresAt: record.expiresAt,
       daysToExpire: daysBetweenBusinessDates(today, record.expiresAt),
       owner: record.owner,
+      targetId: record.targetId ?? null,
       // Sin ofrecer lo que no se puede servir: una referencia a otro bucket
       // (archivos heredados) respondería 404 al abrirla.
       hasFile:
