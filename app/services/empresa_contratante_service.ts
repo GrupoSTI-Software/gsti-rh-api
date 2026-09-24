@@ -59,6 +59,24 @@ export function serializeEmpresaContratante(row: EmpresaContratante) {
   }
 }
 
+/** Alias en `$extras` del conteo de contratos no borrados de la empresa. */
+const CONTRATOS_COUNT_EXTRA = 'contratosCount'
+
+/**
+ * Fila del listado: la empresa, el número de contratos no borrados y los
+ * sitios de servicio (sucursales) ligados con su nombre visible.
+ */
+function serializeEmpresaContratanteListItem(row: EmpresaContratante) {
+  return {
+    ...serializeEmpresaContratante(row),
+    contratosCount: Number(row.$extras[CONTRATOS_COUNT_EXTRA] ?? 0),
+    sitios: (row.sitiosServicio ?? []).map((sitio) => ({
+      id: sitio.branchOfficeId,
+      name: sitio.branchOfficeName,
+    })),
+  }
+}
+
 /**
  * Servicio de dominio del catálogo de empresas contratantes REPSE.
  *
@@ -97,6 +115,9 @@ export default class EmpresaContratanteService {
 
   /**
    * Lista paginada con búsqueda opcional por razón social o RFC (case-insensitive).
+   *
+   * Cada fila agrega `contratosCount` (subconsulta de conteo) y `sitios`
+   * (una sola consulta de preload para toda la página): sin N+1.
    */
   async listPaginated(
     page: number,
@@ -132,6 +153,16 @@ export default class EmpresaContratanteService {
     let query = EmpresaContratante.query()
       .whereNull('empresa_contratante_deleted_at')
       .whereIn('business_unit_id', targetBusinessUnitIds)
+      .withCount('contratosServiciosEspecializados', (contratos) => {
+        contratos
+          .whereNull('contrato_servicio_especializado_deleted_at')
+          .as(CONTRATOS_COUNT_EXTRA)
+      })
+      .preload('sitiosServicio', (sitios) => {
+        sitios
+          .select('branch_office_id', 'empresa_contratante_id', 'branch_office_name')
+          .orderBy('branch_office_name', 'asc')
+      })
 
     const search = q?.trim()
     if (search && search.length > 0) {
@@ -154,7 +185,7 @@ export default class EmpresaContratanteService {
         ...serialized.meta,
         page: currentPage,
       },
-      data: paginator.all().map((row) => serializeEmpresaContratante(row)),
+      data: paginator.all().map((row) => serializeEmpresaContratanteListItem(row)),
     }
   }
 

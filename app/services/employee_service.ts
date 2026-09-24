@@ -31,6 +31,8 @@ import VacationSetting from '#models/vacation_setting'
 import FlightAttendant from '#models/flight_attendant'
 import Customer from '#models/customer'
 import env from '#start/env'
+import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
+import { importRowErrorMessage } from '#helpers/person_identity_api_error'
 import { blindIndex } from '#utils/blind_index'
 import { TenantContext } from '#utils/tenant_context'
 import BusinessUnit from '#models/business_unit'
@@ -2990,7 +2992,7 @@ export default class EmployeeService {
 
           // Crear nuevo empleado: verificar CURP duplicado antes de crear
           if (this.hasImportCellValue(employeeData.curp)) {
-            const curpExists = await this.personWithCurpExists(employeeData.curp)
+            const curpExists = await this.personWithCurpExists(employeeData.curp, businessUnitId)
             if (curpExists) {
               skipped++
               rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })
@@ -3047,7 +3049,7 @@ export default class EmployeeService {
           const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
           const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
 
-          const person = await this.createPerson(employeeData)
+          const person = await this.createPerson(employeeData, businessUnitId!)
           const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
           if (employeeData.employeeWorkScheduleHybridAttempt) {
             // El empleado nuevo queda con Onsite (default de `createEmployee`).
@@ -3062,7 +3064,7 @@ export default class EmployeeService {
           processed++
         } catch (error: any) {
           skipped++
-          rowErrors.push({ row: rowNumber, message: error.message })
+          rowErrors.push({ row: rowNumber, message: importRowErrorMessage(error) })
         }
       }
 
@@ -3232,16 +3234,18 @@ export default class EmployeeService {
   }
 
   /**
-   * Verificar si ya existe una persona con el CURP dado (para evitar duplicados al crear empleados).
-   * Compara por huella HMAC-SHA256 (blind-index) porque person_curp está cifrado en reposo.
+   * Verificar si ya existe una persona viva de la MISMA empresa con la CURP dada
+   * (USRH1789698261610, regla 1). Compara por huella HMAC-SHA256 (blind-index)
+   * porque person_curp está cifrado en reposo. Sin empresa no hay veredicto
+   * (regla 10): la fila ya se rechazó antes por falta de unidad.
    */
-  private async personWithCurpExists(curp: string): Promise<boolean> {
+  private async personWithCurpExists(
+    curp: string,
+    businessUnitId: number | null | undefined
+  ): Promise<boolean> {
     if (!curp || typeof curp !== 'string' || curp.trim() === '') return false
-    const found = await Person.query()
-      .whereNull('person_deleted_at')
-      .where('person_curp_hash', blindIndex(curp))
-      .first()
-    return !!found
+    if (!businessUnitId) return false
+    return livePersonWithIdentityExists('curp', blindIndex(curp), businessUnitId)
   }
 
   /**
@@ -4068,8 +4072,9 @@ export default class EmployeeService {
   /**
    * Crear persona
    */
-  private async createPerson(employeeData: any) {
+  private async createPerson(employeeData: any, businessUnitId: number) {
     const person = new Person()
+    person.businessUnitId = businessUnitId
     person.personFirstname = employeeData.firstName || ''
     person.personLastname = employeeData.lastName || ''
     person.personSecondLastname = employeeData.secondLastName || ''

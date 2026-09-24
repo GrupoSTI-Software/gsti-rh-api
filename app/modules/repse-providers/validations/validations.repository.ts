@@ -15,6 +15,13 @@ export interface ProveedorRepseValidacionCreateData {
   evidenciaTamanoBytes: number
 }
 
+/** Partes del nombre de la persona detrás de la cuenta autora de una validación. */
+export interface ValidacionAutorPersona {
+  personFirstname: string | null
+  personLastname: string | null
+  personSecondLastname: string | null
+}
+
 export interface ValidationsRepository {
   create(
     data: ProveedorRepseValidacionCreateData,
@@ -32,4 +39,10 @@ export interface ValidationsRepository {
 
   /** Última validación registrada (por `fecha`, no por orden de alta) para el proveedor. */
   findLastByProveedor(proveedorRepseId: number): Promise<ProveedorRepseValidacion | null>
+
+  /**
+   * Persona de cada cuenta autora, por `user_id`. Las cuentas sin persona (o con
+   * la persona dada de baja) no aparecen en el mapa.
+   */
+  findAutorPersonas(userIds: number[]): Promise<Map<number, ValidacionAutorPersona>>
 }

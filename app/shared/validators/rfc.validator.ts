@@ -68,6 +68,18 @@ function mapRfcChar(char: string): number | undefined {
 }
 
 /**
+ * Indica si el valor YA normalizado tiene la forma de un RFC completo
+ * (12 persona moral / 13 persona física), sin validar el dígito verificador.
+ * Útil para decidir si un término de búsqueda puede compararse contra un
+ * índice ciego de RFC, que solo admite coincidencia exacta.
+ */
+export function hasRfcShape(normalized: string): boolean {
+  if (normalized.length === 12) return RFC_MORAL_PATTERN.test(normalized)
+  if (normalized.length === 13) return RFC_FISICA_PATTERN.test(normalized)
+  return false
+}
+
+/**
  * Calcula el dígito verificador SAT para la porción base del RFC (sin el último carácter).
  */
 export function computeRfcCheckDigit(rfcBase: string): string {
