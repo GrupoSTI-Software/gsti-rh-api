@@ -2,16 +2,21 @@ import { test } from '@japa/runner'
 import type { ApiClient } from '@japa/api-client'
 import User from '#models/user'
 import type Employee from '#models/employee'
+import type Person from '#models/person'
 import {
   assertNoDisclosure,
   businessUnitHeader,
   cleanupMirrorWorld,
   createEmployeeFor,
+  createForeignBusinessUnit,
   createMirrorWorld,
   createPersonIn,
   createUserFor,
   employeeBody,
+  personBody,
   readEmployeeRow,
+  readPersonEmail,
+  readPersonFirstname,
   readUserRow,
   stamp,
   userBody,
@@ -187,5 +192,140 @@ test.group('Espejo — PUT /api/employees/:id (M6)', (group) => {
     assert.equal(row.employee_first_name, 'Espejo')
     const userRow = await readUserRow(user.userId)
     assert.equal(userRow.user_email, viejo)
+  })
+})
+
+test.group('Espejo — PUT /api/persons/:id (M1)', (group) => {
+  group.setup(async () => {
+    world = await createMirrorWorld()
+  })
+  group.teardown(async () => {
+    await cleanupMirrorWorld(world)
+    world = null
+  })
+
+  function putPerson(client: ApiClient, person: Person, overrides: Record<string, unknown>) {
+    const w = world!
+    return client
+      .put(`/api/persons/${person.personId}`)
+      .loginAs(w.full.user)
+      .headers(businessUnitHeader(w.full.businessUnit))
+      .json(personBody(person, overrides))
+  }
+
+  test('CA-1 expediente-actualiza-la-credencial-personal aunque el correo previo sea NULL', async ({ client, assert }) => {
+    const w = world!
+    const person = await createPersonIn(w.registry, w.full.businessUnit, null)
+    const user = await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], {
+      userEmail: `sin-relacion-${stamp()}@otro.com`,
+      userEmailType: 'personal',
+    })
+    const nuevo = `ca1-${stamp()}@correo.com`
+
+    const response = await putPerson(client, person, { personEmail: nuevo })
+
+    response.assertStatus(201)
+    assert.deepEqual(response.body().data.emailMirror, { status: 'written', target: 'users' })
+    const userRow = await readUserRow(user.userId)
+    assert.equal(userRow.user_email, nuevo)
+    assert.equal(await readPersonEmail(person.personId), nuevo)
+  })
+
+  test('CA-2 expediente-no-toca-la-credencial-institucional', async ({ client, assert }) => {
+    const w = world!
+    const person = await createPersonIn(w.registry, w.full.businessUnit, `ca2-${stamp()}@correo.com`)
+    const acceso = `ca2-acceso-${stamp()}@empresa.com`
+    const user = await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], { userEmail: acceso, userEmailType: 'institutional' })
+    const nuevo = `ca2-nuevo-${stamp()}@correo.com`
+
+    const response = await putPerson(client, person, { personEmail: nuevo })
+
+    response.assertStatus(201)
+    assert.deepEqual(response.body().data.emailMirror, { status: 'skipped', reason: 'email-type-mismatch' })
+    const userRow = await readUserRow(user.userId)
+    assert.equal(userRow.user_email, acceso)
+    assert.equal(await readPersonEmail(person.personId), nuevo)
+  })
+
+  test('CA-10 persona sin cuenta: la omisión se declara (no-live-counterpart)', async ({ client, assert }) => {
+    const w = world!
+    const person = await createPersonIn(w.registry, w.full.businessUnit, `ca10p-${stamp()}@correo.com`)
+    const response = await putPerson(client, person, { personEmail: `ca10p-n-${stamp()}@correo.com` })
+    response.assertStatus(201)
+    assert.deepEqual(response.body().data.emailMirror, { status: 'skipped', reason: 'no-live-counterpart' })
+  })
+
+  test('CA-8 / CA-9 correo de otra cuenta viva: 400 USR.MAIL.002 y la persona NO queda actualizada', async ({ client, assert }) => {
+    const w = world!
+    const ocupado = `ca9-${stamp()}@correo.com`
+    const otro = await createUserFor(w.registry, await createPersonIn(w.registry, w.full.businessUnit, null), w.full.role, [w.full.businessUnit], {
+      userEmail: ocupado,
+      userEmailType: 'institutional',
+    })
+    const viejo = `ca9-viejo-${stamp()}@correo.com`
+    const person = await createPersonIn(w.registry, w.full.businessUnit, viejo)
+    const user = await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], { userEmail: viejo, userEmailType: 'personal' })
+
+    const response = await putPerson(client, person, { personEmail: ocupado, personFirstname: 'Cambiado' })
+
+    response.assertStatus(400)
+    assert.equal(response.body().code, 'USR.MAIL.002')
+    assertNoDisclosure(assert, response.body(), [ocupado, otro.userId, user.userId, person.personId])
+    assert.equal(await readPersonEmail(person.personId), viejo)
+    assert.equal(await readPersonFirstname(person.personId), 'Espejo')
+    const userRow = await readUserRow(user.userId)
+    assert.equal(userRow.user_email, viejo)
+  })
+
+  test('CA-11 [ABUSO] persona de otra empresa: 404 y nada cambia', async ({ client, assert }) => {
+    const w = world!
+    const victimaEmail = `victima-${stamp()}@correo.com`
+    const victima = await createPersonIn(w.registry, w.limited.businessUnit, victimaEmail)
+    const cuenta = await createUserFor(w.registry, victima, w.limited.role, [w.limited.businessUnit], {
+      userEmail: victimaEmail,
+      userEmailType: 'personal',
+    })
+
+    const response = await putPerson(client, victima, { personEmail: `atacante-${stamp()}@correo.com` })
+
+    response.assertStatus(404)
+    const cuentaRow = await readUserRow(cuenta.userId)
+    assert.equal(cuentaRow.user_email, victimaEmail)
+    assert.equal(await readPersonEmail(victima.personId), victimaEmail)
+  })
+
+  test('CA-11 [ABUSO] cuenta de acceso fuera del alcance del actor: 403 USR.MAIL.005 y nada cambia', async ({ client, assert }) => {
+    const w = world!
+    const foreign = await createForeignBusinessUnit(w.registry)
+    const victimaEmail = `victima2-${stamp()}@correo.com`
+    const victima = await createPersonIn(w.registry, w.full.businessUnit, victimaEmail)
+    const cuenta = await createUserFor(w.registry, victima, w.full.role, [foreign], { userEmail: victimaEmail, userEmailType: 'personal' })
+
+    const response = await putPerson(client, victima, { personEmail: `atacante2-${stamp()}@correo.com` })
+
+    response.assertStatus(403)
+    assert.equal(response.body().code, 'USR.MAIL.005')
+    assert.isString(response.body().title)
+    assert.isString(response.body().detail)
+    const cuentaRow = await readUserRow(cuenta.userId)
+    assert.equal(cuentaRow.user_email, victimaEmail)
+    assert.equal(await readPersonEmail(victima.personId), victimaEmail)
+  })
+
+  test('CA-14 mas-de-un-usuario-por-persona-falla-cerrado sin decir cuántos ni cuáles', async ({ client, assert }) => {
+    const w = world!
+    const person = await createPersonIn(w.registry, w.full.businessUnit, `ca14-${stamp()}@correo.com`)
+    const a = await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], { userEmail: `ca14a-${stamp()}@x.com`, userEmailType: 'personal' })
+    const b = await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], { userEmail: `ca14b-${stamp()}@x.com`, userEmailType: 'personal' })
+
+    const response = await putPerson(client, person, { personEmail: `ca14-n-${stamp()}@correo.com` })
+
+    response.assertStatus(400)
+    assert.equal(response.body().code, 'USR.MAIL.006')
+    assertNoDisclosure(assert, response.body(), [a.userId, b.userId, a.userEmail, b.userEmail])
+    const rowA = await readUserRow(a.userId)
+    const rowB = await readUserRow(b.userId)
+    assert.equal(rowA.user_email, a.userEmail)
+    assert.equal(rowB.user_email, b.userEmail)
   })
 })
