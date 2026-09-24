@@ -551,7 +551,6 @@
   "assist_punch_time_out_of_window_message": "Esta checada se capturó fuera del plazo permitido para registrarse por este canal. Solicita su captura al área de Recursos Humanos.",
   "assist_duplicate_natural_key_title": "Checada duplicada",
   "assist_duplicate_natural_key_message": "Ya existe una checada con la misma empresa, código, instante y terminal.",
-  "the_date_not_is_pay_thursday": "La fecha no corresponde a un jueves de pago",
   "assistance_report": "Reporte de asistencias",
   "incident_summary": "Resumen de incidencias",
   "incident_summary_payroll": "Resumen de incidencias para nómina",

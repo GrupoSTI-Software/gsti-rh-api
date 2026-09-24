@@ -54,7 +54,6 @@ test.group('Reportes de asistencia en español', () => {
       'getExcelByPosition',
       'getExcelByDepartment',
       'getExcelAll',
-      'getFormatPayRoll',
       'getExcelPermissionsByDates',
     ]) {
       const body = methodBody(controller, method)

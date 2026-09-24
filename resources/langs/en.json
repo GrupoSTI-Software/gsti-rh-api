@@ -551,7 +551,6 @@
   "assist_punch_time_out_of_window_message": "This punch was captured outside the period allowed for this channel. Ask Human Resources to register it.",
   "assist_duplicate_natural_key_title": "Duplicate punch",
   "assist_duplicate_natural_key_message": "A punch with the same tenant, employee code, time and terminal already exists.",
-  "the_date_not_is_pay_thursday": "The date not is pay thursday",
   "assistance_report": "Assistance Report",
   "incident_summary": "Incident Summary",
   "incident_summary_payroll": "Incident Summary Payroll",

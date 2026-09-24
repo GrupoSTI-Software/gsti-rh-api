@@ -87,17 +87,6 @@ test.group('Reportes de asistencia: horas', () => {
 })
 
 test.group('Reportes de asistencia: fechas de calendario', () => {
-  test('el jueves de pago no depende de la zona del servidor', ({ assert }) => {
-    const service = new AssistsService(reportI18n())
-    for (const zone of ['UTC', 'America/Mexico_City', 'Asia/Tokyo']) {
-      withProcessZone(zone, () => {
-        assert.isTrue(service.isPayThursday('2025-01-23', '2025-01-09'), zone)
-        assert.isFalse(service.isPayThursday('2025-01-16', '2025-01-09'), zone)
-        assert.isFalse(service.isPayThursday('2025-01-22', '2025-01-09'), zone)
-      })
-    }
-  })
-
   test('primera quincena y aniversario leídos como día de calendario', ({ assert }) => {
     const service = new AssistsService(reportI18n())
     withProcessZone('America/Mexico_City', () => {
