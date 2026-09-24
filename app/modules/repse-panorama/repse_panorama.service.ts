@@ -54,11 +54,12 @@ export default class RepsePanoramaService {
       return { kpis: this.emptyKpis(), pendientes }
     }
 
-    // Contratos no borrador y no cancelados (estatus efectivo vigente o
-    // vencido), en orden de fechaFin ascendente; sin fechaFin al final.
+    // Solo contratos con estatus efectivo vigente (incluye por vencer): los
+    // vencidos, borradores y cancelados no generan pendientes. Orden de
+    // fechaFin ascendente; sin fechaFin al final.
     const contratos = await ContratoServicioEspecializado.applyEffectiveEstatusFilter(
       ContratoServicioEspecializado.withResumenTarjeta(ContratoServicioEspecializado.query(), hoyIso),
-      ['vigente', 'vencido'],
+      ['vigente'],
       hoyIso
     )
       .whereNull('contrato_servicio_especializado_deleted_at')
@@ -70,9 +71,7 @@ export default class RepsePanoramaService {
       .orderBy('contrato_servicio_especializado_fecha_fin', 'asc')
       .orderBy('contrato_servicio_especializado_id', 'asc')
 
-    const vigenteIds = contratos
-      .filter((contrato) => contrato.estatusEfectivo === 'vigente')
-      .map((contrato) => contrato.contratoServicioEspecializadoId)
+    const vigenteIds = contratos.map((contrato) => contrato.contratoServicioEspecializadoId)
 
     const [empresasContratantes, serviciosActivos, trabajadoresAsignados] = await Promise.all([
       this.countEmpresasContratantes(allowed),

@@ -1,4 +1,6 @@
 import { test } from '@japa/runner'
+import db from '@adonisjs/lucid/services/db'
+import { todayInBusinessZone, toBusinessDateString } from '#utils/business_date'
 import {
   buildInformativaExpirationSnapshot,
   INFORMATIVA_PANORAMA_THRESHOLD_DAYS,
@@ -18,6 +20,8 @@ import {
   createTarjetaContratoFixture,
   type TarjetaContratoFixture,
 } from './repse_tarjeta_contrato_support.js'
+import { cleanupRepseContratoArtifacts } from './repse_contratos_asignaciones_sensitive_mask_support.js'
+import { createContratoInTenant, uniqueStamp } from '../helpers/contrato_import_excel_fixture.js'
 
 /**
  * `GET /api/repse/panorama`: KPIs, pendientes en orden y permiso de lectura
@@ -29,21 +33,55 @@ const REPSE_MODULE = 'repse-registrations'
 
 let owner: TenantActor | null = null
 let fixture: TarjetaContratoFixture | null = null
+/** Vencido por fecha y cancelado: sin documento y sin personal, no deben generar pendientes. */
+let excluidosIds: number[] = []
+
+async function createContratoExcluido(
+  data: TarjetaContratoFixture,
+  estatus: 'vigente' | 'cancelado',
+  fechaFinDias: number
+): Promise<number> {
+  const contratoId = await createContratoInTenant({
+    fixture: data.base,
+    numeroContrato: `CSE-PANORAMA-FUERA-${uniqueStamp()}`,
+  })
+  const hoy = todayInBusinessZone()
+  await db
+    .from('contratos_servicios_especializados')
+    .where('contrato_servicio_especializado_id', contratoId)
+    .update({
+      contrato_servicio_especializado_estatus: estatus,
+      contrato_servicio_especializado_fecha_inicio: toBusinessDateString(hoy.minus({ days: 90 })),
+      contrato_servicio_especializado_fecha_fin: toBusinessDateString(
+        hoy.plus({ days: fechaFinDias })
+      ),
+    })
+  return contratoId
+}
 
 test.group('REPSE — panorama', (group) => {
   group.setup(async () => {
     owner = await createBypassActor('owner', 'repse-panorama')
     fixture = await createTarjetaContratoFixture(owner.businessUnit, 'panorama')
+    excluidosIds = [
+      // Declarado vigente con fechaFin ayer: estatus efectivo vencido.
+      await createContratoExcluido(fixture, 'vigente', -1),
+      await createContratoExcluido(fixture, 'cancelado', 20),
+    ]
   })
 
   group.teardown(async () => {
+    for (const contratoId of excluidosIds) {
+      await cleanupRepseContratoArtifacts(contratoId)
+    }
+    excluidosIds = []
     await cleanupTarjetaContratoFixture(fixture)
     await cleanupTenantActor(owner)
     fixture = null
     owner = null
   })
 
-  test('responde KPIs y pendientes en el orden del contrato', async ({ client, assert }) => {
+  test('responde KPIs y pendientes solo de contratos vigentes, en orden', async ({ client, assert }) => {
     const actor = required(owner, 'owner')
     const data = required(fixture, 'fixture')
 
@@ -87,10 +125,12 @@ test.group('REPSE — panorama', (group) => {
         ['personal_sin_asignar', data.vigenteLejanoId],
       ]
     )
-    assert.notInclude(
-      body.pendientes.map((pendiente: { contratoId?: number }) => pendiente.contratoId),
-      data.borradorId
+    const contratosConPendiente = body.pendientes.map(
+      (pendiente: { contratoId?: number }) => pendiente.contratoId
     )
+    for (const fueraId of [data.borradorId, ...excluidosIds]) {
+      assert.notInclude(contratosConPendiente, fueraId)
+    }
 
     const informativa = buildInformativaExpirationSnapshot()
     if (informativa.daysRemaining <= INFORMATIVA_PANORAMA_THRESHOLD_DAYS) {

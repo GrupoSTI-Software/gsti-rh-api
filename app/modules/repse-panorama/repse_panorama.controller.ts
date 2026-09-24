@@ -14,8 +14,9 @@ export default class RepsePanoramaController {
    *
    *       - `informativa` aparece primero si faltan 30 días o menos para la próxima
    *         fecha de ley (17 ene/may/sep, zona de negocio).
-   *       - Luego, por cada contrato con estatus efectivo vigente o vencido (no borrador
-   *         ni cancelado), en orden de fechaFin ascendente (sin fechaFin al final):
+   *       - Luego, por cada contrato con estatus efectivo vigente (incluye por vencer;
+   *         vencidos, borradores y cancelados fuera), en orden de fechaFin ascendente
+   *         (sin fechaFin al final):
    *         `contrato_por_vencer` (vigente con fechaFin a 45 días o menos),
    *         `contrato_sin_documento` (sin documento firmado vigente) y
    *         `personal_sin_asignar` (asignados vigentes hoy < declarados en el anexo 15-D).
