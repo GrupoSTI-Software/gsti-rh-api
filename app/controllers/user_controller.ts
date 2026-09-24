@@ -17,7 +17,6 @@ import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_as
 import EmployeeDevice from '#models/employee_device'
 import EmployeeDeviceService from '#services/employee_device_service'
 import Person from '#models/person'
-import Employee from '#models/employee'
 import BusinessUnit from '#models/business_unit'
 import AuthTokenService from '#services/auth_token_service'
 import AuthMailService, { type AuthMailLanguage } from '#services/auth_mail_service'
@@ -1970,6 +1969,8 @@ export default class UserController {
    *     tags:
    *       - Users
    *     summary: update user
+   *     description: |
+   *       Sin `userEmailType`, se conserva el tipo guardado. `personId` no puede apuntar a una persona con otra cuenta viva ni a una persona fuera de la empresa activa (422).
    *     produces:
    *       - application/json
    *     parameters:
@@ -2030,6 +2031,24 @@ export default class UserController {
    *                 data:
    *                   type: object
    *                   description: Processed object
+   *                   properties:
+   *                     user:
+   *                       type: object
+   *                       description: Cuenta de acceso actualizada
+   *                     emailMirror:
+   *                       type: object
+   *                       description: Resultado del espejo del correo de la credencial hacia el expediente
+   *                       properties:
+   *                         status:
+   *                           type: string
+   *                           enum: [written, skipped]
+   *                           description: written si se copió el correo al expediente; skipped si no se escribió
+   *                         target:
+   *                           type: string
+   *                           description: Destino de la copia cuando status es written (people o employees)
+   *                         reason:
+   *                           type: string
+   *                           description: Motivo de la omisión cuando status es skipped
    *       '404':
    *         description: Resource not found
    *         content:
@@ -2053,6 +2072,7 @@ export default class UserController {
    *         description: |
    *           The parameters entered are invalid or essential data is missing to process the request.
    *           También responde 400 cuando el correo de acceso ya está en uso por otra cuenta activa (código USR.MAIL.002): ningún campo se guardó.
+   *           También 400 cuando el correo ya lo usa otra persona (USR.MAIL.003, tipo `personal`) u otro empleado vivo (USR.MAIL.004, tipo `institutional`). Ningún campo se guardó.
    *         content:
    *           application/json:
    *             schema:
@@ -2113,7 +2133,9 @@ export default class UserController {
    *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
    *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '422':
-   *         description: El correo de acceso contiene la máscara de un dato protegido. Ningún campo se guardó.
+   *         description: |
+   *           El correo de acceso contiene la máscara de un dato protegido. Ningún campo se guardó.
+   *           Datos inválidos, incluido `userEmailType` fuera de `institutional` | `personal`.
    *         content:
    *           application/json:
    *             schema:
@@ -2125,7 +2147,7 @@ export default class UserController {
    *                 code: { type: string, example: USR.MAIL.001 }
    */
   async update(ctx: HttpContext) {
-    const { auth, request, response, i18n, scopedUser } = ctx
+    const { request, response, i18n, scopedUser } = ctx
     try {
       const currentUser = scopedUser!
       const userId = currentUser.userId
@@ -2135,7 +2157,6 @@ export default class UserController {
       const userActive = request.input('userActive')
       const roleId = request.input('roleId')
       const personId = request.input('personId')
-      const userEmailType = request.input('userEmailType')
 
       assertUserAccessEmailNotMasked(userEmail)
 
@@ -2149,81 +2170,88 @@ export default class UserController {
         }
       }
 
-      const user = {
-        userId: userId,
-        userEmail: userEmail,
-        userActive: userActive,
-        roleId: roleId,
-        personId: personId,
-        userEmailType: userEmailType,
-      } as User
-      const previousUser = JSON.parse(JSON.stringify(currentUser))
-      await request.validateUsing(updateUserValidator, {
+      const data = await request.validateUsing(updateUserValidator, {
         meta: { userId, currentPersonId: currentUser.personId },
       })
+      // H1 y riesgo nº1: sin el campo se CONSERVA el tipo guardado. Aplicar aquí
+      // el default del alta convertiría en silencio cuentas `personal` en
+      // `institutional` y mandaría su correo al expediente de empleado.
+      const userEmailType: UserEmailTypeValue = data.userEmailType ?? currentUser.userEmailType
+      const user = {
+        userId: userId,
+        userEmail: data.userEmail,
+        userActive: userActive,
+        roleId: roleId,
+        personId: data.personId,
+        userEmailType,
+      } as User
+      const previousUser = JSON.parse(JSON.stringify(currentUser))
       const verifyInfo = await userService.verifyInfo(user)
       if (verifyInfo.status !== 200) {
         return respondUserAccessEmailDuplicated(ctx)
       }
-      let personForEmailSync: Person | null = null
       if (userEmailType === 'personal') {
-        personForEmailSync = await Person.query()
-          .where('person_id', personId)
+        const personForGuard = await Person.query()
+          .where('person_id', data.personId)
           .whereNull('person_deleted_at')
           .first()
-        if (personForEmailSync) {
-          // Verificar el permiso de `contacto` ANTES de actualizar el `User`: evita
-          // dejar el `User` ya actualizado sin poder sincronizar el correo de la persona.
-          assertContactoEmailWriteAllowed(personForEmailSync.personEmail, userEmail)
-        }
+        // Fuera de la transacción: falla rápido antes de escribir nada.
+        if (personForGuard) assertContactoEmailWriteAllowed(personForGuard.personEmail, data.userEmail)
       }
 
-      const updateUser = await userService.update(currentUser, user)
-      if (updateUser) {
-        if (updateUser.userEmailType === 'personal') {
-          if (personForEmailSync) {
-            personForEmailSync.personEmail = updateUser.userEmail
-            await personForEmailSync.save()
-          }
-        } else {
-          const employee = await Employee.query()
-            .where('person_id', personId)
-            .whereNull('employee_deleted_at')
-            .first()
-          if (employee) {
-            employee.employeeBusinessEmail = updateUser.userEmail
-            await employee.save()
-          }
-        }
-        const rawHeaders = request.request.rawHeaders
-        const tokenUserId = auth.user?.userId
-        if (tokenUserId) {
-          const logUser = await userService.createActionLog(rawHeaders, 'update')
-          logUser.user_id = tokenUserId
-          logUser.record_current = JSON.parse(JSON.stringify(updateUser))
-          logUser.record_previous = previousUser
-          await userService.saveActionOnLog(logUser)
-        }
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Users',
-          message: 'The user was updated successfully',
-          data: { user: updateUser },
-        }
+      const actor = emailMirrorActorFromContext(ctx)
+      const { updateUser, emailMirror } = await db.transaction(async (trx) => {
+        const updated = await userService.update(currentUser, user, trx)
+        // La credencial ya está escrita; si el espejo falla o el guard del
+        // modelo `Person` niega, el rollback la devuelve a como estaba.
+        const outcome = await mirrorUserEmailToRecord({
+          personId: updated.personId,
+          userEmail: updated.userEmail,
+          userEmailType: updated.userEmailType,
+          actor,
+          trx,
+        })
+        return { updateUser: updated, emailMirror: outcome }
+      })
+
+      const rawHeaders = request.request.rawHeaders
+      const logUser = await userService.createActionLog(rawHeaders, 'update')
+      logUser.user_id = actor.userId
+      logUser.record_current = JSON.parse(JSON.stringify(updateUser))
+      logUser.record_previous = previousUser
+      const previousPersonEmail = previousPersonEmailOf(emailMirror)
+      if (previousPersonEmail) logUser.record_previous_person_email = previousPersonEmail
+      await userService.saveActionOnLog(logUser)
+
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Users',
+        message: 'The user was updated successfully',
+        data: { user: updateUser, emailMirror: toPublicEmailMirrorOutcome(emailMirror) },
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (isUserAccessEmailMaskedError(error)) return respondUserAccessEmailMasked(ctx, error)
       if (isUserAccessEmailDuplicatedValidationError(error) || isUserAccessEmailDuplicatedIndexError(error)) return respondUserAccessEmailDuplicated(ctx)
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      if (isEmailMirrorConflictError(error)) return respondEmailMirrorConflict(ctx, error)
+      if (isEmailMirrorRefusedError(error)) return respondEmailMirrorRefused(ctx, error)
+      if (error.code === 'E_VALIDATION_ERROR') {
+        response.status(422)
+        return {
+          type: 'validation_error',
+          title: 'Validation error',
+          message: 'The provided data is invalid',
+          error: error.messages?.[0]?.message ?? 'Validation error',
+          errors: error.messages,
+        }
+      }
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
-        error: messageError,
+        error: error.message,
       }
     }
   }
