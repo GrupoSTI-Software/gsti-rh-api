@@ -80,6 +80,24 @@ export {}
  *           format: date-time
  *           nullable: true
  *
+ *     EmpresaContratanteListItem:
+ *       description: Fila del listado de empresas contratantes (GET /api/empresas-contratantes).
+ *       allOf:
+ *         - $ref: '#/components/schemas/EmpresaContratanteResource'
+ *         - type: object
+ *           properties:
+ *             contratosCount:
+ *               type: integer
+ *               description: Contratos no borrados de la empresa (cualquier estatus).
+ *             sitios:
+ *               type: array
+ *               description: Sitios de servicio (sucursales) ligados, ordenados por nombre.
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id: { type: integer }
+ *                   name: { type: string }
+ *
  *     EmpresaContratanteBasicaResource:
  *       type: object
  *       properties:
@@ -481,7 +499,7 @@ export {}
  *                 data:
  *                   type: array
  *                   items:
- *                     $ref: '#/components/schemas/EmpresaContratanteResource'
+ *                     $ref: '#/components/schemas/EmpresaContratanteListItem'
  *
  *     EmpresaContratanteSuccess:
  *       type: object
