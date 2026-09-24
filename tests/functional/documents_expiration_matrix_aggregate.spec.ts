@@ -888,8 +888,9 @@ test.group('Matriz de vencimientos: tope por registro más nuevo', (group) => {
       kept: await contractPair(sibling.employeeId, -10),
     })
 
-    // Insumos: mismo empleado y mismo tipo de insumo, asignación activa.
-    const insertEmployeeSupply = async (typeId: number, offset: number) => {
+    // Insumos: una asignación nueva del MISMO insumo sustituye a la anterior;
+    // dos insumos distintos del mismo tipo (dos laptops) se conservan.
+    const createSupply = async (typeId: number): Promise<number> => {
       const supply = await Supplie.create({
         businessUnitId,
         supplyFileNumber: uniqueSupplyFileNumber(),
@@ -898,10 +899,13 @@ test.group('Matriz de vencimientos: tope por registro más nuevo', (group) => {
         supplyStatus: 'active',
       })
       supplyIds.push(supply.supplyId)
+      return supply.supplyId
+    }
+    const assignSupply = async (supplyId: number, offset: number) => {
       const [employeeSupplyId] = await db.table('employee_supplies').insert({
         employee_id: employee.employeeId,
         business_unit_id: businessUnitId,
-        supply_id: supply.supplyId,
+        supply_id: supplyId,
         employee_supply_status: 'active',
         employee_supply_expiration_date: dayOffset(offset),
         employee_supply_created_at: now,
@@ -909,17 +913,28 @@ test.group('Matriz de vencimientos: tope por registro más nuevo', (group) => {
       employeeSupplyIds.push(Number(employeeSupplyId))
       return `supply-${Number(employeeSupplyId)}`
     }
-    const supplyPair = async (newOffset: number): Promise<SupersedePair> => {
+    const createSupplyType = async (): Promise<number> => {
       const supplyType = await SupplyType.create({
         businessUnitId,
         supplyTypeName: uniqueTestName('Tipo tope'),
         supplyTypeSlug: `tipo-insumo-tope-${uniqueSpecStamp()}`,
       })
       supplyTypeIds.push(supplyType.supplyTypeId)
-      const oldKey = await insertEmployeeSupply(supplyType.supplyTypeId, -5)
-      return { oldKey, newKey: await insertEmployeeSupply(supplyType.supplyTypeId, newOffset) }
+      return supplyType.supplyTypeId
     }
-    cases.set('supply', { replaced: await supplyPair(10), kept: await supplyPair(-10) })
+    const sameSupplyTypeId = await createSupplyType()
+    const renewedSupplyId = await createSupply(sameSupplyTypeId)
+    const replacedSupply: SupersedePair = {
+      oldKey: await assignSupply(renewedSupplyId, -5),
+      newKey: await assignSupply(renewedSupplyId, 10),
+    }
+    const twoSuppliesTypeId = await createSupplyType()
+    const firstSupplyKey = await assignSupply(await createSupply(twoSuppliesTypeId), -5)
+    const keptSupply: SupersedePair = {
+      oldKey: firstSupplyKey,
+      newKey: await assignSupply(await createSupply(twoSuppliesTypeId), 10),
+    }
+    cases.set('supply', { replaced: replacedSupply, kept: keptSupply })
   })
 
   group.teardown(async () => {

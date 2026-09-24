@@ -551,7 +551,9 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
           .from('employee_supplies as es_new')
           .join('supplies as s_new', 's_new.supply_id', 'es_new.supply_id')
           .whereColumn('es_new.employee_id', 'es.employee_id')
-          .whereColumn('s_new.supply_type_id', 's.supply_type_id')
+          // El mismo insumo, no el mismo tipo: dos activos del mismo tipo
+          // (dos laptops) son legítimos y no se tapan entre sí.
+          .whereColumn('es_new.supply_id', 'es.supply_id')
           .whereColumn('es_new.employee_supply_id', '>', 'es.employee_supply_id')
           .whereNull('es_new.employee_supply_deleted_at')
           .where('es_new.employee_supply_status', 'active')
