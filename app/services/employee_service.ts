@@ -815,7 +815,8 @@ export default class EmployeeService {
   async update(
     currentEmployee: Employee,
     employee: Employee,
-    options?: { changedBy?: number; salaryChangeReason?: string | null }
+    options?: { changedBy?: number; salaryChangeReason?: string | null },
+    trx?: TransactionClientContract
   ) {
     const salarioAnterior = currentEmployee.dailySalary
     // Eco destructivo (USRH1787433076994): propiedad ausente = conservar el
@@ -874,19 +875,23 @@ export default class EmployeeService {
     currentEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
     currentEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
     currentEmployee.employeeAuthorizeAnyZones = employee.employeeAuthorizeAnyZones
+    if (trx) currentEmployee.useTransaction(trx)
     await currentEmployee.save()
 
     if (Number(salarioAnterior) !== Number(salarioNuevo) && options?.changedBy) {
       const historialService = new EmployeeSalaryHistoryService()
-      await historialService.registrarCambio({
-        employeeId: currentEmployee.employeeId,
-        salaryDaily: salarioNuevo,
-        changedBy: options.changedBy,
-        reason: options.salaryChangeReason ?? null,
-      })
+      await historialService.registrarCambio(
+        {
+          employeeId: currentEmployee.employeeId,
+          salaryDaily: salarioNuevo,
+          changedBy: options.changedBy,
+          reason: options.salaryChangeReason ?? null,
+        },
+        trx
+      )
     }
 
-    await this.updateEmployeeSlug(currentEmployee)
+    await this.updateEmployeeSlug(currentEmployee, trx)
     await currentEmployee.load('businessUnit')
     return currentEmployee
   }
