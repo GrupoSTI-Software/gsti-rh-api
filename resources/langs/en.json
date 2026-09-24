@@ -3189,6 +3189,7 @@
   "expiration_matrix_listed_successfully": "Expirations retrieved successfully",
   "expiration_matrix_document_employee_file": "Record file",
   "expiration_matrix_document_employee_contract": "Contract",
+  "expiration_matrix_document_employee_contract_of_type": "{type} contract",
   "expiration_matrix_document_company_file": "Company record file",
   "expiration_matrix_document_certification": "Certification",
   "expiration_matrix_document_repse_folio": "REPSE folio",

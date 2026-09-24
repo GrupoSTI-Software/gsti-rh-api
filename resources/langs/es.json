@@ -3192,6 +3192,7 @@
   "expiration_matrix_listed_successfully": "Vencimientos obtenidos correctamente",
   "expiration_matrix_document_employee_file": "Expediente",
   "expiration_matrix_document_employee_contract": "Contrato",
+  "expiration_matrix_document_employee_contract_of_type": "Contrato {type}",
   "expiration_matrix_document_company_file": "Expediente de la empresa",
   "expiration_matrix_document_certification": "Certificación",
   "expiration_matrix_document_repse_folio": "Folio REPSE",

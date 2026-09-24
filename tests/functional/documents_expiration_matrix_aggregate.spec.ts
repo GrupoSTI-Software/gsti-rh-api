@@ -11,6 +11,7 @@ import Supplie from '#models/supplie'
 import SupplyType from '#models/supply_type'
 import SystemSetting from '#models/system_setting'
 import UserService from '#services/user_service'
+import { buildContractDocumentName } from '#modules/documents-expiration-matrix/documents_expiration_matrix.service'
 import { TenantContext } from '#utils/tenant_context'
 import { toBusinessDateString, todayInBusinessZone } from '#utils/business_date'
 import { createDepartmentFixture } from '#tests/helpers/org_chart_fixtures'
@@ -157,7 +158,6 @@ test.group('Matriz de vencimientos agregada', (group) => {
   let employeeProceedingFileId: number | null = null
   let employeeContractId: number | null = null
   let roleDepartmentId: number | null = null
-  let contractTypeName = ''
   /** Dueño de la empresa del actor, sin filas en `role_departments`. */
   let companyOwner: UnitUser | null = null
   /** Otra empresa con su propio departamento: el owner no debe alcanzarlo. */
@@ -265,8 +265,12 @@ test.group('Matriz de vencimientos agregada', (group) => {
     })
     employeeProceedingFileId = Number(insertedLinkId)
 
-    const contractType = await db.from('employee_contract_types').whereNull('employee_contract_type_deleted_at').firstOrFail()
-    contractTypeName = contractType.employee_contract_type_name
+    // "Temporal" lo siembra `0009_employee_contract_type_seeder`: el nombre esperado es fijo.
+    const contractType = await db
+      .from('employee_contract_types')
+      .whereNull('employee_contract_type_deleted_at')
+      .where('employee_contract_type_name', 'Temporal')
+      .firstOrFail()
     const [insertedContractId] = await db.table('employee_contracts').insert({
       employee_contract_folio: `CTR-MATRIZ-${stamp}`,
       employee_contract_start_date: `${dayOffset(-365)} 00:00:00`,
@@ -548,7 +552,7 @@ test.group('Matriz de vencimientos agregada', (group) => {
     assert.equal(file?.owner.departmentName, department.departmentName)
     assert.isFalse(file?.hasFile, 'sin download-proceeding-files no se ofrece el archivo')
     assert.exists(contract)
-    assert.equal(contract?.documentName, contractTypeName)
+    assert.equal(contract?.documentName, 'Contrato temporal', 'Contrato + tipo con inicial en minúscula')
     assert.equal(contract?.daysToExpire, -1)
     assert.isFalse(contract?.hasFile, 'el contrato no tiene archivo')
 
@@ -640,6 +644,22 @@ test.group('Matriz de vencimientos agregada', (group) => {
       .headers(businessUnitHeaders(tenant))
     ownerDownload.assertStatus(404)
     assert.equal(ownerDownload.body().key, 'archivo-no-encontrado')
+  })
+
+  test('nombre del contrato: sigla intacta, sin duplicar "Contrato" y en inglés', ({ assert }) => {
+    const contractOfTypeIn = (locale: string) => (type: string) =>
+      i18nManager.locale(locale).t('expiration_matrix_document_employee_contract_of_type', { type })
+
+    const spanish = contractOfTypeIn('es')
+    assert.equal(buildContractDocumentName('Temporal', spanish), 'Contrato temporal')
+    assert.equal(
+      buildContractDocumentName('Por tiempo indeterminado', spanish),
+      'Contrato por tiempo indeterminado'
+    )
+    assert.equal(buildContractDocumentName('NOM-035', spanish), 'Contrato NOM-035', 'sigla sin tocar')
+    assert.equal(buildContractDocumentName('contrato de obra', spanish), 'contrato de obra')
+    assert.equal(buildContractDocumentName('CONTRATO Temporal', spanish), 'CONTRATO Temporal')
+    assert.equal(buildContractDocumentName('Temporal', contractOfTypeIn('en')), 'temporal contract')
   })
 
   test('targetId: tipo del insumo y tipo del expediente de la empresa', async ({

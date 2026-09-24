@@ -12,8 +12,17 @@ import DocumentsExpirationMatrixService, {
 } from './documents_expiration_matrix.service.js'
 import { expirationMatrixItemKeyValidator } from './validators/expiration_matrix_item_key.validator.js'
 
-/** Nombre genérico del documento por fuente, traducido según `Accept-Language`. */
+/** Textos del documento, traducidos según `Accept-Language`. */
 function resolveLabels(i18n: I18n): ExpirationMatrixLabels {
+  return {
+    bySource: resolveSourceLabels(i18n),
+    contractOfType: (type) =>
+      i18n.t('expiration_matrix_document_employee_contract_of_type', { type }, `Contrato ${type}`),
+  }
+}
+
+/** Nombre genérico del documento por fuente. */
+function resolveSourceLabels(i18n: I18n): ExpirationMatrixLabels['bySource'] {
   return {
     'employee-file': i18n.t('expiration_matrix_document_employee_file', undefined, 'Expediente'),
     'employee-contract': i18n.t('expiration_matrix_document_employee_contract', undefined, 'Contrato'),
@@ -56,6 +65,8 @@ export default class DocumentsExpirationMatrixController {
    *         departamentos del rol. Archivo con `employees:download-proceeding-files`.
    *       - `employee-contract`: igual que `employee-file`. Archivo con
    *         `employees:download-employee-contract` y `employees:tab-trabajo-read`.
+   *         `documentName` = "Contrato" + tipo ("Contrato temporal"); sin tipo,
+   *         "Contrato".
    *       - `company-file`: expediente de la ficha activa de la empresa.
    *       - `certification`: `employees:tab-certificaciones-read` (última por
    *         empleado y certificación), acotado a los departamentos del rol.

@@ -42,8 +42,13 @@ export interface ExpirationMatrixAccess {
   sources: Readonly<Record<ExpirationMatrixSource, ExpirationMatrixSourceAccess>>
 }
 
-/** Nombre genérico del documento por fuente, ya traducido (cuando la fila no trae uno). */
-export type ExpirationMatrixLabels = Readonly<Record<ExpirationMatrixSource, string>>
+/** Textos del documento, ya traducidos. */
+export interface ExpirationMatrixLabels {
+  /** Nombre genérico por fuente, cuando la fila no trae uno. */
+  bySource: Readonly<Record<ExpirationMatrixSource, string>>
+  /** Nombre del contrato con su tipo ya preparado (`Contrato {type}`). */
+  contractOfType: (typeName: string) => string
+}
 
 /** Lo único que el service necesita del almacenamiento. */
 export type ExpirationMatrixFileStorage = Pick<UploadService, 'streamStoredFile' | 'canStreamStoredFile'>
@@ -54,6 +59,28 @@ type StoredObject = NonNullable<Awaited<ReturnType<UploadService['streamStoredFi
 export interface ExpirationMatrixFile {
   object: StoredObject
   fileName: string
+}
+
+/** Letra con mayúscula y minúscula distintas, escrita en minúscula. */
+function isLowercaseLetter(character: string): boolean {
+  return character !== character.toUpperCase() && character === character.toLowerCase()
+}
+
+/**
+ * Nombre del contrato a partir de su tipo: "Temporal" → "Contrato temporal".
+ * La inicial del tipo baja a minúscula solo si la segunda letra ya lo es, para
+ * no romper siglas ("NOM-035"). Un tipo que ya empieza con "Contrato" se deja
+ * tal cual para no duplicar la palabra.
+ */
+export function buildContractDocumentName(
+  typeName: string,
+  contractOfType: ExpirationMatrixLabels['contractOfType']
+): string {
+  if (typeName.toLowerCase().startsWith('contrato')) return typeName
+
+  const [first = '', second = ''] = typeName
+  const type = isLowercaseLetter(second) ? `${first.toLowerCase()}${typeName.slice(1)}` : typeName
+  return contractOfType(type)
 }
 
 /** Hay archivo real: ni vacío ni el centinela de subida fallida. */
@@ -183,6 +210,15 @@ export default class DocumentsExpirationMatrixService {
     return { object, fileName }
   }
 
+  /** Nombre propio de la fila (el contrato lleva su tipo) o el genérico de la fuente. */
+  private resolveDocumentName(record: ExpirationMatrixRecord, labels: ExpirationMatrixLabels): string {
+    if (record.documentName === null) return labels.bySource[record.source]
+    if (record.source === 'employee-contract') {
+      return buildContractDocumentName(record.documentName, labels.contractOfType)
+    }
+    return record.documentName
+  }
+
   private toItem(
     record: ExpirationMatrixRecord,
     today: string,
@@ -192,7 +228,7 @@ export default class DocumentsExpirationMatrixService {
     return {
       key: buildExpirationMatrixKey(record.source, record.id),
       source: record.source,
-      documentName: record.documentName ?? labels[record.source],
+      documentName: this.resolveDocumentName(record, labels),
       reference: record.reference,
       expiresAt: record.expiresAt,
       daysToExpire: daysBetweenBusinessDates(today, record.expiresAt),
