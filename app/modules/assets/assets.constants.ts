@@ -11,6 +11,21 @@ export const ASSET_DEACTIVATION_STATUSES = ['inactive', 'lost', 'damaged'] as co
 export type AssetDeactivationStatus = (typeof ASSET_DEACTIVATION_STATUSES)[number]
 
 /**
+ * Estado que acepta `PUT /api/supplies/:id`: solo reactivar. Las bajas pasan
+ * por `PUT /api/supplies/:id/deactivate`, que guarda motivo y fecha y cierra
+ * el resguardo; por el PUT genérico el activo quedaba de baja con el
+ * resguardo abierto.
+ */
+export const ASSET_UPDATE_STATUSES = ['active'] as const
+
+/**
+ * Estados de un resguardo que comprometen el activo: `active` (lo tiene el
+ * colaborador) y `shipping` (va en camino hacia él). Un activo tiene a lo más
+ * uno abierto, no se borra con uno abierto y la baja los cierra.
+ */
+export const OPEN_ASSIGNMENT_STATUSES = ['active', 'shipping'] as const
+
+/**
  * Filtro de estado del listado:
  * - `available`: activo en operación sin resguardo activo.
  * - `assigned`: activo en operación con resguardo activo.

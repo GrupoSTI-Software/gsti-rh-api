@@ -260,8 +260,8 @@ export default class SuppliesController {
    *                 description: Supply type ID
    *               supplyStatus:
    *                 type: string
-   *                 enum: [active, inactive, lost, damaged]
-   *                 description: Supply status
+   *                 enum: [active]
+   *                 description: Solo reactivar; las bajas van por PUT /api/supplies/{id}/deactivate
    *               supplyAcquisitionDate:
    *                 type: string
    *                 format: date

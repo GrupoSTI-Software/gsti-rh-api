@@ -2,6 +2,7 @@ import vine from '@vinejs/vine'
 import {
   ASSET_DEACTIVATION_STATUSES,
   ASSET_STATUSES,
+  ASSET_UPDATE_STATUSES,
 } from '#modules/assets/assets.constants'
 
 /**
@@ -58,7 +59,7 @@ export const updateSupplieValidator = vine.compile(
     supplySerialNumber: serialNumber(),
     supplyDescription: vine.string().trim().maxLength(1000).optional(),
     supplyTypeId: vine.number().positive().optional(),
-    supplyStatus: vine.enum(ASSET_STATUSES).optional(),
+    supplyStatus: vine.enum(ASSET_UPDATE_STATUSES).optional(),
     supplyAcquisitionDate: vine.string().trim().optional().nullable(),
     supplyAcquisitionValue: vine.number().min(0).optional().nullable(),
   })
