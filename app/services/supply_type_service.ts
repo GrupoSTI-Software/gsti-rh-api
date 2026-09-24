@@ -1,4 +1,6 @@
 import SupplyType from '#models/supply_type'
+import { slugifyFileNamePart } from '#helpers/download_file_name'
+import { assertSupplyTypeWithoutAssets } from '#modules/assets/assets.rules'
 import { SupplyTypeFilterSearchInterface } from '../interfaces/supply_type_filter_search_interface.js'
 
 export default class SupplyTypeService {
@@ -45,8 +47,15 @@ export default class SupplyTypeService {
     supplyTypeName: string
     supplyTypeDescription?: string
     supplyTypeIdentifier?: string
-    supplyTypeSlug: string
+    supplyTypeSlug?: string
   }) {
+    if (!data.supplyTypeSlug) {
+      return await SupplyType.create({
+        ...data,
+        supplyTypeSlug: await SupplyTypeService.resolveFreeSlug(data.supplyTypeName),
+      })
+    }
+
     // Check if slug already exists
     const existingSupplyType = await SupplyType.query()
       .where('supplyTypeSlug', data.supplyTypeSlug)
@@ -56,7 +65,25 @@ export default class SupplyTypeService {
       throw new Error('Supply type with this slug already exists')
     }
 
-    return await SupplyType.create(data)
+    return await SupplyType.create({ ...data, supplyTypeSlug: data.supplyTypeSlug })
+  }
+
+  /**
+   * Slug derivado del nombre, libre en la empresa (el modelo acota la
+   * consulta al tenant): `laptop`, `laptop-2`, `laptop-3`...
+   */
+  private static async resolveFreeSlug(name: string): Promise<string> {
+    const base = slugifyFileNamePart(name) || 'tipo-de-activo'
+    const taken = await SupplyType.query()
+      .where((query) => {
+        query.where('supplyTypeSlug', base).orWhereLike('supplyTypeSlug', `${base}-%`)
+      })
+      .select('supplyTypeSlug')
+    const used = new Set(taken.map((row) => row.supplyTypeSlug))
+    if (!used.has(base)) return base
+    let suffix = 2
+    while (used.has(`${base}-${suffix}`)) suffix += 1
+    return `${base}-${suffix}`
   }
 
   /**
@@ -93,6 +120,7 @@ export default class SupplyTypeService {
    */
   static async delete(id: number) {
     const supplyType = await SupplyType.findOrFail(id)
+    await assertSupplyTypeWithoutAssets(supplyType.supplyTypeId)
     await supplyType.delete()
     return supplyType
   }
