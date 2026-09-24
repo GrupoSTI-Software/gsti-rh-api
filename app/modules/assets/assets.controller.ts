@@ -35,6 +35,7 @@ import {
  *       nullable: true
  *       properties:
  *         employeeSupplyId: { type: integer, example: 912 }
+ *         status: { type: string, enum: [active, shipping], description: "active: lo tiene el colaborador; shipping: va en camino" }
  *         assignedAt: { type: string, format: date, example: "2026-08-01" }
  *         expiresAt: { type: string, format: date, nullable: true, example: "2027-08-01" }
  *         notes: { type: string, nullable: true, example: "Incluye cargador" }

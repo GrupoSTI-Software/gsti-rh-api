@@ -1,6 +1,11 @@
 import db from '@adonisjs/lucid/services/db'
 import { isUploadFailureSentinel } from '#constants/upload_sentinels'
-import type { AssetCharacteristicType, AssetStatus } from './assets.constants.js'
+import {
+  OPEN_ASSIGNMENT_STATUSES,
+  type AssetCharacteristicType,
+  type AssetStatus,
+  type OpenAssignmentStatus,
+} from './assets.constants.js'
 import type {
   AssetCharacteristicValueWrite,
   AssetListFilter,
@@ -39,6 +44,7 @@ interface AssetRow {
   acquisition_date: string | null
   current_value: DecimalValue
   employee_supply_id: number | null
+  employee_supply_status: OpenAssignmentStatus | null
   assigned_at: string | null
   expires_at: string | null
   employee_supply_additions: string | null
@@ -68,11 +74,14 @@ const CURRENT_VALUE_SQL = `COALESCE(
     LIMIT 1),
   s.supply_acquisition_value)`
 
-/** Resguardo `active` del activo; el de id mayor si la BD trae más de uno. */
+/**
+ * Resguardo abierto del activo (`active` o `shipping`, ver
+ * `OPEN_ASSIGNMENT_STATUSES`); el de id mayor si la BD trae más de uno.
+ */
 const ACTIVE_ASSIGNMENT_ID_SQL = `(SELECT MAX(es_active.employee_supply_id)
   FROM employee_supplies AS es_active
   WHERE es_active.supply_id = s.supply_id
-    AND es_active.employee_supply_status = 'active'
+    AND es_active.employee_supply_status IN (${OPEN_ASSIGNMENT_STATUSES.map((status) => `'${status}'`).join(', ')})
     AND es_active.employee_supply_deleted_at IS NULL)`
 
 /** Sucursal base activa del colaborador. */
@@ -154,6 +163,7 @@ const ASSET_COLUMNS = [
   'st.supply_type_name',
   's.supply_acquisition_value',
   'es.employee_supply_id',
+  'es.employee_supply_status',
   'es.employee_supply_additions',
   'e.employee_id',
   'e.employee_slug',
@@ -238,6 +248,7 @@ function toAssetItem(row: AssetRow): AssetListItemDto {
         ? null
         : {
             employeeSupplyId: row.employee_supply_id,
+            status: row.employee_supply_status ?? 'active',
             assignedAt: row.assigned_at ?? '',
             expiresAt: row.expires_at,
             notes: textOrNull(row.employee_supply_additions),

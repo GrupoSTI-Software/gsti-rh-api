@@ -24,6 +24,7 @@ export const ASSET_UPDATE_STATUSES = ['active'] as const
  * uno abierto, no se borra con uno abierto y la baja los cierra.
  */
 export const OPEN_ASSIGNMENT_STATUSES = ['active', 'shipping'] as const
+export type OpenAssignmentStatus = (typeof OPEN_ASSIGNMENT_STATUSES)[number]
 
 /**
  * Filtro de estado del listado:

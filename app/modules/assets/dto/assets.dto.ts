@@ -1,4 +1,8 @@
-import type { AssetCharacteristicType, AssetStatus } from '../assets.constants.js'
+import type {
+  AssetCharacteristicType,
+  AssetStatus,
+  OpenAssignmentStatus,
+} from '../assets.constants.js'
 
 /** Colaborador que tiene el activo en resguardo. */
 export interface AssetEmployeeDto {
@@ -14,9 +18,11 @@ export interface AssetEmployeeDto {
   branchName: string | null
 }
 
-/** Resguardo `active` del activo (a lo más uno). */
+/** Resguardo abierto del activo (a lo más uno): en poder del colaborador o en envío. */
 export interface AssetActiveAssignmentDto {
   employeeSupplyId: number
+  /** `active`: lo tiene el colaborador; `shipping`: va en camino hacia él. */
+  status: OpenAssignmentStatus
   /** Fecha de calendario `YYYY-MM-DD` (fecha de asignación o, sin ella, de alta). */
   assignedAt: string
   /** Fecha de calendario `YYYY-MM-DD`; `null` si no vence. */

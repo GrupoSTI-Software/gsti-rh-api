@@ -399,6 +399,7 @@ test.group('Activos — módulo de lectura y reglas de servidor', (group) => {
     assert.equal(assigned.currentValue, 15200, 'último registro del historial')
     assert.equal(assigned.acquisitionValue, 18500)
     assert.equal(assigned.activeAssignment?.employeeSupplyId, assignedEmployeeSupplyId)
+    assert.equal(assigned.activeAssignment?.status, 'active')
     assert.equal(assigned.activeAssignment?.assignedAt, '2026-09-01')
     assert.equal(assigned.activeAssignment?.notes, 'Incluye cargador')
     assert.equal(assigned.activeAssignment?.employee.employeeId, employee.employeeId)
@@ -750,6 +751,12 @@ test.group('Activos — módulo de lectura y reglas de servidor', (group) => {
     })
     shipping.assertStatus(201)
     const shippingId: number = shipping.body().data.employeeSupply.employeeSupplyId
+
+    const listed: AssetDetailDto = await dataOf(
+      call(client, actor, 'get', `/api/assets/${assignedAssetId}`)
+    )
+    assert.equal(listed.activeAssignment?.employeeSupplyId, shippingId)
+    assert.equal(listed.activeAssignment?.status, 'shipping')
 
     const second = await call(client, actor, 'post', '/api/employee-supplies', {
       employeeId,
