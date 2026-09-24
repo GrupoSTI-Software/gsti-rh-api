@@ -430,6 +430,22 @@ export {}
  *           description: |
  *             true solo cuando el estatus efectivo es vencido por expiración de fecha
  *             (fecha_fin o documento firmado vigente) y el estatus declarado en BD sigue siendo vigente.
+ *         porVencer:
+ *           type: boolean
+ *           description: Estatus efectivo vigente y fechaFin a 45 días o menos (zona de negocio).
+ *         diasParaVencer:
+ *           type: integer
+ *           nullable: true
+ *           description: Días civiles de hoy a fechaFin; null si no está vigente o no tiene fechaFin.
+ *         trabajadoresAsignados:
+ *           type: integer
+ *           description: Trabajadores distintos con asignación no borrada y vigente hoy.
+ *         trabajadoresDeclarados:
+ *           type: integer
+ *           description: numeroTrabajadoresAprox del anexo 15-D (0 si no hay anexo).
+ *         tieneDocumentoFirmado:
+ *           type: boolean
+ *           description: Existe documento firmado vigente cargado.
  *         anexo15d:
  *           $ref: '#/components/schemas/Anexo15DResource'
  *         serviciosRegistrados:
