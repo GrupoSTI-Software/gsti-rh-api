@@ -579,13 +579,7 @@ export default class UploadService {
     const ref = this.resolveS3Ref(storedPath)
     if (!ref?.key) return null
 
-    // Mismo candado que `readStoredFileBuffer`: el bucket lo decide la
-    // configuración, nunca la cadena guardada. Antes, una referencia que
-    // empezara por http la pedia por HTTP tal cual, lo que convertía cualquier
-    // campo de base de datos en una petición saliente del servidor con su
-    // respuesta reflejada al cliente: el mismo primitivo por el que se retiro
-    // `proxy-image`.
-    if (ref.bucket && this.BUCKET_NAME && ref.bucket !== this.BUCKET_NAME) {
+    if (!this.isConfiguredBucketRef(ref)) {
       logger.warn(
         { bucketSolicitado: ref.bucket, bucketConfigurado: this.BUCKET_NAME },
         'streamStoredFile: referencia a un bucket ajeno, descartada'
@@ -594,6 +588,29 @@ export default class UploadService {
     }
 
     return this.getObjectStream(ref.key)
+  }
+
+  /**
+   * Indica, sin consultar el almacenamiento, si `streamStoredFile` aceptaría
+   * la referencia: resuelve a una key y vive en el bucket configurado. Sirve
+   * para no ofrecer una descarga que de antemano va a responder 404.
+   *
+   * @param storedPath - Ruta o URL guardada en BD.
+   * @returns `true` si la referencia es transmisible.
+   */
+  canStreamStoredFile(storedPath: string): boolean {
+    const ref = this.resolveS3Ref(storedPath)
+    return !!ref?.key && this.isConfiguredBucketRef(ref)
+  }
+
+  // Mismo candado que `readStoredFileBuffer`: el bucket lo decide la
+  // configuración, nunca la cadena guardada. Antes, una referencia que
+  // empezara por http la pedia por HTTP tal cual, lo que convertía cualquier
+  // campo de base de datos en una petición saliente del servidor con su
+  // respuesta reflejada al cliente: el mismo primitivo por el que se retiro
+  // `proxy-image`.
+  private isConfiguredBucketRef(ref: { bucket: string; key: string }): boolean {
+    return !(ref.bucket && this.BUCKET_NAME && ref.bucket !== this.BUCKET_NAME)
   }
 
 

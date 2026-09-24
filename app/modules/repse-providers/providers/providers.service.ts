@@ -3,7 +3,8 @@ import ProveedorRepse from '#models/proveedor_repse'
 import ProveedorRepseValidacion from '#models/proveedor_repse_validacion'
 import { REPSE_PROVIDER_ERROR_CODES } from '#constants/repse_provider_error_codes'
 import { RepseProviderError } from '#exceptions/repse_provider_error'
-import { normalizeRfc } from '../../../shared/validators/rfc.validator.js'
+import { hasRfcShape, normalizeRfc } from '../../../shared/validators/rfc.validator.js'
+import { escapeLikePattern } from '#utils/org_alias_normalize'
 import { blindIndex } from '#utils/blind_index'
 import {
   assertBusinessUnitInTenant,
@@ -16,7 +17,11 @@ import {
   todayInBusinessZone,
 } from '../repse_provider_dates.js'
 import ProvidersRepositoryMysql from './providers.repository.mysql.js'
-import type { ProvidersRepository } from './providers.repository.js'
+import type {
+  ProveedorRepseLastValidation,
+  ProveedorRepseSearch,
+  ProvidersRepository,
+} from './providers.repository.js'
 import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'
 import type { ProveedorRepseDto, ProveedorRepseListDto, ProveedorRepseReviewStatus } from './dto/providers.dto.js'
 
@@ -42,22 +47,39 @@ export default class ProvidersService {
     this.repository = repository
   }
 
-  async listByTenant(page: number, limit: number, businessUnitId?: number): Promise<ProveedorRepseListDto> {
+  async listByTenant(
+    page: number,
+    limit: number,
+    businessUnitId?: number,
+    q?: string
+  ): Promise<ProveedorRepseListDto> {
     const safeLimit = Math.min(Math.max(limit, 1), 500)
     const safePage = Math.max(page, 1)
 
     const targetBusinessUnitIds = await this.resolveTargetBusinessUnitIds(businessUnitId)
+    const search = this.buildSearch(q)
 
-    const bundle = await this.repository.listPaginated(safePage, safeLimit, targetBusinessUnitIds)
+    const bundle = await this.repository.listPaginated(
+      safePage,
+      safeLimit,
+      targetBusinessUnitIds,
+      search
+    )
+    // Una sola consulta para la última validación de toda la página (sin N+1).
+    const lastValidations = await this.repository.findLastValidationsByProveedorIds(
+      bundle.data.map((row) => row.proveedorRepseId)
+    )
     return {
       meta: bundle.meta,
-      data: bundle.data.map((row) => this.serialize(row)),
+      data: bundle.data.map((row) =>
+        this.serialize(row, lastValidations.get(row.proveedorRepseId) ?? null)
+      ),
     }
   }
 
   async findById(proveedorRepseId: number): Promise<ProveedorRepseDto> {
     const row = await findProveedorRepseInTenantOrFail(proveedorRepseId)
-    return this.serialize(row)
+    return this.serialize(row, await this.findLastValidation(row.proveedorRepseId))
   }
 
   async create(input: ProveedorRepseCreateInput): Promise<ProveedorRepseDto> {
@@ -82,7 +104,8 @@ export default class ProvidersService {
       periodicidadMeses,
     })
 
-    return this.serialize(row)
+    // Un proveedor recién creado todavía no tiene validaciones en la bitácora.
+    return this.serialize(row, null)
   }
 
   async update(
@@ -139,18 +162,26 @@ export default class ProvidersService {
       }
     }
 
-    return this.serialize(row)
+    return this.serialize(row, await this.findLastValidation(proveedorRepseId))
   }
 
   async destroy(proveedorRepseId: number): Promise<ProveedorRepseDto> {
     const row = await findProveedorRepseInTenantOrFail(proveedorRepseId)
+    const lastValidation = await this.findLastValidation(proveedorRepseId)
     await this.repository.softDelete(proveedorRepseId)
-    return this.serialize(row)
+    return this.serialize(row, lastValidation)
   }
 
   // ---------------------------------------------------------------------------
   // Helpers privados
   // ---------------------------------------------------------------------------
+
+  private async findLastValidation(
+    proveedorRepseId: number
+  ): Promise<ProveedorRepseLastValidation | null> {
+    const byId = await this.repository.findLastValidationsByProveedorIds([proveedorRepseId])
+    return byId.get(proveedorRepseId) ?? null
+  }
 
   private async resolveTargetBusinessUnitIds(businessUnitId?: number): Promise<number[]> {
     if (businessUnitId !== undefined) {
@@ -158,6 +189,24 @@ export default class ProvidersService {
       return [businessUnitId]
     }
     return getAllowedBusinessUnitIds()
+  }
+
+  /**
+   * Prepara el término `q` del listado:
+   * - razón social y folio: LIKE parcial, sin distinguir mayúsculas.
+   * - RFC: vive cifrado con índice ciego, así que solo hay match EXACTO y solo
+   *   cuando el término (en mayúsculas y sin espacios) tiene forma de RFC
+   *   completo. Una búsqueda parcial por RFC no es posible por diseño.
+   */
+  private buildSearch(q: string | undefined): ProveedorRepseSearch | undefined {
+    const term = q?.trim() ?? ''
+    if (term.length === 0) return undefined
+
+    const rfcCandidate = normalizeRfc(term).replace(/\s+/g, '')
+    return {
+      likePattern: `%${escapeLikePattern(term.toLowerCase())}%`,
+      rfcHash: hasRfcShape(rfcCandidate) ? blindIndex(rfcCandidate) : null,
+    }
   }
 
   private async assertNoFolioDuplicate(
@@ -296,7 +345,10 @@ export default class ProvidersService {
     return 'on_track'
   }
 
-  private serialize(row: ProveedorRepse): ProveedorRepseDto {
+  private serialize(
+    row: ProveedorRepse,
+    lastValidation: ProveedorRepseLastValidation | null
+  ): ProveedorRepseDto {
     return {
       proveedorRepseId: row.proveedorRepseId,
       businessUnitId: row.businessUnitId,
@@ -308,6 +360,8 @@ export default class ProvidersService {
       periodicidadMeses: row.periodicidadMeses,
       nextReviewAt: row.nextReviewAt ? row.nextReviewAt.toISODate() : null,
       reviewStatus: this.resolveReviewStatus(row.nextReviewAt, row.folioVencimiento),
+      lastValidationAt: lastValidation?.fecha ?? null,
+      lastValidationEstatus: lastValidation?.estatus ?? null,
       proveedorRepseCreatedAt: row.createdAt ? row.createdAt.toISO() : null,
       proveedorRepseUpdatedAt: row.updatedAt ? row.updatedAt.toISO() : null,
     }

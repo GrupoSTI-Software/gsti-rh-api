@@ -303,7 +303,9 @@ export async function restoreEmployeesGrants(grants: RoleSystemPermission[]) {
 export async function createSensitiveFixture(
   businessUnitId: number,
   prefix: string,
-  sharedSearchToken?: string
+  sharedSearchToken?: string,
+  /** Una segunda persona en la misma empresa necesita RFC/CURP/NSS propios (USRH1789698261610). */
+  identity?: Pick<ClearPii, 'curp' | 'rfc' | 'nss'>
 ): Promise<SensitiveFixture> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   // employee_second_last_name es VARCHAR(25); el stamp completo no cabe.
@@ -314,6 +316,7 @@ export async function createSensitiveFixture(
   const now = new Date()
   const clear: ClearPii = {
     ...CLEAR_FIXED,
+    ...identity,
     email: `juan-${stamp}@empresa.com`,
   }
   const person = await Person.create({
@@ -982,6 +985,11 @@ export function expectMaskedHealth(value: unknown, assert: Assert) {
 
 export function expectAmountNull(value: unknown, assert: Assert) {
   assert.isNull(value)
+  assert.notEqual(value, '•••0.75')
+}
+
+export function expectAmountMasked(value: unknown, assert: Assert) {
+  assert.equal(value, MASK_CHAR.repeat(5))
   assert.notEqual(value, '•••0.75')
 }
 

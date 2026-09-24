@@ -31,3 +31,24 @@ test.group('RoleService.hasAccess — bypass de owner', () => {
     assert.isFalse(hasAccess)
   })
 })
+
+/**
+ * `owner` ve toda la plantilla de su empresa igual que pasa el gate central:
+ * sin la fila `full-employee-assigned` el listado lo acotaba a los
+ * colaboradores que tiene a cargo y el dueño de una empresa importada no
+ * veía a nadie.
+ */
+test.group('RoleService.hasAccessToFullEmployees — owner', () => {
+  test('retorna true para owner sin depender de role_system_permissions', async ({ assert }) => {
+    const ownerRole = await ensureRole('owner')
+
+    const hasAccess = await new RoleService().hasAccessToFullEmployees(ownerRole.roleId)
+
+    assert.isTrue(hasAccess, 'owner debe ver toda la plantilla de su empresa')
+  })
+
+  test('retorna false para un roleId inexistente', async ({ assert }) => {
+    const hasAccess = await new RoleService().hasAccessToFullEmployees(999999)
+    assert.isFalse(hasAccess)
+  })
+})

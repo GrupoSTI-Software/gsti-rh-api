@@ -10,6 +10,7 @@ import {
   employeePerson,
   expectNeverDenied,
   extractEmployeeRows,
+  expectAmountMasked,
   grantOnly,
   type SensitiveFixture,
   type TenantActor,
@@ -17,12 +18,11 @@ import {
 
 /**
  * CA-1 (USRH1787433076994): `Employee.dailySalary` en `GET /api/employees/:id`
- * y en el listado. Sin `sensitive-financiero-read` debe entregarse `null`
- * (nunca `0`, nunca cadena enmascarada).
+ * y en el listado. Sin `sensitive-financiero-read` debe entregarse la máscara
+ * fija (nunca `0`, nunca máscara parcial numérica).
  *
- * Desde USRH1789328027048 el permiso financiero ya no entrega el importe en
- * GET/listado: `sensitiveSerializeNumeric` devuelve `null` siempre; el claro
- * sale por `GET /api/v1/pii/reveal` (USRH1788478865952).
+ * Desde USRH1789477675774 los importes clasificados usan `SENSITIVE_MASK`
+ * en GET/listado; el claro sale por `GET /api/v1/pii/reveal` (USRH1788478865952).
  */
 const DAILY_SALARY = 850.5
 
@@ -57,7 +57,7 @@ test.group('CA-1 — Employee.dailySalary oculto en GET y listado', (group) => {
     }
   })
 
-  test('CA-1: GET /api/employees/:id sin sensitive-financiero-read entrega dailySalary null', async ({
+  test('CA-1: GET /api/employees/:id sin sensitive-financiero-read entrega dailySalary enmascarado', async ({
     client,
     assert,
   }) => {
@@ -69,12 +69,11 @@ test.group('CA-1 — Employee.dailySalary oculto en GET y listado', (group) => {
 
     expectNeverDenied(response, assert)
     const employee = response.body().data.employee as Record<string, unknown>
-    assert.isNull(employee.dailySalary)
+    expectAmountMasked(employee.dailySalary, assert)
     assert.notEqual(employee.dailySalary, 0)
-    assert.notTypeOf(employee.dailySalary, 'string')
   })
 
-  test('CA-1: GET /api/employees/:id con sensitive-financiero-read sigue entregando dailySalary null', async ({
+  test('CA-1: GET /api/employees/:id con sensitive-financiero-read sigue entregando dailySalary enmascarado', async ({
     client,
     assert,
   }) => {
@@ -86,12 +85,11 @@ test.group('CA-1 — Employee.dailySalary oculto en GET y listado', (group) => {
 
     expectNeverDenied(response, assert)
     const employee = response.body().data.employee as Record<string, unknown>
-    assert.isNull(employee.dailySalary)
+    expectAmountMasked(employee.dailySalary, assert)
     assert.notEqual(employee.dailySalary, 0)
-    assert.notTypeOf(employee.dailySalary, 'string')
   })
 
-  test('CA-1: listado de empleados sin sensitive-financiero-read entrega dailySalary null', async ({
+  test('CA-1: listado de empleados sin sensitive-financiero-read entrega dailySalary enmascarado', async ({
     client,
     assert,
   }) => {
@@ -107,12 +105,11 @@ test.group('CA-1 — Employee.dailySalary oculto en GET y listado', (group) => {
       (item) => Number(item.employeeId ?? item.employee_id) === fixture!.employee.employeeId
     )
     assert.exists(row)
-    assert.isNull(row!.dailySalary)
+    expectAmountMasked(row!.dailySalary, assert)
     assert.notEqual(row!.dailySalary, 0)
-    assert.notTypeOf(row!.dailySalary, 'string')
   })
 
-  test('CA-1: listado de empleados con sensitive-financiero-read sigue entregando dailySalary null', async ({
+  test('CA-1: listado de empleados con sensitive-financiero-read sigue entregando dailySalary enmascarado', async ({
     client,
     assert,
   }) => {
@@ -132,9 +129,8 @@ test.group('CA-1 — Employee.dailySalary oculto en GET y listado', (group) => {
       (item) => Number(item.employeeId ?? item.employee_id) === fixture!.employee.employeeId
     )
     assert.exists(row)
-    assert.isNull(row!.dailySalary)
+    expectAmountMasked(row!.dailySalary, assert)
     assert.notEqual(row!.dailySalary, 0)
-    assert.notTypeOf(row!.dailySalary, 'string')
   })
 
   test('humo: la persona anidada sigue en claro (no se rompió el resto de la ficha)', async ({

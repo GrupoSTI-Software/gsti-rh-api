@@ -101,13 +101,13 @@ test.group('sensitiveSerialize', () => {
 })
 
 test.group('sensitiveSerializeNumeric', () => {
-  test('sin permiso entrega null, nunca máscara parcial', ({ assert }) => {
+  test('sin permiso entrega máscara fija, nunca máscara parcial', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('EmployeeSalaryHistory', 'salaryDaily')
-    assert.isNull(serialize(1250.75))
+    assert.equal(serialize(1250.75), SENSITIVE_MASK)
     assert.notEqual(serialize(1250.75), '•••0.75')
   })
 
-  test('con permiso de financiero sigue entregando null', ({ assert }) => {
+  test('con permiso de financiero sigue entregando máscara fija', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('PositionSalaryRange', 'minSalaryDaily')
     SensitiveAccessContext.run(
       {
@@ -115,7 +115,7 @@ test.group('sensitiveSerializeNumeric', () => {
         write: deniedWrite,
       },
       () => {
-        assert.isNull(serialize(1250.75))
+        assert.equal(serialize(1250.75), SENSITIVE_MASK)
       }
     )
   })
@@ -125,26 +125,25 @@ test.group('sensitiveSerializeNumeric', () => {
     assert.isNull(serialize(null))
   })
 
-  test('sin clasificación entrega null (fail-closed de importe)', ({ assert }) => {
-    const serialize = sensitiveSerializeNumeric('Employee', 'employeeTeleworkPercentage')
-    SensitiveAccessContext.run(
-      {
-        read: {
-          identificacion: true,
-          contacto: true,
-          financiero: true,
-          salud: true,
-          biometrico: true,
-        },
-        write: deniedWrite,
-      },
-      () => {
-        assert.isNull(serialize(999))
-      }
-    )
+  test('cero se entrega tapado como cualquier importe capturado', ({ assert }) => {
+    const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
+    assert.equal(serialize(0), SENSITIVE_MASK)
+    assert.equal(serialize('0.0000'), SENSITIVE_MASK)
   })
 
-  test('Employee.dailySalary sin permiso financiero entrega null', ({ assert }) => {
+  test('par no clasificado con valor también se tapa (fail-closed de presencia)', ({
+    assert,
+  }) => {
+    const serialize = sensitiveSerializeNumeric('Employee', 'employeeTeleworkPercentage')
+    assert.equal(serialize(999), SENSITIVE_MASK)
+  })
+
+  test('importe decimal como string del driver se entrega tapado', ({ assert }) => {
+    const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
+    assert.equal(serialize('1250.7500'), SENSITIVE_MASK)
+  })
+
+  test('Employee.dailySalary sin permiso financiero entrega máscara fija', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
     SensitiveAccessContext.run(
       {
@@ -158,12 +157,12 @@ test.group('sensitiveSerializeNumeric', () => {
         write: deniedWrite,
       },
       () => {
-        assert.isNull(serialize(850.5))
+        assert.equal(serialize(850.5), SENSITIVE_MASK)
       }
     )
   })
 
-  test('Employee.dailySalary con permiso financiero sigue entregando null', ({ assert }) => {
+  test('Employee.dailySalary con permiso financiero sigue entregando máscara fija', ({ assert }) => {
     const serialize = sensitiveSerializeNumeric('Employee', 'dailySalary')
     SensitiveAccessContext.run(
       {
@@ -177,7 +176,7 @@ test.group('sensitiveSerializeNumeric', () => {
         write: deniedWrite,
       },
       () => {
-        assert.isNull(serialize(850.5))
+        assert.equal(serialize(850.5), SENSITIVE_MASK)
       }
     )
   })

@@ -16,8 +16,20 @@ import Person from '#models/person'
 import BillingCatalogService from '#services/billing_catalog_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
 import EmployeeService from '#services/employee_service'
+import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 import { EmployeeQuotaError } from '../../../app/exceptions/employee_quota_error.js'
 import { EMPLOYEE_QUOTA_ERROR_CODES } from '#constants/employee_quota_error_codes'
+
+const writeAllowedStore = {
+  read: { identificacion: true, contacto: true, financiero: true, salud: true, biometrico: true },
+  write: {
+    identificacion: 'allowed' as const,
+    contacto: 'allowed' as const,
+    financiero: 'allowed' as const,
+    salud: 'allowed' as const,
+    biometrico: 'allowed' as const,
+  },
+}
 
 const STAMP = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
 
@@ -283,7 +295,9 @@ test.group('EmployeeService.importFromExcel — cupo (USRH1785441818458)', (grou
     const service = getService()
 
     try {
-      await service.importFromExcel(asUploadFile(tmpPath), [businessUnit.businessUnitId])
+      await SensitiveAccessContext.run(writeAllowedStore, async () =>
+        service.importFromExcel(asUploadFile(tmpPath), [businessUnit.businessUnitId])
+      )
       assert.fail('debió lanzar EmployeeQuotaError')
     } catch (error) {
       assert.instanceOf(error, EmployeeQuotaError)
@@ -323,7 +337,9 @@ test.group('EmployeeService.importFromExcel — cupo (USRH1785441818458)', (grou
     const service = getService()
 
     try {
-      await service.importFromExcel(asUploadFile(tmpPath), [businessUnit.businessUnitId])
+      await SensitiveAccessContext.run(writeAllowedStore, async () =>
+        service.importFromExcel(asUploadFile(tmpPath), [businessUnit.businessUnitId])
+      )
       assert.fail('debió lanzar EmployeeQuotaError')
     } catch (error) {
       assert.instanceOf(error, EmployeeQuotaError)
@@ -382,7 +398,9 @@ test.group('EmployeeService.importFromExcel — cupo (USRH1785441818458)', (grou
     })
 
     const service = getService()
-    const result = await service.importFromExcel(asUploadFile(tmpPath), [businessUnit.businessUnitId])
+    const result = await SensitiveAccessContext.run(writeAllowedStore, async () =>
+      service.importFromExcel(asUploadFile(tmpPath), [businessUnit.businessUnitId])
+    )
 
     assert.equal(result.summary.created, 0)
     assert.equal(result.summary.updated, 1)
