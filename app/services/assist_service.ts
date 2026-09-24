@@ -55,7 +55,11 @@ import { AssistIncidentSummaryV2ExcelRowInterface } from '../interfaces/assist_i
 import { AssistIncidentSummaryV2CalendarExcelFilterInterface } from '../interfaces/assist_incident_summary_v2_calendar_excel_filter_interface.js'
 import { PLATFORM_FALLBACK_TRADE_NAME } from '#constants/system_setting_defaults'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
-import { REPORT_LOCALE } from '#helpers/report_locale'
+import {
+  formatReportCalendarDate,
+  REPORT_DATE_FORMAT,
+  REPORT_LOCALE,
+} from '#helpers/report_locale'
 
 /**
  * Defaults de tolerancia cuando no hay empresa en contexto o la empresa no tiene
@@ -65,21 +69,11 @@ const DEFAULT_DELAY_TOLERANCE_MINUTES = 10
 const DEFAULT_TARDINESS_TOLERANCE_MINUTES = 3
 const DEFAULT_TOLERANCE_COUNT_PER_ABSENCE = 3
 
-/** Fecha de calendario en los archivos descargables. */
-const REPORT_DATE_FORMAT = 'dd/MM/yyyy'
-
 /** Fecha y hora de checada en los archivos descargables (reloj de 24 h). */
 const REPORT_DATE_TIME_FORMAT = 'dd/MM/yyyy HH:mm:ss'
 
 /** Celda sin dato en los archivos descargables. */
 const REPORT_NO_DATA = '—'
-
-/**
- * Fecha de calendario de una columna DATE: la conexión está en UTC, así que se
- * lee en UTC para no correrla un día según la zona del servidor.
- */
-const reportCalendarDate = (value: Date | string): string =>
-  DateTime.fromJSDate(new Date(value), { zone: 'utc' }).toFormat(REPORT_DATE_FORMAT)
 
 /**
  * Una sola vista con las filas `1..headerRow` congeladas. ExcelJS escribe un
@@ -4659,7 +4653,7 @@ export default class AssistsService {
           const employeeName = `${exception.employee.person.personFirstname} ${exception.employee.person.personLastname}`
           const departmentName = exception.employee.department?.departmentName || REPORT_NO_DATA
           const positionName = exception.employee.position?.positionName || REPORT_NO_DATA
-          const exceptionDate = reportCalendarDate(exception.shiftExceptionsDate)
+          const exceptionDate = formatReportCalendarDate(exception.shiftExceptionsDate)
           const exceptionType = exception.exceptionType?.exceptionTypeTypeName || REPORT_NO_DATA
           const description = exception.shiftExceptionsDescription || ''
           const checkInTime = exception.shiftExceptionCheckInTime || ''
@@ -4704,7 +4698,7 @@ export default class AssistsService {
             let currentDate = startRange
             while (currentDate <= endRange) {
               const disabilityType = period.workDisabilityType?.workDisabilityTypeName || 'Incapacidad'
-              const description = `Período: ${reportCalendarDate(period.workDisabilityPeriodStartDate)} a ${reportCalendarDate(period.workDisabilityPeriodEndDate)}`
+              const description = `Período: ${formatReportCalendarDate(period.workDisabilityPeriodStartDate)} a ${formatReportCalendarDate(period.workDisabilityPeriodEndDate)}`
 
               worksheet.addRow([
                 workBuName,

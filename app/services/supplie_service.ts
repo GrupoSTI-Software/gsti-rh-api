@@ -7,7 +7,11 @@ import ExcelJS from 'exceljs'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 import { DateTime } from 'luxon'
 import { getBusinessTimeZone } from '#utils/business_date'
-import { REPORT_LOCALE } from '#helpers/report_locale'
+import {
+  formatReportCalendarDate,
+  REPORT_DATE_FORMAT,
+  REPORT_LOCALE,
+} from '#helpers/report_locale'
 
 /**
  * Textos del reporte de activos. El reporte sale siempre en español, sin
@@ -50,14 +54,6 @@ const ASSIGNMENT_STATUS_LABEL: Record<string, string> = {
   shipping: 'En envío',
 }
 
-const REPORT_DATE_FORMAT = 'dd/MM/yyyy'
-
-/**
- * Fecha de calendario de una columna DATE: la conexión está en UTC, así que
- * se lee en UTC para no correrla un día al pasarla a la zona del sitio.
- */
-const calendarDate = (value: DateTime | null | undefined): string =>
-  value ? value.toUTC().toFormat(REPORT_DATE_FORMAT) : ''
 import { SupplieFilterSearchInterface } from '../interfaces/supplie_filter_search_interface.js'
 import {
   ACQUISITION_VALUE_HISTORY_NOTE,
@@ -467,12 +463,12 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
               assignment.employeeSupplyStatus,
             // Fecha de asignación capturada; sin ella, la de alta del registro.
             assignment.employeeSupplyAssignamentDate
-              ? calendarDate(assignment.employeeSupplyAssignamentDate)
+              ? formatReportCalendarDate(assignment.employeeSupplyAssignamentDate)
               : (assignment.employeeSupplyCreatedAt
                   ?.setZone(getBusinessTimeZone())
                   .toFormat(REPORT_DATE_FORMAT) ?? ''),
-            calendarDate(assignment.employeeSupplyExpirationDate),
-            calendarDate(assignment.employeeSupplyRetirementDate),
+            formatReportCalendarDate(assignment.employeeSupplyExpirationDate),
+            formatReportCalendarDate(assignment.employeeSupplyRetirementDate),
             assignment.employeeSupplyRetirementReason || '',
           ])
 

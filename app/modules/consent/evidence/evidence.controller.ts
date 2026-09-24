@@ -1,3 +1,4 @@
+import { formatReportCalendarDate } from '#helpers/report_locale'
 import type { HttpContext } from '@adonisjs/core/http'
 import ExcelJS from 'exceljs'
 import { DateTime } from 'luxon'
@@ -48,8 +49,7 @@ function formatExportTimestamp(iso: string | null): string {
 /** Fecha de firma (columna DATE, llega como `yyyy-MM-dd`) como `dd/MM/yyyy`, sin cambiar de zona. */
 function formatExportCalendarDate(isoDate: string | null): string {
   if (!isoDate) return ''
-  const parsed = DateTime.fromISO(isoDate, { zone: 'utc' })
-  return parsed.isValid ? parsed.toFormat('dd/MM/yyyy') : isoDate
+  return formatReportCalendarDate(isoDate) || isoDate
 }
 
 /**

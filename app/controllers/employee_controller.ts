@@ -76,6 +76,8 @@ import {
 import { I18n } from '@adonisjs/i18n'
 import { TenantContext } from '#utils/tenant_context'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
+import { getBusinessTimeZone } from '#utils/business_date'
+import { EMPLOYEE_WORK_SCHEDULE, type EmployeeWorkSchedule } from '#constants/employee_work_schedule'
 import { isEmployeeTerminationRecordChanged } from '#helpers/employee_termination_record'
 import type { PersonReleaseContext } from '#helpers/person_release_guard'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
@@ -85,7 +87,16 @@ import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
+import { formatReportCalendarDate, REPORT_DATE_FORMAT } from '#helpers/report_locale'
 import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
+
+/** Modalidad de trabajo como se escribe en los descargables (mismas etiquetas que la plantilla de importación). */
+const EMPLOYEE_WORK_SCHEDULE_REPORT_LABEL: Record<EmployeeWorkSchedule, string> = {
+  [EMPLOYEE_WORK_SCHEDULE.ONSITE]: 'Presencial',
+  [EMPLOYEE_WORK_SCHEDULE.REMOTE]: 'Home office',
+  [EMPLOYEE_WORK_SCHEDULE.HYBRID]: 'Híbrido',
+}
+
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -4088,11 +4099,11 @@ export default class EmployeeController {
         },
         async (maskSensitive) => {
           const workbook = new ExcelJS.Workbook()
-          const worksheet = workbook.addWorksheet('Employee Report')
+          const worksheet = workbook.addWorksheet('Reporte de empleados')
 
           // Formato neutral: sin logo ni franjas de marca. El título ocupa la
           // fila 1 y la fila 2 queda como separador antes del encabezado.
-          const titleRow = worksheet.addRow(['Employee Report'])
+          const titleRow = worksheet.addRow(['Reporte de empleados'])
           titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
           titleRow.height = 42
           titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
@@ -4559,29 +4570,29 @@ export default class EmployeeController {
 
       // Crear un mapa de fechas y turnos para facilitar la asociación
       const workbook = new ExcelJS.Workbook()
-      const worksheet = workbook.addWorksheet('Shift Exceptions')
+      const worksheet = workbook.addWorksheet('Excepciones de turno')
 
       // Formato neutral: sin logo ni franjas de marca; título en la fila 1 y
       // periodo en la fila 2, ambos sin relleno y con texto negro/gris.
-      const titleRow = worksheet.addRow(['Employee Shift Exceptions'])
+      const titleRow = worksheet.addRow(['Excepciones de turno del empleado'])
       titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
       worksheet.mergeCells(`A${titleRow.number}:G${titleRow.number}`)
 
       const periodRow = worksheet.addRow([
-        `From: ${hireDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} , ${currentDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`,
+        `Del ${formatReportCalendarDate(employee.employeeHireDate)} al ${DateTime.now().setZone(getBusinessTimeZone()).toFormat(REPORT_DATE_FORMAT)}`,
       ])
       periodRow.font = { italic: true, size: 12, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
       worksheet.mergeCells(`A${periodRow.number}:G${periodRow.number}`)
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       const headerRow = worksheet.addRow([
-        'Employee ID',
-        'Employee Name',
-        'Department',
-        'Position',
-        'Date',
-        'Shift Assigned',
-        'Exception Notes',
+        'Código de empleado',
+        'Nombre del empleado',
+        'Departamento',
+        'Puesto',
+        'Fecha',
+        'Turno asignado',
+        'Notas de la excepción',
       ])
       headerRow.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       worksheet.columns = [
@@ -4614,20 +4625,20 @@ export default class EmployeeController {
           )
           .map((employeeShift) => employeeShift.shift?.shiftName) // Obtén los nombres de los turnos
 
-        const shiftNames = shiftsForDate.length > 0 ? shiftsForDate.join(', ') : 'N/A'
+        const shiftNames = shiftsForDate.length > 0 ? shiftsForDate.join(', ') : 'Sin turno'
 
         const row = worksheet.addRow({
           employeeCode: employee.employeeCode,
           employeeName: `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
-          department: employee.department?.departmentName || 'N/A',
-          position: employee.position?.positionName || 'N/A',
-          date: exception.shiftExceptionsDate,
+          department: employee.department?.departmentName || 'Sin departamento',
+          position: employee.position?.positionName || 'Sin puesto',
+          date: formatReportCalendarDate(exception.shiftExceptionsDate),
           shiftAssigned: shiftNames,
-          exceptionNotes: exception.shiftExceptionsDescription || 'N/A',
+          exceptionNotes: exception.shiftExceptionsDescription || 'Sin notas',
         })
         const exceptionNotesCell = row.getCell('exceptionNotes')
-        const exceptionTypeName = exception.exceptionType?.exceptionTypeTypeName || 'N/A'
-        const description = exception.shiftExceptionsDescription || 'N/A'
+        const exceptionTypeName = exception.exceptionType?.exceptionTypeTypeName || 'Sin tipo'
+        const description = exception.shiftExceptionsDescription || 'Sin notas'
         exceptionNotesCell.value = {
           richText: [
             { text: exceptionTypeName + ': ', font: { bold: true } },
@@ -4673,17 +4684,17 @@ export default class EmployeeController {
   // Método para agregar fila de encabezado
   addHeadRow(worksheet: ExcelJS.Worksheet, employees: any[], maskSensitive = false) {
     const headerRow = worksheet.addRow([
-      'Employee Code',
-      'Employee Name',
-      'Department',
-      'Position',
-      'Hire Date',
-      'Work Modality',
-      'Phone',
-      'Gender',
+      'Código de empleado',
+      'Nombre del empleado',
+      'Departamento',
+      'Puesto',
+      'Fecha de ingreso',
+      'Modalidad de trabajo',
+      'Teléfono',
+      'Género',
       'CURP',
       'RFC',
-      'Employee NSS',
+      'NSS',
     ])
 
     // Encabezado neutral: gris claro con texto negro. Se toma la fila real
@@ -4714,8 +4725,10 @@ export default class EmployeeController {
         `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
         employee.department?.departmentName || '',
         employee.position?.positionName || '',
-        employee.employeeHireDate ? employee.employeeHireDate.toISODate() : '',
-        employee.employeeWorkSchedule || '',
+        formatReportCalendarDate(employee.employeeHireDate),
+        EMPLOYEE_WORK_SCHEDULE_REPORT_LABEL[employee.employeeWorkSchedule as EmployeeWorkSchedule] ??
+          employee.employeeWorkSchedule ??
+          '',
         phone,
         employee.person?.personGender || '',
         curp,

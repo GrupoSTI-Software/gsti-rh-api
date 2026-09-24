@@ -51,6 +51,7 @@ import VacationAuthorizationSignature from '#models/vacation_authorization_signa
 import { I18n } from '@adonisjs/i18n'
 import Shift from '#models/shift'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
+import { REPORT_LOCALE } from '#helpers/report_locale'
 import EmployeeShiftService from './employee_shift_service.js'
 import EmployeeShift from '#models/employee_shift'
 import ShiftExceptionService from './shift_exception_service.js'
@@ -5205,20 +5206,18 @@ export default class EmployeeService {
 
     worksheet.getColumn(1).hidden = true
 
-    // Comentarios bilingües en los headers de la sección de modalidad para
-    // documentar la regla operativa: Híbrido solo desde el backoffice; % es
-    // calculado por el servidor y aquí es informativo.
+    // Comentarios en los headers de la sección de modalidad para documentar la
+    // regla operativa: Híbrido solo desde el backoffice; % es calculado por el
+    // servidor y aquí es informativo. Solo en español, como todo descargable
+    // (ver `#helpers/report_locale`).
     worksheet.getCell(1, 20).note = {
       texts: [
-        { text: 'Modalidad de trabajo · Work modality\n\n', font: { bold: true, size: 10 } },
+        { text: 'Modalidad de trabajo\n\n', font: { bold: true, size: 10 } },
         {
           text:
-            '[ES] Valores válidos desde Excel: "Presencial" y "Home office". '
+            'Valores válidos desde Excel: "Presencial" y "Home office". '
             + 'La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado. '
-            + 'Desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).\n\n'
-            + '[EN] Valid values from Excel: "Presencial" (Onsite) and "Home office" (Remote). '
-            + 'Hybrid modality must be configured from the backoffice system because it requires validating the configuration against the employee\'s shift. '
-            + 'From Excel you can only switch from Hybrid to Onsite (0%) or Remote (100%).',
+            + 'Desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).',
           font: { size: 10 }
         }
       ],
@@ -5226,11 +5225,10 @@ export default class EmployeeService {
     } as any
     worksheet.getCell(1, 21).note = {
       texts: [
-        { text: '% Teletrabajo · Telework %\n\n', font: { bold: true, size: 10 } },
+        { text: '% Teletrabajo\n\n', font: { bold: true, size: 10 } },
         {
           text:
-            '[ES] Columna informativa (solo lectura). El porcentaje lo calcula el sistema automáticamente: 0% para Presencial, 100% para Home office, y el porcentaje derivado del turno y la configuración híbrida para los empleados en Híbrido. Cualquier valor capturado aquí se ignora al importar.\n\n'
-            + '[EN] Read-only column. The percentage is calculated automatically by the system: 0% for Onsite, 100% for Remote, and the value derived from the shift and hybrid configuration for Hybrid employees. Any value entered here is ignored on import.',
+            'Columna informativa (solo lectura). El porcentaje lo calcula el sistema automáticamente: 0% para Presencial, 100% para Home office, y el porcentaje derivado del turno y la configuración híbrida para los empleados en Híbrido. Cualquier valor capturado aquí se ignora al importar.',
           font: { size: 10 }
         }
       ],
@@ -5272,10 +5270,9 @@ export default class EmployeeService {
       worksheet.getCell(row, 20).dataValidation = {
         type: 'list', allowBlank: true, formulae: [workScheduleRange],
         errorStyle: 'warning', showErrorMessage: true,
-        errorTitle: 'Modalidad no válida desde Excel / Modality not valid from Excel',
+        errorTitle: 'Modalidad no válida desde Excel',
         error:
-          'Seleccione Presencial o Home office. La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado; desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).\n\n'
-          + 'Choose Onsite or Remote. Hybrid modality must be configured from the backoffice system because it requires validating the configuration against the employee\'s shift; from Excel you can only switch from Hybrid to Onsite (0%) or Remote (100%).'
+          'Seleccione Presencial o Home office. La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado; desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).'
       }
       const teleworkCell = worksheet.getCell(row, 21)
       teleworkCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: teleworkInformativeFill } }
@@ -5283,10 +5280,9 @@ export default class EmployeeService {
       teleworkCell.dataValidation = {
         type: 'custom', allowBlank: true, formulae: ['FALSE'],
         errorStyle: 'warning', showErrorMessage: true,
-        errorTitle: 'Columna informativa / Read-only column',
+        errorTitle: 'Columna informativa',
         error:
-          'El porcentaje de teletrabajo lo calcula el sistema automáticamente a partir de la modalidad y el turno del empleado. Si captura un valor aquí, será ignorado al importar.\n\n'
-          + 'The telework percentage is calculated automatically by the system from the employee\'s modality and shift. Any value entered here will be ignored on import.'
+          'El porcentaje de teletrabajo lo calcula el sistema automáticamente a partir de la modalidad y el turno del empleado. Si captura un valor aquí, será ignorado al importar.'
       }
       worksheet.getCell(row, 22).dataValidation = {
         type: 'list', allowBlank: true, formulae: [yesNoRange],
@@ -5737,7 +5733,7 @@ export default class EmployeeService {
     // Segunda fila de encabezados (días de la semana)
     const headerRow2 = ['', '', '', '']
     dates.forEach((date) => {
-      const dayName = date.toFormat('cccc', { locale: 'es' })
+      const dayName = date.toFormat('cccc', { locale: REPORT_LOCALE })
       headerRow2.push(dayName)
     })
     const row2 = worksheet.addRow(headerRow2)
@@ -7136,7 +7132,7 @@ export default class EmployeeService {
     // Segunda fila de encabezados (días de la semana)
     const headerRow2 = ['', '', '', '', '', '']
     dates.forEach((date) => {
-      const dayName = date.toFormat('cccc', { locale: 'es' })
+      const dayName = date.toFormat('cccc', { locale: REPORT_LOCALE })
       headerRow2.push(dayName)
     })
     const row2 = worksheet.addRow(headerRow2)
