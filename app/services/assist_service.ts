@@ -4179,47 +4179,47 @@ export default class AssistsService {
         cell.font = { bold: true }
         if (rowData.faults > 0) {
           cell = worksheet.getCell(rowCount + 1, columns.faults)
-          cell.font = { color: { argb: '9C0006' } }
+          cell.font = { color: { argb: 'FF9C0006' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FFC7CE' },
+            fgColor: { argb: 'FFFFC7CE' },
           }
         }
         if (rowData.delays > 0) {
           cell = worksheet.getCell(rowCount + 1, columns.delays)
-          cell.font = { color: { argb: '9C0006' } }
+          cell.font = { color: { argb: 'FF9C0006' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FFC7CE' },
+            fgColor: { argb: 'FFFFC7CE' },
           }
         }
         if (rowData.inc > 0) {
           cell = worksheet.getCell(rowCount + 1, columns.inc)
-          cell.font = { color: { argb: '006100' } }
+          cell.font = { color: { argb: 'FF006100' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
+            fgColor: { argb: 'FFC6EFCE' },
           }
         }
         if (rowData.overtimeDouble > 0) {
           cell = worksheet.getCell(rowCount + 1, columns.overtimeDouble)
-          cell.font = { color: { argb: '006100' } }
+          cell.font = { color: { argb: 'FF006100' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
+            fgColor: { argb: 'FFC6EFCE' },
           }
         }
         if (rowData.overtimeTriple > 0) {
           cell = worksheet.getCell(rowCount + 1, columns.overtimeTriple)
-          cell.font = { color: { argb: '006100' } }
+          cell.font = { color: { argb: 'FF006100' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
+            fgColor: { argb: 'FFC6EFCE' },
           }
         }
         if (
@@ -4229,11 +4229,11 @@ export default class AssistsService {
           'overtimeExtendedDouble' in columns
         ) {
           cell = worksheet.getCell(rowCount + 1, columns.overtimeExtendedDouble!)
-          cell.font = { color: { argb: '006100' } }
+          cell.font = { color: { argb: 'FF006100' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
+            fgColor: { argb: 'FFC6EFCE' },
           }
         }
         if (
@@ -4243,47 +4243,47 @@ export default class AssistsService {
           'overtimeExtendedTriple' in columns
         ) {
           cell = worksheet.getCell(rowCount + 1, columns.overtimeExtendedTriple!)
-          cell.font = { color: { argb: '006100' } }
+          cell.font = { color: { argb: 'FF006100' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
+            fgColor: { argb: 'FFC6EFCE' },
           }
         }
         if (rowData.workingTimeRuleUnresolved) {
           cell = worksheet.getCell(rowCount + 1, columns.others)
-          cell.font = { color: { argb: '9C6500' } }
+          cell.font = { color: { argb: 'FF9C6500' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FFEB9C' },
+            fgColor: { argb: 'FFFFEB9C' },
           }
         }
         if (rowData.sundayBonus > 0) {
           cell = worksheet.getCell(rowCount + 1, columns.sundayBonus)
-          cell.font = { color: { argb: '006100' } }
+          cell.font = { color: { argb: 'FF006100' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
+            fgColor: { argb: 'FFC6EFCE' },
           }
         }
         if (rowData.vacationBonus > 0) {
           cell = worksheet.getCell(rowCount + 1, columns.vacationBonus)
-          cell.font = { color: { argb: '006100' } }
+          cell.font = { color: { argb: 'FF006100' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
+            fgColor: { argb: 'FFC6EFCE' },
           }
         }
         if (rowData.laborRest > 0) {
           cell = worksheet.getCell(rowCount + 1, columns.laborRest)
-          cell.font = { color: { argb: '006100' } }
+          cell.font = { color: { argb: 'FF006100' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
+            fgColor: { argb: 'FFC6EFCE' },
           }
         }
         rowCount += 1

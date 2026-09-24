@@ -20,4 +20,20 @@ test.group('Reporte Excel de insumos', () => {
     assert.equal(view.ySplit, 3)
     assert.equal(view.topLeftCell, 'A4')
   })
+
+  test('los colores de celda son ARGB de 8 dígitos', async ({ assert }) => {
+    const result = await SupplieService.getExcelReport()
+    const workbook = new ExcelJS.Workbook()
+    await workbook.xlsx.load(result.buffer as ArrayBuffer)
+    const colors: string[] = []
+    workbook.worksheets[0].eachRow((row) =>
+      row.eachCell((cell) => {
+        const fill = cell.fill as ExcelJS.FillPattern | undefined
+        if (fill?.fgColor?.argb) colors.push(fill.fgColor.argb)
+        if (cell.font?.color?.argb) colors.push(cell.font.color.argb)
+      })
+    )
+    assert.isNotEmpty(colors)
+    for (const color of colors) assert.match(color, /^[0-9A-F]{8}$/i)
+  })
 })

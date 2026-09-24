@@ -480,14 +480,14 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
     let fgColor = REPORT_NEUTRAL_ARGB.text as string
 
     if (status === 'active') {
-      color = 'C6EFCE'
-      fgColor = '006100'
+      color = 'FFC6EFCE'
+      fgColor = 'FF006100'
     } else if (status === 'retired') {
-      color = 'FFC7CE'
-      fgColor = '9C0006'
+      color = 'FFFFC7CE'
+      fgColor = 'FF9C0006'
     } else if (status === 'shipping') {
-      color = 'FFEB9C'
-      fgColor = '9C6500'
+      color = 'FFFFEB9C'
+      fgColor = 'FF9C6500'
     }
 
     // Status is now in column I (9th column)
@@ -504,8 +504,8 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
    * Paint unassigned row
    */
   private static paintUnassigned(worksheet: ExcelJS.Worksheet, row: number) {
-    const color = 'E4E4E4'
-    const fgColor = '000000'
+    const color = 'FFE4E4E4'
+    const fgColor = 'FF000000'
 
     // Now we have 13 columns
     for (let col = 1; col <= 13; col++) {
