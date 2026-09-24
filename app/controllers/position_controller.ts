@@ -15,6 +15,7 @@ import { PositionShiftFilterInterface } from '../interfaces/position_shift_filte
 import OrgAliasAppError from '#exceptions/org_alias_app_error'
 import { resolvePositionParentFromBody } from '#utils/org_chart_parent_input'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
 
 export default class PositionController {
   /**
@@ -1779,7 +1780,10 @@ export default class PositionController {
       }
 
       response.header('Content-Type', 'application/pdf')
-      response.header('Content-Disposition', `attachment; filename="perfil-puesto-${positionId}.pdf"`)
+      response.header(
+        'Content-Disposition',
+        contentDisposition(await this.buildPositionProfileFileName(positionId, 'pdf'))
+      )
       response.header('Content-Length', pdfBuffer.length.toString())
       response.status(200)
       return response.send(pdfBuffer)
@@ -1920,7 +1924,10 @@ export default class PositionController {
       }
 
       response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      response.header('Content-Disposition', `attachment; filename="perfil-puesto-${positionId}.xlsx"`)
+      response.header(
+        'Content-Disposition',
+        contentDisposition(await this.buildPositionProfileFileName(positionId, 'xlsx'))
+      )
       response.header('Content-Length', excelBuffer.length.toString())
       response.status(200)
       return response.send(excelBuffer)
@@ -1933,5 +1940,20 @@ export default class PositionController {
         error: error.message,
       }
     }
+  }
+
+  /**
+   * Nombre del perfil de puesto descargable: `perfil-puesto-{nombre}.{ext}`.
+   * El nombre del puesto no es dato personal; si viene vacío se usa el id.
+   * Solo se llama tras generar el archivo, así que el puesto ya pasó el
+   * filtro de unidad de negocio del servicio.
+   */
+  private async buildPositionProfileFileName(positionId: string | number, extension: string): Promise<string> {
+    const position = await Position.query()
+      .select('position_id', 'position_name')
+      .where('position_id', positionId)
+      .first()
+    const positionName = position?.positionName?.trim()
+    return buildDownloadFileName(['perfil-puesto', positionName || positionId], extension)
   }
 }

@@ -26,6 +26,7 @@ const ERROR_CODE_TO_I18N_BASE: Record<RepseErrorCode, string> = {
   [REPSE_ERROR_CODES.DATE_FORMAT_INVALID]: 'repse_dates_invalid',
   [REPSE_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND]: 'repse_business_unit_not_found',
   [REPSE_ERROR_CODES.REPSE_NOT_FOUND]: 'repse_not_found',
+  [REPSE_ERROR_CODES.CONSTANCIA_NOT_FOUND]: 'repse_constancia_not_found',
   [REPSE_ERROR_CODES.FOLIO_DUPLICATE]: 'repse_folio_duplicate',
   [REPSE_ERROR_CODES.FORBIDDEN]: 'repse_unauthorized',
   [REPSE_ERROR_CODES.SYS_UNHANDLED]: 'repse_unexpected_error',

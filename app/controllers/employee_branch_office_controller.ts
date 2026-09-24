@@ -30,24 +30,6 @@ export default class EmployeeBranchOfficeController {
   }
 
   /**
-   * DELETE /api/employees/:employeeId/branch-office
-   */
-  async unassign({ response, params }: HttpContext) {
-    try {
-      await EmployeeBranchOfficeService.unassign(Number(params.employeeId))
-      return StandardResponseFormatter.success(
-        response,
-        null,
-        'Employee Branch Office',
-        'Sucursal desasignada correctamente'
-      )
-    } catch (error: any) {
-      const status = error.code === 'E_ROW_NOT_FOUND' ? 404 : 400
-      return StandardResponseFormatter.error(response, error.message ?? 'Error al desasignar sucursal', status)
-    }
-  }
-
-  /**
    * GET /api/employees/:employeeId/branch-offices/history
    */
   async history({ response, params }: HttpContext) {

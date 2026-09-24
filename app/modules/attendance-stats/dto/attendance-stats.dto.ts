@@ -150,6 +150,8 @@ export interface BusinessUnitRef {
 
 export interface EmployeeInfo {
   employeeId: number
+  /** Token opaco del empleado; es lo que el Backoffice lleva en la URL. */
+  employeeSlug: string
   employeeCode: string | null
   employeePayrollCode: string | null
   employeeFirstName: string | null
@@ -196,6 +198,8 @@ export interface ToleranceThresholds {
 export interface EmployeeCalendarBundle {
   employee: EmployeeInfo
   departmentName: string | null
+  /** Zona IANA del sitio del colaborador: en ella se evalúa y se muestra su asistencia. */
+  timeZone: string
   calendar: AssistDayInterface[]
 }
 
@@ -273,6 +277,8 @@ export interface AttendanceStatsViewer {
 /** Colaborador que aparece en alguna entrada de ausencias. */
 export interface AbsencesEmployee {
   employeeId: number
+  /** Token opaco con el que el Backoffice navega al expediente. */
+  employeeSlug: string
   firstName: string
   lastName: string | null
   secondLastName: string | null

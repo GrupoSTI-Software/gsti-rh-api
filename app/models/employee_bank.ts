@@ -24,21 +24,12 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
  *          employeeBankAccountClabe:
  *            type: string
  *            description: Employee bank account clabe
- *          employeeBankAccountClabeLastNumbers:
- *            type: string
- *            description: Employee bank account clabe last 4 numbers
  *          employeeBankAccountNumber:
  *            type: string
  *            description: Employee bank account number
- *          employeeBankAccountNumberLastNumbers:
- *            type: string
- *            description: Employee bank account number last 4 numbers
  *          employeeBankAccountCardNumber:
  *            type: string
  *            description: Employee bank account card number
- *          employeeBankAccountCardNumberLastNumbers:
- *            type: string
- *            description: Employee bank account card number last 4 numbers
  *          employeeBankAccountType:
  *            type: string
  *            description: Employee bank account type
@@ -67,7 +58,7 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes, withBu
   /**
    * CLABE interbancaria — cifrada AES-256-CBC en reposo (LFPDPPP, dato financiero).
    * El ciphertext no se usa en cláusulas WHERE; los últimos números se conservan en
-   * `employeeBankAccountClabeLastNumbers` para presentación parcial.
+   * `employeeBankAccountClabeLastNumbers` en BD pero no se serializan (USRH1789328027039).
    */
   @column({
     prepare: (value: string | null) =>
@@ -84,7 +75,7 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes, withBu
   })
   declare employeeBankAccountClabe: string
 
-  @column()
+  @column({ serializeAs: null })
   declare employeeBankAccountClabeLastNumbers: string
 
   /**
@@ -105,7 +96,7 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes, withBu
   })
   declare employeeBankAccountNumber: string
 
-  @column()
+  @column({ serializeAs: null })
   declare employeeBankAccountNumberLastNumbers: string
 
   /**
@@ -126,7 +117,7 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes, withBu
   })
   declare employeeBankAccountCardNumber: string
 
-  @column()
+  @column({ serializeAs: null })
   declare employeeBankAccountCardNumberLastNumbers: string
 
   @column()

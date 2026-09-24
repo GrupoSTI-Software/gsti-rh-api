@@ -1,6 +1,11 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import SupplieService from '#services/supplie_service'
 import {
+  buildDownloadFileName,
+  contentDisposition,
+  formatDownloadFileDate,
+} from '#helpers/download_file_name'
+import {
   createSupplieValidator,
   updateSupplieValidator,
   supplieFilterValidator,
@@ -453,7 +458,10 @@ export default class SuppliesController {
           'Content-Type',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response.header('Content-Disposition', 'attachment; filename=supplies-report.xlsx')
+        response.header(
+          'Content-Disposition',
+          contentDisposition(buildDownloadFileName(['reporte-insumos', formatDownloadFileDate()], 'xlsx'))
+        )
         response.status(201)
         response.send(result.buffer)
       } else {

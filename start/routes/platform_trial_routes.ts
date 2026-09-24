@@ -16,6 +16,11 @@ import { middleware } from '../kernel.js'
 router
   .group(() => {
     router.get('/tenants/:publicId/trial', '#controllers/platform_trial_controller.show')
+    // USRH1789079078171: frecuencia de registro de la prueba, con su serie diaria.
+    router.get(
+      '/tenants/:publicId/trial/usage',
+      '#controllers/platform_trial_usage_controller.show'
+    )
   })
   .prefix('/api/platform/metrics')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])

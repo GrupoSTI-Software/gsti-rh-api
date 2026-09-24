@@ -24,6 +24,7 @@ import Role from '#models/role'
 import OrgAliasAppError from '#exceptions/org_alias_app_error'
 import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
 import { resolveDepartmentParentFromBody } from '#utils/org_chart_parent_input'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 
 export default class DepartmentController {
   /**
@@ -467,7 +468,7 @@ export default class DepartmentController {
       const user = auth.user!
       let userResponsibleId = null
       await user.preload('role')
-      if (user.role.roleSlug !== 'root') {
+      if (resolveResponsibleUserId(user) !== null) {
         userResponsibleId = user.userId
       }
       const departmentId = request.param('departmentId')
@@ -957,7 +958,7 @@ export default class DepartmentController {
       const user = auth.user!
       let userResponsibleId = null
       await user.preload('role')
-      if (user.role.roleSlug !== 'root') {
+      if (resolveResponsibleUserId(user) !== null) {
         userResponsibleId = user.userId
       }
       const userService = new UserService(i18n)
@@ -2371,7 +2372,7 @@ export default class DepartmentController {
       const user = auth.user!
       let userResponsibleId = null
       await user.preload('role')
-      if (user.role.roleSlug !== 'root') {
+      if (resolveResponsibleUserId(user) !== null) {
         userResponsibleId = user.userId
       }
       const userService = new UserService(i18n)

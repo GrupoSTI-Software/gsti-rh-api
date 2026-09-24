@@ -1,10 +1,7 @@
 import Supplie from '#models/supplie'
 import EmployeeSupplie from '#models/employee_supplie'
-import SystemSettingService from './system_setting_service.js'
 import ExcelJS from 'exceljs'
-import axios from 'axios'
-import sharp from 'sharp'
-import env from '#start/env'
+import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 import { DateTime } from 'luxon'
 import { SupplieFilterSearchInterface } from '../interfaces/supplie_filter_search_interface.js'
 
@@ -196,68 +193,28 @@ export default class SupplieService {
         .preload('supply')
         .orderBy('employeeSupplyCreatedAt', 'desc')
 
-      // Get active system setting
-      // USRH1783712837584 describía este reporte como cross-tenant: agregaba
-      // `Supplie`/`EmployeeSupplie` de TODAS las empresas porque su ruta no
-      // montaba `businessScope`. Con el aislamiento del catálogo de activos eso
-      // dejó de ser cierto: `/api/supplies/excel` ya corre bajo `businessScope`
-      // y ambas consultas de arriba quedan acotadas por el mixin a la empresa
-      // activa. La ficha sigue resolviéndose con `getActive()` — queda como
-      // deuda menor alinearla al tenant activo, no cambia el corte de datos.
-      const systemSettingService = new SystemSettingService()
-      const systemSettingActive = await systemSettingService.resolveForActiveTenant()
-
-      // Get logo and colors from system setting
-      let imageLogo = systemSettingActive?.systemSettingLogo || `${env.get('BACKGROUND_IMAGE_LOGO')}`
-      let sidebarColor = systemSettingActive?.systemSettingSidebarColor || '244062'
-
-      // Create workbook and worksheet
+      // Formato neutral (report_neutral_theme): sin logo ni colores de la
+      // empresa, así que el reporte ya no consulta la configuración del sistema.
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Supplies Report')
 
-      // Add logo
-      await SupplieService.addImageLogo(workbook, worksheet, imageLogo)
-
-      // Title row
-      worksheet.getRow(1).height = 60
-      worksheet.mergeCells('A1:M1')
+      // Fila 1: título en negro, sin relleno
       const titleRow = worksheet.addRow(['Supplies and Assignments Report'])
-      const titleColor = sidebarColor
-      const fgColor = 'FFFFFFF'
-      worksheet.getCell('A2').fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: titleColor },
-      }
-      titleRow.font = { bold: true, size: 24, color: { argb: fgColor } }
+      titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       titleRow.height = 42
       titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      worksheet.mergeCells('A2:M2')
+      worksheet.mergeCells('A1:M1')
 
-      // Date row
-      const periodColor = '366092'
+      // Fila 2: fecha de generación en texto secundario
       const currentDate = DateTime.now().toFormat('DDDD')
       const periodRow = worksheet.addRow([`Generated on: ${currentDate}`])
-      periodRow.font = { size: 15, color: { argb: fgColor } }
-      worksheet.getCell('A3').fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: periodColor },
-      }
+      periodRow.font = { size: 15, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       periodRow.height = 30
-      worksheet.mergeCells('A3:M3')
-
-      // Freeze rows
-      worksheet.views = [
-        { state: 'frozen', ySplit: 1 },
-        { state: 'frozen', ySplit: 2 },
-        { state: 'frozen', ySplit: 3 },
-        { state: 'frozen', ySplit: 4 },
-      ]
+      worksheet.mergeCells('A2:M2')
 
       // Headers
-      SupplieService.addHeadRow(worksheet, sidebarColor, fgColor)
+      SupplieService.addHeadRow(worksheet)
 
       // Add data rows
       await SupplieService.addDataRows(supplies, employeeSupplies, worksheet)
@@ -284,43 +241,9 @@ export default class SupplieService {
   }
 
   /**
-   * Add image logo to worksheet
-   */
-  private static async addImageLogo(workbook: ExcelJS.Workbook, worksheet: ExcelJS.Worksheet, imageLogo: string) {
-    try {
-      const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-      const imageBuffer = imageResponse.data
-
-      const metadata = await sharp(imageBuffer).metadata()
-      const imageWidth = metadata.width ? metadata.width : 0
-      const imageHeight = metadata.height ? metadata.height : 0
-
-      const targetWidth = 139
-      const targetHeight = 49
-      const scale = Math.min(targetWidth / imageWidth, targetHeight / imageHeight)
-
-      const adjustedWidth = imageWidth * scale
-      const adjustedHeight = imageHeight * scale
-
-      const imageId = workbook.addImage({
-        buffer: imageBuffer,
-        extension: 'png',
-      })
-
-      worksheet.addImage(imageId, {
-        tl: { col: 0.28, row: 0.7 },
-        ext: { width: adjustedWidth, height: adjustedHeight },
-      })
-    } catch (error) {
-      // If logo fails, continue without it
-      console.error('Error loading logo:', error)
-    }
-  }
-
-  /**
    * Add header row
    */
-private static addHeadRow(worksheet: ExcelJS.Worksheet, color: string, fgColor: string) {
+private static addHeadRow(worksheet: ExcelJS.Worksheet) {
   const headers = [
     'File Number',
     'Supply Name',
@@ -343,11 +266,11 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet, color: string, fgColor: 
     cell.fill = {
       type: 'pattern',
       pattern: 'solid',
-      fgColor: { argb: color },
+      fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
     }
     cell.font = {
       bold: true,
-      color: { argb: fgColor },
+      color: { argb: REPORT_NEUTRAL_ARGB.text },
       size: 12,
     }
     cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
@@ -383,7 +306,8 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet, color: string, fgColor: 
     employeeSupplies: EmployeeSupplie[],
     worksheet: ExcelJS.Worksheet
   ) {
-    let rowCount = 5
+    // Primera fila de datos: justo debajo del encabezado de columnas
+    let rowCount = worksheet.rowCount + 1
 
     // Group supplies and sort them
     const suppliesWithAssignments = supplies.map((supply) => {
@@ -496,8 +420,9 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet, color: string, fgColor: 
    * Paint status cell
    */
   private static paintStatus(worksheet: ExcelJS.Worksheet, row: number, status: string) {
-    let color = 'FFFFFFF'
-    let fgColor = '000000'
+    // Colores de estatus: semánticos, no de marca; se conservan
+    let color = REPORT_NEUTRAL_ARGB.background as string
+    let fgColor = REPORT_NEUTRAL_ARGB.text as string
 
     if (status === 'active') {
       color = 'C6EFCE'

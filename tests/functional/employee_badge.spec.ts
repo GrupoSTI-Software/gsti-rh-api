@@ -250,7 +250,7 @@ test.group('EmployeeBadge - flujo feliz con folio REPSE vigente (E1/E2)', (group
     assert.include(response.header('content-disposition') ?? '', 'attachment')
     assert.include(
       response.header('content-disposition') ?? '',
-      `gafete-empleado-${employee!.employeeId}.pdf`
+      `gafete-${employee!.employeeSlug}.pdf`
     )
     assert.equal(response.header('cache-control'), 'private, no-store')
     assert.isAbove(Number(response.header('content-length')), 0)
@@ -270,7 +270,7 @@ test.group('EmployeeBadge - flujo feliz con folio REPSE vigente (E1/E2)', (group
     assert.include(response.header('content-disposition') ?? '', 'attachment')
     assert.include(
       response.header('content-disposition') ?? '',
-      `gafete-empleado-${employee!.employeeId}.png`
+      `gafete-${employee!.employeeSlug}.png`
     )
     assert.equal(response.header('cache-control'), 'private, no-store')
     assert.isAbove(Number(response.header('content-length')), 0)
@@ -837,7 +837,7 @@ test.group('EmployeeBadge - descarga masiva (E6)', (group) => {
 
     response.assertStatus(200)
     assert.equal(response.header('content-type'), 'application/pdf')
-    assert.include(response.header('content-disposition') ?? '', 'gafetes-empleados-')
+    assert.include(response.header('content-disposition') ?? '', 'gafetes-')
     assert.include(response.header('content-disposition') ?? '', '.pdf')
     assert.equal(response.header('cache-control'), 'private, no-store')
     assert.isUndefined(response.header('content-length'))
@@ -854,7 +854,7 @@ test.group('EmployeeBadge - descarga masiva (E6)', (group) => {
 
     response.assertStatus(200)
     assert.equal(response.header('content-type'), 'application/zip')
-    assert.include(response.header('content-disposition') ?? '', 'gafetes-empleados-')
+    assert.include(response.header('content-disposition') ?? '', 'gafetes-')
     assert.include(response.header('content-disposition') ?? '', '.zip')
     assert.equal(response.header('cache-control'), 'private, no-store')
     assert.equal(response.text().slice(0, 2), 'PK')

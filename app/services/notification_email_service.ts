@@ -7,6 +7,7 @@ import mail from '@adonisjs/mail/services/main'
 import { DateTime } from 'luxon'
 import axios from 'axios'
 import env from '#start/env'
+import { buildDownloadFileName, formatDownloadFileDate } from '#helpers/download_file_name'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import { indexSystemSettingsByBusinessUnitSlug } from '#helpers/system_settings_by_business_unit'
 
@@ -163,7 +164,7 @@ export default class NotificationEmailService {
             // Attach Excel file if generated successfully
             if (excelBuffer) {
               message.attachData(excelBuffer, {
-                filename: `permisos-${exceptionDate}.xlsx`,
+                filename: buildDownloadFileName(['permisos', formatDownloadFileDate(exceptionDate)], 'xlsx'),
                 contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
               })
             }
@@ -331,7 +332,7 @@ export default class NotificationEmailService {
             // Attach Excel file if generated successfully
             if (excelBuffer) {
               message.attachData(excelBuffer, {
-                filename: `permisos-${exceptionDate}.xlsx`,
+                filename: buildDownloadFileName(['permisos', formatDownloadFileDate(exceptionDate)], 'xlsx'),
                 contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
               })
             }

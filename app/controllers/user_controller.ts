@@ -13,8 +13,7 @@ import { DateTime } from 'luxon'
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogAuthentication } from '../interfaces/MongoDB/log_authentication.js'
 import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_assigned_filter_search_interface.js'
-import EmployeeDevice from '#models/employee_device'
-import EmployeeDeviceService from '#services/employee_device_service'
+import EmployeeDeviceService, { type DeviceBindingResult } from '#services/employee_device_service'
 import Person from '#models/person'
 import Employee from '#models/employee'
 import BusinessUnit from '#models/business_unit'
@@ -52,6 +51,7 @@ import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_writ
 import { USER_VALIDATION_ERROR_CODES } from '#constants/user_validation_error_codes'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
 import { canAccessBackoffice } from '#helpers/backoffice_access'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 
 /**
  * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
@@ -298,101 +298,6 @@ export default class UserController {
         }
       }
 
-      if (deviceToken) {
-        const currentUser = await User.query()
-          .where('user_id', user.userId)
-          .preload('person', (query) => query.preload('employee'))
-          .first()
-
-        const currentEmployee = currentUser?.person?.employee
-
-        if (!currentEmployee) {
-          response.status(400)
-          return {
-            type: 'warning',
-            title: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.title,
-            message: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.detail,
-            detail: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.detail,
-            key: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.key,
-            data: { user: {} },
-          }
-        }
-
-        const employeeDevice = await EmployeeDevice.query()
-          .where('employee_device_token', deviceToken)
-          .whereNull('employee_device_deleted_at')
-          .first()
-
-        if (employeeDevice && employeeDevice.employeeId !== currentEmployee.employeeId) {
-          response.status(400)
-          return {
-            type: 'warning',
-            title: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.title,
-            message: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.detail,
-            detail: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.detail,
-            key: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.key,
-            data: { user: {} },
-          }
-        }
-
-        if (
-          employeeDevice &&
-          employeeDevice.employeeDeviceActive !== 1 &&
-          employeeDevice.employeeId === currentEmployee.employeeId
-        ) {
-          response.status(400)
-          return {
-            type: 'warning',
-            title: 'Login',
-            message: 'This device is not active.',
-            data: { user: {} },
-          }
-        }
-
-        // Crear o verificar dispositivo si no existe
-        if (!employeeDevice) {
-          // const employeeDeviceActive = await EmployeeDevice.query()
-          //   .where('employee_id', currentEmployee.employeeId)
-          //   .where('employeeDeviceActive', 1)
-          //   .whereNull('employee_device_deleted_at')
-          //   .first()
-
-          // if (employeeDeviceActive) {
-          //   response.status(400)
-          //   return {
-          //     type: 'warning',
-          //     title: 'Login',
-          //     message: 'This account is already registered on another device. Please contact your manager to activate access on this new device.',
-          //     data: { user: {} }
-          //   }
-          // }
-
-          const deviceData = {
-            employeeDeviceToken: deviceToken,
-            employeeDeviceModel: request.input('deviceModel') || 'Unknown',
-            employeeDeviceBrand: request.input('deviceBrand') || 'Unknown',
-            employeeDeviceType: request.input('deviceType') || 'Unknown',
-            employeeDeviceOs: request.input('deviceOs') || 'Unknown',
-            employeeId: currentEmployee.employeeId,
-          } as EmployeeDevice
-
-          const employeeDeviceService = new EmployeeDeviceService(i18n)
-          const verifyInfo = await employeeDeviceService.verifyInfoExist(deviceData)
-
-          if (verifyInfo.status !== 200) {
-            response.status(verifyInfo.status)
-            return {
-              type: verifyInfo.type,
-              title: verifyInfo.title,
-              message: verifyInfo.message,
-              data: { user: {} },
-            }
-          }
-
-          await employeeDeviceService.create(deviceData)
-        }
-      }
-
       let verifiedUserId: number | null = null
       try {
         const verified = await User.verifyCredentials(userEmail, userPassword)
@@ -423,6 +328,49 @@ export default class UserController {
             detail: AUTH_LOGIN_ERRORS.BACKOFFICE_FORBIDDEN.detail,
             key: AUTH_LOGIN_ERRORS.BACKOFFICE_FORBIDDEN.key,
           }
+        }
+      }
+
+      if (deviceToken) {
+        // El celular se amarra solo con la contraseña ya validada: antes se
+        // registraba primero y cualquiera con el correo de un colaborador podía
+        // dejar su equipo a nombre de otro.
+        const currentEmployee = user.person?.employee
+
+        if (!currentEmployee) {
+          response.status(400)
+          return {
+            type: 'warning',
+            title: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.title,
+            message: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.detail,
+            detail: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.detail,
+            key: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.key,
+            data: { user: {} },
+          }
+        }
+
+        const binding = await new EmployeeDeviceService(i18n).bindToEmployee({
+          employeeDeviceToken: deviceToken,
+          employeeDeviceModel: request.input('deviceModel') || 'Unknown',
+          employeeDeviceBrand: request.input('deviceBrand') || 'Unknown',
+          employeeDeviceType: request.input('deviceType') || 'Unknown',
+          employeeDeviceOs: request.input('deviceOs') || 'Unknown',
+          employeeId: currentEmployee.employeeId,
+          businessUnitId: currentEmployee.businessUnitId,
+        })
+
+        if (binding.status === 'inactive') {
+          response.status(400)
+          return {
+            type: 'warning',
+            title: 'Login',
+            message: 'This device is not active.',
+            data: { user: {} },
+          }
+        }
+
+        if (binding.status === 'transferred') {
+          await this.closePreviousOwnerAppSession(binding, currentEmployee.employeeId)
         }
       }
 
@@ -1707,6 +1655,7 @@ export default class UserController {
           type: exist.type,
           title: exist.title,
           message: exist.message,
+          key: exist.key,
           data: { ...data },
         }
       }
@@ -2601,6 +2550,51 @@ export default class UserController {
    * @param isApp - true cuando la solicitud viene de la aplicación móvil.
    * @returns El `data` de la respuesta: `{ user: { userToken } }` o `null`.
    */
+  /**
+   * Cierra la sesión de la app del dueño anterior de un celular transferido,
+   * solo si ese celular era su equipo más reciente: si ya usa otro, su sesión
+   * vive allá y no se toca. El cambio de manos queda en la bitácora; el
+   * historial de `employee_devices` conserva quién tuvo el celular y cuándo.
+   */
+  private async closePreviousOwnerAppSession(
+    binding: Extract<DeviceBindingResult, { status: 'transferred' }>,
+    newEmployeeId: number
+  ) {
+    logger.info(
+      {
+        event: 'employee_device_transferred',
+        employeeDeviceId: binding.device.employeeDeviceId,
+        previousEmployeeId: binding.previousEmployeeId,
+        newEmployeeId,
+        previousOwnerUsedItLast: binding.previousOwnerUsedItLast,
+      },
+      'Celular transferido entre colaboradores'
+    )
+
+    if (!binding.previousOwnerUsedItLast) return
+
+    const previousEmployee = await Employee.query()
+      .withTrashed()
+      .where('employee_id', binding.previousEmployeeId)
+      .first()
+    if (!previousEmployee) return
+
+    const previousUser = await User.query()
+      .where('person_id', previousEmployee.personId)
+      .whereNull('user_deleted_at')
+      .first()
+    if (!previousUser) return
+
+    await new AuthTokenService().revokeByOrigin(previousUser.userId, 'app')
+    if (Ws.io) {
+      try {
+        Ws.io.emit(`user-forze-logout:${previousUser.userEmail}:app`, {})
+      } catch (error) {
+        console.error('UserController: error al avisar el cierre de sesión del dueño anterior', error)
+      }
+    }
+  }
+
   private buildRecoveryAppPayload(isApp: boolean) {
     return isApp ? { user: { userToken: uuid() } } : null
   }
@@ -2742,7 +2736,7 @@ export default class UserController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
