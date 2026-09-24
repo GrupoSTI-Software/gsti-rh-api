@@ -285,7 +285,7 @@ test.group('Matriz de vencimientos agregada', (group) => {
     })
     employeeContractId = Number(insertedContractId)
 
-    // Insumo asignado que vence en la ventana: su targetId es el tipo del insumo.
+    // Insumo asignado que vence en la ventana: su targetId es el activo.
     const supplyType = await SupplyType.create({
       businessUnitId: actor.businessUnit.businessUnitId,
       supplyTypeName: uniqueTestName('Tipo matriz'),
@@ -661,7 +661,7 @@ test.group('Matriz de vencimientos agregada', (group) => {
     assert.equal(buildContractDocumentName('Temporal', contractOfTypeIn('en')), 'temporal contract')
   })
 
-  test('targetId: tipo del insumo y tipo del expediente de la empresa', async ({
+  test('targetId: activo del resguardo y tipo del expediente de la empresa', async ({
     client,
     assert,
   }) => {
@@ -675,7 +675,7 @@ test.group('Matriz de vencimientos agregada', (group) => {
     const companyItem = items.find((item) => item.key === `company-file-${companyFileId}`)
 
     assert.exists(supplyItem)
-    assert.equal(supplyItem?.targetId, supplyTypeId, 'supplyTypeId para abrir /supplies por tipo')
+    assert.equal(supplyItem?.targetId, supplyId, 'supplyId para abrir la ficha del activo')
     assert.exists(companyItem)
     assert.equal(companyItem?.targetId, companyFileTypeId, 'proceedingFileTypeId de la carpeta')
   })
