@@ -2,6 +2,7 @@ import type { HttpContext } from '@adonisjs/core/http'
 import ExcelJS from 'exceljs'
 import { DateTime } from 'luxon'
 import { buildDownloadFileName, contentDisposition, formatDownloadFileDate } from '#helpers/download_file_name'
+import { reportI18n } from '#helpers/report_locale'
 import RepseCoverageReportService from './repse_coverage_report.service.js'
 import {
   getRepseCoverageReportExportValidator,
@@ -164,7 +165,7 @@ export default class RepseCoverageReportController {
    *         description: key rango-fechas-invalido
    */
   async export(ctx: HttpContext) {
-    const { request, response, i18n } = ctx
+    const { request, response } = ctx
     if (!(await this.assertAuthenticated(ctx))) return
 
     try {
@@ -175,7 +176,8 @@ export default class RepseCoverageReportController {
       const to = normalizeDate(payload.to)
       if (this.validateDateRange(from, to, ctx)) return
 
-      const service = new RepseCoverageReportService(i18n)
+      // El Excel sale siempre en español (report_locale.ts), no en el idioma de la petición.
+      const service = new RepseCoverageReportService(reportI18n())
       const rows = await service.getExportRows({
         from: from.iso,
         to: to.iso,

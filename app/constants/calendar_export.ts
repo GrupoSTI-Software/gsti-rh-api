@@ -19,8 +19,8 @@ export const CALENDAR_EXPORT_HEADER_FILL = REPORT_NEUTRAL_ARGB.headerFill
 export const CALENDAR_EXPORT_COLUMN_MIN_WIDTH = 14
 export const CALENDAR_EXPORT_COLUMN_MAX_WIDTH = 48
 
-/** Formato de fecha de las celdas: el mismo que exhibe el calendario. */
-export const CALENDAR_EXPORT_DATE_FORMAT = 'yyyy-LL-dd'
+/** Formato de fecha de las celdas: el de todos los reportes en español. */
+export const CALENDAR_EXPORT_DATE_FORMAT = 'dd/MM/yyyy'
 
 /** Nombre base (sin año ni extensión) del archivo de cada reporte. */
 export const CALENDAR_EXPORT_FILE_NAMES = {

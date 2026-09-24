@@ -21,6 +21,24 @@ import { prepareAliasesForPersistence } from '#utils/org_alias_normalize'
 import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
 import OrgAliasUniquenessService from '#services/org_alias_uniqueness_service'
 import { REPORT_NEUTRAL_ARGB, REPORT_NEUTRAL_HEX } from '#constants/report_neutral_theme'
+import { REPORT_LOCALE, reportI18n } from '#helpers/report_locale'
+import { getBusinessTimeZone } from '#utils/business_date'
+import { DateTime } from 'luxon'
+
+/** Etiqueta de la frecuencia de un KPI en el perfil de puesto (el valor guardado es un slug). */
+const KPI_FREQUENCY_LABEL: Record<string, string> = {
+  'sin-especificar': 'Sin especificar',
+  'diario': 'Diario',
+  'semanal': 'Semanal',
+  'cada-2-semanas': 'Cada 2 semanas',
+  'mensual': 'Mensual',
+  'trimestral': 'Trimestral',
+  'semestral': 'Semestral',
+  'anual': 'Anual',
+}
+
+const kpiFrequencyLabel = (slug: string | null | undefined): string =>
+  slug ? (KPI_FREQUENCY_LABEL[slug] ?? slug) : ''
 
 export default class PositionService {
 
@@ -966,7 +984,9 @@ export default class PositionService {
       const lightGray = REPORT_NEUTRAL_HEX.subheaderFill
       const pageW = doc.page.width - 80
 
-      const t = (key: string) => this.i18n.t(key)
+      // El perfil de puesto es un archivo: siempre en español (report_locale.ts).
+      const reportT = reportI18n()
+      const t = (key: string) => reportT.t(key)
 
       const decodeEntities = (s: string) =>
         s
@@ -1115,7 +1135,7 @@ export default class PositionService {
         }
       }
 
-      const today = new Date().toLocaleDateString('es-MX')
+      const today = DateTime.now().setZone(getBusinessTimeZone()).toFormat('dd/MM/yyyy')
 
       // ── Constantes de layout ──────────────────────────────────────────────
       // Sin columna de logo: el bloque de título y metadatos ocupa todo el ancho
@@ -1133,7 +1153,7 @@ export default class PositionService {
       const half = pageW / 2
 
       const implDate = position.positionCreatedAt
-        ? position.positionCreatedAt.setLocale('es-MX').toFormat('d \'de\' MMMM \'del\' yyyy')
+        ? position.positionCreatedAt.setZone(getBusinessTimeZone()).setLocale(REPORT_LOCALE).toFormat('d \'de\' MMMM \'del\' yyyy')
         : today
 
       let currentPage = 1
@@ -1311,7 +1331,7 @@ export default class PositionService {
             .fillColor(black)
             .text(kpi.positionKpiName, 45, rowY + 3, { width: kpiCol1 - 10, lineBreak: false })
             .text(String(kpi.positionKpiIdeal ?? ''), 45 + kpiCol1, rowY + 3, { width: kpiCol2 - 5, lineBreak: false })
-            .text(kpi.positionKpiFrequency ?? '', 45 + kpiCol1 + kpiCol2, rowY + 3, { width: kpiCol3 - 5, lineBreak: false })
+            .text(kpiFrequencyLabel(kpi.positionKpiFrequency), 45 + kpiCol1 + kpiCol2, rowY + 3, { width: kpiCol3 - 5, lineBreak: false })
           doc.y = rowY + 14
         }
       } else {
@@ -1633,12 +1653,13 @@ export default class PositionService {
 
     if (!position) return null
 
-    const t = (key: string) => this.i18n.t(key)
-    const today = new Date().toLocaleDateString('es-MX', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
-    })
+    // El perfil de puesto es un archivo: siempre en español (report_locale.ts).
+    const reportT = reportI18n()
+    const t = (key: string) => reportT.t(key)
+    const today = DateTime.now()
+      .setZone(getBusinessTimeZone())
+      .setLocale(REPORT_LOCALE)
+      .toFormat("dd 'de' MMMM 'de' yyyy")
 
     // Paleta neutral: sin colores de marca, escala de grises con texto negro
     const HEADER = REPORT_NEUTRAL_ARGB.headerFill
@@ -1911,7 +1932,7 @@ export default class PositionService {
 
     if (position.kpis?.length) {
       for (const kpi of position.kpis) {
-        const kpiRow = sheet.addRow([kpi.positionKpiName ?? '', '', '', '', '', '', '', '', String(kpi.positionKpiIdeal ?? ''), '', kpi.positionKpiFrequency ?? '', ''])
+        const kpiRow = sheet.addRow([kpi.positionKpiName ?? '', '', '', '', '', '', '', '', String(kpi.positionKpiIdeal ?? ''), '', kpiFrequencyLabel(kpi.positionKpiFrequency), ''])
         sheet.mergeCells(`A${kpiRow.number}:H${kpiRow.number}`)
         sheet.mergeCells(`I${kpiRow.number}:J${kpiRow.number}`)
         sheet.mergeCells(`K${kpiRow.number}:${LAST}${kpiRow.number}`)

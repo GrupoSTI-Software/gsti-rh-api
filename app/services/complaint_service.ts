@@ -45,6 +45,7 @@ import type {
 import type { ParsedComplaintReportDateRange } from '../helpers/complaint_report_date_range.js'
 import { randomStringFromAlphabet } from '../helpers/csprng_string.js'
 import { buildDownloadFileName, formatDownloadFileDate } from '#helpers/download_file_name'
+import { reportI18n } from '#helpers/report_locale'
 
 const PASSPHRASE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 /** Primer dígito del folio nunca es 0 (mismo rango 100000-999999 de siempre). */
@@ -433,7 +434,9 @@ export default class ComplaintService {
     }
   }
 
-  async buildReportExcel(report: ComplaintReportResult, i18n?: I18n): Promise<Buffer> {
+  /** Excel del reporte agregado; sale siempre en español (report_locale.ts). */
+  async buildReportExcel(report: ComplaintReportResult): Promise<Buffer> {
+    const i18n = reportI18n()
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet(
       this.reportLabel(i18n, 'complaint_report_sheet_name', 'Reporte')
@@ -444,7 +447,7 @@ export default class ComplaintService {
     ])
     worksheet.addRow([
       this.reportLabel(i18n, 'complaint_report_period_label', 'Periodo'),
-      `${report.period.from} — ${report.period.to}`,
+      this.reportPeriodLabel(report),
     ])
     worksheet.addRow([
       this.reportLabel(i18n, 'complaint_report_total_volume_label', 'Volumen total'),
@@ -479,7 +482,9 @@ export default class ComplaintService {
     return Buffer.from(buffer)
   }
 
-  async buildReportPdf(report: ComplaintReportResult, i18n?: I18n): Promise<Buffer> {
+  /** PDF del reporte agregado; sale siempre en español (report_locale.ts). */
+  async buildReportPdf(report: ComplaintReportResult): Promise<Buffer> {
+    const i18n = reportI18n()
     return new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({
         size: 'LETTER',
@@ -508,7 +513,7 @@ export default class ComplaintService {
       doc.moveDown(0.5)
       doc.fontSize(10)
       doc.text(
-        `${this.reportLabel(i18n, 'complaint_report_period_label', 'Periodo')}: ${report.period.from} — ${report.period.to}`
+        `${this.reportLabel(i18n, 'complaint_report_period_label', 'Periodo')}: ${this.reportPeriodLabel(report)}`
       )
       doc.text(
         `${this.reportLabel(i18n, 'complaint_report_total_volume_label', 'Volumen total')}: ${report.totalVolume}`
@@ -684,12 +689,20 @@ export default class ComplaintService {
     return [...COMPLAINT_CATEGORIES]
   }
 
-  private reportCategoryLabel(category: ComplaintCategory, i18n?: I18n): string {
+  /** Periodo del reporte como `dd/MM/yyyy — dd/MM/yyyy` (llega en ISO de calendario). */
+  private reportPeriodLabel(report: ComplaintReportResult): string {
+    const format = (iso: string) => {
+      const parsed = DateTime.fromISO(iso, { zone: 'utc' })
+      return parsed.isValid ? parsed.toFormat('dd/MM/yyyy') : iso
+    }
+    return `${format(report.period.from)} — ${format(report.period.to)}`
+  }
+
+  private reportCategoryLabel(category: ComplaintCategory, i18n: I18n): string {
     return this.reportLabel(i18n, `complaint_report_category_${category.replace(/-/g, '_')}`, category)
   }
 
-  private reportLabel(i18n: I18n | undefined, key: string, fallback: string): string {
-    if (!i18n) return fallback
+  private reportLabel(i18n: I18n, key: string, fallback: string): string {
     const translated = i18n.formatMessage(key)
     return translated === key ? fallback : translated
   }
