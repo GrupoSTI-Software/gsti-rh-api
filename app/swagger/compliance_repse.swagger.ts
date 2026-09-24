@@ -80,6 +80,24 @@ export {}
  *           format: date-time
  *           nullable: true
  *
+ *     EmpresaContratanteListItem:
+ *       description: Fila del listado de empresas contratantes (GET /api/empresas-contratantes).
+ *       allOf:
+ *         - $ref: '#/components/schemas/EmpresaContratanteResource'
+ *         - type: object
+ *           properties:
+ *             contratosCount:
+ *               type: integer
+ *               description: Contratos no borrados de la empresa (cualquier estatus).
+ *             sitios:
+ *               type: array
+ *               description: Sitios de servicio (sucursales) ligados, ordenados por nombre.
+ *               items:
+ *                 type: object
+ *                 properties:
+ *                   id: { type: integer }
+ *                   name: { type: string }
+ *
  *     EmpresaContratanteBasicaResource:
  *       type: object
  *       properties:
@@ -412,6 +430,22 @@ export {}
  *           description: |
  *             true solo cuando el estatus efectivo es vencido por expiración de fecha
  *             (fecha_fin o documento firmado vigente) y el estatus declarado en BD sigue siendo vigente.
+ *         porVencer:
+ *           type: boolean
+ *           description: Estatus efectivo vigente y fechaFin a 45 días o menos (zona de negocio).
+ *         diasParaVencer:
+ *           type: integer
+ *           nullable: true
+ *           description: Días civiles de hoy a fechaFin; null si no está vigente o no tiene fechaFin.
+ *         trabajadoresAsignados:
+ *           type: integer
+ *           description: Trabajadores distintos con asignación no borrada y vigente hoy.
+ *         trabajadoresDeclarados:
+ *           type: integer
+ *           description: numeroTrabajadoresAprox del anexo 15-D (0 si no hay anexo).
+ *         tieneDocumentoFirmado:
+ *           type: boolean
+ *           description: Existe documento firmado vigente cargado.
  *         anexo15d:
  *           $ref: '#/components/schemas/Anexo15DResource'
  *         serviciosRegistrados:
@@ -481,7 +515,7 @@ export {}
  *                 data:
  *                   type: array
  *                   items:
- *                     $ref: '#/components/schemas/EmpresaContratanteResource'
+ *                     $ref: '#/components/schemas/EmpresaContratanteListItem'
  *
  *     EmpresaContratanteSuccess:
  *       type: object

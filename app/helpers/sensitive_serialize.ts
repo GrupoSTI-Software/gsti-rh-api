@@ -39,26 +39,26 @@ export function sensitiveSerialize(
 }
 
 /**
- * Fábrica de `serialize` para importes clasificados (USRH1787204602828).
- * Los importes sensibles no se entregan en claro por HTTP: sin permiso o con
- * permiso de consulta devuelven `null` (el claro va por reveal/export dedicado).
+ * Fábrica de `serialize` para importes clasificados (USRH1789328027061).
+ *
+ * Con valor entrega siempre `SENSITIVE_MASK` (texto, no numérico) a cualquier usuario;
+ * sin valor, `null`. El importe completo solo sale por el revelado con asiento.
+ * Conserva `(model, column)` porque la invocan los 8 decoradores de importes.
  */
 export function sensitiveSerializeNumeric(
-  model: string,
-  column: string
-): (value: number | null) => number | null {
-  const category = catalog.categoryOf(model, column)
-
-  return (value: number | null): number | null => {
+  _model: string,
+  _column: string
+): (value: number | string | null) => string | null {
+  return (value: number | string | null): string | null => {
     if (value === null || value === undefined) {
       return null
     }
 
-    if (category === null) {
+    if (typeof value === 'string' && value.trim() === '') {
       return null
     }
 
-    return null
+    return SENSITIVE_MASK
   }
 }
 

@@ -85,6 +85,7 @@ import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -882,9 +883,9 @@ export default class EmployeeController {
    *                 required: true
    *                 default: 1
    *               dailySalary:
-   *                 type: number
+   *                 type: string
    *                 nullable: true
-   *                 description: Daily salary. Nullable in API responses for users without financial-data read permission (returns null). On creation, an absent value defaults to 0 (unchanged create-path behavior).
+   *                 description: Salario diario. En respuestas GET con valor se entrega enmascarado (`•••••`); sin valor, null. El completo solo por reveal. En alta, ausente = 0.
    *                 required: false
    *                 default: 0
    *               payrollBusinessUnitId:
@@ -1090,7 +1091,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -1433,7 +1434,7 @@ export default class EmployeeController {
    *               dailySalary:
    *                 type: number
    *                 nullable: true
-   *                 description: Salario diario. Ausente, `null` o no numérico = no modificar el valor actual. El `0` explícito es válido y sí se persiste (genera asiento de historial si cambió).
+   *                 description: Salario diario. Ausente, `null`, no numérico o marcador `•••••` = no modificar el valor actual. El `0` explícito es válido y sí se persiste (genera asiento de historial si cambió). En respuestas GET con valor se entrega enmascarado.
    *                 required: false
    *               payrollBusinessUnitId:
    *                 type: number
@@ -2340,7 +2341,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -2502,7 +2503,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -3964,7 +3965,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -5280,7 +5281,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -5439,7 +5440,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -5612,7 +5613,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -5789,7 +5790,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -7180,7 +7181,8 @@ export default class EmployeeController {
    *                   example: EMP.SENS.WRITE.IMPORT_FORBIDDEN
    *       409:
    *         description: |
-   *           El archivo rebasa el cupo de empleados o la empresa self-service no tiene plan vigente.
+   *           El archivo rebasa el cupo de empleados, la empresa self-service no tiene plan vigente,
+   *           o alguna fila declara una empresa distinta de la activa (trabajo o nómina).
    *           No se aplica ninguna fila del Excel (todo-o-nada).
    *         content:
    *           application/json:
@@ -7198,21 +7200,35 @@ export default class EmployeeController {
    *                   type: string
    *                 key:
    *                   type: string
-   *                   enum: [cupo-empleados-agotado-importacion, sin-plan-contratado-importacion]
+   *                   enum: [cupo-empleados-agotado-importacion, sin-plan-contratado-importacion, archivo-de-otra-empresa]
    *                 code:
    *                   type: string
-   *                   enum: [EMP.IMPORT.QUOTA_EXCEEDED, EMP.IMPORT.NO_PLAN]
+   *                   enum: [EMP.IMPORT.QUOTA_EXCEEDED, EMP.IMPORT.NO_PLAN, EMP.IMPORT.VAL_BUSINESS_UNIT]
    *                 data:
-   *                   type: object
-   *                   description: Solo cantidades; nunca identificadores internos de empresa
-   *                   properties:
-   *                     contracted:
-   *                       type: integer
-   *                     active:
-   *                       type: integer
-   *                     incoming:
-   *                       type: integer
-   *                       description: Altas nuevas en el archivo (filas sin ID Empleado)
+   *                   oneOf:
+   *                     - type: object
+   *                       description: Solo cantidades; nunca identificadores internos de empresa
+   *                       properties:
+   *                         contracted:
+   *                           type: integer
+   *                         active:
+   *                           type: integer
+   *                         incoming:
+   *                           type: integer
+   *                           description: Altas nuevas en el archivo (filas sin ID Empleado)
+   *                     - type: object
+   *                       properties:
+   *                         offendingRows:
+   *                           type: array
+   *                           items:
+   *                             type: object
+   *                             properties:
+   *                               row:
+   *                                 type: integer
+   *                               businessUnit:
+   *                                 type: string
+   *                               payrollBusinessUnit:
+   *                                 type: string
    *             examples:
    *               cupoRebasado:
    *                 value:
@@ -7238,6 +7254,25 @@ export default class EmployeeController {
    *                     contracted: 0
    *                     active: 12
    *                     incoming: 3
+   *               otraEmpresa:
+   *                 value:
+   *                   type: error
+   *                   title: El archivo tiene empleados de otra empresa
+   *                   message: "La empresa activa es «Acme». Estas filas declaran otra: fila 12 («Otra SA»), fila 13 («Otra SA»), fila 40 («Otra SA»). … y 5 filas más. No se aplicó ninguna línea del archivo: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo."
+   *                   detail: "La empresa activa es «Acme». Estas filas declaran otra: fila 12 («Otra SA»), fila 13 («Otra SA»), fila 40 («Otra SA»). … y 5 filas más. No se aplicó ninguna línea del archivo: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo."
+   *                   key: archivo-de-otra-empresa
+   *                   code: EMP.IMPORT.VAL_BUSINESS_UNIT
+   *                   data:
+   *                     offendingRows:
+   *                       - row: 12
+   *                         businessUnit: Otra SA
+   *                         payrollBusinessUnit: ''
+   *                       - row: 13
+   *                         businessUnit: Otra SA
+   *                         payrollBusinessUnit: ''
+   *                       - row: 40
+   *                         businessUnit: ''
+   *                         payrollBusinessUnit: Otra SA
    *       500:
    *         description: Error inesperado del servidor
    *         content:
@@ -7359,6 +7394,23 @@ export default class EmployeeController {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (error instanceof EmployeeQuotaError) {
         const resolved = resolveEmployeeQuotaApiError(error, error.httpStatus, i18n)
+        response.status(resolved.status)
+        return {
+          type: 'error',
+          title: resolved.title,
+          message: resolved.message,
+          detail: resolved.detail,
+          key: resolved.key,
+          code: resolved.errorCode,
+          data: resolved.data,
+        }
+      }
+
+      // USRH1789747321650 reglas 1 y 6: el archivo declaraba otra empresa.
+      // Rechazo todo-o-nada con el listado de filas para corregir (409, mismo
+      // camino que cupo: no se aplica ninguna línea del archivo).
+      if ((error as { isCompanyMismatchError?: boolean }).isCompanyMismatchError) {
+        const resolved = resolveEmployeeImportApiError(error, 409, i18n)
         response.status(resolved.status)
         return {
           type: 'error',
@@ -9010,7 +9062,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }

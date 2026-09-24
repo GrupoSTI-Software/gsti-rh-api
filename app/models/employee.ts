@@ -102,9 +102,9 @@ import BranchOfficeProvisioningService from '#services/branch_office_provisionin
  *            type: number
  *            description: business id from the employee business unit
  *          dailySalary:
- *            type: number
+ *            type: string
  *            nullable: true
- *            description: Salario diario vigente. Sin permiso de lectura financiera se entrega null, nunca enmascarado por partes.
+ *            description: Salario diario vigente. Con valor se entrega enmascarado (`•••••`); sin valor, null. El importe completo solo por `GET /api/v1/pii/reveal/Employee/dailySalary/:id`.
  *          payrollBusinessUnitId:
  *            type: number
  *            description: payroll business unit id

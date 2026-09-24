@@ -36,6 +36,9 @@ export const RENEWAL_THRESHOLD_DAYS = 90
 /** Días de anticipación para aviso de informativa cuatrimestral. */
 export const INFORMATIVA_THRESHOLD_DAYS = 15
 
+/** Días de anticipación con que el panorama REPSE lista la próxima informativa como pendiente. */
+export const INFORMATIVA_PANORAMA_THRESHOLD_DAYS = 30
+
 /** Fechas de presentación de informativas (17 ene/may/sep) y clave de cuatrimestre. */
 export const INFORMATIVA_PRESENTATION_DATES = [
   { month: 1, day: 17, cuatrimestre: 'C1' as const },

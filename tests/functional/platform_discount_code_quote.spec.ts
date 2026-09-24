@@ -11,7 +11,7 @@ import BillingCatalogService from '#services/billing_catalog_service'
 import { DISCOUNT_CODE_ERROR_CODES } from '#constants/discount_code_error_codes'
 
 /**
- * Tests funcionales — GET /api/platform/billing/discount-codes/:discountCodeText/quote
+ * Tests funcionales — POST /api/platform/billing/discount-codes/quote
  * (USRH1787714804400). Cubre autenticación/rol, las razones específicas de
  * no-redimibilidad, el orden de acumulación (volumen → código), el tope de
  * subtotal no negativo, la idempotencia (nunca escribe) y los tres tipos
@@ -134,11 +134,13 @@ async function cleanupCode(codeId: number | null) {
   await DiscountCode.query().where('discount_code_id', codeId).delete()
 }
 
-test.group('GET .../discount-codes/:discountCodeText/quote — autenticación y rol', () => {
+test.group('POST .../discount-codes/quote — autenticación y rol', () => {
   test('responde 401 sin token', async ({ client }) => {
-    const response = await client.get(
-      '/api/platform/billing/discount-codes/CUALQUIERA/quote?billingPlanId=1&employeeCount=10'
-    )
+    const response = await client.post('/api/platform/billing/discount-codes/quote').json({
+      discountCodeText: 'CUALQUIERA',
+      billingPlanId: 1,
+      employeeCount: 10,
+    })
     response.assertStatus(401)
   })
 
@@ -146,7 +148,11 @@ test.group('GET .../discount-codes/:discountCodeText/quote — autenticación y 
     const tenant = await createActor('quote-tenant', false)
     try {
       const response = await client
-        .get('/api/platform/billing/discount-codes/CUALQUIERA/quote?billingPlanId=1&employeeCount=10')
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: 'CUALQUIERA',
+        billingPlanId: 1,
+        employeeCount: 10,
+      })
         .loginAs(tenant.user)
       response.assertStatus(403)
     } finally {
@@ -155,7 +161,7 @@ test.group('GET .../discount-codes/:discountCodeText/quote — autenticación y 
   })
 })
 
-test.group('GET .../discount-codes/:discountCodeText/quote — razones de no-redimibilidad', (group) => {
+test.group('POST .../discount-codes/quote — razones de no-redimibilidad', (group) => {
   let admin: TestActor | null = null
   let planId: number | null = null
 
@@ -171,7 +177,11 @@ test.group('GET .../discount-codes/:discountCodeText/quote — razones de no-red
 
   test('código inexistente responde 404 NOT_FOUND (no un mensaje genérico)', async ({ client }) => {
     const response = await client
-      .get(`/api/platform/billing/discount-codes/NOEXISTE-${Date.now()}/quote?billingPlanId=${planId}&employeeCount=120`)
+      .post('/api/platform/billing/discount-codes/quote').json({
+      discountCodeText: `NOEXISTE-${Date.now()}`,
+      billingPlanId: planId,
+      employeeCount: 120,
+    })
       .loginAs(admin!.user)
 
     response.assertStatus(404)
@@ -193,7 +203,11 @@ test.group('GET .../discount-codes/:discountCodeText/quote — razones de no-red
     })
     try {
       const response = await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode}/quote?billingPlanId=${planId}&employeeCount=120`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode,
+        billingPlanId: planId,
+        employeeCount: 120,
+      })
         .loginAs(admin!.user)
       response.assertStatus(422)
       response.assertBodyContains({ code: DISCOUNT_CODE_ERROR_CODES.CODE_INACTIVE })
@@ -217,7 +231,11 @@ test.group('GET .../discount-codes/:discountCodeText/quote — razones de no-red
     })
     try {
       const response = await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode}/quote?billingPlanId=${planId}&employeeCount=120`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode,
+        billingPlanId: planId,
+        employeeCount: 120,
+      })
         .loginAs(admin!.user)
       response.assertStatus(422)
       response.assertBodyContains({ code: DISCOUNT_CODE_ERROR_CODES.CODE_NOT_YET_VALID })
@@ -241,7 +259,11 @@ test.group('GET .../discount-codes/:discountCodeText/quote — razones de no-red
     })
     try {
       const response = await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode}/quote?billingPlanId=${planId}&employeeCount=120`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode,
+        billingPlanId: planId,
+        employeeCount: 120,
+      })
         .loginAs(admin!.user)
       response.assertStatus(422)
       response.assertBodyContains({ code: DISCOUNT_CODE_ERROR_CODES.CODE_EXPIRED })
@@ -265,7 +287,11 @@ test.group('GET .../discount-codes/:discountCodeText/quote — razones de no-red
     })
     try {
       const response = await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode}/quote?billingPlanId=${planId}&employeeCount=120`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode,
+        billingPlanId: planId,
+        employeeCount: 120,
+      })
         .loginAs(admin!.user)
       response.assertStatus(422)
       response.assertBodyContains({ code: DISCOUNT_CODE_ERROR_CODES.CODE_EXHAUSTED })
@@ -289,7 +315,11 @@ test.group('GET .../discount-codes/:discountCodeText/quote — razones de no-red
     })
     try {
       const response = await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode}/quote?billingPlanId=999999999&employeeCount=120`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode,
+        billingPlanId: 999999999,
+        employeeCount: 120,
+      })
         .loginAs(admin!.user)
       response.assertStatus(404)
       response.assertBodyContains({ code: DISCOUNT_CODE_ERROR_CODES.QUOTE_PLAN_NOT_FOUND })
@@ -316,7 +346,11 @@ test.group('GET .../discount-codes/:discountCodeText/quote — razones de no-red
     })
     try {
       const response = await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode}/quote?billingPlanId=${draftPlanId}&employeeCount=120`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode,
+        billingPlanId: draftPlanId,
+        employeeCount: 120,
+      })
         .loginAs(admin!.user)
       response.assertStatus(422)
       response.assertBodyContains({ code: DISCOUNT_CODE_ERROR_CODES.QUOTE_PLAN_NOT_QUOTABLE })
@@ -341,7 +375,11 @@ test.group('GET .../discount-codes/:discountCodeText/quote — razones de no-red
     })
     try {
       const response = await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode.toLowerCase()}/quote?billingPlanId=${planId}&employeeCount=120`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode.toLowerCase(),
+        billingPlanId: planId,
+        employeeCount: 120,
+      })
         .loginAs(admin!.user)
       response.assertStatus(200)
     } finally {
@@ -350,7 +388,7 @@ test.group('GET .../discount-codes/:discountCodeText/quote — razones de no-red
   })
 })
 
-test.group('GET .../discount-codes/:discountCodeText/quote — cálculo (120 empleados, 79/empleado, tramo 10 %)', (group) => {
+test.group('POST .../discount-codes/quote — cálculo (120 empleados, 79/empleado, tramo 10 %)', (group) => {
   let admin: TestActor | null = null
   let planId: number | null = null
 
@@ -382,7 +420,11 @@ test.group('GET .../discount-codes/:discountCodeText/quote — cálculo (120 emp
     })
     try {
       const response = await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode}/quote?billingPlanId=${planId}&employeeCount=120`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode,
+        billingPlanId: planId,
+        employeeCount: 120,
+      })
         .loginAs(admin!.user)
 
       response.assertStatus(200)
@@ -420,7 +462,11 @@ test.group('GET .../discount-codes/:discountCodeText/quote — cálculo (120 emp
     })
     try {
       const response = await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode}/quote?billingPlanId=${planId}&employeeCount=120`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode,
+        billingPlanId: planId,
+        employeeCount: 120,
+      })
         .loginAs(admin!.user)
 
       response.assertStatus(200)
@@ -453,7 +499,11 @@ test.group('GET .../discount-codes/:discountCodeText/quote — cálculo (120 emp
     })
     try {
       const response = await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode}/quote?billingPlanId=${planId}&employeeCount=120`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode,
+        billingPlanId: planId,
+        employeeCount: 120,
+      })
         .loginAs(admin!.user)
 
       response.assertStatus(200)
@@ -493,7 +543,11 @@ test.group('GET .../discount-codes/:discountCodeText/quote — cálculo (120 emp
     })
     try {
       const response = await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode}/quote?billingPlanId=${planId}&employeeCount=120`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode,
+        billingPlanId: planId,
+        employeeCount: 120,
+      })
         .loginAs(admin!.user)
 
       response.assertStatus(200)
@@ -527,10 +581,18 @@ test.group('GET .../discount-codes/:discountCodeText/quote — cálculo (120 emp
     })
     try {
       await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode}/quote?billingPlanId=${planId}&employeeCount=120`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode,
+        billingPlanId: planId,
+        employeeCount: 120,
+      })
         .loginAs(admin!.user)
       await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode}/quote?billingPlanId=${planId}&employeeCount=120`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode,
+        billingPlanId: planId,
+        employeeCount: 120,
+      })
         .loginAs(admin!.user)
 
       const reloaded = await DiscountCode.findOrFail(code.discountCodeId)
@@ -561,12 +623,71 @@ test.group('GET .../discount-codes/:discountCodeText/quote — cálculo (120 emp
     })
     try {
       const response = await client
-        .get(`/api/platform/billing/discount-codes/${code.discountCodeCode}/quote?billingPlanId=${planId}&employeeCount=-5`)
+        .post('/api/platform/billing/discount-codes/quote').json({
+        discountCodeText: code.discountCodeCode,
+        billingPlanId: planId,
+        employeeCount: -5,
+      })
         .loginAs(admin!.user)
       response.assertStatus(422)
       response.assertBodyContains({ code: DISCOUNT_CODE_ERROR_CODES.VAL_INPUT })
     } finally {
       await cleanupCode(code.discountCodeId)
     }
+  })
+})
+
+test.group('POST .../discount-codes/quote — ruta vieja retirada (USRH1788551528002)', () => {
+  test('GET con el texto en la ruta ya no cotiza', async ({ client }) => {
+    const response = await client.get(
+      '/api/platform/billing/discount-codes/BIENVENIDA15/quote?billingPlanId=1&employeeCount=10'
+    )
+    response.assertStatus(404)
+  })
+})
+
+test.group('POST /discount-codes — 409 sin el texto (USRH1788551528002)', (group) => {
+  let admin: TestActor | null = null
+  const createdIds: number[] = []
+
+  group.setup(async () => {
+    admin = await createActor('quote-duplicate-admin', true)
+  })
+
+  group.teardown(async () => {
+    for (const id of createdIds) {
+      await cleanupCode(id)
+    }
+    await cleanupActor(admin)
+  })
+
+  test('el 409 de texto ocupado no repite el código', async ({ client, assert }) => {
+    const text = `PROMO${Date.now()}`
+    const body = {
+      discountCodeCode: text,
+      discountCodeName: 'Promo ocupada',
+      discountCodeKind: 'percent',
+      discountCodeValue: 10,
+    }
+    const created = await client
+      .post('/api/platform/billing/discount-codes')
+      .json(body)
+      .loginAs(admin!.user)
+    created.assertStatus(201)
+    createdIds.push(created.body().data.discountCodeId)
+
+    const duplicate = await client
+      .post('/api/platform/billing/discount-codes')
+      .json({ ...body, discountCodeCode: text.toLowerCase() })
+      .loginAs(admin!.user)
+    duplicate.assertStatus(409)
+    duplicate.assertBodyContains({
+      code: DISCOUNT_CODE_ERROR_CODES.CODE_DUPLICATE,
+      key: 'codigo-ya-existe',
+      detail:
+        'Ya existe un código de descuento con ese texto. El texto de un código no se reutiliza.',
+    })
+    const raw = JSON.stringify(duplicate.body()).toUpperCase()
+    assert.notInclude(raw, text.toUpperCase())
   })
 })

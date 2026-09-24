@@ -16,7 +16,7 @@ import {
   createRemainingSensitiveFixture,
   createSensitiveFixture,
   empresaRfcFromShow,
-  expectAmountNull,
+  expectAmountMasked,
   expectMaskedHealth,
   expectNeverDenied,
   firstSalaryDaily,
@@ -87,7 +87,7 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     )
   })
 
-  test('CA-3: sin financiero los importes van null, nunca mascara parcial', async ({
+  test('CA-3: sin financiero los importes van enmascarados, nunca mascara parcial', async ({
     client,
     assert,
   }) => {
@@ -101,7 +101,7 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', buHeader(actor!))
     expectNeverDenied(salaryRes, assert)
-    expectAmountNull(firstSalaryDaily(salaryRes.body()), assert)
+    expectAmountMasked(firstSalaryDaily(salaryRes.body()), assert)
 
     const rangeRes = await client
       .get('/api/position-salary-ranges')
@@ -113,11 +113,11 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       .header('X-Business-Unit-Id', buHeader(actor!))
     expectNeverDenied(rangeRes, assert)
     const amounts = rangeAmounts(rangeRes.body())
-    expectAmountNull(amounts.min, assert)
-    expectAmountNull(amounts.max, assert)
+    expectAmountMasked(amounts.min, assert)
+    expectAmountMasked(amounts.max, assert)
   })
 
-  test('CA-3: con sensitive-financiero-read los importes siguen null en GET', async ({
+  test('CA-3: con sensitive-financiero-read los importes siguen enmascarados en GET', async ({
     client,
     assert,
   }) => {
@@ -129,7 +129,7 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', buHeader(actor!))
     expectNeverDenied(salaryRes, assert)
-    expectAmountNull(firstSalaryDaily(salaryRes.body()), assert)
+    expectAmountMasked(firstSalaryDaily(salaryRes.body()), assert)
 
     const rangeRes = await client
       .get('/api/position-salary-ranges')
@@ -140,8 +140,8 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', buHeader(actor!))
     const amounts = rangeAmounts(rangeRes.body())
-    expectAmountNull(amounts.min, assert)
-    expectAmountNull(amounts.max, assert)
+    expectAmountMasked(amounts.min, assert)
+    expectAmountMasked(amounts.max, assert)
   })
 
   test('CA-2: RFC de empresa contratante se enmascara sin identificacion', async ({
