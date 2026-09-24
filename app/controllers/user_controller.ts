@@ -2111,7 +2111,9 @@ export default class UserController {
         userEmailType: userEmailType,
       } as User
       const previousUser = JSON.parse(JSON.stringify(currentUser))
-      await request.validateUsing(updateUserValidator)
+      await request.validateUsing(updateUserValidator, {
+        meta: { userId, currentPersonId: currentUser.personId },
+      })
       const verifyInfo = await userService.verifyInfo(user)
       if (verifyInfo.status !== 200) {
         return respondUserAccessEmailDuplicated(ctx)
