@@ -24,6 +24,10 @@ import UploadService from '#services/upload_service'
 import UserService from '#services/user_service'
 import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
 import {
+  emptyEmployeeRoleScope,
+  resolveEmployeeRoleScopeForUser,
+} from '#helpers/resolve_employee_role_scope'
+import {
   EMPLOYEES_READ_PERMISSION_DECLARATIONS,
   EMPLOYEES_TERMINATED_EMPLOYEES_READ_PERMISSION,
 } from '#constants/employees_read_permission_declarations'
@@ -5753,18 +5757,10 @@ export default class EmployeeController {
     try {
       await auth.check()
       const user = auth.user
-      let userResponsibleId = null
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
-      }
-      const userService = new UserService(i18n)
-      let departmentsList = [] as Array<number>
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
-      }
+      // Alcance: regla 1, 2, 4 de USRH1788466831312.
+      const scope = user
+        ? (await user.preload('role'), await resolveEmployeeRoleScopeForUser(user, i18n))
+        : emptyEmployeeRoleScope()
       const search = request.input('search')
       const departmentId = this.parseIdOrIds(request.input('departmentId'))
       const positionId = this.parseIdOrIds(request.input('positionId'))
@@ -5776,10 +5772,10 @@ export default class EmployeeController {
         positionId: positionId,
         dateStart: dateStart,
         dateEnd: dateEnd,
-        userResponsibleId: userResponsibleId,
+        userResponsibleId: scope.userResponsibleId,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.getAllVacationsByPeriod(filters, departmentsList, businessUnitScope)
+      const employees = await employeeService.getAllVacationsByPeriod(filters, scope, businessUnitScope)
       response.status(200)
       return {
         type: 'success',

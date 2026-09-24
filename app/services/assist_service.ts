@@ -4785,11 +4785,15 @@ export default class AssistsService {
       const userResponsibleId = filters.userResponsibleId
 
       const employeeService = new EmployeeService(this.i18n)
+      // Para acceso completo (includeUnassigned = true), no se pasa `departmentId`
+      // como filtro UI: el alcance lo aplica `applyVisibleDepartmentsScope` vía
+      // `departmentsList` (incluye OR NULL). Con acceso restringido, `departmentId`
+      // y `userResponsibleId` acotan como antes. USRH1788466831312.
       const employees = await this.fetchEmployeesForExcelReport(
         employeeService,
         {
           search: '',
-          departmentId: departmentsList,
+          departmentId: filters.includeUnassigned ? 0 : departmentsList,
           positionId: 0,
           page: 1,
           limit: 999999,

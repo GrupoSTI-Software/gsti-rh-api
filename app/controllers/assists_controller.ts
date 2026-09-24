@@ -10,6 +10,10 @@ import { AssistPositionExcelFilterInterface } from '../interfaces/assist_positio
 import { AssistDepartmentExcelFilterInterface } from '../interfaces/assist_department_excel_filter_interface.js'
 import { AssistExcelFilterInterface } from '../interfaces/assist_excel_filter_interface.js'
 import UserService from '#services/user_service'
+import {
+  emptyEmployeeRoleScope,
+  resolveEmployeeRoleScopeForUser,
+} from '#helpers/resolve_employee_role_scope'
 import Assist from '#models/assist'
 import { DateTime } from 'luxon'
 import { AssistSyncFilterInterface } from '../interfaces/assist_sync_filter_interface.js'
@@ -2053,14 +2057,6 @@ export default class AssistsController {
     try {
       await auth.check()
       const user = auth.user
-      let userResponsibleId = null
-
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
-      }
 
       const filterDate = request.input('date')
       const filterDateEnd = request.input('date-end')
@@ -2077,22 +2073,22 @@ export default class AssistsController {
         }
       }
 
-      const userService = new UserService(i18n)
-      let departmentsList = [] as Array<number>
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
-      }
+      // Alcance: regla 1, 2, 4 de USRH1788466831312.
+      const scope = user
+        ? (await user.preload('role'), await resolveEmployeeRoleScopeForUser(user, i18n))
+        : emptyEmployeeRoleScope()
 
       const filters = {
         filterDate: filterDate,
         filterDateEnd: filterDateEnd,
-        userResponsibleId: userResponsibleId,
+        userResponsibleId: scope.userResponsibleId,
         businessUnitId: businessUnitId,
         payrollBusinessUnitId: payrollBusinessUnitId,
+        includeUnassigned: scope.includeUnassigned,
       } as PermissionsDatesExcelFilterInterface
 
       const assistService = new AssistsService(i18n)
-      const result = await assistService.getExcelPermissionsByDates(filters, departmentsList, businessUnitScope)
+      const result = await assistService.getExcelPermissionsByDates(filters, scope.departmentsList, businessUnitScope)
 
       if (result.buffer) {
         response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

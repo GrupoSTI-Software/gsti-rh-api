@@ -280,7 +280,7 @@ function argsOf(calls: readonly RecordedCall[], name: string): unknown[][] {
 }
 
 /** Acceso completo a la plantilla, con el departamento por defecto de `buildBundle`. */
-const FULL_ROLE_SCOPE: EmployeeRoleScope = { departmentsList: [1], userResponsibleId: null }
+const FULL_ROLE_SCOPE: EmployeeRoleScope = { departmentsList: [1], includeUnassigned: true, userResponsibleId: null }
 const ORCHESTRATOR_FILTERS: AbsencesFilters = {
   startDay: START_DAY,
   endDay: END_DAY,
@@ -804,7 +804,7 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     }
 
     // Sin acceso completo: solo a quienes tiene a cargo, resueltos sobre los calendarios del universo.
-    const responsible = await run({ departmentsList: [], userResponsibleId: USER_ID }, [2])
+    const responsible = await run({ departmentsList: [], includeUnassigned: false, userResponsibleId: USER_ID }, [2])
     assert.deepEqual(
       argsOf(responsible.calls, 'resolveEmployeeRoleScope').map(([userId]) => userId),
       [USER_ID]
@@ -823,7 +823,7 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     assert.deepEqual(responsible.result.data?.branches, [BRANCH_REFS.b])
 
     // Con acceso completo: los de sus departamentos visibles.
-    const byDepartment = await run({ departmentsList: [9], userResponsibleId: null })
+    const byDepartment = await run({ departmentsList: [9], includeUnassigned: true, userResponsibleId: null })
     assert.deepEqual(byDepartment.result.data?.days[0], {
       day: START_DAY,
       entries: [{ employeeId: 1, branchOfficeId: BRANCH_A }],

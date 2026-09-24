@@ -20,6 +20,8 @@ import BiometricEmployeeInterface from '../interfaces/biometric_employee_interfa
 import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
 import { isTerminatedEmployeesFilterRequested } from '#helpers/terminated_employees_filter'
 import { applyVisibleDepartmentsScope } from '#helpers/apply_visible_departments_scope'
+import { applyEmployeeDepartmentScope } from '#helpers/apply_employee_department_scope'
+import type { EmployeeDepartmentScope } from '#helpers/resolve_employee_role_scope'
 import type {
   EmployeeImportResult,
   EmployeeImportRowError,
@@ -2270,7 +2272,7 @@ export default class EmployeeService {
     return employees
   }
 
-  async getAllVacationsByPeriod(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[]) {
+  async getAllVacationsByPeriod(filters: EmployeeFilterSearchInterface, scope: EmployeeDepartmentScope, allowedBusinessUnitIds: number[]) {
     const shiftExceptionVacation = await ExceptionType.query()
       .whereNull('exception_type_deleted_at')
       .where('exception_type_slug', 'vacation')
@@ -2313,7 +2315,7 @@ export default class EmployeeService {
         exceptionQuery.whereBetween('shift_exceptions_date', [dateStart, dateEnd])
         exceptionQuery.select('shift_exceptions_date', 'exception_type_id')
       })
-      .whereIn('departmentId', departmentsList)
+      .where((q) => applyEmployeeDepartmentScope(q, scope))
       .preload('department')
       .preload('position')
       .preload('person')

@@ -1,8 +1,8 @@
 import fs from 'node:fs'
 import type { HttpContext } from '@adonisjs/core/http'
 import ReportJobService from '#services/report_job_service'
-import UserService from '#services/user_service'
 import RoleService from '#services/role_service'
+import { resolveEmployeeRoleScopeForUser } from '#helpers/resolve_employee_role_scope'
 import env from '#start/env'
 import type { ReportJobFilters, ReportJobType } from '#models/report_job'
 import Employee from '#models/employee'
@@ -46,7 +46,6 @@ export default class ReportJobsController {
       }
 
       await user.load('role')
-      const userService = new UserService(i18n)
 
       const filterDate = request.input('date')
       const filterDateEnd = request.input('date-end')
@@ -205,26 +204,25 @@ export default class ReportJobsController {
         }
       }
 
-      let userResponsibleId: number | null = null
-      if (user.role.roleSlug !== 'root') {
-        userResponsibleId = user.userId
-      }
-
-      const departmentsList = await userService.getRoleDepartments(user.userId)
+      // Alcance congelado al encolar: reglas 6, 7 de USRH1788466831312.
+      // Si `resolveEmployeeRoleScopeForUser` lanza (p. ej. error de BD), la
+      // excepción se propaga al `catch` y no se encola el job (CA-11).
+      const scope = await resolveEmployeeRoleScopeForUser(user, i18n)
 
       const filters: ReportJobFilters = {
         filterDate,
         filterDateEnd,
         filterDatePay: filterDatePay ?? undefined,
-        userResponsibleId,
+        userResponsibleId: scope.userResponsibleId,
         businessUnitId,
         payrollBusinessUnitId,
         branchNameIds,
-        departmentsList,
+        departmentsList: scope.departmentsList,
         locale: i18n.locale,
         employeeId,
         canDisplayPaymentsSummary,
         canDisplayDiscountsSummary,
+        includeUnassigned: scope.includeUnassigned,
       }
 
       const reportJobService = new ReportJobService()
