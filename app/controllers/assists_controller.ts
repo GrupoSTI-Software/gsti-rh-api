@@ -54,6 +54,7 @@ import type { StoreAssistPayload } from '#modules/assist-ingestion/validators/st
 import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
 import { employeeSynchronizeAssistsValidator } from '#validators/assist_employee_synchronize'
 import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
+import { reportI18n } from '#helpers/report_locale'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -559,7 +560,7 @@ export default class AssistsController {
         filterDateEnd: filterDateEnd,
         filterDatePay: filterDatePay,
       } as AssistEmployeeExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       let buffer
       if (reportType === 'Assistance Report') {
         buffer = await assistService.getExcelByEmployeeAssistance(employee, filters)
@@ -703,7 +704,7 @@ export default class AssistsController {
         filterDateEnd: filterDateEnd,
         businessUnitId: Number(request.input('businessUnitId')) || undefined,
       } as AssistPositionExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       const buffer = await assistService.getExcelByPosition(filters, businessUnitScope)
       if (buffer.status === 201) {
         response.header(
@@ -865,7 +866,7 @@ export default class AssistsController {
         userResponsibleId: userResponsibleId,
         businessUnitId: Number(request.input('businessUnitId')) || undefined,
       } as AssistDepartmentExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       let buffer
       if (reportType === 'Assistance Report') {
         buffer = await assistService.getExcelByDepartmentAssistance(filters, businessUnitScope)
@@ -1044,7 +1045,7 @@ export default class AssistsController {
         payrollBusinessUnitId: payrollBusinessUnitId,
         branchNameIds: branchNameIds,
       } as AssistExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       let buffer
       if (reportType === 'Assistance Report') {
         buffer = await assistService.getExcelAllAssistance(filters, departmentsList, scopedBusinessUnitIds)
@@ -1693,7 +1694,7 @@ export default class AssistsController {
           data: { date },
         }
       }
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       const result = assistService.isPayThursday(date, '2025-01-09')
       if (!result) {
         const entity = t('date')
@@ -2194,7 +2195,7 @@ export default class AssistsController {
         payrollBusinessUnitId: payrollBusinessUnitId,
       } as PermissionsDatesExcelFilterInterface
 
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       const result = await assistService.getExcelPermissionsByDates(filters, departmentsList, businessUnitScope)
 
       if (result.buffer) {

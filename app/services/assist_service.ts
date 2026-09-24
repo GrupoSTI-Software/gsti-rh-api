@@ -55,6 +55,7 @@ import { AssistIncidentSummaryV2ExcelRowInterface } from '../interfaces/assist_i
 import { AssistIncidentSummaryV2CalendarExcelFilterInterface } from '../interfaces/assist_incident_summary_v2_calendar_excel_filter_interface.js'
 import { PLATFORM_FALLBACK_TRADE_NAME } from '#constants/system_setting_defaults'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
+import { REPORT_LOCALE } from '#helpers/report_locale'
 
 /**
  * Defaults de tolerancia cuando no hay empresa en contexto o la empresa no tiene
@@ -63,6 +64,22 @@ import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 const DEFAULT_DELAY_TOLERANCE_MINUTES = 10
 const DEFAULT_TARDINESS_TOLERANCE_MINUTES = 3
 const DEFAULT_TOLERANCE_COUNT_PER_ABSENCE = 3
+
+/** Fecha de calendario en los archivos descargables. */
+const REPORT_DATE_FORMAT = 'dd/MM/yyyy'
+
+/** Fecha y hora de checada en los archivos descargables (reloj de 24 h). */
+const REPORT_DATE_TIME_FORMAT = 'dd/MM/yyyy HH:mm:ss'
+
+/** Celda sin dato en los archivos descargables. */
+const REPORT_NO_DATA = '—'
+
+/**
+ * Fecha de calendario de una columna DATE: la conexión está en UTC, así que se
+ * lee en UTC para no correrla un día según la zona del servidor.
+ */
+const reportCalendarDate = (value: Date | string): string =>
+  DateTime.fromJSDate(new Date(value), { zone: 'utc' }).toFormat(REPORT_DATE_FORMAT)
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
@@ -73,7 +90,9 @@ export default class AssistsService {
   constructor(i18n: I18n) {
     this.t = i18n.formatMessage.bind(i18n)
     this.i18n = i18n
-    this.localeToUse = i18n.locale
+    // Solo lo usan los formatos de fecha de los archivos descargables, que
+    // salen siempre en el idioma de los reportes (no en el de la petición).
+    this.localeToUse = REPORT_LOCALE
   }
 
   /**
@@ -362,7 +381,7 @@ export default class AssistsService {
       const workbook = new ExcelJS.Workbook()
       const rowsIncidentPayroll = [] as AssistIncidentPayrollExcelRowInterface[]
       const tradeName = await this.getTradeName()
-      const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll'))
+      const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll_sheet'))
       const titlePayroll = `${this.t('incidents')} ${tradeName} ${this.getRange(filterDate, filterDateEnd)}`
       this.addTitleIncidentPayrollToWorkSheet(worksheet, titlePayroll)
       this.addHeadRowIncidentPayroll(worksheet)
@@ -772,7 +791,7 @@ export default class AssistsService {
       const workbook = new ExcelJS.Workbook()
       const rowsIncidentPayroll = [] as AssistIncidentPayrollExcelRowInterface[]
       const tradeName = await this.getTradeName()
-      const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll'))
+      const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll_sheet'))
       const titlePayroll = `${this.t('incidents')} ${tradeName} ${this.getRange(filterDate, filterDateEnd)}`
       this.addTitleIncidentPayrollToWorkSheet(worksheet, titlePayroll)
       this.addHeadRowIncidentPayroll(worksheet)
@@ -2092,7 +2111,7 @@ export default class AssistsService {
     const workbook = new ExcelJS.Workbook()
     const rowsIncidentPayroll = [] as AssistIncidentPayrollExcelRowInterface[]
     const tradeName = await this.getTradeName()
-    const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll'))
+    const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll_sheet'))
     const titlePayroll = `${this.t('incidents')} ${tradeName} ${this.getRange(filterDate, filterDateEnd)}`
     this.addTitleIncidentPayrollToWorkSheet(worksheet, titlePayroll)
     this.addHeadRowIncidentPayroll(worksheet)
@@ -2170,7 +2189,7 @@ export default class AssistsService {
     const workbook = new ExcelJS.Workbook()
     const rowsIncidentPayroll = [] as AssistIncidentPayrollExcelRowInterface[]
     const tradeName = await this.getTradeName()
-    const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll'))
+    const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll_sheet'))
     const titlePayroll = `${this.t('incidents')} ${tradeName} ${this.getRange(filterDate, filterDateEnd)}`
     this.addTitleIncidentPayrollToWorkSheet(worksheet, titlePayroll)
     this.addHeadRowIncidentPayroll(worksheet)
@@ -2351,7 +2370,7 @@ export default class AssistsService {
       // hasta aquí era lo de incidencias
       const rowsIncidentPayroll = [] as AssistIncidentPayrollExcelRowInterface[]
       const tradeName = await this.getTradeName()
-      const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll'))
+      const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll_sheet'))
       const titlePayroll = `${this.t('incidents')} ${tradeName} ${this.getRange(filterDate, filterDateEnd)}`
       this.addTitleIncidentPayrollToWorkSheet(worksheet, titlePayroll)
       this.addHeadRowIncidentPayroll(worksheet)
@@ -2526,7 +2545,7 @@ export default class AssistsService {
     const timeCheckIn = wallTime(checkAssist.assist.checkIn.assistPunchTimeUtc, this.siteZone).setLocale(
       this.localeToUse
     )
-    return timeCheckIn.toFormat('MMM d, yyyy, h:mm:ss a')
+    return timeCheckIn.toFormat(REPORT_DATE_TIME_FORMAT)
   }
 
   private chekOutTime(checkAssist: AssistDayInterface) {
@@ -2542,7 +2561,7 @@ export default class AssistsService {
       checkAssist.assist.checkOutStatus = ''
       return ''
     }
-    return timeCheckOut.toFormat('MMM d, yyyy, h:mm:ss a')
+    return timeCheckOut.toFormat(REPORT_DATE_TIME_FORMAT)
   }
 
   addHeadRow(worksheet: ExcelJS.Worksheet) {
@@ -2702,10 +2721,10 @@ export default class AssistsService {
         hoursWorked += timeInDecimal
       }
 
-      const rowCheckInTime = calendar.assist.checkIn?.assistPunchTimeUtc && !calendar.assist.isFutureDay ? wallTime(calendar.assist.checkIn.assistPunchTimeUtc, this.siteZone).toFormat('ff') : ''
-      const rowLunchTime = calendar.assist?.checkEatIn?.assistPunchTimeUtc ? wallTime(calendar.assist.checkEatIn.assistPunchTimeUtc, this.siteZone).setLocale(this.localeToUse).toFormat('MMM d, yyyy, h:mm:ss a') : ''
-      const rowReturnLunchTime = calendar?.assist?.checkEatOut?.assistPunchTimeUtc ? wallTime(calendar.assist.checkEatOut.assistPunchTimeUtc, this.siteZone).setLocale(this.localeToUse).toFormat('MMM d, yyyy, h:mm:ss a') : ''
-      const rowCheckOutTime = calendar.assist.checkOut?.assistPunchTimeUtc && !calendar.assist.isFutureDay ? wallTime(calendar.assist.checkOut.assistPunchTimeUtc, this.siteZone).toFormat('ff') : ''
+      const rowCheckInTime = calendar.assist.checkIn?.assistPunchTimeUtc && !calendar.assist.isFutureDay ? wallTime(calendar.assist.checkIn.assistPunchTimeUtc, this.siteZone).toFormat(REPORT_DATE_TIME_FORMAT) : ''
+      const rowLunchTime = calendar.assist?.checkEatIn?.assistPunchTimeUtc ? wallTime(calendar.assist.checkEatIn.assistPunchTimeUtc, this.siteZone).setLocale(this.localeToUse).toFormat(REPORT_DATE_TIME_FORMAT) : ''
+      const rowReturnLunchTime = calendar?.assist?.checkEatOut?.assistPunchTimeUtc ? wallTime(calendar.assist.checkEatOut.assistPunchTimeUtc, this.siteZone).setLocale(this.localeToUse).toFormat(REPORT_DATE_TIME_FORMAT) : ''
+      const rowCheckOutTime = calendar.assist.checkOut?.assistPunchTimeUtc && !calendar.assist.isFutureDay ? wallTime(calendar.assist.checkOut.assistPunchTimeUtc, this.siteZone).toFormat(REPORT_DATE_TIME_FORMAT) : ''
 
       rows.push({
         code: employee.employeeCode.toString(),
@@ -2769,7 +2788,7 @@ export default class AssistsService {
       }
       let incidents =
         !rowData.name && rowData.code !== '0'
-          ? faultsTotal.toString().padStart(2, '0') + ' TOTAL FAULTS'
+          ? `${faultsTotal.toString().padStart(2, '0')} ${this.t('total_faults').toUpperCase()}`
           : rowData.incidents
       worksheet.addRow([
         rowData.code !== '0' ? rowData.code : '',
@@ -4667,15 +4686,15 @@ export default class AssistsService {
         // Agregar excepciones de turno al reporte
         for (const exception of shiftExceptions) {
           const employeeName = `${exception.employee.person.personFirstname} ${exception.employee.person.personLastname}`
-          const departmentName = exception.employee.department?.departmentName || 'N/A'
-          const positionName = exception.employee.position?.positionName || 'N/A'
-          const exceptionDate = DateTime.fromJSDate(new Date(exception.shiftExceptionsDate)).toFormat('yyyy-MM-dd')
-          const exceptionType = exception.exceptionType?.exceptionTypeTypeName || 'N/A'
+          const departmentName = exception.employee.department?.departmentName || REPORT_NO_DATA
+          const positionName = exception.employee.position?.positionName || REPORT_NO_DATA
+          const exceptionDate = reportCalendarDate(exception.shiftExceptionsDate)
+          const exceptionType = exception.exceptionType?.exceptionTypeTypeName || REPORT_NO_DATA
           const description = exception.shiftExceptionsDescription || ''
           const checkInTime = exception.shiftExceptionCheckInTime || ''
           const checkOutTime = exception.shiftExceptionCheckOutTime || ''
-          const payrollBuName = exception.employee.payrollBusinessUnit?.businessUnitName || 'N/A'
-          const workBuName = exception.employee.businessUnit?.businessUnitName || 'N/A'
+          const payrollBuName = exception.employee.payrollBusinessUnit?.businessUnitName || REPORT_NO_DATA
+          const workBuName = exception.employee.businessUnit?.businessUnitName || REPORT_NO_DATA
 
           worksheet.addRow([
             workBuName,
@@ -4696,10 +4715,10 @@ export default class AssistsService {
         for (const disability of workDisabilities) {
           for (const period of disability.workDisabilityPeriods) {
             const employeeName = `${disability.employee.person.personFirstname} ${disability.employee.person.personLastname}`
-            const departmentName = disability.employee.department?.departmentName || 'N/A'
-            const positionName = disability.employee.position?.positionName || 'N/A'
-            const payrollBuName = disability.employee.payrollBusinessUnit?.businessUnitName || 'N/A'
-            const workBuName = disability.employee.businessUnit?.businessUnitName || 'N/A'
+            const departmentName = disability.employee.department?.departmentName || REPORT_NO_DATA
+            const positionName = disability.employee.position?.positionName || REPORT_NO_DATA
+            const payrollBuName = disability.employee.payrollBusinessUnit?.businessUnitName || REPORT_NO_DATA
+            const workBuName = disability.employee.businessUnit?.businessUnitName || REPORT_NO_DATA
 
             // Generar fechas para cada día del período de incapacidad
             const periodStart = DateTime.fromJSDate(new Date(period.workDisabilityPeriodStartDate))
@@ -4714,7 +4733,7 @@ export default class AssistsService {
             let currentDate = startRange
             while (currentDate <= endRange) {
               const disabilityType = period.workDisabilityType?.workDisabilityTypeName || 'Incapacidad'
-              const description = `Período: ${periodStart.toFormat('yyyy-MM-dd')} a ${periodEnd.toFormat('yyyy-MM-dd')}`
+              const description = `Período: ${reportCalendarDate(period.workDisabilityPeriodStartDate)} a ${reportCalendarDate(period.workDisabilityPeriodEndDate)}`
 
               worksheet.addRow([
                 workBuName,
@@ -4723,7 +4742,8 @@ export default class AssistsService {
                 employeeName,
                 departmentName,
                 positionName,
-                currentDate.toFormat('yyyy-MM-dd'),
+                // El recorrido parte de medianoche UTC (columna DATE): se lee en UTC.
+                currentDate.toUTC().toFormat(REPORT_DATE_FORMAT),
                 disabilityType,
                 description,
                 '',
