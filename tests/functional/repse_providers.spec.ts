@@ -391,7 +391,12 @@ test.group('RepseProviders - flujo feliz (CRUD + validaciones, root)', (group) =
     assert.equal(validation.autorUserId, root!.user.userId)
     assert.isObject(validation.autor)
     assert.equal(validation.autor.userId, root!.user.userId)
-    assert.include(validation.autor.nombreCompleto, 'RepseProvider') // Sourced from user -> person
+    // Nombre de la persona aunque sea de plataforma (sin empresa): antes salía el correo.
+    const autorPerson = root!.person
+    assert.equal(
+      validation.autor.nombreCompleto,
+      `${autorPerson.personFirstname} ${autorPerson.personLastname} ${autorPerson.personSecondLastname}`
+    )
     validationId = validation.proveedorRepseValidacionId
 
     const providerResponse = await client
