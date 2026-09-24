@@ -21,7 +21,8 @@ import { prepareAliasesForPersistence } from '#utils/org_alias_normalize'
 import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
 import OrgAliasUniquenessService from '#services/org_alias_uniqueness_service'
 import { REPORT_NEUTRAL_ARGB, REPORT_NEUTRAL_HEX } from '#constants/report_neutral_theme'
-import { REPORT_LOCALE, reportI18n } from '#helpers/report_locale'
+import { REPORT_DATE_FORMAT, reportI18n } from '#helpers/report_locale'
+import { blankMissingTexts, reportText } from '#helpers/report_text'
 import { getBusinessTimeZone } from '#utils/business_date'
 import { DateTime } from 'luxon'
 
@@ -39,6 +40,22 @@ const KPI_FREQUENCY_LABEL: Record<string, string> = {
 
 const kpiFrequencyLabel = (slug: string | null | undefined): string =>
   slug ? (KPI_FREQUENCY_LABEL[slug] ?? slug) : ''
+
+/**
+ * Fechas del encabezado del perfil de puesto, compartidas por el PDF y el
+ * Excel para que ambos formatos muestren el mismo dato con el mismo texto
+ * (2026-09-24): `dd/MM/yyyy` en la zona de negocio.
+ * - Fecha de implementación: creación del puesto (en blanco si falta).
+ * - Fecha de emisión / revisión: día en que se genera el archivo.
+ */
+export function positionProfileImplementationDate(createdAt: DateTime | null | undefined): string {
+  if (!createdAt || !createdAt.isValid) return ''
+  return createdAt.setZone(getBusinessTimeZone()).toFormat(REPORT_DATE_FORMAT)
+}
+
+export function positionProfileIssueDate(now: DateTime = DateTime.now()): string {
+  return now.setZone(getBusinessTimeZone()).toFormat(REPORT_DATE_FORMAT)
+}
 
 export default class PositionService {
 
@@ -1135,7 +1152,7 @@ export default class PositionService {
         }
       }
 
-      const today = DateTime.now().setZone(getBusinessTimeZone()).toFormat('dd/MM/yyyy')
+      const today = positionProfileIssueDate()
 
       // ── Constantes de layout ──────────────────────────────────────────────
       // Sin columna de logo: el bloque de título y metadatos ocupa todo el ancho
@@ -1152,9 +1169,7 @@ export default class PositionService {
       const pagColX = rightColX + motivoColW
       const half = pageW / 2
 
-      const implDate = position.positionCreatedAt
-        ? position.positionCreatedAt.setZone(getBusinessTimeZone()).setLocale(REPORT_LOCALE).toFormat('d \'de\' MMMM \'del\' yyyy')
-        : today
+      const implDate = positionProfileImplementationDate(position.positionCreatedAt)
 
       let currentPage = 1
       const pageBottomLimit = doc.page.height - 60
@@ -1329,7 +1344,7 @@ export default class PositionService {
             .font('Regular')
             .fontSize(8)
             .fillColor(black)
-            .text(kpi.positionKpiName, 45, rowY + 3, { width: kpiCol1 - 10, lineBreak: false })
+            .text(reportText(kpi.positionKpiName), 45, rowY + 3, { width: kpiCol1 - 10, lineBreak: false })
             .text(String(kpi.positionKpiIdeal ?? ''), 45 + kpiCol1, rowY + 3, { width: kpiCol2 - 5, lineBreak: false })
             .text(kpiFrequencyLabel(kpi.positionKpiFrequency), 45 + kpiCol1 + kpiCol2, rowY + 3, { width: kpiCol3 - 5, lineBreak: false })
           doc.y = rowY + 14
@@ -1656,10 +1671,8 @@ export default class PositionService {
     // El perfil de puesto es un archivo: siempre en español (report_locale.ts).
     const reportT = reportI18n()
     const t = (key: string) => reportT.t(key)
-    const today = DateTime.now()
-      .setZone(getBusinessTimeZone())
-      .setLocale(REPORT_LOCALE)
-      .toFormat("dd 'de' MMMM 'de' yyyy")
+    const today = positionProfileIssueDate()
+    const implDate = positionProfileImplementationDate(position.positionCreatedAt)
 
     // Paleta neutral: sin colores de marca, escala de grises con texto negro
     const HEADER = REPORT_NEUTRAL_ARGB.headerFill
@@ -1852,7 +1865,7 @@ export default class PositionService {
     headerRow1.height = 26
 
     // Metadata: A:G = izquierda, H:L = derecha
-    const headerRow2 = sheet.addRow([`${t('profile_position.implementation_date')}: ${today}`, '', '', '', '', '', '', `${t('profile_position.revision')}: 01`])
+    const headerRow2 = sheet.addRow([`${t('profile_position.implementation_date')}: ${implDate}`, '', '', '', '', '', '', `${t('profile_position.revision')}: 01`])
     sheet.mergeCells(`A${headerRow2.number}:G${headerRow2.number}`)
     sheet.mergeCells(`H${headerRow2.number}:${LAST}${headerRow2.number}`)
     styleCell(headerRow2.getCell('A'), { size: 8 })
@@ -2145,6 +2158,7 @@ export default class PositionService {
     sheet.getColumn(13).hidden = true
     sheet.getColumn(14).hidden = true
 
+    blankMissingTexts(workbook)
     const buf = await workbook.xlsx.writeBuffer()
     return Buffer.from(buf)
   }

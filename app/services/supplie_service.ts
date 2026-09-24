@@ -13,6 +13,7 @@ import {
   REPORT_LOCALE,
 } from '#helpers/report_locale'
 import { frozenHeaderViews } from '#helpers/report_sheet_views'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
 
 /**
  * Textos del reporte de activos. El reporte sale siempre en español, sin
@@ -22,8 +23,10 @@ const REPORT_TEXT = {
   sheet: 'Activos',
   title: 'Reporte de activos y resguardos',
   generatedOn: 'Generado el',
+  // "Sin asignar" es un estado del activo, no un dato ausente: se conserva.
   notAssigned: 'Sin asignar',
-  noData: '—',
+  // Dato ausente en blanco (2026-09-24): antes "—".
+  noData: '',
 } as const
 
 const REPORT_HEADERS = [
@@ -306,7 +309,9 @@ export default class SupplieService {
       worksheet.mergeCells('A1:M1')
 
       // Fila 2: fecha de generación en texto secundario
-      const currentDate = DateTime.now().setLocale(REPORT_LOCALE).toFormat("d 'de' LLLL 'de' yyyy")
+      const currentDate = DateTime.now()
+        .setZone(getBusinessTimeZone())
+        .setLocale(REPORT_LOCALE).toFormat("d 'de' LLLL 'de' yyyy")
       const periodRow = worksheet.addRow([`${REPORT_TEXT.generatedOn} ${currentDate}`])
       periodRow.font = { size: 15, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
@@ -320,6 +325,7 @@ export default class SupplieService {
       await SupplieService.addDataRows(supplies, employeeSupplies, worksheet)
 
       // Generate buffer
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
 
       return {
@@ -419,9 +425,11 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
           const person = employee?.person
 
           const employeeName = person
-            ? `${person.personFirstname || ''} ${person.personLastname || ''} ${person.personSecondLastname || ''}`
-                .replace(/\s+/g, ' ')
-                .trim()
+            ? reportFullName(
+                person.personFirstname,
+                person.personLastname,
+                person.personSecondLastname
+              )
             : REPORT_TEXT.noData
 
           // Get department name
@@ -441,10 +449,10 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
           }
 
           worksheet.addRow([
-            supply.supplyFileNumber,
-            supply.supplyName,
+            reportText(supply.supplyFileNumber),
+            reportText(supply.supplyName),
             supply.supplyType?.supplyTypeName || REPORT_TEXT.noData,
-            ASSET_STATUS_LABEL[supply.supplyStatus] ?? supply.supplyStatus,
+            ASSET_STATUS_LABEL[supply.supplyStatus] ?? reportText(supply.supplyStatus),
             employee?.employeeCode || REPORT_TEXT.noData,
             employeeName,
             departmentName,
@@ -459,7 +467,7 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
                   .toFormat(REPORT_DATE_FORMAT) ?? ''),
             formatReportCalendarDate(assignment.employeeSupplyExpirationDate),
             formatReportCalendarDate(assignment.employeeSupplyRetirementDate),
-            assignment.employeeSupplyRetirementReason || '',
+            reportText(assignment.employeeSupplyRetirementReason),
           ])
 
           // Color status cells (now in column I instead of G)
@@ -470,10 +478,10 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
       } else {
         // Supply has no assignments
         worksheet.addRow([
-          supply.supplyFileNumber,
-          supply.supplyName,
+          reportText(supply.supplyFileNumber),
+          reportText(supply.supplyName),
           supply.supplyType?.supplyTypeName || REPORT_TEXT.noData,
-          ASSET_STATUS_LABEL[supply.supplyStatus] ?? supply.supplyStatus,
+          ASSET_STATUS_LABEL[supply.supplyStatus] ?? reportText(supply.supplyStatus),
           '',
           REPORT_TEXT.notAssigned,
           '',

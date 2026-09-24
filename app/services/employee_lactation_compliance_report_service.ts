@@ -13,6 +13,7 @@ import {
   type LactationComplianceStatusValue,
 } from '../constants/employee_lactation_compliance_status.js'
 import { EmployeeLactationPeriodError } from '../exceptions/employee_lactation_period_error.js'
+import { reportFullName, reportText } from '#helpers/report_text'
 
 /**
  * Colores del PDF. La estructura (títulos, tablas, bordes, pies) sale de la
@@ -532,16 +533,11 @@ export default class EmployeeLactationComplianceReportService {
     employee?: EmployeeLactationPeriod['employee'] | null,
     person?: EmployeeLactationPeriod['employee']['person'] | null
   ): string {
-    const first =
-      person?.personFirstname ?? employee?.employeeFirstName ?? ''
-    const last = person?.personLastname ?? employee?.employeeLastName ?? ''
-    const second =
-      person?.personSecondLastname ?? employee?.employeeSecondLastName ?? ''
-    const joined = [first, last, second]
-      .map((s) => (typeof s === 'string' ? s.trim() : ''))
-      .filter(Boolean)
-      .join(' ')
-    return joined || '—'
+    return reportFullName(
+      person?.personFirstname ?? employee?.employeeFirstName,
+      person?.personLastname ?? employee?.employeeLastName,
+      person?.personSecondLastname ?? employee?.employeeSecondLastName
+    )
   }
 
   /**
@@ -727,14 +723,13 @@ export default class EmployeeLactationComplianceReportService {
       })
 
     doc.moveDown(0.3)
-    const metaLeft = tradeName
-      ? `${tradeName}`
-      : 'Empresa sin nombre comercial configurado'
+    // Sin nombre comercial configurado, en blanco: solo el folio.
+    const metaLeft = reportText(tradeName)
     doc
       .font(FONT_REGULAR)
       .fontSize(10)
       .fillColor(PDF_COLORS.text)
-      .text(`${metaLeft}   Folio: ${folio}`, margin, doc.y, {
+      .text([metaLeft, `Folio: ${folio}`].filter(Boolean).join('   '), margin, doc.y, {
         width: pageW,
         align: 'left',
         lineBreak: false,
@@ -908,7 +903,7 @@ export default class EmployeeLactationComplianceReportService {
       ? `Periodo ${this.formatDateDmy(item.lactationPeriodStartDate)} – ` +
         `${this.formatDateDmy(item.lactationPeriodEndDate)} ` +
         `(${item.rangeTotalMonths} meses)`
-      : 'Periodo no definido'
+      : ''
     const curpValue = options?.maskSensitive
       ? SENSITIVE_EXPORT_PLACEHOLDER
       : item.employee.personCurp
@@ -917,7 +912,7 @@ export default class EmployeeLactationComplianceReportService {
       .fontSize(9.5)
       .fillColor(PDF_COLORS.textMuted)
       .text(
-        curpValue ? `CURP ${curpValue}` : 'CURP no registrado',
+        `CURP ${reportText(curpValue)}`,
         innerX,
         metaY,
         { width: innerW / 2, lineBreak: false, ellipsis: true }
@@ -1007,7 +1002,9 @@ export default class EmployeeLactationComplianceReportService {
           .fontSize(9)
           .fillColor(PDF_COLORS.text)
           .text(
-            `• ${this.evidenceCategoryLabel(ev.category)} (cargada el ${this.formatDateDmy(ev.uploadedAt)})`,
+            ev.uploadedAt
+              ? `• ${this.evidenceCategoryLabel(ev.category)} (cargada el ${this.formatDateDmy(ev.uploadedAt)})`
+              : `• ${this.evidenceCategoryLabel(ev.category)}`,
             innerX,
             bulletY,
             { width: innerW, lineBreak: false, ellipsis: true }
@@ -1092,7 +1089,7 @@ export default class EmployeeLactationComplianceReportService {
         this.shortName(item.employee),
         item.lactationPeriodStartDate
           ? `${this.formatDateDmy(item.lactationPeriodStartDate)} – ${this.formatDateDmy(item.lactationPeriodEndDate)}`
-          : '—',
+          : '',
         this.typeLabelShort(item.lactationPeriodType),
         this.modalityLabelShort(item.lactationReductionApplication, item.lactationPeriodType),
         this.statusLabel(item.status),
@@ -1351,7 +1348,7 @@ export default class EmployeeLactationComplianceReportService {
 
   /** Formatea `YYYY-MM-DD` → `dd/MM/aaaa`. */
   private formatDateDmy(iso: string | null | undefined): string {
-    if (!iso) return '—'
+    if (!iso) return ''
     const parsed = DateTime.fromISO(iso, { zone: 'utc' })
     return parsed.isValid ? parsed.toFormat('dd/LL/yyyy') : iso
   }
@@ -1370,7 +1367,7 @@ export default class EmployeeLactationComplianceReportService {
   private typeLabelForGuide(type: string | null): string {
     if (type === 'two_rest_periods') return 'Dos reposos de 30 min'
     if (type === 'reduced_hour') return 'Reducción de 1 hora'
-    return '—'
+    return ''
   }
 
   /**
@@ -1380,7 +1377,7 @@ export default class EmployeeLactationComplianceReportService {
   private typeLabelShort(type: string | null): string {
     if (type === 'two_rest_periods') return '2 reposos'
     if (type === 'reduced_hour') return '1 hora'
-    return '—'
+    return ''
   }
 
   /**
@@ -1393,7 +1390,7 @@ export default class EmployeeLactationComplianceReportService {
     if (modality === 'start') return 'Entrada diferida (+1 h)'
     if (modality === 'end') return 'Salida anticipada (-1 h)'
     if (modality === 'split') return 'Repartida inicio/fin (30 + 30 min)'
-    return '—'
+    return ''
   }
 
   /** Modalidad compacta para la tabla resumen. */
@@ -1402,7 +1399,7 @@ export default class EmployeeLactationComplianceReportService {
     if (modality === 'start') return 'Entrada diferida'
     if (modality === 'end') return 'Salida anticipada'
     if (modality === 'split') return 'Repartida'
-    return '—'
+    return ''
   }
 
   /**
@@ -1425,7 +1422,7 @@ export default class EmployeeLactationComplianceReportService {
     const last = (employee.personLastname ?? '').trim()
     const second = (employee.personSecondLastname ?? '').trim()
     const first = (employee.personFirstname ?? '').trim()
-    if (!last && !second && !first) return employee.fullName || '—'
+    if (!last && !second && !first) return reportText(employee.fullName)
     const lastBlock = [last, second].filter(Boolean).join(' ')
     if (!first) return lastBlock || employee.fullName
     const firstTokens = first.split(/\s+/)

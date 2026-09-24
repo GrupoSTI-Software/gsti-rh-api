@@ -6,6 +6,7 @@ import TraumaticEventReportService from '#services/traumatic_event_report_servic
 import { REPORT_NEUTRAL_HEX, REPORT_NEUTRAL_PDF_FONTS } from '#constants/report_neutral_theme'
 import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
 import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
+import { reportFullName, reportText } from '#helpers/report_text'
 
 /** Paleta neutral compartida por todos los descargables (sin marca). */
 const PDF_COLORS = REPORT_NEUTRAL_HEX
@@ -269,12 +270,13 @@ export default class TraumaticEventReportDocumentService {
 
     doc.moveDown(0.3)
 
-    const metaLeft = tradeName || 'Empresa no configurada'
-    const elaboratedDisplay = report.traumaticEventReportElaboratedAt
-      ? this.formatDateTimeDmy(report.traumaticEventReportElaboratedAt)
-      : '—'
+    // Dato ausente en blanco: sin nombre comercial, la línea empieza en el folio.
+    const metaLeft = reportText(tradeName)
+    const elaboratedDisplay = this.formatDateTimeDmy(report.traumaticEventReportElaboratedAt)
 
-    const metaLine = `${metaLeft}   ·   Folio: ${folio}   ·   Fecha de elaboración: ${elaboratedDisplay}`
+    const metaLine = [metaLeft, `Folio: ${folio}`, `Fecha de elaboración: ${elaboratedDisplay}`]
+      .filter(Boolean)
+      .join('   ·   ')
     doc
       .font(FONT_REGULAR)
       .fontSize(9.5)
@@ -345,23 +347,15 @@ export default class TraumaticEventReportDocumentService {
     const employee = report.employee
 
     const fullName = person
-      ? [person.personFirstname, person.personLastname, person.personSecondLastname]
-          .filter(Boolean)
-          .join(' ') || '—'
-      : '—'
+      ? reportFullName(person.personFirstname, person.personLastname, person.personSecondLastname)
+      : ''
 
     const rows: Array<{ label: string; value: string }> = [
       { label: 'Nombre completo', value: fullName },
-      { label: 'Código de empleado', value: `${employee?.employeeCode ?? '—'}` },
-      {
-        label: 'Departamento',
-        value: (employee as any)?.department?.departmentName ?? '—',
-      },
-      {
-        label: 'Puesto',
-        value: (employee as any)?.position?.positionName ?? '—',
-      },
-      { label: 'CURP', value: person?.personCurp ?? '—' },
+      { label: 'Código de empleado', value: reportText(employee?.employeeCode) },
+      { label: 'Departamento', value: reportText(employee?.department?.departmentName) },
+      { label: 'Puesto', value: reportText(employee?.position?.positionName) },
+      { label: 'CURP', value: reportText(person?.personCurp) },
     ]
 
     this.renderFieldGrid(doc, margin, pageW, rows)
@@ -379,14 +373,12 @@ export default class TraumaticEventReportDocumentService {
   ) {
     this.renderSectionTitle(doc, margin, pageW, 'II. Datos del acontecimiento')
 
-    const occurredDisplay = report.traumaticEventReportOccurredAt
-      ? this.formatDateDmy(report.traumaticEventReportOccurredAt)
-      : '—'
+    const occurredDisplay = this.formatDateDmy(report.traumaticEventReportOccurredAt)
 
     const rows: Array<{ label: string; value: string }> = [
       {
         label: 'Tipo de acontecimiento traumático',
-        value: report.traumaticEventType?.traumaticEventTypeName ?? '—',
+        value: reportText(report.traumaticEventType?.traumaticEventTypeName),
       },
       { label: 'Fecha de ocurrencia', value: occurredDisplay },
       {
@@ -410,7 +402,7 @@ export default class TraumaticEventReportDocumentService {
   ) {
     this.renderSectionTitle(doc, margin, pageW, 'III. Descripción del acontecimiento')
 
-    const text = report.traumaticEventReportDescription?.trim() || '—'
+    const text = reportText(report.traumaticEventReportDescription)
 
     this.renderTextBlock(doc, margin, pageW, text)
     doc.moveDown(0.6)
@@ -427,7 +419,7 @@ export default class TraumaticEventReportDocumentService {
   ) {
     this.renderSectionTitle(doc, margin, pageW, 'IV. Personas involucradas')
 
-    const text = report.traumaticEventReportInvolvedPeople?.trim() || '—'
+    const text = reportText(report.traumaticEventReportInvolvedPeople)
 
     this.renderTextBlock(doc, margin, pageW, text)
     doc.moveDown(0.6)
@@ -724,15 +716,15 @@ export default class TraumaticEventReportDocumentService {
 
   /** Formatea `DateTime` (date) → `dd/MM/aaaa`. */
   private formatDateDmy(value: DateTime | null | undefined): string {
-    if (!value) return '—'
-    return DateTime.isDateTime(value) ? value.toFormat('dd/LL/yyyy') : '—'
+    if (!value) return ''
+    return DateTime.isDateTime(value) ? value.toFormat('dd/LL/yyyy') : ''
   }
 
   /** Formatea `DateTime` (datetime) → `dd/MM/aaaa HH:mm`. */
   private formatDateTimeDmy(value: DateTime | null | undefined): string {
-    if (!value) return '—'
+    if (!value) return ''
     return DateTime.isDateTime(value)
       ? value.setZone(REPORT_TIMEZONE).toFormat('dd/LL/yyyy HH:mm')
-      : '—'
+      : ''
   }
 }

@@ -3,7 +3,7 @@ import ExcelJS from 'exceljs'
 import i18nManager from '@adonisjs/i18n/services/main'
 import CalendarExportService from '#services/calendar_export_service'
 import ComplaintService from '#services/complaint_service'
-import PositionService from '#services/position_service'
+import PositionService, { positionProfileImplementationDate } from '#services/position_service'
 import Holiday from '#models/holiday'
 import Employee from '#models/employee'
 import Person from '#models/person'
@@ -81,7 +81,9 @@ test.group('Descargables en español', () => {
     assert.equal(sheet.name, 'Reporte quejas')
     assert.equal(sheet.getCell('A1').value, 'Reporte agregado — Buzón de quejas')
     assert.deepEqual(rowValues(sheet, 2), ['Periodo', '01/09/2026 — 30/09/2026'])
-    assert.deepEqual(rowValues(sheet, 4), ['Tiempo promedio de resolución (horas)', 'No aplica'])
+    // Sin casos resueltos no hay promedio: dato ausente, en blanco (no "No aplica").
+    assert.equal(sheet.getCell('A4').value, 'Tiempo promedio de resolución (horas)')
+    assert.equal(String(sheet.getCell('B4').value ?? ''), '')
     assert.deepEqual(rowValues(sheet, 8), ['Categoría', 'Conteo'])
     assert.deepEqual(rowValues(sheet, 9), ['Violencia laboral', 2])
   })
@@ -104,10 +106,12 @@ test.group('Descargables en español', () => {
 
     assert.equal(sheet.name, 'DESCRIPCIÓN Y PERFIL DE PUESTO')
     assert.equal(sheet.getCell('A1').value, 'DESCRIPCIÓN Y PERFIL DE PUESTO')
-    assert.match(
-      String(sheet.getCell('A2').value),
-      /^Fecha de implementación: \d{2} de [a-záéíóúñ]+ de \d{4}$/
+    // Mismo dato y formato que el PDF: creación del puesto, dd/MM/yyyy (zona de negocio).
+    assert.equal(
+      sheet.getCell('A2').value,
+      `Fecha de implementación: ${positionProfileImplementationDate(position.positionCreatedAt)}`
     )
+    assert.match(String(sheet.getCell('A2').value), /^Fecha de implementación: \d{2}\/\d{2}\/\d{4}$/)
     const kpiHeader = sheet
       .getColumn(1)
       .values.findIndex((value) => value === 'Indicador')

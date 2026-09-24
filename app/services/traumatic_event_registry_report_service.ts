@@ -6,6 +6,9 @@ import { SENSITIVE_EXPORT_PLACEHOLDER } from '#constants/sensitive_export_placeh
 import { REPORT_NEUTRAL_HEX, REPORT_NEUTRAL_PDF_FONTS } from '#constants/report_neutral_theme'
 import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
 import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
+import type Employee from '#models/employee'
+import type Person from '#models/person'
+import { reportFullName, reportText } from '#helpers/report_text'
 
 // ---------------------------------------------------------------------------
 // Constantes de formato neutral (sin marca)
@@ -308,7 +311,7 @@ export default class TraumaticEventRegistryReportService {
         },
         traumaticEventType: {
           traumaticEventTypeId: type?.traumaticEventTypeId ?? report.traumaticEventTypeId,
-          traumaticEventTypeName: type?.traumaticEventTypeName ?? '—',
+          traumaticEventTypeName: reportText(type?.traumaticEventTypeName),
         },
         occurredAt: this.toIsoDate(report.traumaticEventReportOccurredAt),
         referrals,
@@ -448,12 +451,13 @@ export default class TraumaticEventRegistryReportService {
       })
 
     doc.moveDown(0.3)
-    const metaLeft = tradeName || 'Empresa sin nombre comercial configurado'
+    // Sin nombre comercial configurado, en blanco: solo el folio.
+    const metaLeft = reportText(tradeName)
     doc
       .font(FONT_REGULAR)
       .fontSize(10)
       .fillColor(PDF_COLORS.text)
-      .text(`${metaLeft}   Folio: ${folio}`, margin, doc.y, {
+      .text([metaLeft, `Folio: ${folio}`].filter(Boolean).join('   '), margin, doc.y, {
         width: pageW,
         align: 'left',
         lineBreak: false,
@@ -611,7 +615,7 @@ export default class TraumaticEventRegistryReportService {
       .fontSize(9.5)
       .fillColor(PDF_COLORS.textMuted)
       .text(
-        curpValue ? `CURP: ${curpValue}` : 'CURP: no registrado',
+        `CURP: ${reportText(curpValue)}`,
         innerX,
         metaY,
         { width: innerW / 2, lineBreak: false, ellipsis: true }
@@ -661,7 +665,10 @@ export default class TraumaticEventRegistryReportService {
       let bulletY = refY + 14
       doc.font(FONT_REGULAR).fontSize(9)
       for (const ref of item.referrals) {
-        const bulletText = `• ${this.institutionTypeLabel(ref.institutionType)}: ${ref.institutionName} (${this.formatDateDmy(ref.referredAt)})`
+        const bulletText = this.withDate(
+          `• ${this.institutionTypeLabel(ref.institutionType)}: ${reportText(ref.institutionName)}`,
+          ref.referredAt
+        )
         const lineH = doc.heightOfString(bulletText, { width: colW })
         doc
           .fillColor(PDF_COLORS.text)
@@ -692,7 +699,10 @@ export default class TraumaticEventRegistryReportService {
       let examBulletY = refY + 14
       doc.font(FONT_REGULAR).fontSize(9)
       for (const exam of item.exams) {
-        const examText = `• ${this.examTypeLabel(exam.examType)} — ${this.outcomeLabel(exam.outcome)} (${this.formatDateDmy(exam.performedAt)})`
+        const examText = this.withDate(
+          `• ${this.examTypeLabel(exam.examType)} — ${this.outcomeLabel(exam.outcome)}`,
+          exam.performedAt
+        )
         const lineH = doc.heightOfString(examText, { width: examColW })
         doc
           .fillColor(PDF_COLORS.text)
@@ -884,22 +894,25 @@ export default class TraumaticEventRegistryReportService {
     assertRegistryRangeIsCoherent(from, to)
   }
 
-  private composeFullName(employee: any, person: any): string {
-    const first = person?.personFirstname ?? employee?.employeeFirstName ?? ''
-    const last = person?.personLastname ?? employee?.employeeLastName ?? ''
-    const second = person?.personSecondLastname ?? employee?.employeeSecondLastName ?? ''
-    const joined = [first, last, second]
-      .map((s: string) => (typeof s === 'string' ? s.trim() : ''))
-      .filter(Boolean)
-      .join(' ')
-    return joined || '—'
+  private composeFullName(employee: Employee | null | undefined, person: Person | null): string {
+    return reportFullName(
+      person?.personFirstname ?? employee?.employeeFirstName,
+      person?.personLastname ?? employee?.employeeLastName,
+      person?.personSecondLastname ?? employee?.employeeSecondLastName
+    )
+  }
+
+  /** `texto (dd/MM/yyyy)`; sin fecha, solo el texto (sin paréntesis vacíos). */
+  private withDate(text: string, iso: string | null | undefined): string {
+    const date = this.formatDateDmy(iso)
+    return date ? `${text} (${date})` : text
   }
 
   private shortName(employee: RegistryReportItem['employee']): string {
     const last = (employee.personLastname ?? '').trim()
     const second = (employee.personSecondLastname ?? '').trim()
     const first = (employee.personFirstname ?? '').trim()
-    if (!last && !second && !first) return employee.fullName || '—'
+    if (!last && !second && !first) return reportText(employee.fullName)
     const lastBlock = [last, second].filter(Boolean).join(' ')
     if (!first) return lastBlock || employee.fullName
     const tokens = first.split(/\s+/)
@@ -920,7 +933,7 @@ export default class TraumaticEventRegistryReportService {
   }
 
   private formatDateDmy(iso: string | null | undefined): string {
-    if (!iso) return '—'
+    if (!iso) return ''
     const parsed = DateTime.fromISO(iso, { zone: 'utc' })
     return parsed.isValid ? parsed.toFormat('dd/LL/yyyy') : iso
   }

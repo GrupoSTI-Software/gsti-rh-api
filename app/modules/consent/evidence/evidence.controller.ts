@@ -1,4 +1,5 @@
 import { formatReportCalendarDate } from '#helpers/report_locale'
+import { blankMissingTexts, reportText } from '#helpers/report_text'
 import type { HttpContext } from '@adonisjs/core/http'
 import ExcelJS from 'exceljs'
 import { DateTime } from 'luxon'
@@ -360,17 +361,17 @@ export default class EvidenceController {
     // pide bajo demanda a `evidence/:id/download-url`, nunca embebida en el archivo.
     for (const row of rows) {
       worksheet.addRow({
-        userName: row.userName,
-        businessUnitNames: row.businessUnitNames.join(', '),
+        userName: reportText(row.userName),
+        businessUnitNames: row.businessUnitNames.map((name) => reportText(name)).filter(Boolean).join(', '),
         documentTypeLabel: DOCUMENT_TYPE_LABELS[row.documentType],
         version: row.version,
         channelLabel: CHANNEL_LABELS[row.channel],
         acceptedAt: formatExportTimestamp(row.acceptedAt),
         signedAt: formatExportCalendarDate(row.signedAt),
-        registeredByName: row.registeredByName ?? '',
+        registeredByName: reportText(row.registeredByName),
         hasAttachmentLabel: row.hasAttachment ? 'Sí' : 'No',
-        ip: row.ip,
-        userAgent: row.userAgent,
+        ip: reportText(row.ip),
+        userAgent: reportText(row.userAgent),
       })
     }
 
@@ -378,6 +379,7 @@ export default class EvidenceController {
     headerRow.font = { bold: true }
     headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     const filename = buildDownloadFileName(
       ['evidencia-consentimientos', formatDownloadFileDate()],

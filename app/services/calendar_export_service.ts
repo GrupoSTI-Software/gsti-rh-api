@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs'
 import { DateTime } from 'luxon'
 import { reportI18n } from '#helpers/report_locale'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
 import Employee from '#models/employee'
 import Holiday from '#models/holiday'
 import {
@@ -42,7 +43,7 @@ export default class CalendarExportService {
   async holidays(holidays: Holiday[], year: number): Promise<Buffer> {
     const rows = holidays.map((holiday) => [
       this.formatDate(holiday.holidayDate),
-      holiday.holidayName,
+      reportText(holiday.holidayName),
       holiday.holidayIsOfficialRestDay
         ? this.t('calendar_export_official_rest_day')
         : this.t('calendar_export_commemorative'),
@@ -127,15 +128,13 @@ export default class CalendarExportService {
   private employeeCells(employee: Employee): CellValue[] {
     const person = employee.person
     const fullName = person
-      ? [person.personFirstname, person.personLastname, person.personSecondLastname]
-          .filter((part) => Boolean(part))
-          .join(' ')
-      : `${employee.employeeFirstName ?? ''} ${employee.employeeLastName ?? ''}`.trim()
+      ? reportFullName(person.personFirstname, person.personLastname, person.personSecondLastname)
+      : reportFullName(employee.employeeFirstName, employee.employeeLastName)
     return [
-      employee.employeePayrollCode ?? '',
+      reportText(employee.employeePayrollCode),
       fullName,
-      employee.department?.departmentName ?? '',
-      employee.position?.positionName ?? '',
+      reportText(employee.department?.departmentName),
+      reportText(employee.position?.positionName),
     ]
   }
 
@@ -184,6 +183,7 @@ export default class CalendarExportService {
       )
     })
     sheet.views = [{ state: 'frozen', ySplit: 1 }]
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }

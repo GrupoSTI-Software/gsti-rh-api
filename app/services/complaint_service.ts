@@ -13,6 +13,7 @@ import ComplaintStatusHistoryService from '#services/complaint_status_history_se
 import ComplaintNotificationService from '#services/complaint_notification_service'
 import ComplaintIdentityRevealService from '#services/complaint_identity_reveal_service'
 import ComplaintCategoryService from '#services/complaint_category_service'
+import { blankMissingTexts } from '#helpers/report_text'
 import RetentionGuardService from '#services/retention_guard_service'
 import { COMPLAINT_ERROR_CODES } from '#constants/complaint_error_codes'
 import {
@@ -455,8 +456,8 @@ export default class ComplaintService {
     ])
     worksheet.addRow([
       this.reportLabel(i18n, 'complaint_report_avg_resolution_label', 'Tiempo promedio de resolución (horas)'),
-      report.averageResolutionTimeHours ??
-        this.reportLabel(i18n, 'complaint_report_not_applicable', 'N/A'),
+      // Sin casos resueltos no hay promedio: dato ausente, en blanco.
+      report.averageResolutionTimeHours ?? '',
     ])
     worksheet.addRow([
       this.reportLabel(i18n, 'complaint_report_resolved_cases_label', 'Casos resueltos/cerrados en el periodo'),
@@ -478,6 +479,7 @@ export default class ComplaintService {
     worksheet.getRow(1).font = { bold: true, size: 14 }
     worksheet.columns = [{ width: 42 }, { width: 18 }]
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
@@ -519,10 +521,7 @@ export default class ComplaintService {
         `${this.reportLabel(i18n, 'complaint_report_total_volume_label', 'Volumen total')}: ${report.totalVolume}`
       )
       doc.text(
-        `${this.reportLabel(i18n, 'complaint_report_avg_resolution_label', 'Tiempo promedio de resolución (horas)')}: ${
-          report.averageResolutionTimeHours ??
-          this.reportLabel(i18n, 'complaint_report_not_applicable', 'N/A')
-        }`
+        `${this.reportLabel(i18n, 'complaint_report_avg_resolution_label', 'Tiempo promedio de resolución (horas)')}: ${report.averageResolutionTimeHours ?? ''}`
       )
       doc.text(
         `${this.reportLabel(i18n, 'complaint_report_resolved_cases_label', 'Casos resueltos/cerrados')}: ${report.resolvedCasesCount}`
@@ -698,13 +697,31 @@ export default class ComplaintService {
     return `${format(report.period.from)} — ${format(report.period.to)}`
   }
 
+  /**
+   * Nombre legible de la categoría en el reporte: etiqueta propia del reporte,
+   * luego la del catálogo (la BD solo guarda el slug) y, si ninguna existe
+   * (categoría nueva sin traducción), el slug humanizado — nunca el slug crudo.
+   */
   private reportCategoryLabel(category: ComplaintCategory, i18n: I18n): string {
-    return this.reportLabel(i18n, `complaint_report_category_${category.replace(/-/g, '_')}`, category)
+    const catalogLabel = this.reportLabel(
+      i18n,
+      this.categoryService.categoryLabelKey(category),
+      humanizeCategorySlug(category)
+    )
+    return this.reportLabel(
+      i18n,
+      `complaint_report_category_${category.replace(/-/g, '_')}`,
+      catalogLabel
+    )
   }
 
+  /**
+   * Texto traducido o `fallback` si la clave no existe. `formatMessage` no
+   * devuelve la clave cuando falta sino "translation missing: …", así que la
+   * comparación anterior (`translated === key`) nunca caía al fallback.
+   */
   private reportLabel(i18n: I18n, key: string, fallback: string): string {
-    const translated = i18n.formatMessage(key)
-    return translated === key ? fallback : translated
+    return i18n.formatMessage(key, undefined, fallback)
   }
 
   private async findInScopeOrFail(
@@ -792,4 +809,10 @@ export default class ComplaintService {
       'AUTH.COMPLAINT.FOLIO_GENERATION_FAILED'
     )
   }
+}
+
+/** `acoso-sexual` → `Acoso sexual`: texto legible de un slug sin traducción. */
+export function humanizeCategorySlug(slug: string): string {
+  const words = slug.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+  return words.length === 0 ? '' : words.charAt(0).toUpperCase() + words.slice(1)
 }
