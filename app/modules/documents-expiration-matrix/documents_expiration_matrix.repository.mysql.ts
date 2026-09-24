@@ -162,10 +162,27 @@ function joinEmployeeOrgChart(
 }
 
 /**
+ * Condición de "tope" sobre el vencimiento del registro más nuevo: lo sustituye
+ * si vence después que el actual o no vence. Un registro nuevo que vence antes
+ * no tapa al viejo (los dos siguen en la matriz).
+ */
+function expiresLaterOrNever(query: QueryBuilder, newerColumn: string, currentColumn: string): void {
+  query.where((expiry) => {
+    expiry.whereNull(newerColumn).orWhereColumn(newerColumn, '>', currentColumn)
+  })
+}
+
+/**
  * Implementación MySQL. Cada fuente es UNA consulta con `db.from()` y joins.
  * Como `db.from()` no pasa por el mixin `withBusinessUnitScope`, el corte por
  * empresa es explícito (`businessUnitIds`) y falla cerrado: sin unidades, sin
  * resultados.
+ *
+ * Tope: en expediente de empleado y de empresa, contratos e insumos, un
+ * registro no cuenta si otro vigente del mismo dueño y tipo, creado después
+ * (id mayor), vence más tarde o no vence (`NOT EXISTS` dentro de la misma
+ * consulta). Certificaciones ya toman el último cumplimiento por par; folios
+ * REPSE propios y de proveedores no se tapan.
  */
 export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrixRepository {
   /** Expediente de empleado: mismo criterio que `EmployeeProceedingFileService.getExpiredAndExpiring`. */
@@ -186,6 +203,20 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
       .whereIn('e.business_unit_id', [...filter.businessUnitIds])
       .whereIn('e.department_id', [...filter.departmentIds])
       .where('pf.proceeding_file_expiration_at', '<', dayAfter(filter.horizon))
+      // Tope: un expediente más nuevo del mismo tipo para el empleado lo sustituye.
+      .whereNotExists((newer) => {
+        newer
+          .from('employee_proceeding_files as epf_new')
+          .join('proceeding_files as pf_new', 'pf_new.proceeding_file_id', 'epf_new.proceeding_file_id')
+          .whereColumn('epf_new.employee_id', 'epf.employee_id')
+          .whereColumn('pf_new.proceeding_file_type_id', 'pf.proceeding_file_type_id')
+          .whereColumn('epf_new.employee_proceeding_file_id', '>', 'epf.employee_proceeding_file_id')
+          .whereNull('epf_new.employee_proceeding_file_deleted_at')
+          .whereNull('pf_new.proceeding_file_deleted_at')
+          .where('pf_new.proceeding_file_active', 1)
+          .select(db.raw('1'))
+        expiresLaterOrNever(newer, 'pf_new.proceeding_file_expiration_at', 'pf.proceeding_file_expiration_at')
+      })
     joinEmployeeOrgChart(query, 'e.position_id', 'e.department_id')
     if (filter.id !== undefined) {
       query.where('epf.employee_proceeding_file_id', filter.id)
@@ -233,6 +264,18 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
       .whereIn('e.business_unit_id', [...filter.businessUnitIds])
       .whereIn('e.department_id', [...filter.departmentIds])
       .where('ec.employee_contract_end_date', '<', dayAfter(filter.horizon))
+      // Tope: un contrato activo más nuevo del empleado (de cualquier tipo) lo
+      // sustituye; sin fecha de fin es indefinido y también sustituye.
+      .whereNotExists((newer) => {
+        newer
+          .from('employee_contracts as ec_new')
+          .whereColumn('ec_new.employee_id', 'ec.employee_id')
+          .whereColumn('ec_new.employee_contract_id', '>', 'ec.employee_contract_id')
+          .whereNull('ec_new.employee_contract_deleted_at')
+          .where('ec_new.employee_contract_active', 1)
+          .select(db.raw('1'))
+        expiresLaterOrNever(newer, 'ec_new.employee_contract_end_date', 'ec.employee_contract_end_date')
+      })
     joinEmployeeOrgChart(
       query,
       'COALESCE(ec.position_id, e.position_id)',
@@ -285,6 +328,23 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
       .whereNull('pft.proceeding_file_type_deleted_at')
       .where('pft.proceeding_file_type_area_to_use', 'system-setting')
       .where('pf.proceeding_file_expiration_at', '<', dayAfter(filter.horizon))
+      // Tope: un expediente más nuevo del mismo tipo en la misma ficha lo sustituye.
+      .whereNotExists((newer) => {
+        newer
+          .from('system_setting_proceeding_files as sspf_new')
+          .join('proceeding_files as pf_new', 'pf_new.proceeding_file_id', 'sspf_new.proceeding_file_id')
+          .whereColumn('sspf_new.system_setting_id', 'sspf.system_setting_id')
+          .whereColumn('pf_new.proceeding_file_type_id', 'pf.proceeding_file_type_id')
+          .whereColumn(
+            'sspf_new.system_setting_proceeding_file_id',
+            '>',
+            'sspf.system_setting_proceeding_file_id'
+          )
+          .whereNull('sspf_new.system_setting_proceeding_file_deleted_at')
+          .whereNull('pf_new.proceeding_file_deleted_at')
+          .select(db.raw('1'))
+        expiresLaterOrNever(newer, 'pf_new.proceeding_file_expiration_at', 'pf.proceeding_file_expiration_at')
+      })
     if (filter.id !== undefined) {
       query.where('sspf.system_setting_proceeding_file_id', filter.id)
     }
@@ -482,6 +542,25 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
       .whereIn('es.business_unit_id', [...filter.businessUnitIds])
       .whereIn('e.business_unit_id', [...filter.businessUnitIds])
       .where('es.employee_supply_expiration_date', '<', dayAfter(filter.horizon))
+      // Tope: una asignación activa más nueva del mismo tipo de insumo al
+      // empleado la sustituye.
+      .whereNotExists((newer) => {
+        newer
+          .from('employee_supplies as es_new')
+          .join('supplies as s_new', 's_new.supply_id', 'es_new.supply_id')
+          .whereColumn('es_new.employee_id', 'es.employee_id')
+          .whereColumn('s_new.supply_type_id', 's.supply_type_id')
+          .whereColumn('es_new.employee_supply_id', '>', 'es.employee_supply_id')
+          .whereNull('es_new.employee_supply_deleted_at')
+          .where('es_new.employee_supply_status', 'active')
+          .whereNull('s_new.supply_deleted_at')
+          .select(db.raw('1'))
+        expiresLaterOrNever(
+          newer,
+          'es_new.employee_supply_expiration_date',
+          'es.employee_supply_expiration_date'
+        )
+      })
     joinEmployeeOrgChart(query, 'e.position_id', 'e.department_id')
     if (filter.id !== undefined) {
       query.where('es.employee_supply_id', filter.id)

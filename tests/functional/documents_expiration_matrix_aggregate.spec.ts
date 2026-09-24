@@ -5,6 +5,7 @@ import i18nManager from '@adonisjs/i18n/services/main'
 import CertificationCategory from '#models/certification_category'
 import Certification from '#models/certification'
 import Department from '#models/department'
+import Person from '#models/person'
 import Position from '#models/position'
 import Supplie from '#models/supplie'
 import SupplyType from '#models/supply_type'
@@ -15,6 +16,7 @@ import { toBusinessDateString, todayInBusinessZone } from '#utils/business_date'
 import {
   cleanupEmployeeFixture,
   createEmployeeFixture,
+  opaqueEmployeeSlug,
   type EmployeeFixture,
 } from '#tests/helpers/employee_fixture'
 import {
@@ -552,5 +554,301 @@ test.group('Matriz de vencimientos agregada', (group) => {
     const malformed = await getItemFile(client, tenant, 'desconocido-1')
     malformed.assertStatus(422)
     assert.equal(malformed.body().key, 'entrada-invalida')
+  })
+})
+
+/** Llaves de los registros de un par viejo/nuevo del mismo dueño y tipo. */
+interface SupersedePair {
+  oldKey: string
+  newKey: string
+}
+
+/** Par por fuente: `replaced` (el nuevo vence después) y `kept` (el nuevo vence antes). */
+interface SupersedeCase {
+  replaced: SupersedePair
+  kept: SupersedePair
+}
+
+const uniqueSpecStamp = () => `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
+
+/** Número de inventario único (la columna es UNIQUE y de 9 dígitos a lo más). */
+const uniqueSupplyFileNumber = () =>
+  Number(`${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-9))
+
+test.group('Matriz de vencimientos: tope por registro más nuevo', (group) => {
+  let actor: TenantActor | null = null
+  let fixture: EmployeeFixture | null = null
+  let employeesEnforcementBefore = false
+  /** Segundo empleado del mismo departamento: el tope de contratos es por empleado. */
+  let siblingEmployeeId: number | null = null
+  let siblingPersonId: number | null = null
+  let createdSystemSettingId: number | null = null
+  const proceedingFileTypeIds: number[] = []
+  const proceedingFileIds: number[] = []
+  const employeeProceedingFileIds: number[] = []
+  const companyFileIds: number[] = []
+  const contractIds: number[] = []
+  const supplyTypeIds: number[] = []
+  const supplyIds: number[] = []
+  const employeeSupplyIds: number[] = []
+  const cases = new Map<string, SupersedeCase>()
+
+  group.setup(async () => {
+    await assertModuleEnforced(MATRIX)
+    employeesEnforcementBefore = await setModuleEnforcement(EMPLOYEES, true)
+
+    actor = await createTenantActor('matriz-tope')
+    fixture = await createEmployeeFixture(actor.businessUnit.businessUnitId, 'tope')
+    const businessUnitId = actor.businessUnit.businessUnitId
+    const employee = fixture.employee
+    const now = new Date()
+
+    await db.table('role_departments').insert({
+      role_id: actor.role.roleId,
+      department_id: employee.departmentId,
+      role_department_created_at: now,
+    })
+
+    const sibling = await Person.create({
+      personFirstname: 'Empleado',
+      personLastname: 'Tope',
+      personSecondLastname: 'Hermano',
+      personEmail: `employee-tope-${uniqueSpecStamp()}@gsti-tests.local`,
+      businessUnitId,
+    })
+    siblingPersonId = sibling.personId
+    const siblingCode = `EMP-${uniqueSpecStamp()}`.slice(0, 40)
+    const [insertedSiblingId] = await db.table('employees').insert({
+      employee_slug: opaqueEmployeeSlug(),
+      employee_sync_id: siblingCode,
+      employee_code: siblingCode,
+      employee_first_name: 'Empleado',
+      employee_last_name: 'Tope',
+      employee_second_last_name: 'Hermano',
+      company_id: businessUnitId,
+      business_unit_id: businessUnitId,
+      payroll_business_unit_id: businessUnitId,
+      department_id: employee.departmentId,
+      position_id: employee.positionId,
+      person_id: sibling.personId,
+      employee_type_id: 1,
+      employee_work_schedule: 'Onsite',
+      employee_business_email: `employee-work-tope-${uniqueSpecStamp()}@gsti-tests.local`,
+      employee_created_at: now,
+    })
+    siblingEmployeeId = Number(insertedSiblingId)
+
+    const insertProceedingFileType = async (area: 'employee' | 'system-setting') => {
+      const stamp = uniqueSpecStamp()
+      const [typeId] = await db.table('proceeding_file_types').insert({
+        proceeding_file_type_name: `Tipo tope ${stamp}`,
+        proceeding_file_type_slug: `tipo-tope-${stamp}`,
+        proceeding_file_type_area_to_use: area,
+        proceeding_file_type_created_at: now,
+        proceeding_file_type_updated_at: now,
+      })
+      proceedingFileTypeIds.push(Number(typeId))
+      return Number(typeId)
+    }
+    const insertProceedingFile = async (typeId: number, offset: number) => {
+      const stamp = uniqueSpecStamp()
+      const [fileId] = await db.table('proceeding_files').insert({
+        proceeding_file_name: `tope-${stamp}.pdf`,
+        proceeding_file_path: `pruebas/tope-${stamp}.pdf`,
+        proceeding_file_type_id: typeId,
+        proceeding_file_expiration_at: `${dayOffset(offset)} 00:00:00`,
+        proceeding_file_active: 1,
+        proceeding_file_uuid: `pf-tope-${stamp}`,
+        proceeding_file_created_at: now,
+        proceeding_file_updated_at: now,
+      })
+      proceedingFileIds.push(Number(fileId))
+      return Number(fileId)
+    }
+
+    // Expediente del empleado: viejo vencido y nuevo, por tipo.
+    const insertEmployeeFile = async (typeId: number, offset: number) => {
+      const [linkId] = await db.table('employee_proceeding_files').insert({
+        employee_id: employee.employeeId,
+        business_unit_id: businessUnitId,
+        proceeding_file_id: await insertProceedingFile(typeId, offset),
+        employee_proceeding_file_created_at: now,
+        employee_proceeding_file_updated_at: now,
+      })
+      employeeProceedingFileIds.push(Number(linkId))
+      return `employee-file-${Number(linkId)}`
+    }
+    const employeePair = async (newOffset: number): Promise<SupersedePair> => {
+      const typeId = await insertProceedingFileType('employee')
+      const oldKey = await insertEmployeeFile(typeId, -5)
+      return { oldKey, newKey: await insertEmployeeFile(typeId, newOffset) }
+    }
+    cases.set('employee-file', { replaced: await employeePair(10), kept: await employeePair(-10) })
+
+    // Expediente de la empresa: misma ficha, mismo tipo.
+    const existingSetting = await SystemSetting.query().where('business_unit_id', businessUnitId).first()
+    const setting =
+      existingSetting ??
+      (await SystemSetting.create({
+        businessUnitId,
+        systemSettingTradeName: uniqueTestName('Empresa tope'),
+        systemSettingSidebarColor: '#111111',
+        systemSettingActive: 1,
+        systemSettingMonthlyConversionFactor: 30.4,
+      }))
+    if (!existingSetting) createdSystemSettingId = setting.systemSettingId
+    const insertCompanyFile = async (typeId: number, offset: number) => {
+      const [companyFileId] = await db.table('system_setting_proceeding_files').insert({
+        system_setting_id: setting.systemSettingId,
+        proceeding_file_id: await insertProceedingFile(typeId, offset),
+        system_setting_proceeding_file_created_at: now,
+      })
+      companyFileIds.push(Number(companyFileId))
+      return `company-file-${Number(companyFileId)}`
+    }
+    const companyPair = async (newOffset: number): Promise<SupersedePair> => {
+      const typeId = await insertProceedingFileType('system-setting')
+      const oldKey = await insertCompanyFile(typeId, -5)
+      return { oldKey, newKey: await insertCompanyFile(typeId, newOffset) }
+    }
+    cases.set('company-file', { replaced: await companyPair(10), kept: await companyPair(-10) })
+
+    // Contratos: el tope es por empleado, sin importar el tipo de contrato.
+    const contractTypes = await db
+      .from('employee_contract_types')
+      .whereNull('employee_contract_type_deleted_at')
+      .orderBy('employee_contract_type_id')
+      .limit(2)
+    const insertContract = async (employeeId: number, typeIndex: number, offset: number) => {
+      const contractType = contractTypes[typeIndex % contractTypes.length]
+      const [contractId] = await db.table('employee_contracts').insert({
+        employee_contract_folio: `CTR-TOPE-${uniqueSpecStamp()}`,
+        employee_contract_start_date: `${dayOffset(-365)} 00:00:00`,
+        employee_contract_end_date: `${dayOffset(offset)} 00:00:00`,
+        employee_contract_type_id: contractType.employee_contract_type_id,
+        employee_id: employeeId,
+        business_unit_id: businessUnitId,
+        department_id: employee.departmentId,
+        position_id: employee.positionId,
+        payroll_business_unit_id: businessUnitId,
+        employee_contract_active: 1,
+        employee_contract_created_at: now,
+      })
+      contractIds.push(Number(contractId))
+      return `employee-contract-${Number(contractId)}`
+    }
+    const contractPair = async (employeeId: number, newOffset: number): Promise<SupersedePair> => {
+      const oldKey = await insertContract(employeeId, 0, -5)
+      return { oldKey, newKey: await insertContract(employeeId, 1, newOffset) }
+    }
+    cases.set('employee-contract', {
+      replaced: await contractPair(employee.employeeId, 10),
+      kept: await contractPair(required(siblingEmployeeId, 'el segundo empleado'), -10),
+    })
+
+    // Insumos: mismo empleado y mismo tipo de insumo, asignación activa.
+    const insertEmployeeSupply = async (typeId: number, offset: number) => {
+      const supply = await Supplie.create({
+        businessUnitId,
+        supplyFileNumber: uniqueSupplyFileNumber(),
+        supplyName: uniqueTestName('Activo tope'),
+        supplyTypeId: typeId,
+        supplyStatus: 'active',
+      })
+      supplyIds.push(supply.supplyId)
+      const [employeeSupplyId] = await db.table('employee_supplies').insert({
+        employee_id: employee.employeeId,
+        business_unit_id: businessUnitId,
+        supply_id: supply.supplyId,
+        employee_supply_status: 'active',
+        employee_supply_expiration_date: dayOffset(offset),
+        employee_supply_created_at: now,
+      })
+      employeeSupplyIds.push(Number(employeeSupplyId))
+      return `supply-${Number(employeeSupplyId)}`
+    }
+    const supplyPair = async (newOffset: number): Promise<SupersedePair> => {
+      const supplyType = await SupplyType.create({
+        businessUnitId,
+        supplyTypeName: uniqueTestName('Tipo tope'),
+        supplyTypeSlug: `tipo-insumo-tope-${uniqueSpecStamp()}`,
+      })
+      supplyTypeIds.push(supplyType.supplyTypeId)
+      const oldKey = await insertEmployeeSupply(supplyType.supplyTypeId, -5)
+      return { oldKey, newKey: await insertEmployeeSupply(supplyType.supplyTypeId, newOffset) }
+    }
+    cases.set('supply', { replaced: await supplyPair(10), kept: await supplyPair(-10) })
+  })
+
+  group.teardown(async () => {
+    try {
+      await db.from('employee_supplies').whereIn('employee_supply_id', employeeSupplyIds).delete()
+      await db.from('supplies').whereIn('supply_id', supplyIds).delete()
+      await db.from('supply_types').whereIn('supply_type_id', supplyTypeIds).delete()
+      await db.from('employee_contracts').whereIn('employee_contract_id', contractIds).delete()
+      await db
+        .from('system_setting_proceeding_files')
+        .whereIn('system_setting_proceeding_file_id', companyFileIds)
+        .delete()
+      await db
+        .from('employee_proceeding_files')
+        .whereIn('employee_proceeding_file_id', employeeProceedingFileIds)
+        .delete()
+      await db.from('proceeding_files').whereIn('proceeding_file_id', proceedingFileIds).delete()
+      await db.from('proceeding_file_types').whereIn('proceeding_file_type_id', proceedingFileTypeIds).delete()
+      if (createdSystemSettingId !== null) {
+        await db.from('system_settings').where('system_setting_id', createdSystemSettingId).delete()
+      }
+      if (siblingEmployeeId !== null) {
+        await db.from('employees').where('employee_id', siblingEmployeeId).delete()
+      }
+      if (siblingPersonId !== null) {
+        await Person.query().where('person_id', siblingPersonId).delete()
+      }
+      await cleanupEmployeeFixture(fixture)
+      await cleanupTenantActor(actor)
+    } finally {
+      await setModuleEnforcement(EMPLOYEES, employeesEnforcementBefore)
+    }
+  })
+
+  /** Llaves visibles en la matriz para el actor con expediente leíble. */
+  async function visibleKeys(client: ApiClient): Promise<string[]> {
+    const tenant = required(actor, 'el actor')
+    await grantModulePermissions(tenant, MATRIX, ['read'])
+    await addRoleModulePermissions(tenant.role, EMPLOYEES, ['tab-expediente-read'])
+
+    const response = await getMatrix(client, tenant)
+    response.assertStatus(200)
+    return (response.body().data.items as MatrixItemBody[]).map((item) => item.key)
+  }
+
+  test('el registro más nuevo que vence después sustituye al viejo, también en la descarga', async ({
+    client,
+    assert,
+  }) => {
+    const tenant = required(actor, 'el actor')
+    const keys = await visibleKeys(client)
+
+    for (const [source, { replaced }] of cases) {
+      assert.include(keys, replaced.newKey, `${source}: el nuevo aparece`)
+      assert.notInclude(keys, replaced.oldKey, `${source}: el viejo sustituido no aparece`)
+
+      const download = await getItemFile(client, tenant, replaced.oldKey)
+      download.assertStatus(404)
+      assert.equal(download.body().key, 'vencimiento-no-encontrado', `${source}: la descarga tampoco lo ve`)
+    }
+  })
+
+  test('un registro más nuevo que vence antes no sustituye: aparecen los dos', async ({
+    client,
+    assert,
+  }) => {
+    const keys = await visibleKeys(client)
+
+    for (const [source, { kept }] of cases) {
+      assert.include(keys, kept.oldKey, `${source}: el viejo sigue`)
+      assert.include(keys, kept.newKey, `${source}: el nuevo también`)
+    }
   })
 })
