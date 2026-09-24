@@ -162,13 +162,25 @@ function joinEmployeeOrgChart(
 }
 
 /**
- * Condición de "tope" sobre el vencimiento del registro más nuevo: lo sustituye
- * si vence después que el actual o no vence. Un registro nuevo que vence antes
- * no tapa al viejo (los dos siguen en la matriz).
+ * Condición de "tope": otro registro del mismo dueño y tipo sustituye al
+ * actual si su vencimiento es posterior o no vence. Manda la fecha, no el
+ * orden de captura: una renovación capturada antes que el documento viejo
+ * también lo tapa. Con el mismo vencimiento, desempata el id mayor para que
+ * solo quede uno. El propio registro nunca cumple (mismo vencimiento y mismo id).
  */
-function expiresLaterOrNever(query: QueryBuilder, newerColumn: string, currentColumn: string): void {
+function supersededBy(
+  query: QueryBuilder,
+  columns: { newerExpiry: string; currentExpiry: string; newerId: string; currentId: string }
+): void {
   query.where((expiry) => {
-    expiry.whereNull(newerColumn).orWhereColumn(newerColumn, '>', currentColumn)
+    expiry
+      .whereNull(columns.newerExpiry)
+      .orWhereColumn(columns.newerExpiry, '>', columns.currentExpiry)
+      .orWhere((tie) => {
+        tie
+          .whereColumn(columns.newerExpiry, '=', columns.currentExpiry)
+          .whereColumn(columns.newerId, '>', columns.currentId)
+      })
   })
 }
 
@@ -179,9 +191,8 @@ function expiresLaterOrNever(query: QueryBuilder, newerColumn: string, currentCo
  * resultados.
  *
  * Tope: en expediente de empleado y de empresa, contratos e insumos, un
- * registro no cuenta si otro vigente del mismo dueño y tipo, creado después
- * (id mayor), vence más tarde o no vence (`NOT EXISTS` dentro de la misma
- * consulta). Certificaciones ya toman el último cumplimiento por par; folios
+ * registro no cuenta si otro vigente del mismo dueño y tipo vence más tarde o
+ * no vence (`supersededBy`, `NOT EXISTS` dentro de la misma consulta). Certificaciones ya toman el último cumplimiento por par; folios
  * REPSE propios y de proveedores no se tapan.
  */
 export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrixRepository {
@@ -210,12 +221,16 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
           .join('proceeding_files as pf_new', 'pf_new.proceeding_file_id', 'epf_new.proceeding_file_id')
           .whereColumn('epf_new.employee_id', 'epf.employee_id')
           .whereColumn('pf_new.proceeding_file_type_id', 'pf.proceeding_file_type_id')
-          .whereColumn('epf_new.employee_proceeding_file_id', '>', 'epf.employee_proceeding_file_id')
           .whereNull('epf_new.employee_proceeding_file_deleted_at')
           .whereNull('pf_new.proceeding_file_deleted_at')
           .where('pf_new.proceeding_file_active', 1)
           .select(db.raw('1'))
-        expiresLaterOrNever(newer, 'pf_new.proceeding_file_expiration_at', 'pf.proceeding_file_expiration_at')
+        supersededBy(newer, {
+          newerExpiry: 'pf_new.proceeding_file_expiration_at',
+          currentExpiry: 'pf.proceeding_file_expiration_at',
+          newerId: 'epf_new.employee_proceeding_file_id',
+          currentId: 'epf.employee_proceeding_file_id',
+        })
       })
     joinEmployeeOrgChart(query, 'e.position_id', 'e.department_id')
     if (filter.id !== undefined) {
@@ -270,11 +285,15 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
         newer
           .from('employee_contracts as ec_new')
           .whereColumn('ec_new.employee_id', 'ec.employee_id')
-          .whereColumn('ec_new.employee_contract_id', '>', 'ec.employee_contract_id')
           .whereNull('ec_new.employee_contract_deleted_at')
           .where('ec_new.employee_contract_active', 1)
           .select(db.raw('1'))
-        expiresLaterOrNever(newer, 'ec_new.employee_contract_end_date', 'ec.employee_contract_end_date')
+        supersededBy(newer, {
+          newerExpiry: 'ec_new.employee_contract_end_date',
+          currentExpiry: 'ec.employee_contract_end_date',
+          newerId: 'ec_new.employee_contract_id',
+          currentId: 'ec.employee_contract_id',
+        })
       })
     joinEmployeeOrgChart(
       query,
@@ -335,15 +354,15 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
           .join('proceeding_files as pf_new', 'pf_new.proceeding_file_id', 'sspf_new.proceeding_file_id')
           .whereColumn('sspf_new.system_setting_id', 'sspf.system_setting_id')
           .whereColumn('pf_new.proceeding_file_type_id', 'pf.proceeding_file_type_id')
-          .whereColumn(
-            'sspf_new.system_setting_proceeding_file_id',
-            '>',
-            'sspf.system_setting_proceeding_file_id'
-          )
           .whereNull('sspf_new.system_setting_proceeding_file_deleted_at')
           .whereNull('pf_new.proceeding_file_deleted_at')
           .select(db.raw('1'))
-        expiresLaterOrNever(newer, 'pf_new.proceeding_file_expiration_at', 'pf.proceeding_file_expiration_at')
+        supersededBy(newer, {
+          newerExpiry: 'pf_new.proceeding_file_expiration_at',
+          currentExpiry: 'pf.proceeding_file_expiration_at',
+          newerId: 'sspf_new.system_setting_proceeding_file_id',
+          currentId: 'sspf.system_setting_proceeding_file_id',
+        })
       })
     if (filter.id !== undefined) {
       query.where('sspf.system_setting_proceeding_file_id', filter.id)
@@ -554,16 +573,16 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
           // El mismo insumo, no el mismo tipo: dos activos del mismo tipo
           // (dos laptops) son legítimos y no se tapan entre sí.
           .whereColumn('es_new.supply_id', 'es.supply_id')
-          .whereColumn('es_new.employee_supply_id', '>', 'es.employee_supply_id')
           .whereNull('es_new.employee_supply_deleted_at')
           .where('es_new.employee_supply_status', 'active')
           .whereNull('s_new.supply_deleted_at')
           .select(db.raw('1'))
-        expiresLaterOrNever(
-          newer,
-          'es_new.employee_supply_expiration_date',
-          'es.employee_supply_expiration_date'
-        )
+        supersededBy(newer, {
+          newerExpiry: 'es_new.employee_supply_expiration_date',
+          currentExpiry: 'es.employee_supply_expiration_date',
+          newerId: 'es_new.employee_supply_id',
+          currentId: 'es.employee_supply_id',
+        })
       })
     joinEmployeeOrgChart(query, 'e.position_id', 'e.department_id')
     if (filter.id !== undefined) {

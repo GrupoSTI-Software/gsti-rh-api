@@ -992,15 +992,20 @@ test.group('Matriz de vencimientos: tope por registro más nuevo', (group) => {
     }
   })
 
-  test('un registro más nuevo que vence antes no sustituye: aparecen los dos', async ({
+  test('manda la fecha, no el orden de captura: el que vence después tapa al capturado más tarde', async ({
     client,
     assert,
   }) => {
     const keys = await visibleKeys(client)
 
     for (const [source, { kept }] of cases) {
-      assert.include(keys, kept.oldKey, `${source}: el viejo sigue`)
-      assert.include(keys, kept.newKey, `${source}: el nuevo también`)
+      assert.include(keys, kept.oldKey, `${source}: el que vence después sigue`)
+      if (source === 'supply') {
+        // Insumos distintos del mismo tipo no se sustituyen: aparecen los dos.
+        assert.include(keys, kept.newKey, `${source}: la otra pieza también`)
+      } else {
+        assert.notInclude(keys, kept.newKey, `${source}: el capturado después que vence antes queda tapado`)
+      }
     }
   })
 })
