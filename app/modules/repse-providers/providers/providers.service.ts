@@ -3,7 +3,8 @@ import ProveedorRepse from '#models/proveedor_repse'
 import ProveedorRepseValidacion from '#models/proveedor_repse_validacion'
 import { REPSE_PROVIDER_ERROR_CODES } from '#constants/repse_provider_error_codes'
 import { RepseProviderError } from '#exceptions/repse_provider_error'
-import { normalizeRfc } from '../../../shared/validators/rfc.validator.js'
+import { hasRfcShape, normalizeRfc } from '../../../shared/validators/rfc.validator.js'
+import { escapeLikePattern } from '#utils/org_alias_normalize'
 import { blindIndex } from '#utils/blind_index'
 import {
   assertBusinessUnitInTenant,
@@ -16,7 +17,7 @@ import {
   todayInBusinessZone,
 } from '../repse_provider_dates.js'
 import ProvidersRepositoryMysql from './providers.repository.mysql.js'
-import type { ProvidersRepository } from './providers.repository.js'
+import type { ProveedorRepseSearch, ProvidersRepository } from './providers.repository.js'
 import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'
 import type { ProveedorRepseDto, ProveedorRepseListDto, ProveedorRepseReviewStatus } from './dto/providers.dto.js'
 
@@ -42,13 +43,24 @@ export default class ProvidersService {
     this.repository = repository
   }
 
-  async listByTenant(page: number, limit: number, businessUnitId?: number): Promise<ProveedorRepseListDto> {
+  async listByTenant(
+    page: number,
+    limit: number,
+    businessUnitId?: number,
+    q?: string
+  ): Promise<ProveedorRepseListDto> {
     const safeLimit = Math.min(Math.max(limit, 1), 500)
     const safePage = Math.max(page, 1)
 
     const targetBusinessUnitIds = await this.resolveTargetBusinessUnitIds(businessUnitId)
+    const search = this.buildSearch(q)
 
-    const bundle = await this.repository.listPaginated(safePage, safeLimit, targetBusinessUnitIds)
+    const bundle = await this.repository.listPaginated(
+      safePage,
+      safeLimit,
+      targetBusinessUnitIds,
+      search
+    )
     return {
       meta: bundle.meta,
       data: bundle.data.map((row) => this.serialize(row)),
@@ -158,6 +170,24 @@ export default class ProvidersService {
       return [businessUnitId]
     }
     return getAllowedBusinessUnitIds()
+  }
+
+  /**
+   * Prepara el término `q` del listado:
+   * - razón social y folio: LIKE parcial, sin distinguir mayúsculas.
+   * - RFC: vive cifrado con índice ciego, así que solo hay match EXACTO y solo
+   *   cuando el término (en mayúsculas y sin espacios) tiene forma de RFC
+   *   completo. Una búsqueda parcial por RFC no es posible por diseño.
+   */
+  private buildSearch(q: string | undefined): ProveedorRepseSearch | undefined {
+    const term = q?.trim() ?? ''
+    if (term.length === 0) return undefined
+
+    const rfcCandidate = normalizeRfc(term).replace(/\s+/g, '')
+    return {
+      likePattern: `%${escapeLikePattern(term.toLowerCase())}%`,
+      rfcHash: hasRfcShape(rfcCandidate) ? blindIndex(rfcCandidate) : null,
+    }
   }
 
   private async assertNoFolioDuplicate(

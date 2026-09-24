@@ -4,6 +4,7 @@ import ProveedorRepse from '#models/proveedor_repse'
 import type {
   ProveedorRepseCreateData,
   ProveedorRepsePaginatedResult,
+  ProveedorRepseSearch,
   ProveedorRepseUpdateData,
   ProvidersRepository,
 } from './providers.repository.js'
@@ -12,7 +13,8 @@ export default class ProvidersRepositoryMysql implements ProvidersRepository {
   async listPaginated(
     page: number,
     perPage: number,
-    businessUnitIds: number[]
+    businessUnitIds: number[],
+    search?: ProveedorRepseSearch
   ): Promise<ProveedorRepsePaginatedResult> {
     if (businessUnitIds.length === 0) {
       return {
@@ -21,9 +23,23 @@ export default class ProvidersRepositoryMysql implements ProvidersRepository {
       }
     }
 
-    const paginator = await ProveedorRepse.query()
+    const query = ProveedorRepse.query()
       .whereNull('proveedor_repse_deleted_at')
       .whereIn('business_unit_id', businessUnitIds)
+
+    if (search) {
+      // Agrupado para que el OR no escape del filtro de tenant ni del soft delete.
+      query.where((group) => {
+        group
+          .whereRaw('LOWER(proveedor_repse_razon_social) LIKE ?', [search.likePattern])
+          .orWhereRaw('LOWER(proveedor_repse_folio) LIKE ?', [search.likePattern])
+        if (search.rfcHash !== null) {
+          group.orWhere('proveedor_repse_rfc_hash', search.rfcHash)
+        }
+      })
+    }
+
+    const paginator = await query
       .orderBy('proveedor_repse_created_at', 'desc')
       .paginate(page, perPage)
 

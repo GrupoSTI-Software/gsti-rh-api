@@ -24,12 +24,29 @@ export interface ProveedorRepsePaginatedResult {
   data: ProveedorRepse[]
 }
 
+/**
+ * Término de búsqueda ya preparado por el service.
+ *
+ * - `likePattern`: patrón `%...%` en minúsculas y con `%`, `_` y `\` escapados;
+ *   se compara contra razón social y folio.
+ * - `rfcHash`: índice ciego del término cuando tiene forma de RFC completo; el
+ *   RFC vive cifrado, así que solo admite coincidencia exacta (sin parciales).
+ */
+export interface ProveedorRepseSearch {
+  likePattern: string
+  rfcHash: string | null
+}
+
 export interface ProvidersRepository {
-  /** Lista paginada de proveedores del conjunto de `businessUnitId` permitido. */
+  /**
+   * Lista paginada de proveedores del conjunto de `businessUnitId` permitido.
+   * Con `search`, filtra en SQL antes de paginar (el `meta.total` refleja el filtro).
+   */
   listPaginated(
     page: number,
     perPage: number,
-    businessUnitIds: number[]
+    businessUnitIds: number[],
+    search?: ProveedorRepseSearch
   ): Promise<ProveedorRepsePaginatedResult>
 
   /** Busca un proveedor activo dentro del scope de `businessUnitId` permitidos. */

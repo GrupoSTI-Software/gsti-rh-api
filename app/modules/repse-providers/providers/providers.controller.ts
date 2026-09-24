@@ -72,6 +72,16 @@ export default class ProvidersController {
    *         name: businessUnitId
    *         required: false
    *         schema: { type: integer, minimum: 1 }
+   *       - in: query
+   *         name: q
+   *         required: false
+   *         schema: { type: string, maxLength: 150 }
+   *         description: |
+   *           Búsqueda libre. Coincidencia parcial y sin distinguir mayúsculas
+   *           sobre `razonSocial` y `folio`. El RFC se guarda cifrado con índice
+   *           ciego: solo coincide cuando `q` (en mayúsculas y sin espacios) es un
+   *           RFC completo de 12 o 13 caracteres; no hay búsqueda parcial por RFC.
+   *           El filtro se aplica antes de paginar (`meta.total` ya filtrado).
    *     responses:
    *       '200':
    *         description: |
@@ -124,7 +134,7 @@ export default class ProvidersController {
    *                           proveedorRepseCreatedAt: "2026-07-17T10:00:00.000-06:00"
    *                           proveedorRepseUpdatedAt: null
    *       '400':
-   *         description: Validación VineJS (page, limit o businessUnitId inválidos)
+   *         description: Validación VineJS (page, limit, businessUnitId o q inválidos)
    *         content:
    *           application/json:
    *             example:
@@ -174,7 +184,12 @@ export default class ProvidersController {
 
       const filters = await request.validateUsing(listProveedoresRepseValidator)
       const service = new ProvidersService()
-      const bundle = await service.listByTenant(filters.page, filters.limit, filters.businessUnitId)
+      const bundle = await service.listByTenant(
+        filters.page,
+        filters.limit,
+        filters.businessUnitId,
+        filters.q
+      )
 
       return StandardResponseFormatter.success(
         response,
