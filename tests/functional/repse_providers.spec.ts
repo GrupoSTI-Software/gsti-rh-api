@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import type { ApiClient } from '@japa/api-client'
 import { DateTime } from 'luxon'
 import { PDFDocument } from 'pdf-lib'
 import User from '#models/user'
@@ -1149,5 +1150,192 @@ test.group('RepseProviders - permiso granular vía rol rh-manager (no root)', (g
     const body = response.body()
     assert.equal(body.type, 'success')
     providerId = body.data.proveedorRepse.proveedorRepseId
+  })
+})
+
+test.group('RepseProviders - búsqueda q y última validación del listado', (group) => {
+  let root: TestActor | null = null
+  let businessUnit: BusinessUnit | null = null
+  let validatedProviderId: number | null = null
+  let validatedProviderRfc: string | null = null
+  let plainProviderId: number | null = null
+  let plainProviderFolio: string | null = null
+  const stamp = uniqueStamp()
+  const validatedRazonSocial = `Limpieza Buscable ${stamp} S.A. de C.V.`
+
+  interface ListedProvider {
+    proveedorRepseId: number
+    lastValidationAt: string | null
+    lastValidationEstatus: string | null
+  }
+
+  /** Fixture directa de la bitácora: controla fechas y empates sin pasar por el intake. */
+  async function insertValidacion(
+    proveedorRepseId: number,
+    estatus: 'vigente' | 'no_vigente',
+    fecha: string
+  ): Promise<void> {
+    const row = new ProveedorRepseValidacion()
+    row.proveedorRepseId = proveedorRepseId
+    row.businessUnitId = businessUnit!.businessUnitId
+    row.estatus = estatus
+    row.fecha = DateTime.fromISO(fecha)
+    row.autorUserId = root!.user.userId
+    row.evidenciaNombreArchivo = VALID_PDF_NAME
+    row.evidenciaStorageKey = `tests/repse-busqueda/${stamp}/${fecha}-${estatus}.pdf`
+    row.evidenciaMimeType = 'application/pdf'
+    row.evidenciaTamanoBytes = VALID_PDF_BUFFER.length
+    await row.save()
+  }
+
+  async function listWithQ(client: ApiClient, q: string) {
+    return client
+      .get('/api/repse-providers')
+      .qs({ page: 1, limit: 50, q })
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+  }
+
+  function listedIds(body: { data: { proveedoresRepse: { data: ListedProvider[] } } }): number[] {
+    return body.data.proveedoresRepse.data.map((row) => row.proveedorRepseId)
+  }
+
+  group.setup(async () => {
+    root = await createTestActor(ROOT_ROLE, 'root-busqueda')
+    businessUnit = await createSecondaryBusinessUnit('busqueda')
+  })
+
+  group.teardown(async () => {
+    await cleanupProveedor(validatedProviderId)
+    await cleanupProveedor(plainProviderId)
+    await cleanupTestActor(root)
+    await deleteBusinessUnit(businessUnit)
+  })
+
+  test('prepara dos proveedores (uno con bitácora y otro sin ella)', async ({ client }) => {
+    validatedProviderRfc = randomRfc()
+    const validated = await client
+      .post('/api/repse-providers')
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+      .json({
+        razonSocial: validatedRazonSocial,
+        rfc: validatedProviderRfc,
+        folio: `FOLA-${stamp}`,
+        objetoRegistrado: 'Servicios de limpieza',
+        folioVencimiento: '2027-01-01',
+      })
+    validated.assertStatus(201)
+    validatedProviderId = validated.body().data.proveedorRepse.proveedorRepseId
+
+    plainProviderFolio = `FOLB-${stamp}`
+    const plain = await client
+      .post('/api/repse-providers')
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+      .json({
+        razonSocial: `Mantenimiento Sin Bitacora ${stamp}`,
+        rfc: randomRfc(),
+        folio: plainProviderFolio,
+        objetoRegistrado: 'Servicios de mantenimiento',
+        folioVencimiento: '2027-01-01',
+      })
+    plain.assertStatus(201)
+    plainProviderId = plain.body().data.proveedorRepse.proveedorRepseId
+
+    // La más reciente por fecha es la no_vigente; la de igual fecha y menor id pierde el empate.
+    await insertValidacion(validatedProviderId!, 'vigente', fechaNegocioDesplazada(-40))
+    await insertValidacion(validatedProviderId!, 'vigente', fechaNegocioDesplazada(-3))
+    await insertValidacion(validatedProviderId!, 'no_vigente', fechaNegocioDesplazada(-3))
+  })
+
+  test('q filtra por razón social parcial sin distinguir mayúsculas y meta.total refleja el filtro', async ({
+    client,
+    assert,
+  }) => {
+    const response = await listWithQ(client, `  limpieza BUSCABLE ${stamp} `)
+
+    response.assertStatus(200)
+    assert.deepEqual(listedIds(response.body()), [validatedProviderId!])
+    assert.equal(response.body().data.proveedoresRepse.meta.total, 1)
+  })
+
+  test('q filtra por folio parcial', async ({ client, assert }) => {
+    const response = await listWithQ(client, plainProviderFolio!.toLowerCase().slice(0, -2))
+
+    response.assertStatus(200)
+    assert.deepEqual(listedIds(response.body()), [plainProviderId!])
+  })
+
+  test('q con RFC completo (minúsculas y con espacios) coincide exacto por índice ciego', async ({
+    client,
+    assert,
+  }) => {
+    const rfc = validatedProviderRfc!.toLowerCase()
+    const response = await listWithQ(client, `${rfc.slice(0, 3)} ${rfc.slice(3)}`)
+
+    response.assertStatus(200)
+    assert.deepEqual(listedIds(response.body()), [validatedProviderId!])
+  })
+
+  test('q con RFC parcial no coincide (no hay búsqueda parcial por RFC)', async ({ client, assert }) => {
+    const response = await listWithQ(client, validatedProviderRfc!.slice(0, 10))
+
+    response.assertStatus(200)
+    assert.deepEqual(listedIds(response.body()), [])
+    assert.equal(response.body().data.proveedoresRepse.meta.total, 0)
+  })
+
+  test('q con comodines LIKE se busca literal', async ({ client, assert }) => {
+    const response = await listWithQ(client, '%')
+
+    response.assertStatus(200)
+    assert.deepEqual(listedIds(response.body()), [])
+  })
+
+  test('q de más de 150 caracteres responde 422', async ({ client }) => {
+    const response = await listWithQ(client, 'a'.repeat(151))
+    response.assertStatus(422)
+  })
+
+  test('listado y detalle exponen la última validación; null sin bitácora', async ({
+    client,
+    assert,
+  }) => {
+    const expectedAt = fechaNegocioDesplazada(-3)
+
+    const list = await client
+      .get('/api/repse-providers')
+      .qs({ page: 1, limit: 50 })
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+    list.assertStatus(200)
+    const rows = list.body().data.proveedoresRepse.data as ListedProvider[]
+
+    const validated = rows.find((row) => row.proveedorRepseId === validatedProviderId)
+    assert.exists(validated)
+    assert.equal(validated!.lastValidationAt, expectedAt)
+    assert.equal(validated!.lastValidationEstatus, 'no_vigente')
+
+    const plain = rows.find((row) => row.proveedorRepseId === plainProviderId)
+    assert.exists(plain)
+    assert.isNull(plain!.lastValidationAt)
+    assert.isNull(plain!.lastValidationEstatus)
+
+    const detail = await client
+      .get(`/api/repse-providers/${validatedProviderId}`)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+    detail.assertStatus(200)
+    assert.equal(detail.body().data.proveedorRepse.lastValidationAt, expectedAt)
+    assert.equal(detail.body().data.proveedorRepse.lastValidationEstatus, 'no_vigente')
+
+    const plainDetail = await client
+      .get(`/api/repse-providers/${plainProviderId}`)
+      .loginAs(root!.user)
+      .header('X-Business-Unit-Id', businessUnit!.businessUnitPublicId)
+    plainDetail.assertStatus(200)
+    assert.isNull(plainDetail.body().data.proveedorRepse.lastValidationAt)
+    assert.isNull(plainDetail.body().data.proveedorRepse.lastValidationEstatus)
   })
 })
