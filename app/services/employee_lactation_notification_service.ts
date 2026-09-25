@@ -16,6 +16,7 @@ import mail from '@adonisjs/mail/services/main'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import { indexSystemSettingsByBusinessUnitSlug } from '#helpers/system_settings_by_business_unit'
+import { daysBetweenBusinessDates, todayInBusinessZone } from '#utils/business_date'
 
 /**
  * Logger inyectable. El comando ace pasa los métodos `info/warn/error` de
@@ -125,7 +126,7 @@ export default class EmployeeLactationNotificationService {
   private async executeExpiringCheck(
     logger: NotificationServiceLogger
   ): Promise<RunExpiringCheckResult> {
-    const today = DateTime.now().setZone('America/Mexico_City').startOf('day')
+    const today = todayInBusinessZone()
     const horizon = today.plus({ days: LACTATION_EXPIRING_THRESHOLD_DAYS })
 
     const candidates = await this.fetchCandidates(
@@ -313,7 +314,6 @@ export default class EmployeeLactationNotificationService {
         q.preload('person').preload('businessUnit')
       })
 
-    const today = DateTime.fromISO(todayIso, { zone: 'America/Mexico_City' })
     const candidates: CandidateRow[] = []
     for (const period of rows) {
       const employee = period.employee
@@ -321,8 +321,7 @@ export default class EmployeeLactationNotificationService {
 
       const endIso = this.toIsoDate(period.employeeLactationPeriodEndDate)
       if (!endIso) continue
-      const endDt = DateTime.fromISO(endIso, { zone: 'America/Mexico_City' })
-      const daysLeft = Math.max(0, Math.round(endDt.diff(today, 'days').days))
+      const daysLeft = Math.max(0, daysBetweenBusinessDates(todayIso, endIso))
 
       const person = employee.person ?? null
       const first = person?.personFirstname ?? employee.employeeFirstName ?? ''

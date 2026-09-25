@@ -149,9 +149,9 @@ export interface ComplianceReportPaginated {
 /**
  * Zona de negocio configurada (`APP_BUSINESS_TIMEZONE`, CDMX por omisión) para
  * calcular `today` y compararlo contra `employee_lactation_period_end_date`,
- * que es un `DATE` puro en BD. `EmployeeLactationPeriodService` y
- * `EmployeeLactationNotificationService` todavía fijan CDMX / UTC-6 a mano:
- * coinciden solo mientras la zona de negocio sea la de omisión.
+ * que es un `DATE` puro en BD. `EmployeeLactationNotificationService` usa la
+ * misma zona, así que el reporte y el aviso coinciden en qué periodo está por
+ * vencer.
  */
 const REPORT_TIMEZONE = getBusinessTimeZone()
 
