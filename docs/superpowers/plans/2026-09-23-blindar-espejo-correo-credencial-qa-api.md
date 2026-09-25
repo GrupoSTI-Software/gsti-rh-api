@@ -555,18 +555,18 @@ Consulta de confirmación: `GET /api/users/<Vacio15.userId>` → `userEmail` sig
 
 ## 3. Checklist
 
-- [ ] Escenario 1 — Personal edita expediente: se copia a la cuenta
-- [ ] Escenario 2 — Institucional edita expediente: la cuenta no se toca
-- [ ] Escenario 3 — Colaborador edita correo de trabajo: se copia a la cuenta
-- [ ] Escenario 4 — Personal edita cuenta: se copia al expediente
-- [ ] Escenario 5 — Institucional edita cuenta sin mandar el tipo: el tipo se conserva y se copia al colaborador
-- [ ] Escenario 6 — Alta con tipo de correo inválido: 422
-- [ ] Escenario 7 — Expediente con correo de otra cuenta viva: 400, nada cambia
-- [ ] Escenario 8 — Alta con correo personal de otra persona: 400
-- [ ] Escenario 9 — Cuenta con correo de trabajo de otro colaborador: 400
-- [ ] Escenario 10 — Cuenta fuera del alcance del actor: 403 sin decir el correo
-- [ ] Escenario 11 — Persona con dos cuentas vivas: 400 sin decir cuántas
-- [ ] Escenario 12 — Sin permiso de datos de contacto: 403, nada cambia
-- [ ] Escenario 13 — Persona sin cuenta: se omite
-- [ ] Escenario 14 — Correo ya sincronizado: se omite
-- [ ] Escenario 15 — Correo sin mandar: se omite
+- [x] Escenario 1 — Personal edita expediente: se copia a la cuenta
+- [x] Escenario 2 — Institucional edita expediente: la cuenta no se toca
+- [x] Escenario 3 — Colaborador edita correo de trabajo: se copia a la cuenta
+- [x] Escenario 4 — Personal edita cuenta: se copia al expediente
+- [x] Escenario 5 — Institucional edita cuenta sin mandar el tipo: el tipo se conserva y se copia al colaborador
+- [x] Escenario 6 — Alta con tipo de correo inválido: 422
+- [x] Escenario 7 — Expediente con correo de otra cuenta viva: 400, nada cambia
+- [x] Escenario 8 — Alta con correo personal de otra persona: 400
+- [x] Escenario 9 — Cuenta con correo de trabajo de otro colaborador: 400
+- [x] Escenario 10 — Cuenta fuera del alcance del actor: 403 sin decir el correo
+- [x] Escenario 11 — Persona con dos cuentas vivas: 400 sin decir cuántas
+- [x] Escenario 12 — Sin permiso de datos de contacto: 403, nada cambia
+- [x] Escenario 13 — Persona sin cuenta: se omite
+- [x] Escenario 14 — Correo ya sincronizado: se omite
+- [x] Escenario 15 — Correo sin mandar: se omite
