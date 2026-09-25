@@ -1401,6 +1401,25 @@
       "ignore_notice": "If you did not request this change, ignore this email: your current password remains active and your account is protected.",
       "fallback_url": "If the button doesn't work, copy and paste this address into your browser:",
       "footer": "This is an automated message from {tradeName}. Please do not reply to this email."
+    },
+    "credential_changed": {
+      "subject_previous": "Your {tradeName} sign-in email was changed",
+      "subject_current": "How you sign in to {tradeName} from now on",
+      "preheader": "Security notice about your account access",
+      "title_previous": "Your sign-in email was changed",
+      "title_current": "Your account now uses a new address",
+      "greeting_lead": "Hi {firstName},",
+      "body_previous": "The email you use to sign in to {tradeName} was changed on {changedAt}. This address can no longer be used to sign in.",
+      "body_current": "Your access to {tradeName} now uses this address.",
+      "new_email_label": "Sign-in email",
+      "password_unchanged_notice": "Your password has not changed.",
+      "sessions_closed_notice": "Sessions opened with the previous address were closed; please sign in again with this email.",
+      "alert_title": "Didn't request this?",
+      "alert_body": "Contact your HR team or support immediately: someone else may have taken control of your account.",
+      "cta": "Sign in",
+      "cta_caption": "Use your new email and your usual password.",
+      "support_link_caption": "Write to support if you don't recognize this change.",
+      "footer": "This is an automated message from {tradeName}. Please do not reply."
     }
   },
   "attendance_stats_dates_required": "startDay and endDay are required",

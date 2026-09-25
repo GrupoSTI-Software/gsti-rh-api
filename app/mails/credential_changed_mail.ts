@@ -1,0 +1,86 @@
+import { BaseMail } from '@adonisjs/mail'
+import i18nManager from '@adonisjs/i18n/services/main'
+import { resolveMailLocale } from '#constants/mail_locale'
+
+export interface CredentialChangedMailBranding {
+  tradeName: string
+  backgroundImageLogo: string
+}
+
+export interface CredentialChangedMailParams {
+  readonly to: string
+  readonly from: string
+  readonly firstName: string
+  readonly variant: 'previous' | 'current'
+  readonly newEmailDisplay: string
+  readonly changedAt: string
+  readonly loginUrl: string
+  readonly language: 'es' | 'en'
+  readonly branding: CredentialChangedMailBranding
+}
+
+export default class CredentialChangedMail extends BaseMail {
+  constructor(private readonly params: CredentialChangedMailParams) {
+    super()
+  }
+
+  prepare() {
+    const {
+      to,
+      from,
+      firstName,
+      variant,
+      newEmailDisplay,
+      changedAt,
+      loginUrl,
+      language,
+      branding,
+    } = this.params
+    const isPreviousRecipient = variant === 'previous'
+    const i18n = i18nManager.locale(resolveMailLocale(language))
+    const subject = i18n.formatMessage(
+      isPreviousRecipient
+        ? 'auth.credential_changed.subject_previous'
+        : 'auth.credential_changed.subject_current',
+      { tradeName: branding.tradeName }
+    )
+    this.message
+      .to(to)
+      .from(from, branding.tradeName)
+      .subject(subject)
+      .htmlView('emails/credential_changed', {
+        tradeName: branding.tradeName,
+        backgroundImageLogo: branding.backgroundImageLogo,
+        firstName,
+        isPreviousRecipient,
+        newEmailDisplay,
+        changedAt,
+        loginUrl,
+        subject,
+        preheader: i18n.formatMessage('auth.credential_changed.preheader'),
+        titlePrevious: i18n.formatMessage('auth.credential_changed.title_previous'),
+        titleCurrent: i18n.formatMessage('auth.credential_changed.title_current'),
+        greetingLead: i18n.formatMessage('auth.credential_changed.greeting_lead', { firstName }),
+        bodyPrevious: i18n.formatMessage('auth.credential_changed.body_previous', {
+          tradeName: branding.tradeName,
+          changedAt,
+        }),
+        bodyCurrent: i18n.formatMessage('auth.credential_changed.body_current', {
+          tradeName: branding.tradeName,
+        }),
+        newEmailLabel: i18n.formatMessage('auth.credential_changed.new_email_label'),
+        passwordUnchangedNotice: i18n.formatMessage(
+          'auth.credential_changed.password_unchanged_notice'
+        ),
+        sessionsClosedNotice: i18n.formatMessage('auth.credential_changed.sessions_closed_notice'),
+        alertTitle: i18n.formatMessage('auth.credential_changed.alert_title'),
+        alertBody: i18n.formatMessage('auth.credential_changed.alert_body'),
+        cta: i18n.formatMessage('auth.credential_changed.cta'),
+        ctaCaption: i18n.formatMessage('auth.credential_changed.cta_caption'),
+        supportLinkCaption: i18n.formatMessage('auth.credential_changed.support_link_caption'),
+        footer: i18n.formatMessage('auth.credential_changed.footer', {
+          tradeName: branding.tradeName,
+        }),
+      })
+  }
+}

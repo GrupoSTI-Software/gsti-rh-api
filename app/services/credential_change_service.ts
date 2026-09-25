@@ -1,10 +1,13 @@
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import logger from '@adonisjs/core/services/logger'
+import mail from '@adonisjs/mail/services/main'
 import ApiToken from '#models/api_token'
 import User from '#models/user'
 import type { UserEmailTypeValue } from '#constants/user_email_type'
 import Ws from '#services/ws'
 import UserService from '#services/user_service'
+import CredentialChangedMail from '#mails/credential_changed_mail'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 
 export type CredentialChangeOrigin = 'person-file' | 'user-screen' | 'employee-file'
 
@@ -58,7 +61,7 @@ export async function revokeSessions(
  * cambio de credencial que ya quedó confirmado.
  */
 export async function notifyAndAudit(params: NotifyAndAuditParams): Promise<void> {
-  let notified = true
+  let notified = false
   let logged = true
 
   try {
@@ -74,7 +77,7 @@ export async function notifyAndAudit(params: NotifyAndAuditParams): Promise<void
   }
 
   try {
-    await sendCredentialChangedMails(params)
+    notified = await sendCredentialChangedMails(params)
   } catch {
     notified = false
   }
@@ -102,10 +105,92 @@ export async function notifyAndAudit(params: NotifyAndAuditParams): Promise<void
   }
 }
 
-/**
- * Task 4 completa los envíos manteniendo esta frontera post-commit.
- */
-async function sendCredentialChangedMails(_params: NotifyAndAuditParams): Promise<void> {}
+async function sendCredentialChangedMails(params: NotifyAndAuditParams): Promise<boolean> {
+  const from = resolveMailSender()
+  const branding = {
+    tradeName: 'Valanserh',
+    backgroundImageLogo:
+      'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png',
+  }
+  const firstName = await resolveFirstName(params.affectedUserId)
+  const changedAt = new Date().toISOString()
+  const loginUrl = (process.env.APP_URL ?? '').replace(/\/$/, '')
+
+  let attemptedCount = 0
+  let allSucceeded = true
+
+  for (const to of params.previousRecipients) {
+    attemptedCount++
+    try {
+      await mail.send(
+        new CredentialChangedMail({
+          to,
+          from,
+          firstName,
+          variant: 'previous',
+          newEmailDisplay: maskEmail(params.newEmail),
+          changedAt,
+          loginUrl,
+          language: 'es',
+          branding,
+        })
+      )
+    } catch (err) {
+      allSucceeded = false
+      logger.error({ err, to: redactEmail(to) }, 'credential-change previous mail failed')
+    }
+  }
+
+  if (params.newEmail) {
+    attemptedCount++
+    try {
+      await mail.send(
+        new CredentialChangedMail({
+          to: params.newEmail,
+          from,
+          firstName,
+          variant: 'current',
+          newEmailDisplay: params.newEmail,
+          changedAt,
+          loginUrl,
+          language: 'es',
+          branding,
+        })
+      )
+    } catch (err) {
+      allSucceeded = false
+      logger.error(
+        { err, to: redactEmail(params.newEmail) },
+        'credential-change current mail failed'
+      )
+    }
+  }
+
+  return attemptedCount > 0 && allSucceeded
+}
+
+async function resolveFirstName(userId: number): Promise<string> {
+  try {
+    const user = await User.query().where('user_id', userId).preload('person').first()
+    return user?.person?.personFirstname?.trim() || ''
+  } catch {
+    return ''
+  }
+}
+
+function maskEmail(email: string): string {
+  const [local, domain] = email.split('@')
+  if (!domain || local.length < 2) return email
+  return `${local[0]}•••${local[local.length - 1]}@${domain}`
+}
+
+function redactEmail(value: string): string {
+  if (!value || !value.includes('@')) {
+    return '***'
+  }
+  const [, domain] = value.split('@')
+  return `***@${domain}`
+}
 
 async function writeCredentialChangeLog(params: NotifyAndAuditParams): Promise<void> {
   const userService = Object.create(UserService.prototype) as UserService

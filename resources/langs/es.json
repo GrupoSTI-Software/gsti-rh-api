@@ -1404,6 +1404,25 @@
       "ignore_notice": "Si no solicitaste este cambio, ignora este correo: tu contraseña actual sigue activa y tu cuenta protegida.",
       "fallback_url": "Si el botón no funciona, copia y pega esta dirección en tu navegador:",
       "footer": "Este es un mensaje automático de {tradeName}. Por favor no respondas a este correo."
+    },
+    "credential_changed": {
+      "subject_previous": "Tu correo de acceso a {tradeName} cambió",
+      "subject_current": "Así entras ahora a {tradeName}",
+      "preheader": "Aviso de seguridad sobre tu acceso",
+      "title_previous": "Tu correo de acceso cambió",
+      "title_current": "Tu acceso usa una dirección nueva",
+      "greeting_lead": "Hola, {firstName}:",
+      "body_previous": "El correo con el que ingresas a {tradeName} cambió el {changedAt}. Esta dirección ya no sirve para iniciar sesión.",
+      "body_current": "Tu acceso a {tradeName} ahora usa esta dirección.",
+      "new_email_label": "Correo de acceso",
+      "password_unchanged_notice": "Tu contraseña no cambió.",
+      "sessions_closed_notice": "Las sesiones abiertas con la dirección anterior se cerraron; vuelve a iniciar sesión con este correo.",
+      "alert_title": "¿No lo solicitaste?",
+      "alert_body": "Contacta de inmediato a tu área de Recursos Humanos o a soporte: alguien más pudo haber tomado el control de tu cuenta.",
+      "cta": "Iniciar sesión",
+      "cta_caption": "Entra con tu correo nuevo y tu contraseña de siempre.",
+      "support_link_caption": "Escríbele a soporte si no reconoces este cambio.",
+      "footer": "Este es un mensaje automático de {tradeName}. No respondas a este correo."
     }
   },
   "attendance_stats_dates_required": "Las fechas de inicio (startDay) y fin (endDay) son requeridas",
