@@ -16,7 +16,6 @@ import ShiftException from '#models/shift_exception'
 import User from '#models/user'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import VacationSetting from '#models/vacation_setting'
-import EmployeeService from '#services/employee_service'
 import PersonService from '#services/person_service'
 import RoleService from '#services/role_service'
 import UserService from '#services/user_service'
@@ -182,9 +181,9 @@ export default class DemoSeedRepositoryMysql implements DemoSeedRepository {
     employee.employeeIgnoreConsecutiveAbsences = 0
     employee.employeeAuthorizeAnyZones = 0
     employee.useTransaction(trx)
+    // El slug lo pone el hook `beforeCreate` del modelo, así que ya viene en la
+    // instancia al volver del save().
     await employee.save()
-    const employeeService = new EmployeeService(this.i18n)
-    await employeeService.updateEmployeeSlug(employee, trx)
     tracked.push({ type: 'employee', id: employee.employeeId })
 
     // El admin que siembra queda como responsable del empleado demo: sin este

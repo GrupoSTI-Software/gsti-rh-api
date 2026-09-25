@@ -8,6 +8,7 @@ import {
   cleanupSensitiveFixture,
   createActor,
   createSensitiveFixture,
+  expectAmountMasked,
   expectNeverDenied,
   grantOnly,
   type SensitiveFixture,
@@ -20,7 +21,7 @@ import {
  * preload-ea `employee` y devuelve el modelo completo. Sin `SensitiveAccessContext`
  * activo, `canRead('financiero')` fail-closeaba a `false` para TODOS —
  * incluido quien sí tiene `sensitive-financiero-read` — mostrando siempre
- * `dailySalary: null` (regresión de usabilidad, nunca fuga).
+ * `dailySalary: •••••` (regresión de usabilidad, nunca fuga del número en claro).
  *
  * Fix: montar `middleware.sensitiveAccess()` en el grupo (mismo patrón que
  * `person_routes.ts` / `synchronization_routes.ts`). Este test prueba que,
@@ -77,7 +78,7 @@ test.group('Anexo C fix — exception-requests abre SensitiveAccessContext', (gr
     }
   })
 
-  test('sin sensitive-financiero-read: dailySalary del empleado preloadeado es null', async ({
+  test('sin sensitive-financiero-read: dailySalary del empleado preloadeado está enmascarado', async ({
     client,
     assert,
   }) => {
@@ -98,10 +99,10 @@ test.group('Anexo C fix — exception-requests abre SensitiveAccessContext', (gr
     )
     assert.exists(row)
     const employee = row!.employee as Record<string, unknown>
-    assert.isNull(employee.dailySalary)
+    expectAmountMasked(employee.dailySalary, assert)
   })
 
-  test('con sensitive-financiero-read: dailySalary del empleado preloadeado es el número real (antes del fix, quedaba null para todos)', async ({
+  test('con sensitive-financiero-read: dailySalary del empleado preloadeado sigue enmascarado en GET', async ({
     client,
     assert,
   }) => {
@@ -122,7 +123,7 @@ test.group('Anexo C fix — exception-requests abre SensitiveAccessContext', (gr
     )
     assert.exists(row)
     const employee = row!.employee as Record<string, unknown>
-    assert.equal(Number(employee.dailySalary), DAILY_SALARY)
+    expectAmountMasked(employee.dailySalary, assert)
     assert.notEqual(employee.dailySalary, 0)
   })
 })

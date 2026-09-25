@@ -29,6 +29,7 @@ import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
+import { buildDownloadFileName, contentDisposition, formatDownloadFileDate } from '#helpers/download_file_name'
 
 /**
  * Los periodos del expediente no tienen módulo propio en `system_modules`:
@@ -605,9 +606,12 @@ export default class EmployeeLactationPeriodsController {
         async (maskSensitive) => service.renderCompliancePdf(items, reportFilters, { maskSensitive })
       )
 
-      const filename = `reporte-cumplimiento-lactancia-${DateTime.now().toFormat('yyyyLLdd')}.pdf`
+      const filename = buildDownloadFileName(
+        ['reporte-cumplimiento-lactancia', formatDownloadFileDate()],
+        'pdf'
+      )
       response.header('Content-Type', 'application/pdf')
-      response.header('Content-Disposition', `attachment; filename="${filename}"`)
+      response.header('Content-Disposition', contentDisposition(filename))
       response.header('Content-Length', pdfBuffer.length.toString())
       response.status(200)
       return response.send(pdfBuffer)

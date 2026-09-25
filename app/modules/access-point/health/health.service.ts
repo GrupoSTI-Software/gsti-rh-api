@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import AccessPoint from '#models/access_point'
 import { TenantContext } from '#utils/tenant_context'
 import { getBusinessTimeZone } from '#utils/business_date'
@@ -59,10 +60,6 @@ export interface ModelCapacity {
   faces: number | null
   transactions: number | null
 }
-
-/** El catalogo de modelos es de plataforma, no de una empresa. */
-const MODEL_UNSCOPED_REASON =
-  'salud del checador: el catalogo de modelos es de plataforma, no de una empresa'
 
 /**
  * Estado de los checadores para la pantalla de operacion (spec ADMS 9.2).
@@ -292,7 +289,7 @@ export default class HealthService {
             'm.platform_device_model_max_att_log_count'
           )
           .first(),
-      MODEL_UNSCOPED_REASON
+      TENANT_UNSCOPED_REASON.ACCESS_POINT_MODEL_CATALOG
     )
     if (!row) return null
 

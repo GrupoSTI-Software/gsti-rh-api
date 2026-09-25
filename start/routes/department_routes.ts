@@ -3,6 +3,21 @@ import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
 import { ORGANIZATION_CHART_PERMISSION_DECLARATIONS } from '#constants/organization_chart_permission_declarations'
 
+// Sin gate: catálogos de departamentos y puestos que consumen los selects y
+// filtros de Empleados, Calendario, Avisos, 9-box, Vacaciones, Excepciones y
+// Cumpleaños. Pedir organization-chart:read los rompería.
+// Este grupo se registra ANTES que el de `/:departmentId`: el router resuelve en orden de
+// registro, y al reves `GET /get-only-with-employees/` caia en `show` con su gate.
+router.group(() => {
+  router.get('/', '#controllers/department_controller.getAll')
+  router.get('/get-only-with-employees/', '#controllers/department_controller.getOnlyWithEmployees')
+  router.get('/:departmentId/positions', '#controllers/department_controller.getPositions')
+  router.get('/:departmentId/get-rotation-index', '#controllers/department_controller.getRotationIndex')
+})
+  .prefix('/api/departments')
+  .use(middleware.auth())
+  .use(middleware.businessScope())
+
 router.group(() => {
   router
     .get('/organization', '#controllers/department_controller.getOrganization')
@@ -32,19 +47,6 @@ router.group(() => {
  .prefix('/api/departments')
  .use(middleware.auth())
  .use(middleware.businessScope())
-
-// Sin gate: catálogos de departamentos y puestos que consumen los selects y
-// filtros de Empleados, Calendario, Avisos, 9-box, Vacaciones, Excepciones y
-// Cumpleaños. Pedir organization-chart:read los rompería.
-router.group(() => {
-  router.get('/', '#controllers/department_controller.getAll')
-  router.get('/get-only-with-employees/', '#controllers/department_controller.getOnlyWithEmployees')
-  router.get('/:departmentId/positions', '#controllers/department_controller.getPositions')
-  router.get('/:departmentId/get-rotation-index', '#controllers/department_controller.getRotationIndex')
-})
-  .prefix('/api/departments')
-  .use(middleware.auth())
-  .use(middleware.businessScope())
 
 // Sin gate: el controlador ya verifica organization-chart:update con
 // OrgChartMoveService.assertCanUpdateOrganizationChart.

@@ -1,6 +1,5 @@
 import vine from '@vinejs/vine'
-
-const REPSE_SPECIALIZED_SERVICE_STATUS_VALUES = ['active'] as const
+import { REPSE_SPECIALIZED_SERVICE_STATUS_VALUES } from '#models/repse_specialized_service'
 
 /**
  * Identificador positivo estricto: `vine.number().positive()` acepta `0`,
@@ -30,12 +29,14 @@ const repseSpecializedServiceStatusField = vine.enum(REPSE_SPECIALIZED_SERVICE_S
  * - `repseRegistrationId` requerido: la HU dice "filtrando por
  *   repseRegistrationId" para que cada cliente vea sólo el catálogo del
  *   registro REPSE que le corresponde.
+ * - `status` opcional: sin él se listan activos e inactivos.
  */
 export const repseSpecializedServiceListValidator = vine.compile(
   vine.object({
     page: vine.number().min(1),
     limit: vine.number().min(1).max(500),
     repseRegistrationId: positiveIdField,
+    status: repseSpecializedServiceStatusField.optional(),
   })
 )
 

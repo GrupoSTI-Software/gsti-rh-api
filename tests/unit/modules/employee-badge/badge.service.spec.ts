@@ -25,6 +25,7 @@ function makeContext(overrides: Partial<BadgeEmployeeContext> = {}): BadgeEmploy
   return {
     employeeId: 4821,
     businessUnitId: 31,
+    employeeSlug: '3f2c1a9e-7b4d-4e21-9a0f-1c2d3e4f5a6b',
     employeeBadgeToken: FAKE_TOKEN,
     personFirstname: 'Gafete',
     personLastname: 'Unitario',
@@ -35,6 +36,10 @@ function makeContext(overrides: Partial<BadgeEmployeeContext> = {}): BadgeEmploy
     employeeActive: true,
     businessUnitActive: true,
     positionName: 'Operador',
+    departmentName: 'Operaciones',
+    payrollCode: '27800180',
+    personId: 9001,
+    nss: '12345678901',
     repseFolio: null,
     repseExpiresAt: null,
     ...overrides,
@@ -139,5 +144,27 @@ test.group('BadgeService - contrato del gafete (B1)', () => {
       'urlVerificacion',
       'vinculoVigente',
     ])
+  })
+
+  test('el render recibe la clave guardada de la foto aunque la URL pública sea null', async ({
+    assert,
+  }) => {
+    const context = makeContext({ employeePhoto: 'employees/4821/photo.jpg' })
+    const service = new BadgeService(makeRepository(context))
+
+    const { renderContext } = await service.getRenderContextInTenant(context.employeeId, [
+      context.businessUnitId,
+    ])
+
+    assert.equal(renderContext.fotoPath, 'employees/4821/photo.jpg')
+    assert.equal(renderContext.departamento, 'Operaciones')
+    assert.equal(renderContext.numeroNomina, '27800180')
+    assert.equal(renderContext.nss, '12345678901')
+  })
+
+  test('el JSON del gafete no expone el NSS', async ({ assert }) => {
+    const gafete = await buildGafete(makeContext())
+    assert.notProperty(gafete, 'nss')
+    assert.notInclude(JSON.stringify(gafete), '12345678901')
   })
 })

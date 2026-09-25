@@ -1,4 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { resolveStoredFileExtension } from '#helpers/stored_file_extension'
 import { isFileIntakeError, respondFileIntakeError } from '#helpers/file_intake_api_error'
 import type { MessagesProviderContact, FieldContext } from '@vinejs/vine/types'
 import {
@@ -508,9 +510,16 @@ export default class ExpedienteController {
         auth.user!.userId
       )
 
-      const safeName = documento.nombreArchivo.replace(/[^\w.\- ]/g, '_')
+      const fileName = buildDownloadFileName(
+        ['documento-expediente-repse', documento.repseExpedienteDocumentoId],
+        resolveStoredFileExtension({
+          storedPath: documento.storageKey,
+          fileName: documento.nombreArchivo,
+          contentType: object.contentType || documento.mimeType,
+        })
+      )
       response.header('Content-Type', object.contentType || documento.mimeType)
-      response.header('Content-Disposition', `attachment; filename="${safeName}"`)
+      response.header('Content-Disposition', contentDisposition(fileName))
       response.header('Cache-Control', 'private, no-store')
       if (object.contentLength !== undefined) {
         response.header('Content-Length', String(object.contentLength))

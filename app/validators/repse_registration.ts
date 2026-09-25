@@ -17,6 +17,12 @@ const folioField = vine
 const repseStatusField = vine.enum(REPSE_STATUS_VALUES)
 
 /**
+ * Actividades registradas ante la STPS: texto libre. `null` la borra; una
+ * cadena vacía también (el service la normaliza a `null`).
+ */
+const activitiesField = vine.string().trim().maxLength(2000).nullable()
+
+/**
  * Identificador positivo estricto: `vine.number().positive()` acepta `0`
  * porque sólo descarta negativos; usamos `.min(1)` para asegurar `> 0`.
  */
@@ -53,6 +59,7 @@ export const createRepseRegistrationValidator = vine.compile(
     registeredAt: vine.date({ formats: ['YYYY-MM-DD'] }),
     expiresAt: vine.date({ formats: ['YYYY-MM-DD'] }).afterField('registeredAt'),
     status: repseStatusField.optional(),
+    activities: activitiesField.optional(),
   })
 )
 
@@ -70,5 +77,6 @@ export const updateRepseRegistrationValidator = vine.compile(
     registeredAt: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),
     expiresAt: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),
     status: repseStatusField.optional(),
+    activities: activitiesField.optional(),
   })
 )

@@ -20,6 +20,8 @@ import BiometricEmployeeInterface from '../interfaces/biometric_employee_interfa
 import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
 import { isTerminatedEmployeesFilterRequested } from '#helpers/terminated_employees_filter'
 import { applyVisibleDepartmentsScope } from '#helpers/apply_visible_departments_scope'
+import { applyEmployeeDepartmentScope } from '#helpers/apply_employee_department_scope'
+import type { EmployeeDepartmentScope } from '#helpers/resolve_employee_role_scope'
 import type {
   EmployeeImportResult,
   EmployeeImportRowError,
@@ -39,6 +41,7 @@ import {
 } from '#helpers/person_identity_api_error'
 import { shouldAbortImportOnRowError } from '#helpers/employee_import_api_error'
 import { blindIndex } from '#utils/blind_index'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import BusinessUnit from '#models/business_unit'
 import EmployeeType from '#models/employee_type'
@@ -48,12 +51,11 @@ import EmployeeBank from '#models/employee_bank'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
 import VacationAuthorizationSignature from '#models/vacation_authorization_signature'
-import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
 import Shift from '#models/shift'
-import SystemSettingService from './system_setting_service.js'
-import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
-import sharp from 'sharp'
+import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
+import { formatReportCalendarDate, REPORT_LOCALE } from '#helpers/report_locale'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
 import EmployeeShiftService from './employee_shift_service.js'
 import EmployeeShift from '#models/employee_shift'
 import ShiftExceptionService from './shift_exception_service.js'
@@ -79,6 +81,8 @@ import EmployeeZone from '#models/employee_zone'
 import Address from '#models/address'
 import AddressType from '#models/address_type'
 import SyncAssistsService from './sync_assists_service.js'
+import { isValidTimeZone, nowInZone, wallTime } from '#modules/attendance-time/attendance_clock'
+import { getBusinessTimeZone } from '#utils/business_date'
 import EmployeeSalaryHistoryService from './employee_salary_history_service.js'
 import logger from '@adonisjs/core/services/logger'
 import OffboardingsService from '#modules/employee-offboarding/offboardings/offboardings.service'
@@ -285,8 +289,6 @@ export default class EmployeeService {
       // Guardar empleado
       await newEmployee.save()
 
-      await this.updateEmployeeSlug(newEmployee)
-
       // Asignar usuarios responsables
       await this.setUserResponsible(newEmployee.employeeId, employee.usersResponsible ? employee.usersResponsible : [])
 
@@ -358,7 +360,6 @@ export default class EmployeeService {
     currentEmployee.positionSyncId = employee.positionId
     currentEmployee.employeeLastSynchronizationAt = new Date()
     await currentEmployee.save()
-    await this.updateEmployeeSlug(currentEmployee)
     return currentEmployee
   }
 
@@ -768,7 +769,6 @@ export default class EmployeeService {
         await this.verifyEmployeeLimit(employee.businessUnitId, trx)
         newEmployee.useTransaction(trx)
         await newEmployee.save()
-        await this.updateEmployeeSlug(newEmployee, trx)
         await this.setUserResponsible(
           newEmployee.employeeId,
           usersResponsible ? usersResponsible : [],
@@ -891,7 +891,6 @@ export default class EmployeeService {
       )
     }
 
-    await this.updateEmployeeSlug(currentEmployee, trx)
     await currentEmployee.load('businessUnit')
     return currentEmployee
   }
@@ -1082,52 +1081,6 @@ export default class EmployeeService {
   }
 
   /**
-   * Público desde USRH1785438246847: la siembra demo del onboarding lo reusa
-   * para poblar el slug del empleado de práctica dentro de su transacción.
-   */
-  async updateEmployeeSlug(employee: Employee, trx?: TransactionClientContract) {
-    if (!employee.employeeId) {
-      return
-    }
-
-    const slug = this.generateEmployeeSlug(employee)
-    await Employee.query({ client: trx })
-      .where('employee_id', employee.employeeId)
-      .update({ employee_slug: slug })
-    employee.employeeSlug = slug
-  }
-
-  private generateEmployeeSlug(employee: Employee) {
-    const firstNamePart = this.normalizeSlugSegment(employee.employeeFirstName)
-    const lastNamePart = this.normalizeSlugSegment(employee.employeeLastName)
-    const secondLastNamePart = this.normalizeSlugSegment(employee.employeeSecondLastName)
-    const namePart =
-      [firstNamePart, lastNamePart, secondLastNamePart].filter((part) => part).join('-') || 'sin-nombre'
-
-    const payrollPart = this.normalizeSlugSegment(employee.employeePayrollCode, 'sin-codigo')
-    const idPart = employee.employeeId ? `${employee.employeeId}` : '0'
-
-    return `${namePart}---${payrollPart}---${idPart}`.toLowerCase()
-  }
-
-  private normalizeSlugSegment(value?: string | null, fallback = '') {
-    if (!value) {
-      return fallback
-    }
-
-    return value
-      .toString()
-      .trim()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/[^a-zA-Z0-9\-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .toLowerCase()
-  }
-
-  /**
    * Reactivar un empleado eliminado (soft delete)
    * @param currentEmployee - Empleado a reactivar
    * @returns Promise<Employee>
@@ -1204,6 +1157,27 @@ export default class EmployeeService {
       .withTrashed()
       .first()
     return employee ? employee : null
+  }
+
+  /**
+   * Canjea el token opaco de la URL del Backoffice por el empleado.
+   *
+   * Resuelve el id y delega en `getById` en vez de repetir su query: el filtro
+   * por usuario responsable, los preloads y el `withTrashed` viven en un solo
+   * lugar. La búsqueda del slug hereda el alcance por empresa del mixin
+   * `withBusinessUnitScope`, así que un token de otra empresa no resuelve.
+   */
+  async getBySlug(employeeSlug: string, userResponsibleId?: number | null) {
+    const match = await Employee.query()
+      .where('employee_slug', employeeSlug)
+      .select('employee_id')
+      .withTrashed()
+      .first()
+
+    if (!match) {
+      return null
+    }
+    return this.getById(match.employeeId, userResponsibleId)
   }
 
   async getNewPosition(
@@ -1418,17 +1392,39 @@ export default class EmployeeService {
     }
   }
 
-  async indexWithOutUser(filters: EmployeeFilterSearchInterface) {
+  /**
+   * Empleados de la empresa activa que todavía no tienen cuenta de usuario
+   * EN ELLA.
+   *
+   * La exclusión se mide con la misma regla que el listado de usuarios
+   * (`UserService.index`): una cuenta cuenta para la empresa solo si está
+   * ligada a ella en `business_unit_users`. Antes se medía contra todas las
+   * cuentas del sistema, así que una cuenta de otra empresa —o huérfana de la
+   * pivote— dejaba al empleado fuera del catálogo sin que nadie pudiera verla
+   * ni corregirla desde la pantalla.
+   *
+   * Sin empresa en el alcance no hay catálogo que ofrecer.
+   *
+   * @param filters - Búsqueda, estructura y paginación del catálogo.
+   * @param allowedBusinessUnitIds - Alcance de empresas de quien consulta.
+   */
+  async indexWithOutUser(
+    filters: EmployeeFilterSearchInterface,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     const personUsed = await User.query()
       .whereNull('user_deleted_at')
+      .whereHas('businessUnits', (subQuery) => {
+        subQuery.whereIn('business_units.business_unit_id', allowedBusinessUnitIds)
+      })
       .select('person_id')
       .distinct('person_id')
       .orderBy('person_id')
-    const persons = [] as Array<number>
-    for await (const user of personUsed) {
-      persons.push(user.personId)
-    }
+    const persons = personUsed.map((user) => user.personId)
     const employees = await Employee.query()
+      .if(allowedBusinessUnitIds.length === 0, (query) => {
+        query.whereRaw('1 = 0')
+      })
       .if(filters.search, (query) => {
         query.whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
           `%${filters.search.toUpperCase()}%`,
@@ -2279,7 +2275,7 @@ export default class EmployeeService {
     return employees
   }
 
-  async getAllVacationsByPeriod(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[]) {
+  async getAllVacationsByPeriod(filters: EmployeeFilterSearchInterface, scope: EmployeeDepartmentScope, allowedBusinessUnitIds: number[]) {
     const shiftExceptionVacation = await ExceptionType.query()
       .whereNull('exception_type_deleted_at')
       .where('exception_type_slug', 'vacation')
@@ -2322,7 +2318,7 @@ export default class EmployeeService {
         exceptionQuery.whereBetween('shift_exceptions_date', [dateStart, dateEnd])
         exceptionQuery.select('shift_exceptions_date', 'exception_type_id')
       })
-      .whereIn('departmentId', departmentsList)
+      .where((q) => applyEmployeeDepartmentScope(q, scope))
       .preload('department')
       .preload('position')
       .preload('person')
@@ -4289,8 +4285,6 @@ export default class EmployeeService {
 
     await employee.save()
 
-    // Generar slug único después de guardar (necesita employeeId)
-    await this.updateEmployeeSlug(employee)
 
     return employee
   }
@@ -4870,54 +4864,6 @@ export default class EmployeeService {
   }
 
   /**
-   * Calcular la luminosidad de un color hexadecimal
-   * @param hexColor - Color en formato hex (con o sin #, con o sin alpha)
-   * @returns number - Luminosidad entre 0 (oscuro) y 255 (claro)
-   */
-  private calculateColorLuminosity(hexColor: string): number {
-    try {
-      // Remover # y alpha si existen
-      let color = hexColor.replace('#', '').toUpperCase()
-      // Si tiene 8 caracteres (ARGB), quitar los primeros 2 (alpha)
-      if (color.length === 8) {
-        color = color.substring(2)
-      }
-      // Si tiene 6 caracteres, usarlo directamente
-      if (color.length !== 6) {
-        return 128 // Valor por defecto si el formato no es válido
-      }
-
-      // Convertir hex a RGB
-      const r = Number.parseInt(color.substring(0, 2), 16)
-      const g = Number.parseInt(color.substring(2, 4), 16)
-      const b = Number.parseInt(color.substring(4, 6), 16)
-
-      // Calcular luminosidad usando la fórmula estándar
-      // 0.299*R + 0.587*G + 0.114*B
-      const luminosity = 0.299 * r + 0.587 * g + 0.114 * b
-
-      return luminosity
-    } catch (error) {
-      return 128 // Valor por defecto en caso de error
-    }
-  }
-
-  /**
-   * Determinar el color del texto basado en la luminosidad del fondo
-   * @param backgroundColor - Color de fondo en formato ARGB
-   * @returns string - Color del texto en formato ARGB ('FFFFFFFF' para blanco, 'FF001A04' para oscuro)
-   */
-  private getTextColorForBackground(backgroundColor: string): string {
-    // Extraer el color hex sin el alpha para calcular luminosidad
-    const hexColor = backgroundColor.length === 8 ? backgroundColor.substring(2) : backgroundColor
-    const luminosity = this.calculateColorLuminosity(hexColor)
-
-    // Si la luminosidad es menor a 128, el color es oscuro, usar texto blanco
-    // Si es mayor o igual a 128, el color es claro, usar texto oscuro
-    return luminosity < 128 ? 'FFFFFFFF' : 'FF001A04'
-  }
-
-  /**
    * Convertir color hexadecimal a formato ARGB para ExcelJS
    * @param hexColor - Color en formato hex (con o sin #)
    * @returns string - Color en formato ARGB (ej: 'FFE67E22')
@@ -4936,110 +4882,6 @@ export default class EmployeeService {
     }
     // Color por defecto si el formato no es válido
     return 'FFFFFFFF'
-  }
-
-  /**
-   * Obtener el color de la unidad de negocio activa desde SystemSetting
-   * @returns Promise<string> - Color en formato ARGB para ExcelJS (ej: 'FFD6FFDC')
-   */
-  private async getActiveBusinessUnitColor(): Promise<string> {
-    try {
-      // USRH1783821206455: la unidad ya no sale de la lista global — se toma
-      // la unidad seleccionada del request, activa vía TenantContext (el
-      // middleware businessScope() ya la fijó en los 3 llamadores de este método).
-      const [selectedBusinessUnitId] = TenantContext.getScope()
-      if (!selectedBusinessUnitId) {
-        return 'FFD6FFDC' // Color por defecto si no hay unidad seleccionada (ARGB)
-      }
-
-      const businessUnit = await BusinessUnit.find(selectedBusinessUnitId)
-      if (!businessUnit) {
-        return 'FFD6FFDC' // Color por defecto si la unidad no existe (ARGB)
-      }
-
-      // La configuración de la empresa se pide por su llave; antes se recorrían
-      // todas las activas buscando el slug dentro de su CSV.
-      const systemSettings = await SystemSetting.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_active', 1)
-        .where('business_unit_id', businessUnit.businessUnitId)
-
-      for (const systemSetting of systemSettings) {
-        {
-          if (systemSetting.systemSettingSidebarColor) {
-            // Remover el # si existe y convertir a ARGB (agregar FF al inicio para alpha)
-            let color = systemSetting.systemSettingSidebarColor.replace('#', '').toUpperCase()
-            // Si el color tiene 6 caracteres, agregar FF al inicio para formato ARGB
-            if (color.length === 6) {
-              color = 'FF' + color
-            }
-            // Si ya tiene 8 caracteres, asumir que ya está en formato ARGB
-            return color
-          }
-        }
-      }
-
-      return 'FFD6FFDC' // Color por defecto si no se encuentra (ARGB)
-    } catch (error) {
-      console.error('Error obteniendo color de unidad de negocio:', error)
-      return 'FFD6FFDC' // Color por defecto en caso de error (ARGB)
-    }
-  }
-
-  /**
-   * Obtener el logo del systemSetting
-   */
-  // USRH1783712837584: las rutas de `/api/employees` (`businessScope`
-  // middleware) ya resuelven el tenant en `TenantContext`; fail-closed
-  // silencioso — sin configuración propia se conserva el logo por defecto.
-  private async getLogo(): Promise<string> {
-    let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const businessUnitId = TenantContext.getScope()[0]
-    if (businessUnitId) {
-      const systemSettingService = new SystemSettingService()
-      try {
-        const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
-        if (systemSettingActive.systemSettingLogo) {
-          imageLogo = systemSettingActive.systemSettingLogo
-        }
-      } catch (error) {
-        if (!(error instanceof SystemSettingResolutionError)) throw error
-      }
-    }
-    return imageLogo
-  }
-
-  /**
-   * Agregar logo al worksheet
-   */
-  private async addImageLogo(workbook: any, worksheet: any, imageLogo: string) {
-    try {
-      const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-      const imageBuffer = imageResponse.data
-
-      const metadata = await sharp(imageBuffer).metadata()
-      const imageWidth = metadata.width ? metadata.width : 0
-      const imageHeight = metadata.height ? metadata.height : 0
-
-      const targetWidth = 139
-      const targetHeight = 49
-      const scale = Math.min(targetWidth / imageWidth, targetHeight / imageHeight)
-
-      const adjustedWidth = imageWidth * scale
-      const adjustedHeight = imageHeight * scale
-
-      const imageId = workbook.addImage({
-        buffer: imageBuffer,
-        extension: 'png',
-      })
-
-      worksheet.addImage(imageId, {
-        tl: { col: 0.28, row: 0.7 },
-        ext: { width: adjustedWidth, height: adjustedHeight },
-      })
-    } catch (error) {
-      console.error('Error loading logo:', error)
-    }
   }
 
   /**
@@ -5199,10 +5041,6 @@ export default class EmployeeService {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Empleados')
 
-    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
-
-    const logoUrl = await this.getLogo()
-    await this.addImageLogo(workbook, worksheet, logoUrl)
 
     const businessUnitsQuery = BusinessUnit.query()
       .where('business_unit_active', 1)
@@ -5334,7 +5172,9 @@ export default class EmployeeService {
       'Apellido paterno del empleado'
     ]
 
-    worksheet.getRow(1).height = 60
+    // La fila 1 (antes ocupada por el logo) se conserva vacía con alto normal:
+    // el importador y las referencias fijas de filas dependen de esta posición.
+    worksheet.getRow(1).height = 15
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
     worksheet.mergeCells(2, 1, 2, headers.length)
@@ -5352,10 +5192,12 @@ export default class EmployeeService {
     const headerRow = worksheet.addRow(headers)
     headerRow.height = 30
 
-    const requiredHeaderColor = activeBusinessUnitColor
-    const optionalHeaderColor = 'FFD6D6D6'
-    const requiredHeaderTextColor = this.getTextColorForBackground(requiredHeaderColor)
-    const optionalHeaderTextColor = 'FF001A04'
+    // Formato neutral: obligatorias en gris medio y opcionales en gris claro,
+    // ambas con texto negro, para conservar la distinción sin color de marca.
+    const requiredHeaderColor = REPORT_NEUTRAL_ARGB.headerFill
+    const optionalHeaderColor = REPORT_NEUTRAL_ARGB.subheaderFill
+    const requiredHeaderTextColor = REPORT_NEUTRAL_ARGB.text
+    const optionalHeaderTextColor = REPORT_NEUTRAL_ARGB.text
 
     headerRow.eachCell((cell, colNumber) => {
       const headerValue = headers[colNumber - 1]
@@ -5375,32 +5217,30 @@ export default class EmployeeService {
 
     worksheet.getColumn(1).hidden = true
 
-    // Comentarios bilingües en los headers de la sección de modalidad para
-    // documentar la regla operativa: Híbrido solo desde el backoffice; % es
-    // calculado por el servidor y aquí es informativo.
-    worksheet.getCell(1, 20).note = {
+    // Comentarios en los headers de la sección de modalidad para documentar la
+    // regla operativa: Híbrido solo desde el backoffice; % es calculado por el
+    // servidor y aquí es informativo. Solo en español, como todo descargable
+    // (ver `#helpers/report_locale`).
+    // Las notas cuelgan del encabezado (fila 3), no de la fila 1 vacía.
+    headerRow.getCell(20).note = {
       texts: [
-        { text: 'Modalidad de trabajo · Work modality\n\n', font: { bold: true, size: 10 } },
+        { text: 'Modalidad de trabajo\n\n', font: { bold: true, size: 10 } },
         {
           text:
-            '[ES] Valores válidos desde Excel: "Presencial" y "Home office". '
+            'Valores válidos desde Excel: "Presencial" y "Home office". '
             + 'La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado. '
-            + 'Desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).\n\n'
-            + '[EN] Valid values from Excel: "Presencial" (Onsite) and "Home office" (Remote). '
-            + 'Hybrid modality must be configured from the backoffice system because it requires validating the configuration against the employee\'s shift. '
-            + 'From Excel you can only switch from Hybrid to Onsite (0%) or Remote (100%).',
+            + 'Desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).',
           font: { size: 10 }
         }
       ],
       margins: { insetmode: 'auto' }
     } as any
-    worksheet.getCell(1, 21).note = {
+    headerRow.getCell(21).note = {
       texts: [
-        { text: '% Teletrabajo · Telework %\n\n', font: { bold: true, size: 10 } },
+        { text: '% Teletrabajo\n\n', font: { bold: true, size: 10 } },
         {
           text:
-            '[ES] Columna informativa (solo lectura). El porcentaje lo calcula el sistema automáticamente: 0% para Presencial, 100% para Home office, y el porcentaje derivado del turno y la configuración híbrida para los empleados en Híbrido. Cualquier valor capturado aquí se ignora al importar.\n\n'
-            + '[EN] Read-only column. The percentage is calculated automatically by the system: 0% for Onsite, 100% for Remote, and the value derived from the shift and hybrid configuration for Hybrid employees. Any value entered here is ignored on import.',
+            'Columna informativa (solo lectura). El porcentaje lo calcula el sistema automáticamente: 0% para Presencial, 100% para Home office, y el porcentaje derivado del turno y la configuración híbrida para los empleados en Híbrido. Cualquier valor capturado aquí se ignora al importar.',
           font: { size: 10 }
         }
       ],
@@ -5442,10 +5282,9 @@ export default class EmployeeService {
       worksheet.getCell(row, 20).dataValidation = {
         type: 'list', allowBlank: true, formulae: [workScheduleRange],
         errorStyle: 'warning', showErrorMessage: true,
-        errorTitle: 'Modalidad no válida desde Excel / Modality not valid from Excel',
+        errorTitle: 'Modalidad no válida desde Excel',
         error:
-          'Seleccione Presencial o Home office. La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado; desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).\n\n'
-          + 'Choose Onsite or Remote. Hybrid modality must be configured from the backoffice system because it requires validating the configuration against the employee\'s shift; from Excel you can only switch from Hybrid to Onsite (0%) or Remote (100%).'
+          'Seleccione Presencial o Home office. La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado; desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).'
       }
       const teleworkCell = worksheet.getCell(row, 21)
       teleworkCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: teleworkInformativeFill } }
@@ -5453,10 +5292,9 @@ export default class EmployeeService {
       teleworkCell.dataValidation = {
         type: 'custom', allowBlank: true, formulae: ['FALSE'],
         errorStyle: 'warning', showErrorMessage: true,
-        errorTitle: 'Columna informativa / Read-only column',
+        errorTitle: 'Columna informativa',
         error:
-          'El porcentaje de teletrabajo lo calcula el sistema automáticamente a partir de la modalidad y el turno del empleado. Si captura un valor aquí, será ignorado al importar.\n\n'
-          + 'The telework percentage is calculated automatically by the system from the employee\'s modality and shift. Any value entered here will be ignored on import.'
+          'El porcentaje de teletrabajo lo calcula el sistema automáticamente a partir de la modalidad y el turno del empleado. Si captura un valor aquí, será ignorado al importar.'
       }
       worksheet.getCell(row, 22).dataValidation = {
         type: 'list', allowBlank: true, formulae: [yesNoRange],
@@ -5515,16 +5353,13 @@ export default class EmployeeService {
       const payrollUnitName = (payrollId: number) =>
         businessUnits.find(bu => bu.businessUnitId === payrollId)?.businessUnitName ?? ''
 
+      // Fechas DATE leídas como día civil (`formatReportCalendarDate`); la
+      // de ingreso conserva el formato yyyy/MM/dd que espera el importador.
       const DateTimeFmt = (d: DateTime | Date | string | null) => {
-        if (!d) return ''
-        const dt = typeof d === 'string' ? DateTime.fromISO(d) : (d instanceof Date ? DateTime.fromJSDate(d) : d)
-        return dt.isValid ? dt.toFormat('yyyy/MM/dd') : ''
+        const [day, month, year] = formatReportCalendarDate(d).split('/')
+        return year ? `${year}/${month}/${day}` : ''
       }
-      const DateTimeFmtBirth = (d: DateTime | Date | string | null) => {
-        if (!d) return ''
-        const dt = typeof d === 'string' ? DateTime.fromISO(d) : (d instanceof Date ? DateTime.fromJSDate(d) : d)
-        return dt.isValid ? dt.toFormat('dd/MM/yyyy') : ''
-      }
+      const DateTimeFmtBirth = (d: DateTime | Date | string | null) => formatReportCalendarDate(d)
 
       employees.forEach((emp, idx) => {
         const rowNum = idx + 4
@@ -5614,6 +5449,7 @@ export default class EmployeeService {
       })
     }
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
@@ -5642,14 +5478,7 @@ export default class EmployeeService {
   ): Promise<Buffer> {
 
     const workbook = new ExcelJS.Workbook()
-    const worksheet = workbook.addWorksheet('Plantilla de asignación de turnos')
-
-    // Obtener el color de la unidad de negocio activa
-    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
-
-    // Obtener logo y agregarlo
-    const logoUrl = await this.getLogo()
-    await this.addImageLogo(workbook, worksheet, logoUrl)
+    const worksheet = workbook.addWorksheet('Asignación de turnos')
 
     // Convertir fechas a DateTime
     const startDateTime = DateTime.fromISO(startDate)
@@ -5893,8 +5722,9 @@ export default class EmployeeService {
     // ==============================
     //       TÍTULO Y ENCABEZADOS
     // ==============================
-    // Fila del título (después del logo)
-    worksheet.getRow(1).height = 60
+    // La fila 1 (antes ocupada por el logo) se conserva vacía con alto normal:
+    // el importador y las referencias fijas de filas dependen de esta posición.
+    worksheet.getRow(1).height = 15
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
     worksheet.mergeCells(`A2:${String.fromCharCode(65 + 3 + dates.length)}2`)
@@ -5913,16 +5743,17 @@ export default class EmployeeService {
     // Segunda fila de encabezados (días de la semana)
     const headerRow2 = ['', '', '', '']
     dates.forEach((date) => {
-      const dayName = date.toFormat('cccc', { locale: 'es' })
+      const dayName = date.toFormat('cccc', { locale: REPORT_LOCALE })
       headerRow2.push(dayName)
     })
     const row2 = worksheet.addRow(headerRow2)
     row2.height = 30
 
-    const headerColor = activeBusinessUnitColor
-    const headerTextColor = this.getTextColorForBackground(headerColor)
-    const subHeaderColor = 'FF4472C4'
-    const subHeaderTextColor = 'FFFFFFFF'
+    // Formato neutral: encabezado en gris y fila de días en gris claro, texto negro
+    const headerColor = REPORT_NEUTRAL_ARGB.headerFill
+    const headerTextColor = REPORT_NEUTRAL_ARGB.text
+    const subHeaderColor = REPORT_NEUTRAL_ARGB.subheaderFill
+    const subHeaderTextColor = REPORT_NEUTRAL_ARGB.text
 
     // Aplicar formato a la primera fila de encabezados
     row1.eachCell((cell) => {
@@ -6212,25 +6043,25 @@ export default class EmployeeService {
     employees.forEach((employee, index) => {
       const row = startDataRow + index
       worksheet.getRow(row).height = 45
-      const fullName = `${employee.employeeFirstName ?? ''} ${employee.employeeLastName ?? ''} ${employee.employeeSecondLastName ?? ''}`.trim().toUpperCase()
-      const positionName = employee.position?.positionName || 'Sin posición'
+      const fullName = reportFullName(
+        employee.employeeFirstName,
+        employee.employeeLastName,
+        employee.employeeSecondLastName
+      ).toUpperCase()
+      const positionName = reportText(employee.position?.positionName)
 
 
       // ID Empleado (BD) - Columna A (oculta)
       worksheet.getCell(row, 1).value = employee.employeeId
-      worksheet.getCell(row, 1).protection = { locked: true }
 
       // Código de Empleado - Columna B
-      worksheet.getCell(row, 2).value = employee.employeePayrollCode || 'Sin código'
-      worksheet.getCell(row, 2).protection = { locked: true }
+      worksheet.getCell(row, 2).value = reportText(employee.employeePayrollCode)
 
       // Empleado - Columna C
       worksheet.getCell(row, 3).value = fullName
-      worksheet.getCell(row, 3).protection = { locked: true }
 
       // Posición - Columna D
       worksheet.getCell(row, 4).value = positionName
-      worksheet.getCell(row, 4).protection = { locked: true }
 
       // Aplicar formato a las primeras 4 columnas
       for (let col = 1; col <= 4; col++) {
@@ -6295,13 +6126,11 @@ export default class EmployeeService {
             pattern: 'solid',
             fgColor: { argb: cellColor }
           }
-          worksheet.getCell(row, colNumber).protection = { locked: true }
         } else {
-          // MODO TEMPLATE: Comportamiento normal (editable)
+          // MODO TEMPLATE: turnos por dropdown
           if (isHoliday) {
-            // Si es día festivo, solo poner "Día festivo" y proteger la celda
+            // Si es día festivo, precargar "Día festivo" (editable)
             worksheet.getCell(row, colNumber).value = 'Día festivo'
-            worksheet.getCell(row, colNumber).protection = { locked: true }
           } else {
             // Si NO es día festivo, agregar dropdown para turnos (editable)
             worksheet.getCell(row, colNumber).dataValidation = {
@@ -6313,7 +6142,6 @@ export default class EmployeeService {
               errorTitle: 'Valor inválido',
               error: 'Seleccione un turno válido o deje vacío'
             }
-            worksheet.getCell(row, colNumber).protection = { locked: false }
           }
         }
       })
@@ -6325,42 +6153,6 @@ export default class EmployeeService {
     worksheet.getColumn(1).hidden = true
 
     // ==============================
-    //     PROTEGER HOJA
-    // ==============================
-    // En modo reporte, proteger toda la hoja. En modo template, permitir editar turnos
-    if (isReport) {
-      await worksheet.protect('', {
-        selectLockedCells: true,
-        selectUnlockedCells: false,
-        formatCells: false,
-        formatColumns: false,
-        formatRows: false,
-        insertColumns: false,
-        insertRows: false,
-        deleteColumns: false,
-        deleteRows: false,
-        sort: false,
-        autoFilter: false,
-        pivotTables: false
-      })
-    } else {
-      await worksheet.protect('', {
-        selectLockedCells: true,
-        selectUnlockedCells: true,
-        formatCells: false,
-        formatColumns: false,
-        formatRows: false,
-        insertColumns: false,
-        insertRows: false,
-        deleteColumns: false,
-        deleteRows: false,
-        sort: false,
-        autoFilter: false,
-        pivotTables: false
-      })
-    }
-
-    // ==============================
     //     CONGELAR ENCABEZADOS
     // ==============================
     worksheet.views = [
@@ -6370,6 +6162,7 @@ export default class EmployeeService {
     // ==============================
     //       GENERAR ARCHIVO
     // ==============================
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
@@ -6975,13 +6768,6 @@ export default class EmployeeService {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Reporte de Asistencia')
 
-    // Obtener el color de la unidad de negocio activa
-    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
-
-    // Obtener logo y agregarlo
-    const logoUrl = await this.getLogo()
-    await this.addImageLogo(workbook, worksheet, logoUrl)
-
     // Convertir fechas a DateTime
     const startDateTime = DateTime.fromISO(startDate)
     const endDateTime = DateTime.fromISO(endDate)
@@ -7002,8 +6788,10 @@ export default class EmployeeService {
       currentDate = currentDate.plus({ days: 1 })
     }
 
-    // Referencia "hoy" en UTC-6 para detectar días/horas futuros (mostrar "próximo" en lugar de falta)
-    const todayStartUtc6 = DateTime.now().setZone('UTC-6').startOf('day')
+    // Zona IANA del sitio del empleado cuya fila se escribe: la entrega el
+    // calendario del sync (`data.timeZone`), la misma con que se evaluó la
+    // asistencia. Sin sitio, la zona de negocio del sistema.
+    let rowZone = getBusinessTimeZone()
 
     const businessUnitsList = allowedBusinessUnitIds
 
@@ -7078,10 +6866,10 @@ export default class EmployeeService {
     const PERMISSION_SLUGS = new Set(['absence-from-work', 'late-arrival', 'rest-day', 'nuevo-ingreso'])
 
     // Fondo gris claro solo para las columnas de información del empleado (Departamento, Puesto, Nómina, Nombre)
-    const EMPLOYEE_INFO_BG = 'f2f2f2'
+    const EMPLOYEE_INFO_BG = 'FFF2F2F2'
 
     // Días/horas futuros: texto "próximo" con fondo y texto gris claro (considera hora de inicio del turno)
-    const PROXIMO_BG = 'FFFFFF'
+    const PROXIMO_BG = 'FFFFFFFF'
     const PROXIMO_TEXT_COLOR = 'FF808080'
 
     // Función para obtener color según estado de asistencia (gama de la imagen: verde, naranja, azul claro, rojo claro)
@@ -7098,11 +6886,11 @@ export default class EmployeeService {
         case 'ontime':
           return 'FFC6EFCE' // Verde claro
         case 'tolerance':
-          return 'b7d8fa' // Azul claro
+          return 'FFB7D8FA' // Azul claro
         case 'delay':
           return 'FFFFC000' // Naranja
         case 'fault':
-          return 'ffaaa3' // Rojo claro
+          return 'FFFFAAA3' // Rojo claro
         case 'exception':
           return 'FFFFFFFF'
         default:
@@ -7263,13 +7051,12 @@ export default class EmployeeService {
       return 'sin turno'
     }
 
-    // Convierte un valor a HH:mm en zona UTC-6 (como en el frontend).
+    // Hora de pared (HH:mm) del instante en la zona del sitio del empleado.
     const toLocalHHmm = (value: string | DateTime | null | undefined): string | null => {
       if (value === null || value === undefined) return null
       try {
-        const dt = typeof value === 'string' ? DateTime.fromISO(value, { setZone: true }) : value
-        if (!dt?.isValid) return null
-        return dt.setZone('UTC-6').toFormat('HH:mm')
+        const dt = wallTime(value, rowZone)
+        return dt.isValid ? dt.toFormat('HH:mm') : null
       } catch {
         return null
       }
@@ -7313,6 +7100,7 @@ export default class EmployeeService {
     // Consultar asistencias para todos los empleados
     const syncAssistsService = new SyncAssistsService(this.i18n)
     const employeeCalendarsMap = new Map<number, AssistDayInterface[]>()
+    const employeeZonesMap = new Map<number, string>()
 
     for (const employee of employees) {
       try {
@@ -7326,6 +7114,10 @@ export default class EmployeeService {
           const calendarData = calendarResult.data as any
           const employeeCalendar = calendarData.employeeCalendar as AssistDayInterface[]
           employeeCalendarsMap.set(employee.employeeId, employeeCalendar)
+          const calendarZone: unknown = calendarData.timeZone
+          if (typeof calendarZone === 'string' && isValidTimeZone(calendarZone)) {
+            employeeZonesMap.set(employee.employeeId, calendarZone)
+          }
         } else {
           // Empleado no encontrado o respuesta no exitosa: omitir sin fallar (su informacion aparecera en vacio)
           employeeCalendarsMap.set(employee.employeeId, [])
@@ -7339,7 +7131,9 @@ export default class EmployeeService {
     // ==============================
     //       TÍTULO Y ENCABEZADOS
     // ==============================
-    worksheet.getRow(1).height = 60
+    // La fila 1 (antes ocupada por el logo) se conserva vacía con alto normal:
+    // la inmovilización de paneles y el inicio de datos usan filas fijas.
+    worksheet.getRow(1).height = 15
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
     worksheet.mergeCells(`A2:${String.fromCharCode(65 + 5 + dates.length)}2`)
@@ -7359,16 +7153,17 @@ export default class EmployeeService {
     // Segunda fila de encabezados (días de la semana)
     const headerRow2 = ['', '', '', '', '', '']
     dates.forEach((date) => {
-      const dayName = date.toFormat('cccc', { locale: 'es' })
+      const dayName = date.toFormat('cccc', { locale: REPORT_LOCALE })
       headerRow2.push(dayName)
     })
     const row2 = worksheet.addRow(headerRow2)
     row2.height = 30
 
-    const headerColor = activeBusinessUnitColor
-    const headerTextColor = this.getTextColorForBackground(headerColor)
-    const subHeaderColor = 'd9d9d9' // Gris oscuro para fila de días de la semana
-    const subHeaderTextColor = '000000'
+    // Formato neutral: encabezado en gris y fila de días en gris claro, texto negro
+    const headerColor = REPORT_NEUTRAL_ARGB.headerFill
+    const headerTextColor = REPORT_NEUTRAL_ARGB.text
+    const subHeaderColor = REPORT_NEUTRAL_ARGB.subheaderFill
+    const subHeaderTextColor = REPORT_NEUTRAL_ARGB.text
 
     // Aplicar formato a la primera fila de encabezados (Departamento, Puesto, Nombre izq; resto centro)
     row1.eachCell((cell) => {
@@ -7471,12 +7266,19 @@ export default class EmployeeService {
 
         worksheet.getRow(currentRow).height = 45
 
-        const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
-        const positionName = employee.position?.positionName || 'Sin posición'
-        const departmentName = department?.departmentName || 'Sin departamento'
-        const payrollCode = employee.employeePayrollCode || 'Sin código'
-        const payrollBuName = employee.payrollBusinessUnit?.businessUnitName || 'Sin UN'
-        const workBuName = employee.businessUnit?.businessUnitName || 'Sin UN'
+        rowZone = employeeZonesMap.get(employee.employeeId) ?? getBusinessTimeZone()
+        const todayInRowZone = nowInZone(rowZone).toFormat('yyyy-MM-dd')
+
+        const fullName = reportFullName(
+          employee.employeeFirstName,
+          employee.employeeLastName,
+          employee.employeeSecondLastName
+        )
+        const positionName = reportText(employee.position?.positionName)
+        const departmentName = reportText(department?.departmentName)
+        const payrollCode = reportText(employee.employeePayrollCode)
+        const payrollBuName = reportText(employee.payrollBusinessUnit?.businessUnitName)
+        const workBuName = reportText(employee.businessUnit?.businessUnitName)
 
         // UN Trabajo - Columna A
         worksheet.getCell(currentRow, 1).value = workBuName
@@ -7523,10 +7325,9 @@ export default class EmployeeService {
           const dateStr = date.toFormat('yyyy-MM-dd')
           const dayData = calendarByDay.get(dateStr) || null
 
-          // Validar si es día/hora futuro: no mostrar como falta, mostrar "próximo" (considera hora de inicio del turno)
-          const cellDateUtc6 = date.setZone('UTC-6').startOf('day')
-          const isProximo =
-            dayData?.assist?.isFutureDay === true || cellDateUtc6 > todayStartUtc6
+          // Validar si es día/hora futuro: no mostrar como falta, mostrar "próximo" (considera hora de inicio del turno).
+          // Día civil de la celda contra "hoy" en la zona del sitio del empleado.
+          const isProximo = dayData?.assist?.isFutureDay === true || dateStr > todayInRowZone
 
           let cellText: string
           let cellColor: string
@@ -7616,6 +7417,7 @@ export default class EmployeeService {
     // ==============================
     //       GENERAR ARCHIVO
     // ==============================
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
@@ -7688,7 +7490,7 @@ export default class EmployeeService {
           totalWorkDisabilityPeriods: periods,
           totalWorkDisabilityPeriodExpenses: expenses,
         }
-      }, 'purga masiva de empleados')
+      }, TENANT_UNSCOPED_REASON.EMPLOYEE_MASS_PURGE)
       const totalEmployeeAddresses = await EmployeeAddress.query()
         .count('* as total')
       const totalEmployeeSpouses = await EmployeeSpouse.query()
@@ -7817,7 +7619,7 @@ export default class EmployeeService {
         await WorkDisabilityPeriodExpense.query().delete()
         await WorkDisabilityPeriod.query().delete()
         await WorkDisability.query().delete()
-      }, 'purga masiva de empleados')
+      }, TENANT_UNSCOPED_REASON.EMPLOYEE_MASS_PURGE)
 
       // 24. Eliminar todas las relaciones en exception_requests
       await ExceptionRequest.query().delete()
@@ -7955,7 +7757,6 @@ export default class EmployeeService {
     }
 
     await employee.save()
-    await this.updateEmployeeSlug(employee)
     return employee
   }
 

@@ -6,6 +6,7 @@ import EmployeeOffboarding from '#models/employee_offboarding'
 import EmployeeOffboardingItemEvidence from '#models/employee_offboarding_item_evidence'
 import EmployeeSupplie from '#models/employee_supplie'
 import User from '#models/user'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import {
   EMPLOYEE_OFFBOARDING_STATUS,
@@ -149,7 +150,7 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
           .withTrashed()
           .whereIn('employee_supply_id', supplyIds)
           .where('business_unit_id', businessUnitId),
-      'diagnóstico de insumos del expediente de salida por su empresa snapshoteada'
+      TENANT_UNSCOPED_REASON.OFFBOARDING_AUTHORIZED_SNAPSHOT
     )
   }
 
@@ -199,7 +200,7 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
               .preload('concept')
           })
           .first(),
-      'lectura del expediente de salida ya resuelto en alcance; conceptos por FK'
+      TENANT_UNSCOPED_REASON.OFFBOARDING_AUTHORIZED_SNAPSHOT
     )
   }
 
@@ -369,7 +370,7 @@ export default class OffboardingsRepositoryMysql implements OffboardingsReposito
     // empresa y el `withTrashed` conserva al dado de baja (regla 5).
     return await TenantContext.runUnscoped(
       async () => await Employee.query().withTrashed().where('employee_id', employeeId).first(),
-      'colaborador del expediente ya autorizado por su BU snapshoteado'
+      TENANT_UNSCOPED_REASON.OFFBOARDING_AUTHORIZED_SNAPSHOT
     )
   }
 }

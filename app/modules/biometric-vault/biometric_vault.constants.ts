@@ -27,11 +27,12 @@ export const TEMPLATE_SIZE_BANDS: Readonly<Record<number, { min: number; max: nu
 /** Banda para una modalidad que el equipo declare y que no esté en el mapa. */
 export const TEMPLATE_SIZE_BAND_DEFAULT = { min: 128, max: 8192 }
 
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+
 /** PIN tal como el equipo lo declara en `Pin=` o `PIN=`. */
 export const BIO_PIN_PATTERN = /^\d{1,20}$/
 
 /** Base64 estandar, con o sin relleno. El blob viaja verbatim. */
 export const TEMPLATE_BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/
 
-export const BIOMETRIC_VAULT_UNSCOPED_REASON =
-  'boveda de biometricos: lectura del template por id para replicacion, con acceso asentado'
+export const BIOMETRIC_VAULT_UNSCOPED_REASON = TENANT_UNSCOPED_REASON.BIOMETRIC_VAULT_REPLICATION

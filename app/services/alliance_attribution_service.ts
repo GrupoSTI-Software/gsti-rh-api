@@ -6,6 +6,7 @@ import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { ALLIANCE_ERRORS } from '#constants/alliance_error_codes'
 import { AllianceServiceError } from '#exceptions/alliance_service_error'
+import { resolveAttributionAccrualProgress } from '#helpers/alliance_commission'
 import AllianceCommissionService from '#services/alliance_commission_service'
 import {
   assertCommissionPercent,
@@ -17,6 +18,8 @@ import type {
   AllianceAttributionView,
   CloseAllianceAttributionInput,
   CreateAllianceAttributionInput,
+  ListAllianceAttributionsByAllianceFilters,
+  ListAllianceAttributionsByAllianceResult,
   UpdateAllianceAttributionInput,
 } from '../interfaces/alliance_attribution_interface.js'
 
@@ -163,12 +166,25 @@ function rethrowDuplicateLiveAttribution(error: unknown): never {
   throw error
 }
 
+type AccrualTotals = {
+  accruedPeriods: number
+  accruedAmountCents: number
+}
+
+const EMPTY_ACCRUAL: AccrualTotals = { accruedPeriods: 0, accruedAmountCents: 0 }
+
 function toAllianceAttributionView(
   row: AllianceAttribution,
   alliance: Alliance,
-  unit: BusinessUnit
+  unit: BusinessUnit,
+  totals: AccrualTotals
 ): AllianceAttributionView {
   const closedAt = toCalendarIsoDate(row.allianceAttributionClosedAt)
+  const progress = resolveAttributionAccrualProgress(
+    row.allianceAttributionTermPeriods,
+    closedAt !== null,
+    totals.accruedPeriods
+  )
 
   return {
     allianceAttributionId: row.allianceAttributionId,
@@ -182,6 +198,11 @@ function toAllianceAttributionView(
     allianceAttributionClosedAt: closedAt,
     allianceAttributionCloseReason: row.allianceAttributionCloseReason,
     allianceAttributionIsLive: closedAt === null,
+    allianceAttributionAccruedPeriods: totals.accruedPeriods,
+    allianceAttributionRemainingPeriods: progress.remainingPeriods,
+    allianceAttributionIsAccruing: progress.isAccruing,
+    allianceAttributionNotAccruingReason: progress.notAccruingReason,
+    allianceAttributionAccruedAmountCents: totals.accruedAmountCents,
     createdAt: toIso(row.createdAt) ?? '',
     updatedAt: toIso(row.updatedAt),
   }
@@ -446,6 +467,74 @@ export default class AllianceAttributionService {
   }
 
   /**
+   * Suma periodos y montos de un conjunto de atribuciones en una sola
+   * consulta (`whereIn` + `GROUP BY`). Lectura informativa: sin
+   * `forUpdate`. Sin filas para un id → el mapa no lo trae; el mapeador
+   * usa ceros. `SUM` de MySQL llega como texto: se convierte con
+   * `Number(...)`.
+   */
+  private async loadAccrualByAttribution(
+    attributionIds: number[],
+    client?: TransactionClientContract
+  ): Promise<Map<number, AccrualTotals>> {
+    const accrual = new Map<number, AccrualTotals>()
+    if (attributionIds.length === 0) {
+      return accrual
+    }
+
+    let query = db.from('alliance_commissions')
+    if (client) {
+      query = query.useTransaction(client)
+    }
+
+    const rows = (await query
+      .whereIn('alliance_attribution_id', attributionIds)
+      .groupBy('alliance_attribution_id')
+      .select(
+        'alliance_attribution_id',
+        db.raw('SUM(alliance_commission_periods) AS accrued_periods'),
+        db.raw('SUM(alliance_commission_amount_cents) AS accrued_amount_cents')
+      )) as Array<{
+      alliance_attribution_id?: number | string
+      accrued_periods?: number | string | null
+      accrued_amount_cents?: number | string | null
+    }>
+
+    for (const row of rows) {
+      const attributionId = Number(row.alliance_attribution_id)
+      if (!Number.isFinite(attributionId)) {
+        continue
+      }
+      const accruedPeriods = Number(row.accrued_periods ?? 0)
+      const accruedAmountCents = Number(row.accrued_amount_cents ?? 0)
+      accrual.set(attributionId, {
+        accruedPeriods: Number.isFinite(accruedPeriods) ? accruedPeriods : 0,
+        accruedAmountCents: Number.isFinite(accruedAmountCents) ? accruedAmountCents : 0,
+      })
+    }
+
+    return accrual
+  }
+
+  /**
+   * Mapeador único de `AllianceAttributionView`. Quien llama ya trajo
+   * el agregado; aquí no hay consultas.
+   */
+  private toAllianceAttributionViews(
+    attributions: AllianceAttribution[],
+    accrual: Map<number, AccrualTotals>
+  ): AllianceAttributionView[] {
+    return attributions.map((row) =>
+      toAllianceAttributionView(
+        row,
+        row.alliance,
+        row.businessUnit,
+        accrual.get(row.allianceAttributionId) ?? EMPTY_ACCRUAL
+      )
+    )
+  }
+
+  /**
    * Consulta por id. 404 tipado si no existe, el id es inválido o está
    * retirada con soft delete.
    */
@@ -462,12 +551,20 @@ export default class AllianceAttributionService {
       throwFromCatalog(ALLIANCE_ERRORS.ATTRIBUTION_NOT_FOUND)
     }
 
-    return toAllianceAttributionView(row, row.alliance, row.businessUnit)
+    const accrual = await this.loadAccrualByAttribution([row.allianceAttributionId])
+    const views = this.toAllianceAttributionViews([row], accrual)
+    const view = views[0]
+    if (!view) {
+      throwFromCatalog(ALLIANCE_ERRORS.ATTRIBUTION_NOT_FOUND)
+    }
+    return view
   }
 
   /**
    * Histórico completo de un cliente, viva y cerradas, id descendente.
    * Sin atribuciones → arreglo vacío (la venta directa no es un error).
+   * El avance de todo el conjunto se resuelve con una sola consulta
+   * agregada, nunca una por atribución.
    */
   async listAttributionsByTenant(businessUnitPublicId: string): Promise<AllianceAttributionView[]> {
     assertBusinessUnitPublicIdShape(businessUnitPublicId)
@@ -479,7 +576,56 @@ export default class AllianceAttributionService {
       .preload('businessUnit')
       .orderBy('alliance_attribution_id', 'desc')
 
-    return rows.map((row) => toAllianceAttributionView(row, row.alliance, row.businessUnit))
+    const accrual = await this.loadAccrualByAttribution(rows.map((row) => row.allianceAttributionId))
+    return this.toAllianceAttributionViews(rows, accrual)
+  }
+
+  /**
+   * Listado paginado de atribuciones de una alianza, vivas y cerradas.
+   * Orden: vivas primero; cerradas por fecha de cierre descendente; id
+   * descendente. El avance se resuelve con un solo agregado por página.
+   * Una empresa dada de baja sigue en la lista: su nombre se carga con
+   * `withTrashed` para no perder el rastro de dinero.
+   */
+  async listAllianceAttributionsByAlliance(
+    allianceId: number,
+    filters: ListAllianceAttributionsByAllianceFilters = {}
+  ): Promise<ListAllianceAttributionsByAllianceResult> {
+    assertPositiveAllianceId(allianceId)
+
+    const alliance = await Alliance.query().where('alliance_id', allianceId).first()
+    if (!alliance) {
+      throwFromCatalog(ALLIANCE_ERRORS.NOT_FOUND)
+    }
+
+    const page = filters.page ?? 1
+    const limit = Math.min(filters.limit ?? 20, 100)
+
+    const paginated = await AllianceAttribution.query()
+      .where('alliance_attributions.alliance_id', allianceId)
+      .preload('alliance')
+      .preload('businessUnit', (query) => {
+        query.withTrashed()
+      })
+      .orderByRaw('alliance_attribution_closed_at IS NULL DESC')
+      .orderBy('alliance_attribution_closed_at', 'desc')
+      .orderBy('alliance_attribution_id', 'desc')
+      .paginate(page, limit)
+
+    const rows = paginated.all()
+    const accrual = await this.loadAccrualByAttribution(
+      rows.map((row) => row.allianceAttributionId)
+    )
+
+    return {
+      data: this.toAllianceAttributionViews(rows, accrual),
+      meta: {
+        total: paginated.total,
+        page: paginated.currentPage,
+        limit: paginated.perPage,
+        lastPage: paginated.lastPage,
+      },
+    }
   }
 
   /**

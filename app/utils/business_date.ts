@@ -3,6 +3,14 @@ import env from '#start/env'
 
 const DEFAULT_ZONE = 'America/Mexico_City'
 
+/**
+ * Ancla de las fechas civiles (columnas `DATE`) cuando se manejan como `DateTime`
+ * para sumar días o sacar el día de la semana. No es la zona de nadie: es un
+ * offset fijo, sin horario de verano, que solo representa el calendario. Qué día
+ * es hoy se calcula aparte, con la zona del sitio o la de negocio, y se ancla aquí.
+ */
+export const CIVIL_DATE_ANCHOR_ZONE = 'UTC-6'
+
 /** Zona IANA usada para comparar fechas de negocio (p. ej. vigencia de contratos REPSE). */
 export function getBusinessTimeZone(): string {
   return env.get('APP_BUSINESS_TIMEZONE') ?? DEFAULT_ZONE

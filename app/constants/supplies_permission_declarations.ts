@@ -9,8 +9,8 @@ const suppliesStandard = (action: string | readonly string[]): PermissionGateOpt
 /**
  * Declaraciones de permiso del módulo Activos e insumos. Fuente única que
  * consumen `start/routes/supply_type.ts`, `supplies.ts`,
- * `supplie_caracteristics.ts`, `supplie_caracteristic_values.ts` y
- * `supply_value_histories.ts`.
+ * `supplie_caracteristics.ts`, `supplie_caracteristic_values.ts`,
+ * `supply_value_histories.ts` y `app/modules/assets/assets.routes.ts`.
  *
  * Todo el catálogo lo consume solo la página de activos del backoffice
  * (tipos, activos, características, valores e historial de valor), así que
@@ -30,6 +30,13 @@ const suppliesStandard = (action: string | readonly string[]): PermissionGateOpt
  *
  * Dar de baja un activo (`deactivate`) es un cambio de estado desde el
  * formulario de edición, por eso pide `update` y no `delete`.
+ *
+ * Módulo vertical `app/modules/assets` (rediseño de Activos del BO): el
+ * listado, resumen, ficha, resguardos, historial de valor y tipos piden
+ * `read`; guardar valores de características pide `update`. Las descargas de
+ * la responsiva y de las fotos de un resguardo piden `read`: las abre la ficha
+ * del activo (las escrituras de resguardos, contratos y fotos siguen con
+ * `employees:manage-employee-supplies`).
  *
  * Bypass `standard` (root y owner): es el mismo salvoconducto con el que el
  * backoffice abre la página (`isRoot`); ningún servicio del API trata a
@@ -75,4 +82,14 @@ export const SUPPLIES_PERMISSION_DECLARATIONS = {
   destroySupplyValueHistory: suppliesStandard('delete'),
   indexSupplyValueHistoriesBySupply: suppliesStandard('read'),
   showLatestSupplyValueHistory: suppliesStandard('read'),
+
+  indexAssets: suppliesStandard('read'),
+  showAssetsSummary: suppliesStandard('read'),
+  showAsset: suppliesStandard('read'),
+  indexAssetAssignments: suppliesStandard('read'),
+  showAssetValueHistory: suppliesStandard('read'),
+  indexAssetTypes: suppliesStandard('read'),
+  upsertAssetCharacteristicValues: suppliesStandard('update'),
+  downloadSupplyResponseContract: suppliesStandard('read'),
+  downloadSupplyAssignationPhoto: suppliesStandard('read'),
 } as const satisfies Record<string, PermissionGateOptions>

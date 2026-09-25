@@ -10,17 +10,30 @@ import { AssistPositionExcelFilterInterface } from '../interfaces/assist_positio
 import { AssistDepartmentExcelFilterInterface } from '../interfaces/assist_department_excel_filter_interface.js'
 import { AssistExcelFilterInterface } from '../interfaces/assist_excel_filter_interface.js'
 import UserService from '#services/user_service'
+import {
+  emptyEmployeeRoleScope,
+  resolveEmployeeRoleScopeForUser,
+} from '#helpers/resolve_employee_role_scope'
 import Assist from '#models/assist'
 import { DateTime } from 'luxon'
 import { AssistSyncFilterInterface } from '../interfaces/assist_sync_filter_interface.js'
 import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_interface.js'
 import { PermissionsDatesExcelFilterInterface } from '../interfaces/permissions_dates_excel_filter_interface.js'
 import env from '#start/env'
+import {
+  buildDownloadFileName,
+  contentDisposition,
+  formatDownloadFileDate,
+} from '#helpers/download_file_name'
+import {
+  ASSISTANCE_REPORT_FILE_PREFIX,
+  type AssistanceReportFileKind,
+} from '#constants/assistance_report_file'
 import RoleService from '#services/role_service'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { ensureEmployeeAssistWrite } from '#helpers/ensure_employee_assist_write'
 import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
-import { ASSIST_SYNC_RUN_UNSCOPED_REASON } from '#constants/assist_sync'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { resolveAssistApiError } from '#helpers/assist_api_error'
 import { AssistError } from '#exceptions/assist_error'
 import { TenantContext } from '#utils/tenant_context'
@@ -31,6 +44,8 @@ import {
   mapIngestionResultToHttp,
   resolveAssistOrigin,
 } from '#modules/assist-ingestion/assist_ingestion.controller'
+import { resolveAdminCaptureRejection } from '#modules/assist-ingestion/admin_capture_scope'
+import { ASSIST_ORIGIN } from '#constants/assist_origin'
 import {
   ASSIST_INGESTION_EMPLOYEE_TERMINATED,
   ASSIST_INGESTION_FOREIGN_WRITE,
@@ -40,7 +55,10 @@ import {
   storeAssistValidator,
 } from '#modules/assist-ingestion/validators/store_assist.validator'
 import type { StoreAssistPayload } from '#modules/assist-ingestion/validators/store_assist.validator'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
 import { employeeSynchronizeAssistsValidator } from '#validators/assist_employee_synchronize'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
+import { reportI18n } from '#helpers/report_locale'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -57,6 +75,39 @@ export default class AssistsController {
   private async assertCanSeePayroll(userRoleId: number): Promise<boolean> {
     const roleService = new RoleService()
     return roleService.hasAccess(userRoleId, ATTENDANCE_MONITOR_MODULE_SLUG, 'see-payroll')
+  }
+
+  /**
+   * Nombre de descarga de los Excel síncronos de asistencia según `reportType`
+   * (`Assistance Report`, `Incident Summary`, `Incident Summary Payroll`).
+   *
+   * @param reportType - Tipo recibido del cliente (ya validado por el endpoint).
+   * @param filterDate - Inicio del periodo tal como llegó.
+   * @param filterDateEnd - Fin del periodo tal como llegó.
+   * @param employeeSlug - Slug del empleado si el reporte es de uno solo; nunca su nombre o número.
+   */
+  private assistanceReportFileName(
+    reportType: string,
+    filterDate: string | undefined,
+    filterDateEnd: string | undefined,
+    employeeSlug: string | null = null
+  ): string {
+    const kinds: Record<string, AssistanceReportFileKind> = {
+      'Assistance Report': 'assistance',
+      'Incident Summary': 'incidentSummary',
+      'Incident Summary Payroll': 'incidentSummaryPayroll',
+    }
+    const prefix = ASSISTANCE_REPORT_FILE_PREFIX[kinds[reportType] ?? 'assistance']
+    return buildDownloadFileName(
+      [
+        prefix,
+        employeeSlug,
+        // Una fecha ausente se omite: sustituirla por hoy mentiría sobre el periodo.
+        filterDate ? formatDownloadFileDate(filterDate) : null,
+        filterDateEnd ? formatDownloadFileDate(filterDateEnd) : null,
+      ],
+      'xlsx'
+    )
   }
 
   /**
@@ -128,7 +179,7 @@ export default class AssistsController {
       const syncAssistsService = new SyncAssistsService(i18n)
       const result = await TenantContext.runUnscoped(
         () => syncAssistsService.synchronize(dateParamApi, page),
-        ASSIST_SYNC_RUN_UNSCOPED_REASON
+        TENANT_UNSCOPED_REASON.ASSIST_SYNC_ON_DEMAND
       )
       return response.status(200).json(result)
     } catch (error) {
@@ -248,7 +299,7 @@ export default class AssistsController {
       const  syncAssistsService = new SyncAssistsService(i18n)
       const result = await TenantContext.runUnscoped(
         () => syncAssistsService.synchronizeByEmployee(filters),
-        ASSIST_SYNC_RUN_UNSCOPED_REASON
+        TENANT_UNSCOPED_REASON.ASSIST_SYNC_ON_DEMAND
       )
       return response.status(200).json(result)
     } catch (error) {
@@ -319,9 +370,12 @@ export default class AssistsController {
    *     responses:
    *       200:
    *         description: |
-   *           Incluye `data.employeeCalendar` y `data.temporaryAssignments`: préstamos temporales
-   *           del empleado cuyo rango [startDate, endDate] intersecta el periodo `date`–`date-end`
-   *           (YYYY-MM-DD, UTC-6). Vacío `[]` si no aplica o sin préstamos en el rango.
+   *           Incluye `data.employeeCalendar`, `data.temporaryAssignments` (préstamos temporales
+   *           del empleado cuyo rango [startDate, endDate] intersecta el periodo `date`–`date-end`,
+   *           YYYY-MM-DD en la zona del sitio; vacío `[]` si no aplica) y `data.timeZone`: zona
+   *           IANA del sitio del empleado (sucursal base, luego empresa, luego sistema) con la que
+   *           se calculó el calendario. Las checadas son instantes UTC y el cliente las muestra
+   *           en `data.timeZone`, no en la zona de quien consulta.
    *         content:
    *           application/json:
    *             schema:
@@ -510,7 +564,7 @@ export default class AssistsController {
         filterDateEnd: filterDateEnd,
         filterDatePay: filterDatePay,
       } as AssistEmployeeExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       let buffer
       if (reportType === 'Assistance Report') {
         buffer = await assistService.getExcelByEmployeeAssistance(employee, filters)
@@ -525,7 +579,12 @@ export default class AssistsController {
             'Content-Type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
           )
-          response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+          response.header(
+            'Content-Disposition',
+            contentDisposition(
+              this.assistanceReportFileName(reportType, filterDate, filterDateEnd, employee.employeeSlug)
+            )
+          )
           response.status(201)
           response.send(buffer.buffer)
         } else {
@@ -649,14 +708,17 @@ export default class AssistsController {
         filterDateEnd: filterDateEnd,
         businessUnitId: Number(request.input('businessUnitId')) || undefined,
       } as AssistPositionExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       const buffer = await assistService.getExcelByPosition(filters, businessUnitScope)
       if (buffer.status === 201) {
         response.header(
           'Content-Type',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+        response.header(
+          'Content-Disposition',
+          contentDisposition(this.assistanceReportFileName('Assistance Report', filterDate, filterDateEnd))
+        )
         response.status(201)
         response.send(buffer.buffer)
       } else {
@@ -750,7 +812,7 @@ export default class AssistsController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -808,7 +870,7 @@ export default class AssistsController {
         userResponsibleId: userResponsibleId,
         businessUnitId: Number(request.input('businessUnitId')) || undefined,
       } as AssistDepartmentExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       let buffer
       if (reportType === 'Assistance Report') {
         buffer = await assistService.getExcelByDepartmentAssistance(filters, businessUnitScope)
@@ -823,7 +885,10 @@ export default class AssistsController {
             'Content-Type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
           )
-          response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+          response.header(
+            'Content-Disposition',
+            contentDisposition(this.assistanceReportFileName(reportType, filterDate, filterDateEnd))
+          )
           response.status(201)
           response.send(buffer.buffer)
         } else {
@@ -926,7 +991,7 @@ export default class AssistsController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -984,7 +1049,7 @@ export default class AssistsController {
         payrollBusinessUnitId: payrollBusinessUnitId,
         branchNameIds: branchNameIds,
       } as AssistExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       let buffer
       if (reportType === 'Assistance Report') {
         buffer = await assistService.getExcelAllAssistance(filters, departmentsList, scopedBusinessUnitIds)
@@ -999,7 +1064,10 @@ export default class AssistsController {
             'Content-Type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
           )
-          response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+          response.header(
+            'Content-Disposition',
+            contentDisposition(this.assistanceReportFileName(reportType, filterDate, filterDateEnd))
+          )
           response.status(201)
           response.send(buffer.buffer)
         } else if (buffer.status === 400) {
@@ -1373,9 +1441,22 @@ export default class AssistsController {
       }
 
       // La hora que vale es la hora en que ocurrió la checada, no la hora en que se
-      // logró entregar: si el equipo la declara, se respeta, siempre que caiga dentro
-      // de la ventana permitida y no se adelante al reloj del servidor.
-      const resolvedPunchTime = resolvePunchTime(assistPunchTime, DateTime.utc())
+      // logró entregar: si el equipo la declara, se respeta, siempre que no se
+      // adelante al reloj del servidor.
+      //
+      // Hacia atrás hay dos topes distintos y la procedencia decide cuál rige. Un
+      // equipo entrega tarde lo que ya ocurrió y se mide con la ventana del canal,
+      // que existe para cubrir una caída de red. La captura administrativa corrige
+      // el pasado a propósito, así que se mide con los días que el rol de quien
+      // captura tiene autorizado modificar.
+      const assistOrigin = resolveAssistOrigin(payload.assistChannel, isOwner)
+      const isAdminCapture = assistOrigin === ASSIST_ORIGIN.ADMIN_CAPTURE
+
+      const siteZone = await new SiteTimeZoneService().forEmployee(employee.employeeId)
+      const now = DateTime.utc()
+      const resolvedPunchTime = resolvePunchTime(assistPunchTime, now, siteZone.zone, {
+        enforceBackdateWindow: !isAdminCapture,
+      })
       if (!resolvedPunchTime.ok) {
         const rejection = resolvedPunchTime.rejection
         const detail = i18n.t(`${rejection.i18nBase}_message`, undefined, rejection.key)
@@ -1392,7 +1473,31 @@ export default class AssistsController {
 
       const dateTimePunchTime: DateTime = resolvedPunchTime.punchTimeUtc
 
-      const assistOrigin = resolveAssistOrigin(payload.assistChannel, isOwner)
+      if (isAdminCapture) {
+        const scopeRejection = await resolveAdminCaptureRejection({
+          user: auth.user,
+          punchTimeUtc: dateTimePunchTime,
+          zone: siteZone.zone,
+          now,
+        })
+        if (scopeRejection) {
+          const detail = i18n.t(
+            `${scopeRejection.i18nBase}_message`,
+            undefined,
+            scopeRejection.key
+          )
+          response.status(scopeRejection.status)
+          return {
+            type: 'warning',
+            title: i18n.t(`${scopeRejection.i18nBase}_title`, undefined, scopeRejection.key),
+            message: detail,
+            detail,
+            key: scopeRejection.key,
+            code: scopeRejection.code,
+          }
+        }
+      }
+
       const assistCreatedByUserId = isOwner ? null : (auth.user?.userId ?? null)
 
       const assist = {
@@ -1478,160 +1583,6 @@ export default class AssistsController {
       }
     }
   }
-
-  /**
-   * @swagger
-   * /api/v1/assists/get-format-payroll:
-   *   get:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Assists
-   *     summary: get format payroll
-   *     produces:
-   *       - application/json
-   *     parameters:
-   *       - name: date
-   *         in: query
-   *         required: true
-   *         schema:
-   *           type: string
-   *         default: "2024-12-29"
-   *         description: Date from get format
-   *     responses:
-   *       '201':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
-  async getFormatPayRoll({ request, response, i18n, businessUnitScope }: HttpContext) {
-    const t = i18n.formatMessage.bind(i18n)
-    try {
-      const date = request.input('date')
-      if (!date) {
-        const entity = t('date')
-        response.status(400)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found', { entity }),
-          data: { date },
-        }
-      }
-      const assistService = new AssistsService(i18n)
-      const result = assistService.isPayThursday(date, '2025-01-09')
-      if (!result) {
-        const entity = t('date')
-        response.status(400)
-        return {
-          type: 'warning',
-          title: t('entity_is_not_valid', { entity }),
-          message: t('the_date_not_is_pay_thursday'),
-          data: { date },
-        }
-      }
-
-      const buffer = await assistService.getFormatPayRoll(date, businessUnitScope)
-      if (buffer.status === 201) {
-        response.header('Content-Type', 'text/csv')
-        response.header('Content-Disposition', 'attachment; filename="file.csv"')
-        response.status(201)
-        response.send(buffer.buffer)
-      } else {
-        response.status(500)
-        return {
-          type: buffer.type,
-          title: buffer.title,
-          message: buffer.message,
-          error: buffer.error,
-        }
-      }
-    } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
-      }
-    }
-  }
-
 
   /**
    * @swagger
@@ -2053,14 +2004,6 @@ export default class AssistsController {
     try {
       await auth.check()
       const user = auth.user
-      let userResponsibleId = null
-
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
-      }
 
       const filterDate = request.input('date')
       const filterDateEnd = request.input('date-end')
@@ -2077,26 +2020,34 @@ export default class AssistsController {
         }
       }
 
-      const userService = new UserService(i18n)
-      let departmentsList = [] as Array<number>
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
-      }
+      // Alcance: regla 1, 2, 4 de USRH1788466831312.
+      const scope = user
+        ? (await user.preload('role'), await resolveEmployeeRoleScopeForUser(user, i18n))
+        : emptyEmployeeRoleScope()
 
       const filters = {
         filterDate: filterDate,
         filterDateEnd: filterDateEnd,
-        userResponsibleId: userResponsibleId,
+        userResponsibleId: scope.userResponsibleId,
         businessUnitId: businessUnitId,
         payrollBusinessUnitId: payrollBusinessUnitId,
+        includeUnassigned: scope.includeUnassigned,
       } as PermissionsDatesExcelFilterInterface
 
-      const assistService = new AssistsService(i18n)
-      const result = await assistService.getExcelPermissionsByDates(filters, departmentsList, businessUnitScope)
+      const assistService = new AssistsService(reportI18n())
+      const result = await assistService.getExcelPermissionsByDates(filters, scope.departmentsList, businessUnitScope)
 
       if (result.buffer) {
         response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        response.header('Content-Disposition', 'attachment; filename="permisos-fechas.xlsx"')
+        response.header(
+          'Content-Disposition',
+          contentDisposition(
+            buildDownloadFileName(
+              ['permisos', formatDownloadFileDate(filterDate), formatDownloadFileDate(filterDateEnd)],
+              'xlsx'
+            )
+          )
+        )
         return response.send(result.buffer)
       } else {
         response.status(result.status || 500)
