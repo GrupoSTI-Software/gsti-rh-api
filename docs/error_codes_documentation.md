@@ -941,4 +941,25 @@ Cada intento al endpoint (exitoso o fallido) dispara un correo a la dirección c
 
 **Alcance declarado:** este mensaje evita confirmar la causa, **pero no elimina la señal**. Quien prueba un correo y recibe este rechazo, y prueba otro y pasa, ya obtuvo la información. El límite de intentos y la bitácora atribuible son de `USRH1789762889970`.
 
+### PERSON.IDENTITY.006 — Demasiados intentos de captura de correo (`demasiados-intentos-de-captura-de-correo`)
 
+**HTTP 429.**
+
+**Cuándo:** Se superó el número de capturas de correo personal permitidas en el periodo. Se emite en los **dos** caminos de captura, `POST /api/persons` y `PUT /api/persons/:personId`, y **la respuesta es idéntica entre contadores**: no distingue cuál de los límites se topó.
+
+**Respuesta:**
+
+```json
+{
+  "title": "Demasiados intentos de captura de correo",
+  "detail": "Superaste el límite de capturas permitidas en este periodo. Espera un momento e intenta de nuevo. Para dar de alta a varias personas, usa la carga masiva desde archivo.",
+  "key": "demasiados-intentos-de-captura-de-correo",
+  "code": "PERSON.IDENTITY.006"
+}
+```
+
+**Cabeceras:** es la única respuesta de esta familia que lleva las cabeceras RFC 6585 — `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After` y `X-RateLimit-Reset` (fecha ISO calculada a partir de `Retry-After`). El resto de rechazos de `PERSON.IDENTITY.*` no las trae.
+
+**Acción cliente:** Esperar lo que indique `Retry-After` e intentar de nuevo; para dar de alta a varias personas, usar la carga masiva desde archivo en lugar de capturarlas una por una.
+
+**Lo que esta respuesta NO trae, y es deliberado:** no dice cuál de los contadores se superó, no interpola el correo capturado, no revela el contador consumido ni la identidad sondeada, y no confirma si un correo existe en la plataforma.
