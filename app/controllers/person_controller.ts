@@ -29,8 +29,10 @@ import { TenantContext } from '#utils/tenant_context'
 import type { PersonIdentityField } from '#constants/person_identity_error_codes'
 import { resolveRacedIdentityField } from '#helpers/person_identity_lookup'
 import {
+  isPersonEmailUniqueValidationError,
   personIdentityDuplicatedFieldFromValidationError,
   personIdentityDuplicatedIndexFromError,
+  respondPersonEmailNotAvailable,
   respondPersonIdentityDuplicated,
   respondPersonIdentityMissingCompany,
 } from '#helpers/person_identity_api_error'
@@ -386,6 +388,25 @@ export default class PersonController {
    *                 code:
    *                   type: string
    *                   example: EMP.SENS.WRITE.FORBIDDEN
+   *       '422':
+   *         description: La política de la plataforma no permite registrar ese correo personal. Respuesta idéntica en POST y PUT.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: No es posible registrar ese correo
+   *                 detail:
+   *                   type: string
+   *                   example: "La política de la plataforma no permite registrar ese correo en este expediente. Captura otro correo personal, o deja el campo vacío: el acceso a la aplicación puede otorgarse con el correo institucional del trabajador."
+   *                 key:
+   *                   type: string
+   *                   example: no-es-posible-registrar-ese-correo
+   *                 code:
+   *                   type: string
+   *                   example: PERSON.IDENTITY.005
    */
   async store(ctx: HttpContext) {
     const { request, response, i18n } = ctx
@@ -459,6 +480,12 @@ export default class PersonController {
           ctx,
           await racedIdentityField(racedField, i18n, identityRecheck)
         )
+      }
+      // USRH1789698261614 — solo el correo personal. Mismo emisor que el PUT, y
+      // por eso las dos respuestas son idénticas byte a byte (CA-2). El errors[]
+      // de @adonisjs/lucid no se reescribe: no se llega a él.
+      if (isPersonEmailUniqueValidationError(error)) {
+        return respondPersonEmailNotAvailable(ctx)
       }
       if (error.code === 'E_VALIDATION_ERROR') {
         const messageError = error.messages?.[0]?.message ?? 'Validation error'
@@ -678,6 +705,25 @@ export default class PersonController {
    *                 code:
    *                   type: string
    *                   example: EMP.SENS.WRITE.FORBIDDEN
+   *       '422':
+   *         description: La política de la plataforma no permite registrar ese correo personal. Respuesta idéntica en POST y PUT.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: No es posible registrar ese correo
+   *                 detail:
+   *                   type: string
+   *                   example: "La política de la plataforma no permite registrar ese correo en este expediente. Captura otro correo personal, o deja el campo vacío: el acceso a la aplicación puede otorgarse con el correo institucional del trabajador."
+   *                 key:
+   *                   type: string
+   *                   example: no-es-posible-registrar-ese-correo
+   *                 code:
+   *                   type: string
+   *                   example: PERSON.IDENTITY.005
    */
   async update(ctx: HttpContext) {
     const { request, response, i18n } = ctx
@@ -861,6 +907,14 @@ export default class PersonController {
           ctx,
           await racedIdentityField(racedField, i18n, identityRecheck)
         )
+      }
+      // USRH1789698261614 — espejo del alta: mismo emisor, respuesta idéntica
+      // byte a byte (CA-2). Hoy este camino no se ejercita porque
+      // `updatePersonValidator` no consulta unicidad de correo: la edición con
+      // correo ocupado cae por `personService.verifyInfo`. Se deja puesto como
+      // defensa el día que el validador de edición gane el mismo `.unique()`.
+      if (isPersonEmailUniqueValidationError(error)) {
+        return respondPersonEmailNotAvailable(ctx)
       }
       if (error.code === 'E_VALIDATION_ERROR') {
         const messageError = error.messages?.[0]?.message ?? 'Validation error'
