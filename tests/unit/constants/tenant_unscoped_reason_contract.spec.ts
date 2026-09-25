@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import app from '@adonisjs/core/services/app'
 import { test } from '@japa/runner'
 import {
@@ -25,7 +26,7 @@ const REQUIRED_KEYS = [
 
 test.group('Contrato runUnscoped — árbol app/ y commands/', () => {
   test('inspectTree no encuentra literales ni constantes fuera del catálogo', ({ assert }) => {
-    const findings = inspectTree(app.appRoot.pathname.replace(/\/$/, ''))
+    const findings = inspectTree(fileURLToPath(app.appRoot).replace(/\/$/, ''))
     if (findings.length > 0) {
       const detail = findings
         .map((finding) => `${finding.location} [${finding.rule}] ${finding.text}`)
