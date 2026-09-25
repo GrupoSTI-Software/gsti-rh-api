@@ -1,6 +1,8 @@
 import type { Assert } from '@japa/assert'
 import Person from '#models/person'
 import EmployeeBank from '#models/employee_bank'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import { CLEAR_FIXED } from './sensitive_read_by_category_support.js'
 
 export const RFC_ORIGINAL = CLEAR_FIXED.rfc
@@ -58,9 +60,15 @@ export function personUpdateBase(
 }
 
 export async function reloadPerson(personId: number): Promise<Person> {
-  return Person.findOrFail(personId)
+  return TenantContext.runUnscoped(
+    () => Person.findOrFail(personId),
+    TENANT_UNSCOPED_REASON.TEST_FIXTURE
+  )
 }
 
 export async function reloadBank(employeeBankId: number): Promise<EmployeeBank> {
-  return EmployeeBank.findOrFail(employeeBankId)
+  return TenantContext.runUnscoped(
+    () => EmployeeBank.findOrFail(employeeBankId),
+    TENANT_UNSCOPED_REASON.TEST_FIXTURE
+  )
 }
