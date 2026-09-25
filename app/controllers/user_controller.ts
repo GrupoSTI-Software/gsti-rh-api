@@ -2210,8 +2210,12 @@ export default class UserController {
       }
 
       const actor = emailMirrorActorFromContext(ctx)
-      const previousCredentialEmail = currentUser.userEmail
       const { updateUser, emailMirror } = await db.transaction(async (trx) => {
+        const before = await User.query({ client: trx })
+          .where('user_id', currentUser.userId)
+          .whereNull('user_deleted_at')
+          .forUpdate()
+          .first()
         const updated = await userService.update(currentUser, user, trx)
         // La credencial ya está escrita; si el espejo falla o el guard del
         // modelo `Person` niega, el rollback la devuelve a como estaba.
@@ -2219,7 +2223,7 @@ export default class UserController {
           personId: updated.personId,
           userEmail: updated.userEmail,
           userEmailType: updated.userEmailType,
-          previousCredentialEmail,
+          previousCredentialEmail: before?.userEmail ?? null,
           actor,
           trx,
         })

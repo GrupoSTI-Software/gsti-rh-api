@@ -773,13 +773,17 @@ export default class PersonController {
       }
       const actor = emailMirrorActorFromContext(ctx)
       const personBirthdayPast = currentPerson.personBirthday
-      const previousSourceEmail = currentPerson.personEmail
       const { updatePerson, emailMirror } = await db.transaction(async (trx) => {
+        const before = await Person.query({ client: trx })
+          .where('person_id', currentPerson.personId)
+          .whereNull('person_deleted_at')
+          .forUpdate()
+          .first()
         const persisted = await personService.update(currentPerson, person, trx)
         const outcome = await mirrorPersonEmailToUserEmail({
           personId: currentPerson.personId,
           personEmail: person.personEmail,
-          previousSourceEmail,
+          previousSourceEmail: before?.personEmail ?? null,
           actor,
           trx,
         })

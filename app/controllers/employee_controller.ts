@@ -1887,8 +1887,12 @@ export default class EmployeeController {
       }
 
       const actor = emailMirrorActorFromContext(ctx)
-      const previousSourceEmail = currentEmployee.employeeBusinessEmail
       const { updateEmployee, emailMirror } = await db.transaction(async (trx) => {
+        const before = await Employee.query({ client: trx })
+          .where('employee_id', currentEmployee.employeeId)
+          .whereNull('employee_deleted_at')
+          .forUpdate()
+          .first()
         const persisted = await employeeService.update(
           currentEmployee,
           employee,
@@ -1899,7 +1903,7 @@ export default class EmployeeController {
         const outcome = await mirrorEmployeeEmailToUserEmail({
           personId: currentEmployee.personId,
           employeeBusinessEmail: persisted.employeeBusinessEmail,
-          previousSourceEmail,
+          previousSourceEmail: before?.employeeBusinessEmail ?? null,
           actor,
           trx,
         })
