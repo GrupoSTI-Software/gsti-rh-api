@@ -307,6 +307,9 @@ test.group('person_email_probe_throttle — regla dura nunca-penalize', () => {
     )
 
     assert.notInclude(source, 'penalize', 'la cuota se consume en TODO intento, jamás con penalize')
+    // El sujeto cae a IP cuando no hay actor: prohibido un literal fijo que agrupe a
+    // todos en un cubo global único (el gate del DoD hace el mismo grep).
+    assert.notInclude(source, 'anonimo', 'el sujeto cae a IP, nunca a una cadena fija')
     assert.include(source, 'person-email-probe:', 'la llave separada del piso de escritura')
   })
 })

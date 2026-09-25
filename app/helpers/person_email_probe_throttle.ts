@@ -119,12 +119,16 @@ export async function personEmailProbeGuard(ctx: HttpContext, next: NextFn) {
   }
 
   const actorUserId = ctx.auth.user?.userId ?? null
-  // Fallback a IP, NUNCA a un literal tipo 'anonimo': sería un cubo global único.
+  // Fallback a IP: NUNCA una cadena fija que agrupe a todos — sería un cubo global único.
   const subject = `user:${actorUserId ?? ctx.request.ip()}`
   const businessUnitScope = ctx.businessUnitScope ?? []
   const businessSubject = `bu:${businessUnitScope[0] ?? 'sin-empresa'}`
   const emailHash = blindIndex(personEmail)
   const path = ctx.request.method() === 'POST' ? 'store' : 'update'
+  // El expediente se toma del parámetro de ruta SIN validar scope, a propósito: es
+  // el objetivo que el propio actor declaró en SU petición, no un dato leído de un
+  // expediente ajeno. Registrar un id de ruta no revela nada que el actor no haya
+  // escrito él mismo; validar aquí el scope sería mezclar autorización con bitácora.
   const targetPersonId = path === 'store' ? null : Number(ctx.params.personId) || null
 
   if ((await userThrottle.isBlocked(subject)) || (await businessThrottle.isBlocked(businessSubject))) {
