@@ -258,8 +258,10 @@ export async function cleanupEmployeeScopeFixtures(fixtures: EmployeeScopeFixtur
     await db.from('shift_exceptions').where('employee_id', employee.employeeId).delete()
     await db.from('employee_contracts').where('employee_id', employee.employeeId).delete()
     await db.from('employee_proceeding_files').where('employee_id', employee.employeeId).delete()
+    // Borrado físico: `Employee` usa soft deletes y la fila viva bloquearía el
+    // borrado del puesto por la llave foránea `employees_position_id_foreign`.
+    await db.from('employees').where('employee_id', employee.employeeId).delete()
     await db.from('positions').where('position_id', employee.positionId ?? 0).delete()
-    await employee.delete()
   }
 
   // Limpiar personas de empleados
@@ -322,6 +324,14 @@ export async function createExpiringContract(
   const startStr = start.toISOString().split('T')[0]
 
   const positionRow = await db.from('employees').where('employee_id', employeeId).first()
+  const contractBusinessUnitId = overrides.contractBusinessUnitId ?? businessUnitId
+  // `employee_contracts.department_id` es NOT NULL y estos casos prueban empleados
+  // sin departamento: el contrato toma un departamento de su propia empresa.
+  const fallbackDepartment = await db
+    .from('departments')
+    .where('business_unit_id', contractBusinessUnitId)
+    .first()
+  const contractDepartment = positionRow?.department_id ?? fallbackDepartment?.department_id
   const [id] = await db.table('employee_contracts').insert({
     employee_id: employeeId,
     employee_contract_folio: `FOLIO-${employeeId}-${Date.now()}`,
@@ -330,8 +340,9 @@ export async function createExpiringContract(
     employee_contract_active: 1,
     employee_contract_start_date: startStr,
     employee_contract_end_date: endDate,
-    business_unit_id: overrides.contractBusinessUnitId ?? businessUnitId,
-    department_id: positionRow?.department_id ?? null,
+    business_unit_id: contractBusinessUnitId,
+    payroll_business_unit_id: contractBusinessUnitId,
+    department_id: contractDepartment,
     position_id: positionRow?.position_id ?? null,
     employee_contract_created_at: now,
     employee_contract_updated_at: now,
@@ -348,11 +359,13 @@ export async function createVacationException(
   vacationExceptionTypeId: number
 ): Promise<number> {
   const now = new Date()
+  const employeeRow = await db.from('employees').where('employee_id', employeeId).first()
   const [id] = await db.table('shift_exceptions').insert({
     employee_id: employeeId,
+    business_unit_id: employeeRow?.business_unit_id,
     exception_type_id: vacationExceptionTypeId,
     shift_exceptions_date: date,
-    shift_exceptions_comment: 'Vacación test scope',
+    shift_exceptions_description: 'Vacación test scope',
     shift_exceptions_created_at: now,
     shift_exceptions_updated_at: now,
   })
