@@ -15,12 +15,16 @@ import Person from '#models/person'
  */
 
 const TEST_PASSWORD = 'TrialGuardTest123!'
-const TRIAL_AREA_ROUTE_COUNT = 1
+const TRIAL_AREA_ROUTE_COUNT = 3
 
 type TrialHttpMethod = 'get'
 
 const TRIAL_AREA_ROUTES: Array<{ method: TrialHttpMethod; path: string }> = [
   { method: 'get', path: '/api/platform/metrics/tenants/no-existe-00000/trial' },
+  // USRH1789079078171
+  { method: 'get', path: '/api/platform/metrics/tenants/no-existe-00000/trial/usage' },
+  // USRH1789079078173
+  { method: 'get', path: '/api/platform/metrics/trials/live' },
 ]
 
 interface TestActor {

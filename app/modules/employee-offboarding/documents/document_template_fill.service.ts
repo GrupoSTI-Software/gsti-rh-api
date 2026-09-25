@@ -25,7 +25,7 @@ export type DocumentTemplateFieldValues = Readonly<Record<OffboardingDocumentFie
 export type DocumentTemplateFillFailure =
   /** Un valor no es codificable con la tipografía estándar (WinAnsi); no se escribió nada. */
   | { reason: 'unrenderable_text'; fieldKey: OffboardingDocumentFieldKey }
-  /** Un campo OBLIGATORIO del catálogo no existe en la plantilla o no admite texto. */
+  /** Un campo OBLIGATORIO del catálogo está en la plantilla pero no admite texto. */
   | { reason: 'required_field_unwritable'; fieldKey: OffboardingDocumentFieldKey }
   /** Tras aplanar quedaron campos vivos: el documento sería editable (regla 3). */
   | { reason: 'fields_left_after_flatten'; fieldCount: number }
@@ -77,16 +77,17 @@ export default class DocumentTemplateFillService {
     const form = document.getForm()
     const font = await document.embedFont(StandardFonts.Helvetica)
 
-    // 1. Qué huecos existen y admiten texto. USRH1789097550388 ya garantiza los
-    //    obligatorios y USRH1789097550387 el tipo, pero una versión pudo quedar
-    //    `current` antes de ellas: un obligatorio ausente o no-texto tumba la
-    //    emisión; un opcional no-texto se omite y se reporta.
+    // 1. Qué huecos existen y admiten texto. Un campo AUSENTE no es fallo:
+    //    qué exige la plantilla lo decide la guarda de completitud sobre su
+    //    dictamen (USRH1789097550392). Un hueco presente que no admite texto
+    //    tumba la emisión si es obligatorio y se omite (y reporta) si no.
     const writable: WritableField[] = []
     const skippedFieldKeys: OffboardingDocumentFieldKey[] = []
     for (const field of fieldsForDocumentType(documentType)) {
       // La interfaz del catálogo tipa `key` como string; la unión la deriva la tupla
       const key = field.key as OffboardingDocumentFieldKey
       const candidate = form.getFieldMaybe(key)
+      if (candidate === undefined) continue
       if (candidate instanceof PDFTextField) {
         writable.push({ key, field, textField: candidate })
         continue
@@ -94,9 +95,7 @@ export default class DocumentTemplateFillService {
       if (field.requiredInTemplate) {
         return fail({ reason: 'required_field_unwritable', fieldKey: key })
       }
-      if (candidate !== undefined) {
-        skippedFieldKeys.push(key)
-      }
+      skippedFieldKeys.push(key)
     }
 
     // 2. Codificación ANTES de escribir el primer campo: nunca un documento a

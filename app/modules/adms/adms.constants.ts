@@ -1,3 +1,5 @@
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+
 /**
  * Constantes del canal ADMS del checador ZKTeco (spec v2, secciones 2, 4 y 13).
  *
@@ -43,8 +45,7 @@ export const ADMS_CONTENT_TYPE_MAX_LENGTH = 100
  * El perfil se lee por `access_point_id`, que es UNIQUE, sin el corte por
  * empresa: la fila puede traer la empresa anterior si el equipo se reasigno.
  */
-export const ADMS_PROFILE_UNSCOPED_REASON =
-  'canal ADMS: perfil del equipo por access_point_id (UNIQUE) para realinear la empresa'
+export const ADMS_PROFILE_UNSCOPED_REASON = TENANT_UNSCOPED_REASON.ADMS_DEVICE_CHANNEL
 
 /** Tope del cuerpo crudo de una subida (OPERLOG con templates cabe de sobra). */
 export const ADMS_MAX_BODY_BYTES = 4 * 1024 * 1024
@@ -56,10 +57,8 @@ export const ADMS_MAX_LINES_PER_UPLOAD = 2000
 export const ADMS_PROCESS_CHUNK_LINES = 200
 
 /** Motivos de las dos lecturas fuera de scope del canal (spec 13, regla 2). */
-export const ADMS_UNKNOWN_SERIAL_UNSCOPED_REASON =
-  'canal ADMS: serie desconocida, cuarentena sin empresa'
-export const ADMS_PHOTO_TOKEN_UNSCOPED_REASON =
-  'canal ADMS: descarga de foto por token opaco, empresa resuelta desde la publicacion'
+export const ADMS_UNKNOWN_SERIAL_UNSCOPED_REASON = TENANT_UNSCOPED_REASON.ADMS_DEVICE_CHANNEL
+export const ADMS_PHOTO_TOKEN_UNSCOPED_REASON = TENANT_UNSCOPED_REASON.ADMS_PHOTO_TOKEN
 
 /** Ventana en la que dos IP distintas para la misma serie cuentan como anomalia. */
 export const ADMS_IP_ANOMALY_WINDOW_SECONDS = 300

@@ -63,6 +63,10 @@ router
       .delete('/:employeeId', '#controllers/employee_controller.delete')
       .use(middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.terminateEmployee))
     router.get('/get-by-id/:employeeId', '#controllers/employee_controller.getById')
+    // Canje del token opaco de la URL del Backoffice. Sin gate en la ruta, igual
+    // que get-by-id: el permiso se resuelve dentro con ensureEmployeeTabRead,
+    // que necesita el id del empleado ya resuelto.
+    router.get('/get-by-slug/:employeeSlug', '#controllers/employee_controller.getBySlug')
     router.get('/:employeeId', '#controllers/employee_controller.show').where('employeeId', router.matchers.number())
     router
       .put('/:employeeId/photo', '#controllers/employee_controller.uploadPhoto')
@@ -81,11 +85,6 @@ router
       .post('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.assign')
       .use(
         middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.assignEmployeeBranchOffice)
-      )
-    router
-      .delete('/:employeeId/branch-office', '#controllers/employee_branch_office_controller.unassign')
-      .use(
-        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.unassignEmployeeBranchOffice)
       )
     router
       .get(

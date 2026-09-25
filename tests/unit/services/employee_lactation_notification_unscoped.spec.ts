@@ -23,7 +23,7 @@ test.group('Lactancia — rutas y aviso cross-empresa', () => {
       'utf-8'
     )
     assert.include(content, 'TenantContext.runUnscoped')
-    assert.include(content, 'aviso de vencimientos de lactancia')
+    assert.include(content, 'TENANT_UNSCOPED_REASON.LACTATION_EXPIRING')
     assert.include(content, 'business_unit_id: r.businessUnitId')
   })
 })

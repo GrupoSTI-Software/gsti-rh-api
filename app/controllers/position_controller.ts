@@ -3,6 +3,7 @@ import DepartmentPosition from '#models/department_position'
 import PositionService from '#services/position_service'
 import env from '#start/env'
 import { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import axios from 'axios'
 import BiometricPositionInterface from '../interfaces/biometric_position_interface.js'
 import OrgChartMoveService from '#services/org_chart_move_service'
@@ -15,6 +16,7 @@ import { PositionShiftFilterInterface } from '../interfaces/position_shift_filte
 import OrgAliasAppError from '#exceptions/org_alias_app_error'
 import { resolvePositionParentFromBody } from '#utils/org_chart_parent_input'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
 
 export default class PositionController {
   /**
@@ -1745,12 +1747,12 @@ export default class PositionController {
    *                 message:
    *                   type: string
    *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
+   *                 detail:
+   *                   type: string
+   *                   description: Generic detail; the technical error only goes to the log
+   *                 key:
+   *                   type: string
+   *                   description: Stable slug of the error (error-inesperado)
    */
   async getPdf({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
@@ -1759,8 +1761,8 @@ export default class PositionController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The position Id was not found',
-          message: 'Missing data to process',
+          title: i18n.formatMessage('position_profile_position_id_required'),
+          message: i18n.formatMessage('missing_data_to_process'),
           data: { positionId },
         }
       }
@@ -1772,24 +1774,30 @@ export default class PositionController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position was not found',
-          message: 'The position was not found with the entered ID',
+          title: i18n.formatMessage('position_profile_not_found_title'),
+          message: i18n.formatMessage('position_profile_not_found_message'),
           data: { positionId },
         }
       }
 
       response.header('Content-Type', 'application/pdf')
-      response.header('Content-Disposition', `attachment; filename="perfil-puesto-${positionId}.pdf"`)
+      response.header(
+        'Content-Disposition',
+        contentDisposition(await this.buildPositionProfileFileName(positionId, 'pdf'))
+      )
       response.header('Content-Length', pdfBuffer.length.toString())
       response.status(200)
       return response.send(pdfBuffer)
-    } catch (error) {
+    } catch (error: unknown) {
+      // El detalle va al log, nunca a la respuesta: puede traer SQL o rutas internas.
+      logger.error({ err: error }, 'perfil de puesto: error inesperado al generar el PDF')
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
+        title: i18n.formatMessage('server_error'),
+        message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
+        detail: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
+        key: 'error-inesperado',
       }
     }
   }
@@ -1886,12 +1894,12 @@ export default class PositionController {
    *                 message:
    *                   type: string
    *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
+   *                 detail:
+   *                   type: string
+   *                   description: Generic detail; the technical error only goes to the log
+   *                 key:
+   *                   type: string
+   *                   description: Stable slug of the error (error-inesperado)
    */
   async getExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
@@ -1900,8 +1908,8 @@ export default class PositionController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The position Id was not found',
-          message: 'Missing data to process',
+          title: i18n.formatMessage('position_profile_position_id_required'),
+          message: i18n.formatMessage('missing_data_to_process'),
           data: { positionId },
         }
       }
@@ -1913,25 +1921,46 @@ export default class PositionController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position was not found',
-          message: 'The position was not found with the entered ID',
+          title: i18n.formatMessage('position_profile_not_found_title'),
+          message: i18n.formatMessage('position_profile_not_found_message'),
           data: { positionId },
         }
       }
 
       response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      response.header('Content-Disposition', `attachment; filename="perfil-puesto-${positionId}.xlsx"`)
+      response.header(
+        'Content-Disposition',
+        contentDisposition(await this.buildPositionProfileFileName(positionId, 'xlsx'))
+      )
       response.header('Content-Length', excelBuffer.length.toString())
       response.status(200)
       return response.send(excelBuffer)
-    } catch (error) {
+    } catch (error: unknown) {
+      // El detalle va al log, nunca a la respuesta: puede traer SQL o rutas internas.
+      logger.error({ err: error }, 'perfil de puesto: error inesperado al generar el Excel')
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
+        title: i18n.formatMessage('server_error'),
+        message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
+        detail: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
+        key: 'error-inesperado',
       }
     }
+  }
+
+  /**
+   * Nombre del perfil de puesto descargable: `perfil-puesto-{nombre}.{ext}`.
+   * El nombre del puesto no es dato personal; si viene vacío se usa el id.
+   * Solo se llama tras generar el archivo, así que el puesto ya pasó el
+   * filtro de unidad de negocio del servicio.
+   */
+  private async buildPositionProfileFileName(positionId: string | number, extension: string): Promise<string> {
+    const position = await Position.query()
+      .select('position_id', 'position_name')
+      .where('position_id', positionId)
+      .first()
+    const positionName = position?.positionName?.trim()
+    return buildDownloadFileName(['perfil-puesto', positionName || positionId], extension)
   }
 }

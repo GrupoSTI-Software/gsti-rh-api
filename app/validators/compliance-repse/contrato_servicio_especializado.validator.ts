@@ -78,5 +78,6 @@ export const listContratosServiciosEspecializadosValidator = vine.compile(
     fechaInicioDesde: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),
     fechaInicioHasta: vine.date({ formats: ['YYYY-MM-DD'] }).optional(),
     q: vine.string().trim().maxLength(255).optional(),
+    porVencer: vine.boolean().optional(),
   })
 )

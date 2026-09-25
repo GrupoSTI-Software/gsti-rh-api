@@ -4,12 +4,17 @@ import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Clausula15d, { type CompromisoDocumental } from '#models/clausula_15d'
 import ContratoServicioEspecializado, {
+  TIENE_DOCUMENTO_FIRMADO_EXTRA,
+  TRABAJADORES_ASIGNADOS_EXTRA,
+  TRABAJADORES_DECLARADOS_EXTRA,
   type ContratoServicioEspecializadoEstatus,
 } from '#models/contrato_servicio_especializado'
 import EmpresaContratante from '#models/empresa_contratante'
 import { CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES } from '../constants/contrato_servicio_especializado_error_codes.js'
 import { ContratoServicioEspecializadoError } from '../exceptions/contrato_servicio_especializado_error.js'
-import RepseSpecializedService from '#models/repse_specialized_service'
+import RepseSpecializedService, {
+  type RepseSpecializedServiceStatus,
+} from '#models/repse_specialized_service'
 import {
   assertServiciosRegistradosRequeridos,
   findActiveRepseFolioForTenant,
@@ -19,7 +24,8 @@ import {
   getAllowedBusinessUnitIds,
 } from '../helpers/repse_tenant_scope.js'
 import { serializeAnexo15d } from '../helpers/anexo_15d_serializer.js'
-import { toBusinessDateString } from '#utils/business_date'
+import { maskSensitiveDtoValue } from '#helpers/sensitive_serialize'
+import { toBusinessDateString, todayInBusinessZone } from '#utils/business_date'
 
 export interface Anexo15dCreatePayload {
   objetoDetallado: string
@@ -55,6 +61,8 @@ export type ContratoServicioEspecializadoUpdatePayload = Partial<
   anexo15d?: Anexo15dUpdatePayload
   serviciosRegistradosIds?: number[]
 }
+
+const SERVICIO_ACTIVO: RepseSpecializedServiceStatus = 'active'
 
 function toIsoDateTimeString(value: unknown): string | null {
   if (value === null || value === undefined) {
@@ -110,6 +118,32 @@ function assertDateRangeOrFail(
   }
 }
 
+/**
+ * Un servicio `inactive` ya no se puede ligar a un contrato. Los que ya
+ * estaban ligados se conservan (editar el contrato no obliga a quitarlos);
+ * solo se rechazan los inactivos que el payload intenta agregar.
+ */
+function assertServiciosActivosOYaLigados(
+  servicios: RepseSpecializedService[],
+  yaLigadosIds: ReadonlySet<number>
+) {
+  const inactivosNuevos = servicios.filter(
+    (servicio) =>
+      servicio.status !== SERVICIO_ACTIVO && !yaLigadosIds.has(servicio.repseSpecializedServiceId)
+  )
+  if (inactivosNuevos.length === 0) {
+    return
+  }
+  const nombres = inactivosNuevos.map((servicio) => servicio.name).join(', ')
+  throw new ContratoServicioEspecializadoError(
+    'Uno o más servicios registrados están inactivos y no se pueden ligar al contrato.',
+    CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.SERVICIO_REGISTRADO_INACTIVO,
+    422,
+    'servicio-registrado-inactivo',
+    `Servicios inactivos: ${nombres}. Actívalos o quítalos del contrato.`
+  )
+}
+
 function serializeServiciosRegistrados(services: RepseSpecializedService[]) {
   return [...services]
     .sort((a, b) => a.name.localeCompare(b.name, 'es'))
@@ -123,11 +157,17 @@ function serializeContratanteBasico(row: EmpresaContratante) {
   return {
     id: row.empresaContratanteId,
     razonSocial: row.razonSocial,
-    rfc: row.rfc,
+    rfc: maskSensitiveDtoValue('EmpresaContratante', 'rfc', row.rfc),
   }
 }
 
-/** DTO público sin identificadores de scope interno. */
+/**
+ * DTO público sin identificadores de scope interno.
+ *
+ * Los datos de tarjeta (`trabajadoresAsignados`, `trabajadoresDeclarados`,
+ * `tieneDocumentoFirmado`) salen de `$extras`: la fila debe venir de una
+ * consulta con `ContratoServicioEspecializado.withResumenTarjeta`.
+ */
 export function serializeContratoServicioEspecializado(row: ContratoServicioEspecializado) {
   const contratante = row.empresaContratante
   const anexo = row.clausula15d
@@ -144,6 +184,11 @@ export function serializeContratoServicioEspecializado(row: ContratoServicioEspe
     moneda: row.moneda,
     estatus: row.estatusEfectivo,
     vencidoPorFecha: row.vencidoPorFecha,
+    porVencer: row.porVencer,
+    diasParaVencer: row.diasParaVencer,
+    trabajadoresAsignados: Number(row.$extras[TRABAJADORES_ASIGNADOS_EXTRA] ?? 0),
+    trabajadoresDeclarados: Number(row.$extras[TRABAJADORES_DECLARADOS_EXTRA] ?? 0),
+    tieneDocumentoFirmado: Number(row.$extras[TIENE_DOCUMENTO_FIRMADO_EXTRA] ?? 0) === 1,
     anexo15d: anexo ? serializeAnexo15d(anexo) : null,
     serviciosRegistrados: serializeServiciosRegistrados(servicios),
     createdAt: toIsoDateTimeString(row.createdAt),
@@ -169,7 +214,8 @@ export default class ContratoServicioEspecializadoService {
     const normalizedNumero = payload.numeroContrato.trim()
     await this.assertNumeroContratoUniqueInTenant(normalizedNumero)
     const servicioIds = assertServiciosRegistradosRequeridos(payload.serviciosRegistradosIds)
-    await findRepseSpecializedServicesInTenantOrFail(servicioIds)
+    const servicios = await findRepseSpecializedServicesInTenantOrFail(servicioIds)
+    assertServiciosActivosOYaLigados(servicios, new Set())
 
     const row = await db.transaction(async (trx) => {
       const contrato = new ContratoServicioEspecializado()
@@ -231,6 +277,7 @@ export default class ContratoServicioEspecializadoService {
       fechaInicioDesde?: Date
       fechaInicioHasta?: Date
       q?: string
+      porVencer?: boolean
     }
   ) {
     const safePerPage = Math.min(Math.max(perPage, 1), 500)
@@ -255,8 +302,11 @@ export default class ContratoServicioEspecializadoService {
       await findEmpresaContratanteInTenantOrFail(filters.empresaContratanteId)
     }
 
-    let query = ContratoServicioEspecializado.withDocumentoVigenteFechaVencimiento(
-      ContratoServicioEspecializado.query()
+    const hoy = todayInBusinessZone()
+    const hoyIso = toBusinessDateString(hoy)
+    let query = ContratoServicioEspecializado.withResumenTarjeta(
+      ContratoServicioEspecializado.query(),
+      hoyIso
     )
       .whereNull('contrato_servicio_especializado_deleted_at')
       .whereIn('business_unit_id', allowed)
@@ -264,13 +314,16 @@ export default class ContratoServicioEspecializadoService {
       .preload('empresaContratante')
       .preload('repseSpecializedServices')
 
-    const hoyIso = toBusinessDateString()
     if (filters.estatus && filters.estatus.length > 0) {
       query = ContratoServicioEspecializado.applyEffectiveEstatusFilter(
         query,
         filters.estatus,
         hoyIso
       )
+    }
+
+    if (filters.porVencer !== undefined) {
+      query = ContratoServicioEspecializado.applyPorVencerFilter(query, filters.porVencer, hoy)
     }
 
     if (filters.empresaContratanteId !== undefined) {
@@ -380,7 +433,11 @@ export default class ContratoServicioEspecializadoService {
     let servicioIds: number[] | undefined
     if (payload.serviciosRegistradosIds !== undefined) {
       servicioIds = assertServiciosRegistradosRequeridos(payload.serviciosRegistradosIds)
-      await findRepseSpecializedServicesInTenantOrFail(servicioIds)
+      const servicios = await findRepseSpecializedServicesInTenantOrFail(servicioIds)
+      assertServiciosActivosOYaLigados(
+        servicios,
+        await this.findServiciosLigadosIds(current.contratoServicioEspecializadoId)
+      )
     }
 
     await db.transaction(async (trx) => {
@@ -492,9 +549,18 @@ export default class ContratoServicioEspecializadoService {
     )
   }
 
+  /** Ids de servicios del catálogo ya ligados al contrato (pivote `contrato_servicio_repse`). */
+  private async findServiciosLigadosIds(contratoServicioEspecializadoId: number) {
+    const rows: Array<{ repse_specialized_service_id: number }> = await db
+      .from('contrato_servicio_repse')
+      .where('contrato_servicio_especializado_id', contratoServicioEspecializadoId)
+      .select('repse_specialized_service_id')
+    return new Set(rows.map((row) => Number(row.repse_specialized_service_id)))
+  }
+
   private async findForSerialization(contratoServicioEspecializadoId: number) {
     const row = await findContratoInTenantOrFail(contratoServicioEspecializadoId, {
-      withDocumentoVigenteFecha: true,
+      withResumenTarjeta: true,
     })
     await this.loadRelations(row)
     return row

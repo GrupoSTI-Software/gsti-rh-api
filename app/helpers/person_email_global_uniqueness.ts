@@ -1,9 +1,7 @@
 import Person from '#models/person'
 import { blindIndex } from '#utils/blind_index'
 import { TenantContext } from '#utils/tenant_context'
-
-const GLOBAL_PERSON_EMAIL_REASON =
-  'person-identity: verificación global de correo personal (regla 5, USRH1789698261610)'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 
 /**
  * ¿Hay OTRA persona viva, en cualquier empresa, con este correo personal?
@@ -29,7 +27,7 @@ export async function personEmailExistsGlobally(
         .where('person_email_hash', emailHash)
         .if(excludePersonId > 0, (query) => query.whereNot('person_id', excludePersonId))
         .first(),
-    GLOBAL_PERSON_EMAIL_REASON
+    TENANT_UNSCOPED_REASON.PERSON_IDENTITY_UNIQUENESS
   )
   return existing !== null
 }

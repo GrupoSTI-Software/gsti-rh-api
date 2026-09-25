@@ -233,7 +233,7 @@ test.group('GET /api/platform/metrics/tenants/:publicId/trial', (group) => {
       response.assertStatus(200)
       const body = response.body() as { type: string; data: { tenant: unknown; prueba: unknown } }
       assert.equal(body.type, 'success')
-      assert.deepEqual(Object.keys(body.data).sort(), ['prueba', 'tenant'])
+      assert.deepEqual(Object.keys(body.data).sort(), ['hitos', 'prueba', 'tenant'])
       assert.deepEqual(Object.keys(body.data.tenant as object).sort(), ['nombre', 'publicId'])
       assert.deepEqual(
         Object.keys(body.data.prueba as object).sort(),

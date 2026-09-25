@@ -65,6 +65,8 @@ test.group('Calendario, matriz y lactancia — declaraciones del gate', () => {
     assert.deepEqual(DOCUMENTS_EXPIRATION_MATRIX_PERMISSION_DECLARATIONS, {
       getExpiredAndExpiringSystemSettingProceedingFiles: read('documents-expiration-matrix'),
       getExpiredAndExpiringRepseRegistrations: read('documents-expiration-matrix'),
+      getExpirationMatrix: read('documents-expiration-matrix'),
+      downloadExpirationMatrixItemFile: read('documents-expiration-matrix'),
     })
     assert.deepEqual(EMPLOYEE_LACTATION_PERIODS_PERMISSION_DECLARATIONS, {
       complianceReport: read('employee-lactation-periods'),

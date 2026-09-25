@@ -4,6 +4,10 @@ import RepseRegistrationService, {
   type RepseRegistrationUpdatePayload,
 } from '#services/repse_registration_service'
 import RepseFolioAvisoService from '#services/repse_folio_aviso_service'
+import RepseRegistrationConstanciaService from '#services/repse_registration_constancia_service'
+import { isFileIntakeError, respondFileIntakeError } from '#helpers/file_intake_api_error'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { resolveStoredFileExtension } from '#helpers/stored_file_extension'
 import RepseFolioExpirationService from '#services/repse_folio_expiration_service'
 import {
   createRepseRegistrationValidator,
@@ -164,6 +168,11 @@ export default class RepseRegistrationsController {
    *               status:
    *                 type: string
    *                 enum: [active]
+   *               activities:
+   *                 type: string
+   *                 nullable: true
+   *                 maxLength: 2000
+   *                 description: Actividades registradas ante la STPS (texto libre)
    *     responses:
    *       '201': { description: Creado }
    *       '400':
@@ -230,6 +239,11 @@ export default class RepseRegistrationsController {
    *               status:
    *                 type: string
    *                 enum: [active]
+   *               activities:
+   *                 type: string
+   *                 nullable: true
+   *                 maxLength: 2000
+   *                 description: Actividades registradas ante la STPS (texto libre)
    *     responses:
    *       '200': { description: Actualizado }
    *       '400':
@@ -534,6 +548,150 @@ export default class RepseRegistrationsController {
     }
   }
 
+  /**
+   * @swagger
+   * /api/repse-registrations/{id}/constancia:
+   *   post:
+   *     summary: Subir o reemplazar la constancia de registro REPSE (PDF)
+   *     description: |
+   *       Un solo archivo por registro: subir otro reemplaza al anterior. Mismo
+   *       permiso que la edición del registro (`update` o `gestion`). PUT es
+   *       equivalente (alias de reemplazo).
+   *     tags: [RepseRegistrations]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: integer }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             required: [archivo]
+   *             properties:
+   *               archivo: { type: string, format: binary, description: PDF de hasta 10 MB }
+   *     responses:
+   *       '200':
+   *         description: Registro REPSE actualizado con `constancia` { fileName, uploadedAt }
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     repseRegistration: { $ref: '#/components/schemas/RepseRegistration' }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso update o gestion (key `sin-permiso`) }
+   *       '404': { description: Registro ajeno o inexistente (key `repse-no-encontrado`) }
+   *       '422':
+   *         description: Archivo faltante o rechazado por la política PDF (keys `archivo-faltante`, `extension-no-permitida`, etc.)
+   *   put:
+   *     summary: Reemplazar la constancia de registro REPSE (PDF)
+   *     description: Idéntico a POST.
+   *     tags: [RepseRegistrations]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: integer }
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         multipart/form-data:
+   *           schema:
+   *             type: object
+   *             required: [archivo]
+   *             properties:
+   *               archivo: { type: string, format: binary }
+   *     responses:
+   *       '200': { description: Registro REPSE actualizado con `constancia` }
+   *       '422': { description: Archivo faltante o rechazado }
+   *   get:
+   *     summary: Descargar la constancia de registro REPSE (PDF)
+   *     tags: [RepseRegistrations]
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: id
+   *         required: true
+   *         schema: { type: integer }
+   *     responses:
+   *       '200':
+   *         description: Stream del PDF (`Content-Disposition` con el nombre de descarga)
+   *         content:
+   *           application/pdf:
+   *             schema: { type: string, format: binary }
+   *       '401': { description: Sin autenticación }
+   *       '403': { description: Sin permiso read o gestion (key `sin-permiso`) }
+   *       '404':
+   *         description: Registro ajeno/inexistente (key `repse-no-encontrado`) o sin constancia (key `constancia-no-encontrada`)
+   */
+  async uploadConstancia(ctx: HttpContext) {
+    const { params, request, response, i18n } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'update'))) return
+
+      const id = this.parseResourceId(params.id)
+      const service = new RepseRegistrationConstanciaService()
+      const updated = await service.subir(id, request.file('archivo'))
+
+      return StandardResponseFormatter.success(
+        response,
+        updated,
+        i18n.t('repse_registration_title', undefined, 'Repse Registration'),
+        i18n.t(
+          'repse_registration_constancia_uploaded_successfully',
+          undefined,
+          'Constancia REPSE cargada correctamente'
+        )
+      )
+    } catch (error) {
+      return this.respondError(error, response, 400, i18n)
+    }
+  }
+
+  async downloadConstancia(ctx: HttpContext) {
+    const { params, response, i18n } = ctx
+    try {
+      if (!(await this.assertAuthenticated(ctx))) return
+      if (!(await this.assertHasPermission(ctx, 'read'))) return
+
+      const id = this.parseResourceId(params.id)
+      const service = new RepseRegistrationConstanciaService()
+      const { registration, object } = await service.obtenerStream(id)
+
+      const fileName = buildDownloadFileName(
+        ['constancia-repse', registration.folio],
+        resolveStoredFileExtension({
+          storedPath: registration.constanciaStorageKey,
+          fileName: registration.constanciaFileName,
+          contentType: object.contentType,
+        })
+      )
+      response.header('Content-Type', 'application/pdf')
+      response.header('Content-Disposition', contentDisposition(fileName))
+      response.header('Cache-Control', 'private, no-store')
+      if (object.contentLength !== undefined) {
+        response.header('Content-Length', String(object.contentLength))
+      }
+
+      response.status(200)
+      return response.stream(object.stream)
+    } catch (error) {
+      return this.respondError(error, response, 404, i18n)
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
@@ -577,6 +735,7 @@ export default class RepseRegistrationsController {
       registeredAt: this.dateLikeToIso(body.registeredAt),
       expiresAt: this.dateLikeToIso(body.expiresAt),
       status: body.status as RepseRegistrationStatus | undefined,
+      activities: this.toActivities(body.activities),
     }
   }
 
@@ -597,7 +756,16 @@ export default class RepseRegistrationsController {
     if (body.status !== undefined) {
       payload.status = body.status as RepseRegistrationStatus
     }
+    if (body.activities !== undefined) {
+      payload.activities = this.toActivities(body.activities)
+    }
     return payload
+  }
+
+  /** `activities` ya viene validado por Vine como `string | null | undefined`. */
+  private toActivities(value: unknown): string | null | undefined {
+    if (value === undefined) return undefined
+    return typeof value === 'string' ? value : null
   }
 
   /**
@@ -618,6 +786,11 @@ export default class RepseRegistrationsController {
     fallback: number,
     i18n: HttpContext['i18n']
   ) {
+    // El rechazo de un archivo (constancia) es 422 con triplete propio del intake.
+    if (isFileIntakeError(error)) {
+      return respondFileIntakeError(response, error)
+    }
+
     const resolved = resolveRepseRegistrationApiError(error, fallback, i18n)
     const body: Record<string, unknown> = {
       type: 'error',

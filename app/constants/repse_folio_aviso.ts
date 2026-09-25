@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import {
   getBusinessTimeZone,
   todayInBusinessZone,
@@ -27,14 +28,16 @@ export const REPSE_FOLIO_AVISO_TIPO_VALUES = [
 export const REPSE_NOTIFY_FOLIO_EXPIRING_COMMAND = 'repse:notify-folio-expiring'
 
 /** Motivo auditado para TenantContext.runUnscoped en la corrida batch. */
-export const REPSE_FOLIO_RUN_UNSCOPED_REASON =
-  'Aviso de vigencia del folio REPSE por system setting activo (cross-empresa)'
+export const REPSE_FOLIO_RUN_UNSCOPED_REASON = TENANT_UNSCOPED_REASON.REPSE_FOLIO_EXPIRING
 
 /** Días de anticipación para aviso de renovación trienal. */
 export const RENEWAL_THRESHOLD_DAYS = 90
 
 /** Días de anticipación para aviso de informativa cuatrimestral. */
 export const INFORMATIVA_THRESHOLD_DAYS = 15
+
+/** Días de anticipación con que el panorama REPSE lista la próxima informativa como pendiente. */
+export const INFORMATIVA_PANORAMA_THRESHOLD_DAYS = 30
 
 /** Fechas de presentación de informativas (17 ene/may/sep) y clave de cuatrimestre. */
 export const INFORMATIVA_PRESENTATION_DATES = [

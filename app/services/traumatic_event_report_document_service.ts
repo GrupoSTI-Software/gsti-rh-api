@@ -1,39 +1,30 @@
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { DateTime } from 'luxon'
 import PDFDocument from 'pdfkit'
 import TraumaticEventReport from '#models/traumatic_event_report'
 import SystemSettingService from '#services/system_setting_service'
 import TraumaticEventReportService from '#services/traumatic_event_report_service'
+import { REPORT_NEUTRAL_HEX, REPORT_NEUTRAL_PDF_FONTS } from '#constants/report_neutral_theme'
 import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
 import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
+import { getBusinessTimeZone } from '#utils/business_date'
+import { formatReportGeneratedAt } from '#helpers/report_locale'
+import { reportFullName, reportText } from '#helpers/report_text'
+
+/** Paleta neutral compartida por todos los descargables (sin marca). */
+const PDF_COLORS = REPORT_NEUTRAL_HEX
 
 /**
- * Paleta de marca Valanserh — misma que `employee_lactation_compliance_report_service`.
- * NO modificar sin actualizar la guía de DS Valanserh.
+ * Tipografía neutral: fuentes estándar de pdfkit (sin la tipografía de
+ * marca). Codifican WinAnsi, que cubre acentos, ñ, `§`, `—`, `–` y `•`.
  */
-const BRAND_COLORS = {
-  primary: '#3D5DC0',
-  text: '#1F2937',
-  textMuted: '#6B7280',
-  textLight: '#FFFFFF',
-  border: '#D1D5DB',
-  borderLight: '#E5E7EB',
-  bgSoft: '#F8FAFC',
-} as const
+const FONT_REGULAR = REPORT_NEUTRAL_PDF_FONTS.regular
+const FONT_BOLD = REPORT_NEUTRAL_PDF_FONTS.bold
 
-const PRODUCT_WORDMARK = 'Valanserh'
 const CONFIDENTIALITY_NOTE =
   'Documento confidencial — uso interno. Contiene datos personales protegidos por la Ley Federal de Protección de Datos Personales en Posesión de los Particulares.'
 
-/** Zona horaria del proyecto (CDMX). */
-const REPORT_TIMEZONE = 'America/Mexico_City'
-
-/**
- * Ruta relativa a `resources/fonts/` desde este archivo de servicio.
- * Mulish es la fuente oficial del DS Valanserh.
- */
-const FONTS_DIR_REL = ['..', '..', 'resources', 'fonts'] as const
+/** Zona de negocio configurada (`APP_BUSINESS_TIMEZONE`, CDMX por omisión). */
+const REPORT_TIMEZONE = getBusinessTimeZone()
 
 /**
  * Campos que deben estar poblados para generar el escrito §6.5.
@@ -105,7 +96,7 @@ export function assertDocumentComplete(
  * según el formato del numeral 6.5 de la NOM-035-STPS-2018.
  *
  * El documento incluye:
- *  - Franja de marca Valanserh + empresa cliente.
+ *  - Encabezado neutral con el nombre comercial de la empresa emisora.
  *  - Fundamento legal (NOM-035 §6.5).
  *  - Fecha de elaboración.
  *  - Datos del trabajador (nombre, código, departamento, puesto).
@@ -179,15 +170,12 @@ export default class TraumaticEventReportDocumentService {
         bufferPages: true,
         info: {
           Title: `Escrito de Informe de Acontecimiento Traumático — Reporte #${report.traumaticEventReportId}`,
-          Author: tradeName || PRODUCT_WORDMARK,
+          Author: tradeName,
           Subject:
             'NOM-035-STPS-2018 §6.5 — Escrito de informe de acontecimiento traumático severo',
-          Creator: PRODUCT_WORDMARK,
           Producer: 'PDFKit',
         },
       })
-
-      this.registerMulishFonts(doc)
 
       const chunks: Uint8Array[] = []
       doc.on('data', (chunk: Uint8Array) => chunks.push(chunk))
@@ -209,7 +197,7 @@ export default class TraumaticEventReportDocumentService {
       const totalPages = pageRange.count
       for (let i = pageRange.start; i < pageRange.start + totalPages; i++) {
         doc.switchToPage(i)
-        this.renderBrandStrip(doc, tradeName)
+        this.renderPageHeader(doc, tradeName)
         this.renderPageFooter(doc, folio, generatedAt, i - pageRange.start + 1, totalPages)
       }
 
@@ -263,9 +251,9 @@ export default class TraumaticEventReportDocumentService {
     report: TraumaticEventReport
   ) {
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(15)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text('Escrito de Informe de Acontecimiento Traumático Severo', margin, doc.y, {
         width: pageW,
         align: 'left',
@@ -273,9 +261,9 @@ export default class TraumaticEventReportDocumentService {
 
     doc.moveDown(0.25)
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text('NOM-035-STPS-2018, Numeral 6.5', margin, doc.y, {
         width: pageW,
         align: 'left',
@@ -284,25 +272,26 @@ export default class TraumaticEventReportDocumentService {
 
     doc.moveDown(0.3)
 
-    const metaLeft = tradeName || 'Empresa no configurada'
-    const elaboratedDisplay = report.traumaticEventReportElaboratedAt
-      ? this.formatDateTimeDmy(report.traumaticEventReportElaboratedAt)
-      : '—'
+    // Dato ausente en blanco: sin nombre comercial, la línea empieza en el folio.
+    const metaLeft = reportText(tradeName)
+    const elaboratedDisplay = this.formatDateTimeDmy(report.traumaticEventReportElaboratedAt)
 
-    const metaLine = `${metaLeft}   ·   Folio: ${folio}   ·   Fecha de elaboración: ${elaboratedDisplay}`
+    const metaLine = [metaLeft, `Folio: ${folio}`, `Fecha de elaboración: ${elaboratedDisplay}`]
+      .filter(Boolean)
+      .join('   ·   ')
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.text)
+      .fillColor(PDF_COLORS.text)
       .text(metaLine, margin, doc.y, { width: pageW, align: 'left' })
 
     doc.moveDown(0.2)
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
-        `Generado: ${generatedAt.toFormat('dd/LL/yyyy HH:mm')} (CDMX)   ·   Reporte #${report.traumaticEventReportId}`,
+        `Generado: ${formatReportGeneratedAt(generatedAt)}   ·   Reporte #${report.traumaticEventReportId}`,
         margin,
         doc.y,
         { width: pageW, align: 'left', lineBreak: false }
@@ -313,7 +302,7 @@ export default class TraumaticEventReportDocumentService {
       .moveTo(margin, doc.y)
       .lineTo(margin + pageW, doc.y)
       .lineWidth(0.5)
-      .strokeColor(BRAND_COLORS.borderLight)
+      .strokeColor(PDF_COLORS.border)
       .stroke()
     doc.moveDown(0.6)
   }
@@ -323,16 +312,16 @@ export default class TraumaticEventReportDocumentService {
    */
   private renderLegalFoundation(doc: PDFKit.PDFDocument, margin: number, pageW: number) {
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(10.5)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text('Fundamento legal', margin, doc.y, { width: pageW })
 
     doc.moveDown(0.2)
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.text)
+      .fillColor(PDF_COLORS.text)
       .text(
         'NOM-035-STPS-2018, numeral 6.5: el patrón debe implementar acciones para informar por escrito ' +
           'sobre el acontecimiento traumático severo al trabajador que lo experimentó o presenció, con los ' +
@@ -360,23 +349,15 @@ export default class TraumaticEventReportDocumentService {
     const employee = report.employee
 
     const fullName = person
-      ? [person.personFirstname, person.personLastname, person.personSecondLastname]
-          .filter(Boolean)
-          .join(' ') || '—'
-      : '—'
+      ? reportFullName(person.personFirstname, person.personLastname, person.personSecondLastname)
+      : ''
 
     const rows: Array<{ label: string; value: string }> = [
       { label: 'Nombre completo', value: fullName },
-      { label: 'Código de empleado', value: `${employee?.employeeCode ?? '—'}` },
-      {
-        label: 'Departamento',
-        value: (employee as any)?.department?.departmentName ?? '—',
-      },
-      {
-        label: 'Puesto',
-        value: (employee as any)?.position?.positionName ?? '—',
-      },
-      { label: 'CURP', value: person?.personCurp ?? '—' },
+      { label: 'Código de empleado', value: reportText(employee?.employeeCode) },
+      { label: 'Departamento', value: reportText(employee?.department?.departmentName) },
+      { label: 'Puesto', value: reportText(employee?.position?.positionName) },
+      { label: 'CURP', value: reportText(person?.personCurp) },
     ]
 
     this.renderFieldGrid(doc, margin, pageW, rows)
@@ -394,14 +375,12 @@ export default class TraumaticEventReportDocumentService {
   ) {
     this.renderSectionTitle(doc, margin, pageW, 'II. Datos del acontecimiento')
 
-    const occurredDisplay = report.traumaticEventReportOccurredAt
-      ? this.formatDateDmy(report.traumaticEventReportOccurredAt)
-      : '—'
+    const occurredDisplay = this.formatDateDmy(report.traumaticEventReportOccurredAt)
 
     const rows: Array<{ label: string; value: string }> = [
       {
         label: 'Tipo de acontecimiento traumático',
-        value: report.traumaticEventType?.traumaticEventTypeName ?? '—',
+        value: reportText(report.traumaticEventType?.traumaticEventTypeName),
       },
       { label: 'Fecha de ocurrencia', value: occurredDisplay },
       {
@@ -425,7 +404,7 @@ export default class TraumaticEventReportDocumentService {
   ) {
     this.renderSectionTitle(doc, margin, pageW, 'III. Descripción del acontecimiento')
 
-    const text = report.traumaticEventReportDescription?.trim() || '—'
+    const text = reportText(report.traumaticEventReportDescription)
 
     this.renderTextBlock(doc, margin, pageW, text)
     doc.moveDown(0.6)
@@ -442,7 +421,7 @@ export default class TraumaticEventReportDocumentService {
   ) {
     this.renderSectionTitle(doc, margin, pageW, 'IV. Personas involucradas')
 
-    const text = report.traumaticEventReportInvolvedPeople?.trim() || '—'
+    const text = reportText(report.traumaticEventReportInvolvedPeople)
 
     this.renderTextBlock(doc, margin, pageW, text)
     doc.moveDown(0.6)
@@ -478,13 +457,13 @@ export default class TraumaticEventReportDocumentService {
         .moveTo(lineXStart, sigLineY)
         .lineTo(lineXEnd, sigLineY)
         .lineWidth(0.8)
-        .strokeColor(BRAND_COLORS.border)
+        .strokeColor(PDF_COLORS.border)
         .stroke()
 
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(8.5)
-        .fillColor(BRAND_COLORS.textMuted)
+        .fillColor(PDF_COLORS.textMuted)
         .text(label, x, sigLineY + 5, {
           width: colW,
           align: 'center',
@@ -496,9 +475,9 @@ export default class TraumaticEventReportDocumentService {
 
     doc.moveDown(0.5)
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(8)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
         'Las firmas deben ser autógrafas. Este documento puede reproducirse con los mismos efectos.',
         margin,
@@ -514,40 +493,39 @@ export default class TraumaticEventReportDocumentService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Franja superior de marca — idéntica a `employee_lactation_compliance_report_service`.
+   * Encabezado neutral de cada página: nombre comercial del patrón en texto
+   * negro a la derecha (identifica al emisor del escrito; no es marca) y
+   * una línea delgada gris. Sin franja de color ni wordmark del producto.
+   *
+   * El cursor `doc.y` se restaura al terminar para evitar que un `text()`
+   * en coordenadas absolutas arrastre la Y y provoque una página en blanco.
    */
-  private renderBrandStrip(doc: PDFKit.PDFDocument, tradeName: string) {
-    const pageW = doc.page.width
-    const stripH = 24
+  private renderPageHeader(doc: PDFKit.PDFDocument, tradeName: string) {
     const margin = doc.page.margins.left
+    const pageW = doc.page.width - margin * 2
+    const ruleY = 38
     const savedY = doc.y
 
     doc.save()
-    doc.rect(0, 0, pageW, stripH).fill(BRAND_COLORS.primary)
-
-    doc
-      .font('Mulish-Bold')
-      .fontSize(10)
-      .fillColor(BRAND_COLORS.textLight)
-      .text(PRODUCT_WORDMARK, margin, 7, {
-        width: pageW / 2 - margin,
-        lineBreak: false,
-        height: 12,
-      })
-
     if (tradeName) {
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(9)
-        .fillColor(BRAND_COLORS.textLight)
-        .text(tradeName, pageW / 2, 8, {
-          width: pageW / 2 - margin,
+        .fillColor(PDF_COLORS.text)
+        .text(tradeName, margin, 24, {
+          width: pageW,
           align: 'right',
           lineBreak: false,
           ellipsis: true,
           height: 12,
         })
     }
+    doc
+      .moveTo(margin, ruleY)
+      .lineTo(margin + pageW, ruleY)
+      .lineWidth(0.5)
+      .strokeColor(PDF_COLORS.border)
+      .stroke()
     doc.restore()
     doc.y = savedY
   }
@@ -574,24 +552,24 @@ export default class TraumaticEventReportDocumentService {
       .moveTo(margin, bottomY)
       .lineTo(margin + pageW, bottomY)
       .lineWidth(0.5)
-      .strokeColor(BRAND_COLORS.borderLight)
+      .strokeColor(PDF_COLORS.border)
       .stroke()
 
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(7.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(
-        `Folio ${folio} · Generado ${generatedAt.toFormat('dd/LL/yyyy HH:mm')} (CDMX)`,
+        `Folio ${folio} · Generado ${formatReportGeneratedAt(generatedAt)}`,
         margin,
         bottomY + 8,
         { width: pageW / 2, align: 'left', lineBreak: false, height: 10 }
       )
 
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(7.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(`Página ${currentPage} / ${totalPages}`, margin + pageW / 2, bottomY + 8, {
         width: pageW / 2,
         align: 'right',
@@ -600,9 +578,9 @@ export default class TraumaticEventReportDocumentService {
       })
 
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(6.5)
-      .fillColor(BRAND_COLORS.textMuted)
+      .fillColor(PDF_COLORS.textMuted)
       .text(CONFIDENTIALITY_NOTE, margin, bottomY + 22, {
         width: pageW,
         align: 'center',
@@ -615,7 +593,7 @@ export default class TraumaticEventReportDocumentService {
   }
 
   /**
-   * Título de sección con acento primario.
+   * Título de sección en negrita, texto negro.
    */
   private renderSectionTitle(
     doc: PDFKit.PDFDocument,
@@ -624,9 +602,9 @@ export default class TraumaticEventReportDocumentService {
     title: string
   ) {
     doc
-      .font('Mulish-Bold')
+      .font(FONT_BOLD)
       .fontSize(10.5)
-      .fillColor(BRAND_COLORS.primary)
+      .fillColor(PDF_COLORS.text)
       .text(title, margin, doc.y, { width: pageW })
     doc.moveDown(0.3)
   }
@@ -654,9 +632,9 @@ export default class TraumaticEventReportDocumentService {
       }
 
       doc
-        .font('Mulish')
+        .font(FONT_REGULAR)
         .fontSize(8)
-        .fillColor(BRAND_COLORS.textMuted)
+        .fillColor(PDF_COLORS.textMuted)
         .text(row.label, x, doc.y, {
           width: colW - 8,
           lineBreak: false,
@@ -664,9 +642,9 @@ export default class TraumaticEventReportDocumentService {
         })
 
       doc
-        .font('Mulish-SemiBold')
+        .font(FONT_BOLD)
         .fontSize(9.5)
-        .fillColor(BRAND_COLORS.text)
+        .fillColor(PDF_COLORS.text)
         .text(row.value, x, doc.y + 11, {
           width: colW - 8,
           lineBreak: false,
@@ -697,14 +675,14 @@ export default class TraumaticEventReportDocumentService {
     doc
       .roundedRect(margin, blockY, pageW, textH, 4)
       .lineWidth(0.5)
-      .strokeColor(BRAND_COLORS.borderLight)
-      .fillAndStroke(BRAND_COLORS.bgSoft, BRAND_COLORS.borderLight)
+      .strokeColor(PDF_COLORS.border)
+      .fillAndStroke(PDF_COLORS.subheaderFill, PDF_COLORS.border)
     doc.restore()
 
     doc
-      .font('Mulish')
+      .font(FONT_REGULAR)
       .fontSize(9.5)
-      .fillColor(BRAND_COLORS.text)
+      .fillColor(PDF_COLORS.text)
       .text(text, margin + pad, blockY + pad, {
         width: textW,
         lineGap: 2,
@@ -716,25 +694,6 @@ export default class TraumaticEventReportDocumentService {
   // ---------------------------------------------------------------------------
   // Helpers
   // ---------------------------------------------------------------------------
-
-  /**
-   * Registra variantes Mulish con fallback a Helvetica si los TTF faltan
-   * (mismo mecanismo que `employee_lactation_compliance_report_service`).
-   */
-  private registerMulishFonts(doc: PDFKit.PDFDocument) {
-    try {
-      const baseDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ...FONTS_DIR_REL)
-      doc.registerFont('Mulish', path.join(baseDir, 'Mulish-Regular.ttf'))
-      doc.registerFont('Mulish-Bold', path.join(baseDir, 'Mulish-Bold.ttf'))
-      doc.registerFont('Mulish-SemiBold', path.join(baseDir, 'Mulish-SemiBold.ttf'))
-      doc.registerFont('Mulish-Italic', path.join(baseDir, 'Mulish-Italic.ttf'))
-    } catch {
-      doc.registerFont('Mulish', 'Helvetica')
-      doc.registerFont('Mulish-Bold', 'Helvetica-Bold')
-      doc.registerFont('Mulish-SemiBold', 'Helvetica-Bold')
-      doc.registerFont('Mulish-Italic', 'Helvetica-Oblique')
-    }
-  }
 
   /** Lee el nombre comercial del tenant activo para el encabezado del PDF. */
   private async fetchTradeName(): Promise<string> {
@@ -759,15 +718,15 @@ export default class TraumaticEventReportDocumentService {
 
   /** Formatea `DateTime` (date) → `dd/MM/aaaa`. */
   private formatDateDmy(value: DateTime | null | undefined): string {
-    if (!value) return '—'
-    return DateTime.isDateTime(value) ? value.toFormat('dd/LL/yyyy') : '—'
+    if (!value) return ''
+    return DateTime.isDateTime(value) ? value.toFormat('dd/LL/yyyy') : ''
   }
 
   /** Formatea `DateTime` (datetime) → `dd/MM/aaaa HH:mm`. */
   private formatDateTimeDmy(value: DateTime | null | undefined): string {
-    if (!value) return '—'
+    if (!value) return ''
     return DateTime.isDateTime(value)
       ? value.setZone(REPORT_TIMEZONE).toFormat('dd/LL/yyyy HH:mm')
-      : '—'
+      : ''
   }
 }

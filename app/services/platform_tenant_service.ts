@@ -13,10 +13,8 @@ import { PLATFORM_TENANT_ERROR_CODES } from '../constants/platform_tenant_error_
 import { PlatformTenantServiceError } from '../exceptions/platform_tenant_service_error.js'
 import { blindIndex } from '../utils/blind_index.js'
 import { toCalendarIsoDate } from '../utils/business_date.js'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '../utils/tenant_context.js'
-
-const PLATFORM_BILLING_PROFILE_UNSCOPE_REASON =
-  'consulta de perfil fiscal desde el landlord de plataforma (operador GSTI, sin tenant propio)'
 
 // ─── Tipos de retorno ─────────────────────────────────────────────────────────
 
@@ -428,7 +426,7 @@ export default class PlatformTenantService {
   ): Promise<TenantBillingProfileSnapshot | null> {
     const profile = await TenantContext.runUnscoped(
       () => TenantBillingProfile.query().where('businessUnitId', businessUnitId).first(),
-      PLATFORM_BILLING_PROFILE_UNSCOPE_REASON
+      TENANT_UNSCOPED_REASON.PLATFORM_BILLING_PROFILE
     )
 
     if (!profile) {
@@ -463,7 +461,7 @@ export default class PlatformTenantService {
 
     const profiles = await TenantContext.runUnscoped(
       () => TenantBillingProfile.query().whereIn('businessUnitId', businessUnitIds),
-      PLATFORM_BILLING_PROFILE_UNSCOPE_REASON
+      TENANT_UNSCOPED_REASON.PLATFORM_BILLING_PROFILE
     )
 
     const map: Record<number, TenantBillingCompleteness> = {}

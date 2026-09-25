@@ -40,6 +40,18 @@ router
       '/repse-registrations/:id',
       '#controllers/repse_registrations_controller.destroy'
     )
+    router.post(
+      '/repse-registrations/:id/constancia',
+      '#controllers/repse_registrations_controller.uploadConstancia'
+    )
+    router.put(
+      '/repse-registrations/:id/constancia',
+      '#controllers/repse_registrations_controller.uploadConstancia'
+    )
+    router.get(
+      '/repse-registrations/:id/constancia',
+      '#controllers/repse_registrations_controller.downloadConstancia'
+    )
   })
   .prefix('/api')
   .use(middleware.auth())

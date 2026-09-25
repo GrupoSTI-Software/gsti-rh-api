@@ -14,6 +14,8 @@ export interface RepseRegistrationCreatePayload {
   registeredAt: string
   expiresAt: string
   status?: RepseRegistrationStatus
+  /** Actividades ante la STPS; `null` o cadena vacía la dejan sin valor. */
+  activities?: string | null
 }
 
 export type RepseRegistrationUpdatePayload = Partial<RepseRegistrationCreatePayload>
@@ -57,6 +59,28 @@ function toIsoDateTimeString(value: unknown): string | null {
   return null
 }
 
+/** Texto libre: recorta y convierte la cadena vacía en `null`. */
+function normalizeActivities(value: string | null | undefined): string | null {
+  const trimmed = value?.trim() ?? ''
+  return trimmed.length > 0 ? trimmed : null
+}
+
+/** Metadata mínima de la constancia cargada; `null` si el registro no tiene. */
+export type RepseRegistrationConstanciaSerialized = {
+  fileName: string
+  uploadedAt: string | null
+} | null
+
+function serializeConstancia(row: RepseRegistration): RepseRegistrationConstanciaSerialized {
+  if (!row.constanciaStorageKey) {
+    return null
+  }
+  return {
+    fileName: row.constanciaFileName ?? '',
+    uploadedAt: toIsoDateTimeString(row.constanciaUploadedAt),
+  }
+}
+
 /** Estructura final que se entrega al cliente HTTP. */
 function serializeRepseRegistration(row: RepseRegistration) {
   return {
@@ -66,6 +90,8 @@ function serializeRepseRegistration(row: RepseRegistration) {
     registeredAt: toIsoDateString(row.registeredAt),
     expiresAt: toIsoDateString(row.expiresAt),
     status: row.status,
+    activities: row.activities,
+    constancia: serializeConstancia(row),
     repseRegistrationCreatedAt: toIsoDateTimeString(row.repseRegistrationCreatedAt),
     repseRegistrationUpdatedAt: toIsoDateTimeString(row.repseRegistrationUpdatedAt),
   }
@@ -134,6 +160,7 @@ export default class RepseRegistrationService {
       created.registeredAt = registeredAt
       created.expiresAt = expiresAt
       created.status = payload.status ?? 'active'
+      created.activities = normalizeActivities(payload.activities)
       created.useTransaction(trx)
       await created.save()
       return created
@@ -177,6 +204,9 @@ export default class RepseRegistrationService {
       current.registeredAt = registeredAt
       current.expiresAt = expiresAt
       current.status = targetStatus
+      if (payload.activities !== undefined) {
+        current.activities = normalizeActivities(payload.activities)
+      }
       current.repseRegistrationUpdatedAt = DateTime.now()
       current.useTransaction(trx)
       await current.save()

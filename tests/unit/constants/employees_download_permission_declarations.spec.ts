@@ -12,7 +12,7 @@ test.group('EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS', () => {
     assert,
   }) => {
     const keys = Object.keys(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 19)
+    assert.equal(keys.length, 18)
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
     for (const key of keys) {
       const decl =
@@ -36,7 +36,6 @@ test.group('EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS', () => {
     assert.equal(d.getVacationsUsedExcel.action, 'download-vacations-history')
     assert.equal(d.getVacationsSummaryExcel.action, 'download-vacations-summary')
     assert.equal(d.getVacationImportTemplate.action, 'download-vacation-import-template')
-    assert.equal(d.getPayrollFormat.action, 'download-payroll-format')
     assert.equal(d.getAttendanceByEmployee.action, 'download-attendance-by-employee')
     assert.equal(d.getAttendanceByPosition.action, 'download-attendance-by-position')
     assert.equal(d.getAttendanceByDepartment.action, 'download-attendance-by-department')

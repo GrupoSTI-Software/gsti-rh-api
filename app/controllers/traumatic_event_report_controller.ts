@@ -22,6 +22,7 @@ import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
+import { buildDownloadFileName, contentDisposition, formatDownloadFileDate } from '#helpers/download_file_name'
 
 const MODULE_SLUG = 'traumatic-event-reports'
 
@@ -625,7 +626,7 @@ export default class TraumaticEventReportController {
       response.header('Content-Type', 'application/pdf')
       response.header(
         'Content-Disposition',
-        `attachment; filename="escrito-evento-${reportId}.pdf"`
+        contentDisposition(buildDownloadFileName(['escrito-evento-traumatico', reportId], 'pdf'))
       )
       return response.send(pdfBuffer)
     } catch (error) {
@@ -702,11 +703,12 @@ export default class TraumaticEventReportController {
         async (maskSensitive) => service.renderRegistryPdf(items, filters, { maskSensitive })
       )
 
-      const dateTag = DateTime.now().setZone('America/Mexico_City').toFormat('yyyyLLdd')
       response.header('Content-Type', 'application/pdf')
       response.header(
         'Content-Disposition',
-        `attachment; filename="registro-eventos-traumaticos-${dateTag}.pdf"`
+        contentDisposition(
+          buildDownloadFileName(['registro-eventos-traumaticos', formatDownloadFileDate()], 'pdf')
+        )
       )
       return response.send(pdfBuffer)
     } catch (error) {
