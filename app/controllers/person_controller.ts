@@ -469,6 +469,15 @@ export default class PersonController {
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
+      // USRH1789698261614 — solo el correo personal, y va PRIMERO, igual que en
+      // la edición (`verifyInfo` consulta el correo antes que CURP/RFC/NSS): es
+      // lo que hace las dos respuestas idénticas byte a byte (CA-2) cuando el
+      // correo ocupado coincide con un duplicado de identidad de la empresa, y
+      // es el rechazo que no revela. Mismo emisor que el PUT. El errors[] de
+      // @adonisjs/lucid no se reescribe: no se llega a él.
+      if (isPersonEmailUniqueValidationError(error)) {
+        return respondPersonEmailNotAvailable(ctx)
+      }
       // USRH1789698261610 regla 6: el rechazo habla de negocio, nunca de BD.
       const duplicatedField = personIdentityDuplicatedFieldFromValidationError(error)
       if (duplicatedField) {
@@ -480,12 +489,6 @@ export default class PersonController {
           ctx,
           await racedIdentityField(racedField, i18n, identityRecheck)
         )
-      }
-      // USRH1789698261614 — solo el correo personal. Mismo emisor que el PUT, y
-      // por eso las dos respuestas son idénticas byte a byte (CA-2). El errors[]
-      // de @adonisjs/lucid no se reescribe: no se llega a él.
-      if (isPersonEmailUniqueValidationError(error)) {
-        return respondPersonEmailNotAvailable(ctx)
       }
       if (error.code === 'E_VALIDATION_ERROR') {
         const messageError = error.messages?.[0]?.message ?? 'Validation error'

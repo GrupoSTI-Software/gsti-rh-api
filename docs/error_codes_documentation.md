@@ -922,6 +922,8 @@ Cada intento al endpoint (exitoso o fallido) dispara un correo a la dirección c
 
 **Cuándo:** El correo personal capturado no puede registrarse en el expediente por la política de unicidad global de la plataforma. Se emite en los **dos** caminos de captura, `POST /api/persons` y `PUT /api/persons/:personId`, y **la respuesta es idéntica byte a byte en ambos**: mismo status, mismo cuerpo con el mismo orden de claves y el mismo conjunto de cabeceras.
 
+**Salvedad de alcance:** esa paridad aplica cuando el correo es el conflicto determinante —si el correo está ocupado y además hay un duplicado de identidad de la propia empresa, manda el rechazo del correo en los dos verbos—, y cada verbo pasa antes sus propios guards (la edición puede responder 403 por permiso de cambio de credencial antes de llegar a este rechazo).
+
 **Respuesta:**
 
 ```json

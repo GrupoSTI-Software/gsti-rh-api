@@ -207,6 +207,67 @@ test.group('Paridad del rechazo del correo personal (USRH1789698261614)', (group
     assert.isUndefined(post.headers()['x-ratelimit-limit'])
   })
 
+  test('CA-2 (escenario combinado) — correo ocupado + RFC duplicado en la propia empresa: los dos verbos siguen respondiendo el correo', async ({
+    assert,
+    client,
+  }) => {
+    const stamp = uniqueStamp()
+    const takenEmail = `parity-taken-${stamp}@gsti-tests.local`
+    const sharedRfc = `PARITYRFC${stamp.replace('-', '')}`
+
+    // La siembra del CA-2, repetida aquí: un expediente vivo en la empresa A con
+    // el correo que quedará ocupado globalmente y que los dos verbos probarán.
+    const seed = await createPerson(client, actorA, {
+      personFirstname: 'Parity',
+      personLastname: 'ComboSeed',
+      personEmail: takenEmail,
+    })
+    assert.equal(seed.status(), 201)
+
+    // Expediente propio en B con un RFC ÚNICO: ese RFC quedará duplicado dentro
+    // de B, así que el alta combinará correo ocupado + identidad duplicada.
+    const own = await createPerson(client, actorB, {
+      personFirstname: 'Parity',
+      personLastname: 'ComboOwn',
+      personEmail: `parity-own-${stamp}@gsti-tests.local`,
+      personRfc: sharedRfc,
+    })
+    assert.equal(own.status(), 201)
+    const ownId = own.body().data.person.personId as number
+
+    // Alta en B: correo ocupado (de A) + el RFC ya usado en B. Colisionan a la
+    // vez la unicidad global del correo y la unicidad de identidad por empresa.
+    const post = await createPerson(client, actorB, {
+      personFirstname: 'Parity',
+      personLastname: 'ComboProbe',
+      personEmail: takenEmail,
+      personRfc: sharedRfc,
+    })
+    // Edición en B sobre el expediente de ese RFC: mismo correo ocupado + su
+    // propio RFC (que `verifyInfo` excluye por ser el mismo expediente) + sus
+    // nombres, que `updatePersonValidator` exige.
+    const put = await client
+      .put(`/api/persons/${ownId}`)
+      .headers(businessUnitHeaders(actorB))
+      .loginAs(actorB.user)
+      .json({
+        personFirstname: 'Parity',
+        personLastname: 'ComboOwn',
+        personEmail: takenEmail,
+        personRfc: sharedRfc,
+      })
+
+    // Lo que prueba: cuando el correo ocupado coincide con un duplicado de
+    // identidad de la empresa, los dos verbos siguen respondiendo el rechazo del
+    // correo, no el de identidad.
+    assert.equal(post.status(), 422)
+    assert.equal(put.status(), 422)
+    // Byte a byte idénticos: la colisión combinada no rompe la paridad (CA-2).
+    assert.equal(JSON.stringify(post.body()), JSON.stringify(put.body()))
+    assert.equal(post.body()?.code, 'PERSON.IDENTITY.005')
+    assert.equal(put.body()?.code, 'PERSON.IDENTITY.005')
+  })
+
   test('CA-4 — alta legítima: sin el campo personEmail el alta procede (201)', async ({
     assert,
     client,
