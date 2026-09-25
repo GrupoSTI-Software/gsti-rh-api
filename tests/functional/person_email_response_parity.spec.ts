@@ -295,6 +295,10 @@ test.group('Paridad del rechazo del correo personal (USRH1789698261614)', (group
     })
     assert.equal(conMascara.status(), 422)
     assert.notEqual(conMascara.body()?.code, 'PERSON.IDENTITY.005')
+    // La validación específica de sintaxis/longitud/máscara sigue intacta y no la secuestra el rechazo del correo.
+    assert.equal(conMascara.body()?.type, 'validation_error')
+    assert.isArray(conMascara.body()?.errors)
+    assert.equal(conMascara.body()?.key, undefined)
 
     const demasiadoLargo = await createPerson(client, actorB, {
       personFirstname: 'Parity',
@@ -303,5 +307,9 @@ test.group('Paridad del rechazo del correo personal (USRH1789698261614)', (group
     })
     assert.equal(demasiadoLargo.status(), 422)
     assert.notEqual(demasiadoLargo.body()?.code, 'PERSON.IDENTITY.005')
+    // La validación específica de sintaxis/longitud/máscara sigue intacta y no la secuestra el rechazo del correo.
+    assert.equal(demasiadoLargo.body()?.type, 'validation_error')
+    assert.isArray(demasiadoLargo.body()?.errors)
+    assert.equal(demasiadoLargo.body()?.key, undefined)
   })
 })
