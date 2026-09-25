@@ -5,11 +5,12 @@ import db from '@adonisjs/lucid/services/db'
 import logger from '@adonisjs/core/services/logger'
 import mail from '@adonisjs/mail/services/main'
 import CredentialChangedMail from '#mails/credential_changed_mail'
+import RoleSystemPermission from '#models/role_system_permission'
+import SystemPermission from '#models/system_permission'
 import User from '#models/user'
 import { LogStore } from '#models/MongoDB/log_store'
 import { maskEmail } from '#services/credential_change_service'
 import UserService from '#services/user_service'
-import { grantRoleModulePermissions } from '#tests/helpers/tenant_actor'
 import {
   businessUnitHeader,
   cleanupMirrorWorld,
@@ -66,6 +67,27 @@ function captureLogs(): { logs: CapturedLog[]; restore: () => void } {
 async function createSessions(user: User): Promise<void> {
   await User.accessTokens.create(user)
   await User.refreshTokens.create(user)
+}
+
+async function removeCredentialChangePermission(roleId: number): Promise<void> {
+  const permission = await SystemPermission.query()
+    .where('system_permission_slug', 'credential-change')
+    .whereHas('systemModule', (query) => query.where('system_module_slug', 'users'))
+    .firstOrFail()
+
+  await RoleSystemPermission.query()
+    .where('role_id', roleId)
+    .where('system_permission_id', permission.systemPermissionId)
+    .delete()
+
+  const activeGrant = await RoleSystemPermission.query()
+    .whereNull('role_system_permission_deleted_at')
+    .where('role_id', roleId)
+    .where('system_permission_id', permission.systemPermissionId)
+    .first()
+  if (activeGrant) {
+    throw new Error('El actor limitado conserva users:credential-change')
+  }
 }
 
 async function tokenCount(userId: number): Promise<number> {
@@ -285,7 +307,7 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
     const fake = mail.fake()
     const captured = captureLogs()
     try {
-      await grantRoleModulePermissions(w.limited.role, 'users', ['update'])
+      await removeCredentialChangePermission(w.limited.role.roleId)
       const previousEmail = `sin-permiso-${stamp()}@correo.com`
       const person = await createPersonIn(w.registry, w.limited.businessUnit, previousEmail)
       const affected = await createUserFor(
@@ -414,14 +436,19 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
     const fake = mail.fake()
     const captured = captureLogs()
     try {
-      await grantRoleModulePermissions(w.limited.role, 'users', ['update'])
+      const actorWithoutPermission = w.limited
+      await removeCredentialChangePermission(actorWithoutPermission.role.roleId)
       const email = `campo-omitido-${stamp()}@correo.com`
-      const person = await createPersonIn(w.registry, w.limited.businessUnit, email)
+      const person = await createPersonIn(
+        w.registry,
+        actorWithoutPermission.businessUnit,
+        email
+      )
       const affected = await createUserFor(
         w.registry,
         person,
-        w.limited.role,
-        [w.limited.businessUnit],
+        actorWithoutPermission.role,
+        [actorWithoutPermission.businessUnit],
         { userEmail: email, userEmailType: 'personal' }
       )
       await createSessions(affected)
@@ -430,8 +457,8 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
 
       const response = await client
         .put(`/api/persons/${person.personId}`)
-        .loginAs(w.limited.user)
-        .headers(businessUnitHeader(w.limited.businessUnit))
+        .loginAs(actorWithoutPermission.user)
+        .headers(businessUnitHeader(actorWithoutPermission.businessUnit))
         .json({
           personFirstname: 'Nombre actualizado',
           personLastname: person.personLastname,
