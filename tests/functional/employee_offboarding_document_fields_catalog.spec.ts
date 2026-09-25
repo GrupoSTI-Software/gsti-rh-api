@@ -34,10 +34,16 @@ const FIXTURE_SLUG_PREFIX = 'catalogo-campos-'
 /** Tabla de `User.accessTokens`: `loginAs` deja tokens que hay que retirar antes del usuario. */
 const ACCESS_TOKENS_TABLE = 'api_tokens'
 
-/** Orden literal del catálogo (regla 6): empresa → colaborador → sistema. */
+/**
+ * Orden literal del catálogo (regla 6): empresa → colaborador → sistema. Las
+ * dos entradas de la empresa del convenio (USRH1789097550394) van en el bloque
+ * de empresa.
+ */
 const EXPECTED_KEYS_IN_ORDER = [
   'legal_name',
   'trade_name',
+  'legal_address',
+  'legal_representative_name',
   'employee_name',
   'position_name',
   'department_or_unit',
@@ -48,9 +54,11 @@ const EXPECTED_KEYS_IN_ORDER = [
   'issue_date',
 ]
 
-/** Los seis obligatorios en la plantilla (regla 4). */
+/** Los seis obligatorios en la plantilla (regla 4) más los dos del convenio. */
 const EXPECTED_REQUIRED_KEYS = [
   'legal_name',
+  'legal_address',
+  'legal_representative_name',
   'employee_name',
   'position_name',
   'hire_date',
@@ -60,6 +68,10 @@ const EXPECTED_REQUIRED_KEYS = [
 
 /** Los que provee el sistema: sin pantalla de captura. */
 const SYSTEM_PROVIDED_KEYS = ['seniority', 'folio', 'issue_date']
+
+/** Solo el membrete de la constancia (C-4) y solo el domicilio/representante del convenio (regla 3). */
+const SEPARATION_LETTER_ONLY_KEYS = ['trade_name']
+const TERMINATION_AGREEMENT_ONLY_KEYS = ['legal_address', 'legal_representative_name']
 
 /** Cinco propiedades por elemento, ni una más (nunca labelKey, captureTabLabelKey ni source). */
 const EXPECTED_DTO_KEYS = ['key', 'label', 'requiredInTemplate', 'documentTypes', 'captureTabLabel']
@@ -261,7 +273,7 @@ test.group('Catálogo de campos combinables (USRH1788579938623)', (group) => {
     await destroyFixtures(created.businessUnitIds, created.roleIds)
   })
 
-  test('CA-1: el catálogo completo, en orden, con sus seis obligatorios y sin campos internos', async ({
+  test('CA-1: el catálogo completo, en orden, con sus obligatorios y sin campos internos', async ({
     client,
     assert,
   }) => {
@@ -272,7 +284,7 @@ test.group('Catálogo de campos combinables (USRH1788579938623)', (group) => {
     first.assertStatus(200)
     const fields = fieldsOf(first.body() as FieldsBody)
 
-    assert.lengthOf(fields, 10)
+    assert.lengthOf(fields, 12)
     assert.deepEqual(
       fields.map((field) => field.key),
       EXPECTED_KEYS_IN_ORDER
@@ -283,7 +295,20 @@ test.group('Catálogo de campos combinables (USRH1788579938623)', (group) => {
     )
     for (const field of fields) {
       assert.sameMembers(Object.keys(field), EXPECTED_DTO_KEYS)
-      assert.deepEqual(field.documentTypes, [EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.SEPARATION_LETTER])
+      if (SEPARATION_LETTER_ONLY_KEYS.includes(field.key)) {
+        assert.deepEqual(field.documentTypes, [
+          EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.SEPARATION_LETTER,
+        ])
+      } else if (TERMINATION_AGREEMENT_ONLY_KEYS.includes(field.key)) {
+        assert.deepEqual(field.documentTypes, [
+          EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.TERMINATION_AGREEMENT,
+        ])
+      } else {
+        assert.sameMembers(field.documentTypes, [
+          EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.SEPARATION_LETTER,
+          EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.TERMINATION_AGREEMENT,
+        ])
+      }
       if (SYSTEM_PROVIDED_KEYS.includes(field.key)) {
         assert.isNull(field.captureTabLabel)
       } else {
@@ -301,7 +326,7 @@ test.group('Catálogo de campos combinables (USRH1788579938623)', (group) => {
     assert.strictEqual(JSON.stringify(second.body()), JSON.stringify(first.body()))
   })
 
-  test('CA-2: acotado por tipo devuelve los mismos diez; un tipo fuera del enum responde 400', async ({
+  test('CA-2: acotado por tipo devuelve solo los del tipo; un tipo fuera del enum responde 400', async ({
     client,
     assert,
   }) => {
@@ -313,13 +338,23 @@ test.group('Catálogo de campos combinables (USRH1788579938623)', (group) => {
     scoped.assertStatus(200)
     assert.deepEqual(
       fieldsOf(scoped.body() as FieldsBody).map((field) => field.key),
-      EXPECTED_KEYS_IN_ORDER
+      EXPECTED_KEYS_IN_ORDER.filter((key) => !TERMINATION_AGREEMENT_ONLY_KEYS.includes(key))
+    )
+    const agreement = await client
+      .get(FIELDS_PATH)
+      .qs({ documentType: EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.TERMINATION_AGREEMENT })
+      .loginAs(reader)
+      .header('X-Business-Unit-Id', businessUnit.businessUnitPublicId)
+    agreement.assertStatus(200)
+    assert.deepEqual(
+      fieldsOf(agreement.body() as FieldsBody).map((field) => field.key),
+      EXPECTED_KEYS_IN_ORDER.filter((key) => !SEPARATION_LETTER_ONLY_KEYS.includes(key))
     )
 
-    // Tipo que todavía no existe en la unión (llega con ESB-05-07-04)
+    // Tipo que no existe en la unión
     const unknown = await client
       .get(FIELDS_PATH)
-      .qs({ documentType: 'termination_agreement' })
+      .qs({ documentType: 'convenio' })
       .loginAs(reader)
       .header('X-Business-Unit-Id', businessUnit.businessUnitPublicId)
     unknown.assertStatus(400)

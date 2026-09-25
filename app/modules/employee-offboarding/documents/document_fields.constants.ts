@@ -27,14 +27,25 @@ export interface OffboardingDocumentField {
   requiredInTemplate: boolean
   /** Clave i18n de la pantalla de captura; `null` = lo provee el sistema. */
   captureTabLabelKey: string | null
-  /** Tipos de documento donde aplica (candado V-4: hoy solo la constancia). */
+  /** Tipos de documento donde aplica (candado V-4: los de importe llegan con ESB-05-07-16). */
   documentTypes: readonly EmployeeOffboardingDocumentType[]
   /** De dónde sale el valor (tabla.columna o cálculo). Trazabilidad interna: NUNCA viaja al cliente. */
   source: string
 }
 
-/** Hasta que exista el convenio (ESB-05-07-04), todo campo aplica solo a la constancia. */
+/** Campos comunes a la constancia y al convenio de terminación (USRH1789097550394). */
+const SHARED_DOCUMENT_TYPES = [
+  EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.SEPARATION_LETTER,
+  EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.TERMINATION_AGREEMENT,
+] as const
+
+/** Membrete de la constancia (C-4): el nombre comercial no entra al convenio. */
 const SEPARATION_LETTER_ONLY = [EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.SEPARATION_LETTER] as const
+
+/** Domicilio fiscal y representante legal: solo el convenio los imprime (regla 3). */
+const TERMINATION_AGREEMENT_ONLY = [
+  EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.TERMINATION_AGREEMENT,
+] as const
 
 /** Pantallas de captura, una clave i18n por pantalla (regla 8). */
 const CAPTURE_TAB = {
@@ -42,12 +53,15 @@ const CAPTURE_TAB = {
   EMPLOYEE_PERSONAL: 'employee_offboarding_document_field_capture_tab_employee_personal',
   EMPLOYEE_WORK: 'employee_offboarding_document_field_capture_tab_employee_work',
   TERMINATION_RECORD: 'employee_offboarding_document_field_capture_tab_termination_record',
+  /** Datos de facturación: solo el dueño de la cuenta los captura (D-6, USRH1789097550393). */
+  BILLING_DATA: 'employee_offboarding_document_field_capture_tab_billing_data',
 } as const
 
 /**
- * Las diez entradas iniciales (regla 3) en orden ESTABLE (regla 6): empresa
- * → colaborador → sistema. `as const satisfies`: la unión de claves se
- * DERIVA de la tupla y una entrada mal formada no compila.
+ * Las diez entradas iniciales (regla 3) más las dos del convenio de
+ * terminación (USRH1789097550394), en orden ESTABLE (regla 6): empresa →
+ * colaborador → sistema. `as const satisfies`: la unión de claves se DERIVA
+ * de la tupla y una entrada mal formada no compila.
  */
 export const OFFBOARDING_DOCUMENT_FIELDS = [
   {
@@ -55,7 +69,7 @@ export const OFFBOARDING_DOCUMENT_FIELDS = [
     labelKey: 'employee_offboarding_document_field_label_legal_name',
     requiredInTemplate: true,
     captureTabLabelKey: CAPTURE_TAB.SYSTEM_SETTINGS,
-    documentTypes: SEPARATION_LETTER_ONLY,
+    documentTypes: SHARED_DOCUMENT_TYPES,
     source: 'business_units.business_unit_legal_name',
   },
   {
@@ -67,11 +81,28 @@ export const OFFBOARDING_DOCUMENT_FIELDS = [
     source: 'system_settings.system_setting_trade_name',
   },
   {
+    key: 'legal_address',
+    labelKey: 'employee_offboarding_document_field_label_legal_address',
+    requiredInTemplate: true,
+    captureTabLabelKey: CAPTURE_TAB.BILLING_DATA,
+    documentTypes: TERMINATION_AGREEMENT_ONLY,
+    source:
+      'tenant_billing_profiles (calle, exterior, interior, colonia, municipio, estado, CP) en una línea',
+  },
+  {
+    key: 'legal_representative_name',
+    labelKey: 'employee_offboarding_document_field_label_legal_representative_name',
+    requiredInTemplate: true,
+    captureTabLabelKey: CAPTURE_TAB.BILLING_DATA,
+    documentTypes: TERMINATION_AGREEMENT_ONLY,
+    source: 'tenant_billing_profiles.tenant_billing_profile_legal_representative_name',
+  },
+  {
     key: 'employee_name',
     labelKey: 'employee_offboarding_document_field_label_employee_name',
     requiredInTemplate: true,
     captureTabLabelKey: CAPTURE_TAB.EMPLOYEE_PERSONAL,
-    documentTypes: SEPARATION_LETTER_ONLY,
+    documentTypes: SHARED_DOCUMENT_TYPES,
     source: 'people.person_firstname + person_lastname + person_second_lastname',
   },
   {
@@ -79,7 +110,7 @@ export const OFFBOARDING_DOCUMENT_FIELDS = [
     labelKey: 'employee_offboarding_document_field_label_position_name',
     requiredInTemplate: true,
     captureTabLabelKey: CAPTURE_TAB.EMPLOYEE_WORK,
-    documentTypes: SEPARATION_LETTER_ONLY,
+    documentTypes: SHARED_DOCUMENT_TYPES,
     source: 'positions.position_name',
   },
   {
@@ -87,7 +118,7 @@ export const OFFBOARDING_DOCUMENT_FIELDS = [
     labelKey: 'employee_offboarding_document_field_label_department_or_unit',
     requiredInTemplate: false,
     captureTabLabelKey: CAPTURE_TAB.EMPLOYEE_WORK,
-    documentTypes: SEPARATION_LETTER_ONLY,
+    documentTypes: SHARED_DOCUMENT_TYPES,
     source: 'departments.department_name, respaldo business_units.business_unit_legal_name',
   },
   {
@@ -95,7 +126,7 @@ export const OFFBOARDING_DOCUMENT_FIELDS = [
     labelKey: 'employee_offboarding_document_field_label_hire_date',
     requiredInTemplate: true,
     captureTabLabelKey: CAPTURE_TAB.EMPLOYEE_WORK,
-    documentTypes: SEPARATION_LETTER_ONLY,
+    documentTypes: SHARED_DOCUMENT_TYPES,
     source: 'employees.employee_hire_date',
   },
   {
@@ -103,7 +134,7 @@ export const OFFBOARDING_DOCUMENT_FIELDS = [
     labelKey: 'employee_offboarding_document_field_label_separation_date',
     requiredInTemplate: true,
     captureTabLabelKey: CAPTURE_TAB.TERMINATION_RECORD,
-    documentTypes: SEPARATION_LETTER_ONLY,
+    documentTypes: SHARED_DOCUMENT_TYPES,
     source:
       'employees.employee_terminated_date, respaldo employee_offboardings.employee_offboarding_planned_date',
   },
@@ -112,7 +143,7 @@ export const OFFBOARDING_DOCUMENT_FIELDS = [
     labelKey: 'employee_offboarding_document_field_label_seniority',
     requiredInTemplate: false,
     captureTabLabelKey: null,
-    documentTypes: SEPARATION_LETTER_ONLY,
+    documentTypes: SHARED_DOCUMENT_TYPES,
     source: 'calculado: años y meses cumplidos entre hire_date y separation_date',
   },
   {
@@ -120,7 +151,7 @@ export const OFFBOARDING_DOCUMENT_FIELDS = [
     labelKey: 'employee_offboarding_document_field_label_folio',
     requiredInTemplate: true,
     captureTabLabelKey: null,
-    documentTypes: SEPARATION_LETTER_ONLY,
+    documentTypes: SHARED_DOCUMENT_TYPES,
     source: 'employee_offboarding_documents.employee_offboarding_document_folio',
   },
   {
@@ -128,7 +159,7 @@ export const OFFBOARDING_DOCUMENT_FIELDS = [
     labelKey: 'employee_offboarding_document_field_label_issue_date',
     requiredInTemplate: false,
     captureTabLabelKey: null,
-    documentTypes: SEPARATION_LETTER_ONLY,
+    documentTypes: SHARED_DOCUMENT_TYPES,
     source: 'employee_offboarding_documents.employee_offboarding_document_created_at',
   },
 ] as const satisfies readonly OffboardingDocumentField[]

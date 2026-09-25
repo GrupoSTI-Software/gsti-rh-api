@@ -6,6 +6,7 @@ import {
 } from '#helpers/employee_offboarding_api_error'
 import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
+import { DOCUMENT_ISSUE_COPY_KEYS } from './documents.constants.js'
 import DocumentsService from './documents.service.js'
 import { issueOffboardingDocumentValidator } from './validators/issue_document.validator.js'
 import { listOffboardingDocumentsValidator } from './validators/list_documents.validator.js'
@@ -47,7 +48,7 @@ export default class DocumentsController {
    *         description: Incluye las emisiones reemplazadas (historial completo)
    *       - in: query
    *         name: documentType
-   *         schema: { type: string, enum: [separation_letter] }
+   *         schema: { type: string, enum: [separation_letter, termination_agreement] }
    *     responses:
    *       200:
    *         description: |
@@ -89,10 +90,13 @@ export default class DocumentsController {
    *     security:
    *       - bearerAuth: []
    *     tags: [Expediente de salida]
-   *     summary: Emite o re-emite la constancia de separación del expediente
+   *     summary: Emite o re-emite un documento del expediente (constancia de separación o convenio de terminación)
    *     description: |
    *       Solo con la baja ya ejecutada y con los datos obligatorios
-   *       capturados: si falta uno no se produce nada. Se emite cuantas
+   *       capturados: si falta uno no se produce nada. El convenio de
+   *       terminación (USRH1789097550394) imprime además el domicilio fiscal
+   *       y el representante legal de la empresa (Datos de facturación) y
+   *       lleva su propia serie de folio (CT-). Se emite cuantas
    *       veces haga falta (USRH1787433503692): cada emisión es una fila
    *       nueva con folio consecutivo bajo forUpdate, la anterior queda
    *       reemplazada (nunca se borra) y exactamente una queda vigente.
@@ -116,7 +120,7 @@ export default class DocumentsController {
    *             type: object
    *             required: [documentType]
    *             properties:
-   *               documentType: { type: string, enum: [separation_letter] }
+   *               documentType: { type: string, enum: [separation_letter, termination_agreement] }
    *     responses:
    *       201:
    *         description: Documento emitido en data.employeeOffboardingDocument (incluye templateVersionId y templateVersionNumber, null = plantilla del sistema)
@@ -129,7 +133,7 @@ export default class DocumentsController {
    *       422:
    *         description: Baja no ejecutada (key baja-no-ejecutada), dato faltante (key constancia-incompleta) o dato no imprimible con la tipografía de la plantilla propia (key dato-no-imprimible-en-la-plantilla, code OFFB.DOC.TEMPLATE_TEXT_UNRENDERABLE)
    *       500:
-   *         description: Fallo de render (constancia-no-generada), de almacenamiento (constancia-no-almacenada), plantilla propia vigente no recuperable (plantilla-vigente-no-recuperable, OFFB.DOC.TEMPLATE_UNAVAILABLE) o documento no producible sobre la plantilla propia (documento-no-generado-con-plantilla, OFFB.DOC.TEMPLATE_FILL_FAILED)
+   *         description: Fallo de render (constancia-no-generada), de almacenamiento (constancia-no-almacenada), plantilla propia vigente no recuperable (plantilla-vigente-no-recuperable, OFFB.DOC.TEMPLATE_UNAVAILABLE), documento no producible sobre la plantilla propia (documento-no-generado-con-plantilla, OFFB.DOC.TEMPLATE_FILL_FAILED) o datos fiscales de la empresa no consultables al emitir el convenio (datos-fiscales-no-disponibles, OFFB.DOC.FISCAL_IDENTITY_UNAVAILABLE)
    */
   async store({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
@@ -147,7 +151,8 @@ export default class DocumentsController {
         response,
         employeeOffboardingDocument,
         i18n.formatMessage('employee_offboarding_document_resource_title'),
-        i18n.formatMessage('employee_offboarding_document_issued_message'),
+        // Mensaje por tipo: emitir un convenio no responde con el copy de la constancia
+        i18n.formatMessage(DOCUMENT_ISSUE_COPY_KEYS[data.documentType].issuedMessage),
         201,
         'employeeOffboardingDocument'
       )
