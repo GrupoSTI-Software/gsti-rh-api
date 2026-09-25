@@ -819,17 +819,15 @@ export default class PersonController {
       if (identityCheck.status === 400) {
         return respondPersonIdentityMissingCompany(ctx)
       }
-      if (identityCheck.status === 422 && identityCheck.field !== 'email') {
-        return respondPersonIdentityDuplicated(ctx, identityCheck.field)
+      // USRH1789698261614 — la rama del correo llama al MISMO emisor que store:
+      // es lo que hace las respuestas idénticas byte a byte, y el emisor no
+      // recibe ningún dato de dominio, así que ningún camino puede pasarle
+      // algo que el otro no.
+      if (identityCheck.status === 422 && 'reason' in identityCheck) {
+        return respondPersonEmailNotAvailable(ctx)
       }
       if (identityCheck.status === 422) {
-        response.status(422)
-        return {
-          type: 'warning',
-          title: 'Dato duplicado',
-          message: 'Ya existe un trabajador con el mismo valor en: correo electrónico',
-          data: { ...data },
-        }
+        return respondPersonIdentityDuplicated(ctx, identityCheck.field)
       }
       const actor = emailMirrorActorFromContext(ctx)
       const personBirthdayPast = currentPerson.personBirthday

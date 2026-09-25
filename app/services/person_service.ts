@@ -216,13 +216,17 @@ export default class PersonService {
   }
 
   /**
-   * Verifica duplicados de identidad antes de guardar (USRH1789698261610).
+   * Comprueba los datos de identidad del expediente antes de escribirlo (USRH1789698261614).
    *
-   * RFC, CURP y NSS se comparan SOLO dentro de la empresa indicada (reglas 1 y 2);
-   * el correo personal se compara en todo el sistema, como hoy (regla 5). Sin
-   * empresa no hay veredicto: se informa y quien llama responde 400 (regla 10).
-   * Solo cuentan los vivos: la baja libera (regla 4). Ante varios choques se
-   * informa el primero (CURP, RFC, NSS, correo): el mensaje dice un dato y nada más.
+   * Devuelve una unión discriminada, no un cuerpo de respuesta: traducir a HTTP
+   * es del controlador, y en el caso del correo, del emisor único
+   * `respondPersonEmailNotAvailable` compartido con `POST /api/persons`, que es
+   * lo que hace que los dos caminos respondan byte a byte igual. El correo se
+   * comprueba GLOBAL a propósito (puede ser credencial) y precede a CURP/RFC/NSS:
+   * si coinciden ambos, responde el que no revela; nunca se acumulan. RFC, CURP y
+   * NSS se comparan SOLO dentro de la empresa indicada; sin empresa no hay
+   * veredicto: se informa y quien llama responde 400. Solo cuentan los vivos: la
+   * baja libera.
    */
   async verifyInfo(
     person: Person,
@@ -230,11 +234,18 @@ export default class PersonService {
   ): Promise<
     | { status: 200 }
     | { status: 400; missingCompany: true }
-    | { status: 422; field: 'curp' | 'rfc' | 'nss' | 'email' }
+    | { status: 422; field: 'curp' | 'rfc' | 'nss' }
+    | { status: 422; reason: 'email-not-available' }
   > {
     if (!businessUnitId) return { status: 400, missingCompany: true }
 
     const excludePersonId = person.personId > 0 ? person.personId : 0
+
+    if (person.personEmail && person.personEmail.trim() !== '') {
+      if (await personEmailExistsGlobally(person.personEmail, excludePersonId)) {
+        return { status: 422, reason: 'email-not-available' }
+      }
+    }
 
     if (person.personCurp && person.personCurp.trim() !== '') {
       const exists = await livePersonWithIdentityExists(
@@ -264,12 +275,6 @@ export default class PersonService {
         excludePersonId
       )
       if (exists) return { status: 422, field: 'nss' }
-    }
-
-    if (person.personEmail && person.personEmail.trim() !== '') {
-      if (await personEmailExistsGlobally(person.personEmail, excludePersonId)) {
-        return { status: 422, field: 'email' }
-      }
     }
 
     return { status: 200 }
