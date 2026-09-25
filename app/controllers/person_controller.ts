@@ -49,6 +49,7 @@ import {
   personSubjectRequiresCollaboratorWritePermission,
 } from '#constants/person_subject_type'
 import { ensureCredentialChangeAllowed } from '#helpers/credential_change_gate'
+import { logPersonEmailProbe } from '#helpers/person_email_probe_throttle'
 import { notifyAndAudit, revokeSessions } from '#services/credential_change_service'
 
 type IdentityRecheckTarget = { person: Person; companyId: number }
@@ -459,6 +460,8 @@ export default class PersonController {
       await request.validateUsing(createPersonValidator)
       const newPerson = await personService.create(person)
       if (newPerson) {
+        // Bitácora del intento (USRH1789762889970): best-effort, no altera la respuesta.
+        await logPersonEmailProbe(ctx, 'accepted')
         response.status(201)
         return {
           type: 'success',
@@ -476,6 +479,8 @@ export default class PersonController {
       // es el rechazo que no revela. Mismo emisor que el PUT. El errors[] de
       // @adonisjs/lucid no se reescribe: no se llega a él.
       if (isPersonEmailUniqueValidationError(error)) {
+        // Bitácora del intento (USRH1789762889970): best-effort, no altera la respuesta.
+        await logPersonEmailProbe(ctx, 'rejected_not_available')
         return respondPersonEmailNotAvailable(ctx)
       }
       // USRH1789698261610 regla 6: el rechazo habla de negocio, nunca de BD.
@@ -827,6 +832,8 @@ export default class PersonController {
       // recibe ningún dato de dominio, así que ningún camino puede pasarle
       // algo que el otro no.
       if (identityCheck.status === 422 && 'reason' in identityCheck) {
+        // Bitácora del intento (USRH1789762889970): best-effort, no altera la respuesta.
+        await logPersonEmailProbe(ctx, 'rejected_not_available')
         return respondPersonEmailNotAvailable(ctx)
       }
       if (identityCheck.status === 422) {
@@ -882,6 +889,8 @@ export default class PersonController {
         })
       }
       await personService.syncBirthdayCalendar(updatePerson, personBirthdayPast, person.personBirthday)
+      // Bitácora del intento (USRH1789762889970): best-effort, no altera la respuesta.
+      await logPersonEmailProbe(ctx, 'accepted')
       response.status(201)
       return {
         type: 'success',
