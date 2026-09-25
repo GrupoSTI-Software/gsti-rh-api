@@ -1941,12 +1941,16 @@ export default class EmployeeController {
         }
         return { updateEmployee: persisted, emailMirror: { outcome, revokedCount: 0 } }
       })
-      if (emailMirror.outcome.status === 'written') {
+      // Sin correo anterior no hay buzón que avisar ni imagen previa que auditar.
+      if (
+        emailMirror.outcome.status === 'written' &&
+        emailMirror.outcome.previousEmail !== null
+      ) {
         await notifyAndAudit({
           actorUserId: actorId,
           affectedUserId: emailMirror.outcome.targetId,
           origin: 'employee-file',
-          previousEmail: emailMirror.outcome.previousEmail!,
+          previousEmail: emailMirror.outcome.previousEmail,
           newEmail: updateEmployee.employeeBusinessEmail!.trim(),
           userEmailType: 'institutional',
           previousRecipients: previousEmailRecipients(emailMirror.outcome),

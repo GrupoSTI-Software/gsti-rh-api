@@ -10,7 +10,7 @@ export type CredentialChangeOrigin = 'person-file' | 'user-screen' | 'employee-f
 export interface CredentialChangeGateInput {
   readonly personId?: number
   readonly currentUser?: User
-  readonly incomingEmail: string | null | undefined
+  readonly incomingEmail: unknown
   readonly persistedEmailType: UserEmailTypeValue | null
   readonly origin?: CredentialChangeOrigin
 }
@@ -38,12 +38,16 @@ export async function ensureCredentialChangeAllowed(
   if (origin === 'person-file' && persistedEmailType !== 'personal') return true
   if (origin === 'employee-file' && persistedEmailType !== 'institutional') return true
 
-  if (normalizeEmail(persistedUser.userEmail) === incoming) return true
+  // Misma comparación que el `already-in-sync` del espejo (solo trim, sensible a
+  // mayúsculas): todo lo que el espejo llegue a escribir debe pasar por permiso.
+  if (persistedUser.userEmail === incoming) return true
 
   return ensureSecondaryPermission(ctx, USERS_PERMISSION_DECLARATIONS.credentialChange)
 }
 
-function normalizeEmail(value: string | null | undefined): string | null {
-  const normalized = (value ?? '').trim().toLowerCase()
-  return normalized.length > 0 ? normalized : null
+/** Corre antes de `validateUsing`: el cuerpo aún no está tipado y puede no ser texto. */
+function normalizeEmail(value: unknown): string | null {
+  if (typeof value !== 'string') return null
+  const trimmed = value.trim()
+  return trimmed.length > 0 ? trimmed : null
 }

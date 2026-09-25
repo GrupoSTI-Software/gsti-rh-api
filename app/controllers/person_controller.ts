@@ -817,12 +817,16 @@ export default class PersonController {
         }
         return { updatePerson: persisted, emailMirror: { outcome, revokedCount: 0 } }
       })
-      if (emailMirror.outcome.status === 'written') {
+      // Sin correo anterior no hay buzón que avisar ni imagen previa que auditar.
+      if (
+        emailMirror.outcome.status === 'written' &&
+        emailMirror.outcome.previousEmail !== null
+      ) {
         await notifyAndAudit({
           actorUserId: ctx.auth.user!.userId,
           affectedUserId: emailMirror.outcome.targetId,
           origin: 'person-file',
-          previousEmail: emailMirror.outcome.previousEmail!,
+          previousEmail: emailMirror.outcome.previousEmail,
           newEmail: person.personEmail!.trim(),
           userEmailType: 'personal',
           previousRecipients: previousEmailRecipients(emailMirror.outcome),

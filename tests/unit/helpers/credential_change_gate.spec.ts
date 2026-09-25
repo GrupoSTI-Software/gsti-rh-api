@@ -74,11 +74,40 @@ test('tipo persistido cruzado deja pasar sin pedir permiso', async ({ assert }) 
   assert.lengthOf(evaluations, 0)
 })
 
-test('correo ya sincronizado ignora mayusculas y espacios sin pedir permiso', async ({ assert }) => {
+test('correo ya sincronizado ignora espacios del entrante sin pedir permiso', async ({
+  assert,
+}) => {
   const { ctx, evaluations } = await gateContext({ allowed: false, reason: 'denied' })
   const ok = await ensureCredentialChangeAllowed(ctx, {
-    currentUser: currentUser('  Persona@Corp.MX  '),
-    incomingEmail: ' persona@corp.mx ',
+    currentUser: currentUser('persona@corp.mx'),
+    incomingEmail: '  persona@corp.mx  ',
+    persistedEmailType: 'personal',
+    origin: 'user-screen',
+  })
+
+  assert.isTrue(ok)
+  assert.lengthOf(evaluations, 0)
+})
+
+test('diferencia solo de mayusculas exige permiso como el espejo', async ({ assert }) => {
+  const { ctx, evaluations } = await gateContext({ allowed: false, reason: 'denied' })
+  const ok = await ensureCredentialChangeAllowed(ctx, {
+    currentUser: currentUser('persona@corp.mx'),
+    incomingEmail: ' Persona@Corp.MX ',
+    persistedEmailType: 'personal',
+    origin: 'user-screen',
+  })
+
+  assert.isFalse(ok)
+  assert.equal(ctx.response.getStatus(), 403)
+  assert.lengthOf(evaluations, 1)
+})
+
+test('correo entrante que no es texto deja la validacion al validador', async ({ assert }) => {
+  const { ctx, evaluations } = await gateContext({ allowed: false, reason: 'denied' })
+  const ok = await ensureCredentialChangeAllowed(ctx, {
+    currentUser: currentUser('persona@corp.mx'),
+    incomingEmail: 12345,
     persistedEmailType: 'personal',
     origin: 'user-screen',
   })

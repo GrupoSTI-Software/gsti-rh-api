@@ -91,11 +91,7 @@ async function removeCredentialChangePermission(roleId: number): Promise<void> {
 }
 
 async function tokenCount(userId: number): Promise<number> {
-  const row = await db
-    .from('api_tokens')
-    .where('tokenable_id', userId)
-    .count('* as total')
-    .first()
+  const row = await db.from('api_tokens').where('tokenable_id', userId).count('* as total').first()
   return Number(row?.total ?? 0)
 }
 
@@ -184,13 +180,10 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
       const previousEmail = `expediente-${stamp()}@correo.com`
       const newEmail = `nuevo-expediente-${stamp()}@correo.com`
       const person = await createPersonIn(w.registry, w.full.businessUnit, previousEmail)
-      const affected = await createUserFor(
-        w.registry,
-        person,
-        w.full.role,
-        [w.full.businessUnit],
-        { userEmail: previousEmail, userEmailType: 'personal' }
-      )
+      const affected = await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], {
+        userEmail: previousEmail,
+        userEmailType: 'personal',
+      })
       await createSessions(affected)
 
       const response = await putPerson(
@@ -225,13 +218,10 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
       const previousEmail = `usuario-${stamp()}@correo.com`
       const newEmail = `nuevo-usuario-${stamp()}@correo.com`
       const person = await createPersonIn(w.registry, w.full.businessUnit, previousEmail)
-      const affected = await createUserFor(
-        w.registry,
-        person,
-        w.full.role,
-        [w.full.businessUnit],
-        { userEmail: previousEmail, userEmailType: 'personal' }
-      )
+      const affected = await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], {
+        userEmail: previousEmail,
+        userEmailType: 'personal',
+      })
       await createSessions(affected)
 
       const response = await client
@@ -272,13 +262,10 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
         w.full.businessUnit,
         previousEmail
       )
-      const affected = await createUserFor(
-        w.registry,
-        person,
-        w.full.role,
-        [w.full.businessUnit],
-        { userEmail: previousEmail, userEmailType: 'institutional' }
-      )
+      const affected = await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], {
+        userEmail: previousEmail,
+        userEmailType: 'institutional',
+      })
       await createSessions(affected)
 
       const response = await client
@@ -300,6 +287,29 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
     } finally {
       captured.restore()
     }
+  })
+
+  test('personEmail que no es texto responde 422 y nunca 500', async ({ client, assert }) => {
+    const w = world!
+    const fake = mail.fake()
+    const previousEmail = `no-texto-${stamp()}@correo.com`
+    const person = await createPersonIn(w.registry, w.full.businessUnit, previousEmail)
+    const affected = await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], {
+      userEmail: previousEmail,
+      userEmailType: 'personal',
+    })
+
+    const response = await putPerson(
+      client,
+      person.personId,
+      personBody(person, { personEmail: 12345 })
+    )
+
+    response.assertStatus(422)
+    const userRow = await readUserRow(affected.userId)
+    assert.equal(userRow.user_email, previousEmail)
+    assert.equal(await readPersonEmail(person.personId), previousEmail)
+    fake.mails.assertNoneSent()
   })
 
   test('sin permiso responde 403 PERM.DENIED y no deja efectos', async ({ client, assert }) => {
@@ -361,13 +371,10 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
       )
       const previousEmail = `rollback-${stamp()}@correo.com`
       const person = await createPersonIn(w.registry, w.full.businessUnit, previousEmail)
-      const affected = await createUserFor(
-        w.registry,
-        person,
-        w.full.role,
-        [w.full.businessUnit],
-        { userEmail: previousEmail, userEmailType: 'personal' }
-      )
+      const affected = await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], {
+        userEmail: previousEmail,
+        userEmailType: 'personal',
+      })
       await createSessions(affected)
       const beforeTokens = await tokenCount(affected.userId)
 
@@ -399,13 +406,10 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
     try {
       const email = `sin-cambio-${stamp()}@correo.com`
       const person = await createPersonIn(w.registry, w.full.businessUnit, email)
-      const affected = await createUserFor(
-        w.registry,
-        person,
-        w.full.role,
-        [w.full.businessUnit],
-        { userEmail: email, userEmailType: 'personal' }
-      )
+      const affected = await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], {
+        userEmail: email,
+        userEmailType: 'personal',
+      })
       await createSessions(affected)
       const beforeTokens = await tokenCount(affected.userId)
 
@@ -439,11 +443,7 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
       const actorWithoutPermission = w.limited
       await removeCredentialChangePermission(actorWithoutPermission.role.roleId)
       const email = `campo-omitido-${stamp()}@correo.com`
-      const person = await createPersonIn(
-        w.registry,
-        actorWithoutPermission.businessUnit,
-        email
-      )
+      const person = await createPersonIn(w.registry, actorWithoutPermission.businessUnit, email)
       const affected = await createUserFor(
         w.registry,
         person,
@@ -531,13 +531,10 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
     const previousEmail = `rebote-${stamp()}@correo.com`
     const newEmail = `recibe-${stamp()}@correo.com`
     const person = await createPersonIn(w.registry, w.full.businessUnit, previousEmail)
-    const affected = await createUserFor(
-      w.registry,
-      person,
-      w.full.role,
-      [w.full.businessUnit],
-      { userEmail: previousEmail, userEmailType: 'personal' }
-    )
+    const affected = await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], {
+      userEmail: previousEmail,
+      userEmailType: 'personal',
+    })
     const attempted: string[] = []
     const mailSender = mail as unknown as MailSender
     const originalSend = mailSender.send
@@ -583,12 +580,7 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
     const secondEmail = `segundo-${stamp()}@empresa.com`
     const initialEmail = `inicial-${stamp()}@empresa.com`
     const person = await createPersonIn(w.registry, w.full.businessUnit, personalEmail)
-    const employee = await createEmployeeFor(
-      w.registry,
-      person,
-      w.full.businessUnit,
-      initialEmail
-    )
+    const employee = await createEmployeeFor(w.registry, person, w.full.businessUnit, initialEmail)
     await createUserFor(w.registry, person, w.full.role, [w.full.businessUnit], {
       userEmail: initialEmail,
       userEmailType: 'institutional',
@@ -669,7 +661,7 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
     }
   })
 
-  test('un fallo de registro deja logged false y conserva el éxito HTTP', async ({
+  test('si la escritura del registro lanza, conserva el éxito HTTP (logged solo significa intentado)', async ({
     client,
     assert,
   }) => {

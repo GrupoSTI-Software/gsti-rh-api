@@ -2257,12 +2257,16 @@ export default class UserController {
       })
 
       const rawHeaders = request.request.rawHeaders
-      if (emailMirror.outcome.status === 'written') {
+      // Sin correo anterior no hay buzón que avisar ni imagen previa que auditar.
+      if (
+        emailMirror.outcome.status === 'written' &&
+        emailMirror.outcome.previousEmail !== null
+      ) {
         await notifyAndAudit({
           actorUserId: actor.userId,
           affectedUserId: updateUser.userId,
           origin: 'user-screen',
-          previousEmail: emailMirror.outcome.previousEmail!,
+          previousEmail: emailMirror.outcome.previousEmail,
           newEmail: updateUser.userEmail.trim(),
           userEmailType: updateUser.userEmailType,
           previousRecipients: previousEmailRecipients(emailMirror.outcome),

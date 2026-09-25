@@ -261,7 +261,7 @@ test.group('credential_change_service.notifyAndAudit', (group) => {
     })
   })
 
-  test('un fallo del asiento no se relanza y deja logged false sin correos en logger', async ({
+  test('si la escritura del asiento lanza no se relanza y el contador no filtra correos', async ({
     assert,
   }) => {
     let counter: Record<string, unknown> | undefined
@@ -494,10 +494,37 @@ test.group('CredentialChangedMail', () => {
     assert.equal(current.message.nodeMailerMessage.subject, 'Así entras ahora a Valanserh')
   })
 
+  test('escribe la fecha del cambio en la zona y el idioma del destinatario', ({ assert }) => {
+    const previous = new CredentialChangedMail({
+      to: 'anterior@ejemplo.com',
+      from: 'no-reply@valanserh.local',
+      firstName: 'Juan',
+      variant: 'previous',
+      newEmailDisplay: 'n•••o@ejemplo.com',
+      changedAt: '2026-09-24T19:30:00.000Z',
+      loginUrl: '',
+      language: 'es',
+      branding: { tradeName: 'Valanserh', backgroundImageLogo: '' },
+    })
+    previous.prepare()
+
+    const data = previous.message.contentViews.html?.data ?? {}
+    assert.equal(data.changedAt, '24 de septiembre de 2026, 1:30 pm')
+    assert.include(String(data.bodyPrevious), '24 de septiembre de 2026, 1:30 pm')
+    assert.notInclude(String(data.bodyPrevious), '2026-09-24T19:30')
+  })
+
   test('renderiza la plantilla emails/credential_changed para ambas variantes', async ({
     assert,
   }) => {
+    const brandedView = {
+      subject: 'Tu correo de acceso a Valanserh cambió',
+      preheader: 'Aviso de seguridad sobre tu acceso',
+      tradeName: 'Valanserh',
+      backgroundImageLogo: 'https://ejemplo.com/logo.png',
+    }
     const previousHtml = await edge.render('emails/credential_changed', {
+      ...brandedView,
       isPreviousRecipient: true,
       titlePrevious: 'Tu correo de acceso cambió',
       titleCurrent: 'Tu acceso usa una dirección nueva',
@@ -513,6 +540,11 @@ test.group('CredentialChangedMail', () => {
       footer: 'Este es un mensaje automático de Valanserh.',
     })
 
+    assert.include(previousHtml, '<!DOCTYPE html>')
+    assert.include(previousHtml, '<title>Tu correo de acceso a Valanserh cambió</title>')
+    assert.include(previousHtml, 'Aviso de seguridad sobre tu acceso')
+    assert.include(previousHtml, 'src="https://ejemplo.com/logo.png"')
+    assert.include(previousHtml, 'alt="Valanserh"')
     assert.include(previousHtml, 'Tu correo de acceso cambió')
     assert.include(previousHtml, 'Hola, Juan:')
     assert.include(previousHtml, 'n•••o@ejemplo.com')
@@ -521,6 +553,7 @@ test.group('CredentialChangedMail', () => {
     assert.notInclude(previousHtml, 'Iniciar sesión')
 
     const currentHtml = await edge.render('emails/credential_changed', {
+      ...brandedView,
       isPreviousRecipient: false,
       titlePrevious: 'Tu correo de acceso cambió',
       titleCurrent: 'Tu acceso usa una dirección nueva',
@@ -544,5 +577,6 @@ test.group('CredentialChangedMail', () => {
     assert.include(currentHtml, 'https://app.valanserh.com')
     assert.include(currentHtml, 'Iniciar sesión')
     assert.notInclude(currentHtml, '¿No lo solicitaste?')
+    assert.include(currentHtml, 'src="https://ejemplo.com/logo.png"')
   })
 })

@@ -1,6 +1,8 @@
 import { BaseMail } from '@adonisjs/mail'
 import i18nManager from '@adonisjs/i18n/services/main'
-import { resolveMailLocale } from '#constants/mail_locale'
+import { DateTime } from 'luxon'
+import { resolveMailLocale, type MailLocale } from '#constants/mail_locale'
+import { MAIL_TIME_ZONE } from '#constants/mail_branding'
 
 export interface CredentialChangedMailBranding {
   tradeName: string
@@ -37,7 +39,9 @@ export default class CredentialChangedMail extends BaseMail {
       branding,
     } = this.params
     const isPreviousRecipient = variant === 'previous'
-    const i18n = i18nManager.locale(resolveMailLocale(language))
+    const locale = resolveMailLocale(language)
+    const i18n = i18nManager.locale(locale)
+    const changedAtLabel = formatChangedAt(changedAt, locale)
     const subject = i18n.formatMessage(
       isPreviousRecipient
         ? 'auth.credential_changed.subject_previous'
@@ -54,7 +58,7 @@ export default class CredentialChangedMail extends BaseMail {
         firstName,
         isPreviousRecipient,
         newEmailDisplay,
-        changedAt,
+        changedAt: changedAtLabel,
         loginUrl,
         subject,
         preheader: i18n.formatMessage('auth.credential_changed.preheader'),
@@ -63,7 +67,7 @@ export default class CredentialChangedMail extends BaseMail {
         greetingLead: i18n.formatMessage('auth.credential_changed.greeting_lead', { firstName }),
         bodyPrevious: i18n.formatMessage('auth.credential_changed.body_previous', {
           tradeName: branding.tradeName,
-          changedAt,
+          changedAt: changedAtLabel,
         }),
         bodyCurrent: i18n.formatMessage('auth.credential_changed.body_current', {
           tradeName: branding.tradeName,
@@ -83,4 +87,12 @@ export default class CredentialChangedMail extends BaseMail {
         }),
       })
   }
+}
+
+/** Fecha en la zona de los clientes y con am/pm en minúsculas, regla del producto. */
+function formatChangedAt(iso: string, locale: MailLocale): string {
+  const moment = DateTime.fromISO(iso, { zone: 'utc' }).setZone(MAIL_TIME_ZONE).setLocale(locale)
+  if (!moment.isValid) return iso
+  const pattern = locale === 'en' ? 'LLLL d, yyyy, h:mm' : "d 'de' LLLL 'de' yyyy, h:mm"
+  return `${moment.toFormat(pattern)} ${moment.hour < 12 ? 'am' : 'pm'}`
 }

@@ -1,6 +1,8 @@
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import logger from '@adonisjs/core/services/logger'
+import i18nManager from '@adonisjs/i18n/services/main'
 import mail from '@adonisjs/mail/services/main'
+import env from '#start/env'
 import ApiToken from '#models/api_token'
 import User from '#models/user'
 import type { UserEmailTypeValue } from '#constants/user_email_type'
@@ -8,6 +10,8 @@ import Ws from '#services/ws'
 import UserService from '#services/user_service'
 import CredentialChangedMail from '#mails/credential_changed_mail'
 import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { MAIL_BRAND_LOGO_URL, MAIL_BRAND_TRADE_NAME } from '#constants/mail_branding'
+import { resolveMailLocale } from '#constants/mail_locale'
 
 export type CredentialChangeOrigin = 'person-file' | 'user-screen' | 'employee-file'
 
@@ -108,13 +112,15 @@ export async function notifyAndAudit(params: NotifyAndAuditParams): Promise<void
 async function sendCredentialChangedMails(params: NotifyAndAuditParams): Promise<boolean> {
   const from = resolveMailSender()
   const branding = {
-    tradeName: 'Valanserh',
-    backgroundImageLogo:
-      'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png',
+    tradeName: MAIL_BRAND_TRADE_NAME,
+    backgroundImageLogo: MAIL_BRAND_LOGO_URL,
   }
   const firstName = await resolveFirstName(params.affectedUserId)
   const changedAt = new Date().toISOString()
-  const loginUrl = (process.env.APP_URL ?? '').replace(/\/$/, '')
+  const loginUrl = resolveLoginUrl(params.rawHeaders)
+  // El destinatario no es quien hace la petición (lo edita un administrador) y
+  // no hay idioma guardado por usuario: se decide en el punto único del producto.
+  const language = resolveMailLocale()
 
   let attemptedCount = 0
   let allSucceeded = true
@@ -131,7 +137,7 @@ async function sendCredentialChangedMails(params: NotifyAndAuditParams): Promise
           newEmailDisplay: maskEmail(params.newEmail),
           changedAt,
           loginUrl,
-          language: 'es',
+          language,
           branding,
         })
       )
@@ -157,7 +163,7 @@ async function sendCredentialChangedMails(params: NotifyAndAuditParams): Promise
           newEmailDisplay: params.newEmail,
           changedAt,
           loginUrl,
-          language: 'es',
+          language,
           branding,
         })
       )
@@ -175,6 +181,16 @@ async function sendCredentialChangedMails(params: NotifyAndAuditParams): Promise
   }
 
   return attemptedCount > 0 && allSucceeded
+}
+
+function resolveLoginUrl(rawHeaders: string[]): string {
+  const configured = env.get('APP_URL', '')
+  const origin = createUserService().getHeaderValue(rawHeaders, 'Origin') ?? ''
+  return (configured || origin).replace(/\/$/, '')
+}
+
+function createUserService(): UserService {
+  return new UserService(i18nManager.locale(resolveMailLocale()))
 }
 
 async function resolveFirstName(userId: number): Promise<string> {
@@ -235,7 +251,7 @@ function redactEmail(value: string): string {
 }
 
 async function writeCredentialChangeLog(params: NotifyAndAuditParams): Promise<void> {
-  const userService = Object.create(UserService.prototype) as UserService
+  const userService = createUserService()
   const logUser = userService.createActionLog(params.rawHeaders, 'credential-change')
 
   logUser.user_id = params.actorUserId
