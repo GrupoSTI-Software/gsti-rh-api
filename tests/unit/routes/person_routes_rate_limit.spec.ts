@@ -140,17 +140,47 @@ test.group('person_routes — piso de escritura y guard del sondeo', () => {
   })
 })
 
-test.group('person_routes — valores del limiter person-write', () => {
-  test("permite 40 cada '1 minute', por usuario con respaldo por IP", ({ assert }) => {
-    const content = readFileSync(ROUTES_FILE, 'utf-8')
+test.group('person_routes — el piso de escritura vive en el helper', () => {
+  test("las constantes del piso (40/'1 minute') viven en el helper, no en la ruta", ({ assert }) => {
+    const routes = readFileSync(ROUTES_FILE, 'utf-8')
+    const throttle = compact(readFileSync(THROTTLE_FILE, 'utf-8'))
 
-    // Los literales se comparan en espacio compacto (sin espacios ni saltos):
-    // el reflow de prettier rompe la contigüidad del texto crudo.
-    const compacted = compact(content)
+    // La ruta NO define un limiter de framework: `define`/`allowRequests` escriben
+    // `X-RateLimit-*` en TODA respuesta que atraviesa (también el 422 y el 201), y
+    // un rechazo por correo ocupado no debe delatar un throttler.
+    assert.notInclude(routes, "limiter.define('person-write'", 'la ruta no usa limiter.define')
+    assert.notInclude(routes, 'allowRequests', 'la ruta no usa allowRequests')
+    assert.notInclude(
+      routes,
+      'person-write:user:',
+      'la llave del piso se mudó al helper, no se queda en la ruta'
+    )
 
-    assert.include(compacted, compact("limiter.define('person-write'"))
-    assert.include(compacted, compact("limiter.allowRequests(40).every('1 minute')"))
-    assert.include(compacted, compact('person-write:user:${ctx.auth.user?.userId ?? ctx.request.ip()}'))
+    assert.include(throttle, compact('requests: 40'), 'el piso sigue siendo 40')
+    assert.include(throttle, compact("duration: '1 minute'"), "y su ventana, '1 minute'")
+  })
+
+  test('el helper consume la cuota con .consume( y la llave person-write:user: con respaldo de IP', ({
+    assert,
+  }) => {
+    const throttle = compact(readFileSync(THROTTLE_FILE, 'utf-8'))
+
+    assert.include(
+      throttle,
+      compact('.consume(key)'),
+      'consume lanza E_TOO_MANY_REQUESTS al agotarse: el handler lo traduce a 429'
+    )
+    assert.include(
+      throttle,
+      compact('person-write:user:${ctx.auth.user?.userId ?? ctx.request.ip()}'),
+      'llave por usuario con respaldo por IP'
+    )
+    // El middleware del framework es el que ensucia la respuesta: no debe volver.
+    assert.notInclude(
+      throttle,
+      "limiter.define('person-write'",
+      'el piso no se define con el limiter de framework'
+    )
   })
 
   test("NEGATIVA: 'penalize' no aparece en person_routes.ts ni en el throttle (CA-2)", ({

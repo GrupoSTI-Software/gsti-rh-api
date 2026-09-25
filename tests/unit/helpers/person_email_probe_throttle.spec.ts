@@ -13,9 +13,11 @@ import { blindIndex } from '#utils/blind_index'
 import {
   PERSON_EMAIL_PROBE_RATE,
   PERSON_EMAIL_PROBE_BUSINESS_RATE,
+  PERSON_WRITE_RATE,
   PersonEmailProbeThrottleMemory,
   PersonEmailProbeBusinessThrottleMemory,
   personEmailProbeGuard,
+  personWriteRateLimit,
   logPersonEmailProbe,
 } from '#helpers/person_email_probe_throttle'
 
@@ -296,6 +298,86 @@ test.group('personEmailProbeGuard — el intento y su corte', (group) => {
     assert.equal(captured.payload().outcome, 'rate_limited')
     assert.equal(captured.payload().actor_user_id, userId)
     assert.equal(captured.payload().path, 'update')
+  })
+})
+
+test.group('personWriteRateLimit — el piso de escritura sin cabeceras de framework', () => {
+  function makeNext(): { next: NextFn; calls: () => number } {
+    let calls = 0
+    const next: NextFn = async () => {
+      calls++
+    }
+    return { next, calls: () => calls }
+  }
+
+  async function makeWriteCtx(
+    userId: number | null
+  ): Promise<{ ctx: HttpContext; next: NextFn; calls: () => number }> {
+    const ctx = await testUtils.createHttpContext()
+    if (userId === null) {
+      ctx.auth = { user: null } as unknown as HttpContext['auth']
+    } else {
+      const actor = new User()
+      actor.userId = userId
+      ctx.auth = { user: actor } as HttpContext['auth']
+    }
+    const counter = makeNext()
+    return { ctx, next: counter.next, calls: counter.calls }
+  }
+
+  test('consume del store REAL: 40 pasan, el 41º lanza E_TOO_MANY_REQUESTS y otro usuario no paga', async ({
+    assert,
+  }) => {
+    assert.deepEqual(PERSON_WRITE_RATE, { requests: 40, duration: '1 minute' })
+
+    const userId = 8001001
+    for (let i = 0; i < PERSON_WRITE_RATE.requests; i++) {
+      const { ctx, next, calls } = await makeWriteCtx(userId)
+      await personWriteRateLimit(ctx, next)
+      assert.equal(calls(), 1, `la petición ${i + 1} pasa al siguiente middleware`)
+    }
+
+    const over = await makeWriteCtx(userId)
+    let caught: unknown
+    try {
+      await personWriteRateLimit(over.ctx, over.next)
+    } catch (error) {
+      caught = error
+    }
+    assert.equal(
+      (caught as { code?: string } | undefined)?.code,
+      'E_TOO_MANY_REQUESTS',
+      'la cuota agotada lanza E_TOO_MANY_REQUESTS (el handler lo traduce a 429)'
+    )
+    assert.equal(over.calls(), 0, 'el corte no llega al controlador')
+
+    // La llave es POR USUARIO: otro actor no paga el bloqueo del primero.
+    const otro = await makeWriteCtx(userId + 1)
+    await personWriteRateLimit(otro.ctx, otro.next)
+    assert.equal(otro.calls(), 1)
+  })
+
+  test('NO escribe cabeceras X-RateLimit-* ni Retry-After en la respuesta que atraviesa', async ({
+    assert,
+  }) => {
+    const { ctx, next, calls } = await makeWriteCtx(8002002)
+
+    await personWriteRateLimit(ctx, next)
+
+    assert.equal(calls(), 1)
+    assert.isUndefined(ctx.response.getHeader('X-RateLimit-Limit'))
+    assert.isUndefined(ctx.response.getHeader('X-RateLimit-Remaining'))
+    assert.isUndefined(ctx.response.getHeader('Retry-After'))
+    assert.isUndefined(ctx.response.getHeader('X-RateLimit-Reset'))
+  })
+
+  test('sin actor consume igual (llave por IP), sin escribir cabeceras', async ({ assert }) => {
+    const { ctx, next, calls } = await makeWriteCtx(null)
+
+    await personWriteRateLimit(ctx, next)
+
+    assert.equal(calls(), 1)
+    assert.isUndefined(ctx.response.getHeader('X-RateLimit-Limit'))
   })
 })
 

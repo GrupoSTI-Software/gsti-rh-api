@@ -1,29 +1,7 @@
 import router from '@adonisjs/core/services/router'
-import limiter from '@adonisjs/limiter/services/main'
 import { middleware } from '#start/kernel'
-import { personEmailProbeGuard } from '#helpers/person_email_probe_throttle'
+import { personEmailProbeGuard, personWriteRateLimit } from '#helpers/person_email_probe_throttle'
 import { EMPLOYEES_PERSON_COLLABORATOR_READ_PERMISSION } from '#constants/employees_read_permission_declarations'
-
-/**
- * Piso anti-automatización de la escritura de expedientes (USRH1789762889970).
- * Clave por usuario con respaldo por IP — NUNCA un cubo global único. Va DESPUÉS
- * de `auth()`, por eso `ctx.auth.user` está disponible.
- *
- * NO es el control del oráculo de existencia del correo personal: ése vive en
- * `#helpers/person_email_probe_throttle` y cuenta solo los intentos que traen
- * `personEmail`. Este cubo solo corta el guión automatizado.
- *
- * EFECTIVO HOY POR TOPOLOGÍA, NO POR DISEÑO: `config/limiter.ts:5` usa store
- * `memory`. Hoy corre UN solo proceso Node (`package.json` = `node bin/server.js`
- * sin cluster; sin Dockerfile, sin ecosystem, sin Procfile), así que el contador
- * es de facto global y el límite es real. EN CUANTO HAYA MÁS DE UN PROCESO pasa a
- * decorativo: el techo efectivo se multiplica por N en silencio, sin que falle
- * ninguna prueba, y se pierde en cada reinicio. Si se escala horizontalmente,
- * esto necesita un store compartido; no hay Redis en el repo.
- */
-const personWriteRateLimit = limiter.define('person-write', (ctx) => {
-  return limiter.allowRequests(40).every('1 minute').usingKey(`person-write:user:${ctx.auth.user?.userId ?? ctx.request.ip()}`)
-})
 
 // USRH1785766406726/USRH1787433076995 — regla C-13: `/api/persons` es superficie compartida
 // (colaborador y usuario del sistema; los destinos de aviación, incluido cliente, se

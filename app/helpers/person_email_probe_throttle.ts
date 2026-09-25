@@ -6,6 +6,50 @@ import PersonEmailProbeLogService from '#services/person_email_probe_log_service
 import { respondPersonEmailProbeRateLimit } from '#helpers/person_email_request_errors'
 
 /**
+ * Piso anti-automatización de la escritura de expedientes (USRH1789762889970).
+ * Clave por usuario con respaldo por IP — NUNCA un cubo global único. Va DESPUÉS
+ * de `auth()`, por eso `ctx.auth.user` está disponible.
+ *
+ * NO es el control del oráculo de existencia del correo personal: ése vive en
+ * este mismo módulo (`personEmailProbeGuard`) y cuenta solo los intentos que
+ * traen `personEmail`. Este cubo solo corta el guión automatizado.
+ *
+ * Se consume PROGRAMÁTICAMENTE con `limiter.use(...).consume(...)`, NO con
+ * `limiter.define(...)`: el middleware del framework escribe
+ * `X-RateLimit-Limit`/`X-RateLimit-Remaining` en TODA respuesta que atraviesa,
+ * incluidas las que no son 429, y un 422 por correo ocupado no debe delatar un
+ * throttler. Al agotarse la cuota `consume` LANZA `E_TOO_MANY_REQUESTS`, que
+ * `app/exceptions/handler.ts` traduce a 429 con las cabeceras de RFC 6585.
+ *
+ * EFECTIVO HOY POR TOPOLOGÍA, NO POR DISEÑO: `config/limiter.ts:5` usa store
+ * `memory`. Hoy corre UN solo proceso Node (`package.json` = `node bin/server.js`
+ * sin cluster; sin Dockerfile, sin ecosystem, sin Procfile), así que el contador
+ * es de facto global y el límite es real. EN CUANTO HAYA MÁS DE UN PROCESO pasa a
+ * decorativo: el techo efectivo se multiplica por N en silencio, sin que falle
+ * ninguna prueba, y se pierde en cada reinicio. Si se escala horizontalmente,
+ * esto necesita un store compartido; no hay Redis en el repo.
+ */
+export const PERSON_WRITE_RATE = {
+  requests: 40,
+  duration: '1 minute',
+} as const
+
+/**
+ * Piso anti-automatización de la escritura de expedientes, montado en `POST /` y
+ * `PUT /:personId` de `/api/persons`, antes de `personEmailProbeGuard`. Consume
+ * la cuota del piso por usuario (con respaldo por IP) y NO añade cabeceras: el
+ * 429, si toca, lo emite el handler a partir del `E_TOO_MANY_REQUESTS` que lanza
+ * `consume`.
+ */
+export async function personWriteRateLimit(ctx: HttpContext, next: NextFn): Promise<void> {
+  const key = `person-write:user:${ctx.auth.user?.userId ?? ctx.request.ip()}`
+  await limiter
+    .use({ requests: PERSON_WRITE_RATE.requests, duration: PERSON_WRITE_RATE.duration })
+    .consume(key)
+  return next()
+}
+
+/**
  * Contador del sondeo de correo personal (USRH1789762889970).
  *
  * Cuenta el INTENTO que carga un `personEmail` no vacío, no la petición: el
