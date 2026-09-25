@@ -1,3 +1,8 @@
+import {
+  TENANT_UNSCOPED_REASON,
+  type TenantUnscopedReason,
+} from '#constants/tenant_unscoped_reason'
+
 /**
  * Comandos ace de correos de celebración (cumpleaños y aniversario laboral).
  * Nombres preservados para no romper programación externa durante la transición al scheduler.
@@ -32,15 +37,17 @@ export type EmployeeCelebrationEmailKind =
   (typeof EMPLOYEE_CELEBRATION_EMAIL_KIND)[keyof typeof EMPLOYEE_CELEBRATION_EMAIL_KIND]
 
 /** Motivos auditables para TenantContext.runUnscoped en cada tipo de corrida. */
-export const EMPLOYEE_CELEBRATION_RUN_UNSCOPED_REASONS: Record<EmployeeCelebrationEmailKind, string> = {
-  [EMPLOYEE_CELEBRATION_EMAIL_KIND.BIRTHDAY_EMPLOYEE]:
-    'Correos de felicitación de cumpleaños por system setting activo',
+export const EMPLOYEE_CELEBRATION_RUN_UNSCOPED_REASONS: Record<
+  EmployeeCelebrationEmailKind,
+  TenantUnscopedReason
+> = {
+  [EMPLOYEE_CELEBRATION_EMAIL_KIND.BIRTHDAY_EMPLOYEE]: TENANT_UNSCOPED_REASON.EMPLOYEE_CELEBRATION,
   [EMPLOYEE_CELEBRATION_EMAIL_KIND.BIRTHDAY_HR_REMINDER]:
-    'Recordatorios de cumpleaños a RH por system setting activo',
+    TENANT_UNSCOPED_REASON.EMPLOYEE_CELEBRATION,
   [EMPLOYEE_CELEBRATION_EMAIL_KIND.ANNIVERSARY_EMPLOYEE]:
-    'Correos de felicitación de aniversario laboral por system setting activo',
+    TENANT_UNSCOPED_REASON.EMPLOYEE_CELEBRATION,
   [EMPLOYEE_CELEBRATION_EMAIL_KIND.ANNIVERSARY_HR_REMINDER]:
-    'Recordatorios de aniversario laboral a RH por system setting activo',
+    TENANT_UNSCOPED_REASON.EMPLOYEE_CELEBRATION,
 }
 
 /**

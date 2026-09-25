@@ -8,6 +8,7 @@ import AccessPoint from '#models/access_point'
 import AdmsIncident from '#models/adms_incident'
 import AdmsQuarantinedDevice from '#models/adms_quarantined_device'
 import BusinessUnit from '#models/business_unit'
+import { PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON } from '#constants/platform_device_access_point'
 import { TenantContext } from '#utils/tenant_context'
 import HealthService from '#modules/access-point/health/health.service'
 import { toIncidentDto } from '#modules/access-point/incidents/incidents.dto'
@@ -36,9 +37,6 @@ const dismissValidator = vine.compile(
     reason: vine.string().trim().minLength(3).maxLength(200),
   })
 )
-
-const UNSCOPED_REASON =
-  'plataforma: la vista global de equipos cruza todas las empresas por definicion'
 
 /**
  * Vista de plataforma sobre la flota (spec ADMS 11).
@@ -76,7 +74,7 @@ export default class PlatformDevicesController {
           })
         }
         return health
-      }, UNSCOPED_REASON)
+      }, PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON)
 
       return StandardResponseFormatter.success(
         response,
@@ -112,7 +110,7 @@ export default class PlatformDevicesController {
           AdmsQuarantinedDevice.query()
             .orderBy('adms_quarantined_device_last_seen_at', 'desc')
             .limit(300),
-        UNSCOPED_REASON
+        PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON
       )
 
       /**
@@ -129,7 +127,7 @@ export default class PlatformDevicesController {
           ),
           claimedTenants: await this.claimedTenantNames(rows),
         }),
-        UNSCOPED_REASON
+        PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON
       )
 
       return StandardResponseFormatter.success(
@@ -240,7 +238,7 @@ export default class PlatformDevicesController {
       row.admsQuarantinedDeviceDismissReason = payload.reason
       row.admsQuarantinedDeviceResolvedByUserId = auth.user?.userId ?? null
       row.admsQuarantinedDeviceResolvedAt = DateTime.utc()
-      await TenantContext.runUnscoped(() => row.save(), UNSCOPED_REASON)
+      await TenantContext.runUnscoped(() => row.save(), PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON)
 
       return StandardResponseFormatter.success(
         response,
@@ -290,7 +288,7 @@ export default class PlatformDevicesController {
       row.admsQuarantinedDeviceStatus = 'pending'
       row.admsQuarantinedDeviceFailedClaims = 0
       row.admsQuarantinedDeviceResolvedByUserId = auth.user?.userId ?? null
-      await TenantContext.runUnscoped(() => row.save(), UNSCOPED_REASON)
+      await TenantContext.runUnscoped(() => row.save(), PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON)
 
       return StandardResponseFormatter.success(
         response,
@@ -342,7 +340,7 @@ export default class PlatformDevicesController {
             )
             .orderBy('adms_incident_id', 'desc')
             .limit(300),
-        UNSCOPED_REASON
+        PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON
       )
 
       return StandardResponseFormatter.success(
@@ -384,7 +382,7 @@ export default class PlatformDevicesController {
           rawMessages: Number(raw[0].total ?? 0),
           commands: Number(commands[0].total ?? 0),
         }
-      }, UNSCOPED_REASON)
+      }, PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON)
 
       return StandardResponseFormatter.success(
         response,
@@ -405,7 +403,7 @@ export default class PlatformDevicesController {
         AdmsQuarantinedDevice.query()
           .where('adms_quarantined_device_id', quarantinedDeviceId)
           .first(),
-      UNSCOPED_REASON
+      PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON
     )
     if (row) return row
     const { AdmsError } = await import('#exceptions/adms_error')

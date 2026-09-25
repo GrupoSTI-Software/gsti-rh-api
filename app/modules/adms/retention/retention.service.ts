@@ -1,5 +1,6 @@
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import { ADMS_RAW_STATUS } from '#modules/adms/adms.constants'
 import { DEVICE_COMMAND_STATUS } from '#modules/device-commands/device_command.constants'
@@ -23,8 +24,6 @@ export interface PurgeResult {
  * La purga corre por proceso, no por peticion: su trabajo es de TODAS las
  * empresas, y el corte por tenant la dejaria sin ver nada.
  */
-const UNSCOPED_REASON = 'retencion ADMS: la purga corre sobre todas las empresas'
-
 /**
  * Borrado por plazo (spec ADMS 13.12).
  *
@@ -64,7 +63,7 @@ export default class RetentionService {
         .select('adms_raw_message_id')
 
       return this.deleteByIds('adms_raw_messages', 'adms_raw_message_id', ids)
-    }, UNSCOPED_REASON)
+    }, TENANT_UNSCOPED_REASON.ADMS_RETENTION)
   }
 
   /**
@@ -92,7 +91,7 @@ export default class RetentionService {
         .select('device_command_id')
 
       return this.deleteByIds('device_commands', 'device_command_id', ids)
-    }, UNSCOPED_REASON)
+    }, TENANT_UNSCOPED_REASON.ADMS_RETENTION)
   }
 
   /**
@@ -119,7 +118,7 @@ export default class RetentionService {
         'biometric_photo_publication_id',
         ids
       )
-    }, UNSCOPED_REASON)
+    }, TENANT_UNSCOPED_REASON.ADMS_RETENTION)
   }
 
   /**
@@ -141,7 +140,7 @@ export default class RetentionService {
           biometric_photo_publication_updated_at: format(now),
         })
       return Array.isArray(updated) ? updated.length : Number(updated)
-    }, UNSCOPED_REASON)
+    }, TENANT_UNSCOPED_REASON.ADMS_RETENTION)
   }
 
   /** Cuarentenas que dejaron de llamar. Las reclamadas no se tocan: son historia. */
@@ -162,7 +161,7 @@ export default class RetentionService {
         'adms_quarantined_device_id',
         ids
       )
-    }, UNSCOPED_REASON)
+    }, TENANT_UNSCOPED_REASON.ADMS_RETENTION)
   }
 
   private async deleteByIds(

@@ -39,6 +39,7 @@ import {
 } from '#helpers/person_identity_api_error'
 import { shouldAbortImportOnRowError } from '#helpers/employee_import_api_error'
 import { blindIndex } from '#utils/blind_index'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import BusinessUnit from '#models/business_unit'
 import EmployeeType from '#models/employee_type'
@@ -7466,7 +7467,7 @@ export default class EmployeeService {
           totalWorkDisabilityPeriods: periods,
           totalWorkDisabilityPeriodExpenses: expenses,
         }
-      }, 'purga masiva de empleados')
+      }, TENANT_UNSCOPED_REASON.EMPLOYEE_MASS_PURGE)
       const totalEmployeeAddresses = await EmployeeAddress.query()
         .count('* as total')
       const totalEmployeeSpouses = await EmployeeSpouse.query()
@@ -7595,7 +7596,7 @@ export default class EmployeeService {
         await WorkDisabilityPeriodExpense.query().delete()
         await WorkDisabilityPeriod.query().delete()
         await WorkDisability.query().delete()
-      }, 'purga masiva de empleados')
+      }, TENANT_UNSCOPED_REASON.EMPLOYEE_MASS_PURGE)
 
       // 24. Eliminar todas las relaciones en exception_requests
       await ExceptionRequest.query().delete()

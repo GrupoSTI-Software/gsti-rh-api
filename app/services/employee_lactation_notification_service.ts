@@ -13,6 +13,7 @@ import LactationExpiringMail, {
   type LactationExpiringMailRow,
 } from '#mails/lactation_expiring_mail'
 import mail from '@adonisjs/mail/services/main'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import { indexSystemSettingsByBusinessUnitSlug } from '#helpers/system_settings_by_business_unit'
 
@@ -117,7 +118,7 @@ export default class EmployeeLactationNotificationService {
   ): Promise<RunExpiringCheckResult> {
     return TenantContext.runUnscoped(
       () => this.executeExpiringCheck(logger),
-      'aviso de vencimientos de lactancia (cross-empresa)'
+      TENANT_UNSCOPED_REASON.LACTATION_EXPIRING
     )
   }
 

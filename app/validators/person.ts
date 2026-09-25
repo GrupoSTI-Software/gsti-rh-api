@@ -1,6 +1,7 @@
 import vine from '@vinejs/vine'
 import Person from '#models/person'
 import { blindIndex } from '#utils/blind_index'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
 import { noMaskCharRule } from './no_mask_char_rule.js'
@@ -27,7 +28,7 @@ export const createPersonValidator = vine.compile(
               .whereNull('person_deleted_at')
               .where('person_email_hash', blindIndex(value))
               .first(),
-          'person-identity: verificación global de correo personal (regla 5, USRH1789698261610)'
+          TENANT_UNSCOPED_REASON.PERSON_IDENTITY_UNIQUENESS
         )
         return !existing
       })

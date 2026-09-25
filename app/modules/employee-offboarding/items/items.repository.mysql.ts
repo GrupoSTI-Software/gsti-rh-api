@@ -6,6 +6,7 @@ import EmployeeOffboardingItemEvidence from '#models/employee_offboarding_item_e
 import EmployeeSupplie from '#models/employee_supplie'
 import OffboardingConcept from '#models/offboarding_concept'
 import User from '#models/user'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import type { ItemsRepository } from './items.repository.js'
 
@@ -59,7 +60,7 @@ export default class ItemsRepositoryMysql implements ItemsRepository {
           .where('offboarding_concept_id', offboardingConceptId)
           .where('business_unit_id', businessUnitId)
           .first(),
-      'concepto del pendiente por la empresa snapshoteada del expediente'
+      TENANT_UNSCOPED_REASON.OFFBOARDING_AUTHORIZED_SNAPSHOT
     )
   }
 
@@ -113,7 +114,7 @@ export default class ItemsRepositoryMysql implements ItemsRepository {
     return await TenantContext.runUnscoped(
       async () =>
         await Employee.query().withTrashed().where('employee_id', employeeId).first(),
-      'fecha de referencia del expediente: colaborador por id ya autorizado'
+      TENANT_UNSCOPED_REASON.OFFBOARDING_AUTHORIZED_SNAPSHOT
     )
   }
 

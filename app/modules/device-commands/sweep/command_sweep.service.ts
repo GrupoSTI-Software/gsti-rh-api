@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import DeviceCommandRepositoryMysql from '../device_command.repository.mysql.js'
 import {
@@ -41,9 +42,6 @@ export const ROSTER_RECHECK_MINUTES = 15
 
 export const COMMAND_SWEEP_BATCH_SIZE = 200
 
-const UNSCOPED_REASON =
-  'barrido de comandos: cierra lo colgado de todos los equipos, no de una empresa'
-
 /**
  * Cierra los comandos que quedaron colgados (spec ADMS 6.2).
  *
@@ -72,7 +70,7 @@ export default class CommandSweepService {
           ackedBefore: now.minus({ minutes: DEVICE_COMMAND_EVIDENCE_TIMEOUT_MINUTES }),
           limit,
         }),
-      UNSCOPED_REASON
+      TENANT_UNSCOPED_REASON.ADMS_COMMAND_SWEEP
     )
 
     let timedOut = 0
@@ -133,7 +131,7 @@ export default class CommandSweepService {
      */
     const revocationsClosed = await TenantContext.runUnscoped(
       () => this.roster.closeSilentRevocations(now),
-      UNSCOPED_REASON
+      TENANT_UNSCOPED_REASON.ADMS_COMMAND_SWEEP
     )
     const rosterRequested = await this.requestPendingRosters(now, limit)
 
@@ -177,7 +175,7 @@ export default class CommandSweepService {
      */
     await TenantContext.runUnscoped(
       () => this.pivots.updateStatus(command.accessPointEmployeeId as number, target),
-      UNSCOPED_REASON
+      TENANT_UNSCOPED_REASON.ADMS_COMMAND_SWEEP
     )
   }
 
@@ -195,7 +193,7 @@ export default class CommandSweepService {
             now.minus({ minutes: ROSTER_RECHECK_MINUTES }).toSQL({ includeOffset: false }) ?? ''
           )
           .limit(limit),
-      UNSCOPED_REASON
+      TENANT_UNSCOPED_REASON.ADMS_COMMAND_SWEEP
     )
 
     const seen = new Set<number>()

@@ -29,7 +29,7 @@ import RoleService from '#services/role_service'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { ensureEmployeeAssistWrite } from '#helpers/ensure_employee_assist_write'
 import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
-import { ASSIST_SYNC_RUN_UNSCOPED_REASON } from '#constants/assist_sync'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { resolveAssistApiError } from '#helpers/assist_api_error'
 import { AssistError } from '#exceptions/assist_error'
 import { TenantContext } from '#utils/tenant_context'
@@ -174,7 +174,7 @@ export default class AssistsController {
       const syncAssistsService = new SyncAssistsService(i18n)
       const result = await TenantContext.runUnscoped(
         () => syncAssistsService.synchronize(dateParamApi, page),
-        ASSIST_SYNC_RUN_UNSCOPED_REASON
+        TENANT_UNSCOPED_REASON.ASSIST_SYNC_ON_DEMAND
       )
       return response.status(200).json(result)
     } catch (error) {
@@ -294,7 +294,7 @@ export default class AssistsController {
       const  syncAssistsService = new SyncAssistsService(i18n)
       const result = await TenantContext.runUnscoped(
         () => syncAssistsService.synchronizeByEmployee(filters),
-        ASSIST_SYNC_RUN_UNSCOPED_REASON
+        TENANT_UNSCOPED_REASON.ASSIST_SYNC_ON_DEMAND
       )
       return response.status(200).json(result)
     } catch (error) {
