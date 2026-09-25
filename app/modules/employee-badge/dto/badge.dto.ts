@@ -8,6 +8,11 @@ import type { DateTime } from 'luxon'
 export interface BadgeEmployeeContext {
   employeeId: number
   businessUnitId: number
+  /**
+   * Token opaco del empleado (UUID, `NOT NULL` y único). Es lo único del
+   * empleado que puede ir en el nombre de un archivo descargable.
+   */
+  employeeSlug: string
   employeeBadgeToken: string | null
   personFirstname: string
   personLastname: string
@@ -26,6 +31,17 @@ export interface BadgeEmployeeContext {
   /** Espejo de `BadgePublicRow.businessUnitActive`: `business_unit_active = 1` y sin borrado logico. */
   businessUnitActive: boolean
   positionName: string | null
+  /** Nombre del departamento del empleado; `null` si no tiene. */
+  departmentName: string | null
+  /** Número de nómina (`employee_payroll_code`); `null` si no se capturó. */
+  payrollCode: string | null
+  /** Persona del empleado: registro al que se atribuye la lectura del NSS en la bitácora. */
+  personId: number
+  /**
+   * NSS descifrado. Solo viaja al render del gafete descargable, nunca al JSON
+   * (E1/E3); cada gafete que lo imprime deja asiento en la bitácora de PII.
+   */
+  nss: string | null
   repseFolio: string | null
   repseExpiresAt: DateTime | null
 }
@@ -55,17 +71,9 @@ export interface GafeteDto {
    * `true` solo cuando NO hay fotografia en el expediente. Deliberadamente
    * distinto de `fotoUrl === null`: con objetos privados la URL publica es
    * null aunque la foto exista. `fotoFaltante:false` + `fotoUrl:null` es la
-   * senal de "pidela por el endpoint autenticado".
-   *
-   * DEFECTO VIVO QUE ESTE CAMPO YA NO SENALA (declarado, no arreglado): los
-   * tres caminos de render descargable —PDF (E2), PNG (E5) y lote (E6)— arman
-   * la foto desde `buildRenderContext`, que sigue usando `resolvePhotoUrl` y
-   * por tanto recibe `null` para toda foto guardada como objeto privado. Antes
-   * de este cambio, `fotoFaltante:true` avisaba de rebote que ese gafete
-   * saldria sin retrato; ahora dice `false` y el render sigue igual de mudo.
-   * Arreglarlo es hacer que el render lea el binario por la misma via
-   * autenticada que `/api/employees/me/photo`, y esta fuera del alcance de la
-   * HU ESB-04-02-08-01.
+   * senal de "pidela por el endpoint autenticado". Los descargables (PDF,
+   * PNG y lote) no dependen de este campo: leen el binario por la clave
+   * guardada (`BadgeRenderContext.fotoPath`).
    */
   fotoFaltante: boolean
   empresa: string

@@ -1,3 +1,4 @@
+import type { AssetCharacteristicType } from '#modules/assets/assets.constants'
 import SupplieCaracteristic from '#models/supplie_caracteristic'
 import { SupplieCaracteristicFilterSearchInterface } from '../interfaces/supplie_caracteristic_filter_search_interface.js'
 
@@ -46,7 +47,7 @@ export default class SupplieCaracteristicService {
   static async create(data: {
     supplyTypeId: number
     supplieCaracteristicName: string
-    supplieCaracteristicType: 'text' | 'number' | 'date' | 'boolean' | 'radio' | 'file'
+    supplieCaracteristicType: AssetCharacteristicType
   }) {
     return await SupplieCaracteristic.create(data)
   }
@@ -57,7 +58,7 @@ export default class SupplieCaracteristicService {
   static async update(id: number, data: {
     supplyTypeId?: number
     supplieCaracteristicName?: string
-    supplieCaracteristicType?: 'text' | 'number' | 'date' | 'boolean' | 'radio' | 'file'
+    supplieCaracteristicType?: AssetCharacteristicType
   }) {
     const supplieCaracteristic = await SupplieCaracteristic.findOrFail(id)
     supplieCaracteristic.merge(data)

@@ -1,5 +1,7 @@
 import { HttpContext } from '@adonisjs/core/http'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { resolveStoredFileExtension } from '#helpers/stored_file_extension'
 import { inject } from '@adonisjs/core'
 import WorkDisabilityPeriod from '#models/work_disability_period'
 import WorkDisabilityPeriodService from '#services/work_disability_period_service'
@@ -929,13 +931,18 @@ export default class WorkDisabilityPeriodController {
         }
       }
 
-      const rawFileName = `incapacidad-${period.workDisabilityPeriodTicketFolio || workDisabilityPeriodId}`
-      const safeName = rawFileName.replace(/[^\w.\- ]/g, '_')
+      const fileName = buildDownloadFileName(
+        ['incapacidad', workDisabilityPeriodId],
+        resolveStoredFileExtension({
+          storedPath: period.workDisabilityPeriodFile,
+          contentType: object.contentType,
+        })
+      )
       const isSvg = (object.contentType || '').toLowerCase().includes('svg')
       const disposition = isSvg ? 'attachment' : 'inline'
 
       response.header('Content-Type', object.contentType || 'application/octet-stream')
-      response.header('Content-Disposition', `${disposition}; filename="${safeName}"`)
+      response.header('Content-Disposition', contentDisposition(fileName, disposition))
       response.header('Cache-Control', 'private, no-store')
       if (object.contentLength !== undefined) {
         response.header('Content-Length', String(object.contentLength))

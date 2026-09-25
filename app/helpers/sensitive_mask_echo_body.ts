@@ -26,9 +26,6 @@ export function neutralizeSensitiveMaskEchoInBody(
     const value = next[key]
     if (!isMaskEcho(value)) continue
 
-    const category = columnCategory.get(key)!
-    if (SensitiveAccessContext.canRead(category)) continue
-
     delete next[key]
     changed = true
   }

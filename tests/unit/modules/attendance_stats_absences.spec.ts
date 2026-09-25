@@ -138,6 +138,7 @@ function buildBundle(params: {
   return {
     employee: {
       employeeId: params.employeeId,
+      employeeSlug: `slug-${params.employeeId}`,
       employeeCode: null,
       employeePayrollCode: null,
       employeeFirstName: params.firstName,
@@ -160,6 +161,7 @@ function buildBundle(params: {
       businessUnit: null,
     },
     departmentName,
+    timeZone: 'America/Mexico_City',
     calendar: params.calendar,
   }
 }
@@ -280,7 +282,7 @@ function argsOf(calls: readonly RecordedCall[], name: string): unknown[][] {
 }
 
 /** Acceso completo a la plantilla, con el departamento por defecto de `buildBundle`. */
-const FULL_ROLE_SCOPE: EmployeeRoleScope = { departmentsList: [1], userResponsibleId: null }
+const FULL_ROLE_SCOPE: EmployeeRoleScope = { departmentsList: [1], includeUnassigned: true, userResponsibleId: null }
 const ORCHESTRATOR_FILTERS: AbsencesFilters = {
   startDay: START_DAY,
   endDay: END_DAY,
@@ -591,10 +593,10 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     })
 
     assert.deepEqual(response.employees, [
-      { employeeId: 1, firstName: 'Ana', lastName: 'López', secondLastName: 'Díaz', photo: 'fotos/1.jpg', positionName: 'Vigilante', departmentId: 3, departmentName: 'Ops' },
-      { employeeId: 2, firstName: 'Beto', lastName: null, secondLastName: null, photo: null, positionName: null, departmentId: null, departmentName: null },
-      { employeeId: 3, firstName: 'Carla', lastName: 'Prueba', secondLastName: null, photo: null, positionName: 'Cajera', departmentId: 1, departmentName: 'Ventas' },
-      { employeeId: 4, firstName: '', lastName: 'Zeta', secondLastName: null, photo: null, positionName: null, departmentId: 1, departmentName: null },
+      { employeeId: 1, employeeSlug: 'slug-1', firstName: 'Ana', lastName: 'López', secondLastName: 'Díaz', photo: 'fotos/1.jpg', positionName: 'Vigilante', departmentId: 3, departmentName: 'Ops' },
+      { employeeId: 2, employeeSlug: 'slug-2', firstName: 'Beto', lastName: null, secondLastName: null, photo: null, positionName: null, departmentId: null, departmentName: null },
+      { employeeId: 3, employeeSlug: 'slug-3', firstName: 'Carla', lastName: 'Prueba', secondLastName: null, photo: null, positionName: 'Cajera', departmentId: 1, departmentName: 'Ventas' },
+      { employeeId: 4, employeeSlug: 'slug-4', firstName: '', lastName: 'Zeta', secondLastName: null, photo: null, positionName: null, departmentId: 1, departmentName: null },
     ])
   })
 
@@ -804,7 +806,7 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     }
 
     // Sin acceso completo: solo a quienes tiene a cargo, resueltos sobre los calendarios del universo.
-    const responsible = await run({ departmentsList: [], userResponsibleId: USER_ID }, [2])
+    const responsible = await run({ departmentsList: [], includeUnassigned: false, userResponsibleId: USER_ID }, [2])
     assert.deepEqual(
       argsOf(responsible.calls, 'resolveEmployeeRoleScope').map(([userId]) => userId),
       [USER_ID]
@@ -823,7 +825,7 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     assert.deepEqual(responsible.result.data?.branches, [BRANCH_REFS.b])
 
     // Con acceso completo: los de sus departamentos visibles.
-    const byDepartment = await run({ departmentsList: [9], userResponsibleId: null })
+    const byDepartment = await run({ departmentsList: [9], includeUnassigned: true, userResponsibleId: null })
     assert.deepEqual(byDepartment.result.data?.days[0], {
       day: START_DAY,
       entries: [{ employeeId: 1, branchOfficeId: BRANCH_A }],

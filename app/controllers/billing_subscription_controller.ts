@@ -312,7 +312,7 @@ export default class BillingSubscriptionController {
    *       reemplazada no se borra: queda `canceled`, consultable con su trato,
    *       sus fechas y sus pagos.
    *       `discountCode` es opcional (USRH1787714804401): si viene, el código debe
-   *       ser canjeable hoy (misma regla que `GET .../discount-codes/:text/quote`);
+   *       ser canjeable hoy (misma regla que `POST .../discount-codes/quote`);
    *       el precio con el descuento se congela en `contracted_*`, las condiciones
    *       del código y los totales sin código quedan congelados en columnas propias,
    *       y el cupo del código se consume en uno, todo en la misma transacción del

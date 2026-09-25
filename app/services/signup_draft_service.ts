@@ -26,6 +26,7 @@ import { resolveBillingSubscriptionApiError } from '#helpers/billing_subscriptio
 import { planNotSelectedError } from '#helpers/billing_tenant_error'
 import { BillingSubscriptionServiceError } from '#exceptions/billing_subscription_service_error'
 import TenantRoleProvisioningService from '#services/tenant_role_provisioning_service'
+import BranchOfficeProvisioningService from '#services/branch_office_provisioning_service'
 
 export interface StartSignupData {
   firstName: string
@@ -403,6 +404,12 @@ export default class SignupDraftService {
           },
           trx
         )
+
+        // Sucursal default de la empresa nueva: destino garantizado de todo
+        // empleado que no traiga sucursal propia. Va en la misma transacción
+        // (fail-closed): un tenant sin default rompería la invariante desde
+        // el primer empleado.
+        await BranchOfficeProvisioningService.ensureDefault(trxBusinessUnit.businessUnitId, trx)
 
         const trxSubscription = await billingSubscriptionService.createSubscription(
           {

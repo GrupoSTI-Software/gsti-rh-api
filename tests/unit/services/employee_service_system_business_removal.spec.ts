@@ -2,7 +2,6 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from '@japa/runner'
 import i18nManager from '@adonisjs/i18n/services/main'
-import { TenantContext } from '#utils/tenant_context'
 import Employee from '#models/employee'
 import BusinessUnit from '#models/business_unit'
 import EmployeeService from '#services/employee_service'
@@ -19,8 +18,8 @@ import { DateTime } from 'luxon'
 /**
  * USRH1783821206455 — retiro de las 3 últimas lecturas funcionales de
  * `SYSTEM_BUSINESS` en el servicio de empleados: límite de empleados,
- * identificador biométrico y color de exportes. Verificado contra BD real
- * (BU1=sae / BU6=cima ya tienen `system_settings` con colores distintos).
+ * identificador biométrico y color de exportes (este último se retiró por
+ * completo con el formato neutral de descargables). Verificado contra BD real.
  */
 
 const EMPLOYEE_SERVICE_FILE = join(process.cwd(), 'app/services/employee_service.ts')
@@ -171,29 +170,17 @@ test.group('verifyEmployeeLimit — cupo contratado (BD real)', (group) => {
   })
 })
 
-test.group('getActiveBusinessUnitColor — de la unidad seleccionada, no de la lista global', () => {
-  test('BU1 (sae) resuelve el color de su propio system_setting', async ({ assert }) => {
-    const service = getService()
-    const color = await TenantContext.run([1], () =>
-      (service as any).getActiveBusinessUnitColor()
-    )
-    assert.equal(color, 'FF0A3057')
-  })
-
-  test('BU6 (cima) resuelve un color distinto al de BU1', async ({ assert }) => {
-    const service = getService()
-    const color = await TenantContext.run([6], () =>
-      (service as any).getActiveBusinessUnitColor()
-    )
-    assert.equal(color, 'FF004E80')
-  })
-
-  test('sin unidad seleccionada, cae al color por defecto (nunca a la lista global)', async ({
-    assert,
-  }) => {
-    const service = getService()
-    const color = await (service as any).getActiveBusinessUnitColor()
-    assert.equal(color, 'FFD6FFDC')
+// Los descargables salen en formato neutral (2026-09-22): el servicio ya no
+// resuelve el color ni el logo de la empresa, así que la lectura del color por
+// unidad desapareció junto con su dependencia de la lista global.
+test.group('exportes de empleados — formato neutral, sin color ni logo de la empresa', () => {
+  test('el servicio no lee el color de marca ni inserta logos', ({ assert }) => {
+    const content = readFileSync(EMPLOYEE_SERVICE_FILE, 'utf-8')
+    assert.notInclude(content, 'getActiveBusinessUnitColor')
+    assert.notInclude(content, 'systemSettingSidebarColor')
+    assert.notInclude(content, 'addImageLogo')
+    assert.notInclude(content, 'BACKGROUND_IMAGE_LOGO')
+    assert.notInclude(content, 'worksheet.addImage')
   })
 })
 

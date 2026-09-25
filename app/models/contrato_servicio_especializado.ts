@@ -12,8 +12,15 @@ import RepseSpecializedService from '#models/repse_specialized_service'
 import DocumentoContratoEspecializado from '#models/documento_contrato_especializado'
 import VersionContratoEspecializado from '#models/version_contrato_especializado'
 import AsignacionContratoEspecializado from '#models/asignacion_contrato_especializado'
-import { todayInBusinessZone, toBusinessDateString, toCalendarIsoDate, isBusinessCalendarDateBefore } from '#utils/business_date'
+import {
+  todayInBusinessZone,
+  toBusinessDateString,
+  toCalendarIsoDate,
+  isBusinessCalendarDateBefore,
+  daysBetweenBusinessDates,
+} from '#utils/business_date'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { CONTRATO_POR_VENCER_UMBRAL_DIAS } from '#constants/contrato_servicio_especializado'
 
 export type ContratoServicioEspecializadoEstatus =
   | 'borrador'
@@ -28,6 +35,18 @@ export type EstatusEfectivoResult = {
 
 /** Alias en `$extras` de la subconsulta al documento firmado vigente. */
 export const DOC_FECHA_VENCIMIENTO_EXTRA = 'doc_fecha_vencimiento'
+
+/** Alias en `$extras` de los datos de tarjeta (ver `withResumenTarjeta`). */
+export const TRABAJADORES_ASIGNADOS_EXTRA = 'trabajadores_asignados'
+export const TRABAJADORES_DECLARADOS_EXTRA = 'trabajadores_declarados'
+export const TIENE_DOCUMENTO_FIRMADO_EXTRA = 'tiene_documento_firmado'
+
+export type VencimientoContratoResult = {
+  /** Estatus efectivo `vigente` y `fechaFin` a ≤ `CONTRATO_POR_VENCER_UMBRAL_DIAS` días. */
+  porVencer: boolean
+  /** Días civiles de hoy a `fechaFin` (zona de negocio); `null` si no está vigente o no tiene fin. */
+  diasParaVencer: number | null
+}
 
 /**
  * Contrato B2B de servicios especializados REPSE (anexo 15-D LFT).
@@ -147,6 +166,18 @@ export default class ContratoServicioEspecializado extends compose(
     ).estatus
   }
 
+  /** Ver `computeVencimiento`. Requiere los `$extras` de `withDocumentoVigenteFechaVencimiento`. */
+  get porVencer(): boolean {
+    return ContratoServicioEspecializado.computeVencimiento(this.estatusEfectivo, this.fechaFin)
+      .porVencer
+  }
+
+  /** Ver `computeVencimiento`. */
+  get diasParaVencer(): number | null {
+    return ContratoServicioEspecializado.computeVencimiento(this.estatusEfectivo, this.fechaFin)
+      .diasParaVencer
+  }
+
   get vencidoPorFecha(): boolean {
     return ContratoServicioEspecializado.computeEstatusEfectivo(
       this.estatus,
@@ -200,6 +231,113 @@ export default class ContratoServicioEspecializado extends compose(
   ) {
     const sub = this.sqlSubqueryDocumentoVigenteFechaVencimiento()
     return query.select(`${this.table}.*`).select(db.raw(`${sub} as ${DOC_FECHA_VENCIMIENTO_EXTRA}`))
+  }
+
+  /**
+   * "Por vencer" a partir del estatus EFECTIVO: solo un contrato `vigente` con
+   * `fechaFin` puede estarlo. Días en calendario civil de la zona de negocio.
+   */
+  static computeVencimiento(
+    estatusEfectivo: ContratoServicioEspecializadoEstatus,
+    fechaFin: DateTime | null,
+    hoy: DateTime = todayInBusinessZone()
+  ): VencimientoContratoResult {
+    const fechaFinIso = fechaFin?.toISODate() ?? null
+    if (estatusEfectivo !== 'vigente' || !fechaFinIso) {
+      return { porVencer: false, diasParaVencer: null }
+    }
+
+    const diasParaVencer = daysBetweenBusinessDates(toBusinessDateString(hoy), fechaFinIso)
+    return { porVencer: diasParaVencer <= CONTRATO_POR_VENCER_UMBRAL_DIAS, diasParaVencer }
+  }
+
+  /**
+   * Agrega en `$extras`, con subconsultas correlacionadas (sin N+1), los datos
+   * de la tarjeta del contrato además de la fecha del documento vigente:
+   *
+   * - `TRABAJADORES_ASIGNADOS_EXTRA`: trabajadores distintos con asignación no
+   *   borrada y vigente en `hoyIso` (misma regla que `AsignacionContratoEspecializado.vigentesEn`).
+   * - `TRABAJADORES_DECLARADOS_EXTRA`: `numeroTrabajadoresAprox` del anexo 15-D (0 si no hay).
+   * - `TIENE_DOCUMENTO_FIRMADO_EXTRA`: 1 si hay documento firmado vigente no borrado.
+   */
+  static withResumenTarjeta(
+    query: ModelQueryBuilderContract<typeof ContratoServicioEspecializado>,
+    hoyIso: string = toBusinessDateString()
+  ) {
+    const contratoId = `${this.table}.contrato_servicio_especializado_id`
+    return this.withDocumentoVigenteFechaVencimiento(query)
+      .select(
+        db.raw(
+          `(
+            SELECT COUNT(DISTINCT a.employee_id)
+            FROM asignaciones_contrato_especializado AS a
+            WHERE a.contrato_servicio_especializado_id = ${contratoId}
+              AND a.asignacion_contrato_especializado_deleted_at IS NULL
+              AND a.asignacion_contrato_especializado_fecha_inicio <= ?
+              AND (
+                a.asignacion_contrato_especializado_fecha_fin IS NULL
+                OR a.asignacion_contrato_especializado_fecha_fin >= ?
+              )
+          ) as ${TRABAJADORES_ASIGNADOS_EXTRA}`,
+          [hoyIso, hoyIso]
+        )
+      )
+      .select(
+        db.raw(
+          `COALESCE((
+            SELECT c.clausula_15d_numero_trabajadores_aprox
+            FROM clausulas_15d AS c
+            WHERE c.contrato_servicio_especializado_id = ${contratoId}
+            LIMIT 1
+          ), 0) as ${TRABAJADORES_DECLARADOS_EXTRA}`
+        )
+      )
+      .select(
+        db.raw(
+          `EXISTS (
+            SELECT 1
+            FROM documentos_contrato_especializado AS dt
+            WHERE dt.contrato_servicio_especializado_id = ${contratoId}
+              AND dt.documento_contrato_especializado_vigente = 1
+              AND dt.documento_contrato_especializado_deleted_at IS NULL
+          ) as ${TIENE_DOCUMENTO_FIRMADO_EXTRA}`
+        )
+      )
+  }
+
+  /**
+   * Filtro SQL de "por vencer" (misma regla que `computeVencimiento`):
+   * `true` deja solo vigentes por vencer; `false` los excluye. Se combina por
+   * AND con `applyEffectiveEstatusFilter`.
+   */
+  static applyPorVencerFilter(
+    query: ModelQueryBuilderContract<typeof ContratoServicioEspecializado>,
+    porVencer: boolean,
+    hoy: DateTime = todayInBusinessZone()
+  ) {
+    const porVencerSql = this.sqlVigentePorVencer(hoy)
+    return porVencer
+      ? query.whereRaw(porVencerSql.sql, porVencerSql.bindings)
+      : query.whereRaw(`NOT ${porVencerSql.sql}`, porVencerSql.bindings)
+  }
+
+  /**
+   * Vigente efectivo con `fechaFin` dentro del umbral. Nunca evalúa a NULL
+   * (cada comparación sobre columna nullable va protegida), así que su `NOT`
+   * es seguro.
+   */
+  static sqlVigentePorVencer(hoy: DateTime = todayInBusinessZone()) {
+    const hoyIso = toBusinessDateString(hoy)
+    const limiteIso = toBusinessDateString(hoy.plus({ days: CONTRATO_POR_VENCER_UMBRAL_DIAS }))
+    const vigente = this.sqlVigenteNoExpiradoPorFecha(hoyIso)
+    return {
+      sql: `(
+        ${vigente.sql}
+        AND contrato_servicio_especializado_fecha_fin IS NOT NULL
+        AND contrato_servicio_especializado_fecha_fin <= ?
+      )`,
+      bindings: [...vigente.bindings, limiteIso],
+    }
   }
 
   static applyEffectiveEstatusFilter(

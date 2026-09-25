@@ -382,8 +382,8 @@ test.group('Cascada de estado alianza → código', (group) => {
     const text = created.body().data.allianceDiscountCode.discountCodeText
 
     const quoteLive = await client
-      .get(`${QUOTE}/${text}/quote`)
-      .qs({ billingPlanId: planId, employeeCount: 10 })
+      .post(`${QUOTE}/quote`)
+      .json({ discountCodeText: text, billingPlanId: planId, employeeCount: 10 })
       .loginAs(admin!.user)
     quoteLive.assertStatus(200)
 
@@ -396,8 +396,8 @@ test.group('Cascada de estado alianza → código', (group) => {
     assert.equal(persistedOff.discountCodeActive, 0)
 
     const quoteOff = await client
-      .get(`${QUOTE}/${text}/quote`)
-      .qs({ billingPlanId: planId, employeeCount: 10 })
+      .post(`${QUOTE}/quote`)
+      .json({ discountCodeText: text, billingPlanId: planId, employeeCount: 10 })
       .loginAs(admin!.user)
     quoteOff.assertStatus(422)
     quoteOff.assertBodyContains({ code: DISCOUNT_CODE_ERROR_CODES.CODE_INACTIVE })
@@ -408,8 +408,8 @@ test.group('Cascada de estado alianza → código', (group) => {
     assert.equal(activated.body().data.allianceDiscountCode.discountCodeActive, 1)
 
     const quoteOn = await client
-      .get(`${QUOTE}/${text}/quote`)
-      .qs({ billingPlanId: planId, employeeCount: 10 })
+      .post(`${QUOTE}/quote`)
+      .json({ discountCodeText: text, billingPlanId: planId, employeeCount: 10 })
       .loginAs(admin!.user)
     quoteOn.assertStatus(200)
   })

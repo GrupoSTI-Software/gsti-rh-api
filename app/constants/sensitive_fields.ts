@@ -108,8 +108,8 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   { model: 'Person', column: 'personPhoneSecondary', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true, maskedInApi: true },
 
   // ─── EmployeeBank: financiero ──────────────────────────────────────────────
-  // Cifrados hoy vía employeeBankService.encrypt en employee_bank_controller.ts:165-176.
-  // No se usan en WHERE de SQL. Se muestran con últimos 4 dígitos (*LastNumbers) en la UI.
+  // Cifrados; no se usan en WHERE de SQL. Se entregan con máscara fija (USRH1789328027039).
+  // *LastNumbers se escriben en BD pero no se serializan.
   // Ancla: app/models/employee_bank.ts
   { model: 'EmployeeBank', column: 'employeeBankAccountClabe', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true, maskedInApi: true },
   { model: 'EmployeeBank', column: 'employeeBankAccountNumber', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true, maskedInApi: true },
@@ -239,17 +239,18 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
     encrypted: true,
   },
 
-  // ─── ProveedorRepse: identificación (USRH1788551528001) ─────────────────────
+  // ─── ProveedorRepse: identificación (USRH1788551528001 / USRH1789328027052) ─
   // RFC del proveedor REPSE (moral o física). Cifrado AES; la huella solo se
   // escribe (providers.service.ts) y nadie la usa en WHERE: treatment
   // 'cifrar', no 'cifrar-buscable' (mismo criterio que BillingTaxReceipt).
-  // Sin maskedInApi hasta USRH1789328027052. Ancla: app/models/proveedor_repse.ts
+  // Ancla: app/models/proveedor_repse.ts
   {
     model: 'ProveedorRepse',
     column: 'rfc',
     legalCategory: 'identificacion',
     treatment: 'cifrar',
     encrypted: true,
+    maskedInApi: true,
   },
 
   // ─── Employee: financiero (VIGENTE, EN CLARO — cifrado en HU aparte) ──────
@@ -257,18 +258,49 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   // de nómina. Se clasifica y se oculta en serialización; NO se cifra todavía
   // (decisión de Wilvardo 2026-08-22). Entra en pendingEncryption() a propósito:
   // el indicador de brecha LFPDPPP sube en 1 hasta que la HU de cifrado lo cierre.
-  { model: 'Employee', column: 'dailySalary', legalCategory: 'financiero', treatment: 'cifrar', encrypted: false },
+  // Revelado individual con asiento (USRH1788478865952).
+  {
+    model: 'Employee',
+    column: 'dailySalary',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: false,
+    maskedInApi: true,
+  },
 
   // ─── EmployeeSalaryHistory: financiero (YA CIFRADO — patrón de referencia) ─
   // Cifrado AES-256-CBC vía prepare/consume en el modelo Lucid.
+  // Revelado individual con asiento (USRH1788478865952).
   // Ancla: app/models/employee_salary_history.ts:56-66
-  { model: 'EmployeeSalaryHistory', column: 'salaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+  {
+    model: 'EmployeeSalaryHistory',
+    column: 'salaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
 
   // ─── PositionSalaryRange: financiero (YA CIFRADO) ─────────────────────────
   // Mismo patrón prepare/consume que EmployeeSalaryHistory.
+  // Revelado individual con asiento (USRH1788478865952).
   // Ancla: app/models/position_salary_range.ts
-  { model: 'PositionSalaryRange', column: 'minSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
-  { model: 'PositionSalaryRange', column: 'maxSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+  {
+    model: 'PositionSalaryRange',
+    column: 'minSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+  {
+    model: 'PositionSalaryRange',
+    column: 'maxSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
 
   // ─── UserConsent: contacto (evidencia de aceptación, USRH1783101935670) ───
   // "Desde dónde se aceptó" un documento legal: refuerzo probatorio, nunca en WHERE,
@@ -298,9 +330,38 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   },
 
   // ─── PositionSalaryRangeAudit: financiero (YA CIFRADO, faltaba serialize) ──
-  // Espejo auditado del rango. Ancla: app/models/position_salary_range_audit.ts
-  { model: 'PositionSalaryRangeAudit', column: 'oldMinSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
-  { model: 'PositionSalaryRangeAudit', column: 'oldMaxSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
-  { model: 'PositionSalaryRangeAudit', column: 'newMinSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
-  { model: 'PositionSalaryRangeAudit', column: 'newMaxSalaryDaily', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true },
+  // Espejo auditado del rango. Revelado individual con asiento (USRH1788478865952).
+  // Ancla: app/models/position_salary_range_audit.ts
+  {
+    model: 'PositionSalaryRangeAudit',
+    column: 'oldMinSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+  {
+    model: 'PositionSalaryRangeAudit',
+    column: 'oldMaxSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+  {
+    model: 'PositionSalaryRangeAudit',
+    column: 'newMinSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+  {
+    model: 'PositionSalaryRangeAudit',
+    column: 'newMaxSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
 ] as const

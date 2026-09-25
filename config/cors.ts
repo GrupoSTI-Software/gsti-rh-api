@@ -31,7 +31,9 @@ const corsConfig = defineConfig({
   origin: (origin) => allowedOrigins.includes(origin),
   methods: ['GET', 'HEAD', 'POST', 'PUT', 'DELETE', 'PATCH'],
   headers: true,
-  exposeHeaders: [],
+  // El backoffice lee el nombre del archivo descargable de aquí (fuente única:
+  // `app/helpers/download_file_name.ts`).
+  exposeHeaders: ['content-disposition'],
   credentials: true,
   maxAge: 90,
 })

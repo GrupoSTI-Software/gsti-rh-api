@@ -6,6 +6,7 @@ import {
   supplyTypeFilterValidator
 } from '#validators/supply_type'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
+import { AssetError, respondAssetError } from '#modules/assets/assets.error'
 
 export default class SupplyTypesController {
   /**
@@ -127,7 +128,6 @@ export default class SupplyTypesController {
    *             type: object
    *             required:
    *               - supplyTypeName
-   *               - supplyTypeSlug
    *             properties:
    *               supplyTypeName:
    *                 type: string
@@ -141,6 +141,7 @@ export default class SupplyTypesController {
    *               supplyTypeSlug:
    *                 type: string
    *                 maxLength: 255
+   *                 description: Opcional; si no llega se deriva del nombre y es único en la empresa (`laptop`, `laptop-2`)
    *     responses:
    *       201:
    *         description: Supply type created successfully
@@ -241,12 +242,16 @@ export default class SupplyTypesController {
    *         description: Supply type deleted successfully
    *       404:
    *         description: Supply type not found
+   *       409:
+   *         description: "El tipo tiene activos no borrados (`key: tipo-de-activo-con-activos`)"
    */
-  async destroy({ params, response }: HttpContext) {
+  async destroy(ctx: HttpContext) {
+    const { params, response } = ctx
     try {
       await SupplyTypeService.delete(params.id)
       return StandardResponseFormatter.success(response, null, 'Supply Type', 'Supply type deleted successfully')
     } catch (error) {
+      if (error instanceof AssetError) return respondAssetError(ctx, error)
       return StandardResponseFormatter.error(response, error.message, 404)
     }
   }

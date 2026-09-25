@@ -11,6 +11,10 @@ import {
   type RolePresetSlug,
 } from '#constants/role_presets'
 import { ROLE_PRESET_ERROR_CODES } from '#constants/role_preset_error_codes'
+import {
+  resolveModuleDisplayName,
+  resolveSectionDisplayName,
+} from '#constants/system_modules_menu/system_modules.constant'
 import { RolePresetServiceError } from '#exceptions/role_preset_service_error'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 
@@ -18,6 +22,10 @@ export interface RolePresetListPermissionItem {
   slug: string
   displayName: string
   section: string
+  /** Nombre de la sección declarado en el catálogo; `null` si no tiene. */
+  sectionDisplayName: string | null
+  /** Nombre del módulo dueño del permiso, derivado del catálogo. */
+  moduleDisplayName: string | null
   kind: string
 }
 
@@ -35,8 +43,12 @@ export interface RolePresetPreviewItem {
   slug: string
   displayName: string
   section: string
+  /** Nombre de la sección declarado en el catálogo; `null` si no tiene. */
+  sectionDisplayName: string | null
   kind: 'read' | 'write' | 'delete'
   moduleSlug: string
+  /** Nombre del módulo, derivado del catálogo. */
+  moduleDisplayName: string | null
 }
 
 export interface RolePresetPreview {
@@ -86,6 +98,11 @@ export default class RolePresetService {
           slug: permission.slug,
           displayName: permission.displayName,
           section: permission.section,
+          sectionDisplayName: resolveSectionDisplayName(
+            ROLE_PRESET_MODULE_SLUG,
+            permission.section
+          ),
+          moduleDisplayName: resolveModuleDisplayName(ROLE_PRESET_MODULE_SLUG),
           kind: permission.kind,
         }
       })
@@ -458,8 +475,13 @@ export default class RolePresetService {
       slug: catalogPermission.slug,
       displayName: catalogPermission.displayName,
       section: catalogPermission.section,
+      sectionDisplayName: resolveSectionDisplayName(
+        ROLE_PRESET_MODULE_SLUG,
+        catalogPermission.section
+      ),
       kind: catalogPermission.kind,
       moduleSlug: ROLE_PRESET_MODULE_SLUG,
+      moduleDisplayName: resolveModuleDisplayName(ROLE_PRESET_MODULE_SLUG),
     }
   }
 
@@ -485,8 +507,13 @@ export default class RolePresetService {
       slug: catalogPermission.slug,
       displayName: catalogPermission.displayName,
       section: catalogPermission.section,
+      sectionDisplayName: resolveSectionDisplayName(
+        permission.systemModule.systemModuleSlug,
+        catalogPermission.section
+      ),
       kind: catalogPermission.kind,
       moduleSlug: permission.systemModule.systemModuleSlug,
+      moduleDisplayName: resolveModuleDisplayName(permission.systemModule.systemModuleSlug),
     }
   }
 }

@@ -1,10 +1,13 @@
 /* eslint-disable prettier/prettier */
 import { HttpContext } from '@adonisjs/core/http'
 import ExceptionRequest from '../models/exception_request.js'
+import ExceptionRequestAttachment from '#models/exception_request_attachment'
 import { formatResponse } from '../helpers/responseFormatter.js'
 import ExceptionRequestResolutionService from '#services/exception_request_resolution_service'
 import ExceptionRequestDecisionContextService from '#services/exception_request_decision_context_service'
 import ExceptionRequestAttachmentService from '#services/exception_request_attachment_service'
+import ExceptionRequestCreationService from '#services/exception_request_creation_service'
+import ExceptionRequestNotificationService from '#services/exception_request_notification_service'
 import StoredFileStreamService from '#services/stored_file_stream_service'
 import { resolveRequestBusinessUnitId } from '#helpers/resolve_request_business_unit_id'
 import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
@@ -20,13 +23,24 @@ import Role from '#models/role'
 
 /** Slug del rol de Recursos Humanos; ver `isRhManager`. */
 const RH_MANAGER_ROLE_SLUG = 'rh-manager'
-import { ExceptionRequestErrorInterface } from '../interfaces/exception_request_error_interface.js'
 import {
   exceptionRequestAcceptTouchesVacation,
   exceptionRequestsBatchTouchesVacation,
 } from '#helpers/shift_exception_touches_vacation'
-import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
-import { EMPLOYEES_MANAGE_VACATION_PERMISSION } from '#constants/employees_write_permission_declarations'
+import {
+  ensureSecondaryPermission,
+  evaluateSecondaryPermission,
+} from '#helpers/permission_gate_secondary'
+import {
+  EMPLOYEES_MANAGE_VACATION_PERMISSION,
+  EMPLOYEES_WRITE_PERMISSION_DECLARATIONS,
+} from '#constants/employees_write_permission_declarations'
+import { resolveSessionEmployee } from '#helpers/resolve_session_employee'
+import {
+  MAX_SELF_ATTACHMENTS,
+  SELF_SERVICE_INITIAL_STATUS,
+} from '#constants/exception_request_self_service'
+import type { PermissionGateOptions } from '#constants/permission_gate'
 import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 
@@ -316,7 +330,9 @@ export default class ExceptionRequestsController {
     // lote; de aquí en adelante solo falla el alta de una excepción concreta, y
     // entonces el proceso se detiene y la respuesta dice qué quedó aplicado.
     const resolutionService = new ExceptionRequestResolutionService()
+    const notificationService = new ExceptionRequestNotificationService()
     const resolved: number[] = []
+    const notificables: ExceptionRequest[] = []
 
     for (const exceptionRequest of exceptionRequests) {
       const resolution = await resolutionService.resolve({
@@ -324,9 +340,21 @@ export default class ExceptionRequestsController {
         exceptionRequest,
         status,
         resolutionNote,
+        // El aviso se manda al final, una vez, con todo lo que esta operación
+        // resolvió: son varios días de una misma decisión, no varias
+        // decisiones.
+        notify: false,
       })
 
       if (!resolution.ok) {
+        // Lo ya aplicado se avisa aunque el lote se haya detenido: esos días
+        // quedaron resueltos y el colaborador tiene que saberlo.
+        await notificationService.notifyResolution({
+          exceptionRequests: notificables,
+          status,
+          resolutionNote,
+        })
+
         return response.status(resolution.status).json({
           ...resolution.body,
           data: {
@@ -338,7 +366,14 @@ export default class ExceptionRequestsController {
       }
 
       resolved.push(exceptionRequest.exceptionRequestId)
+      notificables.push(exceptionRequest)
     }
+
+    await notificationService.notifyResolution({
+      exceptionRequests: notificables,
+      status,
+      resolutionNote,
+    })
 
     return response.status(200).json({
       message: 'Exception requests resolved successfully',
@@ -427,13 +462,18 @@ export default class ExceptionRequestsController {
    */
   async indexAttachments(ctx: HttpContext) {
     const { params, response } = ctx
-    const scope = await this.resolveAttachmentScope(ctx, Number(params.id))
+    const scope = await this.resolveAttachmentScope(
+      ctx,
+      Number(params.id),
+      EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexAllExceptionRequests
+    )
 
     if (!scope.ok) return response.status(scope.status).json(scope.body)
 
     const attachments = await new ExceptionRequestAttachmentService().list(
       scope.exceptionRequest.exceptionRequestId,
-      scope.businessUnitId
+      scope.businessUnitId,
+      scope.ownAttachmentsOfUserId
     )
 
     return response.status(200).json({
@@ -444,7 +484,11 @@ export default class ExceptionRequestsController {
 
   async storeAttachment(ctx: HttpContext) {
     const { auth, request, params, response } = ctx
-    const scope = await this.resolveAttachmentScope(ctx, Number(params.id))
+    const scope = await this.resolveAttachmentScope(
+      ctx,
+      Number(params.id),
+      EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateExceptionRequestStatus
+    )
 
     if (!scope.ok) return response.status(scope.status).json(scope.body)
 
@@ -454,9 +498,33 @@ export default class ExceptionRequestsController {
       return response.status(400).json({ error: 'A file is required.' })
     }
 
+    const attachmentService = new ExceptionRequestAttachmentService()
+
+    // Quien sube sobre su propia solicitud lo hace mientras siga pendiente y
+    // dentro del tope. Ya resuelta, el comprobante dejaria de ser el respaldo de
+    // lo que se pidio para volverse una correccion despues del fallo.
+    if (scope.ownAttachmentsOfUserId !== undefined) {
+      if (scope.exceptionRequest.exceptionRequestStatus !== 'pending') {
+        return response.status(409).json({
+          error: 'Only a pending request accepts attachments from the employee.',
+        })
+      }
+
+      const propios = await attachmentService.countFor(
+        scope.exceptionRequest.exceptionRequestId,
+        scope.ownAttachmentsOfUserId
+      )
+
+      if (propios >= MAX_SELF_ATTACHMENTS) {
+        return response.status(422).json({
+          error: `A request accepts at most ${MAX_SELF_ATTACHMENTS} attachments from the employee.`,
+        })
+      }
+    }
+
     try {
-      const attachment = await new ExceptionRequestAttachmentService().upload({
-        exceptionRequestId: scope.exceptionRequest.exceptionRequestId,
+      const attachment = await attachmentService.upload({
+        exceptionRequestIds: scope.attachToExceptionRequestIds,
         businessUnitId: scope.businessUnitId,
         file,
         uploadedByUserId: auth.user?.userId ?? null,
@@ -492,7 +560,11 @@ export default class ExceptionRequestsController {
    */
   async showAttachment(ctx: HttpContext) {
     const { params, response } = ctx
-    const scope = await this.resolveAttachmentScope(ctx, Number(params.id))
+    const scope = await this.resolveAttachmentScope(
+      ctx,
+      Number(params.id),
+      EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexAllExceptionRequests
+    )
 
     if (!scope.ok) return response.status(scope.status).json(scope.body)
 
@@ -501,6 +573,7 @@ export default class ExceptionRequestsController {
       attachmentId: Number(params.attachmentId),
       exceptionRequestId: scope.exceptionRequest.exceptionRequestId,
       businessUnitId: scope.businessUnitId,
+      uploadedByUserId: scope.ownAttachmentsOfUserId,
     })
 
     if (!attachment) {
@@ -521,16 +594,43 @@ export default class ExceptionRequestsController {
   }
 
   /**
-   * Resuelve la solicitud y la empresa activa para las rutas de adjuntos.
+   * Resuelve la solicitud, la empresa activa y con qué alcance se tocan sus
+   * adjuntos.
+   *
+   * Hay dos maneras legítimas de llegar a un comprobante y la diferencia
+   * importa. Quien tiene la facultad del módulo entra por el expediente y ve
+   * todo lo que cuelga de la solicitud. Quien no la tiene solo puede entrar si
+   * la solicitud es suya, y entonces ve únicamente lo que él mismo subió: el
+   * comprobante que Recursos Humanos guardó —una constancia médica anexada al
+   * expediente, por ejemplo— no es suyo para consultarlo desde la app.
    *
    * Sin empresa resuelta no se sirve ni se guarda nada: la marca de empresa es
    * lo que acota el archivo, así que un contexto sin ella es fail-closed.
+   *
+   * @param ctx - Contexto de la petición.
+   * @param exceptionRequestId - Solicitud a la que se quiere llegar.
+   * @param managePermission - Facultad que abre el expediente completo.
    */
   private async resolveAttachmentScope(
     ctx: HttpContext,
-    exceptionRequestId: number
+    exceptionRequestId: number,
+    managePermission: PermissionGateOptions
   ): Promise<
-    | { ok: true; exceptionRequest: ExceptionRequest; businessUnitId: number }
+    | {
+        ok: true
+        exceptionRequest: ExceptionRequest
+        businessUnitId: number
+        /**
+         * Cuenta cuyos adjuntos son los únicos visibles. `undefined` cuando se
+         * entra con la facultad del módulo y se ve todo.
+         */
+        ownAttachmentsOfUserId: number | undefined
+        /**
+         * Solicitudes a las que se cuelga un archivo nuevo. Es el lote completo
+         * cuando el colaborador sube sobre su propia petición de varios días.
+         */
+        attachToExceptionRequestIds: number[]
+      }
     | { ok: false; status: number; body: Record<string, unknown> }
   > {
     const exceptionRequest = await ExceptionRequest.query()
@@ -554,7 +654,89 @@ export default class ExceptionRequestsController {
       }
     }
 
-    return { ok: true, exceptionRequest, businessUnitId }
+    if (await evaluateSecondaryPermission(ctx, managePermission)) {
+      return {
+        ok: true,
+        exceptionRequest,
+        businessUnitId,
+        ownAttachmentsOfUserId: undefined,
+        attachToExceptionRequestIds: [exceptionRequest.exceptionRequestId],
+      }
+    }
+
+    const empleadoDeLaSesion = await resolveSessionEmployee(ctx.auth.user)
+
+    // La solicitud ajena responde lo mismo que una inexistente: quien no tiene
+    // la facultad del módulo tampoco tiene por qué averiguar qué permisos pidió
+    // un compañero.
+    if (!empleadoDeLaSesion || empleadoDeLaSesion.employeeId !== exceptionRequest.employeeId) {
+      return { ok: false, status: 404, body: { error: 'ExceptionRequest not found' } }
+    }
+
+    return {
+      ok: true,
+      exceptionRequest,
+      businessUnitId,
+      ownAttachmentsOfUserId: ctx.auth.user?.userId,
+      attachToExceptionRequestIds: await this.batchSiblingIds(exceptionRequest),
+    }
+  }
+
+  /**
+   * Comprobantes que subió una cuenta, por solicitud.
+   *
+   * Una sola consulta agregada para toda la página: pedirlos solicitud por
+   * solicitud convertiría el listado del colaborador en una consulta por fila.
+   *
+   * @param exceptionRequestIds - Solicitudes de la página.
+   * @param uploadedByUserId - Cuenta cuyos adjuntos se cuentan.
+   */
+  private async countOwnAttachments(
+    exceptionRequestIds: number[],
+    uploadedByUserId: number
+  ): Promise<Map<number, number>> {
+    const conteos = new Map<number, number>()
+
+    if (exceptionRequestIds.length === 0) {
+      return conteos
+    }
+
+    const filas = await ExceptionRequestAttachment.query()
+      .whereIn('exception_request_id', exceptionRequestIds)
+      .where('uploaded_by_user_id', uploadedByUserId)
+      .whereNull('exception_request_attachment_deleted_at')
+      .groupBy('exception_request_id')
+      .select('exception_request_id')
+      .count('* as total')
+
+    for (const fila of filas) {
+      conteos.set(fila.exceptionRequestId, Number(fila.$extras?.total ?? 0))
+    }
+
+    return conteos
+  }
+
+  /**
+   * Solicitudes que nacieron con la que se está tocando.
+   *
+   * Un permiso de varios días son varias filas y el comprobante las respalda a
+   * todas; colgarlo de una sola lo haría desaparecer justo cuando la empresa
+   * resuelve los otros días por separado. Sin lote —las solicitudes anteriores
+   * a la columna— es ella sola.
+   */
+  private async batchSiblingIds(exceptionRequest: ExceptionRequest): Promise<number[]> {
+    if (!exceptionRequest.exceptionRequestBatchId) {
+      return [exceptionRequest.exceptionRequestId]
+    }
+
+    const hermanas = await ExceptionRequest.query()
+      .where('exception_request_batch_id', exceptionRequest.exceptionRequestBatchId)
+      .where('employee_id', exceptionRequest.employeeId)
+      .select('exception_request_id')
+
+    const ids = hermanas.map((solicitud) => solicitud.exceptionRequestId)
+
+    return ids.length > 0 ? ids : [exceptionRequest.exceptionRequestId]
   }
   /**
    * @swagger
@@ -746,7 +928,8 @@ export default class ExceptionRequestsController {
    *                       type: string
    */
 
-  async store({ auth, request, response }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { auth, request, response } = ctx
     const user = auth.user
     if (!user) {
       response.status(404)
@@ -758,15 +941,64 @@ export default class ExceptionRequestsController {
       }
     }
     const data = await request.validateUsing(storeExceptionRequestValidator)
+
+    /**
+     * El alta es la única entrada del módulo exenta de `permissionGate` (D-08)
+     * porque la comparten dos usos que no se parecen en nada: Recursos Humanos
+     * registrando el permiso de un tercero desde el backoffice, y el propio
+     * colaborador pidiendo el suyo desde la app.
+     *
+     * La facultad de gestionar solicitudes es lo que separa a uno del otro. Sin
+     * ella, el cuerpo de la petición deja de mandar: ni el empleado ni el
+     * estatus se leen de ahí. Antes sí se leían, y con un token cualquiera se
+     * podía levantar una solicitud a nombre de otra persona —de otra empresa,
+     * incluso— y nacerla `accepted`, que es autorizarse el permiso uno mismo.
+     */
+    const puedeGestionarTerceros = await evaluateSecondaryPermission(
+      ctx,
+      EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateExceptionRequest
+    )
+
+    // Tener la facultad no convierte cada alta en una a nombre de un tercero:
+    // quien la tiene y también es colaborador pide sus propios permisos desde
+    // la app, que nunca manda `employeeId`. La ausencia del dato es lo que
+    // marca el autoservicio, y en esa rama valen las mismas reglas que para
+    // cualquier colaborador.
+    const esAutoservicio = !puedeGestionarTerceros || data.employeeId === undefined
+
+    const empleadoDeLaSesion = esAutoservicio ? await resolveSessionEmployee(user) : null
+    const employeeId = esAutoservicio ? empleadoDeLaSesion?.employeeId : data.employeeId
+
+    // Fuera del autoservicio el dato viene en el cuerpo por definición, así que
+    // aquí solo cae la sesión sin expediente.
+    if (employeeId === undefined) {
+      return response.status(403).json({
+        type: 'error',
+        title: 'Forbidden',
+        message: 'You do not have an associated employee record',
+      })
+    }
+
+    const exceptionRequestStatus = esAutoservicio
+      ? SELF_SERVICE_INITIAL_STATUS
+      : (data.exceptionRequestStatus ?? SELF_SERVICE_INITIAL_STATUS)
+
     const employee = await Employee.query()
-      .where('employeeId', data.employeeId)
+      .where('employeeId', employeeId)
       .whereNull('deletedAt')
+      // El alcance de empresa se aplica también a quien sí puede registrar a
+      // nombre de terceros: la facultad es sobre su empresa, no sobre la tabla.
+      // Sin esto, un `employeeId` de otra empresa se daba de alta sin más.
+      .if(isTenantScopeActive(), (scoped) => {
+        scoped.whereIn('employee_id', scopedEmployeeIds())
+      })
       .first()
     if (!employee) {
       return response.status(404).json({
         error: 'Employee not found or has been deleted',
       })
     }
+
     const exceptionType = await ExceptionType.query()
       .where('exceptionTypeId', data.exceptionTypeId)
       .whereNull('deletedAt')
@@ -777,75 +1009,108 @@ export default class ExceptionRequestsController {
         error: 'Exception type not found or has been deleted',
       })
     }
-    let exceptionRequestPeriodInHours = data.exceptionRequestPeriodInHours
-    if (!exceptionRequestPeriodInHours) {
-      exceptionRequestPeriodInHours = 0
-    }
-    let daysToApply = request.input('daysToApply', 1)
-    if (!daysToApply) {
-      daysToApply = 1
-    }
-    const exceptionRequestsSaved = [] as Array<ExceptionRequest>
-    const exceptionRequestsError = [] as Array<ExceptionRequestErrorInterface>
-    const exceptionRequestDate = data.requestedDate
-    for (let i = 0; i < daysToApply; i++) {
-      const currentDate = exceptionRequestDate.plus({ days: i }).toISODate()
-      if (currentDate) {
-        try {
-          const existingRequest = await ExceptionRequest.query()
-            .where('employee_id', data.employeeId)
-            .where('requested_date', currentDate)
-            .whereNot('exception_request_status', 'refused')
-            .first()
 
-          if (existingRequest) {
-            exceptionRequestsError.push({
-              requestedDate: currentDate,
-              error:
-                'An exception request for the same date and time already exists and is not refused',
-            })
-          } else {
-            const esRecursosHumanos = await this.isRhManager(data.role?.roleId)
-            const exceptionRequestData = {
-              employeeId: data.employeeId,
-              exceptionTypeId: data.exceptionTypeId,
-              exceptionRequestStatus: data.exceptionRequestStatus,
+    // Qué puede pedir un colaborador lo decide el catálogo de la empresa, no la
+    // app: un tipo reservado para captura interna no se solicita desde el
+    // teléfono aunque su id se conozca.
+    if (
+      esAutoservicio &&
+      (!exceptionType.exceptionTypeCanEmployeeRequests || exceptionType.exceptionTypeActive !== 1)
+    ) {
+      return response.status(403).json({
+        type: 'error',
+        title: 'Forbidden',
+        message: 'This exception type cannot be requested by the employee',
+      })
+    }
+
+    const creacion = await new ExceptionRequestCreationService().create({
+      employeeId: employee.employeeId,
+      exceptionTypeId: exceptionType.exceptionTypeId,
+      exceptionRequestStatus,
               exceptionRequestDescription: data.exceptionRequestDescription,
               exceptionRequestCheckInTime: data.exceptionRequestCheckInTime,
               exceptionRequestCheckOutTime: data.exceptionRequestCheckOutTime,
-              exceptionRequestPeriodInHours: data.exceptionRequestPeriodInHours,
-              requestedDate: currentDate,
-              exceptionRequestRhRead: esRecursosHumanos ? 1 : 0,
-              exceptionRequestGerencialRead: esRecursosHumanos ? 0 : 1,
+      exceptionRequestPeriodInHours: data.exceptionRequestPeriodInHours ?? 0,
+      requestedDate: data.requestedDate,
+      daysToApply: data.daysToApply ?? 1,
               userId: user.userId,
-            }
-            delete data.role
-            const exceptionRequest = await ExceptionRequest.create(exceptionRequestData)
-            exceptionRequestsSaved.push(exceptionRequest)
-          }
-        } catch (error) {
-          exceptionRequestsError.push({
-            requestedDate: currentDate,
-            error: error.message,
-          })
-        }
-      }
-    }
+      // El rol se lee de la sesión, no del cuerpo: es la marca que alimenta los
+      // contadores de no leídas del backoffice y nadie se la asigna a sí mismo.
+      createdByHr: esAutoservicio ? false : await this.isRhManager(user.roleId),
+    })
 
-    if (exceptionRequestsSaved.length > 0) {
+    let comprobante: Record<string, unknown> | null = null
+
+    if (creacion.saved.length > 0) {
+      comprobante = await this.storeRequestedFile(ctx, creacion.saved)
+
       if (Ws.io) {
         Ws.io.emit('new-exception-request', {})
       }
+
+      // Solo se avisa de lo que hay que resolver. Un permiso registrado ya
+      // autorizado desde el backoffice no le pide nada a nadie.
+      if (exceptionRequestStatus === 'pending') {
+        await new ExceptionRequestNotificationService().notifyBatchCreated(creacion.batchId)
     }
+    }
+
     const dataInfo = {
       data: {
-        exceptionRequestsSaved: exceptionRequestsSaved,
-        exceptionRequestsError: exceptionRequestsError,
+        batchId: creacion.batchId,
+        exceptionRequestsSaved: creacion.saved,
+        exceptionRequestsError: creacion.errors,
+        attachment: comprobante,
       },
     }
     return response
       .status(201)
       .json(formatResponse('success', 'Successfully created', 'Resource created', dataInfo))
+  }
+
+  /**
+   * Guarda el comprobante que venga en el mismo alta, si viene.
+   *
+   * Llega en la misma petición a propósito. El aviso al aprobador dice si la
+   * solicitud trae respaldo, y eso solo puede ser cierto si el archivo ya está
+   * cuando el correo sale; en dos viajes el correo se manda siempre antes que
+   * el archivo. Cuelga de todos los días del lote: la constancia es una y
+   * justifica cada uno.
+   *
+   * Un archivo rechazado por el intake no tumba el alta —la solicitud ya está
+   * registrada y el comprobante se puede subir después—, pero sí se reporta.
+   */
+  private async storeRequestedFile(
+    ctx: HttpContext,
+    saved: ExceptionRequest[]
+  ): Promise<Record<string, unknown> | null> {
+    const { auth, request } = ctx
+    const file = request.file('file')
+
+    if (!file) {
+      return null
+    }
+
+    const businessUnitId = await resolveRequestBusinessUnitId(ctx)
+
+    if (!businessUnitId) {
+      return { error: 'The active company could not be resolved.' }
+    }
+
+    try {
+      return { ...(await new ExceptionRequestAttachmentService().upload({
+        exceptionRequestIds: saved.map((solicitud) => solicitud.exceptionRequestId),
+        businessUnitId,
+        file,
+        uploadedByUserId: auth.user?.userId ?? null,
+      })) }
+    } catch (error) {
+      return {
+        error: 'The file was rejected.',
+        detail: (error as Error)?.message ?? 'unknown',
+      }
+    }
   }
 
   /**
@@ -1267,16 +1532,16 @@ export default class ExceptionRequestsController {
           .if(isTenantScopeActive(), (scoped) => {
             scoped.whereIn('employee_id', scopedEmployeeIds())
           })
-          .if(departmentId, (q) => {
-            q.whereHas('employee', (employeeQuery) => {
-              employeeQuery.where('departmentId', departmentId)
-            })
+        .if(departmentId, (q) => {
+          q.whereHas('employee', (employeeQuery) => {
+            employeeQuery.where('departmentId', departmentId)
           })
-          .if(positionId, (q) => {
-            q.whereHas('employee', (employeeQuery) => {
-              employeeQuery.where('positionId', positionId)
-            })
+        })
+        .if(positionId, (q) => {
+          q.whereHas('employee', (employeeQuery) => {
+            employeeQuery.where('positionId', positionId)
           })
+        })
           .if(branchOfficeId, (q) => {
             // La sucursal vigente del empleado: `employee_branch_office` con la
             // fila activa. El scope de empresa ya acoto los empleados, asi que
@@ -1290,28 +1555,28 @@ export default class ExceptionRequestsController {
           .if(exceptionTypeId, (q) => q.where('exceptionTypeId', exceptionTypeId))
           .if(dateFrom, (q) => q.where('requestedDate', '>=', dateFrom))
           .if(dateTo, (q) => q.where('requestedDate', '<=', dateTo))
-          .if(employeeName, (q) => {
-            q.whereHas('employee', (employeeQuery) => {
-              employeeQuery.where('employeeId', employeeName)
-            })
+        .if(employeeName, (q) => {
+          q.whereHas('employee', (employeeQuery) => {
+            employeeQuery.where('employeeId', employeeName)
           })
+        })
           .if(!hasFullVisibility, (q) => {
-            if (isRHH) {
-              // RRHH: solo solicitudes cuyo empleado NO tiene jefe directo con usuario vigente
-              q.whereHas('employee', (employeeQuery) => {
-                employeeQuery.whereDoesntHave('userResponsibleEmployee', (ureQ) => {
-                  ureQ.where('userResponsibleEmployeeDirectBoss', 1).whereHas('user', () => {})
-                })
+          if (isRHH) {
+            // RRHH: solo solicitudes cuyo empleado NO tiene jefe directo con usuario vigente
+            q.whereHas('employee', (employeeQuery) => {
+              employeeQuery.whereDoesntHave('userResponsibleEmployee', (ureQ) => {
+                ureQ.where('userResponsibleEmployeeDirectBoss', 1).whereHas('user', () => {})
               })
-            } else {
-              // Gerente/jefe: solo solicitudes de empleados cuyo jefe directo (primero) es el usuario actual
-              q.whereHas('employee', (employeeQuery) => {
-                employeeQuery.whereHas('userResponsibleEmployee', (ureQ) => {
-                  ureQ.where('userId', user.userId).where('userResponsibleEmployeeDirectBoss', 1)
-                })
+            })
+          } else {
+            // Gerente/jefe: solo solicitudes de empleados cuyo jefe directo (primero) es el usuario actual
+            q.whereHas('employee', (employeeQuery) => {
+              employeeQuery.whereHas('userResponsibleEmployee', (ureQ) => {
+                ureQ.where('userId', user.userId).where('userResponsibleEmployeeDirectBoss', 1)
               })
-            }
-          })
+            })
+          }
+        })
 
       const query = aplicarFiltrosComunes(ExceptionRequest.query())
         .preload('employee', (employeeQuery) => {
@@ -1758,12 +2023,24 @@ export default class ExceptionRequestsController {
 
       const exceptionRequests = await query.paginate(page, limit)
 
+      // Cuántos comprobantes propios trae cada solicitud. El colaborador no ve
+      // los que Recursos Humanos guardó en el expediente, así que el conteo se
+      // acota a los que él mismo subió: es la confirmación de que su archivo
+      // llegó, no un inventario del expediente.
+      const comprobantesPropios = await this.countOwnAttachments(
+        exceptionRequests.all().map((solicitud) => solicitud.exceptionRequestId),
+        user.userId
+      )
+
       response.status(200)
       return formatResponse(
         'success',
         'Exception Requests',
         'Your exception requests were found successfully',
-        exceptionRequests.all(),
+        exceptionRequests.all().map((solicitud) => ({
+          ...solicitud.serialize(),
+          attachmentsCount: comprobantesPropios.get(solicitud.exceptionRequestId) ?? 0,
+        })),
         {
           total: exceptionRequests.total,
           per_page: exceptionRequests.perPage,
