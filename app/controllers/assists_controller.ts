@@ -10,6 +10,10 @@ import { AssistPositionExcelFilterInterface } from '../interfaces/assist_positio
 import { AssistDepartmentExcelFilterInterface } from '../interfaces/assist_department_excel_filter_interface.js'
 import { AssistExcelFilterInterface } from '../interfaces/assist_excel_filter_interface.js'
 import UserService from '#services/user_service'
+import {
+  emptyEmployeeRoleScope,
+  resolveEmployeeRoleScopeForUser,
+} from '#helpers/resolve_employee_role_scope'
 import Assist from '#models/assist'
 import { DateTime } from 'luxon'
 import { AssistSyncFilterInterface } from '../interfaces/assist_sync_filter_interface.js'
@@ -54,6 +58,7 @@ import type { StoreAssistPayload } from '#modules/assist-ingestion/validators/st
 import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
 import { employeeSynchronizeAssistsValidator } from '#validators/assist_employee_synchronize'
 import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
+import { reportI18n } from '#helpers/report_locale'
 
 const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
@@ -559,7 +564,7 @@ export default class AssistsController {
         filterDateEnd: filterDateEnd,
         filterDatePay: filterDatePay,
       } as AssistEmployeeExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       let buffer
       if (reportType === 'Assistance Report') {
         buffer = await assistService.getExcelByEmployeeAssistance(employee, filters)
@@ -703,7 +708,7 @@ export default class AssistsController {
         filterDateEnd: filterDateEnd,
         businessUnitId: Number(request.input('businessUnitId')) || undefined,
       } as AssistPositionExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       const buffer = await assistService.getExcelByPosition(filters, businessUnitScope)
       if (buffer.status === 201) {
         response.header(
@@ -865,7 +870,7 @@ export default class AssistsController {
         userResponsibleId: userResponsibleId,
         businessUnitId: Number(request.input('businessUnitId')) || undefined,
       } as AssistDepartmentExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       let buffer
       if (reportType === 'Assistance Report') {
         buffer = await assistService.getExcelByDepartmentAssistance(filters, businessUnitScope)
@@ -1044,7 +1049,7 @@ export default class AssistsController {
         payrollBusinessUnitId: payrollBusinessUnitId,
         branchNameIds: branchNameIds,
       } as AssistExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       let buffer
       if (reportType === 'Assistance Report') {
         buffer = await assistService.getExcelAllAssistance(filters, departmentsList, scopedBusinessUnitIds)
@@ -1581,163 +1586,6 @@ export default class AssistsController {
 
   /**
    * @swagger
-   * /api/v1/assists/get-format-payroll:
-   *   get:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Assists
-   *     summary: get format payroll
-   *     produces:
-   *       - application/json
-   *     parameters:
-   *       - name: date
-   *         in: query
-   *         required: true
-   *         schema:
-   *           type: string
-   *         default: "2024-12-29"
-   *         description: Date from get format
-   *     responses:
-   *       '201':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
-  async getFormatPayRoll({ request, response, i18n, businessUnitScope }: HttpContext) {
-    const t = i18n.formatMessage.bind(i18n)
-    try {
-      const date = request.input('date')
-      if (!date) {
-        const entity = t('date')
-        response.status(400)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found', { entity }),
-          data: { date },
-        }
-      }
-      const assistService = new AssistsService(i18n)
-      const result = assistService.isPayThursday(date, '2025-01-09')
-      if (!result) {
-        const entity = t('date')
-        response.status(400)
-        return {
-          type: 'warning',
-          title: t('entity_is_not_valid', { entity }),
-          message: t('the_date_not_is_pay_thursday'),
-          data: { date },
-        }
-      }
-
-      const buffer = await assistService.getFormatPayRoll(date, businessUnitScope)
-      if (buffer.status === 201) {
-        response.header('Content-Type', 'text/csv')
-        response.header(
-          'Content-Disposition',
-          contentDisposition(buildDownloadFileName(['formato-nomina', formatDownloadFileDate(date)], 'csv'))
-        )
-        response.status(201)
-        response.send(buffer.buffer)
-      } else {
-        response.status(500)
-        return {
-          type: buffer.type,
-          title: buffer.title,
-          message: buffer.message,
-          error: buffer.error,
-        }
-      }
-    } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
-      }
-    }
-  }
-
-
-  /**
-   * @swagger
    * /api/assists/{assistId}/inactivate:
    *   put:
    *     security:
@@ -2156,14 +2004,6 @@ export default class AssistsController {
     try {
       await auth.check()
       const user = auth.user
-      let userResponsibleId = null
-
-      if (user) {
-        await user.preload('role')
-        if (resolveResponsibleUserId(user) !== null) {
-          userResponsibleId = user?.userId
-        }
-      }
 
       const filterDate = request.input('date')
       const filterDateEnd = request.input('date-end')
@@ -2180,22 +2020,22 @@ export default class AssistsController {
         }
       }
 
-      const userService = new UserService(i18n)
-      let departmentsList = [] as Array<number>
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
-      }
+      // Alcance: regla 1, 2, 4 de USRH1788466831312.
+      const scope = user
+        ? (await user.preload('role'), await resolveEmployeeRoleScopeForUser(user, i18n))
+        : emptyEmployeeRoleScope()
 
       const filters = {
         filterDate: filterDate,
         filterDateEnd: filterDateEnd,
-        userResponsibleId: userResponsibleId,
+        userResponsibleId: scope.userResponsibleId,
         businessUnitId: businessUnitId,
         payrollBusinessUnitId: payrollBusinessUnitId,
+        includeUnassigned: scope.includeUnassigned,
       } as PermissionsDatesExcelFilterInterface
 
-      const assistService = new AssistsService(i18n)
-      const result = await assistService.getExcelPermissionsByDates(filters, departmentsList, businessUnitScope)
+      const assistService = new AssistsService(reportI18n())
+      const result = await assistService.getExcelPermissionsByDates(filters, scope.departmentsList, businessUnitScope)
 
       if (result.buffer) {
         response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')

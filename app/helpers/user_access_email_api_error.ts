@@ -1,5 +1,7 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { USER_ACCESS_EMAIL_ERRORS } from '#constants/user_access_email_error_codes'
+import { EmailMirrorConflictError } from '#exceptions/email_mirror_conflict_error'
+import { EmailMirrorRefusedError } from '#exceptions/email_mirror_refused_error'
 import { UserAccessEmailMaskedError } from '#exceptions/user_access_email_masked_error'
 import { MASK_CHAR } from '#helpers/sensitive_mask'
 
@@ -69,5 +71,52 @@ export function respondUserAccessEmailDuplicated(ctx: HttpContext): UserAccessEm
     detail: ctx.i18n.t('user_access_email_duplicated_detail'),
     key: USER_ACCESS_EMAIL_ERRORS.DUPLICATED.key,
     code: USER_ACCESS_EMAIL_ERRORS.DUPLICATED.code,
+  }
+}
+
+export function isEmailMirrorConflictError(error: unknown): error is EmailMirrorConflictError {
+  return error instanceof EmailMirrorConflictError
+}
+
+/** Mismo destino ⇒ mismo cuerpo, venga del camino que venga (regla 5). */
+export function respondEmailMirrorConflict(
+  ctx: HttpContext,
+  error: EmailMirrorConflictError
+): UserAccessEmailErrorBody {
+  if (error.target === 'users') return respondUserAccessEmailDuplicated(ctx)
+  const isPerson = error.target === 'people'
+  const definition = isPerson
+    ? USER_ACCESS_EMAIL_ERRORS.MIRROR_PERSON_EMAIL_DUPLICATED
+    : USER_ACCESS_EMAIL_ERRORS.MIRROR_EMPLOYEE_EMAIL_DUPLICATED
+  const i18nPrefix = isPerson ? 'user_mirror_person_email_duplicated' : 'user_mirror_employee_email_duplicated'
+  ctx.response.status(definition.status)
+  return {
+    title: ctx.i18n.t(`${i18nPrefix}_title`),
+    detail: ctx.i18n.t(`${i18nPrefix}_detail`),
+    key: definition.key,
+    code: definition.code,
+  }
+}
+
+export function isEmailMirrorRefusedError(error: unknown): error is EmailMirrorRefusedError {
+  return error instanceof EmailMirrorRefusedError
+}
+
+/** Actor ausente y fuera de alcance comparten cuerpo: no se distingue por qué. */
+export function respondEmailMirrorRefused(
+  ctx: HttpContext,
+  error: EmailMirrorRefusedError
+): UserAccessEmailErrorBody {
+  const isAmbiguous = error.reason === 'multiple-live-users'
+  const definition = isAmbiguous
+    ? USER_ACCESS_EMAIL_ERRORS.MIRROR_AMBIGUOUS_ACCOUNT
+    : USER_ACCESS_EMAIL_ERRORS.MIRROR_TARGET_OUT_OF_SCOPE
+  const i18nPrefix = isAmbiguous ? 'user_mirror_ambiguous_account' : 'user_mirror_target_out_of_scope'
+  ctx.response.status(definition.status)
+  return {
+    title: ctx.i18n.t(`${i18nPrefix}_title`),
+    detail: ctx.i18n.t(`${i18nPrefix}_detail`),
+    key: definition.key,
+    code: definition.code,
   }
 }

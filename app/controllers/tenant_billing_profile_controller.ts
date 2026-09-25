@@ -16,6 +16,14 @@ type TenantBillingProfileUpsertRawBody = {
   taxRegimeCode?: string | null
   billingEmail?: string | null
   cfdiUseCode?: string | null
+  street?: string | null
+  exteriorNumber?: string | null
+  interiorNumber?: string | null
+  neighborhood?: string | null
+  municipality?: string | null
+  state?: string | null
+  legalRepresentativeName?: string | null
+  legalRepresentativeRole?: string | null
 }
 
 const OPTIONAL_UPSERT_FIELDS = [
@@ -24,6 +32,14 @@ const OPTIONAL_UPSERT_FIELDS = [
   'taxRegimeCode',
   'billingEmail',
   'cfdiUseCode',
+  'street',
+  'exteriorNumber',
+  'interiorNumber',
+  'neighborhood',
+  'municipality',
+  'state',
+  'legalRepresentativeName',
+  'legalRepresentativeRole',
 ] as const satisfies ReadonlyArray<keyof TenantBillingProfileUpsertInput>
 
 /**
@@ -44,8 +60,10 @@ export default class TenantBillingProfileController {
    *     summary: Consultar perfil de facturación de la empresa
    *     description: |
    *       Devuelve el perfil fiscal vivo de la empresa activa del tenant, incluyendo
-   *       código postal, régimen fiscal, correo de facturación, uso de CFDI y los
+   *       código postal, régimen fiscal, correo de facturación, uso de CFDI, el
+   *       domicilio fiscal completo y el representante legal (USRH1789097550393) y los
    *       derivados `taxpayerType`, `billingProfileComplete` y `missingFields`.
+   *       El domicilio y el representante NO entran a la completitud fiscal.
    *       Si nunca se ha capturado, responde **200** con `exists: false` y propone
    *       la razón social fiscal desde `business_unit_legal_name` — **nunca 404**.
    *       Solo el dueño de la cuenta (`owner`, `root`, `super-administrador`).
@@ -96,6 +114,37 @@ export default class TenantBillingProfileController {
    *                       type: string
    *                       nullable: true
    *                       example: G03
+   *                     street:
+   *                       type: string
+   *                       nullable: true
+   *                       example: Av. Reforma
+   *                     exteriorNumber:
+   *                       type: string
+   *                       nullable: true
+   *                       example: "222"
+   *                     interiorNumber:
+   *                       type: string
+   *                       nullable: true
+   *                       example: 3B
+   *                     neighborhood:
+   *                       type: string
+   *                       nullable: true
+   *                       example: Juárez
+   *                     municipality:
+   *                       type: string
+   *                       nullable: true
+   *                       example: Cuauhtémoc
+   *                     state:
+   *                       type: string
+   *                       nullable: true
+   *                       example: Ciudad de México
+   *                     legalRepresentativeName:
+   *                       type: string
+   *                       nullable: true
+   *                     legalRepresentativeRole:
+   *                       type: string
+   *                       nullable: true
+   *                       example: Apoderado legal
    *                     taxpayerType:
    *                       type: string
    *                       nullable: true
@@ -179,7 +228,9 @@ export default class TenantBillingProfileController {
    *     summary: Guardar perfil de facturación de la empresa
    *     description: |
    *       Upsert del perfil fiscal de la empresa activa (un registro vivo por tenant).
-   *       `legalName` es obligatorio; el resto de campos son opcionales.
+   *       `legalName` es obligatorio; el resto de campos son opcionales, incluidos
+   *       el domicilio fiscal completo y el representante legal (USRH1789097550393),
+   *       que no entran a la completitud fiscal y no se validan contra catálogo.
    *       Omitir una clave conserva el valor previo; enviar `null` la limpia.
    *       Validación cruzada contra el catálogo SAT antes de persistir.
    *       Solo el dueño de la cuenta (`owner`, `root`, `super-administrador`).
@@ -229,6 +280,38 @@ export default class TenantBillingProfileController {
    *                 maxLength: 4
    *                 nullable: true
    *                 example: G03
+   *               street:
+   *                 type: string
+   *                 maxLength: 150
+   *                 nullable: true
+   *               exteriorNumber:
+   *                 type: string
+   *                 maxLength: 20
+   *                 nullable: true
+   *               interiorNumber:
+   *                 type: string
+   *                 maxLength: 20
+   *                 nullable: true
+   *               neighborhood:
+   *                 type: string
+   *                 maxLength: 150
+   *                 nullable: true
+   *               municipality:
+   *                 type: string
+   *                 maxLength: 150
+   *                 nullable: true
+   *               state:
+   *                 type: string
+   *                 maxLength: 100
+   *                 nullable: true
+   *               legalRepresentativeName:
+   *                 type: string
+   *                 maxLength: 200
+   *                 nullable: true
+   *               legalRepresentativeRole:
+   *                 type: string
+   *                 maxLength: 120
+   *                 nullable: true
    *     responses:
    *       '200':
    *         description: Perfil guardado con exists true
@@ -261,6 +344,30 @@ export default class TenantBillingProfileController {
    *                       type: string
    *                       nullable: true
    *                     cfdiUseCode:
+   *                       type: string
+   *                       nullable: true
+   *                     street:
+   *                       type: string
+   *                       nullable: true
+   *                     exteriorNumber:
+   *                       type: string
+   *                       nullable: true
+   *                     interiorNumber:
+   *                       type: string
+   *                       nullable: true
+   *                     neighborhood:
+   *                       type: string
+   *                       nullable: true
+   *                     municipality:
+   *                       type: string
+   *                       nullable: true
+   *                     state:
+   *                       type: string
+   *                       nullable: true
+   *                     legalRepresentativeName:
+   *                       type: string
+   *                       nullable: true
+   *                     legalRepresentativeRole:
    *                       type: string
    *                       nullable: true
    *                     taxpayerType:

@@ -473,7 +473,7 @@ export default class HolidayController {
         return response.status(service.status).json(service)
       }
       const holidays = (service.holidays as unknown as { all(): Holiday[] }).all()
-      const buffer = await new CalendarExportService(i18n).holidays(holidays, year)
+      const buffer = await new CalendarExportService().holidays(holidays, year)
       response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
       response.header('Content-Disposition', contentDisposition(buildCalendarExportFileName('holidays', year)))
       return response.status(200).send(buffer)

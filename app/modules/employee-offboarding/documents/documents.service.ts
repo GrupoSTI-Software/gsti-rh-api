@@ -21,7 +21,11 @@ import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '../concepts/concepts.constant
 import { buildUserNamesMap } from '../offboardings/dto/offboardings.dto.js'
 import DocumentTemplatesRepositoryMysql from '../document-templates/document_templates.repository.mysql.js'
 import type { DocumentTemplatesRepository } from '../document-templates/document_templates.repository.js'
-import { fieldByKey, type OffboardingDocumentFieldKey } from './document_fields.constants.js'
+import {
+  fieldByKey,
+  OFFBOARDING_DOCUMENT_FIELDS,
+  type OffboardingDocumentFieldKey,
+} from './document_fields.constants.js'
 import DocumentTemplateFillService, {
   type DocumentTemplateFieldValues,
   type DocumentTemplateFillFailure,
@@ -35,18 +39,18 @@ import {
   DOCUMENT_PRINTED_DATE_FORMAT,
   DOCUMENT_SIGNED_URL_EXPIRES_SECONDS,
   DOCUMENTS_S3_FOLDER,
-  MISSING_FIELD_LABEL_KEY,
+  LEGACY_FIELD_GUARD_LABEL_KEY,
   REFERENCE_DATE_SOURCE,
+  resolveRequiredFieldKeys,
   type EmployeeOffboardingDocumentType,
 } from './documents.constants.js'
 import DocumentsRepositoryMysql from './documents.repository.mysql.js'
 import type { DocumentsRepository } from './documents.repository.js'
 import SeparationLetterPdfService, {
-  collectMissingSeparationLetterFields,
+  collectMissingDocumentFields,
   computeSeniority,
   formatSeniority,
   sanitizeRenderText,
-  type MissingSeparationLetterField,
 } from './separation_letter_pdf.service.js'
 import {
   templateVersionNumberOf,
@@ -184,6 +188,9 @@ export default class DocumentsService {
     const referenceDateSource = terminatedDateIso
       ? REFERENCE_DATE_SOURCE.TERMINATED
       : REFERENCE_DATE_SOURCE.PLANNED
+    // Regla 7 de H1a: sin departamento se imprime la unidad de adscripción;
+    // se resuelve aquí para que la guarda la evalúe ya resuelta (regla 10)
+    const departmentOrUnit = departmentName.length > 0 ? departmentName : legalName
 
     // Plantilla propia (USRH1789097550389, reglas 1, 6 y 9): resuelta AL
     // EMITIR por el BU SNAPSHOTEADO del expediente — nunca el del encabezado —
@@ -198,15 +205,29 @@ export default class DocumentsService {
     const templateBuffer = template ? await this.readTemplateOrFail(template) : null
 
     // Regla 1 — guarda PURA en un punto único, antes de gastar CPU o red:
-    // el 422 enumera cada dato con su pestaña destino (regla 2).
-    const missing = collectMissingSeparationLetterFields({
-      legalName,
-      employeeName,
-      position: positionName,
-      hireDate: hireDateIso,
-      separationDate: referenceDateIso,
+    // el 422 enumera cada dato con su pestaña destino (regla 2). La lista
+    // efectiva sale de la plantilla vigente ya resuelta (USRH1789097550392):
+    // sin plantilla propia son los cinco de siempre, en el mismo orden.
+    const requiredFieldKeys = resolveRequiredFieldKeys(
+      documentType,
+      template?.employeeOffboardingDocumentTemplateValidationResult?.recognized ?? null,
+      OFFBOARDING_DOCUMENT_FIELDS
+    )
+    // Los MISMOS valores saneados que se imprimen: no hay segunda ruta de datos
+    const missing = collectMissingDocumentFields(requiredFieldKeys, {
+      legal_name: legalName,
+      employee_name: employeeName,
+      position_name: positionName,
+      department_or_unit: departmentOrUnit,
+      hire_date: hireDateIso,
+      separation_date: referenceDateIso,
     })
-    if (missing.length > 0 || !hireDateIso || !referenceDateIso) {
+    if (missing.length > 0) {
+      throw this.incompleteError(missing)
+    }
+    // Las dos fechas entran siempre a la lista efectiva (obligatorias y
+    // dependencias de la antigüedad); la guarda ya las exigió.
+    if (!hireDateIso || !referenceDateIso) {
       throw this.incompleteError(missing)
     }
 
@@ -218,7 +239,6 @@ export default class DocumentsService {
     }
 
     const issuedAt = todayInBusinessZone()
-    const departmentOrUnit = departmentName.length > 0 ? departmentName : legalName
 
     // Regla 3 — folio consecutivo por expediente y tipo. El folio SE IMPRIME
     // en el PDF, así que se estima ANTES de renderizar (sin lock) y se
@@ -579,8 +599,14 @@ export default class DocumentsService {
     })
   }
 
-  private incompleteError(missing: MissingSeparationLetterField[]) {
-    const labels = missing.map((field) => this.t(MISSING_FIELD_LABEL_KEY[field]))
+  /**
+   * Cada faltante con su lugar de captura (reglas 5 a 7): los cinco campos
+   * históricos conservan su frase viva; cualquier otro del catálogo se
+   * enuncia "etiqueta (pestaña de captura)", donde la pestaña ya dice si la
+   * captura el dueño de la cuenta. Nunca el valor del campo ni su `source`.
+   */
+  private incompleteError(missing: readonly OffboardingDocumentFieldKey[]) {
+    const labels = missing.map((key) => this.guardFieldLabel(key))
     const fields = new Intl.ListFormat(this.locale, { style: 'long', type: 'conjunction' }).format(
       labels
     )
@@ -591,6 +617,15 @@ export default class DocumentsService {
       title: this.t('employee_offboarding_document_issue_error_title'),
       detail: this.t('employee_offboarding_document_incomplete_detail', { fields }),
     })
+  }
+
+  private guardFieldLabel(key: OffboardingDocumentFieldKey): string {
+    const legacyKey = LEGACY_FIELD_GUARD_LABEL_KEY[key]
+    if (legacyKey) return this.t(legacyKey)
+    const field = fieldByKey(key)
+    if (!field) return key
+    const label = this.t(field.labelKey)
+    return field.captureTabLabelKey ? `${label} (${this.t(field.captureTabLabelKey)})` : label
   }
 
   private dateRangeInvalidError() {

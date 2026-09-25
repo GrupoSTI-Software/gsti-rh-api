@@ -161,15 +161,21 @@ export default class UserService {
     return newUser
   }
 
-  async update(currentUser: User, user: User) {
+  /**
+   * @param trx La del llamador (USRH1789698261612): la credencial y su espejo
+   * se guardan juntos. El `emit` de logout no se revierte con un rollback: es
+   * molesto, no corrupto (declarado en el spec).
+   */
+  async update(currentUser: User, user: User, trx?: TransactionClientContract) {
     currentUser.userEmail = user.userEmail
     currentUser.userActive = user.userActive
     currentUser.roleId = user.roleId
     currentUser.personId = user.personId
     currentUser.userEmailType = user.userEmailType
+    if (trx) currentUser.useTransaction(trx)
     await currentUser.save()
     if (!user.userActive) {
-      await ApiToken.query().where('tokenable_id', currentUser.userId).delete()
+      await ApiToken.query({ client: trx }).where('tokenable_id', currentUser.userId).delete()
       if (Ws.io) {
         Ws.io.emit(`user-forze-logout:${currentUser.userEmail}`, {})
       }

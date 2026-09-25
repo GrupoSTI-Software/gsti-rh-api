@@ -131,13 +131,15 @@ async function createBusinessUnit(label: string): Promise<BusinessUnit> {
   })
 }
 
-async function createPerson(emailPrefix: string, email?: string): Promise<Person> {
+async function createPerson(emailPrefix: string, email?: string, businessUnitId?: number): Promise<Person> {
   const stamp = await uniqueStamp()
   return Person.create({
     personFirstname: 'AccessEmail',
     personLastname: 'MaskGuard',
     personSecondLastname: emailPrefix,
     personEmail: email ?? `${emailPrefix}-${stamp}@gsti-tests.local`,
+    // USRH1789698261609: sin marca la persona es invisible con `businessScope`.
+    businessUnitId: businessUnitId ?? null,
   })
 }
 
@@ -233,10 +235,10 @@ async function buildFixtures(): Promise<TestFixtures> {
   })
   await grantUsersPermissions(role.roleId, ['create', 'update'])
 
-  const actorPerson = await createPerson('mask-guard-actor')
+  const actorPerson = await createPerson('mask-guard-actor', undefined, tenantBu.businessUnitId)
   const actorUser = await createUserForPerson(actorPerson, role.roleId, [tenantBu.businessUnitId])
 
-  const personalPerson = await createPerson('mask-guard-personal', realPersonalEmail)
+  const personalPerson = await createPerson('mask-guard-personal', realPersonalEmail, tenantBu.businessUnitId)
   const personalUser = await createUserForPerson(
     personalPerson,
     role.roleId,
@@ -244,7 +246,7 @@ async function buildFixtures(): Promise<TestFixtures> {
     { userEmail: realPersonalEmail, userEmailType: 'personal' }
   )
 
-  const institutionalPerson = await createPerson('mask-guard-institutional')
+  const institutionalPerson = await createPerson('mask-guard-institutional', undefined, tenantBu.businessUnitId)
   const institutionalEmployee = await createEmployeeForPerson(
     institutionalPerson,
     tenantBu.businessUnitId,
@@ -257,10 +259,10 @@ async function buildFixtures(): Promise<TestFixtures> {
     { userEmail: realInstitutionalEmail, userEmailType: 'institutional' }
   )
 
-  const foreignPerson = await createPerson('mask-guard-foreign')
+  const foreignPerson = await createPerson('mask-guard-foreign', undefined, foreignBu.businessUnitId)
   const foreignUser = await createUserForPerson(foreignPerson, role.roleId, [foreignBu.businessUnitId])
 
-  const preparedPerson = await createPerson('mask-guard-prepared', `prepared-${stamp}@correo.com`)
+  const preparedPerson = await createPerson('mask-guard-prepared', `prepared-${stamp}@correo.com`, tenantBu.businessUnitId)
 
   return {
     actor: {
@@ -412,6 +414,7 @@ test.group('Users — correo de acceso sin máscara (USRH1789328027034)', (group
     const target = fx.institutionalUser
     const userEmailBefore = target.user.userEmail
     const businessEmailBefore = target.employee.employeeBusinessEmail
+    const personEmailBefore = target.person.personEmail
 
     const response = await client
       .put(`/api/users/${target.user.userId}`)
@@ -432,6 +435,8 @@ test.group('Users — correo de acceso sin máscara (USRH1789328027034)', (group
     const reloadedEmployee = await Employee.findOrFail(target.employee.employeeId)
     assert.equal(reloadedUser.userEmail, userEmailBefore)
     assert.equal(reloadedEmployee.employeeBusinessEmail, businessEmailBefore)
+    const reloadedPerson = await Person.findOrFail(target.person.personId)
+    assert.equal(reloadedPerson.personEmail, personEmailBefore)
   })
 
   test('CA-4: PUT con correo real y escritura de contacto sincroniza userEmail y personEmail', async ({

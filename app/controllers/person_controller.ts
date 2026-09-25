@@ -3,7 +3,20 @@ import { createPersonValidator, updatePersonValidator } from '../validators/pers
 import Person from '#models/person'
 import PersonService from '#services/person_service'
 import { PersonFilterSearchInterface } from '../interfaces/person_filter_search_interface.js'
-import User from '#models/user'
+import db from '@adonisjs/lucid/services/db'
+import {
+  emailMirrorActorFromContext,
+  mirrorPersonEmailToUserEmail,
+  toPublicEmailMirrorOutcome,
+} from '#helpers/person_user_email_mirror'
+import {
+  isEmailMirrorConflictError,
+  isEmailMirrorRefusedError,
+  isUserAccessEmailDuplicatedIndexError,
+  respondEmailMirrorConflict,
+  respondEmailMirrorRefused,
+  respondUserAccessEmailDuplicated,
+} from '#helpers/user_access_email_api_error'
 import { personIsCollaborator } from '#helpers/person_is_collaborator'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { sessionUserOwnsPerson } from '#helpers/session_user_owns_employee'
@@ -560,6 +573,24 @@ export default class PersonController {
    *                 data:
    *                   type: object
    *                   description: Processed object
+   *                   properties:
+   *                     person:
+   *                       type: object
+   *                       description: Persona actualizada
+   *                     emailMirror:
+   *                       type: object
+   *                       description: Resultado del espejo del correo del expediente hacia la credencial de acceso
+   *                       properties:
+   *                         status:
+   *                           type: string
+   *                           enum: [written, skipped]
+   *                           description: written si se copió el correo a la credencial; skipped si no se escribió
+   *                         target:
+   *                           type: string
+   *                           description: Destino de la copia cuando status es written (users)
+   *                         reason:
+   *                           type: string
+   *                           description: Motivo de la omisión cuando status es skipped
    *       '404':
    *         description: Resource not found
    *         content:
@@ -580,7 +611,9 @@ export default class PersonController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: >-
+   *           The parameters entered are invalid or essential data is missing to process the request.
+   *           También responde 400 con {title, detail, key, code} cuando el correo ya lo usa otra cuenta de acceso viva (USR.MAIL.002) o la persona tiene más de una cuenta viva (USR.MAIL.006). Ningún campo se guardó.
    *         content:
    *           application/json:
    *             schema:
@@ -621,7 +654,7 @@ export default class PersonController {
    *                     error:
    *                       type: string
    *       '403':
-   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó. O la cuenta de acceso de la persona no pertenece a las empresas del actor (USR.MAIL.005).
    *         content:
    *           application/json:
    *             schema:
@@ -718,9 +751,10 @@ export default class PersonController {
           data: { ...person },
         }
       }
-      const previousEmail = currentPerson.personEmail
       const personService = new PersonService(i18n)
       const data = await request.validateUsing(updatePersonValidator)
+      // B7: se escribe el valor validado (con trim), no el crudo del request.
+      person.personEmail = data.personEmail ?? null
       const identityCheck = await personService.verifyInfo(person, updateCompanyId)
       if (identityCheck.status === 400) {
         return respondPersonIdentityMissingCompany(ctx)
@@ -737,29 +771,31 @@ export default class PersonController {
           data: { ...data },
         }
       }
-      const updatePerson = await personService.update(currentPerson, person)
-      if (updatePerson) {
-        if (previousEmail && person.personEmail) {
-          const user = await User.query()
-            .where('person_id', currentPerson.personId)
-            .where('user_email', previousEmail)
-            .whereNull('user_deleted_at')
-            .first()
-          if (user) {
-            user.userEmail = person.personEmail
-            await user.save()
-          }
-        }
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Persons',
-          message: 'The person was updated successfully',
-          data: { person: updatePerson },
-        }
+      const actor = emailMirrorActorFromContext(ctx)
+      const personBirthdayPast = currentPerson.personBirthday
+      const { updatePerson, emailMirror } = await db.transaction(async (trx) => {
+        const persisted = await personService.update(currentPerson, person, trx)
+        const outcome = await mirrorPersonEmailToUserEmail({
+          personId: currentPerson.personId,
+          personEmail: person.personEmail,
+          actor,
+          trx,
+        })
+        return { updatePerson: persisted, emailMirror: outcome }
+      })
+      await personService.syncBirthdayCalendar(updatePerson, personBirthdayPast, person.personBirthday)
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Persons',
+        message: 'The person was updated successfully',
+        data: { person: updatePerson, emailMirror: toPublicEmailMirrorOutcome(emailMirror) },
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
+      if (isEmailMirrorConflictError(error)) return respondEmailMirrorConflict(ctx, error)
+      if (isEmailMirrorRefusedError(error)) return respondEmailMirrorRefused(ctx, error)
+      if (isUserAccessEmailDuplicatedIndexError(error)) return respondUserAccessEmailDuplicated(ctx)
       // USRH1789698261610 regla 6: el rechazo habla de negocio, nunca de BD.
       const duplicatedField = personIdentityDuplicatedFieldFromValidationError(error)
       if (duplicatedField) {

@@ -2,8 +2,7 @@ import Employee from '#models/employee'
 import Person from '#models/person'
 import { blindIndex } from '#utils/blind_index'
 import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
-import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
-import { TenantContext } from '#utils/tenant_context'
+import { personEmailExistsGlobally } from '#helpers/person_email_global_uniqueness'
 import { DateTime } from 'luxon'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { PersonFilterSearchInterface } from '../interfaces/person_filter_search_interface.js'
@@ -101,7 +100,13 @@ export default class PersonService {
     return newPerson
   }
 
-  async update(currentPerson: Person, person: Person) {
+  /**
+   * @param trx La del llamador (USRH1789698261612). Con `trx`, el recálculo del
+   * calendario de asistencia NO corre aquí: es dato derivado y recalculable,
+   * `SyncAssistsService` no acepta transacción, y lo dispara el llamador con
+   * `syncBirthdayCalendar` después del commit.
+   */
+  async update(currentPerson: Person, person: Person, trx?: TransactionClientContract) {
     const personBirthdayPast = currentPerson.personBirthday
     currentPerson.personFirstname = person.personFirstname
     currentPerson.personLastname = person.personLastname
@@ -133,43 +138,57 @@ export default class PersonService {
     currentPerson.personPlaceOfBirthCountry = person.personPlaceOfBirthCountry
     currentPerson.personPlaceOfBirthState = person.personPlaceOfBirthState
     currentPerson.personPlaceOfBirthCity = person.personPlaceOfBirthCity
+    if (trx) currentPerson.useTransaction(trx)
     await currentPerson.save()
 
     await currentPerson.load('employee')
-    if (currentPerson.employee) {
-      if (currentPerson.personBirthday) {
-        const birthdayDate = currentPerson.personBirthday;
-        const date = typeof birthdayDate === 'string' ? new Date(birthdayDate) : birthdayDate;
+    if (!trx) {
+      await this.syncBirthdayCalendar(currentPerson, personBirthdayPast, person.personBirthday)
+    }
+    return currentPerson
+  }
 
-        const currentYear = new Date().getFullYear()
-        const month = date.getMonth()
-        const day = date.getDate()
+  /**
+   * Recalcula el día de cumpleaños en el calendario de asistencia del empleado
+   * de la persona (año en curso y, si cambió, la fecha anterior ya vencida).
+   * Requiere `currentPerson.employee` cargado.
+   */
+  async syncBirthdayCalendar(
+    currentPerson: Person,
+    personBirthdayPast: string | null,
+    personBirthdayInput: string | null
+  ) {
+    if (!currentPerson.employee) return
+    if (currentPerson.personBirthday) {
+      const birthdayDate = currentPerson.personBirthday
+      const date = typeof birthdayDate === 'string' ? new Date(birthdayDate) : birthdayDate
 
-        let updatedBirthday = new Date(currentYear, month, day)
-        if (updatedBirthday.getMonth() !== month || updatedBirthday.getDate() !== day) {
-          updatedBirthday = new Date(currentYear, 1, 28)
-        }
-        await this.updateAssistCalendar(currentPerson.employee.employeeId, updatedBirthday)
+      const currentYear = new Date().getFullYear()
+      const month = date.getMonth()
+      const day = date.getDate()
+
+      let updatedBirthday = new Date(currentYear, month, day)
+      if (updatedBirthday.getMonth() !== month || updatedBirthday.getDate() !== day) {
+        updatedBirthday = new Date(currentYear, 1, 28)
       }
-      if (personBirthdayPast) {
-        const newPersonBirthdayPast = new Date(personBirthdayPast)
-        const datePast = typeof newPersonBirthdayPast === 'string' ? new Date(newPersonBirthdayPast) : newPersonBirthdayPast
-        const fixedBirthdayString = person.personBirthday!.replace('00:000:00', '00:00:00')
+      await this.updateAssistCalendar(currentPerson.employee.employeeId, updatedBirthday)
+    }
+    if (personBirthdayPast) {
+      const newPersonBirthdayPast = new Date(personBirthdayPast)
+      const datePast = typeof newPersonBirthdayPast === 'string' ? new Date(newPersonBirthdayPast) : newPersonBirthdayPast
+      const fixedBirthdayString = personBirthdayInput!.replace('00:000:00', '00:00:00')
 
-        const birthdayISO = DateTime.fromFormat(fixedBirthdayString, 'yyyy-MM-dd HH:mm:ss').toISO()
-        const datePastISO = DateTime.fromJSDate(datePast).toISO()
+      const birthdayISO = DateTime.fromFormat(fixedBirthdayString, 'yyyy-MM-dd HH:mm:ss').toISO()
+      const datePastISO = DateTime.fromJSDate(datePast).toISO()
 
-        if (datePastISO !== birthdayISO) {
-          const today = new Date()
-          const todayAtMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-          if (datePast <= todayAtMidnight) {
-            await this.updateAssistCalendar(currentPerson.employee.employeeId, datePast)
-          }
+      if (datePastISO !== birthdayISO) {
+        const today = new Date()
+        const todayAtMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+        if (datePast <= todayAtMidnight) {
+          await this.updateAssistCalendar(currentPerson.employee.employeeId, datePast)
         }
       }
     }
-
-    return currentPerson
   }
 
   async delete(currentPerson: Person) {
@@ -248,17 +267,9 @@ export default class PersonService {
     }
 
     if (person.personEmail && person.personEmail.trim() !== '') {
-      const emailHash = blindIndex(person.personEmail)
-      const existing = await TenantContext.runUnscoped(
-        () =>
-          Person.query()
-            .whereNull('person_deleted_at')
-            .where('person_email_hash', emailHash)
-            .if(excludePersonId > 0, (query) => query.whereNot('person_id', excludePersonId))
-            .first(),
-        TENANT_UNSCOPED_REASON.PERSON_IDENTITY_UNIQUENESS
-      )
-      if (existing) return { status: 422, field: 'email' }
+      if (await personEmailExistsGlobally(person.personEmail, excludePersonId)) {
+        return { status: 422, field: 'email' }
+      }
     }
 
     return { status: 200 }

@@ -102,7 +102,12 @@ export const createEmployeeValidator = vine.compile(
   })
 )
 
-export const updateEmployeeValidator = vine.compile(
+/**
+ * `employeeBusinessEmail` se valida también al editar (USRH1789698261612),
+ * excluyendo al propio empleado: sin esto el PUT movía el correo institucional
+ * a uno que ya usa otro empleado vivo.
+ */
+export const updateEmployeeValidator = vine.withMetaData<{ employeeId: number }>().compile(
   vine.object({
     employeeSyncId: vine.string().trim().minLength(0).maxLength(50).optional(),
     employeeCode: vine.string().trim().minLength(1).maxLength(200),
@@ -123,6 +128,21 @@ export const updateEmployeeValidator = vine.compile(
     employeeWorkSchedule: vine.enum(workScheduleValues).optional(),
     employeeWorkScheduleHybridMode: vine.enum(hybridModeValues).nullable().optional(),
     employeeWorkScheduleHybridConfig: hybridConfigSchema.nullable(),
+    employeeBusinessEmail: vine
+      .string()
+      .trim()
+      .minLength(0)
+      .maxLength(200)
+      .unique(async (_db, value, field) => {
+        if (value === '') return true
+        const existingEmail = await Employee.query()
+          .whereNull('employee_deleted_at')
+          .where('employee_business_email', value)
+          .whereNot('employee_id', field.meta.employeeId)
+          .first()
+        return !existingEmail
+      })
+      .optional(),
   })
 )
 
