@@ -12,6 +12,10 @@ import {
  * USRH1789698261610 — criterios 1-6 de la HU por HTTP. Excepción: en el criterio 4
  * el vaciado va por modelo (PUT no puede vaciar sensibles); la reutilización sí es HTTP.
  * Limpieza: las personas del caso salen ANTES que los actores (FK RESTRICT).
+ *
+ * Task 7 añade CA-5 de la HU hermana (USRH1789698261614): la frontera entre el 610
+ * (RFC acotado por empresa) y el 005 (correo global) — el RFC repetido en otra
+ * empresa procede, y en la misma responde el rechazo de identidad, nunca el del correo.
  */
 
 const uniqueStamp = () => `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
@@ -260,5 +264,48 @@ test.group('unicidad de identidad por empresa', (group) => {
       )
     assert.equal(response.status(), 400)
     assert.equal(response.body()?.key, 'BU.VAL.000')
+  })
+
+  test('CA-5 — RFC repetido en otra empresa procede; en la misma responde 610, nunca el correo', async ({
+    assert,
+    client,
+  }) => {
+    const stamp = uniqueStamp()
+    const rfc = `BORDERFC${stamp}`.slice(0, 20)
+
+    // 1. El RFC queda ocupado en la empresa A.
+    const seededInA = await createPerson(client, actorA, 'BorderA', {
+      rfc,
+      curp: `BORDECURP1${stamp}`.slice(0, 20),
+      nss: `BORDENSS1${stamp}`.slice(0, 20),
+      email: `border-a-${stamp}@gsti-tests.local`,
+    })
+    assert.equal(seededInA.status(), 201)
+
+    // 2. Alta en B con el MISMO RFC y correo libre: procede —el RFC está acotado
+    // por empresa, así que el de A no bloquea a B— y el cuerpo no trae el
+    // rechazo del correo.
+    const sameRfcInB = await createPerson(client, actorB, 'BorderB', {
+      rfc,
+      curp: `BORDECURP2${stamp}`.slice(0, 20),
+      nss: `BORDENSS2${stamp}`.slice(0, 20),
+      email: `border-b-${stamp}@gsti-tests.local`,
+    })
+    assert.equal(sameRfcInB.status(), 201)
+    assert.notEqual(sameRfcInB.body()?.code, 'PERSON.IDENTITY.005')
+
+    // 3. Segunda alta en B con el mismo RFC: el veredicto es el 610 por empresa,
+    // con curp/nss propios para que el único ofensor sea el RFC.
+    const repeatedRfcInB = await createPerson(client, actorB, 'BorderB2', {
+      rfc,
+      curp: `BORDECURP3${stamp}`.slice(0, 20),
+      nss: `BORDENSS3${stamp}`.slice(0, 20),
+      email: `border-b2-${stamp}@gsti-tests.local`,
+    })
+    assert.equal(repeatedRfcInB.status(), 422)
+    assert.equal(repeatedRfcInB.body()?.key, 'rfc-ya-registrado-en-la-empresa')
+    assert.equal(repeatedRfcInB.body()?.code, 'PERSON.IDENTITY.001')
+    // La frontera: este rechazo es de identidad por empresa, jamás el del correo.
+    assert.notEqual(repeatedRfcInB.body()?.code, 'PERSON.IDENTITY.005')
   })
 })
