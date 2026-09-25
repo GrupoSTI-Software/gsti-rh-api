@@ -7,6 +7,7 @@ import mail from '@adonisjs/mail/services/main'
 import CredentialChangedMail from '#mails/credential_changed_mail'
 import User from '#models/user'
 import { LogStore } from '#models/MongoDB/log_store'
+import { maskEmail } from '#services/credential_change_service'
 import UserService from '#services/user_service'
 import { grantRoleModulePermissions } from '#tests/helpers/tenant_actor'
 import {
@@ -19,6 +20,7 @@ import {
   employeeBody,
   personBody,
   readPersonEmail,
+  readPersonFirstname,
   readUserRow,
   stamp,
   userBody,
@@ -112,7 +114,7 @@ function assertTwoNotices(
   fake.mails.assertSentCount(CredentialChangedMail, 2)
   fake.mails.assertSent(CredentialChangedMail, ({ message }) => {
     if (!message.hasTo(previousEmail)) return false
-    const maskedEmail = newEmail[0] + '•••' + newEmail[newEmail.indexOf('@') - 1]
+    const maskedEmail = maskEmail(newEmail)
     const html = String(message.toJSON().message.html ?? '')
     assert.include(html, maskedEmail)
     assert.notInclude(html, newEmail)
@@ -398,6 +400,57 @@ test.group('Consecuencias funcionales del cambio de credencial', (group) => {
       })
       assert.equal(await tokenCount(affected.userId), beforeTokens)
       fake.mails.assertNotSent(CredentialChangedMail)
+      assert.lengthOf(credentialLogs(captured.logs), 0)
+    } finally {
+      captured.restore()
+    }
+  })
+
+  test('editar sin enviar personEmail no exige credential-change ni produce consecuencias', async ({
+    client,
+    assert,
+  }) => {
+    const w = world!
+    const fake = mail.fake()
+    const captured = captureLogs()
+    try {
+      await grantRoleModulePermissions(w.limited.role, 'users', ['update'])
+      const email = `campo-omitido-${stamp()}@correo.com`
+      const person = await createPersonIn(w.registry, w.limited.businessUnit, email)
+      const affected = await createUserFor(
+        w.registry,
+        person,
+        w.limited.role,
+        [w.limited.businessUnit],
+        { userEmail: email, userEmailType: 'personal' }
+      )
+      await createSessions(affected)
+      const beforeTokens = await tokenCount(affected.userId)
+      const beforeMails = fake.mails.sent().length
+
+      const response = await client
+        .put(`/api/persons/${person.personId}`)
+        .loginAs(w.limited.user)
+        .headers(businessUnitHeader(w.limited.businessUnit))
+        .json({
+          personFirstname: 'Nombre actualizado',
+          personLastname: person.personLastname,
+          personSecondLastname: person.personSecondLastname,
+          personGender: 'Mujer',
+          personBirthday: null,
+        })
+
+      response.assertStatus(201)
+      assert.deepEqual(response.body().data.emailMirror, {
+        status: 'skipped',
+        reason: 'source-email-empty',
+      })
+      assert.equal(await readPersonFirstname(person.personId), 'Nombre actualizado')
+      assert.equal(await readPersonEmail(person.personId), email)
+      const userRow = await readUserRow(affected.userId)
+      assert.equal(userRow.user_email, email)
+      assert.equal(await tokenCount(affected.userId), beforeTokens)
+      assert.equal(fake.mails.sent().length, beforeMails)
       assert.lengthOf(credentialLogs(captured.logs), 0)
     } finally {
       captured.restore()
