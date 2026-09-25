@@ -9,6 +9,7 @@
  *  - `owner` se crea con `ensureRole('owner')` y no recibe el permiso
  *    `full-employee-assigned` (edición aditiva respecto a lo que dejó 01).
  */
+import { randomUUID } from 'node:crypto'
 import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Role from '#models/role'
@@ -142,7 +143,9 @@ async function createEmployee(
     personEmail: `emp-${label}-${stamp}@scope-tests.local`,
   })
 
+  // El insert crudo se salta el hook `beforeCreate` que asigna el slug opaco.
   const [employeeId] = await db.table('employees').insert({
+    employee_slug: randomUUID(),
     employee_sync_id: `EMP-${stamp}-${label}`,
     employee_code: `EMP-${stamp}-${label}`,
     employee_first_name: 'Empleado',
