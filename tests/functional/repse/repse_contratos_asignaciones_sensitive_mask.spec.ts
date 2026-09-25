@@ -242,8 +242,15 @@ test.group('REPSE contratos y asignaciones — máscara RFC/NSS USRH178947767576
     client,
     assert,
   }) => {
-    const rfcOriginal = await reloadContratanteRfc(fixture.contratante.empresaContratanteId)
-    const nssOriginal = await reloadPersonNss(fixture.employeeConNss.person.personId)
+    const businessUnitId = actors.sin.businessUnit.businessUnitId
+    const rfcOriginal = await reloadContratanteRfc(
+      fixture.contratante.empresaContratanteId,
+      businessUnitId
+    )
+    const nssOriginal = await reloadPersonNss(
+      fixture.employeeConNss.person.personId,
+      businessUnitId
+    )
 
     const patchResponse = await client
       .patch(`${CONTRATOS_BASE}/${fixture.contratoId}`)
@@ -265,8 +272,14 @@ test.group('REPSE contratos y asignaciones — máscara RFC/NSS USRH178947767576
 
     renewResponse.assertStatus(201)
 
-    assert.equal(await reloadContratanteRfc(fixture.contratante.empresaContratanteId), rfcOriginal)
-    assert.equal(await reloadPersonNss(fixture.employeeConNss.person.personId), nssOriginal)
+    assert.equal(
+      await reloadContratanteRfc(fixture.contratante.empresaContratanteId, businessUnitId),
+      rfcOriginal
+    )
+    assert.equal(
+      await reloadPersonNss(fixture.employeeConNss.person.personId, businessUnitId),
+      nssOriginal
+    )
   })
 
   test('CA-6: el resto del contrato sin RFC ni NSS coincide con la forma esperada', async ({
