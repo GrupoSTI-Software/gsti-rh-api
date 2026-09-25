@@ -115,3 +115,46 @@ export function respondPersonIdentityMissingCompany(ctx: HttpContext): PersonIde
     code: definition.code,
   }
 }
+
+/**
+ * `E_VALIDATION_ERROR` cuyo ofensor es `personEmail` con la regla `database.unique` (USRH1789698261614).
+ *
+ * El literal `The personEmail has already been taken` lo emite `@adonisjs/lucid`
+ * (`node_modules/@adonisjs/lucid/build/src/bindings/vinejs.js:21`) y no es del
+ * repo: no se reescribe, se intercepta por campo y regla, y el `errors[]`
+ * original desaparece de la respuesta porque `rule: 'database.unique'` es el
+ * oráculo en forma legible por máquina. No se registra `SimpleMessagesProvider`
+ * en `app/validators/person.ts`: duplicaría el texto y podría divergir del de edición.
+ */
+export function isPersonEmailUniqueValidationError(error: unknown): boolean {
+  if (!isObjectRecord(error)) return false
+  if (error.code !== 'E_VALIDATION_ERROR') return false
+  if (!Array.isArray(error.messages)) return false
+  for (const message of error.messages) {
+    if (!isObjectRecord(message)) continue
+    if (message.field === 'personEmail' && message.rule === 'database.unique') return true
+  }
+  return false
+}
+
+/**
+ * Rechazo del correo personal que no confirma existencia (USRH1789698261614).
+ *
+ * ÚNICO emisor de este rechazo en todo el API: `POST /api/persons` y
+ * `PUT /api/persons/:personId` responden por aquí, y por eso son indistinguibles
+ * byte a byte (CA-2). No recibe parámetros de dominio (ni correo, ni personId,
+ * ni empresa): no hay nada que interpolar, así que ningún camino puede pasarle
+ * algo que el otro no. No añade cabeceras. No cierra el oráculo: quien prueba un
+ * correo y recibe rechazo, y prueba otro y pasa, ya obtuvo la información; el
+ * control es de USRH1789762889970.
+ */
+export function respondPersonEmailNotAvailable(ctx: HttpContext): PersonIdentityErrorBody {
+  const definition = PERSON_IDENTITY_ERRORS.EMAIL_NOT_AVAILABLE
+  ctx.response.status(definition.status)
+  return {
+    title: ctx.i18n.t('person_email_not_available_title'),
+    detail: ctx.i18n.t('person_email_not_available_detail'),
+    key: definition.key,
+    code: definition.code,
+  }
+}
