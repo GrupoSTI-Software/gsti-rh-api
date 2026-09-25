@@ -34,6 +34,16 @@ export function isPersonWriteRateLimitError(
 }
 
 /**
+ * Devuelve `value` si es un número utilizable; si no, el valor por defecto.
+ * El error del limitador puede cruzar un borde de serialización y llegar sin
+ * los contadores, y el 429 debe salir igual con sus cuatro cabeceras en vez de
+ * romper con `RangeError`.
+ */
+function resolveNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback
+}
+
+/**
  * Respuesta 429 del sondeo de correo personal (USRH1789762889970).
  *
  * El 429 es deliberadamente **indistinguible entre contadores**: no expone cuál
@@ -41,22 +51,29 @@ export function isPersonWriteRateLimitError(
  * eso `title` y `detail` salen de un catálogo i18n que no interpola nada, y las
  * cabeceras RFC 6585 (limit, remaining, retry-after, reset) describen solo el
  * límite que disparó la respuesta.
+ *
+ * El predicado `isPersonWriteRateLimitError` acepta también el objeto con forma
+ * de error (`{ code, response }`), que puede llegar con `response` vacío: en ese
+ * caso cada cabecera cae a un valor por defecto sensato (limit/remaining 0 y
+ * `Retry-After` 0, con `X-RateLimit-Reset` en el instante actual) para que el
+ * 429 siempre se emita con las cuatro cabeceras.
  */
 export function respondPersonWriteRateLimit(
   ctx: Pick<HttpContext, 'response' | 'i18n'>,
   error: InstanceType<typeof errors.E_TOO_MANY_REQUESTS>
 ) {
   const definition = PERSON_IDENTITY_ERRORS.EMAIL_PROBE_RATE_LIMITED
+  const rawResponse = (error as unknown as { response?: Record<string, unknown> }).response
+  const limit = resolveNumber(rawResponse?.limit, 0)
+  const remaining = resolveNumber(rawResponse?.remaining, 0)
+  const availableIn = resolveNumber(rawResponse?.availableIn, 0)
 
   return ctx.response
     .status(definition.status)
-    .header('X-RateLimit-Limit', error.response.limit)
-    .header('X-RateLimit-Remaining', error.response.remaining)
-    .header('Retry-After', error.response.availableIn)
-    .header(
-      'X-RateLimit-Reset',
-      new Date(Date.now() + error.response.availableIn * 1000).toISOString()
-    )
+    .header('X-RateLimit-Limit', limit)
+    .header('X-RateLimit-Remaining', remaining)
+    .header('Retry-After', availableIn)
+    .header('X-RateLimit-Reset', new Date(Date.now() + availableIn * 1000).toISOString())
     .json({
       title: ctx.i18n.t('person_email_probe_rate_limited_title'),
       detail: ctx.i18n.t('person_email_probe_rate_limited_detail'),

@@ -945,7 +945,7 @@ Cada intento al endpoint (exitoso o fallido) dispara un correo a la dirección c
 
 **HTTP 429.**
 
-**Cuándo:** Se superó el número de capturas de correo personal permitidas en el periodo. Se emite en los **dos** caminos de captura, `POST /api/persons` y `PUT /api/persons/:personId`, y **la respuesta es idéntica entre contadores**: no distingue cuál de los límites se topó.
+**Cuándo:** Se superó el número de capturas de correo personal permitidas en el periodo. Se emite en los **dos** caminos de captura, `POST /api/persons` y `PUT /api/persons/:personId`, y **el cuerpo es idéntico entre contadores**: no distingue cuál de los límites se topó.
 
 **Respuesta:**
 

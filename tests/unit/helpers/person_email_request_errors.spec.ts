@@ -114,6 +114,28 @@ test.group('person_email_request_errors — qué responde', () => {
     assert.equal(body.code, 'PERSON.IDENTITY.006')
   })
 
+  test('un error serializado sin contadores igual responde 429 con las cuatro cabeceras', ({
+    assert,
+  }) => {
+    const { ctx, read } = fakeResponse()
+
+    // Objeto pato incompleto: es la forma que acepta el predicado tras cruzar un
+    // borde de serialización. No debe lanzar RangeError ni devolver 500.
+    respondPersonWriteRateLimit(ctx, {
+      code: 'E_TOO_MANY_REQUESTS',
+      response: {},
+    } as never)
+
+    const { status, headers, body } = read()
+    assert.equal(status, 429)
+    assert.equal(headers['X-RateLimit-Limit'], 0)
+    assert.equal(headers['X-RateLimit-Remaining'], 0)
+    assert.equal(headers['Retry-After'], 0)
+    assert.isString(headers['X-RateLimit-Reset'])
+    assert.equal(body.key, 'demasiados-intentos-de-captura-de-correo')
+    assert.equal(body.code, 'PERSON.IDENTITY.006')
+  })
+
   test('no filtra el mensaje interno del limitador', ({ assert }) => {
     const { ctx, read } = fakeResponse()
 
@@ -139,19 +161,19 @@ test.group('person_email_request_errors — catálogo', () => {
 test.group('person_email_request_errors — i18n', () => {
   const keys = ['person_email_probe_rate_limited_title', 'person_email_probe_rate_limited_detail']
 
-  test('las dos claves existen en es.json y en en.json, y el detail no delata', ({ assert }) => {
+  test('las dos claves existen en es.json y en en.json, y el detail no delata en ningún idioma', ({
+    assert,
+  }) => {
     for (const lang of ['es', 'en']) {
       const path = new URL(`../../../resources/langs/${lang}.json`, import.meta.url)
       const catalog = JSON.parse(readFileSync(path, 'utf8')) as Record<string, string>
       for (const key of keys) {
         assert.isString(catalog[key], `${lang}.json debe traer ${key}`)
       }
-    }
 
-    const esPath = new URL('../../../resources/langs/es.json', import.meta.url)
-    const es = JSON.parse(readFileSync(esPath, 'utf8')) as Record<string, string>
-    const detail = es.person_email_probe_rate_limited_detail
-    assert.notInclude(detail, 'registrado')
-    assert.notInclude(detail, 'sondeo')
+      const detail = catalog.person_email_probe_rate_limited_detail
+      assert.notInclude(detail, 'registrado')
+      assert.notInclude(detail, 'sondeo')
+    }
   })
 })
