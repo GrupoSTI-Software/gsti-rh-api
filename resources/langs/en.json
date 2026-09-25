@@ -3043,6 +3043,8 @@
   "person_identity_duplicated_nss_detail": "Another active record in your company uses this number; check the data or deactivate the record holding it. No changes were saved.",
   "person_identity_missing_company_title": "Working company required",
   "person_identity_missing_company_detail": "The operation needs the company you work from. No changes were saved and no data was checked.",
+  "person_email_not_available_title": "That email cannot be used on this record",
+  "person_email_not_available_detail": "Platform policy does not allow that email on this record. Enter a different personal email, or leave the field empty: access to the application can be granted with the worker's company email.",
   "user_person_required_title": "Account record is missing",
   "user_person_required_detail": "Indicate which record the account belongs to in order to save it. No changes were saved.",
   "sensitive_data_write_forbidden_title": "Not allowed to modify sensitive data",

@@ -3046,6 +3046,8 @@
   "person_identity_duplicated_nss_detail": "Otro expediente activo de tu empresa usa este número; revisa el dato o da de baja el expediente que lo tiene. No se guardó ningún cambio.",
   "person_identity_missing_company_title": "Empresa de trabajo requerida",
   "person_identity_missing_company_detail": "La operación necesita la empresa desde la que trabajas. No se guardó ningún cambio y no se verificó ningún dato.",
+  "person_email_not_available_title": "No es posible registrar ese correo",
+  "person_email_not_available_detail": "La política de la plataforma no permite registrar ese correo en este expediente. Captura otro correo personal, o deja el campo vacío: el acceso a la aplicación puede otorgarse con el correo institucional del trabajador.",
   "user_person_required_title": "Falta el expediente de la cuenta",
   "user_person_required_detail": "Indica a qué expediente pertenece la cuenta para poder guardarla. No se guardó ningún cambio.",
   "sensitive_data_write_forbidden_title": "Sin permiso para modificar datos sensibles",
