@@ -36,13 +36,6 @@ export async function ensureCredentialChangeAllowed(
   const origin = input.origin ?? (input.currentUser ? 'user-screen' : undefined)
   if (origin === 'person-file' && input.persistedEmailType !== 'personal') return true
   if (origin === 'employee-file' && input.persistedEmailType !== 'institutional') return true
-  if (
-    origin === undefined &&
-    input.persistedEmailType !== 'personal' &&
-    input.persistedEmailType !== 'institutional'
-  ) {
-    return true
-  }
 
   if (normalizeEmail(persistedUser.userEmail) === incoming) return true
 

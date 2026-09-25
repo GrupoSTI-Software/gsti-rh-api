@@ -130,3 +130,56 @@ test('root deja pasar por bypass standard', async ({ assert }) => {
   assert.lengthOf(evaluations, 1)
   assert.equal(evaluations[0].bypass, 'standard')
 })
+
+test('sin actor responde 401 y devuelve false', async ({ assert }) => {
+  const ctx = await testUtils.createHttpContext()
+  const ok = await ensureCredentialChangeAllowed(ctx, {
+    currentUser: currentUser('viejo@corp.mx'),
+    incomingEmail: 'nuevo@corp.mx',
+    persistedEmailType: 'personal',
+    origin: 'user-screen',
+  })
+
+  assert.isFalse(ok)
+  assert.equal(ctx.response.getStatus(), 401)
+})
+
+test('employee-file institucional exige permiso cuando cambia', async ({ assert }) => {
+  const { ctx, evaluations } = await gateContext({ allowed: false, reason: 'denied' })
+  const ok = await ensureCredentialChangeAllowed(ctx, {
+    currentUser: currentUser('viejo@corp.mx'),
+    incomingEmail: 'nuevo@corp.mx',
+    persistedEmailType: 'institutional',
+    origin: 'employee-file',
+  })
+
+  assert.isFalse(ok)
+  assert.lengthOf(evaluations, 1)
+})
+
+test('user-screen no descarta el cambio por tipo cruzado', async ({ assert }) => {
+  const { ctx, evaluations } = await gateContext({ allowed: false, reason: 'denied' })
+  const ok = await ensureCredentialChangeAllowed(ctx, {
+    currentUser: currentUser('viejo@corp.mx'),
+    incomingEmail: 'nuevo@corp.mx',
+    persistedEmailType: 'institutional',
+    origin: 'user-screen',
+  })
+
+  assert.isFalse(ok)
+  assert.lengthOf(evaluations, 1)
+})
+
+test('fallback sin origin y tipo null exige permiso cuando cambia', async ({ assert }) => {
+  const { ctx, evaluations } = await gateContext({ allowed: false, reason: 'denied' })
+  const persisted = await User.query().whereNull('user_deleted_at').firstOrFail()
+  const ok = await ensureCredentialChangeAllowed(ctx, {
+    personId: persisted.personId,
+    incomingEmail: `distinto-${Date.now()}@corp.mx`,
+    persistedEmailType: null,
+  })
+
+  assert.isFalse(ok)
+  assert.equal(ctx.response.getStatus(), 403)
+  assert.lengthOf(evaluations, 1)
+})

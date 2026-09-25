@@ -227,13 +227,21 @@ test.group('Atomicidad — CA-13 el-403-de-dato-sensible-revierte-la-credencial'
     await assert.rejects(() =>
       db.transaction(async (trx) => {
         const current = await User.findOrFail(user.userId, { client: trx })
+        const previousCredentialEmail = current.userEmail
         const nuevo = `ca13b-n-${stamp()}@x.com`
         const updated = await new UserService(i18nManager.locale('es')).update(
           current,
           { userEmail: nuevo, userActive: 1, roleId: user.roleId, personId: user.personId, userEmailType: 'personal' } as User,
           trx
         )
-        await mirrorUserEmailToRecord({ personId: updated.personId, userEmail: updated.userEmail, userEmailType: updated.userEmailType, actor, trx })
+        await mirrorUserEmailToRecord({
+          personId: updated.personId,
+          userEmail: updated.userEmail,
+          userEmailType: updated.userEmailType,
+          previousCredentialEmail,
+          actor,
+          trx,
+        })
         // La negativa del guard de `Person` llega aquí en producción.
         throw new SensitiveDataWriteError(SENSITIVE_DATA_WRITE_ERROR_CODES.FORBIDDEN, 'contacto')
       })

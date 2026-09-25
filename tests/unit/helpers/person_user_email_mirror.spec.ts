@@ -233,6 +233,7 @@ test.group('Espejo — expediente → credencial (M1)', (group) => {
       mirrorPersonEmailToUserEmail({
         personId: person.personId,
         personEmail: nuevo,
+        previousSourceEmail: 'personal-previo@correo.com',
         actor: actorFor(unit),
         trx,
       })
@@ -241,7 +242,7 @@ test.group('Espejo — expediente → credencial (M1)', (group) => {
     if (outcome.status === 'written') {
       assert.equal(outcome.previousEmail, anterior)
       assert.equal(outcome.previousUserEmail, anterior)
-      assert.isNull(outcome.previousPersonEmail)
+      assert.equal(outcome.previousPersonEmail, 'personal-previo@correo.com')
       assert.isNull(outcome.previousBusinessEmail)
     }
     assert.equal(await userEmailOf(user.userId), nuevo)
@@ -257,6 +258,7 @@ test.group('Espejo — expediente → credencial (M1)', (group) => {
       mirrorPersonEmailToUserEmail({
         personId: person.personId,
         personEmail: `otro-${uniq()}@correo.com`,
+        previousSourceEmail: person.personEmail,
         actor: actorFor(unit),
         trx,
       })
@@ -273,6 +275,7 @@ test.group('Espejo — expediente → credencial (M1)', (group) => {
       mirrorPersonEmailToUserEmail({
         personId: person.personId,
         personEmail: `n-${uniq()}@x.com`,
+        previousSourceEmail: person.personEmail,
         actor: actorFor(unit),
         trx,
       })
@@ -287,6 +290,7 @@ test.group('Espejo — expediente → credencial (M1)', (group) => {
         mirrorPersonEmailToUserEmail({
           personId: person.personId,
           personEmail: value,
+          previousSourceEmail: person.personEmail,
           actor: actorFor(unit),
           trx,
         })
@@ -303,6 +307,7 @@ test.group('Espejo — expediente → credencial (M1)', (group) => {
       mirrorPersonEmailToUserEmail({
         personId: person.personId,
         personEmail: `  ${email} `,
+        previousSourceEmail: person.personEmail,
         actor: actorFor(unit),
         trx,
       })
@@ -324,6 +329,7 @@ test.group('Espejo — expediente → credencial (M1)', (group) => {
           mirrorPersonEmailToUserEmail({
             personId: person.personId,
             personEmail: ocupado,
+            previousSourceEmail: person.personEmail,
             actor: actorFor(unit),
             trx,
           })
@@ -343,6 +349,7 @@ test.group('Espejo — expediente → credencial (M1)', (group) => {
           mirrorPersonEmailToUserEmail({
             personId: person.personId,
             personEmail: `n-${uniq()}@x.com`,
+            previousSourceEmail: person.personEmail,
             actor: actorFor(unit),
             trx,
           })
@@ -366,6 +373,7 @@ test.group('Espejo — expediente → credencial (M1)', (group) => {
           mirrorPersonEmailToUserEmail({
             personId: person.personId,
             personEmail: `atacante-${uniq()}@x.com`,
+            previousSourceEmail: person.personEmail,
             actor: actorFor(unit),
             trx,
           })
@@ -391,11 +399,15 @@ test.group('Espejo — empleado → credencial (M6)', (group) => {
       mirrorEmployeeEmailToUserEmail({
         personId: person.personId,
         employeeBusinessEmail: nuevo,
+        previousSourceEmail: 'empresa-previo@empresa.com',
         actor: actorFor(unit),
         trx,
       })
     )
     assert.equal(outcome.status, 'written')
+    if (outcome.status === 'written') {
+      assert.equal(outcome.previousBusinessEmail, 'empresa-previo@empresa.com')
+    }
     assert.equal(await userEmailOf(user.userId), nuevo)
   })
 
@@ -407,6 +419,7 @@ test.group('Espejo — empleado → credencial (M6)', (group) => {
       mirrorEmployeeEmailToUserEmail({
         personId: person.personId,
         employeeBusinessEmail: `x-${uniq()}@empresa.com`,
+        previousSourceEmail: null,
         actor: actorFor(unit),
         trx,
       })
@@ -426,6 +439,7 @@ test.group('Espejo — empleado → credencial (M6)', (group) => {
           mirrorEmployeeEmailToUserEmail({
             personId: person.personId,
             employeeBusinessEmail: ocupado,
+            previousSourceEmail: null,
             actor: actorFor(unit),
             trx,
           })
@@ -455,6 +469,7 @@ test.group('Espejo — credencial → expediente (M2-M5)', (group) => {
         personId: person.personId,
         userEmail: nuevo,
         userEmailType: 'personal',
+        previousCredentialEmail: 'credencial-previa@correo.com',
         actor: actorFor(unit),
         trx,
       })
@@ -463,8 +478,8 @@ test.group('Espejo — credencial → expediente (M2-M5)', (group) => {
     if (outcome.status === 'written') {
       assert.equal(outcome.target, 'people')
       assert.equal(outcome.previousValue, anterior)
-      assert.isNull(outcome.previousEmail)
-      assert.isNull(outcome.previousUserEmail)
+      assert.equal(outcome.previousEmail, 'credencial-previa@correo.com')
+      assert.equal(outcome.previousUserEmail, 'credencial-previa@correo.com')
       assert.equal(outcome.previousPersonEmail, anterior)
       assert.equal(outcome.previousBusinessEmail, empresa)
     }
@@ -480,6 +495,7 @@ test.group('Espejo — credencial → expediente (M2-M5)', (group) => {
         personId: person.personId,
         userEmail: `x-${uniq()}@x.com`,
         userEmailType: 'personal',
+        previousCredentialEmail: null,
         actor: actorFor(unit),
         trx,
       })
@@ -501,6 +517,7 @@ test.group('Espejo — credencial → expediente (M2-M5)', (group) => {
             personId: person.personId,
             userEmail: ocupado,
             userEmailType: 'personal',
+            previousCredentialEmail: null,
             actor: actorFor(unit),
             trx,
           })
@@ -522,6 +539,7 @@ test.group('Espejo — credencial → expediente (M2-M5)', (group) => {
         personId: person.personId,
         userEmail: nuevo,
         userEmailType: 'institutional',
+        previousCredentialEmail: null,
         actor: actorFor(unit),
         trx,
       })
@@ -541,6 +559,7 @@ test.group('Espejo — credencial → expediente (M2-M5)', (group) => {
         personId: person.personId,
         userEmail: `x-${uniq()}@empresa.com`,
         userEmailType: 'institutional',
+        previousCredentialEmail: null,
         actor: actorFor(unit),
         trx,
       })
@@ -563,6 +582,7 @@ test.group('Espejo — credencial → expediente (M2-M5)', (group) => {
             personId: person.personId,
             userEmail: ocupado,
             userEmailType: 'institutional',
+            previousCredentialEmail: null,
             actor: actorFor(unit),
             trx,
           })
@@ -581,6 +601,7 @@ test.group('Espejo — credencial → expediente (M2-M5)', (group) => {
         personId: person.personId,
         userEmail: email,
         userEmailType: 'institutional',
+        previousCredentialEmail: null,
         actor: actorFor(unit),
         trx,
       })

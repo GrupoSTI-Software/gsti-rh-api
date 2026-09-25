@@ -72,14 +72,22 @@ type MirrorBaseInput = {
   readonly trx: TransactionClientContract
 }
 
-export type MirrorPersonEmailInput = MirrorBaseInput & { readonly personEmail: string | null | undefined }
+export type MirrorPersonEmailInput = MirrorBaseInput & {
+  readonly personEmail: string | null | undefined
+  /** Capturado de `currentPerson.personEmail` antes de guardar el origen. */
+  readonly previousSourceEmail: string | null
+}
 export type MirrorEmployeeEmailInput = MirrorBaseInput & {
   readonly employeeBusinessEmail: string | null | undefined
+  /** Capturado de `currentEmployee.employeeBusinessEmail` antes de guardar el origen. */
+  readonly previousSourceEmail: string | null
 }
 export type MirrorUserEmailInput = MirrorBaseInput & {
   readonly userEmail: string
   /** SIEMPRE el valor persistido (`created.userEmailType` / `updated.userEmailType`). */
   readonly userEmailType: UserEmailTypeValue
+  /** Capturado de la credencial antes de crearla o actualizarla. */
+  readonly previousCredentialEmail: string | null
 }
 
 /** Sin usuario autenticado o sin empresa activa, el espejo no corre (falla cerrado). */
@@ -96,14 +104,24 @@ export function emailMirrorActorFromContext(ctx: HttpContext): EmailMirrorActor 
 export function mirrorPersonEmailToUserEmail(
   input: MirrorPersonEmailInput
 ): Promise<EmailMirrorOutcome> {
-  return mirrorRecordEmailToUserEmail(input, input.personEmail, 'personal')
+  return mirrorRecordEmailToUserEmail(
+    input,
+    input.personEmail,
+    'personal',
+    input.previousSourceEmail
+  )
 }
 
 /** M6 — `employees.employee_business_email` → credencial, solo si el tipo persistido es `institutional`. */
 export function mirrorEmployeeEmailToUserEmail(
   input: MirrorEmployeeEmailInput
 ): Promise<EmailMirrorOutcome> {
-  return mirrorRecordEmailToUserEmail(input, input.employeeBusinessEmail, 'institutional')
+  return mirrorRecordEmailToUserEmail(
+    input,
+    input.employeeBusinessEmail,
+    'institutional',
+    input.previousSourceEmail
+  )
 }
 
 /**
@@ -117,7 +135,11 @@ export async function mirrorUserEmailToRecord(
 ): Promise<EmailMirrorOutcome> {
   const email = normalizeMirrorEmail(input.userEmail)
   if (email === null) return skipped('source-email-empty')
-  const previousEmails = await readPreviousEmailImage(input.personId, input.trx)
+  const previousEmails = await readPreviousEmailImage(
+    input.personId,
+    input.trx,
+    input.previousCredentialEmail
+  )
 
   if (input.userEmailType === 'personal') {
     const person = await Person.query({ client: input.trx })
@@ -172,7 +194,8 @@ export function toPublicEmailMirrorOutcome(outcome: EmailMirrorOutcome): PublicE
 async function mirrorRecordEmailToUserEmail(
   input: MirrorBaseInput,
   source: string | null | undefined,
-  requiredType: UserEmailTypeValue
+  requiredType: UserEmailTypeValue,
+  previousSourceEmail: string | null
 ): Promise<EmailMirrorOutcome> {
   const email = normalizeMirrorEmail(source)
   if (email === null) return skipped('source-email-empty')
@@ -181,7 +204,21 @@ async function mirrorRecordEmailToUserEmail(
   if (!user) return skipped('no-live-counterpart')
   if (user.userEmailType !== requiredType) return skipped('email-type-mismatch')
   if (user.userEmail === email) return skipped('already-in-sync')
-  const previousEmails = await readPreviousEmailImage(input.personId, input.trx, user)
+  const previousEmails =
+    requiredType === 'personal'
+      ? await readPreviousEmailImage(
+          input.personId,
+          input.trx,
+          user.userEmail,
+          previousSourceEmail
+        )
+      : await readPreviousEmailImage(
+          input.personId,
+          input.trx,
+          user.userEmail,
+          undefined,
+          previousSourceEmail
+        )
 
   await assertActorCanAdministerUser(input.actor, user.userId)
   await assertUserEmailAvailable(email, user.userId, input.trx)
@@ -243,33 +280,33 @@ type PreviousEmailImage = Pick<
 async function readPreviousEmailImage(
   personId: number,
   trx: TransactionClientContract,
-  knownUser?: User
+  previousCredentialEmail: string | null,
+  previousPersonEmail?: string | null,
+  previousBusinessEmail?: string | null
 ): Promise<PreviousEmailImage> {
-  const person = await Person.query({ client: trx })
-    .where('person_id', personId)
-    .whereNull('person_deleted_at')
-    .first()
-  const employee = await Employee.query({ client: trx })
-    .where('person_id', personId)
-    .whereNull('employee_deleted_at')
-    .first()
+  const person =
+    previousPersonEmail === undefined
+      ? await Person.query({ client: trx })
+          .where('person_id', personId)
+          .whereNull('person_deleted_at')
+          .first()
+      : null
+  const employee =
+    previousBusinessEmail === undefined
+      ? await Employee.query({ client: trx })
+          .where('person_id', personId)
+          .whereNull('employee_deleted_at')
+          .first()
+      : null
 
-  let user = knownUser
-  if (!user) {
-    const users = await User.query({ client: trx })
-      .where('person_id', personId)
-      .whereNull('user_deleted_at')
-      .orderBy('user_id')
-      .limit(2)
-    user = users.length === 1 ? users[0] : undefined
-  }
-
-  const previousEmail = normalizeMirrorEmail(user?.userEmail)
+  const previousEmail = normalizeMirrorEmail(previousCredentialEmail)
   return {
     previousEmail,
     previousUserEmail: previousEmail,
-    previousPersonEmail: normalizeMirrorEmail(person?.personEmail),
-    previousBusinessEmail: normalizeMirrorEmail(employee?.employeeBusinessEmail),
+    previousPersonEmail: normalizeMirrorEmail(previousPersonEmail ?? person?.personEmail),
+    previousBusinessEmail: normalizeMirrorEmail(
+      previousBusinessEmail ?? employee?.employeeBusinessEmail
+    ),
   }
 }
 

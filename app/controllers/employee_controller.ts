@@ -1887,6 +1887,7 @@ export default class EmployeeController {
       }
 
       const actor = emailMirrorActorFromContext(ctx)
+      const previousSourceEmail = currentEmployee.employeeBusinessEmail
       const { updateEmployee, emailMirror } = await db.transaction(async (trx) => {
         const persisted = await employeeService.update(
           currentEmployee,
@@ -1898,6 +1899,7 @@ export default class EmployeeController {
         const outcome = await mirrorEmployeeEmailToUserEmail({
           personId: currentEmployee.personId,
           employeeBusinessEmail: persisted.employeeBusinessEmail,
+          previousSourceEmail,
           actor,
           trx,
         })
