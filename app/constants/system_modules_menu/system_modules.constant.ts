@@ -253,6 +253,10 @@ export const SYSTEM_MODULES_GROUPED = [
           { systemPermissionName: 'Crear usuarios', systemPermissionSlug: 'create' },
           { systemPermissionName: 'Editar usuarios', systemPermissionSlug: 'update' },
           { systemPermissionName: 'Eliminar usuarios', systemPermissionSlug: 'delete' },
+          {
+            systemPermissionName: 'Cambiar la credencial de acceso de un colaborador',
+            systemPermissionSlug: 'credential-change',
+          },
         ],
       },
       {
