@@ -257,7 +257,7 @@ git commit -m "feat: Agregar índice simple de búsqueda sobre person_email_hash
 
 **Interfaces:**
 - Consumes: `personEmailProbeGuard` (Task 3), `isPersonWritePath`/`isPersonWriteRateLimitError`/`respondPersonWriteRateLimit` (Task 1), molde `business_unit_routes.ts:11-22` para el limiter.
-- Produces: `personWriteRateLimit = limiter.define('person-write', ...)` con `allowRequests(40).every('1 minute')` y llave `person-write:user:${ctx.auth.user?.userId ?? ctx.request.ip()}`; montado con `personEmailProbeGuard` como `.use([personWriteRateLimit, personEmailProbeGuard])` SOLO en `POST /` y `PUT /:personId` (el middleware de ruta corre después del grupo, así `ctx.auth.user` y `ctx.businessUnitScope` ya están). El handler responde el 429 del limiter. Tasks 8 y 9 ejercitan todo esto por HTTP.
+- Produces: `personWriteRateLimit` — middleware PROPIO (no `limiter.define`: ese factory del framework escribe `X-RateLimit-Limit`/`-Remaining` en TODA respuesta de la ruta, incluidas el 201 y el 422, y rompe `person_email_response_parity.spec.ts:207` y el DoD de cabeceras limpias) que consume el piso con `limiter.use({ requests: 40, duration: '1 minute' }).consume('person-write:user:${ctx.auth.user?.userId ?? ctx.request.ip()}')`; el `E_TOO_MANY_REQUESTS` que lanza `consume` cae en la rama del handler. Montado con `personEmailProbeGuard` como `.use([personWriteRateLimit, personEmailProbeGuard])` SOLO en `POST /` y `PUT /:personId` (el middleware de ruta corre después del grupo, así `ctx.auth.user` y `ctx.businessUnitScope` ya están). Tasks 8 y 9 ejercitan todo esto por HTTP.
 
 - [ ] **Step 1: Escribir el spec que falla** (molde `tests/unit/routes/complaint_status_routes.spec.ts` — aserciones por contenido de archivo):
 
