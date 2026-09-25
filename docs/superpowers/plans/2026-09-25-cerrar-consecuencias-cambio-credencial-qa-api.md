@@ -74,19 +74,57 @@ Usuario: **A**.
 }
 ```
 
-Confirmación de las cuatro consecuencias:
-1. Revocación de sesiones:
+Confirmación de las cuatro consecuencias (una por una, con su endpoint o consulta):
+
+1. Sesiones cerradas. Consulta SQL:
    `SELECT tokenable_id FROM api_tokens WHERE tokenable_id = <titular.userId>;`
    Resultado: 0 filas (las sesiones anteriores fueron cerradas).
-2. Credencial actualizada:
-   Un intento de iniciar sesión con el correo anterior `qa-cred-titular01@gsti-tests.local` da `401 Unauthorized`.
-   Iniciar sesión con el nuevo correo `qa-cred-titular01-nuevo@gsti-tests.local` y contraseña `password` responde `200 OK` con un token nuevo.
-3. Dos avisos por correo:
-   En el buzón de pruebas se reciben dos avisos de cambio de credencial:
-   - Uno dirigido a la dirección anterior (`qa-cred-titular01@gsti-tests.local`).
-   - Uno dirigido a la dirección nueva (`qa-cred-titular01-nuevo@gsti-tests.local`).
-4. Registro de auditoría:
-   Queda almacenado el registro del cambio con quién lo hizo (A), a quién se le cambió (Cred01), la dirección anterior y la nueva, y la cantidad de sesiones cerradas.
+
+2. Con qué correo se entra ahora. Sin headers de autenticación:
+   **Endpoint:** `POST /api/auth/login`
+```json
+{
+  "userEmail": "qa-cred-titular01@gsti-tests.local",
+  "userPassword": "password"
+}
+```
+   **Response exacto:** `404`
+```json
+{
+  "type": "warning",
+  "title": "Login",
+  "message": "Incorrect email or password",
+  "data": { "user": {} }
+}
+```
+   **Endpoint:** `POST /api/auth/login`
+```json
+{
+  "userEmail": "qa-cred-titular01-nuevo@gsti-tests.local",
+  "userPassword": "password"
+}
+```
+   **Response exacto:** `200`
+```json
+{
+  "type": "success",
+  "title": "Login",
+  "message": "You have successfully logged in",
+  "data": {
+    "user": "...",
+    "token": "...",
+    "refreshToken": "..."
+  }
+}
+```
+
+3. Los dos avisos en Mailpit. El ambiente local envía el correo a Mailpit: abre `http://localhost:8025` (si tu Mailpit vive en otra dirección, usa la tuya) y busca `qa-cred-titular01`. Deben aparecer 2 mensajes (alternativa por API: `GET http://localhost:8025/api/v1/search?query=qa-cred-titular01` → `200` con esos 2 mensajes en la lista):
+   - Mensaje 1, `Para: qa-cred-titular01@gsti-tests.local`, asunto `Tu correo de acceso a Valanserh cambió`. El cuerpo dice que esa dirección ya no sirve para entrar y muestra el correo nuevo enmascarado: `q•••1@gsti-tests.local`. No trae botón de inicio de sesión, solo contacto de soporte.
+   - Mensaje 2, `Para: qa-cred-titular01-nuevo@gsti-tests.local`, asunto `Así entras ahora a Valanserh`. El cuerpo muestra la dirección nueva completa, dice `Tu contraseña no cambió`, avisa que las sesiones anteriores se cerraron y sí trae botón de inicio de sesión.
+
+4. Registro del cambio. En el mismo Mongo del ambiente, colección `log_users`:
+   `db.log_users.find({ action: 'credential-change' }).sort({ $natural: -1 }).limit(1)`
+   El documento trae `user_id` (quién lo hizo: el id de A), `record_previous.user_email` (el correo anterior), `record_current.user_email` (el nuevo) y `record_current.mirror_origin` con valor `person-file` (el cambio entró por el expediente).
 
 Qué significa cada dato:
 - `type`: cómo resultó la operación; aquí vale `success` (la solicitud se completó exitosamente).
@@ -170,6 +208,6 @@ Qué significa lo nuevo aquí:
 
 ## 3. Checklist
 
-- [ ] Escenario 1 revoca + avisa x2 + registra
-- [ ] Escenario 2 da 403 PERM.DENIED sin cambiar nada
-- [ ] Escenario 3 no exige permiso ni efectos
+- [x] Escenario 1 revoca + avisa x2 + registra
+- [x] Escenario 2 da 403 PERM.DENIED sin cambiar nada
+- [x] Escenario 3 no exige permiso ni efectos
