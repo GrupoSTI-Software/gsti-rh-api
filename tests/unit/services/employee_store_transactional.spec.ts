@@ -6,6 +6,7 @@ import Person from '#models/person'
 import User from '#models/user'
 import EmployeeService from '#services/employee_service'
 import { ensureRole } from '#tests/helpers/ensure_role'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 import { LogStore } from '#models/MongoDB/log_store'
 import type { PersonReleaseContext } from '#helpers/person_release_guard'
 import { DateTime } from 'luxon'
@@ -263,6 +264,7 @@ test.group('EmployeeService.releasePersonIfOrphan — blindaje (USRH178969826160
     const person = await createTestPerson('ex-emp')
     const template = await getTemplateEmployee()
     const [employeeId] = await db.table('employees').insert({
+      employee_slug: opaqueEmployeeSlug(),
       employee_sync_id: `EXEMP-${STAMP}`,
       employee_code: `EXEMP-${STAMP}`,
       employee_first_name: 'AltaTrx',
@@ -270,6 +272,7 @@ test.group('EmployeeService.releasePersonIfOrphan — blindaje (USRH178969826160
       employee_second_last_name: 'ex-emp',
       company_id: template.companyId,
       business_unit_id: template.businessUnitId,
+      payroll_business_unit_id: template.businessUnitId,
       department_id: template.departmentId,
       position_id: template.positionId,
       person_id: person.personId,
