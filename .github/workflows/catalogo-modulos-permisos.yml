@@ -33,6 +33,29 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
+      # `node ace` valida start/env.ts al arrancar y en CI no hay .env. Estos
+      # valores son ficticios: solo cubren las variables obligatorias para que
+      # la app arranque; los specs del catálogo no tocan BD, S3 ni sesión.
+      # Si se agrega una variable obligatoria a start/env.ts, sumarla aquí.
+      - name: Preparar .env de CI
+        run: |
+          cat > .env <<'EOF'
+          APP_KEY=ci-only-app-key-not-a-secret-0000
+          BLIND_INDEX_KEY=0000000000000000000000000000000000000000000000000000000000000000
+          HOST=localhost
+          LOG_LEVEL=warn
+          CORS_ALLOWED_ORIGINS=http://localhost
+          DB_HOST=127.0.0.1
+          DB_PORT=3306
+          DB_USER=ci
+          SESSION_DRIVER=memory
+          AWS_ACCESS_KEY_ID=ci
+          AWS_SECRET_ACCESS_KEY=ci
+          AWS_ENDPOINT=http://localhost:9000
+          AWS_BUCKET=ci
+          AWS_ROOT_PATH=ci
+          EOF
+
       # Solo los specs de app/constants/: validan que el catálogo de módulos,
       # grupos y permisos se declare únicamente en
       # app/constants/system_modules_menu/system_modules.constant.ts y que toda
