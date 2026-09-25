@@ -8,6 +8,8 @@ import {
   createDepartmentFixture,
   createPositionFixture,
 } from '#tests/helpers/org_chart_fixtures'
+import { TenantContext } from '#utils/tenant_context'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 
 /**
  * Colaborador de prueba dentro de la unidad de negocio de un actor de
@@ -74,7 +76,14 @@ export async function createEmployeeFixture(
   })
 
   return {
-    employee: await Employee.query().withTrashed().where('employee_id', Number(employeeId)).firstOrFail(),
+    employee: await TenantContext.runUnscoped(
+      () =>
+        Employee.query()
+          .withTrashed()
+          .where('employee_id', Number(employeeId))
+          .firstOrFail(),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    ),
     person,
     businessUnitId,
   }
