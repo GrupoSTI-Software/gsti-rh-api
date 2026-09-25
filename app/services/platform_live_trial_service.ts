@@ -4,8 +4,8 @@ import { TenantContext } from '../utils/tenant_context.js'
 import PlatformTrialService from './platform_trial_service.js'
 import PlatformTenantMilestoneService from './platform_tenant_milestone_service.js'
 import PlatformTrialUsageService, { type FrecuenciaEstado } from './platform_trial_usage_service.js'
+import { TENANT_UNSCOPED_REASON } from '../constants/tenant_unscoped_reason.js'
 import {
-  PLATFORM_LIVE_TRIAL_RUN_UNSCOPED_REASON,
   PLATFORM_LIVE_TRIALS_CONCURRENCY,
   PLATFORM_LIVE_TRIALS_EXPECTED_MAX,
 } from '../constants/platform_trial_live.js'
@@ -162,7 +162,10 @@ export default class PlatformLiveTrialService {
   }
 
   async listLiveTrials(): Promise<PlatformLiveTrialsListResult> {
-    return TenantContext.runUnscoped(() => this.listWithin(), PLATFORM_LIVE_TRIAL_RUN_UNSCOPED_REASON)
+    // Única consulta del set que mira, a propósito, a todas las empresas: desde
+    // /api/platform/* no hay TenantContext activo, así que su efecto real es el
+    // rastro auditable del motivo tipificado.
+    return TenantContext.runUnscoped(() => this.listWithin(), TENANT_UNSCOPED_REASON.PLATFORM_LIVE_TRIALS)
   }
 
   private async listWithin(): Promise<PlatformLiveTrialsListResult> {

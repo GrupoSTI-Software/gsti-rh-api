@@ -34,6 +34,7 @@ export const TENANT_UNSCOPED_REASON = {
   PERSON_IDENTITY_UNIQUENESS: 'person-identity-uniqueness',
   EMPLOYEE_STRUCTURE: 'employee-structure',
   EMPLOYEE_MASS_PURGE: 'employee-mass-purge',
+  PLATFORM_LIVE_TRIALS: 'platform-live-trials',
 } as const
 
 export type TenantUnscopedReasonKey = keyof typeof TENANT_UNSCOPED_REASON
@@ -200,6 +201,11 @@ export const TENANT_UNSCOPED_REASON_POLICY: Record<TenantUnscopedReason, TenantU
     origin: 'CONSOLE',
     logLevel: 'info',
     description: 'Purga masiva de empleados',
+  },
+  'platform-live-trials': {
+    origin: 'PLATFORM_HTTP',
+    logLevel: 'info',
+    description: 'Pruebas vivas de todas las empresas para el panel de GSTI (USRH1789079078173)',
   },
 }
 

@@ -4,22 +4,6 @@
  */
 
 /**
- * Motivo auditable del único `TenantContext.runUnscoped` de esta HU (molde
- * `app/constants/platform_device_access_point.ts:26-35`).
- *
- * Esta consulta es la única del set que mira, a propósito, a TODAS las
- * empresas de la plataforma a la vez — no hay una empresa "actual" desde la
- * que filtrar. Desde `/api/platform/*` no hay `TenantContext` activo, así
- * que el mixin `withBusinessUnitScope` ya retorna sin filtrar (fail-open) y
- * las tablas de billing no componen ese mixin en ninguna ruta: `runUnscoped`
- * no abre ningún filtro adicional. Su único efecto real es el `logger.warn`
- * que emite por dentro, con este motivo, dejando rastro auditable de que la
- * lectura cruzada ocurrió y por qué.
- */
-export const PLATFORM_LIVE_TRIAL_RUN_UNSCOPED_REASON =
-  'listar-pruebas-vivas-de-toda-la-plataforma-para-el-panel-de-gsti'
-
-/**
  * Cuántas corridas del motor de asistencia (una por prueba viva — nunca en
  * lote, el motor mezcla empresas si se le pasan juntas) se permiten en
  * paralelo dentro del bucle de frecuencia. Valor conservador de arranque —
