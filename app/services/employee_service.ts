@@ -130,6 +130,16 @@ export interface ApplyWorkScheduleResult {
  */
 const EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY = 10
 
+/**
+ * Puesto visible del empleado para ordenar los reportes de asistencia:
+ * el alias si la empresa lo capturó y, si no, el nombre. Un puesto dado de
+ * baja no entra, así que ese empleado queda junto a los que no tienen puesto.
+ * Subconsulta por llave primaria, sin join, para no volver ambiguos los
+ * `where` de `employees` que no califican la tabla.
+ */
+const EMPLOYEE_VISIBLE_POSITION_ORDER_SQL =
+  "(SELECT COALESCE(NULLIF(p.position_alias, ''), p.position_name) FROM positions p WHERE p.position_id = employees.position_id AND p.position_deleted_at IS NULL)"
+
 export default class EmployeeService {
 
   private i18n: I18n
@@ -507,6 +517,15 @@ export default class EmployeeService {
       .if(filters.orderBy === 'name', (query) => {
         const direction = this.getOrderDirection(filters.orderDirection)
         query.orderByRaw(`CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`)
+      })
+      .if(filters.orderBy === 'positionThenName', (query) => {
+        const direction = this.getOrderDirection(filters.orderDirection)
+        query.orderByRaw(`${EMPLOYEE_VISIBLE_POSITION_ORDER_SQL} IS NULL`)
+        query.orderByRaw(`${EMPLOYEE_VISIBLE_POSITION_ORDER_SQL} ${direction}`)
+        query.orderByRaw(
+          `CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`
+        )
+        query.orderBy('employee_id', 'asc')
       })
       .if(!filters.orderBy, (query) => {
         query.orderBy('employee_id')

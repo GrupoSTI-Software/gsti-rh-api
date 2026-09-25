@@ -14,7 +14,7 @@ interface EmployeeFilterSearchInterface {
   dateStart?: string
   dateEnd?: string
   userResponsibleId?: number
-  orderBy?: 'number' | 'name'
+  orderBy?: 'number' | 'name' | 'positionThenName'
   orderDirection?: 'ascend' | 'descend' | 'Ascendente' | 'Descendente'
   shiftStartTimeInit?: string
   shiftStartTimeEnd?: string

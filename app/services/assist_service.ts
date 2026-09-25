@@ -135,6 +135,40 @@ export default class AssistsService {
     )
   }
 
+  /**
+   * Empleados de un departamento para la Exportación detallada y el resumen
+   * de incidencias de toda la empresa. No filtra por puesto: entran también
+   * quienes no tienen puesto o cuyo puesto no está ligado al departamento.
+   * El orden es el puesto visible y, dentro de él, el nombre.
+   */
+  private async fetchDepartmentEmployeesForExcelReport(
+    employeeService: EmployeeService,
+    departmentId: number,
+    filters: AssistExcelFilterInterface,
+    scope: { resolvedBusinessUnitId: number; businessUnitFilterIds: number[] }
+  ) {
+    return this.fetchEmployeesForExcelReport(
+      employeeService,
+      {
+        search: '',
+        page: 1,
+        limit: 999999999999999,
+        employeeWorkSchedule: '',
+        departmentId,
+        positionId: 0,
+        orderBy: 'positionThenName',
+        orderDirection: 'ascend',
+        ignoreDiscriminated: 0,
+        ignoreExternal: 1,
+        userResponsibleId: filters.userResponsibleId,
+        payrollBusinessUnitId: filters.payrollBusinessUnitId,
+      },
+      [departmentId],
+      scope.resolvedBusinessUnitId,
+      scope.businessUnitFilterIds
+    )
+  }
+
   async getExcelByEmployeeAssistance(
     employee: Employee,
     filters: AssistEmployeeExcelFilterInterface
@@ -1024,7 +1058,6 @@ export default class AssistsService {
       })
       .orderBy('departmentId')
 
-    const departmentService = new DepartmentService(this.i18n)
     const employeeService = new EmployeeService(this.i18n)
     const filterDate = filters.filterDate
     const filterDateEnd = filters.filterDateEnd
@@ -1032,27 +1065,14 @@ export default class AssistsService {
     let progressTotal = 0
     try {
       for (const departmentRow of departments) {
-        const positions = await departmentService.getPositions(departmentRow.departmentId, filters.userResponsibleId)
-        for (const position of positions) {
-          const emps: any = await this.fetchEmployeesForExcelReport(
-            employeeService,
-            {
-              search: '',
-              departmentId: departmentRow.departmentId,
-              positionId: position.positionId,
-              page: 1,
-              limit: 999999999999999,
-              employeeWorkSchedule: '',
-              ignoreDiscriminated: 0,
-              ignoreExternal: 1,
-              userResponsibleId: filters.userResponsibleId,
-              payrollBusinessUnitId: filters.payrollBusinessUnitId,
-            },
-            [departmentRow.departmentId],
-            scope.resolvedBusinessUnitId,
-            scope.businessUnitFilterIds
-          )
-          if (emps) progressTotal += Array.isArray(emps) ? emps.length : 0
+        const departmentEmployees = await this.fetchDepartmentEmployeesForExcelReport(
+          employeeService,
+          departmentRow.departmentId,
+          filters,
+          scope
+        )
+        if (departmentEmployees) {
+          progressTotal += departmentEmployees.all().length
         }
       }
     } catch {
@@ -1063,48 +1083,31 @@ export default class AssistsService {
     let progressCurrent = 0
 
     for await (const departmentRow of departments) {
-      const departmentId = departmentRow.departmentId
-      const resultPositions = await departmentService.getPositions(departmentId, filters.userResponsibleId)
       const syncAssistsService = new SyncAssistsService(this.i18n)
-      for await (const position of resultPositions) {
-        const resultEmployes = await this.fetchEmployeesForExcelReport(
-          employeeService,
-          {
-            search: '',
-            departmentId: departmentId,
-            positionId: position.positionId,
-            page: 1,
-            limit: 999999999999999,
-            employeeWorkSchedule: '',
-            ignoreDiscriminated: 0,
-            ignoreExternal: 1,
-            userResponsibleId: filters.userResponsibleId,
-            payrollBusinessUnitId: filters.payrollBusinessUnitId,
-          },
-          [departmentId],
-          scope.resolvedBusinessUnitId,
-          scope.businessUnitFilterIds
+      const resultEmployes = await this.fetchDepartmentEmployeesForExcelReport(
+        employeeService,
+        departmentRow.departmentId,
+        filters,
+        scope
+      )
+      if (!resultEmployes) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
+      for await (const employee of resultEmployes.all()) {
+        const result = await syncAssistsService.index(
+          { date: filterDate, dateEnd: filterDateEnd, employeeID: employee.employeeId },
+          { page: 1, limit: 999999999999999 }
         )
-        if (!resultEmployes) {
-          return this.buildExcelBusinessUnitScopeError()
-        }
-        const dataEmployes: any = resultEmployes
-        for await (const employee of dataEmployes) {
-          const result = await syncAssistsService.index(
-            { date: filterDate, dateEnd: filterDateEnd, employeeID: employee.employeeId },
-            { page: 1, limit: 999999999999999 }
-          )
-          const data: any = result.data
-          if (data) {
-            const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
-            const newRows = await this.addRowCalendar(employee, employeeCalendar)
-            for await (const row of newRows) {
-              rows.push(row)
-            }
+        const data: any = result.data
+        if (data) {
+          const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+          const newRows = await this.addRowCalendar(employee, employeeCalendar)
+          for await (const row of newRows) {
+            rows.push(row)
           }
-          progressCurrent++
-          await onProgress(progressCurrent, progressTotal)
         }
+        progressCurrent++
+        await onProgress(progressCurrent, progressTotal)
       }
     }
 
@@ -1900,7 +1903,6 @@ export default class AssistsService {
       })
       .orderBy('departmentId')
 
-    const departmentService = new DepartmentService(this.i18n)
     const employeeService = new EmployeeService(this.i18n)
     const filterDate = filters.filterDate
     const filterDateEnd = filters.filterDateEnd
@@ -1915,27 +1917,14 @@ export default class AssistsService {
     let progressTotal = 0
     try {
       for (const departmentRow of departments) {
-        const positions = await departmentService.getPositions(departmentRow.departmentId, filters.userResponsibleId)
-        for (const position of positions) {
-          const emps: any = await this.fetchEmployeesForExcelReport(
-            employeeService,
-            {
-              search: '',
-              departmentId: departmentRow.departmentId,
-              positionId: position.positionId,
-              page: 1,
-              limit: 999999999999999,
-              employeeWorkSchedule: '',
-              ignoreDiscriminated: 0,
-              ignoreExternal: 1,
-              userResponsibleId: filters.userResponsibleId,
-              payrollBusinessUnitId: filters.payrollBusinessUnitId,
-            },
-            [departmentRow.departmentId],
-            scope.resolvedBusinessUnitId,
-            scope.businessUnitFilterIds
-          )
-          if (emps) progressTotal += Array.isArray(emps) ? emps.length : 0
+        const departmentEmployees = await this.fetchDepartmentEmployeesForExcelReport(
+          employeeService,
+          departmentRow.departmentId,
+          filters,
+          scope
+        )
+        if (departmentEmployees) {
+          progressTotal += departmentEmployees.all().length
         }
       }
     } catch {
@@ -1948,58 +1937,41 @@ export default class AssistsService {
     let progressCurrent = 0
 
     for await (const departmentRow of departments) {
-      const departmentId = departmentRow.departmentId
       const totalRowByDepartmentIncident = {} as AssistIncidentSummaryV2ExcelRowInterface
       this.cleanIncidentSummaryTotalRow(totalRowByDepartmentIncident)
       let hasEmployees = false
-      const resultPositions = await departmentService.getPositions(departmentId, filters.userResponsibleId)
       const syncAssistsService = new SyncAssistsService(this.i18n)
-      for await (const position of resultPositions) {
-        const resultEmployes = await this.fetchEmployeesForExcelReport(
-          employeeService,
-          {
-            search: '',
-            departmentId: departmentId,
-            positionId: position.positionId,
-            page: 1,
-            limit: 999999999999999,
-            employeeWorkSchedule: '',
-            ignoreDiscriminated: 0,
-            ignoreExternal: 1,
-            userResponsibleId: filters.userResponsibleId,
-            payrollBusinessUnitId: filters.payrollBusinessUnitId,
-          },
-          [departmentId],
-          scope.resolvedBusinessUnitId,
-          scope.businessUnitFilterIds
+      const resultEmployes = await this.fetchDepartmentEmployeesForExcelReport(
+        employeeService,
+        departmentRow.departmentId,
+        filters,
+        scope
+      )
+      if (!resultEmployes) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
+      for await (const employee of resultEmployes.all()) {
+        const result = await syncAssistsService.index(
+          { date: filterDate, dateEnd: filterDateEnd, employeeID: employee.employeeId },
+          { page: 1, limit: 999999999999999 }
         )
-        if (!resultEmployes) {
-          return this.buildExcelBusinessUnitScopeError()
+        const data: any = result.data
+        if (data) {
+          hasEmployees = true
+          const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+          const row = this.buildIncidentSummaryRow({
+            employee,
+            employeeCalendar,
+            tardies,
+            toleranceCountPerAbsences,
+            dateEnd: filterDateEnd,
+            weekHoursByLawMap,
+          })
+          this.addIncidentSummaryDepartmentTotal(totalRowByDepartmentIncident, row)
+          rowsIncident.push(row)
         }
-        const dataEmployes: any = resultEmployes
-        for await (const employee of dataEmployes) {
-          const result = await syncAssistsService.index(
-            { date: filterDate, dateEnd: filterDateEnd, employeeID: employee.employeeId },
-            { page: 1, limit: 999999999999999 }
-          )
-          const data: any = result.data
-          if (data) {
-            hasEmployees = true
-            const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
-            const row = this.buildIncidentSummaryRow({
-              employee,
-              employeeCalendar,
-              tardies,
-              toleranceCountPerAbsences,
-              dateEnd: filterDateEnd,
-              weekHoursByLawMap,
-            })
-            this.addIncidentSummaryDepartmentTotal(totalRowByDepartmentIncident, row)
-            rowsIncident.push(row)
-          }
-          progressCurrent++
-          await onProgress(progressCurrent, progressTotal)
-        }
+        progressCurrent++
+        await onProgress(progressCurrent, progressTotal)
       }
       if (hasEmployees) {
         rowsIncident.push(JSON.parse(JSON.stringify(totalRowByDepartmentIncident)))
