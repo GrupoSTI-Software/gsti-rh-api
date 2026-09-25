@@ -163,6 +163,7 @@ export default class UserService {
    * molesto, no corrupto (declarado en el spec).
    */
   async update(currentUser: User, user: User, trx?: TransactionClientContract) {
+    const previousEmail = currentUser.$original?.userEmail ?? currentUser.userEmail
     currentUser.userEmail = user.userEmail
     currentUser.userActive = user.userActive
     currentUser.roleId = user.roleId
@@ -173,6 +174,7 @@ export default class UserService {
     if (!user.userActive) {
       await ApiToken.query({ client: trx }).where('tokenable_id', currentUser.userId).delete()
       if (Ws.io) {
+        Ws.io.emit(`user-forze-logout:${previousEmail}`, {})
         Ws.io.emit(`user-forze-logout:${currentUser.userEmail}`, {})
       }
     }
