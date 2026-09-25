@@ -34,6 +34,44 @@ function routeBlock(content: string, from: string, to: string): string {
   return content.slice(start, end === -1 ? content.length : end)
 }
 
+/**
+ * Cadena de modificadores (`.prefix(...)`, `.use(...)`, …) del grupo cuyo
+ * `.prefix` es `prefix`, acotada al grupo PROPIO mediante el mismo criterio que
+ * `extractRouteGroups` de `sensitive_access_context_mounts.spec.ts:26-67`: tras
+ * el prefijo solo se acumulan las líneas que continúan la cadena (inician con
+ * `.`) y se corta en la primera que no lo hace. Un `slice` desde el prefijo
+ * hasta el `.prefix` del grupo hermano arrastraba las líneas de apertura de
+ * éste, así que la aserción cubría texto que no era del grupo.
+ */
+function groupChain(content: string, prefix: string): string {
+  const start = content.indexOf(`.prefix('${prefix}')`)
+  if (start === -1) return ''
+
+  const chain: string[] = []
+  for (const line of content.slice(start).split('\n')) {
+    const trimmed = line.trim()
+    if (trimmed === '') continue
+    if (trimmed.startsWith('.')) {
+      chain.push(trimmed)
+      continue
+    }
+    break
+  }
+
+  return chain.join('\n')
+}
+
+/**
+ * Normaliza el espaciado (mismo criterio que `compact()` en
+ * `employees_persona_domicilio_bancos_permission_gate_routes.spec.ts:5-7`). Se
+ * aplica a AMBOS lados de la aserción: `prettier` reflowaría la cadena del
+ * limiter en una línea por método, y una subcadena contigua sobre el texto
+ * crudo quedaría falsamente roja con un cambio de formato (no de comportamiento).
+ */
+function compact(source: string): string {
+  return source.replace(/\s+/g, '')
+}
+
 test.group('person_routes — piso de escritura y guard del sondeo', () => {
   test('monta [personWriteRateLimit, personEmailProbeGuard] en POST / y PUT /:personId', ({
     assert,
@@ -106,9 +144,13 @@ test.group('person_routes — valores del limiter person-write', () => {
   test("permite 40 cada '1 minute', por usuario con respaldo por IP", ({ assert }) => {
     const content = readFileSync(ROUTES_FILE, 'utf-8')
 
-    assert.include(content, "limiter.define('person-write'")
-    assert.include(content, "limiter.allowRequests(40).every('1 minute')")
-    assert.include(content, 'person-write:user:${ctx.auth.user?.userId ?? ctx.request.ip()}')
+    // Los literales se comparan en espacio compacto (sin espacios ni saltos):
+    // el reflow de prettier rompe la contigüidad del texto crudo.
+    const compacted = compact(content)
+
+    assert.include(compacted, compact("limiter.define('person-write'"))
+    assert.include(compacted, compact("limiter.allowRequests(40).every('1 minute')"))
+    assert.include(compacted, compact('person-write:user:${ctx.auth.user?.userId ?? ctx.request.ip()}'))
   })
 
   test("NEGATIVA: 'penalize' no aparece en person_routes.ts ni en el throttle (CA-2)", ({
@@ -130,15 +172,20 @@ test.group('person_routes — valores del limiter person-write', () => {
 test.group('person_routes — el parche es aditivo', () => {
   test('el grupo de /api/persons conserva businessScope() y sensitiveAccess()', ({ assert }) => {
     const content = readFileSync(ROUTES_FILE, 'utf-8')
-    const start = content.indexOf(".prefix('/api/persons')")
-    const end = content.indexOf(".prefix('/api/person-get-employee')")
-    const chain = content.slice(start, end)
+    // Solo la cadena del grupo PROPIO: el segmento anterior (hasta el `.prefix`
+    // del grupo hermano) arrastraba las líneas de apertura de `person-get-employee`.
+    const chain = groupChain(content, '/api/persons')
 
-    assert.isAbove(start, -1)
+    assert.isNotEmpty(chain, 'no se pudo aislar la cadena del grupo /api/persons')
     assert.include(chain, '.use(middleware.auth())')
-    assert.include(chain, '.use(middleware.businessScope())')
-    assert.include(chain, '.use(middleware.sensitiveAccess())')
+    assert.include(chain, '.use(middleware.businessScope())', 'businessScope() sigue en la cadena')
+    assert.include(chain, '.use(middleware.sensitiveAccess())', 'sensitiveAccess() sigue en la cadena')
     assert.include(chain, '.use(middleware.sensitiveMaskEcho())')
+    assert.notInclude(
+      chain,
+      'person_controller.getEmployee',
+      'la cadena debe acotarse al grupo propio, sin arrastrar al hermano'
+    )
   })
 })
 
