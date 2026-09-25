@@ -4,6 +4,7 @@ import type { ApiClient, ApiResponse } from '@japa/api-client'
 import db from '@adonisjs/lucid/services/db'
 import CareerPathCandidate from '#models/career_path_candidate'
 import Person from '#models/person'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 import { PERMISSION_GATE_ERROR_CODES } from '#constants/permission_gate_error_codes'
 import {
   assertModuleEnforced,
@@ -81,6 +82,7 @@ async function createInboxFixture(actor: TenantActor): Promise<InboxFixture> {
     positionIds.push(Number(positionId))
   }
   const [employeeId] = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: 'Candidato',
@@ -88,6 +90,7 @@ async function createInboxFixture(actor: TenantActor): Promise<InboxFixture> {
     employee_second_last_name: 'Gate',
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     department_id: Number(departmentId),
     position_id: positionIds[0],
     person_id: person.personId,

@@ -2,6 +2,9 @@ import { test } from '@japa/runner'
 import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import Employee from '#models/employee'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import AssessmentTemplate from '#models/assessment_template'
 import AssessmentTemplateDimension from '#models/assessment_template_dimension'
 import EmployeeAssessment from '#models/employee_assessment'
@@ -67,10 +70,12 @@ async function ensureTestEmployee(): Promise<Employee> {
   const positionId = Number(Array.isArray(positionInsert) ? positionInsert[0] : positionInsert)
 
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${syncSeed}`,
     employee_code: `EMP-${syncSeed}`,
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     department_id: departmentId,
     position_id: positionId,
     person_id: personId,
@@ -78,7 +83,10 @@ async function ensureTestEmployee(): Promise<Employee> {
   })
   const employeeId = Number(Array.isArray(employeeInsert) ? employeeInsert[0] : employeeInsert)
 
-  return (await Employee.findOrFail(employeeId)) as Employee
+  return (await TenantContext.runUnscoped(
+      () => Employee.findOrFail(employeeId),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    )) as Employee
 }
 
 /**

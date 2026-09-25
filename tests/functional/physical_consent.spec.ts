@@ -5,6 +5,9 @@ import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import LegalDocument from '#models/legal_document'
 import UserConsent from '#models/user_consent'
 import PiiAccessLog from '#models/pii_access_log'
@@ -141,15 +144,20 @@ async function createEmployeeFixture(
   }
 
   const inserted = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: stamp,
     employee_code: `EMP-PHY-${prefix}-${stamp}`,
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     person_id: person.personId,
     employee_created_at: new Date(),
   })
   const employeeId = Number(Array.isArray(inserted) ? inserted[0] : inserted)
-  const employee = await Employee.findOrFail(employeeId)
+  const employee = await TenantContext.runUnscoped(
+      () => Employee.findOrFail(employeeId),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    )
 
   return { employee, person, linkedUser }
 }

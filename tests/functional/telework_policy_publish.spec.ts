@@ -6,6 +6,9 @@ import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import TeleworkPolicy from '#models/telework_policy'
 import TeleworkPolicyNotificationLog from '#models/telework_policy_notification_log'
 import TeleworkPolicyAcknowledgement from '#models/telework_policy_acknowledgement'
@@ -104,17 +107,22 @@ async function createTeleworkEmployee(
   await person.save()
 
   const [employeeId] = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-TWP-${stamp}`,
     employee_code: `EMP-TWP-${stamp}`,
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     person_id: person.personId,
     employee_work_schedule: 'Remote',
     employee_telework_percentage: 100,
     employee_created_at: new Date(),
   })
 
-  return Employee.findOrFail(Number(employeeId))
+  return TenantContext.runUnscoped(
+    () => Employee.findOrFail(Number(employeeId)),
+    TENANT_UNSCOPED_REASON.TEST_FIXTURE
+  )
 }
 
 async function cleanupTeleworkEmployee(employee: Employee | null) {

@@ -6,6 +6,7 @@ import Person from '#models/person'
 import User from '#models/user'
 import { ensureRole } from '#tests/helpers/ensure_role'
 import { resolvePersonRelease } from '#helpers/person_release_guard'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 
 /**
  * USRH1789698261608 — predicado único de liberabilidad de la persona.
@@ -102,6 +103,7 @@ test.group('resolvePersonRelease', (group) => {
     })
     createdPositionIds.push(Number(positionId))
     const [employeeId] = await db.table('employees').insert({
+      employee_slug: opaqueEmployeeSlug(),
       employee_sync_id: `EMP-PRG-${s}`,
       employee_code: `EMP-PRG-${s}`,
       employee_first_name: 'Release',
@@ -109,6 +111,7 @@ test.group('resolvePersonRelease', (group) => {
       employee_second_last_name: prefix,
       company_id: businessUnitId,
       business_unit_id: businessUnitId,
+      payroll_business_unit_id: businessUnitId,
       department_id: Number(departmentId),
       position_id: Number(positionId),
       person_id: personId,

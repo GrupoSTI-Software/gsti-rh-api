@@ -17,6 +17,9 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import Employee from '#models/employee'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import RoleDepartment from '#models/role_department'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemPermission from '#models/system_permission'
@@ -153,6 +156,7 @@ async function createEmployee(
     employee_second_last_name: stamp,
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     department_id: departmentId,
     position_id: Number(positionId),
     person_id: personRecord.personId,
@@ -162,7 +166,13 @@ async function createEmployee(
     employee_created_at: now,
   })
 
-  return { employee: await Employee.findOrFail(Number(employeeId)), personId: personRecord.personId }
+  return {
+    employee: await TenantContext.runUnscoped(
+      () => Employee.findOrFail(Number(employeeId)),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    ),
+    personId: personRecord.personId,
+  }
 }
 
 async function createActor(
