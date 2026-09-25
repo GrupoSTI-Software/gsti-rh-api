@@ -234,8 +234,7 @@ Expected: archivo nuevo con el siguiente timestamp disponible (tras `17902658593
 Run: `NODE_ENV=test DB_DATABASE=sae_pruebas node ace migration:fresh --seed`
 Expected: termina sin errores.
 
-Run: `mysql -u root -p sae_pruebas -e "SHOW INDEX FROM people WHERE Key_name='people_person_email_hash_index';"`
-(ajustar credenciales a las de `.env` de pruebas)
+Run (el cliente `mysql` NO está instalado en este entorno: usa la capa Lucid/mysql2 del propio repo, p. ej. un comando ace temporal o un script node que abra la conexión de `.env` y ejecute `SHOW INDEX FROM people WHERE Key_name='people_person_email_hash_index'`, borrado antes del commit):
 Expected: una fila (Non_unique = 1).
 
 - [ ] **Step 4: Verificar que el guardrail y las suites unitarias siguen verdes**
@@ -500,7 +499,8 @@ Expected: TODO verde.
 
 - [ ] **Step 3: EXPLAIN (CA-11)** — contra una BD con filas en `people` (la de pruebas recién sembrada; si tiene pocas filas el optimizador puede ignorar el índice, en cuyo caso verificar contra staging):
 
-Run: `mysql -u root -p sae_pruebas -e "EXPLAIN SELECT person_id FROM people WHERE person_email_hash = '<hash de prueba>' AND person_deleted_at IS NULL;"`
+Run (el cliente `mysql` NO está instalado en este entorno: ejecuta el `EXPLAIN` con la conexión del repo — mysql2/Lucid — sobre la BD con filas en `people`):
+`EXPLAIN SELECT person_id FROM people WHERE person_email_hash = '<hash de prueba>' AND person_deleted_at IS NULL;`
 Expected: `key: people_person_email_hash_index`, tanto cuando el hash existe como cuando no.
 
 - [ ] **Step 4: Dimensionar D7 (riesgo R-4)** — generar un .xlsx de 500 filas con correo personal y cronometrar la importación con y sin el registro (comentar temporalmente la llamada a `PersonEmailProbeLogService.log` en `createPerson`, medir, descomentar, medir):
