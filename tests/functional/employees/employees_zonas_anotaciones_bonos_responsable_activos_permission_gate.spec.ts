@@ -291,7 +291,7 @@ async function createSupplyFixture(prefix: string, businessUnitId: number): Prom
   })
   const supply = await Supply.create({
     businessUnitId,
-    supplyFileNumber: Number(`${Date.now()}${Math.floor(Math.random() * 100)}`.slice(-9)),
+    supplyFileNumber: `GATE-${Date.now()}-${Math.floor(Math.random() * 100)}`,
     supplyName: `Herramienta ${prefix} ${stamp}`,
     supplyTypeId: supplyType.supplyTypeId,
     supplyStatus: 'active',

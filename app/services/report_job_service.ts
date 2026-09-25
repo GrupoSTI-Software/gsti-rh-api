@@ -10,7 +10,7 @@ import Employee from '#models/employee'
 import AssistsService from '#services/assist_service'
 import UploadService from '#services/upload_service'
 import logger from '@adonisjs/core/services/logger'
-import i18nManager from '@adonisjs/i18n/services/main'
+import { reportI18n } from '#helpers/report_locale'
 import env from '#start/env'
 import { buildDownloadFileName, formatDownloadFileDate } from '#helpers/download_file_name'
 import { ASSISTANCE_REPORT_FILE_PREFIX } from '#constants/assistance_report_file'
@@ -184,10 +184,9 @@ export default class ReportJobService {
     const filters = job.reportJobFilters
     const allowedIds = job.reportJobAllowedBusinessUnitIds
 
-    const locale = filters.locale || i18nManager.defaultLocale
-    const i18n = i18nManager.locale(locale)
-
-    const assistsService = new AssistsService(i18n)
+    // El archivo sale siempre en el idioma de los reportes; `filters.locale`
+    // (idioma de quien lo pidió) ya no decide el contenido del Excel.
+    const assistsService = new AssistsService(reportI18n())
     const onProgress = async (current: number, total: number) => {
       await job.merge({
         reportJobProgressCurrent: current,
