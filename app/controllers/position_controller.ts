@@ -1760,8 +1760,8 @@ export default class PositionController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The position Id was not found',
-          message: 'Missing data to process',
+          title: i18n.formatMessage('position_profile_position_id_required'),
+          message: i18n.formatMessage('missing_data_to_process'),
           data: { positionId },
         }
       }
@@ -1773,8 +1773,8 @@ export default class PositionController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position was not found',
-          message: 'The position was not found with the entered ID',
+          title: i18n.formatMessage('position_profile_not_found_title'),
+          message: i18n.formatMessage('position_profile_not_found_message'),
           data: { positionId },
         }
       }
@@ -1791,8 +1791,8 @@ export default class PositionController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: i18n.formatMessage('server_error'),
+        message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }
@@ -1904,8 +1904,8 @@ export default class PositionController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The position Id was not found',
-          message: 'Missing data to process',
+          title: i18n.formatMessage('position_profile_position_id_required'),
+          message: i18n.formatMessage('missing_data_to_process'),
           data: { positionId },
         }
       }
@@ -1917,8 +1917,8 @@ export default class PositionController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position was not found',
-          message: 'The position was not found with the entered ID',
+          title: i18n.formatMessage('position_profile_not_found_title'),
+          message: i18n.formatMessage('position_profile_not_found_message'),
           data: { positionId },
         }
       }
@@ -1935,8 +1935,8 @@ export default class PositionController {
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
+        title: i18n.formatMessage('server_error'),
+        message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
     }

@@ -9,6 +9,7 @@ import type { BelongsTo, ManyToMany } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Role from './role.js'
 import BusinessUnit from './business_unit.js'
+import type { UserEmailTypeValue } from '#constants/user_email_type'
 
 /**
  * @swagger
@@ -172,7 +173,7 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   declare personId: number
 
   @column()
-  declare userEmailType: string
+  declare userEmailType: UserEmailTypeValue
 
   @column.dateTime({ autoCreate: true })
   declare userCreatedAt: DateTime

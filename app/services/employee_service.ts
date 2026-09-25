@@ -20,6 +20,8 @@ import BiometricEmployeeInterface from '../interfaces/biometric_employee_interfa
 import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
 import { isTerminatedEmployeesFilterRequested } from '#helpers/terminated_employees_filter'
 import { applyVisibleDepartmentsScope } from '#helpers/apply_visible_departments_scope'
+import { applyEmployeeDepartmentScope } from '#helpers/apply_employee_department_scope'
+import type { EmployeeDepartmentScope } from '#helpers/resolve_employee_role_scope'
 import type {
   EmployeeImportResult,
   EmployeeImportRowError,
@@ -39,6 +41,7 @@ import {
 } from '#helpers/person_identity_api_error'
 import { shouldAbortImportOnRowError } from '#helpers/employee_import_api_error'
 import { blindIndex } from '#utils/blind_index'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import BusinessUnit from '#models/business_unit'
 import EmployeeType from '#models/employee_type'
@@ -51,6 +54,8 @@ import VacationAuthorizationSignature from '#models/vacation_authorization_signa
 import { I18n } from '@adonisjs/i18n'
 import Shift from '#models/shift'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
+import { formatReportCalendarDate, REPORT_LOCALE } from '#helpers/report_locale'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
 import EmployeeShiftService from './employee_shift_service.js'
 import EmployeeShift from '#models/employee_shift'
 import ShiftExceptionService from './shift_exception_service.js'
@@ -76,6 +81,8 @@ import EmployeeZone from '#models/employee_zone'
 import Address from '#models/address'
 import AddressType from '#models/address_type'
 import SyncAssistsService from './sync_assists_service.js'
+import { isValidTimeZone, nowInZone, wallTime } from '#modules/attendance-time/attendance_clock'
+import { getBusinessTimeZone } from '#utils/business_date'
 import EmployeeSalaryHistoryService from './employee_salary_history_service.js'
 import logger from '@adonisjs/core/services/logger'
 import OffboardingsService from '#modules/employee-offboarding/offboardings/offboardings.service'
@@ -808,7 +815,8 @@ export default class EmployeeService {
   async update(
     currentEmployee: Employee,
     employee: Employee,
-    options?: { changedBy?: number; salaryChangeReason?: string | null }
+    options?: { changedBy?: number; salaryChangeReason?: string | null },
+    trx?: TransactionClientContract
   ) {
     const salarioAnterior = currentEmployee.dailySalary
     // Eco destructivo (USRH1787433076994): propiedad ausente = conservar el
@@ -867,16 +875,20 @@ export default class EmployeeService {
     currentEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
     currentEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
     currentEmployee.employeeAuthorizeAnyZones = employee.employeeAuthorizeAnyZones
+    if (trx) currentEmployee.useTransaction(trx)
     await currentEmployee.save()
 
     if (Number(salarioAnterior) !== Number(salarioNuevo) && options?.changedBy) {
       const historialService = new EmployeeSalaryHistoryService()
-      await historialService.registrarCambio({
-        employeeId: currentEmployee.employeeId,
-        salaryDaily: salarioNuevo,
-        changedBy: options.changedBy,
-        reason: options.salaryChangeReason ?? null,
-      })
+      await historialService.registrarCambio(
+        {
+          employeeId: currentEmployee.employeeId,
+          salaryDaily: salarioNuevo,
+          changedBy: options.changedBy,
+          reason: options.salaryChangeReason ?? null,
+        },
+        trx
+      )
     }
 
     await currentEmployee.load('businessUnit')
@@ -2263,7 +2275,7 @@ export default class EmployeeService {
     return employees
   }
 
-  async getAllVacationsByPeriod(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[]) {
+  async getAllVacationsByPeriod(filters: EmployeeFilterSearchInterface, scope: EmployeeDepartmentScope, allowedBusinessUnitIds: number[]) {
     const shiftExceptionVacation = await ExceptionType.query()
       .whereNull('exception_type_deleted_at')
       .where('exception_type_slug', 'vacation')
@@ -2306,7 +2318,7 @@ export default class EmployeeService {
         exceptionQuery.whereBetween('shift_exceptions_date', [dateStart, dateEnd])
         exceptionQuery.select('shift_exceptions_date', 'exception_type_id')
       })
-      .whereIn('departmentId', departmentsList)
+      .where((q) => applyEmployeeDepartmentScope(q, scope))
       .preload('department')
       .preload('position')
       .preload('person')
@@ -5205,32 +5217,30 @@ export default class EmployeeService {
 
     worksheet.getColumn(1).hidden = true
 
-    // Comentarios bilingües en los headers de la sección de modalidad para
-    // documentar la regla operativa: Híbrido solo desde el backoffice; % es
-    // calculado por el servidor y aquí es informativo.
-    worksheet.getCell(1, 20).note = {
+    // Comentarios en los headers de la sección de modalidad para documentar la
+    // regla operativa: Híbrido solo desde el backoffice; % es calculado por el
+    // servidor y aquí es informativo. Solo en español, como todo descargable
+    // (ver `#helpers/report_locale`).
+    // Las notas cuelgan del encabezado (fila 3), no de la fila 1 vacía.
+    headerRow.getCell(20).note = {
       texts: [
-        { text: 'Modalidad de trabajo · Work modality\n\n', font: { bold: true, size: 10 } },
+        { text: 'Modalidad de trabajo\n\n', font: { bold: true, size: 10 } },
         {
           text:
-            '[ES] Valores válidos desde Excel: "Presencial" y "Home office". '
+            'Valores válidos desde Excel: "Presencial" y "Home office". '
             + 'La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado. '
-            + 'Desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).\n\n'
-            + '[EN] Valid values from Excel: "Presencial" (Onsite) and "Home office" (Remote). '
-            + 'Hybrid modality must be configured from the backoffice system because it requires validating the configuration against the employee\'s shift. '
-            + 'From Excel you can only switch from Hybrid to Onsite (0%) or Remote (100%).',
+            + 'Desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).',
           font: { size: 10 }
         }
       ],
       margins: { insetmode: 'auto' }
     } as any
-    worksheet.getCell(1, 21).note = {
+    headerRow.getCell(21).note = {
       texts: [
-        { text: '% Teletrabajo · Telework %\n\n', font: { bold: true, size: 10 } },
+        { text: '% Teletrabajo\n\n', font: { bold: true, size: 10 } },
         {
           text:
-            '[ES] Columna informativa (solo lectura). El porcentaje lo calcula el sistema automáticamente: 0% para Presencial, 100% para Home office, y el porcentaje derivado del turno y la configuración híbrida para los empleados en Híbrido. Cualquier valor capturado aquí se ignora al importar.\n\n'
-            + '[EN] Read-only column. The percentage is calculated automatically by the system: 0% for Onsite, 100% for Remote, and the value derived from the shift and hybrid configuration for Hybrid employees. Any value entered here is ignored on import.',
+            'Columna informativa (solo lectura). El porcentaje lo calcula el sistema automáticamente: 0% para Presencial, 100% para Home office, y el porcentaje derivado del turno y la configuración híbrida para los empleados en Híbrido. Cualquier valor capturado aquí se ignora al importar.',
           font: { size: 10 }
         }
       ],
@@ -5272,10 +5282,9 @@ export default class EmployeeService {
       worksheet.getCell(row, 20).dataValidation = {
         type: 'list', allowBlank: true, formulae: [workScheduleRange],
         errorStyle: 'warning', showErrorMessage: true,
-        errorTitle: 'Modalidad no válida desde Excel / Modality not valid from Excel',
+        errorTitle: 'Modalidad no válida desde Excel',
         error:
-          'Seleccione Presencial o Home office. La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado; desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).\n\n'
-          + 'Choose Onsite or Remote. Hybrid modality must be configured from the backoffice system because it requires validating the configuration against the employee\'s shift; from Excel you can only switch from Hybrid to Onsite (0%) or Remote (100%).'
+          'Seleccione Presencial o Home office. La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado; desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).'
       }
       const teleworkCell = worksheet.getCell(row, 21)
       teleworkCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: teleworkInformativeFill } }
@@ -5283,10 +5292,9 @@ export default class EmployeeService {
       teleworkCell.dataValidation = {
         type: 'custom', allowBlank: true, formulae: ['FALSE'],
         errorStyle: 'warning', showErrorMessage: true,
-        errorTitle: 'Columna informativa / Read-only column',
+        errorTitle: 'Columna informativa',
         error:
-          'El porcentaje de teletrabajo lo calcula el sistema automáticamente a partir de la modalidad y el turno del empleado. Si captura un valor aquí, será ignorado al importar.\n\n'
-          + 'The telework percentage is calculated automatically by the system from the employee\'s modality and shift. Any value entered here will be ignored on import.'
+          'El porcentaje de teletrabajo lo calcula el sistema automáticamente a partir de la modalidad y el turno del empleado. Si captura un valor aquí, será ignorado al importar.'
       }
       worksheet.getCell(row, 22).dataValidation = {
         type: 'list', allowBlank: true, formulae: [yesNoRange],
@@ -5345,16 +5353,13 @@ export default class EmployeeService {
       const payrollUnitName = (payrollId: number) =>
         businessUnits.find(bu => bu.businessUnitId === payrollId)?.businessUnitName ?? ''
 
+      // Fechas DATE leídas como día civil (`formatReportCalendarDate`); la
+      // de ingreso conserva el formato yyyy/MM/dd que espera el importador.
       const DateTimeFmt = (d: DateTime | Date | string | null) => {
-        if (!d) return ''
-        const dt = typeof d === 'string' ? DateTime.fromISO(d) : (d instanceof Date ? DateTime.fromJSDate(d) : d)
-        return dt.isValid ? dt.toFormat('yyyy/MM/dd') : ''
+        const [day, month, year] = formatReportCalendarDate(d).split('/')
+        return year ? `${year}/${month}/${day}` : ''
       }
-      const DateTimeFmtBirth = (d: DateTime | Date | string | null) => {
-        if (!d) return ''
-        const dt = typeof d === 'string' ? DateTime.fromISO(d) : (d instanceof Date ? DateTime.fromJSDate(d) : d)
-        return dt.isValid ? dt.toFormat('dd/MM/yyyy') : ''
-      }
+      const DateTimeFmtBirth = (d: DateTime | Date | string | null) => formatReportCalendarDate(d)
 
       employees.forEach((emp, idx) => {
         const rowNum = idx + 4
@@ -5444,6 +5449,7 @@ export default class EmployeeService {
       })
     }
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
@@ -5472,7 +5478,7 @@ export default class EmployeeService {
   ): Promise<Buffer> {
 
     const workbook = new ExcelJS.Workbook()
-    const worksheet = workbook.addWorksheet('Plantilla de asignación de turnos')
+    const worksheet = workbook.addWorksheet('Asignación de turnos')
 
     // Convertir fechas a DateTime
     const startDateTime = DateTime.fromISO(startDate)
@@ -5737,7 +5743,7 @@ export default class EmployeeService {
     // Segunda fila de encabezados (días de la semana)
     const headerRow2 = ['', '', '', '']
     dates.forEach((date) => {
-      const dayName = date.toFormat('cccc', { locale: 'es' })
+      const dayName = date.toFormat('cccc', { locale: REPORT_LOCALE })
       headerRow2.push(dayName)
     })
     const row2 = worksheet.addRow(headerRow2)
@@ -6037,15 +6043,19 @@ export default class EmployeeService {
     employees.forEach((employee, index) => {
       const row = startDataRow + index
       worksheet.getRow(row).height = 45
-      const fullName = `${employee.employeeFirstName ?? ''} ${employee.employeeLastName ?? ''} ${employee.employeeSecondLastName ?? ''}`.trim().toUpperCase()
-      const positionName = employee.position?.positionName || 'Sin posición'
+      const fullName = reportFullName(
+        employee.employeeFirstName,
+        employee.employeeLastName,
+        employee.employeeSecondLastName
+      ).toUpperCase()
+      const positionName = reportText(employee.position?.positionName)
 
 
       // ID Empleado (BD) - Columna A (oculta)
       worksheet.getCell(row, 1).value = employee.employeeId
 
       // Código de Empleado - Columna B
-      worksheet.getCell(row, 2).value = employee.employeePayrollCode || 'Sin código'
+      worksheet.getCell(row, 2).value = reportText(employee.employeePayrollCode)
 
       // Empleado - Columna C
       worksheet.getCell(row, 3).value = fullName
@@ -6152,6 +6162,7 @@ export default class EmployeeService {
     // ==============================
     //       GENERAR ARCHIVO
     // ==============================
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
@@ -6777,8 +6788,10 @@ export default class EmployeeService {
       currentDate = currentDate.plus({ days: 1 })
     }
 
-    // Referencia "hoy" en UTC-6 para detectar días/horas futuros (mostrar "próximo" en lugar de falta)
-    const todayStartUtc6 = DateTime.now().setZone('UTC-6').startOf('day')
+    // Zona IANA del sitio del empleado cuya fila se escribe: la entrega el
+    // calendario del sync (`data.timeZone`), la misma con que se evaluó la
+    // asistencia. Sin sitio, la zona de negocio del sistema.
+    let rowZone = getBusinessTimeZone()
 
     const businessUnitsList = allowedBusinessUnitIds
 
@@ -6853,10 +6866,10 @@ export default class EmployeeService {
     const PERMISSION_SLUGS = new Set(['absence-from-work', 'late-arrival', 'rest-day', 'nuevo-ingreso'])
 
     // Fondo gris claro solo para las columnas de información del empleado (Departamento, Puesto, Nómina, Nombre)
-    const EMPLOYEE_INFO_BG = 'f2f2f2'
+    const EMPLOYEE_INFO_BG = 'FFF2F2F2'
 
     // Días/horas futuros: texto "próximo" con fondo y texto gris claro (considera hora de inicio del turno)
-    const PROXIMO_BG = 'FFFFFF'
+    const PROXIMO_BG = 'FFFFFFFF'
     const PROXIMO_TEXT_COLOR = 'FF808080'
 
     // Función para obtener color según estado de asistencia (gama de la imagen: verde, naranja, azul claro, rojo claro)
@@ -6873,11 +6886,11 @@ export default class EmployeeService {
         case 'ontime':
           return 'FFC6EFCE' // Verde claro
         case 'tolerance':
-          return 'b7d8fa' // Azul claro
+          return 'FFB7D8FA' // Azul claro
         case 'delay':
           return 'FFFFC000' // Naranja
         case 'fault':
-          return 'ffaaa3' // Rojo claro
+          return 'FFFFAAA3' // Rojo claro
         case 'exception':
           return 'FFFFFFFF'
         default:
@@ -7038,13 +7051,12 @@ export default class EmployeeService {
       return 'sin turno'
     }
 
-    // Convierte un valor a HH:mm en zona UTC-6 (como en el frontend).
+    // Hora de pared (HH:mm) del instante en la zona del sitio del empleado.
     const toLocalHHmm = (value: string | DateTime | null | undefined): string | null => {
       if (value === null || value === undefined) return null
       try {
-        const dt = typeof value === 'string' ? DateTime.fromISO(value, { setZone: true }) : value
-        if (!dt?.isValid) return null
-        return dt.setZone('UTC-6').toFormat('HH:mm')
+        const dt = wallTime(value, rowZone)
+        return dt.isValid ? dt.toFormat('HH:mm') : null
       } catch {
         return null
       }
@@ -7088,6 +7100,7 @@ export default class EmployeeService {
     // Consultar asistencias para todos los empleados
     const syncAssistsService = new SyncAssistsService(this.i18n)
     const employeeCalendarsMap = new Map<number, AssistDayInterface[]>()
+    const employeeZonesMap = new Map<number, string>()
 
     for (const employee of employees) {
       try {
@@ -7101,6 +7114,10 @@ export default class EmployeeService {
           const calendarData = calendarResult.data as any
           const employeeCalendar = calendarData.employeeCalendar as AssistDayInterface[]
           employeeCalendarsMap.set(employee.employeeId, employeeCalendar)
+          const calendarZone: unknown = calendarData.timeZone
+          if (typeof calendarZone === 'string' && isValidTimeZone(calendarZone)) {
+            employeeZonesMap.set(employee.employeeId, calendarZone)
+          }
         } else {
           // Empleado no encontrado o respuesta no exitosa: omitir sin fallar (su informacion aparecera en vacio)
           employeeCalendarsMap.set(employee.employeeId, [])
@@ -7136,7 +7153,7 @@ export default class EmployeeService {
     // Segunda fila de encabezados (días de la semana)
     const headerRow2 = ['', '', '', '', '', '']
     dates.forEach((date) => {
-      const dayName = date.toFormat('cccc', { locale: 'es' })
+      const dayName = date.toFormat('cccc', { locale: REPORT_LOCALE })
       headerRow2.push(dayName)
     })
     const row2 = worksheet.addRow(headerRow2)
@@ -7249,12 +7266,19 @@ export default class EmployeeService {
 
         worksheet.getRow(currentRow).height = 45
 
-        const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
-        const positionName = employee.position?.positionName || 'Sin posición'
-        const departmentName = department?.departmentName || 'Sin departamento'
-        const payrollCode = employee.employeePayrollCode || 'Sin código'
-        const payrollBuName = employee.payrollBusinessUnit?.businessUnitName || 'Sin UN'
-        const workBuName = employee.businessUnit?.businessUnitName || 'Sin UN'
+        rowZone = employeeZonesMap.get(employee.employeeId) ?? getBusinessTimeZone()
+        const todayInRowZone = nowInZone(rowZone).toFormat('yyyy-MM-dd')
+
+        const fullName = reportFullName(
+          employee.employeeFirstName,
+          employee.employeeLastName,
+          employee.employeeSecondLastName
+        )
+        const positionName = reportText(employee.position?.positionName)
+        const departmentName = reportText(department?.departmentName)
+        const payrollCode = reportText(employee.employeePayrollCode)
+        const payrollBuName = reportText(employee.payrollBusinessUnit?.businessUnitName)
+        const workBuName = reportText(employee.businessUnit?.businessUnitName)
 
         // UN Trabajo - Columna A
         worksheet.getCell(currentRow, 1).value = workBuName
@@ -7301,10 +7325,9 @@ export default class EmployeeService {
           const dateStr = date.toFormat('yyyy-MM-dd')
           const dayData = calendarByDay.get(dateStr) || null
 
-          // Validar si es día/hora futuro: no mostrar como falta, mostrar "próximo" (considera hora de inicio del turno)
-          const cellDateUtc6 = date.setZone('UTC-6').startOf('day')
-          const isProximo =
-            dayData?.assist?.isFutureDay === true || cellDateUtc6 > todayStartUtc6
+          // Validar si es día/hora futuro: no mostrar como falta, mostrar "próximo" (considera hora de inicio del turno).
+          // Día civil de la celda contra "hoy" en la zona del sitio del empleado.
+          const isProximo = dayData?.assist?.isFutureDay === true || dateStr > todayInRowZone
 
           let cellText: string
           let cellColor: string
@@ -7394,6 +7417,7 @@ export default class EmployeeService {
     // ==============================
     //       GENERAR ARCHIVO
     // ==============================
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
@@ -7466,7 +7490,7 @@ export default class EmployeeService {
           totalWorkDisabilityPeriods: periods,
           totalWorkDisabilityPeriodExpenses: expenses,
         }
-      }, 'purga masiva de empleados')
+      }, TENANT_UNSCOPED_REASON.EMPLOYEE_MASS_PURGE)
       const totalEmployeeAddresses = await EmployeeAddress.query()
         .count('* as total')
       const totalEmployeeSpouses = await EmployeeSpouse.query()
@@ -7595,7 +7619,7 @@ export default class EmployeeService {
         await WorkDisabilityPeriodExpense.query().delete()
         await WorkDisabilityPeriod.query().delete()
         await WorkDisability.query().delete()
-      }, 'purga masiva de empleados')
+      }, TENANT_UNSCOPED_REASON.EMPLOYEE_MASS_PURGE)
 
       // 24. Eliminar todas las relaciones en exception_requests
       await ExceptionRequest.query().delete()

@@ -613,13 +613,6 @@ const CATALOG_ENTRIES = [
     exceptionProfile: 'standard',
   },
   {
-    slug: 'download-payroll-format',
-    displayName: 'Descargar formato de nómina',
-    kind: 'read',
-    section: 'descargas',
-    exceptionProfile: 'standard',
-  },
-  {
     slug: 'download-attendance-by-employee',
     displayName: 'Descargar asistencia por colaborador',
     kind: 'read',

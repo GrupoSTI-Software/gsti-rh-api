@@ -1,3 +1,5 @@
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+
 /**
  * Slugs de rol (comparación en minúsculas y sin espacios extremos) para notificar
  * faltas de registro de asistencia. Solo usuarios activos con empleado asociado
@@ -18,5 +20,4 @@ export const ATTENDANCE_FAULT_HR_TEST_ROLE_SLUG = 'TESTER'
 export const NOTIFY_ATTENDANCE_FAULT_HR_COMMAND = 'notify:attendance-fault-hr'
 
 /** Motivo auditado para TenantContext.runUnscoped en la corrida batch. */
-export const ATTENDANCE_FAULT_HR_RUN_UNSCOPED_REASON =
-  'Notificación de faltas de asistencia a RH por system setting activo (cross-empresa)'
+export const ATTENDANCE_FAULT_HR_RUN_UNSCOPED_REASON = TENANT_UNSCOPED_REASON.ATTENDANCE_FAULT_HR

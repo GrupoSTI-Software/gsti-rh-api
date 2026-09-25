@@ -7,6 +7,8 @@ import ProceedingFile from '#models/proceeding_file'
 import ProceedingFileType from '#models/proceeding_file_type'
 import { DateTime } from 'luxon'
 import { EmployeeProceedingFileFilterInterface } from '../interfaces/employee_proceeding_file_filter_interface.js'
+import { applyEmployeeDepartmentScopeToSubQuery } from '#helpers/apply_employee_department_scope'
+import type { EmployeeDepartmentScope } from '#helpers/resolve_employee_role_scope'
 import EmployeeContract from '#models/employee_contract'
 
 export default class EmployeeProceedingFileService {
@@ -190,7 +192,23 @@ export default class EmployeeProceedingFileService {
     }
   }
 
-  async getExpiredAndExpiring(filters: EmployeeProceedingFileFilterInterface, departmentsList: Array<number>) {
+  async getExpiredAndExpiring(
+    filters: EmployeeProceedingFileFilterInterface,
+    scope: EmployeeDepartmentScope,
+    allowedBusinessUnitIds: number[] = []
+  ) {
+    // Alcance vacío y restringido → forma vacía (CA-09, S4 de USRH1788466831312).
+    if (!scope.includeUnassigned && scope.departmentsList.length === 0) {
+      return {
+        proceedingFilesExpired: [],
+        proceedingFilesExpiring: [],
+        quantityFiles: 0,
+        contractsExpired: [],
+        contractsExpiring: [],
+        quantityContracts: 0,
+      }
+    }
+
     const proceedingFileTypes = await ProceedingFileType.query()
       .whereNull('proceeding_file_type_deleted_at')
       .where('proceeding_file_type_area_to_use', 'employee')
@@ -205,8 +223,11 @@ export default class EmployeeProceedingFileService {
       .whereBetween('proceeding_file_expiration_at', [filters.dateStart, filters.dateEnd])
       .whereHas('employeeProceedingFile', (query) => {
         query.whereHas('employee', (subQuery) => {
-          subQuery.whereIn('departmentId', departmentsList)
-          .whereNull('employee_deleted_at') 
+          if (allowedBusinessUnitIds.length > 0) {
+            subQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
+          }
+          applyEmployeeDepartmentScopeToSubQuery(subQuery, scope)
+          subQuery.whereNull('employee_deleted_at')
         })
       })
       .preload('proceedingFileType')
@@ -226,8 +247,11 @@ export default class EmployeeProceedingFileService {
       .whereBetween('proceeding_file_expiration_at', [newDateStart, newDateEnd])
       .whereHas('employeeProceedingFile', (query) => {
         query.whereHas('employee', (subQuery) => {
-          subQuery.whereIn('departmentId', departmentsList)
-          .whereNull('employee_deleted_at') 
+          if (allowedBusinessUnitIds.length > 0) {
+            subQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
+          }
+          applyEmployeeDepartmentScopeToSubQuery(subQuery, scope)
+          subQuery.whereNull('employee_deleted_at')
         })
       })
       .preload('proceedingFileType')
@@ -244,22 +268,27 @@ export default class EmployeeProceedingFileService {
       .whereIn('proceeding_file_type_id', proceedingFileTypesIds)
       .whereHas('employeeProceedingFile', (query) => {
         query.whereHas('employee', (subQuery) => {
-          subQuery.whereIn('departmentId', departmentsList)
-          .whereNull('employee_deleted_at') 
+          if (allowedBusinessUnitIds.length > 0) {
+            subQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
+          }
+          applyEmployeeDepartmentScopeToSubQuery(subQuery, scope)
+          subQuery.whereNull('employee_deleted_at')
         })
       })
       .count('proceeding_file_id as quantity_files')
 
     const quantityFiles = allCounted[0].$extras.quantity_files || 0
 
-
     const contractsExpired = await EmployeeContract.query()
       .whereNull('employee_contract_deleted_at')
       .where('employee_contract_active', 1)
       .whereBetween('employee_contract_end_date', [filters.dateStart, filters.dateEnd])
       .whereHas('employee', (query) => {
-        query.whereIn('departmentId', departmentsList)
-        .whereNull('employee_deleted_at') 
+        if (allowedBusinessUnitIds.length > 0) {
+          query.whereIn('business_unit_id', allowedBusinessUnitIds)
+        }
+        applyEmployeeDepartmentScopeToSubQuery(query, scope)
+        query.whereNull('employee_deleted_at')
       })
       .preload('employee')
       .orderBy('employee_contract_end_date')
@@ -269,18 +298,24 @@ export default class EmployeeProceedingFileService {
       .where('employee_contract_active', 1)
       .whereBetween('employee_contract_end_date', [newDateStart, newDateEnd])
       .whereHas('employee', (query) => {
-        query.whereIn('departmentId', departmentsList)
-        .whereNull('employee_deleted_at') 
+        if (allowedBusinessUnitIds.length > 0) {
+          query.whereIn('business_unit_id', allowedBusinessUnitIds)
+        }
+        applyEmployeeDepartmentScopeToSubQuery(query, scope)
+        query.whereNull('employee_deleted_at')
       })
       .preload('employee')
       .orderBy('employee_contract_end_date')
-    
+
     const allCountedContracts = await EmployeeContract.query()
       .whereNull('employee_contract_deleted_at')
       .where('employee_contract_active', 1)
       .whereHas('employee', (query) => {
-        query.whereIn('departmentId', departmentsList)
-        .whereNull('employee_deleted_at') 
+        if (allowedBusinessUnitIds.length > 0) {
+          query.whereIn('business_unit_id', allowedBusinessUnitIds)
+        }
+        applyEmployeeDepartmentScopeToSubQuery(query, scope)
+        query.whereNull('employee_deleted_at')
       })
       .count('employee_contract_id as quantity_files')
 

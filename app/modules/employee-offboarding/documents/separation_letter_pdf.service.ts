@@ -1,8 +1,9 @@
 import { DateTime } from 'luxon'
 import PDFDocument from 'pdfkit'
 import { getBusinessTimeZone } from '#utils/business_date'
+import { reportText } from '#helpers/report_text'
 import { REPORT_NEUTRAL_HEX, REPORT_NEUTRAL_PDF_FONTS } from '#constants/report_neutral_theme'
-import { MISSING_FIELD_ORDER } from './documents.constants.js'
+import type { OffboardingDocumentFieldKey } from './document_fields.constants.js'
 
 /** Paleta neutral compartida por todos los descargables (sin marca). */
 const PDF_COLORS = REPORT_NEUTRAL_HEX
@@ -133,50 +134,40 @@ export function formatSeniority(parts: SeniorityParts): string {
 /**
  * Saneado del texto que entra al PDF Y al snapshot (si divergieran, el
  * snapshot dejaría de servir para auditar): elimina controles C0/C1 y los
- * controles bidireccionales, colapsa espacios y recorta.
+ * controles bidireccionales, colapsa espacios y recorta. Un dato ausente
+ * ("null"/"undefined" interpolado) queda en blanco (`reportText`).
  */
-export function sanitizeRenderText(value: string): string {
-  return Array.from(`${value}`)
-    .filter((char) => !isControlChar(char.codePointAt(0) ?? 0))
-    .join('')
-    .replace(BIDI_CONTROLS, '')
-    .replace(/\s+/g, ' ')
-    .trim()
-}
-
-/** Datos que bloquean la emisión (USRH1787433503689, regla 1). */
-export type MissingSeparationLetterField =
-  | 'legalName'
-  | 'employeeName'
-  | 'position'
-  | 'hireDate'
-  | 'separationDate'
-
-/** Valores YA RESUELTOS (saneados y normalizados) que entran a la guarda. */
-export interface SeparationLetterCompletenessInput {
-  legalName: string
-  employeeName: string
-  position: string
-  hireDate: string | null
-  separationDate: string | null
+export function sanitizeRenderText(value: string | null | undefined): string {
+  return reportText(
+    Array.from(reportText(value))
+      .filter((char) => !isControlChar(char.codePointAt(0) ?? 0))
+      .join('')
+      .replace(BIDI_CONTROLS, '')
+  )
 }
 
 /**
- * Guarda de completitud PURA: recibe valores ya resueltos, no consulta, no
- * traduce y no lanza. Devuelve los campos faltantes en el orden de
- * `MISSING_FIELD_ORDER` (regla 8); quien lanza es el servicio. El
- * departamento no bloquea (regla 4).
+ * Valores YA RESUELTOS (saneados y normalizados) que entran a la guarda, por
+ * `key` del catálogo. `''`, `null` o ausente = dato no capturado.
  */
-export function collectMissingSeparationLetterFields(
-  data: SeparationLetterCompletenessInput
-): MissingSeparationLetterField[] {
-  const missing = new Set<MissingSeparationLetterField>()
-  if (data.legalName.trim().length === 0) missing.add('legalName')
-  if (data.employeeName.trim().length === 0) missing.add('employeeName')
-  if (data.position.trim().length === 0) missing.add('position')
-  if (!data.hireDate) missing.add('hireDate')
-  if (!data.separationDate) missing.add('separationDate')
-  return MISSING_FIELD_ORDER.filter((field) => missing.has(field))
+export type DocumentCompletenessValues = Readonly<Record<string, string | null>>
+
+/**
+ * Guarda de completitud PURA (USRH1787433503689, adecuada por
+ * USRH1789097550392): recibe la lista efectiva y los valores ya resueltos, no
+ * consulta, no traduce y no lanza. Devuelve los campos faltantes en el orden
+ * de `requiredFieldKeys` (regla 8); quien lanza es el servicio. Fail-closed:
+ * una clave exigida que no venga en `values` cuenta como faltante, así los
+ * campos que agregue el catálogo bloquean sin tocar esta función.
+ */
+export function collectMissingDocumentFields(
+  requiredFieldKeys: readonly OffboardingDocumentFieldKey[],
+  values: DocumentCompletenessValues
+): OffboardingDocumentFieldKey[] {
+  return requiredFieldKeys.filter((key) => {
+    const value = values[key]
+    return typeof value !== 'string' || value.trim().length === 0
+  })
 }
 
 /** Datos YA RESUELTOS y saneados para el render; el servicio nunca consulta. */

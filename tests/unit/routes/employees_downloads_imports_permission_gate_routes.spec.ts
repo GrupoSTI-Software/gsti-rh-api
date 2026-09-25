@@ -89,7 +89,6 @@ test.group('assist_routes — PermissionGate descargas de asistencia', () => {
     const content = await readFile(join(process.cwd(), 'start/routes/assist_routes.ts'), 'utf8')
     const packed = compact(content)
     const pairs: Array<[string, string]> = [
-      ['get-format-payroll', 'getPayrollFormat'],
       ['get-excel-by-employee', 'getAttendanceByEmployee'],
       ['get-excel-by-position', 'getAttendanceByPosition'],
       ['get-excel-by-department', 'getAttendanceByDepartment'],

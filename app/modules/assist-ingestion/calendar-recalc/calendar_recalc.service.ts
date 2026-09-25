@@ -4,6 +4,7 @@ import db from '@adonisjs/lucid/services/db'
 import logger from '@adonisjs/core/services/logger'
 import AssistCalendarRecalcJob from '#models/assist_calendar_recalc_job'
 import SyncAssistsService from '#services/sync_assists_service'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 
 export interface CalendarRecalcRunResult {
@@ -26,9 +27,6 @@ export const CALENDAR_RECALC_BATCH_SIZE = 50
  * pondria a correr dos veces.
  */
 export const CALENDAR_RECALC_STALE_MINUTES = 15
-
-const UNSCOPED_REASON =
-  'recalculo de calendarios: la cola es de todas las empresas y cada trabajo abre el scope de la suya'
 
 /**
  * Consume la cola de recalculo (spec ADMS 5.4).
@@ -72,7 +70,7 @@ export default class CalendarRecalcService {
             assist_calendar_recalc_job_claimed_by: runId,
             assist_calendar_recalc_job_claimed_at: now.toFormat('yyyy-MM-dd HH:mm:ss'),
           }),
-      UNSCOPED_REASON
+      TENANT_UNSCOPED_REASON.ADMS_CALENDAR_RECALC
     )
     if (Number(claimed) === 0) return { taken: 0, done: 0, failed: 0, recovered }
 
@@ -83,7 +81,7 @@ export default class CalendarRecalcService {
           .where('assist_calendar_recalc_job_claimed_by', runId)
           .where('assist_calendar_recalc_job_status', 'processing')
           .orderBy('assist_calendar_recalc_job_id', 'asc'),
-      UNSCOPED_REASON
+      TENANT_UNSCOPED_REASON.ADMS_CALENDAR_RECALC
     )
     if (jobs.length === 0) return { taken: 0, done: 0, failed: 0, recovered }
 
@@ -176,7 +174,7 @@ export default class CalendarRecalcService {
             assist_calendar_recalc_job_claimed_by: null,
             assist_calendar_recalc_job_claimed_at: null,
           }),
-      UNSCOPED_REASON
+      TENANT_UNSCOPED_REASON.ADMS_CALENDAR_RECALC
     )
     const total = Number(recovered)
     if (total > 0) {
