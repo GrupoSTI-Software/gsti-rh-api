@@ -17,6 +17,7 @@ import db from '@adonisjs/lucid/services/db'
 import {
   emailMirrorActorFromContext,
   mirrorEmployeeEmailToUserEmail,
+  previousEmailRecipients,
   toPublicEmailMirrorOutcome,
 } from '#helpers/person_user_email_mirror'
 import {
@@ -95,6 +96,8 @@ import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
+import { ensureCredentialChangeAllowed } from '#helpers/credential_change_gate'
+import { notifyAndAudit, revokeSessions } from '#services/credential_change_service'
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -1573,7 +1576,9 @@ export default class EmployeeController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '403':
-   *         description: La cuenta de acceso del empleado no pertenece a las empresas del actor (USR.MAIL.005). Nada se guardó.
+   *         description: |
+   *           La cuenta de acceso del empleado no pertenece a las empresas del actor (USR.MAIL.005). Nada se guardó.
+   *           Si el correo cambia la credencial y falta el permiso propio, responde {"title":"Sin permiso","detail":"No tienes permiso para realizar esta operación.","key":"PERM.DENIED"}.
    *       '422':
    *         description: Nivel de puesto rechazado — no pertenece a los niveles configurados del puesto del payload, o está inactivo para una asignación nueva
    *         content:
@@ -1623,8 +1628,14 @@ export default class EmployeeController {
    *                       type: string
    */
   async update(ctx: HttpContext) {
-    const { request, response, i18n, auth, businessUnitScope } = ctx
+    const { request, response, i18n, businessUnitScope } = ctx
     try {
+      const actorUser = ctx.auth.user
+      if (!actorUser) {
+        response.status(401)
+        return
+      }
+      const actorId = actorUser.userId
       const employeeId = request.param('employeeId')
       const employeeFirstName = request.input('employeeFirstName')
       const employeeLastName = request.input('employeeLastName')
@@ -1716,6 +1727,13 @@ export default class EmployeeController {
           data: { ...employee },
         }
       }
+      const credentialChangeAllowed = await ensureCredentialChangeAllowed(ctx, {
+        personId: currentEmployee.personId,
+        incomingEmail: employee.employeeBusinessEmail,
+        persistedEmailType: null,
+        origin: 'employee-file',
+      })
+      if (!credentialChangeAllowed) return
 
       const inputTerminationModality = this.normalizeTerminationInput(
         request.input('employeeTerminationModality')
@@ -1846,7 +1864,7 @@ export default class EmployeeController {
           domain: structureCheck.field,
           action: 'assign-to-employee',
           requestedId: structureCheck.requestedId,
-          actorUserId: auth.user?.userId ?? null,
+          actorUserId: actorId,
           businessUnitScope,
         })
         response.status(400)
@@ -1907,15 +1925,45 @@ export default class EmployeeController {
           actor,
           trx,
         })
-        return { updateEmployee: persisted, emailMirror: outcome }
+        if (outcome.status === 'written') {
+          const currentTokenId = actorUser.currentAccessToken?.identifier
+          const preservedTokenId =
+            actorId === outcome.targetId &&
+            currentTokenId !== undefined &&
+            currentTokenId !== null
+              ? String(currentTokenId)
+              : null
+          const revokedCount = await revokeSessions(trx, {
+            affectedUserId: outcome.targetId,
+            preservedTokenId,
+          })
+          return { updateEmployee: persisted, emailMirror: { outcome, revokedCount } }
+        }
+        return { updateEmployee: persisted, emailMirror: { outcome, revokedCount: 0 } }
       })
+      if (emailMirror.outcome.status === 'written') {
+        await notifyAndAudit({
+          actorUserId: actorId,
+          affectedUserId: emailMirror.outcome.targetId,
+          origin: 'employee-file',
+          previousEmail: emailMirror.outcome.previousEmail!,
+          newEmail: updateEmployee.employeeBusinessEmail!.trim(),
+          userEmailType: 'institutional',
+          previousRecipients: previousEmailRecipients(emailMirror.outcome),
+          rawHeaders: request.request.rawHeaders,
+          revokedCount: emailMirror.revokedCount,
+        })
+      }
 
       response.status(201)
       return {
         type: 'success',
         title: 'Employees',
         message: 'The employee was updated successfully',
-        data: { employee: updateEmployee, emailMirror: toPublicEmailMirrorOutcome(emailMirror) },
+        data: {
+          employee: updateEmployee,
+          emailMirror: toPublicEmailMirrorOutcome(emailMirror.outcome),
+        },
       }
     } catch (error) {
       if (isEmailMirrorConflictError(error)) return respondEmailMirrorConflict(ctx, error)

@@ -128,10 +128,10 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   @column({ serializeAs: null })
   declare userPassword: string
 
-  @column()
+  @column({ serializeAs: null })
   declare userToken: string
 
-  @column.dateTime()
+  @column.dateTime({ serializeAs: null })
   declare userTokenExpiresAt: DateTime | null
 
   /**
@@ -160,10 +160,10 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   @column.dateTime()
   declare userEmailVerifiedAt: DateTime | null
 
-  @column()
+  @column({ serializeAs: null })
   declare pinCode: string
 
-  @column.dateTime({ columnName: 'pin_code_expires_at' })
+  @column.dateTime({ columnName: 'pin_code_expires_at', serializeAs: null })
   declare pinCodeExpiresAt: DateTime | null
 
   @column()

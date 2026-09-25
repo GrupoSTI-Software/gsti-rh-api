@@ -191,6 +191,24 @@ export function toPublicEmailMirrorOutcome(outcome: EmailMirrorOutcome): PublicE
   return { status: 'skipped', reason: outcome.reason }
 }
 
+/** Correos previos descifrados, sin vacíos ni duplicados por mayúsculas. */
+export function previousEmailRecipients(
+  outcome: Extract<EmailMirrorOutcome, { status: 'written' }>
+): string[] {
+  const recipients = new Map<string, string>()
+  for (const value of [
+    outcome.previousUserEmail,
+    outcome.previousPersonEmail,
+    outcome.previousBusinessEmail,
+  ]) {
+    const email = normalizeMirrorEmail(value)
+    if (email !== null && !recipients.has(email.toLowerCase())) {
+      recipients.set(email.toLowerCase(), email)
+    }
+  }
+  return [...recipients.values()]
+}
+
 async function mirrorRecordEmailToUserEmail(
   input: MirrorBaseInput,
   source: string | null | undefined,

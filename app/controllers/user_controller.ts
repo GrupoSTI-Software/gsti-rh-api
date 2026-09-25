@@ -58,11 +58,14 @@ import { USER_VALIDATION_ERROR_CODES } from '#constants/user_validation_error_co
 import {
   emailMirrorActorFromContext,
   mirrorUserEmailToRecord,
+  previousEmailRecipients,
   toPublicEmailMirrorOutcome,
   type EmailMirrorOutcome,
 } from '#helpers/person_user_email_mirror'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
 import { canAccessBackoffice } from '#helpers/backoffice_access'
+import { ensureCredentialChangeAllowed } from '#helpers/credential_change_gate'
+import { notifyAndAudit, revokeSessions } from '#services/credential_change_service'
 
 /**
  * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
@@ -2123,7 +2126,9 @@ export default class UserController {
    *                     error:
    *                       type: string
    *       '403':
-   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         description: |
+   *           Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *           Si el correo cambia la credencial y falta el permiso propio, responde {"title":"Sin permiso","detail":"No tienes permiso para realizar esta operación.","key":"PERM.DENIED"}.
    *         content:
    *           application/json:
    *             schema:
@@ -2160,6 +2165,13 @@ export default class UserController {
       const personId = request.input('personId')
 
       assertUserAccessEmailNotMasked(userEmail)
+      const credentialChangeAllowed = await ensureCredentialChangeAllowed(ctx, {
+        currentUser,
+        incomingEmail: userEmail,
+        persistedEmailType: currentUser.userEmailType,
+        origin: 'user-screen',
+      })
+      if (!credentialChangeAllowed) return
 
       if (personId === undefined || personId === null) {
         response.status(400)
@@ -2227,15 +2239,50 @@ export default class UserController {
           actor,
           trx,
         })
-        return { updateUser: updated, emailMirror: outcome }
+        if (outcome.status === 'written') {
+          const currentTokenId = ctx.auth.user?.currentAccessToken?.identifier
+          const preservedTokenId =
+            ctx.auth.user?.userId === updated.userId &&
+            currentTokenId !== undefined &&
+            currentTokenId !== null
+              ? String(currentTokenId)
+              : null
+          const revokedCount = await revokeSessions(trx, {
+            affectedUserId: updated.userId,
+            preservedTokenId,
+          })
+          return { updateUser: updated, emailMirror: { outcome, revokedCount } }
+        }
+        return { updateUser: updated, emailMirror: { outcome, revokedCount: 0 } }
       })
 
       const rawHeaders = request.request.rawHeaders
+      if (emailMirror.outcome.status === 'written') {
+        await notifyAndAudit({
+          actorUserId: actor.userId,
+          affectedUserId: updateUser.userId,
+          origin: 'user-screen',
+          previousEmail: emailMirror.outcome.previousEmail!,
+          newEmail: updateUser.userEmail.trim(),
+          userEmailType: updateUser.userEmailType,
+          previousRecipients: previousEmailRecipients(emailMirror.outcome),
+          rawHeaders,
+          revokedCount: emailMirror.revokedCount,
+        })
+      }
       const logUser = await userService.createActionLog(rawHeaders, 'update')
       logUser.user_id = actor.userId
-      logUser.record_current = JSON.parse(JSON.stringify(updateUser))
-      logUser.record_previous = previousUser
-      const previousPersonEmail = previousPersonEmailOf(emailMirror)
+      logUser.record_previous = {
+        user_id: previousUser.userId,
+        user_email: previousUser.userEmail,
+        user_email_type: previousUser.userEmailType,
+      } as unknown as User
+      logUser.record_current = {
+        user_id: updateUser.userId,
+        user_email: updateUser.userEmail,
+        user_email_type: updateUser.userEmailType,
+      } as unknown as User
+      const previousPersonEmail = previousPersonEmailOf(emailMirror.outcome)
       if (previousPersonEmail) logUser.record_previous_person_email = previousPersonEmail
       await userService.saveActionOnLog(logUser)
 
@@ -2244,7 +2291,10 @@ export default class UserController {
         type: 'success',
         title: 'Users',
         message: 'The user was updated successfully',
-        data: { user: updateUser, emailMirror: toPublicEmailMirrorOutcome(emailMirror) },
+        data: {
+          user: updateUser,
+          emailMirror: toPublicEmailMirrorOutcome(emailMirror.outcome),
+        },
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)

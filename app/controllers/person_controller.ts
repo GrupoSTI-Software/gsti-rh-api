@@ -7,6 +7,7 @@ import db from '@adonisjs/lucid/services/db'
 import {
   emailMirrorActorFromContext,
   mirrorPersonEmailToUserEmail,
+  previousEmailRecipients,
   toPublicEmailMirrorOutcome,
 } from '#helpers/person_user_email_mirror'
 import {
@@ -45,6 +46,8 @@ import {
   resolvePersonSubjectType,
   personSubjectRequiresCollaboratorWritePermission,
 } from '#constants/person_subject_type'
+import { ensureCredentialChangeAllowed } from '#helpers/credential_change_gate'
+import { notifyAndAudit, revokeSessions } from '#services/credential_change_service'
 
 type IdentityRecheckTarget = { person: Person; companyId: number }
 
@@ -654,7 +657,10 @@ export default class PersonController {
    *                     error:
    *                       type: string
    *       '403':
-   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó. O la cuenta de acceso de la persona no pertenece a las empresas del actor (USR.MAIL.005).
+   *         description: |
+   *           Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *           La cuenta de acceso de la persona no pertenece a las empresas del actor (USR.MAIL.005).
+   *           Si el correo cambia la credencial y falta el permiso propio, responde {"title":"Sin permiso","detail":"No tienes permiso para realizar esta operación.","key":"PERM.DENIED"}.
    *         content:
    *           application/json:
    *             schema:
@@ -751,6 +757,14 @@ export default class PersonController {
           data: { ...person },
         }
       }
+      const credentialChangeAllowed = await ensureCredentialChangeAllowed(ctx, {
+        personId: Number(personId),
+        incomingEmail: person.personEmail,
+        persistedEmailType: null,
+        origin: 'person-file',
+      })
+      if (!credentialChangeAllowed) return
+
       const personService = new PersonService(i18n)
       const data = await request.validateUsing(updatePersonValidator)
       // B7: se escribe el valor validado (con trim), no el crudo del request.
@@ -787,15 +801,45 @@ export default class PersonController {
           actor,
           trx,
         })
-        return { updatePerson: persisted, emailMirror: outcome }
+        if (outcome.status === 'written') {
+          const currentTokenId = ctx.auth.user?.currentAccessToken?.identifier
+          const preservedTokenId =
+            ctx.auth.user?.userId === outcome.targetId &&
+            currentTokenId !== undefined &&
+            currentTokenId !== null
+              ? String(currentTokenId)
+              : null
+          const revokedCount = await revokeSessions(trx, {
+            affectedUserId: outcome.targetId,
+            preservedTokenId,
+          })
+          return { updatePerson: persisted, emailMirror: { outcome, revokedCount } }
+        }
+        return { updatePerson: persisted, emailMirror: { outcome, revokedCount: 0 } }
       })
+      if (emailMirror.outcome.status === 'written') {
+        await notifyAndAudit({
+          actorUserId: ctx.auth.user!.userId,
+          affectedUserId: emailMirror.outcome.targetId,
+          origin: 'person-file',
+          previousEmail: emailMirror.outcome.previousEmail!,
+          newEmail: person.personEmail!.trim(),
+          userEmailType: 'personal',
+          previousRecipients: previousEmailRecipients(emailMirror.outcome),
+          rawHeaders: request.request.rawHeaders,
+          revokedCount: emailMirror.revokedCount,
+        })
+      }
       await personService.syncBirthdayCalendar(updatePerson, personBirthdayPast, person.personBirthday)
       response.status(201)
       return {
         type: 'success',
         title: 'Persons',
         message: 'The person was updated successfully',
-        data: { person: updatePerson, emailMirror: toPublicEmailMirrorOutcome(emailMirror) },
+        data: {
+          person: updatePerson,
+          emailMirror: toPublicEmailMirrorOutcome(emailMirror.outcome),
+        },
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
