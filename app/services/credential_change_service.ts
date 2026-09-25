@@ -137,7 +137,11 @@ async function sendCredentialChangedMails(params: NotifyAndAuditParams): Promise
       )
     } catch (err) {
       allSucceeded = false
-      logger.error({ err, to: redactEmail(to) }, 'credential-change previous mail failed')
+      try {
+        logger.error(safeMailErrorInfo(err, to), 'credential-change previous mail failed')
+      } catch {
+        // Fallo de logger nunca interrumpe el ciclo ni relanza.
+      }
     }
   }
 
@@ -159,10 +163,14 @@ async function sendCredentialChangedMails(params: NotifyAndAuditParams): Promise
       )
     } catch (err) {
       allSucceeded = false
-      logger.error(
-        { err, to: redactEmail(params.newEmail) },
-        'credential-change current mail failed'
-      )
+      try {
+        logger.error(
+          safeMailErrorInfo(err, params.newEmail),
+          'credential-change current mail failed'
+        )
+      } catch {
+        // Fallo de logger nunca interrumpe el ciclo ni relanza.
+      }
     }
   }
 
@@ -178,10 +186,44 @@ async function resolveFirstName(userId: number): Promise<string> {
   }
 }
 
-function maskEmail(email: string): string {
-  const [local, domain] = email.split('@')
-  if (!domain || local.length < 2) return email
+export function maskEmail(email: string): string {
+  const atIndex = email.lastIndexOf('@')
+  if (atIndex === -1) {
+    return '•••'
+  }
+  const local = email.slice(0, atIndex)
+  const domain = email.slice(atIndex + 1)
+  if (!domain) {
+    return '•••'
+  }
+  if (local.length < 2) {
+    return `•••@${domain}`
+  }
   return `${local[0]}•••${local[local.length - 1]}@${domain}`
+}
+
+function sanitizeErrorMessage(value: string): string {
+  return value.replace(/[^\s@]+@[^\s@]+/g, '[redacted]')
+}
+
+function safeMailErrorInfo(err: unknown, to: string): Record<string, unknown> {
+  const errorObj = typeof err === 'object' && err !== null ? (err as Record<string, unknown>) : null
+  const errName =
+    errorObj && typeof errorObj.name === 'string' ? sanitizeErrorMessage(errorObj.name) : undefined
+  const errCode =
+    errorObj && errorObj.code !== undefined
+      ? sanitizeErrorMessage(String(errorObj.code))
+      : undefined
+  const rawMessage =
+    errorObj && errorObj.message !== undefined ? String(errorObj.message) : String(err ?? '')
+  const errMsg = sanitizeErrorMessage(rawMessage)
+
+  return {
+    to: redactEmail(to),
+    errName,
+    errCode,
+    errMsg,
+  }
 }
 
 function redactEmail(value: string): string {

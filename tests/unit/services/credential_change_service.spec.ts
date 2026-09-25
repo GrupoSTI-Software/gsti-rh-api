@@ -7,6 +7,7 @@ import Ws from '#services/ws'
 import logger from '@adonisjs/core/services/logger'
 import UserService from '#services/user_service'
 import {
+  maskEmail,
   notifyAndAudit,
   revokeSessions,
   type NotifyAndAuditParams,
@@ -351,6 +352,107 @@ test.group('credential_change_service.notifyAndAudit', (group) => {
     } finally {
       ;(mail as unknown as { send: typeof originalSend }).send = originalSend
     }
+  })
+
+  test('sanea errores SMTP ocultando correos y registrando únicamente campos seguros', async ({
+    assert,
+  }) => {
+    const originalSend = mail.send.bind(mail)
+    const capturedErrors: Array<Record<string, unknown>> = []
+    loggerOwner.error = (data, msg) => {
+      capturedErrors.push({ ...(data as Record<string, unknown>), msg: msg as string })
+    }
+
+    const smtpError = new Error('550 User victim@ejemplo.com not found at mail.server')
+    ;(smtpError as unknown as { code: string }).code = 'ESMTP550'
+    ;(mail as unknown as { send: (m: unknown) => Promise<void> }).send = async () => {
+      throw smtpError
+    }
+    Ws.io = undefined
+    userServicePrototype.saveActionOnLog = async () => {}
+    loggerOwner.info = () => {}
+
+    try {
+      await notifyAndAudit(
+        notifyParams({
+          previousRecipients: ['victima@ejemplo.com'],
+          newEmail: 'nueva@ejemplo.com',
+        })
+      )
+
+      assert.isTrue(capturedErrors.length > 0)
+      for (const entry of capturedErrors) {
+        assert.equal(entry.errName, 'Error')
+        assert.equal(entry.errCode, 'ESMTP550')
+        assert.equal(entry.errMsg, '550 User [redacted] not found at mail.server')
+        assert.notInclude(JSON.stringify(entry), 'victim@ejemplo.com')
+        assert.notInclude(JSON.stringify(entry), 'victima@ejemplo.com')
+        assert.notInclude(JSON.stringify(entry), 'nueva@ejemplo.com')
+      }
+    } finally {
+      ;(mail as unknown as { send: typeof originalSend }).send = originalSend
+    }
+  })
+
+  test('un fallo del logger en el primer correo no interrumpe el aviso al segundo correo', async ({
+    assert,
+  }) => {
+    const attemptedRecipients: string[] = []
+    const originalSend = mail.send.bind(mail)
+
+    loggerOwner.error = () => {
+      throw new Error('Logger disk full')
+    }
+    ;(mail as unknown as { send: (m: unknown) => Promise<void> }).send = async (m) => {
+      const mailInstance = m as { params: { to: string } }
+      attemptedRecipients.push(mailInstance.params.to)
+      if (mailInstance.params.to === 'fallido@ejemplo.com') {
+        throw new Error('SMTP connection refused')
+      }
+    }
+    let counter: Record<string, unknown> | undefined
+    Ws.io = undefined
+    userServicePrototype.saveActionOnLog = async () => {}
+    loggerOwner.info = (data) => {
+      counter = data as Record<string, unknown>
+    }
+
+    try {
+      await assert.doesNotReject(() =>
+        notifyAndAudit(
+          notifyParams({
+            previousRecipients: ['fallido@ejemplo.com'],
+            newEmail: 'nuevo@ejemplo.com',
+          })
+        )
+      )
+
+      assert.deepEqual(attemptedRecipients, ['fallido@ejemplo.com', 'nuevo@ejemplo.com'])
+      assert.isFalse(counter?.notified)
+    } finally {
+      ;(mail as unknown as { send: typeof originalSend }).send = originalSend
+    }
+  })
+})
+
+test.group('maskEmail', () => {
+  test('enmascara con •••@dominio cuando el usuario local tiene 0 o 1 caracteres', ({ assert }) => {
+    assert.equal(maskEmail('a@ejemplo.com'), '•••@ejemplo.com')
+    assert.equal(maskEmail('@ejemplo.com'), '•••@ejemplo.com')
+  })
+
+  test('enmascara con primer y último carácter cuando el usuario local tiene 2 o más caracteres', ({
+    assert,
+  }) => {
+    assert.equal(maskEmail('ab@ejemplo.com'), 'a•••b@ejemplo.com')
+    assert.equal(maskEmail('nuevo@ejemplo.com'), 'n•••o@ejemplo.com')
+    assert.equal(maskEmail('usuario.prueba@empresa.com.mx'), 'u•••a@empresa.com.mx')
+  })
+
+  test('devuelve ••• si no hay dominio o el correo es inválido', ({ assert }) => {
+    assert.equal(maskEmail('invalido'), '•••')
+    assert.equal(maskEmail(''), '•••')
+    assert.equal(maskEmail('algo@'), '•••')
   })
 })
 
