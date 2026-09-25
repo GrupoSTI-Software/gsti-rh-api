@@ -226,7 +226,8 @@ test.group('Espejo — expediente → credencial (M1)', (group) => {
     assert,
   }) => {
     const person = await newPerson(null)
-    const user = await newUser(person, `acceso-${uniq()}@x.com`, 'personal', unit)
+    const anterior = `acceso-${uniq()}@x.com`
+    const user = await newUser(person, anterior, 'personal', unit)
     const nuevo = `nuevo-${uniq()}@correo.com`
     const outcome = await inTrx((trx) =>
       mirrorPersonEmailToUserEmail({
@@ -237,6 +238,12 @@ test.group('Espejo — expediente → credencial (M1)', (group) => {
       })
     )
     assert.deepEqual(toPublicEmailMirrorOutcome(outcome), { status: 'written', target: 'users' })
+    if (outcome.status === 'written') {
+      assert.equal(outcome.previousEmail, anterior)
+      assert.equal(outcome.previousUserEmail, anterior)
+      assert.isNull(outcome.previousPersonEmail)
+      assert.isNull(outcome.previousBusinessEmail)
+    }
     assert.equal(await userEmailOf(user.userId), nuevo)
   })
 
@@ -456,6 +463,10 @@ test.group('Espejo — credencial → expediente (M2-M5)', (group) => {
     if (outcome.status === 'written') {
       assert.equal(outcome.target, 'people')
       assert.equal(outcome.previousValue, anterior)
+      assert.isNull(outcome.previousEmail)
+      assert.isNull(outcome.previousUserEmail)
+      assert.equal(outcome.previousPersonEmail, anterior)
+      assert.equal(outcome.previousBusinessEmail, empresa)
     }
     assert.equal(await personEmailOf(person.personId), nuevo)
     assert.equal(await employeeEmailOf(employee.employeeId), empresa)
@@ -590,6 +601,10 @@ test.group('Espejo — actor y proyección pública', () => {
       target: 'people',
       targetId: 99,
       previousValue: 'secreto@correo.com',
+      previousEmail: 'credencial-anterior@correo.com',
+      previousUserEmail: 'credencial-anterior@correo.com',
+      previousPersonEmail: 'personal-anterior@correo.com',
+      previousBusinessEmail: 'empresa-anterior@correo.com',
     })
     assert.deepEqual(publicOutcome, { status: 'written', target: 'people' })
     assert.notInclude(JSON.stringify(publicOutcome), 'secreto')

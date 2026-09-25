@@ -47,6 +47,12 @@ export type EmailMirrorOutcome =
       readonly targetId: number
       /** Correo personal anterior (solo destino `people`). Nunca se serializa. */
       readonly previousValue: string | null
+      /** Credencial anterior. Nunca se serializa. */
+      readonly previousEmail: string | null
+      /** Imagen previa de correos para avisos y auditoría. Nunca se serializa. */
+      readonly previousUserEmail: string | null
+      readonly previousPersonEmail: string | null
+      readonly previousBusinessEmail: string | null
     }
   | { readonly status: 'skipped'; readonly reason: EmailMirrorSkipReason }
 
@@ -111,6 +117,7 @@ export async function mirrorUserEmailToRecord(
 ): Promise<EmailMirrorOutcome> {
   const email = normalizeMirrorEmail(input.userEmail)
   if (email === null) return skipped('source-email-empty')
+  const previousEmails = await readPreviousEmailImage(input.personId, input.trx)
 
   if (input.userEmailType === 'personal') {
     const person = await Person.query({ client: input.trx })
@@ -126,7 +133,13 @@ export async function mirrorUserEmailToRecord(
     person.useTransaction(input.trx)
     person.personEmail = email
     await person.save()
-    return { status: 'written', target: 'people', targetId: person.personId, previousValue }
+    return {
+      status: 'written',
+      target: 'people',
+      targetId: person.personId,
+      previousValue,
+      ...previousEmails,
+    }
   }
 
   // Una persona tiene a lo más un empleado vivo: lo garantiza
@@ -141,7 +154,13 @@ export async function mirrorUserEmailToRecord(
   employee.useTransaction(input.trx)
   employee.employeeBusinessEmail = email
   await employee.save()
-  return { status: 'written', target: 'employees', targetId: employee.employeeId, previousValue: null }
+  return {
+    status: 'written',
+    target: 'employees',
+    targetId: employee.employeeId,
+    previousValue: null,
+    ...previousEmails,
+  }
 }
 
 /** Lo único que sale en la respuesta HTTP: sin ids ni correo anterior. */
@@ -162,6 +181,7 @@ async function mirrorRecordEmailToUserEmail(
   if (!user) return skipped('no-live-counterpart')
   if (user.userEmailType !== requiredType) return skipped('email-type-mismatch')
   if (user.userEmail === email) return skipped('already-in-sync')
+  const previousEmails = await readPreviousEmailImage(input.personId, input.trx, user)
 
   await assertActorCanAdministerUser(input.actor, user.userId)
   await assertUserEmailAvailable(email, user.userId, input.trx)
@@ -169,7 +189,13 @@ async function mirrorRecordEmailToUserEmail(
   user.useTransaction(input.trx)
   user.userEmail = email
   await user.save()
-  return { status: 'written', target: 'users', targetId: user.userId, previousValue: null }
+  return {
+    status: 'written',
+    target: 'users',
+    targetId: user.userId,
+    previousValue: null,
+    ...previousEmails,
+  }
 }
 
 function skipped(reason: EmailMirrorSkipReason): EmailMirrorOutcome {
@@ -191,13 +217,60 @@ async function findTheLiveUserOfPerson(
   personId: number,
   trx: TransactionClientContract
 ): Promise<User | null> {
-  const users = await User.query({ client: trx })
+  return findLiveUserByPersonId(personId, trx)
+}
+
+/** Cuenta viva de la persona para decidir transiciones antes de abrir una transacción. */
+export async function findLiveUserByPersonId(
+  personId: number,
+  trx?: TransactionClientContract
+): Promise<User | null> {
+  const query = trx ? User.query({ client: trx }) : User.query()
+  const users = await query
     .where('person_id', personId)
     .whereNull('user_deleted_at')
     .orderBy('user_id')
     .limit(2)
   if (users.length > 1) throw new EmailMirrorRefusedError('multiple-live-users')
   return users[0] ?? null
+}
+
+type PreviousEmailImage = Pick<
+  Extract<EmailMirrorOutcome, { status: 'written' }>,
+  'previousEmail' | 'previousUserEmail' | 'previousPersonEmail' | 'previousBusinessEmail'
+>
+
+async function readPreviousEmailImage(
+  personId: number,
+  trx: TransactionClientContract,
+  knownUser?: User
+): Promise<PreviousEmailImage> {
+  const person = await Person.query({ client: trx })
+    .where('person_id', personId)
+    .whereNull('person_deleted_at')
+    .first()
+  const employee = await Employee.query({ client: trx })
+    .where('person_id', personId)
+    .whereNull('employee_deleted_at')
+    .first()
+
+  let user = knownUser
+  if (!user) {
+    const users = await User.query({ client: trx })
+      .where('person_id', personId)
+      .whereNull('user_deleted_at')
+      .orderBy('user_id')
+      .limit(2)
+    user = users.length === 1 ? users[0] : undefined
+  }
+
+  const previousEmail = normalizeMirrorEmail(user?.userEmail)
+  return {
+    previousEmail,
+    previousUserEmail: previousEmail,
+    previousPersonEmail: normalizeMirrorEmail(person?.personEmail),
+    previousBusinessEmail: normalizeMirrorEmail(employee?.employeeBusinessEmail),
+  }
 }
 
 /** El espejo nunca amplía el acceso del actor (B8). */
