@@ -97,10 +97,10 @@ test.group('SensitiveFieldsCatalogService — USRH1788551528001', () => {
     )
   })
 
-  test('ProveedorRepse.rfc está catalogado como identificacion y not_revealable', ({ assert }) => {
+  test('ProveedorRepse.rfc está catalogado como identificacion y revealable', ({ assert }) => {
     const catalog = new SensitiveFieldsCatalogService()
     assert.equal(catalog.categoryOf('ProveedorRepse', 'rfc'), 'identificacion')
-    assert.equal(catalog.revealEligibility('ProveedorRepse', 'rfc'), 'not_revealable')
+    assert.equal(catalog.revealEligibility('ProveedorRepse', 'rfc'), 'revealable')
     assert.isFalse(
       catalog
         .pendingEncryption()
@@ -155,6 +155,24 @@ test.group('SensitiveFieldsCatalogService.revealEligibility', () => {
     )
   })
 
+  test('los ocho importes salariales son revelables (USRH1788478865952)', ({ assert }) => {
+    const catalog = new SensitiveFieldsCatalogService()
+    const pairs = [
+      ['Employee', 'dailySalary'],
+      ['EmployeeSalaryHistory', 'salaryDaily'],
+      ['PositionSalaryRange', 'minSalaryDaily'],
+      ['PositionSalaryRange', 'maxSalaryDaily'],
+      ['PositionSalaryRangeAudit', 'oldMinSalaryDaily'],
+      ['PositionSalaryRangeAudit', 'oldMaxSalaryDaily'],
+      ['PositionSalaryRangeAudit', 'newMinSalaryDaily'],
+      ['PositionSalaryRangeAudit', 'newMaxSalaryDaily'],
+    ] as const
+    for (const [model, column] of pairs) {
+      assert.equal(catalog.revealEligibility(model, column), 'revealable', `${model}.${column}`)
+      assert.equal(catalog.categoryOf(model, column), 'financiero', `${model}.${column}`)
+    }
+  })
+
   test('las siete columnas nuevas del expediente son revelables (USRH1788478865946)', ({ assert }) => {
     const catalog = new SensitiveFieldsCatalogService()
     const pairs = [
@@ -165,6 +183,7 @@ test.group('SensitiveFieldsCatalogService.revealEligibility', () => {
       ['EmployeeEmergencyContact', 'employeeEmergencyContactPhone'],
       ['EmployeeSpouse', 'employeeSpousePhone'],
       ['EmpresaContratante', 'rfc'],
+      ['ProveedorRepse', 'rfc'],
     ] as const
     for (const [model, column] of pairs) {
       assert.equal(catalog.revealEligibility(model, column), 'revealable', `${model}.${column}`)

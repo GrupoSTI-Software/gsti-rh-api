@@ -5,6 +5,14 @@ export const ACCESS_POINT_MODULE_SLUG = 'biometric-devices'
 export type AccessPointSection = 'dispositivos'
 
 /**
+ * Nombre legible de cada sección, serializado en el árbol de permisos de
+ * sesión. El `satisfies` obliga a nombrar toda sección nueva.
+ */
+export const ACCESS_POINT_SECTION_LABELS = {
+  'dispositivos': 'Dispositivos',
+} as const satisfies Record<AccessPointSection, string>
+
+/**
  * Acciones del módulo Dispositivos biométricos (spec ADMS 12). Las ocho se
  * siembran desde este catálogo vía `0062_system_module_seeder`. Las cuatro
  * legadas (`read`, `create`, `update`, `delete`) conservan `legacyEquivalence`

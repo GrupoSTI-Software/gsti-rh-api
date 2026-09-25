@@ -3,7 +3,13 @@ import RoleService from '#services/role_service'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
 import Role from '#models/role'
 import { isReservedRoleIdentitySlug } from '#constants/system_roles'
-import { isOwnRoleLockedForUser, isSystemRoleLockedForUser } from '#helpers/system_role_lock'
+import {
+  isLockedIdentityRename,
+  isOwnRoleLockedForUser,
+  isSystemRoleLockedForUser,
+  isUndeletableTenantRole,
+  isUnmanagedTenantRole,
+} from '#helpers/system_role_lock'
 import { resolveActiveBusinessUnitId } from '#helpers/role_business_scope'
 import {
   buildGrantCeilingDenial,
@@ -624,6 +630,26 @@ export default class RoleController {
           key: 'rol-sistema-bloqueado',
         }
       }
+      // Los roles sembrados que el editor no lista tampoco se administran por
+      // API: el backoffice solo los esconde, la regla vive aquí.
+      if (isUnmanagedTenantRole(currentRole)) {
+        response.status(403)
+        return {
+          title: t('tenant_role_unmanaged_title'),
+          detail: t('tenant_role_unmanaged_detail'),
+          key: 'rol-tenant-no-administrable',
+        }
+      }
+      // El administrador se reconfigura, pero su nombre es identidad: el
+      // runtime decide por su slug y el slug se deriva del nombre.
+      if (isLockedIdentityRename(currentRole, roleName)) {
+        response.status(403)
+        return {
+          title: t('tenant_role_rename_locked_title'),
+          detail: t('tenant_role_rename_locked_detail'),
+          key: 'rol-tenant-nombre-bloqueado',
+        }
+      }
       if (await isOwnRoleLockedForUser(auth, currentRole.roleId)) {
         response.status(403)
         return {
@@ -818,6 +844,17 @@ export default class RoleController {
           key: 'rol-propio-bloqueado',
         }
       }
+      // Ningún rol del juego que la empresa estrena al nacer se elimina: sin
+      // `admin` nadie administra, sin `owner` nadie factura y sin `empleado`
+      // el alta self-service se queda sin rol que asignar.
+      if (isUndeletableTenantRole(currentRole)) {
+        response.status(403)
+        return {
+          title: t('tenant_role_undeletable_title'),
+          detail: t('tenant_role_undeletable_detail'),
+          key: 'rol-tenant-indeleble',
+        }
+      }
       const deleteRole = await roleService.delete(currentRole)
       if (deleteRole) {
         response.status(200)
@@ -981,6 +1018,15 @@ export default class RoleController {
           title: t('system_role_locked_title'),
           detail: t('system_role_locked_detail'),
           key: 'rol-sistema-bloqueado',
+        }
+      }
+
+      if (isUnmanagedTenantRole(role)) {
+        response.status(403)
+        return {
+          title: t('tenant_role_unmanaged_title'),
+          detail: t('tenant_role_unmanaged_detail'),
+          key: 'rol-tenant-no-administrable',
         }
       }
 
@@ -1197,6 +1243,19 @@ export default class RoleController {
             title: t('system_role_locked_batch_title'),
             detail: t('system_role_locked_batch_detail', { roleName: role.roleName }),
             key: 'rol-sistema-bloqueado-lote',
+            data: {
+              roleId: role.roleId,
+              roleName: role.roleName,
+              roleSlug: role.roleSlug,
+            },
+          }
+        }
+        if (isUnmanagedTenantRole(role)) {
+          response.status(403)
+          return {
+            title: t('tenant_role_unmanaged_title'),
+            detail: t('tenant_role_unmanaged_detail'),
+            key: 'rol-tenant-no-administrable',
             data: {
               roleId: role.roleId,
               roleName: role.roleName,

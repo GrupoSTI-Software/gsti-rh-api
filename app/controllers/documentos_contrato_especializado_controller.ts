@@ -1,6 +1,8 @@
 import logger from '@adonisjs/core/services/logger'
 import { isFileIntakeError, respondFileIntakeError } from '#helpers/file_intake_api_error'
 import type { HttpContext } from '@adonisjs/core/http'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { resolveStoredFileExtension } from '#helpers/stored_file_extension'
 import DocumentoContratoEspecializadoService from '#services/documento_contrato_especializado_service'
 import { documentoContratoVigenciaValidator } from '#validators/compliance-repse/documento_contrato.validator'
 import { CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES } from '../constants/contrato_servicio_especializado_error_codes.js'
@@ -241,9 +243,16 @@ export default class DocumentosContratoEspecializadoController {
       const service = new DocumentoContratoEspecializadoService()
       const { documento, object } = await service.obtenerStreamVigente(contratoId)
 
-      const safeName = documento.nombreArchivo.replace(/[^\w.\- ]/g, '_')
+      const fileName = buildDownloadFileName(
+        ['contrato-servicio-especializado', documento.documentoContratoEspecializadoId],
+        resolveStoredFileExtension({
+          storedPath: documento.storageKey,
+          fileName: documento.nombreArchivo,
+          contentType: documento.mimeType,
+        })
+      )
       response.header('Content-Type', 'application/pdf')
-      response.header('Content-Disposition', `attachment; filename="${safeName}"`)
+      response.header('Content-Disposition', contentDisposition(fileName))
       response.header('Cache-Control', 'private, no-store')
       if (object.contentLength !== undefined) {
         response.header('Content-Length', String(object.contentLength))

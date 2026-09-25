@@ -1,7 +1,9 @@
 import type { HttpContext } from '@adonisjs/core/http'
-import ExcelJS from 'exceljs'
 import { DateTime } from 'luxon'
+import { buildDownloadFileName, contentDisposition, formatDownloadFileDate } from '#helpers/download_file_name'
+import { reportI18n } from '#helpers/report_locale'
 import RepseCoverageReportService from './repse_coverage_report.service.js'
+import { buildRepseCoverageWorkbook } from './repse_coverage_report.workbook.js'
 import {
   getRepseCoverageReportExportValidator,
   getRepseCoverageReportValidator,
@@ -163,7 +165,7 @@ export default class RepseCoverageReportController {
    *         description: key rango-fechas-invalido
    */
   async export(ctx: HttpContext) {
-    const { request, response, i18n } = ctx
+    const { request, response } = ctx
     if (!(await this.assertAuthenticated(ctx))) return
 
     try {
@@ -174,7 +176,8 @@ export default class RepseCoverageReportController {
       const to = normalizeDate(payload.to)
       if (this.validateDateRange(from, to, ctx)) return
 
-      const service = new RepseCoverageReportService(i18n)
+      // El Excel sale siempre en español (report_locale.ts), no en el idioma de la petición.
+      const service = new RepseCoverageReportService(reportI18n())
       const rows = await service.getExportRows({
         from: from.iso,
         to: to.iso,
@@ -182,43 +185,18 @@ export default class RepseCoverageReportController {
         employeeId: payload.employeeId,
       })
 
-      const workbook = new ExcelJS.Workbook()
-      const worksheet = workbook.addWorksheet('Reporte REPSE')
-      worksheet.columns = [
-        { header: 'Empleado', key: 'employeeName', width: 32 },
-        { header: 'Código Empleado', key: 'employeeCode', width: 18 },
-        { header: 'Empresa Contratante', key: 'companyName', width: 30 },
-        { header: 'Días Laborados', key: 'diasLaborados', width: 14 },
-        { header: 'Días Base', key: 'diasBase', width: 12 },
-        { header: 'Días Prestados', key: 'diasPrestados', width: 14 },
-        { header: 'Días Servidos', key: 'diasServidos', width: 14 },
-        { header: '% Observado', key: 'porcentajeObservado', width: 12 },
-        { header: '% Declarado', key: 'porcentajeDeclarado', width: 12 },
-        { header: 'Diferencia', key: 'diferencia', width: 12 },
-      ]
-
-      for (const row of rows) {
-        worksheet.addRow({
-          ...row,
-          porcentajeObservado: row.porcentajeObservado.toFixed(2),
-          porcentajeDeclarado:
-            row.porcentajeDeclarado === null ? null : row.porcentajeDeclarado.toFixed(2),
-          diferencia: row.diferencia === null ? null : row.diferencia.toFixed(2),
-        })
-      }
-
-      const headerRow = worksheet.getRow(1)
-      headerRow.font = { bold: true }
-      headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
-
+      const workbook = buildRepseCoverageWorkbook(rows)
       const buffer = await workbook.xlsx.writeBuffer()
-      const filename = `repse-coverage-report_${from.iso}_${to.iso}.xlsx`
+      const filename = buildDownloadFileName(
+        ['reporte-cobertura-repse', formatDownloadFileDate(from.iso), formatDownloadFileDate(to.iso)],
+        'xlsx'
+      )
 
       response.header(
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       )
-      response.header('Content-Disposition', `attachment; filename="${filename}"`)
+      response.header('Content-Disposition', contentDisposition(filename))
       return response.send(buffer)
     } catch (error) {
       return this.validationOrUnhandledError(error, ctx, 500)

@@ -1,6 +1,7 @@
 import ExcelJS from 'exceljs'
 import { DateTime } from 'luxon'
-import { I18n } from '@adonisjs/i18n'
+import { reportI18n } from '#helpers/report_locale'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
 import Employee from '#models/employee'
 import Holiday from '#models/holiday'
 import {
@@ -29,7 +30,9 @@ interface SheetSpec {
 export default class CalendarExportService {
   private readonly t: (key: string, data?: Record<string, unknown>) => string
 
-  constructor(i18n: I18n) {
+  /** Los Excel salen siempre en español (`report_locale.ts`). */
+  constructor() {
+    const i18n = reportI18n()
     this.t = i18n.formatMessage.bind(i18n)
   }
 
@@ -40,7 +43,7 @@ export default class CalendarExportService {
   async holidays(holidays: Holiday[], year: number): Promise<Buffer> {
     const rows = holidays.map((holiday) => [
       this.formatDate(holiday.holidayDate),
-      holiday.holidayName,
+      reportText(holiday.holidayName),
       holiday.holidayIsOfficialRestDay
         ? this.t('calendar_export_official_rest_day')
         : this.t('calendar_export_commemorative'),
@@ -68,9 +71,10 @@ export default class CalendarExportService {
         if (!birthday) return []
         const date = this.projectToYear(birthday, year)
         if (!date) return []
-        return [[date, ...this.employeeCells(employee)]]
+        return [{ date, cells: this.employeeCells(employee) }]
       })
-      .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+      .sort((a, b) => a.date.toMillis() - b.date.toMillis())
+      .map(({ date, cells }) => [date.toFormat(CALENDAR_EXPORT_DATE_FORMAT), ...cells])
     return this.build({
       title: `${year} ${this.t('calendar_export_birthdays_sheet')}`,
       headers: [this.t('calendar_export_date'), ...this.employeeHeaders()],
@@ -91,9 +95,15 @@ export default class CalendarExportService {
         if (!hired.isValid || hired.year >= year) return []
         const date = this.projectToYear(String(hireDate), year)
         if (!date) return []
-        return [[date, ...this.employeeCells(employee), year - hired.year, hired.toFormat(CALENDAR_EXPORT_DATE_FORMAT)]]
+        const cells: CellValue[] = [
+          ...this.employeeCells(employee),
+          year - hired.year,
+          hired.toFormat(CALENDAR_EXPORT_DATE_FORMAT),
+        ]
+        return [{ date, cells }]
       })
-      .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+      .sort((a, b) => a.date.toMillis() - b.date.toMillis())
+      .map(({ date, cells }) => [date.toFormat(CALENDAR_EXPORT_DATE_FORMAT), ...cells])
     return this.build({
       title: `${year} ${this.t('calendar_export_anniversaries_sheet')}`,
       headers: [
@@ -118,15 +128,13 @@ export default class CalendarExportService {
   private employeeCells(employee: Employee): CellValue[] {
     const person = employee.person
     const fullName = person
-      ? [person.personFirstname, person.personLastname, person.personSecondLastname]
-          .filter((part) => Boolean(part))
-          .join(' ')
-      : `${employee.employeeFirstName ?? ''} ${employee.employeeLastName ?? ''}`.trim()
+      ? reportFullName(person.personFirstname, person.personLastname, person.personSecondLastname)
+      : reportFullName(employee.employeeFirstName, employee.employeeLastName)
     return [
-      employee.employeePayrollCode ?? '',
+      reportText(employee.employeePayrollCode),
       fullName,
-      employee.department?.departmentName ?? '',
-      employee.position?.positionName ?? '',
+      reportText(employee.department?.departmentName),
+      reportText(employee.position?.positionName),
     ]
   }
 
@@ -141,8 +149,12 @@ export default class CalendarExportService {
     return parsed.isValid ? parsed.toFormat(CALENDAR_EXPORT_DATE_FORMAT) : ''
   }
 
-  /** Misma fecha (mes y día) llevada al año pedido; `null` si no se puede leer. */
-  private projectToYear(value: string | Date, year: number): string | null {
+  /**
+   * Misma fecha (mes y día) llevada al año pedido; `null` si no se puede leer.
+   * Devuelve la fecha (no el texto) para ordenar cronológicamente antes de
+   * formatearla como `dd/MM/yyyy`.
+   */
+  private projectToYear(value: string | Date, year: number): DateTime | null {
     const base =
       value instanceof Date
         ? DateTime.fromJSDate(value, { zone: 'utc' })
@@ -150,7 +162,7 @@ export default class CalendarExportService {
     if (!base.isValid) return null
     const target = DateTime.utc(year, base.month, 1)
     const day = Math.min(base.day, target.daysInMonth ?? base.day)
-    return target.set({ day }).toFormat(CALENDAR_EXPORT_DATE_FORMAT)
+    return target.set({ day })
   }
 
   private async build(spec: SheetSpec): Promise<Buffer> {
@@ -171,6 +183,7 @@ export default class CalendarExportService {
       )
     })
     sheet.views = [{ state: 'frozen', ySplit: 1 }]
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
