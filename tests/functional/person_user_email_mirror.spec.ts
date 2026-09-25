@@ -488,7 +488,10 @@ test.group('Espejo — PUT /api/users/:id (M4/M5)', (group) => {
     const employeeRow = await readEmployeeRow(employee.employeeId)
     assert.equal(employeeRow.employee_business_email, empresa)
     assert.deepEqual(response.body().data.emailMirror, { status: 'written', target: 'people' })
-    assert.equal(logs.find((log) => log.collection === 'log_users')?.payload.record_previous_person_email, anterior)
+    const updateLog = logs.find(
+      (log) => log.collection === 'log_users' && log.payload.action === 'update'
+    )
+    assert.equal(updateLog?.payload.record_previous_person_email, anterior)
     assert.notInclude(JSON.stringify(response.body()), anterior)
   })
 

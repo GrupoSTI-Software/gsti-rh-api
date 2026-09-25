@@ -21,9 +21,9 @@ import {
  * Montaje compartido de USRH1789698261612 (espejo correo ↔ credencial).
  *
  * Dos actores, cada uno con su empresa:
- *  - `full`: usuarios (create, update) + empleados (tab-trabajo-write,
+ *  - `full`: usuarios (create, update, credential-change) + empleados (tab-trabajo-write,
  *    tab-persona-write, sensitive-contacto-write, sensitive-financiero-write).
- *  - `limited`: solo usuarios (create, update). Sin `sensitive-contacto-write`:
+ *  - `limited`: solo usuarios (create, update, credential-change). Sin `sensitive-contacto-write`:
  *    es el actor de los casos de abuso (CA-12, CA-13).
  * Todo lo que crea un caso se anota en el registro y se borra en el teardown.
  */
@@ -48,6 +48,7 @@ export interface MirrorWorld {
   full: TenantActor
   limited: TenantActor
   registry: MirrorRegistry
+  restoreLogStore: () => void
 }
 
 export function stamp(): string {
@@ -60,21 +61,27 @@ export function businessUnitHeader(businessUnit: BusinessUnit) {
 
 export async function createMirrorWorld(): Promise<MirrorWorld> {
   mail.fake()
+  const originalLogStoreSet = LogStore.set
+  LogStore.set = async () => {}
   const full = await createTenantActor('espejo-full')
-  await addRoleModulePermissions(full.role, 'users', ['create', 'update'])
+  await addRoleModulePermissions(full.role, 'users', ['create', 'update', 'credential-change'])
   await addRoleModulePermissions(full.role, 'employees', [...FULL_EMPLOYEES_GRANTS])
   const limited = await createTenantActor('espejo-limited')
-  await addRoleModulePermissions(limited.role, 'users', ['create', 'update'])
+  await addRoleModulePermissions(limited.role, 'users', ['create', 'update', 'credential-change'])
   return {
     full,
     limited,
     registry: { userIds: [], personIds: [], employeeIds: [], businessUnitIds: [] },
+    restoreLogStore: () => {
+      LogStore.set = originalLogStoreSet
+    },
   }
 }
 
 export async function cleanupMirrorWorld(world: MirrorWorld | null): Promise<void> {
   mail.restore()
   if (!world) return
+  world.restoreLogStore()
   const { registry } = world
   if (registry.userIds.length > 0) {
     await BusinessUnitUser.query().whereIn('user_id', registry.userIds).delete()
