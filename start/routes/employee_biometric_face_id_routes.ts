@@ -7,9 +7,7 @@ import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_wr
  * escrituras son administración desde el Backoffice y llevan su gate aquí; las
  * tres lecturas NO lo llevan porque las comparte la app del colaborador, que
  * pide su propia foto para checar: su permiso se evalúa en el controlador, que
- * exime al dueño y exige el permiso a cualquier otra sesión. No confundir con
- * `POST /api/verify-face` (`face_routes.ts`), checador de dispositivo sin unidad
- * activa, que se deja explícitamente sin `businessScope`.
+ * exime al dueño y exige el permiso a cualquier otra sesión.
  */
 router
   .group(() => {

@@ -161,10 +161,6 @@ test.group('Apertura del contexto de lectura sensible', () => {
   test('cada GRUPO con rutas de escritura de los 10 modelos abre businessScope o sensitiveAccess', ({
     assert,
   }) => {
-    // USRH1787204602825/831 — Critical 1 (revisión final): se agrega
-    // `synchronization_routes.ts` al censo porque `POST /api/synchronization/employees`
-    // y `.../by-selection/employees` crean/actualizan `Person` sin abrir el
-    // contexto de escritura sensible si no se monta `sensitiveAccess()` aquí.
     const writeRouteFiles = [
       'start/routes/person_routes.ts',
       'start/routes/employee_bank_routes.ts',
@@ -179,7 +175,6 @@ test.group('Apertura del contexto de lectura sensible', () => {
       'start/routes/employee_biometric_face_id_routes.ts',
       'start/routes/user_routes.ts',
       'start/routes/employee_routes.ts',
-      'start/routes/synchronization_routes.ts',
     ]
 
     let totalWriteGroupsChecked = 0

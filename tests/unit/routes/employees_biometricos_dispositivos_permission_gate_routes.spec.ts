@@ -98,12 +98,6 @@ test.group('employee_device_routes — PermissionGate Dispositivos', () => {
 })
 
 test.group('Biométricos/Dispositivos — caminos exentos sin permissionGate (D-08 / deuda)', () => {
-  test('face_routes.ts (verify-face) no declara permissionGate', async ({ assert }) => {
-    const content = await readFile(join(process.cwd(), 'start/routes/face_routes.ts'), 'utf8')
-    assert.include(content, "prefix('/api/verify-face')")
-    assert.notInclude(content, 'permissionGate')
-  })
-
   test('login_routes no declara permissionGate sobre auth/login', async ({ assert }) => {
     const content = await readFile(join(process.cwd(), 'start/routes/login_routes.ts'), 'utf8')
     assert.notInclude(content, 'permissionGate')

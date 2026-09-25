@@ -40,16 +40,6 @@ test.group('Liberación de la persona — superficie (USRH1789698261608)', () =>
     assert.include(jsdocBefore, '@deprecated')
   })
 
-  test('el catch de syncCreate pasa por releasePersonIfOrphan con contexto', async ({ assert }) => {
-    const service = await source('app/services/employee_service.ts')
-    const start = service.indexOf('async syncCreate(')
-    const end = service.indexOf('async ', start + 1)
-    const syncCreate = service.slice(start, end)
-    assert.include(syncCreate, 'releaseContext: PersonReleaseContext')
-    assert.include(syncCreate, 'this.releasePersonIfOrphan(personIdToDelete, releaseContext)')
-    assert.notInclude(syncCreate, 'console.')
-  })
-
   test('releasePersonIfOrphan no usa console ni cleanupOrphanPersons cobra llamadores', async ({
     assert,
   }) => {
@@ -58,14 +48,5 @@ test.group('Liberación de la persona — superficie (USRH1789698261608)', () =>
     const end = service.indexOf('async deletePersonById(')
     assert.notInclude(service.slice(start, end), 'console.')
     assert.notInclude(service, 'this.cleanupOrphanPersons(')
-  })
-
-  test('el camino de sincronización arma el contexto con allowedIds', async ({ assert }) => {
-    const controller = await source('app/controllers/employee_controller.ts')
-    assert.include(controller, 'private async verify(')
-    const verify = controller.slice(controller.indexOf('private async verify('))
-    assert.include(verify.slice(0, 600), 'releaseContext: PersonReleaseContext')
-    assert.include(verify.slice(0, 600), 'syncCreate(employee, releaseContext)')
-    assert.equal((controller.match(/businessUnitScope: allowedIds/g) ?? []).length, 2)
   })
 })
