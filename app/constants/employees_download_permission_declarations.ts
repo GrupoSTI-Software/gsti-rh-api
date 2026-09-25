@@ -21,7 +21,6 @@ export const EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS = {
   getVacationsUsedExcel: employeesStandard('download-vacations-history'),
   getVacationsSummaryExcel: employeesStandard('download-vacations-summary'),
   getVacationImportTemplate: employeesStandard('download-vacation-import-template'),
-  getPayrollFormat: employeesStandard('download-payroll-format'),
   getAttendanceByEmployee: employeesStandard('download-attendance-by-employee'),
   getAttendanceByPosition: employeesStandard('download-attendance-by-position'),
   getAttendanceByDepartment: employeesStandard('download-attendance-by-department'),
