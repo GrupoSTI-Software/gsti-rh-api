@@ -98,14 +98,14 @@ Copy fijado por el Anexo A.5 (es): title `Demasiados intentos de captura de corr
 
 - [ ] **Step 2: Correr para verificar que falla**
 
-Run: `node ace test unit --files="helpers/person_email_request_errors.spec"`
+Run: `node ace test unit --files="helpers/person_email_request_errors"`
 Expected: FAIL — no existe `app/helpers/person_email_request_errors.ts` ni la entrada del catálogo.
 
 - [ ] **Step 3: Implementar** la entrada del catálogo (solo 429, en los dos objetos y el typo de la unión), las dos claves i18n en `es.json`/`en.json`, la sección de `docs/error_codes_documentation.md` (mismo molde que PERSON.IDENTITY.005, con ejemplo JSON del cuerpo 429 y nota de que las cabeceras RFC 6585 solo van en el 429), y `app/helpers/person_email_request_errors.ts` con las cuatro funciones del bloque Interfaces. TSDoc con el argumento del spec: el 429 es deliberadamente indistinguible entre contadores.
 
 - [ ] **Step 4: Correr para verificar que pasa**
 
-Run: `node ace test unit --files="helpers/person_email_request_errors.spec" && node ace test unit --files="constants/"`
+Run: `node ace test unit --files="helpers/person_email_request_errors" && node ace test unit --files="constants/"`
 Expected: PASS ambos.
 
 - [ ] **Step 5: Commit**
@@ -143,14 +143,14 @@ git commit -m "feat: Agregar la respuesta 429 del sondeo de correo personal al c
 
 - [ ] **Step 2: Correr para verificar que falla**
 
-Run: `node ace test unit --files="services/person_email_probe_log_service.spec"`
+Run: `node ace test unit --files="services/person_email_probe_log_service"`
 Expected: FAIL — no existe el servicio.
 
 - [ ] **Step 3: Implementar** `app/services/person_email_probe_log_service.ts` verbatim del Anexo B.1 (TSDoc completo: seudonimizada no anónima, LFPDPPP, retención, prohibición del titular colisionado).
 
 - [ ] **Step 4: Correr para verificar que pasa**
 
-Run: `node ace test unit --files="services/person_email_probe_log_service.spec"`
+Run: `node ace test unit --files="services/person_email_probe_log_service"`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -196,14 +196,14 @@ git commit -m "feat: Agregar la bitácora de intentos de captura de correo perso
 
 - [ ] **Step 2: Correr para verificar que falla**
 
-Run: `node ace test unit --files="helpers/person_email_probe_throttle.spec"`
+Run: `node ace test unit --files="helpers/person_email_probe_throttle"`
 Expected: FAIL — no existe el helper.
 
 - [ ] **Step 3: Implementar** `app/helpers/person_email_probe_throttle.ts` según el bloque Interfaces y el Anexo A.3 (corregido por la desviación 2: el 429 sale del helper de Task 1 con i18n; y por `targetPersonId`). TSDoc: regla dura nunca-penalize, reparto del registro guard/controlador, comentario invertido de topología.
 
 - [ ] **Step 4: Correr para verificar que pasa**
 
-Run: `node ace test unit --files="helpers/person_email_probe_throttle.spec" && node ace test unit --files="helpers/person_email_request_errors.spec"`
+Run: `node ace test unit --files="helpers/person_email_probe_throttle" && node ace test unit --files="helpers/person_email_request_errors"`
 Expected: PASS ambos (el segundo confirma que no se rompió nada del Task 1).
 
 - [ ] **Step 5: Commit**
@@ -277,7 +277,7 @@ git commit -m "feat: Agregar índice simple de búsqueda sobre person_email_hash
 
 - [ ] **Step 2: Correr para verificar que falla**
 
-Run: `node ace test unit --files="routes/person_routes_rate_limit.spec"`
+Run: `node ace test unit --files="routes/person_routes_rate_limit"`
 Expected: FAIL — ni limiter ni guard montados.
 
 - [ ] **Step 3: Parchear `person_routes.ts` aditivamente**: imports de `limiter` y `personEmailProbeGuard`; definición de `personWriteRateLimit` ARRIBA del grupo con el comentario invertido de topología (Anexo A.1, texto íntegro); `.use([personWriteRateLimit, personEmailProbeGuard])` en las líneas de `router.post('/', ...)` y `router.put('/:personId', ...)`. NO tocar el comentario C-13, NO tocar la cadena `.use()` del grupo, NO borrar `businessScope()`/`permissionGate`/`sensitiveAccess()`/`sensitiveMaskEcho()`.
@@ -292,7 +292,7 @@ if (isPersonWriteRateLimitError(error) && isPersonWritePath(ctx.request.url())) 
 
 - [ ] **Step 5: Correr specs y typecheck**
 
-Run: `node ace test unit --files="routes/person_routes_rate_limit.spec" && node ace test unit --files="routes/sensitive_access_context_mounts.spec" && pnpm run typecheck`
+Run: `node ace test unit --files="routes/person_routes_rate_limit" && node ace test unit --files="routes/sensitive_access_context_mounts" && pnpm run typecheck`
 Expected: PASS los tres (el censo de sensitive access confirma que el parche no rompió la cadena).
 
 - [ ] **Step 6: Commit**
@@ -321,14 +321,14 @@ El catch espejo del `update` (`:917`) NO se toca: hoy no se ejercita (lo dice el
 
 - [ ] **Step 1: Baseline verde antes de tocar** — correr los specs existentes que fijan las respuestas byte a byte de A:
 
-Run: `node ace test functional --files="person_user_email_mirror.spec" && node ace test functional --files="employees/person_store_subject_type_permission_gate.spec"`
+Run: `node ace test functional --files="person_user_email_mirror" && node ace test functional --files="employees/person_store_subject_type_permission_gate"`
 Expected: PASS (si algo ya está roto, parar y reportar: no es de esta HU).
 
 - [ ] **Step 2: Insertar las cuatro llamadas** según el bloque de puntos exactos, con el import de `logPersonEmailProbe` desde `#helpers/person_email_probe_throttle`. Ninguna otra línea del archivo cambia.
 
 - [ ] **Step 3: Verificar que nada cambió para el cliente**
 
-Run: `pnpm run typecheck && node ace test functional --files="person_user_email_mirror.spec" && node ace test functional --files="employees/person_store_subject_type_permission_gate.spec"`
+Run: `pnpm run typecheck && node ace test functional --files="person_user_email_mirror" && node ace test functional --files="employees/person_store_subject_type_permission_gate"`
 Expected: PASS — el diff de comportamiento es cero (las llamadas son await de una función best-effort con contexto; con correo vacío el contexto no existe y son no-ops).
 
 - [ ] **Step 4: Revisión del diff (gate manual del DoD)**
@@ -349,12 +349,12 @@ git commit -m "feat: Registrar el desenlace del intento de correo desde el contr
 - Modify: `app/services/employee_service.ts`, `app/controllers/employee_controller.ts`
 
 **Interfaces:**
-- Consumes: `PersonEmailProbeLogService.log` (Task 2), `blindIndex` (`#utils/blind_index`), modelo `Person` (ya importado en `employee_service`).
-- Produces: `importFromExcel(file, allowedBusinessUnitIds, actorUserId: number | null)` — parámetro nuevo al final; el controlador (`employee_controller.ts:7527`) pasa `ctx.auth.user?.userId ?? null`. `createPerson(employeeData, businessUnitId, actorUserId, businessUnitScope)` — dos parámetros nuevos; `businessUnitScope` es el `allowedBusinessUnitIds` del actor. El registro por fila es verbatim Anexo B.3: tras `person.personEmail = this.importSensitiveValueOrDefault(employeeData.personalEmail)`, si ese valor (ya recortado) no es `''`: `emailHash = blindIndex(...)`, consulta `Person.query().where('person_email_hash', emailHash).whereNull('person_deleted_at').first()`, y `PersonEmailProbeLogService.log({ path: 'import', personEmailHash, outcome: taken ? 'rejected_not_available' : 'accepted', actorUserId, businessUnitScope, targetPersonId: null })`. NUNCA un `continue` ni un throw por esto. NO consume cuota de ningún contador.
+- Consumes: `PersonEmailProbeLogService.log` (Task 2), `blindIndex` (`#utils/blind_index`), el helper canónico de existencia global `personEmailExistsGlobally` (NO `Person.query().first()`: esta ruta corre bajo `TenantContext.run` y el mixin `withBusinessUnitScope` acotaría la consulta a la empresa del actor, leyendo como libre un correo tomado por otra empresa — la revisión de la Task 7 lo confirmó contra el código).
+- Produces: `importFromExcel(file, allowedBusinessUnitIds, actorUserId: number | null)` — parámetro nuevo al final; el controlador (`employee_controller.ts:7527`) pasa `ctx.auth.user?.userId ?? null`. `createPerson(employeeData, businessUnitId, actorUserId, businessUnitScope)` — dos parámetros nuevos; `businessUnitScope` es el `allowedBusinessUnitIds` del actor. El registro por fila cubre las DOS ramas del archivo — la fila que crea y la que ACTUALIZA un correo personal (`updateExistingEmployee`): en ambas, si el correo resuelto (ya recortado) no es `''`, se calcula `blindIndex(...)`, se consulta la existencia GLOBAL y se llama `PersonEmailProbeLogService.log({ path: 'import', personEmailHash, outcome: taken ? 'rejected_not_available' : 'accepted', actorUserId, businessUnitScope, targetPersonId })` — `targetPersonId: null` en el alta y el expediente actualizado en la rama de actualización. NUNCA un `continue` ni un throw por esto. NO consume cuota de ningún contador.
 
 - [ ] **Step 1: Baseline verde antes de tocar**
 
-Run: `node ace test functional --files="employees/employees_downloads_imports_permission_gate.spec" && pnpm run typecheck`
+Run: `node ace test functional --files="employees/employees_downloads_imports_permission_gate" && pnpm run typecheck`
 Expected: PASS.
 
 - [ ] **Step 2: Propagar el actor** — `importFromExcel` gana `actorUserId: number | null` (al final de la firma, con default `null` para no romper otros llamadores si existieran); `employee_controller.ts:7527` pasa `ctx.auth.user?.userId ?? null`; el único llamador de `createPerson` (`:3085`) pasa `actorUserId` y `allowedBusinessUnitIds`.
@@ -363,7 +363,7 @@ Expected: PASS.
 
 - [ ] **Step 4: Verificar**
 
-Run: `pnpm run typecheck && pnpm run lint && node ace test functional --files="employees/employees_downloads_imports_permission_gate.spec"`
+Run: `pnpm run typecheck && pnpm run lint && node ace test functional --files="employees/employees_downloads_imports_permission_gate"`
 Expected: PASS. La prueba de comportamiento (CA-9) llega en Task 9.
 
 - [ ] **Step 5: Commit**
@@ -423,12 +423,12 @@ Expected: sin errores.
 
 - [ ] **Step 3: Correr el spec** (nuevo archivo: falla si algo de Tasks 1-6 está mal cableado)
 
-Run: `node ace test functional --files="person_email_probe_disclosure.spec"`
+Run: `node ace test functional --files="person_email_probe_disclosure"`
 Expected: PASS. Si falla, el error es de Tasks 1-6: arreglar la fuente, no el spec.
 
 - [ ] **Step 4: Correr las suites de regresión**
 
-Run: `node ace test unit --files="constants/" && node ace test functional --files="person_user_email_mirror.spec"`
+Run: `node ace test unit --files="constants/" && node ace test functional --files="person_user_email_mirror"`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -470,7 +470,7 @@ git commit -m "test: Probar el corte, la bitácora y los bordes del sondeo por A
 
 - [ ] **Step 2: Correr el spec completo**
 
-Run: `node ace test functional --files="person_email_probe_disclosure.spec"`
+Run: `node ace test functional --files="person_email_probe_disclosure"`
 Expected: PASS los dos grupos.
 
 - [ ] **Step 3: Commit**
@@ -494,7 +494,7 @@ Expected: las tres salidas VACÍAS.
 
 - [ ] **Step 2: Suites y calidad**
 
-Run: `NODE_ENV=test DB_DATABASE=sae_pruebas node ace migration:fresh --seed && node ace test unit --files="constants/" && node ace test unit --files="helpers/person_email_request_errors.spec" && node ace test unit --files="helpers/person_email_probe_throttle.spec" && node ace test unit --files="routes/person_routes_rate_limit.spec" && node ace test unit --files="services/person_email_probe_log_service.spec" && node ace test functional --files="person_email_probe_disclosure.spec" && pnpm run typecheck && pnpm run lint && pnpm run lint:terminology`
+Run: `NODE_ENV=test DB_DATABASE=sae_pruebas node ace migration:fresh --seed && node ace test unit --files="constants/" && node ace test unit --files="helpers/person_email_request_errors" && node ace test unit --files="helpers/person_email_probe_throttle" && node ace test unit --files="routes/person_routes_rate_limit" && node ace test unit --files="services/person_email_probe_log_service" && node ace test functional --files="person_email_probe_disclosure" && pnpm run typecheck && pnpm run lint && pnpm run lint:terminology`
 Expected: TODO verde.
 
 - [ ] **Step 3: EXPLAIN (CA-11)** — contra una BD con filas en `people` (la de pruebas recién sembrada; si tiene pocas filas el optimizador puede ignorar el índice, en cuyo caso verificar contra staging):
