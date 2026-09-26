@@ -6,6 +6,10 @@ import Person from '#models/person'
 import { LogStore } from '#models/MongoDB/log_store'
 import { blindIndex } from '#utils/blind_index'
 import {
+  PERSON_EMAIL_PROBE_RATE,
+  PERSON_WRITE_RATE,
+} from '#helpers/person_email_probe_throttle'
+import {
   businessUnitHeaders,
   cleanupTenantActor,
   createBypassActor,
@@ -46,8 +50,14 @@ const PROBE_COLLECTION = 'log_person_email_probe'
 const PROBE_429_KEY = 'demasiados-intentos-de-captura-de-correo'
 const PROBE_429_CODE = 'PERSON.IDENTITY.006'
 const SISTER_422_CODE = 'PERSON.IDENTITY.005'
-const PROBE_LIMIT = 20
-const WRITE_FLOOR_LIMIT = 40
+/**
+ * Umbrales y ventana LEÍDOS DE SU FUENTE (`app/helpers/person_email_probe_throttle.ts`),
+ * nunca escritos a mano: el spec prueba la conducta, no congela los números. Si el
+ * equipo mueve el corte, el spec sigue al código en vez de mentir en verde.
+ */
+const PROBE_LIMIT = PERSON_EMAIL_PROBE_RATE.requests
+const PROBE_RETRY_AFTER = PERSON_EMAIL_PROBE_RATE.blockMinutes * 60
+const WRITE_FLOOR_LIMIT = PERSON_WRITE_RATE.requests
 
 /** Cabeceras del 429 del sondeo: `Retry-After` + las tres de RFC 6585. */
 const RATE_LIMIT_HEADER_NAMES = [
@@ -117,8 +127,23 @@ function assertProbeRateLimited(assert: Assert, response: ApiResponse, probedEma
   assert.notInclude(raw, 'sondeo')
   assert.equal(Number(response.headers()['x-ratelimit-limit']), PROBE_LIMIT)
   assert.equal(Number(response.headers()['x-ratelimit-remaining']), 0)
-  assert.equal(Number(response.headers()['retry-after']), 60 * 60)
+  assert.equal(Number(response.headers()['retry-after']), PROBE_RETRY_AFTER)
   assert.isString(response.headers()['x-ratelimit-reset'])
+}
+
+/**
+ * Cuerpo sin la marca de tiempo del guardado: es el ÚNICO campo que cambia entre
+ * dos ediciones idénticas del MISMO expediente. Todo lo demás debe coincidir byte
+ * a byte, incluido el id —que aquí no se mueve porque el expediente es el mismo
+ * en las dos corridas—. Se usa solo en la rama donde el byte a byte sí es
+ * alcanzable; en las demás se compara la forma y se explica por qué.
+ */
+function withoutSaveTimestamp(body: unknown): string {
+  const clone = JSON.parse(JSON.stringify(body)) as {
+    data?: { person?: Record<string, unknown> }
+  }
+  if (clone.data?.person) delete clone.data.person.personUpdatedAt
+  return JSON.stringify(clone)
 }
 
 test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH1789762889970)', (group) => {
@@ -374,7 +399,7 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
     assert.equal(rows[0].payload.path, 'update')
   })
 
-  test('CA-8 — con Mongo caído la respuesta es idéntica y no hay excepción', async ({
+  test('CA-8 — con Mongo caído la respuesta es idéntica y no hay excepción (las cuatro ramas)', async ({
     client,
     assert,
     cleanup,
@@ -389,17 +414,31 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
     // vuelve a capturar, y el `cleanup` del helper restaura el original real.
     const originalSet = LogStore.set
 
+    /**
+     * "Mongo caído": el stub LANZA en TODA escritura y cuenta las de la bitácora
+     * del sondeo. Contar es lo que deja asertar que la rama SÍ intentó registrar
+     * —una rama que dejara de registrar en silencio pasaría el resto del caso—.
+     */
+    function mongoDown(): () => number {
+      let probeAttempts = 0
+      LogStore.set = async (collectionName: string) => {
+        if (collectionName === PROBE_COLLECTION) probeAttempts += 1
+        throw new Error('Mongo no disponible')
+      }
+      return () => probeAttempts
+    }
+
+    // ── 1/4 — ALTA RECHAZADA (`store`, correo ocupado): el 422 de la hermana.
     // Misma petición, una vez con Mongo caído y otra con el stub en no-op.
     const down = await freshActor('probe-ca8-down')
-    LogStore.set = async () => {
-      throw new Error('Mongo no disponible')
-    }
+    const downProbeAttempts = mongoDown()
     const downResponse = await postPerson(client, down, {
       personFirstname: 'Probe',
       personLastname: 'Caido',
       personEmail: occupied,
     })
     LogStore.set = originalSet
+    assert.equal(downProbeAttempts(), 1, 'la rama rechazada del alta SÍ intentó registrar')
 
     const up = await freshActor('probe-ca8-up')
     const upResponse = await postPerson(client, up, {
@@ -418,16 +457,22 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
     // Y el stub lanzando no capturó ninguna fila: el registro no se completó.
     assert.lengthOf(probeRows(logs), 1)
 
-    // La rama `accepted` tampoco se cae: con Mongo caído, el alta exitosa sigue 201.
-    LogStore.set = async () => {
-      throw new Error('Mongo no disponible')
-    }
+    // ── 2/4 — ALTA ACEPTADA (`store`, correo libre): sigue 201.
+    //
+    // POR QUÉ AQUÍ NO HAY COMPARACIÓN BYTE A BYTE: repetir la MISMA alta exitosa
+    // es imposible por la unicidad GLOBAL del correo (el segundo intento con el
+    // mismo correo responde 422), así que la referencia se toma con OTRO correo
+    // libre y se comparan la forma y los campos no volátiles. El try/catch ÚNICO
+    // de `PersonEmailProbeLogService.log` es el mismo para las cuatro ramas: que
+    // esta alta no se caiga demuestra que ninguna de las otras tampoco.
+    const downFreeProbeAttempts = mongoDown()
     const downFree = await postPerson(client, down, {
       personFirstname: 'Probe',
       personLastname: 'CaidoLibre',
       personEmail: probeEmail('ca8-free-down'),
     })
     LogStore.set = originalSet
+    assert.equal(downFreeProbeAttempts(), 1, 'la rama aceptada del alta SÍ intentó registrar')
     assert.equal(downFree.status(), 201)
     trackPerson(downFree)
 
@@ -455,6 +500,78 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
       downFree.body().data.person.personLastname,
       upFree.body().data.person.personLastname
     )
+
+    // ── EDICIÓN (`update`): las dos ramas que el ALTA no ejercita. Expediente
+    // propio por actor, sembrado por MODELO: el sondeo debe contar la EDICIÓN, no
+    // la siembra.
+    const downTarget = await Person.create({
+      personFirstname: 'Probe',
+      personLastname: 'CaidoEdicion',
+      personSecondLastname: `CaidoEdicion${uniqueStamp()}`,
+      personEmail: probeEmail('ca8-edit-down'),
+      businessUnitId: down.businessUnit.businessUnitId,
+    })
+    personIds.push(downTarget.personId)
+    const upTarget = await Person.create({
+      personFirstname: 'Probe',
+      personLastname: 'CaidoEdicion',
+      personSecondLastname: `CaidoEdicion${uniqueStamp()}`,
+      personEmail: probeEmail('ca8-edit-up'),
+      businessUnitId: up.businessUnit.businessUnitId,
+    })
+    personIds.push(upTarget.personId)
+
+    // ── 3/4 — EDICIÓN RECHAZADA (correo ocupado): el 422 de la hermana.
+    const downEditRejectedAttempts = mongoDown()
+    const downEditRejected = await putPerson(client, down, downTarget.personId, {
+      personFirstname: 'Probe',
+      personLastname: 'CaidoEdicion',
+      personEmail: occupied,
+    })
+    LogStore.set = originalSet
+    assert.equal(downEditRejectedAttempts(), 1, 'la rama rechazada de la edición SÍ intentó registrar')
+    assert.equal(downEditRejected.status(), 422)
+
+    const upEditRejected = await putPerson(client, up, upTarget.personId, {
+      personFirstname: 'Probe',
+      personLastname: 'CaidoEdicion',
+      personEmail: occupied,
+    })
+    assert.equal(upEditRejected.status(), 422)
+    // Byte a byte: el 422 de la hermana no lleva ni un dato del expediente, así
+    // que dos expedientes distintos responden EXACTAMENTE lo mismo.
+    assert.equal(JSON.stringify(downEditRejected.body()), JSON.stringify(upEditRejected.body()))
+    for (const name of RATE_LIMIT_HEADER_NAMES) {
+      assert.equal(
+        downEditRejected.headers()[name],
+        upEditRejected.headers()[name],
+        `cabecera ${name} del rechazo de la edición`
+      )
+    }
+
+    // ── 4/4 — EDICIÓN ACEPTADA: sigue 201.
+    // Aquí el byte a byte SÍ es alcanzable: la MISMA petición (mismo expediente,
+    // mismo cuerpo) se corre dos veces, una con Mongo caído y otra con el stub en
+    // no-op, y la edición no crea filas nuevas. El único campo que se mueve en
+    // cada guardado es la marca de tiempo, que se descarta al comparar.
+    const acceptedEdit = {
+      personFirstname: 'Probe',
+      personLastname: 'CaidoEditado',
+      personEmail: downTarget.personEmail,
+    }
+    const downEditOkAttempts = mongoDown()
+    const downEditOk = await putPerson(client, down, downTarget.personId, acceptedEdit)
+    LogStore.set = originalSet
+    assert.equal(downEditOkAttempts(), 1, 'la rama aceptada de la edición SÍ intentó registrar')
+    assert.equal(downEditOk.status(), 201)
+
+    const upEditOk = await putPerson(client, down, downTarget.personId, acceptedEdit)
+    assert.equal(upEditOk.status(), 201)
+    assert.equal(withoutSaveTimestamp(downEditOk.body()), withoutSaveTimestamp(upEditOk.body()))
+    // Y el cuerpo es el del expediente editado, no un envoltorio raro.
+    assert.equal(downEditOk.body().data.person.personId, downTarget.personId)
+    assert.equal(downEditOk.body().data.person.personFirstname, 'Probe')
+    assert.equal(downEditOk.body().data.person.personLastname, 'CaidoEditado')
   })
 
   test('CA-7 — la fila capturada no lleva el correo, ni el titular, ni el expediente ajeno', async ({
@@ -538,7 +655,11 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
     // El 429 del piso describe SU límite (40/min), no el del sondeo (20/h): con
     // cero correos enviados, el contador del sondeo no pudo ser el que cortó.
     assert.equal(Number(blocked.headers()['x-ratelimit-limit']), WRITE_FLOOR_LIMIT)
-    assert.isDefined(blocked.headers()['retry-after'])
+    // Las tres de RFC 6585 completas + `Retry-After`, igual que el 429 del sondeo:
+    // un 429 sin `X-RateLimit-Remaining` sería otra forma de respuesta, y la
+    // forma también es un canal.
+    assert.equal(Number(blocked.headers()['x-ratelimit-remaining']), 0)
+    assert.isTrue(Number.isFinite(Number(blocked.headers()['retry-after'])))
     assert.isString(blocked.headers()['x-ratelimit-reset'])
 
     // El piso se monta SOLO en las escrituras: leer y borrar siguen abiertos.
