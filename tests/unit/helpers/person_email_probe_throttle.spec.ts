@@ -299,6 +299,88 @@ test.group('personEmailProbeGuard — el intento y su corte', (group) => {
     assert.equal(captured.payload().actor_user_id, userId)
     assert.equal(captured.payload().path, 'update')
   })
+
+  test('el techo de la EMPRESA corta por el guard: 429 y fila rate_limited con el usuario intacto', async ({
+    assert,
+  }) => {
+    const captured = captureSet()
+    const businessId = 7000606
+    const businessSubject = `bu:${businessId}`
+
+    // Se topa el techo de la empresa con su umbral REAL (200), fuera del guard:
+    // un solo usuario (20/h) jamás lo alcanzaría, por eso esta rama solo se
+    // ejercita aquí. Si la llave `bu:` se rompiera o el OR se invirtiera, este
+    // caso sería el único que lo notaría.
+    const business = new PersonEmailProbeBusinessThrottleMemory()
+    for (let i = 0; i < PERSON_EMAIL_PROBE_BUSINESS_RATE.requests; i++) {
+      await business.count(businessSubject)
+    }
+    assert.isTrue(await business.isBlocked(businessSubject))
+
+    // Actor FRESCO: su contador individual está intacto, así que el corte tiene
+    // que venir de la rama `bu:` del OR y no de la del usuario.
+    const { ctx, next, calls } = await makeGuardCtx({
+      method: 'POST',
+      personEmail: 'empresa-topada-t3@dominio.mx',
+      userId: 7000607,
+      businessUnitScope: [businessId],
+    })
+    await personEmailProbeGuard(ctx, next)
+
+    assert.equal(ctx.response.getStatus(), 429)
+    assert.isUndefined(ctx.personEmailProbe)
+    assert.equal(calls(), 0, 'el corte por empresa no llega al controlador')
+    assert.isTrue(captured.called())
+    assert.equal(captured.payload().outcome, 'rate_limited')
+    assert.equal(captured.payload().path, 'store')
+    assert.equal(captured.payload().actor_user_id, 7000607)
+    assert.deepEqual(captured.payload().business_unit_scope, [businessId])
+  })
+
+  test('sin empresa cuenta en el cubo compartido `bu:sin-empresa` y se corta al toparlo', async ({
+    assert,
+  }) => {
+    const captured = captureSet()
+    const bucket = 'bu:sin-empresa'
+    const business = new PersonEmailProbeBusinessThrottleMemory()
+
+    // 200 actores DISTINTOS y sin empresa: cada contador individual arranca
+    // intacto, así que los 200 intentos pasan y cargan el cubo compartido
+    // `businessUnitScope: [] → 'sin-empresa'` (el fallback, nunca un literal).
+    let passed = 0
+    for (let i = 0; i < PERSON_EMAIL_PROBE_BUSINESS_RATE.requests; i++) {
+      const { ctx, next } = await makeGuardCtx({
+        method: 'POST',
+        personEmail: `sin-empresa-${i}@dominio.mx`,
+        userId: 7000700 + i,
+        businessUnitScope: [],
+      })
+      await personEmailProbeGuard(ctx, next)
+      if (ctx.personEmailProbe) passed++
+    }
+    assert.equal(
+      passed,
+      PERSON_EMAIL_PROBE_BUSINESS_RATE.requests,
+      'los 200 intentos cargaron el cubo sin-empresa'
+    )
+    assert.isTrue(await business.isBlocked(bucket), 'el techo cayó sobre el cubo sin-empresa')
+    // El cubo de quien sí tiene empresa no se contaminó.
+    assert.isFalse(await business.isBlocked('bu:7000700'))
+
+    const { ctx, next, calls } = await makeGuardCtx({
+      method: 'POST',
+      personEmail: 'sin-empresa-201@dominio.mx',
+      userId: 7999999,
+      businessUnitScope: [],
+    })
+    await personEmailProbeGuard(ctx, next)
+
+    assert.equal(ctx.response.getStatus(), 429)
+    assert.isUndefined(ctx.personEmailProbe)
+    assert.equal(calls(), 0)
+    assert.equal(captured.payload().outcome, 'rate_limited')
+    assert.deepEqual(captured.payload().business_unit_scope, [])
+  })
 })
 
 test.group('personWriteRateLimit — el piso de escritura sin cabeceras de framework', () => {

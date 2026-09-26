@@ -12,7 +12,7 @@ import { DateTime } from 'luxon'
  * NUNCA se registra el correo en claro: se guarda su `blindIndex` (HMAC-SHA256
  * con `BLIND_INDEX_KEY`, `app/utils/blind_index.ts:27-30`), NO reversible por
  * diccionario. Es el MISMO hash que persiste `people.person_email_hash`
- * (`app/models/person.ts:230-232`, `:265`), de modo que la bitácora es unible al
+ * (`app/models/person.ts:266`, `:304`), de modo que la bitácora es unible al
  * expediente: es SEUDONIMIZADA, NO ANÓNIMA, y por tanto DATO PERSONAL bajo
  * LFPDPPP. Necesita retención declarada en la política.
  *
