@@ -776,12 +776,15 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
  * Montaje propio, y por qué:
  *  - La carga masiva entra por `POST /api/employees/import-excel`, NO por
  *    `/api/persons`: es otra ruta y otro camino de registro (`path: 'import'`,
- *    Task 7). El archivo se fabrica con ExcelJS replicando las cabeceras de la
- *    plantilla real: `EmployeeService.validateExcelHeaders`
- *    (`app/services/employee_service.ts:3431`) exige TODAS —no solo las cinco
- *    obligatorias—, así que con una cabecera de menos la API responde 400
- *    `EMP.IMPORT.VAL_HEADERS`. Que la importación responda 200 con su `summary`
- *    es la prueba de que este archivo ES la plantilla de la empresa cliente.
+ *    Task 7). El archivo se fabrica con ExcelJS con las 26 cabeceras que el
+ *    validador exige (`EmployeeService.validateExcelHeaders`,
+ *    `app/services/employee_service.ts:3431`: las 25 de su lista más la detección
+ *    de `ID Empleado`), no con las cinco obligatorias: con una cabecera de menos
+ *    la API responde 400 `EMP.IMPORT.VAL_HEADERS`. Lo que el 200 con su `summary`
+ *    prueba es que el VALIDADOR DE ENCABEZADOS ACEPTA este archivo, NO que el
+ *    archivo sea la plantilla real: la plantilla real lleva 46 columnas
+ *    (`generateEmployeeImportTemplate`, `:5207`) y este archivo cubre 26. Las 20
+ *    restantes son opcionales para el validador y este caso no las necesita.
  *  - El correo "ya registrado" lo ocupa un expediente sembrado por MODELO en OTRA
  *    empresa: la unicidad del correo personal es GLOBAL, así que una consulta de
  *    existencia acotada a la empresa del actor (el mixin de tenant) leería ese
@@ -797,9 +800,12 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
  */
 
 /**
- * Cabeceras de la plantilla real de importación, verbatim (mismo molde que
- * `tests/functional/services/employee_import_company_scope.spec.ts`). El orden
- * importa: la primera columna es la oculta `ID Empleado`.
+ * Cabeceras que el validador exige, verbatim (mismo molde que
+ * `tests/functional/services/employee_import_company_scope.spec.ts`). El ORDEN
+ * solo importa en la PRIMERA celda: `validateExcelHeaders` decide la fila de
+ * encabezados mirando `getCell(1)` (¿`ID Empleado` / `Identificador de nómina`?) y
+ * el resto de las columnas las mapea POR NOMBRE (coincidencia exacta o difusa,
+ * insensible a mayúsculas), no por posición.
  */
 const IMPORT_TEMPLATE_HEADERS = [
   'ID Empleado',
@@ -1118,8 +1124,10 @@ test.group('Carga masiva y aislamiento del límite por actor (USRH1789762889970)
     // ── La bitácora: UNA fila por cada fila del archivo con correo no vacío.
     const rows = probeRows(logs).filter((log) => log.payload.path === 'import')
     assert.lengthOf(rows, 6)
-    // Las siete llaves del contrato (N8), también en este camino.
-    assert.deepEqual(Object.keys(rows[0].payload).sort(), [
+    // Las siete llaves del contrato (N8), también en este camino — y en TODAS las filas,
+    // no solo en la primera: las filas del camino de ACTUALIZACIÓN (edición) no pasan por
+    // el assert de `rows[0]` y una llave extra ahí pasaría inadvertida.
+    const CONTRACT_KEYS = [
       'actor_user_id',
       'business_unit_scope',
       'date',
@@ -1127,7 +1135,14 @@ test.group('Carga masiva y aislamiento del límite por actor (USRH1789762889970)
       'outcome',
       'path',
       'target_person_id',
-    ])
+    ]
+    for (const [index, row] of rows.entries()) {
+      assert.deepEqual(
+        Object.keys(row.payload).sort(),
+        CONTRACT_KEYS,
+        `llaves del contrato en la fila ${index + 1}`
+      )
+    }
     // Quién SUBIÓ el archivo y desde qué empresa: el actor y SU scope, en las seis.
     for (const row of rows) {
       assert.equal(row.payload.actor_user_id, uploader.user.userId)
@@ -1179,6 +1194,20 @@ test.group('Carga masiva y aislamiento del límite por actor (USRH1789762889970)
     // acaba de dejar seis filas de `import` conserva ENTERA su cuota individual. Si el
     // importador hubiera contado esos intentos, el corte habría llegado en el intento 15
     // de esta tanda (20 - 6) y no en el 21.
+    //
+    // ALCANCE EXACTO de esta prueba, para no leerle más de lo que prueba:
+    //  - Cubre el contador INDIVIDUAL del actor que sube; es CIEGA al contador por EMPRESA
+    //    (`PERSON_EMAIL_PROBE_BUSINESS_RATE`, 200/hora): 6 filas de `import` —o incluso las
+    //    21 capturas de esta tanda— apenas lo mueven de 200, así que por HTTP el efecto ahí
+    //    es indistinguible.
+    //  - Protege contra una llamada EXPLÍCITA al throttle dentro del importador (hoy el
+    //    registro `path: 'import'` lo hace `PersonEmailProbeLogService.log` directo,
+    //    `employee_service.ts:4052/4309`, sin pasar por `personEmailProbeGuard`). NO
+    //    cubriría el caso de MONTAR el guard como middleware del import: el guard toma el
+    //    correo de `ctx.request.input('personEmail')`, que en un multipart no trae el
+    //    correo de la fila del archivo, así que saldría por el atajo de correo vacío sin
+    //    consumir cuota y el aserto seguiría verde. Ese montaje no existe hoy; si algún día
+    //    se montara, este caso no lo delataría.
     const captureEmails = Array.from(
       { length: PROBE_LIMIT },
       (_, i) => `probe-ca9-capture-${stamp}-${i}@dominio.test`
@@ -1221,12 +1250,13 @@ test.group('Carga masiva y aislamiento del límite por actor (USRH1789762889970)
    *
    * DESVIACIÓN DECLARADA (dictamen de coordinación de la HU): el criterio CA-4 también
    * habla de un techo por EMPRESA de 200/hora (`PERSON_EMAIL_PROBE_BUSINESS_RATE`). Ese
-   * techo es INALCANZABLE por HTTP con las llaves que existen: el límite individual es
-   * de 20/hora por persona, así que harían falta DIEZ personas de la misma empresa
-   * topando su propio límite para llegar justo al techo (10 × 20 = 200) y una UNDÉCIMA
-   * para que el corte de empresa disparara en su primer intento. Un caso HTTP que
-   * "alcanzara" los 200 tendría que fabricar once usuarios y ~200 peticiones para probar
-   * un umbral que no corta —o peor, mover el umbral para que el caso pase—. Por eso:
+   * techo NO se ejercita aquí por su costo: el límite individual es de 20/hora por
+   * persona, así que harían falta DIEZ personas de la misma empresa topando su propio
+   * límite para llegar justo al techo (10 × 20 = 200) y una UNDÉCIMA para que el corte de
+   * empresa disparara en su primer intento. Un caso HTTP que lo alcanzara tendría que
+   * fabricar once usuarios y ~200 peticiones —posible, pero desproporcionado para un
+   * umbral que no corta, y con el riesgo de que alguien mueva el umbral para que el caso
+   * pase—. Por eso:
    *  1. el techo por empresa se prueba donde SÍ es alcanzable: a nivel UNITARIO, contra
    *     su clase y su umbral real (Task 3,
    *     `tests/unit/helpers/person_email_probe_throttle.spec.ts`);
@@ -1288,10 +1318,24 @@ test.group('Carga masiva y aislamiento del límite por actor (USRH1789762889970)
       cutBodies.push(JSON.stringify(responses[PROBE_LIMIT].body()))
     }
 
-    // Las tres reciben EXACTAMENTE el mismo corte: cuerpo byte a byte idéntico (el 429 no
-    // distingue a quién cortó) y con el `X-RateLimit-Limit` del contador INDIVIDUAL
-    // (20/h), no el del techo por empresa (200/h) — o sea, el contador que cortó es el de
-    // la persona, y ninguna de las tres topó nada de su empresa.
+    // Las tres reciben EXACTAMENTE el mismo corte: cuerpo byte a byte idéntico. El 429 del
+    // sondeo es deliberadamente INDISTINGUIBLE entre contadores: el guard declara SIEMPRE
+    // `PERSON_EMAIL_PROBE_RATE.requests` al responder, sin importar cuál de los dos
+    // bloqueó (`person_email_probe_throttle.ts:187-191`, decisión en `:178`), y el emisor
+    // lo documenta (`person_email_request_errors.ts:46-53`). Por eso el
+    // `X-RateLimit-Limit: 20` que asserta `assertProbeRateLimited` NO prueba que el
+    // contador que cortó sea el individual: lo que esa cabecera separa es el sondeo (20)
+    // del piso de escritura (40), nunca un contador del otro.
+    //
+    // La prueba REAL de que el conteo es POR PERSONA es estructural, no de cabeceras: son
+    // TRES usuarios DISTINTOS y cada uno agota sus 20 propias capturas aceptadas antes de
+    // que su 21ª reciba el 429. Si el cubo fuera por EMPRESA con umbral 20, la SEGUNDA
+    // persona habría topado en su PRIMER intento (el cubo compartido ya traía 20 de la
+    // primera) y no lo hizo: sus 20 primeras pasaron con 201. Que cada una llene un
+    // contador completo por separado ES el conteo individual; que las cuatro personas de
+    // la empresa (las tres topadas y la cuarta) compartan el mismo `business_unit_scope`
+    // en la bitácora confirma que el cubo que se llenó tres veces es el de cada persona,
+    // no el de la unidad.
     assert.equal(new Set(cutBodies).size, 1)
     for (const body of cutBodies) {
       const parsed = JSON.parse(body) as Record<string, unknown>
