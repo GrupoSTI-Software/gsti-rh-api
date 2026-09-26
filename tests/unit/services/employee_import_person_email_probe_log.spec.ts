@@ -26,9 +26,31 @@ function serviceContent(): string {
 /** El bloque del registro por fila dentro de `createPerson`, hasta el `save()`. */
 function createPersonProbeBlock(): string {
   const content = serviceContent()
-  const start = content.indexOf('const importedEmail =')
+  // Anclado en `createPerson`: la rama de ACTUALIZACIÓN espeja el mismo bloque
+  // y su `const importedEmail =` aparece ANTES en el archivo.
+  const fnStart = content.indexOf('private async createPerson(')
+  const start = content.indexOf('const importedEmail =', fnStart)
   const end = content.indexOf('await person.save()', start)
   return start >= 0 && end > start ? content.slice(start, end) : ''
+}
+
+/**
+ * La rama de ACTUALIZACIÓN dentro de `updateExistingEmployee`: desde la
+ * resolución del correo personal hasta el `person.save()` de esa rama (el
+ * `save()` del empleado va antes y queda fuera).
+ */
+function updatePersonProbeBlock(): string {
+  const content = serviceContent()
+  const fnStart = content.indexOf('private async updateExistingEmployee(')
+  const fnEnd = content.indexOf('private async createPerson(', fnStart)
+  if (fnStart < 0 || fnEnd <= fnStart) return ''
+
+  const fn = content.slice(fnStart, fnEnd)
+  const emailResolution = fn.indexOf('if (this.hasImportCellValue(employeeData.personalEmail)) {')
+  if (emailResolution < 0) return ''
+
+  const save = fn.indexOf('await person.save()', emailResolution)
+  return save > emailResolution ? fn.slice(emailResolution, save) : ''
 }
 
 /**
@@ -131,5 +153,55 @@ test.group('employee_service importFromExcel — rastro del sondeo por fila (D7)
     // El controlador pasa el usuario autenticado que subió el archivo.
     assert.include(controller, 'await employeeService.importFromExcel(')
     assert.include(controller, 'ctx.auth.user?.userId ?? null')
+  })
+
+  test('la fila que ACTUALIZA un correo personal también deja rastro (target = expediente)', ({
+    assert,
+  }) => {
+    const block = updatePersonProbeBlock()
+
+    assert.isNotEmpty(block, 'el registro por fila no vive en la rama de actualización')
+
+    assert.include(block, 'const emailHash = blindIndex(importedEmail)')
+    assert.include(block, 'await PersonEmailProbeLogService.log({')
+    assert.include(block, "path: 'import',")
+    assert.include(block, 'personEmailHash: emailHash,')
+    assert.include(block, "outcome: taken ? 'rejected_not_available' : 'accepted',")
+    assert.include(block, 'actorUserId,')
+    assert.include(block, 'businessUnitScope,')
+    // Convenio del camino de edición: el expediente tocado, NO el `null` del alta.
+    assert.include(block, 'targetPersonId: person.personId,')
+    assert.notInclude(block, 'targetPersonId: null,')
+    // Mismo helper canónico (unicidad GLOBAL), excluyendo al propio expediente:
+    // el correo que la persona ya tiene no está "tomado" por sí misma.
+    assert.include(block, 'personEmailExistsGlobally(importedEmail, person.personId)')
+    assert.notInclude(stripLineComments(block), 'Person.query()')
+    // El correo en claro NUNCA se registra.
+    assert.notInclude(block, 'personEmail:')
+  })
+
+  test('la fila de ACTUALIZACIÓN sin correo no registra: la guarda la excluye', ({ assert }) => {
+    const block = updatePersonProbeBlock()
+    const code = stripLineComments(block)
+
+    // El correo resuelto sale de la CELDA: sin celda, `importSensitiveValueOrDefault`
+    // devuelve '' y no hay intento (el correo viejo del expediente no cuenta).
+    assert.include(
+      block,
+      'const importedEmail = this.importSensitiveValueOrDefault(employeeData.personalEmail)'
+    )
+    assert.include(block, "if (importedEmail !== '') {")
+    // La llamada al registro vive DENTRO de la guarda del correo vacío.
+    assert.isAbove(
+      block.indexOf('await PersonEmailProbeLogService.log({'),
+      block.indexOf("if (importedEmail !== '') {")
+    )
+    // Hashear el vacío produce una constante que envenenaría la colección.
+    assert.notMatch(code, /blindIndex\(\s*''\s*\)/)
+    // De apoyo: nunca corta la fila ni aborta la carga.
+    assert.include(block, 'try {')
+    assert.include(block, 'catch {')
+    assert.notInclude(code, 'continue')
+    assert.notInclude(code, 'throw ')
   })
 })

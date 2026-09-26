@@ -3061,7 +3061,7 @@ export default class EmployeeService {
           if (isUpdate) {
             const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
             if (existingEmployee) {
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, actorUserId, allowedBusinessUnitIds, employeeTypes)
               if (employeeData.employeeWorkScheduleHybridAttempt) {
                 warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
               }
@@ -3933,6 +3933,9 @@ export default class EmployeeService {
 
   /**
    * Actualizar empleado existente
+   *
+   * @param actorUserId — quién subió el archivo (el actor del intento).
+   * @param businessUnitScope — empresas del actor, no las del expediente.
    */
   private async updateExistingEmployee(
     existingEmployee: any,
@@ -3943,6 +3946,8 @@ export default class EmployeeService {
     defaultPosition: any,
     businessUnitId: number | null,
     payrollBusinessUnitId: number | null,
+    actorUserId: number | null,
+    businessUnitScope: number[],
     employeeTypes: any[] = []
   ) {
     existingEmployee.employeeFirstName = employeeData.firstName || existingEmployee.employeeFirstName
@@ -4021,6 +4026,41 @@ export default class EmployeeService {
       if (this.hasImportCellValue(employeeData.personalEmail)) {
         person.personEmail = String(employeeData.personalEmail).trim()
       }
+
+      // Rastro del intento de captura del correo personal (USRH1789762889970, D7).
+      // Misma bitácora que el alta, pero en una fila que ACTUALIZA: el expediente
+      // tocado es el `targetPersonId` (convenio del camino de edición), a
+      // diferencia del `null` del alta. El importador NO impone unicidad: sigue
+      // guardando directo. Esta HU solo deja el rastro que hoy no existe, y es de
+      // APOYO — si la consulta o el registro fallan, la fila se actualiza igual y
+      // el usuario no ve nada raro. NUNCA se guarda el correo en claro, ni el
+      // nombre, ni el expediente ajeno: solo la huella, el actor y su scope.
+      const importedEmail = this.importSensitiveValueOrDefault(employeeData.personalEmail)
+
+      // Una fila sin correo (celda vacía o el placeholder del export) no cambia
+      // nada y NO es un intento: sin correo no hay hash ni fila — `blindIndex('')`
+      // es una constante que envenenaría la colección.
+      if (importedEmail !== '') {
+        try {
+          const emailHash = blindIndex(importedEmail)
+          // Unicidad GLOBAL del correo personal (USRH1789698261610 regla 5): la
+          // consulta canónica corre sin filtro de empresa. Se excluye al propio
+          // expediente: en una edición, el correo que ya es suyo no está tomado.
+          const taken = await personEmailExistsGlobally(importedEmail, person.personId)
+
+          await PersonEmailProbeLogService.log({
+            path: 'import',
+            personEmailHash: emailHash,
+            outcome: taken ? 'rejected_not_available' : 'accepted',
+            actorUserId,
+            businessUnitScope,
+            targetPersonId: person.personId,
+          })
+        } catch {
+          // Best-effort: la bitácora no puede cambiar el resultado de la carga.
+        }
+      }
+
       if (this.hasImportCellValue(employeeData.personalPhone)) {
         person.personPhone = String(employeeData.personalPhone).trim()
       }
