@@ -13,6 +13,8 @@ export const PERSON_IDENTITY_ERROR_CODES = {
   DUPLICATED_NSS: 'PERSON.IDENTITY.003',
   /** La operación llegó sin la empresa desde la que se trabaja. */
   MISSING_COMPANY: 'PERSON.IDENTITY.004',
+  /** El correo personal no puede registrarse en el expediente por política de la plataforma (USRH1789698261614). */
+  EMAIL_NOT_AVAILABLE: 'PERSON.IDENTITY.005',
 } as const
 
 export type PersonIdentityErrorCode =
@@ -25,13 +27,14 @@ export type PersonIdentityErrorDefinition = {
 }
 
 export const PERSON_IDENTITY_ERRORS: Record<
-  'DUPLICATED_RFC' | 'DUPLICATED_CURP' | 'DUPLICATED_NSS' | 'MISSING_COMPANY',
+  'DUPLICATED_RFC' | 'DUPLICATED_CURP' | 'DUPLICATED_NSS' | 'MISSING_COMPANY' | 'EMAIL_NOT_AVAILABLE',
   PersonIdentityErrorDefinition
 > = {
   DUPLICATED_RFC: { key: 'rfc-ya-registrado-en-la-empresa', code: PERSON_IDENTITY_ERROR_CODES.DUPLICATED_RFC, status: 422 },
   DUPLICATED_CURP: { key: 'curp-ya-registrada-en-la-empresa', code: PERSON_IDENTITY_ERROR_CODES.DUPLICATED_CURP, status: 422 },
   DUPLICATED_NSS: { key: 'nss-ya-registrado-en-la-empresa', code: PERSON_IDENTITY_ERROR_CODES.DUPLICATED_NSS, status: 422 },
   MISSING_COMPANY: { key: 'empresa-de-trabajo-requerida', code: PERSON_IDENTITY_ERROR_CODES.MISSING_COMPANY, status: 400 },
+  EMAIL_NOT_AVAILABLE: { key: 'no-es-posible-registrar-ese-correo', code: PERSON_IDENTITY_ERROR_CODES.EMAIL_NOT_AVAILABLE, status: 422 },
 }
 
 export type PersonIdentityField = 'curp' | 'rfc' | 'nss'
