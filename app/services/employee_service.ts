@@ -35,6 +35,7 @@ import FlightAttendant from '#models/flight_attendant'
 import Customer from '#models/customer'
 import env from '#start/env'
 import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
+import { personEmailExistsGlobally } from '#helpers/person_email_global_uniqueness'
 import {
   importRowErrorMessage,
   personIdentityDuplicatedIndexFromError,
@@ -69,6 +70,7 @@ import {
 } from '../helpers/employee_quota_api_error.js'
 import { isSensitiveDataWriteError } from '#helpers/sensitive_data_write_api_error'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import PersonEmailProbeLogService from '#services/person_email_probe_log_service'
 import { resolvePersonRelease, type PersonReleaseContext } from '#helpers/person_release_guard'
 import { findSensitiveCategoriesInExcelHeaders } from '#constants/employee_excel_sensitive_headers'
 import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
@@ -2747,10 +2749,16 @@ export default class EmployeeService {
 
   /**
    * Import employees from Excel file
+   *
+   * @param allowedBusinessUnitIds — empresas del actor que sube el archivo.
+   * @param actorUserId — usuario que subió el archivo; se propaga hasta
+   * `createPerson` para poder atribuir el intento de correo de cada fila. `null`
+   * cuando no hay sesión.
    */
   async importFromExcel(
     file: any,
-    allowedBusinessUnitIds: number[] = []
+    allowedBusinessUnitIds: number[] = [],
+    actorUserId: number | null = null
   ): Promise<EmployeeImportResult> {
     const workbook = new ExcelJS.Workbook()
 
@@ -3082,7 +3090,7 @@ export default class EmployeeService {
           const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
           const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
 
-          const person = await this.createPerson(employeeData, businessUnitId!)
+          const person = await this.createPerson(employeeData, businessUnitId!, actorUserId, allowedBusinessUnitIds)
           const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
           if (employeeData.employeeWorkScheduleHybridAttempt) {
             // El empleado nuevo queda con Onsite (default de `createEmployee`).
@@ -4209,8 +4217,16 @@ export default class EmployeeService {
 
   /**
    * Crear persona
+   *
+   * @param actorUserId — quién subió el archivo (el actor del intento).
+   * @param businessUnitScope — empresas del actor, no las del expediente.
    */
-  private async createPerson(employeeData: any, businessUnitId: number) {
+  private async createPerson(
+    employeeData: any,
+    businessUnitId: number,
+    actorUserId: number | null,
+    businessUnitScope: number[]
+  ) {
     const person = new Person()
     person.businessUnitId = businessUnitId
     person.personFirstname = employeeData.firstName || ''
@@ -4228,6 +4244,39 @@ export default class EmployeeService {
     person.personPlaceOfBirthCountry = employeeData.personPlaceOfBirthCountry || ''
     person.personPlaceOfBirthState = employeeData.personPlaceOfBirthState || ''
     person.personPlaceOfBirthCity = employeeData.personPlaceOfBirthCity || ''
+
+    // Rastro del intento de captura del correo personal (USRH1789762889970, D7).
+    // El importador NO impone unicidad: sigue guardando directo. Esta HU solo
+    // deja la bitácora que hoy no existe, y es de APOYO — si la consulta o el
+    // registro fallan, la fila se importa igual y el usuario no ve nada raro.
+    // NUNCA se guarda el correo en claro, ni el nombre, ni el expediente del
+    // titular colisionado: solo la huella, el actor y su scope de empresas.
+    const importedEmail = typeof person.personEmail === 'string' ? person.personEmail.trim() : ''
+
+    // Correo vacío o el placeholder de `importSensitiveValueOrDefault` (''): NO
+    // es intento y no se hashea — `blindIndex('')` es una constante que
+    // envenenaría la colección.
+    if (importedEmail !== '') {
+      try {
+        const emailHash = blindIndex(importedEmail)
+        // Unicidad GLOBAL del correo personal (USRH1789698261610 regla 5): la
+        // consulta canónica corre sin filtro de empresa. Con una query pelada el
+        // mixin de tenant la acotaría a las empresas del actor y un correo
+        // tomado por otra empresa se leería como libre.
+        const taken = await personEmailExistsGlobally(importedEmail, 0)
+
+        await PersonEmailProbeLogService.log({
+          path: 'import',
+          personEmailHash: emailHash,
+          outcome: taken ? 'rejected_not_available' : 'accepted',
+          actorUserId,
+          businessUnitScope,
+          targetPersonId: null,
+        })
+      } catch {
+        // Best-effort: la bitácora no puede cambiar el resultado de la carga.
+      }
+    }
 
     await person.save()
     return person
