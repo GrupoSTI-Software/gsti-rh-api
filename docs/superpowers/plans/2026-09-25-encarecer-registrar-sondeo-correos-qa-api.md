@@ -17,12 +17,13 @@ node ace db:seed --files=database/seeders/_tmp_do_not_commit_qa_seeder.ts
 
 Este seeder es temporal y **NO se commitea** (el nombre lo dice y el repo lo ignora con `.git/info/exclude`). Volver a correrlo restaura lo que el recorrido ensucie en las dos empresas de prueba.
 
-Deja listas dos empresas (A y B) con un capturista en cada una, en A el expediente dueño del correo ocupado `qa-correo-ocupado@gsti-tests.local`, y en B un expediente propio con el correo libre `qa-correo-libre-b@gsti-tests.local`.
+Deja listas dos empresas (A y B): un capturista en A y **dos** en B —el segundo existe para probar que el corte es por persona y no por empresa—, en A el expediente dueño del correo ocupado `qa-correo-ocupado@gsti-tests.local`, y en B un expediente propio con el correo libre `qa-correo-libre-b@gsti-tests.local`.
 
 | | Correo | Contraseña | Empresa |
 |---|---|---|---|
 | **A** | `qa-correo-capturista-a@gsti-tests.local` | `password` | Empresa A |
 | **B** | `qa-correo-capturista-b@gsti-tests.local` | `password` | Empresa B |
+| **B2** | `qa-sondeo-capturista-b2@gsti-tests.local` | `password` | Empresa B (la misma de B) |
 
 Identificadores públicos de las dos empresas, para el header `X-Business-Unit-Id`:
 
@@ -251,15 +252,38 @@ Repite la misma edición veintiuna veces.
 
 La vigésima primera → `429`, el mismo corte del Escenario 1. Nota: la edición con el propio correo responde `201` (no `422`), porque el correo del expediente no choca con otro; y como consume el mismo contador, no se puede esquivar el corte reenviando el correo propio.
 
-## 7. Escenario 6 (CA-4, parte demostrable) — El límite es por persona, no por empresa
+## 7. Escenario 6 (CA-4) — El límite es por persona, no por empresa
 
-Usuario: **B** está cortado (Escenario 5). Usuario: **A** (su contador se reinició en el Escenario 5) captura con normalidad.
+Objetivo: el corte de una persona no arrastra ni a un compañero de su **misma** empresa ni a nadie de otra. Se recorren las dos mitades del criterio: **B2**, segundo capturista de la empresa B, y **A**, capturista de la empresa A.
 
-Objetivo: el corte de una persona no arrastra a otra.
+Usuario **B** terminó cortado en el Escenario 5. **No reinicies el servidor** en este escenario (reiniciarlo borraría el corte de B y el escenario dejaría de probar nada) y no vuelvas a usar a B.
+
+### Parte A — otra persona de la MISMA empresa
+
+Usuario: **B2**.
 
 **Endpoint:** `POST /api/persons`
 
-Headers: `Authorization: Bearer <token de A>`, `X-Business-Unit-Id: <identificador público de A>`
+Headers: `Authorization: Bearer *** de B2>`, `X-Business-Unit-Id: <identificador público de B>` (el mismo de B: B2 pertenece a la empresa B)
+
+```json
+{
+  "personFirstname": "QA",
+  "personLastname": "SondeoMismaEmpresa",
+  "personSecondLastname": "Correo",
+  "personEmail": "qa-sondeo-misma-empresa-<fecha-hora>@gsti-tests.local"
+}
+```
+
+**Response exacto:** `201`, sin cabeceras de límite, en el mismo momento en que **B** sigue cortado y con el **mismo** `X-Business-Unit-Id`. Si el corte fuera por empresa, B2 habría recibido el `429` en su primer intento; no lo recibe porque el contador es de quien captura.
+
+### Parte B — una persona de otra empresa
+
+Usuario: **A** (su contador quedó limpio: el Escenario 5 reinició el servidor).
+
+**Endpoint:** `POST /api/persons`
+
+Headers: `Authorization: Bearer *** de A>`, `X-Business-Unit-Id: <identificador público de A>`
 
 ```json
 {
@@ -270,7 +294,7 @@ Headers: `Authorization: Bearer <token de A>`, `X-Business-Unit-Id: <identificad
 }
 ```
 
-**Response exacto:** `201`, sin cabeceras de límite, en el mismo momento en que **B** sigue cortado. El límite no castiga a quien no hizo nada.
+**Response exacto:** `201`, sin cabeceras de límite. El límite no castiga a quien no hizo nada, ni dentro ni fuera de la empresa de B.
 
 ## 8. Escenario 7 (CA-12) — El piso de escritura corta el guión automatizado
 
@@ -424,7 +448,6 @@ Se declaran, sin inventarles pasos, porque no se pueden provocar con un cliente 
 
 1. **Techo por empresa de 200 por hora** (`PERSON_EMAIL_PROBE_BUSINESS_RATE`): no se provoca a mano. Con 20 por hora por persona, harían falta diez personas de la misma empresa topando su propio contador (10 × 20 = 200) y una undécima para que el corte de empresa dispare en su primer intento. Queda cubierto por las pruebas unitarias del contador de empresa.
 2. **Bitácora caída con Mongo no disponible**: que el alta o la edición sigan su curso —y el capturista no vea nada raro— cuando el registro falla no se puede provocar desde un cliente HTTP: exige tumbar Mongo. Queda cubierto por la prueba automatizada que hace fallar la escritura de la bitácora y comprueba que la respuesta es idéntica.
-3. **Variante "otra persona de la MISMA empresa" del aislamiento (CA-4)**: el seeder temporal deja un solo capturista por empresa, así que no hay una segunda persona de la empresa B para probarlo. Queda cubierto por la prueba funcional automatizada, que usa tres personas de la misma empresa. El Escenario 6 recorre la parte demostrable: el corte de una persona no arrastra a otra.
 
 ## 13. Checklist
 
@@ -433,9 +456,9 @@ Se declaran, sin inventarles pasos, porque no se pueden provocar con un cliente 
 - [ ] Escenario 3 — Operación diaria: 15 altas sin correo y 15 con correos libres, sin fricción
 - [ ] Escenario 4 — Correo vacío (`""`, ausente, `"   "`): `201`, sin intento
 - [ ] Escenario 5 — Editar con el propio correo: `201` y consume el mismo contador
-- [ ] Escenario 6 — El corte es por persona: otra persona captura mientras B está cortado
+- [ ] Escenario 6 — El corte es por persona: B2 (misma empresa) y A (otra empresa) capturan mientras B está cortado
 - [ ] Escenario 7 — Piso de escritura: la 41ª escritura responde `429` con `X-RateLimit-Limit: 40`; la lectura sigue abierta
 - [ ] Escenario 8 — Bitácora: quién, empresa y cuándo; sin correo legible; distingue al sondeador del capturista
 - [ ] Escenario 9 — Carga masiva: una fila de bitácora por fila del archivo con correo, con quién subió y desde qué empresa
 - [ ] Escenario 10 — Consulta por persona y rango de fechas, e índice `people_person_email_hash_index`
-- [ ] Estados no observables — techo de 200/h, bitácora caída y variante "misma empresa", declarados sin pasos inventados
+- [ ] Estados no observables — techo de 200/h y bitácora caída, declarados sin pasos inventados
