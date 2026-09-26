@@ -10,6 +10,7 @@ import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 
 const TEST_PASSWORD = 'EmployeesWriteSoftRolloutTest123!'
 
@@ -234,6 +235,7 @@ async function createEmployeeFixture(
   })
   const alternativePositionId = Number(alternativePositionInsert[0])
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: 'Empleado',
@@ -506,7 +508,7 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
           .loginAs(actor!.user)
           .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId),
         await client
-          .post('/api/synchronization/employees')
+          .post(`/api/employees/inverse-synchronization/${fixture.employee.employeeId}`)
           .loginAs(actor!.user)
           .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId),
       ]
@@ -519,17 +521,13 @@ test.group('Escrituras empleados — PermissionGate exigencia ON', (group) => {
     }
   })
 
-  test('CA-15: DELETE de sucursal, asignación temporal y contrato exigen tab-trabajo-delete', async ({
+  test('CA-15: DELETE de asignación temporal y contrato exigen tab-trabajo-delete', async ({
     client,
     assert,
   }) => {
     const fixture = await createEmployeeFixture(actor!.businessUnit.businessUnitId, 'ca15-delete')
     try {
       const responses = [
-        await client
-          .delete(`/api/employees/${fixture.employee.employeeId}/branch-office`)
-          .loginAs(actor!.user)
-          .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId),
         await client
           .delete(`/api/employees/${fixture.employee.employeeId}/temporary-assignments/1`)
           .loginAs(actor!.user)

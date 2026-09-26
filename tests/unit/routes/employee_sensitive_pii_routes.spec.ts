@@ -6,7 +6,7 @@ import { test } from '@japa/runner'
  * USRH1783821206584 — hallazgo crítico: el mixin no filtra si la ruta no pasó
  * por `businessScope()`. Las rutas de administración de biométricos y
  * certificaciones deben declarar la unidad activa; los caminos de dispositivo
- * (`verify-face`) se dejan explícitamente sin ella.
+ * de checada en sitio (`verify-face`) se retiró en USRH1790276646847.
  */
 
 const ROUTES_DIR = join(process.cwd(), 'start/routes')
@@ -36,15 +36,5 @@ test.group('PII sensible — rutas de administración con businessScope obligato
 
     assert.include(content, "router.get('/:employeeId/salary-history'")
     assert.include(content, 'middleware.businessScope()')
-  })
-})
-
-test.group('PII sensible — caminos de dispositivo sin candado (por diseño)', () => {
-  test('face_routes.ts (checado en sitio) NO monta businessScope', ({ assert }) => {
-    const content = readFileSync(join(ROUTES_DIR, 'face_routes.ts'), 'utf-8')
-
-    assert.include(content, "prefix('/api/verify-face')")
-    assert.include(content, 'middleware.auth()')
-    assert.notInclude(content, 'businessScope')
   })
 })

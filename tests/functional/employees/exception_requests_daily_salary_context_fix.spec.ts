@@ -24,7 +24,7 @@ import {
  * `dailySalary: •••••` (regresión de usabilidad, nunca fuga del número en claro).
  *
  * Fix: montar `middleware.sensitiveAccess()` en el grupo (mismo patrón que
- * `person_routes.ts` / `synchronization_routes.ts`). Este test prueba que,
+ * `person_routes.ts`). Este test prueba que,
  * tras el fix, `dailySalary` responde correctamente según el permiso.
  */
 const DAILY_SALARY = 777.25

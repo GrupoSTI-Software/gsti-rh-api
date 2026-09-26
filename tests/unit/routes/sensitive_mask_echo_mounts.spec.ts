@@ -18,7 +18,6 @@ const WRITE_ROUTE_FILES = [
   'start/routes/employee_biometric_face_id_routes.ts',
   'start/routes/user_routes.ts',
   'start/routes/employee_routes.ts',
-  'start/routes/synchronization_routes.ts',
   'start/routes/empresas_contratantes_routes.ts',
 ]
 

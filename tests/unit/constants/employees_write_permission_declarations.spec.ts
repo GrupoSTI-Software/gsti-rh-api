@@ -27,9 +27,11 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
   // 162: sale unassignEmployeeBranchOffice. Un empleado siempre pertenece a una
   // sucursal, así que desasignar dejó de ser una operación posible: la ruta se
   // retiró y cambiar de sucursal es un assign.
-  test('declara exactamente 162 operaciones con module employees y bypass standard', ({ assert }) => {
+  // 157: salen syncDepartments, syncPositions, syncEmployees, syncShift y
+  // syncEmployeesBySelection con el retiro de /api/synchronization/* (USRH1790276646847).
+  test('declara exactamente 157 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 162)
+    assert.equal(keys.length, 157)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 
