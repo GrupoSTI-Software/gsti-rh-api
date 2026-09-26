@@ -25,8 +25,11 @@ server.errorHandler(() => import('#exceptions/handler'))
  */
 server.use([
   () => import('#middleware/container_bindings_middleware'),
+  /** Canal ADMS del checador: se atiende aqui y no llega al router (spec ADMS 4.1). */
+  () => import('#middleware/adms_gateway_middleware'),
   () => import('#middleware/force_json_response_middleware'),
   () => import('@adonisjs/cors/cors_middleware'),
+  () => import('#middleware/employee_import_upload_limit_middleware'),
 ])
 
 /**
@@ -47,6 +50,18 @@ router.use([
 export const middleware = router.named({
   auth: () => import('#middleware/auth_middleware'),
   basicAuth: () => import('#middleware/basic_auth_middleware'),
+  businessScope: () => import('#middleware/business_unit_scope_middleware'),
+  businessScopeOptional: () => import('#middleware/business_unit_scope_optional_middleware'),
+  /** Protege las rutas internas de la consola landlord (/api/platform/*). Fail-closed. */
+  platformAdmin: () => import('#middleware/platform_admin_middleware'),
+  /** Pieza única declarativa de control de acceso (USRH1785766406721). Fail-closed. */
+  permissionGate: () => import('#middleware/permission_gate_middleware'),
+  /** Decisiones de lectura sensible por categoría (USRH1787204602825). Fail-closed. */
+  sensitiveAccess: () => import('#middleware/sensitive_access_context_middleware'),
+  /** Neutraliza reenvío de datos enmascarados (USRH1787433076990). Requiere ALS abierto. */
+  sensitiveMaskEcho: () => import('#middleware/sensitive_mask_echo_middleware'),
+  /** Resuelve `:userId` en scope de empresa + force-logout anti-IDOR (USRH1786736057519). */
+  userResourceScope: () => import('#middleware/user_resource_scope_middleware'),
   ...(env.get('APP_MODE') === 'demo'
     ? { demoGuard: () => import('../app/modules/demo/middleware/demo_guard_middleware.js') }
     : {}),

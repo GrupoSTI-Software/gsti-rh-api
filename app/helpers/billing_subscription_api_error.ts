@@ -1,0 +1,74 @@
+import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
+import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
+import { DiscountCodeServiceError } from '../exceptions/discount_code_service_error.js'
+import { AllianceServiceError } from '../exceptions/alliance_service_error.js'
+import { resolveAllianceApiError } from './alliance_api_error.js'
+import { resolveDiscountCodeApiError } from './discount_code_api_error.js'
+
+export type ResolvedBillingSubscriptionError = {
+  title: string
+  detail: string
+  key: string
+  code: string
+  status: number
+  data?: Record<string, number>
+}
+
+/**
+ * Convierte excepciones del alta de suscripciones en la respuesta HTTP estable
+ * `{ title, detail, key, code }`. El prefijo habitual es PLT.SUB.*; un código
+ * de alianza puede reexponer PLT.ALL.* o PLT.DSC.* sin reescribir el mensaje.
+ */
+export function resolveBillingSubscriptionApiError(
+  error: unknown,
+  fallbackStatus: number = 500
+): ResolvedBillingSubscriptionError {
+  const err = error as { code?: string; messages?: Array<{ message?: string }>; message?: string }
+
+  if (err?.code === 'E_VALIDATION_ERROR') {
+    const detail = err.messages?.[0]?.message ?? 'Datos inválidos'
+    return {
+      title: 'Suscripciones',
+      detail,
+      key: 'PLT.SUB.VAL_INPUT',
+      code: BILLING_SUBSCRIPTION_ERROR_CODES.VAL_INPUT,
+      status: 422,
+    }
+  }
+
+  if (error instanceof BillingSubscriptionServiceError) {
+    const resolved: ResolvedBillingSubscriptionError = {
+      title: 'Suscripciones',
+      detail: error.detail ?? error.message,
+      key: error.key ?? error.errorCode,
+      code: error.errorCode,
+      status: error.httpStatus,
+    }
+    if (error.data) {
+      resolved.data = error.data
+    }
+    return resolved
+  }
+
+  // Delegación (USRH1787714804401 §4/Anexo C §4): un código no canjeable
+  // rechaza el alta con el mismo motivo `{title, detail, key, code}` que ya
+  // daría la cotización — no se reescribe el mensaje aquí.
+  if (error instanceof DiscountCodeServiceError) {
+    return resolveDiscountCodeApiError(error, fallbackStatus)
+  }
+
+  // Canje del código de una alianza: el alta puede rechazarse con
+  // PLT.ALL.* (otra alianza viva). Se reexpone el catálogo de alianzas
+  // sin reescribir el mensaje.
+  if (error instanceof AllianceServiceError) {
+    return resolveAllianceApiError(error, fallbackStatus)
+  }
+
+  return {
+    title: 'Error del servidor',
+    detail: typeof err?.message === 'string' ? err.message : 'Error inesperado en suscripciones.',
+    key: BILLING_SUBSCRIPTION_ERROR_CODES.SYS_UNHANDLED,
+    code: BILLING_SUBSCRIPTION_ERROR_CODES.SYS_UNHANDLED,
+    status: fallbackStatus,
+  }
+}

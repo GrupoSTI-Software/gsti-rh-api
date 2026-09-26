@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import { BaseModel, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
 /**
  * @swagger
@@ -32,7 +33,20 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
  *           type: string
  *           description: Business unit competency level deleted at
  */
-export default class BusinessUnitCompetencyLevel extends compose(BaseModel, SoftDeletes) {
+/**
+ * Compone `withBusinessUnitScope()` (USRH1784259058567, defensa en
+ * profundidad). `businessUnitId` era NULLABLE: se corrió un pre-check de
+ * NULLs antes de componer (0 filas con NULL en el momento de implementar) y
+ * una migración impuso NOT NULL — ver
+ * `database/migrations/*_add_not_null_to_business_unit_competency_levels.ts`.
+ * Si en algún entorno futuro apareciera una fila NULL, no hay padre del cual
+ * derivar la pertenencia: escalar a Wilvardo, no inventar.
+ */
+export default class BusinessUnitCompetencyLevel extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare businessUnitCompetencyLevelId: number
 

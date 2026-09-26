@@ -3,6 +3,7 @@ import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import Employee from './employee.js'
 import PositionAssessmentProfile from './position_assessment_profile.js'
 import PositionSpecificFunction from './position_specific_function.js'
@@ -10,6 +11,7 @@ import PositionKpi from './position_kpi.js'
 import PositionBusinessUnitCompetencyLevel from './position_business_unit_competency_level.js'
 import PositionWorkTool from './position_work_tool.js'
 import PositionCertificationRequirement from './position_certification_requirement.js'
+import PositionPositionLevel from './position_position_level.js'
 
 /**
  * @swagger
@@ -95,7 +97,7 @@ import PositionCertificationRequirement from './position_certification_requireme
  *            type: string
  *
  */
-export default class Position extends compose(BaseModel, SoftDeletes) {
+export default class Position extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare positionId: number
 
@@ -247,4 +249,9 @@ export default class Position extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'positionId',
   })
   declare certificationRequirements: HasMany<typeof PositionCertificationRequirement>
+
+  @hasMany(() => PositionPositionLevel, {
+    foreignKey: 'positionId',
+  })
+  declare positionPositionLevels: HasMany<typeof PositionPositionLevel>
 }

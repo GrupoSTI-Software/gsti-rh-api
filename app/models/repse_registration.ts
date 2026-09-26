@@ -1,0 +1,130 @@
+import { compose } from '@adonisjs/core/helpers'
+import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
+import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { DateTime } from 'luxon'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
+import BusinessUnit from '#models/business_unit'
+import RepseSpecializedService from '#models/repse_specialized_service'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+
+/**
+ * Estados permitidos para un registro REPSE.
+ *
+ * Inicialmente solo se admite `active`. Estados como `expired` o `cancelled`
+ * se incorporarán en historias posteriores con sus reglas de transición.
+ */
+export type RepseRegistrationStatus = 'active'
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     RepseRegistration:
+ *       type: object
+ *       properties:
+ *         repseRegistrationId:
+ *           type: integer
+ *           description: Identificador único del registro REPSE.
+ *         businessUnitId:
+ *           type: integer
+ *           description: Empresa propietaria del registro (FK a business_units).
+ *         folio:
+ *           type: string
+ *           maxLength: 50
+ *           description: Folio asignado por la STPS al registro REPSE.
+ *         registeredAt:
+ *           type: string
+ *           format: date
+ *           description: Fecha de alta del registro ante la STPS (YYYY-MM-DD).
+ *         expiresAt:
+ *           type: string
+ *           format: date
+ *           description: Fecha de vencimiento del registro (YYYY-MM-DD).
+ *         status:
+ *           type: string
+ *           enum: [active]
+ *           description: Estado del registro.
+ *         activities:
+ *           type: string
+ *           nullable: true
+ *           description: Actividades registradas ante la STPS (texto libre).
+ *         constancia:
+ *           type: object
+ *           nullable: true
+ *           description: Constancia de registro REPSE cargada (PDF); null si no hay.
+ *           properties:
+ *             fileName: { type: string }
+ *             uploadedAt: { type: string, format: date-time }
+ *         repseRegistrationCreatedAt:
+ *           type: string
+ *           format: date-time
+ *         repseRegistrationUpdatedAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *         repseRegistrationDeletedAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ */
+export default class RepseRegistration extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
+  static table = 'repse_registrations'
+
+  @column({ isPrimary: true })
+  declare repseRegistrationId: number
+
+  @column()
+  declare businessUnitId: number
+
+  @column({ columnName: 'repse_registration_folio' })
+  declare folio: string
+
+  @column.date({ columnName: 'repse_registration_registered_at' })
+  declare registeredAt: DateTime
+
+  @column.date({ columnName: 'repse_registration_expires_at' })
+  declare expiresAt: DateTime
+
+  @column({ columnName: 'repse_registration_status' })
+  declare status: RepseRegistrationStatus
+
+  /** Actividades registradas ante la STPS (texto libre). */
+  @column({ columnName: 'repse_registration_activities' })
+  declare activities: string | null
+
+  /** Key privada de la constancia de registro REPSE (PDF). Uso interno: nunca se serializa. */
+  @column({ columnName: 'repse_registration_constancia_storage_key', serializeAs: null })
+  declare constanciaStorageKey: string | null
+
+  /** Nombre original del PDF de la constancia, tal como lo subió el usuario. */
+  @column({ columnName: 'repse_registration_constancia_file_name' })
+  declare constanciaFileName: string | null
+
+  @column.dateTime({ columnName: 'repse_registration_constancia_uploaded_at' })
+  declare constanciaUploadedAt: DateTime | null
+
+  @column.dateTime({ autoCreate: true })
+  declare repseRegistrationCreatedAt: DateTime
+
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare repseRegistrationUpdatedAt: DateTime | null
+
+  @column.dateTime({ columnName: 'repse_registration_deleted_at' })
+  declare deletedAt: DateTime | null
+
+  @belongsTo(() => BusinessUnit, {
+    foreignKey: 'businessUnitId',
+    localKey: 'businessUnitId',
+  })
+  declare businessUnit: BelongsTo<typeof BusinessUnit>
+
+  @hasMany(() => RepseSpecializedService, {
+    foreignKey: 'repseRegistrationId',
+    localKey: 'repseRegistrationId',
+  })
+  declare specializedServices: HasMany<typeof RepseSpecializedService>
+}

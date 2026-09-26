@@ -1,0 +1,389 @@
+import logger from '@adonisjs/core/services/logger'
+import { TenantContext } from '#utils/tenant_context'
+import ContratoServicioEspecializado from '#models/contrato_servicio_especializado'
+import EmpresaContratante from '#models/empresa_contratante'
+import RepseRegistration from '#models/repse_registration'
+import RepseSpecializedService from '#models/repse_specialized_service'
+import Employee from '#models/employee'
+import { CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES } from '../constants/contrato_servicio_especializado_error_codes.js'
+import { ASIGNACION_CONTRATO_ESPECIALIZADO_ERROR_CODES } from '../constants/asignacion_contrato_especializado_error_codes.js'
+import { AsignacionContratoEspecializadoError } from '../exceptions/asignacion_contrato_especializado_error.js'
+import { EMPRESA_CONTRATANTE_ERROR_CODES } from '../constants/empresa_contratante_error_codes.js'
+import { REPSE_ERROR_CODES } from '../constants/repse_registration_error_codes.js'
+import { ContratoServicioEspecializadoError } from '../exceptions/contrato_servicio_especializado_error.js'
+import { EmpresaContratanteError } from '../exceptions/empresa_contratante_error.js'
+import { RepseRegistrationError } from '../exceptions/repse_registration_error.js'
+
+/**
+ * Helpers reutilizables para aplicar el aislamiento multi-tenant del módulo
+ * REPSE. Encapsulan la resolución de los `business_unit_id` permitidos por
+ * el tenant actual (vía el resolvedor central `TenantContext`) y la
+ * verificación de que un registro REPSE pertenezca a dicho tenant.
+ *
+ * Se extraen del servicio padre para que las historias siguientes de la
+ * cadena (catálogo de servicios especializados, contratos B2B, asignación
+ * de empleados) compartan exactamente la misma regla sin duplicar código.
+ */
+
+/**
+ * Devuelve los IDs de unidades de negocio accesibles para la request actual,
+ * resueltos por el middleware `businessScope()` (rol `root` incluido, vía
+ * `BusinessAccessScopeService.getAllActiveIds()` + unidad seleccionada en el
+ * header) y propagados por `TenantContext` (AsyncLocalStorage).
+ *
+ * Fail-closed: si no hay `TenantContext` activo (la request no pasó por el
+ * middleware), `TenantContext.getScope()` devuelve `[]`; los callers de este
+ * helper ya tratan un scope vacío como "sin acceso" (404), por lo que nunca
+ * se degrada a una consulta sin filtro.
+ */
+export async function getAllowedBusinessUnitIds(): Promise<number[]> {
+  return TenantContext.getScope()
+}
+
+/**
+ * Valida que el `businessUnitId` pertenezca al tenant del usuario autenticado.
+ * Lanza 404 con key `empresa-no-encontrada` cuando no coincide.
+ */
+export async function assertBusinessUnitInTenant(businessUnitId: number): Promise<void> {
+  const allowed = await getAllowedBusinessUnitIds()
+  if (!allowed.includes(businessUnitId)) {
+    throw new RepseRegistrationError(
+      'La empresa no existe o no pertenece al tenant actual.',
+      REPSE_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND,
+      404,
+      'empresa-no-encontrada'
+    )
+  }
+}
+
+/**
+ * Recupera un registro REPSE no borrado lógicamente cuya empresa pertenezca
+ * al tenant actual. Lanza 404 cuando no existe o vive en otra empresa.
+ *
+ * El parámetro `notFoundKey` permite que cada módulo cliente devuelva la key
+ * kebab-case que su contrato público requiere. El servicio padre conserva
+ * la key histórica `repse-no-encontrado`; los módulos hijos del catálogo
+ * REPSE usan `registro-repse-no-encontrado`.
+ */
+export async function findRegistrationInTenantOrFail(
+  repseRegistrationId: number,
+  notFoundKey: string = 'repse-no-encontrado'
+): Promise<RepseRegistration> {
+  const allowed = await getAllowedBusinessUnitIds()
+  if (allowed.length === 0) {
+    throw new RepseRegistrationError(
+      'El registro REPSE no existe o no pertenece al tenant actual.',
+      REPSE_ERROR_CODES.REPSE_NOT_FOUND,
+      404,
+      notFoundKey
+    )
+  }
+
+  const row = await RepseRegistration.query()
+    .where('repse_registration_id', repseRegistrationId)
+    .whereNull('repse_registration_deleted_at')
+    .whereIn('business_unit_id', allowed)
+    .first()
+
+  if (!row) {
+    throw new RepseRegistrationError(
+      'El registro REPSE no existe o no pertenece al tenant actual.',
+      REPSE_ERROR_CODES.REPSE_NOT_FOUND,
+      404,
+      notFoundKey
+    )
+  }
+  return row
+}
+
+/**
+ * Recupera una empresa contratante no borrada cuya BU pertenezca al tenant
+ * actual. Lanza 404 cuando no existe o vive en otra instancia (cross-tenant).
+ */
+export async function findEmpresaContratanteInTenantOrFail(
+  empresaContratanteId: number,
+  notFoundKey: string = 'empresa-contratante-no-encontrada'
+): Promise<EmpresaContratante> {
+  const allowed = await getAllowedBusinessUnitIds()
+  if (allowed.length === 0) {
+    throw new EmpresaContratanteError(
+      'La empresa contratante no existe o no pertenece al tenant actual.',
+      EMPRESA_CONTRATANTE_ERROR_CODES.NOT_FOUND,
+      404,
+      notFoundKey,
+      'La empresa contratante no existe o no pertenece al tenant actual.'
+    )
+  }
+
+  const row = await EmpresaContratante.query()
+    .where('empresa_contratante_id', empresaContratanteId)
+    .whereNull('empresa_contratante_deleted_at')
+    .whereIn('business_unit_id', allowed)
+    .first()
+
+  if (!row) {
+    throw new EmpresaContratanteError(
+      'La empresa contratante no existe o no pertenece al tenant actual.',
+      EMPRESA_CONTRATANTE_ERROR_CODES.NOT_FOUND,
+      404,
+      notFoundKey,
+      'La empresa contratante no existe o no pertenece al tenant actual.'
+    )
+  }
+
+  return row
+}
+
+export type FindContratoInTenantOptions = {
+  notFoundKey?: string
+  /** Incluye subconsulta de fecha_vencimiento del documento firmado vigente en `$extras`. */
+  withDocumentoVigenteFecha?: boolean
+  /** Incluye además los datos de tarjeta (`ContratoServicioEspecializado.withResumenTarjeta`). */
+  withResumenTarjeta?: boolean
+}
+
+/**
+ * Recupera un contrato de servicios especializados no borrado cuya BU pertenezca
+ * al tenant actual. Lanza 404 cuando no existe o vive en otra instancia.
+ */
+export async function findContratoInTenantOrFail(
+  contratoServicioEspecializadoId: number,
+  notFoundKeyOrOptions: string | FindContratoInTenantOptions = 'contrato-no-encontrado'
+): Promise<ContratoServicioEspecializado> {
+  const options: FindContratoInTenantOptions =
+    typeof notFoundKeyOrOptions === 'string'
+      ? { notFoundKey: notFoundKeyOrOptions }
+      : notFoundKeyOrOptions
+  const notFoundKey = options.notFoundKey ?? 'contrato-no-encontrado'
+
+  const allowed = await getAllowedBusinessUnitIds()
+  if (allowed.length === 0) {
+    throw new ContratoServicioEspecializadoError(
+      'El contrato no existe o no pertenece al tenant actual.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.NOT_FOUND,
+      404,
+      notFoundKey,
+      'El contrato no existe o no pertenece al tenant actual.'
+    )
+  }
+
+  let query = ContratoServicioEspecializado.query()
+    .where('contrato_servicio_especializado_id', contratoServicioEspecializadoId)
+    .whereNull('contrato_servicio_especializado_deleted_at')
+    .whereIn('business_unit_id', allowed)
+
+  if (options.withResumenTarjeta) {
+    query = ContratoServicioEspecializado.withResumenTarjeta(query)
+  } else if (options.withDocumentoVigenteFecha) {
+    query = ContratoServicioEspecializado.withDocumentoVigenteFechaVencimiento(query)
+  }
+
+  const row = await query.first()
+
+  if (!row) {
+    throw new ContratoServicioEspecializadoError(
+      'El contrato no existe o no pertenece al tenant actual.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.NOT_FOUND,
+      404,
+      notFoundKey,
+      'El contrato no existe o no pertenece al tenant actual.'
+    )
+  }
+
+  return row
+}
+
+/**
+ * Obtiene el folio REPSE activo del tenant (persona moral/física prestadora).
+ * Busca en todas las BUs permitidas; un prestador tiene un solo folio REPSE.
+ */
+export async function findActiveRepseFolioForTenant(): Promise<string> {
+  const allowed = await getAllowedBusinessUnitIds()
+  if (allowed.length === 0) {
+    throw new ContratoServicioEspecializadoError(
+      'No hay registro REPSE activo para el tenant actual.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.REPSE_NOT_FOUND,
+      422,
+      'registro-repse-no-encontrado',
+      'No hay registro REPSE activo para el tenant actual.'
+    )
+  }
+
+  const registrations = await RepseRegistration.query()
+    .whereNull('repse_registration_deleted_at')
+    .where('repse_registration_status', 'active')
+    .whereIn('business_unit_id', allowed)
+    .orderBy('repse_registration_id', 'asc')
+
+  if (registrations.length === 0) {
+    throw new ContratoServicioEspecializadoError(
+      'No hay registro REPSE activo para el tenant actual.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.REPSE_NOT_FOUND,
+      422,
+      'registro-repse-no-encontrado',
+      'No hay registro REPSE activo para el tenant actual.'
+    )
+  }
+
+  const folios = [...new Set(registrations.map((r) => r.folio.trim()))]
+  if (folios.length > 1) {
+    logger.warn(
+      { foliosCount: folios.length },
+      'Inconsistencia: múltiples folios REPSE activos en el tenant; se usa el primero.'
+    )
+  }
+
+  return registrations[0].folio.trim()
+}
+
+/**
+ * Normaliza ids duplicados del body antes de validar y sincronizar la pivote.
+ */
+export function dedupeServiciosRegistradosIds(ids: number[]): number[] {
+  return [...new Set(ids)]
+}
+
+/**
+ * Valida que exista al menos un servicio registrado (dominio, además de Vine).
+ */
+export function assertServiciosRegistradosRequeridos(ids: number[] | undefined): number[] {
+  const unique = dedupeServiciosRegistradosIds(ids ?? [])
+  if (unique.length === 0) {
+    throw new ContratoServicioEspecializadoError(
+      'Debe indicar al menos un servicio especializado registrado del catálogo REPSE.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.SERVICIOS_REGISTRADOS_REQUERIDOS,
+      400,
+      'servicios-registrados-requeridos',
+      'Debe indicar al menos un servicio del catálogo REPSE.'
+    )
+  }
+  return unique
+}
+
+/**
+ * Resuelve servicios del catálogo REPSE validando tenant vía registro padre.
+ * Lanza 404 si algún id no existe o pertenece a otro tenant.
+ */
+export async function findRepseSpecializedServicesInTenantOrFail(
+  ids: number[]
+): Promise<RepseSpecializedService[]> {
+  const uniqueIds = assertServiciosRegistradosRequeridos(ids)
+  const allowed = await getAllowedBusinessUnitIds()
+
+  if (allowed.length === 0) {
+    throw new ContratoServicioEspecializadoError(
+      'El servicio registrado no existe o no pertenece al tenant actual.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.SERVICIO_REGISTRADO_NOT_FOUND,
+      404,
+      'servicio-registrado-no-encontrado',
+      'Servicio registrado no encontrado.'
+    )
+  }
+
+  const rows = await RepseSpecializedService.query()
+    .whereIn('repse_specialized_service_id', uniqueIds)
+    .whereNull('repse_specialized_service_deleted_at')
+    .whereHas('repseRegistration', (parentQuery) => {
+      parentQuery
+        .whereNull('repse_registration_deleted_at')
+        .whereIn('business_unit_id', allowed)
+    })
+
+  if (rows.length !== uniqueIds.length) {
+    throw new ContratoServicioEspecializadoError(
+      'Uno o más servicios registrados no existen o no pertenecen al tenant actual.',
+      CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES.SERVICIO_REGISTRADO_NOT_FOUND,
+      404,
+      'servicio-registrado-no-encontrado',
+      'Servicio registrado no encontrado.'
+    )
+  }
+
+  return rows
+}
+
+/**
+ * Resuelve servicios del catálogo REPSE por `name` (case/trim-insensitive)
+ * dentro del tenant actual, validando el padre `RepseRegistration` igual que
+ * `findRepseSpecializedServicesInTenantOrFail`. A diferencia de esa función,
+ * no lanza si algún nombre no existe: devuelve los encontrados y la lista de
+ * nombres sin resolver, para que el caller (motor de importación por Excel,
+ * USRH1785509296682) decida el motivo exacto de la fila.
+ */
+export async function findRepseSpecializedServicesByNamesInTenant(
+  names: string[]
+): Promise<{ found: RepseSpecializedService[]; missing: string[] }> {
+  const uniqueNames = [...new Set(names.map((name) => name.trim()).filter((name) => name.length > 0))]
+  if (uniqueNames.length === 0) {
+    return { found: [], missing: [] }
+  }
+
+  const allowed = await getAllowedBusinessUnitIds()
+  if (allowed.length === 0) {
+    return { found: [], missing: uniqueNames }
+  }
+
+  const normalizedNames = uniqueNames.map((name) => name.toLowerCase())
+  const rows = await RepseSpecializedService.query()
+    .whereNull('repse_specialized_service_deleted_at')
+    .whereRaw(
+      `LOWER(TRIM(repse_specialized_service_name)) IN (${normalizedNames.map(() => '?').join(',')})`,
+      normalizedNames
+    )
+    .whereHas('repseRegistration', (parentQuery) => {
+      parentQuery
+        .whereNull('repse_registration_deleted_at')
+        .whereIn('business_unit_id', allowed)
+    })
+
+  const foundNamesLower = new Set(rows.map((row) => row.name.trim().toLowerCase()))
+  const missing = uniqueNames.filter((name) => !foundNamesLower.has(name.toLowerCase()))
+
+  return { found: rows, missing }
+}
+
+export type FindEmployeeInTenantOptions = {
+  itemIndex?: number
+}
+
+/**
+ * Recupera un empleado activo cuya unidad de negocio pertenezca al tenant actual.
+ * Empleados dados de baja o inexistentes responden 404 con key empleado-no-encontrado.
+ */
+export async function findEmployeeInTenantOrFail(
+  employeeId: number,
+  options: FindEmployeeInTenantOptions = {}
+): Promise<Employee> {
+  const allowed = await getAllowedBusinessUnitIds()
+  const itemSuffix =
+    options.itemIndex !== undefined ? ` del item ${options.itemIndex}` : ''
+
+  if (allowed.length === 0) {
+    throw new AsignacionContratoEspecializadoError(
+      `No se encontró el empleado${itemSuffix} (id ${employeeId}).`,
+      ASIGNACION_CONTRATO_ESPECIALIZADO_ERROR_CODES.EMPLOYEE_NOT_FOUND,
+      404,
+      'empleado-no-encontrado',
+      `No se encontró el empleado${itemSuffix} (id ${employeeId})`
+    )
+  }
+
+  const row = await Employee.query()
+    .where('employee_id', employeeId)
+    .whereNull('employee_deleted_at')
+    .whereNull('employee_terminated_date')
+    .whereIn('business_unit_id', allowed)
+    .first()
+
+  if (!row) {
+    throw new AsignacionContratoEspecializadoError(
+      `No se encontró el empleado${itemSuffix} (id ${employeeId}).`,
+      ASIGNACION_CONTRATO_ESPECIALIZADO_ERROR_CODES.EMPLOYEE_NOT_FOUND,
+      404,
+      'empleado-no-encontrado',
+      `No se encontró el empleado${itemSuffix} (id ${employeeId})`
+    )
+  }
+
+  return row
+}

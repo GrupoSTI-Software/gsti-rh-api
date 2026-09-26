@@ -4,7 +4,6 @@ import { DateTime } from 'luxon'
 import Employee from '#models/employee'
 import EmployeeBranchOffice from '#models/employee_branch_office'
 import BranchOffice from '#models/branch_office'
-import BranchOfficeService from '#services/branch_office_service'
 
 export default class EmployeeBranchOfficeService {
   /**
@@ -24,10 +23,35 @@ export default class EmployeeBranchOfficeService {
   }
 
   /**
+   * ¿La asignación vigente es la que el alta puso sola, sin que nadie la viva?
+   *
+   * Lo es cuando apunta a la sucursal default de la empresa y el empleado no
+   * tiene ninguna asignación anterior. Ese es el estado que deja el hook del
+   * modelo entre el alta y el assign que manda el backoffice a continuación.
+   */
+  private static async isUntouchedDefaultAssignment(
+    current: EmployeeBranchOffice,
+    employee: Employee
+  ): Promise<boolean> {
+    const previous = await EmployeeBranchOffice.query()
+      .where('employeeId', employee.employeeId)
+      .where('employeeBranchOfficeActive', 0)
+      .first()
+    if (previous) return false
+
+    const defaultBranch = await BranchOffice.query()
+      .where('businessUnitId', employee.businessUnitId)
+      .where('branchOfficeIsDefault', 1)
+      .first()
+
+    return defaultBranch?.branchOfficeId === current.branchOfficeId
+  }
+
+  /**
    * Asigna sucursal: desactiva la vigente, crea registro nuevo.
    * Si ya está asignado a la misma sucursal, no crea duplicado.
    */
-  static async assign(employeeId: number, branchOfficeId: number) {
+  static async assign(employeeId: number, branchOfficeId: number, businessUnitScope: number[]) {
     const employee = await Employee.query().where('employeeId', employeeId).firstOrFail()
 
     const branch = await BranchOffice.query()
@@ -38,7 +62,7 @@ export default class EmployeeBranchOfficeService {
       throw new Error('Sucursal no encontrada')
     }
 
-    const allowedIds = await BranchOfficeService.getAllowedBusinessUnitIds()
+    const allowedIds = businessUnitScope
     if (allowedIds.length === 0 || !allowedIds.includes(branch.businessUnitId)) {
       throw new Error('Sucursal no disponible para esta instancia del sistema')
     }
@@ -53,6 +77,17 @@ export default class EmployeeBranchOfficeService {
       .first()
 
     if (currentActive && currentActive.branchOfficeId === branchOfficeId) {
+      await currentActive.load('branchOffice')
+      return currentActive
+    }
+
+    // El alta deja al empleado en la sucursal default (hook del modelo), y el
+    // backoffice manda la sucursal elegida en el request siguiente. Si esa es
+    // toda su historia, se reusa la fila: el empleado nunca estuvo en la
+    // default, y un historial que dijera lo contrario mentiría.
+    if (currentActive && (await this.isUntouchedDefaultAssignment(currentActive, employee))) {
+      currentActive.branchOfficeId = branchOfficeId
+      await currentActive.save()
       await currentActive.load('branchOffice')
       return currentActive
     }
@@ -72,19 +107,6 @@ export default class EmployeeBranchOfficeService {
       await created.load('branchOffice')
       return created
     })
-  }
-
-  /**
-   * Desasigna: solo desactiva la asignación vigente (empleado queda sin sucursal activa).
-   */
-  static async unassign(employeeId: number) {
-    await Employee.query().where('employeeId', employeeId).firstOrFail()
-
-    await db.transaction(async (trx) => {
-      await this.deactivateActiveAssignments(employeeId, trx)
-    })
-
-    return null
   }
 
   /**

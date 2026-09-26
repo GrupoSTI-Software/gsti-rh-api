@@ -1,25 +1,73 @@
 import EmployeeSupplieAssignationPhoto from '#models/employee_supplie_assignation_photo'
 import EmployeeSupplie from '#models/employee_supplie'
 import UploadService from '#services/upload_service'
+import { AssetError } from '#modules/assets/assets.error'
+import { assertAssignationPhotoCapacity } from '#modules/assets/assets.rules'
+
+/** Respuesta uniforme del apartado (no homologar en esta historia). */
+type PhotoServiceResult = {
+  status: number
+  type: 'success' | 'warning' | 'error'
+  title: string
+  message: string
+  /** Solo en errores de regla: explicación accionable y key semántica. */
+  detail?: string
+  key?: string
+  data: unknown
+}
 
 export default class EmployeeSuppplyAssignamentPhotoService {
-  async uploadPhotos(
-    employeeSupplyId: number,
-    photos: any[],
-    type: 'assignation' | 'return',
-    uploadService: UploadService
-  ) {
+  /**
+   * Resuelve el insumo asignado dentro del TenantContext activo.
+   * Padre ajeno o inexistente → mismo 404 (no revelar cross-tenant).
+   */
+  private async findEmployeeSupplyOrNotFound(
+    employeeSupplyId: number
+  ): Promise<{ ok: true; employeeSupply: EmployeeSupplie } | { ok: false; result: PhotoServiceResult }> {
     const employeeSupply = await EmployeeSupplie.query()
       .where('employeeSupplyId', employeeSupplyId)
       .first()
 
     if (!employeeSupply) {
       return {
-        status: 404,
-        type: 'warning',
-        title: 'Employee supply not found',
-        message: 'The employee supply was not found',
-        data: null,
+        ok: false,
+        result: {
+          status: 404,
+          type: 'warning',
+          title: 'Employee supply not found',
+          message: 'The employee supply was not found',
+          data: null,
+        },
+      }
+    }
+
+    return { ok: true, employeeSupply }
+  }
+
+  async uploadPhotos(
+    employeeSupplyId: number,
+    photos: any[],
+    type: 'assignation' | 'return',
+    uploadService: UploadService
+  ): Promise<PhotoServiceResult> {
+    const resolved = await this.findEmployeeSupplyOrNotFound(employeeSupplyId)
+    if (!resolved.ok) return resolved.result
+
+    if (type === 'assignation') {
+      const incoming = photos.filter((photo) => photo.isValid).length
+      try {
+        await assertAssignationPhotoCapacity(employeeSupplyId, incoming)
+      } catch (error) {
+        if (!(error instanceof AssetError)) throw error
+        return {
+          status: error.httpStatus,
+          type: 'error',
+          title: error.fallbackTitle,
+          message: error.fallbackDetail,
+          detail: error.fallbackDetail,
+          key: error.key,
+          data: null,
+        }
       }
     }
 
@@ -30,12 +78,7 @@ export default class EmployeeSuppplyAssignamentPhotoService {
         continue
       }
 
-      const fileName = `${new Date().getTime()}_${photo.clientName}`
-      const photoUrl = await uploadService.fileUpload(
-        photo,
-        'employee-supply-assignation-photos',
-        fileName
-      )
+      const photoUrl = await uploadService.fileUpload(photo, 'profile-photo', 'employee-supply-assignation-photos')
 
       if (photoUrl === 'file_not_found' || photoUrl === 'S3Producer.fileUpload') {
         continue
@@ -72,20 +115,9 @@ export default class EmployeeSuppplyAssignamentPhotoService {
   async getPhotosByType(
     employeeSupplyId: number,
     type: 'assignation' | 'return'
-  ) {
-    const employeeSupply = await EmployeeSupplie.query()
-      .where('employeeSupplyId', employeeSupplyId)
-      .first()
-
-    if (!employeeSupply) {
-      return {
-        status: 404,
-        type: 'warning',
-        title: 'Employee supply not found',
-        message: 'The employee supply was not found',
-        data: null,
-      }
-    }
+  ): Promise<PhotoServiceResult> {
+    const resolved = await this.findEmployeeSupplyOrNotFound(employeeSupplyId)
+    if (!resolved.ok) return resolved.result
 
     const photos = await EmployeeSupplieAssignationPhoto.query()
       .where('employeeSupplyId', employeeSupplyId)
@@ -104,12 +136,29 @@ export default class EmployeeSuppplyAssignamentPhotoService {
   async deletePhoto(
     photoId: number,
     uploadService: UploadService
-  ) {
+  ): Promise<PhotoServiceResult> {
+    // `EmployeeSupplieAssignationPhoto` no compone el mixin de empresa, así que
+    // consultarla por su propio identificador no hereda el filtro del contexto:
+    // se acota por la relacion con `EmployeeSupplie`, que si es tenant-scoped.
+    // Sin esto, el identificador que llega por la ruta permitía borrar la foto
+    // de otra empresa, y con ella su objeto en el bucket.
     const photo = await EmployeeSupplieAssignationPhoto.query()
       .where('employeeSupplieAssignationPhotoId', photoId)
+      .whereIn('employee_supply_id', EmployeeSupplie.query().select('employee_supply_id'))
       .first()
 
     if (!photo) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'Photo not found',
+        message: 'The photo was not found',
+        data: null,
+      }
+    }
+
+    const resolved = await this.findEmployeeSupplyOrNotFound(photo.employeeSupplyId)
+    if (!resolved.ok) {
       return {
         status: 404,
         type: 'warning',
@@ -123,8 +172,8 @@ export default class EmployeeSuppplyAssignamentPhotoService {
 
     try {
       await uploadService.deleteFile(fileUrl)
-    } catch (error) {
-      // Continue even if S3 deletion fails
+    } catch {
+      // Continuar aunque falle el borrado en S3 (comportamiento vigente).
     }
 
     await photo.delete()

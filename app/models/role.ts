@@ -21,15 +21,16 @@ import RoleDepartment from './role_department.js'
  *          roleSlug:
  *            type: string
  *            description: Role slug
+ *          businessUnitId:
+ *            type: number
+ *            nullable: true
+ *            description: Empresa dueña del rol; null solo en el rol global de plataforma
  *          roleDescription:
  *            type: string
  *            description: Role description
  *          roleActive:
  *            type: number
  *            description: Role status
- *          roleBusinessAccess:
- *            type: string
- *            description: Business access
  *          roleManagementDays:
  *            type: number
  *            description: Role management days
@@ -51,6 +52,14 @@ export default class Role extends compose(BaseModel, SoftDeletes) {
   @column()
   declare roleSlug: string
 
+  /**
+   * Empresa dueña del rol. `null` solo en `root`, el rol global de la
+   * plataforma: cualquier otro rol pertenece a una empresa y el candado
+   * (empresa, slug) de `1789528501204` hace que su identidad sea el par.
+   */
+  @column()
+  declare businessUnitId: number | null
+
   @column()
   declare roleDescription: string
 
@@ -58,10 +67,7 @@ export default class Role extends compose(BaseModel, SoftDeletes) {
   declare roleActive: number
 
   @column()
-  declare roleBusinessAccess: string
-
-  @column()
-  declare roleManagementDays: number
+  declare roleManagementDays: number | null
 
   @column.dateTime({ autoCreate: true })
   declare roleCreatedAt: DateTime

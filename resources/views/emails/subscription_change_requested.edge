@@ -1,0 +1,140 @@
+{{--
+  Aviso interno de solicitud de cambio de suscripción (USRH1786107870862).
+  Tres variantes según `event`: ampliación, reducción agendada, cancelación.
+  Estilos 100% inline; layout con tablas (Gmail / Outlook).
+--}}<!DOCTYPE html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+  <title>{{ subject }}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f6fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937;">
+
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f6fa;">
+    <tr>
+      <td align="center" style="padding: 24px 12px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; max-width: 640px;">
+
+          <tr>
+            <td style="background-color: {{ sidebarColor }}; padding: 18px 24px; border-top-left-radius: 12px; border-top-right-radius: 12px; color: #ffffff;">
+              <div style="font-size: 18px; font-weight: 700; line-height: 1.2; color: #ffffff;">{{ tradeName }}</div>
+              <div style="font-size: 13px; color: #e0f2fe; margin-top: 4px;">{{ eventLabel }} — aviso interno</div>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="background-color: #ffffff; padding: 24px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px;">
+
+              @if(event === 'increase_requested')
+                <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5; color: #111827;">
+                  La empresa <strong>{{ businessUnitName }}</strong> solicitó ampliar la cantidad contratada de
+                  <strong>{{ previousEmployees }}</strong> a <strong>{{ newEmployees }}</strong> empleados.
+                  Folio de solicitud <strong>#{{ billingSubscriptionChangeId }}</strong>.
+                </p>
+              @elseif(event === 'decrease_scheduled')
+                <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5; color: #111827;">
+                  La empresa <strong>{{ businessUnitName }}</strong> agendó una reducción de
+                  <strong>{{ previousEmployees }}</strong> a <strong>{{ newEmployees }}</strong> empleados para el
+                  próximo periodo. Folio de solicitud <strong>#{{ billingSubscriptionChangeId }}</strong>.
+                </p>
+              @else
+                <p style="margin: 0 0 20px; font-size: 15px; line-height: 1.5; color: #111827;">
+                  La empresa <strong>{{ businessUnitName }}</strong> canceló una solicitud de cambio de suscripción que
+                  aún no había surtido efecto. Folio cancelado
+                  <strong>#{{ billingSubscriptionChangeId }}</strong>.
+                </p>
+              @endif
+
+              @if(replacedChangeId)
+                <p style="margin: 0 0 20px; padding: 10px 14px; background: #eff6ff; border-left: 4px solid #2563eb; border-radius: 4px; font-size: 13px; line-height: 1.5; color: #1e3a8a;">
+                  Esta solicitud reemplaza a la solicitud anterior <strong>#{{ replacedChangeId }}</strong>, que quedó
+                  sin efecto automáticamente.
+                </p>
+              @endif
+
+              @if(showTrialNotice)
+                <p style="margin: 0 0 20px; padding: 10px 14px; background: #ecfdf5; border-left: 4px solid #059669; border-radius: 4px; font-size: 13px; line-height: 1.5; color: #065f46;">
+                  <strong>Periodo de prueba:</strong> el aumento se aplicó de inmediato, sin adeudo prorrateado.
+                  El primer cobro saldrá al importe de <strong>{{ newEmployees }}</strong> empleados.
+                </p>
+              @endif
+
+              <p style="margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #374151;">Solicitud</p>
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
+                <tbody>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151; width: 45%;">Empresa</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ businessUnitName }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Solicitante</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ requestedByName }} ({{ requestedByEmail }})</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Folio de solicitud</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">#{{ billingSubscriptionChangeId }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Folio de suscripción</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">#{{ billingSubscriptionId }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Cantidad (antes → solicitada)</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ previousEmployees }} → {{ newEmployees }} empleados</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Estado de la solicitud</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #111827; font-weight: 600;">{{ changeStatus }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; color: #374151;">Fecha y hora de la solicitud</td>
+                    <td style="padding: 9px 8px; color: #111827; font-weight: 600;">{{ requestedAt }}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              @if(showChargeAmount)
+                <p style="margin: 0 0 20px; padding: 10px 14px; background: #fef3c7; border-left: 4px solid #d97706; border-radius: 4px; font-size: 13px; line-height: 1.5; color: #78350f;">
+                  <strong>Acción requerida:</strong> emitir el cobro de
+                  <strong>{{ chargeAmount }}</strong> a <strong>{{ businessUnitName }}</strong> por la diferencia
+                  prorrateada del periodo en curso.
+                </p>
+              @endif
+
+              @if(showNoChargeNotice && !showTrialNotice)
+                <p style="margin: 0 0 20px; padding: 10px 14px; background: #f3f4f6; border-left: 4px solid #6b7280; border-radius: 4px; font-size: 13px; line-height: 1.5; color: #374151;">
+                  <strong>Sin monto a cobrar:</strong> esta solicitud no genera adeudo prorrateado.
+                  @if(showEffectiveDate)
+                    El ajuste surte efecto el <strong>{{ effectiveAt }}</strong>.
+                  @endif
+                </p>
+              @endif
+
+              @if(showEffectiveDate && !showNoChargeNotice)
+                <p style="margin: 0 0 20px; font-size: 13px; line-height: 1.5; color: #374151;">
+                  <strong>Fecha de efecto:</strong> {{ effectiveAt }} (inicio del periodo siguiente).
+                </p>
+              @endif
+
+              <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #9ca3af;">
+                Los importes y fechas reflejan el registro de la solicitud al momento del alta; no se recalculan en
+                este aviso.
+              </p>
+
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding: 14px 24px; text-align: center; font-size: 11px; color: #9ca3af;">
+              Mensaje generado automáticamente por el sistema {{ tradeName }}. No responder a este correo.
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -9,8 +9,11 @@ export class StandardResponseFormatter {
     data: any,
     title: string,
     message: string,
-    statusCode: number = 200
+    statusCode: number = 200,
+    dataKey?: string
   ) {
+    const resolvedDataKey = dataKey ?? this.getDataKey(title)
+
     // If data has pagination (from Lucid paginate)
     if (data && data.meta && data.data) {
       return response.status(statusCode).json({
@@ -18,7 +21,7 @@ export class StandardResponseFormatter {
         title,
         message,
         data: {
-          [this.getDataKey(title)]: {
+          [resolvedDataKey]: {
             meta: {
               total: data.meta.total,
               perPage: data.meta.perPage,
@@ -42,7 +45,7 @@ export class StandardResponseFormatter {
       title,
       message,
       data: {
-        [this.getDataKey(title)]: data
+        [resolvedDataKey]: data
       }
     })
   }
@@ -85,11 +88,70 @@ export class StandardResponseFormatter {
       'Employee Supply': 'employeeSupply',
       'Branches': 'branchOffices',
       'Branch': 'branchOffice',
+      'Branch Office Shift Quotas': 'quotas',
       'Employee Branch Office': 'employeeBranchOffice',
       'Employee Branch Offices': 'employeeBranchOffices',
       'Certifications': 'certifications',
       'Certification': 'certification',
       'Certification Categories': 'certificationCategories',
+      'Questionnaire Applicability': 'questionnaireApplicability',
+      'Questionnaire Applicabilities': 'questionnaireApplicabilities',
+      'Questionnaire Application': 'questionnaireApplication',
+      'Questionnaire Applications': 'questionnaireApplications',
+      'Questionnaire Application State History': 'stateHistory',
+      'Attention Program': 'attentionProgram',
+      'Attention Programs': 'attentionPrograms',
+      'Attention Program Action': 'attentionProgramAction',
+      'Attention Program Actions': 'attentionProgramActions',
+      'Catálogo Programa de atención': 'attentionProgramCatalog',
+      'Tabulación NOM-035': 'tabulacion',
+      'Resultados por empleado': 'employees',
+      'Resultados de evaluación NOM-035': 'disclosure',
+      Instrumento: 'instrument',
+      'Captura de respuestas': 'questionnaireApplicationResponse',
+      'Objetivos de la ronda': 'targets',
+      'Employee Lactation Periods': 'employeeLactationPeriods',
+      'Employee Lactation Period': 'employeeLactationPeriod',
+      'Employee Lactation Period Evidences': 'employeeLactationPeriodEvidences',
+      'Employee Lactation Period Evidence': 'employeeLactationPeriodEvidence',
+      'Employee Lactation Period Evidence Download': 'employeeLactationPeriodEvidenceDownload',
+      'Employee Lactation Compliance Report': 'employeeLactationComplianceReport',
+      'Employee Lactation Expiring Notifications': 'employeeLactationExpiringNotifications',
+      'Employee Lactation Period Conflicts': 'employeeLactationPeriodConflicts',
+      'Traumatic Event Reports': 'traumaticEventReports',
+      'Traumatic Event Report': 'traumaticEventReport',
+      'Traumatic Event Referrals': 'traumaticEventReferrals',
+      'Traumatic Event Referral': 'traumaticEventReferral',
+      'Traumatic Event Exams': 'traumaticEventExams',
+      'Traumatic Event Exam': 'traumaticEventExam',
+      'Traumatic Event Registry': 'traumaticEventRegistry',
+      'Traumatic Event Report Evidences': 'traumaticEventReportEvidences',
+      'Traumatic Event Report Evidence': 'traumaticEventReportEvidence',
+      'Traumatic Event Report Evidence Download': 'traumaticEventReportEvidenceDownload',
+      'Repse': 'repseRegistrations',
+      'Repse Registrations': 'repseRegistrations',
+      'Repse Registration': 'repseRegistration',
+      'Repse Specialized Services': 'repseSpecializedServices',
+      'Repse Specialized Service': 'repseSpecializedService',
+      'Empresas Contratantes': 'empresasContratantes',
+      'Empresa Contratante': 'empresaContratante',
+      'Contratos de Servicios Especializados': 'contratosServiciosEspecializados',
+      'Contrato de Servicios Especializados': 'contratoServicioEspecializado',
+      'Documento del contrato': 'documentoContrato',
+      'Asignaciones de Contrato Especializado': 'asignaciones',
+      'Asignación de Contrato Especializado': 'asignacion',
+      'Proveedores REPSE': 'proveedoresRepse',
+      'Proveedor REPSE': 'proveedorRepse',
+      'Validaciones de Proveedor REPSE': 'validaciones',
+      'Validación de Proveedor REPSE': 'validacion',
+      'Expediente de Proveedor REPSE': 'expediente',
+      'Documento del expediente REPSE': 'documentoExpediente',
+      'REPSE Providers': 'proveedoresRepse',
+      'REPSE Provider': 'proveedorRepse',
+      'REPSE Provider Validations': 'validaciones',
+      'REPSE Provider Validation': 'validacion',
+      'REPSE Provider File': 'expediente',
+      'REPSE provider file document': 'documentoExpediente',
     }
 
     return keyMap[title] || title.toLowerCase().replace(/\s+/g, '')

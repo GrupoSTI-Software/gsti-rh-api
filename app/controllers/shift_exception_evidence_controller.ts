@@ -1,4 +1,5 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
 import ShiftExceptionEvidenceService from '#services/shift_exception_evidence_service'
@@ -99,7 +100,9 @@ export default class ShiftExceptionEvidenceController {
 
   async index({ response }: HttpContext) {
     try {
-      const shiftExceptionEvidences = await ShiftExceptionEvidence.query().whereNull('shift_exception_evidence_deleted_at')
+      // Pasa por el servicio para heredar el filtro de tenant: consultar el
+      // modelo directo devolvía las evidencias de todas las empresas.
+      const shiftExceptionEvidences = await new ShiftExceptionEvidenceService().index()
       return response.status(200).json({
         type: 'success',
         title: 'Successfully action',
@@ -259,8 +262,7 @@ export default class ShiftExceptionEvidenceController {
       shiftExceptionEvidenceFile: '',
       shiftExceptionId: shiftExceptionId,
     } as ShiftExceptionEvidence
-    // get file name and extension
-    const fileName = `${new Date().getTime()}_${file.clientName}`
+    // get file name and extensión
     const uploadService = new UploadService()
     const isValidInfo = await shiftExceptionEvidenceService.verifyInfoExist(shiftExceptionEvidence)
     if (isValidInfo.status !== 200) {
@@ -274,7 +276,7 @@ export default class ShiftExceptionEvidenceController {
       }
     }
     try {
-      const fileUrl = await uploadService.fileUpload(file, `shift-exception-evidences/${shiftExceptionId}`, fileName)
+      const fileUrl = await uploadService.fileUpload(file, 'evidence-document', `shift-exception-evidences/${shiftExceptionId}`)
       shiftExceptionEvidence.shiftExceptionEvidenceFile = fileUrl
       shiftExceptionEvidence.shiftExceptionEvidenceType = file.type ? file.type : ''
       const newShiftExceptionEvidence = await shiftExceptionEvidenceService.create(shiftExceptionEvidence)
@@ -286,6 +288,10 @@ export default class ShiftExceptionEvidenceController {
         data: { shiftExceptionEvidence: newShiftExceptionEvidence },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -429,10 +435,12 @@ export default class ShiftExceptionEvidenceController {
           data: { shiftExceptionEvidenceId },
         }
       }
-      const currentShiftExceptionEvidence = await ShiftExceptionEvidence.query()
-        .whereNull('shift_exception_evidence_deleted_at')
-        .where('shift_exception_evidence_id', shiftExceptionEvidenceId)
-        .first()
+      // Pasa por el servicio para heredar el filtro de empresa. Sin el, el
+      // identificador de la ruta alcanzaba la evidencia de cualquier empresa: en
+      // el borrado eso además arrastra su objeto del bucket.
+      const currentShiftExceptionEvidence = await new ShiftExceptionEvidenceService().show(
+        Number(shiftExceptionEvidenceId)
+      )
       if (!currentShiftExceptionEvidence) {
         response.status(404)
         return {
@@ -474,9 +482,8 @@ export default class ShiftExceptionEvidenceController {
             data: file,
           }
         }
-        const fileName = `${new Date().getTime()}_${file.clientName}`
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(file, 'shift-exception-evidences', fileName)
+        const fileUrl = await uploadService.fileUpload(file, 'evidence-document', 'shift-exception-evidences')
         if (currentShiftExceptionEvidence.shiftExceptionEvidenceFile) {
           const fileNameWithExt = decodeURIComponent(
             path.basename(currentShiftExceptionEvidence.shiftExceptionEvidenceFile)
@@ -498,6 +505,10 @@ export default class ShiftExceptionEvidenceController {
         data: { shiftExceptionEvidence: updateShiftExceptionEvidence },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -621,10 +632,12 @@ export default class ShiftExceptionEvidenceController {
           data: { shiftExceptionEvidenceId },
         }
       }
-      const currentShiftExceptionEvidence = await ShiftExceptionEvidence.query()
-        .whereNull('shift_exception_evidence_deleted_at')
-        .where('shift_exception_evidence_id', shiftExceptionEvidenceId)
-        .first()
+      // Pasa por el servicio para heredar el filtro de empresa. Sin el, el
+      // identificador de la ruta alcanzaba la evidencia de cualquier empresa: en
+      // el borrado eso además arrastra su objeto del bucket.
+      const currentShiftExceptionEvidence = await new ShiftExceptionEvidenceService().show(
+        Number(shiftExceptionEvidenceId)
+      )
       if (!currentShiftExceptionEvidence) {
         response.status(404)
         return {

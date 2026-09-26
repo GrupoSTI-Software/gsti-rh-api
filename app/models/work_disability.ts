@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Employee from './employee.js'
@@ -7,6 +7,8 @@ import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import InsuranceCoverageType from './insurance_coverage_type.js'
 import WorkDisabilityPeriod from './work_disability_period.js'
 import WorkDisabilityNote from './work_disability_note.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 /**
  * @swagger
  * components:
@@ -23,6 +25,9 @@ import WorkDisabilityNote from './work_disability_note.js'
  *          employeeId:
  *            type: number
  *            description: Employee id
+ *          businessUnitId:
+ *            type: number
+ *            description: Unidad de negocio dueña (defensa en profundidad, USRH1784259058487)
  *          insuranceCoverageTypeId:
  *            type: number
  *            description: Insurance Coverage Type Id
@@ -37,7 +42,11 @@ import WorkDisabilityNote from './work_disability_note.js'
  *            format: date-time
  *            nullable: true
  */
-export default class WorkDisability extends compose(BaseModel, SoftDeletes) {
+export default class WorkDisability extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare workDisabilityId: number
 
@@ -46,6 +55,20 @@ export default class WorkDisability extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare employeeId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, USRH1784259058487). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (USRH1784259058487). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: WorkDisability) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column()
   declare insuranceCoverageTypeId: number

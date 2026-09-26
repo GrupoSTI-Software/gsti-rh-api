@@ -1,0 +1,367 @@
+/**
+ * Catálogo declarativo de campos de datos personales sensibles de Valanserh.
+ *
+ * Fundamentación legal:
+ *   - LFPDPPP art. 3.VI — define "datos personales sensibles" (biométricos, salud, etc.)
+ *   - Reglamento LFPDPPP art. 61.I — obliga a llevar un inventario clasificado de los datos
+ *     personales para acreditar las medidas de seguridad proporcionales.
+ *
+ * Uso interno exclusivo: este catálogo describe cómo se protege cada dato sensible del
+ * modelo Lucid. No debe exponerse en ningún endpoint público (LFPDPPP, "Qué cuidamos").
+ *
+ * Convención de actualización: cuando una HU posterior cifre una columna, el mismo PR
+ * que implementa el cifrado debe voltear `encrypted` a `true` en esta fuente única.
+ */
+
+/**
+ * Categoría de sensibilidad legal del dato conforme a LFPDPPP y su Reglamento.
+ *
+ * - `identificacion` — dato que identifica de forma única a la persona (CURP, RFC, NSS).
+ * - `financiero`     — dato cuyo mal uso afecta el patrimonio (CLABE, cuenta, tarjeta, salario).
+ * - `biometrico`     — dato sensible reforzado: huella, template facial, foto de reconocimiento.
+ * - `salud`          — dato sensible reforzado: diagnóstico, discapacidad, lactancia, trauma.
+ * - `contacto`       — correo, teléfono; menor sensibilidad pero sujeto a protección proporcional.
+ */
+export type LegalCategory = 'identificacion' | 'financiero' | 'biometrico' | 'salud' | 'contacto'
+
+export const LEGAL_CATEGORIES = [
+  'identificacion',
+  'financiero',
+  'biometrico',
+  'salud',
+  'contacto',
+] as const satisfies readonly LegalCategory[]
+
+/**
+ * Tratamiento técnico que debe aplicarse al campo en reposo.
+ *
+ * - `cifrar`          — AES-256-CBC en reposo (patrón prepare/consume del modelo o service).
+ *                       El campo no se usa en cláusulas WHERE de SQL.
+ * - `cifrar-buscable` — AES-256-CBC + blind-index determinista (HU futura CAP-08-10-02).
+ *                       Hoy se busca o valida por igualdad en SQL; el blind-index lo habilitará.
+ * - `enmascarar`      — No se cifra; se muestra parcialmente en la UI (p.ej. últimos 4 dígitos).
+ *                       El valor completo vive en claro en la BD — deuda a remediar.
+ */
+export type SensitiveTreatment = 'cifrar' | 'cifrar-buscable' | 'enmascarar'
+
+/**
+ * Descriptor de un campo de datos personales sensibles dentro del modelo Lucid.
+ */
+export interface SensitiveField {
+  /** Nombre de la clase Lucid que contiene el campo (p.ej. `'Person'`). */
+  readonly model: string
+  /** Propiedad camelCase del modelo (p.ej. `'personCurp'`). */
+  readonly column: string
+  /** Categoría de sensibilidad ante la LFPDPPP. */
+  readonly legalCategory: LegalCategory
+  /** Tratamiento técnico requerido; nunca ambiguo (reglas 2 y 3 de la HU). */
+  readonly treatment: SensitiveTreatment
+  /**
+   * Estado real de cifrado HOY — baseline de cumplimiento.
+   * `true` = ya cifrado en producción. `false` = en claro, pendiente de remediar.
+   * Fuente: anclas validadas contra código en rama `multitenant` al 2026-06-29.
+   */
+  readonly encrypted: boolean
+  /**
+   * Marca de elegibilidad para el revelado individual
+   * (`GET /api/v1/pii/reveal/:model/:column/:recordId`).
+   *
+   * A partir de USRH1787204602825 el enmascaramiento en serialización ya no
+   * se decide con esta bandera: lo decide el permiso de lectura de la
+   * categoría legal, vía `sensitiveSerialize`. `true` solo indica que el
+   * campo puede pedirse completo por el flujo de revelado con motivo.
+   *
+   * Ausencia (o `false`) = el campo aún no entra a ese flujo de revelado.
+   */
+  readonly maskedInApi?: true
+}
+
+/**
+ * Catálogo maestro de campos personales sensibles de Valanserh.
+ *
+ * Exclusiones justificadas (no se incluyen porque no son datos sensibles de la persona):
+ *   - `workDisabilityPeriodFile`           — ruta S3, no dato clínico.
+ *   - `workDisabilityPeriodTicketFolio`    — folio administrativo, no PII sensible.
+ *   - `employeeBiometricFaceIdPhotoUrlProxy` — URL de proxy, no dato biométrico almacenado.
+ *   - Campos de nombre/apellido, fecha de nacimiento, dirección — datos personales ordinarios,
+ *     no sensibles reforzados; LFPDPPP art. 3.VI reserva la protección máxima a los listados aquí.
+ *
+ * Fuente única: ninguna otra parte del sistema debe mantener su propia copia de esta lista.
+ * Ref: Reglamento LFPDPPP art. 61.I — "inventario de datos personales".
+ */
+export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
+  // ─── Person: identificación ────────────────────────────────────────────────
+  // Se buscan por igualdad en SQL (validators/person.ts, employee_controller.ts).
+  // Requieren cifrado con blind-index para mantener la búsqueda tras cifrar.
+  // Ancla: app/models/person.ts
+  { model: 'Person', column: 'personCurp', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true, maskedInApi: true },
+  { model: 'Person', column: 'personRfc', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true, maskedInApi: true },
+  { model: 'Person', column: 'personImssNss', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true, maskedInApi: true },
+
+  // ─── Person: contacto ──────────────────────────────────────────────────────
+  // Ancla: app/models/person.ts
+  // personEmail — validado por igualdad (unique); necesita blind-index (08-10-04-01).
+  { model: 'Person', column: 'personEmail', legalCategory: 'contacto', treatment: 'cifrar-buscable', encrypted: true, maskedInApi: true },
+  // personPhone — LIKE retirado en USRH1782854997782; no se restaura (no es clave de búsqueda).
+  { model: 'Person', column: 'personPhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+  // personPhoneSecondary — sin búsquedas en SQL.
+  { model: 'Person', column: 'personPhoneSecondary', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+
+  // ─── EmployeeBank: financiero ──────────────────────────────────────────────
+  // Cifrados; no se usan en WHERE de SQL. Se entregan con máscara fija (USRH1789328027039).
+  // *LastNumbers se escriben en BD pero no se serializan.
+  // Ancla: app/models/employee_bank.ts
+  { model: 'EmployeeBank', column: 'employeeBankAccountClabe', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+  { model: 'EmployeeBank', column: 'employeeBankAccountNumber', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+  { model: 'EmployeeBank', column: 'employeeBankAccountCardNumber', legalCategory: 'financiero', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+
+  // ─── EmployeeBiometric: biométrico ────────────────────────────────────────
+  // employeeBiometricData — string de estado ("Finger:1, Face"); el template crudo vive
+  // en API_BIOMETRICS_HOST. Cifrar el estado procede: revela presencia de biométricos.
+  // No se busca en SQL.
+  // Ancla: app/models/employee_biometric.ts
+  { model: 'EmployeeBiometric', column: 'employeeBiometricData', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
+  // ─── EmployeeBiometricFaceId: biométrico ──────────────────────────────────
+  // employeeBiometricFaceIdToken — token de reconocimiento facial. Se compara por igualdad
+  // en memoria (employee_biometric_face_id_controller.ts), NO en cláusula SQL WHERE →
+  // cifrar sin blind-index es seguro (no rompe ninguna consulta de BD).
+  // employeeBiometricFaceIdPhotoUrl — URL de foto en almacenamiento; revela identidad facial.
+  // Ancla: app/models/employee_biometric_face_id.ts
+  { model: 'EmployeeBiometricFaceId', column: 'employeeBiometricFaceIdToken', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: false },
+  { model: 'EmployeeBiometricFaceId', column: 'employeeBiometricFaceIdPhotoUrl', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
+  // ─── AdmsRawMessage: biométrico ───────────────────────────────────────────
+  // admsRawMessageBody — cuerpo íntegro de una subida del checador; puede llevar
+  // templates de huella y rostro y nombres. Nunca se serializa ni se busca en SQL.
+  // Ancla: app/models/adms_raw_message.ts
+  { model: 'AdmsRawMessage', column: 'admsRawMessageBody', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
+  // ─── BiometricTemplate: biométrico ────────────────────────────────────────
+  // biometricTemplateTemplate — la huella o el rostro del colaborador, tal como
+  // los produjo el algoritmo del equipo. Es el dato biométrico en sí. No se
+  // busca en SQL, no se serializa y solo se lee por TemplateService, que asienta
+  // el acceso en la bitácora de datos sensibles.
+  // Ancla: app/models/biometric_template.ts
+  { model: 'BiometricTemplate', column: 'biometricTemplateTemplate', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
+  // ─── AdmsHeldBiometric: biométrico ────────────────────────────────────────
+  // admsHeldBiometricTemplate — el mismo dato, capturado para un PIN que aún no
+  // corresponde a ningún colaborador. Se conserva porque volver a pedir el dedo
+  // cuesta una visita; se traslada a la bóveda al conciliar.
+  // Ancla: app/models/adms_held_biometric.ts
+  { model: 'AdmsHeldBiometric', column: 'admsHeldBiometricTemplate', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
+  // ─── DeviceCommand: biométrico ────────────────────────────────────────────
+  // deviceCommandPayload — línea literal que se manda al checador. En un
+  // `biodata_write` lleva el template de huella o rostro completo. No se busca
+  // en SQL y nunca se serializa hacia el Backoffice.
+  // Ancla: app/models/device_command.ts
+  { model: 'DeviceCommand', column: 'deviceCommandPayload', legalCategory: 'biometrico', treatment: 'cifrar', encrypted: true },
+
+  // ─── AdmsUnmappedPin: identificación ──────────────────────────────────────
+  // admsUnmappedPinName — nombre que el checador declara para un PIN que no
+  // corresponde a ningún colaborador. Identifica a una persona antes de que
+  // exista en el sistema. No se busca en SQL; se borra al conciliar o descartar.
+  // Ancla: app/models/adms_unmapped_pin.ts
+  { model: 'AdmsUnmappedPin', column: 'admsUnmappedPinName', legalCategory: 'identificacion', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+
+  // ─── EmployeeMedicalCondition: salud (sensible reforzado) ─────────────────
+  // No se buscan en SQL; contienen información clínica individual.
+  // Ancla: app/models/employee_medical_condition.ts
+  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionDiagnosis', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+  { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionNotes', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+
+  // ─── WorkDisabilityNote: salud (sensible reforzado) ───────────────────────
+  // Nota descriptiva de incapacidad; no se busca en SQL.
+  // Ancla: app/models/work_disability_note.ts
+  { model: 'WorkDisabilityNote', column: 'workDisabilityNoteDescription', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+
+  // ─── TraumaticEventReport: salud (sensible reforzado) ─────────────────────
+  // Datos del reporte de acontecimiento traumático severo (ATS NOM-035).
+  // Ancla: app/models/traumatic_event_report.ts
+  { model: 'TraumaticEventReport', column: 'traumaticEventReportInvolvedPeople', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+  { model: 'TraumaticEventReport', column: 'traumaticEventReportDescription', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+
+  // ─── EmployeeLactationPeriod: salud (sensible reforzado) ──────────────────
+  // Notas del período de lactancia; no se buscan en SQL.
+  // Ancla: app/models/employee_lactation_period.ts
+  { model: 'EmployeeLactationPeriod', column: 'employeeLactationPeriodNotes', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+
+  // ─── EmployeeEmergencyContact: contacto ───────────────────────────────────
+  // Teléfono del contacto de emergencia del trabajador; no se busca en SQL.
+  // Ancla: app/models/employee_emergency_contact.ts
+  { model: 'EmployeeEmergencyContact', column: 'employeeEmergencyContactPhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+
+  // ─── EmployeeSpouse: contacto ─────────────────────────────────────────────
+  // Teléfono del cónyuge; no se busca en SQL.
+  // Ancla: app/models/employee_spouse.ts
+  { model: 'EmployeeSpouse', column: 'employeeSpousePhone', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+
+  // ─── EmpresaContratante: identificación (deuda clasificada) ───────────────
+  // RFC de persona moral con restricción UNIQUE en BD → se busca por igualdad.
+  // Cifrar requiere blind-index; es el caso de mayor complejidad de migración.
+  // Ancla: app/models/empresa_contratante.ts (columna `rfc`)
+  { model: 'EmpresaContratante', column: 'rfc', legalCategory: 'identificacion', treatment: 'cifrar-buscable', encrypted: true, maskedInApi: true },
+
+  // ─── TenantBillingProfile: identificación (USRH1786737531057) ─────────────
+  // RFC fiscal del tenant; cifrado AES + blind index para búsqueda interna.
+  // Ancla: app/models/tenant_billing_profile.ts (columna `rfc`)
+  {
+    model: 'TenantBillingProfile',
+    column: 'rfc',
+    legalCategory: 'identificacion',
+    treatment: 'cifrar-buscable',
+    encrypted: true,
+  },
+
+  // RFC fiscal de la alianza; cifrado AES + blind index. Sin maskedInApi:
+  // no entra al flujo GET /reveal/:token (USRH1788505941893).
+  // Ancla: app/models/alliance_billing_profile.ts (columna `rfc`)
+  {
+    model: 'AllianceBillingProfile',
+    column: 'rfc',
+    legalCategory: 'identificacion',
+    treatment: 'cifrar-buscable',
+    encrypted: true,
+  },
+
+  // ─── BillingTaxReceipt: identificación (USRH1788288461952) ────────────────
+  // RFC del receptor congelado en el comprobante. Cifrado AES; SIN blind index
+  // (nadie busca comprobantes por RFC en este set). treatment 'cifrar', no
+  // 'cifrar-buscable': esa marca declararía una capacidad que no existe.
+  // Ancla: app/models/billing_tax_receipt.ts (columna `rfc`)
+  {
+    model: 'BillingTaxReceipt',
+    column: 'rfc',
+    legalCategory: 'identificacion',
+    treatment: 'cifrar',
+    encrypted: true,
+  },
+
+  // ─── ProveedorRepse: identificación (USRH1788551528001 / USRH1789328027052) ─
+  // RFC del proveedor REPSE (moral o física). Cifrado AES; la huella solo se
+  // escribe (providers.service.ts) y nadie la usa en WHERE: treatment
+  // 'cifrar', no 'cifrar-buscable' (mismo criterio que BillingTaxReceipt).
+  // Ancla: app/models/proveedor_repse.ts
+  {
+    model: 'ProveedorRepse',
+    column: 'rfc',
+    legalCategory: 'identificacion',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+
+  // ─── Employee: financiero (VIGENTE, EN CLARO — cifrado en HU aparte) ──────
+  // Dato vivo del que se derivan EmployeeSalaryHistory.salaryDaily y el cálculo
+  // de nómina. Se clasifica y se oculta en serialización; NO se cifra todavía
+  // (decisión de Wilvardo 2026-08-22). Entra en pendingEncryption() a propósito:
+  // el indicador de brecha LFPDPPP sube en 1 hasta que la HU de cifrado lo cierre.
+  // Revelado individual con asiento (USRH1788478865952).
+  {
+    model: 'Employee',
+    column: 'dailySalary',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: false,
+    maskedInApi: true,
+  },
+
+  // ─── EmployeeSalaryHistory: financiero (YA CIFRADO — patrón de referencia) ─
+  // Cifrado AES-256-CBC vía prepare/consume en el modelo Lucid.
+  // Revelado individual con asiento (USRH1788478865952).
+  // Ancla: app/models/employee_salary_history.ts:56-66
+  {
+    model: 'EmployeeSalaryHistory',
+    column: 'salaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+
+  // ─── PositionSalaryRange: financiero (YA CIFRADO) ─────────────────────────
+  // Mismo patrón prepare/consume que EmployeeSalaryHistory.
+  // Revelado individual con asiento (USRH1788478865952).
+  // Ancla: app/models/position_salary_range.ts
+  {
+    model: 'PositionSalaryRange',
+    column: 'minSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+  {
+    model: 'PositionSalaryRange',
+    column: 'maxSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+
+  // ─── UserConsent: contacto (evidencia de aceptación, USRH1783101935670) ───
+  // "Desde dónde se aceptó" un documento legal: refuerzo probatorio, nunca en WHERE,
+  // nunca usado para buscar/filtrar/segmentar usuarios. Fallo-CERRADO al descifrar
+  // (mismo patrón que EmployeeEmergencyContact): si falla, responde null, no el
+  // ciphertext crudo. Ancla: app/models/user_consent.ts
+  { model: 'UserConsent', column: 'userConsentIp', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
+  { model: 'UserConsent', column: 'userConsentUserAgent', legalCategory: 'contacto', treatment: 'cifrar', encrypted: true },
+
+  // ─── TeleworkPolicyAcknowledgement: contacto (acuse NOM-037) ───────────────
+  // Gemelo de UserConsent: desde dónde se dio por recibida la política. Nunca en
+  // WHERE; nunca se serializa (serializeAs: null en el modelo). Fallo-cerrado.
+  // Ancla: app/models/telework_policy_acknowledgement.ts
+  {
+    model: 'TeleworkPolicyAcknowledgement',
+    column: 'teleworkPolicyAcknowledgementIp',
+    legalCategory: 'contacto',
+    treatment: 'cifrar',
+    encrypted: true,
+  },
+  {
+    model: 'TeleworkPolicyAcknowledgement',
+    column: 'teleworkPolicyAcknowledgementUserAgent',
+    legalCategory: 'contacto',
+    treatment: 'cifrar',
+    encrypted: true,
+  },
+
+  // ─── PositionSalaryRangeAudit: financiero (YA CIFRADO, faltaba serialize) ──
+  // Espejo auditado del rango. Revelado individual con asiento (USRH1788478865952).
+  // Ancla: app/models/position_salary_range_audit.ts
+  {
+    model: 'PositionSalaryRangeAudit',
+    column: 'oldMinSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+  {
+    model: 'PositionSalaryRangeAudit',
+    column: 'oldMaxSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+  {
+    model: 'PositionSalaryRangeAudit',
+    column: 'newMinSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+  {
+    model: 'PositionSalaryRangeAudit',
+    column: 'newMaxSalaryDaily',
+    legalCategory: 'financiero',
+    treatment: 'cifrar',
+    encrypted: true,
+    maskedInApi: true,
+  },
+] as const

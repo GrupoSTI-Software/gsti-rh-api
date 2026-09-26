@@ -1,11 +1,14 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import encryption from '@adonisjs/core/services/encryption'
 import User from './user.js'
 import PositionSalaryRange from './position_salary_range.js'
+import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'
 
 export type SalaryRangeAuditAction = 'create' | 'update' | 'close'
 
@@ -27,17 +30,21 @@ export type SalaryRangeAuditAction = 'create' | 'update' | 'close'
  *            enum: [create, update, close]
  *            description: Tipo de operación registrada
  *          oldMinSalaryDaily:
- *            type: number
- *            description: Mínimo anterior cifrado (null en acción create)
+ *            type: string
+ *            nullable: true
+ *            description: Mínimo anterior cifrado (null en acción create). Con valor se entrega enmascarado en GET.
  *          oldMaxSalaryDaily:
- *            type: number
- *            description: Máximo anterior cifrado (null en acción create)
+ *            type: string
+ *            nullable: true
+ *            description: Máximo anterior cifrado (null en acción create). Con valor se entrega enmascarado en GET.
  *          newMinSalaryDaily:
- *            type: number
- *            description: Mínimo nuevo cifrado (null en acción close)
+ *            type: string
+ *            nullable: true
+ *            description: Mínimo nuevo cifrado (null en acción close). Con valor se entrega enmascarado en GET.
  *          newMaxSalaryDaily:
- *            type: number
- *            description: Máximo nuevo cifrado (null en acción close)
+ *            type: string
+ *            nullable: true
+ *            description: Máximo nuevo cifrado (null en acción close). Con valor se entrega enmascarado en GET.
  *          actorId:
  *            type: number
  *            description: Usuario que realizó la operación
@@ -49,7 +56,7 @@ export type SalaryRangeAuditAction = 'create' | 'update' | 'close'
  *          positionSalaryRangeAuditDeletedAt:
  *            type: string
  */
-export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDeletes) {
+export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   static table = 'position_salary_range_audit'
 
   @column({ isPrimary: true })
@@ -57,6 +64,23 @@ export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDel
 
   @column()
   declare rangeId: number
+
+  /**
+   * Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08).
+   * Derivada de `position_salary_ranges.business_unit_id` vía `rangeId`.
+   */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde position_salary_ranges (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: PositionSalaryRangeAudit) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => PositionSalaryRange.query().where('positionSalaryRangeId', instance.rangeId).first(),
+      'el rango salarial'
+    )
+  }
 
   @column()
   declare action: SalaryRangeAuditAction
@@ -75,6 +99,7 @@ export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDel
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRangeAudit', 'oldMinSalaryDaily'),
   })
   declare oldMinSalaryDaily: number | null
 
@@ -92,6 +117,7 @@ export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDel
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRangeAudit', 'oldMaxSalaryDaily'),
   })
   declare oldMaxSalaryDaily: number | null
 
@@ -109,6 +135,7 @@ export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDel
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRangeAudit', 'newMinSalaryDaily'),
   })
   declare newMinSalaryDaily: number | null
 
@@ -126,6 +153,7 @@ export default class PositionSalaryRangeAudit extends compose(BaseModel, SoftDel
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRangeAudit', 'newMaxSalaryDaily'),
   })
   declare newMaxSalaryDaily: number | null
 

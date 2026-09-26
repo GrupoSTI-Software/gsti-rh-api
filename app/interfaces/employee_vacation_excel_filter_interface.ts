@@ -8,7 +8,7 @@ interface EmployeeVacationExcelFilterInterface {
   onlyInactive: boolean | string
   userResponsibleId?: number
   onlyOneYear: boolean | string
-  businessUnitId?: number
+  businessUnitId: number
   payrollBusinessUnitId?: number
 }
 export type { EmployeeVacationExcelFilterInterface }

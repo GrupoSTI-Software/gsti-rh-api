@@ -28,7 +28,7 @@ export default class EmployeeSuppliesResponseContractService {
     // Upload contract file to S3
     const uploadService = new UploadService()
     const folderName = 'employee-supplies-response-contracts'
-    const fileUrl = await uploadService.fileUpload(data.file, folderName)
+    const fileUrl = await uploadService.fileUpload(data.file, 'pdf-document', folderName)
 
     if (fileUrl === 'file_not_found' || fileUrl === 'S3Producer.fileUpload') {
       throw new Error('Failed to upload contract file to S3')
@@ -38,7 +38,11 @@ export default class EmployeeSuppliesResponseContractService {
     let digitalSignatureUrl: string | null = null
     if (data.digitalSignature) {
       const signatureFolderName = 'employee-supplies-response-contracts/signatures'
-      digitalSignatureUrl = await uploadService.fileUpload(data.digitalSignature, signatureFolderName)
+      digitalSignatureUrl = await uploadService.fileUpload(
+        data.digitalSignature,
+        'signature',
+        signatureFolderName
+      )
 
       if (digitalSignatureUrl === 'file_not_found' || digitalSignatureUrl === 'S3Producer.fileUpload') {
         throw new Error('Failed to upload digital signature file to S3')

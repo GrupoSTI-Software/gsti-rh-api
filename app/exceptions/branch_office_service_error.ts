@@ -6,11 +6,21 @@ import type { BranchOfficeErrorCode } from '../constants/branch_office_error_cod
 export class BranchOfficeServiceError extends Error {
   readonly errorCode: BranchOfficeErrorCode
   readonly httpStatus: number
+  readonly key?: string
+  readonly detail?: string
 
-  constructor(message: string, errorCode: BranchOfficeErrorCode, httpStatus: number = 400) {
+  constructor(
+    message: string,
+    errorCode: BranchOfficeErrorCode,
+    httpStatus: number = 400,
+    key?: string,
+    detail?: string
+  ) {
     super(message)
     this.name = 'BranchOfficeServiceError'
     this.errorCode = errorCode
     this.httpStatus = httpStatus
+    this.key = key
+    this.detail = detail
   }
 }

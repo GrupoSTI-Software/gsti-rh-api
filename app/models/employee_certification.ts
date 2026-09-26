@@ -1,12 +1,18 @@
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Employee from '#models/employee'
 import Certification from '#models/certification'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
-export default class EmployeeCertification extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeCertification extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'employee_certifications'
 
   @column({ isPrimary: true })
@@ -14,6 +20,20 @@ export default class EmployeeCertification extends compose(BaseModel, SoftDelete
 
   @column()
   declare employeeId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, USRH1783821206584). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (USRH1783821206584). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeCertification) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column()
   declare certificationId: number

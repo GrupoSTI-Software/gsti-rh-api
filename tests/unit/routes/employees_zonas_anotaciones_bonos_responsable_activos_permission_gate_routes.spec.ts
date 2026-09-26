@@ -1,0 +1,274 @@
+import { test } from '@japa/runner'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+
+function compact(source: string): string {
+  return source.replace(/\s+/g, '')
+}
+
+test.group('employee_zone_routes — PermissionGate Zonas', () => {
+  test('las escrituras usan declaraciones de escritura y la lectura la suya (showEmployeeZone)', async ({
+    assert,
+  }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_zone_routes.ts'),
+      'utf8'
+    )
+    assert.include(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeZone)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeZone)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeZone)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 3)
+    /**
+     * El detalle dejó de ser abierto: desde que Zonas exige permisos, el GET
+     * declara su propia lectura (`showEmployeeZone`). El caso afirmaba lo
+     * contrario —que `/:employeeZoneId` no llevaba gate— y quedó desfasado del
+     * contrato vigente; lo que hoy protege es que la lectura use la declaración
+     * de LECTURA y no una de escritura.
+     */
+    assert.include(content, 'EMPLOYEES_READ_PERMISSION_DECLARATIONS')
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.showEmployeeZone)'
+    )
+    const readMatches =
+      compact(content).match(/permissionGate\(EMPLOYEES_READ_PERMISSION_DECLARATIONS\.\w+\)/g) ?? []
+    assert.equal(readMatches.length, 1)
+  })
+
+  test('el catálogo de zonas de la empresa se protege con permisos de Zonas, no de Empleados', async ({
+    assert,
+  }) => {
+    // Desde que el módulo zones exige permisos, sus rutas declaran su propio
+    // módulo. El listado sigue sin gate: este mismo flujo de Empleados lo usa
+    // en el select de zonas, y pedir zones:read lo rompería.
+    const content = await readFile(join(process.cwd(), 'start/routes/zone_routes.ts'), 'utf8')
+    assert.include(content, 'ZONES_PERMISSION_DECLARATIONS')
+    assert.notInclude(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+    assert.notInclude(compact(content), "router.get('/','#controllers/zone_controller.index').use(")
+  })
+})
+
+test.group('employee_annotation_routes — PermissionGate Anotaciones', () => {
+  test('escrituras declaran permissionGate y lecturas no', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_annotation_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeAnnotation)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeAnnotation)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeAnnotation)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 3)
+    assert.notInclude(compact(content), "get('/').use(middleware.permissionGate")
+    assert.notInclude(
+      compact(content),
+      "get('/employee/:employeeId').use(middleware.permissionGate"
+    )
+    assert.notInclude(
+      compact(content),
+      "get('/:employeeAnnotationId').use(middleware.permissionGate"
+    )
+  })
+
+  test('el controlador de update conserva el mensaje de autoría vigente', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'app/controllers/employee_annotation_controller.ts'),
+      'utf8'
+    )
+    assert.include(content, 'Only the original creator can update this annotation')
+    assert.include(content, 'currentEmployeeAnnotation.userId !== user.userId')
+  })
+})
+
+test.group('employee_bonus_routes — PermissionGate Bonificaciones', () => {
+  test('escrituras declaran permissionGate de Trabajo y lecturas no', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_bonus_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeBonus)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeBonus)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeBonus)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 3)
+    assert.notInclude(compact(content), "get('/').use(middleware.permissionGate")
+    assert.notInclude(
+      compact(content),
+      "get('/concepts/:employeeId').use(middleware.permissionGate"
+    )
+    assert.notInclude(compact(content), "get('/:employeeBonusId').use(middleware.permissionGate")
+  })
+})
+
+test.group('user_responsible_employee_routes — PermissionGate Responsable/Asignados', () => {
+  test('escrituras declaran un solo permissionGate y lecturas no', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/user_responsible_employee_routes.ts'),
+      'utf8'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createUserResponsibleEmployee)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateUserResponsibleEmployee)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteUserResponsibleEmployee)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 3)
+    assert.notInclude(
+      compact(content),
+      "get('/:userResponsibleEmployeeId').use(middleware.permissionGate"
+    )
+  })
+})
+
+test.group('employee_supplies — PermissionGate Activos', () => {
+  test('escrituras de asignación declaran permissionGate y lecturas no', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_supplies.ts'),
+      'utf8'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeSupply)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateEmployeeSupply)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.retireEmployeeSupply)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeSupply)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 4)
+  })
+
+  test('el catálogo de activos se protege con permisos de Activos; de Empleados solo queda el Excel', async ({
+    assert,
+  }) => {
+    // Desde que el módulo supplies exige permisos, sus rutas declaran su propio
+    // módulo. Lo que este caso cuida es que la asignación de activos (Empleados)
+    // no se cuele en el catálogo: el único gate de Empleados es el reporte en
+    // Excel, que ya pedía employees:download-supplies-report.
+    const supplies = await readFile(join(process.cwd(), 'start/routes/supplies.ts'), 'utf8')
+    const types = await readFile(join(process.cwd(), 'start/routes/supply_type.ts'), 'utf8')
+    assert.include(supplies, 'SUPPLIES_PERMISSION_DECLARATIONS')
+    assert.include(types, 'SUPPLIES_PERMISSION_DECLARATIONS')
+    assert.notInclude(supplies, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+    assert.notInclude(types, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
+    assert.notInclude(types, 'EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS')
+    const employeesGates =
+      compact(supplies).match(/permissionGate\(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.deepEqual(employeesGates, [
+      'permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getSuppliesExcel)',
+    ])
+  })
+})
+
+test.group('employee_supplies_response_contracts — PermissionGate contratos', () => {
+  test('POST y DELETE declaran permissionGate; GET no', async ({ assert }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_supplies_response_contracts.ts'),
+      'utf8'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createEmployeeSupplyResponseContract)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeSupplyResponseContract)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 2)
+    assert.notInclude(content, 'permissionGateAnyOf')
+  })
+})
+
+test.group('employee_supply_assignament_photo — PermissionGate fotografías', () => {
+  test('POST entrega, POST devolución y DELETE declaran permissionGate; GET no', async ({
+    assert,
+  }) => {
+    const content = await readFile(
+      join(process.cwd(), 'start/routes/employee_supply_assignament_photo.ts'),
+      'utf8'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.uploadEmployeeSupplyAssignationPhoto)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.uploadEmployeeSupplyReturnPhoto)'
+    )
+    assert.include(
+      compact(content),
+      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeSupplyAssignationPhoto)'
+    )
+    const matches =
+      compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
+      []
+    assert.equal(matches.length, 3)
+    /**
+     * El grupo SÍ monta `businessScope()`, y debe seguir montándolo: la foto de
+     * una entrega cuelga de un activo de una empresa, así que sin el candado de
+     * empresa el gate por sí solo dejaría leer y borrar fotos ajenas. El caso
+     * afirmaba lo contrario (`notInclude`) desde antes de que el grupo lo
+     * montara, y se quedó protegiendo justo lo que no debe.
+     */
+    assert.include(compact(content), '.use(middleware.auth())')
+    assert.include(compact(content), '.use(middleware.businessScope())')
+  })
+})

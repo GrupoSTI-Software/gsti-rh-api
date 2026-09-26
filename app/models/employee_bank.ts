@@ -1,9 +1,15 @@
 /* eslint-disable max-len */
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
 import { DateTime } from 'luxon'
+import encryption from '@adonisjs/core/services/encryption'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 import Bank from './bank.js'
+import Employee from './employee.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 /**
  * @swagger
@@ -18,21 +24,12 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
  *          employeeBankAccountClabe:
  *            type: string
  *            description: Employee bank account clabe
- *          employeeBankAccountClabeLastNumbers:
- *            type: string
- *            description: Employee bank account clabe last 4 numbers
  *          employeeBankAccountNumber:
  *            type: string
  *            description: Employee bank account number
- *          employeeBankAccountNumberLastNumbers:
- *            type: string
- *            description: Employee bank account number last 4 numbers
  *          employeeBankAccountCardNumber:
  *            type: string
  *            description: Employee bank account card number
- *          employeeBankAccountCardNumberLastNumbers:
- *            type: string
- *            description: Employee bank account card number last 4 numbers
  *          employeeBankAccountType:
  *            type: string
  *            description: Employee bank account type
@@ -54,26 +51,73 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
  *
  */
 
-export default class EmployeeBank extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeBank extends compose(BaseModel, SoftDeletes, withBusinessUnitScope(), withSensitiveWriteGuard()) {
   @column({ isPrimary: true })
   declare employeeBankId: number
 
-  @column()
+  /**
+   * CLABE interbancaria — cifrada AES-256-CBC en reposo (LFPDPPP, dato financiero).
+   * El ciphertext no se usa en cláusulas WHERE; los últimos números se conservan en
+   * `employeeBankAccountClabeLastNumbers` en BD pero no se serializan (USRH1789328027039).
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serialize: sensitiveSerialize('EmployeeBank', 'employeeBankAccountClabe'),
+  })
   declare employeeBankAccountClabe: string
 
-  @column()
+  @column({ serializeAs: null })
   declare employeeBankAccountClabeLastNumbers: string
 
-  @column()
+  /**
+   * Número de cuenta bancaria — cifrado AES-256-CBC en reposo (LFPDPPP, dato financiero).
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serialize: sensitiveSerialize('EmployeeBank', 'employeeBankAccountNumber'),
+  })
   declare employeeBankAccountNumber: string
 
-  @column()
+  @column({ serializeAs: null })
   declare employeeBankAccountNumberLastNumbers: string
 
-  @column()
+  /**
+   * Número de tarjeta — cifrado AES-256-CBC en reposo (LFPDPPP, dato financiero).
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serialize: sensitiveSerialize('EmployeeBank', 'employeeBankAccountCardNumber'),
+  })
   declare employeeBankAccountCardNumber: string
 
-  @column()
+  @column({ serializeAs: null })
   declare employeeBankAccountCardNumberLastNumbers: string
 
   @column()
@@ -85,8 +129,22 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes) {
   @column()
   declare employeeId: number
 
+  /** Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08). */
+  @column()
+  declare businessUnitId: number
+
   @column()
   declare bankId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeBank) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column.dateTime({ autoCreate: true })
   declare employeeBankCreatedAt: DateTime

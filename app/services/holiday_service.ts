@@ -1,7 +1,5 @@
-import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import Holiday from '#models/holiday'
-import env from '#start/env'
 import { I18n } from '@adonisjs/i18n'
 import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_service_index_interface.js'
 import SyncAssistsService from './sync_assists_service.js'
@@ -14,18 +12,20 @@ export default class HolidayService {
     this.i18n = i18n
   }
 
-  async index(firstDate: string, lastDate: string, search: string, page: number, limit: number) {
+  async index(firstDate: string, lastDate: string, search: string, page: number, limit: number, allowedBusinessUnitSlugs: string[] = []) {
     try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
       const holidays = Holiday.query()
         .andWhere((query) => {
+          if (allowedBusinessUnitSlugs.length === 0) {
+            query.whereRaw('1 = 0')
+            return
+          }
           query.andWhere((subQuery) => {
-            businessList.forEach((business) => {
+            allowedBusinessUnitSlugs.forEach((business) => {
               subQuery.orWhereRaw('FIND_IN_SET(?, holiday_business_units)', [business.trim()])
             })
+          })
         })
-      })
 
       if (search) {
         holidays.where('holidayName', 'like', `%${search}%`)
@@ -59,32 +59,19 @@ export default class HolidayService {
     }
   }
 
-  async updateAssistCalendar(date: Date) {
+  async updateAssistCalendar(date: Date, allowedBusinessUnitIds: number[] = []) {
     const dateStart = new Date(date)
     dateStart.setDate(dateStart.getDate())
 
     const dateEnd = new Date(date)
     dateEnd.setDate(dateEnd.getDate())
-      /* const employeeService = new EmployeeService()
-      const resultEmployes = await employeeService.index(
-      {
-        search: '',
-        departmentId: 0,
-        positionId: 0,
-        page: 1,
-        limit: 999999999999999,
-        employeeWorkSchedule: '',
-      },departmentsList
-    ) */
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
 
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    if (allowedBusinessUnitIds.length === 0) {
+      return
+    }
+
     const employees = await Employee.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .orderBy('employee_id')
 
     for await (const employee of employees) {

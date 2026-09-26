@@ -1,0 +1,1005 @@
+import { DateTime } from 'luxon'
+import PDFDocument from 'pdfkit'
+import TraumaticEventReport from '#models/traumatic_event_report'
+import SystemSettingService from '#services/system_setting_service'
+import { SENSITIVE_EXPORT_PLACEHOLDER } from '#constants/sensitive_export_placeholder'
+import { REPORT_NEUTRAL_HEX, REPORT_NEUTRAL_PDF_FONTS } from '#constants/report_neutral_theme'
+import { ETR_ERROR_CODES } from '../constants/traumatic_event_report_error_codes.js'
+import { TraumaticEventReportError } from '../exceptions/traumatic_event_report_error.js'
+import type Employee from '#models/employee'
+import type Person from '#models/person'
+import { getBusinessTimeZone } from '#utils/business_date'
+import { formatReportGeneratedAt } from '#helpers/report_locale'
+import { reportFullName, reportText } from '#helpers/report_text'
+
+// ---------------------------------------------------------------------------
+// Constantes de formato neutral (sin marca)
+// ---------------------------------------------------------------------------
+
+/** Paleta neutral compartida por todos los descargables. */
+const PDF_COLORS = REPORT_NEUTRAL_HEX
+
+/**
+ * Tipografía neutral: fuentes estándar de pdfkit (sin la tipografía de
+ * marca). Codifican WinAnsi, que cubre acentos, ñ, `§`, `—`, `–` y `•`.
+ */
+const FONT_REGULAR = REPORT_NEUTRAL_PDF_FONTS.regular
+const FONT_BOLD = REPORT_NEUTRAL_PDF_FONTS.bold
+
+const CONFIDENTIALITY_NOTE =
+  'Documento confidencial — uso interno. Contiene datos personales protegidos por la Ley Federal de Protección de Datos Personales en Posesión de los Particulares.'
+
+const REPORT_TIMEZONE = getBusinessTimeZone()
+
+// ---------------------------------------------------------------------------
+// Interfaces públicas
+// ---------------------------------------------------------------------------
+
+export interface RegistryReportFilters {
+  from?: DateTime | null
+  to?: DateTime | null
+  eventTypeId?: number
+  page?: number
+  limit?: number
+}
+
+export interface RegistryReferralItem {
+  traumaticEventReferralId: number
+  institutionType: string
+  institutionName: string
+  referredAt: string | null
+}
+
+export interface RegistryExamItem {
+  traumaticEventExamId: number
+  examType: string
+  performedAt: string | null
+  performedBy: string
+  outcome: string
+}
+
+export interface RegistryReportItem {
+  traumaticEventReportId: number
+  employee: {
+    employeeId: number
+    employeeCode: string | number | null
+    fullName: string
+    personFirstname: string | null
+    personLastname: string | null
+    personSecondLastname: string | null
+    personCurp: string | null
+  }
+  traumaticEventType: {
+    traumaticEventTypeId: number
+    traumaticEventTypeName: string
+  }
+  occurredAt: string | null
+  referrals: RegistryReferralItem[]
+  referralsCount: number
+  exams: RegistryExamItem[]
+  examsCount: number
+}
+
+export interface RegistryReportPaginated {
+  data: RegistryReportItem[]
+  meta: {
+    total: number
+    perPage: number
+    currentPage: number
+    lastPage: number
+    firstPage: number
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Función pura exportada (testeable sin BD)
+// ---------------------------------------------------------------------------
+
+/**
+ * Valida que el rango de fechas del registro sea coherente (from ≤ to).
+ * Si no se pasa ninguno de los dos, no hay nada que validar.
+ * Lanza `TraumaticEventReportError` con `ETR.VAL.RANGE.001` si from > to.
+ */
+export function assertRegistryRangeIsCoherent(
+  from: DateTime | null | undefined,
+  to: DateTime | null | undefined
+): void {
+  if (!from || !to) return
+  if (from.startOf('day') > to.startOf('day')) {
+    throw new TraumaticEventReportError(
+      'El rango de fechas del registro es inválido: la fecha inicial es posterior a la final.',
+      ETR_ERROR_CODES.RANGE_INVALID,
+      400,
+      'rango-fechas-invalido'
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Servicio
+// ---------------------------------------------------------------------------
+
+/**
+ * Servicio del registro auditable de eventos traumáticos (NOM-035 §5.8.c).
+ *
+ * Consolida reportes de evento con sus canalizaciones y exámenes para
+ * la inspección STPS. No persiste nada; solo lee.
+ */
+export default class TraumaticEventRegistryReportService {
+  /**
+   * Lista paginada del registro. La paginación se resuelve en SQL.
+   */
+  async getRegistryPaginated(
+    filters: RegistryReportFilters,
+    allowedBusinessUnitIds: number[]
+  ): Promise<RegistryReportPaginated> {
+    const page = filters.page && filters.page > 0 ? filters.page : 1
+    const limit = filters.limit && filters.limit > 0 ? filters.limit : 50
+
+    this.assertRangeIsCoherent(filters.from ?? null, filters.to ?? null)
+
+    if (allowedBusinessUnitIds.length === 0) {
+      return this.emptyPagination(page, limit)
+    }
+
+    const query = this.buildBaseQuery(filters)
+    const paginator = await query
+      .orderBy('traumatic_event_report_occurred_at', 'desc')
+      .orderBy('traumatic_event_report_id', 'desc')
+      .paginate(page, limit)
+
+    const reports = paginator.all()
+    const items = await this.hydrateItems(reports)
+
+    return {
+      data: items,
+      meta: {
+        total: paginator.total,
+        perPage: paginator.perPage,
+        currentPage: paginator.currentPage,
+        lastPage: paginator.lastPage,
+        firstPage: 1,
+      },
+    }
+  }
+
+  /**
+   * Listado completo sin paginar para el export PDF (tope técnico: 5000 filas).
+   */
+  async getRegistryAll(
+    filters: RegistryReportFilters,
+    allowedBusinessUnitIds: number[]
+  ): Promise<RegistryReportItem[]> {
+    this.assertRangeIsCoherent(filters.from ?? null, filters.to ?? null)
+
+    if (allowedBusinessUnitIds.length === 0) return []
+
+    const query = this.buildBaseQuery(filters)
+    const reports = await query
+      .orderBy('traumatic_event_report_occurred_at', 'desc')
+      .orderBy('traumatic_event_report_id', 'desc')
+      .limit(5000)
+
+    return this.hydrateItems(reports)
+  }
+
+  /**
+   * Genera el PDF del registro auditable. Devuelve Buffer para que el
+   * controller lo envíe con los headers Content-Type + Content-Disposition.
+   * No persiste en disco.
+   */
+  async buildRegistryPdf(
+    filters: RegistryReportFilters,
+    allowedBusinessUnitIds: number[],
+    options?: { maskSensitive?: boolean }
+  ): Promise<Buffer> {
+    const items = await this.getRegistryAll(filters, allowedBusinessUnitIds)
+    return this.renderRegistryPdf(items, filters, options)
+  }
+
+  async renderRegistryPdf(
+    items: RegistryReportItem[],
+    filters: RegistryReportFilters,
+    options?: { maskSensitive?: boolean }
+  ): Promise<Buffer> {
+    return this.renderPdf(items, filters, options)
+  }
+
+  // ---------------------------------------------------------------------------
+  // Query helpers
+  // ---------------------------------------------------------------------------
+
+  private buildBaseQuery(filters: RegistryReportFilters) {
+    const query = TraumaticEventReport.query()
+      .whereNull('traumatic_event_reports.traumatic_event_report_deleted_at')
+      .whereHas('employee', (eq) => {
+        // Fuente única de empresa: columna propia + mixin. Aquí solo se
+        // ocultan reportes de empleados dados de baja (R-7). Los llamadores
+        // ya cortan con alcance vacío (R-5).
+        eq.whereNull('employee_deleted_at')
+      })
+      .preload('employee', (eq) => eq.preload('person'))
+      .preload('traumaticEventType')
+
+    if (filters.from) {
+      query.where(
+        'traumatic_event_report_occurred_at',
+        '>=',
+        filters.from.toISODate() as string
+      )
+    }
+    if (filters.to) {
+      query.where(
+        'traumatic_event_report_occurred_at',
+        '<=',
+        filters.to.toISODate() as string
+      )
+    }
+    if (filters.eventTypeId) {
+      query.where('traumatic_event_type_id', filters.eventTypeId)
+    }
+
+    return query
+  }
+
+  /**
+   * Carga en lote las canalizaciones y exámenes vivos de los reportes
+   * dados y los adjunta a cada ítem.
+   */
+  private async hydrateItems(reports: TraumaticEventReport[]): Promise<RegistryReportItem[]> {
+    if (reports.length === 0) return []
+
+    const reportIds = reports.map((r) => r.traumaticEventReportId)
+
+    // Canalizaciones vivas
+    const { default: TraumaticEventReferral } = await import(
+      '#models/traumatic_event_referral'
+    )
+    const referralRows = await TraumaticEventReferral.query()
+      .whereIn('traumatic_event_report_id', reportIds)
+      .whereNull('traumatic_event_referral_deleted_at')
+      .orderBy('traumatic_event_referral_referred_at', 'asc')
+
+    const referralsByReport = new Map<number, RegistryReferralItem[]>()
+    for (const row of referralRows) {
+      const list = referralsByReport.get(row.traumaticEventReportId) ?? []
+      list.push({
+        traumaticEventReferralId: row.traumaticEventReferralId,
+        institutionType: row.traumaticEventReferralInstitutionType,
+        institutionName: row.traumaticEventReferralInstitutionName,
+        referredAt: this.toIsoDate(row.traumaticEventReferralReferredAt),
+      })
+      referralsByReport.set(row.traumaticEventReportId, list)
+    }
+
+    // Exámenes vivos
+    const { default: TraumaticEventExam } = await import('#models/traumatic_event_exam')
+    const examRows = await TraumaticEventExam.query()
+      .whereIn('traumatic_event_report_id', reportIds)
+      .whereNull('traumatic_event_exam_deleted_at')
+      .orderBy('traumatic_event_exam_performed_at', 'asc')
+
+    const examsByReport = new Map<number, RegistryExamItem[]>()
+    for (const row of examRows) {
+      const list = examsByReport.get(row.traumaticEventReportId) ?? []
+      list.push({
+        traumaticEventExamId: row.traumaticEventExamId,
+        examType: row.traumaticEventExamType,
+        performedAt: this.toIsoDate(row.traumaticEventExamPerformedAt),
+        performedBy: row.traumaticEventExamPerformedBy,
+        outcome: row.traumaticEventExamOutcome,
+      })
+      examsByReport.set(row.traumaticEventReportId, list)
+    }
+
+    return reports.map((report) => {
+      const employee = report.employee
+      const person = employee?.person ?? null
+      const fullName = this.composeFullName(employee, person)
+      const referrals = referralsByReport.get(report.traumaticEventReportId) ?? []
+      const exams = examsByReport.get(report.traumaticEventReportId) ?? []
+      const type = report.traumaticEventType
+
+      return {
+        traumaticEventReportId: report.traumaticEventReportId,
+        employee: {
+          employeeId: employee?.employeeId ?? report.employeeId,
+          employeeCode: employee?.employeeCode ?? null,
+          fullName,
+          personFirstname: person?.personFirstname ?? null,
+          personLastname: person?.personLastname ?? null,
+          personSecondLastname: person?.personSecondLastname ?? null,
+          personCurp: person?.personCurp ?? null,
+        },
+        traumaticEventType: {
+          traumaticEventTypeId: type?.traumaticEventTypeId ?? report.traumaticEventTypeId,
+          traumaticEventTypeName: reportText(type?.traumaticEventTypeName),
+        },
+        occurredAt: this.toIsoDate(report.traumaticEventReportOccurredAt),
+        referrals,
+        referralsCount: referrals.length,
+        exams,
+        examsCount: exams.length,
+      }
+    })
+  }
+
+  // ---------------------------------------------------------------------------
+  // PDF
+  // ---------------------------------------------------------------------------
+
+  private async renderPdf(
+    items: RegistryReportItem[],
+    filters: RegistryReportFilters,
+    options?: { maskSensitive?: boolean }
+  ): Promise<Buffer> {
+    const tradeName = await this.fetchTradeName()
+    const folio = this.generateFolio()
+    const generatedAt = DateTime.now().setZone(REPORT_TIMEZONE)
+
+    return new Promise<Buffer>((resolve, reject) => {
+      const doc = new PDFDocument({
+        size: 'LETTER',
+        margins: { top: 60, bottom: 70, left: 48, right: 48 },
+        bufferPages: true,
+        info: {
+          Title: 'Registro de eventos traumáticos — NOM-035 §5.8.c',
+          Author: tradeName,
+          Subject: 'Traumatic Events Registry Report - NOM-035',
+          Producer: 'PDFKit',
+        },
+      })
+
+      const chunks: Uint8Array[] = []
+      doc.on('data', (chunk: Uint8Array) => chunks.push(chunk))
+      doc.on('end', () => {
+        const total = chunks.reduce((acc, c) => acc + c.length, 0)
+        const merged = new Uint8Array(total)
+        let offset = 0
+        for (const c of chunks) {
+          merged.set(c, offset)
+          offset += c.length
+        }
+        resolve(Buffer.from(merged.buffer))
+      })
+      doc.on('error', reject)
+
+      this.renderFirstPageHeader(doc, tradeName, folio, generatedAt, filters)
+      this.renderLegalFoundation(doc)
+      this.renderSummaryCounters(doc, items)
+
+      if (items.length === 0) {
+        this.renderEmptyState(doc)
+      } else {
+        for (const item of items) {
+          this.renderEmployeeCard(doc, item, options)
+        }
+        this.renderSummaryTable(doc, items)
+      }
+
+      const pageRange = doc.bufferedPageRange()
+      const totalPages = pageRange.count
+      for (let i = pageRange.start; i < pageRange.start + totalPages; i++) {
+        doc.switchToPage(i)
+        const pageIndex = i - pageRange.start
+        this.renderPageHeader(doc, tradeName)
+        this.renderPageFooter(doc, folio, generatedAt, pageIndex + 1, totalPages)
+      }
+
+      doc.end()
+    })
+  }
+
+  // ---------------------------------------------------------------------------
+  // Bloques visuales del PDF
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Encabezado neutral de cada página: nombre comercial del patrón (dato
+   * que identifica al emisor, no marca) en texto gris a la derecha y una
+   * línea delgada gris. Sin franja de color ni wordmark del producto.
+   *
+   * El cursor `doc.y` se restaura al terminar para evitar que un `text()`
+   * en coordenadas absolutas arrastre la Y y provoque una página en blanco.
+   */
+  private renderPageHeader(doc: PDFKit.PDFDocument, tradeName: string) {
+    const margin = doc.page.margins.left
+    const pageW = doc.page.width - margin * 2
+    const ruleY = 38
+    const savedY = doc.y
+
+    doc.save()
+    if (tradeName) {
+      doc
+        .font(FONT_REGULAR)
+        .fontSize(9)
+        .fillColor(PDF_COLORS.textMuted)
+        .text(tradeName, margin, 24, {
+          width: pageW,
+          align: 'right',
+          lineBreak: false,
+          ellipsis: true,
+          height: 12,
+        })
+    }
+    doc
+      .moveTo(margin, ruleY)
+      .lineTo(margin + pageW, ruleY)
+      .lineWidth(0.5)
+      .strokeColor(PDF_COLORS.border)
+      .stroke()
+    doc.restore()
+    doc.y = savedY
+  }
+
+  private renderFirstPageHeader(
+    doc: PDFKit.PDFDocument,
+    tradeName: string,
+    folio: string,
+    generatedAt: DateTime,
+    filters: RegistryReportFilters
+  ) {
+    const margin = doc.page.margins.left
+    const pageW = doc.page.width - margin * 2
+    doc.y = doc.page.margins.top + 8
+
+    doc
+      .font(FONT_BOLD)
+      .fontSize(18)
+      .fillColor(PDF_COLORS.text)
+      .text('Registro de eventos traumáticos — NOM-035 §5.8.c', margin, doc.y, {
+        width: pageW,
+        align: 'left',
+      })
+
+    doc.moveDown(0.3)
+    // Sin nombre comercial configurado, en blanco: solo el folio.
+    const metaLeft = reportText(tradeName)
+    doc
+      .font(FONT_REGULAR)
+      .fontSize(10)
+      .fillColor(PDF_COLORS.text)
+      .text([metaLeft, `Folio: ${folio}`].filter(Boolean).join('   '), margin, doc.y, {
+        width: pageW,
+        align: 'left',
+        lineBreak: false,
+      })
+
+    doc.moveDown(0.15)
+    doc
+      .font(FONT_REGULAR)
+      .fontSize(9.5)
+      .fillColor(PDF_COLORS.textMuted)
+      .text(
+        `Generado: ${formatReportGeneratedAt(generatedAt)}`,
+        margin,
+        doc.y,
+        { width: pageW, align: 'left', lineBreak: false }
+      )
+
+    doc.moveDown(0.4)
+    doc
+      .font(FONT_BOLD)
+      .fontSize(9.5)
+      .fillColor(PDF_COLORS.text)
+      .text(`Filtros aplicados: ${this.formatFilters(filters)}`, margin, doc.y, {
+        width: pageW,
+        align: 'left',
+      })
+
+    doc.moveDown(0.6)
+  }
+
+  private renderLegalFoundation(doc: PDFKit.PDFDocument) {
+    const margin = doc.page.margins.left
+    const pageW = doc.page.width - margin * 2
+
+    doc
+      .font(FONT_BOLD)
+      .fontSize(11)
+      .fillColor(PDF_COLORS.text)
+      .text('Fundamento legal', margin, doc.y, { width: pageW, align: 'left' })
+
+    doc.moveDown(0.2)
+    doc
+      .font(FONT_REGULAR)
+      .fontSize(9.5)
+      .fillColor(PDF_COLORS.text)
+      .text(
+        'NOM-035-STPS-2018, numeral 5.8.c. El patrón debe conservar el registro de los ' +
+          'trabajadores que vivieron acontecimientos traumáticos severos y fueron sujetos ' +
+          'a exámenes, disponible en todo momento para la STPS. Este documento consolida ' +
+          'los reportes de evento traumático registrados con sus canalizaciones y exámenes ' +
+          'practicados, tal como exige la norma.',
+        margin,
+        doc.y,
+        { width: pageW, align: 'left', lineGap: 1 }
+      )
+
+    doc.moveDown(0.8)
+  }
+
+  private renderSummaryCounters(doc: PDFKit.PDFDocument, items: RegistryReportItem[]) {
+    const margin = doc.page.margins.left
+    const pageW = doc.page.width - margin * 2
+    const startY = doc.y
+    const blockW = pageW / 3
+
+    const totalReferrals = items.reduce((s, i) => s + i.referralsCount, 0)
+    const totalExams = items.reduce((s, i) => s + i.examsCount, 0)
+
+    const blocks = [
+      { value: items.length, label: 'eventos registrados', color: PDF_COLORS.text },
+      { value: totalReferrals, label: 'canalizaciones', color: PDF_COLORS.text },
+      { value: totalExams, label: 'exámenes practicados', color: PDF_COLORS.text },
+    ]
+
+    blocks.forEach((block, idx) => {
+      const x = margin + blockW * idx
+      doc
+        .font(FONT_BOLD)
+        .fontSize(28)
+        .fillColor(block.color)
+        .text(String(block.value), x, startY, { width: blockW, align: 'center', lineBreak: false })
+      doc
+        .font(FONT_REGULAR)
+        .fontSize(9)
+        .fillColor(PDF_COLORS.textMuted)
+        .text(block.label, x, startY + 32, { width: blockW, align: 'center', lineBreak: false })
+    })
+
+    doc.y = startY + 56
+  }
+
+  private renderEmployeeCard(
+    doc: PDFKit.PDFDocument,
+    item: RegistryReportItem,
+    options?: { maskSensitive?: boolean }
+  ) {
+    const margin = doc.page.margins.left
+    const pageW = doc.page.width - margin * 2
+    const innerPad = 12
+
+    // Estimación conservadora: 26px por viñeta (dos líneas posibles a 9pt ≈ 13px c/u)
+    // El bloque real puede ser menor, pero nunca desborda la tarjeta dibujada.
+    const referralsBlockH = item.referrals.length > 0 ? 18 + item.referrals.length * 26 : 20
+    const examsBlockH = item.exams.length > 0 ? 18 + item.exams.length * 26 : 20
+    const cardH = 28 + 18 + 14 + referralsBlockH + examsBlockH + innerPad * 2 + 12
+
+    if (doc.y + cardH > doc.page.height - doc.page.margins.bottom) {
+      doc.addPage()
+    }
+
+    const x = margin
+    const y = doc.y
+    const innerX = x + innerPad
+    const innerW = pageW - innerPad * 2
+
+    doc.save()
+    doc
+      .roundedRect(x, y, pageW, cardH, 6)
+      .lineWidth(0.7)
+      .strokeColor(PDF_COLORS.border)
+      .fillAndStroke(PDF_COLORS.background, PDF_COLORS.border)
+    doc.rect(x, y, 3.5, cardH).fill(PDF_COLORS.textMuted)
+    doc.restore()
+
+    // Cabecera: nombre del empleado
+    doc
+      .font(FONT_BOLD)
+      .fontSize(13)
+      .fillColor(PDF_COLORS.text)
+      .text(item.employee.fullName, innerX, y + innerPad, {
+        width: innerW - 140,
+        lineBreak: false,
+        ellipsis: true,
+      })
+
+    // Tipo de evento alineado a la derecha
+    doc
+      .font(FONT_BOLD)
+      .fontSize(9.5)
+      .fillColor(PDF_COLORS.text)
+      .text(item.traumaticEventType.traumaticEventTypeName, x + pageW - 140 - innerPad, y + innerPad + 2, {
+        width: 140,
+        align: 'right',
+        lineBreak: false,
+        ellipsis: true,
+      })
+
+    // Meta: CURP | Código | Fecha de ocurrencia
+    const metaY = y + innerPad + 22
+    const curpValue = options?.maskSensitive
+      ? SENSITIVE_EXPORT_PLACEHOLDER
+      : item.employee.personCurp
+    doc
+      .font(FONT_REGULAR)
+      .fontSize(9.5)
+      .fillColor(PDF_COLORS.textMuted)
+      .text(
+        `CURP: ${reportText(curpValue)}`,
+        innerX,
+        metaY,
+        { width: innerW / 2, lineBreak: false, ellipsis: true }
+      )
+    doc
+      .font(FONT_REGULAR)
+      .fontSize(9.5)
+      .fillColor(PDF_COLORS.textMuted)
+      .text(
+        `Fecha de ocurrencia: ${this.formatDateDmy(item.occurredAt)}`,
+        innerX + innerW / 2,
+        metaY,
+        { width: innerW / 2, align: 'right', lineBreak: false, ellipsis: true }
+      )
+
+    // Código de empleado
+    doc
+      .font(FONT_REGULAR)
+      .fontSize(9)
+      .fillColor(PDF_COLORS.textMuted)
+      .text(
+        item.employee.employeeCode ? `Cód. empleado: ${item.employee.employeeCode}` : '',
+        innerX,
+        metaY + 14,
+        { width: innerW, lineBreak: false }
+      )
+
+    // Canalizaciones
+    const refY = metaY + 30
+    doc
+      .font(FONT_BOLD)
+      .fontSize(9.5)
+      .fillColor(PDF_COLORS.text)
+      .text(`Canalizaciones (${item.referralsCount})`, innerX, refY, {
+        width: innerW / 2,
+        lineBreak: false,
+      })
+
+    if (item.referrals.length === 0) {
+      doc
+        .font(FONT_REGULAR)
+        .fontSize(9)
+        .fillColor(PDF_COLORS.textMuted)
+        .text('Sin canalizaciones registradas', innerX, refY + 13, { width: innerW / 2, lineBreak: false })
+    } else {
+      const colW = innerW / 2 - 8
+      let bulletY = refY + 14
+      doc.font(FONT_REGULAR).fontSize(9)
+      for (const ref of item.referrals) {
+        const bulletText = this.withDate(
+          `• ${this.institutionTypeLabel(ref.institutionType)}: ${reportText(ref.institutionName)}`,
+          ref.referredAt
+        )
+        const lineH = doc.heightOfString(bulletText, { width: colW })
+        doc
+          .fillColor(PDF_COLORS.text)
+          .text(bulletText, innerX, bulletY, { width: colW })
+        bulletY += lineH + 3
+      }
+    }
+
+    // Exámenes
+    const examStartX = innerX + innerW / 2
+    doc
+      .font(FONT_BOLD)
+      .fontSize(9.5)
+      .fillColor(PDF_COLORS.text)
+      .text(`Exámenes (${item.examsCount})`, examStartX, refY, {
+        width: innerW / 2,
+        lineBreak: false,
+      })
+
+    if (item.exams.length === 0) {
+      doc
+        .font(FONT_REGULAR)
+        .fontSize(9)
+        .fillColor(PDF_COLORS.textMuted)
+        .text('Sin exámenes registrados', examStartX, refY + 14, { width: innerW / 2, lineBreak: false })
+    } else {
+      const examColW = innerW / 2 - 8
+      let examBulletY = refY + 14
+      doc.font(FONT_REGULAR).fontSize(9)
+      for (const exam of item.exams) {
+        const examText = this.withDate(
+          `• ${this.examTypeLabel(exam.examType)} — ${this.outcomeLabel(exam.outcome)}`,
+          exam.performedAt
+        )
+        const lineH = doc.heightOfString(examText, { width: examColW })
+        doc
+          .fillColor(PDF_COLORS.text)
+          .text(examText, examStartX, examBulletY, { width: examColW })
+        examBulletY += lineH + 3
+      }
+    }
+
+    doc.y = y + cardH + 10
+  }
+
+  private renderSummaryTable(doc: PDFKit.PDFDocument, items: RegistryReportItem[]) {
+    const margin = doc.page.margins.left
+    const pageW = doc.page.width - margin * 2
+    const headerH = 22
+    const rowH = 22
+    const estimatedH = 28 + headerH + rowH * items.length
+
+    if (doc.y + estimatedH > doc.page.height - doc.page.margins.bottom) {
+      doc.addPage()
+    } else {
+      doc.moveDown(0.4)
+    }
+
+    doc
+      .font(FONT_BOLD)
+      .fontSize(12)
+      .fillColor(PDF_COLORS.text)
+      .text('Resumen tabular', margin, doc.y, { width: pageW, align: 'left' })
+    doc.moveDown(0.3)
+
+    const colWeights = [0.3, 0.22, 0.18, 0.15, 0.15]
+    const colWidths = colWeights.map((w) => w * pageW)
+    const headers = ['Empleado', 'Tipo de evento', 'Fecha ocurrencia', 'Canalizaciones', 'Exámenes']
+
+    let y = doc.y
+    doc.save()
+    doc.rect(margin, y, pageW, headerH).fill(PDF_COLORS.headerFill)
+    doc.restore()
+
+    let x = margin
+    headers.forEach((header, i) => {
+      doc
+        .font(FONT_BOLD)
+        .fontSize(8.5)
+        .fillColor(PDF_COLORS.text)
+        .text(header, x + 6, y + 7, {
+          width: colWidths[i] - 12,
+          align: i >= 3 ? 'center' : 'left',
+          lineBreak: false,
+        })
+      x += colWidths[i]
+    })
+
+    y += headerH
+
+    items.forEach((item, idx) => {
+      if (y + rowH > doc.page.height - doc.page.margins.bottom) {
+        doc.addPage()
+        y = doc.page.margins.top + 8
+      }
+      if (idx % 2 === 1) {
+        doc.save()
+        doc.rect(margin, y, pageW, rowH).fill(PDF_COLORS.subheaderFill)
+        doc.restore()
+      }
+
+      x = margin
+      const row = [
+        this.shortName(item.employee),
+        item.traumaticEventType.traumaticEventTypeName,
+        this.formatDateDmy(item.occurredAt),
+        String(item.referralsCount),
+        String(item.examsCount),
+      ]
+
+      row.forEach((cell, i) => {
+        doc
+          .font(FONT_REGULAR)
+          .fontSize(9)
+          .fillColor(PDF_COLORS.text)
+          .text(cell, x + 4, y + 6, {
+            width: colWidths[i] - 8,
+            align: i >= 3 ? 'center' : 'left',
+            lineBreak: false,
+            ellipsis: true,
+            height: 14,
+          })
+        x += colWidths[i]
+      })
+
+      y += rowH
+    })
+
+    doc
+      .moveTo(margin, y)
+      .lineTo(margin + pageW, y)
+      .lineWidth(0.5)
+      .strokeColor(PDF_COLORS.border)
+      .stroke()
+    doc.y = y + 6
+  }
+
+  private renderEmptyState(doc: PDFKit.PDFDocument) {
+    const margin = doc.page.margins.left
+    const pageW = doc.page.width - margin * 2
+    doc.moveDown(2)
+    doc
+      .font(FONT_BOLD)
+      .fontSize(13)
+      .fillColor(PDF_COLORS.text)
+      .text('Sin registros en el periodo seleccionado', margin, doc.y, {
+        width: pageW,
+        align: 'center',
+      })
+      .moveDown(0.4)
+      .font(FONT_REGULAR)
+      .fontSize(10)
+      .fillColor(PDF_COLORS.textMuted)
+      .text(
+        'No se encontraron eventos traumáticos que cumplan con los filtros aplicados. Ajusta los filtros y vuelve a generar el reporte.',
+        margin,
+        doc.y,
+        { width: pageW, align: 'center' }
+      )
+  }
+
+  private renderPageFooter(
+    doc: PDFKit.PDFDocument,
+    folio: string,
+    generatedAt: DateTime,
+    currentPage: number,
+    totalPages: number
+  ) {
+    const margin = doc.page.margins.left
+    const pageW = doc.page.width - margin * 2
+    const bottomY = doc.page.height - 60
+    const savedY = doc.y
+
+    doc.save()
+    doc
+      .moveTo(margin, bottomY)
+      .lineTo(margin + pageW, bottomY)
+      .lineWidth(0.5)
+      .strokeColor(PDF_COLORS.border)
+      .stroke()
+
+    doc
+      .font(FONT_REGULAR)
+      .fontSize(7.5)
+      .fillColor(PDF_COLORS.textMuted)
+      .text(
+        `Folio ${folio} · Generado ${formatReportGeneratedAt(generatedAt)}`,
+        margin,
+        bottomY + 8,
+        { width: pageW / 2, align: 'left', lineBreak: false, height: 10 }
+      )
+
+    doc
+      .font(FONT_BOLD)
+      .fontSize(7.5)
+      .fillColor(PDF_COLORS.textMuted)
+      .text(`Página ${currentPage} / ${totalPages}`, margin + pageW / 2, bottomY + 8, {
+        width: pageW / 2,
+        align: 'right',
+        lineBreak: false,
+        height: 10,
+      })
+
+    doc
+      .font(FONT_REGULAR)
+      .fontSize(6.5)
+      .fillColor(PDF_COLORS.textMuted)
+      .text(CONFIDENTIALITY_NOTE, margin, bottomY + 22, {
+        width: pageW,
+        align: 'center',
+        lineBreak: false,
+        height: 10,
+      })
+    doc.restore()
+    doc.y = savedY
+  }
+
+  // ---------------------------------------------------------------------------
+  // Utilidades
+  // ---------------------------------------------------------------------------
+
+  private assertRangeIsCoherent(from: DateTime | null, to: DateTime | null) {
+    assertRegistryRangeIsCoherent(from, to)
+  }
+
+  private composeFullName(employee: Employee | null | undefined, person: Person | null): string {
+    return reportFullName(
+      person?.personFirstname ?? employee?.employeeFirstName,
+      person?.personLastname ?? employee?.employeeLastName,
+      person?.personSecondLastname ?? employee?.employeeSecondLastName
+    )
+  }
+
+  /** `texto (dd/MM/yyyy)`; sin fecha, solo el texto (sin paréntesis vacíos). */
+  private withDate(text: string, iso: string | null | undefined): string {
+    const date = this.formatDateDmy(iso)
+    return date ? `${text} (${date})` : text
+  }
+
+  private shortName(employee: RegistryReportItem['employee']): string {
+    const last = (employee.personLastname ?? '').trim()
+    const second = (employee.personSecondLastname ?? '').trim()
+    const first = (employee.personFirstname ?? '').trim()
+    if (!last && !second && !first) return reportText(employee.fullName)
+    const lastBlock = [last, second].filter(Boolean).join(' ')
+    if (!first) return lastBlock || employee.fullName
+    const tokens = first.split(/\s+/)
+    const compact = tokens.length === 1 ? tokens[0] : `${tokens[0]} ${tokens[1].charAt(0)}.`
+    return `${lastBlock}, ${compact}`
+  }
+
+  private toIsoDate(value: unknown): string | null {
+    if (value === null || value === undefined) return null
+    if (DateTime.isDateTime(value)) return (value as DateTime).toUTC().toISODate() ?? null
+    if (typeof value === 'string') {
+      const trimmed = value.trim()
+      if (!trimmed) return null
+      const parsed = DateTime.fromISO(trimmed, { zone: 'utc' })
+      return parsed.isValid ? parsed.toISODate() : trimmed.slice(0, 10)
+    }
+    return null
+  }
+
+  private formatDateDmy(iso: string | null | undefined): string {
+    if (!iso) return ''
+    const parsed = DateTime.fromISO(iso, { zone: 'utc' })
+    return parsed.isValid ? parsed.toFormat('dd/LL/yyyy') : iso
+  }
+
+  private formatFilters(filters: RegistryReportFilters): string {
+    const parts: string[] = []
+    const from = filters.from ? this.formatDateDmy(filters.from.toISODate()) : null
+    const to = filters.to ? this.formatDateDmy(filters.to.toISODate()) : null
+    if (from || to) {
+      parts.push(`rango = ${from ?? 'sin inicio'} a ${to ?? 'sin fin'}`)
+    } else {
+      parts.push('rango = todos los registros')
+    }
+    if (filters.eventTypeId) {
+      parts.push(`tipo de evento = ID ${filters.eventTypeId}`)
+    } else {
+      parts.push('tipo de evento = todos')
+    }
+    return parts.join(' · ')
+  }
+
+  private institutionTypeLabel(type: string): string {
+    const map: Record<string, string> = {
+      imss: 'IMSS',
+      company_doctor: 'Médico de empresa',
+      private_clinic: 'Clínica privada',
+      other: 'Otra institución',
+    }
+    return map[type] ?? type
+  }
+
+  private examTypeLabel(type: string): string {
+    return type === 'medical' ? 'Médico' : type === 'psychological' ? 'Psicológico' : type
+  }
+
+  private outcomeLabel(outcome: string): string {
+    const map: Record<string, string> = {
+      fit: 'Apto',
+      needs_follow_up: 'Requiere seguimiento',
+      referred: 'Canalizado',
+    }
+    return map[outcome] ?? outcome
+  }
+
+  private async fetchTradeName(): Promise<string> {
+    try {
+      const settingService = new SystemSettingService()
+      const setting = await settingService.resolveForActiveTenant()
+      return setting?.systemSettingTradeName ?? ''
+    } catch {
+      return ''
+    }
+  }
+
+  private generateFolio(): string {
+    const year = DateTime.now().setZone(REPORT_TIMEZONE).year
+    const seq = String(Math.floor(Math.random() * 10000)).padStart(4, '0')
+    return `ETR-${year}-${seq}`
+  }
+
+  private emptyPagination(page: number, limit: number): RegistryReportPaginated {
+    return {
+      data: [],
+      meta: { total: 0, perPage: limit, currentPage: page, lastPage: 1, firstPage: 1 },
+    }
+  }
+}

@@ -1,15 +1,27 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column, hasMany, hasOne } from '@adonisjs/lucid/orm'
+import { randomUUID } from 'node:crypto'
+import {
+  BaseModel,
+  afterCreate,
+  beforeCreate,
+  belongsTo,
+  column,
+  hasMany,
+  hasOne,
+} from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany, HasOne } from '@adonisjs/lucid/types/relations'
 import Department from './department.js'
 import Position from './position.js'
+import PositionPositionLevel from './position_position_level.js'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import Person from './person.js'
 import ShiftException from './shift_exception.js'
 import BusinessUnit from './business_unit.js'
 import EmployeeType from './employee_type.js'
 import EmployeeAddress from './employee_address.js'
+import EmployeeTeleworkLocation from './employee_telework_location.js'
 import EmployeeSpouse from './employee_spouse.js'
 import EmployeeChildren from './employee_children.js'
 import EmployeeEmergencyContact from './employee_emergency_contact.js'
@@ -20,8 +32,16 @@ import EmployeeBonus from './employee_bonus.js'
 import EmployeeAssessment from './employee_assessment.js'
 import EmployeeBranchOffice from './employee_branch_office.js'
 import EmployeeTemporaryAssignment from './employee_temporary_assignment.js'
+import AsignacionContratoEspecializado from './asignacion_contrato_especializado.js'
 import EmployeeSalaryHistory from './employee_salary_history.js'
 import EmployeeCertification from './employee_certification.js'
+import type {
+  EmployeeHybridConfig,
+  EmployeeHybridMode,
+  EmployeeWorkSchedule,
+} from '#constants/employee_work_schedule'
+import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'
+import BranchOfficeProvisioningService from '#services/branch_office_provisioning_service'
 
 /**
  * @swagger
@@ -82,8 +102,9 @@ import EmployeeCertification from './employee_certification.js'
  *            type: number
  *            description: business id from the employee business unit
  *          dailySalary:
- *            type: number
- *            description: Daily salary
+ *            type: string
+ *            nullable: true
+ *            description: Salario diario vigente. Con valor se entrega enmascarado (`•••••`); sin valor, null. El importe completo solo por `GET /api/v1/pii/reveal/Employee/dailySalary/:id`.
  *          payrollBusinessUnitId:
  *            type: number
  *            description: payroll business unit id
@@ -111,6 +132,23 @@ import EmployeeCertification from './employee_certification.js'
  *          employeeTerminationType:
  *            type: string
  *            description: Tipo de baja (catálogo, debe ser coherente con la modalidad)
+ *          employeeWorkSchedule:
+ *            type: string
+ *            enum: [Onsite, Remote, Hybrid]
+ *            description: Modalidad de trabajo del empleado
+ *          employeeWorkScheduleHybridMode:
+ *            type: string
+ *            enum: [SpecificDays, DaysPerWeek, DaysPerMonth]
+ *            nullable: true
+ *            description: Modo de configuración híbrida (solo cuando la modalidad es Hybrid)
+ *          employeeWorkScheduleHybridConfig:
+ *            type: object
+ *            nullable: true
+ *            description: Configuración híbrida según el modo. Objeto con days number[] o count number.
+ *          employeeTeleworkPercentage:
+ *            type: number
+ *            format: float
+ *            description: Porcentaje de teletrabajo derivado (0.00–100.00). Nunca capturado a mano.
  *          employeeIgnoreConsecutiveAbsences:
  *            type: number
  *            description: Employee ignore consecutive absences
@@ -125,7 +163,7 @@ import EmployeeCertification from './employee_certification.js'
  *            type: string
  *
  */
-export default class Employee extends compose(BaseModel, SoftDeletes) {
+export default class Employee extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeId: number
 
@@ -150,14 +188,111 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
   @column()
   declare employeePayrollCode: string | null
 
+  /**
+   * Token opaco con el que el Backoffice identifica al empleado en la URL del
+   * navegador. No se deriva de sus datos: el formato anterior
+   * (`nombre---codigoNomina---id`) filtraba PII al historial, a los logs de
+   * proxy y al header `Referer`.
+   */
   @column()
-  declare employeeSlug: string | null
+  declare employeeSlug: string
+
+  /**
+   * Asigna el slug en el alta, no en cada servicio que crea empleados.
+   *
+   * Había cuatro rutas de alta distintas — sincronización con el checador, alta
+   * transaccional, importación masiva y siembra demo — y cada una tenía que
+   * acordarse de pedirlo después del `save()`. Como hook queda invariante:
+   * ninguna alta puede nacer sin slug, tampoco las que se escriban después.
+   *
+   * Es inmutable a propósito. Es el identificador de la URL, así que
+   * regenerarlo al renombrar a un empleado rompería todos los enlaces que
+   * apuntan a él.
+   */
+  @beforeCreate()
+  static async assignEmployeeSlug(instance: Employee) {
+    if (instance.employeeSlug) return
+    instance.employeeSlug = randomUUID()
+  }
+
+  /**
+   * Ningún empleado nace sin sucursal.
+   *
+   * La pertenencia a sucursal es el eje por el que se reparten las encuestas:
+   * un empleado sin asignación activa no las recibe, y nadie nota la ausencia.
+   * Como hook queda invariante — cubre el alta del backoffice, la sincronía de
+   * biométricos, los importadores, el alta de usuario-empleado y la siembra
+   * demo, sin que ninguno tenga que acordarse. El destino es la sucursal
+   * default de la empresa, que se crea sola si todavía no existe.
+   *
+   * Corre dentro de la transacción del alta (`instance.$trx`): si el empleado
+   * se revierte, su asignación se va con él.
+   */
+  @afterCreate()
+  static async assignDefaultBranchOffice(instance: Employee) {
+    const trx = instance.$trx
+    const client = trx ? { client: trx } : {}
+
+    const active = await EmployeeBranchOffice.query(client)
+      .where('employeeId', instance.employeeId)
+      .where('employeeBranchOfficeActive', 1)
+      .first()
+    if (active) return
+
+    const branch = await BranchOfficeProvisioningService.ensureDefault(
+      instance.businessUnitId,
+      trx
+    )
+
+    await EmployeeBranchOffice.create(
+      {
+        employeeId: instance.employeeId,
+        businessUnitId: instance.businessUnitId,
+        branchOfficeId: branch.branchOfficeId,
+        employeeBranchOfficeActive: 1,
+        employeeBranchOfficeDeactivatedAt: null,
+      },
+      client
+    )
+  }
 
   @column()
-  declare employeeWorkSchedule: string
+  declare employeeWorkSchedule: EmployeeWorkSchedule
+
+  @column()
+  declare employeeWorkScheduleHybridMode: EmployeeHybridMode | null
+
+  @column({
+    prepare: (value: EmployeeHybridConfig | null) =>
+      value ? JSON.stringify(value) : null,
+    consume: (value: string | EmployeeHybridConfig | null) => {
+      if (value === null || value === undefined) {
+        return null
+      }
+      return typeof value === 'string' ? (JSON.parse(value) as EmployeeHybridConfig) : value
+    },
+  })
+  declare employeeWorkScheduleHybridConfig: EmployeeHybridConfig | null
+
+  @column({
+    consume: (value: string | number | null) => {
+      if (value === null || value === undefined) {
+        return 0
+      }
+      return typeof value === 'string' ? Number.parseFloat(value) : value
+    },
+  })
+  declare employeeTeleworkPercentage: number
 
   @column()
   declare employeePhoto: string | null
+
+  /**
+   * Código de verificación del gafete (USRH1784686362321). Se genera de
+   * forma perezosa al primer gafete solicitado; revocar = poner en NULL.
+   */
+  @column()
+  declare employeeBadgeToken: string | null
 
   @column.date()
   declare employeeHireDate: DateTime | null
@@ -177,13 +312,23 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
   @column()
   declare positionSyncId: number
 
+  /**
+   * Nivel del puesto asignado al empleado (USRH1785964117188): FK nullable a
+   * `position_position_levels`. NULL es valor legítimo — la asignación es
+   * opcional de forma permanente (regla 1).
+   */
+  @column()
+  declare positionLevelConfigId: number | null
+
   @column()
   declare personId: number
 
   @column()
   declare businessUnitId: number
 
-  @column()
+  @column({
+    serialize: sensitiveSerializeNumeric('Employee', 'dailySalary'),
+  })
   declare dailySalary: number
 
   @column()
@@ -247,6 +392,19 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
   })
   declare position: BelongsTo<typeof Position>
 
+  /**
+   * `withTrashed()`: un empleado soft-deleted puede quedar apuntando a un
+   * renglón soft-deleted y `reactivate` lo revive tal cual. El preload
+   * anidado de `positionLevel` resuelve `displayName` sin N+1.
+   */
+  @belongsTo(() => PositionPositionLevel, {
+    foreignKey: 'positionLevelConfigId',
+    onQuery: (query) => {
+      query.withTrashed().preload('positionLevel')
+    },
+  })
+  declare positionLevelConfig: BelongsTo<typeof PositionPositionLevel>
+
   @belongsTo(() => Person, {
     foreignKey: 'personId',
     onQuery: (query) => {
@@ -287,6 +445,14 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
     },
   })
   declare address: HasMany<typeof EmployeeAddress>
+
+  @hasMany(() => EmployeeTeleworkLocation, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.whereNull('employee_telework_location_deleted_at')
+    },
+  })
+  declare teleworkLocations: HasMany<typeof EmployeeTeleworkLocation>
 
   @hasOne(() => EmployeeSpouse, {
     foreignKey: 'employeeId',
@@ -394,7 +560,15 @@ export default class Employee extends compose(BaseModel, SoftDeletes) {
     },
   })
   declare temporaryAssignments: HasMany<typeof EmployeeTemporaryAssignment>
-  
+
+  @hasMany(() => AsignacionContratoEspecializado, {
+    foreignKey: 'employeeId',
+    onQuery: (query) => {
+      query.whereNull('asignacion_contrato_especializado_deleted_at')
+    },
+  })
+  declare asignacionesContratoEspecializado: HasMany<typeof AsignacionContratoEspecializado>
+
   /** Histórico de salarios diarios del empleado */
   @hasMany(() => EmployeeSalaryHistory, {
     foreignKey: 'employeeId',

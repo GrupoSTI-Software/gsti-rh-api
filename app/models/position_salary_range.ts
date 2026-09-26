@@ -3,11 +3,13 @@ import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import encryption from '@adonisjs/core/services/encryption'
 import BusinessUnit from './business_unit.js'
 import Position from './position.js'
 import User from './user.js'
 import PositionSalaryRangeAudit from './position_salary_range_audit.js'
+import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -26,11 +28,13 @@ import PositionSalaryRangeAudit from './position_salary_range_audit.js'
  *            type: number
  *            description: Puesto (FK a positions)
  *          minSalaryDaily:
- *            type: number
- *            description: Salario mínimo diario (cifrado en BD)
+ *            type: string
+ *            nullable: true
+ *            description: Salario mínimo diario (cifrado en BD). Con valor se entrega enmascarado (`•••••`); sin valor, null. El claro solo por reveal.
  *          maxSalaryDaily:
- *            type: number
- *            description: Salario máximo diario (cifrado en BD)
+ *            type: string
+ *            nullable: true
+ *            description: Salario máximo diario (cifrado en BD). Con valor se entrega enmascarado (`•••••`); sin valor, null. El claro solo por reveal.
  *          validFrom:
  *            type: string
  *            description: Inicio de vigencia
@@ -47,7 +51,7 @@ import PositionSalaryRangeAudit from './position_salary_range_audit.js'
  *          positionSalaryRangeDeletedAt:
  *            type: string
  */
-export default class PositionSalaryRange extends compose(BaseModel, SoftDeletes) {
+export default class PositionSalaryRange extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare positionSalaryRangeId: number
 
@@ -70,6 +74,7 @@ export default class PositionSalaryRange extends compose(BaseModel, SoftDeletes)
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRange', 'minSalaryDaily'),
   })
   declare minSalaryDaily: number
 
@@ -85,6 +90,7 @@ export default class PositionSalaryRange extends compose(BaseModel, SoftDeletes)
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('PositionSalaryRange', 'maxSalaryDaily'),
   })
   declare maxSalaryDaily: number
 

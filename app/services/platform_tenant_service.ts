@@ -1,0 +1,735 @@
+import db from '@adonisjs/lucid/services/db'
+import BusinessUnit from '#models/business_unit'
+import SatCfdiUse from '#models/sat_cfdi_use'
+import SatTaxRegime from '#models/sat_tax_regime'
+import TenantBillingProfile from '#models/tenant_billing_profile'
+import { computeBillingProfileCompleteness } from '../helpers/tenant_billing_profile_completeness.js'
+import type {
+  BillingProfileCompletenessInput,
+  BillingProfileMissingField,
+} from '../helpers/tenant_billing_profile_completeness.js'
+import { isValidRfcSat } from '../shared/validators/rfc.validator.js'
+import { PLATFORM_TENANT_ERROR_CODES } from '../constants/platform_tenant_error_codes.js'
+import { PlatformTenantServiceError } from '../exceptions/platform_tenant_service_error.js'
+import { blindIndex } from '../utils/blind_index.js'
+import { toCalendarIsoDate } from '../utils/business_date.js'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '../utils/tenant_context.js'
+
+// ─── Tipos de retorno ─────────────────────────────────────────────────────────
+
+export interface TenantSubscriptionSnapshot {
+  status: string
+  planName: string | null
+  contractedEmployees: number
+  contractedUnitAmount: number
+  contractedSubtotal: number
+  contractedTaxAmount: number
+  contractedTotal: number
+  contractedTrialDays: number
+  contractedEffectiveFrom: string | null
+  trialEndsAt: string | null
+  currentPeriodStart: string | null
+  currentPeriodEnd: string | null
+  canceledAt: string | null
+}
+
+/**
+ * Completitud fiscal derivada de un tenant, tal como viaja al landlord.
+ * Son datos derivados: `missingFields` lista los NOMBRES de los campos que
+ * faltan, nunca los valores capturados (regla 4).
+ */
+export interface TenantBillingCompleteness {
+  complete: boolean
+  missingFields: BillingProfileMissingField[]
+}
+
+/**
+ * Grupo económico al que pertenece un tenant (USRH1788055613533).
+ * `activo` viaja para que la vista distinga la pertenencia a un grupo apagado
+ * sin una segunda llamada. `platformTenantGroupId` es excepción declarada a H11:
+ * es entidad de plataforma, igual que `platformDeviceId`.
+ */
+export interface TenantGroupRef {
+  platformTenantGroupId: number
+  nombre: string
+  activo: boolean
+}
+
+export interface TenantListItem {
+  businessUnitPublicId: string
+  businessUnitName: string
+  businessUnitLegalName: string
+  businessUnitActive: number
+  hasBiometrics: boolean
+  activeEmployees: number
+  /** Derivado: `false` cuando falta al menos uno de los cinco datos obligatorios de facturación (regla 1). */
+  billingProfileComplete: boolean
+  /** Derivado: nombres de los datos obligatorios que faltan, en el orden del catálogo. Nunca los valores. */
+  missingFields: BillingProfileMissingField[]
+  subscription: TenantSubscriptionSnapshot | null
+  /** Grupo económico del tenant; `null` significa suelto, estado válido y visible (regla 9). */
+  grupo: TenantGroupRef | null
+}
+
+/**
+ * Perfil fiscal del tenant tal como lo capturó el cliente (USRH1786737531069).
+ * `null` en `getTenantDetail` cuando nunca capturó datos fiscales.
+ */
+export interface TenantBillingProfileSnapshot {
+  /** RFC descifrado por el `consume` del modelo; `null` si falló el descifrado. */
+  rfc: string | null
+  /** Razón social fiscal (≠ `businessUnitLegalName` del listado). */
+  legalName: string | null
+  postalCode: string | null
+  /** Clave c_RegimenFiscal (3 caracteres). */
+  taxRegimeCode: string | null
+  /** Descripción del catálogo sembrado; `null` si la clave no está en el catálogo. */
+  taxRegimeLabel: string | null
+  /** Clave c_UsoCFDI (4 caracteres). */
+  cfdiUseCode: string | null
+  /** Descripción del catálogo sembrado; `null` si la clave no está en el catálogo. */
+  cfdiUseLabel: string | null
+  billingEmail: string | null
+  /** Derivado por el servicio de USRH1786737531066; se propaga tal cual al landlord. */
+  billingProfileComplete: boolean
+  missingFields: BillingProfileMissingField[]
+  /** ISO-8601 — `tenant_billing_profile_created_at`. */
+  capturedAt: string | null
+  /** ISO-8601 — `tenant_billing_profile_updated_at`. */
+  updatedAt: string | null
+}
+
+/** Detalle de tenant para el landlord; el listado no incluye `billingProfile`. */
+export interface TenantDetail extends TenantListItem {
+  billingProfile: TenantBillingProfileSnapshot | null
+}
+
+export interface ListTenantsFilters {
+  search?: string
+  status?: string
+  page?: number
+  limit?: number
+}
+
+export interface ListTenantsResult {
+  data: TenantListItem[]
+  meta: { total: number; page: number; limit: number; lastPage: number }
+}
+
+// ─── Helpers de serialización de fecha ───────────────────────────────────────
+
+function toIsoDate(value: unknown): string | null {
+  if (!value) return null
+  if (typeof value === 'string') return value.slice(0, 10)
+  return toCalendarIsoDate(value as Parameters<typeof toCalendarIsoDate>[0])
+}
+
+/**
+ * Perfil ausente expresado como entrada de la regla de completitud: ningún dato
+ * capturado. Existe para que el tenant que NUNCA capturó su perfil fiscal se
+ * evalúe con la MISMA regla que el que sí lo capturó (regla 3), en lugar de con
+ * una lista de códigos escrita a mano que quedaría corta en silencio el día que
+ * el catálogo `REQUIRED_FIELDS` crezca.
+ */
+const EMPTY_BILLING_PROFILE: BillingProfileCompletenessInput = {
+  rfc: null,
+  legalName: '',
+  postalCode: null,
+  taxRegimeCode: null,
+  cfdiUseCode: null,
+}
+
+/**
+ * Resuelve la completitud fiscal de un tenant. La ausencia de perfil se trata
+ * como perfil vacío (regla 2): devuelve `complete: false` con los cinco datos
+ * obligatorios en `missingFields`, nunca `true` ni un arreglo vacío. Para
+ * facturar, "sin capturar" e "incompleto" son lo mismo.
+ *
+ * @param profile - Perfil fiscal del tenant, o `null` si nunca capturó datos.
+ * @returns Completitud y nombres de los datos que faltan, en el orden del catálogo.
+ */
+export function resolveTenantBillingCompleteness(
+  profile: BillingProfileCompletenessInput | null
+): TenantBillingCompleteness {
+  return computeBillingProfileCompleteness(profile ?? EMPTY_BILLING_PROFILE)
+}
+
+// ─── Servicio ─────────────────────────────────────────────────────────────────
+
+export default class PlatformTenantService {
+  /**
+   * Listado paginado de empresas con su estado de suscripción resuelto y
+   * su conteo agregado de empleados activos (no soft-deleted, no terminados).
+   *
+   * Por cada empresa se selecciona UNA suscripción: la viva primero
+   * (live_business_unit_id IS NOT NULL), en caso de solo tener canceladas
+   * la más reciente. Empresas sin ninguna suscripción aparecen con
+   * `subscription: null`.
+   */
+  async listTenants(filters: ListTenantsFilters = {}): Promise<ListTenantsResult> {
+    const page = filters.page ?? 1
+    const limit = Math.min(filters.limit ?? 20, 100)
+    const offset = (page - 1) * limit
+
+    // ── 1 + 2. Empresas que coinciden con los filtros de texto ────────────────
+    const allIds = await this.fetchAllCompanyIds(filters.search)
+    const allInternalIds = allIds.map((r) => r.buId)
+
+    const SUB_SELECT_COLS = [
+      'bs.business_unit_id as buId',
+      'bs.billing_subscription_status as subscriptionStatus',
+      'bp.billing_plan_name as planName',
+      'bs.billing_subscription_contracted_employees as contractedEmployees',
+      'bs.billing_subscription_contracted_unit_amount as contractedUnitAmount',
+      'bs.billing_subscription_contracted_subtotal as contractedSubtotal',
+      'bs.billing_subscription_contracted_tax_amount as contractedTaxAmount',
+      'bs.billing_subscription_contracted_total as contractedTotal',
+      'bs.billing_subscription_contracted_trial_days as contractedTrialDays',
+      'bs.billing_subscription_contracted_effective_from as contractedEffectiveFrom',
+      'bs.billing_subscription_trial_ends_at as trialEndsAt',
+      'bs.billing_subscription_current_period_start as currentPeriodStart',
+      'bs.billing_subscription_current_period_end as currentPeriodEnd',
+      'bs.billing_subscription_canceled_at as canceledAt',
+    ]
+
+    // ── 3a. Suscripción "mejor" por empresa para mostrar en listado sin filtro
+    // Viva (live_bu_id IS NOT NULL) primero; si solo hay canceladas, la más reciente.
+    let subMap: Record<number, Record<string, unknown>> = {}
+    if (allInternalIds.length > 0) {
+      const subs = await db
+        .from('billing_subscriptions as bs')
+        .join('billing_plans as bp', 'bp.billing_plan_id', 'bs.billing_plan_id')
+        .whereIn('bs.business_unit_id', allInternalIds)
+        .whereNull('bs.billing_subscription_deleted_at')
+        .whereRaw(
+          `bs.billing_subscription_id = (
+            SELECT billing_subscription_id FROM billing_subscriptions
+            WHERE business_unit_id = bs.business_unit_id
+              AND billing_subscription_deleted_at IS NULL
+            ORDER BY (billing_subscription_live_business_unit_id IS NOT NULL) DESC,
+                     created_at DESC
+            LIMIT 1
+          )`
+        )
+        .select(SUB_SELECT_COLS)
+
+      for (const sub of subs as Array<Record<string, unknown>>) {
+        subMap[sub.buId as number] = sub
+      }
+    }
+
+    // ── 3b. Cuando se filtra por "canceled": mapa adicional con la cancelada
+    // más reciente de cada empresa (independientemente de si también tiene activa)
+    let canceledSubMap: Record<number, Record<string, unknown>> = {}
+    if (filters.status === 'canceled' && allInternalIds.length > 0) {
+      const canceledSubs = await db
+        .from('billing_subscriptions as bs')
+        .join('billing_plans as bp', 'bp.billing_plan_id', 'bs.billing_plan_id')
+        .whereIn('bs.business_unit_id', allInternalIds)
+        .whereNull('bs.billing_subscription_deleted_at')
+        .where('bs.billing_subscription_status', 'canceled')
+        .whereRaw(
+          `bs.billing_subscription_id = (
+            SELECT billing_subscription_id FROM billing_subscriptions
+            WHERE business_unit_id = bs.business_unit_id
+              AND billing_subscription_deleted_at IS NULL
+              AND billing_subscription_status = 'canceled'
+            ORDER BY created_at DESC
+            LIMIT 1
+          )`
+        )
+        .select(SUB_SELECT_COLS)
+
+      for (const sub of canceledSubs as Array<Record<string, unknown>>) {
+        canceledSubMap[sub.buId as number] = sub
+      }
+    }
+
+    // ── 4. Aplicar filtro de status ───────────────────────────────────────────
+    // Para "canceled": incluir empresas con CUALQUIER suscripción cancelada,
+    // aunque también tengan una activa. Para otros estados: filtrar por el
+    // estado de la suscripción "mejor".
+    let filteredIds = allIds as Array<{ buId: number; buPublicId: string }>
+    if (filters.status !== undefined) {
+      if (filters.status === 'canceled') {
+        filteredIds = filteredIds.filter((r) => canceledSubMap[r.buId] !== undefined)
+      } else {
+        filteredIds = filteredIds.filter(
+          (r) => (subMap[r.buId] as Record<string, unknown> | undefined)?.subscriptionStatus === filters.status
+        )
+      }
+    }
+
+    const total = filteredIds.length
+    const lastPage = Math.max(1, Math.ceil(total / limit))
+    const pageIds = filteredIds.slice(offset, offset + limit)
+
+    // ── 5. Datos completos de las empresas de esta página ─────────────────────
+    let rows: Array<Record<string, unknown>> = []
+    if (pageIds.length > 0) {
+      rows = await db
+        .from('business_units as bu')
+        .whereIn(
+          'bu.business_unit_id',
+          pageIds.map((r) => r.buId)
+        )
+        .select([
+          'bu.business_unit_id as buId',
+          'bu.business_unit_public_id as businessUnitPublicId',
+          'bu.business_unit_name as businessUnitName',
+          'bu.business_unit_legal_name as businessUnitLegalName',
+          'bu.business_unit_active as businessUnitActive',
+          'bu.business_unit_has_biometrics as hasBiometrics',
+        ])
+        .orderBy('bu.business_unit_name', 'asc')
+    }
+
+    // ── 6. Conteo de empleados activos ────────────────────────────────────────
+    const buPublicIds = rows.map((r) => r.businessUnitPublicId as string)
+    let employeeCounts: Record<string, number> = {}
+    if (buPublicIds.length > 0) {
+      const counts = await db
+        .from('employees as e')
+        .join('business_units as bu2', 'bu2.business_unit_id', 'e.business_unit_id')
+        .whereIn('bu2.business_unit_public_id', buPublicIds)
+        .whereNull('e.employee_deleted_at')
+        .whereNull('e.employee_terminated_date')
+        .groupBy('bu2.business_unit_public_id')
+        .select(['bu2.business_unit_public_id as publicId', db.raw('count(*) as cnt')])
+
+      for (const c of counts as Array<{ publicId: string; cnt: string | number }>) {
+        employeeCounts[c.publicId] = Number(c.cnt)
+      }
+    }
+
+    // ── 7. Completitud fiscal de la página (UNA consulta, no una por fila) ────
+    const billingCompleteness = await this.loadBillingCompletenessMap(
+      rows.map((r) => r.buId as number)
+    )
+
+    // ── 7b. Grupo económico de la página (UNA consulta, no una por fila) ──────
+    const grupoPorBu = await this.loadTenantGroupMap(rows.map((r) => r.buId as number))
+
+    // ── 8. Armar respuesta ────────────────────────────────────────────────────
+    const data: TenantListItem[] = rows.map((r) => {
+      const sub = this.pickSub(r.buId as number, filters.status, subMap, canceledSubMap)
+      return this.toListItem(
+        sub ? { ...r, ...sub } : r,
+        employeeCounts[r.businessUnitPublicId as string] ?? 0,
+        // Sin entrada en el mapa = nunca capturó perfil (regla 2).
+        billingCompleteness[r.buId as number] ?? resolveTenantBillingCompleteness(null),
+        // Sin entrada en el mapa = tenant suelto (regla 9).
+        grupoPorBu[r.buId as number] ?? null
+      )
+    })
+
+    return { data, meta: { total, page, limit, lastPage } }
+  }
+
+  /**
+   * Detalle de una empresa por su `businessUnitPublicId`.
+   *
+   * @throws {PlatformTenantServiceError} si la empresa no existe.
+   */
+  async getTenantDetail(publicId: string): Promise<TenantDetail> {
+    const bu = await db
+      .from('business_units as bu')
+      .whereNull('bu.business_unit_deleted_at')
+      .where('bu.business_unit_public_id', publicId)
+      .select([
+        'bu.business_unit_id as buId',
+        'bu.business_unit_public_id as businessUnitPublicId',
+        'bu.business_unit_name as businessUnitName',
+        'bu.business_unit_legal_name as businessUnitLegalName',
+        'bu.business_unit_active as businessUnitActive',
+        'bu.business_unit_has_biometrics as hasBiometrics',
+      ])
+      .first()
+
+    const row = bu as Record<string, unknown> | null
+
+    if (!row) {
+      throw new PlatformTenantServiceError(
+        `Empresa ${publicId} no encontrada`,
+        PLATFORM_TENANT_ERROR_CODES.NOT_FOUND,
+        404,
+        'tenant-no-encontrado',
+        'La empresa solicitada no existe o no está disponible.'
+      )
+    }
+
+    // ── Suscripción más relevante (viva primero, luego más reciente) ──────────
+    const sub = await db
+      .from('billing_subscriptions as bs')
+      .join('billing_plans as bp', 'bp.billing_plan_id', 'bs.billing_plan_id')
+      .where('bs.business_unit_id', row.buId as number)
+      .whereNull('bs.billing_subscription_deleted_at')
+      .whereRaw(
+        `bs.billing_subscription_id = (
+          SELECT billing_subscription_id FROM billing_subscriptions
+          WHERE business_unit_id = ?
+            AND billing_subscription_deleted_at IS NULL
+          ORDER BY (billing_subscription_live_business_unit_id IS NOT NULL) DESC,
+                   created_at DESC
+          LIMIT 1
+        )`,
+        [row.buId as number]
+      )
+      .select([
+        'bs.billing_subscription_status as subscriptionStatus',
+        'bp.billing_plan_name as planName',
+        'bs.billing_subscription_contracted_employees as contractedEmployees',
+        'bs.billing_subscription_contracted_unit_amount as contractedUnitAmount',
+        'bs.billing_subscription_contracted_subtotal as contractedSubtotal',
+        'bs.billing_subscription_contracted_tax_amount as contractedTaxAmount',
+        'bs.billing_subscription_contracted_total as contractedTotal',
+        'bs.billing_subscription_contracted_trial_days as contractedTrialDays',
+        'bs.billing_subscription_contracted_effective_from as contractedEffectiveFrom',
+        'bs.billing_subscription_trial_ends_at as trialEndsAt',
+        'bs.billing_subscription_current_period_start as currentPeriodStart',
+        'bs.billing_subscription_current_period_end as currentPeriodEnd',
+        'bs.billing_subscription_canceled_at as canceledAt',
+      ])
+      .first()
+
+    const activeEmployees = await db
+      .from('employees as e')
+      .join('business_units as bu2', 'bu2.business_unit_id', 'e.business_unit_id')
+      .where('bu2.business_unit_public_id', publicId)
+      .whereNull('e.employee_deleted_at')
+      .whereNull('e.employee_terminated_date')
+      .count('* as cnt')
+      .first()
+      .then((r) => Number((r as { cnt: string | number } | null)?.cnt ?? 0))
+
+    const merged = sub ? { ...row, ...(sub as Record<string, unknown>) } : row
+    const billingProfile = await this.loadBillingProfileSnapshot(row.buId as number)
+    const grupoPorBu = await this.loadTenantGroupMap([row.buId as number])
+
+    return this.toTenantDetail(
+      merged,
+      activeEmployees,
+      billingProfile,
+      grupoPorBu[row.buId as number] ?? null
+    )
+  }
+
+  // ─── Perfil fiscal (USRH1786737531069) ─────────────────────────────────────
+
+  /**
+   * Carga el perfil fiscal vivo vía Lucid (RFC descifrado por `consume`) y resuelve
+   * etiquetas del catálogo SAT en consultas puntuales, fuera de `runUnscoped`.
+   */
+  private async loadBillingProfileSnapshot(
+    businessUnitId: number
+  ): Promise<TenantBillingProfileSnapshot | null> {
+    const profile = await TenantContext.runUnscoped(
+      () => TenantBillingProfile.query().where('businessUnitId', businessUnitId).first(),
+      TENANT_UNSCOPED_REASON.PLATFORM_BILLING_PROFILE
+    )
+
+    if (!profile) {
+      return null
+    }
+
+    const labels = await this.resolveSatCatalogLabels(profile.taxRegimeCode, profile.cfdiUseCode)
+
+    return this.toBillingProfileSnapshot(profile, labels)
+  }
+
+  /**
+   * Completitud fiscal de todos los tenants de la página en UNA sola consulta
+   * (jamás una por fila; espeja el mapa de empleados activos del listado).
+   *
+   * Va por Lucid y no por `db.from(...)` a propósito: el RFC viaja cifrado en
+   * reposo y es el `consume` del modelo quien lo descifra, mientras que la regla
+   * de completitud lo evalúa como texto. El `runUnscoped` es el mismo camino
+   * auditado que usa la ficha individual: el operador de plataforma no tiene
+   * tenant propio. El filtro de perfiles borrados lo aplica el mixin
+   * `SoftDeletes` del modelo, así que solo entran perfiles vivos.
+   *
+   * @param businessUnitIds - IDs internos de las empresas de la página.
+   * @returns Mapa `businessUnitId` → completitud. Sin entrada para la empresa que nunca capturó perfil.
+   */
+  private async loadBillingCompletenessMap(
+    businessUnitIds: number[]
+  ): Promise<Record<number, TenantBillingCompleteness>> {
+    if (businessUnitIds.length === 0) {
+      return {}
+    }
+
+    const profiles = await TenantContext.runUnscoped(
+      () => TenantBillingProfile.query().whereIn('businessUnitId', businessUnitIds),
+      TENANT_UNSCOPED_REASON.PLATFORM_BILLING_PROFILE
+    )
+
+    const map: Record<number, TenantBillingCompleteness> = {}
+
+    for (const profile of profiles) {
+      map[profile.businessUnitId] = resolveTenantBillingCompleteness({
+        rfc: profile.rfc,
+        legalName: profile.legalName,
+        postalCode: profile.postalCode,
+        taxRegimeCode: profile.taxRegimeCode,
+        cfdiUseCode: profile.cfdiUseCode,
+      })
+    }
+
+    return map
+  }
+
+  /**
+   * Resuelve el grupo de un conjunto de cuentas en UNA consulta (jamás una por fila;
+   * espeja el mapa de empleados activos del listado).
+   *
+   * El `UNIQUE(business_unit_id)` del pivote garantiza a lo más una fila por cuenta,
+   * así que el mapa no puede perder información. Un vínculo cuyo grupo tenga baja
+   * lógica se trata como "sin grupo": queda fuera del mapa y el tenant sale `null`.
+   *
+   * @param businessUnitIds - Ids internos de las cuentas de la página.
+   * @returns Mapa de id interno a grupo; las cuentas sueltas no tienen entrada.
+   */
+  private async loadTenantGroupMap(
+    businessUnitIds: number[]
+  ): Promise<Record<number, TenantGroupRef>> {
+    if (businessUnitIds.length === 0) return {}
+
+    const filas = await db
+      .from('platform_tenant_group_members as m')
+      .join(
+        'platform_tenant_groups as g',
+        'g.platform_tenant_group_id',
+        'm.platform_tenant_group_id'
+      )
+      .whereIn('m.business_unit_id', businessUnitIds)
+      .whereNull('g.platform_tenant_group_deleted_at')
+      .select([
+        'm.business_unit_id as buId',
+        'g.platform_tenant_group_id as platformTenantGroupId',
+        'g.platform_tenant_group_name as nombre',
+        'g.platform_tenant_group_active as activo',
+      ])
+
+    const mapa: Record<number, TenantGroupRef> = {}
+    for (const fila of filas as Array<{
+      buId: number
+      platformTenantGroupId: number
+      nombre: string
+      activo: number
+    }>) {
+      mapa[Number(fila.buId)] = {
+        platformTenantGroupId: Number(fila.platformTenantGroupId),
+        nombre: fila.nombre,
+        activo: Number(fila.activo) === 1,
+      }
+    }
+    return mapa
+  }
+
+  /** Resuelve descripciones legibles del catálogo sembrado (máx. 2 consultas por detalle). */
+  private async resolveSatCatalogLabels(
+    taxRegimeCode: string | null,
+    cfdiUseCode: string | null
+  ): Promise<{ taxRegimeLabel: string | null; cfdiUseLabel: string | null }> {
+    const [taxRegime, cfdiUse] = await Promise.all([
+      taxRegimeCode
+        ? SatTaxRegime.query().where('satTaxRegimeCode', taxRegimeCode).first()
+        : Promise.resolve(null),
+      cfdiUseCode
+        ? SatCfdiUse.query().where('satCfdiUseCode', cfdiUseCode).first()
+        : Promise.resolve(null),
+    ])
+
+    return {
+      taxRegimeLabel: taxRegime?.satTaxRegimeDescription ?? null,
+      cfdiUseLabel: cfdiUse?.satCfdiUseDescription ?? null,
+    }
+  }
+
+  private toBillingProfileSnapshot(
+    profile: TenantBillingProfile,
+    labels: { taxRegimeLabel: string | null; cfdiUseLabel: string | null }
+  ): TenantBillingProfileSnapshot {
+    const completeness = computeBillingProfileCompleteness({
+      rfc: profile.rfc,
+      legalName: profile.legalName,
+      postalCode: profile.postalCode,
+      taxRegimeCode: profile.taxRegimeCode,
+      cfdiUseCode: profile.cfdiUseCode,
+    })
+
+    return {
+      rfc: profile.rfc,
+      legalName: profile.legalName,
+      postalCode: profile.postalCode,
+      taxRegimeCode: profile.taxRegimeCode,
+      taxRegimeLabel: profile.taxRegimeCode ? labels.taxRegimeLabel : null,
+      cfdiUseCode: profile.cfdiUseCode,
+      cfdiUseLabel: profile.cfdiUseCode ? labels.cfdiUseLabel : null,
+      billingEmail: profile.billingEmail,
+      billingProfileComplete: completeness.complete,
+      missingFields: completeness.missingFields,
+      capturedAt: profile.createdAt.toISO(),
+      updatedAt: profile.updatedAt?.toISO() ?? null,
+    }
+  }
+
+  // ─── Helpers internos ────────────────────────────────────────────────────────
+
+  private async fetchAllCompanyIds(
+    search?: string
+  ): Promise<Array<{ buId: number; buPublicId: string }>> {
+    const q = db
+      .from('business_units as bu')
+      .whereNull('bu.business_unit_deleted_at')
+      .select(['bu.business_unit_id as buId', 'bu.business_unit_public_id as buPublicId'])
+      .orderBy('bu.business_unit_name', 'asc')
+
+    if (search) {
+      const term = `%${search.toUpperCase()}%`
+      const matchesRfcSearch = isValidRfcSat(search)
+
+      q.where((inner) => {
+        inner
+          .whereRaw('UPPER(bu.business_unit_name) LIKE ?', [term])
+          .orWhereRaw('UPPER(bu.business_unit_legal_name) LIKE ?', [term])
+
+        if (matchesRfcSearch) {
+          inner.orWhereIn(
+            'bu.business_unit_id',
+            db
+              .from('tenant_billing_profiles')
+              .whereNull('tenant_billing_profile_deleted_at')
+              .where('tenant_billing_profile_rfc_hash', blindIndex(search))
+              .select('business_unit_id')
+          )
+        }
+      })
+    }
+
+    return q as unknown as Promise<Array<{ buId: number; buPublicId: string }>>
+  }
+
+  /**
+   * Elige la suscripción a mostrar para una empresa según el filtro activo.
+   * Con filtro "canceled": devuelve la cancelada más reciente aunque también
+   * exista una activa. Para otros filtros devuelve la suscripción "mejor"
+   * (viva primero).
+   */
+  private pickSub(
+    buId: number,
+    status: string | undefined,
+    subMap: Record<number, Record<string, unknown>>,
+    canceledSubMap: Record<number, Record<string, unknown>>
+  ): Record<string, unknown> | null {
+    if (status === 'canceled') {
+      return canceledSubMap[buId] ?? subMap[buId] ?? null
+    }
+    return subMap[buId] ?? null
+  }
+
+  // ─── Serialización ──────────────────────────────────────────────────────────
+
+  /**
+   * Enciende o apaga la marca de biométricos en sitio de una empresa.
+   * Solo afecta la visibilidad del apartado de dispositivos en el panel
+   * de GSTI; no altera ningún otro dato ni la operación del cliente.
+   *
+   * @param publicId - UUID público de la empresa (businessUnitPublicId).
+   * @param enabled - `true` para encender, `false` para apagar.
+   * @returns El campo actualizado serializado.
+   * @throws PlatformTenantServiceError 404 si la empresa no existe.
+   */
+  async setTenantBiometrics(
+    publicId: string,
+    enabled: boolean
+  ): Promise<{ businessUnitPublicId: string; hasBiometrics: boolean }> {
+    const bu = await BusinessUnit.query()
+      .whereNull('business_unit_deleted_at')
+      .where('business_unit_public_id', publicId)
+      .first()
+
+    if (!bu) {
+      throw new PlatformTenantServiceError(
+        `Empresa ${publicId} no encontrada`,
+        PLATFORM_TENANT_ERROR_CODES.NOT_FOUND,
+        404,
+        'tenant-no-encontrado',
+        'La empresa solicitada no existe o no está disponible.'
+      )
+    }
+
+    bu.businessUnitHasBiometrics = enabled ? 1 : 0
+    await bu.save()
+
+    return {
+      businessUnitPublicId: bu.businessUnitPublicId,
+      hasBiometrics: bu.businessUnitHasBiometrics === 1,
+    }
+  }
+
+
+  private toTenantDetail(
+    row: Record<string, unknown>,
+    activeEmployees: number,
+    billingProfile: TenantBillingProfileSnapshot | null,
+    grupo: TenantGroupRef | null
+  ): TenantDetail {
+    return {
+      ...this.toListItem(
+        row,
+        activeEmployees,
+        // La raíz repite la completitud que ya calculó el snapshot; cuando no hay
+        // perfil, la misma regla del listado dice `false` + los cinco (regla 2).
+        billingProfile
+          ? {
+              complete: billingProfile.billingProfileComplete,
+              missingFields: billingProfile.missingFields,
+            }
+          : resolveTenantBillingCompleteness(null),
+        grupo
+      ),
+      billingProfile,
+    }
+  }
+
+  private toListItem(
+    row: Record<string, unknown>,
+    activeEmployees: number,
+    billingCompleteness: TenantBillingCompleteness,
+    grupo: TenantGroupRef | null
+  ): TenantListItem {
+    const hasSubscription = row.subscriptionStatus !== null && row.subscriptionStatus !== undefined
+
+    return {
+      businessUnitPublicId: row.businessUnitPublicId as string,
+      businessUnitName: row.businessUnitName as string,
+      businessUnitLegalName: row.businessUnitLegalName as string,
+      businessUnitActive: Number(row.businessUnitActive ?? 0),
+      hasBiometrics: Boolean(Number(row.hasBiometrics ?? 0)),
+      activeEmployees,
+      billingProfileComplete: billingCompleteness.complete,
+      missingFields: billingCompleteness.missingFields,
+      subscription: hasSubscription
+        ? {
+            status: row.subscriptionStatus as string,
+            planName: (row.planName as string | null) ?? null,
+            contractedEmployees: Number(row.contractedEmployees ?? 0),
+            contractedUnitAmount: Number(row.contractedUnitAmount ?? 0),
+            contractedSubtotal: Number(row.contractedSubtotal ?? 0),
+            contractedTaxAmount: Number(row.contractedTaxAmount ?? 0),
+            contractedTotal: Number(row.contractedTotal ?? 0),
+            contractedTrialDays: Number(row.contractedTrialDays ?? 0),
+            contractedEffectiveFrom: toIsoDate(row.contractedEffectiveFrom),
+            trialEndsAt: toIsoDate(row.trialEndsAt),
+            currentPeriodStart: toIsoDate(row.currentPeriodStart),
+            currentPeriodEnd: toIsoDate(row.currentPeriodEnd),
+            canceledAt: toIsoDate(row.canceledAt),
+          }
+        : null,
+      // `null` es tenant suelto: estado válido y visible, nunca cadena vacía ni objeto vacío.
+      grupo,
+    }
+  }
+}

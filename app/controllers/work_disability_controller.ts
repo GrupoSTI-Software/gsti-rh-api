@@ -4,6 +4,19 @@ import WorkDisability from '#models/work_disability'
 import { createWorkDisabilityValidator } from '#validators/work_disability'
 import { cuid } from '@adonisjs/core/helpers'
 import { WorkDisabilityFilterSearchInterface } from '../interfaces/work_disability_filter_search_interface.js'
+import { WORK_DISABILITY_ERROR_CODES } from '#constants/work_disability_error_codes'
+import { ensureEmployeeTabRead } from '#helpers/ensure_employee_tab_read'
+import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
+
+/** 404 uniforme (no revela "no existe" vs "no es tuyo") — regla 4, USRH1784259058487. */
+function workDisabilityNotFoundResponse(response: HttpContext['response']) {
+  return response.status(404).json({
+    title: 'Recurso no encontrado',
+    detail: 'El recurso solicitado no existe o está fuera de tu alcance.',
+    key: 'recurso-no-encontrado',
+    code: WORK_DISABILITY_ERROR_CODES.NOT_FOUND,
+  })
+}
 
 export default class WorkDisabilityController {
   /**
@@ -443,13 +456,7 @@ export default class WorkDisabilityController {
         .where('work_disability_id', workDisabilityId)
         .first()
       if (!currentWorkDisability) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability was not found',
-          message: 'The work disability was not found with the entered ID',
-          data: { workDisabilityId },
-        }
+        return workDisabilityNotFoundResponse(response)
       }
       const employeeId = request.input('employeeId')
       const insuranceCoverageTypeId = request.input('insuranceCoverageTypeId')
@@ -625,13 +632,7 @@ export default class WorkDisabilityController {
         .where('work_disability_id', workDisabilityId)
         .first()
       if (!currentWorkDisability) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability was not found',
-          message: 'The work disability was not found with the entered ID',
-          data: { workDisabilityId },
-        }
+        return workDisabilityNotFoundResponse(response)
       }
       const workDisabilityService = new WorkDisabilityService()
       await currentWorkDisability.load('workDisabilityPeriods')
@@ -770,13 +771,7 @@ export default class WorkDisabilityController {
       const workDisabilityService = new WorkDisabilityService()
       const showWorkDisability = await workDisabilityService.show(workDisabilityId)
       if (!showWorkDisability) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability was not found',
-          message: 'The work disability was not found with the entered ID',
-          data: { workDisabilityId },
-        }
+        return workDisabilityNotFoundResponse(response)
       } else {
         response.status(200)
         return {
@@ -896,7 +891,8 @@ export default class WorkDisabilityController {
    *                     error:
    *                       type: string
    */
-  async getByEmployee({ request, response }: HttpContext) {
+  async getByEmployee(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const employeeId = request.param('employeeId')
       if (!employeeId) {
@@ -908,6 +904,16 @@ export default class WorkDisabilityController {
           data: { employeeId },
         }
       }
+
+      const allowed = await ensureEmployeeTabRead(
+        ctx,
+        Number(employeeId),
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.getWorkDisabilitiesByEmployee
+      )
+      if (!allowed) {
+        return
+      }
+
       const filters = {
         employeeId: employeeId,
       } as WorkDisabilityFilterSearchInterface

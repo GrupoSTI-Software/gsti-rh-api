@@ -1,10 +1,25 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { resolveStoredFileExtension } from '#helpers/stored_file_extension'
+import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
-import path from 'node:path'
-import Env from '#start/env'
 import WorkDisabilityPeriodExpense from '#models/work_disability_period_expense'
 import WorkDisabilityPeriodExpenseService from '#services/work_disability_period_expense_service'
 import { createWorkDisabilityPeriodExpenseValidator } from '#validators/work_disability_period_expense'
+import { WORK_DISABILITY_ERROR_CODES } from '#constants/work_disability_error_codes'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS } from '#constants/employees_download_permission_declarations'
+
+/** 404 uniforme (no revela "no existe" vs "no es tuyo") — USRH1784259058498. */
+function workDisabilityPeriodExpenseNotFoundResponse(response: HttpContext['response']) {
+  return response.status(404).json({
+    title: 'Recurso no encontrado',
+    detail: 'El recurso solicitado no existe o está fuera de tu alcance.',
+    key: 'recurso-no-encontrado',
+    code: WORK_DISABILITY_ERROR_CODES.NOT_FOUND,
+  })
+}
 
 export default class WorkDisabilityPeriodExpenseController {
   /**
@@ -144,7 +159,7 @@ export default class WorkDisabilityPeriodExpenseController {
 
       const validationOptions = {
         types: ['image', 'document'],
-        size: '',
+        size: '10mb',
       }
       const workDisabilityPeriodExpenseFile = request.file(
         'workDisabilityPeriodExpenseFile',
@@ -159,7 +174,7 @@ export default class WorkDisabilityPeriodExpenseController {
           data: { workDisabilityPeriodExpense },
         }
       }
-      const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp']
+      const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
       if (!allowedExtensions.includes(workDisabilityPeriodExpenseFile.extname || '')) {
         response.status(400)
         return {
@@ -167,15 +182,21 @@ export default class WorkDisabilityPeriodExpenseController {
           type: 'warning',
           title: 'Please upload a valid file',
           message: 'Only PDF or image files are allowed',
+          code: WORK_DISABILITY_ERROR_CODES.INVALID_FILE,
         }
       }
-      const fileName = `${new Date().getTime()}_${workDisabilityPeriodExpenseFile.clientName}`
+      if (!workDisabilityPeriodExpenseFile.isValid) {
+        response.status(400)
+        return {
+          status: 400,
+          type: 'warning',
+          title: 'Please upload a valid file',
+          message: workDisabilityPeriodExpenseFile.errors[0]?.message || 'Invalid file',
+          code: WORK_DISABILITY_ERROR_CODES.FILE_TOO_LARGE,
+        }
+      }
       const uploadService = new UploadService()
-      const fileUrl = await uploadService.fileUpload(
-        workDisabilityPeriodExpenseFile,
-        'work-disability-period-expenses-files',
-        fileName
-      )
+      const fileUrl = await uploadService.fileUpload(workDisabilityPeriodExpenseFile, 'evidence-document', 'work-disability-period-expenses-files')
       workDisabilityPeriodExpense.workDisabilityPeriodExpenseFile = fileUrl
       const newWorkDisabilityPeriodExpense = await workDisabilityPeriodExpenseService.create(
         workDisabilityPeriodExpense
@@ -192,6 +213,10 @@ export default class WorkDisabilityPeriodExpenseController {
         }
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -338,13 +363,7 @@ export default class WorkDisabilityPeriodExpenseController {
         .where('work_disability_period_expense_id', workDisabilityPeriodExpenseId)
         .first()
       if (!currentWorkDisabilityPeriodExpense) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability period expense was not found',
-          message: 'The work disability period expense was not found with the entered ID',
-          data: { workDisabilityPeriodExpenseId },
-        }
+        return workDisabilityPeriodExpenseNotFoundResponse(response)
       }
       const workDisabilityPeriodExpenseAmount = request.input('workDisabilityPeriodExpenseAmount')
       const workDisabilityPeriodId = request.input('workDisabilityPeriodId')
@@ -369,14 +388,14 @@ export default class WorkDisabilityPeriodExpenseController {
 
       const validationOptions = {
         types: ['image', 'document'],
-        size: '',
+        size: '10mb',
       }
       const workDisabilityPeriodExpenseFile = request.file(
         'workDisabilityPeriodExpenseFile',
         validationOptions
       )
       if (workDisabilityPeriodExpenseFile) {
-        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'gif', 'bmp', 'svg', 'webp']
+        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
         if (!allowedExtensions.includes(workDisabilityPeriodExpenseFile.extname || '')) {
           response.status(400)
           return {
@@ -384,21 +403,25 @@ export default class WorkDisabilityPeriodExpenseController {
             type: 'warning',
             title: 'Please upload a valid file',
             message: 'Only PDF or image files are allowed',
+            code: WORK_DISABILITY_ERROR_CODES.INVALID_FILE,
           }
         }
-        const fileName = `${new Date().getTime()}_${workDisabilityPeriodExpenseFile.clientName}`
+        if (!workDisabilityPeriodExpenseFile.isValid) {
+          response.status(400)
+          return {
+            status: 400,
+            type: 'warning',
+            title: 'Please upload a valid file',
+            message: workDisabilityPeriodExpenseFile.errors[0]?.message || 'Invalid file',
+            code: WORK_DISABILITY_ERROR_CODES.FILE_TOO_LARGE,
+          }
+        }
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(
-          workDisabilityPeriodExpenseFile,
-          'work-disability-period-expenses-files',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(workDisabilityPeriodExpenseFile, 'evidence-document', 'work-disability-period-expenses-files')
         if (currentWorkDisabilityPeriodExpense.workDisabilityPeriodExpenseFile) {
-          const fileNameWithExt = decodeURIComponent(
-            path.basename(currentWorkDisabilityPeriodExpense.workDisabilityPeriodExpenseFile)
+          await uploadService.deleteFile(
+            currentWorkDisabilityPeriodExpense.workDisabilityPeriodExpenseFile
           )
-          const fileKey = `${Env.get('AWS_ROOT_PATH')}/work-disability-period-expenses-files/${fileNameWithExt}`
-          await uploadService.deleteFile(fileKey)
         }
         workDisabilityPeriodExpense.workDisabilityPeriodExpenseFile = fileUrl
       }
@@ -422,6 +445,10 @@ export default class WorkDisabilityPeriodExpenseController {
         }
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -549,13 +576,7 @@ export default class WorkDisabilityPeriodExpenseController {
         workDisabilityPeriodExpenseId
       )
       if (!showWorkDisabilityPeriodExpense) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability period expense was not found',
-          message: 'The work disability period expense was not found with the entered ID',
-          data: { workDisabilityPeriodExpenseId },
-        }
+        return workDisabilityPeriodExpenseNotFoundResponse(response)
       } else {
         response.status(200)
         return {
@@ -691,13 +712,7 @@ export default class WorkDisabilityPeriodExpenseController {
         .where('work_disability_period_expense_id', workDisabilityPeriodExpenseId)
         .first()
       if (!currentWorkDisabilityPeriodExpense) {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The work disability period expense was not found',
-          message: 'The work disability period expense was not found with the entered ID',
-          data: { workDisabilityPeriodExpenseId },
-        }
+        return workDisabilityPeriodExpenseNotFoundResponse(response)
       }
       const workDisabilityPeriodExpenseService = new WorkDisabilityPeriodExpenseService()
       const deleteWorkDisabilityPeriodExpense = await workDisabilityPeriodExpenseService.delete(
@@ -719,6 +734,151 @@ export default class WorkDisabilityPeriodExpenseController {
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
         error: error.message,
+      }
+    }
+  }
+  /**
+   * @swagger
+   * /api/work-disability-period-expenses/{workDisabilityPeriodExpenseId}/download:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Work Disability Period Expenses
+   *     summary: download work disability period expense file (stream autenticado, USRH1787434050259)
+   *     produces:
+   *       - application/octet-stream
+   *     parameters:
+   *       - in: path
+   *         name: workDisabilityPeriodExpenseId
+   *         required: true
+   *         schema:
+   *           type: number
+   *         description: Work disability period expense id
+   *     responses:
+   *       200:
+   *         description: Stream binario del comprobante
+   *         headers:
+   *           Content-Type:
+   *             schema:
+   *               type: string
+   *           Content-Disposition:
+   *             schema:
+   *               type: string
+   *           Cache-Control:
+   *             schema:
+   *               type: string
+   *               example: private, no-store
+   *       400:
+   *         description: ID inválido
+   *       401:
+   *         description: Sin token de autenticación válido
+   *       403:
+   *         description: Sin permiso 'download-work-disability-file' (key PERM.DENIED / PERM.UNRESOLVED)
+   *       404:
+   *         description: Comprobante no encontrado, fuera de tu alcance, o el X-Business-Unit-Id header es inválido (key BU.NOT.001)
+   *       500:
+   *         description: Error inesperado al descargar el archivo
+   */
+  @inject()
+  async download(ctx: HttpContext, uploadService: UploadService) {
+    const { request, response, logger } = ctx
+    try {
+      const canDownload = await ensureSecondaryPermission(
+        ctx,
+        EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.downloadWorkDisabilityFile
+      )
+      if (!canDownload) return
+
+      const rawId = request.param('workDisabilityPeriodExpenseId')
+      const workDisabilityPeriodExpenseId = Number(rawId)
+
+      if (!Number.isInteger(workDisabilityPeriodExpenseId) || workDisabilityPeriodExpenseId <= 0) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Error de validación',
+          message: 'El ID del comprobante de gasto es inválido',
+          data: { workDisabilityPeriodExpenseId: rawId },
+        }
+      }
+
+      // El propio modelo compone withBusinessUnitScope(): el filtro por tenant
+      // se aplica automáticamente, no se necesita whereHas contra el periodo/empleado.
+      const expense = await WorkDisabilityPeriodExpense.query()
+        .where('work_disability_period_expense_id', workDisabilityPeriodExpenseId)
+        .whereNull('work_disability_period_expense_deleted_at')
+        .first()
+
+      if (!expense) {
+        return workDisabilityPeriodExpenseNotFoundResponse(response)
+      }
+
+      if (!expense.workDisabilityPeriodExpenseFile) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Archivo no encontrado',
+          message: 'El comprobante de gasto no tiene un archivo asociado',
+          data: null,
+        }
+      }
+
+      const object = await uploadService.streamStoredFile(expense.workDisabilityPeriodExpenseFile)
+
+      if (!object) {
+        logger.warn(
+          { workDisabilityPeriodExpenseId, path: expense.workDisabilityPeriodExpenseFile },
+          'Comprobante de gasto de incapacidad registrado en BD pero no encontrado en almacenamiento'
+        )
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Archivo no encontrado',
+          message: 'El archivo del comprobante de gasto no fue encontrado en el almacenamiento',
+          data: null,
+        }
+      }
+
+      const fileName = buildDownloadFileName(
+        ['comprobante-incapacidad', workDisabilityPeriodExpenseId],
+        resolveStoredFileExtension({
+          storedPath: expense.workDisabilityPeriodExpenseFile,
+          contentType: object.contentType,
+        })
+      )
+      const isSvg = (object.contentType || '').toLowerCase().includes('svg')
+      const disposition = isSvg ? 'attachment' : 'inline'
+
+      response.header('Content-Type', object.contentType || 'application/octet-stream')
+      response.header('Content-Disposition', contentDisposition(fileName, disposition))
+      response.header('Cache-Control', 'private, no-store')
+      if (object.contentLength !== undefined) {
+        response.header('Content-Length', String(object.contentLength))
+      }
+      if (object.etag) {
+        response.header('ETag', object.etag)
+      }
+      if (object.lastModified) {
+        response.header('Last-Modified', object.lastModified.toUTCString())
+      }
+
+      response.status(200)
+      return response.stream(object.stream)
+    } catch (error: any) {
+      logger.error(
+        {
+          err: error,
+          workDisabilityPeriodExpenseId: request.param('workDisabilityPeriodExpenseId'),
+        },
+        'Error inesperado al descargar comprobante de gasto de incapacidad del almacenamiento'
+      )
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Error del servidor',
+        message: 'Ocurrió un error inesperado al obtener el archivo del comprobante de gasto',
+        error: error?.message,
       }
     }
   }

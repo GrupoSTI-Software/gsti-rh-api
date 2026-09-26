@@ -1,5 +1,5 @@
 import SystemSettingsEmployee from '#models/system_settings_employee'
-import SystemSetting from '#models/system_setting'
+import { findSystemSettingInScope } from '#helpers/system_setting_tenant_scope'
 
 export default class SystemSettingsEmployeeService {
   /**
@@ -18,11 +18,9 @@ export default class SystemSettingsEmployeeService {
    * @returns Promise<SystemSettingsEmployee>
    */
   async create(systemSettingId: number, employeeLimit?: number): Promise<SystemSettingsEmployee> {
-    // Verificar que existe la configuración del sistema
-    const systemSetting = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_id', systemSettingId)
-      .first()
+    // Resuelto dentro de la empresa activa: comprobar solo que existiera dejaba
+    // leer y mover el techo de contratación de otro cliente.
+    const systemSetting = await findSystemSettingInScope(systemSettingId)
 
     if (!systemSetting) {
       throw new Error('La configuración del sistema no fue encontrada')
@@ -58,11 +56,9 @@ export default class SystemSettingsEmployeeService {
    * @returns Promise<SystemSettingsEmployee>
    */
   async delete(systemSettingId: number): Promise<SystemSettingsEmployee> {
-    // Verificar que existe la configuración del sistema
-    const systemSetting = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_id', systemSettingId)
-      .first()
+    // Resuelto dentro de la empresa activa: comprobar solo que existiera dejaba
+    // leer y mover el techo de contratación de otro cliente.
+    const systemSetting = await findSystemSettingInScope(systemSettingId)
 
     if (!systemSetting) {
       throw new Error('La configuración del sistema no fue encontrada')
@@ -98,11 +94,9 @@ export default class SystemSettingsEmployeeService {
    * @returns Promise<SystemSettingsEmployee[]>
    */
   async read(systemSettingId: number): Promise<SystemSettingsEmployee[]> {
-    // Verificar que existe la configuración del sistema
-    const systemSetting = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_id', systemSettingId)
-      .first()
+    // Resuelto dentro de la empresa activa: comprobar solo que existiera dejaba
+    // leer y mover el techo de contratación de otro cliente.
+    const systemSetting = await findSystemSettingInScope(systemSettingId)
 
     if (!systemSetting) {
       throw new Error('La configuración del sistema no fue encontrada')
@@ -123,11 +117,9 @@ export default class SystemSettingsEmployeeService {
    * @returns Promise<SystemSettingsEmployee | null>
    */
   async getActive(systemSettingId: number): Promise<SystemSettingsEmployee | null> {
-    // Verificar que existe la configuración del sistema
-    const systemSetting = await SystemSetting.query()
-      .whereNull('system_setting_deleted_at')
-      .where('system_setting_id', systemSettingId)
-      .first()
+    // Resuelto dentro de la empresa activa: comprobar solo que existiera dejaba
+    // leer y mover el techo de contratación de otro cliente.
+    const systemSetting = await findSystemSettingInScope(systemSettingId)
 
     if (!systemSetting) {
       throw new Error('La configuración del sistema no fue encontrada')

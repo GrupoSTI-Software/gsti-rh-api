@@ -15,6 +15,18 @@ export default class AccessPointService {
     this.t = i18n.formatMessage.bind(i18n)
   }
 
+  static assertBusinessUnitAllowed(businessUnitId: number, allowedBusinessUnitIds: number[]): void {
+    if (allowedBusinessUnitIds.length === 0 || !allowedBusinessUnitIds.includes(businessUnitId)) {
+      const error = Object.assign(new Error('Empresa no permitida'), {
+        title: 'Empresa no permitida',
+        detail: 'El punto de acceso no puede crearse en una empresa distinta a la activa',
+        key: 'empresa-no-permitida',
+        httpStatus: 400,
+      })
+      throw error
+    }
+  }
+
   async index(filters: AccessPointFilterSearchInterface) {
     const selectedColumns = [
       'access_point_id',
@@ -32,6 +44,7 @@ export default class AccessPointService {
       'access_point_created_at',
     ]
     const accessPoints = await AccessPoint.query()
+      .where('business_unit_id', filters.businessUnitId)
       .whereNull('access_point_deleted_at')
       .if(filters.search, (query) => {
         query.whereRaw('UPPER(access_point_name) LIKE ?', [`%${filters.search!.toUpperCase()}%`])
@@ -84,7 +97,14 @@ export default class AccessPointService {
     return currentAccessPoint
   }
 
-  async show(accessPointId: number) {
+  /**
+   * `AccessPoint` ya compone `withBusinessUnitScope()` (USRH1784259058567):
+   * el `whereIn('business_unit_id', allowedBusinessUnitIds)` manual era
+   * exactamente el mismo filtro que ya aplica el mixin bajo contexto activo
+   * — se retiró. `allowedBusinessUnitIds` se conserva en la firma por
+   * compatibilidad del contrato del servicio, aunque ya no se usa aquí.
+   */
+  async show(accessPointId: number, _allowedBusinessUnitIds?: number[]) {
     const selectedColumns = [
       'access_point_id',
       'access_point_name',

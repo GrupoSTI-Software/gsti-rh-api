@@ -1,8 +1,10 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import Position from './position.js'
 import BusinessUnit from './business_unit.js'
 /**
@@ -15,9 +17,12 @@ import BusinessUnit from './business_unit.js'
  *         careerPathTemplateId:
  *           type: number
  *           description: Career path template ID
- *         companyId:
+ *         businessUnitId:
  *           type: number
- *           description: Company ID
+ *           description: >
+ *             Unidad de negocio dueña (USRH1786595131484). La asigna el
+ *             servidor desde la empresa activa de la sesión — nunca del
+ *             payload.
  *         originPositionId:
  *           type: number
  *           description: Origin position ID
@@ -45,7 +50,7 @@ import BusinessUnit from './business_unit.js'
  *           description: Date and time when the career path template was soft-deleted
  *       example:
  *         careerPathTemplateId: 1
- *         companyId: 1
+ *         businessUnitId: 1
  *         originPositionId: 1
  *         targetPositionId: 2
  *         createdBy: 1
@@ -54,12 +59,37 @@ import BusinessUnit from './business_unit.js'
  *         careerPathTemplateUpdatedAt: '2025-02-06T13:00:00Z'
  *         careerPathTemplateDeletedAt: null
  */
-export default class CareerPathTemplate extends compose(BaseModel, SoftDeletes) {
+export default class CareerPathTemplate extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare careerPathTemplateId: number
 
+  /**
+   * Marca de pertenencia (USRH1786595131484, CAP-07-08-03).
+   *
+   * Nunca se acepta del payload; el controlador la estampa desde
+   * `ctx.businessUnitScope` y este hook es red de seguridad para un
+   * `create()` fuera de request.
+   */
   @column()
-  declare companyId: number
+  declare businessUnitId: number
+
+  /**
+   * Red de seguridad: si `businessUnitId` no viene (CLI, jobs), se resuelve
+   * desde el puesto de origen. El camino principal de HTTP estampa desde
+   * la unidad activa y no llega aquí.
+   */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: CareerPathTemplate) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Position.query().where('positionId', instance.originPositionId).first(),
+      'el puesto de origen'
+    )
+  }
 
   @column()
   declare originPositionId: number
@@ -83,9 +113,9 @@ export default class CareerPathTemplate extends compose(BaseModel, SoftDeletes) 
   declare deletedAt: DateTime | null
 
   @belongsTo(() => BusinessUnit, {
-    foreignKey: 'companyId',
+    foreignKey: 'businessUnitId',
   })
-  declare company: BelongsTo<typeof BusinessUnit>
+  declare businessUnit: BelongsTo<typeof BusinessUnit>
 
   @belongsTo(() => Position, {
     foreignKey: 'originPositionId',

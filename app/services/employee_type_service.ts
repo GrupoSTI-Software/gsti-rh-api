@@ -5,7 +5,7 @@ export default class EmployeeTypeService {
   async index(filters: EmployeeTypeFilterSearchInterface) {
     const roles = await EmployeeType.query()
       .if(filters.search, (query) => {
-        query.whereRaw('UPPER(employee_type_type_name) LIKE ?', [
+        query.whereRaw('UPPER(employee_type_name) LIKE ?', [
           `%${filters.search.toUpperCase()}%`,
         ])
         query.orWhereRaw('UPPER(employee_type_slug) LIKE ?', [`%${filters.search.toUpperCase()}%`])

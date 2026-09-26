@@ -13,9 +13,7 @@ export default class BusinessUnitCompetencyLevelService {
   async index(filters: BusinessUnitCompetencyLevelFilterInterface) {
     const businessUnitCompetencyLevels = await BusinessUnitCompetencyLevel.query()
       .whereNull('business_unit_competency_level_deleted_at')
-      .if(filters.businessUnitId, (query) => {
-        query.where('business_unit_id', filters.businessUnitId)
-      })
+      .where('business_unit_id', filters.businessUnitId)
       .orderBy('business_unit_competency_level_position', 'asc')
     return businessUnitCompetencyLevels
   }
@@ -83,9 +81,19 @@ export default class BusinessUnitCompetencyLevelService {
         query.whereNot('business_unit_competency_level_id', businessUnitCompetencyLevel.businessUnitCompetencyLevelId)
       })
       .whereNull('business_unit_competency_level_deleted_at')
-      .whereRaw(
-        'business_unit_competency_level_label COLLATE utf8_general_ci = ?',
-        [businessUnitCompetencyLevel.businessUnitCompetencyLevelLabel.trim()]
+      // La comparación es sin distinguir mayúsculas, que es lo que pide la regla
+      // (no puede haber dos niveles con la misma etiqueta en la empresa). No
+      // lleva COLLATE: la columna ya es `utf8mb4_0900_ai_ci`, insensible a
+      // mayúsculas y a acentos, así que la igualdad simple hace exactamente lo
+      // que la regla pide. Antes decía `utf8_general_ci` —alias de
+      // `utf8mb3_general_ci`— y MySQL rechazaba la consulta entera con
+      // ER_COLLATION_CHARSET_MISMATCH: el alta y la edición respondían 500.
+      // Forzar `utf8mb4_general_ci` tampoco era equivalente (colapsa emojis,
+      // ignora espacios finales, separa `ß` de `ss`) y además inhabilitaría
+      // cualquier índice futuro sobre la etiqueta.
+      .where(
+        'business_unit_competency_level_label',
+        businessUnitCompetencyLevel.businessUnitCompetencyLevelLabel.trim()
       )
       .where('business_unit_id', businessUnitCompetencyLevel.businessUnitId)
       .first()

@@ -1,0 +1,162 @@
+import { BaseModel, column, belongsTo, hasMany } from '@adonisjs/lucid/orm'
+import { DateTime } from 'luxon'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
+import User from './user.js'
+import BusinessUnit from './business_unit.js'
+import PiiAccessLogSubject from './pii_access_log_subject.js'
+import type { PiiAccessLogColumnRefInterface } from '../interfaces/pii_access_log_column_ref_interface.js'
+
+/**
+ * @swagger
+ * components:
+ *   schemas:
+ *     PiiAccessLog:
+ *       type: object
+ *       properties:
+ *         piiAccessLogId:
+ *           type: number
+ *           description: Pii access log id
+ *         businessUnitId:
+ *           type: number
+ *           description: Business unit id
+ *         accessorUserId:
+ *           type: number
+ *           description: Id of the user who revealed the data
+ *         piiAccessLogModel:
+ *           type: string
+ *           description: Lucid model class name (e.g. "Person")
+ *         piiAccessLogModelColumn:
+ *           type: string
+ *           description: camelCase model property that was revealed (e.g. "personCurp")
+ *         piiAccessLogRecordId:
+ *           type: number
+ *           description: Primary key of the record whose field was revealed
+ *         piiAccessLogAccessorIp:
+ *           type: string
+ *           description: Client IP address (IPv4 or compressed IPv6)
+ *         piiAccessLogAccessorUserAgent:
+ *           type: string
+ *           description: Client User-Agent header
+ *         piiAccessLogRequestId:
+ *           type: string
+ *           description: HTTP request correlation UUID (X-Request-Id)
+ *         piiAccessLogExportKey:
+ *           type: string
+ *           description: Export identifier for grouped audit rows (null for individual reveal)
+ *         piiAccessLogColumns:
+ *           type: array
+ *           description: Sensitive columns included in the export (references only)
+ *         piiAccessLogSubjectCount:
+ *           type: number
+ *           description: Number of employees covered by the export
+ *         piiAccessLogFilters:
+ *           type: object
+ *           description: Filters applied when generating the export
+ *         piiAccessLogMotive:
+ *           type: string
+ *           description: Catalog motive slug for the export
+ *         piiAccessLogNote:
+ *           type: string
+ *           description: Optional note (required when motive is "otro")
+ *         piiAccessLogOriginModule:
+ *           type: string
+ *           description: Origin screen/module where the export was requested
+ *         piiAccessLogCreatedAt:
+ *           type: string
+ *           format: date-time
+ *         piiAccessLogUpdatedAt:
+ *           type: string
+ *           format: date-time
+ *         piiAccessLogDeletedAt:
+ *           type: string
+ *           format: date-time
+ */
+export default class PiiAccessLog extends BaseModel {
+  static table = 'pii_access_logs'
+
+  @column({ isPrimary: true })
+  declare piiAccessLogId: number
+
+  @column()
+  declare businessUnitId: number
+
+  @column({ columnName: 'user_id' })
+  declare accessorUserId: number
+
+  @column()
+  declare piiAccessLogModel: string | null
+
+  @column()
+  declare piiAccessLogModelColumn: string | null
+
+  @column()
+  declare piiAccessLogRecordId: number | null
+
+  @column()
+  declare piiAccessLogAccessorIp: string
+
+  @column()
+  declare piiAccessLogAccessorUserAgent: string | null
+
+  @column()
+  declare piiAccessLogRequestId: string | null
+
+  @column()
+  declare piiAccessLogExportKey: string | null
+
+  @column({
+    prepare: (value: PiiAccessLogColumnRefInterface[] | null) =>
+      value !== null && value !== undefined ? JSON.stringify(value) : null,
+    consume: (value: string | PiiAccessLogColumnRefInterface[] | null) => {
+      if (value === null || value === undefined) return null
+      if (typeof value === 'string') {
+        return JSON.parse(value) as PiiAccessLogColumnRefInterface[]
+      }
+      return value
+    },
+  })
+  declare piiAccessLogColumns: PiiAccessLogColumnRefInterface[] | null
+
+  @column()
+  declare piiAccessLogSubjectCount: number | null
+
+  @column({
+    prepare: (value: Record<string, unknown> | null) =>
+      value !== null && value !== undefined ? JSON.stringify(value) : null,
+    consume: (value: string | Record<string, unknown> | null) => {
+      if (value === null || value === undefined) return null
+      if (typeof value === 'string') {
+        return JSON.parse(value) as Record<string, unknown>
+      }
+      return value
+    },
+  })
+  declare piiAccessLogFilters: Record<string, unknown> | null
+
+  @column()
+  declare piiAccessLogMotive: string | null
+
+  @column()
+  declare piiAccessLogNote: string | null
+
+  @column()
+  declare piiAccessLogOriginModule: string | null
+
+  @column.dateTime({ autoCreate: true })
+  declare piiAccessLogCreatedAt: DateTime
+
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare piiAccessLogUpdatedAt: DateTime
+
+  @column.dateTime({ columnName: 'pii_access_log_deleted_at' })
+  declare deletedAt: DateTime | null
+
+  @belongsTo(() => User, { foreignKey: 'accessorUserId', localKey: 'userId' })
+  declare accessorUser: BelongsTo<typeof User>
+
+  @belongsTo(() => BusinessUnit, { foreignKey: 'businessUnitId' })
+  declare businessUnit: BelongsTo<typeof BusinessUnit>
+
+  @hasMany(() => PiiAccessLogSubject, { foreignKey: 'piiAccessLogId' })
+  declare subjects: HasMany<typeof PiiAccessLogSubject>
+}

@@ -8,10 +8,10 @@ export default class EmployeeBranchOfficeController {
    * POST /api/employees/:employeeId/branch-office
    * Body: { branchOfficeId }
    */
-  async assign({ request, response, params }: HttpContext) {
+  async assign({ request, response, params, businessUnitScope }: HttpContext) {
     try {
       const { branchOfficeId } = await request.validateUsing(assignEmployeeBranchOfficeValidator)
-      const row = await EmployeeBranchOfficeService.assign(Number(params.employeeId), branchOfficeId)
+      const row = await EmployeeBranchOfficeService.assign(Number(params.employeeId), branchOfficeId, businessUnitScope)
       return StandardResponseFormatter.success(
         response,
         row,
@@ -26,24 +26,6 @@ export default class EmployeeBranchOfficeController {
           : error.message ?? 'Error al asignar sucursal'
       const status = error.code === 'E_VALIDATION_ERROR' ? 400 : error.code === 'E_ROW_NOT_FOUND' ? 404 : 400
       return StandardResponseFormatter.error(response, msg, status)
-    }
-  }
-
-  /**
-   * DELETE /api/employees/:employeeId/branch-office
-   */
-  async unassign({ response, params }: HttpContext) {
-    try {
-      await EmployeeBranchOfficeService.unassign(Number(params.employeeId))
-      return StandardResponseFormatter.success(
-        response,
-        null,
-        'Employee Branch Office',
-        'Sucursal desasignada correctamente'
-      )
-    } catch (error: any) {
-      const status = error.code === 'E_ROW_NOT_FOUND' ? 404 : 400
-      return StandardResponseFormatter.error(response, error.message ?? 'Error al desasignar sucursal', status)
     }
   }
 

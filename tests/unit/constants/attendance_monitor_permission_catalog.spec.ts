@@ -1,0 +1,104 @@
+import { test } from '@japa/runner'
+import {
+  ATTENDANCE_MONITOR_PERMISSION_CATALOG,
+} from '#constants/attendance_monitor_permission_catalog'
+import { SYSTEM_PERMISSION_CATALOG } from '#constants/system_permission_catalog'
+
+/** Los 11 slugs legados del monitor (legacyEquivalence exacta contra su propio slug). */
+const LEGACY_MONITOR_SLUGS = [
+  'read',
+  'read-time-worked',
+  'consecutive-faults',
+  'shift-coverage',
+  'see-payroll',
+  'display-payments-summary',
+  'display-discounts-summary',
+  'add-assist-manual',
+  'sync-assist',
+  'delete-check-assist',
+  'download-summary',
+] as const
+
+test.group('Catálogo employees-attendance-monitor — USRH1787433076991', () => {
+  test('enumera exactamente las 11 acciones legadas del monitor', ({ assert }) => {
+    assert.lengthOf(ATTENDANCE_MONITOR_PERMISSION_CATALOG, 11)
+    assert.deepEqual(
+      [...ATTENDANCE_MONITOR_PERMISSION_CATALOG.map((action) => action.slug)].sort(),
+      [...LEGACY_MONITOR_SLUGS].sort()
+    )
+  })
+
+  test('las 11 llevan equivalencia legada exacta contra su propio slug (regla 8: enumerar no concede)', ({
+    assert,
+  }) => {
+    for (const action of ATTENDANCE_MONITOR_PERMISSION_CATALOG) {
+      assert.equal(action.legacyEquivalence?.relation, 'exact', action.slug)
+      assert.equal(action.legacyEquivalence?.systemPermissionSlug, action.slug, action.slug)
+    }
+  })
+
+  test('las 11 usan exceptionProfile standard: el rol privilegiado conserva su acceso', ({
+    assert,
+  }) => {
+    for (const action of ATTENDANCE_MONITOR_PERMISSION_CATALOG) {
+      assert.equal(action.exceptionProfile, 'standard', action.slug)
+    }
+  })
+
+  test('reparte las 11 en las 4 secciones declaradas', ({ assert }) => {
+    const bySection = new Map<string, string[]>()
+    for (const action of ATTENDANCE_MONITOR_PERMISSION_CATALOG) {
+      bySection.set(action.section, [...(bySection.get(action.section) ?? []), action.slug])
+    }
+
+    assert.deepEqual([...bySection.keys()].sort(), [
+      'asistencia',
+      'descargas',
+      'listado',
+      'nomina',
+    ])
+    assert.deepEqual(bySection.get('descargas'), ['download-summary'])
+    assert.lengthOf(bySection.get('listado') ?? [], 4)
+    assert.lengthOf(bySection.get('nomina') ?? [], 3)
+    assert.lengthOf(bySection.get('asistencia') ?? [], 3)
+  })
+
+  test('ninguna acción se declara exenta: las 11 tienen fila en system_permissions', ({
+    assert,
+  }) => {
+    for (const action of ATTENDANCE_MONITOR_PERMISSION_CATALOG) {
+      assert.notProperty(action, 'exemption', action.slug)
+    }
+  })
+})
+
+test.group('Índice maestro — registro del monitor de asistencia', () => {
+  test('el módulo queda declarado como enumerado', ({ assert }) => {
+    const moduleEntry = SYSTEM_PERMISSION_CATALOG.modules.find(
+      (entry) => entry.slug === 'employees-attendance-monitor'
+    )
+    assert.exists(moduleEntry)
+    assert.property(SYSTEM_PERMISSION_CATALOG.actionsByModule, 'employees-attendance-monitor')
+  })
+
+  test('actionsByModule expone exactamente las 11 acciones del catálogo del monitor', ({
+    assert,
+  }) => {
+    assert.deepEqual(
+      SYSTEM_PERMISSION_CATALOG.actionsByModule['employees-attendance-monitor'].map(
+        (action) => action.slug
+      ),
+      ATTENDANCE_MONITOR_PERMISSION_CATALOG.map((action) => action.slug)
+    )
+  })
+
+  // Afirma la intención (no se pisó ningún catálogo previo) y no la lista
+  // exacta: cada catálogo tipado nuevo rompía este spec sin motivo.
+  test('los módulos ya enumerados siguen enumerados (no se pisó nada)', ({ assert }) => {
+    assert.includeMembers(Object.keys(SYSTEM_PERMISSION_CATALOG.actionsByModule), [
+      'employees',
+      'employees-attendance-monitor',
+      'positions',
+    ])
+  })
+})

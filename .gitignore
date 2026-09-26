@@ -8,6 +8,8 @@ tmp
 .env.local
 .env.production.local
 .env.development.local
+.env.test.local
+.env.backup-*
 
 # Frontend assets compiled code
 public/assets
@@ -27,6 +29,11 @@ yarn-error.log
 docs/swagger.json
 .qodo
 .claude/settings.local.json
+.superpowers/
 
 # CLAUDE
-.gsti-kg
+.gsti-kg/
+
+# Artefactos generados en tiempo de ejecucion: reportes en disco, evidencias de
+# backfill y cualquier volcado de datos. Nada de `storage/` se versiona.
+storage/

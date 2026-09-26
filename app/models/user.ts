@@ -1,13 +1,15 @@
 import { DateTime } from 'luxon'
 import hash from '@adonisjs/core/services/hash'
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, belongsTo, column, manyToMany } from '@adonisjs/lucid/orm'
 import { withAuthFinder } from '@adonisjs/auth/mixins/lucid'
 import { DbAccessTokensProvider } from '@adonisjs/auth/access_tokens'
 import Person from './person.js'
-import type { BelongsTo } from '@adonisjs/lucid/types/relations'
+import type { BelongsTo, ManyToMany } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Role from './role.js'
+import BusinessUnit from './business_unit.js'
+import type { UserEmailTypeValue } from '#constants/user_email_type'
 
 /**
  * @swagger
@@ -43,9 +45,6 @@ import Role from './role.js'
  *          personId:
  *            type: number
  *            description: Person id
- *          userBusinessAccess:
- *            type: string
- *            description: Business access
  *          userEmailType:
  *            type: string
  *            description: Email type
@@ -64,13 +63,61 @@ const AuthFinder = withAuthFinder(() => hash.use('scrypt'), {
 })
 
 export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
+  /**
+   * TTL del access token en segundos (15 min para web y app).
+   */
+  static accessTokenExpiresIn(): number {
+    return 60 * 15
+  }
+
   static accessTokens = DbAccessTokensProvider.forModel(User, {
-    expiresIn: 60 * 60 * 24,
+    expiresIn: User.accessTokenExpiresIn(),
     prefix: 'oauth__sae__',
     table: 'api_tokens',
     type: 'auth_token',
     tokenSecretLength: 80,
   })
+
+  static refreshTokens = DbAccessTokensProvider.forModel(User, {
+    expiresIn: 60 * 60 * 24 * 7,
+    prefix: 'refresh__sae__',
+    table: 'api_tokens',
+    type: 'refresh_token',
+    tokenSecretLength: 80,
+  })
+
+  /**
+   * TTL del magic link en segundos (15 min, un solo uso).
+   */
+  static magicLinkTokenExpiresIn(): number {
+    return 60 * 15
+  }
+
+  static magicLinkTokens = DbAccessTokensProvider.forModel(User, {
+    expiresIn: User.magicLinkTokenExpiresIn(),
+    prefix: 'magic__sae__',
+    table: 'api_tokens',
+    type: 'magic_link',
+    tokenSecretLength: 80,
+  })
+
+  /**
+   * TTL del refresh token en segundos según el origin de la sesión.
+   * - app:      30 días
+   * - web:      7 días
+   * - platform: 7 días (consola landlord — misma ventana que web)
+   */
+  static refreshTokenExpiresIn(origin: string): number {
+    if (origin === 'app') {
+      return 60 * 60 * 24 * 30
+    }
+
+    if (origin === 'platform') {
+      return 60 * 60 * 24 * 7
+    }
+
+    return 60 * 60 * 24 * 7
+  }
 
   @column({ isPrimary: true })
   declare userId: number
@@ -81,20 +128,43 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   @column({ serializeAs: null })
   declare userPassword: string
 
-  @column()
+  @column({ serializeAs: null })
   declare userToken: string
+
+  @column.dateTime({ serializeAs: null })
+  declare userTokenExpiresAt: DateTime | null
+
+  /**
+   * Marca de cuándo la persona fijó su propia contraseña.
+   * `null` = pendiente de activar (USRH1786736057522).
+   */
+  @column.dateTime()
+  declare userPasswordSetAt: DateTime | null
 
   @column()
   declare userActive: number
 
-  @column()
+  /**
+   * Indica si el usuario es administrador de la plataforma SaaS (consola interna GSTI).
+   * Por defecto `false`; solo se enciende vía bootstrap manual o `POST /api/platform/users`.
+   * Ningún flujo de tenant puede escribir este campo.
+   */
+  @column({ columnName: 'is_platform_admin' })
+  declare isPlatformAdmin: boolean
+
+  /**
+   * Marca temporal de cuándo el usuario verificó su email mediante el flujo de
+   * signup self-service (OTP a correo). `null` para todos los usuarios creados
+   * antes de habilitar signup; el login legacy NO evalúa esta columna.
+   */
+  @column.dateTime()
+  declare userEmailVerifiedAt: DateTime | null
+
+  @column({ serializeAs: null })
   declare pinCode: string
 
-  @column()
-  declare userPinCodeExpiresAt: DateTime | null
-
-  @column()
-  declare userBusinessAccess: string
+  @column.dateTime({ columnName: 'pin_code_expires_at', serializeAs: null })
+  declare pinCodeExpiresAt: DateTime | null
 
   @column()
   declare roleId: number
@@ -103,7 +173,7 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   declare personId: number
 
   @column()
-  declare userEmailType: string
+  declare userEmailType: UserEmailTypeValue
 
   @column.dateTime({ autoCreate: true })
   declare userCreatedAt: DateTime
@@ -123,4 +193,29 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
     foreignKey: 'roleId',
   })
   declare role: BelongsTo<typeof Role>
+
+  /**
+   * Unidades de negocio a las que el usuario tiene acceso.
+   * Fuente de verdad para el aislamiento multi-tenant a nivel de usuario.
+   *
+   * La pivote lleva `role_id`: el rol efectivo de la cuenta DENTRO de cada
+   * empresa. `roleId` de esta tabla es el rol de la etapa anterior —uno solo
+   * por cuenta— y sobrevive como respaldo mientras el backfill no termina.
+   */
+  @manyToMany(() => BusinessUnit, {
+    pivotTable: 'business_unit_users',
+    localKey: 'userId',
+    pivotForeignKey: 'user_id',
+    relatedKey: 'businessUnitId',
+    pivotRelatedForeignKey: 'business_unit_id',
+    pivotColumns: ['role_id'],
+    pivotTimestamps: {
+      createdAt: 'business_unit_user_created_at',
+      updatedAt: 'business_unit_user_updated_at',
+    },
+    onQuery(query) {
+      query.whereNull('business_unit_user_deleted_at')
+    },
+  })
+  declare businessUnits: ManyToMany<typeof BusinessUnit>
 }

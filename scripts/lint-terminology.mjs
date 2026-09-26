@@ -58,6 +58,8 @@ const EXCLUDED_DIRS = new Set([
   'docs',
   '.github',
   '.gsti-kg',
+  // Archivos retirados del código: no se revisan (ver regla en CLAUDE.md).
+  '__TO_DELETE__',
 ])
 
 const EXCLUDED_FILES = new Set([
@@ -91,6 +93,22 @@ const EXCLUDED_RELATIVE_PATHS = new Set([
   'app/services/position_service.ts',
   'app/services/position_assessment_profile_service.ts',
   'tests/functional/assessment_template.spec.ts',
+  // Marco regulatorio NOM-035-STPS-2018 y NOM-037-STPS-2023: terminología oficial
+  // STPS obligatoria ("psicosocial", "psicológica", etc.) en seeders e i18n.
+  'database/seeders/0030_nom_035_stps_seeder.ts',
+  'database/seeders/0031_nom_037_stps_seeder.ts',
+  'resources/langs/es.json',
+  'resources/langs/en.json',
+  // Registro auditable NOM-035 §5.8.c: "Psicológico" es la etiqueta oficial del
+  // tipo de examen en el PDF entregable a la STPS (examen médico / psicológico).
+  'app/services/traumatic_event_registry_report_service.ts',
+  // HU USRH1782935430647: contrato de errores NOM035.DISC.* para endpoint de
+  // difusión 5.7.e. El prefijo DISC es parte del API pactado y no representa
+  // terminología psicométrica del dominio prohibido.
+  'app/constants/nom035_disclosure_error_codes.ts',
+  'app/modules/nom035-disclosure/nom035_disclosure.controller.ts',
+  'database/seeders/0099_nom035_test_scenarios_seeder.ts',
+  'tests/unit/modules/nom035-disclosure/nom035_disclosure.service.spec.ts',
 ])
 
 const SOURCE_EXTENSIONS = new Set([

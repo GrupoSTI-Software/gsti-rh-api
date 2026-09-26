@@ -1,12 +1,15 @@
 import env from '#start/env';
 import admin from 'firebase-admin';
 
-const serviceAccount = JSON.parse(
-  env.get('FIREBASE_SERVICE_ACCOUNT') || ''
-);
+// Firebase aún no se usa en producción.
+// Solo se inicializa la app si hay credenciales configuradas; de lo contrario
+// se omite la inicialización para no romper los servicios que importan este módulo.
+const serviceAccountRaw = env.get('FIREBASE_SERVICE_ACCOUNT');
 
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount)
-});
+if (serviceAccountRaw) {
+  admin.initializeApp({
+    credential: admin.credential.cert(JSON.parse(serviceAccountRaw))
+  });
+}
 
 export default admin;

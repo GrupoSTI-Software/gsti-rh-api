@@ -1,8 +1,7 @@
 import * as faceapi from 'face-api.js'
+import { readEmployeePhotoBuffer } from '#helpers/employee_photo_source'
 import { createCanvas, loadImage, Image } from '@napi-rs/canvas'
 import path from 'node:path'
-import https from 'node:https'
-import http from 'node:http'
 import fs from 'node:fs'
 // import logger from '@adonisjs/core/services/logger'
 
@@ -60,30 +59,19 @@ function hasTinyFaceDetector(): boolean {
 }
 
 /**
- * Descarga imagen desde URL con timeout configurable
+ * Lee la foto del empleado por la referencia guardada. El resolutor distingue
+ * la key del bucket de la URL del servidor de biometricos: las fotos que llegan
+ * de la sincronizacion del checador no viven en el bucket.
  */
-async function downloadImageBuffer(url: string, timeoutMs: number = CONFIG.DOWNLOAD_TIMEOUT_MS): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const protocol = url.startsWith('https') ? https : http
-
-    const request = protocol.get(url, { timeout: timeoutMs }, (res) => {
-      if (res.statusCode !== 200) {
-        reject(new Error(`HTTP ${res.statusCode}: Failed to download image`))
-        return
-      }
-
-      const chunks: Uint8Array[] = []
-      res.on('data', (chunk: Uint8Array) => chunks.push(chunk))
-      res.on('end', () => resolve(Buffer.concat(chunks)))
-      res.on('error', reject)
-    })
-
-    request.on('error', reject)
-    request.on('timeout', () => {
-      request.destroy()
-      reject(new Error('Download timeout'))
-    })
-  })
+async function downloadImageBuffer(
+  storedPath: string,
+  _timeoutMs: number = CONFIG.DOWNLOAD_TIMEOUT_MS
+): Promise<Buffer> {
+  const buffer = await readEmployeePhotoBuffer(storedPath)
+  if (!buffer) {
+    throw new Error('No fue posible leer la foto del empleado')
+  }
+  return buffer
 }
 
 /**
@@ -306,47 +294,46 @@ class FaceDescriptorCacheService {
   }
 
   /**
-   * Obtiene descriptor de empleado (desde caché o lo calcula)
+   * Detecta TODAS las caras de una imagen (spec ADMS 7.2).
+   *
+   * `detectAllFaces` y no `detectSingleFace` a propósito: para decidir si una
+   * foto sirve como referencia hay que saber si hay DOS personas en el cuadro,
+   * y el detector de una sola cara devuelve la mejor sin decir que había otra.
+   *
+   * Las cajas vienen en las coordenadas de la imagen ya redimensionada para
+   * procesar, así que el ancho y el alto que se devuelven son los de ESA
+   * imagen: la proporción del rostro se calcula entre valores del mismo marco.
+   *
+   * Lanza si no se pudo evaluar (modelos ausentes, canvas, memoria). Quien
+   * llama debe distinguir «no se pudo evaluar» de «la foto no sirve».
    */
-  async getEmployeeDescriptor(
-    employeeId: number,
-    photoUrl: string,
-    getImageSource: () => Promise<string | Buffer | null>
-  ): Promise<Float32Array | null> {
-    // 1. Intentar obtener del caché
-    const cached = this.get(employeeId, photoUrl)
-    if (cached) {
-      return cached
-    }
+  async detectAllFacesIn(imageBuffer: Buffer): Promise<{
+    faces: number
+    boxes: Array<{ x: number; y: number; width: number; height: number }>
+    width: number
+    height: number
+  }> {
+    await this.ensureModelsLoaded()
 
-    // 2. Obtener imagen y calcular descriptor
-    const imageSource = await getImageSource()
-    if (!imageSource) return null
+    const img = await resizeImageForProcessing(imageBuffer)
+    const options = this.useTinyDetector
+      ? new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.5 })
+      : new faceapi.SsdMobilenetv1Options({ minConfidence: CONFIG.SSD_MIN_CONFIDENCE })
 
-    const descriptor = await this.computeDescriptor(imageSource)
-    if (!descriptor) return null
-
-    // 3. Guardar en caché
-    this.set(employeeId, descriptor, photoUrl)
-
-    return descriptor
-  }
-
-  /**
-   * Verifica dos descriptores faciales
-   */
-  compareDescriptors(
-    descriptor1: Float32Array,
-    descriptor2: Float32Array,
-    threshold: number = 0.6
-  ): { match: boolean; distance: number; threshold: number } {
-    const distance = faceapi.euclideanDistance(descriptor1, descriptor2)
+    const detections = await faceapi.detectAllFaces(img, options)
     return {
-      match: distance < threshold,
-      distance,
-      threshold,
+      faces: detections.length,
+      boxes: detections.map((detection) => ({
+        x: detection.box.x,
+        y: detection.box.y,
+        width: detection.box.width,
+        height: detection.box.height,
+      })),
+      width: img.width,
+      height: img.height,
     }
   }
+
 
   /**
    * Estadísticas del caché

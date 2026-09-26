@@ -5,12 +5,20 @@
 export const BRANCH_OFFICE_ERROR_CODES = {
   /** Parámetros de query o body inválidos (Vine) */
   VAL_INPUT: 'BRCH.VAL.001',
-  /** Sucursal inexistente, eliminada o fuera del alcance SYSTEM_BUSINESS */
+  /** Sucursal inexistente, eliminada o fuera del scope del usuario autenticado */
   NOT_FOUND: 'BRCH.NOT.001',
-  /** SYSTEM_BUSINESS vacío o sin slugs válidos al crear/editar unidad */
-  CFG_SYSTEM_BUSINESS: 'BRCH.CFG.001',
-  /** businessUnitId no existe, inactiva o su slug no está en SYSTEM_BUSINESS */
+  /** businessUnitId no pertenece al scope de unidades de negocio del usuario */
   BU_NOT_ALLOWED: 'BRCH.BU.001',
+  /** Sucursal ya ligada a otra empresa contratante */
+  ALREADY_LINKED: 'BRCH.CONFLICT.LINK.001',
+  /** La sucursal default de la empresa no se elimina: la marca se transfiere primero */
+  DEFAULT_NOT_DELETABLE: 'BRCH.CONFLICT.DEFAULT.001',
+  /** La marca de default no se apaga sola: solo se transfiere a otra sucursal */
+  DEFAULT_NOT_CLEARABLE: 'BRCH.CONFLICT.DEFAULT.002',
+  /** La sucursal tiene empleados activos y el borrado no indicó sucursal destino */
+  TARGET_REQUIRED: 'BRCH.CONFLICT.TARGET.001',
+  /** La sucursal destino no existe, está eliminada, es de otra empresa o es la que se borra */
+  TARGET_INVALID: 'BRCH.CONFLICT.TARGET.002',
   /** Error no tipado en el controlador (revisar logs) */
   SYS_UNHANDLED: 'BRCH.SYS.001',
 } as const

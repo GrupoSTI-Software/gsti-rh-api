@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import Employee from './employee.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Shift from './shift.js'
@@ -58,7 +60,7 @@ import Shift from './shift.js'
  *            format: date-time
  *            nullable: true
  */
-export default class EmployeeShiftChange extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeShiftChange extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeShiftChangeId: number
 
@@ -77,8 +79,25 @@ export default class EmployeeShiftChange extends compose(BaseModel, SoftDeletes)
   @column()
   declare employeeIdTo: number
 
+  /**
+   * Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08).
+   * Derivada de `employeeIdTo` (empleado que queda con el turno).
+   */
+  @column()
+  declare businessUnitId: number
+
   @column()
   declare shiftIdTo: number
+
+  /** Resuelve businessUnitId desde employeeIdTo (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeShiftChange) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeIdTo).first(),
+      'el empleado destino'
+    )
+  }
 
   @column()
   declare employeeShiftChangeDateTo: string

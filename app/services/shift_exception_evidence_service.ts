@@ -25,9 +25,35 @@ export default class ShiftExceptionEvidenceService {
     return currentShiftExceptionEvidence
   }
 
-  async show(shiftExceptionEvidenceId: number) {
-    const shiftExceptionEvidence = await ShiftExceptionEvidence.query()
+  /**
+   * Consulta base acotada al tenant.
+   *
+   * `ShiftExceptionEvidence` NO compone `withBusinessUnitScope`, así que sus
+   * queries no heredan el filtro del `TenantContext` por si solas: consultarlo
+   * directo devolvía evidencias de cualquier empresa con solo cambiar el ID.
+   * El scope se hereda de `ShiftException`, que si es tenant-scoped, filtrando
+   * por la relacion.
+   *
+   * Toda lectura de este modelo debe partir de aquí.
+   */
+  private scopedQuery() {
+    return ShiftExceptionEvidence.query()
       .whereNull('shift_exception_evidence_deleted_at')
+      .whereIn(
+        'shift_exception_id',
+        ShiftException.query()
+          .select('shift_exception_id')
+          .whereNull('shift_exceptions_deleted_at')
+      )
+  }
+
+  /** Lista las evidencias visibles para el tenant activo. */
+  async index() {
+    return this.scopedQuery()
+  }
+
+  async show(shiftExceptionEvidenceId: number) {
+    const shiftExceptionEvidence = await this.scopedQuery()
       .where('shift_exception_evidence_id', shiftExceptionEvidenceId)
       .first()
     return shiftExceptionEvidence ? shiftExceptionEvidence : null

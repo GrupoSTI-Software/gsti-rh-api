@@ -1,9 +1,6 @@
 import Department from '#models/department'
 import DepartmentService from '#services/department_service'
-import env from '#start/env'
 import { HttpContext } from '@adonisjs/core/http'
-import axios from 'axios'
-import BiometricDepartmentInterface from '../interfaces/biometric_department_interface.js'
 import Employee from '#models/employee'
 import DepartmentPosition from '#models/department_position'
 import DepartmentPositionService from '#services/department_position_service'
@@ -13,188 +10,23 @@ import {
   updateDepartmentValidator,
 } from '#validators/department'
 import OrgChartMoveService from '#services/org_chart_move_service'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { DepartmentShiftFilterInterface } from '../interfaces/department_shift_filter_interface.js'
-import BusinessUnit from '#models/business_unit'
 import { DateTime } from 'luxon'
-import UserService from '#services/user_service'
 import { DepartmentIndexFilterInterface } from '../interfaces/department_index_filter_interface.js'
+import {
+  emptyEmployeeRoleScope,
+  resolveEmployeeRoleScopeForUser,
+} from '#helpers/resolve_employee_role_scope'
 import db from '@adonisjs/lucid/services/db'
 import RoleDepartment from '#models/role_department'
 import Role from '#models/role'
 import OrgAliasAppError from '#exceptions/org_alias_app_error'
 import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
 import { resolveDepartmentParentFromBody } from '#utils/org_chart_parent_input'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 
 export default class DepartmentController {
-  /**
-   * @swagger
-   * /api/synchronization/departments:
-   *   post:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Departments
-   *     summary: sync information
-   *     produces:
-   *       - application/json
-   *     requestBody:
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               page:
-   *                 type: integer
-   *                 description: The page number for pagination
-   *                 required: false
-   *                 default: 1
-   *               limit:
-   *                 type: integer
-   *                 description: The number of records per page
-   *                 required: false
-   *                 default: 200
-   *               deptCode:
-   *                 type: string
-   *                 description: The department code to filter by
-   *                 required: false
-   *                 default: ''
-   *               deptName:
-   *                 required: false
-   *                 description: The department name to filter by
-   *                 type: string
-   *                 default: ''
-   *     responses:
-   *       '200':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: Object processed
-   *       '404':
-   *         description: The resource could not be found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
-  async synchronization({ request, response, i18n }: HttpContext) {
-    const t = i18n.formatMessage.bind(i18n)
-    try {
-      const page = request.input('page', 1)
-      const limit = request.input('limit', 200)
-      const deptCode = request.input('deptCode')
-      const deptName = request.input('deptName')
-
-      let apiUrl = `${env.get('API_BIOMETRICS_HOST')}/departments`
-      apiUrl = `${apiUrl}?page=${page || ''}`
-      apiUrl = `${apiUrl}&limit=${limit || ''}`
-      apiUrl = `${apiUrl}&deptCode=${deptCode || ''}`
-      apiUrl = `${apiUrl}&deptName=${deptName || ''}`
-      const apiResponse = await axios.get(apiUrl)
-      const data = apiResponse.data.data
-      if (data) {
-        const departmentService = new DepartmentService(i18n)
-        data.sort((a: BiometricDepartmentInterface, b: BiometricDepartmentInterface) => a.id - b.id)
-        for await (const department of data) {
-          await this.verify(department, departmentService)
-        }
-        const entity = t('departments')
-        response.status(200)
-        return {
-          type: 'success',
-          title: t('sync_entity', { entity }),
-          message: t('entity_have_been_synchronized_successfully', { entity }),
-          data: {
-            data,
-          },
-        }
-      } else {
-        const entity = t('departments')
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('sync_entity', { entity }),
-          message: t('no_data_found_to_synchronize'),
-          data: { data },
-        }
-      }
-    } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
-      }
-    }
-  }
 
   /**
    * @swagger
@@ -461,17 +293,14 @@ export default class DepartmentController {
    *                       type: string
    */
 
-  async getPositions({ auth, request, response, i18n }: HttpContext) {
+  async getPositions({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      await auth.check()
-      const user = auth.user
+      const user = auth.user!
       let userResponsibleId = null
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
+      await user.preload('role')
+      if (resolveResponsibleUserId(user) !== null) {
+        userResponsibleId = user.userId
       }
       const departmentId = request.param('departmentId')
       const positionSearch =
@@ -486,14 +315,7 @@ export default class DepartmentController {
           data: {},
         }
       }
-
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+      const businessUnitsList = businessUnitScope
 
       // Si el departmentId es 9999, retornar todas las posiciones
       if (Number.parseInt(departmentId) === 9999) {
@@ -750,7 +572,7 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async getRotationIndex({ request, response, i18n }: HttpContext) {
+  async getRotationIndex({ request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentId = request.param('departmentId')
@@ -765,17 +587,9 @@ export default class DepartmentController {
         }
       }
 
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
       const department = await Department.query()
         .where('department_id', departmentId)
-        .whereIn('businessUnitId', businessUnitsList)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
 
       if (!department) {
@@ -969,30 +783,26 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async getAll({ auth, request, response, i18n }: HttpContext) {
+  async getAll({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      await auth.check()
       const user = auth.user
-      let userResponsibleId = null
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
-      }
-      const userService = new UserService(i18n)
+      const scope = user
+        ? (await user.preload('role'), await resolveEmployeeRoleScopeForUser(user, i18n))
+        : emptyEmployeeRoleScope()
       const departmentName = request.input('department-name')
       const onlyParents = request.input('only-parents')
-
-      let departmentsList = [] as Array<number>
-
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
+      const allowedBusinessUnitIds = businessUnitScope
+      const filters: DepartmentIndexFilterInterface = {
+        departmentName,
+        onlyParents,
+        userResponsibleId: scope.userResponsibleId,
       }
-
-      const filters: DepartmentIndexFilterInterface = { departmentName, onlyParents, userResponsibleId }
-      const departments = await new DepartmentService(i18n).index(departmentsList, filters)
+      const departments = await new DepartmentService(i18n).index(
+        scope.departmentsList,
+        filters,
+        allowedBusinessUnitIds
+      )
 
       response.status(200)
       return {
@@ -1023,6 +833,17 @@ export default class DepartmentController {
    *     tags:
    *       - Departments
    *     summary: get all departments with family structure (childrens and parents and position levels)
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               businessUnitId:
+   *                 type: number
+   *                 description: Business Unit id
+   *                 required: false
+   *                 default: ''
    *     responses:
    *       '200':
    *         description: Resource processed successfully
@@ -1089,11 +910,11 @@ export default class DepartmentController {
    *                   type: string
    *                   description: Response message
    */
-  async getOrganization({ auth, response, i18n }: HttpContext) {
+  async getOrganization({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       await auth.check()
-
+      const businessUnitId = request.input('businessUnitId')
       // const user = auth.user
       // const userService = new UserService()
       // let departmentsList = [] as Array<number>
@@ -1101,8 +922,7 @@ export default class DepartmentController {
       // if (user) {
       //   departmentsList = await userService.getRoleDepartments(user.userId)
       // }
-
-      const departments = await new DepartmentService(i18n).buildOrganization(/* departmentsList */)
+      const departments = await new DepartmentService(i18n).buildOrganization(businessUnitId)
 
       response.status(200)
 
@@ -1172,7 +992,7 @@ export default class DepartmentController {
    *                 description: Department parent id
    *                 required: false
    *                 default: ''
-   *               business_unit_id:
+   *               businessUnitId:
    *                 type: number
    *                 description: Business to assign
    *                 required: false
@@ -1261,6 +1081,7 @@ export default class DepartmentController {
   async store({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
+      const businessUnitId = request.input('businessUnitId')
       const departmentName = request.input('departmentName')
       const departmentAlias = request.input('departmentAlias')
       const aliasesInput = request.input('aliases')
@@ -1281,6 +1102,7 @@ export default class DepartmentController {
         departmentIsDefault: departmentIsDefault || 0,
         departmentActive: departmentActive || 1,
         parentDepartmentId: parentDepartmentId,
+        businessUnitId: businessUnitId,
       } as Department
 
       const departmentService = new DepartmentService(i18n)
@@ -1516,7 +1338,7 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentId = request.param('departmentId')
@@ -1541,9 +1363,17 @@ export default class DepartmentController {
       const currentDepartment = await Department.query()
         .whereNull('department_deleted_at')
         .where('department_id', departmentId)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
 
       if (!currentDepartment) {
+        await ScopeDeniedLogService.log({
+          domain: 'department',
+          action: 'update',
+          requestedId: departmentId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         const entity = t('department')
         response.status(404)
         return {
@@ -1744,7 +1574,7 @@ export default class DepartmentController {
     }
   }
 
-  async delete({ request, response, i18n }: HttpContext) {
+  async delete({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentId = request.param('departmentId')
@@ -1760,9 +1590,17 @@ export default class DepartmentController {
       const currentDepartment = await Department.query()
         .whereNull('department_deleted_at')
         .where('department_id', departmentId)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
 
       if (!currentDepartment) {
+        await ScopeDeniedLogService.log({
+          domain: 'department',
+          action: 'delete',
+          requestedId: departmentId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         const entity = t('department')
         response.status(404)
         return {
@@ -1815,7 +1653,7 @@ export default class DepartmentController {
     }
   }
 
-  async forceDelete({ request, response, i18n }: HttpContext) {
+  async forceDelete({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentId = request.param('departmentId')
@@ -1831,8 +1669,16 @@ export default class DepartmentController {
       const currentDepartment = await Department.query()
         .whereNull('department_deleted_at')
         .where('department_id', departmentId)
+        .whereIn('businessUnitId', businessUnitScope)
         .first()
       if (!currentDepartment) {
+        await ScopeDeniedLogService.log({
+          domain: 'department',
+          action: 'forceDelete',
+          requestedId: departmentId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         const entity = t('department')
         response.status(404)
         return {
@@ -2001,15 +1847,12 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async show({ auth, request, response, i18n }: HttpContext) {
+  async show({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       await auth.check()
       const user = auth.user
-      const userService = new UserService(i18n)
       const departmentId = request.param('departmentId')
-
-      let departmentsList = [] as Array<number>
 
       if (!departmentId) {
         response.status(400)
@@ -2021,14 +1864,24 @@ export default class DepartmentController {
         }
       }
 
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
-      }
+      // Alcance: regla 3 de USRH1788466831312 — acceso completo ve cualquier
+      // departamento de su empresa; el restringido solo los de su lista.
+      const scope = user
+        ? (await user.preload('role'), await resolveEmployeeRoleScopeForUser(user, i18n))
+        : emptyEmployeeRoleScope()
 
       const departmentService = new DepartmentService(i18n)
-      const showDepartment = await departmentService.show(departmentId)
+      const showDepartment = await departmentService.show(departmentId, businessUnitScope)
 
       if (!showDepartment) {
+        // El departamento no existe o es de otra empresa: 404 + log (CA-04).
+        await ScopeDeniedLogService.log({
+          domain: 'department',
+          action: 'show',
+          requestedId: departmentId,
+          actorUserId: user?.userId ?? null,
+          businessUnitScope,
+        })
         const entity = t('department')
         response.status(404)
         return {
@@ -2039,24 +1892,27 @@ export default class DepartmentController {
         }
       }
 
-      const validAccess = departmentsList.find((id) => showDepartment.departmentId === id)
-
-      if (!validAccess) {
-        const entity = t('department')
-        response.status(403)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: `${t('entity_was_not_found_with_entered_id', { entity })} - ${t('not_access')}`,
-          data: { departmentId },
+      // Acceso restringido: verificar que el departamento esté en la lista del rol.
+      if (scope.userResponsibleId !== null) {
+        const validAccess = scope.departmentsList.find((id) => showDepartment.departmentId === id)
+        if (!validAccess) {
+          const entity = t('department')
+          response.status(403)
+          return {
+            type: 'warning',
+            title: t('entity_was_not_found', { entity }),
+            message: `${t('entity_was_not_found_with_entered_id', { entity })} - ${t('not_access')}`,
+            data: { departmentId },
+          }
         }
       }
 
+      // Acceso completo o root: cualquier departamento de la empresa es válido.
       response.status(200)
       return {
         type: 'success',
         title: t('resource'),
-          message: t('resource_was_found_successfully'),
+        message: t('resource_was_found_successfully'),
         data: { department: showDepartment },
       }
     } catch (error) {
@@ -2346,32 +2202,25 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async getOnlyWithEmployees({ auth, request, response, i18n }: HttpContext) {
+  async getOnlyWithEmployees({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      await auth.check()
       const user = auth.user
-      let userResponsibleId = null
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
-      }
-      const userService = new UserService(i18n)
+      const scope = user
+        ? (await user.preload('role'), await resolveEmployeeRoleScopeForUser(user, i18n))
+        : emptyEmployeeRoleScope()
       const departmentName = request.input('department-name')
       const onlyParents = request.input('only-parents')
-
-      let departmentsList = [] as Array<number>
-
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
+      const allowedBusinessUnitIds = businessUnitScope
+      const filters: DepartmentIndexFilterInterface = {
+        departmentName,
+        onlyParents,
+        userResponsibleId: scope.userResponsibleId,
       }
-
-      const filters: DepartmentIndexFilterInterface = { departmentName, onlyParents, userResponsibleId }
       const departments = await new DepartmentService(i18n).getOnlyWithEmployees(
-        departmentsList,
-        filters
+        scope.departmentsList,
+        filters,
+        allowedBusinessUnitIds
       )
 
       response.status(200)
@@ -2394,17 +2243,6 @@ export default class DepartmentController {
     }
   }
 
-  private async verify(
-    department: BiometricDepartmentInterface,
-    departmentService: DepartmentService
-  ) {
-    const existDepartment = await Department.query()
-      .where('department_sync_id', department.id)
-      .first()
-    if (!existDepartment) {
-      await departmentService.syncCreate(department)
-    }
-  }
 
   private async verifyRelatedPosition(
     departmentId: number,

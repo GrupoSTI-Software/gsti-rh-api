@@ -11,7 +11,7 @@ export default class extends BaseSeeder {
         employeeTypeId: 1,
         employeeTypeName: 'Empleado',
         employeeTypeSlug: 'employee',
-        businessUnitId: 1
+        businessUnitId: null
       }
     ]
 

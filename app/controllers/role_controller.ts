@@ -2,7 +2,35 @@ import { HttpContext } from '@adonisjs/core/http'
 import RoleService from '#services/role_service'
 import { RoleFilterSearchInterface } from '../interfaces/role_filter_search_interface.js'
 import Role from '#models/role'
-import { createRoleValidator, updateRoleValidator } from '#validators/role'
+import { isReservedRoleIdentitySlug } from '#constants/system_roles'
+import {
+  isLockedIdentityRename,
+  isOwnRoleLockedForUser,
+  isSystemRoleLockedForUser,
+  isUndeletableTenantRole,
+  isUnmanagedTenantRole,
+} from '#helpers/system_role_lock'
+import { resolveActiveBusinessUnitId } from '#helpers/role_business_scope'
+import {
+  buildGrantCeilingDenial,
+  findPermissionsAboveActorCeiling,
+} from '#helpers/role_grant_ceiling'
+import {
+  ensureSecondaryPermission,
+  evaluateSecondaryPermission,
+} from '#helpers/permission_gate_secondary'
+import { ROLES_AND_PERMISSIONS_PERMISSION_DECLARATIONS as ROLES } from '#constants/roles_and_permissions_permission_declarations'
+import RolePresetService from '#services/role_preset_service'
+import { RolePresetServiceError } from '#exceptions/role_preset_service_error'
+import { buildRolePresetErrorResponse } from '#helpers/role_preset_error_response'
+import { getRolePreset } from '#constants/role_presets'
+import {
+  assignRolesPermissionsBatchValidator,
+  createRoleValidator,
+  updateRoleValidator,
+} from '#validators/role'
+import db from '@adonisjs/lucid/services/db'
+
 
 export default class RoleController {
   /**
@@ -116,7 +144,8 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async index({ request, response }: HttpContext) {
+  async index(ctx: HttpContext) {
+    const { request, response, businessUnitScope } = ctx
     try {
       const search = request.input('search')
       const page = request.input('page', 1)
@@ -126,8 +155,11 @@ export default class RoleController {
         page: page,
         limit: limit,
       } as RoleFilterSearchInterface
+      // La ruta queda abierta para los selects de Usuarios, pero la matriz de
+      // concesiones de cada rol solo la ve quien puede leer roles.
+      const includeGrants = await evaluateSecondaryPermission(ctx, ROLES.indexRolesWithGrants)
       const roleService = new RoleService()
-      const roles = await roleService.index(filters)
+      const roles = await roleService.index(filters, businessUnitScope, { includeGrants })
       response.status(200)
       return {
         type: 'success',
@@ -147,7 +179,6 @@ export default class RoleController {
       }
     }
   }
-
 
   /**
    * @swagger
@@ -262,31 +293,105 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async store({ auth, request, response }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response, businessUnitScope, i18n } = ctx
+    const t = i18n.formatMessage.bind(i18n)
     try {
-      await auth.check()
-      const user = auth.user
-      let roleBusinessAccess = ''
-      if (user) {
-          roleBusinessAccess = user?.userBusinessAccess
+      // Un rol siempre nace dentro de una empresa: la activa de la sesión, la
+      // misma que resolvió `businessScope` del header. Sin ella no hay dueño
+      // posible y se niega (fail-closed).
+      const businessUnitId = resolveActiveBusinessUnitId(businessUnitScope)
+      if (businessUnitId === null) {
+        response.status(400)
+        return {
+          title: t('role_active_business_unit_unresolved_title'),
+          detail: t('role_active_business_unit_unresolved_detail'),
+          key: 'empresa-activa-no-resuelta',
+        }
       }
 
       const roleService = new RoleService()
       const roleName = request.input('roleName')
       const roleDescription = request.input('roleDescription')
-      const roleSlug = roleService.generateSlug(roleName)
       const roleActive = request.input('roleActive')
+
+      // Se valida ANTES de derivar el slug: `generateSlug` espera una cadena y
+      // con el nombre vacío reventaba con 500 en lugar de decir qué falta.
+      const roleSlug = typeof roleName === 'string' ? roleService.generateSlug(roleName) : ''
+      if (roleSlug.length === 0) {
+        // 422 y no 409: un nombre vacío o de puros símbolos es entrada inválida,
+        // no un conflicto con lo que ya existe. El 409 queda para el slug duplicado.
+        response.status(422)
+        return {
+          title: t('role_name_required_title'),
+          detail: t('role_name_required_detail'),
+          key: 'rol-nombre-requerido',
+        }
+      }
+
+      // El slug sale del nombre y el runtime decide por slug: "Super
+      // Administrador" le daría al rol del tenant el salvoconducto `expanded`,
+      // y "Owner" o "Empleado" lo volverían visible en todas las empresas.
+      // Nombre reservado, se rechaza.
+      if (isReservedRoleIdentitySlug(roleSlug)) {
+        response.status(400)
+        return {
+          title: t('system_role_name_reserved_title'),
+          detail: t('system_role_name_reserved_detail'),
+          key: 'rol-nombre-reservado',
+        }
+      }
+
+      // El candado único de `roles` es por empresa: dos clientes pueden tener
+      // su "Recursos Humanos", pero el mismo cliente no. Se comprueba antes de
+      // insertar para responder 409 y no un 500 del índice.
+      const duplicated = await roleService.findLiveRoleWithSlugInScope(roleSlug, businessUnitScope)
+      if (duplicated) {
+        response.status(409)
+        return {
+          title: t('role_slug_duplicated_title'),
+          detail: t('role_slug_duplicated_detail'),
+          key: 'rol-slug-duplicado',
+          data: { roleSlug },
+        }
+      }
+
+      // El CSV se sigue escribiendo por compatibilidad: quedan lectores que
 
       const role = {
         roleName: roleName,
         roleDescription: roleDescription,
         roleSlug: roleSlug,
+        businessUnitId: businessUnitId,
         roleActive: roleActive,
-        roleBusinessAccess: roleBusinessAccess,
       } as Role
 
-    
       const data = await request.validateUsing(createRoleValidator)
+
+      // La plantilla concede permisos al rol recién creado: con solo `create`,
+      // quien no puede editar permisos repartiría las concesiones de un módulo
+      // completo. El gate de la ruta ya exigió `create`; aquí se pide `update`.
+      if (
+        data.rolePresetSlug &&
+        !(await ensureSecondaryPermission(ctx, ROLES.storeRoleWithPreset))
+      ) {
+        return
+      }
+
+      // Techo de concesión: la plantilla no puede darle al rol nuevo permisos
+      // que el actor no tiene. El rol aún no existe, así que todo lo que trae
+      // la plantilla cuenta como concesión nueva.
+      if (data.rolePresetSlug) {
+        const presetPermissions = await new RolePresetService().resolveEmployeesPermissionIds(
+          getRolePreset(data.rolePresetSlug).permissionSlugs
+        )
+        const breaches = await findPermissionsAboveActorCeiling(ctx, presetPermissions.ids, null)
+        if (breaches.length > 0) {
+          response.status(403)
+          return buildGrantCeilingDenial(i18n, breaches)
+        }
+      }
+
       const valid = await roleService.verifyInfo(role)
       if (valid.status !== 200) {
         response.status(valid.status)
@@ -298,7 +403,31 @@ export default class RoleController {
         }
       }
 
-      const newRole = await roleService.create(role)
+      const rolePresetSlug = data.rolePresetSlug
+      let newRole: Role
+      let appliedPreset: { slug: string; version: string } | undefined
+
+      if (rolePresetSlug) {
+        const preset = getRolePreset(rolePresetSlug)
+        const result = await db.transaction(async (trx) => {
+          const createdRole = await roleService.create(role, trx)
+          const presetResult = await new RolePresetService().apply(
+            createdRole.roleId,
+            {
+              presetSlug: rolePresetSlug,
+              mode: 'replace',
+              expectedPresetVersion: preset.version,
+              baselinePermissionIds: [],
+            },
+            trx
+          )
+          return { role: createdRole, appliedPreset: presetResult.appliedPreset }
+        })
+        newRole = result.role
+        appliedPreset = result.appliedPreset
+      } else {
+        newRole = await roleService.create(role)
+      }
 
       if (newRole) {
         response.status(201)
@@ -306,10 +435,19 @@ export default class RoleController {
           type: 'success',
           title: 'Roles',
           message: 'The role was created successfully',
-          data: { role: newRole },
+          data: { role: newRole, ...(appliedPreset ? { appliedPreset } : {}) },
         }
       }
     } catch (error) {
+      // La plantilla ya trae su propio contrato de error (422 permisos
+      // faltantes, 404 plantilla inexistente…): degradarlo a 500 dejaría al
+      // cliente sin saber que el alta falló por la plantilla y no por el rol.
+      if (error instanceof RolePresetServiceError) {
+        const mapped = buildRolePresetErrorResponse(error, i18n)
+        response.status(mapped.status)
+        return mapped.body
+      }
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -321,7 +459,6 @@ export default class RoleController {
       }
     }
   }
-
 
   /**
    * @swagger
@@ -443,20 +580,18 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async update({ auth, request, response }: HttpContext) {
+  async update({ auth, request, response, businessUnitScope, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
       const roleId = request.param('roleId')
       const roleService = new RoleService()
-      await auth.check()
-      const user = auth.user
-      let roleBusinessAccess = ''
-      if (user) {
-          roleBusinessAccess = user?.userBusinessAccess
-      }
       const roleName = request.input('roleName')
       const roleDescription = request.input('roleDescription')
-      const roleSlug = roleService.generateSlug(roleName)
       const roleActive = request.input('roleActive')
+      // El slug ya no se guarda al renombrar (`RoleService.update`): se deriva
+      // solo para rechazar los nombres reservados. Sin nombre queda vacío y el
+      // validador responde 422 más abajo, nunca un 500.
+      const roleSlug = typeof roleName === 'string' ? roleService.generateSlug(roleName) : ''
 
       const role = {
         roleId: roleId,
@@ -464,7 +599,6 @@ export default class RoleController {
         roleDescription: roleDescription,
         roleSlug: roleSlug,
         roleActive: roleActive,
-        roleBusinessAccess: roleBusinessAccess,
       } as Role
 
       if (!roleId) {
@@ -476,10 +610,9 @@ export default class RoleController {
           data: { ...role },
         }
       }
-      const currentRole = await Role.query()
-        .whereNull('role_deleted_at')
-        .where('role_id', roleId)
-        .first()
+      // Acotado a la empresa activa: un rol de otra empresa responde 404, como
+      // si no existiera.
+      const currentRole = await roleService.findRoleByIdInScope(Number(roleId), businessUnitScope)
       if (!currentRole) {
         response.status(404)
         return {
@@ -487,6 +620,55 @@ export default class RoleController {
           title: 'The role was not found',
           message: 'The role was not found with the entered ID',
           data: { ...role },
+        }
+      }
+      if (await isSystemRoleLockedForUser(auth, currentRole)) {
+        response.status(403)
+        return {
+          title: t('system_role_locked_title'),
+          detail: t('system_role_locked_detail'),
+          key: 'rol-sistema-bloqueado',
+        }
+      }
+      // Los roles sembrados que el editor no lista tampoco se administran por
+      // API: el backoffice solo los esconde, la regla vive aquí.
+      if (isUnmanagedTenantRole(currentRole)) {
+        response.status(403)
+        return {
+          title: t('tenant_role_unmanaged_title'),
+          detail: t('tenant_role_unmanaged_detail'),
+          key: 'rol-tenant-no-administrable',
+        }
+      }
+      // El administrador se reconfigura, pero su nombre es identidad: el
+      // runtime decide por su slug y el slug se deriva del nombre.
+      if (isLockedIdentityRename(currentRole, roleName)) {
+        response.status(403)
+        return {
+          title: t('tenant_role_rename_locked_title'),
+          detail: t('tenant_role_rename_locked_detail'),
+          key: 'rol-tenant-nombre-bloqueado',
+        }
+      }
+      if (await isOwnRoleLockedForUser(auth, currentRole.roleId)) {
+        response.status(403)
+        return {
+          title: t('own_role_locked_title'),
+          detail: t('own_role_locked_detail'),
+          key: 'rol-propio-bloqueado',
+        }
+      }
+      // El renombrado ya no mueve el slug, así que no puede robar la identidad
+      // de un rol reservado; se sigue rechazando el nombre para que nadie
+      // publique un "Owner" o un "Super Administrador" de mentiras en el
+      // catálogo de la empresa. Se admite conservar el nombre que ya tiene:
+      // root renombrando al owner.
+      if (isReservedRoleIdentitySlug(roleSlug) && currentRole.roleSlug !== roleSlug) {
+        response.status(400)
+        return {
+          title: t('system_role_name_reserved_title'),
+          detail: t('system_role_name_reserved_detail'),
+          key: 'rol-nombre-reservado',
         }
       }
       const data = await request.validateUsing(updateRoleValidator)
@@ -522,7 +704,6 @@ export default class RoleController {
       }
     }
   }
-
 
   /**
    * @swagger
@@ -622,7 +803,9 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ auth, request, response, businessUnitScope, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
+    const roleService = new RoleService()
     try {
       const roleId = request.param('roleId')
       if (!roleId) {
@@ -634,10 +817,8 @@ export default class RoleController {
           data: { roleId },
         }
       }
-      const currentRole = await Role.query()
-        .whereNull('role_deleted_at')
-        .where('role_id', roleId)
-        .first()
+      // Acotado a la empresa activa: un rol de otra empresa responde 404.
+      const currentRole = await roleService.findRoleByIdInScope(Number(roleId), businessUnitScope)
       if (!currentRole) {
         response.status(404)
         return {
@@ -647,7 +828,33 @@ export default class RoleController {
           data: { roleId },
         }
       }
-      const roleService = new RoleService()
+      if (await isSystemRoleLockedForUser(auth, currentRole)) {
+        response.status(403)
+        return {
+          title: t('system_role_locked_title'),
+          detail: t('system_role_locked_detail'),
+          key: 'rol-sistema-bloqueado',
+        }
+      }
+      if (await isOwnRoleLockedForUser(auth, currentRole.roleId)) {
+        response.status(403)
+        return {
+          title: t('own_role_locked_title'),
+          detail: t('own_role_locked_detail'),
+          key: 'rol-propio-bloqueado',
+        }
+      }
+      // Ningún rol del juego que la empresa estrena al nacer se elimina: sin
+      // `admin` nadie administra, sin `owner` nadie factura y sin `empleado`
+      // el alta self-service se queda sin rol que asignar.
+      if (isUndeletableTenantRole(currentRole)) {
+        response.status(403)
+        return {
+          title: t('tenant_role_undeletable_title'),
+          detail: t('tenant_role_undeletable_detail'),
+          key: 'rol-tenant-indeleble',
+        }
+      }
       const deleteRole = await roleService.delete(currentRole)
       if (deleteRole) {
         response.status(200)
@@ -784,11 +991,15 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async assign({ request, response }: HttpContext) {
+  async assign(ctx: HttpContext) {
+    const { auth, request, response, businessUnitScope, i18n } = ctx
+    const t = i18n.formatMessage.bind(i18n)
+    const roleService = new RoleService()
     try {
       const roleId = request.param('roleId')
       const data = request.all()
-      const role = await Role.query().whereNull('role_deleted_at').where('role_id', roleId).first()
+      // Acotado a la empresa activa: un rol de otra empresa responde 404.
+      const role = await roleService.findRoleByIdInScope(Number(roleId), businessUnitScope)
       if (!role) {
         response.status(404)
         return {
@@ -799,11 +1010,61 @@ export default class RoleController {
         }
       }
 
-      role.roleManagementDays = data.roleManagementDays
-      await role.save()
+      // Reasignar permisos de un rol de sistema afectaría a TODOS los tenants:
+      // misma regla de bloqueo que edición/eliminación.
+      if (await isSystemRoleLockedForUser(auth, role)) {
+        response.status(403)
+        return {
+          title: t('system_role_locked_title'),
+          detail: t('system_role_locked_detail'),
+          key: 'rol-sistema-bloqueado',
+        }
+      }
 
-      const roleService = new RoleService()
-      const roleSystemPermissions = await roleService.assignPermissions(roleId, data.permissions)
+      if (isUnmanagedTenantRole(role)) {
+        response.status(403)
+        return {
+          title: t('tenant_role_unmanaged_title'),
+          detail: t('tenant_role_unmanaged_detail'),
+          key: 'rol-tenant-no-administrable',
+        }
+      }
+
+      // Reasignar permisos al rol de la propia sesión sería concedérselos a sí mismo.
+      if (await isOwnRoleLockedForUser(auth, role.roleId)) {
+        response.status(403)
+        return {
+          title: t('own_role_locked_title'),
+          detail: t('own_role_locked_detail'),
+          key: 'rol-propio-bloqueado',
+        }
+      }
+
+      // Techo de concesión: solo se reparte lo que el actor tiene. Se revisa
+      // antes de abrir la transacción, así que una negativa no escribe nada.
+      const breaches = await findPermissionsAboveActorCeiling(ctx, data.permissions, role.roleId)
+      if (breaches.length > 0) {
+        response.status(403)
+        return buildGrantCeilingDenial(i18n, breaches)
+      }
+
+      let roleSystemPermissions
+      try {
+        roleSystemPermissions = await db.transaction(async (trx) => {
+          role.useTransaction(trx)
+          role.roleManagementDays = data.roleManagementDays
+          await role.save()
+          return roleService.assignPermissions(role.roleId, data.permissions, trx)
+        })
+      } catch {
+        response.status(500)
+        return {
+          title: t('role_permissions_assignment_failed_title'),
+          detail: t('role_permissions_assignment_failed_detail'),
+          key: 'asignacion-permisos-rol-fallida',
+        }
+      }
+
       response.status(201)
       return {
         type: 'success',
@@ -815,6 +1076,254 @@ export default class RoleController {
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: messageError,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/roles/assign-batch:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Roles
+   *     summary: assign permissions to several roles atomically
+   *     produces:
+   *       - application/json
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             properties:
+   *               roles:
+   *                 type: array
+   *                 description: Roles with their permissions to assign
+   *                 required: true
+   *                 items:
+   *                   type: object
+   *                   properties:
+   *                     roleId:
+   *                       type: number
+   *                     permissions:
+   *                       type: array
+   *                       items:
+   *                         type: number
+   *                     roleManagementDays:
+   *                       type: number
+   *                       nullable: true
+   *     responses:
+   *       '201':
+   *         description: Resource processed successfully
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: Processed object
+   *       '404':
+   *         description: A role in the batch was not found
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '403':
+   *         description: A system role in the batch is locked for the current user
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                 detail:
+   *                   type: string
+   *                 key:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '422':
+   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 error:
+   *                   type: string
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 error:
+   *                   type: string
+   */
+  async assignBatch(ctx: HttpContext) {
+    const { auth, request, response, businessUnitScope, i18n } = ctx
+    const t = i18n.formatMessage.bind(i18n)
+    const roleService = new RoleService()
+    try {
+      const { roles: items } = await request.validateUsing(assignRolesPermissionsBatchValidator)
+
+      // Preflight en dos pasadas ANTES de abrir la transacción. Cualquier
+      // 404/403 detiene el lote completo sin escrituras (atomicidad "todo o
+      // nada" del USRH1785766406741).
+      //
+      // Primero se resuelven y se juzgan TODOS los roles del lote, y solo
+      // después se revisa el techo de concesión: si el lote trae un rol
+      // intocable, esa negativa manda sobre la de los permisos, sin depender
+      // del orden en que el cliente haya armado el arreglo.
+      const targets = new Map<number, Role>()
+      for (const item of items) {
+        // Acotado a la empresa activa: un rol de otra empresa responde 404.
+        const role = await roleService.findRoleByIdInScope(item.roleId, businessUnitScope)
+        if (!role) {
+          response.status(404)
+          return {
+            type: 'warning',
+            title: 'The role was not found',
+            message: 'The role was not found with the entered ID',
+            data: { roleId: item.roleId },
+          }
+        }
+        if (await isSystemRoleLockedForUser(auth, role)) {
+          response.status(403)
+          return {
+            title: t('system_role_locked_batch_title'),
+            detail: t('system_role_locked_batch_detail', { roleName: role.roleName }),
+            key: 'rol-sistema-bloqueado-lote',
+            data: {
+              roleId: role.roleId,
+              roleName: role.roleName,
+              roleSlug: role.roleSlug,
+            },
+          }
+        }
+        if (isUnmanagedTenantRole(role)) {
+          response.status(403)
+          return {
+            title: t('tenant_role_unmanaged_title'),
+            detail: t('tenant_role_unmanaged_detail'),
+            key: 'rol-tenant-no-administrable',
+            data: {
+              roleId: role.roleId,
+              roleName: role.roleName,
+              roleSlug: role.roleSlug,
+            },
+          }
+        }
+        // Un lote que incluya el rol de la sesión le concedería permisos al
+        // propio actor: se detiene completo, igual que con un rol de sistema.
+        if (await isOwnRoleLockedForUser(auth, role.roleId)) {
+          response.status(403)
+          return {
+            title: t('own_role_locked_title'),
+            detail: t('own_role_locked_batch_detail', { roleName: role.roleName }),
+            key: 'rol-propio-bloqueado',
+            data: {
+              roleId: role.roleId,
+              roleName: role.roleName,
+              roleSlug: role.roleSlug,
+            },
+          }
+        }
+
+        targets.set(item.roleId, role)
+      }
+
+      // Segunda pasada: techo de concesión. Un solo rol del lote con permisos
+      // fuera del alcance del actor detiene el lote completo.
+      for (const item of items) {
+        const role = targets.get(item.roleId)
+        if (!role) {
+          continue
+        }
+
+        const breaches = await findPermissionsAboveActorCeiling(ctx, item.permissions, role.roleId)
+        if (breaches.length > 0) {
+          response.status(403)
+          return buildGrantCeilingDenial(i18n, breaches, {
+            roleId: role.roleId,
+            roleName: role.roleName,
+          })
+        }
+      }
+
+      try {
+        await db.transaction(async (trx) => {
+          await roleService.assignPermissionsBatch(items, trx)
+        })
+      } catch {
+        response.status(500)
+        return {
+          title: t('role_permissions_batch_assignment_failed_title'),
+          detail: t('role_permissions_batch_assignment_failed_detail'),
+          key: 'asignacion-permisos-lote-fallida',
+        }
+      }
+
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Role Permissions',
+        message: 'The role permissions were assigned successfully',
+        data: { roleIds: items.map((item) => item.roleId) },
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(error.code === 'E_VALIDATION_ERROR' ? 422 : 500)
       return {
         type: 'error',
         title: 'Server error',
@@ -923,7 +1432,7 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show({ request, response, businessUnitScope }: HttpContext) {
     try {
       const roleId = request.param('roleId')
       if (!roleId) {
@@ -936,7 +1445,9 @@ export default class RoleController {
         }
       }
       const roleService = new RoleService()
-      const showRole = await roleService.show(roleId)
+      // Acotado a la empresa activa: el detalle de un rol de otra empresa
+      // responde 404 igual que uno inexistente.
+      const showRole = await roleService.show(Number(roleId), businessUnitScope)
       if (!showRole) {
         response.status(404)
         return {
@@ -1076,7 +1587,8 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async hasAccess({ request, response }: HttpContext) {
+  async hasAccess(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const roleId = request.param('roleId')
       if (!roleId) {
@@ -1087,6 +1599,9 @@ export default class RoleController {
           message: 'Missing data to process',
           data: { roleId },
         }
+      }
+      if (!(await this.ensureRoleAccessReadable(ctx, roleId))) {
+        return
       }
       const systemModuleSlug = request.param('systemModuleSlug')
       if (!systemModuleSlug) {
@@ -1384,7 +1899,8 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async getAccessByModule({ request, response }: HttpContext) {
+  async getAccessByModule(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const roleId = request.param('roleId')
       if (!roleId) {
@@ -1395,6 +1911,9 @@ export default class RoleController {
           message: 'Missing data to process',
           data: { roleId },
         }
+      }
+      if (!(await this.ensureRoleAccessReadable(ctx, roleId))) {
+        return
       }
       const systemModuleSlug = request.param('systemModuleSlug')
       if (!systemModuleSlug) {
@@ -1525,7 +2044,8 @@ export default class RoleController {
    *                     error:
    *                       type: string
    */
-  async getAccess({ request, response }: HttpContext) {
+  async getAccess(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const roleId = request.param('roleId')
       if (!roleId) {
@@ -1536,6 +2056,9 @@ export default class RoleController {
           message: 'Missing data to process',
           data: { roleId },
         }
+      }
+      if (!(await this.ensureRoleAccessReadable(ctx, roleId))) {
+        return
       }
       const roleService = new RoleService()
       const roleGetAccess = await roleService.getAccess(roleId)
@@ -1555,5 +2078,24 @@ export default class RoleController {
         error: error.message,
       }
     }
+  }
+
+  /**
+   * `has-access`, `get-access` y `get-access-by-module` quedan sin gate porque
+   * son la plomería de sesión del menú y del guard de cada pantalla, y el
+   * backoffice siempre pregunta por el rol de la sesión. Otro `roleId` expone la
+   * matriz de un rol ajeno: solo se admite con `roles-and-permissions:read`
+   * (root y owner por salvoconducto).
+   *
+   * @returns `false` cuando ya respondió 403 con la negativa uniforme del gate.
+   */
+  private async ensureRoleAccessReadable(
+    ctx: HttpContext,
+    roleId: string | number
+  ): Promise<boolean> {
+    if (ctx.auth.user?.roleId === Number(roleId)) {
+      return true
+    }
+    return ensureSecondaryPermission(ctx, ROLES.readOtherRoleAccess)
   }
 }

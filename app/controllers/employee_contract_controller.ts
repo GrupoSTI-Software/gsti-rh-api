@@ -1,4 +1,7 @@
 import { HttpContext } from '@adonisjs/core/http'
+import { isFileIntakeError } from '#helpers/file_intake_api_error'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { resolveStoredFileExtension } from '#helpers/stored_file_extension'
 import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
 import Env from '#start/env'
@@ -8,6 +11,8 @@ import { DateTime } from 'luxon'
 import EmployeeContractService from '#services/employee_contract_service'
 import { createEmployeeContractValidator } from '#validators/employee_contract'
 import EmployeeContract from '#models/employee_contract'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { EMPLOYEES_CONTRACT_DOWNLOAD_TAB_READ_PERMISSION } from '#constants/employees_download_permission_declarations'
 export default class EmployeeContractController {
   /**
    * @swagger
@@ -229,7 +234,7 @@ export default class EmployeeContractController {
         }
       }
       if (employeeContractFile) {
-        const allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'doc', 'docx']
+        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
         const fileExtension = employeeContractFile.extname
           ? employeeContractFile.extname.toLowerCase()
           : ''
@@ -243,15 +248,10 @@ export default class EmployeeContractController {
             data: employeeContractFile,
           }
         }
-        // get file name and extension
-        const fileName = `${new Date().getTime()}_${employeeContractFile.clientName}`
+        // get file name and extensión
         const uploadService = new UploadService()
 
-        const fileUrl = await uploadService.fileUpload(
-          employeeContractFile,
-          'employee-contracts',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(employeeContractFile, 'employee-record-document', 'employee-contracts')
         employeeContract.employeeContractFile = fileUrl
       }
       const newEmployeeContract = await employeeContractService.create(employeeContract)
@@ -263,6 +263,10 @@ export default class EmployeeContractController {
         data: { employeeContract: newEmployeeContract },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -524,7 +528,7 @@ export default class EmployeeContractController {
         }
       }
       if (employeeContractFile) {
-        const allowedExtensions = ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'doc', 'docx']
+        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
         const fileExtension = employeeContractFile.extname
           ? employeeContractFile.extname.toLowerCase()
           : ''
@@ -538,13 +542,8 @@ export default class EmployeeContractController {
             data: employeeContractFile,
           }
         }
-        const fileName = `${new Date().getTime()}_${employeeContractFile.clientName}`
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(
-          employeeContractFile,
-          'employee-contracts',
-          fileName
-        )
+        const fileUrl = await uploadService.fileUpload(employeeContractFile, 'employee-record-document', 'employee-contracts')
         if (currentEmployeeContract.employeeContractFile) {
           const fileNameWithExt = decodeURIComponent(
             path.basename(currentEmployeeContract.employeeContractFile)
@@ -567,6 +566,10 @@ export default class EmployeeContractController {
         data: { employeeContract: updateEmployeeContract },
       }
     } catch (error) {
+      // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
+      // servidor: se relanza para que lo formatee el handler global.
+      if (isFileIntakeError(error)) throw error
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -862,6 +865,157 @@ export default class EmployeeContractController {
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
         error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employee-contracts/{employeeContractId}/download:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employee Contracts
+   *     summary: Descarga el binario de un contrato de empleado (proxy autenticado)
+   *     description: |
+   *       Proxy server-side para contratos de empleado. El API valida que el contrato
+   *       pertenezca al scope del usuario autenticado y, si es válido, transmite (stream)
+   *       el binario desde DigitalOcean Spaces sin exponer la URL de origen.
+   *       Responde 404 tanto si el contrato no existe como si está fuera del scope
+   *       del usuario (no se revela la existencia del recurso ajeno).
+   *     parameters:
+   *       - in: path
+   *         name: employeeContractId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Identificador del contrato de empleado
+   *     responses:
+   *       200:
+   *         description: Stream binario del documento
+   *       400:
+   *         description: ID inválido
+   *       401:
+   *         description: Sin token de autenticación válido
+   *       404:
+   *         description: Contrato no encontrado o fuera del scope del usuario
+   *       500:
+   *         description: Error inesperado al descargar el archivo
+   */
+  @inject()
+  async download(ctx: HttpContext, uploadService: UploadService) {
+    const { auth, request, response, logger, businessUnitScope } = ctx
+    try {
+      const canReadTab = await ensureSecondaryPermission(
+        ctx,
+        EMPLOYEES_CONTRACT_DOWNLOAD_TAB_READ_PERMISSION
+      )
+      if (!canReadTab) return
+
+      const rawId = request.param('employeeContractId')
+      const employeeContractId = Number(rawId)
+
+      if (!Number.isInteger(employeeContractId) || employeeContractId <= 0) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Error de validación',
+          message: 'El ID del contrato es inválido',
+          data: { employeeContractId: rawId },
+        }
+      }
+
+      const user = auth.user!
+      if (!user.role) {
+        await user.load('role')
+      }
+      const isRoot = user.role?.roleSlug === 'root'
+
+      const query = EmployeeContract.query()
+        .where('employee_contract_id', employeeContractId)
+        .whereNull('employee_contract_deleted_at')
+
+      // Validar scope via whereHas para evitar que el mixin withBusinessUnitScope
+      // de Employee filtre el preload y deje la relación en null.
+      if (!isRoot) {
+        query.whereHas('employee', (q) => {
+          q.whereIn('business_unit_id', businessUnitScope)
+        })
+      }
+
+      const contract = await query.first()
+
+      if (!contract) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Contrato no encontrado',
+          message: 'El contrato no fue encontrado',
+          data: null,
+        }
+      }
+
+      if (!contract.employeeContractFile) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Archivo no encontrado',
+          message: 'El contrato no tiene un archivo asociado',
+          data: null,
+        }
+      }
+
+      const object = await uploadService.streamStoredFile(contract.employeeContractFile)
+
+      if (!object) {
+        logger.warn(
+          { employeeContractId, path: contract.employeeContractFile },
+          'Contrato registrado en BD pero no encontrado en almacenamiento'
+        )
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Archivo no encontrado',
+          message: 'El archivo del contrato no fue encontrado en el almacenamiento',
+          data: null,
+        }
+      }
+
+      const fileName = buildDownloadFileName(
+        ['contrato', employeeContractId],
+        resolveStoredFileExtension({
+          storedPath: contract.employeeContractFile,
+          contentType: object.contentType,
+        })
+      )
+
+      response.header('Content-Type', object.contentType || 'application/octet-stream')
+      response.header('Content-Disposition', contentDisposition(fileName, 'inline'))
+      response.header('Cache-Control', 'private, no-store')
+      if (object.contentLength !== undefined) {
+        response.header('Content-Length', String(object.contentLength))
+      }
+      if (object.etag) {
+        response.header('ETag', object.etag)
+      }
+      if (object.lastModified) {
+        response.header('Last-Modified', object.lastModified.toUTCString())
+      }
+
+      response.status(200)
+      return response.stream(object.stream)
+    } catch (error: any) {
+      logger.error(
+        { err: error, employeeContractId: request.param('employeeContractId') },
+        'Error inesperado al descargar contrato del almacenamiento'
+      )
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Error del servidor',
+        message: 'Ocurrió un error inesperado al obtener el archivo del contrato',
+        error: error?.message,
       }
     }
   }

@@ -1,0 +1,145 @@
+/**
+ * Catálogo ÚNICO de códigos de error del módulo de salidas de personal
+ * (cadena CAP-05-07). Lo crea "Configurar el catálogo de conceptos de salida"
+ * (USRH1786568279581) y lo extienden las historias hermanas — USRH1786568279584
+ * agrega `OFFB.CONCEPT.REORDER_INVALID` y `OFFB.CONCEPT.IN_USE`; no se
+ * declaran aquí para no dejar constantes muertas.
+ *
+ * Convención vigente para toda la cadena: `OFFB.<SLICE>.<SEMANTICO>` en
+ * SCREAMING_SNAKE, sin numeración (estilo `position_level_error_codes.ts`).
+ * El BO ramifica su UI por `key`; estos códigos quedan para trazabilidad.
+ */
+export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
+  /** Cuerpo o parámetros de consulta mal formados (VineJS) — 400. */
+  VAL_INPUT: 'OFFB.CONCEPT.VAL_INPUT',
+  /** Nombre duplicado en la misma empresa excluyendo eliminados (regla 4) — 409. */
+  NAME_TAKEN: 'OFFB.CONCEPT.NAME_TAKEN',
+  /** Concepto inexistente o fuera del alcance (regla 1) — 404 indistinguible. */
+  NOT_FOUND: 'OFFB.CONCEPT.NOT_FOUND',
+  /** Empresa inexistente, eliminada o fuera del alcance — 422. */
+  REF_INVALID: 'OFFB.CONCEPT.REF_INVALID',
+  /** Alterar la naturaleza o eliminar el concepto derivado (regla 6) — 422. */
+  SOURCE_LOCKED: 'OFFB.CONCEPT.SOURCE_LOCKED',
+  /** Segundo concepto derivado del inventario en la misma empresa (regla 6) — 409. */
+  SOURCE_DUPLICATED: 'OFFB.CONCEPT.SOURCE_DUPLICATED',
+  /** Reordenamiento con ids ajenos, duplicados o lista incompleta (USRH1786568279584) — 422. */
+  REORDER_INVALID: 'OFFB.CONCEPT.REORDER_INVALID',
+  /** Concepto ya usado en alguna salida registrada: se desactiva, no se elimina (USRH1786568279584) — 409. */
+  IN_USE: 'OFFB.CONCEPT.IN_USE',
+  /** Sin permiso sobre el módulo employee-offboardings (regla 9) — 403. */
+  FORBIDDEN: 'OFFB.CONCEPT.FORBIDDEN',
+  /** Error no clasificado del dominio — 500. */
+  SYS_UNHANDLED: 'OFFB.CONCEPT.UNEXPECTED',
+  /** Cuerpo o parámetros del expediente mal formados (USRH1786568279587) — 400. */
+  CASE_VAL_INPUT: 'OFFB.CASE.VAL_INPUT',
+  /** Colaborador inexistente o fuera del alcance (USRH1786568279587) — 404 uniforme. */
+  CASE_EMPLOYEE_NOT_FOUND: 'OFFB.CASE.EMPLOYEE_NOT_FOUND',
+  /** Colaborador sin expediente de salida abierto (USRH1786568279587) — 404. */
+  CASE_NOT_FOUND: 'OFFB.CASE.NOT_FOUND',
+  /** Ya existe un expediente abierto para el colaborador (regla 1, USRH1786568279587) — 409. */
+  CASE_ALREADY_OPEN: 'OFFB.CASE.ALREADY_OPEN',
+  /** Sin permiso sobre employee-offboardings en el slice del expediente — 403. */
+  CASE_FORBIDDEN: 'OFFB.CASE.FORBIDDEN',
+  /** Error no controlado del expediente — 500. */
+  CASE_UNEXPECTED: 'OFFB.CASE.UNEXPECTED',
+  /** Cerrar un expediente ya cerrado (USRH1786568279596) — 409. */
+  CASE_ALREADY_CLOSED: 'OFFB.CASE.ALREADY_CLOSED',
+  /** Reabrir un expediente que sigue abierto (USRH1786568279596) — 409. */
+  CASE_NOT_CLOSED: 'OFFB.CASE.NOT_CLOSED',
+  /** Escritura sobre pendientes o comprobantes de un expediente cerrado (regla 8, USRH1786568279596) — 409. */
+  CASE_CLOSED_READ_ONLY: 'OFFB.CASE.CLOSED_READ_ONLY',
+  /** Pendiente o expediente inexistente o fuera del alcance (USRH1786568279590) — 404 uniforme. */
+  ITEM_NOT_FOUND: 'OFFB.ITEM.NOT_FOUND',
+  /** Completar un pendiente ya cumplido (regla 3, USRH1786568279590) — 409. */
+  ITEM_ALREADY_COMPLETED: 'OFFB.ITEM.ALREADY_COMPLETED',
+  /** Revertir un pendiente que sigue pendiente (regla 3, USRH1786568279590) — 409. */
+  ITEM_NOT_COMPLETED: 'OFFB.ITEM.NOT_COMPLETED',
+  /** Importe en un pendiente cuyo concepto no lo admite (regla 4, USRH1786568279590) — 422. */
+  ITEM_AMOUNT_NOT_ALLOWED: 'OFFB.ITEM.AMOUNT_NOT_ALLOWED',
+  /**
+   * Insumo no disponible al completar (regla 10, USRH1786568279590). NO es
+   * respuesta de error: viaja como `supplyDiagnosticCode` en el cuerpo de
+   * ÉXITO — el pendiente se completa igual y soporte puede rastrear por qué
+   * se cerró sin retirar nada.
+   */
+  ITEM_SUPPLY_UNAVAILABLE: 'OFFB.ITEM.SUPPLY_UNAVAILABLE',
+  /** Archivo con extensión o MIME fuera de PDF/JPG/PNG (regla 2, USRH1786568279593) — 400. */
+  EVID_INVALID_FILE_TYPE: 'OFFB.EVID.INVALID_FILE_TYPE',
+  /** Archivo mayor a 10 MB (regla 2, USRH1786568279593) — 400. */
+  EVID_FILE_TOO_LARGE: 'OFFB.EVID.FILE_TOO_LARGE',
+  /** Envío vacío o con más de 5 archivos (regla 2, USRH1786568279593) — 400. */
+  EVID_BATCH_INVALID: 'OFFB.EVID.BATCH_INVALID',
+  /** Evidencia inexistente o ajena al pendiente (D-8, USRH1786568279593) — 404 uniforme. */
+  EVID_NOT_FOUND: 'OFFB.EVID.NOT_FOUND',
+  /** Fallo de S3 al subir o al firmar el enlace (USRH1786568279593) — 500. */
+  EVID_S3_FAILED: 'OFFB.EVID.S3_FAILED',
+  /** Cuerpo o parámetros del documento mal formados (USRH1787433503686) — 400. */
+  DOC_VAL_INPUT: 'OFFB.DOC.VAL_INPUT',
+  /** Sin permiso create (emitir) o read (listar/descargar) — 403. */
+  DOC_FORBIDDEN: 'OFFB.DOC.FORBIDDEN',
+  /** Expediente inexistente, borrado o de otra empresa — 404 uniforme. */
+  DOC_CASE_NOT_FOUND: 'OFFB.DOC.CASE_NOT_FOUND',
+  /** Documento inexistente, borrado o de otro expediente — 404 uniforme. */
+  DOC_NOT_FOUND: 'OFFB.DOC.NOT_FOUND',
+  /** Falta un dato obligatorio del documento (regla 6) — 422. */
+  DOC_INCOMPLETE: 'OFFB.DOC.INCOMPLETE',
+  /** Colaborador todavía activo (regla 1) — 422. */
+  DOC_EMPLOYEE_STILL_ACTIVE: 'OFFB.DOC.EMPLOYEE_STILL_ACTIVE',
+  /** pdfkit falló o el buffer salió vacío — 500. */
+  DOC_RENDER_FAILED: 'OFFB.DOC.RENDER_FAILED',
+  /** `uploadPrivateBuffer` devolvió null — 500. */
+  DOC_STORAGE_FAILED: 'OFFB.DOC.STORAGE_FAILED',
+  /** `getDownloadLink` no devolvió una cadena — 500. */
+  DOC_DOWNLOAD_FAILED: 'OFFB.DOC.DOWNLOAD_FAILED',
+  /** Error no clasificado del slice de documentos — 500. */
+  DOC_UNEXPECTED: 'OFFB.DOC.UNEXPECTED',
+  /** Fecha de separación anterior a la de ingreso (regla 7, USRH1787433503689) — 422. */
+  DOC_DATE_RANGE_INVALID: 'OFFB.DOC.DATE_RANGE_INVALID',
+  /** Hay plantilla propia vigente pero su objeto no se pudo leer del almacenamiento; sin caída a la del sistema (USRH1789097550389) — 500. */
+  DOC_TEMPLATE_UNAVAILABLE: 'OFFB.DOC.TEMPLATE_UNAVAILABLE',
+  /** Un dato a imprimir no es codificable con la tipografía estándar de la plantilla propia — 422. */
+  DOC_TEMPLATE_TEXT_UNRENDERABLE: 'OFFB.DOC.TEMPLATE_TEXT_UNRENDERABLE',
+  /** La plantilla propia no produjo el documento: obligatorio sin texto, aplanado con campos vivos o fallo de pdf-lib — 500. */
+  DOC_TEMPLATE_FILL_FAILED: 'OFFB.DOC.TEMPLATE_FILL_FAILED',
+  /** Paginado mal formado, `versionId` no entero positivo o campo `file` ausente (USRH1788553841100) — 400. */
+  TEMPLATE_VAL_INPUT: 'OFFB.TEMPLATE.VAL_INPUT',
+  /** Sin permiso read (consultar/descargar) o create (subir) sobre las plantillas — 403. */
+  TEMPLATE_FORBIDDEN: 'OFFB.TEMPLATE.FORBIDDEN',
+  /** Versión inexistente, de otro tipo o de otra empresa — 404 uniforme. */
+  TEMPLATE_NOT_FOUND: 'OFFB.TEMPLATE.NOT_FOUND',
+  /** `documentType` fuera de EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE (conjunto global, no de la empresa) — 422. */
+  TEMPLATE_TYPE_INVALID: 'OFFB.TEMPLATE.TYPE_INVALID',
+  /** El almacenamiento no guardó el archivo o no se pudo releer para sellarlo — 500. */
+  TEMPLATE_UPLOAD_FAILED: 'OFFB.TEMPLATE.UPLOAD_FAILED',
+  /** `getDownloadLink` no devolvió una cadena — 500. */
+  TEMPLATE_DOWNLOAD_FAILED: 'OFFB.TEMPLATE.DOWNLOAD_FAILED',
+  /** Error no clasificado del slice, incluido el duplicado del UNIQUE de vigencia — 500. */
+  TEMPLATE_UNEXPECTED: 'OFFB.TEMPLATE.UNEXPECTED',
+  /** El objeto quedó almacenado pero no se pudo releer para revisarlo (USRH1789097550387) — 500. */
+  TEMPLATE_UNREADABLE: 'OFFB.TEMPLATE.UNREADABLE',
+  /** PDF protegido con contraseña (USRH1789097550387) — 422. */
+  TEMPLATE_REJECTED_ENCRYPTED: 'OFFB.TEMPLATE.REJECTED_ENCRYPTED',
+  /** Formulario dinámico XFA: no se puede rellenar ni fijar — 422. */
+  TEMPLATE_REJECTED_XFA: 'OFFB.TEMPLATE.REJECTED_XFA',
+  /** Sin ningún campo rellenable — 422. */
+  TEMPLATE_REJECTED_NO_FIELDS: 'OFFB.TEMPLATE.REJECTED_NO_FIELDS',
+  /** Campo con nombre del catálogo cuyo widget no es de texto (CA-9) — 422. */
+  TEMPLATE_REJECTED_FIELD_TYPE: 'OFFB.TEMPLATE.REJECTED_FIELD_TYPE',
+  /** /OpenAction, /AA, /Names→/JavaScript o /Names→/EmbeddedFiles en el catálogo — 422. */
+  TEMPLATE_REJECTED_ACTIVE_CONTENT: 'OFFB.TEMPLATE.REJECTED_ACTIVE_CONTENT',
+  /** Acción de envío, importación, apertura o script en un widget — 422. */
+  TEMPLATE_REJECTED_SUBMIT_ACTION: 'OFFB.TEMPLATE.REJECTED_SUBMIT_ACTION',
+  /** Campo de firma (/Sig): al fijar el documento la firma quedaría inválida — 422. */
+  TEMPLATE_REJECTED_SIGNATURE_FIELD: 'OFFB.TEMPLATE.REJECTED_SIGNATURE_FIELD',
+  /** Dos campos distintos con el mismo nombre calificado — 422. */
+  TEMPLATE_REJECTED_DUPLICATE_FIELD: 'OFFB.TEMPLATE.REJECTED_DUPLICATE_FIELD',
+  /** Nombre de campo con controles C0/C1 o marcas bidireccionales — 422. */
+  TEMPLATE_REJECTED_FIELD_NAME: 'OFFB.TEMPLATE.REJECTED_FIELD_NAME',
+  /** Más de 30 páginas o más de 200 campos — 422. */
+  TEMPLATE_REJECTED_TOO_COMPLEX: 'OFFB.TEMPLATE.REJECTED_TOO_COMPLEX',
+  /** El contraste contra el catálogo no pasó: campo no reconocido y/u obligatorio ausente (USRH1789097550388) — 422. */
+  TEMPLATE_VALIDATION_FAILED: 'OFFB.TEMPLATE.VALIDATION_FAILED',
+} as const
+
+export type EmployeeOffboardingErrorCode =
+  (typeof EMPLOYEE_OFFBOARDING_ERROR_CODES)[keyof typeof EMPLOYEE_OFFBOARDING_ERROR_CODES]

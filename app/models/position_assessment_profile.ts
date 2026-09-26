@@ -1,8 +1,10 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import Position from './position.js'
 import AssessmentTemplateDimension from './assessment_template_dimension.js'
 
@@ -57,12 +59,26 @@ export const ASSESSMENT_CATEGORICAL_VALUES: readonly AssessmentCategoricalValue[
  *         positionAssessmentProfileDeletedAt:
  *           type: string
  */
-export default class PositionAssessmentProfile extends compose(BaseModel, SoftDeletes) {
+export default class PositionAssessmentProfile extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare positionAssessmentProfileId: number
 
   @column()
   declare positionId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el puesto padre (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: PositionAssessmentProfile) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Position.query().where('positionId', instance.positionId).first(),
+      'el puesto'
+    )
+  }
 
   @column()
   declare assessmentTemplateDimensionId: number

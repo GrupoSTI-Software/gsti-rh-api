@@ -1,9 +1,14 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
+import encryption from '@adonisjs/core/services/encryption'
 import Employee from './employee.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -18,12 +23,19 @@ import Employee from './employee.js'
  *          employeeId:
  *            type: number
  *            description: Employee ID
+ *          businessUnitId:
+ *            type: number
+ *            description: Unidad de negocio dueña (defensa en profundidad, USRH1783821206584)
  *          employeeBiometricFaceIdPhotoUrl:
  *            type: string
- *            description: URL of the biometric face photo stored in S3
+ *            description: URL of the biometric face photo stored in S3. Puede llegar enmascarado según el permiso de lectura de su categoría.
  *          employeeBiometricFaceIdToken:
  *            type: string
- *            description: Token of the biometric face id
+ *            description: Token of the biometric face id. Puede llegar enmascarado según el permiso de lectura de su categoría.
+ *          employeeBiometricFaceIdQuality:
+ *            type: number
+ *            nullable: true
+ *            description: Confianza de detección facial de la captura (0-100), medida por el Backoffice al subir la foto. Null en fotos anteriores a la medición.
  *          employeeBiometricFaceIdCreatedAt:
  *            type: string
  *            format: date-time
@@ -35,18 +47,109 @@ import Employee from './employee.js'
  *            format: date-time
  *            nullable: true
  */
-export default class EmployeeBiometricFaceId extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeBiometricFaceId extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope(),
+  withSensitiveWriteGuard()
+) {
   @column({ isPrimary: true })
   declare employeeBiometricFaceIdId: number
 
   @column()
   declare employeeId: number
 
+  /** Marca de pertenencia propia (defensa en profundidad, USRH1783821206584). */
   @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (USRH1783821206584). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeBiometricFaceId) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
+
+  /**
+   * Key S3 de la foto facial de reconocimiento — cifrada AES-256-CBC en reposo
+   * (LFPDPPP art. 3.VI, dato biométrico sensible reforzado).
+   * El archivo en S3 ya es `private`; cifrar la key en BD protege también el puntero.
+   * Columna ampliada a TEXT para alojar el ciphertext sin restricción de tamaño.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serialize: sensitiveSerialize('EmployeeBiometricFaceId', 'employeeBiometricFaceIdPhotoUrl'),
+  })
   declare employeeBiometricFaceIdPhotoUrl: string
 
-  @column()
+  @column({
+    serialize: sensitiveSerialize('EmployeeBiometricFaceId', 'employeeBiometricFaceIdToken'),
+  })
   declare employeeBiometricFaceIdToken: string
+
+  /**
+   * Confianza de detección facial de la captura (0-100).
+   *
+   * Es metadato de la imagen —no una plantilla biométrica— así que no pasa
+   * por `sensitiveSerialize`: no reidentifica a nadie y el endpoint que lo
+   * expone ya está detrás del permiso de lectura de la categoría biométrica.
+   * `null` cuando la foto se cargó antes de que se midiera.
+   */
+  @column()
+  declare employeeBiometricFaceIdQuality: number | null
+
+  /**
+   * Interruptor del uso de la foto en los checadores (spec 7.2).
+   *
+   * Separado del hecho de tener foto: el expediente y la app son un
+   * tratamiento y mandarla a un aparato en sitio es otro. Con nombre y fecha de
+   * quien lo encendio, que es lo que se pide si alguien pregunta.
+   */
+  @column({ consume: (value: number | boolean | null) => Boolean(value) })
+  declare employeeBiometricFaceIdDeviceUse: boolean
+
+  @column()
+  declare employeeBiometricFaceIdDeviceUseByUserId: number | null
+
+  @column.dateTime()
+  declare employeeBiometricFaceIdDeviceUseAt: DateTime | null
+
+  /**
+   * Llave del derivado normalizado en el bucket privado. Cifrada y no
+   * serializable: apunta directo a la cara de una persona.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serializeAs: null,
+  })
+  declare employeeBiometricFaceIdDerivativeKey: string | null
+
+  @column()
+  declare employeeBiometricFaceIdDerivativeVersion: number
+
+  @column()
+  declare employeeBiometricFaceIdDerivativeVerdict: string | null
 
   @column.dateTime({ autoCreate: true })
   declare employeeBiometricFaceIdCreatedAt: DateTime
@@ -61,5 +164,8 @@ export default class EmployeeBiometricFaceId extends compose(BaseModel, SoftDele
     foreignKey: 'employeeId',
   })
   declare employee: BelongsTo<typeof Employee>
+
+  @column()
+  declare employeeBiometricFaceIdPhotoUrlProxy: string
 }
 

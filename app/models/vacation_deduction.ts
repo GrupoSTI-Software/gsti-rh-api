@@ -1,10 +1,12 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
+import { BaseModel, column, belongsTo, beforeCreate } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
 import Employee from './employee.js'
 import VacationSetting from './vacation_setting.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 /**
  * @swagger
@@ -39,12 +41,30 @@ import VacationSetting from './vacation_setting.js'
  *           format: date-time
  *           nullable: true
  */
-export default class VacationDeduction extends compose(BaseModel, SoftDeletes) {
+export default class VacationDeduction extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare vacationDeductionId: number
 
   @column()
   declare employeeId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, USRH1784259058533). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado padre, nunca desde el payload. */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: VacationDeduction) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column()
   declare vacationSettingId: number

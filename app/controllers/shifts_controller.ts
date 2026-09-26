@@ -2,8 +2,19 @@ import { HttpContext } from '@adonisjs/core/http'
 import Shift from '../models/shift.js'
 import { createShiftValidator, updateShiftValidator } from '../validators/shift.js'
 import { DateTime } from 'luxon'
-import env from '#start/env'
 import ShiftService from '#services/shift_service'
+import BusinessUnit from '#models/business_unit'
+import { SHIFT_ERROR_CODES } from '#constants/shift_error_codes'
+
+/** 404 uniforme (no revela "no existe" vs "no es tuyo") — regla 4, USRH1783821206521. */
+function shiftNotFoundResponse(response: HttpContext['response']) {
+  return response.status(404).json({
+    title: 'Turno no encontrado',
+    detail: 'El turno no existe o no está en tu alcance',
+    key: 'turno-no-encontrado',
+    code: SHIFT_ERROR_CODES.NOT_FOUND,
+  })
+}
 /**
  * @swagger
  * /api/shift:
@@ -78,11 +89,17 @@ import ShiftService from '#services/shift_service'
  *                   type: string
  */
 export default class ShiftController {
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, businessUnitScope }: HttpContext) {
     try {
+      if (businessUnitScope.length === 0) {
+        return response.status(403).json({ type: 'error', title: 'Sin acceso', message: 'No tienes unidades de negocio asignadas' })
+      }
       const data = await request.validateUsing(createShiftValidator)
       const shiftService = new ShiftService()
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const units = await BusinessUnit.query()
+        .whereIn('business_unit_id', businessUnitScope)
+        .select('business_unit_slug')
+      const businessSlugs = units.map((bu) => bu.businessUnitSlug)
       const shift = {
         shiftName: data.shiftName,
         shiftAlias: data.shiftAlias?.trim() || null,
@@ -91,13 +108,14 @@ export default class ShiftController {
         shiftRestDays: data.shiftRestDays,
         shiftAccumulatedFault: data.shiftAccumulatedFault,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
-        shiftBusinessUnits: businessConf,
+        // Unidad dueña = unidad seleccionada del request (regla 3, USRH1783821206521).
+        businessUnitId: businessUnitScope[0],
         shiftTemp: data.shiftTemp,
         shiftLunchTime: data.shiftLunchTime,
         shiftCompensableLunchSchedule: data.shiftCompensableLunchSchedule,
         shiftColor: data.shiftColor,
       } as Shift
-      const verifyInfo = await shiftService.verifyInfo(shift)
+      const verifyInfo = await shiftService.verifyInfo(shift, undefined, businessSlugs)
       if (verifyInfo.status !== 200) {
         response.status(verifyInfo.status)
         return {
@@ -172,21 +190,14 @@ export default class ShiftController {
    */
   async index({ request, response }: HttpContext) {
     try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
       const { shiftDayStart, shiftName, shiftActiveHours, page = 1, limit = 10 } = request.qs()
 
+      // USRH1783821206521: el filtro manual FIND_IN_SET(shift_business_units) se
+      // retira — withBusinessUnitScope() acota automáticamente a la unidad
+      // seleccionada (scope vacío -> 1=0 automático, mismo efecto que el guard anterior).
       const shiftQuery = Shift.query()
         .whereNull('shiftDeletedAt')
         .where('shift_temp', 0)
-        .andWhere((query) => {
-          query.whereNotNull('shift_business_units')
-          query.andWhere((subQuery) => {
-            businessList.forEach((business) => {
-              subQuery.orWhereRaw('FIND_IN_SET(?, shift_business_units)', [business.trim()])
-            })
-          })
-        })
       if (shiftDayStart) {
         shiftQuery.where('shiftDayStart', shiftDayStart)
       }
@@ -272,6 +283,8 @@ export default class ShiftController {
    */
   async show({ params, response }: HttpContext) {
     try {
+      // withBusinessUnitScope() acota la query a la unidad seleccionada; un id
+      // de otra unidad no resuelve -> firstOrFail() lanza -> 404 uniforme (regla 4).
       const shift = await Shift.query()
         .where('shiftId', params.id)
         .whereNull('shiftDeletedAt')
@@ -282,13 +295,8 @@ export default class ShiftController {
         message: 'Resource fetched',
         data: shift.toJSON(),
       })
-    } catch (error) {
-      return response.status(404).json({
-        type: 'error',
-        title: 'Not found',
-        message: 'Shift not found',
-        data: null,
-      })
+    } catch {
+      return shiftNotFoundResponse(response)
     }
   }
 
@@ -384,24 +392,28 @@ export default class ShiftController {
    *                 message:
    *                   type: string
    */
-  async update({ params, request, response }: HttpContext) {
+  async update({ params, request, response, businessUnitScope }: HttpContext) {
     try {
+      if (businessUnitScope.length === 0) {
+        return response.status(403).json({ type: 'error', title: 'Sin acceso', message: 'No tienes unidades de negocio asignadas' })
+      }
+      // withBusinessUnitScope() acota la query a la unidad seleccionada; un id
+      // de otra unidad no resuelve -> 404 uniforme (regla 4). La unidad dueña
+      // no se reasigna en ningún punto de este método (ownership inmutable, regla 3).
       const shift = await Shift.query()
         .where('shiftId', params.id)
         .whereNull('shiftDeletedAt')
         .first()
 
       if (!shift) {
-        return response.status(404).json({
-          type: 'error',
-          title: 'Not found',
-          message: 'ID Shift not found',
-          data: null,
-        })
+        return shiftNotFoundResponse(response)
       }
 
       const data = await request.validateUsing(updateShiftValidator)
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
+      const units = await BusinessUnit.query()
+        .whereIn('business_unit_id', businessUnitScope)
+        .select('business_unit_slug')
+      const businessSlugs = units.map((bu) => bu.businessUnitSlug)
       const shiftService = new ShiftService()
       const shiftColorInput = request.input('shiftColor')
       const updateShift = {
@@ -413,7 +425,6 @@ export default class ShiftController {
         shiftRestDays: data.shiftRestDays,
         shiftAccumulatedFault: data.shiftAccumulatedFault,
         shiftCalculateFlag: request.input('shiftCalculateFlag'),
-        shiftBusinessUnits: businessConf,
         shiftTemp: data.shiftTemp,
         shiftLunchTime: data.shiftLunchTime,
         shiftCompensableLunchSchedule: data.shiftCompensableLunchSchedule,
@@ -421,10 +432,10 @@ export default class ShiftController {
           ? data.shiftColor
           : shift.shiftColor,
       } as Shift
-
       const verifyInfo = await shiftService.verifyInfo(
         updateShift,
-        Number.parseInt(params.id)
+        Number.parseInt(params.id),
+        businessSlugs
       )
       if (verifyInfo.status !== 200) {
         response.status(verifyInfo.status)
@@ -499,17 +510,14 @@ export default class ShiftController {
    */
   async destroy({ params, response }: HttpContext) {
     try {
+      // withBusinessUnitScope() acota la query a la unidad seleccionada; un id
+      // de otra unidad no resuelve -> 404 uniforme, sin tocar shiftDeletedAt (regla 4).
       const shift = await Shift.query()
         .where('shiftId', params.id)
         .whereNull('shiftDeletedAt')
         .first()
       if (!shift) {
-        return response.status(404).json({
-          type: 'error',
-          title: 'Not found',
-          message: 'ID Shift not found',
-          data: null,
-        })
+        return shiftNotFoundResponse(response)
       }
       shift.shiftDeletedAt = DateTime.now()
       await shift.save()
@@ -521,110 +529,13 @@ export default class ShiftController {
       })
     } catch (error) {
       if (error.code === 'E_ROW_NOT_FOUND') {
-        return response.status(404).json({
-          type: 'error',
-          title: 'Not found',
-          message: 'Shift not found',
-          data: null,
-        })
+        return shiftNotFoundResponse(response)
       }
       return response.status(500).json({
         type: 'error',
         title: 'Server error',
         message: 'An error occurred while deleting the shift',
         data: error.message,
-      })
-    }
-  }
-
-  async searchPositionDepartment({ request, response }: HttpContext) {
-    try {
-      const {
-        shiftDayStart,
-        shiftName,
-        shiftActiveHours,
-        departmentId,
-        positionId,
-        page = 1,
-        limit = 10,
-      } = request.qs()
-
-      const query = Shift.query()
-        .whereNull('shiftDeletedAt')
-        .withCount('employees', (employeeQuery) => {
-          employeeQuery.whereNull('deletedAt')
-          if (departmentId || positionId) {
-            employeeQuery.whereHas('employee', (employeeSubQuery) => {
-              if (departmentId) {
-                employeeSubQuery.where('departmentId', departmentId)
-              }
-              if (positionId) {
-                employeeSubQuery.where('positionId', positionId)
-              }
-            })
-          }
-        })
-        .preload('employees', (employeeQuery) => {
-          employeeQuery
-            .whereHas('employee', (employeeSubQuery) => {
-              if (departmentId) {
-                employeeSubQuery.where('departmentId', departmentId)
-              }
-              if (positionId) {
-                employeeSubQuery.where('positionId', positionId)
-              }
-            })
-            .preload('employee', (employeeSubQuery) => {
-              employeeSubQuery.preload('person')
-            })
-            .whereNull('deletedAt')
-        })
-
-      if (shiftDayStart) {
-        query.where('shiftDayStart', shiftDayStart)
-      }
-
-      if (shiftName) {
-        query.where('shiftName', 'LIKE', `%${shiftName}%`)
-      }
-
-      if (shiftActiveHours) {
-        query.where('shiftActiveHours', shiftActiveHours)
-      }
-
-      const shifts = await query.paginate(page, limit)
-
-      const filteredShifts = shifts.all().filter((shift) => shift.$extras.employees_count > 0)
-
-      return response.status(200).json({
-        type: 'success',
-        title: 'Successfully action',
-        message: 'Resources fetched',
-        data: {
-          meta: {
-            total: filteredShifts.length,
-            per_page: shifts.perPage,
-            current_page: shifts.currentPage,
-            last_page: shifts.lastPage,
-            first_page: 1,
-          },
-          data: filteredShifts.map((shift) => ({
-            ...shift.toJSON(),
-            employee_count: shift.$extras.employees_count,
-            employees: shift.employees.map((employeeShift) => ({
-              employeeId: employeeShift.employeeId,
-              employeeFirstName: employeeShift.employee?.person?.personFirstname,
-              employeeLastName: `${employeeShift.employee.person?.personLastname} ${employeeShift.employee.person?.personSecondLastname}`,
-            })),
-          })),
-        },
-      })
-    } catch (error) {
-      return response.status(500).json({
-        type: 'error',
-        title: 'Server error',
-        message: error.message,
-        data: null,
       })
     }
   }

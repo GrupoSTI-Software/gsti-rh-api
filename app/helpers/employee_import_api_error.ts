@@ -1,0 +1,224 @@
+import type { I18n } from '@adonisjs/i18n'
+import {
+  EMPLOYEE_IMPORT_ERROR_CODES,
+  EMPLOYEE_IMPORT_UPLOAD,
+  type EmployeeImportErrorCode,
+} from '../constants/employee_import_error_codes.js'
+import { isSensitiveDataWriteError } from './sensitive_data_write_api_error.js'
+import type { EmployeeImportCompanyMismatchRow } from '../interfaces/employee_import_result_interface.js'
+
+export type EmployeeImportValFileErrorData = {
+  multipartField: typeof EMPLOYEE_IMPORT_UPLOAD.multipartField
+  acceptedExtensions: string[]
+  contentType: typeof EMPLOYEE_IMPORT_UPLOAD.contentType
+  maxFileBytes: number
+  maxFileSizeLabel: string
+}
+
+export type EmployeeImportValBusinessUnitErrorData = {
+  offendingRows: EmployeeImportCompanyMismatchRow[]
+}
+
+export type ResolvedEmployeeImportError = {
+  message: string
+  title: string
+  status: number
+  errorCode: EmployeeImportErrorCode | string
+  key?: string
+  detail?: string
+  data?: EmployeeImportValFileErrorData | EmployeeImportValBusinessUnitErrorData | null
+}
+
+export function buildEmployeeImportValFileErrorData(): EmployeeImportValFileErrorData {
+  return {
+    multipartField: EMPLOYEE_IMPORT_UPLOAD.multipartField,
+    acceptedExtensions: [...EMPLOYEE_IMPORT_UPLOAD.acceptedExtensions],
+    contentType: EMPLOYEE_IMPORT_UPLOAD.contentType,
+    maxFileBytes: EMPLOYEE_IMPORT_UPLOAD.maxFileBytes,
+    maxFileSizeLabel: EMPLOYEE_IMPORT_UPLOAD.maxFileSizeLabel,
+  }
+}
+
+function translate(i18n: I18n | undefined, key: string, fallback: string): string {
+  if (!i18n) return fallback
+  const translated = i18n.formatMessage(key)
+  if (translated === key || translated.startsWith('translation missing:')) {
+    return fallback
+  }
+  return translated
+}
+
+export type EmployeeImportValFileReason = 'missing' | 'invalid_type' | 'too_large'
+
+/** Error de validación de archivo (sin adjunto o no Excel). */
+export type ResolvedEmployeeImportValFileError = Omit<
+  ResolvedEmployeeImportError,
+  'data'
+> & {
+  data: EmployeeImportValFileErrorData
+}
+
+export function resolveEmployeeImportValFileError(
+  i18n?: I18n,
+  options?: { reason?: EmployeeImportValFileReason; detail?: string }
+): ResolvedEmployeeImportValFileError {
+  const reason = options?.reason ?? 'invalid_type'
+  const field = EMPLOYEE_IMPORT_UPLOAD.multipartField
+  const extensions = EMPLOYEE_IMPORT_UPLOAD.acceptedExtensions.join(', ')
+
+  const defaultDetail =
+    reason === 'missing'
+      ? translate(
+          i18n,
+          'employee_import_val_file_missing_message',
+          `Falta el archivo en ${EMPLOYEE_IMPORT_UPLOAD.contentType}. Envíe un Excel en el campo «${field}» (${extensions}).`
+        )
+      : reason === 'too_large'
+        ? translate(
+            i18n,
+            'employee_import_val_file_too_large_message',
+            `El archivo del campo «${field}» supera el tamaño máximo permitido (${EMPLOYEE_IMPORT_UPLOAD.maxFileSizeLabel}).`
+          )
+        : translate(
+            i18n,
+            'employee_import_val_file_invalid_type_message',
+            `El archivo del campo «${field}» debe ser un Excel válido (${extensions}).`
+          )
+
+  const resolvedDetail = options?.detail ?? defaultDetail
+  return {
+    title: translate(i18n, 'employee_import_val_file_title', 'Archivo inválido'),
+    message: resolvedDetail,
+    detail: resolvedDetail,
+    status: 400,
+    errorCode: EMPLOYEE_IMPORT_ERROR_CODES.VAL_FILE,
+    key: 'archivo-invalido',
+    data: buildEmployeeImportValFileErrorData(),
+  }
+}
+
+/**
+ * Convierte errores de importación de empleados en respuesta HTTP estándar.
+ * Cabeceras inválidas y fallos de servidor no exponen detalle interno en 500.
+ * El 4.º parámetro opcional solo altera el branch 500 (códigos de turnos/vacaciones);
+ * sin él el comportamiento es idéntico al de la importación de empleados.
+ */
+export function resolveEmployeeImportApiError(
+  error: unknown,
+  fallbackStatus: number,
+  i18n?: I18n,
+  serverOverride?: {
+    errorCode?: EmployeeImportErrorCode | string
+    key?: string
+    title?: string
+    message?: string
+  }
+): ResolvedEmployeeImportError {
+  const err = error as {
+    isHeaderValidationError?: boolean
+    isRowLimitError?: boolean
+    statusCode?: number
+    message?: string
+  }
+
+  if (err?.isHeaderValidationError) {
+    const detail =
+      err.message ??
+      translate(
+        i18n,
+        'employee_import_val_headers_message',
+        'Las cabeceras del archivo Excel no son correctas.'
+      )
+    return {
+      title: translate(i18n, 'employee_import_val_headers_title', 'Cabeceras del archivo inválidas'),
+      message: detail,
+      detail,
+      status: 400,
+      errorCode: EMPLOYEE_IMPORT_ERROR_CODES.VAL_HEADERS,
+      key: 'cabeceras-invalidas',
+    }
+  }
+
+  if (err?.isRowLimitError) {
+    // `err.message` ya trae el número real de filas y el tope vigente
+    // (interpolados en `createRowLimitValidationError`); el fallback i18n es
+    // deliberadamente genérico (sin el número) para que subir/bajar
+    // `EMPLOYEE_IMPORT_UPLOAD.maxDataRows` no requiera tocar los locales.
+    const detail =
+      err.message ??
+      translate(
+        i18n,
+        'employee_import_val_rows_message',
+        'El archivo supera el número máximo de filas de datos permitido por importación. Divide el archivo en lotes más pequeños.'
+      )
+    return {
+      title: translate(i18n, 'employee_import_val_rows_title', 'Demasiadas filas en el archivo'),
+      message: detail,
+      detail,
+      status: 400,
+      errorCode: EMPLOYEE_IMPORT_ERROR_CODES.VAL_ROWS,
+      key: 'filas-excedidas',
+    }
+  }
+
+  if ((err as { isCompanyMismatchError?: boolean })?.isCompanyMismatchError) {
+    // USRH1789747321650 reglas 1, 2 y 6: el archivo es de una sola empresa.
+    // `err.message` ya trae el listado de filas (interpolado en
+    // `createCompanyMismatchValidationError`); el fallback i18n es genérico.
+    const companyDetail =
+      err.message ??
+      translate(
+        i18n,
+        'employee_import_val_business_unit_detail',
+        'Alguna fila del archivo declara una empresa distinta de la que tienes activa. No se procesó ninguna fila: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo.'
+      )
+    return {
+      title: translate(
+        i18n,
+        'employee_import_val_business_unit_title',
+        'El archivo tiene empleados de otra empresa'
+      ),
+      message: companyDetail,
+      detail: companyDetail,
+      status: 409,
+      errorCode: EMPLOYEE_IMPORT_ERROR_CODES.VAL_BUSINESS_UNIT,
+      key: 'archivo-de-otra-empresa',
+      data: {
+        offendingRows: (err as { offendingRows?: EmployeeImportCompanyMismatchRow[] }).offendingRows ?? [],
+      },
+    }
+  }
+
+  if (fallbackStatus >= 500) {
+    const detail = translate(
+      i18n,
+      'employee_import_server_message',
+      'Ocurrió un error inesperado durante la importación.'
+    )
+    return {
+      title:
+        serverOverride?.title ??
+        translate(i18n, 'employee_import_server_title', 'Error del servidor'),
+      message: serverOverride?.message ?? detail,
+      detail,
+      status: 500,
+      errorCode: serverOverride?.errorCode ?? EMPLOYEE_IMPORT_ERROR_CODES.SERVER,
+      key: serverOverride?.key ?? 'error-importacion',
+    }
+  }
+
+  return resolveEmployeeImportValFileError(
+    i18n,
+    typeof err?.message === 'string' ? { detail: err.message } : undefined
+  )
+}
+
+/**
+ * ¿Este error de fila debe detener toda la importación? (USRH1789747321650,
+ * regla 5). Solo el fallo al guardar un dato protegido: no es una fila
+ * fallida más y nunca se registra como tal. Cualquier otro error sigue el
+ * camino por fila de siempre.
+ */
+export function shouldAbortImportOnRowError(error: unknown): boolean {
+  return isSensitiveDataWriteError(error)
+}

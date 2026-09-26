@@ -1,5 +1,6 @@
 import mail from '@adonisjs/mail/services/main'
 import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 
 export type DemoAuditResult =
   | 'exito'
@@ -45,7 +46,7 @@ export default class DemoAuditService {
       await mail.send((message) => {
         message
           .to(to)
-          .from(env.get('SMTP_USERNAME', 'no-reply@valanserh.com'))
+          .from(resolveMailSender())
           .subject(`[DEMO AUDIT] ${resultadoLabel[payload.resultado]} - ${timestamp}`)
           .text(body)
       })

@@ -52,6 +52,17 @@ import AircraftProceedingFile from './aircraft_proceeding_file.js'
  *           format: date-time
  *           nullable: true
  */
+/**
+ * @tenant-scope pendiente
+ * ProceedingFile no tiene columna FK directa `business_unit_id`; la relación
+ * con unidades de negocio se establece a través de `ProceedingFileType` (campo
+ * `proceedingFileTypeBusinessUnits`, CSV de slugs).
+ * Antes de aplicar `withBusinessUnitScope()` se requiere:
+ *  1. Migración para agregar `business_unit_id` a esta tabla, o bien
+ *  2. Aplicar el mixin a `ProceedingFileType` y filtrar `ProceedingFile` vía join.
+ * Hasta entonces, el filtrado de tenant en ProceedingFile se gestiona mediante
+ * los `allowedBusinessUnitSlugs` que reciben los servicios correspondientes.
+ */
 export default class ProceedingFile extends compose(BaseModel, SoftDeletes) {
   @column({ isPrimary: true })
   declare proceedingFileId: number

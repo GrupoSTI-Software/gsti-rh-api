@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column, hasMany } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import { belongsTo } from '@adonisjs/lucid/orm'
 import SupplyType from './supply_type.js'
 import * as relations from '@adonisjs/lucid/types/relations'
@@ -19,12 +21,22 @@ import SupplyValueHistory from './supply_value_history.js'
  *         supplyId:
  *           type: number
  *           description: Supply ID
- *         supplyFileNumber:
+ *         businessUnitId:
  *           type: number
- *           description: Supply file number
+ *           nullable: true
+ *           description: Unidad de negocio dueña del activo (alcance de lanzamiento SaaS)
+ *         supplyFileNumber:
+ *           type: string
+ *           maxLength: 50
+ *           description: Folio alfanumérico del activo, único por empresa entre activos no borrados
  *         supplyName:
  *           type: string
  *           description: Supply name
+ *         supplySerialNumber:
+ *           type: string
+ *           maxLength: 100
+ *           nullable: true
+ *           description: Número de serie del fabricante
  *         supplyDescription:
  *           type: string
  *           description: Supply description
@@ -67,7 +79,7 @@ import SupplyValueHistory from './supply_value_history.js'
  *           description: Date and time when the supply was soft-deleted
  *       example:
  *         supplyId: 1
- *         supplyFileNumber: 123456
+ *         supplyFileNumber: 'LAP-0012'
  *         supplyName: 'Supply Name'
  *         supplyDescription: 'Supply Description'
  *         supplyTypeId: 1
@@ -81,16 +93,46 @@ import SupplyValueHistory from './supply_value_history.js'
  *         supplyDeletedAt: null
  */
 
-export default class Supplie extends compose(BaseModel, SoftDeletes) {
+export default class Supplie extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
 
   @column({ isPrimary: true })
   declare supplyId: number
 
+  /**
+   * Marca de pertenencia. Nullable mientras el backfill
+   * (`backfill:zones-supplies-business-unit`) no haya corrido en el entorno:
+   * un activo en NULL queda fuera de toda consulta con contexto de tenant, así
+   * que se pierde visibilidad, nunca aislamiento.
+   */
   @column()
-  declare supplyFileNumber: number
+  declare businessUnitId: number | null
+
+  /**
+   * Resuelve businessUnitId desde el tipo de activo padre, nunca del cuerpo.
+   * El tipo ya está acotado por el mixin, así que un `supplyTypeId` de otra
+   * empresa no resuelve y el alta falla en vez de cruzar empresas.
+   */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: Supplie) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(async () => {
+      const supplyType = await SupplyType.query()
+        .where('supplyTypeId', instance.supplyTypeId)
+        .first()
+      return supplyType?.businessUnitId ? { businessUnitId: supplyType.businessUnitId } : null
+    }, 'el tipo de activo')
+  }
+
+  /** Folio alfanumérico, único por empresa entre activos no borrados. */
+  @column()
+  declare supplyFileNumber: string
 
   @column()
   declare supplyName: string
+
+  /** Número de serie del fabricante; opcional y aparte de la descripción. */
+  @column()
+  declare supplySerialNumber: string | null
 
   @column()
   declare supplyDescription: string | null

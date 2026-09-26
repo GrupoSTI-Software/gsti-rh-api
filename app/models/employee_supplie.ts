@@ -1,7 +1,9 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column, hasMany } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import { belongsTo } from '@adonisjs/lucid/orm'
 import Employee from './employee.js'
 import Supply from './supplie.js'
@@ -68,15 +70,29 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *         supply:
  *           # Example supply object
  */
-export default class EmployeeSupplie extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeSupplie extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeSupplyId: number
 
   @column()
   declare employeeId: number
 
+  /** Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08). */
+  @column()
+  declare businessUnitId: number
+
   @column()
   declare supplyId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeSupplie) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column()
   declare employeeSupplyStatus: 'active' | 'retired' | 'shipping'

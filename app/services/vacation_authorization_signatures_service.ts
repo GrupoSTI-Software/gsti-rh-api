@@ -40,7 +40,7 @@ export default class VacationAuthorizationSignaturesService {
 
     // Upload signature to S3
     const uploader = new UploadService()
-    const fileUrl = await uploader.fileUpload(signatureFile, 'vacation_signatures')
+    const fileUrl = await uploader.fileUpload(signatureFile, 'signature', 'vacation_signatures')
     if (!fileUrl || fileUrl === 'file_not_found' || fileUrl === 'S3Producer.fileUpload') {
       return {
         status: 500,
@@ -157,7 +157,7 @@ export default class VacationAuthorizationSignaturesService {
 
     // Upload signature to S3
     const uploader = new UploadService()
-    const fileUrl = await uploader.fileUpload(signatureFile, 'vacation_signatures')
+    const fileUrl = await uploader.fileUpload(signatureFile, 'signature', 'vacation_signatures')
     if (!fileUrl || fileUrl === 'file_not_found' || fileUrl === 'S3Producer.fileUpload') {
       return {
         status: 500,
@@ -235,7 +235,7 @@ export default class VacationAuthorizationSignaturesService {
     const pending = await ExceptionRequest.query()
       .where('employee_id', employeeId)
       .where('exception_type_id', vacationType.exceptionTypeId)
-      .whereIn('exception_request_status', ['requested', 'pending'])
+      .where('exception_request_status', 'pending')
       .orderBy('requested_date', 'asc')
 
     return {

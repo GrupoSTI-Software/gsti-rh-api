@@ -1,9 +1,16 @@
 /* eslint-disable max-len */
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, column, hasOne } from '@adonisjs/lucid/orm'
-import type { HasOne } from '@adonisjs/lucid/types/relations'
+import { BaseModel, beforeCreate, beforeSave, belongsTo, column, hasOne } from '@adonisjs/lucid/orm'
+import type { BelongsTo, HasOne } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
+import encryption from '@adonisjs/core/services/encryption'
+import { blindIndexOrNull } from '#utils/blind_index'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
+import { TenantContext } from '#utils/tenant_context'
+import BusinessUnit from './business_unit.js'
 import Employee from './employee.js'
 import User from './user.js'
 /**
@@ -37,9 +44,9 @@ import User from './user.js'
  *          personEmail:
  *            type: string
  *            description: Person email
- *          personPhoneSecundary:
+ *          personPhoneSecondary:
  *            type: string
- *            description: Person phone secundary
+ *            description: Person phone secondary
  *          personCurp:
  *            type: string
  *            description: Person CURP unique
@@ -70,9 +77,40 @@ import User from './user.js'
  *
  */
 
-export default class Person extends compose(BaseModel, SoftDeletes) {
+export default class Person extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope(),
+  withSensitiveWriteGuard()
+) {
   @column({ isPrimary: true })
   declare personId: number
+
+  /**
+   * Marca de empresa dueña del expediente (USRH1789698261609). `null` significa
+   * "persona de plataforma" (regla 4): no es dato faltante. La columna NUNCA se
+   * vuelve NOT NULL. No se serializa: la marca no aparece en ninguna respuesta ni
+   * pantalla (§10 del spec, CA-1), igual que las huellas.
+   *
+   * Fail-closed: el modelo compone `withBusinessUnitScope()` sin la opción de
+   * filas globales. Con contexto de tenant una fila NULL es invisible para todo
+   * inquilino: se prefiere el dato que se esconde a la PII que se filtra
+   * (regla 6). NO seguir el precedente de `employee_type.ts`, que sí incluye
+   * las filas NULL para todos: aquél es un catálogo, esto es un expediente.
+   * (La palabra de esa opción no se escribe aquí a propósito: el DoD exige que
+   * un grep sobre este archivo la encuentre cero veces.)
+   *
+   * Minas conocidas, no se arreglan aquí:
+   *  - El mixin NO filtra escrituras. Lucid solo corre `before:fetch` cuando el
+   *    método es SELECT: `Person.query().where(...).update()` / `.delete()`
+   *    escriben sin filtro de tenant aun con contexto activo. Ningún update o
+   *    delete masivo sobre `people` sin `where('business_unit_id', ...)` explícito.
+   *  - Los hooks de Lucid no corren en INSERT crudo de Knex (`db.table('people')`).
+   *  - `PersonService.syncCreate` (sync biométrico) crea personas sin contexto:
+   *    nacen NULL e invisibles para su propio cliente (residual D3 de la HU).
+   */
+  @column({ serializeAs: null })
+  declare businessUnitId: number | null
 
   @column()
   declare personFirstname: string
@@ -89,23 +127,143 @@ export default class Person extends compose(BaseModel, SoftDeletes) {
   @column()
   declare personBirthday: string | null
 
-  @column()
-  declare personPhone: string
+  /**
+   * Teléfono principal del trabajador — cifrado AES-256-CBC en reposo (LFPDPPP art. 3.VI,
+   * dato de contacto). Columna ampliada a VARCHAR(191). No es clave de búsqueda primaria;
+   * su LIKE en person_service se retira en USRH1782854997782 y no se restaura.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serialize: sensitiveSerialize('Person', 'personPhone'),
+  })
+  declare personPhone: string | null
 
-  @column()
-  declare personEmail: string
+  /**
+   * Correo electrónico del trabajador — cifrado AES-256-CBC en reposo (LFPDPPP art. 3.VI,
+   * dato de contacto buscable). Sin ALTER (VARCHAR(200) aloja el ciphertext).
+   * La validación de unicidad y la búsqueda LIKE se retiran en USRH1782854997782;
+   * se restauran por huella en 08-10-04-01.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serialize: sensitiveSerialize('Person', 'personEmail'),
+  })
+  declare personEmail: string | null
 
-  @column()
-  declare personPhoneSecondary: string
+  /**
+   * Teléfono secundario del trabajador — cifrado AES-256-CBC en reposo (LFPDPPP art. 3.VI,
+   * dato de contacto). Columna ampliada a VARCHAR(191). Sin búsquedas asociadas.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serialize: sensitiveSerialize('Person', 'personPhoneSecondary'),
+  })
+  declare personPhoneSecondary: string | null
 
-  @column()
-  declare personCurp: string
+  /**
+   * CURP del trabajador — cifrado AES-256-CBC en reposo (LFPDPPP art. 3.VI, dato de
+   * identificación). Columna ampliada a VARCHAR(191) para alojar ciphertext y dejar
+   * espacio al blind-index de 08-10-04-01. La validación de unicidad y la búsqueda
+   * exacta/LIKE se retiran en USRH1782854997782; se restauran por huella en 08-10-04-01.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serialize: sensitiveSerialize('Person', 'personCurp'),
+  })
+  declare personCurp: string | null
 
-  @column()
-  declare personRfc: string
+  /**
+   * RFC del trabajador — cifrado AES-256-CBC en reposo (LFPDPPP art. 3.VI, dato de
+   * identificación). Columna ampliada a VARCHAR(191). La validación de unicidad y la
+   * búsqueda LIKE se retiran en USRH1782854997782; se restauran por huella en 08-10-04-01.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serialize: sensitiveSerialize('Person', 'personRfc'),
+  })
+  declare personRfc: string | null
 
-  @column()
-  declare personImssNss: string
+  /**
+   * NSS (Número de Seguridad Social IMSS) del trabajador — cifrado AES-256-CBC en reposo
+   * (LFPDPPP art. 3.VI, dato de identificación). Columna ampliada a VARCHAR(191).
+   * La validación de unicidad y la búsqueda LIKE se retiran en USRH1782854997782;
+   * se restauran por huella en 08-10-04-01.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serialize: sensitiveSerialize('Person', 'personImssNss'),
+  })
+  declare personImssNss: string | null
+
+  /** Huella HMAC-SHA256 de personCurp normalizado. Uso interno; no se serializa en respuestas. */
+  @column({ serializeAs: null })
+  declare personCurpHash: string | null
+
+  /** Huella HMAC-SHA256 de personRfc normalizado. Uso interno; no se serializa en respuestas. */
+  @column({ serializeAs: null })
+  declare personRfcHash: string | null
+
+  /** Huella HMAC-SHA256 de personImssNss normalizado. Uso interno; no se serializa en respuestas. */
+  @column({ serializeAs: null })
+  declare personImssNssHash: string | null
+
+  /** Huella HMAC-SHA256 de personEmail normalizado. Uso interno; no se serializa en respuestas. */
+  @column({ serializeAs: null })
+  declare personEmailHash: string | null
 
   @column()
   declare personMaritalStatus: string
@@ -128,6 +286,47 @@ export default class Person extends compose(BaseModel, SoftDeletes) {
   @column.dateTime({ columnName: 'person_deleted_at' })
   declare deletedAt: DateTime | null
 
+  /**
+   * Calcula las huellas de los identificadores antes de persistir.
+   * Se ejecuta sobre los valores en claro (antes de que `prepare` los cifre).
+   * Las huellas permiten validar unicidad sin descifrar (blind-index).
+   *
+   * Vaciar el campo libera la huella (USRH1789698261610, regla 7): antes solo
+   * se ponían y un RFC vaciado conservaba la anterior, bloqueando su reúso
+   * sin que ninguna pantalla lo mostrara. NULL tampoco compite en los UNIQUE
+   * compuestos por empresa, así que la baja también libera (regla 4).
+   */
+  @beforeSave()
+  static calculateIdentifierHashes(person: Person) {
+    person.personCurpHash = blindIndexOrNull(person.personCurp)
+    person.personRfcHash = blindIndexOrNull(person.personRfc)
+    person.personImssNssHash = blindIndexOrNull(person.personImssNss)
+    person.personEmailHash = blindIndexOrNull(person.personEmail)
+  }
+
+  /**
+   * Marca la empresa dueña desde la empresa activa de la petición, nunca desde
+   * el cuerpo. Variante TOLERANTE del patrón de `zone.ts`: donde `Zone` lanza sin
+   * contexto, `Person` deja `null` y no interrumpe el alta de landlord, el seeder
+   * raíz, el signup ni el sync biométrico. Si la persona ya trae marca (signup
+   * self-service la asigna antes de guardar), no la pisa (regla 8).
+   *
+   * Asume que `TenantContext.getScope()` trae como mucho un elemento y toma
+   * SOLO el primero: hoy es correcto porque la única forma de que exista un
+   * `Person` con contexto de tenant activo es `businessScope()` (el middleware
+   * estricto), que siempre monta el scope con un solo id. `businessScopeOptional`
+   * (usado en otras rutas) sí puede correr con un scope de varios elementos; si
+   * alguna ruta bajo ese middleware alguna vez crea un `Person`, este hook
+   * tomaría una empresa arbitraria en silencio en vez de fallar. No hay ruta así
+   * hoy — no se arregla aquí, solo se deja constancia.
+   */
+  @beforeCreate()
+  static assignBusinessUnitId(person: Person) {
+    if (person.businessUnitId) return
+    const [businessUnitId] = TenantContext.getScope()
+    person.businessUnitId = businessUnitId ?? null
+  }
+
   @hasOne(() => Employee, {
     foreignKey: 'personId',
     localKey: 'personId',
@@ -145,4 +344,10 @@ export default class Person extends compose(BaseModel, SoftDeletes) {
     },
   })
   declare user: HasOne<typeof User>
+
+  @belongsTo(() => BusinessUnit, {
+    foreignKey: 'businessUnitId',
+    localKey: 'businessUnitId',
+  })
+  declare businessUnit: BelongsTo<typeof BusinessUnit>
 }

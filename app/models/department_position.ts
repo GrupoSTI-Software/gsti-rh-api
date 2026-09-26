@@ -1,9 +1,11 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import Position from './position.js'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 
 /**
  * @swagger
@@ -32,7 +34,7 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
  *            type: string
  *
  */
-export default class DepartmentPosition extends compose(BaseModel, SoftDeletes) {
+export default class DepartmentPosition extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   static table = 'department_position'
 
   @column({ isPrimary: true })
@@ -40,6 +42,23 @@ export default class DepartmentPosition extends compose(BaseModel, SoftDeletes) 
 
   @column()
   declare departmentId: number
+
+  /**
+   * Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08).
+   * Derivada de `positions.business_unit_id` vía `positionId`.
+   */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el puesto padre (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: DepartmentPosition) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Position.query().where('positionId', instance.positionId).first(),
+      'el puesto'
+    )
+  }
 
   @column()
   declare positionId: number

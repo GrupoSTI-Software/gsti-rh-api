@@ -1,7 +1,8 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, belongsTo } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column, belongsTo } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import Notice from './notice.js'
 import Employee from './employee.js'
@@ -42,6 +43,9 @@ import Employee from './employee.js'
  *           type: string
  *           nullable: true
  *           description: Error message if email failed
+ *         noticeRecipientInAudience:
+ *           type: boolean
+ *           description: Whether the recipient still matches the current audience (false keeps tracking history without receiving resends)
  *         noticeRecipientCreatedAt:
  *           type: string
  *           format: date-time
@@ -52,12 +56,31 @@ import Employee from './employee.js'
  *           type: string
  *           format: date-time
  */
-export default class NoticeRecipient extends compose(BaseModel, SoftDeletes) {
+export default class NoticeRecipient extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true, columnName: 'notice_recipient_id' })
   declare noticeRecipientId: number
 
   @column({ columnName: 'notice_id' })
   declare noticeId: number
+
+  /** Marca de pertenencia (defensa en profundidad, USRH1784316436823). Hereda del aviso padre. */
+  @column({ columnName: 'business_unit_id' })
+  declare businessUnitId: number | null
+
+  /** Resuelve businessUnitId desde el aviso padre (USRH1784316436823). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: NoticeRecipient) {
+    if (instance.businessUnitId) return
+
+    const parent = await Notice.query().where('noticeId', instance.noticeId).first()
+    if (!parent) {
+      throw new Error(
+        'No se pudo resolver la unidad de negocio: el aviso no existe o no está en tu alcance'
+      )
+    }
+
+    instance.businessUnitId = parent.businessUnitId
+  }
 
   @column({ columnName: 'employee_id' })
   declare employeeId: number | null
@@ -82,6 +105,14 @@ export default class NoticeRecipient extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare noticeRecipientError: string | null
+
+  /**
+   * `true` si la fila cumple el criterio vigente del aviso. Una fila con
+   * historial (ya se le envió o ya lo abrió) que el criterio nuevo deja fuera
+   * se conserva con `false`: sigue en el seguimiento pero no recibe reenvíos.
+   */
+  @column()
+  declare noticeRecipientInAudience: boolean
 
   @column.dateTime({ autoCreate: true })
   declare noticeRecipientCreatedAt: DateTime

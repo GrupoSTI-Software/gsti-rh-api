@@ -1,0 +1,49 @@
+import { BaseSchema } from '@adonisjs/lucid/schema'
+
+/**
+ * Defensa en profundidad (USRH1784259058533) — `employee_temporary_assignments`
+ * (préstamos temporales empleado ↔ sucursal) sin marca de pertenencia propia.
+ * El aislamiento se ancla en el empleado prestado, no en las sucursales de
+ * origen/destino: el empleado puede estar prestado a otra sucursal pero sigue
+ * perteneciendo a su unidad de negocio original.
+ */
+export default class extends BaseSchema {
+  protected tableName = 'employee_temporary_assignments'
+
+  async up() {
+    this.schema.alterTable(this.tableName, (table) => {
+      table.integer('business_unit_id').unsigned().nullable().after('employee_id')
+    })
+
+    this.defer(async (db) => {
+      await db.rawQuery(
+        `UPDATE \`${this.tableName}\` child
+         INNER JOIN \`employees\` e ON e.employee_id = child.employee_id
+         SET child.business_unit_id = e.business_unit_id
+         WHERE child.business_unit_id IS NULL`
+      )
+
+      await db.rawQuery(
+        `ALTER TABLE \`${this.tableName}\`
+         MODIFY COLUMN \`business_unit_id\` INT UNSIGNED NOT NULL,
+         ADD INDEX \`employee_temporary_assignments_business_unit_id_index\` (\`business_unit_id\`),
+         ADD CONSTRAINT \`employee_temporary_assignments_business_unit_id_foreign\`
+           FOREIGN KEY (\`business_unit_id\`) REFERENCES \`business_units\` (\`business_unit_id\`)`
+      )
+    })
+  }
+
+  async down() {
+    this.schema.alterTable(this.tableName, (table) => {
+      table.dropForeign(
+        ['business_unit_id'],
+        'employee_temporary_assignments_business_unit_id_foreign'
+      )
+      table.dropIndex(
+        ['business_unit_id'],
+        'employee_temporary_assignments_business_unit_id_index'
+      )
+      table.dropColumn('business_unit_id')
+    })
+  }
+}

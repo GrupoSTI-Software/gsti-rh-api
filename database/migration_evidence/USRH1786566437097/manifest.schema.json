@@ -1,0 +1,76 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AssistMigrationEvidenceManifest",
+  "description": "Manifiesto CA-24 USRH1786566437097 — evidencia anexa versionada (§9.8)",
+  "type": "object",
+  "required": ["hu", "ca", "description", "steps", "manual_resolutions_count"],
+  "properties": {
+    "hu": { "const": "USRH1786566437097" },
+    "ca": { "const": "CA-24" },
+    "description": { "type": "string" },
+    "manual_resolutions_count": { "type": "integer", "minimum": 0 },
+    "steps": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["step", "captured_at", "duration_ms", "environment", "counts", "artifacts"],
+        "properties": {
+          "step": {
+            "enum": [
+              "pre-m1",
+              "post-m1",
+              "post-m2",
+              "post-deploy",
+              "post-m3",
+              "post-backfill",
+              "ad-hoc"
+            ]
+          },
+          "captured_at": { "type": "string", "format": "date-time" },
+          "duration_ms": { "type": "number" },
+          "environment": { "type": "object" },
+          "counts": {
+            "type": "object",
+            "required": [
+              "filas_totales",
+              "conjunto_a_duplicados_llave_null",
+              "conjunto_b_sin_empresa",
+              "conjunto_b_empleado_no_encontrado",
+              "business_unit_id_null",
+              "assist_natural_key_null",
+              "por_via"
+            ],
+            "properties": {
+              "filas_totales": { "type": "integer" },
+              "conjunto_a_duplicados_llave_null": { "type": "integer" },
+              "conjunto_b_sin_empresa": { "type": "integer" },
+              "conjunto_b_empleado_no_encontrado": { "type": "integer" },
+              "business_unit_id_null": { "type": "integer" },
+              "assist_natural_key_null": { "type": "integer" },
+              "por_via": {
+                "type": "object",
+                "properties": {
+                  "j3": { "type": "integer" },
+                  "j2": { "type": "integer" },
+                  "j1": { "type": "integer" },
+                  "sin_resolver": { "type": "integer" },
+                  "conflicto_j3_vs_j1": { "type": "integer" },
+                  "conflicto_j2_vs_j1": { "type": "integer" }
+                }
+              }
+            }
+          },
+          "artifacts": {
+            "type": "object",
+            "required": ["conjunto_a_json", "conjunto_b_csv", "cuarentena_csv"],
+            "properties": {
+              "conjunto_a_json": { "type": "string" },
+              "conjunto_b_csv": { "type": "string" },
+              "cuarentena_csv": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

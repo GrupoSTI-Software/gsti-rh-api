@@ -31,8 +31,13 @@ export default class EmployeeEmergencyContactService {
       employeeEmergencyContact.employeeEmergencyContactSecondLastname
     currentEmployeeEmergencyContact.employeeEmergencyContactRelationship =
       employeeEmergencyContact.employeeEmergencyContactRelationship
-    currentEmployeeEmergencyContact.employeeEmergencyContactPhone =
-      employeeEmergencyContact.employeeEmergencyContactPhone
+    if (
+      employeeEmergencyContact.employeeEmergencyContactPhone !== undefined &&
+      employeeEmergencyContact.employeeEmergencyContactPhone !== null
+    ) {
+      currentEmployeeEmergencyContact.employeeEmergencyContactPhone =
+        employeeEmergencyContact.employeeEmergencyContactPhone
+    }
     await currentEmployeeEmergencyContact.save()
     return currentEmployeeEmergencyContact
   }

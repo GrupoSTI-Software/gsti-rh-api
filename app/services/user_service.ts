@@ -3,29 +3,42 @@ import Person from '#models/person'
 import User from '#models/user'
 import { UserFilterSearchInterface } from '../interfaces/user_filter_search_interface.js'
 import ApiToken from '#models/api_token'
+import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
 import Department from '#models/department'
 import { DateTime } from 'luxon'
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogUser } from '../interfaces/MongoDB/log_user.js'
 import mail from '@adonisjs/mail/services/main'
-import env from '../../start/env.js'
+import env from '#start/env'
+import i18nManager from '@adonisjs/i18n/services/main'
+import { resolveMailLocale } from '#constants/mail_locale'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import Role from '#models/role'
-import SystemSettingService from './system_setting_service.js'
-import SystemSetting from '#models/system_setting'
+import { applyRoleBusinessScope, buildRoleBusinessScope } from '#helpers/role_business_scope'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_assigned_filter_search_interface.js'
 import { I18n } from '@adonisjs/i18n'
+import { SUPPORT_EMAIL } from '#constants/support_contact'
 import RoleDepartment from '#models/role_department'
+import { hasFullStaffAccess } from '#helpers/responsible_employee_scope'
+import { resolveEffectiveTenantRole } from '#helpers/effective_tenant_role'
+import BusinessAccessScopeService from '#services/business_access_scope_service'
+import { TenantContext } from '#utils/tenant_context'
 import Position from '#models/position'
 import RoleService from './role_service.js'
 import EmployeeType from '#models/employee_type'
 import Shift from '#models/shift'
 import EmployeeShift from '#models/employee_shift'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import {
+  buildInvitationTokenExpiresAt,
+  generateInvitationToken,
+} from '#helpers/user_invitation_credentials'
 
 export default class UserService {
-  private t: (key: string,params?: { [key: string]: string | number }) => string
+  private t: (key: string, params?: { [key: string]: string | number }) => string
 
   constructor(i18n: I18n) {
     this.t = i18n.formatMessage.bind(i18n)
@@ -38,42 +51,46 @@ export default class UserService {
     const now = DateTime.now()
     const oneYearAgo = now.minus({ years: 1 })
     const fiveYearsAgo = now.minus({ years: 5 })
-    
+
     const startTimestamp = fiveYearsAgo.toMillis()
     const endTimestamp = oneYearAgo.toMillis()
     const randomTimestamp = startTimestamp + Math.random() * (endTimestamp - startTimestamp)
-    
+
     return DateTime.fromMillis(randomTimestamp)
   }
 
-  async index(filters: UserFilterSearchInterface) {
-    const systemBussines = env.get('SYSTEM_BUSINESS')
-    const systemBussinesArray = systemBussines?.toString().split(',') as Array<string>
+  async index(filters: UserFilterSearchInterface, allowedBusinessUnitIds: number[] = []) {
+    // USRH1785436961936: los usuarios con rol de sistema (owner, empleado)
+    // también aparecen en el listado del tenant — MISMO criterio que
+    // `RoleService.index`, que es justo por lo que los dos comparten
+    // `helpers/role_business_scope.ts`: roles de la empresa activa, roles de
+    // sistema globales y, temporalmente, los heredados que solo tienen el CSV.
+    // Si este filtro se quedara atrás, los usuarios con un rol creado desde la
+    // nueva alta desaparecerían del listado. El aislamiento entre empresas lo
+    // garantiza el filtro `whereHas('businessUnits')` de abajo, no este armado.
+    const scope = await buildRoleBusinessScope(allowedBusinessUnitIds)
+    const rolesQuery = Role.query().whereNull('role_deleted_at')
+    applyRoleBusinessScope(rolesQuery, scope)
 
-    const roles = await Role.query()
-      .whereNull('role_deleted_at')
-      .andWhere((query) => {
-        query.whereNotNull('role_business_access')
-        query.andWhere((subQuery) => {
-          systemBussinesArray.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, role_business_access)', [business.trim()])
-          })
-        })
-      })
+    const roles = await rolesQuery
     const rolesIds = roles.map((item) => item.roleId)
 
-    const selectedColumns = ['user_id', 'user_email', 'user_active', 'role_id', 'person_id', 'user_email_type']
+    const selectedColumns = [
+      'user_id',
+      'user_email',
+      'user_active',
+      'role_id',
+      'person_id',
+      'user_email_type',
+      'user_password_set_at',
+    ]
     const users = await User.query()
       .whereNull('user_deleted_at')
-      .whereIn('role_id', rolesIds)
-      .andWhere((query) => {
-        query.whereNotNull('user_business_access')
-        query.andWhere((subQuery) => {
-          systemBussinesArray.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, user_business_access)', [business.trim()])
-          })
-        })
+      // Filtro adicional opcional del frontend para una BU específica
+      .whereHas('businessUnits', (subQuery) => {
+        subQuery.where('business_units.business_unit_id', filters.businessUnitId)
       })
+      .whereIn('role_id', rolesIds)
       .if(filters.search, (query) => {
         query.andWhere((searchQuery) => {
           searchQuery
@@ -101,32 +118,67 @@ export default class UserService {
     return users
   }
 
-  async create(user: User) {
+  /**
+   * Crea un usuario y, opcionalmente, lo asocia a las unidades de negocio indicadas
+   * a través de la tabla pivote `business_unit_users`.
+   *
+   * @param user Datos base del usuario a crear.
+   * @param businessUnitIds IDs de unidades de negocio ya validados (deben existir y estar activos).
+   * @param trx Transacción opcional (p. ej. la del alta self-service en
+   * `SignupDraftService.complete()`, USRH1783712837572). Al establecerla en el
+   * modelo con `useTransaction()`, la relación `related('businessUnits').attach()`
+   * corre en la misma transacción. Sin `trx`, se comporta igual que antes.
+   */
+  async create(user: User, businessUnitIds: number[] = [], trx?: TransactionClientContract) {
     const newUser = new User()
     newUser.userEmail = user.userEmail
     newUser.userPassword = user.userPassword
     newUser.userActive = user.userActive
     newUser.roleId = user.roleId
     newUser.personId = user.personId
-    newUser.userBusinessAccess = user.userBusinessAccess
     newUser.userEmailType = user.userEmailType
+    if (user.userToken !== undefined) {
+      newUser.userToken = user.userToken
+    }
+    if (user.userTokenExpiresAt !== undefined) {
+      newUser.userTokenExpiresAt = user.userTokenExpiresAt
+    }
+    if (user.userPasswordSetAt !== undefined) {
+      newUser.userPasswordSetAt = user.userPasswordSetAt
+    } else if (user.userPassword) {
+      // Alta con contraseña conocida (signup, demo, flujos legacy): ya activado.
+      newUser.userPasswordSetAt = DateTime.utc()
+    }
+    if (trx) {
+      newUser.useTransaction(trx)
+    }
     await newUser.save()
+
+    // El rol efectivo por empresa nace igual al rol de la cuenta: es el mismo
+    // acceso que tenía antes de que la pivote llevara rol.
+    await attachBusinessUnitsWithRole(newUser, businessUnitIds, newUser.roleId)
+
     return newUser
   }
 
-  async update(currentUser: User, user: User) {
+  /**
+   * @param trx La del llamador (USRH1789698261612): la credencial y su espejo
+   * se guardan juntos. El `emit` de logout no se revierte con un rollback: es
+   * molesto, no corrupto (declarado en el spec).
+   */
+  async update(currentUser: User, user: User, trx?: TransactionClientContract) {
+    const previousEmail = currentUser.$original?.userEmail ?? currentUser.userEmail
     currentUser.userEmail = user.userEmail
-    if (user.userPassword) {
-      currentUser.userPassword = user.userPassword
-    }
     currentUser.userActive = user.userActive
     currentUser.roleId = user.roleId
     currentUser.personId = user.personId
     currentUser.userEmailType = user.userEmailType
+    if (trx) currentUser.useTransaction(trx)
     await currentUser.save()
     if (!user.userActive) {
-      await ApiToken.query().where('tokenable_id', currentUser.userId).delete()
+      await ApiToken.query({ client: trx }).where('tokenable_id', currentUser.userId).delete()
       if (Ws.io) {
+        Ws.io.emit(`user-forze-logout:${previousEmail}`, {})
         Ws.io.emit(`user-forze-logout:${currentUser.userEmail}`, {})
       }
     }
@@ -142,15 +194,50 @@ export default class UserService {
     return currentUser
   }
 
-  async show(userId: number) {
-    const selectedColumns = ['user_id', 'user_email', 'user_active', 'role_id', 'person_id', 'user_email_type']
-    const user = await User.query()
+  /**
+   * Usuario activo accesible dentro del scope de unidades de negocio del actor.
+   */
+  async findActiveInBusinessUnitScope(userId: number, businessUnitScope: number[]) {
+    return User.query()
       .whereNull('user_deleted_at')
       .where('user_id', userId)
-      .preload('person')
-      .preload('role')
-      .select(selectedColumns)
+      .whereHas('businessUnits', (subQuery) => {
+        subQuery.whereIn('business_units.business_unit_id', businessUnitScope)
+      })
       .first()
+  }
+
+  /**
+   * Re-emite token de invitación con vigencia nueva (5 días) e invalida el anterior.
+   */
+  async rotateInvitationAccess(user: User): Promise<User> {
+    user.userToken = generateInvitationToken()
+    user.userTokenExpiresAt = buildInvitationTokenExpiresAt()
+    await user.save()
+    return user
+  }
+
+  async show(userId: number, businessUnitScope?: number[]) {
+    const selectedColumns = [
+      'user_id',
+      'user_email',
+      'user_active',
+      'role_id',
+      'person_id',
+      'user_email_type',
+      'user_password_set_at',
+    ]
+    let query = User.query()
+      .whereNull('user_deleted_at')
+      .where('user_id', userId)
+
+    if (businessUnitScope !== undefined) {
+      query = query.whereHas('businessUnits', (subQuery) => {
+        subQuery.whereIn('business_units.business_unit_id', businessUnitScope)
+      })
+    }
+
+    const user = await query.preload('person').preload('role').select(selectedColumns).first()
     return user ? user : null
   }
 
@@ -164,13 +251,13 @@ export default class UserService {
       .where('user_email', user.userEmail)
       .first()
 
-    if (existEmail && user.userEmail) {
+    if (existEmail && user.userEmail !== undefined && user.userEmail !== null && user.userEmail !== '') {
       const entity = this.t('user')
       const param = this.t('email')
       return {
         status: 400,
         type: 'warning',
-        title: this.t('the_value_of_entity_already_exists_for_another_register', { entity: param  }),
+        title: this.t('the_value_of_entity_already_exists_for_another_register', { entity: param }),
         message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_value_of_entity_is_already_assigned_to_another_register', { entity: param })}`,
         data: { ...user },
       }
@@ -184,6 +271,18 @@ export default class UserService {
     }
   }
 
+  /**
+   * Validaciones del alta de una cuenta: que la persona exista y que todavía
+   * no tenga cuenta.
+   *
+   * Una persona tiene UNA cuenta, y la pivote `business_unit_users` es la que
+   * le da acceso a cada empresa. Antes eso lo impedía de hecho el catálogo de
+   * empleados sin usuario, que excluía a toda persona con cuenta en cualquier
+   * empresa; ahora que ese catálogo mira solo la empresa activa, la regla se
+   * declara aquí, que es donde pertenece.
+   *
+   * @param user - Datos de la cuenta por crear o editar.
+   */
   async verifyInfoExist(user: User) {
     if (!user.userId) {
       const existUser = await Person.query()
@@ -198,7 +297,26 @@ export default class UserService {
           type: 'warning',
           title: this.t('entity_was_not_found', { entity }),
           message: this.t('entity_was_not_found_with_entered_id', { entity }),
+          key: 'persona-no-encontrada',
           data: { ...user },
+        }
+      }
+
+      if (user.personId) {
+        const personAccount = await User.query()
+          .whereNull('user_deleted_at')
+          .where('person_id', user.personId)
+          .first()
+
+        if (personAccount) {
+          return {
+            status: 400,
+            type: 'warning',
+            title: this.t('user_person_already_has_account_title'),
+            message: this.t('user_person_already_has_account_detail'),
+            key: 'persona-ya-tiene-cuenta',
+            data: { ...user },
+          }
         }
       }
     }
@@ -207,11 +325,12 @@ export default class UserService {
       type: 'success',
       title: this.t('info_verify_successfully'),
       message: this.t('info_verify_successfully'),
+      key: undefined,
       data: { ...user },
     }
   }
 
-  async getRoleDepartments(userId: number, hasAccessToFullEmployes: boolean = false) {
+  async getRoleDepartments(userId: number, hasAccessToFullEmployes: boolean = false, allowedBusinessUnitIds: number[] = []) {
     const user = await User.query()
       .whereNull('user_deleted_at')
       .where('user_id', userId)
@@ -230,55 +349,98 @@ export default class UserService {
       const departments = departmentsList.map((department) => department.departmentId)
       return departments
     }
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
 
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    // El rol que manda es el de la empresa activa, no `users.role_id`: es el
+    // mismo que ya decidió el gate y el candado de colaboradores a cargo.
+    const tenantRole = await this.resolveTenantRole(user)
+
+    // `owner` ve todos los departamentos de SU empresa sin depender de
+    // `role_departments`. No toma la rama de `root`: aquella no acota por
+    // empresa y, fuera del middleware de scope, alcanzaría otros tenants.
+    if (hasFullStaffAccess(tenantRole.roleSlug)) {
+      const ownerBusinessUnitIds =
+        allowedBusinessUnitIds.length > 0
+          ? allowedBusinessUnitIds
+          : await new BusinessAccessScopeService().getAccessibleIds(user)
+      if (ownerBusinessUnitIds.length === 0) {
+        return []
+      }
+
+      const ownerDepartments = await Department.query()
+        .whereNull('department_deleted_at')
+        .whereIn('business_unit_id', ownerBusinessUnitIds)
+        .orderBy('departmentId')
+      return ownerDepartments.map((department) => department.departmentId)
+    }
+
+    let businessUnitsList: number[]
+    if (allowedBusinessUnitIds.length > 0) {
+      businessUnitsList = allowedBusinessUnitIds
+    } else {
+      const allBus = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereNull('business_unit_deleted_at')
+      businessUnitsList = allBus.map((bu) => bu.businessUnitId)
+    }
 
     // Obtener departamentos asignados directamente al rol del usuario
     const roleDepartments = await RoleDepartment.query()
       .whereNull('role_department_deleted_at')
-      .where('role_id', user.roleId)
+      .where('role_id', tenantRole.roleId)
       .preload('department', (departmentQuery) => {
         departmentQuery.whereNull('department_deleted_at')
       })
 
     const departmentsFromRole = roleDepartments
-      .filter((rd) => rd.department !== null && businessUnitsList.includes(rd.department.businessUnitId))
+      .filter(
+        (rd) => rd.department !== null && businessUnitsList.includes(rd.department.businessUnitId)
+      )
       .map((rd) => rd.department.departmentId)
 
     // Obtener departamentos a través de empleados relacionados con el usuario
     const employees = await Employee.query()
       .whereNull('employee_deleted_at')
       .whereIn('businessUnitId', businessUnitsList)
-      .if(userId &&
-        typeof userId,
-        (query) => {
-          query.where((subQuery) => {
-            subQuery.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
-              userResponsibleEmployeeQuery.where('userId', userId!)
-              userResponsibleEmployeeQuery.whereNull('user_responsible_employee_deleted_at')
-            })
-            subQuery.orWhereHas('person', (personQuery) => {
-              personQuery.whereHas('user', (userQuery) => {
-                userQuery.where('userId', userId!)
-              })
+      .if(userId && typeof userId, (query) => {
+        query.where((subQuery) => {
+          subQuery.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
+            userResponsibleEmployeeQuery.where('userId', userId!)
+            userResponsibleEmployeeQuery.whereNull('user_responsible_employee_deleted_at')
+          })
+          subQuery.orWhereHas('person', (personQuery) => {
+            personQuery.whereHas('user', (userQuery) => {
+              userQuery.where('userId', userId!)
             })
           })
-        }
-      )
+        })
+      })
       .distinct('departmentId')
       .orderBy('departmentId')
 
-    const departmentsFromEmployees = employees.flatMap(({ departmentId }) => departmentId !== null ? [departmentId] : [])
+    const departmentsFromEmployees = employees.flatMap(({ departmentId }) =>
+      departmentId !== null ? [departmentId] : []
+    )
 
     // Combinar ambos conjuntos de departamentos y eliminar duplicados
     const allDepartments = [...new Set([...departmentsFromRole, ...departmentsFromEmployees])]
 
     return allDepartments
+  }
+
+  /**
+   * Rol de la cuenta en la empresa activa de la petición (`business_unit_users.role_id`).
+   * Sin contexto de empresa (comandos, jobs) o sin rol escrito en la pivote se
+   * usa `users.role_id`, igual que el middleware de scope.
+   */
+  private async resolveTenantRole(user: User): Promise<Role> {
+    const scope = TenantContext.getScope()
+    if (TenantContext.isActive() && !TenantContext.isBypassed() && scope.length === 1) {
+      const effectiveRole = await resolveEffectiveTenantRole(user, scope[0])
+      if (effectiveRole) {
+        return effectiveRole
+      }
+    }
+    return user.role
   }
 
   createActionLog(rawHeaders: string[], action: string) {
@@ -301,7 +463,7 @@ export default class UserService {
   async saveActionOnLog(logAssist: LogUser) {
     try {
       await LogStore.set('log_users', logAssist)
-    } catch (err) {}
+    } catch (err) { }
   }
 
   getHeaderValue(headers: Array<string>, headerName: string) {
@@ -309,46 +471,69 @@ export default class UserService {
     return index !== -1 ? headers[index + 1] : null
   }
 
-  async sendNewPasswordEmail(url: string, newUser: User, userPassword: string) {
-    const hostData = this.getUrlInfo(url)
-    let tradeName = 'BO'
-    let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      if ( systemSettingActive.systemSettingLogo) {
-        backgroundImageLogo = systemSettingActive.systemSettingLogo
-      }
-      if ( systemSettingActive.systemSettingTradeName) {
-        tradeName = systemSettingActive.systemSettingTradeName
-      }
-    }
-    await newUser.load('person')
-    const emailData = {
-      user: newUser,
-      userPassword,
-      host_data: hostData,
-      backgroundImageLogo,
-    }
-    const userEmail = env.get('SMTP_USERNAME')
-    if (userEmail) {
-      await mail.send((message) => {
-        message
-          .to(newUser.userEmail)
-          .from(userEmail, tradeName)
-          .subject('New password')
-          .htmlView('emails/new_password', emailData)
-      })
-    }
-  }
+  /**
+   * Avisa al usuario de que la contraseña de su cuenta acaba de cambiar.
+   *
+   * El correo NO transporta la contraseña: solo confirma el cambio y ofrece la
+   * ruta de reporte (restablecer + escribir a soporte) para que un acceso no
+   * autorizado se detecte de inmediato.
+   *
+   * Se manda siempre, venga el cambio del backoffice o de la app. La app no
+   * envía cabecera `Origin`, así que el destino del CTA cae a `APP_URL`; si
+   * tampoco hay, el correo sale sin botón. Un aviso de seguridad sin enlace
+   * sigue sirviendo; no mandarlo, no.
+   *
+   * Los textos van en español por {@link resolveMailLocale}, igual que el resto
+   * de los correos.
+   *
+   * @param url - Origen desde el que se hizo el cambio, o null si no lo hay.
+   * @param newUser - Usuario cuya contraseña acaba de cambiar.
+   */
+  async sendNewPasswordEmail(url: string | null, newUser: User) {
+    const tradeName = 'Valanserh'
+    const backgroundImageLogo =
+      'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png'
 
-  private getUrlInfo(url: string) {
-    return {
-      name: 'SAE BackOffice',
-      host_uri: url,
-      logo_path: 'https://sae.com.mx/wp-content/uploads/2024/03/logo_sae.svg',
-      primary_color: '#0a3459',
+    await newUser.load('person')
+    const firstName = newUser.person?.personFirstname || newUser.userEmail
+    const loginUrl = (url ?? env.get('APP_URL', '')).replace(/\/$/, '')
+
+    // El idioma del correo no lo decide la petición: sale del punto único.
+    const mailI18n = i18nManager.locale(resolveMailLocale())
+    const t = mailI18n.formatMessage.bind(mailI18n)
+
+    // El enlace de soporte se compone aquí (dirección fija del producto) y la
+    // vista lo imprime sin escapar: el catálogo solo aporta el texto alrededor.
+    const supportLink = `<a href="mailto:${SUPPORT_EMAIL}" style="color: #445cba; text-decoration: underline;">${SUPPORT_EMAIL}</a>`
+
+    const subject = t('auth.password_changed.subject', { tradeName })
+    const emailData = {
+      tradeName,
+      backgroundImageLogo,
+      loginUrl,
+      firstName,
+      subject,
+      preheader: t('auth.password_changed.preheader'),
+      title: t('auth.password_changed.title'),
+      greetingLead: t('auth.password_changed.greeting_lead'),
+      intro: t('auth.password_changed.intro'),
+      cta: t('auth.password_changed.cta'),
+      ctaCaption: t('auth.password_changed.cta_caption', { tradeName }),
+      alertTitle: t('auth.password_changed.alert_title'),
+      alertBody: t('auth.password_changed.alert_body', { supportLink }),
+      securityNotice: t('auth.password_changed.security_notice', { tradeName }),
+      fallbackUrl: t('auth.password_changed.fallback_url'),
+      footer: t('auth.password_changed.footer', { tradeName }),
     }
+
+    const userEmail = resolveMailSender()
+    await mail.send((message) => {
+      message
+        .to(newUser.userEmail)
+        .from(userEmail, tradeName)
+        .subject(subject)
+        .htmlView('emails/new_password', emailData)
+    })
   }
 
   async hasAccessDepartment(userId: number, departmentId: number) {
@@ -368,22 +553,19 @@ export default class UserService {
     const employee = await Employee.query()
       .whereNull('employee_deleted_at')
       .where('department_id', department.departmentId)
-      .if(userId &&
-        typeof userId,
-        (query) => {
-          query.where((subQuery) => {
-            subQuery.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
-              userResponsibleEmployeeQuery.where('userId', userId!)
-              userResponsibleEmployeeQuery.whereNull('user_responsible_employee_deleted_at')
-            })
-            subQuery.orWhereHas('person', (personQuery) => {
-              personQuery.whereHas('user', (userQuery) => {
-                userQuery.where('userId', userId!)
-              })
+      .if(userId && typeof userId, (query) => {
+        query.where((subQuery) => {
+          subQuery.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
+            userResponsibleEmployeeQuery.where('userId', userId!)
+            userResponsibleEmployeeQuery.whereNull('user_responsible_employee_deleted_at')
+          })
+          subQuery.orWhereHas('person', (personQuery) => {
+            personQuery.whereHas('user', (userQuery) => {
+              userQuery.where('userId', userId!)
             })
           })
-        }
-      )
+        })
+      })
       .first()
     if (!employee) {
       return false
@@ -391,27 +573,29 @@ export default class UserService {
     return true
   }
 
-  async getEmployeesAssigned(filters: EmployeeAssignedFilterSearchInterface) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
+  async getEmployeesAssigned(filters: EmployeeAssignedFilterSearchInterface, allowedBusinessUnitIds: number[] = []) {
     const employeesAssigned = await UserResponsibleEmployee.query()
       .whereNull('user_responsible_employee_deleted_at')
       .where('user_id', filters.userId)
       .whereHas('user', (userQuery) => {
         userQuery.whereNull('user_deleted_at')
       })
-      .if(filters.employeeId && typeof filters.employeeId && filters.employeeId > 0, (employeeQuery) => {
-        employeeQuery.where('employee_id', filters.employeeId)
-      })
+      .if(
+        filters.employeeId && typeof filters.employeeId && filters.employeeId > 0,
+        (employeeQuery) => {
+          employeeQuery.where('employee_id', filters.employeeId)
+        }
+      )
       .whereHas('employee', (employeeQuery) => {
-        employeeQuery.whereIn('businessUnitId', businessUnitsList)
-        employeeQuery.if(filters.userResponsibleId &&
-          typeof filters.userResponsibleId && filters.userResponsibleId > 0,
+        if (allowedBusinessUnitIds.length === 0) {
+          employeeQuery.whereRaw('1 = 0')
+        } else {
+          employeeQuery.whereIn('businessUnitId', allowedBusinessUnitIds)
+        }
+        employeeQuery.if(
+          filters.userResponsibleId &&
+          typeof filters.userResponsibleId &&
+          filters.userResponsibleId > 0,
           (query) => {
             query.where((subQuery) => {
               subQuery.whereHas('userResponsibleEmployee', (userResponsibleEmployeeQuery) => {
@@ -433,20 +617,7 @@ export default class UserService {
                 `%${filters.search.toUpperCase()}%`,
               ])
               .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
-              .orWhereHas('person', (personQuery) => {
-                personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                  `%${filters.search.toUpperCase()}%`,
-                ])
-                personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                  `%${filters.search.toUpperCase()}%`,
-                ])
-                personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                  `%${filters.search.toUpperCase()}%`,
-                ])
-                personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
-                  `%${filters.search.toUpperCase()}%`,
-                ])
-              })
+            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
           })
         })
         employeeQuery.if(filters.departmentId, (query) => {
@@ -507,16 +678,25 @@ export default class UserService {
       // Generar contraseña por defecto (demo)
       const defaultPassword = 'GrupoSTI'
 
-      // Crear usuario
-      const systemBusiness = env.get('SYSTEM_BUSINESS') || ''
+      // Crear usuario y asociarlo a todas las unidades de negocio activas vía pivote.
       const user = new User()
       user.userEmail = userEmail
       user.userPassword = defaultPassword
       user.userActive = 1
       user.roleId = roleId
       user.personId = person.personId
-      user.userBusinessAccess = systemBusiness
       await user.save()
+
+      const activeBusinessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereNull('business_unit_deleted_at')
+        .select('business_unit_id')
+
+      await attachBusinessUnitsWithRole(
+        user,
+        activeBusinessUnits.map((unit) => unit.businessUnitId),
+        user.roleId
+      )
 
       return user
     } catch (error) {
@@ -549,7 +729,8 @@ export default class UserService {
           status: 400,
           type: 'error',
           title: 'Roles not found',
-          message: 'One or more required roles were not found. Please ensure the roles "rh-manager", "super-administrador", and "root" exist in the database.',
+          message:
+            'One or more required roles were not found. Please ensure the roles "rh-manager", "super-administrador", and "root" exist in the database.',
           data: null,
         }
       }
@@ -710,20 +891,39 @@ export default class UserService {
         }
       }
 
-      const systemBusiness = env.get('SYSTEM_BUSINESS') || ''
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
+      // `employee.businessUnitId` sigue siendo una FK directa de la tabla `employees`.
+      // Se obtiene la primera unidad de negocio activa disponible para el usuario demo root.
       const businessUnit = await BusinessUnit.query()
         .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
+        .whereNull('business_unit_deleted_at')
         .first()
 
       const businessUnitId = businessUnit?.businessUnitId || 0
+
+      // Pre-cargamos los IDs de todas las unidades activas para asociar a cada usuario
+      // root vía la pivote. Los usuarios root deben tener visibilidad total.
+      const activeBusinessUnits = await BusinessUnit.query()
+        .where('business_unit_active', 1)
+        .whereNull('business_unit_deleted_at')
+        .select('business_unit_id')
+      const activeBusinessUnitIds = activeBusinessUnits.map((unit) => unit.businessUnitId)
 
       const employeeType = await EmployeeType.query()
         .where('employee_type_slug', 'employee')
         .whereNull('employee_type_deleted_at')
         .first()
+
+      if (!employeeType) {
+        return {
+          status: 404,
+          type: 'error',
+          title: 'Tipo de empleado no encontrado',
+          detail:
+            'No existe el tipo de empleado global con slug "employee" en el catálogo del sistema.',
+          key: 'employee-type-default-not-found',
+          data: null,
+        }
+      }
 
       let shift = await Shift.query()
         .where('shift_name', '08:00 to 17:00 - Rest (Sat, Sun)')
@@ -731,9 +931,7 @@ export default class UserService {
         .first()
 
       if (!shift) {
-        shift = await Shift.query()
-          .whereNull('shift_deleted_at')
-          .first()
+        shift = await Shift.query().whereNull('shift_deleted_at').first()
       }
 
       if (!shift) {
@@ -786,8 +984,9 @@ export default class UserService {
         user.userActive = 1
         user.roleId = rootRole.roleId
         user.personId = person.personId
-        user.userBusinessAccess = systemBusiness
         await user.save()
+
+        await attachBusinessUnitsWithRole(user, activeBusinessUnitIds, user.roleId)
 
         const employeeCode = `ROOT-${prefix}-${index + 1}`
         const employee = new Employee()
@@ -813,7 +1012,7 @@ export default class UserService {
         employee.employeeLastSynchronizationAt = DateTime.now().toJSDate()
         employee.departmentSyncId = 0
         employee.positionSyncId = 0
-        employee.employeeTypeId = employeeType?.employeeTypeId || 1
+        employee.employeeTypeId = employeeType.employeeTypeId
         await employee.save()
 
         const employeeShift = new EmployeeShift()

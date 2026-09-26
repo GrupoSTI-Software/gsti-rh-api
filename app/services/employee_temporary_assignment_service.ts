@@ -5,6 +5,7 @@ import BranchOffice from '#models/branch_office'
 import EmployeeTemporaryAssignment from '#models/employee_temporary_assignment'
 import ShiftException from '#models/shift_exception'
 import ExceptionType from '#models/exception_type'
+import BranchOfficeShiftQuota from '#models/branch_office_shift_quota'
 
 interface ShiftOverride {
   startTime: string
@@ -15,7 +16,20 @@ interface CreateTemporaryAssignmentPayload {
   targetBranchId: number
   startDate: string
   days: number
+  reason?: string | null
+  destinationShiftId?: number | null
   shiftOverride?: ShiftOverride
+}
+
+interface UpdateTemporaryAssignmentPayload {
+  startDate?: string
+  days?: number
+  reason?: string | null
+  destinationShiftId?: number | null
+}
+
+interface CancelTemporaryAssignmentPayload {
+  cancelDate: string
 }
 
 interface ConflictingDay {
@@ -23,8 +37,34 @@ interface ConflictingDay {
   reason: string
 }
 
+/**
+ * Formato alineado con el BO (`TemporaryAssignmentActiveInterface`) para monitor de asistencia
+ * y reportes: sucursal efectiva por día = destino si el día cae en [startDate, endDate] inclusive.
+ */
+export interface TemporaryAssignmentReportRow {
+  id: number
+  employeeId: number
+  sourceBranchId: number
+  targetBranchId: number
+  /** YYYY-MM-DD, misma convención que `day` en employeeCalendar (zona operativa UTC-6). */
+  startDate: string
+  /** YYYY-MM-DD inclusive (último día del préstamo cuenta en sucursal destino). */
+  endDate: string
+  days: number
+  targetBranch: Record<string, unknown> | null
+  shiftOverride: { startTime: string; endTime: string } | null
+}
+
+interface ListTemporaryAssignmentPayload {
+  from?: string
+  to?: string
+}
+
 /** Slugs de los tipos de excepción que bloquean el préstamo */
 const BLOCKING_EXCEPTION_SLUGS = ['vacation', 'incapacidad', 'permiso', 'work-disability']
+const ZONE = 'UTC-6'
+const MAX_TEMPORARY_ASSIGNMENT_DAYS = 365
+type AssignmentStatus = 'borrador' | 'vigente' | 'vencido' | 'cancelado'
 
 export default class EmployeeTemporaryAssignmentService {
   /**
@@ -33,9 +73,16 @@ export default class EmployeeTemporaryAssignmentService {
    * no conflicto con vacaciones/incapacidad/permiso registrados.
    */
   static async create(employeeId: number, payload: CreateTemporaryAssignmentPayload) {
-    const { targetBranchId, startDate: startDateStr, days, shiftOverride } = payload
+    const {
+      targetBranchId,
+      startDate: startDateStr,
+      days,
+      shiftOverride,
+      reason = null,
+      destinationShiftId = null,
+    } = payload
 
-    const start = DateTime.fromISO(startDateStr, { zone: 'UTC-6' }).startOf('day')
+    const start = DateTime.fromISO(startDateStr, { zone: ZONE }).startOf('day')
     if (!start.isValid) {
       return {
         status: 400,
@@ -47,18 +94,18 @@ export default class EmployeeTemporaryAssignmentService {
       }
     }
 
-    if (days < 1) {
+    if (days < 1 || days > MAX_TEMPORARY_ASSIGNMENT_DAYS) {
       return {
         status: 400,
         type: 'error',
         title: 'Datos inválidos',
-        message: 'El número de días debe ser mínimo 1.',
+        message: `El número de días debe estar entre 1 y ${MAX_TEMPORARY_ASSIGNMENT_DAYS}.`,
         key: 'dias-invalidos',
         data: null,
       }
     }
 
-    const end = start.plus({ days: days - 1 }).endOf('day')
+    const end = start.plus({ days: days - 1 }).startOf('day')
 
     await Employee.query()
       .where('employee_id', employeeId)
@@ -78,6 +125,24 @@ export default class EmployeeTemporaryAssignmentService {
     }
 
     if (sourceBranch.branchOfficeId === targetBranchId) {
+      const activeAssignmentAtStart = await this.getActiveAssignment(employeeId, start)
+      if (
+        activeAssignmentAtStart &&
+        activeAssignmentAtStart.targetBranchId !== sourceBranch.branchOfficeId
+      ) {
+        return {
+          status: 409,
+          type: 'warning',
+          title: 'Préstamo activo vigente',
+          message:
+            'El empleado ya tiene un préstamo activo. Para regresarlo a su sucursal habitual primero cancela el préstamo vigente.',
+          key: 'debe-cancelar-prestamo-activo',
+          data: {
+            activeAssignmentId: activeAssignmentAtStart.employeeTemporaryAssignmentId,
+          },
+        }
+      }
+
       return {
         status: 422,
         type: 'error',
@@ -106,13 +171,33 @@ export default class EmployeeTemporaryAssignmentService {
     const startFormatted = start.toFormat('yyyy-MM-dd')
     const endFormatted = end.toFormat('yyyy-MM-dd')
 
+    if (destinationShiftId !== null) {
+      const destinationShiftIsConfigured = await this.hasDestinationShiftQuota(
+        targetBranchId,
+        destinationShiftId
+      )
+      if (!destinationShiftIsConfigured) {
+        return {
+          status: 422,
+          type: 'error',
+          title: 'Turno destino no configurado',
+          message: 'El turno destino no está configurado para el sitio destino.',
+          key: 'turno-destino-no-configurado',
+          data: null,
+        }
+      }
+    }
+
     return await db.transaction(async (trx) => {
-      const overlap = await EmployeeTemporaryAssignment.query({ client: trx })
+      const overlapCandidates = await EmployeeTemporaryAssignment.query({ client: trx })
         .where('employee_id', employeeId)
         .where('start_date', '<=', endFormatted)
         .where('end_date', '>=', startFormatted)
-        .first()
+        .orderBy('employee_temporary_assignment_id', 'desc')
 
+      const overlap = overlapCandidates.find((candidate) =>
+        this.assignmentOverlapsRange(candidate, start, end)
+      )
       if (overlap) {
         return {
           status: 409,
@@ -149,8 +234,10 @@ export default class EmployeeTemporaryAssignmentService {
           sourceBranchId: sourceBranch.branchOfficeId,
           targetBranchId,
           startDate: start,
-          endDate: end.startOf('day'),
+          endDate: end,
           days,
+          reason,
+          destinationShiftId,
           shiftOverrideStart: shiftOverride?.startTime ?? null,
           shiftOverrideEnd: shiftOverride?.endTime ?? null,
         },
@@ -159,6 +246,7 @@ export default class EmployeeTemporaryAssignmentService {
 
       await assignment.load('sourceBranch')
       await assignment.load('targetBranch')
+      await assignment.load('destinationShift')
 
       return {
         status: 201,
@@ -166,25 +254,7 @@ export default class EmployeeTemporaryAssignmentService {
         title: 'Préstamo temporal creado',
         message: 'El préstamo temporal fue registrado correctamente.',
         key: null,
-        data: {
-          id: assignment.employeeTemporaryAssignmentId,
-          employeeId: assignment.employeeId,
-          sourceBranchId: assignment.sourceBranchId,
-          targetBranchId: assignment.targetBranchId,
-          startDate: assignment.startDate.toFormat('yyyy-MM-dd'),
-          endDate: assignment.endDate.toFormat('yyyy-MM-dd'),
-          days: assignment.days,
-          shiftOverrideAppliesOnDate: assignment.shiftOverrideStart
-            ? assignment.startDate.toFormat('yyyy-MM-dd')
-            : null,
-          shiftOverride: assignment.shiftOverrideStart
-            ? {
-                startTime: assignment.shiftOverrideStart,
-                endTime: assignment.shiftOverrideEnd,
-              }
-            : null,
-          createdAt: assignment.employeeTemporaryAssignmentCreatedAt.toISO(),
-        },
+        data: this.serializeAssignment(assignment),
       }
     })
   }
@@ -197,13 +267,389 @@ export default class EmployeeTemporaryAssignmentService {
     employeeId: number,
     referenceDate?: DateTime
   ): Promise<EmployeeTemporaryAssignment | null> {
-    const date = (referenceDate ?? DateTime.now().setZone('UTC-6')).toFormat('yyyy-MM-dd')
+    const date = (referenceDate ?? DateTime.now().setZone(ZONE)).toFormat('yyyy-MM-dd')
     return EmployeeTemporaryAssignment.query()
       .where('employee_id', employeeId)
       .where('start_date', '<=', date)
       .where('end_date', '>=', date)
+      .where((query) => {
+        query.whereNull('cancelled_at').orWhere('cancelled_at', '>', date)
+      })
       .preload('targetBranch')
+      .preload('destinationShift')
+      .orderBy('employee_temporary_assignment_id', 'desc')
       .first()
+  }
+
+  static async update(
+    employeeId: number,
+    id: number,
+    payload: UpdateTemporaryAssignmentPayload
+  ) {
+    const assignment = await EmployeeTemporaryAssignment.query()
+      .where('employee_temporary_assignment_id', id)
+      .where('employee_id', employeeId)
+      .first()
+
+    if (!assignment) {
+      return {
+        status: 404,
+        type: 'error',
+        title: 'Préstamo no encontrado',
+        message: 'No se encontró el préstamo temporal solicitado.',
+        key: 'prestamo-no-encontrado',
+        data: null,
+      }
+    }
+
+    const today = DateTime.now().setZone(ZONE).startOf('day')
+    if (assignment.endDate < today) {
+      return {
+        status: 409,
+        type: 'warning',
+        title: 'Préstamo no editable',
+        message: 'No se puede editar un préstamo cuya vigencia ya transcurrió.',
+        key: 'prestamo-no-editable',
+        data: null,
+      }
+    }
+
+    const start = payload.startDate
+      ? DateTime.fromISO(payload.startDate, { zone: ZONE }).startOf('day')
+      : assignment.startDate.startOf('day')
+    if (!start.isValid) {
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Datos inválidos',
+        message: 'La fecha de inicio no es válida. Usa el formato YYYY-MM-DD.',
+        key: 'body-invalido',
+        data: null,
+      }
+    }
+
+    const days = payload.days ?? assignment.days
+    if (days < 1 || days > MAX_TEMPORARY_ASSIGNMENT_DAYS) {
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Datos inválidos',
+        message: `El número de días debe estar entre 1 y ${MAX_TEMPORARY_ASSIGNMENT_DAYS}.`,
+        key: 'dias-invalidos',
+        data: null,
+      }
+    }
+
+    const end = start.plus({ days: days - 1 }).startOf('day')
+    const destinationShiftId =
+      payload.destinationShiftId !== undefined ? payload.destinationShiftId : assignment.destinationShiftId
+    const reason = payload.reason !== undefined ? payload.reason : assignment.reason
+
+    const sourceBranch = await BranchOffice.query()
+      .where('branch_office_id', assignment.sourceBranchId)
+      .whereNull('branch_office_deleted_at')
+      .first()
+    const targetBranch = await BranchOffice.query()
+      .where('branch_office_id', assignment.targetBranchId)
+      .whereNull('branch_office_deleted_at')
+      .first()
+    const employee = await Employee.query()
+      .where('employee_id', employeeId)
+      .whereNull('employee_deleted_at')
+      .first()
+
+    if (!employee || !sourceBranch || !targetBranch) {
+      return {
+        status: 409,
+        type: 'warning',
+        title: 'Préstamo no editable',
+        message: 'No se puede editar un préstamo con empleado o sucursales en estado terminal.',
+        key: 'prestamo-no-editable',
+        data: null,
+      }
+    }
+
+    if (destinationShiftId !== null) {
+      const destinationShiftIsConfigured = await this.hasDestinationShiftQuota(
+        assignment.targetBranchId,
+        destinationShiftId
+      )
+      if (!destinationShiftIsConfigured) {
+        return {
+          status: 422,
+          type: 'error',
+          title: 'Turno destino no configurado',
+          message: 'El turno destino no está configurado para el sitio destino.',
+          key: 'turno-destino-no-configurado',
+          data: null,
+        }
+      }
+    }
+
+    const startFormatted = start.toFormat('yyyy-MM-dd')
+    const endFormatted = end.toFormat('yyyy-MM-dd')
+
+    return await db.transaction(async (trx) => {
+      const overlapCandidates = await EmployeeTemporaryAssignment.query({ client: trx })
+        .where('employee_id', employeeId)
+        .where('employee_temporary_assignment_id', '!=', id)
+        .where('start_date', '<=', endFormatted)
+        .where('end_date', '>=', startFormatted)
+        .orderBy('employee_temporary_assignment_id', 'desc')
+
+      const overlap = overlapCandidates.find((candidate) =>
+        this.assignmentOverlapsRange(candidate, start, end)
+      )
+      if (overlap) {
+        return {
+          status: 409,
+          type: 'warning',
+          title: 'Préstamo solapado',
+          message: `El empleado ya tiene un préstamo activo del ${overlap.startDate.toFormat('yyyy-MM-dd')} al ${overlap.endDate.toFormat('yyyy-MM-dd')} que se solapa con el rango solicitado.`,
+          key: 'prestamo-solapado',
+          data: null,
+        }
+      }
+
+      assignment.useTransaction(trx)
+      assignment.startDate = start
+      assignment.endDate = end
+      assignment.days = days
+      assignment.reason = reason ?? null
+      assignment.destinationShiftId = destinationShiftId ?? null
+      await assignment.save()
+
+      await assignment.load('sourceBranch')
+      await assignment.load('targetBranch')
+      await assignment.load('destinationShift')
+
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Préstamo temporal actualizado',
+        message: 'El préstamo temporal fue actualizado correctamente.',
+        key: null,
+        data: this.serializeAssignment(assignment),
+      }
+    })
+  }
+
+  static async cancel(
+    employeeId: number,
+    id: number,
+    payload: CancelTemporaryAssignmentPayload
+  ) {
+    const assignment = await EmployeeTemporaryAssignment.query()
+      .where('employee_temporary_assignment_id', id)
+      .where('employee_id', employeeId)
+      .first()
+
+    if (!assignment) {
+      return {
+        status: 404,
+        type: 'error',
+        title: 'Préstamo no encontrado',
+        message: 'No se encontró el préstamo temporal solicitado.',
+        key: 'prestamo-no-encontrado',
+        data: null,
+      }
+    }
+
+    const cancelDate = DateTime.fromISO(payload.cancelDate, { zone: ZONE }).startOf('day')
+    if (!cancelDate.isValid) {
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Datos inválidos',
+        message: 'La fecha de cancelación no es válida. Usa el formato YYYY-MM-DD.',
+        key: 'fecha-cancelacion-invalida',
+        data: null,
+      }
+    }
+
+    const cancelDay = cancelDate.toISODate()
+    const startDay = assignment.startDate.toISODate()
+    const endDay = assignment.endDate.toISODate()
+
+    if (!cancelDay || !startDay || !endDay) {
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Datos inválidos',
+        message: 'No fue posible validar la fecha de cancelación del préstamo.',
+        key: 'fecha-cancelacion-invalida',
+        data: null,
+      }
+    }
+
+    if (cancelDay < startDay || cancelDay > endDay) {
+      return {
+        status: 400,
+        type: 'error',
+        title: 'Datos inválidos',
+        message: 'La fecha de cancelación debe estar dentro de la vigencia del préstamo.',
+        key: 'fecha-cancelacion-fuera-vigencia',
+        data: null,
+      }
+    }
+
+    if (!this.isAssignmentActiveAt(assignment, cancelDate)) {
+      return {
+        status: 409,
+        type: 'warning',
+        title: 'Préstamo no editable',
+        message: 'El préstamo no está vigente para la fecha de cancelación indicada.',
+        key: 'prestamo-no-editable',
+        data: null,
+      }
+    }
+
+    assignment.cancelledAt = cancelDate
+    await assignment.save()
+
+    return {
+      status: 200,
+      type: 'success',
+      title: 'Préstamo temporal cancelado',
+      message: 'El préstamo temporal fue cancelado correctamente.',
+      key: null,
+      data: {
+        id: assignment.employeeTemporaryAssignmentId,
+        cancelledAt: assignment.cancelledAt.toFormat('yyyy-MM-dd'),
+        effectiveEndDate: this.getEffectiveEndDate(assignment),
+      },
+    }
+  }
+
+  static async list(employeeId: number, filters: ListTemporaryAssignmentPayload) {
+    const query = EmployeeTemporaryAssignment.query()
+      .where('employee_id', employeeId)
+      .orderBy('start_date', 'desc')
+      .preload('sourceBranch')
+      .preload('targetBranch')
+      .preload('destinationShift')
+
+    if (filters.from) {
+      query.where('end_date', '>=', filters.from)
+    }
+    if (filters.to) {
+      query.where('start_date', '<=', filters.to)
+    }
+
+    const assignments = await query
+
+    return {
+      status: 200,
+      type: 'success',
+      title: 'Historial de préstamos',
+      message: 'Historial de préstamos obtenido correctamente.',
+      key: null,
+      data: {
+        assignments: assignments.map((assignment) => this.serializeAssignment(assignment)),
+      },
+    }
+  }
+
+  static async destroy(employeeId: number, id: number) {
+    const assignment = await EmployeeTemporaryAssignment.query()
+      .where('employee_temporary_assignment_id', id)
+      .where('employee_id', employeeId)
+      .first()
+
+    if (!assignment) {
+      return {
+        status: 404,
+        type: 'error',
+        title: 'Préstamo no encontrado',
+        message: 'No se encontró el préstamo temporal solicitado.',
+        key: 'prestamo-no-encontrado',
+        data: null,
+      }
+    }
+
+    await assignment.delete()
+    return {
+      status: 200,
+      type: 'success',
+      title: 'Préstamo temporal eliminado',
+      message: 'El préstamo temporal fue eliminado correctamente.',
+      key: null,
+      data: {
+        id: assignment.employeeTemporaryAssignmentId,
+        deletedAt: assignment.deletedAt?.toISO() ?? DateTime.now().setZone(ZONE).toISO(),
+      },
+    }
+  }
+
+  static async cancelActiveAssignmentsByEmployee(employeeId: number, eventDate: string) {
+    const day = DateTime.fromISO(eventDate, { zone: ZONE }).startOf('day')
+    if (!day.isValid) return
+
+    await EmployeeTemporaryAssignment.query()
+      .where('employee_id', employeeId)
+      .where('start_date', '<=', day.toFormat('yyyy-MM-dd'))
+      .where('end_date', '>=', day.toFormat('yyyy-MM-dd'))
+      .where((query) => {
+        query.whereNull('cancelled_at').orWhere('cancelled_at', '>', day.toFormat('yyyy-MM-dd'))
+      })
+      .update({ cancelled_at: day.toISODate() })
+  }
+
+  static async cancelActiveAssignmentsByBranch(branchOfficeId: number, eventDate: string) {
+    const day = DateTime.fromISO(eventDate, { zone: ZONE }).startOf('day')
+    if (!day.isValid) return
+
+    await EmployeeTemporaryAssignment.query()
+      .where((query) => {
+        query.where('source_branch_id', branchOfficeId).orWhere('target_branch_id', branchOfficeId)
+      })
+      .where('start_date', '<=', day.toFormat('yyyy-MM-dd'))
+      .where('end_date', '>=', day.toFormat('yyyy-MM-dd'))
+      .where((query) => {
+        query.whereNull('cancelled_at').orWhere('cancelled_at', '>', day.toFormat('yyyy-MM-dd'))
+      })
+      .update({ cancelled_at: day.toISODate() })
+  }
+
+  /**
+   * Préstamos cuyo intervalo [startDate, endDate] intersecta el periodo del reporte/calendario.
+   * Incluye préstamos consecutivos (B luego C). Orden determinista: start_date ASC, id ASC.
+   * Usado por GET /api/v1/assists y employee-assist-calendars para el monitor de faltas por sucursal.
+   */
+  static async listIntersectingAssistPeriod(
+    employeeId: number,
+    periodStartYyyyMmDd: string,
+    periodEndYyyyMmDd: string
+  ): Promise<TemporaryAssignmentReportRow[]> {
+    const rows = await EmployeeTemporaryAssignment.query()
+      .where('employee_id', employeeId)
+      .where('start_date', '<=', periodEndYyyyMmDd)
+      .where('end_date', '>=', periodStartYyyyMmDd)
+      .orderBy('start_date', 'asc')
+      .orderBy('employee_temporary_assignment_id', 'asc')
+      .preload('targetBranch')
+
+    return rows.map((a) => this.toReportRow(a))
+  }
+
+  static toReportRow(assignment: EmployeeTemporaryAssignment): TemporaryAssignmentReportRow {
+    const targetBranch = assignment.targetBranch
+    return {
+      id: assignment.employeeTemporaryAssignmentId,
+      employeeId: assignment.employeeId,
+      sourceBranchId: assignment.sourceBranchId,
+      targetBranchId: assignment.targetBranchId,
+      startDate: assignment.startDate.toFormat('yyyy-MM-dd'),
+      endDate: assignment.endDate.toFormat('yyyy-MM-dd'),
+      days: assignment.days,
+      targetBranch: targetBranch ? (targetBranch.serialize() as Record<string, unknown>) : null,
+      shiftOverride: assignment.shiftOverrideStart
+        ? {
+            startTime: assignment.shiftOverrideStart,
+            endTime: assignment.shiftOverrideEnd ?? '',
+          }
+        : null,
+    }
   }
 
   /**
@@ -250,9 +696,132 @@ export default class EmployeeTemporaryAssignmentService {
         typeof ex.shiftExceptionsDate === 'string'
           ? ex.shiftExceptionsDate.substring(0, 10)
           : DateTime.fromJSDate(ex.shiftExceptionsDate as any)
-              .setZone('UTC-6')
+              .setZone(ZONE)
               .toFormat('yyyy-MM-dd'),
       reason: ex.exceptionType?.exceptionTypeTypeName ?? 'Ausencia registrada',
     }))
+  }
+
+  private static serializeAssignment(assignment: EmployeeTemporaryAssignment) {
+    return {
+      id: assignment.employeeTemporaryAssignmentId,
+      employeeId: assignment.employeeId,
+      sourceBranchId: assignment.sourceBranchId,
+      targetBranchId: assignment.targetBranchId,
+      startDate: assignment.startDate.toFormat('yyyy-MM-dd'),
+      endDate: assignment.endDate.toFormat('yyyy-MM-dd'),
+      effectiveEndDate: this.getEffectiveEndDate(assignment),
+      days: assignment.days,
+      reason: assignment.reason,
+      destinationShiftId: assignment.destinationShiftId,
+      destinationShift: assignment.destinationShift
+        ? {
+            shiftId: assignment.destinationShift.shiftId,
+            shiftName: assignment.destinationShift.shiftName,
+          }
+        : null,
+      status: this.resolveAssignmentStatus(assignment),
+      cancelledAt: assignment.cancelledAt ? assignment.cancelledAt.toFormat('yyyy-MM-dd') : null,
+      shiftOverrideAppliesOnDate: assignment.shiftOverrideStart
+        ? assignment.startDate.toFormat('yyyy-MM-dd')
+        : null,
+      shiftOverride: assignment.shiftOverrideStart
+        ? {
+            startTime: assignment.shiftOverrideStart,
+            endTime: assignment.shiftOverrideEnd,
+          }
+        : null,
+      createdAt: assignment.employeeTemporaryAssignmentCreatedAt.toISO(),
+      updatedAt: assignment.employeeTemporaryAssignmentUpdatedAt.toISO(),
+    }
+  }
+
+  private static resolveAssignmentStatus(
+    assignment: EmployeeTemporaryAssignment,
+    referenceDate = DateTime.now().setZone(ZONE).startOf('day')
+  ): AssignmentStatus {
+    const referenceDay = referenceDate.toISODate()
+    const startDay = assignment.startDate.toISODate()
+    const endDay = assignment.endDate.toISODate()
+
+    if (!referenceDay || !startDay || !endDay) {
+      return 'vigente'
+    }
+
+    if (assignment.cancelledAt) {
+      return 'cancelado'
+    }
+    if (referenceDay < startDay) {
+      return 'borrador'
+    }
+    if (referenceDay > endDay) {
+      return 'vencido'
+    }
+    return 'vigente'
+  }
+
+  private static getEffectiveEndDate(assignment: EmployeeTemporaryAssignment): string {
+    const endDate = assignment.endDate.startOf('day')
+    if (!assignment.cancelledAt) {
+      return endDate.toFormat('yyyy-MM-dd')
+    }
+
+    const cancelledAt = assignment.cancelledAt.startOf('day')
+    const effectiveEnd = cancelledAt.minus({ days: 1 })
+    return (effectiveEnd < assignment.startDate.startOf('day') ? assignment.startDate.minus({ days: 1 }) : effectiveEnd).toFormat('yyyy-MM-dd')
+  }
+
+  private static isAssignmentActiveAt(
+    assignment: EmployeeTemporaryAssignment,
+    day: DateTime
+  ): boolean {
+    const currentDay = day.toISODate()
+    const startDay = assignment.startDate.toISODate()
+    const endDay = assignment.endDate.toISODate()
+
+    if (!currentDay || !startDay || !endDay) {
+      return false
+    }
+
+    if (currentDay < startDay || currentDay > endDay) {
+      return false
+    }
+
+    const cancelledDay = assignment.cancelledAt?.toISODate()
+    if (cancelledDay && currentDay >= cancelledDay) {
+      return false
+    }
+
+    return true
+  }
+
+  private static assignmentOverlapsRange(
+    assignment: EmployeeTemporaryAssignment,
+    start: DateTime,
+    end: DateTime
+  ): boolean {
+    const assignmentStart = assignment.startDate.startOf('day')
+    const assignmentEffectiveEnd = assignment.cancelledAt
+      ? DateTime.min(assignment.endDate.startOf('day'), assignment.cancelledAt.startOf('day').minus({ days: 1 }))
+      : assignment.endDate.startOf('day')
+
+    if (assignmentEffectiveEnd < assignmentStart) {
+      return false
+    }
+
+    return assignmentStart <= end && assignmentEffectiveEnd >= start
+  }
+
+  private static async hasDestinationShiftQuota(
+    branchOfficeId: number,
+    destinationShiftId: number
+  ): Promise<boolean> {
+    const quota = await BranchOfficeShiftQuota.query()
+      .where('branch_office_id', branchOfficeId)
+      .where('shift_id', destinationShiftId)
+      .preload('shift')
+      .first()
+
+    return Boolean(quota)
   }
 }

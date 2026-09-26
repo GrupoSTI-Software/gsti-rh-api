@@ -6,25 +6,24 @@ import Employee from '#models/employee'
 import SyncAssistsService from './sync_assists_service.js'
 import { AssistPositionExcelFilterInterface } from '../interfaces/assist_position_excel_filter_interface.js'
 import EmployeeService from './employee_service.js'
+import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
 import { AssistDepartmentExcelFilterInterface } from '../interfaces/assist_department_excel_filter_interface.js'
 import DepartmentService from './department_service.js'
 import { AssistExcelRowInterface } from '../interfaces/assist_excel_row_interface.js'
 import { AssistExcelFilterInterface } from '../interfaces/assist_excel_filter_interface.js'
 import Department from '#models/department'
 import { ShiftExceptionInterface } from '../interfaces/shift_exception_interface.js'
-import axios from 'axios'
 import { AssistIncidentExcelRowInterface } from '../interfaces/assist_incident_excel_row_interface.js'
 import Assist from '#models/assist'
-import Tolerance from '#models/tolerance'
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogAssist } from '../interfaces/MongoDB/log_assist.js'
 import BusinessUnit from '#models/business_unit'
 import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
+import { resolveOrgAliasDisplay } from '#utils/org_alias_display'
 import SystemSettingService from './system_setting_service.js'
 import SystemSetting from '#models/system_setting'
 import { AssistIncidentPayrollExcelRowInterface } from '../interfaces/assist_incident_payroll_excel_row_interface.js'
-import sharp from 'sharp'
-import { AssistExcelImageInterface } from '../interfaces/assist_excel_image_interface.js'
 import { EmployeeWorkDaysDisabilityFilterInterface } from '../interfaces/employee_work_days_disability_filter_interface.js'
 import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_service_index_interface.js'
 import { AssistIncidentPayrollCalendarExcelFilterInterface } from '../interfaces/assist_incident_payroll_calendar_excel_filter_interface.js'
@@ -36,20 +35,156 @@ import WorkDisability from '#models/work_disability'
 import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_interface.js'
 import { I18n } from '@adonisjs/i18n'
 import Holiday from '#models/holiday'
-import ToleranceService from './tolerance_service.js'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
+import { resolveSiteTimeZone, wallTime, dayKeyOf, toInstant } from '#modules/attendance-time/attendance_clock'
 import EmployeeShift from '#models/employee_shift'
 import User from '#models/user'
 import mail from '@adonisjs/mail/services/main'
+import BusinessAccessScopeService from '#services/business_access_scope_service'
+import PayrollOvertimeMeasurementService from './payroll_overtime_measurement_service.js'
+import PayrollOvertimeAllocationService from './payroll_overtime_allocation_service.js'
+import PayrollOvertimeWeeklyDetailService from './payroll_overtime_weekly_detail_service.js'
+import PayrollOvertimeUnauthorizedService from './payroll_overtime_unauthorized_service.js'
+import {
+  getIncidentPayrollExcelColumnCount,
+  getIncidentPayrollExcelLastColumnLetter,
+  isPayrollOvertimeIncludeUnauthorizedEnabled,
+} from '#constants/payroll_overtime.constants'
+import EffectiveService from '#modules/working-time-rules/effective/effective.service'
+import { AssistIncidentSummaryV2ExcelRowInterface } from '../interfaces/assist_incident_summary_v2_excel_row_interface.js'
+import { AssistIncidentSummaryV2CalendarExcelFilterInterface } from '../interfaces/assist_incident_summary_v2_calendar_excel_filter_interface.js'
+import { PLATFORM_FALLBACK_TRADE_NAME } from '#constants/system_setting_defaults'
+import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
+import {
+  formatReportCalendarDate,
+  REPORT_DATE_FORMAT,
+  REPORT_LOCALE,
+} from '#helpers/report_locale'
+import { frozenHeaderViews } from '#helpers/report_sheet_views'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
+
+/**
+ * Defaults de tolerancia cuando no hay empresa en contexto o la empresa no tiene
+ * la suya configurada. Son los valores que estos métodos ya usaban en duro.
+ */
+const DEFAULT_DELAY_TOLERANCE_MINUTES = 10
+const DEFAULT_TARDINESS_TOLERANCE_MINUTES = 3
+const DEFAULT_TOLERANCE_COUNT_PER_ABSENCE = 3
+
+/** Fecha y hora de checada en los archivos descargables (reloj de 24 h). */
+const REPORT_DATE_TIME_FORMAT = 'dd/MM/yyyy HH:mm:ss'
+
+/**
+ * Horas decimales como `HH:mm` en los archivos descargables. Redondea los
+ * minutos TOTALES antes de partirlos en horas y minutos: redondear solo la
+ * fracción daba "07:60" con 7.999 h. Un valor negativo lleva `-` delante.
+ */
+export function formatDecimalHours(decimal: number): string {
+  if (!Number.isFinite(decimal)) return '00:00'
+  const totalMinutes = Math.round(Math.abs(decimal) * 60)
+  const hours = Math.floor(totalMinutes / 60)
+  const minutes = totalMinutes % 60
+  const clock = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+  return decimal < 0 && totalMinutes > 0 ? `-${clock}` : clock
+}
+
+/**
+ * Día de calendario de una columna DATE (medianoche UTC) o de un
+ * `yyyy-MM-dd`, en UTC: leerlo en la zona del servidor lo corre un día.
+ */
+function utcCalendarDay(value: Date | string | null | undefined): DateTime {
+  if (!value) return DateTime.invalid('fecha vacía')
+  const parsed =
+    value instanceof Date
+      ? DateTime.fromJSDate(value, { zone: 'utc' })
+      : DateTime.fromISO(String(value).slice(0, 10), { zone: 'utc' })
+  return parsed.startOf('day')
+}
 
 export default class AssistsService {
   private t: (key: string,params?: { [key: string]: string | number }) => string
   private i18n: I18n
   private localeToUse: string
+  private businessUnits: BusinessUnit[] = []
 
   constructor(i18n: I18n) {
     this.t = i18n.formatMessage.bind(i18n)
     this.i18n = i18n
-    this.localeToUse = i18n.locale
+    // Solo lo usan los formatos de fecha de los archivos descargables, que
+    // salen siempre en el idioma de los reportes (no en el de la petición).
+    this.localeToUse = REPORT_LOCALE
+  }
+
+  /**
+   * Zona IANA del sitio del calendario en curso. La devuelve el sync junto con
+   * cada calendario (`data.timeZone`); los reportes se recorren empleado por
+   * empleado, así que un solo valor vivo basta y cada fila se formatea en la
+   * hora del sitio y no en la del servidor.
+   */
+  private siteZone: string = resolveSiteTimeZone([]).zone
+
+  /** Toma la zona con la que el sync calculó el calendario recién obtenido. */
+  private adoptCalendarZone(data: { timeZone?: string } | null | undefined): void {
+    this.siteZone = data?.timeZone ?? resolveSiteTimeZone([]).zone
+  }
+
+  /**
+   * Prioriza el `businessUnitId` explícito del query sobre el scope del header.
+   */
+  private resolveBusinessUnitFilterIds(
+    businessUnitId: number | undefined,
+    allowedBusinessUnitIds: number[]
+  ): number[] {
+    if (businessUnitId && businessUnitId > 0) {
+      return [businessUnitId]
+    }
+    return allowedBusinessUnitIds
+  }
+
+  /**
+   * Resuelve el scope de BU requerido por employeeService.index sin tocar ese servicio.
+   */
+  private resolveExcelBusinessUnitScope(
+    businessUnitId: number | undefined,
+    allowedBusinessUnitIds: number[] = []
+  ): { businessUnitFilterIds: number[]; resolvedBusinessUnitId: number } | null {
+    const businessUnitFilterIds = this.resolveBusinessUnitFilterIds(
+      businessUnitId,
+      allowedBusinessUnitIds
+    )
+    const resolvedBusinessUnitId = businessUnitFilterIds[0]
+    if (!resolvedBusinessUnitId || resolvedBusinessUnitId <= 0) {
+      return null
+    }
+    return { businessUnitFilterIds, resolvedBusinessUnitId }
+  }
+
+  private buildExcelBusinessUnitScopeError() {
+    return {
+      status: 400,
+      type: 'warning' as const,
+      title: 'Parámetros inválidos',
+      message: 'El scope de unidad de negocio es requerido para generar el reporte',
+      error: 'MISSING_BUSINESS_UNIT_SCOPE',
+    }
+  }
+
+  private async fetchEmployeesForExcelReport(
+    employeeService: EmployeeService,
+    filters: EmployeeFilterSearchInterface,
+    departmentIds: number[],
+    businessUnitId: number | undefined,
+    allowedBusinessUnitIds: number[] = []
+  ) {
+    const scope = this.resolveExcelBusinessUnitScope(businessUnitId, allowedBusinessUnitIds)
+    if (!scope) {
+      return null
+    }
+    return employeeService.index(
+      { ...filters, businessUnitId: scope.resolvedBusinessUnitId },
+      departmentIds,
+      scope.businessUnitFilterIds
+    )
   }
 
   async getExcelByEmployeeAssistance(
@@ -57,90 +192,89 @@ export default class AssistsService {
     filters: AssistEmployeeExcelFilterInterface
   ) {
     try {
-      const employeeId = filters.employeeId
-      const filterDate = filters.filterDate
-      const filterDateEnd = filters.filterDateEnd
-      const page = 1
-      const limit = 999999999999999
-      const syncAssistsService = new SyncAssistsService(this.i18n)
-      const result = await syncAssistsService.index(
-        {
-          date: filterDate,
-          dateEnd: filterDateEnd,
-          employeeID: employeeId,
-        },
-        { page, limit }
-      )
-      const data: any = result.data
-      const rows = [] as AssistExcelRowInterface[]
-      if (data) {
-        const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
-        let newRows = [] as AssistExcelRowInterface[]
-        newRows = await this.addRowCalendar(employee, employeeCalendar)
-        for await (const row of newRows) {
-          rows.push(row)
+      return await this.generateAssistanceEmployeeBuffer(
+        employee,
+        filters,
+        async () => {
+          /* sin progreso en el camino síncrono */
         }
-      }
-      const workbook = new ExcelJS.Workbook()
-      let worksheet = workbook.addWorksheet(this.t('assistance_report'))
-      const assistExcelImageInterface = {
-        workbook: workbook,
-        worksheet: worksheet,
-        col: 0.28,
-        row: 0.7,
-      } as AssistExcelImageInterface
-      await this.addImageLogo(assistExcelImageInterface)
-      worksheet.getRow(1).height = 60
-      worksheet.mergeCells('A1:Q1')
-      const titleRow = worksheet.addRow(this.t('assistance_report'))
-      let color = '244062'
-      let fgColor = 'FFFFFFF'
-      worksheet.getCell('A' + 2).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-      titleRow.font = { bold: true, size: 24, color: { argb: fgColor } }
-      titleRow.height = 42
-      titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      worksheet.mergeCells('A2:Q2')
-      color = '366092'
-      let periodRow = worksheet.addRow([this.getRange(filterDate, filterDateEnd)])
-      periodRow.font = { size: 15, color: { argb: fgColor } }
-
-      worksheet.getCell('A' + 3).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-      periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      periodRow.height = 30
-      worksheet.mergeCells('A3:Q3')
-      worksheet.views = [
-        { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-        { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-        { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-        { state: 'frozen', ySplit: 4 }, // Fija la cuarta fila
-      ]
-      this.addHeadRow(worksheet)
-      const status = employee.deletedAt ? 'Terminated' : 'Active'
-      await this.addRowToWorkSheet(rows, worksheet, status)
-      const buffer = await workbook.xlsx.writeBuffer()
-      return {
-        status: 201,
-        type: 'success',
-        title: this.t('resource'),
-        message: this.t('resource_was_created_successfully'),
-        buffer: buffer,
-      }
+      )
     } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error))
       return {
         status: 500,
         type: 'error',
         title: this.t('server_error'),
         message: this.t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
+        error: err.message,
       }
+    }
+  }
+
+  /**
+   * Genera el Excel de asistencias de un solo empleado (mismo layout de 20
+   * columnas que `generateAssistanceAllBuffer`). Conserva `withTrashed` vía
+   * el empleado ya cargado y señala baja en el layout.
+   * Usado por jobs asíncronos (`assistance_employee`) y por el endpoint síncrono.
+   */
+  async generateAssistanceEmployeeBuffer(
+    employee: Employee,
+    filters: AssistEmployeeExcelFilterInterface,
+    onProgress: (current: number, total: number) => Promise<void>
+  ) {
+    const filterDate = filters.filterDate
+    const filterDateEnd = filters.filterDateEnd
+    await onProgress(0, 1)
+
+    const syncAssistsService = new SyncAssistsService(this.i18n)
+    const result = await syncAssistsService.index(
+      {
+        date: filterDate,
+        dateEnd: filterDateEnd,
+        employeeID: employee.employeeId,
+      },
+      { page: 1, limit: 999999999999999 }
+    )
+    const data: any = result.data
+    this.adoptCalendarZone(data)
+    const rows = [] as AssistExcelRowInterface[]
+    if (data) {
+      const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+      const newRows = await this.addRowCalendar(employee, employeeCalendar)
+      for await (const row of newRows) {
+        rows.push(row)
+      }
+    }
+
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet(this.t('assistance_report'))
+    // Formato neutral: sin logotipo ni franjas de marca. La fila 1 se conserva
+    // vacía con altura normal porque el resto de la hoja usa filas fijas.
+    worksheet.mergeCells('A1:Q1')
+    const titleRow = worksheet.addRow([this.t('assistance_report')])
+    titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+    titleRow.height = 42
+    titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
+    worksheet.mergeCells('A2:Q2')
+    const periodRow = worksheet.addRow([this.getRange(filterDate, filterDateEnd)])
+    periodRow.font = { size: 15, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
+    periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
+    periodRow.height = 30
+    worksheet.mergeCells('A3:Q3')
+    worksheet.views = frozenHeaderViews(4)
+    this.addHeadRow(worksheet)
+    const status = employee.deletedAt ? 'Terminated' : 'Active'
+    await this.addRowToWorkSheet(rows, worksheet, status)
+    await onProgress(1, 1)
+
+    blankMissingTexts(workbook)
+    const buffer = await workbook.xlsx.writeBuffer()
+    return {
+      status: 201,
+      type: 'success' as const,
+      title: this.t('resource'),
+      message: this.t('resource_was_created_successfully'),
+      buffer,
     }
   }
 
@@ -164,6 +298,7 @@ export default class AssistsService {
         { page, limit }
       )
       const data: any = result.data
+      this.adoptCalendarZone(data)
       const rows = [] as AssistExcelRowInterface[]
       if (data) {
         const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
@@ -177,7 +312,7 @@ export default class AssistsService {
       const rowsIncident = [] as AssistIncidentExcelRowInterface[]
       const worksheet = workbook.addWorksheet(this.t('incident_summary'))
       const title = `${this.t('summary_report')} ${this.getRange(filterDate, filterDateEnd)}`
-      await this.addTitleIncidentToWorkSheet(workbook, worksheet, title)
+      this.addTitleIncidentToWorkSheet(worksheet, title)
       this.addHeadRowIncident(worksheet)
       const totalRowIncident = {} as AssistIncidentExcelRowInterface
       await this.cleanTotalByDepartment(totalRowIncident)
@@ -207,6 +342,7 @@ export default class AssistsService {
       if (employee.deletedAt) {
         await this.paintEmployeeTerminated(worksheet, 'C', 4)
       }
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -247,6 +383,7 @@ export default class AssistsService {
         { page, limit }
       )
       const data: any = result.data
+      this.adoptCalendarZone(data)
       const rows = [] as AssistExcelRowInterface[]
       const tardies = await this.getTardiesTolerance()
       const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
@@ -261,11 +398,12 @@ export default class AssistsService {
       const workbook = new ExcelJS.Workbook()
       const rowsIncidentPayroll = [] as AssistIncidentPayrollExcelRowInterface[]
       const tradeName = await this.getTradeName()
-      const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll'))
+      const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll_sheet'))
       const titlePayroll = `${this.t('incidents')} ${tradeName} ${this.getRange(filterDate, filterDateEnd)}`
-      await this.addTitleIncidentPayrollToWorkSheet(workbook, worksheet, titlePayroll)
-      await this.addHeadRowIncidentPayroll(worksheet)
+      this.addTitleIncidentPayrollToWorkSheet(worksheet, titlePayroll)
+      this.addHeadRowIncidentPayroll(worksheet)
 
+      await this.getBusinessUnits()
       if (data) {
         const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
         let newRows = [] as AssistIncidentPayrollExcelRowInterface[]
@@ -285,6 +423,7 @@ export default class AssistsService {
       }
       await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
       await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -304,7 +443,10 @@ export default class AssistsService {
     }
   }
 
-  async getExcelByPosition(filters: AssistPositionExcelFilterInterface) {
+  async getExcelByPosition(
+    filters: AssistPositionExcelFilterInterface,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     try {
       const departmentId = filters.departmentId
       const positionId = filters.positionId
@@ -313,7 +455,8 @@ export default class AssistsService {
       const page = 1
       const limit = 999999999999999
       const employeeService = new EmployeeService(this.i18n)
-      const resultEmployes = await employeeService.index(
+      const resultEmployes = await this.fetchEmployeesForExcelReport(
+        employeeService,
         {
           search: '',
           departmentId: departmentId,
@@ -324,8 +467,13 @@ export default class AssistsService {
           ignoreDiscriminated: 0,
           ignoreExternal: 1,
         },
-        [departmentId]
+        [departmentId],
+        filters.businessUnitId,
+        allowedBusinessUnitIds
       )
+      if (!resultEmployes) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
       const dataEmployes: any = resultEmployes
       const syncAssistsService = new SyncAssistsService(this.i18n)
       const rows = [] as AssistExcelRowInterface[]
@@ -339,6 +487,7 @@ export default class AssistsService {
           { page, limit }
         )
         const data: any = result.data
+        this.adoptCalendarZone(data)
         if (data) {
           const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
           let newRows = [] as AssistExcelRowInterface[]
@@ -351,45 +500,20 @@ export default class AssistsService {
       // Crear un nuevo libro de Excel
       const workbook = new ExcelJS.Workbook()
       let worksheet = workbook.addWorksheet(this.t('assistance_report'))
-      const assistExcelImageInterface = {
-        workbook: workbook,
-        worksheet: worksheet,
-        col: 0.28,
-        row: 0.7,
-      } as AssistExcelImageInterface
-      await this.addImageLogo(assistExcelImageInterface)
-      worksheet.getRow(1).height = 60
+      // Formato neutral: sin logotipo ni franjas de marca. La fila 1 se conserva
+      // vacía con altura normal porque el resto de la hoja usa filas fijas.
       worksheet.mergeCells('A1:P1')
       const titleRow = worksheet.addRow([this.t('assistance_report')])
-      let color = '244062'
-      let fgColor = 'FFFFFFF'
-      worksheet.getCell('A' + 2).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-      titleRow.font = { bold: true, size: 24, color: { argb: fgColor } }
+      titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       titleRow.height = 42
       titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
       worksheet.mergeCells('A2:P2')
-      color = '366092'
       const periodRow = worksheet.addRow([this.getRange(filterDate, filterDateEnd)])
-      periodRow.font = { size: 15, color: { argb: fgColor } }
-
-      worksheet.getCell('A' + 3).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
+      periodRow.font = { size: 15, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       periodRow.height = 30
       worksheet.mergeCells('A3:P3')
-      worksheet.views = [
-        { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-        { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-        { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-        { state: 'frozen', ySplit: 4 }, // Fija la cuarta fila
-      ]
+      worksheet.views = frozenHeaderViews(4)
       // Añadir columnas de datos (encabezados)
       this.addHeadRow(worksheet)
       await this.addRowToWorkSheet(rows, worksheet)
@@ -397,7 +521,7 @@ export default class AssistsService {
       const rowsIncident = [] as AssistIncidentExcelRowInterface[]
       worksheet = workbook.addWorksheet(this.t('incident_summary'))
       const title = `${this.t('summary_report')} ${this.getRange(filterDate, filterDateEnd)}`
-      await this.addTitleIncidentToWorkSheet(workbook, worksheet, title)
+      this.addTitleIncidentToWorkSheet(worksheet, title)
       this.addHeadRowIncident(worksheet)
       const tardies = await this.getTardiesTolerance()
       const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
@@ -411,6 +535,7 @@ export default class AssistsService {
           { page, limit }
         )
         const data: any = result.data
+        this.adoptCalendarZone(data)
         if (data) {
           const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
           let newRows = [] as AssistIncidentExcelRowInterface[]
@@ -431,6 +556,7 @@ export default class AssistsService {
       await this.addRowIncidentToWorkSheet(rowsIncident, worksheet)
       // hasta aquí era lo de asistencia
       // Crear un buffer del archivo Excel
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -450,8 +576,15 @@ export default class AssistsService {
     }
   }
 
-  async getExcelByDepartmentAssistance(filters: AssistDepartmentExcelFilterInterface) {
+  async getExcelByDepartmentAssistance(
+    filters: AssistDepartmentExcelFilterInterface,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     try {
+      const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+      if (!scope) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
       const departmentId = filters.departmentId
       const filterDate = filters.filterDate
       const filterDateEnd = filters.filterDateEnd
@@ -463,7 +596,8 @@ export default class AssistsService {
       const rows = [] as AssistExcelRowInterface[]
       for await (const position of resultPositions) {
         const employeeService = new EmployeeService(this.i18n)
-        const resultEmployes = await employeeService.index(
+        const resultEmployes = await this.fetchEmployeesForExcelReport(
+          employeeService,
           {
             search: '',
             departmentId: departmentId,
@@ -475,8 +609,13 @@ export default class AssistsService {
             ignoreExternal: 1,
             userResponsibleId: filters.userResponsibleId,
           },
-          [departmentId]
+          [departmentId],
+          scope.resolvedBusinessUnitId,
+          scope.businessUnitFilterIds
         )
+        if (!resultEmployes) {
+          return this.buildExcelBusinessUnitScopeError()
+        }
         const dataEmployes: any = resultEmployes
         for await (const employee of dataEmployes) {
           const result = await syncAssistsService.index(
@@ -488,6 +627,7 @@ export default class AssistsService {
             { page, limit }
           )
           const data: any = result.data
+          this.adoptCalendarZone(data)
           if (data) {
             const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
             let newRows = [] as AssistExcelRowInterface[]
@@ -501,48 +641,24 @@ export default class AssistsService {
       // Crear un nuevo libro de Excel
       const workbook = new ExcelJS.Workbook()
       let worksheet = workbook.addWorksheet(this.t('assistance_report'))
-      const assistExcelImageInterface = {
-        workbook: workbook,
-        worksheet: worksheet,
-        col: 0.28,
-        row: 0.7,
-      } as AssistExcelImageInterface
-      await this.addImageLogo(assistExcelImageInterface)
-      worksheet.getRow(1).height = 60
+      // Formato neutral: sin logotipo ni franjas de marca. La fila 1 se conserva
+      // vacía con altura normal porque el resto de la hoja usa filas fijas.
       worksheet.mergeCells('A1:P1')
       const titleRow = worksheet.addRow([this.t('assistance_report')])
-      let color = '244062'
-      let fgColor = 'FFFFFFF'
-      worksheet.getCell('A' + 2).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-      titleRow.font = { bold: true, size: 24, color: { argb: fgColor } }
+      titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       titleRow.height = 42
       titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
       worksheet.mergeCells('A2:P2')
-      color = '366092'
       const periodRow = worksheet.addRow([this.getRange(filterDate, filterDateEnd)])
-      periodRow.font = { size: 15, color: { argb: fgColor } }
-
-      worksheet.getCell('A' + 3).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
+      periodRow.font = { size: 15, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       periodRow.height = 30
       worksheet.mergeCells('A3:P3')
-      worksheet.views = [
-        { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-        { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-        { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-        { state: 'frozen', ySplit: 4 }, // Fija la cuarta fila
-      ]
+      worksheet.views = frozenHeaderViews(4)
       // Añadir columnas de datos (encabezados)
       this.addHeadRow(worksheet)
       await this.addRowToWorkSheet(rows, worksheet)
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -562,8 +678,15 @@ export default class AssistsService {
     }
   }
 
-  async getExcelByDepartmentIncidentSummary(filters: AssistDepartmentExcelFilterInterface) {
+  async getExcelByDepartmentIncidentSummary(
+    filters: AssistDepartmentExcelFilterInterface,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     try {
+      const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+      if (!scope) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
       const departmentId = filters.departmentId
       const filterDate = filters.filterDate
       const filterDateEnd = filters.filterDateEnd
@@ -577,7 +700,7 @@ export default class AssistsService {
       const rowsIncident = [] as AssistIncidentExcelRowInterface[]
       const worksheet = workbook.addWorksheet(this.t('incident_summary'))
       const title = `${this.t('summary_report')} ${this.getRange(filterDate, filterDateEnd)}`
-      await this.addTitleIncidentToWorkSheet(workbook, worksheet, title)
+      this.addTitleIncidentToWorkSheet(worksheet, title)
       this.addHeadRowIncident(worksheet)
       const totalRowIncident = {} as AssistIncidentExcelRowInterface
       await this.cleanTotalByDepartment(totalRowIncident)
@@ -587,7 +710,8 @@ export default class AssistsService {
       const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
       for await (const position of resultPositions) {
         const employeeService = new EmployeeService(this.i18n)
-        const resultEmployes = await employeeService.index(
+        const resultEmployes = await this.fetchEmployeesForExcelReport(
+          employeeService,
           {
             search: '',
             departmentId: departmentId,
@@ -599,8 +723,13 @@ export default class AssistsService {
             ignoreExternal: 1,
             userResponsibleId: filters.userResponsibleId,
           },
-          [departmentId]
+          [departmentId],
+          scope.resolvedBusinessUnitId,
+          scope.businessUnitFilterIds
         )
+        if (!resultEmployes) {
+          return this.buildExcelBusinessUnitScopeError()
+        }
         const dataEmployes: any = resultEmployes
         for await (const employee of dataEmployes) {
           const result = await syncAssistsService.index(
@@ -612,6 +741,7 @@ export default class AssistsService {
             { page, limit }
           )
           const data: any = result.data
+          this.adoptCalendarZone(data)
           if (data) {
             const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
             let newRows = [] as AssistIncidentExcelRowInterface[]
@@ -633,6 +763,7 @@ export default class AssistsService {
       await rowsIncident.push(totalRowByDepartmentIncident)
       await rowsIncident.push(totalRowIncident)
       await this.addRowIncidentToWorkSheet(rowsIncident, worksheet)
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -652,75 +783,54 @@ export default class AssistsService {
     }
   }
 
-  async getExcelByDepartmentIncidentSummaryPayRoll(filters: AssistDepartmentExcelFilterInterface) {
+  async getExcelByDepartmentIncidentSummaryPayRoll(
+    filters: AssistDepartmentExcelFilterInterface,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     try {
+      const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+      if (!scope) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
       const departmentId = filters.departmentId
       const filterDate = filters.filterDate
       const filterDateEnd = filters.filterDateEnd
       const page = 1
       const limit = 999999999999999
-      const departmentService = new DepartmentService(this.i18n)
-      const resultPositions = await departmentService.getPositions(departmentId, filters.userResponsibleId)
       const syncAssistsService = new SyncAssistsService(this.i18n)
+      const employeeService = new EmployeeService(this.i18n)
       const workbook = new ExcelJS.Workbook()
       const rowsIncidentPayroll = [] as AssistIncidentPayrollExcelRowInterface[]
       const tradeName = await this.getTradeName()
-      const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll'))
+      const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll_sheet'))
       const titlePayroll = `${this.t('incidents')} ${tradeName} ${this.getRange(filterDate, filterDateEnd)}`
-      await this.addTitleIncidentPayrollToWorkSheet(workbook, worksheet, titlePayroll)
+      this.addTitleIncidentPayrollToWorkSheet(worksheet, titlePayroll)
       this.addHeadRowIncidentPayroll(worksheet)
       const tardies = await this.getTardiesTolerance()
       const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
-      for await (const position of resultPositions) {
-        const employeeService = new EmployeeService(this.i18n)
-        const resultEmployes = await employeeService.index(
-          {
-            search: '',
-            departmentId: departmentId,
-            positionId: position.positionId,
-            employeeWorkSchedule: '',
-            page: page,
-            limit: limit,
-            ignoreDiscriminated: 0,
-            ignoreExternal: 1,
-            userResponsibleId: filters.userResponsibleId,
-          },
-          [departmentId]
-        )
-        const dataEmployes: any = resultEmployes
-        for await (const employee of dataEmployes) {
-          const result = await syncAssistsService.index(
-            {
-              date: filterDate,
-              dateEnd: filterDateEnd,
-              employeeID: employee.employeeId,
-              withOutExternal: true,
-            },
-            { page, limit }
-          )
-          const data: any = result.data
-          if (data) {
-            const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
-            let newRows = [] as AssistIncidentPayrollExcelRowInterface[]
-            const incidentPayrollFilters: AssistIncidentPayrollCalendarExcelFilterInterface = {
-              employee: employee,
-              employeeCalendar: employeeCalendar,
-              tardies: tardies,
-              datePay: filters.filterDatePay,
-              toleranceCountPerAbsences: toleranceCountPerAbsences,
-            }
-            newRows = await this.addRowIncidentPayrollCalendar(
-              incidentPayrollFilters
-            )
-            for await (const row of newRows) {
-              rowsIncidentPayroll.push(row)
-            }
-          }
-        }
-      }
+      await this.getBusinessUnits()
+      await this.appendIncidentPayrollRowsForDepartmentEmployees({
+        departmentId,
+        filterDate,
+        filterDateEnd,
+        filterDatePay: filters.filterDatePay ?? '',
+        userResponsibleId: filters.userResponsibleId,
+        businessUnitId: scope.resolvedBusinessUnitId,
+        payrollBusinessUnitId: filters.payrollBusinessUnitId,
+        branchNameIds: filters.branchNameIds,
+        businessUnitFilterIds: scope.businessUnitFilterIds,
+        employeeService,
+        syncAssistsService,
+        tardies,
+        toleranceCountPerAbsences,
+        rowsIncidentPayroll,
+        page,
+        limit,
+      })
       await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
       await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
       // Crear un buffer del archivo Excel
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -740,11 +850,23 @@ export default class AssistsService {
     }
   }
 
-  async getExcelAllAssistance(filters: AssistExcelFilterInterface, departmentsList: Array<number>) {
+  async getExcelAllAssistance(
+    filters: AssistExcelFilterInterface,
+    departmentsList: Array<number>,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     try {
+      const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+      if (!scope) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
+      const businessUnitFilterIds = scope.businessUnitFilterIds
       const departments = await Department.query()
         .whereNull('department_deleted_at')
         .whereIn('departmentId', departmentsList)
+        .if(businessUnitFilterIds.length > 0, (query) => {
+          query.whereIn('businessUnitId', businessUnitFilterIds)
+        })
         .orderBy('departmentId')
       const rows = [] as AssistExcelRowInterface[]
       const filterDate = filters.filterDate
@@ -758,7 +880,8 @@ export default class AssistsService {
         const resultPositions = await departmentService.getPositions(departmentId, filters.userResponsibleId)
         const syncAssistsService = new SyncAssistsService(this.i18n)
         for await (const position of resultPositions) {
-          const resultEmployes = await employeeService.index(
+          const resultEmployes = await this.fetchEmployeesForExcelReport(
+            employeeService,
             {
               search: '',
               departmentId: departmentId,
@@ -769,9 +892,15 @@ export default class AssistsService {
               ignoreDiscriminated: 0,
               ignoreExternal: 1,
               userResponsibleId: filters.userResponsibleId,
+              payrollBusinessUnitId: filters.payrollBusinessUnitId,
             },
-            [departmentId]
+            [departmentId],
+            scope.resolvedBusinessUnitId,
+            scope.businessUnitFilterIds
           )
+          if (!resultEmployes) {
+            return this.buildExcelBusinessUnitScopeError()
+          }
           const dataEmployes: any = resultEmployes
           for await (const employee of dataEmployes) {
             const result = await syncAssistsService.index(
@@ -783,6 +912,7 @@ export default class AssistsService {
               { page, limit }
             )
             const data: any = result.data
+            this.adoptCalendarZone(data)
             if (data) {
               const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
               let newRows = [] as AssistExcelRowInterface[]
@@ -797,48 +927,24 @@ export default class AssistsService {
       // Crear un nuevo libro de Excel
       const workbook = new ExcelJS.Workbook()
       let worksheet = workbook.addWorksheet(this.t('assistance_report'))
-      const assistExcelImageInterface = {
-        workbook: workbook,
-        worksheet: worksheet,
-        col: 0.28,
-        row: 0.7,
-      } as AssistExcelImageInterface
-      await this.addImageLogo(assistExcelImageInterface)
-      worksheet.getRow(1).height = 60
+      // Formato neutral: sin logotipo ni franjas de marca. La fila 1 se conserva
+      // vacía con altura normal porque el resto de la hoja usa filas fijas.
       worksheet.mergeCells('A1:Q1')
       const titleRow = worksheet.addRow([this.t('assistance_report')])
-      let color = '244062'
-      let fgColor = 'FFFFFFF'
-      worksheet.getCell('A' + 2).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-      titleRow.font = { bold: true, size: 24, color: { argb: fgColor } }
+      titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       titleRow.height = 42
       titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
       worksheet.mergeCells('A2:Q2')
-      color = '366092'
       const periodRow = worksheet.addRow([this.getRange(filterDate, filterDateEnd)])
-      periodRow.font = { size: 15, color: { argb: fgColor } }
-
-      worksheet.getCell('A' + 3).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
+      periodRow.font = { size: 15, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       periodRow.height = 30
       worksheet.mergeCells('A3:Q3')
-      worksheet.views = [
-        { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-        { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-        { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-        { state: 'frozen', ySplit: 4 }, // Fija la cuarta fila
-      ]
+      worksheet.views = frozenHeaderViews(4)
       // Añadir columnas de datos (encabezados)
       this.addHeadRow(worksheet)
       await this.addRowToWorkSheet(rows, worksheet)
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -858,14 +964,1287 @@ export default class AssistsService {
     }
   }
 
+  /**
+   * Genera el buffer Excel de "todas las asistencias" con callback de progreso.
+   * Reutiliza exactamente el mismo código que `getExcelAllAssistance` pero
+   * acepta `allowedBusinessUnitIds` directamente (para uso en jobs asíncronos)
+   * e invoca `onProgress(current, total)` tras procesar cada empleado.
+   *
+   * Calcula primero el total de empleados (un pase de conteo) para poder
+   * reportar progreso real. Si el conteo falla, el callback recibe 0/0 y
+   * el progreso queda indeterminado sin bloquear la generación.
+   */
+  async generateAssistanceAllBuffer(
+    filters: import('../interfaces/assist_excel_filter_interface.js').AssistExcelFilterInterface,
+    departmentsList: number[],
+    allowedBusinessUnitIds: number[],
+    onProgress: (current: number, total: number) => Promise<void>
+  ) {
+    const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+    if (!scope) {
+      return this.buildExcelBusinessUnitScopeError()
+    }
+    const businessUnitFilterIds = scope.businessUnitFilterIds
+    const departments = await Department.query()
+      .whereNull('department_deleted_at')
+      .whereIn('departmentId', departmentsList)
+      .if(businessUnitFilterIds.length > 0, (query) => {
+        query.whereIn('businessUnitId', businessUnitFilterIds)
+      })
+      .orderBy('departmentId')
+
+    const departmentService = new DepartmentService(this.i18n)
+    const employeeService = new EmployeeService(this.i18n)
+    const filterDate = filters.filterDate
+    const filterDateEnd = filters.filterDateEnd
+
+    let progressTotal = 0
+    try {
+      for (const departmentRow of departments) {
+        const positions = await departmentService.getPositions(departmentRow.departmentId, filters.userResponsibleId)
+        for (const position of positions) {
+          const emps: any = await this.fetchEmployeesForExcelReport(
+            employeeService,
+            {
+              search: '',
+              departmentId: departmentRow.departmentId,
+              positionId: position.positionId,
+              page: 1,
+              limit: 999999999999999,
+              employeeWorkSchedule: '',
+              ignoreDiscriminated: 0,
+              ignoreExternal: 1,
+              userResponsibleId: filters.userResponsibleId,
+              payrollBusinessUnitId: filters.payrollBusinessUnitId,
+            },
+            [departmentRow.departmentId],
+            scope.resolvedBusinessUnitId,
+            scope.businessUnitFilterIds
+          )
+          if (emps) progressTotal += Array.isArray(emps) ? emps.length : 0
+        }
+      }
+    } catch {
+      progressTotal = 0
+    }
+
+    const rows = [] as AssistExcelRowInterface[]
+    let progressCurrent = 0
+
+    for await (const departmentRow of departments) {
+      const departmentId = departmentRow.departmentId
+      const resultPositions = await departmentService.getPositions(departmentId, filters.userResponsibleId)
+      const syncAssistsService = new SyncAssistsService(this.i18n)
+      for await (const position of resultPositions) {
+        const resultEmployes = await this.fetchEmployeesForExcelReport(
+          employeeService,
+          {
+            search: '',
+            departmentId: departmentId,
+            positionId: position.positionId,
+            page: 1,
+            limit: 999999999999999,
+            employeeWorkSchedule: '',
+            ignoreDiscriminated: 0,
+            ignoreExternal: 1,
+            userResponsibleId: filters.userResponsibleId,
+            payrollBusinessUnitId: filters.payrollBusinessUnitId,
+          },
+          [departmentId],
+          scope.resolvedBusinessUnitId,
+          scope.businessUnitFilterIds
+        )
+        if (!resultEmployes) {
+          return this.buildExcelBusinessUnitScopeError()
+        }
+        const dataEmployes: any = resultEmployes
+        for await (const employee of dataEmployes) {
+          const result = await syncAssistsService.index(
+            { date: filterDate, dateEnd: filterDateEnd, employeeID: employee.employeeId },
+            { page: 1, limit: 999999999999999 }
+          )
+          const data: any = result.data
+          this.adoptCalendarZone(data)
+          if (data) {
+            const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+            const newRows = await this.addRowCalendar(employee, employeeCalendar)
+            for await (const row of newRows) {
+              rows.push(row)
+            }
+          }
+          progressCurrent++
+          await onProgress(progressCurrent, progressTotal)
+        }
+      }
+    }
+
+    const workbook = new ExcelJS.Workbook()
+    let worksheet = workbook.addWorksheet(this.t('assistance_report'))
+    // Formato neutral: sin logotipo ni franjas de marca. La fila 1 se conserva
+    // vacía con altura normal porque el resto de la hoja usa filas fijas.
+    worksheet.mergeCells('A1:Q1')
+    const titleRow = worksheet.addRow([this.t('assistance_report')])
+    titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+    titleRow.height = 42
+    titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
+    worksheet.mergeCells('A2:Q2')
+    const periodRow = worksheet.addRow([this.getRange(filterDate, filterDateEnd)])
+    periodRow.font = { size: 15, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
+    periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
+    periodRow.height = 30
+    worksheet.mergeCells('A3:Q3')
+    worksheet.views = frozenHeaderViews(4)
+    this.addHeadRow(worksheet)
+    await this.addRowToWorkSheet(rows, worksheet)
+    blankMissingTexts(workbook)
+    const buffer = await workbook.xlsx.writeBuffer()
+    return {
+      status: 201,
+      type: 'success' as const,
+      title: this.t('resource'),
+      message: this.t('resource_was_created_successfully'),
+      buffer,
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Resumen de incidencias (USRH1785766125036) — port server-side del
+  // builder client-side `AssistExcelService.getExcelIncidentSummary`.
+  // Interfaces propias (`AssistIncidentSummaryV2*`) para no tocar la forma
+  // de 19 columnas que sigue usando el builder 3 (nómina).
+  // ---------------------------------------------------------------------
+
+  /**
+   * Construye el mapa `fecha-inicio-de-semana (ISO) → tope semanal legal`
+   * para el periodo `[dateStart, dateEnd]`, resolviendo el motor de jornada
+   * (`EffectiveService`) directamente (sin HTTP interno) para la unidad de
+   * negocio del reporte. Una semana sin regla aplicable queda en `null`
+   * (jornada no resuelta ↦ N/D para los empleados con días en esa semana).
+   * No relanza: el Excel se genera completo aunque falte alguna regla.
+   */
+  private async buildIncidentSummaryWeekHoursByLawMap(
+    dateStart: string,
+    dateEnd: string,
+    businessUnitId: number
+  ): Promise<Map<string, number | null>> {
+    const map = new Map<string, number | null>()
+    const startISO = dateStart || dateEnd
+    if (!startISO || !dateEnd || !businessUnitId) {
+      return map
+    }
+    const effectiveService = new EffectiveService()
+    let cursor = DateTime.fromISO(startISO).startOf('week')
+    const end = DateTime.fromISO(dateEnd)
+    while (cursor.isValid && cursor <= end) {
+      const key = cursor.toISODate()
+      if (key && !map.has(key)) {
+        const rules = await effectiveService.getRulesForDate(businessUnitId, key)
+        map.set(key, rules.effective ? rules.effective.maxWeeklyHours : null)
+      }
+      cursor = cursor.plus({ weeks: 1 })
+    }
+    return map
+  }
+
+  /**
+   * Acumula un valor de "horas por ley" respetando el caso N/D: si el
+   * acumulado o el valor entrante es `null` (jornada no resuelta), el total
+   * queda en `null` y se reporta N/D. Un total de grupo nunca mezcla filas
+   * resueltas con no resueltas.
+   */
+  private accumulateIncidentSummaryLawValue(
+    accumulated: number | null,
+    value: number | null
+  ): number | null {
+    if (accumulated === null || value === null) {
+      return null
+    }
+    return accumulated + value
+  }
+
+  private formatIncidentSummaryTimeDifference(hoursDiff: number): string {
+    const formatted = formatDecimalHours(Math.abs(hoursDiff))
+    if (formatted === '00:00') {
+      return '0:00'
+    }
+    return hoursDiff < 0 ? `-${formatted}` : `+${formatted}`
+  }
+
+  /**
+   * Calcula las horas por ley del periodo del empleado iterando semana por
+   * semana sobre sus días laborables. El tope de cada semana se toma del
+   * `weekHoursByLawMap`. Devuelve `null` si alguna semana laborada del
+   * periodo no tiene tope resuelto (jornada no resuelta ↦ N/D). Port 1:1
+   * del builder client-side, sin "mejoras".
+   */
+  private calculateIncidentSummaryHoursByLaw(
+    startDate: DateTime,
+    endDate: DateTime,
+    weekHoursByLawMap: Map<string, number | null>,
+    employeeCalendar: AssistDayInterface[]
+  ): number | null {
+    let totalHours = 0
+    const calendarMap = new Map<string, AssistDayInterface>()
+    for (const day of employeeCalendar) {
+      const dayDate = DateTime.fromISO(day.day).toISODate()
+      if (dayDate) {
+        calendarMap.set(dayDate, day)
+      }
+    }
+    const tempStartDate = startDate.toJSDate()
+    const tempEndDate = endDate.toJSDate()
+    const weekStart = DateTime.fromJSDate(tempStartDate).startOf('week')
+    let currentWeekStart = weekStart
+
+    while (currentWeekStart <= DateTime.fromJSDate(tempEndDate)) {
+      const weekEnd = currentWeekStart.endOf('week')
+      const weekRangeStart = currentWeekStart > startDate ? currentWeekStart : startDate
+      const weekRangeEnd = weekEnd < endDate ? weekEnd : endDate
+
+      let workingDays = 0
+      let currentDay = weekRangeStart
+      while (currentDay <= weekRangeEnd) {
+        const dayDate = currentDay.toISODate()
+        if (dayDate) {
+          const calendarDay = calendarMap.get(dayDate)
+          if (
+            calendarDay &&
+            calendarDay.assist.dateShift &&
+            !calendarDay.assist.isHoliday &&
+            !calendarDay.assist.isRestDay &&
+            !calendarDay.assist.isFutureDay &&
+            !calendarDay.assist.isWorkDisabilityDate &&
+            !calendarDay.assist.isVacationDate
+          ) {
+            workingDays++
+          }
+        }
+        currentDay = currentDay.plus({ days: 1 })
+      }
+
+      let totalDaysInWeek = 0
+      let tempDay = currentWeekStart
+      let daysFoundInCalendar = 0
+      while (tempDay <= weekEnd) {
+        const dayDate = tempDay.toISODate()
+        if (dayDate) {
+          const calendarDay = calendarMap.get(dayDate)
+          if (calendarDay && calendarDay.assist.dateShift && !calendarDay.assist.isRestDay) {
+            totalDaysInWeek++
+            daysFoundInCalendar++
+          }
+        }
+        tempDay = tempDay.plus({ days: 1 })
+      }
+
+      if (daysFoundInCalendar < 5 && workingDays > 0) {
+        let searchWeekStart = startDate.startOf('week')
+        let searchWeekEnd = searchWeekStart.endOf('week')
+        while (searchWeekStart <= endDate) {
+          if (searchWeekStart >= startDate && searchWeekEnd <= endDate) {
+            let tempDay2 = searchWeekStart
+            let weekDaysCount = 0
+            while (tempDay2 <= searchWeekEnd) {
+              const dayDate = tempDay2.toISODate()
+              if (dayDate) {
+                const calendarDay = calendarMap.get(dayDate)
+                if (calendarDay && calendarDay.assist.dateShift && !calendarDay.assist.isRestDay) {
+                  weekDaysCount++
+                }
+              }
+              tempDay2 = tempDay2.plus({ days: 1 })
+            }
+            if (weekDaysCount > 0) {
+              totalDaysInWeek = weekDaysCount
+              break
+            }
+          }
+          searchWeekStart = searchWeekStart.plus({ weeks: 1 })
+          searchWeekEnd = searchWeekStart.endOf('week')
+        }
+      }
+
+      if (totalDaysInWeek === 0 && workingDays > 0) {
+        totalDaysInWeek = workingDays
+      }
+
+      if (totalDaysInWeek > 0 && workingDays > 0) {
+        const weekKey = currentWeekStart.toISODate()
+        const weekCap = weekKey ? weekHoursByLawMap.get(weekKey) : undefined
+        if (weekCap === null || weekCap === undefined) {
+          return null
+        }
+        const hoursForThisWeek = (workingDays / totalDaysInWeek) * weekCap
+        totalHours += hoursForThisWeek
+      }
+
+      currentWeekStart = currentWeekStart.plus({ weeks: 1 })
+    }
+
+    return totalHours
+  }
+
+  private cleanIncidentSummaryTotalRow(totalRow: AssistIncidentSummaryV2ExcelRowInterface) {
+    totalRow.employeeId = ''
+    totalRow.employeeName = 'null'
+    totalRow.daysWorked = 0
+    totalRow.daysOnTime = 0
+    totalRow.tolerances = 0
+    totalRow.delays = 0
+    totalRow.earlyOuts = 0
+    totalRow.rests = 0
+    totalRow.sundayBonus = 0
+    totalRow.vacations = 0
+    totalRow.exeptions = 0
+    totalRow.holidaysWorked = 0
+    totalRow.restWorked = 0
+    totalRow.faults = 0
+    totalRow.delayFaults = 0
+    totalRow.earlyOutsFaults = 0
+    totalRow.totalFaults = 0
+    totalRow.hoursWorked = 0
+    totalRow.hoursAssigned = 0
+    totalRow.timeDifferenceAssigned = 0
+    totalRow.hoursByLaw = 0
+    totalRow.timeDifferenceLaw = 0
+    totalRow.toPay = 0
+    totalRow.discountFaults = 0
+  }
+
+  private addIncidentSummaryDepartmentTotal(
+    totalRow: AssistIncidentSummaryV2ExcelRowInterface,
+    row: AssistIncidentSummaryV2ExcelRowInterface
+  ) {
+    totalRow.employeeId = ''
+    totalRow.employeeName = ''
+    totalRow.daysOnTime += row.daysOnTime
+    totalRow.tolerances += row.tolerances
+    totalRow.delays += row.delays
+    totalRow.earlyOuts += row.earlyOuts
+    totalRow.rests += row.rests
+    totalRow.sundayBonus += row.sundayBonus
+    totalRow.vacations += row.vacations
+    totalRow.exeptions += row.exeptions
+    totalRow.holidaysWorked += row.holidaysWorked
+    totalRow.restWorked += row.restWorked
+    totalRow.faults += row.faults
+    totalRow.delayFaults += row.delayFaults
+    totalRow.earlyOutsFaults += row.earlyOutsFaults
+    totalRow.totalFaults += row.totalFaults
+    totalRow.hoursWorked += row.hoursWorked
+    totalRow.hoursAssigned += row.hoursAssigned || 0
+    totalRow.timeDifferenceAssigned = (totalRow.hoursWorked || 0) - (totalRow.hoursAssigned || 0)
+    totalRow.hoursByLaw = this.accumulateIncidentSummaryLawValue(totalRow.hoursByLaw, row.hoursByLaw)
+    totalRow.timeDifferenceLaw = this.accumulateIncidentSummaryLawValue(
+      totalRow.timeDifferenceLaw,
+      row.timeDifferenceLaw
+    )
+    totalRow.toPay += row.toPay || 0
+    totalRow.discountFaults += row.discountFaults
+  }
+
+  private addIncidentSummaryGrandTotal(
+    totalRow: AssistIncidentSummaryV2ExcelRowInterface,
+    rowByDepartment: AssistIncidentSummaryV2ExcelRowInterface
+  ) {
+    totalRow.employeeId = ''
+    totalRow.employeeName = ''
+    totalRow.department = this.t('totals').toUpperCase()
+    totalRow.daysOnTime += rowByDepartment.daysOnTime
+    totalRow.tolerances += rowByDepartment.tolerances
+    totalRow.delays += rowByDepartment.delays
+    totalRow.earlyOuts += rowByDepartment.earlyOuts
+    totalRow.rests += rowByDepartment.rests
+    totalRow.sundayBonus += rowByDepartment.sundayBonus
+    totalRow.vacations += rowByDepartment.vacations
+    totalRow.exeptions += rowByDepartment.exeptions
+    totalRow.holidaysWorked += rowByDepartment.holidaysWorked
+    totalRow.restWorked += rowByDepartment.restWorked
+    totalRow.faults += rowByDepartment.faults
+    totalRow.delayFaults += rowByDepartment.delayFaults
+    totalRow.earlyOutsFaults += rowByDepartment.earlyOutsFaults
+    totalRow.totalFaults += rowByDepartment.totalFaults
+    totalRow.hoursWorked += rowByDepartment.hoursWorked
+    totalRow.hoursAssigned += rowByDepartment.hoursAssigned || 0
+    totalRow.timeDifferenceAssigned = (totalRow.hoursWorked || 0) - (totalRow.hoursAssigned || 0)
+    totalRow.hoursByLaw = this.accumulateIncidentSummaryLawValue(totalRow.hoursByLaw, rowByDepartment.hoursByLaw)
+    totalRow.timeDifferenceLaw = this.accumulateIncidentSummaryLawValue(
+      totalRow.timeDifferenceLaw,
+      rowByDepartment.timeDifferenceLaw
+    )
+    totalRow.toPay += rowByDepartment.toPay || 0
+    totalRow.discountFaults += rowByDepartment.discountFaults
+  }
+
+  /**
+   * Calcula la fila de un empleado para el resumen de incidencias V2. Port
+   * 1:1 de `addRowIncidentCalendar` del builder client-side: corte
+   * `dateEnd`, cascada tolerancias→retardos→faltas, `hoursAssigned` (turno
+   * menos comida no computable), `hoursWorked` (trabajado menos comida),
+   * reforma 40h y `toPay`/`discountFaults` desde `dailySalary`.
+   */
+  private buildIncidentSummaryRow(
+    filters: AssistIncidentSummaryV2CalendarExcelFilterInterface
+  ): AssistIncidentSummaryV2ExcelRowInterface {
+    // TODO(USRH1788466831291): misma regla que #utils/org_alias_display.
+    // Converger al helper cuando se toque este reporte.
+    let department = filters.employee.department?.departmentAlias
+      ? filters.employee.department.departmentAlias
+      : ''
+    department =
+      department === '' && filters.employee.department?.departmentName
+        ? filters.employee.department.departmentName
+        : department
+    let daysWorked = 0
+    let daysOnTime = 0
+    let tolerances = 0
+    let delays = 0
+    let earlyOuts = 0
+    let rests = 0
+    let sundayBonus = 0
+    let vacations = 0
+    let holidaysWorked = 0
+    let restWorked = 0
+    let faults = 0
+    let hoursWorked = 0
+    let hoursAssigned = 0
+    const dateEndFormat = new Date(filters.dateEnd)
+    const exceptions: ShiftExceptionInterface[] = []
+    let firstDate: DateTime | null = null
+
+    for (const calendar of filters.employeeCalendar) {
+      const date = new Date(calendar.day)
+      if (date > dateEndFormat) {
+        continue
+      }
+      if (!firstDate) {
+        firstDate = DateTime.fromISO(calendar.day)
+      }
+      if (calendar.assist.isFutureDay) {
+        continue
+      }
+      let faultProcessed = false
+      let holidayWorked = false
+      if (calendar.assist.isHoliday && calendar.assist.checkIn) {
+        holidaysWorked += 1
+        holidayWorked = true
+      }
+      if (calendar.assist.exceptions.length > 0) {
+        for (const exception of calendar.assist.exceptions) {
+          if (!exception.exceptionType) {
+            continue
+          }
+          const exceptionTypeSlug = exception.exceptionType.exceptionTypeSlug
+          if (exceptionTypeSlug !== 'rest-day' && exceptionTypeSlug !== 'vacation') {
+            exceptions.push(exception)
+          }
+          if (exceptionTypeSlug === 'descanso-laborado' && !holidayWorked) {
+            if (
+              exception.shiftExceptionEnjoymentOfSalary &&
+              exception.shiftExceptionEnjoymentOfSalary === 1 &&
+              calendar.assist.checkIn
+            ) {
+              restWorked += 1
+            }
+          }
+          if (exceptionTypeSlug === 'absence-from-work' && exception.shiftExceptionEnjoymentOfSalary !== 1) {
+            faultProcessed = true
+            if (calendar.assist.dateShift && calendar.assist.dateShift.shiftAccumulatedFault > 0) {
+              faults += calendar.assist.dateShift.shiftAccumulatedFault
+            } else {
+              faults += 1
+            }
+          }
+        }
+      }
+      const firstCheck = this.chekInTime(calendar)
+      if (calendar.assist.dateShift) {
+        daysWorked += 1
+        if (
+          !calendar.assist.isRestDay &&
+          !calendar.assist.isFutureDay &&
+          !calendar.assist.isHoliday &&
+          !calendar.assist.isVacationDate &&
+          !calendar.assist.isWorkDisabilityDate
+        ) {
+          const shiftActiveHours = calendar.assist.dateShift.shiftActiveHours
+            ? Number.parseFloat(calendar.assist.dateShift.shiftActiveHours.toString())
+            : 0
+          hoursAssigned += shiftActiveHours
+          if (calendar.assist.dateShift?.shiftCompensableLunchSchedule !== 1) {
+            const lunchTimeHours = (calendar.assist.dateShift.shiftLunchTime || 0) / 60
+            hoursAssigned -= lunchTimeHours
+          }
+        }
+        if (calendar.assist.checkInStatus !== 'fault') {
+          if (calendar.assist.checkInStatus === 'ontime') {
+            daysOnTime += 1
+          } else if (calendar.assist.checkInStatus === 'tolerance') {
+            tolerances += 1
+          } else if (calendar.assist.checkInStatus === 'delay') {
+            delays += 1
+          }
+        }
+        if (calendar.assist.checkOutStatus !== 'fault' && calendar.assist.checkOutStatus === 'delay') {
+          earlyOuts += 1
+        }
+        if (
+          calendar.assist.isSundayBonus &&
+          (calendar.assist.checkIn ||
+            calendar.assist.checkOut ||
+            (calendar.assist.assitFlatList && calendar.assist.assitFlatList.length > 0))
+        ) {
+          sundayBonus += 1
+        }
+        if (calendar.assist.isRestDay && !firstCheck) {
+          rests += 1
+        }
+        if (calendar.assist.isVacationDate) {
+          vacations += 1
+        }
+        if (calendar.assist.checkInStatus === 'fault' && !calendar.assist.isRestDay && !faultProcessed) {
+          if (calendar.assist.dateShift && calendar.assist.dateShift.shiftAccumulatedFault > 0) {
+            faults += calendar.assist.dateShift.shiftAccumulatedFault
+          } else {
+            faults += 1
+          }
+        }
+      }
+      const checkInTime = calendar.assist.checkIn?.assistPunchTimeUtc
+      const checkOutTime = calendar.assist.checkOut?.assistPunchTimeUtc
+      const firstCheckTime = checkInTime ? toInstant(checkInTime) : null
+      const lastCheckTime = checkOutTime ? toInstant(checkOutTime) : null
+      if (firstCheckTime && lastCheckTime && firstCheckTime.isValid && lastCheckTime.isValid) {
+        const duration = lastCheckTime.diff(firstCheckTime, 'minutes')
+        const hours = Math.floor(duration.as('minutes') / 60)
+        const minutes = duration.as('minutes') % 60
+        hoursWorked += hours + minutes / 60
+      }
+      if (calendar.assist.dateShift?.shiftCompensableLunchSchedule !== 1) {
+        const checkInLunch = calendar.assist.checkEatIn?.assistPunchTimeUtc
+          ? toInstant(calendar.assist.checkEatIn.assistPunchTimeUtc)
+          : null
+        const checkOutLunch = calendar.assist.checkEatOut?.assistPunchTimeUtc
+          ? toInstant(calendar.assist.checkEatOut.assistPunchTimeUtc)
+          : null
+        if (checkInLunch && checkOutLunch) {
+          const durationInMinutes = checkOutLunch.diff(checkInLunch, 'minutes').as('minutes')
+          hoursWorked -= durationInMinutes / 60
+        }
+      }
+    }
+
+    const delayTolerances = this.getFaultsFromDelays(tolerances, filters.toleranceCountPerAbsences)
+    delays += delayTolerances
+    const delayFaults = this.getFaultsFromDelays(delays, filters.tardies)
+    const earlyOutsFaults = this.getFaultsFromDelays(earlyOuts, filters.tardies)
+    const timeDifferenceAssigned = hoursWorked - hoursAssigned
+
+    let hoursByLaw: number | null = 0
+    let timeDifferenceLaw: number | null = 0
+    if (firstDate) {
+      const endDate = DateTime.fromISO(filters.dateEnd)
+      const resolvedHoursByLaw = this.calculateIncidentSummaryHoursByLaw(
+        firstDate,
+        endDate,
+        filters.weekHoursByLawMap,
+        filters.employeeCalendar
+      )
+      hoursByLaw = resolvedHoursByLaw
+      timeDifferenceLaw = resolvedHoursByLaw === null ? null : hoursWorked - resolvedHoursByLaw
+    }
+
+    const dailySalary = filters.employee.dailySalary || 0
+    const totalFaultsForPay = faults + delayFaults + earlyOutsFaults
+
+    return {
+      workBusinessUnit: filters.employee.businessUnit?.businessUnitName || '',
+      payrollBusinessUnit: filters.employee.payrollBusinessUnit?.businessUnitName || '',
+      employeeId: filters.employee.employeePayrollCode?.toString() || '',
+      employeeName: reportFullName(
+        filters.employee.person?.personFirstname,
+        filters.employee.person?.personLastname,
+        filters.employee.person?.personSecondLastname
+      ),
+      department,
+      daysWorked,
+      daysOnTime,
+      tolerances,
+      delays,
+      earlyOuts,
+      rests,
+      sundayBonus,
+      vacations,
+      exeptions: exceptions.length,
+      holidaysWorked,
+      restWorked,
+      faults,
+      delayFaults,
+      earlyOutsFaults,
+      totalFaults: totalFaultsForPay,
+      hoursWorked,
+      hoursAssigned,
+      timeDifferenceAssigned,
+      hoursByLaw,
+      timeDifferenceLaw,
+      toPay: dailySalary * daysWorked - dailySalary * totalFaultsForPay,
+      discountFaults: dailySalary * totalFaultsForPay,
+    }
+  }
+
+  /**
+   * Título del resumen de incidencias V2 (formato neutral, sin logo): B1 bold 18 + merge
+   * dinámico hasta Z/AA/AB según las columnas salariales habilitadas por el
+   * servidor (nunca por el cliente).
+   */
+  private addTitleIncidentSummaryV2Sheet(
+    worksheet: ExcelJS.Worksheet,
+    title: string,
+    canDisplayPaymentsSummary: boolean,
+    canDisplayDiscountsSummary: boolean
+  ) {
+    // Sin logo: la fila 1 solo lleva el título, con altura acorde a la fuente
+    worksheet.getRow(1).height = 30
+    worksheet.getCell('B1').value = title
+    worksheet.getCell('B1').font = { bold: true, size: 18, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+    worksheet.getCell('B1').alignment = { horizontal: 'center', vertical: 'middle' }
+    let lastColumn = 'Z'
+    if (canDisplayPaymentsSummary) {
+      lastColumn = 'AA'
+    }
+    if (canDisplayDiscountsSummary) {
+      lastColumn = canDisplayPaymentsSummary ? 'AB' : 'AA'
+    }
+    worksheet.mergeCells(`B1:${lastColumn}1`)
+    worksheet.views = frozenHeaderViews(3)
+    worksheet.addRow([])
+  }
+
+  /** Encabezado del resumen de incidencias V2: 25 columnas base + `to_pay`/`discounts` condicionales. */
+  private addHeadRowIncidentSummaryV2(
+    worksheet: ExcelJS.Worksheet,
+    canDisplayPaymentsSummary: boolean,
+    canDisplayDiscountsSummary: boolean
+  ) {
+    const headers = [
+      this.t('work_business_unit'),
+      this.t('payroll_business_unit'),
+      this.t('department'),
+      this.t('report_employee_id'),
+      this.t('report_employee_name'),
+      this.t('days_worked'),
+      this.t('on_time'),
+      this.t('tolerances'),
+      this.t('delays'),
+      this.t('early_outs'),
+      this.t('rests'),
+      this.t('sunday_bonus'),
+      this.t('vacations'),
+      this.t('exceptions'),
+      this.t('holidays_worked'),
+      this.t('rest_worked'),
+      this.t('faults'),
+      this.t('delays_faults'),
+      this.t('early_outs_faults'),
+      this.t('total_faults'),
+      this.t('total_hours_worked'),
+      this.t('hours_assigned'),
+      this.t('time_difference_assigned'),
+      this.t('hours_by_law'),
+      this.t('time_difference_law'),
+    ]
+    if (canDisplayPaymentsSummary) {
+      headers.push(this.t('to_pay'))
+    }
+    if (canDisplayDiscountsSummary) {
+      headers.push(this.t('discounts'))
+    }
+    const headerRow = worksheet.addRow(headers)
+    const totalColumns = headers.length
+    for (let col = 1; col <= totalColumns; col++) {
+      worksheet.getCell(3, col).fill = {
+        type: 'pattern',
+        pattern: 'solid',
+        fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
+      }
+    }
+    headerRow.height = 30
+    headerRow.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+    const widths: Array<[number, number, 'left' | 'center']> = [
+      [1, 23, 'center'],
+      [2, 16, 'center'],
+      [3, 32, 'left'],
+      [4, 16, 'center'],
+      [5, 16, 'center'],
+      [6, 16, 'center'],
+      [7, 16, 'center'],
+      [8, 16, 'center'],
+      [9, 16, 'center'],
+      [10, 16, 'center'],
+      [11, 16, 'center'],
+      [12, 16, 'center'],
+      [13, 16, 'center'],
+      [14, 16, 'center'],
+      [15, 16, 'center'],
+      [16, 16, 'center'],
+      [17, 16, 'center'],
+      [18, 16, 'center'],
+      [19, 16, 'center'],
+      [20, 16, 'center'],
+      [21, 20, 'center'],
+      [22, 20, 'center'],
+      [23, 20, 'center'],
+      [24, 20, 'center'],
+      [25, 20, 'center'],
+    ]
+    for (const [col, width, align] of widths) {
+      const column = worksheet.getColumn(col)
+      column.width = width
+      column.alignment = { vertical: 'middle', horizontal: align }
+    }
+    let colIndex = 26
+    if (canDisplayPaymentsSummary) {
+      const column = worksheet.getColumn(colIndex)
+      column.width = 20
+      column.alignment = { vertical: 'middle', horizontal: 'center' }
+      colIndex++
+    }
+    if (canDisplayDiscountsSummary) {
+      const column = worksheet.getColumn(colIndex)
+      column.width = 20
+      column.alignment = { vertical: 'middle', horizontal: 'center' }
+    }
+  }
+
+  /**
+   * Escribe las filas del resumen de incidencias V2, con merge vertical de
+   * departamento en la columna C (fill `subheaderFill`) y fila de totales
+   * (fill `totalFill`), ambos de la paleta neutral. Los N/D de horas por ley se renderizan con la llave
+   * `hours_by_law_not_resolved`.
+   */
+  private addIncidentSummaryRowsToWorksheet(
+    rows: AssistIncidentSummaryV2ExcelRowInterface[],
+    worksheet: ExcelJS.Worksheet,
+    canDisplayPaymentsSummary: boolean,
+    canDisplayDiscountsSummary: boolean
+  ) {
+    let rowCount = 5
+    let currentDepartment = ''
+    let currentDepartmentRow = 5
+    const totalColumns = 25 + (canDisplayPaymentsSummary ? 1 : 0) + (canDisplayDiscountsSummary ? 1 : 0)
+    for (const rowData of rows) {
+      if (rowData.employeeName === 'null') {
+        continue
+      }
+      if (currentDepartment !== rowData.department && rowData.department) {
+        if (currentDepartment !== '') {
+          worksheet.mergeCells(`C${currentDepartmentRow}:C${rowCount - 3}`)
+          for (let rowCurrent = currentDepartmentRow; rowCurrent < rowCount - 2; rowCurrent++) {
+            const cell = worksheet.getCell(rowCurrent, 3)
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: REPORT_NEUTRAL_ARGB.subheaderFill } }
+            cell.font = { color: { argb: REPORT_NEUTRAL_ARGB.text } }
+          }
+        }
+        currentDepartment = rowData.department
+        currentDepartmentRow = rowCount - 1
+      }
+      const rowValues: Array<string | number> = [
+        rowData.workBusinessUnit,
+        rowData.payrollBusinessUnit,
+        rowData.department,
+        rowData.employeeId,
+        rowData.employeeName,
+        rowData.daysWorked,
+        rowData.daysOnTime,
+        rowData.tolerances,
+        rowData.delays,
+        rowData.earlyOuts,
+        rowData.rests,
+        rowData.sundayBonus,
+        rowData.vacations,
+        rowData.exeptions,
+        rowData.holidaysWorked,
+        rowData.restWorked,
+        rowData.faults,
+        rowData.delayFaults,
+        rowData.earlyOutsFaults,
+        rowData.totalFaults,
+        this.decimalToTimeString(rowData.hoursWorked),
+        this.decimalToTimeString(rowData.hoursAssigned || 0),
+        this.formatIncidentSummaryTimeDifference(rowData.timeDifferenceAssigned || 0),
+        rowData.hoursByLaw === null
+          ? this.t('hours_by_law_not_resolved')
+          : this.decimalToTimeString(rowData.hoursByLaw || 0),
+        rowData.timeDifferenceLaw === null
+          ? this.t('hours_by_law_not_resolved')
+          : this.formatIncidentSummaryTimeDifference(rowData.timeDifferenceLaw || 0),
+      ]
+      if (canDisplayPaymentsSummary) {
+        rowValues.push(rowData.toPay || 0)
+      }
+      if (canDisplayDiscountsSummary) {
+        rowValues.push(rowData.discountFaults)
+      }
+      worksheet.addRow(rowValues)
+      if (!rowData.employeeName && rowData.employeeId === '') {
+        for (let col = 1; col <= totalColumns; col++) {
+          const cell = worksheet.getCell(rowCount - 1, col)
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: REPORT_NEUTRAL_ARGB.subheaderFill } }
+          cell.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+        }
+      }
+      if (rowData.department === this.t('totals').toUpperCase()) {
+        for (let col = 1; col <= totalColumns; col++) {
+          const cell = worksheet.getCell(rowCount - 1, col)
+          const row = worksheet.getRow(rowCount - 1)
+          row.height = 30
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: REPORT_NEUTRAL_ARGB.totalFill } }
+          cell.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+        }
+      }
+      rowCount += 1
+    }
+  }
+
+  /**
+   * Genera el buffer del resumen de incidencias para toda la empresa
+   * (job asíncrono `assistance_incident_summary`). Las columnas de pagos y
+   * descuentos las decide EXCLUSIVAMENTE el servidor (`canDisplayPaymentsSummary`
+   * / `canDisplayDiscountsSummary`, resueltas vía `RoleService.hasAccess` en
+   * el controlador) — nunca un flag del cliente.
+   */
+  async generateIncidentSummaryBuffer(
+    filters: AssistExcelFilterInterface,
+    departmentsList: number[],
+    allowedBusinessUnitIds: number[],
+    canDisplayPaymentsSummary: boolean,
+    canDisplayDiscountsSummary: boolean,
+    onProgress: (current: number, total: number) => Promise<void>
+  ) {
+    const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+    if (!scope) {
+      return this.buildExcelBusinessUnitScopeError()
+    }
+    const businessUnitFilterIds = scope.businessUnitFilterIds
+    const departments = await Department.query()
+      .whereNull('department_deleted_at')
+      .whereIn('departmentId', departmentsList)
+      .if(businessUnitFilterIds.length > 0, (query) => {
+        query.whereIn('businessUnitId', businessUnitFilterIds)
+      })
+      .orderBy('departmentId')
+
+    const departmentService = new DepartmentService(this.i18n)
+    const employeeService = new EmployeeService(this.i18n)
+    const filterDate = filters.filterDate
+    const filterDateEnd = filters.filterDateEnd
+    const tardies = await this.getTardiesTolerance()
+    const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
+    const weekHoursByLawMap = await this.buildIncidentSummaryWeekHoursByLawMap(
+      filterDate,
+      filterDateEnd,
+      scope.resolvedBusinessUnitId
+    )
+
+    let progressTotal = 0
+    try {
+      for (const departmentRow of departments) {
+        const positions = await departmentService.getPositions(departmentRow.departmentId, filters.userResponsibleId)
+        for (const position of positions) {
+          const emps: any = await this.fetchEmployeesForExcelReport(
+            employeeService,
+            {
+              search: '',
+              departmentId: departmentRow.departmentId,
+              positionId: position.positionId,
+              page: 1,
+              limit: 999999999999999,
+              employeeWorkSchedule: '',
+              ignoreDiscriminated: 0,
+              ignoreExternal: 1,
+              userResponsibleId: filters.userResponsibleId,
+              payrollBusinessUnitId: filters.payrollBusinessUnitId,
+            },
+            [departmentRow.departmentId],
+            scope.resolvedBusinessUnitId,
+            scope.businessUnitFilterIds
+          )
+          if (emps) progressTotal += Array.isArray(emps) ? emps.length : 0
+        }
+      }
+    } catch {
+      progressTotal = 0
+    }
+
+    const rowsIncident: AssistIncidentSummaryV2ExcelRowInterface[] = []
+    const totalRowIncident = {} as AssistIncidentSummaryV2ExcelRowInterface
+    this.cleanIncidentSummaryTotalRow(totalRowIncident)
+    let progressCurrent = 0
+
+    for await (const departmentRow of departments) {
+      const departmentId = departmentRow.departmentId
+      const totalRowByDepartmentIncident = {} as AssistIncidentSummaryV2ExcelRowInterface
+      this.cleanIncidentSummaryTotalRow(totalRowByDepartmentIncident)
+      let hasEmployees = false
+      const resultPositions = await departmentService.getPositions(departmentId, filters.userResponsibleId)
+      const syncAssistsService = new SyncAssistsService(this.i18n)
+      for await (const position of resultPositions) {
+        const resultEmployes = await this.fetchEmployeesForExcelReport(
+          employeeService,
+          {
+            search: '',
+            departmentId: departmentId,
+            positionId: position.positionId,
+            page: 1,
+            limit: 999999999999999,
+            employeeWorkSchedule: '',
+            ignoreDiscriminated: 0,
+            ignoreExternal: 1,
+            userResponsibleId: filters.userResponsibleId,
+            payrollBusinessUnitId: filters.payrollBusinessUnitId,
+          },
+          [departmentId],
+          scope.resolvedBusinessUnitId,
+          scope.businessUnitFilterIds
+        )
+        if (!resultEmployes) {
+          return this.buildExcelBusinessUnitScopeError()
+        }
+        const dataEmployes: any = resultEmployes
+        for await (const employee of dataEmployes) {
+          const result = await syncAssistsService.index(
+            { date: filterDate, dateEnd: filterDateEnd, employeeID: employee.employeeId },
+            { page: 1, limit: 999999999999999 }
+          )
+          const data: any = result.data
+          this.adoptCalendarZone(data)
+          if (data) {
+            hasEmployees = true
+            const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+            const row = this.buildIncidentSummaryRow({
+              employee,
+              employeeCalendar,
+              tardies,
+              toleranceCountPerAbsences,
+              dateEnd: filterDateEnd,
+              weekHoursByLawMap,
+            })
+            this.addIncidentSummaryDepartmentTotal(totalRowByDepartmentIncident, row)
+            rowsIncident.push(row)
+          }
+          progressCurrent++
+          await onProgress(progressCurrent, progressTotal)
+        }
+      }
+      if (hasEmployees) {
+        rowsIncident.push(JSON.parse(JSON.stringify(totalRowByDepartmentIncident)))
+        this.addIncidentSummaryGrandTotal(totalRowIncident, totalRowByDepartmentIncident)
+      }
+    }
+    rowsIncident.push(totalRowIncident)
+
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet(this.t('incident_summary'))
+    const title = `${this.t('summary_report')} ${this.getRange(filterDate, filterDateEnd)}`
+    this.addTitleIncidentSummaryV2Sheet(
+      worksheet,
+      title,
+      canDisplayPaymentsSummary,
+      canDisplayDiscountsSummary
+    )
+    this.addHeadRowIncidentSummaryV2(worksheet, canDisplayPaymentsSummary, canDisplayDiscountsSummary)
+    this.addIncidentSummaryRowsToWorksheet(rowsIncident, worksheet, canDisplayPaymentsSummary, canDisplayDiscountsSummary)
+
+    blankMissingTexts(workbook)
+    const buffer = await workbook.xlsx.writeBuffer()
+    return {
+      status: 201,
+      type: 'success' as const,
+      title: this.t('resource'),
+      message: this.t('resource_was_created_successfully'),
+      buffer,
+    }
+  }
+
+  /**
+   * Genera el buffer del resumen de incidencias para un solo empleado
+   * (job asíncrono `assistance_incident_summary` en la ruta by-employee).
+   * Respeta `withTrashed` vía el empleado ya cargado (baja fuera de scope
+   * no se distingue: no-oráculo del USRH1785766125028).
+   */
+  async generateIncidentSummaryEmployeeBuffer(
+    employee: Employee,
+    filters: AssistEmployeeExcelFilterInterface,
+    canDisplayPaymentsSummary: boolean,
+    canDisplayDiscountsSummary: boolean,
+    onProgress: (current: number, total: number) => Promise<void>
+  ) {
+    const filterDate = filters.filterDate
+    const filterDateEnd = filters.filterDateEnd
+    await onProgress(0, 1)
+
+    const syncAssistsService = new SyncAssistsService(this.i18n)
+    const result = await syncAssistsService.index(
+      { date: filterDate, dateEnd: filterDateEnd, employeeID: employee.employeeId },
+      { page: 1, limit: 999999999999999 }
+    )
+    const data: any = result.data
+    this.adoptCalendarZone(data)
+    const rowsIncident: AssistIncidentSummaryV2ExcelRowInterface[] = []
+    const totalRowIncident = {} as AssistIncidentSummaryV2ExcelRowInterface
+    this.cleanIncidentSummaryTotalRow(totalRowIncident)
+    const totalRowByDepartmentIncident = {} as AssistIncidentSummaryV2ExcelRowInterface
+    this.cleanIncidentSummaryTotalRow(totalRowByDepartmentIncident)
+    const tardies = await this.getTardiesTolerance()
+    const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
+    const weekHoursByLawMap = await this.buildIncidentSummaryWeekHoursByLawMap(
+      filterDate,
+      filterDateEnd,
+      employee.businessUnitId
+    )
+
+    if (data) {
+      const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+      const row = this.buildIncidentSummaryRow({
+        employee,
+        employeeCalendar,
+        tardies,
+        toleranceCountPerAbsences,
+        dateEnd: filterDateEnd,
+        weekHoursByLawMap,
+      })
+      rowsIncident.push(row)
+      this.addIncidentSummaryDepartmentTotal(totalRowByDepartmentIncident, row)
+    }
+    this.addIncidentSummaryGrandTotal(totalRowIncident, totalRowByDepartmentIncident)
+    rowsIncident.push(totalRowByDepartmentIncident)
+    rowsIncident.push(totalRowIncident)
+
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet(this.t('incident_summary'))
+    const title = `${this.t('summary_report')} ${this.getRange(filterDate, filterDateEnd)}`
+    this.addTitleIncidentSummaryV2Sheet(
+      worksheet,
+      title,
+      canDisplayPaymentsSummary,
+      canDisplayDiscountsSummary
+    )
+    this.addHeadRowIncidentSummaryV2(worksheet, canDisplayPaymentsSummary, canDisplayDiscountsSummary)
+    this.addIncidentSummaryRowsToWorksheet(rowsIncident, worksheet, canDisplayPaymentsSummary, canDisplayDiscountsSummary)
+    await onProgress(1, 1)
+
+    blankMissingTexts(workbook)
+    const buffer = await workbook.xlsx.writeBuffer()
+    return {
+      status: 201,
+      type: 'success' as const,
+      title: this.t('resource'),
+      message: this.t('resource_was_created_successfully'),
+      buffer,
+    }
+  }
+
+  /**
+   * Genera el buffer del reporte de incidencias de nómina de toda la
+   * empresa (job asíncrono `assistance_incident_summary_payroll` sin
+   * `employeeId`, USRH1785766125045). Reutiliza SIN CAMBIOS el motor de
+   * cálculo ya existente (`appendIncidentPayrollRowsForDepartmentEmployees`,
+   * `addRowIncidentPayrollCalendar`, motor `PayrollOvertime*`, elegibilidad,
+   * persistencia de asignaciones de HE): esta historia solo cambia la
+   * forma de entrega (job asíncrono con progreso), nunca el cálculo.
+   */
+  async generateIncidentSummaryPayrollBuffer(
+    filters: AssistExcelFilterInterface,
+    departmentsList: Array<number>,
+    allowedBusinessUnitIds: number[],
+    onProgress: (current: number, total: number) => Promise<void>
+  ) {
+    const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+    if (!scope) {
+      return this.buildExcelBusinessUnitScopeError()
+    }
+    const businessUnitFilterIds = scope.businessUnitFilterIds
+    const departments = await Department.query()
+      .whereNull('department_deleted_at')
+      .whereIn('departmentId', departmentsList)
+      .if(businessUnitFilterIds.length > 0, (query) => {
+        query.whereIn('businessUnitId', businessUnitFilterIds)
+      })
+      .orderBy('departmentId')
+    const filterDate = filters.filterDate
+    const filterDateEnd = filters.filterDateEnd
+    const employeeService = new EmployeeService(this.i18n)
+    const tardies = await this.getTardiesTolerance()
+    const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
+    await this.getBusinessUnits()
+
+    // Primera pasada solo para estimar el total del progreso (no altera el
+    // cálculo del reporte; si falla, el progreso queda indeterminado).
+    let progressTotal = 0
+    try {
+      for (const departmentRow of departments) {
+        const countResult = await this.fetchEmployeesForExcelReport(
+          employeeService,
+          {
+            search: '',
+            departmentId: departmentRow.departmentId,
+            positionId: 0,
+            employeeWorkSchedule: '',
+            page: 1,
+            limit: 999999999999999,
+            orderBy: 'name',
+            orderDirection: 'ascend',
+            ignoreDiscriminated: 1,
+            ignoreExternal: 1,
+            onlyPayroll: false,
+            userResponsibleId: filters.userResponsibleId,
+            payrollBusinessUnitId: filters.payrollBusinessUnitId,
+            branchNameIds: filters.branchNameIds,
+          },
+          [departmentRow.departmentId],
+          scope.resolvedBusinessUnitId,
+          scope.businessUnitFilterIds
+        )
+        if (countResult) progressTotal += countResult.all().length
+      }
+    } catch {
+      progressTotal = 0
+    }
+
+    const workbook = new ExcelJS.Workbook()
+    const rowsIncidentPayroll = [] as AssistIncidentPayrollExcelRowInterface[]
+    const tradeName = await this.getTradeName()
+    const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll_sheet'))
+    const titlePayroll = `${this.t('incidents')} ${tradeName} ${this.getRange(filterDate, filterDateEnd)}`
+    this.addTitleIncidentPayrollToWorkSheet(worksheet, titlePayroll)
+    this.addHeadRowIncidentPayroll(worksheet)
+    const syncAssistsService = new SyncAssistsService(this.i18n)
+    let progressCurrent = 0
+    for await (const departmentRow of departments) {
+      const departmentId = departmentRow.departmentId
+      await this.appendIncidentPayrollRowsForDepartmentEmployees({
+        departmentId,
+        filterDate,
+        filterDateEnd,
+        filterDatePay: filters.filterDatePay ?? '',
+        userResponsibleId: filters.userResponsibleId,
+        businessUnitId: scope.resolvedBusinessUnitId,
+        payrollBusinessUnitId: filters.payrollBusinessUnitId,
+        branchNameIds: filters.branchNameIds,
+        businessUnitFilterIds: scope.businessUnitFilterIds,
+        employeeService,
+        syncAssistsService,
+        tardies,
+        toleranceCountPerAbsences,
+        rowsIncidentPayroll,
+        page: 1,
+        limit: 999999999999999,
+        onEmployeeIterated: async () => {
+          progressCurrent++
+          await onProgress(progressCurrent, progressTotal)
+        },
+      })
+    }
+    await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
+    await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
+
+    blankMissingTexts(workbook)
+    const buffer = await workbook.xlsx.writeBuffer()
+    return {
+      status: 201,
+      type: 'success' as const,
+      title: this.t('resource'),
+      message: this.t('resource_was_created_successfully'),
+      buffer,
+    }
+  }
+
+  /**
+   * Genera el buffer del reporte de incidencias de nómina de un solo
+   * empleado (job asíncrono `assistance_incident_summary_payroll` en la
+   * ruta by-employee, USRH1785766125045). Reutiliza SIN CAMBIOS
+   * `addRowIncidentPayrollCalendar` (mismo motor que la variante de toda
+   * la empresa). Respeta `withTrashed` vía el empleado ya cargado
+   * (no-oráculo del USRH1785766125028).
+   */
+  async generateIncidentSummaryPayrollEmployeeBuffer(
+    employee: Employee,
+    filters: AssistEmployeeExcelFilterInterface,
+    onProgress: (current: number, total: number) => Promise<void>
+  ) {
+    await onProgress(0, 1)
+    const filterDate = filters.filterDate
+    const filterDateEnd = filters.filterDateEnd
+    const syncAssistsService = new SyncAssistsService(this.i18n)
+    const result = await syncAssistsService.index(
+      {
+        date: filterDate,
+        dateEnd: filterDateEnd,
+        employeeID: filters.employeeId,
+        withOutExternal: true,
+      },
+      { page: 1, limit: 999999999999999 }
+    )
+    const data: any = result.data
+    this.adoptCalendarZone(data)
+    const tardies = await this.getTardiesTolerance()
+    const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
+
+    const workbook = new ExcelJS.Workbook()
+    const rowsIncidentPayroll = [] as AssistIncidentPayrollExcelRowInterface[]
+    const tradeName = await this.getTradeName()
+    const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll_sheet'))
+    const titlePayroll = `${this.t('incidents')} ${tradeName} ${this.getRange(filterDate, filterDateEnd)}`
+    this.addTitleIncidentPayrollToWorkSheet(worksheet, titlePayroll)
+    this.addHeadRowIncidentPayroll(worksheet)
+
+    await this.getBusinessUnits()
+    if (data) {
+      const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+      const incidentPayrollFilters: AssistIncidentPayrollCalendarExcelFilterInterface = {
+        employee: employee,
+        employeeCalendar: employeeCalendar,
+        tardies: tardies,
+        datePay: filters.filterDatePay,
+        toleranceCountPerAbsences: toleranceCountPerAbsences,
+      }
+      const newRows = await this.addRowIncidentPayrollCalendar(incidentPayrollFilters)
+      for (const row of newRows) {
+        rowsIncidentPayroll.push(row)
+      }
+    }
+    await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
+    await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
+    await onProgress(1, 1)
+
+    blankMissingTexts(workbook)
+    const buffer = await workbook.xlsx.writeBuffer()
+    return {
+      status: 201,
+      type: 'success' as const,
+      title: this.t('resource'),
+      message: this.t('resource_was_created_successfully'),
+      buffer,
+    }
+  }
+
   async getExcelAllIncidentSummary(
     filters: AssistExcelFilterInterface,
-    departmentsList: Array<number>
+    departmentsList: Array<number>,
+    allowedBusinessUnitIds: number[] = []
   ) {
     try {
+      const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+      if (!scope) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
+      const businessUnitFilterIds = scope.businessUnitFilterIds
       const departments = await Department.query()
         .whereNull('department_deleted_at')
         .whereIn('departmentId', departmentsList)
+        .if(businessUnitFilterIds.length > 0, (query) => {
+          query.whereIn('businessUnitId', businessUnitFilterIds)
+        })
         .orderBy('departmentId')
 
       const filterDate = filters.filterDate
@@ -878,7 +2257,7 @@ export default class AssistsService {
       const rowsIncident = [] as AssistIncidentExcelRowInterface[]
       const worksheet = workbook.addWorksheet(this.t('incident_summary'))
       const title = `${this.t('summary_report')} ${this.getRange(filterDate, filterDateEnd)}`
-      await this.addTitleIncidentToWorkSheet(workbook, worksheet, title)
+      this.addTitleIncidentToWorkSheet(worksheet, title)
       this.addHeadRowIncident(worksheet)
       const totalRowIncident = {} as AssistIncidentExcelRowInterface
       await this.cleanTotalByDepartment(totalRowIncident)
@@ -893,7 +2272,8 @@ export default class AssistsService {
         const resultPositions = await departmentService.getPositions(departmentId, filters.userResponsibleId)
         const syncAssistsService = new SyncAssistsService(this.i18n)
         for await (const position of resultPositions) {
-          const resultEmployes = await employeeService.index(
+          const resultEmployes = await this.fetchEmployeesForExcelReport(
+            employeeService,
             {
               search: '',
               departmentId: departmentId,
@@ -904,9 +2284,15 @@ export default class AssistsService {
               ignoreDiscriminated: 0,
               ignoreExternal: 1,
               userResponsibleId: filters.userResponsibleId,
+              payrollBusinessUnitId: filters.payrollBusinessUnitId,
             },
-            [departmentId]
+            [departmentId],
+            scope.resolvedBusinessUnitId,
+            scope.businessUnitFilterIds
           )
+          if (!resultEmployes) {
+            return this.buildExcelBusinessUnitScopeError()
+          }
           const dataEmployes: any = resultEmployes
           for await (const employee of dataEmployes) {
             const result = await syncAssistsService.index(
@@ -918,6 +2304,7 @@ export default class AssistsService {
               { page, limit }
             )
             const data: any = result.data
+            this.adoptCalendarZone(data)
             if (data) {
               const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
               let newRows = [] as AssistIncidentExcelRowInterface[]
@@ -940,6 +2327,7 @@ export default class AssistsService {
       }
       await rowsIncident.push(totalRowIncident)
       await this.addRowIncidentToWorkSheet(rowsIncident, worksheet)
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -960,88 +2348,68 @@ export default class AssistsService {
   }
 
   async getExcelAllIncidentSummaryPayRoll(
-    filters: AssistDepartmentExcelFilterInterface,
-    departmentsList: Array<number>
+    filters: AssistExcelFilterInterface,
+    departmentsList: Array<number>,
+    allowedBusinessUnitIds: number[] = []
   ) {
     try {
+      const scope = this.resolveExcelBusinessUnitScope(filters.businessUnitId, allowedBusinessUnitIds)
+      if (!scope) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
+      const businessUnitFilterIds = scope.businessUnitFilterIds
       const departments = await Department.query()
         .whereNull('department_deleted_at')
         .whereIn('departmentId', departmentsList)
+        .if(businessUnitFilterIds.length > 0, (query) => {
+          query.whereIn('businessUnitId', businessUnitFilterIds)
+        })
         .orderBy('departmentId')
       const filterDate = filters.filterDate
       const filterDateEnd = filters.filterDateEnd
-      const departmentService = new DepartmentService(this.i18n)
       const employeeService = new EmployeeService(this.i18n)
       const tardies = await this.getTardiesTolerance()
       const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
+      await this.getBusinessUnits()
       // Crear un nuevo libro de Excel
       const workbook = new ExcelJS.Workbook()
       // hasta aquí era lo de incidencias
       const rowsIncidentPayroll = [] as AssistIncidentPayrollExcelRowInterface[]
       const tradeName = await this.getTradeName()
-      const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll'))
+      const worksheet = workbook.addWorksheet(this.t('incident_summary_payroll_sheet'))
       const titlePayroll = `${this.t('incidents')} ${tradeName} ${this.getRange(filterDate, filterDateEnd)}`
-      await this.addTitleIncidentPayrollToWorkSheet(workbook, worksheet, titlePayroll)
+      this.addTitleIncidentPayrollToWorkSheet(worksheet, titlePayroll)
       this.addHeadRowIncidentPayroll(worksheet)
+      const syncAssistsService = new SyncAssistsService(this.i18n)
       for await (const departmentRow of departments) {
         const totalRowByDepartmentIncident = {} as AssistIncidentExcelRowInterface
         await this.cleanTotalByDepartment(totalRowByDepartmentIncident)
         const departmentId = departmentRow.departmentId
         const page = 1
         const limit = 999999999999999
-        const resultPositions = await departmentService.getPositions(departmentId, filters.userResponsibleId)
-        const syncAssistsService = new SyncAssistsService(this.i18n)
-        for await (const position of resultPositions) {
-          const resultEmployes = await employeeService.index(
-            {
-              search: '',
-              departmentId: departmentId,
-              positionId: position.positionId,
-              employeeWorkSchedule: '',
-              page: page,
-              limit: limit,
-              ignoreDiscriminated: 0,
-              ignoreExternal: 1,
-              onlyPayroll: false,
-              userResponsibleId: filters.userResponsibleId,
-            },
-            [departmentId]
-          )
-          const dataEmployes: any = resultEmployes
-          for await (const employee of dataEmployes) {
-            const result = await syncAssistsService.index(
-              {
-                date: filterDate,
-                dateEnd: filterDateEnd,
-                employeeID: employee.employeeId,
-                withOutExternal: true,
-              },
-              { page, limit }
-            )
-            const data: any = result.data
-            if (data) {
-              const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
-              let newRows = [] as AssistIncidentPayrollExcelRowInterface[]
-              const incidentPayrollFilters: AssistIncidentPayrollCalendarExcelFilterInterface = {
-                employee: employee,
-                employeeCalendar:employeeCalendar,
-                tardies: tardies,
-                datePay: filters.filterDatePay,
-                toleranceCountPerAbsences: toleranceCountPerAbsences,
-              }
-              newRows = await this.addRowIncidentPayrollCalendar(
-                incidentPayrollFilters
-              )
-              for await (const row of newRows) {
-                rowsIncidentPayroll.push(row)
-              }
-            }
-          }
-        }
+        await this.appendIncidentPayrollRowsForDepartmentEmployees({
+          departmentId,
+          filterDate,
+          filterDateEnd,
+          filterDatePay: filters.filterDatePay ?? '',
+          userResponsibleId: filters.userResponsibleId,
+          businessUnitId: scope.resolvedBusinessUnitId,
+          payrollBusinessUnitId: filters.payrollBusinessUnitId,
+          branchNameIds: filters.branchNameIds,
+          businessUnitFilterIds: scope.businessUnitFilterIds,
+          employeeService,
+          syncAssistsService,
+          tardies,
+          toleranceCountPerAbsences,
+          rowsIncidentPayroll,
+          page,
+          limit,
+        })
       }
       await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
       await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
       // Crear un buffer del archivo Excel
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -1050,71 +2418,75 @@ export default class AssistsService {
         message: this.t('resource_was_created_successfully'),
         buffer: buffer,
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error))
+      console.error('AssistsService.getExcelAllIncidentSummaryPayRoll: error al generar reporte', err)
       return {
         status: 500,
         type: 'error',
         title: this.t('server_error'),
         message: this.t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
+        error: err.message,
+        ...(env.get('NODE_ENV') !== 'production' ? { errorDetail: err.stack } : {}),
       }
     }
   }
 
+  /** Colores de estatus (semánticos, no de marca): se conservan en el formato neutral. */
   private paintIncidents(worksheet: ExcelJS.Worksheet, row: number, value: string) {
-    let color = 'FFFFFFF'
-    let fgColor = 'FFFFFFF'
+    let color: string = REPORT_NEUTRAL_ARGB.background
+    let fgColor: string = REPORT_NEUTRAL_ARGB.text
     if (value === this.t('fault').toUpperCase()) {
       color = 'FFD45633'
-      fgColor = 'FFFFFFF'
+      fgColor = REPORT_NEUTRAL_ARGB.textInverse
     } else if (value === this.t('ontime').toUpperCase()) {
       color = 'FF33D4AD'
-      fgColor = 'FFFFFFF'
+      fgColor = REPORT_NEUTRAL_ARGB.textInverse
     } else if (value === this.t('next').toUpperCase()) {
-      color = 'E4E4E4'
-      fgColor = '000000'
+      color = 'FFE4E4E4'
+      fgColor = REPORT_NEUTRAL_ARGB.text
     } else if (value === this.t('rest').toUpperCase()) {
-      color = 'E4E4E4'
-      fgColor = '000000'
+      color = 'FFE4E4E4'
+      fgColor = REPORT_NEUTRAL_ARGB.text
     } else if (value === this.t('vacations').toUpperCase()) {
-      color = 'FFFFFFF'
-      fgColor = '000000'
+      color = REPORT_NEUTRAL_ARGB.background
+      fgColor = REPORT_NEUTRAL_ARGB.text
     } else if (value === this.t('holiday').toUpperCase()) {
-      color = 'FFFFFFF'
-      fgColor = '000000'
+      color = REPORT_NEUTRAL_ARGB.background
+      fgColor = REPORT_NEUTRAL_ARGB.text
     } else if (value === this.t('delay').toUpperCase()) {
-      color = 'FF993A'
+      color = 'FFFF993A'
     } else if (value === this.t('tolerance').toUpperCase()) {
-      color = '3CB4E5'
+      color = 'FF3CB4E5'
     } else if (value === this.t('exception').toUpperCase()) {
-      fgColor = '000000'
+      fgColor = REPORT_NEUTRAL_ARGB.text
     }
     worksheet.getCell('P' + row).fill = {
       type: 'pattern',
       pattern: 'solid',
-      fgColor: { argb: color }, // Color de fondo rojo
+      fgColor: { argb: color },
     }
     worksheet.getCell('P' + row).font = {
-      color: { argb: fgColor }, // Color de fondo rojo
+      color: { argb: fgColor },
     }
   }
 
   private paintEmployeeTerminated(worksheet: ExcelJS.Worksheet, columnName: string, row: number) {
     const color = 'FFD45633'
-    const fgColor = 'FFFFFFF'
+    const fgColor = REPORT_NEUTRAL_ARGB.textInverse
     worksheet.getCell(columnName + row).fill = {
       type: 'pattern',
       pattern: 'solid',
-      fgColor: { argb: color }, // Color de fondo rojo
+      fgColor: { argb: color },
     }
     worksheet.getCell(columnName + row).font = {
-      color: { argb: fgColor }, // Color de fondo rojo
+      color: { argb: fgColor },
     }
   }
 
   private paintCheckOutStatus(worksheet: ExcelJS.Worksheet, row: number, value: string) {
     if (value.toString().toUpperCase() === 'DELAY') {
-      const fgColor = 'FF993A'
+      const fgColor = 'FFFF993A'
       worksheet.getCell('N' + row).font = {
         color: { argb: fgColor },
       }
@@ -1167,21 +2539,14 @@ export default class AssistsService {
     return day
   }
 
-  private calendarDayMonth(dateYear: number, dateMonth: number, dateDay: number) {
-    const date = DateTime.local(dateYear, dateMonth, dateDay, 0).setLocale(this.localeToUse)
-    const day = date.toFormat('dd/MMMM')
-    return day
-  }
-
   private chekInTime(checkAssist: AssistDayInterface) {
     if (!checkAssist?.assist?.checkIn?.assistPunchTimeUtc) {
       return ''
     }
-    const timeCheckIn = DateTime.fromISO(
-      checkAssist.assist.checkIn.assistPunchTimeUtc.toString(),
-      { setZone: true }
-    ).setZone('UTC-6').setLocale(this.localeToUse)
-    return timeCheckIn.toFormat('MMM d, yyyy, h:mm:ss a')
+    const timeCheckIn = wallTime(checkAssist.assist.checkIn.assistPunchTimeUtc, this.siteZone).setLocale(
+      this.localeToUse
+    )
+    return timeCheckIn.toFormat(REPORT_DATE_TIME_FORMAT)
   }
 
   private chekOutTime(checkAssist: AssistDayInterface) {
@@ -1189,22 +2554,21 @@ export default class AssistsService {
       return ''
     }
 
-    const now = DateTime.now().toFormat('yyyy-LL-dd')
-    const timeCheckOut = DateTime.fromISO(
-      checkAssist.assist.checkOut.assistPunchTimeUtc.toString(),
-      { setZone: true }
-    ).setZone('UTC-6').setLocale(this.localeToUse)
+    const now = DateTime.now().setZone(this.siteZone).toFormat('yyyy-LL-dd')
+    const timeCheckOut = wallTime(checkAssist.assist.checkOut.assistPunchTimeUtc, this.siteZone).setLocale(
+      this.localeToUse
+    )
     if (timeCheckOut.toFormat('yyyy-LL-dd') === now) {
       checkAssist.assist.checkOutStatus = ''
       return ''
     }
-    return timeCheckOut.toFormat('MMM d, yyyy, h:mm:ss a')
+    return timeCheckOut.toFormat(REPORT_DATE_TIME_FORMAT)
   }
 
   addHeadRow(worksheet: ExcelJS.Worksheet) {
     const headerRow = worksheet.addRow([
-      `${this.t('employee')} ID`,
-      `${this.t('employee')} ${this.t('name')}`,
+      this.t('report_employee_id'),
+      this.t('report_employee_name'),
       this.t('department'),
       this.t('position'),
       this.t('date'),
@@ -1221,36 +2585,17 @@ export default class AssistsService {
       this.t('status'),
       this.t('exception_notes')
     ])
-    let fgColor = 'FFFFFFF'
-    let color = '538DD5'
-    for (let col = 1; col <= 6; col++) {
+    // Encabezado neutral: todas las columnas con el mismo gris y texto negro
+    for (let col = 1; col <= 17; col++) {
       const cell = worksheet.getCell(4, col)
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: color },
-      }
-    }
-    color = '16365C'
-    for (let col = 7; col <= 9; col++) {
-      const cell = worksheet.getCell(4, col)
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-    }
-    color = '538DD5'
-    for (let col = 10; col <= 17; col++) {
-      const cell = worksheet.getCell(4, col)
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
+        fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
       }
     }
     headerRow.height = 30
-    headerRow.font = { bold: true, color: { argb: fgColor } }
+    headerRow.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
     const columnA = worksheet.getColumn(1)
     columnA.width = 20
     columnA.alignment = { vertical: 'middle', horizontal: 'center' }
@@ -1313,10 +2658,7 @@ export default class AssistsService {
           exceptions.push(exception)
         }
       }
-      const day = this.dateDay(calendar.day)
-      const month = this.dateMonth(calendar.day)
-      const year = this.dateYear(calendar.day)
-      const calendarDay = this.calendarDayMonth(year, month, day)
+      const calendarDay = formatReportCalendarDate(calendar.day)
       const firstCheck = this.chekInTime(calendar)
       const lastCheck = this.chekOutTime(calendar)
       let status = calendar.assist.checkInStatus
@@ -1336,34 +2678,34 @@ export default class AssistsService {
       if (!calendar.assist.dateShift) {
         status = ''
       }
-      let department = employee.department.departmentAlias
-        ? employee.department.departmentAlias
-        : ''
-      department =
-        department === '' && employee.department?.departmentName
-          ? employee.department.departmentName
-          : ''
-      let position = employee.position.positionAlias ? employee.position.positionAlias : ''
-      position =
-        position === '' && employee.position?.positionName ? employee.position.positionName : ''
+      const department = resolveOrgAliasDisplay(
+        employee.department?.departmentAlias,
+        employee.department?.departmentName,
+        Boolean(employee.department?.deletedAt)
+      )
+      const position = resolveOrgAliasDisplay(
+        employee.position?.positionAlias,
+        employee.position?.positionName,
+        Boolean(employee.position?.deletedAt)
+      )
       let shiftName = ''
       let shiftStartDate = ''
       let shiftEndsDate = ''
       let hoursWorked = 0
       if (calendar && calendar.assist && calendar.assist.dateShift) {
-        shiftName = calendar.assist.dateShift.shiftName
-        shiftStartDate = calendar.assist.dateShift.shiftTimeStart
+        shiftName = reportText(calendar.assist.dateShift.shiftName)
+        shiftStartDate = reportText(calendar.assist.dateShift.shiftTimeStart)
         const hoursToAddParsed = calendar.assist.dateShift.shiftActiveHours
         const time = DateTime.fromFormat(shiftStartDate, 'HH:mm:ss')
         const newTime = time.plus({ hours: hoursToAddParsed })
-        shiftEndsDate = newTime.toFormat('HH:mm:ss')
+        shiftEndsDate = newTime.isValid ? newTime.toFormat('HH:mm:ss') : ''
       }
 
       const checkInTime = calendar.assist.checkIn?.assistPunchTimeUtc
       const checkOutTime = calendar.assist.checkOut?.assistPunchTimeUtc
 
-      const firstCheckTime = checkInTime ? DateTime.fromISO(checkInTime.toString(), { zone: 'UTC-6' }) : null
-      const lastCheckTime = checkOutTime ? DateTime.fromISO(checkOutTime.toString(), { zone: 'UTC-6' }) : null
+      const firstCheckTime = checkInTime ? toInstant(checkInTime) : null
+      const lastCheckTime = checkOutTime ? toInstant(checkOutTime) : null
 
       if (firstCheckTime && lastCheckTime && firstCheckTime.isValid && lastCheckTime.isValid) {
         const durationInMinutes = lastCheckTime.diff(firstCheckTime, 'minutes').as('minutes')
@@ -1377,14 +2719,18 @@ export default class AssistsService {
         hoursWorked += timeInDecimal
       }
 
-      const rowCheckInTime = calendar.assist.checkIn?.assistPunchTimeUtc && !calendar.assist.isFutureDay ? DateTime.fromISO(calendar.assist.checkIn.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6').toFormat('ff') : ''
-      const rowLunchTime = calendar.assist?.checkEatIn?.assistPunchTimeUtc ? DateTime.fromISO(calendar.assist.checkEatIn.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6').setLocale(this.localeToUse).toFormat('MMM d, yyyy, h:mm:ss a') : ''
-      const rowReturnLunchTime = calendar?.assist?.checkEatOut?.assistPunchTimeUtc ? DateTime.fromISO(calendar.assist.checkEatOut.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6').setLocale(this.localeToUse).toFormat('MMM d, yyyy, h:mm:ss a') : ''
-      const rowCheckOutTime = calendar.assist.checkOut?.assistPunchTimeUtc && !calendar.assist.isFutureDay ? DateTime.fromISO(calendar.assist.checkOut?.assistPunchTimeUtc.toString(), { setZone: true }).setZone('UTC-6').toFormat('ff') : ''
+      const rowCheckInTime = calendar.assist.checkIn?.assistPunchTimeUtc && !calendar.assist.isFutureDay ? wallTime(calendar.assist.checkIn.assistPunchTimeUtc, this.siteZone).toFormat(REPORT_DATE_TIME_FORMAT) : ''
+      const rowLunchTime = calendar.assist?.checkEatIn?.assistPunchTimeUtc ? wallTime(calendar.assist.checkEatIn.assistPunchTimeUtc, this.siteZone).setLocale(this.localeToUse).toFormat(REPORT_DATE_TIME_FORMAT) : ''
+      const rowReturnLunchTime = calendar?.assist?.checkEatOut?.assistPunchTimeUtc ? wallTime(calendar.assist.checkEatOut.assistPunchTimeUtc, this.siteZone).setLocale(this.localeToUse).toFormat(REPORT_DATE_TIME_FORMAT) : ''
+      const rowCheckOutTime = calendar.assist.checkOut?.assistPunchTimeUtc && !calendar.assist.isFutureDay ? wallTime(calendar.assist.checkOut.assistPunchTimeUtc, this.siteZone).toFormat(REPORT_DATE_TIME_FORMAT) : ''
 
       rows.push({
         code: employee.employeeCode.toString(),
-        name: `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
+        name: reportFullName(
+          employee.person?.personFirstname,
+          employee.person?.personLastname,
+          employee.person?.personSecondLastname
+        ),
         department: department,
         position: position,
         date: calendarDay,
@@ -1420,8 +2766,8 @@ export default class AssistsService {
         ? exception.shiftExceptionsDescription
         : ''
       richText.push(
-        { text: type, font: { bold: true, size: 12, color: { argb: '000000' } } },
-        { text: `\n${description}\n`, font: { italic: true, size: 10, color: { argb: '000000' } } }
+        { text: type, font: { bold: true, size: 12, color: { argb: REPORT_NEUTRAL_ARGB.text } } },
+        { text: `\n${description}\n`, font: { italic: true, size: 10, color: { argb: REPORT_NEUTRAL_ARGB.text } } }
       )
     }
     const cell = worksheet.getCell('Q' + rowCount)
@@ -1444,7 +2790,7 @@ export default class AssistsService {
       }
       let incidents =
         !rowData.name && rowData.code !== '0'
-          ? faultsTotal.toString().padStart(2, '0') + ' TOTAL FAULTS'
+          ? `${faultsTotal.toString().padStart(2, '0')} ${this.t('total_faults').toUpperCase()}`
           : rowData.incidents
       worksheet.addRow([
         rowData.code !== '0' ? rowData.code : '',
@@ -1476,7 +2822,7 @@ export default class AssistsService {
         await this.addExceptions(rowData, worksheet, rowCount)
       }
       if (!rowData.name && rowData.code !== '0') {
-        const color = 'FDE9D9'
+        const color = REPORT_NEUTRAL_ARGB.subheaderFill
         for (let col = 1; col <= 17; col++) {
           const cell = worksheet.getCell(rowCount, col)
           const row = worksheet.getRow(rowCount)
@@ -1496,8 +2842,8 @@ export default class AssistsService {
   addHeadRowIncident(worksheet: ExcelJS.Worksheet) {
     const headerRow = worksheet.addRow([
       this.t('department'),
-      `${this.t('employee')} ID`,
-      `${this.t('employee')} ${this.t('name')}`,
+      this.t('report_employee_id'),
+      this.t('report_employee_name'),
       this.t('days_worked'),
       this.t('on_time'),
       this.t('tolerances'),
@@ -1515,18 +2861,16 @@ export default class AssistsService {
       this.t('total_faults'),
       this.t('total_hours_worked')
     ])
-    let fgColor = 'FFFFFFF'
-    let color = '30869C'
     for (let col = 1; col <= 19; col++) {
       const cell = worksheet.getCell(3, col)
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: color },
+        fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
       }
     }
     headerRow.height = 30
-    headerRow.font = { bold: true, color: { argb: fgColor } }
+    headerRow.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
     const columnA = worksheet.getColumn(1)
     columnA.width = 23
     columnA.alignment = { vertical: 'middle', horizontal: 'center' }
@@ -1590,11 +2934,11 @@ export default class AssistsService {
     filters: AssistIncidentSummaryCalendarExcelFilterInterface
   ) {
     const rows = [] as AssistIncidentExcelRowInterface[]
-    let department = filters.employee.department.departmentAlias ? filters.employee.department.departmentAlias : ''
-    department =
-      department === '' && filters.employee.department?.departmentName
-        ? filters.employee.department.departmentName
-        : ''
+    const department = resolveOrgAliasDisplay(
+      filters.employee.department?.departmentAlias,
+      filters.employee.department?.departmentName,
+      Boolean(filters.employee.department?.deletedAt)
+    )
     let daysWorked = 0
     let daysOnTime = 0
     let tolerances = 0
@@ -1697,8 +3041,8 @@ export default class AssistsService {
         const checkInTime = calendar.assist.checkIn?.assistPunchTimeUtc
         const checkOutTime = calendar.assist.checkOut?.assistPunchTimeUtc
 
-        const firstCheckTime = checkInTime ? DateTime.fromISO(checkInTime.toString(), { zone: 'UTC-6' }) : null
-        const lastCheckTime = checkOutTime ? DateTime.fromISO(checkOutTime.toString(), { zone: 'UTC-6' }) : null
+        const firstCheckTime = checkInTime ? toInstant(checkInTime) : null
+        const lastCheckTime = checkOutTime ? toInstant(checkOutTime) : null
 
         if (firstCheckTime && lastCheckTime && firstCheckTime.isValid && lastCheckTime.isValid) {
           const duration = lastCheckTime.diff(firstCheckTime, 'minutes')
@@ -1716,7 +3060,11 @@ export default class AssistsService {
     earlyOutsFaults = this.getFaultsFromDelays(earlyOuts, filters.tardies)
     rows.push({
       employeeId: filters.employee.employeeCode.toString(),
-      employeeName: `${filters.employee.person?.personFirstname} ${filters.employee.person?.personLastname} ${filters.employee.person?.personSecondLastname}`,
+      employeeName: reportFullName(
+        filters.employee.person?.personFirstname,
+        filters.employee.person?.personLastname,
+        filters.employee.person?.personSecondLastname
+      ),
       department: department,
       daysWorked: daysWorked,
       daysOnTime: daysOnTime,
@@ -1800,13 +3148,12 @@ export default class AssistsService {
             worksheet.mergeCells(`A${currentDepartmentRow}:A${rowCount - 3}`)
             for (let rowCurrent = currentDepartmentRow; rowCurrent < rowCount - 2; rowCurrent++) {
               const cell = worksheet.getCell(rowCurrent, 1)
-              const color = '93CDDC'
               cell.fill = {
                 type: 'pattern',
                 pattern: 'solid',
-                fgColor: { argb: color },
+                fgColor: { argb: REPORT_NEUTRAL_ARGB.subheaderFill },
               }
-              cell.font = { color: { argb: 'FFFFFF' } }
+              cell.font = { color: { argb: REPORT_NEUTRAL_ARGB.text } }
             }
           }
           currentDepartment = rowData.department
@@ -1834,19 +3181,17 @@ export default class AssistsService {
           this.decimalToTimeString(rowData.hoursWorked),
         ])
         if (!rowData.employeeName && rowData.employeeId === '') {
-          const color = '93CDDC'
           for (let col = 1; col <= 19; col++) {
             const cell = worksheet.getCell(rowCount - 1, col)
             cell.fill = {
               type: 'pattern',
               pattern: 'solid',
-              fgColor: { argb: color },
+              fgColor: { argb: REPORT_NEUTRAL_ARGB.subheaderFill },
             }
-            cell.font = { color: { argb: 'FFFFFF' } }
+            cell.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
           }
         }
         if (rowData.department === this.t('totals').toUpperCase()) {
-          const color = '30869C'
           for (let col = 1; col <= 19; col++) {
             const cell = worksheet.getCell(rowCount - 1, col)
             const row = worksheet.getRow(rowCount - 1)
@@ -1854,9 +3199,9 @@ export default class AssistsService {
             cell.fill = {
               type: 'pattern',
               pattern: 'solid',
-              fgColor: { argb: color },
+              fgColor: { argb: REPORT_NEUTRAL_ARGB.totalFill },
             }
-            cell.font = { color: { argb: 'FFFFFF' } }
+            cell.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
           }
         }
         rowCount += 1
@@ -1864,29 +3209,14 @@ export default class AssistsService {
     }
   }
 
-  async addTitleIncidentToWorkSheet(
-    workbook: ExcelJS.Workbook,
-    worksheet: ExcelJS.Worksheet,
-    title: string
-  ) {
-    const assistExcelImageInterface = {
-      workbook: workbook,
-      worksheet: worksheet,
-      col: 0.28,
-      row: 0.7,
-    } as AssistExcelImageInterface
-    await this.addImageLogo(assistExcelImageInterface)
-    worksheet.getRow(1).height = 60
-    const fgColor = '000000'
+  addTitleIncidentToWorkSheet(worksheet: ExcelJS.Worksheet, title: string) {
+    // Sin logo: la fila 1 solo lleva el título, con altura acorde a la fuente
+    worksheet.getRow(1).height = 30
     worksheet.getCell('B1').value = title
-    worksheet.getCell('B1').font = { bold: true, size: 18, color: { argb: fgColor } }
+    worksheet.getCell('B1').font = { bold: true, size: 18, color: { argb: REPORT_NEUTRAL_ARGB.text } }
     worksheet.getCell('B1').alignment = { horizontal: 'center', vertical: 'middle' }
     worksheet.mergeCells('B1:R1')
-    worksheet.views = [
-      { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-      { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-      { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-    ]
+    worksheet.views = frozenHeaderViews(3)
     worksheet.addRow([])
   }
 
@@ -1962,40 +3292,13 @@ export default class AssistsService {
     return faults
   }
 
-  async store(assist: Assist) {
-    const newAssist = new Assist()
-    newAssist.assistEmpCode = assist.assistEmpCode
-    newAssist.assistTerminalSn = assist.assistTerminalSn
-    newAssist.assistTerminalAlias = assist.assistTerminalAlias
-    newAssist.assistAreaAlias = assist.assistAreaAlias
-    newAssist.assistLongitude = assist.assistLongitude
-    newAssist.assistLatitude = assist.assistLatitude
-    newAssist.assistPrecision = assist.assistPrecision
-    newAssist.assistUploadTime = assist.assistUploadTime
-    newAssist.assistEmpId = assist.assistEmpId
-    newAssist.assistTerminalId = assist.assistTerminalId
-    newAssist.assistSyncId = assist.assistSyncId
-    newAssist.assistType = assist.assistType
-    newAssist.assistPunchTime = assist.assistPunchTime
-    newAssist.assistPunchTimeUtc = assist.assistPunchTimeUtc
-    newAssist.assistPunchTimeOrigin = assist.assistPunchTimeOrigin
-    await newAssist.save()
-    const employee = await  Employee.query()
-      .whereNull('employee_deleted_at')
-      .where('employee_code',assist.assistEmpCode )
-      .first()
-    if (employee) {
-      const syncAssistsService = new SyncAssistsService(this.i18n)
-      const filter: SyncAssistsServiceIndexInterface = {
-        date: newAssist.assistPunchTimeUtc.setZone('UTC-6').plus({ day: -1 }).toFormat('yyyy-MM-dd'),
-        dateEnd: newAssist.assistPunchTimeUtc.setZone('UTC-6').plus({ day: 1 }).toFormat('yyyy-MM-dd'),
-        employeeID: employee.employeeId
-      }
-      await syncAssistsService.setDateCalendar(filter)
-    }
-
-    return newAssist
-  }
+  /**
+   * `store()` se retiró en USRH1788135907801: el alta de checadas pasa por
+   * `#modules/assist-ingestion`, único camino de escritura del producto. La versión
+   * anterior resolvía al empleado del recálculo de calendario sólo por
+   * `employee_code`, sin empresa, y podía recalcular el calendario de la persona
+   * equivocada cuando dos empresas comparten código.
+   */
 
   /**
    * Registra una asistencia simplificada mediante WebSocket.
@@ -2032,6 +3335,7 @@ export default class AssistsService {
     newAssist.assistTerminalAlias = deviceAlias
     newAssist.assistAreaAlias = ''
     newAssist.assistSyncId = 0
+    newAssist.businessUnitId = employee.businessUnitId
 
     await newAssist.save()
 
@@ -2072,25 +3376,11 @@ export default class AssistsService {
         data: { ...assist },
       }
     }
-    if (punchTime) {
-      const existDate = await Assist.query()
-        .where('assist_emp_id', assist.assistEmpId)
-        .whereNull('assist_deleted_at')
-        .where('assist_punch_time', sqlPunchTime)
-        .first()
-
-      if (existDate) {
-        const entity = this.t('assist')
-        const param = this.t('assist_register')
-        return {
-          status: 400,
-          type: 'warning',
-          title: this.t('the_value_of_entity_already_exists_for_another_register', { entity: param  }),
-          message: `${this.t('entity_resource_cannot_be', { entity })} ${this.t(action)} ${this.t('because_the_value_of_entity_is_already_assigned_to_another_register', { entity: param })}`,
-          data: { ...assist },
-        }
-      }
-    }
+    // La deduplicación por (assist_emp_id, assist_punch_time) se retiró en
+    // USRH1788135907801: el único criterio de "ya existe" en el producto es la llave
+    // natural, que el motor de ingesta arbitra con el índice único y contesta como
+    // éxito idempotente. Esta rama devolvía 400 por una checada que sí había quedado
+    // registrada. La validación del instante parseable de arriba se conserva.
     return {
       status: 200,
       type: 'success',
@@ -2148,412 +3438,317 @@ export default class AssistsService {
     return index !== -1 ? headers[index + 1] : null
   }
 
-  async getFormatPayRoll(date: string) {
-    try {
-      const monthPeriod = Number.parseInt(DateTime.fromJSDate(new Date(date)).toFormat('LL'))
-      const yearPeriod = Number.parseInt(DateTime.fromJSDate(new Date(date)).toFormat('yyyy'))
-      const dayPeriod = Number.parseInt(DateTime.fromJSDate(new Date(date)).toFormat('dd'))
-      const dateLocal = DateTime.local(yearPeriod, monthPeriod, dayPeriod)
-      const startOfWeek = dateLocal.startOf('week')
-      const thursday = startOfWeek.plus({ days: 3 })
-      const start = thursday.minus({ days: 24 })
-      const firstDayPeriod = start.minus({ days: 1 }).startOf('day').setZone('utc')
-      const tardies = await this.getTardiesTolerance()
-      const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
-      const syncAssistsService = new SyncAssistsService(this.i18n)
-      const period = this.calculatePayPeriod(date)
-      const dateNew = new Date(date)
-      const year = dateNew.getFullYear()
-      const workbook = new ExcelJS.Workbook()
-      const worksheet = workbook.addWorksheet('Inc SA2 p01')
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-      worksheet.columns = [
-        { key: 'inc' },
-        { key: 'sa2' },
-        { key: 'ordinary' },
-        { key: 'employee' },
-        { key: 'year' },
-        { key: 'period' },
-        { key: 'code' },
-        { key: 'date' },
-        { key: 'faults' },
-      ]
-      const employees = await Employee.query()
-        .whereIn('businessUnitId', businessUnitsList)
-        .whereNull('employee_deleted_at')
-        .orderBy('employee_id')
-      const firstDate = firstDayPeriod.toFormat('yyyy-MM-dd')
-      const lastDate = firstDayPeriod.plus({ days: 13 }).startOf('day').setZone('utc')
-      let faultsTotal = 0
-      for await (const employee of employees) {
-        const result = await syncAssistsService.index(
-          {
-            date: firstDate,
-            dateEnd: lastDate.toFormat('yyyy-MM-dd'),
-            employeeID: employee.employeeId,
-          },
-          { page: 1, limit: 100 }
-        )
-        const data: any = result.data
-        if (data) {
-          const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
-          const faults = await this.getFaultsFromEmployeeCalendar(employeeCalendar, tardies, toleranceCountPerAbsences)
-          faultsTotal += faults
-          if (faults > 0) {
-            worksheet.addRow({
-              inc: 'INC',
-              sa2: 'SA2',
-              ordinary: 'ORDINARI',
-              employee: employee.employeeCode,
-              year: year,
-              period: period,
-              code: 'faults',
-              date: firstDate,
-              faults: faults,
-            })
-          }
-        }
-      }
-      const buffer = await workbook.csv.writeBuffer()
-
-      return {
-        status: 201,
-        type: 'success',
-        title: this.t('resource'),
-        message: this.t('resource_was_created_successfully'),
-        buffer: buffer,
-      }
-    } catch (error) {
-      return {
-        status: 500,
-        type: 'error',
-        title: this.t('server_error'),
-        message: this.t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
-      }
-    }
-  }
-
-  async getFaultsFromEmployeeCalendar(employeeCalendar: AssistDayInterface[], tardies: number, toleranceCountPerAbsences: number) {
-    let daysWorked = 0
-    let daysOnTime = 0
-    let tolerances = 0
-    let delays = 0
-    let earlyOuts = 0
-    let rests = 0
-    let sundayBonus = 0
-    let vacations = 0
-    let holidaysWorked = 0
-    let restWorked = 0
-    let faults = 0
-    let delayFaults = 0
-    let earlyOutsFaults = 0
-    const exceptions = [] as ShiftExceptionInterface[]
-    for await (const calendar of employeeCalendar) {
-      if (!calendar.assist.isFutureDay) {
-        let laborRestCounted = false
-        if (calendar.assist.exceptions.length > 0) {
-          for await (const exception of calendar.assist.exceptions) {
-            if (exception.exceptionType) {
-              const exceptionTypeSlug = exception.exceptionType.exceptionTypeSlug
-              if (exceptionTypeSlug !== 'rest-day' && exceptionTypeSlug !== 'vacation') {
-                exceptions.push(exception)
-              }
-              if (exceptionTypeSlug === 'descanso-laborado') {
-                if (
-                  exception.shiftExceptionEnjoymentOfSalary &&
-                  exception.shiftExceptionEnjoymentOfSalary === 1 &&
-                  calendar.assist.checkIn
-                ) {
-                  restWorked += 1
-                  laborRestCounted = true
-                }
-              }
-            }
-          }
-        }
-        const firstCheck = this.chekInTime(calendar)
-        if (calendar.assist.dateShift) {
-          daysWorked += 1
-          if (calendar.assist.checkInStatus !== 'fault') {
-            if (calendar.assist.checkInStatus === 'ontime') {
-              daysOnTime += 1
-            } else if (calendar.assist.checkInStatus === 'tolerance') {
-              tolerances += 1
-            } else if (calendar.assist.checkInStatus === 'delay') {
-              delays += 1
-            }
-          }
-          if (calendar.assist.checkOutStatus !== 'fault') {
-            if (calendar.assist.checkOutStatus === 'delay') {
-              earlyOuts += 1
-            }
-          }
-          if (
-            calendar.assist.isSundayBonus &&
-            (calendar.assist.checkIn ||
-              calendar.assist.checkOut ||
-              (calendar.assist.assitFlatList && calendar.assist.assitFlatList.length > 0))
-          ) {
-            sundayBonus += 1
-          }
-          if (calendar.assist.isRestDay && !firstCheck) {
-            rests += 1
-          }
-          if (calendar.assist.isVacationDate) {
-            vacations += 1
-          }
-          if (calendar.assist.checkInStatus === 'fault' && !calendar.assist.isRestDay) {
-            faults += 1
-          }
-        }
-        if (calendar.assist.isHoliday && calendar.assist.checkIn) {
-          holidaysWorked += 1
-          if (!laborRestCounted) {
-            restWorked += 1
-          }
-        }
-      }
-    }
-
-    const delayTolerances = this.getFaultsFromDelays(tolerances, toleranceCountPerAbsences)
-    delays += delayTolerances
-
-    delayFaults = this.getFaultsFromDelays(delays, tardies)
-    earlyOutsFaults = this.getFaultsFromDelays(earlyOuts, tardies)
-    faults = faults + delayFaults + earlyOutsFaults
-    return faults
-  }
-
-  isPayThursday(dateToCheck: string, referencePayDate: string): boolean {
-    const referenceDate = new Date(referencePayDate)
-    const targetDate = new Date(dateToCheck)
-    if (Number.isNaN(referenceDate.getTime())) {
-      return false
-    }
-    if (Number.isNaN(targetDate.getTime())) {
-      return false
-    }
-    const isThursday = targetDate.getDay() === 4
-    if (!isThursday) {
-      return false
-    }
-    const differenceInMilliseconds = targetDate.getTime() - referenceDate.getTime()
-    const differenceInDays = Math.abs(differenceInMilliseconds / (1000 * 60 * 60 * 24))
-
-    return differenceInDays % 14 === 0
-  }
-
-  calculatePayPeriod(datePay: string) {
-    const date = DateTime.fromISO(datePay)
-    if (!date.isValid) {
-      return 0
-    }
-    const dayOfYear = date.ordinal
-    const payPeriodNumber = Math.ceil(dayOfYear / 14)
-
-    return payPeriodNumber
-  }
-
-  async getLogo() {
-    let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      if (systemSettingActive.systemSettingLogo) {
-        imageLogo = systemSettingActive.systemSettingLogo
-      }
-    }
-    return imageLogo
-  }
-
+  /** Retardos que suman una falta, según la empresa activa. */
   async getToleranceCountPerAbsence() {
-    let tolerancePerAbsence = 0
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      if (systemSettingActive.systemSettingToleranceCountPerAbsence) {
-        tolerancePerAbsence = systemSettingActive.systemSettingToleranceCountPerAbsence
-      }
-    }
-    if (tolerancePerAbsence === 0) {
-      tolerancePerAbsence = 3
-    }
-    return tolerancePerAbsence
+    const systemSetting = await new SystemSettingService().resolveForActiveTenant()
+
+    return systemSetting?.systemSettingToleranceCountPerAbsence || DEFAULT_TOLERANCE_COUNT_PER_ABSENCE
   }
 
-  async addTitleIncidentPayrollToWorkSheet(
-    workbook: ExcelJS.Workbook,
-    worksheet: ExcelJS.Worksheet,
-    title: string
-  ) {
-    worksheet.addRow([title])
-    worksheet.addRow(['', '', '', title])
-    const assistExcelImageInterface = {
-      workbook: workbook,
-      worksheet: worksheet,
-      col: 14.2,
-      row: 1.2,
-    } as AssistExcelImageInterface
-    await this.addImageLogo(assistExcelImageInterface)
-    worksheet.getRow(2).height = 45
-    const fgColor = 'FFFFFF'
+  /**
+   * Indica si el empleado puede incluirse en reportes de nómina del monitor,
+   * replicando `computeDepartmentStatistics` del front
+   * (`employeeAssistDiscriminator === 0`).
+   */
+  private isPayrollAssistEligibleEmployee(employee: Employee): boolean {
+    return employee.employeeAssistDiscriminator === 0
+  }
 
-    worksheet.getCell('D2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('F2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('G2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('H2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('I2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('J2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('K2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    worksheet.getCell('L2').font = { bold: true, size: 18, color: { argb: fgColor } }
-    let cell = worksheet.getCell(2, 4)
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: '203864' },
+  /**
+   * Indica si el empleado tiene días evaluables en el periodo, replicando
+   * `computeDepartmentStatistics` del front (`totalAvailable > 0`).
+   */
+  private hasPayrollEvaluableAttendance(employeeCalendar: AssistDayInterface[]): boolean {
+    const evaluableDays = employeeCalendar.filter(
+      (day) =>
+        !day.assist.isFutureDay &&
+        !day.assist.isRestDay &&
+        !day.assist.isVacationDate &&
+        !day.assist.isHoliday &&
+        !day.assist.isWorkDisabilityDate &&
+        !day.assist.hasExceptions
+    )
+    const assists = evaluableDays.filter((day) => day.assist.checkInStatus === 'ontime').length
+    const tolerances = evaluableDays.filter((day) => day.assist.checkInStatus === 'tolerance').length
+    const delays = evaluableDays.filter((day) => day.assist.checkInStatus === 'delay').length
+    const faults = evaluableDays.filter((day) => day.assist.checkInStatus === 'fault').length
+    return assists + tolerances + delays + faults > 0
+  }
+
+  /**
+   * Parámetros para armar filas de nómina de un departamento con el mismo
+   * orden que el front (`fetchEmployees` → `orderBy: name`, `ascend`).
+   */
+  private async appendIncidentPayrollRowsForDepartmentEmployees(params: {
+    departmentId: number
+    filterDate: string
+    filterDateEnd: string
+    filterDatePay: string
+    userResponsibleId?: number
+    businessUnitId?: number
+    payrollBusinessUnitId?: number
+    branchNameIds?: number[]
+    businessUnitFilterIds: number[]
+    employeeService: EmployeeService
+    syncAssistsService: SyncAssistsService
+    tardies: number
+    toleranceCountPerAbsences: number
+    rowsIncidentPayroll: AssistIncidentPayrollExcelRowInterface[]
+    page: number
+    limit: number
+    /**
+     * Gancho opcional de progreso (job asíncrono): se invoca una vez por
+     * cada empleado considerado del departamento, se incluya o no en el
+     * reporte (elegibilidad/asistencia evaluable). No altera el cálculo;
+     * los llamadores que no lo necesitan simplemente no lo pasan.
+     */
+    onEmployeeIterated?: () => Promise<void>
+  }): Promise<void> {
+    const resultEmployes = await this.fetchEmployeesForExcelReport(
+      params.employeeService,
+      {
+        search: '',
+        departmentId: params.departmentId,
+        positionId: 0,
+        employeeWorkSchedule: '',
+        page: params.page,
+        limit: params.limit,
+        orderBy: 'name',
+        orderDirection: 'ascend',
+        ignoreDiscriminated: 1,
+        ignoreExternal: 1,
+        onlyPayroll: false,
+        userResponsibleId: params.userResponsibleId,
+        payrollBusinessUnitId: params.payrollBusinessUnitId,
+        branchNameIds: params.branchNameIds,
+      },
+      [params.departmentId],
+      params.businessUnitId,
+      params.businessUnitFilterIds
+    )
+    if (!resultEmployes) {
+      return
     }
-    worksheet.getCell('D2').alignment = { horizontal: 'center', vertical: 'middle' }
-    worksheet.mergeCells('D2:L2')
-    worksheet.mergeCells('A2:C4')
-    worksheet.mergeCells('M2:O4')
-    worksheet.mergeCells('A1:O1')
-    worksheet.mergeCells('D3:L4')
-    cell = worksheet.getCell(3, 4)
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: 'FFFFFF' },
+
+    for (const employee of resultEmployes.all()) {
+      if (!this.isPayrollAssistEligibleEmployee(employee)) {
+        await params.onEmployeeIterated?.()
+        continue
+      }
+
+      const result = await params.syncAssistsService.index(
+        {
+          date: params.filterDate,
+          dateEnd: params.filterDateEnd,
+          employeeID: employee.employeeId,
+          withOutExternal: true,
+        },
+        { page: params.page, limit: params.limit }
+      )
+      const data: any = result.data
+      this.adoptCalendarZone(data)
+      if (!data?.employeeCalendar) {
+        await params.onEmployeeIterated?.()
+        continue
+      }
+
+      const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+      if (!this.hasPayrollEvaluableAttendance(employeeCalendar)) {
+        await params.onEmployeeIterated?.()
+        continue
+      }
+
+      const incidentPayrollFilters: AssistIncidentPayrollCalendarExcelFilterInterface = {
+        employee: employee,
+        employeeCalendar: employeeCalendar,
+        tardies: params.tardies,
+        datePay: params.filterDatePay,
+        toleranceCountPerAbsences: params.toleranceCountPerAbsences,
+      }
+      const newRows = await this.addRowIncidentPayrollCalendar(incidentPayrollFilters)
+      for (const row of newRows) {
+        params.rowsIncidentPayroll.push(row)
+      }
+      await params.onEmployeeIterated?.()
     }
-    worksheet.views = [
-      { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-      { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-      { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-      { state: 'frozen', ySplit: 5 }, // Fija la tercer fila
-    ]
+  }
+
+  /**
+   * Título de la prenómina en formato neutral. Conserva la retícula de filas
+   * 1-4 (la cabecera vive en la fila 5 y el resto del reporte usa filas fijas);
+   * los bloques A2:E4 y O2 quedan vacíos donde antes iban los logotipos.
+   */
+  addTitleIncidentPayrollToWorkSheet(worksheet: ExcelJS.Worksheet, title: string) {
+    worksheet.addRow([])
+    worksheet.addRow([])
+    worksheet.addRow([])
+    worksheet.addRow([])
+
+    worksheet.getRow(1).height = 26
+    worksheet.getRow(2).height = 52
+    worksheet.getRow(3).height = 10
+    worksheet.getRow(4).height = 10
+
+    worksheet.mergeCells(`A1:${getIncidentPayrollExcelLastColumnLetter()}1`)
+    worksheet.mergeCells('A2:E4')
+    worksheet.mergeCells('F2:N2')
+    worksheet.mergeCells(`O2:${getIncidentPayrollExcelLastColumnLetter()}4`)
+    worksheet.mergeCells('F3:N4')
+
+    const reportLabelCell = worksheet.getCell('A1')
+    reportLabelCell.value = this.t('incident_summary_payroll')
+    reportLabelCell.font = { bold: true, size: 13, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+    reportLabelCell.alignment = { horizontal: 'center', vertical: 'middle' }
+
+    const bannerCell = worksheet.getCell('F2')
+    bannerCell.value = title
+    bannerCell.font = { bold: true, size: 16, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+    bannerCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+
+    worksheet.views = frozenHeaderViews(5)
   }
 
   addHeadRowIncidentPayroll(worksheet: ExcelJS.Worksheet) {
-    const headerRow = worksheet.addRow([
-      `${this.t('employee')} ${this.t('name')}`,
-      `${this.t('employee')} ID`,
+    const headerCells = [
+      this.t('work_business_unit'),
+      this.t('payroll_business_unit'),
+      this.t('report_employee_name'),
+      this.t('report_employee_id'),
       this.t('department'),
       this.t('company'),
       this.t('fault'),
       this.t('delay'),
       this.t('leaves'),
-      this.t('double_overtime_hours'),
-      this.t('triple_overtime_hours'),
+    ]
+
+    if (isPayrollOvertimeIncludeUnauthorizedEnabled()) {
+      headerCells.push(
+        this.t('extended_double_overtime_hours'),
+        this.t('double_overtime_hours'),
+        this.t('extended_triple_overtime_hours'),
+        this.t('triple_overtime_hours')
+      )
+    } else {
+      headerCells.push(this.t('double_overtime_hours'), this.t('triple_overtime_hours'))
+    }
+
+    headerCells.push(
       this.t('sunday_bonus_abb'),
       this.t('rest_day_worked'),
       this.t('vacation_bonus'),
       this.t('leveling'),
       this.t('bonus'),
       this.t('others')
-    ])
-    let fgColor = '000000'
-    let color = 'C9C9C9'
-    for (let col = 1; col <= 4; col++) {
+    )
+
+    const headerRow = worksheet.addRow(headerCells)
+    const totalColumns = getIncidentPayrollExcelColumnCount()
+    // Encabezado neutral: un solo gris para todos los grupos de columnas
+    for (let col = 1; col <= totalColumns; col++) {
       const cell = worksheet.getCell(5, col)
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: color },
-      }
-    }
-    color = '305496'
-    for (let col = 5; col <= 7; col++) {
-      const cell = worksheet.getCell(5, col)
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-    }
-    color = 'A9D08E'
-    for (let col = 8; col <= 14; col++) {
-      const cell = worksheet.getCell(5, col)
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-    }
-    color = '305496'
-    for (let col = 15; col <= 15; col++) {
-      const cell = worksheet.getCell(5, col)
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
+        fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
       }
     }
     headerRow.height = 40
-    fgColor = '000000'
-    headerRow.font = { bold: true, color: { argb: fgColor } }
-    fgColor = 'FFFFFF'
-    const columnA = worksheet.getColumn(1)
-    columnA.width = 42
-    const columnB = worksheet.getColumn(2)
-    columnB.width = 10
-    const columnC = worksheet.getColumn(3)
-    columnC.width = 28.57
-    const columnD = worksheet.getColumn(4)
-    columnD.width = 11.43
-    for (let index = 1; index <= 4; index++) {
+    headerRow.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+    worksheet.getColumn(1).width = 25
+    worksheet.getColumn(2).width = 25
+    worksheet.getColumn(3).width = 42
+    worksheet.getColumn(4).width = 10
+    worksheet.getColumn(5).width = 28.57
+    worksheet.getColumn(6).width = 11.43
+    for (let index = 1; index <= 6; index++) {
       const cell = worksheet.getCell(5, index)
       cell.alignment = { vertical: 'middle', horizontal: 'center' }
     }
-    const columnE = worksheet.getColumn(5)
-    columnE.width = 10
-    for (let col = 5; col <= 7; col++) {
+    for (let col = 7; col <= totalColumns; col++) {
       const cell = worksheet.getCell(5, col)
-      cell.font = { color: { argb: fgColor } }
+      if (col >= 7) {
+        worksheet.getColumn(col).width = col <= 9 ? 10 : col === totalColumns ? 40 : 10
+        cell.alignment = { vertical: 'middle', horizontal: 'center' }
+      }
     }
-    columnE.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnF = worksheet.getColumn(6)
-    columnF.width = 10
-    columnF.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnG = worksheet.getColumn(7)
-    columnG.width = 10
-    columnG.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnH = worksheet.getColumn(8)
-    columnH.width = 10
-    columnH.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnI = worksheet.getColumn(9)
-    columnI.width = 10
-    columnI.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnJ = worksheet.getColumn(10)
-    columnJ.width = 10
-    columnJ.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnK = worksheet.getColumn(11)
-    columnK.width = 10
-    columnK.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnL = worksheet.getColumn(12)
-    columnL.width = 10
-    columnL.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnM = worksheet.getColumn(13)
-    columnM.width = 10
-    columnM.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnN = worksheet.getColumn(14)
-    columnN.width = 10
-    columnN.alignment = { vertical: 'middle', horizontal: 'center' }
-    const columnO = worksheet.getColumn(15)
-    columnO.width = 40
-    columnO.font = { color: { argb: fgColor } }
-    columnO.alignment = { vertical: 'middle', horizontal: 'center' }
+  }
+
+  private getIncidentPayrollColumnLayout() {
+    if (isPayrollOvertimeIncludeUnauthorizedEnabled()) {
+      return {
+        faults: 7,
+        delays: 8,
+        inc: 9,
+        overtimeExtendedDouble: 10,
+        overtimeDouble: 11,
+        overtimeExtendedTriple: 12,
+        overtimeTriple: 13,
+        sundayBonus: 14,
+        laborRest: 15,
+        vacationBonus: 16,
+        others: 19,
+      }
+    }
+
+    return {
+      faults: 7,
+      delays: 8,
+      inc: 9,
+      overtimeDouble: 10,
+      overtimeTriple: 11,
+      sundayBonus: 12,
+      laborRest: 13,
+      vacationBonus: 14,
+      others: 17,
+    }
+  }
+
+  private buildIncidentPayrollExcelRowValues(rowData: AssistIncidentPayrollExcelRowInterface) {
+    const values: Array<string | number> = [
+      rowData.workBusinessUnit,
+      rowData.payrollBusinessUnit,
+      rowData.employeeName,
+      rowData.employeeId,
+      rowData.department,
+      rowData.company,
+      rowData.faults ? rowData.faults : '',
+      rowData.delays ? rowData.delays : '',
+      rowData.inc ? rowData.inc : '',
+    ]
+
+    if (isPayrollOvertimeIncludeUnauthorizedEnabled()) {
+      values.push(
+        rowData.overtimeExtendedDouble ? rowData.overtimeExtendedDouble : '',
+        rowData.overtimeDouble ? rowData.overtimeDouble : '',
+        rowData.overtimeExtendedTriple ? rowData.overtimeExtendedTriple : '',
+        rowData.overtimeTriple ? rowData.overtimeTriple : ''
+      )
+    } else {
+      values.push(
+        rowData.overtimeDouble ? rowData.overtimeDouble : '',
+        rowData.overtimeTriple ? rowData.overtimeTriple : ''
+      )
+    }
+
+    values.push(
+      rowData.sundayBonus ? rowData.sundayBonus : '',
+      rowData.laborRest ? rowData.laborRest : '',
+      rowData.vacationBonus ? rowData.vacationBonus : '',
+      rowData.leveling,
+      rowData.bonus,
+      rowData.others
+    )
+
+    return values
   }
 
   async addRowIncidentPayrollCalendar(
    filters: AssistIncidentPayrollCalendarExcelFilterInterface
   ) {
     const rows = [] as AssistIncidentPayrollExcelRowInterface[]
-    let department = filters.employee.department.departmentAlias ? filters.employee.department.departmentAlias : ''
+    // TODO(USRH1788466831291): misma regla que #utils/org_alias_display.
+    // Converger al helper cuando se toque este reporte.
+    let department = filters.employee.department?.departmentAlias ? filters.employee.department.departmentAlias : ''
     department =
       department === '' && filters.employee.department?.departmentName
         ? filters.employee.department.departmentName
@@ -2566,7 +3761,6 @@ export default class AssistsService {
     let rests = 0
     let sundayBonus = 0
     let laborRest = 0
-    let overtimeDouble = 0
     let vacations = 0
     let holidaysWorked = 0
     let faults = 0
@@ -2596,21 +3790,11 @@ export default class AssistsService {
                   laborRestCounted = true
                 }
               } else if (
-                exceptionTypeSlug === 'working-during-non-working-hours' &&
-                exception.shiftExceptionEnjoymentOfSalary === 1
+                (exceptionTypeSlug === 'falta-por-incapacidad' ||
+                  exceptionTypeSlug === 'incapacidad-por-maternidad') &&
+                exception.shiftExceptionEnjoymentOfSalary !== 0
               ) {
-                if (exception.shiftExceptionCheckInTime && exception.shiftExceptionCheckOutTime) {
-                  const checkIn = DateTime.fromFormat(
-                    exception.shiftExceptionCheckInTime,
-                    'HH:mm:ss'
-                  )
-                  const checkOut = DateTime.fromFormat(
-                    exception.shiftExceptionCheckOutTime,
-                    'HH:mm:ss'
-                  )
-                  const duration = checkOut.diff(checkIn, 'hours')
-                  overtimeDouble += Math.floor(duration.hours)
-                }
+                daysWorkDisability += 1
               }
               if (
                 exceptionTypeSlug === 'absence-from-work' &&
@@ -2652,7 +3836,11 @@ export default class AssistsService {
               calendar.assist.checkOut ||
               (calendar.assist.assitFlatList && calendar.assist.assitFlatList.length > 0))
           ) {
-            sundayBonus += 1
+            if (!calendar.assist.isRestDay) {
+              sundayBonus += 1
+            } else if (calendar.assist.exceptions.find(a => a.exceptionType?.exceptionTypeSlug === 'descanso-laborado')) {
+              sundayBonus += 1
+            }
           }
           if (calendar.assist.isRestDay && !firstCheck) {
             rests += 1
@@ -2662,7 +3850,7 @@ export default class AssistsService {
           }
           if (
             calendar.assist.checkInStatus === 'fault' &&
-            !calendar.assist.isRestDay &&
+            !calendar.assist.isRestDay && !calendar.assist.isFutureDay &&
             !faultProcessed
           ) {
             if (calendar.assist.dateShift && calendar.assist.dateShift.shiftAccumulatedFault > 0) {
@@ -2688,33 +3876,101 @@ export default class AssistsService {
     earlyOutsFaults = this.getFaultsFromDelays(earlyOuts, filters.tardies)
 
     vacationBonus = this.getVacationBonus(filters.employee, filters.datePay)
-    daysWorkDisability = await this.getDaysWorkDisability(filters.employee, filters.datePay)
+
+    const overtimeMeasurementService = new PayrollOvertimeMeasurementService()
+    const overtimeMeasurement = await overtimeMeasurementService.measureEmployeeOvertime(
+      filters.employee,
+      filters.employeeCalendar
+    )
+
+    const overtimeAllocationService = new PayrollOvertimeAllocationService()
+    const overtimeAllocation = overtimeAllocationService.allocateFromMeasurement(
+      filters.employee,
+      overtimeMeasurement
+    )
+
+    let extendedAllocation = null
+    let extendedMeasurement = null
+    let overtimeExtendedDouble: number | undefined
+    let overtimeExtendedTriple: number | undefined
+
+    if (isPayrollOvertimeIncludeUnauthorizedEnabled()) {
+      const unauthorizedService = new PayrollOvertimeUnauthorizedService()
+      extendedMeasurement = unauthorizedService.buildExtendedMeasurement(
+        overtimeMeasurement,
+        filters.employeeCalendar
+      )
+      extendedAllocation = overtimeAllocationService.allocateFromMeasurement(
+        filters.employee,
+        extendedMeasurement
+      )
+      overtimeExtendedDouble = overtimeAllocationService.minutesToDisplayHours(
+        extendedAllocation.totalDoubleMinutes
+      )
+      overtimeExtendedTriple = overtimeAllocationService.minutesToDisplayHours(
+        extendedAllocation.totalTripleMinutes
+      )
+    }
+
+    const overtimeWeeklyDetailService = new PayrollOvertimeWeeklyDetailService()
+    await overtimeWeeklyDetailService.persistEmployeeAllocation(
+      overtimeAllocation,
+      extendedAllocation
+    )
+
+    const overtimeDouble = overtimeAllocationService.minutesToDisplayHours(
+      overtimeAllocation.totalDoubleMinutes
+    )
+    const overtimeTriple = overtimeAllocationService.minutesToDisplayHours(
+      overtimeAllocation.totalTripleMinutes
+    )
+    const workingTimeRuleUnresolved = overtimeMeasurement.workingTimeRuleUnresolved
+
     let company = ''
     if (filters.employee.payrollBusinessUnitId) {
-      const payrollBusinessUnit = await BusinessUnit.query()
-        .whereNull('business_unit_deleted_at')
-        .where('business_unit_id', filters.employee.payrollBusinessUnitId)
-        .first()
+      const payrollBusinessUnit = this.businessUnits.find(
+        (item) => item.businessUnitId === filters.employee.payrollBusinessUnitId
+      )
       if (payrollBusinessUnit) {
         company = payrollBusinessUnit.businessUnitName
       }
     }
+    let workBusinessUnit = ''
+    if (filters.employee.businessUnitId) {
+      const workBu = this.businessUnits.find(
+        (item) => item.businessUnitId === filters.employee.businessUnitId
+      )
+      if (workBu) {
+        workBusinessUnit = workBu.businessUnitName
+      }
+    }
     rows.push({
-      employeeName: `${filters.employee.person?.personFirstname} ${filters.employee.person?.personLastname} ${filters.employee.person?.personSecondLastname}`,
-      employeeId: filters.employee.employeeCode.toString(),
+      workBusinessUnit: workBusinessUnit,
+      payrollBusinessUnit: company,
+      employeeName: reportFullName(
+        filters.employee.person?.personFirstname,
+        filters.employee.person?.personLastname,
+        filters.employee.person?.personSecondLastname
+      ),
+      employeeId: filters.employee.employeePayrollCode?.toString() || '',
       department: department,
       company: company,
       faults: faults,
       delays: delayFaults + earlyOutsFaults,
       inc: daysWorkDisability,
       overtimeDouble: overtimeDouble,
-      overtimeTriple: '',
+      overtimeTriple: overtimeTriple,
+      overtimeExtendedDouble: overtimeExtendedDouble,
+      overtimeExtendedTriple: overtimeExtendedTriple,
+      workingTimeRuleUnresolved: workingTimeRuleUnresolved,
       sundayBonus: sundayBonus,
       laborRest: laborRest,
       vacationBonus: vacationBonus,
       leveling: '',
       bonus: '',
-      others: '',
+      others: workingTimeRuleUnresolved ? this.t('working_time_rule_unresolved_mark') : '',
+      overtimeMeasurement: overtimeMeasurement,
+      overtimeAllocation: overtimeAllocation,
     })
     return rows
   }
@@ -2723,90 +3979,123 @@ export default class AssistsService {
     rows: AssistIncidentPayrollExcelRowInterface[],
     worksheet: ExcelJS.Worksheet
   ) {
+    const columns = this.getIncidentPayrollColumnLayout()
     let rowCount = 5
     for await (const rowData of rows) {
       if (rowData.employeeName !== 'null') {
-        const fgColor = '000000'
-        worksheet.addRow([
-          rowData.employeeName,
-          rowData.employeeId,
-          rowData.department,
-          rowData.company,
-          rowData.faults ? rowData.faults : '',
-          rowData.delays ? rowData.delays : '',
-          rowData.inc ? rowData.inc : '',
-          rowData.overtimeDouble ? rowData.overtimeDouble : '',
-          rowData.overtimeTriple,
-          rowData.sundayBonus ? rowData.sundayBonus : '',
-          rowData.laborRest ? rowData.laborRest : '',
-          rowData.vacationBonus ? rowData.vacationBonus : '',
-          rowData.leveling,
-          rowData.bonus,
-          rowData.others,
-        ]).font = { color: { argb: fgColor } }
-        let cell = worksheet.getCell(rowCount + 1, 4)
+        const fgColor = REPORT_NEUTRAL_ARGB.text
+        worksheet.addRow(this.buildIncidentPayrollExcelRowValues(rowData)).font = {
+          color: { argb: fgColor },
+        }
+        let cell = worksheet.getCell(rowCount + 1, 6)
         cell.font = { bold: true }
         if (rowData.faults > 0) {
-          cell = worksheet.getCell(rowCount + 1, 5)
-          cell.font = { color: { argb: '9C0006' } }
+          cell = worksheet.getCell(rowCount + 1, columns.faults)
+          cell.font = { color: { argb: 'FF9C0006' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FFC7CE' },
+            fgColor: { argb: 'FFFFC7CE' },
           }
         }
         if (rowData.delays > 0) {
-          cell = worksheet.getCell(rowCount + 1, 6)
-          cell.font = { color: { argb: '9C0006' } }
+          cell = worksheet.getCell(rowCount + 1, columns.delays)
+          cell.font = { color: { argb: 'FF9C0006' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'FFC7CE' },
+            fgColor: { argb: 'FFFFC7CE' },
           }
         }
         if (rowData.inc > 0) {
-          cell = worksheet.getCell(rowCount + 1, 7)
-          cell.font = { color: { argb: '006100' } }
+          cell = worksheet.getCell(rowCount + 1, columns.inc)
+          cell.font = { color: { argb: 'FF006100' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
+            fgColor: { argb: 'FFC6EFCE' },
           }
         }
         if (rowData.overtimeDouble > 0) {
-          cell = worksheet.getCell(rowCount + 1, 8)
-          cell.font = { color: { argb: '006100' } }
+          cell = worksheet.getCell(rowCount + 1, columns.overtimeDouble)
+          cell.font = { color: { argb: 'FF006100' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
+            fgColor: { argb: 'FFC6EFCE' },
+          }
+        }
+        if (rowData.overtimeTriple > 0) {
+          cell = worksheet.getCell(rowCount + 1, columns.overtimeTriple)
+          cell.font = { color: { argb: 'FF006100' } }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFC6EFCE' },
+          }
+        }
+        if (
+          isPayrollOvertimeIncludeUnauthorizedEnabled() &&
+          rowData.overtimeExtendedDouble &&
+          rowData.overtimeExtendedDouble > 0 &&
+          'overtimeExtendedDouble' in columns
+        ) {
+          cell = worksheet.getCell(rowCount + 1, columns.overtimeExtendedDouble!)
+          cell.font = { color: { argb: 'FF006100' } }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFC6EFCE' },
+          }
+        }
+        if (
+          isPayrollOvertimeIncludeUnauthorizedEnabled() &&
+          rowData.overtimeExtendedTriple &&
+          rowData.overtimeExtendedTriple > 0 &&
+          'overtimeExtendedTriple' in columns
+        ) {
+          cell = worksheet.getCell(rowCount + 1, columns.overtimeExtendedTriple!)
+          cell.font = { color: { argb: 'FF006100' } }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFC6EFCE' },
+          }
+        }
+        if (rowData.workingTimeRuleUnresolved) {
+          cell = worksheet.getCell(rowCount + 1, columns.others)
+          cell.font = { color: { argb: 'FF9C6500' } }
+          cell.fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: 'FFFFEB9C' },
           }
         }
         if (rowData.sundayBonus > 0) {
-          cell = worksheet.getCell(rowCount + 1, 10)
-          cell.font = { color: { argb: '006100' } }
+          cell = worksheet.getCell(rowCount + 1, columns.sundayBonus)
+          cell.font = { color: { argb: 'FF006100' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
+            fgColor: { argb: 'FFC6EFCE' },
           }
         }
         if (rowData.vacationBonus > 0) {
-          cell = worksheet.getCell(rowCount + 1, 12)
-          cell.font = { color: { argb: '006100' } }
+          cell = worksheet.getCell(rowCount + 1, columns.vacationBonus)
+          cell.font = { color: { argb: 'FF006100' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
+            fgColor: { argb: 'FFC6EFCE' },
           }
         }
         if (rowData.laborRest > 0) {
-          cell = worksheet.getCell(rowCount + 1, 11)
-          cell.font = { color: { argb: '006100' } }
+          cell = worksheet.getCell(rowCount + 1, columns.laborRest)
+          cell.font = { color: { argb: 'FF006100' } }
           cell.fill = {
             type: 'pattern',
             pattern: 'solid',
-            fgColor: { argb: 'C6EFCE' },
+            fgColor: { argb: 'FFC6EFCE' },
           }
         }
         rowCount += 1
@@ -2814,22 +4103,27 @@ export default class AssistsService {
     }
   }
 
+  /**
+   * Carga en memoria las unidades de negocio para resolver nombres en el Excel payroll.
+   */
+  async getBusinessUnits(): Promise<void> {
+    this.businessUnits = await BusinessUnit.query()
+      .whereNull('business_unit_deleted_at')
+      .orderBy('business_unit_id')
+  }
+
+  /** Nombre comercial de la empresa activa, para encabezar sus reportes. */
   async getTradeName() {
-    let tradeName = 'BO'
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      if (systemSettingActive.systemSettingTradeName) {
-        tradeName = systemSettingActive.systemSettingTradeName
-      }
-    }
-    return tradeName
+    const systemSetting = await new SystemSettingService().resolveForActiveTenant()
+
+    return systemSetting?.systemSettingTradeName || PLATFORM_FALLBACK_TRADE_NAME
   }
 
   paintBorderAll(worksheet: ExcelJS.Worksheet, rowCount: number) {
+    const totalColumns = getIncidentPayrollExcelColumnCount()
     for (let rowIndex = 6; rowIndex <= rowCount + 5; rowIndex++) {
       const row = worksheet.getRow(rowIndex)
-      for (let colNumber = 1; colNumber <= 15; colNumber++) {
+      for (let colNumber = 1; colNumber <= totalColumns; colNumber++) {
         const cell = row.getCell(colNumber)
         cell.border = {
           top: { style: 'thin', color: { argb: 'FF000000' } },
@@ -2841,66 +4135,42 @@ export default class AssistsService {
     }
   }
 
-  async addImageLogo(assistExcelImageInterface: AssistExcelImageInterface) {
-    const imageLogo = await this.getLogo()
-    const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-    const imageBuffer = imageResponse.data
-
-    const metadata = await sharp(imageBuffer).metadata()
-    const imageWidth = metadata.width ? metadata.width : 0
-    const imageHeight = metadata.height ? metadata.height : 0
-
-    const targetWidth = 139
-    const targetHeight = 49
-
-    const scale = Math.min(targetWidth / imageWidth, targetHeight / imageHeight)
-
-    let adjustedWidth = imageWidth * scale
-    let adjustedHeight = imageHeight * scale
-
-    if (assistExcelImageInterface.col === 14.2) {
-      const increaseFactor = 1.3
-      adjustedWidth *= increaseFactor
-      adjustedHeight *= increaseFactor
-    }
-
-    const imageId = assistExcelImageInterface.workbook.addImage({
-      buffer: imageBuffer,
-      extension: 'png',
-    })
-
-    assistExcelImageInterface.worksheet.addImage(imageId, {
-      tl: { col: assistExcelImageInterface.col, row: assistExcelImageInterface.row },
-      ext: { width: adjustedWidth, height: adjustedHeight },
-    })
-  }
-
   decimalToTimeString(decimal: number): string {
-    const hours = Math.floor(decimal)
-    const minutes = Math.round((decimal - hours) * 60)
-    return `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`
+    return formatDecimalHours(decimal)
   }
 
+  /** Margen de impuntualidad de la empresa activa. */
   async getTardiesTolerance() {
-    let tardies = 0
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive) {
-      const tolerance = await Tolerance.query()
-        .whereNull('tolerance_deleted_at')
-        .where('tolerance_name', 'TardinessTolerance')
-        .where('systemSettingId', systemSettingActive.systemSettingId)
-        .first()
+    return this.resolveTenantToleranceMinutes(
+      'TardinessTolerance',
+      DEFAULT_TARDINESS_TOLERANCE_MINUTES
+    )
+  }
 
-      if (tolerance) {
-        tardies = tolerance.toleranceMinutes
-      }
+  /**
+   * Minutos de una tolerancia DE LA EMPRESA ACTIVA, con su default si la empresa
+   * no la tiene configurada o si no hay empresa en contexto.
+   *
+   * Los tres métodos que la consultan resolvían antes por la configuración de
+   * PLATAFORMA: la tolerancia de un cliente salía de una fila global que
+   * ninguno de ellos podía ver ni ajustar, y la que sí ajustaban desde su
+   * backoffice no la miraba nadie.
+   */
+  private async resolveTenantToleranceMinutes(
+    toleranceName: string,
+    defaultMinutes: number
+  ): Promise<number> {
+    const systemSetting = await new SystemSettingService().resolveForActiveTenant()
+
+    if (!systemSetting) {
+      return defaultMinutes
     }
 
-    if (tardies === 0) {
-      tardies = 3
-    }
-    return tardies
+    const tolerance = systemSetting.systemSettingTolerances.find(
+      (item) => item.toleranceName === toleranceName
+    )
+
+    return tolerance?.toleranceMinutes ?? defaultMinutes
   }
 
   getVacationBonus(employee: Employee, datePay: string) {
@@ -2923,17 +4193,16 @@ export default class AssistsService {
   }
 
   isFirstPayMonth(dateString: string) {
-    const date = new Date(dateString)
-    const dayOfMonth = date.getDate()
+    const dayOfMonth = utcCalendarDay(dateString).day
 
     return dayOfMonth >= 1 && dayOfMonth <= 15
   }
 
   isAnniversaryInPayMonth(hireDate: string, datePay: string) {
-    const hire = new Date(hireDate)
-    const pay = new Date(datePay)
+    const hire = utcCalendarDay(hireDate)
+    const pay = utcCalendarDay(datePay)
 
-    return hire.getMonth() === pay.getMonth()
+    return hire.isValid && pay.isValid && hire.month === pay.month
   }
 
   async getDaysWorkDisability(employee: Employee, datePay: string) {
@@ -2985,23 +4254,7 @@ export default class AssistsService {
   }
 
   async getAssistFlatList (filters: AssistFlatFilterInterface) {
-    const stringDate = `${filters.dateStart}T00:00:00.000-06:00`
-    const time = DateTime.fromISO(stringDate, { setZone: true })
-    const timeCST = time.setZone('UTC-6')
-    const filterInitialDate = timeCST.toFormat('yyyy-LL-dd HH:mm:ss')
-    const stringEndDate = `${filters.dateEnd}T23:59:59.000-06:00`
-    const timeEnd = DateTime.fromISO(stringEndDate, { setZone: true })
-    const timeEndCST = timeEnd.setZone('UTC-6').plus({ days: 1 })
-    const filterEndDate = timeEndCST.toFormat('yyyy-LL-dd HH:mm:ss')
-    const query = Assist.query()
-      .where('assist_active', 1)
-    let employee = null
-
-
-    if (filters.dateEnd && filters.dateStart) {
-      query.where('assist_punch_time_origin', '>=', filterInitialDate)
-      query.where('assist_punch_time_origin', '<=', filterEndDate)
-    }
+    let employee: Employee | null = null
 
     if (filters.employeeId) {
       employee = await Employee.query()
@@ -3012,11 +4265,34 @@ export default class AssistsService {
       if (!employee) {
         return []
       }
+    }
 
+    // Zona del sitio del empleado (o del sistema sin empleado): acota el
+    // rango como instantes y agrupa las checadas por su día civil ahí.
+    const resolvedZone = employee
+      ? await new SiteTimeZoneService().forEmployee(employee.employeeId)
+      : resolveSiteTimeZone([])
+    const zone = resolvedZone.zone
+    const filterInitialDate = DateTime.fromISO(`${filters.dateStart}T00:00:00`, { zone })
+      .toUTC()
+      .toFormat('yyyy-LL-dd HH:mm:ss')
+    const filterEndDate = DateTime.fromISO(`${filters.dateEnd}T23:59:59`, { zone })
+      .plus({ days: 1 })
+      .toUTC()
+      .toFormat('yyyy-LL-dd HH:mm:ss')
+    const query = Assist.query()
+      .where('assist_active', 1)
+
+    if (filters.dateEnd && filters.dateStart) {
+      query.where('assist_punch_time_utc', '>=', filterInitialDate)
+      query.where('assist_punch_time_utc', '<=', filterEndDate)
+    }
+
+    if (employee) {
       query.where('assist_emp_code', employee.employeeCode)
     }
 
-    query.orderBy('assist_punch_time_origin', 'desc')
+    query.orderBy('assist_punch_time_utc', 'desc')
 
     const assistList = await query.paginate(1, 500)
     const assistListFlat = assistList.toJSON().data as AssistInterface[]
@@ -3026,10 +4302,7 @@ export default class AssistsService {
 
     for await (const item of assistListFlat) {
       const assist = item as AssistInterface
-      const assistDate = DateTime
-        .fromISO(`${assist.assistPunchTimeUtc}`, { setZone: true })
-        .setZone('UTC-6')
-      const assistDayStr = assistDate.toFormat('yyyy-LL-dd')
+      const assistDayStr = dayKeyOf(assist.assistPunchTimeUtc, zone)
 
       const existDay = assistDayCollection.find((itemAssistDay) => itemAssistDay.day === assistDayStr)
 
@@ -3037,10 +4310,7 @@ export default class AssistsService {
         let dayAssist: AssistInterface[] = []
 
         for await (const dayItem of assistListFlat) {
-          const currentDay = DateTime
-            .fromISO(`${dayItem.assistPunchTimeUtc}`, { setZone: true })
-            .setZone('UTC-6')
-            .toFormat('yyyy-LL-dd')
+          const currentDay = dayKeyOf(dayItem.assistPunchTimeUtc, zone)
 
           if (currentDay === assistDayStr) {
             dayAssist.push(dayItem)
@@ -3076,18 +4346,22 @@ export default class AssistsService {
     return date.toISOString().split('T')[0]
   }
 
-  async getExcelPermissionsByDates(filters: PermissionsDatesExcelFilterInterface, departmentsList: Array<number>) {
+  async getExcelPermissionsByDates(filters: PermissionsDatesExcelFilterInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[] = []) {
     try {
       const filterDate = filters.filterDate
       const filterDateEnd = filters.filterDateEnd
       const userResponsibleId = filters.userResponsibleId
 
-      // Obtener empleados activos
       const employeeService = new EmployeeService(this.i18n)
-      const employees = await employeeService.index(
+      // Para acceso completo (includeUnassigned = true), no se pasa `departmentId`
+      // como filtro UI: el alcance lo aplica `applyVisibleDepartmentsScope` vía
+      // `departmentsList` (incluye OR NULL). Con acceso restringido, `departmentId`
+      // y `userResponsibleId` acotan como antes. USRH1788466831312.
+      const employees = await this.fetchEmployeesForExcelReport(
+        employeeService,
         {
           search: '',
-          departmentId: 0,
+          departmentId: filters.includeUnassigned ? 0 : departmentsList,
           positionId: 0,
           page: 1,
           limit: 999999,
@@ -3095,51 +4369,32 @@ export default class AssistsService {
           ignoreDiscriminated: 0,
           ignoreExternal: 1,
           userResponsibleId: userResponsibleId || undefined,
-          businessUnitId: filters.businessUnitId,
           payrollBusinessUnitId: filters.payrollBusinessUnitId,
         },
-        departmentsList
+        departmentsList,
+        filters.businessUnitId,
+        allowedBusinessUnitIds
       )
+      if (!employees) {
+        return this.buildExcelBusinessUnitScopeError()
+      }
 
       // Crear workbook
       const workbook = new ExcelJS.Workbook()
       const worksheet = workbook.addWorksheet('Permisos por Fechas')
 
-      // Agregar logo
-      const assistExcelImageInterface = {
-        workbook: workbook,
-        worksheet: worksheet,
-        col: 0.28,
-        row: 0.7,
-      } as AssistExcelImageInterface
-      await this.addImageLogo(assistExcelImageInterface)
-
-      // Configurar título
-      worksheet.getRow(1).height = 60
+      // Formato neutral: sin logotipo ni franjas de marca. La fila 1 se conserva
+      // vacía con altura normal para no mover las filas del reporte.
       worksheet.mergeCells('A1:J1')
       const titleRow = worksheet.addRow(['Reporte de Permisos por Fechas'])
-      let color = '244062'
-      let fgColor = 'FFFFFFF'
-
-      worksheet.getCell('A2').fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-      titleRow.font = { bold: true, size: 24, color: { argb: fgColor } }
+      titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       titleRow.height = 42
       titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
       worksheet.mergeCells('A2:K2')
 
       // Período
-      color = '366092'
       const periodRow = worksheet.addRow([this.getRange(filterDate, filterDateEnd)])
-      periodRow.font = { size: 15, color: { argb: fgColor } }
-      worksheet.getCell('A3').fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
+      periodRow.font = { size: 15, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       periodRow.height = 30
       worksheet.mergeCells('A3:K3')
@@ -3159,14 +4414,13 @@ export default class AssistsService {
         'Hora Salida'
       ])
 
-      color = '366092'
       headerRow.eachCell((cell) => {
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
-          fgColor: { argb: color },
+          fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
         }
-        cell.font = { bold: true, color: { argb: fgColor } }
+        cell.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
         cell.alignment = { horizontal: 'center', vertical: 'middle' }
       })
       headerRow.height = 25
@@ -3225,16 +4479,19 @@ export default class AssistsService {
 
         // Agregar excepciones de turno al reporte
         for (const exception of shiftExceptions) {
-          const employeeName = `${exception.employee.person.personFirstname} ${exception.employee.person.personLastname}`
-          const departmentName = exception.employee.department?.departmentName || 'N/A'
-          const positionName = exception.employee.position?.positionName || 'N/A'
-          const exceptionDate = DateTime.fromJSDate(new Date(exception.shiftExceptionsDate)).toFormat('yyyy-MM-dd')
-          const exceptionType = exception.exceptionType?.exceptionTypeTypeName || 'N/A'
+          const employeeName = reportFullName(
+            exception.employee.person?.personFirstname,
+            exception.employee.person?.personLastname
+          )
+          const departmentName = exception.employee.department?.departmentName || ''
+          const positionName = exception.employee.position?.positionName || ''
+          const exceptionDate = formatReportCalendarDate(exception.shiftExceptionsDate)
+          const exceptionType = exception.exceptionType?.exceptionTypeTypeName || ''
           const description = exception.shiftExceptionsDescription || ''
           const checkInTime = exception.shiftExceptionCheckInTime || ''
           const checkOutTime = exception.shiftExceptionCheckOutTime || ''
-          const payrollBuName = exception.employee.payrollBusinessUnit?.businessUnitName || 'N/A'
-          const workBuName = exception.employee.businessUnit?.businessUnitName || 'N/A'
+          const payrollBuName = exception.employee.payrollBusinessUnit?.businessUnitName || ''
+          const workBuName = exception.employee.businessUnit?.businessUnitName || ''
 
           worksheet.addRow([
             workBuName,
@@ -3254,17 +4511,26 @@ export default class AssistsService {
         // Agregar incapacidades laborales al reporte
         for (const disability of workDisabilities) {
           for (const period of disability.workDisabilityPeriods) {
-            const employeeName = `${disability.employee.person.personFirstname} ${disability.employee.person.personLastname}`
-            const departmentName = disability.employee.department?.departmentName || 'N/A'
-            const positionName = disability.employee.position?.positionName || 'N/A'
-            const payrollBuName = disability.employee.payrollBusinessUnit?.businessUnitName || 'N/A'
-            const workBuName = disability.employee.businessUnit?.businessUnitName || 'N/A'
+            const employeeName = reportFullName(
+              disability.employee.person?.personFirstname,
+              disability.employee.person?.personLastname
+            )
+            const departmentName = disability.employee.department?.departmentName || ''
+            const positionName = disability.employee.position?.positionName || ''
+            const payrollBuName = disability.employee.payrollBusinessUnit?.businessUnitName || ''
+            const workBuName = disability.employee.businessUnit?.businessUnitName || ''
 
             // Generar fechas para cada día del período de incapacidad
-            const periodStart = DateTime.fromJSDate(new Date(period.workDisabilityPeriodStartDate))
-            const periodEnd = DateTime.fromJSDate(new Date(period.workDisabilityPeriodEndDate))
-            const reportStart = DateTime.fromISO(filterDate)
-            const reportEnd = DateTime.fromISO(filterDateEnd)
+            // Todo en días de calendario UTC: el periodo es columna DATE y el
+            // rango del reporte es `yyyy-MM-dd`; mezclar zona del servidor y
+            // medianoche UTC recortaba o añadía un día.
+            const periodStart = utcCalendarDay(period.workDisabilityPeriodStartDate)
+            const periodEnd = utcCalendarDay(period.workDisabilityPeriodEndDate)
+            const reportStart = utcCalendarDay(filterDate)
+            const reportEnd = utcCalendarDay(filterDateEnd)
+            if (!periodStart.isValid || !periodEnd.isValid) {
+              continue
+            }
 
             // Calcular el rango de fechas que se superpone con el período del reporte
             const startRange = periodStart > reportStart ? periodStart : reportStart
@@ -3273,7 +4539,7 @@ export default class AssistsService {
             let currentDate = startRange
             while (currentDate <= endRange) {
               const disabilityType = period.workDisabilityType?.workDisabilityTypeName || 'Incapacidad'
-              const description = `Período: ${periodStart.toFormat('yyyy-MM-dd')} a ${periodEnd.toFormat('yyyy-MM-dd')}`
+              const description = `Período: ${formatReportCalendarDate(period.workDisabilityPeriodStartDate)} a ${formatReportCalendarDate(period.workDisabilityPeriodEndDate)}`
 
               worksheet.addRow([
                 workBuName,
@@ -3282,7 +4548,7 @@ export default class AssistsService {
                 employeeName,
                 departmentName,
                 positionName,
-                currentDate.toFormat('yyyy-MM-dd'),
+                currentDate.toFormat(REPORT_DATE_FORMAT),
                 disabilityType,
                 description,
                 '',
@@ -3311,6 +4577,7 @@ export default class AssistsService {
       ]
 
       // Generar buffer
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
 
       return {
@@ -3333,52 +4600,6 @@ export default class AssistsService {
 
   capitalizeFirstLetter(text: string) {
     return text.charAt(0).toUpperCase() + text.slice(1);
-  }
-
-  /**
-   * Elimina todas las asistencias existentes
-   *
-   * Esta función:
-   * 1. Elimina todas las asistencias
-   *
-   * @returns Objeto con el resultado de la operación
-   */
-  async deleteAllAssists() {
-    try {
-      // Contar registros antes de eliminar
-      const totalAssists = await Assist.query()
-        .count('* as total')
-
-      const counts = {
-        assists: Number(totalAssists[0].$extras.total),
-      }
-
-      // 1. Eliminar todas las asistencias
-      await Assist.query()
-        .delete()
-
-      return {
-        status: 200,
-        type: 'success',
-        title: 'Assists deleted successfully',
-        message: 'All assists have been deleted successfully',
-        data: {
-          deleted: {
-            assists: counts.assists,
-          },
-        },
-      }
-    } catch (error: any) {
-      console.error('Error al eliminar todas las asistencias:', error)
-      return {
-        status: 500,
-        type: 'error',
-        title: 'Error to delete assists',
-        message: 'An error occurred while trying to delete all assists',
-        error: error.message,
-        data: null,
-      }
-    }
   }
 
   /**
@@ -3414,9 +4635,8 @@ export default class AssistsService {
           data: null,
         }
       }
-      // Obtener unidades de negocio activas
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
+      const activeUnits = await BusinessUnit.query().where('business_unit_active', 1).select('business_unit_slug')
+      const businessList = activeUnits.map((u) => u.businessUnitSlug).filter(Boolean)
 
       const holidays = await Holiday.query()
         .whereNull('holiday_deleted_at')
@@ -3430,7 +4650,12 @@ export default class AssistsService {
         })
 
 
+      const siteTimeZoneService = new SiteTimeZoneService()
       for await(const employee of employees) {
+        // Las checadas de demostración se escriben en UTC real desde la hora
+        // de pared del sitio del empleado.
+        const resolvedDemoZone = await siteTimeZoneService.forEmployee(employee.employeeId)
+        const demoZone = resolvedDemoZone.zone
         const hourStart = employee.employeeShifts[0].shift.shiftTimeStart
         const activeHours = employee.employeeShifts[0].shift.shiftActiveHours
         const restDays = employee.employeeShifts[0].shift.shiftRestDays.split(',').map(Number)
@@ -3532,7 +4757,7 @@ export default class AssistsService {
 
           // Crear DateTime base con la hora de inicio
           const baseTimeString = `${dateString} ${hour}:${minute}:00`
-          const baseTime = DateTime.fromFormat(baseTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' })
+          const baseTime = DateTime.fromFormat(baseTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: demoZone })
 
           // Aplicar variación de minutos (puede ser negativa)
           const punchTime = baseTime.plus({ minutes: minutesVariation }).toUTC()
@@ -3573,7 +4798,7 @@ export default class AssistsService {
 
           // Formatear la fecha/hora en formato yyyy-MM-dd HH:mm:ss
           const punchTimeString = `${dateString} ${String(finalHour).padStart(2, '0')}:${String(finalMinute).padStart(2, '0')}:${String(finalSecond).padStart(2, '0')}`
-          const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' }).toUTC()
+          const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: demoZone }).toUTC()
 
           const createAssist = new Assist()
           createAssist.assistEmpId = employee.employeeId
@@ -3613,7 +4838,7 @@ export default class AssistsService {
 
           // Formatear la fecha/hora en formato yyyy-MM-dd HH:mm:ss
           const punchTimeString = `${dateString} ${String(finalHour).padStart(2, '0')}:${String(finalMinute).padStart(2, '0')}:${String(finalSecond).padStart(2, '0')}`
-          const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: 'UTC-6' }).toUTC()
+          const punchTime = DateTime.fromFormat(punchTimeString, 'yyyy-MM-dd HH:mm:ss', { zone: demoZone }).toUTC()
 
           const createAssist = new Assist()
           createAssist.assistEmpId = employee.employeeId
@@ -3683,29 +4908,14 @@ export default class AssistsService {
    * @returns {Promise<number>} La tolerancia de retardo en minutos
    */
   async getDelayToleranceMinutes(): Promise<number> {
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    let delayToleranceMinutes = 10 // Default
-    if (systemSettingActive) {
-      const toleranceService = new ToleranceService()
-      const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
-      const delayTolerance = tolerances.find((t) => t.toleranceName === 'Delay')
-      if (delayTolerance) delayToleranceMinutes = delayTolerance.toleranceMinutes
-    }
-    return delayToleranceMinutes
+    return this.resolveTenantToleranceMinutes('Delay', DEFAULT_DELAY_TOLERANCE_MINUTES)
   }
 
   async getTardinessToleranceMinutes(): Promise<number> {
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    let tardinessToleranceMinutes = 10 // Default
-    if (systemSettingActive) {
-      const toleranceService = new ToleranceService()
-      const tolerances = await toleranceService.index(systemSettingActive.systemSettingId)
-      const tardinessTolerance = tolerances.find((t) => t.toleranceName === 'TardinessTolerance')
-      if (tardinessTolerance) tardinessToleranceMinutes = tardinessTolerance.toleranceMinutes
-    }
-    return tardinessToleranceMinutes
+    return this.resolveTenantToleranceMinutes(
+      'TardinessTolerance',
+      DEFAULT_DELAY_TOLERANCE_MINUTES
+    )
   }
 
   async getFaultsAndDelaysFromEmployeeCalendar(employeeCalendar: AssistDayInterface[], tardies: number, toleranceCountPerAbsences: number) {
@@ -3748,8 +4958,10 @@ export default class AssistsService {
 
   async verifyAttendanceLock(userId: number, type: string) {
     try {
-      const systemSettingService = new SystemSettingService()
-      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+      // El bloqueo por faltas se decide con la configuración de LA EMPRESA
+      // ACTIVA. Antes leía la de plataforma, así que todos los clientes
+      // compartían el mismo umbral sin poder ajustarlo.
+      const systemSettingActive = await new SystemSettingService().resolveForActiveTenant()
       if (!systemSettingActive) {
         return {
           status: 404,
@@ -3800,6 +5012,7 @@ export default class AssistsService {
         { page, limit }
       )
       const data: any = resultAssists.data
+      this.adoptCalendarZone(data)
       let faults = 0
       let delays = 0
 
@@ -3813,7 +5026,7 @@ export default class AssistsService {
       }
 
       let tradeName = 'BO'
-      const userEmail = env.get('SMTP_USERNAME')
+      const userEmail = resolveMailSender()
       let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
       if (systemSettingActive) {
         if ( systemSettingActive.systemSettingLogo) {
@@ -3911,11 +5124,7 @@ export default class AssistsService {
 
   async sendEmailAttendanceLock(systemSettingActive: SystemSetting, newMessage: string, user: User) {
     let tradeName = 'BO'
-    const userEmail = env.get('SMTP_USERNAME')
-    if (!userEmail) {
-      console.error('Error to send email attendance lock: SMTP_USERNAME not found')
-      return
-    }
+    const userEmail = resolveMailSender()
     let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
     if (systemSettingActive) {
       if ( systemSettingActive.systemSettingLogo) {
@@ -3929,15 +5138,9 @@ export default class AssistsService {
         backgroundImageLogo,
         message: newMessage,
       }
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+      const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(user)
       const departments = await Department.query()
-        .whereIn('businessUnitId', businessUnitsList)
+        .whereIn('businessUnitId', allowedIds)
         .whereRaw('UPPER(department_name) LIKE ?', ['%CAPITAL HUMANO%'])
         .orderBy('department_name', 'asc')
 

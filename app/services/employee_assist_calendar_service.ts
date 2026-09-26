@@ -10,6 +10,7 @@ import { ShiftExceptionFilterInterface } from '../interfaces/shift_exception_fil
 import HolidayService from './holiday_service.js'
 import SyncAssistsService from './sync_assists_service.js'
 import { I18n } from '@adonisjs/i18n'
+import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
 // import { AssistInterface } from '../interfaces/assist_interface.js'
 
 export default class EmployeeAssistsCalendarService {
@@ -63,13 +64,31 @@ export default class EmployeeAssistsCalendarService {
     const missingDates = allDatesInRange.filter(date => !datesWithData.has(date))
 
     if (missingDates.length > 0 && employee) {
-      const assistService = new AssistsService(this.i18n)
-      for await (const day of missingDates) {
-        const date = typeof day === 'string' ? new Date(day) : day
-        await assistService.updateAssistCalendar(employee.employeeId, date)
-      }
+      // Materializacion en lote: una sola llamada a setDateCalendar sobre todo
+      // el rango, en vez de un ciclo dia por dia que invocaba el calculo pesado
+      // de asistencias (SyncAssistsService.index) hasta 42 veces en serie y
+      // superaba el timeout del cliente en la carga fria de un mes. setDateCalendar
+      // ya recorre internamente el rango y hace upsert idempotente por dia.
+      const syncAssistsService = new SyncAssistsService(this.i18n)
+      await syncAssistsService.setDateCalendar({
+        date: filterInitialDate,
+        dateEnd: filterEndDate,
+        employeeID: employee.employeeId,
+      })
       employeeCalendar = await this.fetchCalendarData(filters, filterInitialDate, filterEndDate, employee)
     }
+
+    let temporaryAssignments: Awaited<
+      ReturnType<typeof EmployeeTemporaryAssignmentService.listIntersectingAssistPeriod>
+    > = []
+    if (employee && filters.dateStart && filters.dateEnd) {
+      temporaryAssignments = await EmployeeTemporaryAssignmentService.listIntersectingAssistPeriod(
+        employee.employeeId,
+        filterInitialDate,
+        filterEndDate
+      )
+    }
+
     return {
       status: 200,
       type: 'success',
@@ -77,6 +96,7 @@ export default class EmployeeAssistsCalendarService {
       message: this.t('resources_were_found_successfully'),
       data: {
         employeeCalendar,
+        temporaryAssignments,
       },
     }
   }
@@ -170,10 +190,15 @@ export default class EmployeeAssistsCalendarService {
       }
 
       await Promise.all(promises)
-      assistDay = syncAssistService.verifyCheckOutToday(assistDay)
+      assistDay = syncAssistService.verifyCheckOutToday(
+        assistDay,
+        employee?.employeeAssistDiscriminator === 1
+      )
 
-      assistDay.assist = this.fixedCSTSummerTime(DateTime.fromISO(assistDay.day).toJSDate(), assistDay.assist)
-
+      // El calendario devuelve el instante que quedó registrado, tal cual, cualquier
+      // día del año y venga la checada de donde venga (USRH1788135907804). El ajuste
+      // de horario de verano que sumaba una hora entre abril y octubre se retiró:
+      // México dejó de aplicarlo en 2022 y sólo desplazaba lo que la pantalla muestra.
       employeeCalendar.push(assistDay)
     }
     // Ordenar el resultado por día
@@ -184,51 +209,4 @@ export default class EmployeeAssistsCalendarService {
     return employeeCalendar
   }
 
-  private getMexicoDSTChangeDates (year: number) {
-    const startDST = new Date(year, 3, 1)
-    startDST.setDate(1 + (7 - startDST.getDay()) % 7) // Asegura que es el primer domingo
-
-    // Último domingo de octubre (fin del horario de verano)
-    const endDST = new Date(year, 9, 31)
-    endDST.setDate(endDST.getDate() - endDST.getDay()) // Asegura que es el último domingo
-
-    return { startDST, endDST }
-  }
-
-  private checkDSTSummerTime (date: Date): boolean {
-    const year = date.getFullYear()
-    const { startDST, endDST } = this.getMexicoDSTChangeDates(year)
-
-    if (date >= startDST && date < endDST) {
-      // En horario de verano
-      return true
-    } else {
-      // En horario estándar
-      return false
-    }
-  }
-
-  private fixedCSTSummerTime (evaluatedDay: Date, assist: any) {
-    const isSummerTime = this.checkDSTSummerTime(evaluatedDay)
-
-    if (isSummerTime) {
-      if (assist?.checkIn?.assistPunchTimeUtc) {
-        assist.checkIn.assistPunchTimeUtc = DateTime.fromISO(assist.checkIn.assistPunchTimeUtc.toString()).setZone('UTC').plus({ hour: 1 }).toISO()
-      }
-
-      if (assist?.checkEatIn?.assistPunchTimeUtc) {
-        assist.checkEatIn.assistPunchTimeUtc = DateTime.fromISO(assist.checkEatIn.assistPunchTimeUtc.toString()).setZone('UTC').plus({ hour: 1 }).toISO()
-      }
-
-      if (assist?.checkEatOut?.assistPunchTimeUtc) {
-        assist.checkEatOut.assistPunchTimeUtc = DateTime.fromISO(assist.checkEatOut.assistPunchTimeUtc.toString()).setZone('UTC').plus({ hour: 1 }).toISO()
-      }
-
-      if (assist?.checkOut?.assistPunchTimeUtc) {
-        assist.checkOut.assistPunchTimeUtc = DateTime.fromISO(assist.checkOut.assistPunchTimeUtc.toString()).setZone('UTC').plus({ hour: 1 }).toISO()
-      }
-    }
-
-    return assist
-  }
 }

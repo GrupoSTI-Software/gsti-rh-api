@@ -1,8 +1,14 @@
 /* eslint-disable max-len */
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
 import { DateTime } from 'luxon'
+import encryption from '@adonisjs/core/services/encryption'
+import Employee from './employee.js'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 /**
  * @swagger
  * components:
@@ -40,7 +46,7 @@ import { DateTime } from 'luxon'
  *
  */
 
-export default class EmployeeEmergencyContact extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeEmergencyContact extends compose(BaseModel, SoftDeletes, withBusinessUnitScope(), withSensitiveWriteGuard()) {
   @column({ isPrimary: true })
   declare employeeEmergencyContactId: number
 
@@ -56,11 +62,42 @@ export default class EmployeeEmergencyContact extends compose(BaseModel, SoftDel
   @column()
   declare employeeEmergencyContactRelationship: string
 
-  @column()
+  /**
+   * Teléfono del contacto de emergencia — cifrado AES-256-CBC en reposo
+   * (LFPDPPP art. 3.VI, dato de contacto). No se usa en cláusulas WHERE de SQL.
+   * Columna ampliada a VARCHAR(191) para alojar el ciphertext.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serialize: sensitiveSerialize('EmployeeEmergencyContact', 'employeeEmergencyContactPhone'),
+  })
   declare employeeEmergencyContactPhone: string
 
   @column()
   declare employeeId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeEmergencyContact) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   /** Contacto principal: el que se muestra y edita en la plantilla de importación de empleados */
   @column()

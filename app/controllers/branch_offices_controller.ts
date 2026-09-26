@@ -4,6 +4,7 @@ import {
   createBranchOfficeValidator,
   updateBranchOfficeValidator,
   branchOfficeFilterValidator,
+  deleteBranchOfficeValidator,
 } from '#validators/branch_office'
 import { resolveBranchOfficeApiError } from '../helpers/branch_office_api_error.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
@@ -14,9 +15,14 @@ export default class BranchOfficesController {
    * /api/branch-offices:
    *   get:
    *     summary: Listar sucursales con paginación y filtros
-   *     description: Solo se devuelven sucursales cuya unidad de negocio tiene slug incluido en SYSTEM_BUSINESS (separado por comas).
+   *     description: Solo se devuelven sucursales cuya unidad de negocio pertenece al scope del usuario autenticado.
    *     tags: [BranchOffices]
    *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: integer
    *       - in: query
    *         name: page
    *         schema:
@@ -34,6 +40,11 @@ export default class BranchOfficesController {
    *           type: integer
    *         description: Filtrar por unidad de negocio
    *       - in: query
+   *         name: empresaContratanteId
+   *         schema:
+   *           type: integer
+   *         description: Filtrar sucursales ligadas como sitios de servicio de la empresa
+   *       - in: query
    *         name: branchOfficeName
    *         schema:
    *           type: string
@@ -50,12 +61,14 @@ export default class BranchOfficesController {
    *           type: boolean
    *     responses:
    *       200:
-   *         description: Lista paginada de sucursales
+   *         description: Lista paginada de sucursales con empresaContratante embebida cuando aplica
+   *       404:
+   *         description: key empresa-contratante-no-encontrada cuando el filtro empresaContratanteId es inválido
    */
-  async index({ request, response }: HttpContext) {
+  async index({ request, response, businessUnitScope, i18n }: HttpContext) {
     try {
       const filters = await request.validateUsing(branchOfficeFilterValidator)
-      const branches = await BranchOfficeService.getAll(filters)
+      const branches = await BranchOfficeService.getAll(filters, businessUnitScope)
       return StandardResponseFormatter.success(
         response,
         branches,
@@ -63,8 +76,7 @@ export default class BranchOfficesController {
         'Sucursales obtenidas correctamente'
       )
     } catch (error) {
-      const { message, status, errorCode } = resolveBranchOfficeApiError(error, 400)
-      return StandardResponseFormatter.error(response, message, status, errorCode)
+      return this.respondError(error, response, 400, i18n)
     }
   }
 
@@ -73,9 +85,14 @@ export default class BranchOfficesController {
    * /api/branch-offices/{id}:
    *   get:
    *     summary: Obtener sucursal por ID
-   *     description: Solo si la sucursal pertenece a una unidad de negocio permitida por SYSTEM_BUSINESS; si no, 404.
+   *     description: Solo si la sucursal pertenece a una unidad de negocio del scope del usuario autenticado; si no, 404.
    *     tags: [BranchOffices]
    *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: integer
    *       - in: path
    *         name: id
    *         required: true
@@ -83,13 +100,13 @@ export default class BranchOfficesController {
    *           type: integer
    *     responses:
    *       200:
-   *         description: Detalle de la sucursal
+   *         description: Detalle de la sucursal con empresaContratante embebida cuando aplica
    *       404:
    *         description: No encontrada
    */
-  async show({ params, response }: HttpContext) {
+  async show({ params, response, businessUnitScope, i18n }: HttpContext) {
     try {
-      const branch = await BranchOfficeService.getById(params.id)
+      const branch = await BranchOfficeService.getById(params.id, businessUnitScope)
       return StandardResponseFormatter.success(
         response,
         branch,
@@ -97,8 +114,7 @@ export default class BranchOfficesController {
         'Sucursal obtenida correctamente'
       )
     } catch (error) {
-      const { message, status, errorCode } = resolveBranchOfficeApiError(error, 404)
-      return StandardResponseFormatter.error(response, message, status, errorCode)
+      return this.respondError(error, response, 404, i18n)
     }
   }
 
@@ -108,6 +124,12 @@ export default class BranchOfficesController {
    *   post:
    *     summary: Crear sucursal
    *     tags: [BranchOffices]
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: integer
    *     requestBody:
    *       required: true
    *       content:
@@ -135,16 +157,24 @@ export default class BranchOfficesController {
    *                 type: integer
    *                 minimum: 0
    *                 nullable: true
+   *               empresaContratanteId:
+   *                 type: integer
+   *                 nullable: true
+   *                 description: Empresa contratante a la que sirve la sucursal (sitio de servicio)
    *     responses:
    *       201:
-   *         description: Creada correctamente
+   *         description: Creada correctamente con empresaContratante embebida cuando aplica
    *       400:
    *         description: Error de validación o unidad inexistente
+   *       404:
+   *         description: key empresa-contratante-no-encontrada
+   *       409:
+   *         description: key sucursal-ya-ligada
    */
-  async store({ request, response }: HttpContext) {
+  async store({ request, response, businessUnitScope, i18n }: HttpContext) {
     try {
       const data = await request.validateUsing(createBranchOfficeValidator)
-      const branch = await BranchOfficeService.create(data)
+      const branch = await BranchOfficeService.create(data, businessUnitScope)
       return StandardResponseFormatter.success(
         response,
         branch,
@@ -153,8 +183,7 @@ export default class BranchOfficesController {
         201
       )
     } catch (error) {
-      const { message, status, errorCode } = resolveBranchOfficeApiError(error, 400)
-      return StandardResponseFormatter.error(response, message, status, errorCode)
+      return this.respondError(error, response, 400, i18n)
     }
   }
 
@@ -165,6 +194,11 @@ export default class BranchOfficesController {
    *     summary: Actualizar sucursal
    *     tags: [BranchOffices]
    *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: integer
    *       - in: path
    *         name: id
    *         required: true
@@ -190,16 +224,22 @@ export default class BranchOfficesController {
    *               branchOfficeMinActiveEmployeesPerShift:
    *                 type: integer
    *                 nullable: true
+   *               empresaContratanteId:
+   *                 type: integer
+   *                 nullable: true
+   *                 description: Empresa contratante ligada; null desliga el sitio de servicio
    *     responses:
    *       200:
-   *         description: Actualizada correctamente
+   *         description: Actualizada correctamente con empresaContratante embebida cuando aplica
    *       404:
-   *         description: No encontrada
+   *         description: Sucursal no encontrada o key empresa-contratante-no-encontrada
+   *       409:
+   *         description: key sucursal-ya-ligada
    */
-  async update({ params, request, response }: HttpContext) {
+  async update({ params, request, response, businessUnitScope, i18n }: HttpContext) {
     try {
       const data = await request.validateUsing(updateBranchOfficeValidator)
-      const branch = await BranchOfficeService.update(params.id, data)
+      const branch = await BranchOfficeService.update(params.id, data, businessUnitScope)
       return StandardResponseFormatter.success(
         response,
         branch,
@@ -207,8 +247,7 @@ export default class BranchOfficesController {
         'Sucursal actualizada correctamente'
       )
     } catch (error) {
-      const { message, status, errorCode } = resolveBranchOfficeApiError(error, 400)
-      return StandardResponseFormatter.error(response, message, status, errorCode)
+      return this.respondError(error, response, 400, i18n)
     }
   }
 
@@ -219,6 +258,11 @@ export default class BranchOfficesController {
    *     summary: Eliminar sucursal (baja lógica)
    *     tags: [BranchOffices]
    *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: integer
    *       - in: path
    *         name: id
    *         required: true
@@ -230,13 +274,34 @@ export default class BranchOfficesController {
    *       404:
    *         description: No encontrada
    */
-  async destroy({ params, response }: HttpContext) {
+  async destroy({ params, request, response, businessUnitScope, i18n }: HttpContext) {
     try {
-      await BranchOfficeService.delete(params.id)
+      const { targetBranchOfficeId } = await request.validateUsing(deleteBranchOfficeValidator)
+      await BranchOfficeService.delete(params.id, businessUnitScope, { targetBranchOfficeId })
       return StandardResponseFormatter.success(response, null, 'Branch', 'Sucursal eliminada correctamente')
     } catch (error) {
-      const { message, status, errorCode } = resolveBranchOfficeApiError(error, 404)
-      return StandardResponseFormatter.error(response, message, status, errorCode)
+      return this.respondError(error, response, 404, i18n)
     }
+  }
+
+  private respondError(
+    error: unknown,
+    response: HttpContext['response'],
+    fallback: number,
+    i18n: HttpContext['i18n']
+  ) {
+    const resolved = resolveBranchOfficeApiError(error, fallback, i18n)
+    const body: Record<string, unknown> = {
+      type: 'error',
+      title: resolved.title,
+      message: resolved.message,
+      errorCode: resolved.errorCode,
+      data: null,
+    }
+    if (resolved.key) {
+      body.key = resolved.key
+      body.detail = resolved.detail ?? resolved.message
+    }
+    return response.status(resolved.status).json(body)
   }
 }

@@ -1,5 +1,7 @@
 /* eslint-disable prettier/prettier */
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { resolveStoredFileExtension } from '#helpers/stored_file_extension'
 import EmployeeProceedingFileService from '#services/employee_proceeding_file_service'
 import {
   createEmployeeProceedingFileValidator,
@@ -7,7 +9,15 @@ import {
 } from '#validators/employee_proceeding_file'
 import { HttpContext } from '@adonisjs/core/http'
 import { EmployeeProceedingFileFilterInterface } from '../interfaces/employee_proceeding_file_filter_interface.js'
-import UserService from '#services/user_service'
+import {
+  emptyEmployeeRoleScope,
+  resolveEmployeeRoleScopeForUser,
+} from '#helpers/resolve_employee_role_scope'
+import UploadService from '#services/upload_service'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import { inject } from '@adonisjs/core'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { EMPLOYEES_PROCEEDING_FILE_DOWNLOAD_TAB_READ_PERMISSION } from '#constants/employees_download_permission_declarations'
 
 export default class EmployeeProceedingFileController {
   /**
@@ -232,7 +242,7 @@ export default class EmployeeProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response }: HttpContext) {
+  async store({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const employeeId = request.input('employeeId')
       const proceedingFileId = request.input('proceedingFileId')
@@ -264,14 +274,28 @@ export default class EmployeeProceedingFileController {
       }
       const newEmployeeProceedingFile =
         await employeeProceedingFileService.create(employeeProceedingFile)
-      if (newEmployeeProceedingFile) {
-        response.status(201)
+      if (!newEmployeeProceedingFile) {
+        await ScopeDeniedLogService.log({
+          domain: 'employee_proceeding_file',
+          action: 'store',
+          requestedId: employeeId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        response.status(404)
         return {
-          type: 'success',
-          title: 'Employees proceeding files',
-          message: 'The relation employee-proceedingfile was created successfully',
-          data: { employeeProceedingFile: newEmployeeProceedingFile },
+          type: 'warning',
+          title: 'The employee was not found',
+          message: 'The employee was not found with the entered ID',
+          data: { employeeId },
         }
+      }
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Employees proceeding files',
+        message: 'The relation employee-proceedingfile was created successfully',
+        data: { employeeProceedingFile: newEmployeeProceedingFile },
       }
     } catch (error) {
       const messageError =
@@ -400,7 +424,7 @@ export default class EmployeeProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async update({ request, response }: HttpContext) {
+  async update({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const employeeProceedingFileId = request.param('employeeProceedingFileId')
       const employeeId = request.input('employeeId')
@@ -424,6 +448,13 @@ export default class EmployeeProceedingFileController {
         .where('employee_proceeding_file_id', employeeProceedingFileId)
         .first()
       if (!currentEmployeeProceedingFile) {
+        await ScopeDeniedLogService.log({
+          domain: 'employee_proceeding_file',
+          action: 'update',
+          requestedId: employeeProceedingFileId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',
@@ -458,14 +489,28 @@ export default class EmployeeProceedingFileController {
         currentEmployeeProceedingFile,
         employeeProceedingFile
       )
-      if (updateEmployeeProceedingFile) {
-        response.status(200)
+      if (!updateEmployeeProceedingFile) {
+        await ScopeDeniedLogService.log({
+          domain: 'employee_proceeding_file',
+          action: 'update',
+          requestedId: employeeId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        response.status(404)
         return {
-          type: 'success',
-          title: 'Employee proceeding files',
-          message: 'The relation employee-proceedingfile was updated successfully',
-          data: { employeeProceedingFile: updateEmployeeProceedingFile },
+          type: 'warning',
+          title: 'The employee was not found',
+          message: 'The employee was not found with the entered ID',
+          data: { employeeId },
         }
+      }
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Employee proceeding files',
+        message: 'The relation employee-proceedingfile was updated successfully',
+        data: { employeeProceedingFile: updateEmployeeProceedingFile },
       }
     } catch (error) {
       const messageError =
@@ -578,7 +623,7 @@ export default class EmployeeProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async delete({ request, response }: HttpContext) {
+  async delete({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const employeeProceedingFileId = request.param('employeeProceedingFileId')
       if (!employeeProceedingFileId) {
@@ -595,6 +640,13 @@ export default class EmployeeProceedingFileController {
         .where('employee_proceeding_file_id', employeeProceedingFileId)
         .first()
       if (!currentEmployeeProceedingFile) {
+        await ScopeDeniedLogService.log({
+          domain: 'employee_proceeding_file',
+          action: 'delete',
+          requestedId: employeeProceedingFileId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',
@@ -725,7 +777,7 @@ export default class EmployeeProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async show({ request, response }: HttpContext) {
+  async show({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const employeeProceedingFileId = request.param('employeeProceedingFileId')
       if (!employeeProceedingFileId) {
@@ -741,6 +793,13 @@ export default class EmployeeProceedingFileController {
       const showEmployeeProceedingFile =
         await employeeProceedingFileService.show(employeeProceedingFileId)
       if (!showEmployeeProceedingFile) {
+        await ScopeDeniedLogService.log({
+          domain: 'employee_proceeding_file',
+          action: 'show',
+          requestedId: employeeProceedingFileId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
         response.status(404)
         return {
           type: 'warning',
@@ -875,23 +934,27 @@ export default class EmployeeProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async getExpiresAndExpiring({ auth, request, response, i18n }: HttpContext) {
+  async getExpiresAndExpiring({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
-
       const user = auth.user
-      const userService = new UserService(i18n)
-      let departmentsList = [] as Array<number>
-
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
-      }
-
+      // Alcance: regla 1, 2, 4 de USRH1788466831312.
+      const scope = user
+        ? (await user.preload('role'), await resolveEmployeeRoleScopeForUser(user, i18n))
+        : emptyEmployeeRoleScope()
       const dateStart = request.input('dateStart')
       const dateEnd = request.input('dateEnd')
-      const filters = { dateStart: dateStart, dateEnd: dateEnd } as EmployeeProceedingFileFilterInterface
+      const filters = {
+        dateStart: dateStart,
+        dateEnd: dateEnd,
+        includeUnassigned: scope.includeUnassigned,
+      } as EmployeeProceedingFileFilterInterface
       const employeeProceddingFileService = new EmployeeProceedingFileService()
-      const employeeProceedingFiles = await employeeProceddingFileService.getExpiredAndExpiring(filters, departmentsList)
+      const employeeProceedingFiles = await employeeProceddingFileService.getExpiredAndExpiring(
+        filters,
+        scope,
+        businessUnitScope
+      )
 
       response.status(200)
       return {
@@ -909,6 +972,172 @@ export default class EmployeeProceedingFileController {
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
         error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/employees-proceeding-files/{employeeProceedingFileId}/download:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees Proceeding Files
+   *     summary: Descarga el binario de un expediente de empleado (proxy autenticado)
+   *     description: |
+   *       Proxy server-side para expedientes de empleado. El API valida que el
+   *       expediente pertenezca al scope del usuario autenticado y, si es válido,
+   *       transmite (stream) el binario desde DigitalOcean Spaces sin exponer la URL
+   *       de origen. Responde 404 tanto si el expediente no existe como si está fuera
+   *       del scope del usuario (no se revela la existencia del recurso ajeno).
+   *     parameters:
+   *       - in: path
+   *         name: employeeProceedingFileId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *         description: Identificador del registro employee_proceeding_file
+   *     responses:
+   *       200:
+   *         description: Stream binario del documento
+   *         headers:
+   *           Content-Type:
+   *             schema:
+   *               type: string
+   *           Content-Disposition:
+   *             schema:
+   *               type: string
+   *           Cache-Control:
+   *             schema:
+   *               type: string
+   *               example: private, no-store
+   *       400:
+   *         description: ID inválido
+   *       401:
+   *         description: Sin token de autenticación válido
+   *       404:
+   *         description: Expediente no encontrado o fuera del scope del usuario
+   *       500:
+   *         description: Error inesperado al descargar el archivo
+   */
+  @inject()
+  async download(ctx: HttpContext, uploadService: UploadService) {
+    const { auth, request, response, logger, businessUnitScope } = ctx
+    try {
+      const canReadTab = await ensureSecondaryPermission(
+        ctx,
+        EMPLOYEES_PROCEEDING_FILE_DOWNLOAD_TAB_READ_PERMISSION
+      )
+      if (!canReadTab) return
+
+      const rawId = request.param('employeeProceedingFileId')
+      const employeeProceedingFileId = Number(rawId)
+
+      if (!Number.isInteger(employeeProceedingFileId) || employeeProceedingFileId <= 0) {
+        response.status(400)
+        return {
+          type: 'error',
+          title: 'Error de validación',
+          message: 'El ID del expediente es inválido',
+          data: { employeeProceedingFileId: rawId },
+        }
+      }
+
+      const user = auth.user!
+      if (!user.role) {
+        await user.load('role')
+      }
+      const isRoot = user.role?.roleSlug === 'root'
+
+      const query = EmployeeProceedingFile.query()
+        .where('employee_proceeding_file_id', employeeProceedingFileId)
+        .whereNull('employee_proceeding_file_deleted_at')
+        .preload('proceedingFile')
+
+      // Filtrar por scope usando whereHas para evitar depender del preload de employee,
+      // que el mixin withBusinessUnitScope filtraría dejando la relación en null.
+      if (!isRoot) {
+        query.whereHas('employee', (q) => {
+          q.whereIn('business_unit_id', businessUnitScope)
+        })
+      }
+
+      const record = await query.first()
+
+      if (!record) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Expediente no encontrado',
+          message: 'El expediente no fue encontrado',
+          data: null,
+        }
+      }
+
+      const proceedingFile = record.proceedingFile
+
+      if (!proceedingFile?.proceedingFilePath) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Archivo no encontrado',
+          message: 'El expediente no tiene un archivo asociado',
+          data: null,
+        }
+      }
+      const object = await uploadService.streamStoredFile(proceedingFile.proceedingFilePath)
+
+      if (!object) {
+        logger.warn(
+          { employeeProceedingFileId, path: proceedingFile.proceedingFilePath },
+          'Expediente registrado en BD pero no encontrado en almacenamiento'
+        )
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'Archivo no encontrado',
+          message: 'El archivo del expediente no fue encontrado en el almacenamiento',
+          data: null,
+        }
+      }
+
+      // Nunca el nombre original: puede traer datos del empleado.
+      const fileName = buildDownloadFileName(
+        ['expediente', employeeProceedingFileId],
+        resolveStoredFileExtension({
+          storedPath: proceedingFile.proceedingFilePath,
+          fileName: proceedingFile.proceedingFileName,
+          contentType: object.contentType,
+        })
+      )
+
+      response.header('Content-Type', object.contentType || 'application/octet-stream')
+      response.header('Content-Disposition', contentDisposition(fileName, 'inline'))
+      response.header('Cache-Control', 'private, no-store')
+      if (object.contentLength !== undefined) {
+        response.header('Content-Length', String(object.contentLength))
+      }
+      if (object.etag) {
+        response.header('ETag', object.etag)
+      }
+      if (object.lastModified) {
+        response.header('Last-Modified', object.lastModified.toUTCString())
+      }
+
+      response.status(200)
+      return response.stream(object.stream)
+    } catch (error: any) {
+      logger.error(
+        { err: error, employeeProceedingFileId: request.param('employeeProceedingFileId') },
+        'Error inesperado al descargar expediente del almacenamiento'
+      )
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Error del servidor',
+        message: 'Ocurrió un error inesperado al obtener el archivo del expediente',
+        error: error?.message,
       }
     }
   }

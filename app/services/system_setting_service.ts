@@ -1,69 +1,104 @@
 import SystemSetting from '#models/system_setting'
+import BusinessUnit from '#models/business_unit'
+import type { I18n } from '@adonisjs/i18n'
+import { isValidTimeZone } from '#modules/attendance-time/attendance_clock'
 import SystemSettingPayrollConfig from '#models/system_setting_payroll_config'
-import SystemSettingSystemModule from '#models/system_setting_system_module'
-import env from '#start/env'
 import { DateTime } from 'luxon'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
+import { SYSTEM_SETTING_RESOLUTION_ERROR_CODES } from '../constants/system_setting_resolution_error_codes.js'
+import {
+  SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT,
+  tenantDefaultContent,
+} from '../constants/system_setting_defaults.js'
+import type { TenantProvisioningTargetInterface } from '../interfaces/tenant_provisioning_target_interface.js'
+import Tolerance from '#models/tolerance'
+import { TENANT_TOLERANCE_DEFAULTS } from '#constants/system_setting_defaults'
+import { TenantContext } from '#utils/tenant_context'
 
 export default class SystemSettingService {
-  async index(/* filters: SystemSettingFilterSearchInterface */) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    let systemSettingsList: SystemSetting[] = []
-
-    const systemSettings = await SystemSetting.query().whereNull('system_setting_deleted_at')
-    .preload('systemSettingPayrollConfigs')
-
-    systemSettings.forEach((sistemSetting) => {
-      const units = sistemSetting.systemSettingBusinessUnits
-        ? sistemSetting.systemSettingBusinessUnits.split(',')
-        : []
-      const systemBussinesMatches = businessList.filter((value) => units.includes(value))
-      const matches = systemBussinesMatches.length
-
-      if (matches > 0) {
-        systemSettingsList.push(sistemSetting)
-      }
-    })
-
-    // const systemSettingsList = await SystemSetting.query()
-    //   .whereNull('system_setting_deleted_at')
-    //   // .if(filters.search, (query) => {
-    //   //   query.where((subQuery) => {
-    //   //     subQuery.whereRaw('UPPER(system_setting_trade_name) LIKE ?', [
-    //   //       `%${filters.search.toUpperCase()}%`,
-    //   //     ])
-    //   //   })
-    //   // })
-    //   .orderBy('system_setting_id')
-    //   .paginate(1, 999)
+  /**
+   * USRH1783712837584: filtra por la relación formal `business_unit_id` en
+   * vez de `FIND_IN_SET` sobre el CSV de slugs. `businessUnitId` viene de
+   * `ctx.businessUnitScope[0]` (middleware `businessScope`, siempre un único
+   * id). Lista vacía (sin `businessUnitId`) no es un error: es el estado
+   * "esta empresa aún no tiene configuración", que habilita el flujo "New"
+   * existente en la pantalla BO — no lanza `resolveByBusinessUnitId`.
+   */
+  async index(businessUnitId?: number) {
+    const systemSettingsList = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .preload('systemSettingPayrollConfigs')
+      .if(!businessUnitId, (query) => query.whereRaw('1 = 0'))
+      .if(!!businessUnitId, (query) => query.where('business_unit_id', businessUnitId!))
 
     return { data: systemSettingsList }
   }
 
+  /**
+   * USRH1785436961868 (regla 3): si la empresa eliminó su configuración y crea
+   * una nueva desde el BO, se reactiva la fila soft-deleted con el contenido
+   * nuevo (espejo del criterio de `createForTenant`) — insertar otra fila
+   * chocaría con el `UNIQUE(business_unit_id)` plano de la migración
+   * 1783968970000.
+   */
   async create(systemSetting: SystemSetting) {
+    const trashed = systemSetting.businessUnitId
+      ? await SystemSetting.query()
+          .withTrashed()
+          .where('business_unit_id', systemSetting.businessUnitId)
+          .whereNotNull('system_setting_deleted_at')
+          .first()
+      : null
+
+    if (trashed) {
+      this.assignManualContent(trashed, systemSetting)
+      // `restore()` limpia `deletedAt` y persiste el contenido recién asignado
+      // (ya marcado como dirty) en una sola escritura.
+      await trashed.restore()
+      return trashed
+    }
+
     const newSystemSetting = new SystemSetting()
-    newSystemSetting.systemSettingTradeName = systemSetting.systemSettingTradeName
-    newSystemSetting.systemSettingSidebarColor = systemSetting.systemSettingSidebarColor
-    newSystemSetting.systemSettingLogo = systemSetting.systemSettingLogo
-    newSystemSetting.systemSettingBanner = systemSetting.systemSettingBanner
-    newSystemSetting.systemSettingFavicon = systemSetting.systemSettingFavicon
-    newSystemSetting.systemSettingActive = systemSetting.systemSettingActive
-    newSystemSetting.systemSettingBusinessUnits = systemSetting.systemSettingBusinessUnits
-    newSystemSetting.systemSettingToleranceCountPerAbsence = systemSetting.systemSettingToleranceCountPerAbsence
-    newSystemSetting.systemSettingRestrictFutureVacation = systemSetting.systemSettingRestrictFutureVacation
-    newSystemSetting.systemSettingMaxAbsencesBeforeAttendanceLock = systemSetting.systemSettingMaxAbsencesBeforeAttendanceLock
-    newSystemSetting.systemSettingMaxLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingMaxLateArrivalsBeforeAttendanceLock
-    newSystemSetting.systemSettingPeriodAbsencesBeforeAttendanceLock = systemSetting.systemSettingPeriodAbsencesBeforeAttendanceLock
-    newSystemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock = systemSetting.systemSettingPeriodLateArrivalsBeforeAttendanceLock
-    newSystemSetting.systemSettingMonthlyConversionFactor =
-      systemSetting.systemSettingMonthlyConversionFactor ?? 30.4
+    newSystemSetting.businessUnitId = systemSetting.businessUnitId
+    this.assignManualContent(newSystemSetting, systemSetting)
     await newSystemSetting.save()
     return newSystemSetting
   }
 
+  /**
+   * Contenido que el alta manual escribe en la fila (nueva o reactivada).
+   * Excluye `businessUnitId`: la fila reactivada ya pertenece a la empresa y
+   * la nueva lo recibe del scope en el call-site.
+   */
+  private assignManualContent(target: SystemSetting, source: SystemSetting) {
+    target.systemSettingTradeName = source.systemSettingTradeName
+    target.systemSettingSidebarColor = source.systemSettingSidebarColor
+    target.systemSettingLogo = source.systemSettingLogo
+    target.systemSettingBanner = source.systemSettingBanner
+    target.systemSettingFavicon = source.systemSettingFavicon
+    target.systemSettingActive = source.systemSettingActive
+    target.systemSettingToleranceCountPerAbsence = source.systemSettingToleranceCountPerAbsence
+    target.systemSettingRestrictFutureVacation = source.systemSettingRestrictFutureVacation
+    target.systemSettingMaxAbsencesBeforeAttendanceLock = source.systemSettingMaxAbsencesBeforeAttendanceLock
+    target.systemSettingMaxLateArrivalsBeforeAttendanceLock = source.systemSettingMaxLateArrivalsBeforeAttendanceLock
+    target.systemSettingPeriodAbsencesBeforeAttendanceLock = source.systemSettingPeriodAbsencesBeforeAttendanceLock
+    target.systemSettingPeriodLateArrivalsBeforeAttendanceLock = source.systemSettingPeriodLateArrivalsBeforeAttendanceLock
+    target.systemSettingMonthlyConversionFactor =
+      source.systemSettingMonthlyConversionFactor ?? SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT
+  }
+
   async update(currentSystemSetting: SystemSetting, systemSetting: SystemSetting) {
     currentSystemSetting.systemSettingTradeName = systemSetting.systemSettingTradeName
-    currentSystemSetting.systemSettingSidebarColor = systemSetting.systemSettingSidebarColor
+    // El BO puede omitir el color en multipart cuando solo cambia otros campos;
+    // la columna es NOT NULL — conservar el valor vigente si no viene en el payload.
+    const sidebarColor = systemSetting.systemSettingSidebarColor
+    currentSystemSetting.systemSettingSidebarColor =
+      sidebarColor !== undefined &&
+      sidebarColor !== null &&
+      String(sidebarColor).trim() !== ''
+        ? String(sidebarColor).trim()
+        : currentSystemSetting.systemSettingSidebarColor
     currentSystemSetting.systemSettingLogo = systemSetting.systemSettingLogo
     currentSystemSetting.systemSettingBanner = systemSetting.systemSettingBanner
     currentSystemSetting.systemSettingFavicon = systemSetting.systemSettingFavicon
@@ -85,36 +120,79 @@ export default class SystemSettingService {
     return currentSystemSetting
   }
 
-  async show(systemSettingId: number) {
+  async show(systemSettingId: number, businessUnitScope: number[]) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
-      .preload('systemSettingSystemModules')
+      .whereIn('businessUnitId', businessUnitScope)
       .preload('systemSettingPayrollConfigs')
       .first()
     return systemSetting ? systemSetting : null
   }
 
-  async getActive() {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    let sistemSettingActive = null as SystemSetting | null
+  /**
+   * Configuración de la EMPRESA ACTIVA de la petición.
+   *
+   * Es lo que necesita casi todo el runtime: el motor de asistencia, la marca de
+   * los reportes y las tolerancias. Antes esos consumidores llamaban a
+   * `getActive()`, que devuelve la fila de plataforma, así que un cliente veía
+   * los valores de otro —o los de nadie—.
+   *
+   * Devuelve `null` cuando no hay una empresa activa identificada (procesos
+   * batch, rutas sin `businessScope`) o cuando esa empresa aún no tiene
+   * configuración. Quien llama decide su default; nunca se cae a la fila de otra
+   * empresa.
+   */
+  async resolveForActiveTenant(): Promise<SystemSetting | null> {
+    const scope = TenantContext.getScope()
 
-    const systemSettings = await SystemSetting.query().whereNull('system_setting_deleted_at').preload('systemSettingTolerances')
+    if (scope.length !== 1) {
+      return null
+    }
 
-    systemSettings.forEach((sistemSetting) => {
-      const units = sistemSetting.systemSettingBusinessUnits
-        ? sistemSetting.systemSettingBusinessUnits.split(',')
-        : []
-      const systemBussinesMatches = businessList.filter((value) => units.includes(value))
-      const matches = systemBussinesMatches.length
+    const systemSetting = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .where('system_setting_active', 1)
+      .where('business_unit_id', scope[0])
+      .preload('systemSettingTolerances')
+      .first()
 
-      if (matches > 0 && sistemSetting.systemSettingActive === 1) {
-        sistemSettingActive = sistemSetting
-      }
-    })
+    return systemSetting ?? null
+  }
 
-    return sistemSettingActive
+  /**
+   * Localiza la configuración de UNA empresa por su relación formal
+   * (`business_unit_id`, USRH1783712837572). Frontera de reúso única:
+   * es el único punto que consulta `system_settings` por `business_unit_id`.
+   *
+   * Entrada plana (no recibe `ctx`, no lee header, no toca `TenantContext`):
+   * resolver el identificador es responsabilidad del call-site. Esto permite
+   * que la historia hermana batch (USRH1783713925140) reutilice este mismo
+   * método pasando el tenant que obtenga de su propio contexto.
+   *
+   * Fail-closed estricto: sin registro propio para el id → error tipado
+   * `SystemSettingResolutionError`. Nunca cae a "todas las unidades activas"
+   * (patrón de `getActive()`) ni al registro base `system_setting_id = 1`.
+   */
+  async resolveByBusinessUnitId(businessUnitId: number): Promise<SystemSetting> {
+    const systemSetting = await SystemSetting.query()
+      .where('business_unit_id', businessUnitId)
+      .where('system_setting_active', 1)
+      .whereNull('system_setting_deleted_at')
+      .preload('systemSettingTolerances')
+      .first()
+
+    if (!systemSetting) {
+      throw new SystemSettingResolutionError(
+        'La empresa no tiene una configuración de System Settings propia',
+        SYSTEM_SETTING_RESOLUTION_ERROR_CODES.NOT_FOUND_TENANT,
+        404,
+        'configuracion-no-encontrada',
+        'La empresa no tiene una configuración de System Settings propia.'
+      )
+    }
+
+    return systemSetting
   }
 
   async getPayrollConfig(systemSettingId: number) {
@@ -131,13 +209,22 @@ export default class SystemSettingService {
     return systemSettingPayrollConfig
   }
 
-  async verifyInfo(systemSetting: SystemSetting) {
+  /**
+   * USRH1785436961868: la unicidad del nombre comercial se evalúa POR EMPRESA
+   * (`business_unit_id` del scope del middleware), nunca globalmente — dos
+   * empresas pueden compartir nombre comercial sin chocar y la validación no
+   * revela nada de otras empresas. Sin `businessUnitId` no compara contra
+   * nada (fail-closed, mismo patrón que `verifyActiveStore`).
+   */
+  async verifyInfo(systemSetting: SystemSetting, businessUnitId?: number) {
     const action = systemSetting.systemSettingId > 0 ? 'updated' : 'created'
     const existTradeName = await SystemSetting.query()
       .if(systemSetting.systemSettingId > 0, (query) => {
         query.whereNot('system_setting_id', systemSetting.systemSettingId)
       })
       .whereNull('system_setting_deleted_at')
+      .if(!businessUnitId, (query) => query.whereRaw('1 = 0'))
+      .if(!!businessUnitId, (query) => query.where('business_unit_id', businessUnitId!))
       .where('system_setting_trade_name', systemSetting.systemSettingTradeName)
       .first()
 
@@ -159,19 +246,20 @@ export default class SystemSettingService {
     }
   }
 
-  async verifyActiveStore(systemSetting: SystemSetting) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
+  /**
+   * USRH1783712837584: filtra por `business_unit_id` en vez de `FIND_IN_SET`.
+   * Con el `UNIQUE(business_unit_id)` de la migración de la HU2, esto en la
+   * práctica detecta "esta empresa ya tiene una fila" antes de que la BD
+   * tire el constraint.
+   */
+  async verifyActiveStore(systemSetting: SystemSetting, businessUnitId?: number) {
     const action = systemSetting.systemSettingId > 0 ? 'updated' : 'created'
     if (systemSetting.systemSettingActive) {
       const activeItem = await SystemSetting.query()
         .where('system_setting_active', 1)
         .whereNull('system_setting_deleted_at')
-        .andWhere((query) => {
-          businessList.forEach((business) => {
-            query.orWhereRaw('FIND_IN_SET(?, system_setting_business_units)', [business.trim()])
-          })
-        })
+        .if(!businessUnitId, (query) => query.whereRaw('1 = 0'))
+        .if(!!businessUnitId, (query) => query.where('business_unit_id', businessUnitId!))
         .first()
       if (activeItem) {
         return {
@@ -192,20 +280,22 @@ export default class SystemSettingService {
     }
   }
 
-  async verifyActiveUpdate(systemSetting: SystemSetting, currentSystemSetting: SystemSetting) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
+  /**
+   * USRH1783712837584: filtra por `business_unit_id` en vez de `FIND_IN_SET`.
+   */
+  async verifyActiveUpdate(
+    systemSetting: SystemSetting,
+    currentSystemSetting: SystemSetting,
+    businessUnitId?: number
+  ) {
     const action = systemSetting.systemSettingId > 0 ? 'updated' : 'created'
     if (systemSetting.systemSettingId > 0) {
       if (systemSetting.systemSettingActive && !currentSystemSetting.systemSettingActive) {
         const activeItem = await SystemSetting.query()
           .where('system_setting_active', 1)
           .whereNull('system_setting_deleted_at')
-          .andWhere((query) => {
-            businessList.forEach((business) => {
-              query.orWhereRaw('FIND_IN_SET(?, system_setting_business_units)', [business.trim()])
-            })
-          })
+          .if(!businessUnitId, (query) => query.whereRaw('1 = 0'))
+          .if(!!businessUnitId, (query) => query.where('business_unit_id', businessUnitId!))
           .first()
         if (activeItem && activeItem.systemSettingId !== currentSystemSetting.systemSettingId) {
           return {
@@ -227,44 +317,89 @@ export default class SystemSettingService {
     }
   }
 
-  async assignSystemModules(systemSettingId: number, systemModules: Array<number>) {
-    let systemSettingSystemModules = await SystemSettingSystemModule.query()
-      .whereNull('system_setting_system_module_deleted_at')
-      .where('system_setting_id', systemSettingId)
-    if (systemSettingSystemModules) {
-      if (systemModules === undefined) {
-        systemModules = []
-      }
-      for await (const item of systemSettingSystemModules) {
-        const existSystemModule = systemModules.find(
-          (a: number) => Number.parseInt(a.toString()) === item.systemModuleId
-        )
-        if (!existSystemModule) {
-          await item.delete()
-        }
-      }
-    }
-    for await (const systemModuleId of systemModules) {
-      const existSystemSettingSystemModules = systemSettingSystemModules.find(
-        (a) => a.systemModuleId === Number.parseInt(systemModuleId.toString())
-      )
-      if (!existSystemSettingSystemModules) {
-        const newSystemSettingSystemModules = new SystemSettingSystemModule()
-        newSystemSettingSystemModules.systemSettingId = systemSettingId
-        newSystemSettingSystemModules.systemModuleId = systemModuleId
-        await newSystemSettingSystemModules.save()
-      }
-    }
-    systemSettingSystemModules = await SystemSettingSystemModule.query()
-      .whereNull('system_setting_system_module_deleted_at')
-      .where('system_setting_id', systemSettingId)
-    return systemSettingSystemModules
-  }
-
-  async updateBirthdayEmailsStatus(systemSettingId: number, birthdayEmailsEnabled: boolean) {
+  /**
+   * Cambia la zona horaria del sitio de la empresa dueña de la configuración.
+   *
+   * La zona se guarda en `business_units.business_unit_timezone` porque la
+   * consumen la asistencia y el canal ADMS; la configuración solo es la puerta
+   * de entrada (Reglas de operación) y el corte de alcance. Una zona que Luxon
+   * no reconoce se rechaza: guardada, movería la hora de toda la plantilla.
+   */
+  async updateSiteTimezone(
+    systemSettingId: number,
+    businessUnitTimezone: string,
+    businessUnitScope: number[],
+    i18n: I18n
+  ) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
+      .first()
+
+    if (!systemSetting) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'System setting not found',
+        message: 'The system setting was not found with the entered ID',
+        key: 'configuracion-no-encontrada',
+        data: { systemSettingId },
+      }
+    }
+
+    const zone = businessUnitTimezone.trim()
+    if (!isValidTimeZone(zone)) {
+      return {
+        status: 400,
+        type: 'error',
+        title: i18n.formatMessage('system_setting_timezone_invalid_title'),
+        message: i18n.formatMessage('system_setting_timezone_invalid_detail'),
+        key: 'zona-horaria-invalida',
+        data: { businessUnitTimezone },
+      }
+    }
+
+    const businessUnit = systemSetting.businessUnitId
+      ? await BusinessUnit.query()
+          .where('business_unit_id', systemSetting.businessUnitId)
+          .whereIn('business_unit_id', businessUnitScope)
+          .first()
+      : null
+
+    if (!businessUnit) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'Business unit not found',
+        message: 'The business unit of the system setting was not found',
+        key: 'empresa-no-encontrada',
+        data: { systemSettingId },
+      }
+    }
+
+    businessUnit.businessUnitTimezone = zone
+    await businessUnit.save()
+
+    return {
+      status: 200,
+      type: 'success',
+      title: i18n.formatMessage('resources'),
+      message: i18n.formatMessage('resources_were_found_successfully'),
+      key: undefined,
+      data: { businessUnitTimezone: zone },
+    }
+  }
+
+  async updateBirthdayEmailsStatus(
+    systemSettingId: number,
+    birthdayEmailsEnabled: boolean,
+    businessUnitScope: number[]
+  ) {
+    const systemSetting = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
       .first()
 
     if (!systemSetting) {
@@ -289,10 +424,15 @@ export default class SystemSettingService {
     }
   }
 
-  async updateAttendanceFaultHrEmailsStatus(systemSettingId: number, enabled: boolean) {
+  async updateAttendanceFaultHrEmailsStatus(
+    systemSettingId: number,
+    enabled: boolean,
+    businessUnitScope: number[]
+  ) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
       .first()
 
     if (!systemSetting) {
@@ -317,10 +457,15 @@ export default class SystemSettingService {
     }
   }
 
-  async updateAnniversaryEmailsStatus(systemSettingId: number, anniversaryEmailsEnabled: boolean) {
+  async updateAnniversaryEmailsStatus(
+    systemSettingId: number,
+    anniversaryEmailsEnabled: boolean,
+    businessUnitScope: number[]
+  ) {
     const systemSetting = await SystemSetting.query()
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
       .first()
 
     if (!systemSetting) {
@@ -343,5 +488,113 @@ export default class SystemSettingService {
       message: 'The anniversary emails status was updated successfully',
       data: { systemSetting },
     }
+  }
+
+  /**
+   * Crea (o revive) de forma idempotente el `system_settings` de un tenant
+   * nuevo, sembrando los defaults de `system_setting_defaults.ts` y ligándolo
+   * por `business_unit_id` (relación formal, USRH1783712837572).
+   *
+   * La configuración nace con la identidad de la empresa: el nombre comercial
+   * es el nombre de la unidad de negocio y las imágenes (logo, banner, favicon,
+   * icono de app) quedan vacías. Antes se copiaba el contenido del registro
+   * base fundacional (id 1, GrupoSTI), lo que sembraba la marca de GrupoSTI en
+   * cada empresa nueva; ese acoplamiento con el id 1 ya no existe.
+   *
+   * Debe invocarse dentro de la transacción del alta self-service
+   * (`SignupDraftService.complete()`): si falla, el llamador debe abortar
+   * toda la transacción (fail-closed, sin fallback silencioso).
+   *
+   * Idempotencia por `business_unit_id`:
+   * - Si ya existe un registro **activo** para ese tenant, se devuelve tal
+   *   cual (un reintento del registro no duplica ni sobreescribe contenido).
+   * - Si existe un registro **soft-deleted**, se revive (`restore()`) y se
+   *   reescribe con los defaults — decisión confirmada: un tenant puede
+   *   reprovisionarse tras un soft-delete de su configuración.
+   * - Si no existe, se crea con los defaults.
+   *
+   * Recibe la empresa destino como objeto (`TenantProvisioningTargetInterface`)
+   * y no como parámetros sueltos: slug y nombre son ambos `string` y podían
+   * invertirse sin que el compilador lo notara.
+   *
+   * `system_setting_business_units` también se puebla con el slug del tenant
+   * nuevo (convivencia con los 27 consumidores legacy de `getActive()` que
+   * hoy resuelven por `FIND_IN_SET`; migrarlos es trabajo de las HUs 3 y 4
+   * del set, fuera de alcance aquí).
+   */
+  async createForTenant(
+    target: TenantProvisioningTargetInterface,
+    trx: TransactionClientContract
+  ): Promise<SystemSetting> {
+    const { businessUnitId, businessUnitName } = target
+    const content = tenantDefaultContent(businessUnitName)
+
+    const existing = await SystemSetting.query({ client: trx })
+      .withTrashed()
+      .where('business_unit_id', businessUnitId)
+      .first()
+
+    if (existing) {
+      if (!existing.deletedAt) {
+        // Ya activo para este tenant: idempotente, no se reinserta ni se sobreescribe.
+        return existing
+      }
+
+      existing.useTransaction(trx)
+      Object.assign(existing, content)
+      // `restore()` limpia `deletedAt` y persiste en una sola escritura
+      // (incluye el contenido recién asignado, ya marcado como dirty).
+      await existing.restore()
+      await this.seedTenantTolerances(existing.systemSettingId, trx)
+      return existing
+    }
+
+    const created = new SystemSetting()
+    Object.assign(created, content)
+    created.businessUnitId = businessUnitId
+    created.useTransaction(trx)
+    await created.save()
+    await this.seedTenantTolerances(created.systemSettingId, trx)
+
+    return created
+  }
+
+  /**
+   * Tolerancias de asistencia propias de la empresa.
+   *
+   * Antes no se sembraban: las tres filas (`Delay`, `Fault`,
+   * `TardinessTolerance`) colgaban del registro base de plataforma y el motor de
+   * asistencia las leía de ahí para TODOS los clientes. Una empresa que ajustaba
+   * su tolerancia desde el backoffice creaba las suyas, pero el motor seguía
+   * mirando las globales. Ahora nacen con la empresa.
+   *
+   * Idempotente por el par (configuración, nombre): reejecutar no duplica ni
+   * pisa el valor que el cliente haya ajustado.
+   */
+  private async seedTenantTolerances(
+    systemSettingId: number,
+    trx: TransactionClientContract
+  ): Promise<void> {
+    const existing = await Tolerance.query({ client: trx })
+      .where('system_setting_id', systemSettingId)
+      .select('tolerance_name')
+
+    const present = new Set(existing.map((tolerance) => tolerance.toleranceName))
+    const missing = TENANT_TOLERANCE_DEFAULTS.filter(
+      (tolerance) => !present.has(tolerance.toleranceName)
+    )
+
+    if (missing.length === 0) {
+      return
+    }
+
+    await Tolerance.createMany(
+      missing.map((tolerance) => ({
+        toleranceName: tolerance.toleranceName,
+        toleranceMinutes: tolerance.toleranceMinutes,
+        systemSettingId,
+      })),
+      { client: trx }
+    )
   }
 }

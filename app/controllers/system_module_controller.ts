@@ -11,31 +11,37 @@ export default class SystemModuleController {
    *       - bearerAuth: []
    *     tags:
    *       - System Modules
-   *     summary: get all
+   *     summary: Listar módulos con su grupo y su orden
+   *     description: >
+   *       Devuelve el catálogo paginado de módulos. Cada módulo incluye
+   *       `systemModuleGroup` (objeto precargado, `null` si el módulo es suelto)
+   *       y `systemModuleOrder`. El orden es determinista: COALESCE(orden del grupo,
+   *       orden del módulo) → orden del módulo → id. No usa el orden de alta
+   *       ni el alfabeto del nombre del grupo (USRH1788282413110).
    *     parameters:
    *       - name: search
    *         in: query
    *         required: false
-   *         description: Search
+   *         description: Filtro por nombre de módulo (insensible a mayúsculas)
    *         schema:
    *           type: string
    *       - name: page
    *         in: query
-   *         required: true
-   *         description: The page number for pagination
-   *         default: 1
+   *         required: false
+   *         description: Número de página (default 1)
    *         schema:
    *           type: integer
+   *           default: 1
    *       - name: limit
    *         in: query
-   *         required: true
-   *         description: The number of records per page
-   *         default: 2000
+   *         required: false
+   *         description: Registros por página (default 2000)
    *         schema:
    *           type: integer
+   *           default: 2000
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: Catálogo paginado de módulos con grupo anidado
    *         content:
    *           application/json:
    *             schema:
@@ -43,76 +49,39 @@ export default class SystemModuleController {
    *               properties:
    *                 type:
    *                   type: string
-   *                   description: Type of response generated
+   *                   example: success
    *                 title:
    *                   type: string
-   *                   description: Title of response generated
    *                 message:
    *                   type: string
-   *                   description: Response message
    *                 data:
    *                   type: object
-   *                   description: Object processed
-   *       '404':
-   *         description: The resource could not be found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
    *                   properties:
-   *                     error:
-   *                       type: string
+   *                     systemModules:
+   *                       type: object
+   *                       description: Objeto paginado de Lucid con meta y data
+   *                       properties:
+   *                         meta:
+   *                           type: object
+   *                         data:
+   *                           type: array
+   *                           items:
+   *                             $ref: '#/components/schemas/SystemModule'
+   *       default:
+   *         description: Error inesperado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 error:
+   *                   type: string
    */
   async index({ request, response }: HttpContext) {
     try {
@@ -295,10 +264,16 @@ export default class SystemModuleController {
    *       - bearerAuth: []
    *     tags:
    *       - System Modules
-   *     summary: get all groups
+   *     summary: Catálogo de grupos del menú
+   *     description: >
+   *       Devuelve el catálogo de grupos no dados de baja, cada uno con nombre
+   *       limpio (sin prefijo numérico), clave, icono (puede ser `null`) y
+   *       posición. Orden: `systemModuleGroupOrder` ASC, `systemModuleGroupId`
+   *       ASC como desempate. Es el catálogo real, no un `DISTINCT` de módulos
+   *       (USRH1788282413110 §9.1).
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: Catálogo de grupos del menú lateral
    *         content:
    *           application/json:
    *             schema:
@@ -306,76 +281,33 @@ export default class SystemModuleController {
    *               properties:
    *                 type:
    *                   type: string
-   *                   description: Type of response generated
+   *                   example: success
    *                 title:
    *                   type: string
-   *                   description: Title of response generated
    *                 message:
    *                   type: string
-   *                   description: Response message
    *                 data:
    *                   type: object
-   *                   description: Object processed
-   *       '404':
-   *         description: The resource could not be found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
    *                   properties:
-   *                     error:
-   *                       type: string
+   *                     systemModulesGroups:
+   *                       type: array
+   *                       items:
+   *                         $ref: '#/components/schemas/SystemModuleGroup'
+   *       default:
+   *         description: Error inesperado
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 error:
+   *                   type: string
    */
   async getGroups({ response }: HttpContext) {
     try {

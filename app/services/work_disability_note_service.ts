@@ -16,8 +16,13 @@ export default class WorkDisabilityNoteService {
     currentWorkDisabilityNote: WorkDisabilityNote,
     workDisabilityNote: WorkDisabilityNote
   ) {
-    currentWorkDisabilityNote.workDisabilityNoteDescription =
-      workDisabilityNote.workDisabilityNoteDescription
+    if (
+      workDisabilityNote.workDisabilityNoteDescription !== undefined &&
+      workDisabilityNote.workDisabilityNoteDescription !== null
+    ) {
+      currentWorkDisabilityNote.workDisabilityNoteDescription =
+        workDisabilityNote.workDisabilityNoteDescription
+    }
     await currentWorkDisabilityNote.save()
     return currentWorkDisabilityNote
   }

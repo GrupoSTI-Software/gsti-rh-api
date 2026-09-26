@@ -1,7 +1,11 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { TenantContext } from '#utils/tenant_context'
+import Employee from './employee.js'
 /**
  * @swagger
  * components:
@@ -27,6 +31,13 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
  *           type: number
  *           nullable: true
  *           description: Employee id
+ *         businessUnitId:
+ *           type: number
+ *           description: >
+ *             Unidad de negocio dueña (USRH1786595131481). Resuelta por el
+ *             sistema — nunca del payload — desde el empleado cuando hay
+ *             employeeId, o desde la unidad activa del request cuando el
+ *             valor cuelga del expediente de configuración de empresa.
  *         proceedingFileId:
  *           type: number
  *           nullable: true
@@ -56,7 +67,11 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
  *         proceedingFileTypePropertyValueDeletedAt: null
  */
 
-export default class ProceedingFileTypePropertyValue extends compose(BaseModel, SoftDeletes) {
+export default class ProceedingFileTypePropertyValue extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   @column({ isPrimary: true })
   declare proceedingFileTypePropertyValueId: number
 
@@ -71,6 +86,42 @@ export default class ProceedingFileTypePropertyValue extends compose(BaseModel, 
 
   @column()
   declare employeeId: number | null
+
+  /**
+   * Marca de pertenencia propia (cierre de IDOR, USRH1786595131481).
+   * Nunca se acepta del payload; ver `assignBusinessUnitId`.
+   */
+  @column()
+  declare businessUnitId: number
+
+  /**
+   * Resuelve businessUnitId por su cuenta (regla 4): del empleado cuando
+   * hay employeeId (regla 2, `Employee` ya está acotado por su propio
+   * `withBusinessUnitScope`, así que un employeeId ajeno no resuelve); si
+   * no, de la unidad activa del request (regla 3 — expediente de
+   * configuración de empresa). Nunca se lee del payload ni la elige el
+   * usuario.
+   */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: ProceedingFileTypePropertyValue) {
+    if (instance.businessUnitId) return
+
+    if (instance.employeeId) {
+      instance.businessUnitId = await resolveParentBusinessUnitId(
+        () => Employee.query().where('employeeId', instance.employeeId!).first(),
+        'el empleado'
+      )
+      return
+    }
+
+    const [businessUnitId] = TenantContext.getScope()
+    if (!businessUnitId) {
+      throw new Error(
+        'No se pudo resolver la unidad de negocio: no hay unidad activa en el alcance'
+      )
+    }
+    instance.businessUnitId = businessUnitId
+  }
 
   @column()
   declare proceedingFileId: number

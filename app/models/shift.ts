@@ -1,7 +1,10 @@
 import { DateTime } from 'luxon'
 import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
+import { compose } from '@adonisjs/core/helpers'
 import EmployeeShift from './employee_shift.js'
+import BranchOfficeShiftQuota from './branch_office_shift_quota.js'
 import * as relations from '@adonisjs/lucid/types/relations'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 
 /**
  * @swagger
@@ -45,9 +48,9 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *           type: number
  *           description: Accumulated Faults
  *           nullable: false
- *         shiftBusinessUnits:
- *            type: string
- *            description: Available business Units
+ *         businessUnitId:
+ *           type: number
+ *           description: Unidad de negocio dueña del turno (marca autoritativa de aislamiento, USRH1783821206521)
  *         shiftTemp:
  *           type: number
  *           description: Shift is temp
@@ -95,7 +98,15 @@ import * as relations from '@adonisjs/lucid/types/relations'
  *         shiftDeletedAt: null
  */
 
-export default class Shift extends BaseModel {
+/**
+ * @tenant-scope activo (USRH1783821206521)
+ * Shift es un modelo dueño de primer nivel (como Employee): cada turno tiene
+ * una unidad dueña única en `business_unit_id`, aplicada automáticamente por
+ * `withBusinessUnitScope()` en toda query. El CSV de slugs que lo acompañaba
+ * (`shift_business_units`) se retiró: era un espejo denormalizado que ya no
+ * gobernaba el aislamiento y solo podía discrepar de la llave.
+ */
+export default class Shift extends compose(BaseModel, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare shiftId: number
 
@@ -123,8 +134,9 @@ export default class Shift extends BaseModel {
   @column()
   declare shiftAccumulatedFault: number
 
+  /** Unidad de negocio dueña del turno (marca autoritativa de aislamiento). */
   @column()
-  declare shiftBusinessUnits: string
+  declare businessUnitId: number
 
   @column()
   declare shiftTemp: number
@@ -151,4 +163,9 @@ export default class Shift extends BaseModel {
     foreignKey: 'shiftId',
   })
   declare employees: relations.HasMany<typeof EmployeeShift>
+
+  @hasMany(() => BranchOfficeShiftQuota, {
+    foreignKey: 'shiftId',
+  })
+  declare branchOfficeShiftQuotas: relations.HasMany<typeof BranchOfficeShiftQuota>
 }

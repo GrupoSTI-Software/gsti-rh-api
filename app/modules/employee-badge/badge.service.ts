@@ -1,0 +1,246 @@
+import env from '#start/env'
+import { resolvePublicAssetUrl } from '#helpers/public_asset_url'
+import QRCode from 'qrcode'
+import { EMPLOYEE_BADGE_ERROR_CODES } from '#constants/employee_badge_error_codes'
+import { EmployeeBadgeError } from '#exceptions/employee_badge_error'
+import { isBusinessCalendarDateBefore, toBusinessDateString } from '#utils/business_date'
+import BadgeRepositoryMysql from './badge.repository.mysql.js'
+import { isValidBadgeTokenFormat } from './validators/verify_badge.validator.js'
+import type { BadgeRepository } from './badge.repository.js'
+import type { BadgeEmployeeContext, GafeteDto, GafeteVerificacionDto } from './dto/badge.dto.js'
+import type { BadgeRenderContext } from './badge_render.service.js'
+import { reportFullName, reportText } from '#helpers/report_text'
+
+/** Fallback espejo de `magic_link_service.ts` cuando `BACKOFFICE_URL` no está definida. */
+const DEFAULT_BACKOFFICE_URL = 'http://127.0.0.1:3000'
+
+/** Salida de `resolveFolio`: el folio, si sigue vigente hoy, y hasta cuando (fecha civil). */
+interface ResolvedFolio {
+  folioRepse: string | null
+  folioVigente: boolean | null
+  folioVigenteHasta: string | null
+}
+
+/**
+ * Servicio de negocio del gafete del trabajador (USRH1784686362321).
+ *
+ * Arma el `GafeteDto` (E1/E3), resuelve el token de forma perezosa y
+ * calcula `vinculoVigente`/`folioRepse`/`folioVigente`/`folioVigenteHasta` en
+ * lectura — nada de esto se persiste salvo el token mismo (§10.2 del spec).
+ */
+export default class BadgeService {
+  private readonly repository: BadgeRepository
+
+  constructor(repository: BadgeRepository = new BadgeRepositoryMysql()) {
+    this.repository = repository
+  }
+
+  /** E1 — `GET /api/employee-badges/:employeeId`. */
+  async getBadgeForEmployeeInTenant(
+    employeeId: number,
+    businessUnitIds: number[]
+  ): Promise<GafeteDto> {
+    const context = await this.repository.findActiveEmployeeInTenant(employeeId, businessUnitIds)
+    if (!context) {
+      throw new EmployeeBadgeError(
+        'El gafete no existe o el trabajador no pertenece al tenant actual.',
+        EMPLOYEE_BADGE_ERROR_CODES.EMPLOYEE_NOT_FOUND,
+        404,
+        'gafete-no-encontrado'
+      )
+    }
+    return this.buildGafeteDto(context)
+  }
+
+  /** E3 — `GET /api/employee-badges/me`. Resuelve por `personId`, jamás por `employeeId` del cliente. */
+  async getBadgeForSelf(personId: number, businessUnitIds: number[]): Promise<GafeteDto> {
+    const context = await this.repository.findActiveEmployeeByPersonId(personId, businessUnitIds)
+    if (!context) {
+      throw new EmployeeBadgeError(
+        'El usuario autenticado no tiene un empleado activo asociado.',
+        EMPLOYEE_BADGE_ERROR_CODES.SELF_EMPLOYEE_NOT_FOUND,
+        422,
+        'sin-empleado-asociado'
+      )
+    }
+    return this.buildGafeteDto(context)
+  }
+
+  /**
+   * Contexto de render de un empleado del tenant para E2 (PDF) y E5 (PNG).
+   * Misma resolución que E1 y el mismo `buildRenderContext` que el lote (E6):
+   * los tres descargables salen idénticos.
+   */
+  async getRenderContextInTenant(
+    employeeId: number,
+    businessUnitIds: number[]
+  ): Promise<{
+    renderContext: BadgeRenderContext
+    employeeSlug: string
+    context: BadgeEmployeeContext
+  }> {
+    const context = await this.repository.findActiveEmployeeInTenant(employeeId, businessUnitIds)
+    if (!context) {
+      throw new EmployeeBadgeError(
+        'El gafete no existe o el trabajador no pertenece al tenant actual.',
+        EMPLOYEE_BADGE_ERROR_CODES.EMPLOYEE_NOT_FOUND,
+        404,
+        'gafete-no-encontrado'
+      )
+    }
+    const renderContext = await this.buildRenderContext(context)
+    return { renderContext, employeeSlug: context.employeeSlug, context }
+  }
+
+  /**
+   * Contexto de render para E2/E5/E6 — resuelve token perezoso y campos visuales
+   * sin generar `qrDataUrl` (innecesario para PDF/PNG binario).
+   */
+  async buildRenderContext(context: BadgeEmployeeContext): Promise<BadgeRenderContext> {
+    const token = await this.repository.resolveOrCreateToken(context.employeeId)
+    const urlVerificacion = this.buildVerificationUrl(token)
+    const { folioRepse, folioVigente } = this.resolveFolio(
+      context.repseFolio,
+      context.repseExpiresAt
+    )
+
+    return {
+      employeeId: context.employeeId,
+      nombreCompleto: this.buildFullName(
+        context.personFirstname,
+        context.personLastname,
+        context.personSecondLastname
+      ),
+      // La clave guardada, no la URL pública: el render lee el binario por su
+      // cuenta, y con objetos privados la URL pública es `null` aunque la foto
+      // exista. Pasarle la URL dejaba todo gafete descargable sin retrato.
+      fotoPath: context.employeePhoto,
+      // Todo texto impreso pasa por `reportText`: un dato ausente no se
+      // dibuja (ni como "null"); los opcionales vacíos quedan en `null`.
+      empresa: reportText(context.businessUnitLegalName || context.businessUnitName),
+      puesto: reportText(context.positionName) || null,
+      departamento: reportText(context.departmentName) || null,
+      numeroNomina: reportText(context.payrollCode) || null,
+      nss: reportText(context.nss) || null,
+      folioRepse,
+      folioVigente,
+      urlVerificacion,
+    }
+  }
+
+  /**
+   * E4 — verificación pública. Validación de formato barata ANTES de tocar
+   * BD (fallo ⇒ mismo 404 que inexistente/revocado, regla 7); lookup con
+   * `withTrashed()` + select mínimo (R5, aislado de modelos Lucid).
+   */
+  async getVerification(rawToken: unknown): Promise<GafeteVerificacionDto> {
+    if (!isValidBadgeTokenFormat(rawToken)) {
+      throw this.verificationNotFoundError()
+    }
+
+    const row = await this.repository.findPublicByToken(rawToken)
+    if (!row) {
+      throw this.verificationNotFoundError()
+    }
+
+    const vinculoVigente = row.employeeActive && row.businessUnitActive
+    const { folioRepse, folioVigente } = this.resolveFolio(row.repseFolio, row.repseExpiresAt)
+
+    return {
+      trabajador: this.buildFullName(
+        row.personFirstname,
+        row.personLastname,
+        row.personSecondLastname
+      ),
+      empresa: row.businessUnitLegalName || row.businessUnitName,
+      vinculoVigente,
+      folioRepse,
+      folioVigente,
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Helpers privados
+  // ---------------------------------------------------------------------------
+
+  private async buildGafeteDto(context: BadgeEmployeeContext): Promise<GafeteDto> {
+    const token = await this.repository.resolveOrCreateToken(context.employeeId)
+    const urlVerificacion = this.buildVerificationUrl(token)
+    const qrDataUrl = await QRCode.toDataURL(urlVerificacion, { margin: 1, width: 320 })
+    const { folioRepse, folioVigente, folioVigenteHasta } = this.resolveFolio(
+      context.repseFolio,
+      context.repseExpiresAt
+    )
+
+    return {
+      empleadoId: context.employeeId,
+      nombreCompleto: this.buildFullName(
+        context.personFirstname,
+        context.personLastname,
+        context.personSecondLastname
+      ),
+      fotoUrl: this.resolvePhotoUrl(context.employeePhoto),
+      // "No hay fotografía", no "no hay URL pública". Con todo objeto nuevo
+      // privado `resolvePhotoUrl` devuelve null aunque la foto exista, y el
+      // gafete le decía "sin foto" a un empleado que sí la tiene.
+      fotoFaltante: !context.employeePhoto,
+      empresa: context.businessUnitLegalName || context.businessUnitName,
+      puesto: context.positionName,
+      folioRepse,
+      folioVigente,
+      folioVigenteHasta,
+      // Mismo criterio que la verificación pública (`getVerification`, :119).
+      // Deja de ir hardcodeado: un gafete guardado en el aparato no puede
+      // congelar "vigente" para siempre en el bolsillo de un dado de baja.
+      vinculoVigente: context.employeeActive && context.businessUnitActive,
+      urlVerificacion,
+      qrDataUrl,
+    }
+  }
+
+  private resolveFolio(
+    folio: string | null,
+    expiresAt: BadgeEmployeeContext['repseExpiresAt']
+  ): ResolvedFolio {
+    if (!folio || !expiresAt) {
+      return { folioRepse: null, folioVigente: null, folioVigenteHasta: null }
+    }
+    const expiresAtIso = expiresAt.toISODate()
+    return {
+      folioRepse: folio,
+      folioVigente: !isBusinessCalendarDateBefore(expiresAtIso, toBusinessDateString()),
+      // Fecha civil, no instante: la columna es `table.date`. Viaja también
+      // cuando el folio ya venció — la app la necesita para recalcular.
+      folioVigenteHasta: expiresAtIso,
+    }
+  }
+
+  private buildFullName(firstname: string, lastname: string, secondLastname: string): string {
+    return reportFullName(firstname, lastname, secondLastname)
+  }
+
+  /**
+   * URL de la foto para el contrato JSON del gafete (E1/E3). `null` cuando el
+   * objeto es privado, de modo que `fotoFaltante` diga la verdad en vez de
+   * entregar una URL que el cliente no puede resolver. Los descargables no
+   * usan esto: `buildRenderContext` les pasa la clave guardada.
+   */
+  private resolvePhotoUrl(photo: string | null): string | null {
+    return resolvePublicAssetUrl(photo)
+  }
+
+  /** Espejo de `magic_link_service.ts:50-51`: la variable `BACKOFFICE_URL` ya existe, sin env nueva. */
+  private buildVerificationUrl(token: string): string {
+    const backofficeUrl = env.get('BACKOFFICE_URL') ?? DEFAULT_BACKOFFICE_URL
+    return `${backofficeUrl.replace(/\/$/, '')}/badge-verification/${token}`
+  }
+
+  private verificationNotFoundError(): EmployeeBadgeError {
+    return new EmployeeBadgeError(
+      'El código de verificación no existe, es inválido o fue revocado.',
+      EMPLOYEE_BADGE_ERROR_CODES.VERIFICATION_NOT_FOUND,
+      404,
+      'verificacion-no-encontrada'
+    )
+  }
+}

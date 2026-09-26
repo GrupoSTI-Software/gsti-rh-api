@@ -1,15 +1,24 @@
-# Reglas de Cursor para este proyecto
+# Reglas de Cursor — valanserh-api
 
-## Idioma
-- Todo el código, comentarios y documentación deben estar en español, excepto:
-  - Nombres de variables, funciones, clases y métodos (en inglés siguiendo convenciones de código)
-  - Palabras reservadas del lenguaje de programación
-  - Nombres de librerías o frameworks
+Las reglas técnicas del proyecto NO están en este archivo. Viven una sola vez en
+`.claude/rules/` y Cursor las carga desde `.cursor/rules/*.mdc`:
 
-## Mensajes de Commit (Git)
-Los mensajes de commit DEBEN seguir el estándar Conventional Commits con estas reglas específicas:
+- `.claude/rules/catalogo-modulos-permisos.md` — fuente única del catálogo de módulos y permisos
+- `.claude/rules/migraciones-lucid.md`
+- `.claude/rules/design-principles.md`
+- `.claude/rules/higiene-repo.md`
+- `.claude/rules/idioma.md`
 
-### Formato obligatorio:
+Este archivo conserva solo la convención de commits, que aplica a cualquiera que escriba un
+commit en el repo (persona o agente).
+
+## Mensajes de commit (Git)
+
+Los mensajes de commit DEBEN seguir Conventional Commits con estas reglas. `commitlint` las
+valida en el hook `commit-msg`.
+
+### Formato obligatorio
+
 ```
 <tipo>: <Descripción en español>
 
@@ -18,14 +27,16 @@ Los mensajes de commit DEBEN seguir el estándar Conventional Commits con estas 
 [Footer opcional en español]
 ```
 
-### Reglas estrictas:
-1. El **tipo** debe estar siempre en **minúsculas** y en **inglés** (feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert)
-2. La **descripción** debe estar en **español** y puede iniciar con mayúscula
-3. El **cuerpo** del commit debe estar en **español**
-4. El **footer** debe estar en **español**
+### Reglas estrictas
+
+1. El **tipo** siempre en **minúsculas** y en **inglés** (feat, fix, docs, style, refactor, perf, test, build, ci, chore, revert)
+2. La **descripción** en **español**, puede iniciar con mayúscula
+3. El **cuerpo** en **español**
+4. El **footer** en **español**
 5. NO usar inglés en la descripción, cuerpo ni footer
 
-### Tipos permitidos:
+### Tipos permitidos
+
 - `feat`: Nueva funcionalidad
 - `fix`: Corrección de errores
 - `docs`: Cambios en documentación
@@ -38,14 +49,16 @@ Los mensajes de commit DEBEN seguir el estándar Conventional Commits con estas 
 - `chore`: Tareas de mantenimiento
 - `revert`: Revertir un commit anterior
 
-### Ejemplos correctos:
+### Ejemplos correctos
+
 - `feat: Agregar componente de inicio de sesión`
 - `fix: Corregir validación del formulario de registro`
 - `docs: Actualizar documentación de instalación`
 - `refactor: Simplificar lógica del servicio de autenticación`
 - `build: Configurar husky para validación de commits`
 
-### Ejemplos incorrectos (NO usar):
-- `feat: Add login component` ❌ (descripción en inglés)
-- `FEAT: Agregar login` ❌ (tipo en mayúsculas)
-- `feat(auth): Add new feature` ❌ (todo en inglés)
+### Ejemplos incorrectos (NO usar)
+
+- `feat: Add login component` (descripción en inglés)
+- `FEAT: Agregar login` (tipo en mayúsculas)
+- `feat(auth): Add new feature` (todo en inglés)

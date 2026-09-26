@@ -1,4 +1,12 @@
+import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Department from '#models/department'
+import {
+  isSensitiveExportPlaceholder,
+  SENSITIVE_EXPORT_PLACEHOLDER,
+} from '#constants/sensitive_export_placeholder'
+import { EMPLOYEE_IMPORT_UPLOAD, EMPLOYEE_IMPORT_ERROR_CODES } from '#constants/employee_import_error_codes'
+import { resolveEmployeeImportApiError } from '#helpers/employee_import_api_error'
 import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
@@ -10,6 +18,15 @@ import User from '#models/user'
 import { DateTime } from 'luxon'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { EmployeeFilterSearchInterface } from '../interfaces/employee_filter_search_interface.js'
+import { isTerminatedEmployeesFilterRequested } from '#helpers/terminated_employees_filter'
+import { applyVisibleDepartmentsScope } from '#helpers/apply_visible_departments_scope'
+import { applyEmployeeDepartmentScope } from '#helpers/apply_employee_department_scope'
+import type { EmployeeDepartmentScope } from '#helpers/resolve_employee_role_scope'
+import type {
+  EmployeeImportResult,
+  EmployeeImportRowError,
+  EmployeeImportCompanyMismatchRow,
+} from '../interfaces/employee_import_result_interface.js'
 import DepartmentService from './department_service.js'
 import PersonService from './person_service.js'
 import PositionService from './position_service.js'
@@ -17,6 +34,15 @@ import VacationSetting from '#models/vacation_setting'
 import FlightAttendant from '#models/flight_attendant'
 import Customer from '#models/customer'
 import env from '#start/env'
+import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
+import {
+  importRowErrorMessage,
+  personIdentityDuplicatedIndexFromError,
+} from '#helpers/person_identity_api_error'
+import { shouldAbortImportOnRowError } from '#helpers/employee_import_api_error'
+import { blindIndex } from '#utils/blind_index'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import BusinessUnit from '#models/business_unit'
 import EmployeeType from '#models/employee_type'
 import axios from 'axios'
@@ -25,24 +51,41 @@ import EmployeeBank from '#models/employee_bank'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
 import VacationAuthorizationSignature from '#models/vacation_authorization_signature'
-import SystemSettingsEmployee from '#models/system_settings_employee'
-import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
 import Shift from '#models/shift'
-import SystemSettingService from './system_setting_service.js'
-import sharp from 'sharp'
+import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
+import { formatReportCalendarDate, REPORT_LOCALE } from '#helpers/report_locale'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
 import EmployeeShiftService from './employee_shift_service.js'
 import EmployeeShift from '#models/employee_shift'
 import ShiftExceptionService from './shift_exception_service.js'
 import Holiday from '#models/holiday'
 import EmployeeAssistCalendar from '#models/employee_assist_calendar'
+import EmployeeQuotaService from './employee_quota_service.js'
+import { EmployeeQuotaError } from '../exceptions/employee_quota_error.js'
+import {
+  employeeImportQuotaExceededError,
+  employeeImportQuotaNoPlanError,
+} from '../helpers/employee_quota_api_error.js'
+import { isSensitiveDataWriteError } from '#helpers/sensitive_data_write_api_error'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import { resolvePersonRelease, type PersonReleaseContext } from '#helpers/person_release_guard'
+import { findSensitiveCategoriesInExcelHeaders } from '#constants/employee_excel_sensitive_headers'
+import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
+import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
+import { SENSITIVE_WRITE_CATEGORY_ORDER } from '#mixins/with_sensitive_write_guard'
+import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 
 import ExcelJS from 'exceljs'
 import EmployeeZone from '#models/employee_zone'
 import Address from '#models/address'
 import AddressType from '#models/address_type'
 import SyncAssistsService from './sync_assists_service.js'
+import { isValidTimeZone, nowInZone, wallTime } from '#modules/attendance-time/attendance_clock'
+import { getBusinessTimeZone } from '#utils/business_date'
 import EmployeeSalaryHistoryService from './employee_salary_history_service.js'
+import logger from '@adonisjs/core/services/logger'
+import OffboardingsService from '#modules/employee-offboarding/offboardings/offboardings.service'
 import { AssistDayInterface } from '../interfaces/assist_day_interface.js'
 import EmployeeAddress from '#models/employee_address'
 import EmployeeSpouse from '#models/employee_spouse'
@@ -68,9 +111,40 @@ import ReservationLeg from '#models/reservation_leg'
 import Ws from '#services/ws'
 import AccessPoint from '#models/access_point'
 import AccessPointEmployee from '#models/access_point_employee'
+import EmployeeTemporaryAssignmentService from './employee_temporary_assignment_service.js'
+import EmployeeTeleworkCalculator from './employee_telework_calculator.js'
+import EmployeeSyncService from '#modules/access-point/employee-sync/employee_sync.service'
+import {
+  EMPLOYEE_WORK_SCHEDULE,
+  EMPLOYEE_WORK_SCHEDULE_ERROR_CODES,
+  EmployeeWorkScheduleErrorCode,
+} from '#constants/employee_work_schedule'
+
+/**
+ * Resultado de `EmployeeService.applyWorkScheduleAndTeleworkPercentage`:
+ * indica si la modalidad + config híbrida es válida para el turno actual del
+ * empleado. Los consumidores (controlador, import Excel) usan `code` para
+ * mapear a mensajes traducidos.
+ */
+export interface ApplyWorkScheduleResult {
+  ok: boolean
+  code?: EmployeeWorkScheduleErrorCode
+  percentage?: number
+}
+
+/**
+ * Cuántos empleados se sincronizan en paralelo por lote contra dispositivos
+ * ZKTeco durante `importFromExcel` (ver `syncCreatedEmployeesToZkDevices`).
+ * Cada sincronización individual puede tardar hasta 10s (timeout de
+ * `Ws.emitZkCreateEmployee`); sin lotes, un archivo de miles de altas
+ * corre esas esperas una por una dentro de una sola petición HTTP.
+ */
+const EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY = 10
+
 export default class EmployeeService {
 
   private i18n: I18n
+  private readonly quotaService = new EmployeeQuotaService()
 
   constructor(i18n: I18n) {
     this.i18n = i18n
@@ -144,120 +218,6 @@ export default class EmployeeService {
     return DateTime.fromMillis(randomTimestamp)
   }
 
-  async syncCreate(employee: BiometricEmployeeInterface) {
-    // Guardar el personId que viene del frontend
-    let personIdToDelete = employee.personId || null
-    // const newEmployee = new Employee()
-    // const personService = new PersonService(this.i18n)
-    // const newPerson = await personService.syncCreate(employee)
-    // const employeeType = await EmployeeType.query()
-    //   .where('employee_type_slug', 'employee')
-    //   .whereNull('employee_type_deleted_at')
-    //   .first()
-
-    try {
-      // Verificar límite de empleados dentro del try-catch
-      const businessUnitId = employee.businessUnitId || 1
-      const limitCheck = await this.verifyEmployeeLimit(businessUnitId)
-
-      if (limitCheck.status !== 200) {
-        throw new Error(limitCheck.message)
-      }
-
-      const newEmployee = new Employee()
-
-      const employeeType = await EmployeeType.query()
-        .where('employee_type_slug', 'employee')
-        .whereNull('employee_type_deleted_at')
-        .first()
-
-      // Usar el personId que viene del frontend
-      if (employee.personId) {
-        newEmployee.personId = employee.personId
-      } else {
-        const personService = new PersonService(this.i18n)
-        const newPerson = await personService.syncCreate(employee)
-        newEmployee.personId = newPerson.personId
-        personIdToDelete = newPerson.personId
-      }
-
-      newEmployee.employeeSyncId = employee.id
-
-      // Generar código de empleado automáticamente si no se proporciona
-      if (!employee.empCode || employee.empCode.toString().trim() === '') {
-        newEmployee.employeeCode = await this.generateAutoEmployeeCode()
-      } else {
-        newEmployee.employeeCode = employee.empCode
-      }
-
-      newEmployee.employeeFirstName = employee.firstName
-      newEmployee.employeeLastName = employee.lastName
-      newEmployee.employeeSecondLastName = employee.secondLastName
-      newEmployee.employeePayrollNum = employee.payrollNum
-      newEmployee.employeeHireDate = employee.hireDate
-      newEmployee.companyId = employee.companyId
-      newEmployee.departmentId = employee.departmentId
-      newEmployee.positionId = employee.positionId
-      newEmployee.businessUnitId = businessUnitId
-
-      if (employeeType?.employeeTypeId) {
-        newEmployee.employeeTypeId = employeeType.employeeTypeId
-      }
-
-      if (employee.empCode) {
-        const urlPhoto = `${env.get('API_BIOMETRICS_EMPLOYEE_PHOTO_URL')}/${employee.empCode}.jpg`
-        const existPhoto = await this.verifyExistPhoto(urlPhoto)
-        if (existPhoto) {
-          newEmployee.employeePhoto = urlPhoto
-        }
-      }
-
-      newEmployee.employeeLastSynchronizationAt = new Date()
-
-      // Guardar empleado
-      await newEmployee.save()
-
-      await this.updateEmployeeSlug(newEmployee)
-
-      // Asignar usuarios responsables
-      await this.setUserResponsible(newEmployee.employeeId, employee.usersResponsible ? employee.usersResponsible : [])
-
-      return newEmployee
-    } catch (error) {
-      // Si hay error y tenemos un personId, eliminarlo
-      if (personIdToDelete) {
-        try {
-          await this.deletePersonById(personIdToDelete)
-        } catch (deleteError) {
-          console.error('Error eliminando persona huérfana:', deleteError)
-        }
-      }
-      throw error
-    }
-
-   /*  await newEmployee.load('employeeType')
-    if (newEmployee.employeeType.employeeTypeSlug === 'employee' && newPerson) {
-      const user = {
-        userEmail: newPerson.personEmail,
-        userPassword: '',
-        userActive: 1,
-        roleId: roleId,
-        personId: personId,
-      } as User
-      const userService = new UserService()
-      const data = await request.validateUsing(createUserValidator)
-      const exist = await userService.verifyInfoExist(user)
-      if (exist.status !== 200) {
-        response.status(exist.status)
-        return {
-          type: exist.type,
-          title: exist.title,
-          message: exist.message,
-          data: { ...data },
-        }
-      }
-    } */
-  }
 
   async syncUpdate(
     employee: BiometricEmployeeInterface,
@@ -293,19 +253,11 @@ export default class EmployeeService {
     currentEmployee.positionSyncId = employee.positionId
     currentEmployee.employeeLastSynchronizationAt = new Date()
     await currentEmployee.save()
-    await this.updateEmployeeSlug(currentEmployee)
     return currentEmployee
   }
 
-  async index(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
+  async index(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[] = []) {
+    const businessUnitsList = allowedBusinessUnitIds
     const normalizeTime = (time?: string | null): string | null => {
       if (!time) {
         return null
@@ -322,14 +274,13 @@ export default class EmployeeService {
     const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
     const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
 
+
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.onlyPayroll, (query) => {
         query.whereIn('payrollBusinessUnitId', businessUnitsList)
       })
-      .if(filters.businessUnitId && filters.businessUnitId > 0, (query) => {
-        query.where('businessUnitId', filters.businessUnitId!)
-      })
+      .where('businessUnitId', filters.businessUnitId!)
       .if(filters.payrollBusinessUnitId && filters.payrollBusinessUnitId > 0, (query) => {
         query.where('payrollBusinessUnitId', filters.payrollBusinessUnitId!)
       })
@@ -338,20 +289,7 @@ export default class EmployeeService {
           subQuery
             .whereRaw('UPPER(CONCAT(COALESCE(employee_first_name, ""), " ", COALESCE(employee_last_name, ""), " ", COALESCE(employee_second_last_name, ""))) LIKE ?', [`%${filters.search.toUpperCase()}%`])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            .orWhereHas('person', (personQuery) => {
-              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-            })
+          // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(filters.employeeWorkSchedule, (query) => {
@@ -415,7 +353,7 @@ export default class EmployeeService {
         query.where('employee_type_of_contract', 'Internal')
       })
       .if(
-        filters.onlyInactive && (filters.onlyInactive === 'true' || filters.onlyInactive === true),
+        isTerminatedEmployeesFilterRequested(filters.onlyInactive),
         (query) => {
           query.whereNotNull('employee_deleted_at')
           query.withTrashed()
@@ -443,7 +381,7 @@ export default class EmployeeService {
       .if(
         !filters.userResponsibleId,
         (query) => {
-          query.whereIn('departmentId', departmentsList)
+          applyVisibleDepartmentsScope(query, departmentsList)
         }
       )
       .if(filters.branchNameIds && filters.branchNameIds.length > 0, (query) => {
@@ -453,6 +391,7 @@ export default class EmployeeService {
       })
       .preload('department')
       .preload('position')
+      .preload('positionLevelConfig')
       .preload('person')
       .preload('businessUnit')
       .preload('address')
@@ -473,7 +412,6 @@ export default class EmployeeService {
         query.orderBy('employee_id')
       })
       .paginate(filters.page, filters.limit)
-
     if (this.isGetMailsEnabled(filters)) {
       for (const employee of employees.all()) {
         employee.employeeBusinessEmail = this.resolveEmployeeBusinessEmailForGetMails(employee)
@@ -483,16 +421,189 @@ export default class EmployeeService {
     return employees
   }
 
-  async create(employee: Employee, usersResponsible: User[], SNDeviceList: string = '') {
-    // Guardar el personId que viene del frontend
-    const personIdToDelete = employee.personId || null
+  /**
+   * Aplica la modalidad de trabajo al empleado y calcula el porcentaje de
+   * teletrabajo derivado. Valida la configuración híbrida contra el turno
+   * activo (RN-06 a RN-09) sin persistir.
+   *
+   * - Onsite  → porcentaje 0,00; modo y config a `null`.
+   * - Remote  → porcentaje 100,00; modo y config a `null`.
+   * - Hybrid  → porcentaje derivado del calculador; requiere turno activo.
+   *
+   * El porcentaje jamás se toma del `source`: el servidor es la única fuente
+   * de verdad (RN-04 y RN-12).
+   *
+   * @param target - Instancia de Employee sobre la que se van a asignar los campos.
+   * @param source - Objeto con los datos entrantes del request/import.
+   * @param employeeId - Id del empleado para resolver el turno activo (opcional en alta).
+   * @returns `{ ok, code?, percentage? }` con el porcentaje calculado.
+   */
+  async applyWorkScheduleAndTeleworkPercentage(
+    target: Employee,
+    source: Partial<Employee>,
+    employeeId?: number
+  ): Promise<ApplyWorkScheduleResult> {
+    const modality = source.employeeWorkSchedule ?? EMPLOYEE_WORK_SCHEDULE.ONSITE
+
+    if (modality === EMPLOYEE_WORK_SCHEDULE.ONSITE) {
+      target.employeeWorkSchedule = EMPLOYEE_WORK_SCHEDULE.ONSITE
+      target.employeeWorkScheduleHybridMode = null
+      target.employeeWorkScheduleHybridConfig = null
+      target.employeeTeleworkPercentage = 0.0
+      return { ok: true, percentage: 0.0 }
+    }
+
+    if (modality === EMPLOYEE_WORK_SCHEDULE.REMOTE) {
+      target.employeeWorkSchedule = EMPLOYEE_WORK_SCHEDULE.REMOTE
+      target.employeeWorkScheduleHybridMode = null
+      target.employeeWorkScheduleHybridConfig = null
+      target.employeeTeleworkPercentage = 100.0
+      return { ok: true, percentage: 100.0 }
+    }
+
+    // Modalidad Hybrid: se requiere turno activo y config válida.
+    let shift: Shift | null = null
+    if (employeeId && employeeId > 0) {
+      const shiftService = new EmployeeShiftService(this.i18n)
+      const activeShift = await shiftService.getShiftActiveByEmployee(employeeId)
+      shift = activeShift?.shift ?? null
+    }
+
+    if (!shift) {
+      return {
+        ok: false,
+        code: EMPLOYEE_WORK_SCHEDULE_ERROR_CODES.HYBRID_REQUIRES_ACTIVE_SHIFT,
+      }
+    }
+
+    const restDays = EmployeeTeleworkCalculator.parseRestDays(shift.shiftRestDays) ?? []
+    const workingDaysPerWeek = EmployeeTeleworkCalculator.resolveWorkingDaysPerWeek(shift)
+
+    const validation = EmployeeTeleworkCalculator.validateHybridConfig({
+      modality: EMPLOYEE_WORK_SCHEDULE.HYBRID,
+      hybridMode: source.employeeWorkScheduleHybridMode ?? null,
+      hybridConfig: source.employeeWorkScheduleHybridConfig ?? null,
+      workingDaysPerWeek,
+      restDays,
+    })
+
+    if (!validation.ok) {
+      return { ok: false, code: validation.code }
+    }
+
+    const percentage = EmployeeTeleworkCalculator.calculateTeleworkPercentage({
+      modality: EMPLOYEE_WORK_SCHEDULE.HYBRID,
+      hybridMode: source.employeeWorkScheduleHybridMode ?? null,
+      hybridConfig: source.employeeWorkScheduleHybridConfig ?? null,
+      workingDaysPerWeek,
+    })
+
+    target.employeeWorkSchedule = EMPLOYEE_WORK_SCHEDULE.HYBRID
+    target.employeeWorkScheduleHybridMode = source.employeeWorkScheduleHybridMode ?? null
+    target.employeeWorkScheduleHybridConfig = source.employeeWorkScheduleHybridConfig ?? null
+    target.employeeTeleworkPercentage = percentage
+    return { ok: true, percentage }
+  }
+
+  /**
+   * Construye la advertencia bilingüe (ES/EN) que se agrega al reporte del
+   * importador cuando una fila de Excel intenta setear la modalidad Híbrido.
+   *
+   * La modalidad Híbrido no se procesa desde Excel porque requiere validar la
+   * configuración contra el turno activo del empleado (RN-06 a RN-09) y
+   * ofrecer al usuario un selector de modo/días con feedback en tiempo real;
+   * esos criterios existen solo en la UI del backoffice
+   * (`components/employeeInfoForm`). El sentido inverso sí se soporta desde
+   * Excel: cambiar de Híbrido a Onsite (0%) o Remote (100%) es trivial.
+   *
+   * @param rowNumber - Número de fila del Excel (1-based) donde se detectó el intento.
+   * @param mode - `'update'` cuando el empleado ya existía; `'create'` cuando es alta nueva.
+   * @returns Cadena bilingüe formateada para el listado `warnings[]` del importador.
+   */
+  private buildHybridFromExcelWarning(rowNumber: number, mode: 'update' | 'create'): string {
+    if (mode === 'update') {
+      return (
+        `Fila ${rowNumber} · La modalidad Híbrido debe configurarse desde el sistema del backoffice, no desde Excel: `
+        + 'requiere validar la configuración contra el turno del empleado. Se conservó la modalidad actual del empleado. '
+        + `· Row ${rowNumber} · Hybrid work modality must be configured from the backoffice system, not from Excel: `
+        + 'it requires validating the configuration against the employee\'s shift. The employee\'s current modality was preserved.'
+      )
+    }
+    return (
+      `Fila ${rowNumber} · El empleado se creó como Presencial (0%). La modalidad Híbrido debe configurarse desde el sistema `
+      + 'del backoffice tras asignar un turno activo: requiere criterios que no se validan por Excel. '
+      + `· Row ${rowNumber} · The employee was created as Onsite (0%). Hybrid work modality must be configured from the `
+      + 'backoffice system after an active shift is assigned: it requires criteria that Excel cannot validate.'
+    )
+  }
+
+  private buildEmployeeImportLegacyErrors(
+    rowErrors: EmployeeImportRowError[],
+    warnings: string[]
+  ): string[] {
+    const fromRows = rowErrors.map((item) => `Fila ${item.row}: ${item.message}`)
+    return [...fromRows, ...warnings]
+  }
+
+  private finalizeEmployeeImportResult(params: {
+    totalRows: number
+    processed: number
+    created: number
+    updated: number
+    skipped: number
+    limitReached: boolean
+    rowErrors: EmployeeImportRowError[]
+    warnings: string[]
+  }): EmployeeImportResult {
+    const failed = new Set(params.rowErrors.map((item) => item.row)).size
+    return {
+      summary: {
+        totalRows: params.totalRows,
+        processed: params.processed,
+        created: params.created,
+        updated: params.updated,
+        failed,
+        skipped: params.skipped,
+        limitReached: params.limitReached,
+      },
+      rowErrors: params.rowErrors,
+      warnings: params.warnings,
+      errors: this.buildEmployeeImportLegacyErrors(params.rowErrors, params.warnings),
+    }
+  }
+
+  private collectMissingRequiredImportFields(employeeData: {
+    employeeNumber?: unknown
+    businessUnit?: unknown
+    payrollBusinessUnit?: unknown
+    firstName?: unknown
+    lastName?: unknown
+  }): string[] {
+    const missing: string[] = []
+    if (!employeeData.employeeNumber || employeeData.employeeNumber.toString().trim() === '') {
+      missing.push('Identificador de nómina')
+    }
+    if (!employeeData.firstName || employeeData.firstName.toString().trim() === '') {
+      missing.push('Nombre del empleado')
+    }
+    if (!employeeData.lastName || employeeData.lastName.toString().trim() === '') {
+      missing.push('Apellido paterno del empleado')
+    }
+    return missing
+  }
+
+  async create(
+    employee: Employee,
+    usersResponsible: User[],
+    releaseContext: PersonReleaseContext,
+    SNDeviceList: string = ''
+  ) {
+    // Persona del mismo acto de alta (creada por el BO en el request previo):
+    // si el alta falla se libera solo si quedó huérfana, para que el reintento
+    // no choque con "personEmail has already been taken" (USRH1785436961832).
+    const personIdCandidate = employee.personId || null
 
     try {
-      // Verificar límite de empleados dentro del try-catch
-      const limitCheck = await this.verifyEmployeeLimit(employee.businessUnitId)
-      if (limitCheck.status !== 200) {
-        throw new Error(limitCheck.message)
-      }
       const newEmployee = new Employee()
       newEmployee.employeeFirstName = employee.employeeFirstName
       newEmployee.employeeLastName = employee.employeeLastName
@@ -520,11 +631,24 @@ export default class EmployeeService {
       newEmployee.companyId = employee.companyId
       newEmployee.departmentId = employee.departmentId
       newEmployee.positionId = employee.positionId
+      // Nivel del puesto (USRH1785964117188): el controller ya validó la
+      // pertenencia; `syncCreate` (biométricos) no lo trae y nace con NULL.
+      newEmployee.positionLevelConfigId = employee.positionLevelConfigId ?? null
       newEmployee.personId = employee.personId
       newEmployee.businessUnitId = employee.businessUnitId
       newEmployee.dailySalary = employee.dailySalary || 0
       newEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
-      newEmployee.employeeWorkSchedule = employee.employeeWorkSchedule
+      // Modalidad y porcentaje se aplican via helper para respetar RN-02..RN-05.
+      // En alta el empleado aún no tiene id, así que solo pasa cuando la
+      // modalidad es Onsite/Remote (Hybrid requiere turno activo previo).
+      const workScheduleResult = await this.applyWorkScheduleAndTeleworkPercentage(
+        newEmployee,
+        employee,
+        undefined
+      )
+      if (!workScheduleResult.ok) {
+        throw new Error(workScheduleResult.code)
+      }
       newEmployee.employeeAssistDiscriminator = employee.employeeAssistDiscriminator
       newEmployee.employeeTypeOfContract = employee.employeeTypeOfContract
       newEmployee.employeeTypeId = employee.employeeTypeId
@@ -532,45 +656,48 @@ export default class EmployeeService {
       newEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
       newEmployee.employeeAuthorizeAnyZones = employee.employeeAuthorizeAnyZones
 
-      // Guardar empleado
-      await newEmployee.save()
+      // Alta todo-o-nada (USRH1785436961832): empleado, slug y responsables
+      // en una sola transacción — un fallo en cualquier paso revierte todo.
+      await db.transaction(async (trx) => {
+        await this.verifyEmployeeLimit(employee.businessUnitId, trx)
+        newEmployee.useTransaction(trx)
+        await newEmployee.save()
+        await this.setUserResponsible(
+          newEmployee.employeeId,
+          usersResponsible ? usersResponsible : [],
+          trx
+        )
+      })
 
-      if (newEmployee) {
-        try {
-          const response: any = await Ws.emitZkCreateEmployee(undefined, {
-            name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
-            card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
-            privilege: 0,
-            online_emp_id: newEmployee.employeeId,
-            device_sn: SNDeviceList
-          }, 10000)
+      // Sincronización con el checador DESPUÉS del commit: es un efecto externo
+      // tolerante a fallo que no debe sostener la transacción abierta (timeout
+      // de 10s) ni dejar al empleado dado de alta en el dispositivo si la
+      // transacción se revierte. El slug no depende del código que reescribe
+      // ZKTeco (usa payroll code + id), así que el orden no altera el resultado.
+      try {
+        const response: any = await Ws.emitZkCreateEmployee(undefined, {
+          name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
+          card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
+          privilege: 0,
+          online_emp_id: newEmployee.employeeId,
+          device_sn: SNDeviceList
+        }, 10000)
 
-          if (response && response.success) {
-            newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
-            await newEmployee.save()
-            await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
-          }
-        } catch (error) {
-          // eslint-disable-next-line no-console
-          console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
+        if (response && response.success) {
+          newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
+          await newEmployee.save()
+          await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
         }
+      } catch (error) {
+        // eslint-disable-next-line no-console
+        console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', (error as Error).message)
       }
-
-      await this.updateEmployeeSlug(newEmployee)
-
-      // Asignar usuarios responsables
-      await this.setUserResponsible(newEmployee.employeeId, usersResponsible ? usersResponsible : [])
 
       await newEmployee.load('businessUnit')
       return newEmployee
     } catch (error) {
-      // Si hay error y tenemos un personId, eliminarlo
-      if (personIdToDelete) {
-        try {
-          await this.deletePersonById(personIdToDelete)
-        } catch (deleteError) {
-          console.error('Error eliminando persona huérfana:', deleteError)
-        }
+      if (personIdCandidate) {
+        await this.releasePersonIfOrphan(personIdCandidate, releaseContext)
       }
       throw error
     }
@@ -581,10 +708,19 @@ export default class EmployeeService {
   async update(
     currentEmployee: Employee,
     employee: Employee,
-    options?: { changedBy?: number; salaryChangeReason?: string | null }
+    options?: { changedBy?: number; salaryChangeReason?: string | null },
+    trx?: TransactionClientContract
   ) {
     const salarioAnterior = currentEmployee.dailySalary
-    const salarioNuevo = employee.dailySalary || 0
+    // Eco destructivo (USRH1787433076994): propiedad ausente = conservar el
+    // salario actual; el controller solo la fija cuando el payload trajo un
+    // número finito. No copiar `|| 0` a ciegas: `0` explícito es real y `null`
+    // (eco del BO cuando el usuario no tiene lectura sensible) no lo es.
+    const dailySalaryProvided =
+      'dailySalary' in employee &&
+      typeof employee.dailySalary === 'number' &&
+      Number.isFinite(employee.dailySalary)
+    const salarioNuevo = dailySalaryProvided ? employee.dailySalary : currentEmployee.dailySalary
 
     currentEmployee.employeeFirstName = employee.employeeFirstName
     currentEmployee.employeeLastName = employee.employeeLastName
@@ -604,29 +740,50 @@ export default class EmployeeService {
     currentEmployee.companyId = employee.companyId
     currentEmployee.departmentId = employee.departmentId
     currentEmployee.positionId = employee.positionId
+    // Nivel del puesto (USRH1785964117188): propiedad ausente = conservar el
+    // nivel actual; el controller solo la fija cuando el payload la trajo
+    // (null explícito = limpiar). No copiar `?? null` a ciegas.
+    if ('positionLevelConfigId' in employee) {
+      currentEmployee.positionLevelConfigId = employee.positionLevelConfigId ?? null
+    }
     currentEmployee.businessUnitId = employee.businessUnitId
-    currentEmployee.dailySalary = salarioNuevo
+    if (dailySalaryProvided) {
+      currentEmployee.dailySalary = employee.dailySalary
+    }
     currentEmployee.payrollBusinessUnitId = employee.payrollBusinessUnitId
-    currentEmployee.employeeWorkSchedule = employee.employeeWorkSchedule
+    // Modalidad y porcentaje se aplican via helper: valida contra el turno
+    // activo y calcula el % de teletrabajo. Si el helper reporta un error de
+    // negocio, se lanza para que el controlador traduzca a 400 con `code`.
+    const workScheduleResult = await this.applyWorkScheduleAndTeleworkPercentage(
+      currentEmployee,
+      employee,
+      currentEmployee.employeeId
+    )
+    if (!workScheduleResult.ok) {
+      throw new Error(workScheduleResult.code)
+    }
     currentEmployee.employeeAssistDiscriminator = employee.employeeAssistDiscriminator
     currentEmployee.employeeTypeOfContract = employee.employeeTypeOfContract
     currentEmployee.employeeTypeId = employee.employeeTypeId
     currentEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
     currentEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
     currentEmployee.employeeAuthorizeAnyZones = employee.employeeAuthorizeAnyZones
+    if (trx) currentEmployee.useTransaction(trx)
     await currentEmployee.save()
 
     if (Number(salarioAnterior) !== Number(salarioNuevo) && options?.changedBy) {
       const historialService = new EmployeeSalaryHistoryService()
-      await historialService.registrarCambio({
-        employeeId: currentEmployee.employeeId,
-        salaryDaily: salarioNuevo,
-        changedBy: options.changedBy,
-        reason: options.salaryChangeReason ?? null,
-      })
+      await historialService.registrarCambio(
+        {
+          employeeId: currentEmployee.employeeId,
+          salaryDaily: salarioNuevo,
+          changedBy: options.changedBy,
+          reason: options.salaryChangeReason ?? null,
+        },
+        trx
+      )
     }
 
-    await this.updateEmployeeSlug(currentEmployee)
     await currentEmployee.load('businessUnit')
     return currentEmployee
   }
@@ -641,10 +798,13 @@ export default class EmployeeService {
     }
     currentEmployee.employeePhoto = photoUrl
     await currentEmployee.save()
+    // `positionLevelConfig` viaja también aquí: esta respuesta reemplaza el
+    // item del listado en el BO — sin él, subir foto borraría el nivel del card.
     return Employee.query()
       .preload('person')
       .preload('department')
       .preload('position')
+      .preload('positionLevelConfig')
       .where('employee_id', employeeId)
       .first()
   }
@@ -738,59 +898,79 @@ export default class EmployeeService {
       employeeTerminatedDate: string | Date
       employeeTerminationModality: string
       employeeTerminationType: string
-    }
+    },
+    /** Quién dio la baja. Queda en el historial de la revocación en checadores. */
+    actorUserId?: number | null
   ) {
     if (baja) {
       currentEmployee.employeeTerminatedDate = baja.employeeTerminatedDate
       currentEmployee.employeeTerminationModality = baja.employeeTerminationModality
       currentEmployee.employeeTerminationType = baja.employeeTerminationType
     }
+    const parsedTerminationDate = baja
+      ? DateTime.fromISO(String(baja.employeeTerminatedDate)).isValid
+        ? DateTime.fromISO(String(baja.employeeTerminatedDate))
+        : DateTime.fromSQL(String(baja.employeeTerminatedDate))
+      : DateTime.now()
+    const terminationDate = (parsedTerminationDate.isValid ? parsedTerminationDate : DateTime.now()).toFormat(
+      'yyyy-MM-dd'
+    )
+
+    await EmployeeTemporaryAssignmentService.cancelActiveAssignmentsByEmployee(
+      currentEmployee.employeeId,
+      terminationDate
+    )
+
     currentEmployee.employeeCode = `${currentEmployee.employeeCode}-IN${DateTime.now().toSeconds().toFixed(0)}`
     await currentEmployee.save()
     await currentEmployee.delete()
+
+    // Expediente de salida (USRH1786568279587): apertura automática NO
+    // bloqueante e idempotente — la baja NUNCA falla por el expediente
+    // (regla 8). Cubre a los 3 llamadores (empleado, piloto, sobrecargo);
+    // la fecha reutiliza `terminationDate` ya resuelta arriba (§7 D5).
+    try {
+      const offboardingsService = new OffboardingsService(this.i18n)
+      await offboardingsService.openAutomatically(currentEmployee, terminationDate)
+    } catch (error) {
+      logger.error(
+        { err: error, employeeId: currentEmployee.employeeId },
+        'EmployeeService.delete: fallo al abrir el expediente de salida; la baja se completó igual'
+      )
+    }
+
+    /**
+     * Saca al colaborador de los checadores donde estuviera dado de alta
+     * (spec ADMS 8.4).
+     *
+     * En su PROPIO try/catch y después del expediente de salida: un equipo
+     * apagado no puede impedir que alguien quede dado de baja hoy. Lo que no se
+     * pudo revocar queda visible en la matriz para reintentarlo.
+     */
+    try {
+      const employeeSyncService = new EmployeeSyncService()
+      const revocations = await employeeSyncService.revokeAll(
+        currentEmployee.employeeId,
+        actorUserId ?? null
+      )
+      const failed = revocations.filter((row) => !row.ok)
+      if (failed.length > 0) {
+        logger.warn(
+          {
+            employeeId: currentEmployee.employeeId,
+            accessPointIds: failed.map((row) => row.accessPointId),
+          },
+          'EmployeeService.delete: no se pudo revocar en todos los checadores; la baja se completó igual'
+        )
+      }
+    } catch (error) {
+      logger.error(
+        { err: error, employeeId: currentEmployee.employeeId },
+        'EmployeeService.delete: fallo la revocación en checadores; la baja se completó igual'
+      )
+    }
+
     return currentEmployee
-  }
-
-  private async updateEmployeeSlug(employee: Employee) {
-    if (!employee.employeeId) {
-      return
-    }
-
-    const slug = this.generateEmployeeSlug(employee)
-    await Employee.query()
-      .where('employee_id', employee.employeeId)
-      .update({ employee_slug: slug })
-    employee.employeeSlug = slug
-  }
-
-  private generateEmployeeSlug(employee: Employee) {
-    const firstNamePart = this.normalizeSlugSegment(employee.employeeFirstName)
-    const lastNamePart = this.normalizeSlugSegment(employee.employeeLastName)
-    const secondLastNamePart = this.normalizeSlugSegment(employee.employeeSecondLastName)
-    const namePart =
-      [firstNamePart, lastNamePart, secondLastNamePart].filter((part) => part).join('-') || 'sin-nombre'
-
-    const payrollPart = this.normalizeSlugSegment(employee.employeePayrollCode, 'sin-codigo')
-    const idPart = employee.employeeId ? `${employee.employeeId}` : '0'
-
-    return `${namePart}---${payrollPart}---${idPart}`.toLowerCase()
-  }
-
-  private normalizeSlugSegment(value?: string | null, fallback = '') {
-    if (!value) {
-      return fallback
-    }
-
-    return value
-      .toString()
-      .trim()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/[^a-zA-Z0-9\-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .toLowerCase()
   }
 
   /**
@@ -799,11 +979,7 @@ export default class EmployeeService {
    * @returns Promise<Employee>
    */
   async reactivate(currentEmployee: Employee) {
-    // Verificar límite de empleados antes de reactivar
-    const limitCheck = await this.verifyEmployeeLimit(currentEmployee.businessUnitId)
-    if (limitCheck.status !== 200) {
-      throw new Error(limitCheck.message)
-    }
+    await this.verifyEmployeeLimit(currentEmployee.businessUnitId)
 
     // Restaurar el empleado eliminado
     await currentEmployee.restore()
@@ -823,8 +999,10 @@ export default class EmployeeService {
       .where('employee_id', employeeId)
       .preload('department')
       .preload('position')
+      .preload('positionLevelConfig')
       .preload('person')
       .preload('businessUnit')
+      .preload('payrollBusinessUnit')
       .preload('spouse')
       .preload('emergencyContact')
       .preload('children')
@@ -860,8 +1038,10 @@ export default class EmployeeService {
       )
       .preload('department')
       .preload('position')
+      .preload('positionLevelConfig')
       .preload('person')
       .preload('businessUnit')
+      .preload('payrollBusinessUnit')
       .preload('activeEmployeeBranchOffice', (q) => {
         q.preload('branchOffice', (bq) => {
           bq.preload('businessUnit')
@@ -870,6 +1050,27 @@ export default class EmployeeService {
       .withTrashed()
       .first()
     return employee ? employee : null
+  }
+
+  /**
+   * Canjea el token opaco de la URL del Backoffice por el empleado.
+   *
+   * Resuelve el id y delega en `getById` en vez de repetir su query: el filtro
+   * por usuario responsable, los preloads y el `withTrashed` viven en un solo
+   * lugar. La búsqueda del slug hereda el alcance por empresa del mixin
+   * `withBusinessUnitScope`, así que un token de otra empresa no resuelve.
+   */
+  async getBySlug(employeeSlug: string, userResponsibleId?: number | null) {
+    const match = await Employee.query()
+      .where('employee_slug', employeeSlug)
+      .select('employee_id')
+      .withTrashed()
+      .first()
+
+    if (!match) {
+      return null
+    }
+    return this.getById(match.employeeId, userResponsibleId)
   }
 
   async getNewPosition(
@@ -892,55 +1093,15 @@ export default class EmployeeService {
     return positionId
   }
 
+  /**
+   * Comprobaciones compartidas por alta y edición: tipo de empleado, persona
+   * (solo alta), empresa y empresa de nómina. La estructura del ALTA se
+   * revisa en store con requireEmployeeStructureForCreate +
+   * EmployeeStructureService.verifyAssignable (USRH1789328927556). La de la
+   * edición, en EmployeeStructureService y solo cuando cambia
+   * (USRH1788466831270).
+   */
   async verifyInfoExist(employee: Employee) {
-    if (!employee.departmentId) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The department was not found',
-        message: 'The department was not found with the entered ID',
-        data: { ...employee },
-      }
-    }
-    const existDepartment = await Department.query()
-      .whereNull('department_deleted_at')
-      .where('department_id', employee.departmentId)
-      .first()
-
-    if (!existDepartment && employee.departmentId) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The department was not found',
-        message: 'The department was not found with the entered ID',
-        data: { ...employee },
-      }
-    }
-    if (!employee.positionId) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The position was not found',
-        message: 'The position was not found with the entered ID',
-        data: { ...employee },
-      }
-    }
-
-    const existPosition = await Position.query()
-      .whereNull('position_deleted_at')
-      .where('position_id', employee.positionId)
-      .first()
-
-    if (!existPosition && employee.positionId) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The position was not found',
-        message: 'The position was not found with the entered ID',
-        data: { ...employee },
-      }
-    }
-
     const existEmployeeType = await EmployeeType.query()
       .whereNull('employee_type_deleted_at')
       .where('employee_type_id', employee.employeeTypeId)
@@ -1028,38 +1189,47 @@ export default class EmployeeService {
 
   async verifyInfo(employee: Employee) {
     const action = employee.employeeId > 0 ? 'updated' : 'created'
-    const existCode = await Employee.query()
-      .if(employee.employeeId > 0, (query) => {
-        query.whereNot('employee_id', employee.employeeId)
-      })
-      .whereNull('employee_deleted_at')
-      .where('employee_code', employee.employeeCode)
-      .first()
+    // Sin código (o vacío) no se consulta: en el alta el API lo genera después
+    // en `create`. Un `.where('employee_code', undefined)` revienta Lucid con
+    // 500 (Escenario 3 del manual QA / formularios que omiten el código).
+    const employeeCodeStr = employee.employeeCode?.toString().trim() || ''
+    if (employeeCodeStr) {
+      const existCode = await Employee.query()
+        .if(employee.employeeId > 0, (query) => {
+          query.whereNot('employee_id', employee.employeeId)
+        })
+        .whereNull('employee_deleted_at')
+        .where('employee_code', employee.employeeCode)
+        .first()
 
-    if (existCode && employee.employeeCode) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The employee code already exists for another employee',
-        message: `The employee resource cannot be ${action} because the code is already assigned to another employee`,
-        data: { ...employee },
+      if (existCode) {
+        return {
+          status: 400,
+          type: 'warning',
+          title: 'The employee code already exists for another employee',
+          message: `The employee resource cannot be ${action} because the code is already assigned to another employee`,
+          data: { ...employee },
+        }
       }
     }
-    const existBusinessEmail = await Employee.query()
-      .if(employee.employeeId > 0, (query) => {
-        query.whereNot('employee_id', employee.employeeId)
-      })
-      .whereNull('employee_deleted_at')
-      .where('employee_business_email', employee.employeeBusinessEmail)
-      .first()
+    const employeeBusinessEmailStr = employee.employeeBusinessEmail?.toString().trim() || ''
+    if (employeeBusinessEmailStr) {
+      const existBusinessEmail = await Employee.query()
+        .if(employee.employeeId > 0, (query) => {
+          query.whereNot('employee_id', employee.employeeId)
+        })
+        .whereNull('employee_deleted_at')
+        .where('employee_business_email', employee.employeeBusinessEmail)
+        .first()
 
-    if (existBusinessEmail && employee.employeeBusinessEmail) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The employee business email already exists for another employee',
-        message: `The employee resource cannot be ${action} because the business email is already assigned to another employee`,
-        data: { ...employee },
+      if (existBusinessEmail) {
+        return {
+          status: 400,
+          type: 'warning',
+          title: 'The employee business email already exists for another employee',
+          message: `The employee resource cannot be ${action} because the business email is already assigned to another employee`,
+          data: { ...employee },
+        }
       }
     }
     if (!employee.employeeId) {
@@ -1115,17 +1285,39 @@ export default class EmployeeService {
     }
   }
 
-  async indexWithOutUser(filters: EmployeeFilterSearchInterface) {
+  /**
+   * Empleados de la empresa activa que todavía no tienen cuenta de usuario
+   * EN ELLA.
+   *
+   * La exclusión se mide con la misma regla que el listado de usuarios
+   * (`UserService.index`): una cuenta cuenta para la empresa solo si está
+   * ligada a ella en `business_unit_users`. Antes se medía contra todas las
+   * cuentas del sistema, así que una cuenta de otra empresa —o huérfana de la
+   * pivote— dejaba al empleado fuera del catálogo sin que nadie pudiera verla
+   * ni corregirla desde la pantalla.
+   *
+   * Sin empresa en el alcance no hay catálogo que ofrecer.
+   *
+   * @param filters - Búsqueda, estructura y paginación del catálogo.
+   * @param allowedBusinessUnitIds - Alcance de empresas de quien consulta.
+   */
+  async indexWithOutUser(
+    filters: EmployeeFilterSearchInterface,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     const personUsed = await User.query()
       .whereNull('user_deleted_at')
+      .whereHas('businessUnits', (subQuery) => {
+        subQuery.whereIn('business_units.business_unit_id', allowedBusinessUnitIds)
+      })
       .select('person_id')
       .distinct('person_id')
       .orderBy('person_id')
-    const persons = [] as Array<number>
-    for await (const user of personUsed) {
-      persons.push(user.personId)
-    }
+    const persons = personUsed.map((user) => user.personId)
     const employees = await Employee.query()
+      .if(allowedBusinessUnitIds.length === 0, (query) => {
+        query.whereRaw('1 = 0')
+      })
       .if(filters.search, (query) => {
         query.whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
           `%${filters.search.toUpperCase()}%`,
@@ -1407,9 +1599,9 @@ export default class EmployeeService {
           const shiftExceptionIds = shiftExceptions.map((se: ShiftException) => se.shiftExceptionId)
           const signatures = shiftExceptionIds.length > 0
             ? await VacationAuthorizationSignature.query()
-                .whereNull('vacation_authorization_signature_deleted_at')
-                .whereIn('shift_exception_id', shiftExceptionIds)
-                .orderBy('vacation_authorization_signature_created_at', 'desc')
+              .whereNull('vacation_authorization_signature_deleted_at')
+              .whereIn('shift_exception_id', shiftExceptionIds)
+              .orderBy('vacation_authorization_signature_created_at', 'desc')
             : []
 
           // Map shift exceptions to include employeeSignature
@@ -1543,7 +1735,7 @@ export default class EmployeeService {
       .where('employee_id', employeeId)
       .orderBy('shift_exceptions_date', 'asc')
 
-      const signatures = await VacationAuthorizationSignature.query()
+    const signatures = await VacationAuthorizationSignature.query()
       .whereNull('vacation_authorization_signature_deleted_at')
       .whereIn('shift_exception_id', vacations.map((vacation: ShiftException) => vacation.shiftExceptionId))
       .orderBy('vacation_authorization_signature_created_at', 'asc')
@@ -1770,7 +1962,7 @@ export default class EmployeeService {
       if (response.status === 200) {
         return true
       }
-    } catch (error) {}
+    } catch (error) { }
     return false
   }
 
@@ -1811,15 +2003,10 @@ export default class EmployeeService {
   }
 
 
-  async getBirthday(filters: EmployeeFilterSearchInterface) {
+  async getBirthday(filters: EmployeeFilterSearchInterface, allowedBusinessUnitIds: number[]) {
     const year = filters.year
     const cutoffDate = DateTime.fromObject({ year, month: 1, day: 1 }).toSQLDate()!
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.search, (query) => {
@@ -1829,20 +2016,7 @@ export default class EmployeeService {
               `%${filters.search.toUpperCase()}%`,
             ])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            .orWhereHas('person', (personQuery) => {
-              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-            })
+          // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(this.hasFilterValue(filters.departmentId), (query) => {
@@ -1878,18 +2052,13 @@ export default class EmployeeService {
     return employees
   }
 
-  async getAnniversary(filters: EmployeeFilterSearchInterface) {
+  async getAnniversary(filters: EmployeeFilterSearchInterface, allowedBusinessUnitIds: number[]) {
     const year = filters.year
     if (!year) {
       return []
     }
     const cutoffDate = DateTime.fromObject({ year, month: 1, day: 1 }).toSQLDate()!
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.search, (query) => {
@@ -1899,20 +2068,7 @@ export default class EmployeeService {
               `%${filters.search.toUpperCase()}%`,
             ])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            .orWhereHas('person', (personQuery) => {
-              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-            })
+          // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(this.hasFilterValue(filters.departmentId), (query) => {
@@ -1949,22 +2105,17 @@ export default class EmployeeService {
     return employees
   }
 
-  async getVacations(filters: EmployeeFilterSearchInterface) {
+  async getVacations(filters: EmployeeFilterSearchInterface, allowedBusinessUnitIds: number[]) {
     const shiftExceptionVacation = await ExceptionType.query()
-    .whereNull('exception_type_deleted_at')
+      .whereNull('exception_type_deleted_at')
       .where('exception_type_slug', 'vacation')
       .first()
     if (!shiftExceptionVacation) {
-     return []
+      return []
     }
     const year = filters.year
     const cutoffDate = DateTime.fromObject({ year, month: 1, day: 1 }).toSQLDate()!
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.search, (query) => {
@@ -1974,20 +2125,7 @@ export default class EmployeeService {
               `%${filters.search.toUpperCase()}%`,
             ])
             .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
-            .orWhereHas('person', (personQuery) => {
-              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-            })
+          // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(this.hasFilterValue(filters.departmentId), (query) => {
@@ -2030,25 +2168,20 @@ export default class EmployeeService {
     return employees
   }
 
-  async getAllVacationsByPeriod(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>) {
+  async getAllVacationsByPeriod(filters: EmployeeFilterSearchInterface, scope: EmployeeDepartmentScope, allowedBusinessUnitIds: number[]) {
     const shiftExceptionVacation = await ExceptionType.query()
-    .whereNull('exception_type_deleted_at')
+      .whereNull('exception_type_deleted_at')
       .where('exception_type_slug', 'vacation')
       .first()
     if (!shiftExceptionVacation) {
-     return []
+      return []
     }
     const dateStart = filters.dateStart
     const dateEnd = filters.dateEnd
     if (!dateStart || !dateEnd) {
       return []
     }
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
     const employees = await Employee.query()
       .whereIn('businessUnitId', businessUnitsList)
       .if(filters.search, (query) => {
@@ -2058,20 +2191,7 @@ export default class EmployeeService {
               `%${filters.search.toUpperCase()}%`,
             ])
             .orWhereRaw('UPPER(employee_code) = ?', [`${filters.search.toUpperCase()}`])
-            .orWhereHas('person', (personQuery) => {
-              personQuery.whereRaw('UPPER(person_rfc) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_curp) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-              personQuery.orWhereRaw('UPPER(person_email) LIKE ?', [
-                `%${filters.search.toUpperCase()}%`,
-              ])
-            })
+          // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
         })
       })
       .if(this.hasFilterValue(filters.departmentId), (query) => {
@@ -2091,7 +2211,7 @@ export default class EmployeeService {
         exceptionQuery.whereBetween('shift_exceptions_date', [dateStart, dateEnd])
         exceptionQuery.select('shift_exceptions_date', 'exception_type_id')
       })
-      .whereIn('departmentId', departmentsList)
+      .where((q) => applyEmployeeDepartmentScope(q, scope))
       .preload('department')
       .preload('position')
       .preload('person')
@@ -2114,13 +2234,8 @@ export default class EmployeeService {
     return employees
   }
 
-  async getUserResponsible(employeeId: number, userId: number) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+  async getUserResponsible(employeeId: number, userId: number, allowedBusinessUnitIds: number[]) {
+    const businessUnitsList = allowedBusinessUnitIds
 
     const userResponsibleEmployees = await UserResponsibleEmployee.query()
       .whereNull('user_responsible_employee_deleted_at')
@@ -2144,13 +2259,32 @@ export default class EmployeeService {
     return userResponsibleEmployees ? userResponsibleEmployees : []
   }
 
-  async setUserResponsible(employeeId: number, usersResponsible: User[]) {
+  async setUserResponsible(
+    employeeId: number,
+    usersResponsible: User[],
+    trx?: TransactionClientContract
+  ) {
+    if (usersResponsible.length === 0) {
+      return
+    }
+    // Bajo transacción, el hook beforeCreate de UserResponsibleEmployee no
+    // vería al empleado recién creado (consulta fuera del trx): la BU se
+    // resuelve aquí desde el padre leído con el mismo cliente.
+    const employee = await Employee.query({ client: trx })
+      .where('employee_id', employeeId)
+      .first()
     for await (const user of usersResponsible) {
       const userResponsibleEmployee = new UserResponsibleEmployee
       userResponsibleEmployee.userId = user.userId
       userResponsibleEmployee.employeeId = employeeId
+      if (employee) {
+        userResponsibleEmployee.businessUnitId = employee.businessUnitId
+      }
       if (user.role.roleSlug === 'nominas') {
         userResponsibleEmployee.userResponsibleEmployeeReadonly = 1
+      }
+      if (trx) {
+        userResponsibleEmployee.useTransaction(trx)
       }
       await userResponsibleEmployee.save()
     }
@@ -2227,13 +2361,13 @@ export default class EmployeeService {
     }
   }
 
-  async getEmployeesToSyncFromBiometrics() {
+  async getEmployeesToSyncFromBiometrics(allowedBusinessUnitIds: number[] = []) {
 
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
+    const businessUnitsQuery = BusinessUnit.query().where('business_unit_active', 1)
+    if (allowedBusinessUnitIds.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
+    }
+    const businessUnits = await businessUnitsQuery
 
     const businessUnitsList = businessUnits.map((business) => business.businessUnitSlug)
 
@@ -2354,7 +2488,77 @@ export default class EmployeeService {
 
 
   /**
-   * Eliminar una persona por su ID
+   * Libera (soft delete) a la persona del alta de empleado fallida para que el
+   * capturista pueda reintentar sin chocar con "el correo ya está registrado"
+   * (USRH1785436961832), ahora blindada (USRH1789698261608).
+   *
+   * Solo procede si la persona no tiene NI HA TENIDO vínculo alguno —empleado,
+   * usuario o cliente, vivo o dado de baja— y nació dentro de la ventana de
+   * frescura. Cualquier otro caso se niega en silencio y queda trazado. No
+   * comprueba de qué empresa es la persona: `people` no tiene esa marca.
+   *
+   * @param personId Persona candidata; llega del payload del alta o del API de biométricos.
+   * @param context Actor y scope del acto, para la traza de la decisión. No decide nada.
+   * @returns `true` solo si la persona quedó liberada. Nunca lanza.
+   */
+  async releasePersonIfOrphan(
+    personId: number,
+    context: PersonReleaseContext
+  ): Promise<boolean> {
+    try {
+      const decision = await resolvePersonRelease(personId)
+
+      if (!decision.releasable) {
+        // `not-found` es el camino normal de la segunda compensación del mismo
+        // acto (la primera ya liberó): registrarlo llenaría la auditoría de
+        // falsos positivos en cada alta fallida legítima.
+        if (decision.reason !== 'not-found') {
+          logger.warn(
+            { personId, reason: decision.reason, actorUserId: context.actorUserId },
+            'EmployeeService.releasePersonIfOrphan: liberación denegada'
+          )
+          // Best-effort y posterior a la decisión: si Mongo está caído no
+          // guarda y no avisa, y el rechazo se sostiene igual.
+          await ScopeDeniedLogService.log({
+            domain: 'person',
+            action: 'release-orphan',
+            requestedId: personId,
+            actorUserId: context.actorUserId,
+            businessUnitScope: context.businessUnitScope,
+          })
+        }
+        return false
+      }
+
+      await decision.person.delete()
+
+      // La CONCESIÓN también se registra. Sin esto, un barrido exitoso de
+      // expedientes en vuelo sería invisible — justo el escenario que interesa
+      // poder reconstruir después. Mismo carácter best-effort.
+      await ScopeDeniedLogService.log({
+        domain: 'person',
+        action: 'release-orphan-granted',
+        requestedId: personId,
+        actorUserId: context.actorUserId,
+        businessUnitScope: context.businessUnitScope,
+      })
+
+      return true
+    } catch (error) {
+      logger.error(
+        { err: error, personId },
+        'EmployeeService.releasePersonIfOrphan: fallo al liberar la persona del alta fallida'
+      )
+      return false
+    }
+  }
+
+  /**
+   * Eliminar una persona por su ID.
+   *
+   * @deprecated Sin llamadores desde USRH1789698261608: borraba sin comprobar
+   * vínculo ni antigüedad. Toda compensación del alta fallida pasa por
+   * `releasePersonIfOrphan`. Se retira junto con el alta transaccional.
    * @param personId - ID de la persona a eliminar
    * @returns Promise<boolean> - true si se eliminó correctamente
    */
@@ -2379,21 +2583,23 @@ export default class EmployeeService {
    */
   async cleanupOrphanPersons(): Promise<number> {
     try {
-      // Buscar personas que no tienen empleados asociados
+      // Buscar personas que no tienen empleados asociados. La tabla del
+      // modelo Person es `people`: referenciarla como `persons` hacía tronar
+      // la consulta (Unknown column) y el catch regresaba 0 en silencio.
       const orphanPersons = await Person.query()
         .whereNotExists((query) => {
           query.from('employees')
-            .whereRaw('employees.person_id = persons.person_id')
+            .whereRaw('employees.person_id = people.person_id')
             .whereNull('employees.employee_deleted_at')
         })
         .whereNotExists((query) => {
           query.from('customers')
-            .whereRaw('customers.person_id = persons.person_id')
+            .whereRaw('customers.person_id = people.person_id')
             .whereNull('customers.customer_deleted_at')
         })
         .whereNotExists((query) => {
           query.from('users')
-            .whereRaw('users.person_id = persons.person_id')
+            .whereRaw('users.person_id = people.person_id')
             .whereNull('users.user_deleted_at')
         })
 
@@ -2415,124 +2621,30 @@ export default class EmployeeService {
    * @param businessUnitId - ID de la unidad de negocio
    * @returns Promise<{status: number, type: string, title: string, message: string, data: any}>
    */
-  async verifyEmployeeLimit(businessUnitId: number): Promise<{status: number, type: string, title: string, message: string, data: any}> {
-    try {
-      // Obtener el límite de empleados para la unidad de negocio
-      const employeeLimit = await this.getEmployeeLimitForBusinessUnit(businessUnitId)
+  async verifyEmployeeLimit(
+    businessUnitId: number,
+    trx?: TransactionClientContract
+  ): Promise<{ status: number; type: string; title: string; message: string; data: Record<string, unknown> }> {
+    await this.quotaService.assertWithinQuota(businessUnitId, 1, trx)
+    const quota = await this.quotaService.resolveQuota(businessUnitId, trx)
+    const active = await this.quotaService.countActiveEmployees(businessUnitId, trx)
 
-      if (employeeLimit === null) {
-        // No hay límite establecido, permitir creación
-        return {
-          status: 200,
-          type: 'success',
-          title: 'Employee limit verification',
-          message: 'No employee limit is set for this business unit',
-          data: { businessUnitId, limit: null }
-        }
-      }
-
-      // Contar empleados activos en la unidad de negocio
-      const activeEmployees = await Employee.query()
-        .whereNull('employee_deleted_at')
-        .where('businessUnitId', businessUnitId)
-      const activeEmployeesCount = activeEmployees.length
-
-      if (activeEmployeesCount >= employeeLimit) {
-        return {
-          status: 400,
-          type: 'warning',
-          title: 'Employee limit exceeded',
-          message: `Cannot create employee. The business unit has reached its limit of ${employeeLimit} employees. Current count: ${activeEmployeesCount}`,
-          data: { businessUnitId, limit: employeeLimit, currentCount: activeEmployeesCount }
-        }
-      }
-
-      return {
-        status: 200,
-        type: 'success',
-        title: 'Employee limit verification',
-        message: 'Employee can be created within the established limit',
-        data: { businessUnitId, limit: employeeLimit, currentCount: activeEmployeesCount }
-      }
-    } catch (error) {
-      return {
-        status: 400,
-        type: 'error',
-        title: 'Error verifying employee limit',
-        message: 'An error occurred while verifying the employee limit',
-        data: { businessUnitId, error: error.message }
-      }
-    }
-  }
-
-  /**
-   * Obtener el límite de empleados para una unidad de negocio específica
-   * @param businessUnitId - ID de la unidad de negocio
-   * @returns Promise<number | null>
-   */
-  private async getEmployeeLimitForBusinessUnit(businessUnitId: number): Promise<number | null> {
-    try {
-      // Obtener la variable de entorno SYSTEM_BUSINESS
-      const systemBusinessEnv = env.get('SYSTEM_BUSINESS', '')
-      if (!systemBusinessEnv) {
-        console.error('SYSTEM_BUSINESS environment variable not found')
-        return null
-      }
-
-      // Convertir la variable de entorno a array de strings
-      const systemBusinessUnits = systemBusinessEnv.split(',').map((unit: string) => unit.trim())
-
-      // Obtener el nombre de la unidad de negocio
-      const businessUnit = await BusinessUnit.find(businessUnitId)
-      if (!businessUnit) {
-        console.error('Business unit not found:', businessUnitId)
-        return null
-      }
-
-      // Buscar el system_setting que contenga la unidad de negocio
-      const systemSettings = await SystemSetting.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_active', 1)
-        .select('system_setting_id', 'system_setting_business_units')
-
-      let matchingSystemSettingId: number | null = null
-
-      for (const setting of systemSettings) {
-        const settingBusinessUnits = setting.systemSettingBusinessUnits.split(',').map((unit: string) => unit.trim())
-
-        // Verificar si hay coincidencia entre las unidades de negocio
-        const hasMatch = settingBusinessUnits.some((settingUnit: string) =>
-          systemBusinessUnits.includes(settingUnit)
-        )
-
-        if (hasMatch) {
-          matchingSystemSettingId = setting.systemSettingId
-          break
-        }
-      }
-
-      if (!matchingSystemSettingId) {
-        return null
-      }
-
-      // Buscar el límite de empleados activo para el system_setting encontrado
-      const result = await SystemSettingsEmployee.query()
-        .where('is_active', 1)
-        .where('system_setting_id', matchingSystemSettingId)
-        .whereNull('system_setting_employee_deleted_at')
-        .first()
-
-      return result ? result.employeeLimit : null
-    } catch (error) {
-      console.error('Error getting employee limit for business unit:', error)
-      return null
+    return {
+      status: 200,
+      type: 'success',
+      title: 'Employee limit verification',
+      message: 'Employee can be created within the established limit',
+      data: { limit: quota.limit, currentCount: active },
     }
   }
 
   /**
    * Import employees from Excel file
    */
-  async importFromExcel(file: any) {
+  async importFromExcel(
+    file: any,
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<EmployeeImportResult> {
     const workbook = new ExcelJS.Workbook()
 
     try {
@@ -2545,6 +2657,7 @@ export default class EmployeeService {
       }
 
       const { headers, headerRowNumber } = this.validateExcelHeaders(worksheet)
+      this.assertExcelSensitiveHeadersWritable(headers)
 
       // Obtener departamentos, posiciones y unidades de negocio existentes para mapeo
       const departments = await Department.query()
@@ -2555,13 +2668,12 @@ export default class EmployeeService {
         .whereNull('position_deleted_at')
         .select('positionId', 'positionName')
 
-      const systemBusinessSlugs = (env.get('SYSTEM_BUSINESS', '') || '').split(',').map((s: string) => s.trim()).filter(Boolean)
       const businessUnitsQuery = BusinessUnit.query()
         .whereNull('business_unit_deleted_at')
         .where('business_unit_active', 1)
         .select('businessUnitId', 'businessUnitName')
-      if (systemBusinessSlugs.length > 0) {
-        businessUnitsQuery.whereIn('business_unit_slug', systemBusinessSlugs)
+      if (allowedBusinessUnitIds.length > 0) {
+        businessUnitsQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
       }
       const businessUnits = await businessUnitsQuery
 
@@ -2596,23 +2708,40 @@ export default class EmployeeService {
         emp.employeeCode.toString()
       )
 
-      // Verificar límite de empleados (se verificará por unidad de negocio individual)
+      // Índice O(1) por ID para `findExistingEmployeeForImport`: se llama una
+      // vez por fila (hasta dos veces si hay reintento por límite alcanzado),
+      // así que un `.find()` lineal sobre `existingEmployees` degrada a
+      // O(filas × empleados existentes) — costoso desde unos pocos miles de
+      // filas. Se construye una sola vez antes de procesar el archivo.
+      const existingEmployeesById = new Map<number, Employee>(
+        existingEmployees.map((emp) => [emp.employeeId, emp])
+      )
 
-      const results = {
-        totalRows: 0,
-        processed: 0,
-        created: 0,
-        updated: 0,
-        skipped: 0,
-        limitReached: false,
-        errors: [] as string[]
-      }
+      return await SensitiveAccessContext.runUnguarded('importación masiva', async () => {
+      // Índice O(1) por ID para `findExistingEmployeeForImport`
+      let totalRows = 0
+      let processed = 0
+      let created = 0
+      let updated = 0
+      let skipped = 0
+      const rowErrors: EmployeeImportRowError[] = []
+      const warnings: string[] = []
 
       const rows: Array<{ row: any; rowNumber: number }> = []
       worksheet.eachRow({ includeEmpty: false }, (row: any, rowNumber: number) => {
         if (rowNumber <= headerRowNumber) return
         rows.push({ row, rowNumber })
       })
+
+      // Tope de filas por archivo: por encima de este número, el
+      // procesamiento secuencial (queries por fila + sincronización ZKTeco
+      // en lotes) arriesga superar el timeout del proxy/gateway delante de
+      // esta API dentro de una sola petición HTTP. Se corta ANTES de
+      // procesar ninguna fila. Ver `EMPLOYEE_IMPORT_UPLOAD.maxDataRows`
+      // (único valor a cambiar para ajustar el tope).
+      if (rows.length > EMPLOYEE_IMPORT_UPLOAD.maxDataRows) {
+        throw this.createRowLimitValidationError(rows.length)
+      }
 
       // Encabezados requeridos para validación
       const requiredHeaders = [
@@ -2631,8 +2760,8 @@ export default class EmployeeService {
           if (!header || typeof header !== 'string') return false
           const headerLower = header.toLowerCase().trim()
           return headerLower === requiredLower ||
-                 headerLower.includes(requiredLower.substring(0, 10)) ||
-                 requiredLower.includes(headerLower.substring(0, 10))
+            headerLower.includes(requiredLower.substring(0, 10)) ||
+            requiredLower.includes(headerLower.substring(0, 10))
         })
         if (!found) {
           missingRequiredHeaders.push(requiredHeader)
@@ -2645,82 +2774,105 @@ export default class EmployeeService {
         )
       }
 
-      // Primero, validar que TODOS los registros tengan los campos requeridos
-      // Si falta alguno, invalidar todo el archivo
-      for (const { row, rowNumber } of rows) {
-        const employeeData = this.extractEmployeeDataFromRow(row, headers)
-
-        // Validar campos requeridos
-        const requiredFieldsErrors: string[] = []
-
-        if (!employeeData.employeeNumber || employeeData.employeeNumber.toString().trim() === '') {
-          requiredFieldsErrors.push('Identificador de nómina')
-        }
-        if (!employeeData.businessUnit || employeeData.businessUnit.toString().trim() === '') {
-          requiredFieldsErrors.push('Unidad de negocio de trabajo')
-        }
-        if (!employeeData.payrollBusinessUnit || employeeData.payrollBusinessUnit.toString().trim() === '') {
-          requiredFieldsErrors.push('Unidad de negocio de nómina')
-        }
-        if (!employeeData.firstName || employeeData.firstName.toString().trim() === '') {
-          requiredFieldsErrors.push('Nombre del empleado')
-        }
-        if (!employeeData.lastName || employeeData.lastName.toString().trim() === '') {
-          requiredFieldsErrors.push('Apellido paterno del empleado')
-        }
-
-        // Si falta algún campo requerido, invalidar todo el archivo inmediatamente
-        if (requiredFieldsErrors.length > 0) {
-          throw this.createHeaderValidationError(
-            'El archivo Excel contiene registros con campos requeridos faltantes. ' +
-            `Fila ${rowNumber} falta: ${requiredFieldsErrors.join(', ')}. ` +
-            'Todos los registros deben tener los campos requeridos completos.'
-          )
-        }
-      }
-
-      // Si llegamos aquí, todos los registros tienen los campos requeridos
-      // Ahora procesar todas las filas para validar y contar empleados nuevos
+      // Procesar filas: errores por fila no abortan el archivo completo
       let newEmployeesCount = 0
       const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number | null; payrollBusinessUnitId: number | null; isUpdate: boolean }> = []
 
+      // USRH1789747321650 regla 1: el archivo es de una sola empresa, la activa.
+      // Misma fuente que el cupo (`resolveImportScopeBusinessUnitId`): el supuesto
+      // de la historia es que siempre hay una sola activa; sin ella no hay contra
+      // qué comparar y se propaga el mismo error que el cupo lanzaría.
+      const activeBusinessUnitId = this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)
+      // El nombre de la activa sale de la lista ya filtrada por alcance (un
+      // elemento): sin consulta extra y sin consultar nunca el padrón completo
+      // de empresas.
+      const activeBusinessUnit =
+        businessUnits.find((unit) => unit.businessUnitId === activeBusinessUnitId) ?? null
+      const foreignRows: EmployeeImportCompanyMismatchRow[] = []
+
       for (const { row, rowNumber } of rows) {
-        results.totalRows++
+        totalRows++
 
         try {
           const employeeData = this.extractEmployeeDataFromRow(row, headers)
 
+          const missingRequiredFields = this.collectMissingRequiredImportFields(employeeData)
+          if (missingRequiredFields.length > 0) {
+            skipped++
+            for (const field of missingRequiredFields) {
+              rowErrors.push({ row: rowNumber, field, message: 'Falta el campo obligatorio' })
+            }
+            continue
+          }
+
           // Validar que los datos básicos estén presentes
           if (!employeeData.firstName && !employeeData.lastName) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: Fila vacía o sin datos de empleado`)
+            skipped++
+            rowErrors.push({ row: rowNumber, message: 'Fila vacía o sin datos de empleado' })
             continue
           }
 
           // Validar datos del empleado
           const employeeValidation = this.validateEmployeeData(employeeData)
           if (!employeeValidation.isValid) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: ${employeeValidation.errors.join(', ')}`)
+            skipped++
+            rowErrors.push({
+              row: rowNumber,
+              message: employeeValidation.errors.join(', '),
+            })
             continue
           }
 
           // Validar datos de la persona
           const personValidation = this.validatePersonData(employeeData)
           if (!personValidation.isValid) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: ${personValidation.errors.join(', ')}`)
+            skipped++
+            rowErrors.push({
+              row: rowNumber,
+              message: personValidation.errors.join(', '),
+            })
             continue
           }
 
-          // Mapear unidad de negocio de trabajo por nombre
+          // La comparación es sobre la celda tecleada contra el nombre de la
+          // empresa activa, normalizando ambos igual (sin espacios sobrantes y
+          // sin distinguir mayúsculas). Es igualdad de texto, no parecido: un
+          // nombre a pocas letras del de la activa es otra empresa, y dejarlo
+          // pasar por similitud cargaría el archivo ajeno en silencio.
+          // `mapBusinessUnit` queda solo para elegir el id a asignar más
+          // abajo; comparar ids nunca detecta nada porque el valor alternativo
+          // los iguala. Celda vacía significa la activa y no ofende. Con la
+          // activa desconocida (inactiva o dada de baja) no se evalúa nada: el
+          // cierre seguro de hoy queda intacto.
+          if (activeBusinessUnit !== null) {
+            const activeBusinessUnitName = this.normalizeBusinessUnitCell(
+              activeBusinessUnit.businessUnitName
+            )
+            const declaredCells: Array<{ value: unknown; column: 'businessUnit' | 'payrollBusinessUnit' }> = [
+              { value: employeeData.businessUnit, column: 'businessUnit' },
+              { value: employeeData.payrollBusinessUnit, column: 'payrollBusinessUnit' },
+            ]
+            for (const { value, column } of declaredCells) {
+              const typed = String(value ?? '').trim()
+              if (
+                this.hasImportCellValue(value) &&
+                this.normalizeBusinessUnitCell(typed) !== activeBusinessUnitName
+              ) {
+                foreignRows.push({
+                  row: rowNumber,
+                  businessUnit: column === 'businessUnit' ? typed : '',
+                  payrollBusinessUnit: column === 'payrollBusinessUnit' ? typed : '',
+                })
+              }
+            }
+          }
+
           let businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, businessUnits)
           // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
           if (businessUnitId === null && businessUnits.length > 0) {
             businessUnitId = businessUnits[0].businessUnitId
           }
 
-          // Mapear unidad de negocio de nómina por nombre
           let payrollBusinessUnitId = this.mapBusinessUnit(employeeData.payrollBusinessUnit, businessUnits)
           // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
           if (payrollBusinessUnitId === null && businessUnits.length > 0) {
@@ -2733,21 +2885,24 @@ export default class EmployeeService {
           const finalPayrollBusinessUnitId = payrollBusinessUnitId || businessUnitId || (businessUnits.length > 0 ? businessUnits[0].businessUnitId : null)
 
           if (finalBusinessUnitId === null) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: No se pudo determinar la unidad de negocio`)
+            skipped++
+            rowErrors.push({ row: rowNumber, message: 'No se pudo determinar la unidad de negocio' })
             continue
           }
 
           // Referencia principal: ID de empleado (columna oculta). Con ID = actualizar; sin ID = crear.
           const hasEmployeeId = employeeData.employeeId && Number(employeeData.employeeId) > 0
-          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
+          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
 
           if (hasEmployeeId) {
             if (existingEmployee) {
               validRows.push({ row, rowNumber, employeeData, businessUnitId: finalBusinessUnitId, payrollBusinessUnitId: finalPayrollBusinessUnitId, isUpdate: true })
             } else {
-              results.skipped++
-              results.errors.push(`Fila ${rowNumber}: Empleado con ID ${employeeData.employeeId} no encontrado`)
+              skipped++
+              rowErrors.push({
+                row: rowNumber,
+                message: `Empleado con ID ${employeeData.employeeId} no encontrado`,
+              })
             }
           } else {
             newEmployeesCount++
@@ -2755,139 +2910,149 @@ export default class EmployeeService {
           }
 
         } catch (error: any) {
-          results.skipped++
-          results.errors.push(`Fila ${rowNumber}: ${error.message}`)
+          skipped++
+          rowErrors.push({
+            row: rowNumber,
+            message: this.resolveImportRowErrorMessage(error, rowNumber, activeBusinessUnitId),
+          })
         }
       }
 
-      // Verificar límite general de empleados
-      if (newEmployeesCount > 0) {
-        // Obtener el límite general del sistema (usando la primera unidad de negocio como referencia)
-        const firstBusinessUnit = businessUnits[0]
-        const employeeLimit = firstBusinessUnit ? await this.getEmployeeLimitForBusinessUnit(firstBusinessUnit.businessUnitId) : null
-
-        if (employeeLimit) {
-          const currentTotalCount = await Employee.query()
-            .whereNull('deletedAt')
-            .count('* as total')
-          const currentTotalEmployeeCount = Number(currentTotalCount[0].$extras.total)
-
-          if (currentTotalEmployeeCount + newEmployeesCount > employeeLimit) {
-            results.limitReached = true
-            results.errors.push(`Límite general de empleados alcanzado. Límite: ${employeeLimit}, Actual: ${currentTotalEmployeeCount}, Intentando crear: ${newEmployeesCount}`)
-          }
-        }
+      // Todo-o-nada en el mismo punto donde se valida el cupo, antes de
+      // escribir la primera fila. El aviso al log del servidor es parte del
+      // rechazo: no se lanza sin dejar constancia. Nunca lleva nombres del
+      // archivo ni el texto del error (entrada no confiable, con datos
+      // personales pegados a veces); solo números de fila y conteos.
+      if (foreignRows.length > 0) {
+        const offendingRowNumbers = [...new Set(foreignRows.map((item) => item.row))]
+        logger.warn(
+          {
+            businessUnitId: activeBusinessUnitId,
+            rows: offendingRowNumbers,
+            rowCount: offendingRowNumbers.length,
+            totalRows,
+          },
+          'Carga masiva rechazada: el archivo declara empresas distintas de la activa'
+        )
+        throw this.createCompanyMismatchValidationError(foreignRows, activeBusinessUnit?.businessUnitName ?? '')
       }
 
-      // Si se alcanzó el límite, no procesar más empleados nuevos
-      if (results.limitReached) {
-        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
-          if (!isUpdate) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: Límite de empleados alcanzado - ${employeeData.firstName} ${employeeData.lastName}`)
+      await this.assertImportWithinQuota(allowedBusinessUnitIds, newEmployeesCount)
+
+      const createdEmployees: Employee[] = []
+
+      for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
+        try {
+          if (isUpdate) {
+            const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
+            if (existingEmployee) {
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
+              if (employeeData.employeeWorkScheduleHybridAttempt) {
+                warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
+              }
+              updated++
+              processed++
+            }
             continue
           }
-          const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
-          if (!existingEmployee) continue
-          try {
-            await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
-            results.updated++
-            results.processed++
-          } catch (error: any) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: ${error.message}`)
-          }
-        }
-      } else {
-        const createdEmployees: Employee[] = []
 
-        for (const { rowNumber, employeeData, businessUnitId, payrollBusinessUnitId, isUpdate } of validRows) {
-          try {
-            if (isUpdate) {
-              const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployees)
-              if (existingEmployee) {
-                await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
-                results.updated++
-                results.processed++
-              }
+          // Crear nuevo empleado: verificar CURP duplicado antes de crear
+          if (this.hasImportCellValue(employeeData.curp)) {
+            const curpExists = await this.personWithCurpExists(employeeData.curp, businessUnitId)
+            if (curpExists) {
+              skipped++
+              rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })
               continue
             }
-
-            // Crear nuevo empleado: verificar CURP duplicado antes de crear
-            if (employeeData.curp && String(employeeData.curp).trim() !== '') {
-              const curpExists = await this.personWithCurpExists(employeeData.curp)
-              if (curpExists) {
-                results.skipped++
-                results.errors.push(`Fila ${rowNumber}: CURP duplicado - ${employeeData.curp?.toString().trim()}`)
-                continue
-              }
-            }
-
-            let employeeCode = employeeData.employeeNumber
-            if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
-              employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
-            }
-            existingEmployeeCodes.push(employeeCode)
-
-            const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
-            const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
-
-            const person = await this.createPerson(employeeData)
-            const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
-            await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
-            await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
-
-            // Sincronizar con dispositivo ZKTeco
-            if (newEmployee) {
-              try {
-                const response: any = await Ws.emitZkCreateEmployee(undefined, {
-                  name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
-                  card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
-                  privilege: 0,
-                  device_sn: 'SYZ8252101326,SYZ8252101498',
-                  online_emp_id: newEmployee.employeeId
-                }, 10000)
-
-                if (response && response.success) {
-                  newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
-                  await newEmployee.save()
-                  await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
-                }
-                // eslint-disable-next-line no-console
-                console.log('Respuesta del dispositivo ZKTeco:', response)
-              } catch (error: any) {
-                // eslint-disable-next-line no-console
-                console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
-              }
-            }
-
-            createdEmployees.push(newEmployee)
-            results.created++
-            results.processed++
-          } catch (error: any) {
-            results.skipped++
-            results.errors.push(`Fila ${rowNumber}: ${error.message}`)
           }
-        }
 
-        // Enviar empleados creados a la API de biométricos
-        if (createdEmployees.length > 0) {
-          try {
-            const biometricResult = await this.sendEmployeesToBiometrics(createdEmployees)
-            if (!biometricResult.success) {
-              results.errors.push(`Error al sincronizar con biométricos: ${biometricResult.message}`)
-            }
-          } catch (error: any) {
-            results.errors.push(`Error al sincronizar con biométricos: ${error.message}`)
+          let employeeCode = employeeData.employeeNumber
+          if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
+            employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
           }
+          existingEmployeeCodes.push(employeeCode)
+
+          const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+          const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+
+          const person = await this.createPerson(employeeData, businessUnitId!)
+          const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
+          if (employeeData.employeeWorkScheduleHybridAttempt) {
+            // El empleado nuevo queda con Onsite (default de `createEmployee`).
+            // Se avisa a RH para que ajuste la modalidad desde el sistema.
+            warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'create'))
+          }
+          await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
+          await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
+
+          createdEmployees.push(newEmployee)
+          created++
+          processed++
+        } catch (error: any) {
+          // USRH1789747321650 regla 5 (restaura la intención del bloque
+          // comentado de la revisión sensitive-write-by-category): el fallo al
+          // guardar un dato protegido detiene la carga y se reporta vía 403
+          // del controlador. No es una fila fallida más ni desaparece del
+          // reporte. El `catch` externo ya re-lanza sensibles (`:3126-3128`).
+          // Esta guarda hoy es inalcanzable: la importación corre en `runUnguarded` y el permiso
+          // sensible se exige por cabeceras antes de las pasadas; se conserva como defensa futura.
+          if (shouldAbortImportOnRowError(error)) throw error
+          skipped++
+          rowErrors.push({
+            row: rowNumber,
+            message: this.resolveImportRowErrorMessage(error, rowNumber, businessUnitId),
+          })
         }
       }
 
-      return results
+      // Sincronizar con dispositivos ZKTeco: se corre DESPUÉS del loop de
+      // creación (no dentro), en lotes de concurrencia acotada — antes era
+      // un `await` secuencial por fila con hasta 10s de timeout cada uno,
+      // lo que en un archivo de miles de altas podía tomar horas dentro de
+      // una sola petición HTTP. Una falla de sincronización individual no
+      // aborta el import (mismo comportamiento de antes, ver `syncEmployeeToZkDevice`).
+      if (createdEmployees.length > 0) {
+        await this.syncCreatedEmployeesToZkDevices(createdEmployees)
+      }
+
+      // Enviar empleados creados a la API de biométricos
+      if (createdEmployees.length > 0) {
+        try {
+          const biometricResult = await this.sendEmployeesToBiometrics(createdEmployees)
+          if (!biometricResult.success) {
+            warnings.push(`Error al sincronizar con biométricos: ${biometricResult.message}`)
+          }
+        } catch (error: any) {
+          warnings.push(`Error al sincronizar con biométricos: ${error.message}`)
+        }
+      }
+
+      return this.finalizeEmployeeImportResult({
+        totalRows,
+        processed,
+        created,
+        updated,
+        skipped,
+        limitReached: false,
+        rowErrors,
+        warnings,
+      })
+      })
 
     } catch (error: any) {
-      // Si es un error de validación de cabeceras, propagarlo tal cual
-      if (error.isHeaderValidationError) {
+      // Errores de validación (cabeceras inválidas o tope de filas) se
+      // propagan tal cual — ya traen `statusCode`/mensaje listos para el
+      // controlador, no son fallos internos que deban enmascararse.
+      if (error.isHeaderValidationError || error.isRowLimitError) {
+        throw error
+      }
+      if (error.isCompanyMismatchError) {
+        throw error
+      }
+      if (error instanceof EmployeeQuotaError) {
+        throw error
+      }
+      if (isSensitiveDataWriteError(error)) {
         throw error
       }
       throw new Error(`Error al procesar el archivo Excel: ${error.message}`)
@@ -2895,29 +3060,132 @@ export default class EmployeeService {
   }
 
   /**
-   * Buscar empleado existente para importación solo por ID (columna oculta).
-   * Si viene ID se busca por ID; si no viene ID no se busca existente (será creación).
+   * Empresa activa para cupo en importación masiva (USRH1785441818458).
+   * Solo el scope del request (`allowedBusinessUnitIds` / middleware businessScope),
+   * nunca la primera unidad del listado Excel (`businessUnits[0]`).
    */
-  private findExistingEmployeeForImport(employeeData: any, existingEmployees: any[]): any {
+  private resolveImportScopeBusinessUnitId(allowedBusinessUnitIds: number[]): number {
+    const scopedIds = allowedBusinessUnitIds.filter((id) => Number.isFinite(id) && id > 0)
+    if (scopedIds.length === 1) {
+      return scopedIds[0]
+    }
+    if (scopedIds.length > 1) {
+      throw new Error(
+        'El scope de empresa para validar el cupo de la importación debe ser una sola unidad de negocio'
+      )
+    }
+
+    const contextScope = TenantContext.getScope().filter((id) => Number.isFinite(id) && id > 0)
+    if (contextScope.length === 1) {
+      return contextScope[0]
+    }
+
+    throw new Error(
+      'No se pudo resolver la empresa activa para validar el cupo de la importación'
+    )
+  }
+
+  /**
+   * Cupo de empleados en carga masiva: todo-o-nada antes de la pasada 2 (USRH1785441818458).
+   * Usa la misma fuente que el alta individual; solo evalúa filas de alta nueva.
+   */
+  private async assertImportWithinQuota(
+    allowedBusinessUnitIds: number[],
+    newEmployeesCount: number
+  ): Promise<void> {
+    if (newEmployeesCount <= 0) {
+      return
+    }
+
+    const businessUnitId = this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)
+
+    const quota = await this.quotaService.resolveQuota(businessUnitId)
+    const active = await this.quotaService.countActiveEmployees(businessUnitId)
+
+    if (quota.source === 'no_plan') {
+      throw employeeImportQuotaNoPlanError(active, newEmployeesCount)
+    }
+
+    if (quota.limit !== null && active + newEmployeesCount > quota.limit) {
+      throw employeeImportQuotaExceededError(quota.limit, active, newEmployeesCount)
+    }
+  }
+
+  /**
+   * Buscar empleado existente para importación solo por ID (columna oculta `ID Empleado`).
+   * Decisión de negocio: actualización únicamente con identificador interno; sin ID siempre es alta nueva.
+   * Si viene ID se busca por ID; si no viene ID no se busca existente (será creación).
+   * Recibe el índice `Map` (O(1)) ya construido, no el arreglo — ver nota en `importFromExcel`.
+   */
+  private findExistingEmployeeForImport(employeeData: any, existingEmployeesById: Map<number, any>): any {
     if (employeeData.employeeId) {
       const id = Number(employeeData.employeeId)
       if (!Number.isNaN(id) && id > 0) {
-        return existingEmployees.find((emp) => emp.employeeId === id) ?? null
+        return existingEmployeesById.get(id) ?? null
       }
     }
     return null
   }
 
   /**
-   * Verificar si ya existe una persona con el CURP dado (para evitar duplicados al crear empleados).
+   * Sincroniza empleados recién creados con los dispositivos ZKTeco en
+   * lotes de concurrencia acotada (`EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY`),
+   * en vez de uno por uno. Pensado para `importFromExcel`: con miles de
+   * altas, un `await` secuencial por empleado (hasta 10s de timeout cada
+   * uno, ver `syncEmployeeToZkDevice`) escala a horas dentro de una sola
+   * petición HTTP; en lotes paralelos, el tiempo total se divide entre la
+   * concurrencia configurada.
    */
-  private async personWithCurpExists(curp: string): Promise<boolean> {
+  private async syncCreatedEmployeesToZkDevices(employees: Employee[]): Promise<void> {
+    for (let i = 0; i < employees.length; i += EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY) {
+      const batch = employees.slice(i, i + EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY)
+      await Promise.all(batch.map((employee) => this.syncEmployeeToZkDevice(employee)))
+    }
+  }
+
+  /**
+   * Sincroniza un empleado con el dispositivo ZKTeco. Nunca lanza: una
+   * falla de sincronización (dispositivo no conectado, timeout, etc.) se
+   * registra con `console.warn` y no debe abortar el import ni afectar a
+   * los demás empleados del lote (mismo comportamiento que tenía este
+   * bloque cuando vivía dentro del loop de creación de `importFromExcel`).
+   */
+  private async syncEmployeeToZkDevice(newEmployee: Employee): Promise<void> {
+    try {
+      const response: any = await Ws.emitZkCreateEmployee(undefined, {
+        name: newEmployee.employeeFirstName + ' ' + newEmployee.employeeLastName + ' ' + newEmployee.employeeSecondLastName,
+        card_number: newEmployee.employeePayrollCode?.toString().trim() || '',
+        privilege: 0,
+        device_sn: 'SYZ8252101326,SYZ8252101498',
+        online_emp_id: newEmployee.employeeId
+      }, 10000)
+
+      if (response && response.success) {
+        newEmployee.employeeCode = response.data.details[0].employee.sync_uuid_id.toString().trim().toUpperCase() || ''
+        await newEmployee.save()
+        await this.assignEmployeeToAccessPoints(newEmployee, response.data.devices, response.data.pinsByDevice)
+      }
+      // eslint-disable-next-line no-console
+      console.log('Respuesta del dispositivo ZKTeco:', response)
+    } catch (error: any) {
+      // eslint-disable-next-line no-console
+      console.warn('No se recibió respuesta del dispositivo ZKTeco, continuando normalmente:', error.message)
+    }
+  }
+
+  /**
+   * Verificar si ya existe una persona viva de la MISMA empresa con la CURP dada
+   * (USRH1789698261610, regla 1). Compara por huella HMAC-SHA256 (blind-index)
+   * porque person_curp está cifrado en reposo. Sin empresa no hay veredicto
+   * (regla 10): la fila ya se rechazó antes por falta de unidad.
+   */
+  private async personWithCurpExists(
+    curp: string,
+    businessUnitId: number | null | undefined
+  ): Promise<boolean> {
     if (!curp || typeof curp !== 'string' || curp.trim() === '') return false
-    const found = await Person.query()
-      .whereRaw('LOWER(TRIM(person_curp)) = ?', [curp.trim().toLowerCase()])
-      .whereNull('deletedAt')
-      .first()
-    return !!found
+    if (!businessUnitId) return false
+    return livePersonWithIdentityExists('curp', blindIndex(curp), businessUnitId)
   }
 
   /**
@@ -2925,9 +3193,120 @@ export default class EmployeeService {
    */
   private createHeaderValidationError(message: string): Error {
     const error = new Error(message)
-    ;(error as any).isHeaderValidationError = true
-    ;(error as any).statusCode = 400
+      ; (error as any).isHeaderValidationError = true
+      ; (error as any).statusCode = 400
     return error
+  }
+
+  /**
+   * Error cuando el archivo trae más filas de datos que
+   * `EMPLOYEE_IMPORT_UPLOAD.maxDataRows`. El mensaje interpola el tope y el
+   * conteo real vigentes (no hay número duplicado en otro archivo); el
+   * `resolveEmployeeImportApiError` del controlador prioriza este mensaje
+   * sobre el fallback i18n genérico.
+   */
+  private createRowLimitValidationError(rowCount: number): Error {
+    const error = new Error(
+      `El archivo tiene ${rowCount} filas de datos, por encima del máximo permitido (${EMPLOYEE_IMPORT_UPLOAD.maxDataRows}). Divide el archivo en lotes más pequeños.`
+    )
+      ; (error as any).isRowLimitError = true
+      ; (error as any).statusCode = 400
+    return error
+  }
+
+  /**
+   * Error redactado por el propio importador para una fila: su mensaje está
+   * escrito para quien subió el archivo y puede viajar tal cual. La bandera
+   * es lo que lo identifica (mismo patrón que `isRowLimitError` y
+   * `isHeaderValidationError`); nunca se reconoce por el texto.
+   */
+  private createImportRowMessageError(message: string): Error {
+    const error = new Error(message)
+      ; (error as any).isImportRowMessageError = true
+    return error
+  }
+
+  /**
+   * Mensaje que ve quien subió el archivo cuando una fila falla.
+   *
+   * El criterio es de procedencia, no de tipo de excepción: viaja tal cual lo
+   * que el importador redacta (lo marcado con `isImportRowMessageError` y la
+   * familia de identidad duplicada que se traduce a negocio); cualquier otra
+   * excepción sale con un texto genérico y su traza queda en el log del
+   * servidor. Así quedan cubiertos por omisión índices, controladores de base
+   * de datos y fallas futuras sin tener que conocerlas de antemano.
+   */
+  private resolveImportRowErrorMessage(
+    error: unknown,
+    rowNumber: number,
+    businessUnitId: number | null
+  ): string {
+    const isOwnMessage =
+      (typeof error === 'object' && error !== null && (error as any).isImportRowMessageError === true) ||
+      personIdentityDuplicatedIndexFromError(error) !== null
+    if (isOwnMessage) return importRowErrorMessage(error)
+
+    logger.error({ err: error, row: rowNumber, businessUnitId }, 'Fila de carga masiva no procesada')
+    return 'No fue posible procesar esta fila'
+  }
+
+  /**
+   * Rechazo todo-o-nada por empresa distinta (USRH1789747321650).
+   * El texto habla de filas, así que se agrupa por fila: una cita por fila con
+   * el valor —o los dos valores— que ahí se tecleó, tope de 20 filas y cierre
+   * `… y N filas más.` con las filas restantes. `offendingRows` sigue yendo por
+   * celda para que el reporte distinga trabajo de nómina. El listado cita lo
+   * que el usuario tecleó (su propio dato), nunca nada resuelto en base, y lo
+   * recorta a `MAX_OFFENDING_CELL_ECHO_LENGTH` para que una celda larguísima no
+   * se repita entera en todo el mensaje.
+   */
+  private createCompanyMismatchValidationError(
+    offendingRows: EmployeeImportCompanyMismatchRow[],
+    activeName: string
+  ): Error & { isCompanyMismatchError: true; statusCode: 409; offendingRows: EmployeeImportCompanyMismatchRow[] } {
+    const MAX_OFFENDING_ROWS_SHOWN = 20
+    const MAX_OFFENDING_CELL_ECHO_LENGTH = 80
+    const echoOf = (value: string): string => value.slice(0, MAX_OFFENDING_CELL_ECHO_LENGTH)
+    const typedValuesByRow = new Map<number, string[]>()
+    for (const item of offendingRows) {
+      const typedValues = typedValuesByRow.get(item.row) ?? []
+      for (const value of [item.businessUnit, item.payrollBusinessUnit]) {
+        if (value !== '' && !typedValues.includes(echoOf(value))) typedValues.push(echoOf(value))
+      }
+      typedValuesByRow.set(item.row, typedValues)
+    }
+    const offendingRowNumbers = [...typedValuesByRow.keys()]
+    const shown = offendingRowNumbers.slice(0, MAX_OFFENDING_ROWS_SHOWN)
+    const listing = shown
+      .map((row) => `fila ${row} («${(typedValuesByRow.get(row) ?? []).join('», «')}»)`)
+      .join(', ')
+    const tail =
+      offendingRowNumbers.length > shown.length
+        ? ` … y ${offendingRowNumbers.length - shown.length} filas más.`
+        : ''
+    const error = new Error(
+      `La empresa activa es «${activeName}». Estas filas declaran otra: ${listing}.${tail} No se aplicó ninguna línea del archivo: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo.`
+    )
+    return Object.assign(error, {
+      isCompanyMismatchError: true as const,
+      statusCode: 409 as const,
+      offendingRows,
+    })
+  }
+
+  /**
+   * Rechazo previo de importación: cabeceras sensibles sin permiso de escritura (USRH1787433076990).
+   */
+  private assertExcelSensitiveHeadersWritable(headers: string[]): void {
+    const categoriesPresent = findSensitiveCategoriesInExcelHeaders(headers)
+    if (categoriesPresent.length === 0) return
+
+    const denied = categoriesPresent.filter((category) => !SensitiveAccessContext.canWrite(category))
+    if (denied.length === 0) return
+
+    const category =
+      SENSITIVE_WRITE_CATEGORY_ORDER.find((item) => denied.includes(item)) ?? denied[0]
+    throw new SensitiveDataWriteError(SENSITIVE_DATA_WRITE_ERROR_CODES.IMPORT_FORBIDDEN, category)
   }
 
   /**
@@ -2953,6 +3332,8 @@ export default class EmployeeService {
       'Correo personal',
       'Teléfono Empresa',
       'Teléfono Personal',
+      'Modalidad de trabajo',
+      '% Teletrabajo',
       'Nombre contacto emergencia',
       'Apellido paterno contacto emergencia',
       'Apellido materno contacto emergencia',
@@ -3113,8 +3494,8 @@ export default class EmployeeService {
         const headerLower = header.toLowerCase().trim()
         const expectedLower = expected.toLowerCase().trim()
         return headerLower === expectedLower ||
-               headerLower.includes(expectedLower.substring(0, 10)) ||
-               expectedLower.includes(headerLower.substring(0, 10))
+          headerLower.includes(expectedLower.substring(0, 10)) ||
+          expectedLower.includes(headerLower.substring(0, 10))
       })
     })
 
@@ -3131,8 +3512,8 @@ export default class EmployeeService {
         if (!header || typeof header !== 'string') return false
         const headerLower = header.toLowerCase().trim()
         return headerLower === requiredLower ||
-               headerLower.includes(requiredLower.substring(0, 10)) ||
-               requiredLower.includes(headerLower.substring(0, 10))
+          headerLower.includes(requiredLower.substring(0, 10)) ||
+          requiredLower.includes(headerLower.substring(0, 10))
       })
       if (found) {
         foundRequiredHeaders.push(requiredHeader)
@@ -3201,7 +3582,12 @@ export default class EmployeeService {
       } else if (header.includes('posición')) {
         data.position = value
       } else if (header.includes('salario diario')) {
-        data.dailySalary = typeof rawValue === 'number' ? rawValue : (Number.parseFloat(value) || 0)
+        if (this.hasImportCellValue(rawValue ?? value)) {
+          const parsed = typeof rawValue === 'number' ? rawValue : Number.parseFloat(String(value))
+          if (Number.isFinite(parsed)) {
+            data.dailySalary = parsed
+          }
+        }
       } else if (header.includes('fecha de nacimiento')) {
         const cellText = cell.text ? cell.text.trim() : null
         if (rawValue instanceof Date) {
@@ -3231,7 +3617,24 @@ export default class EmployeeService {
         data.personalPhone = (cell.text ? cell.text.trim() : '') || ''
       } else if (header.includes('modalidad de trabajo')) {
         const v = (value || '').toString().trim()
-        data.employeeWorkSchedule = v.toLowerCase() === 'presencial' ? 'Onsite' : (v.toLowerCase() === 'home office' || v.toLowerCase() === 'remoto' ? 'Remote' : (v === 'Onsite' || v === 'Remote' ? v : ''))
+        const lower = v.toLowerCase()
+        // La modalidad Híbrido se configura desde el sistema (requiere validar
+        // contra el turno activo, RN-06). Si el usuario captura "Híbrido" en
+        // Excel se ignora silenciosamente y el importador emite una advertencia
+        // en el reporte para que RH la ajuste desde el formulario del empleado.
+        if (lower === 'híbrido' || lower === 'hibrido' || v === 'Hybrid') {
+          data.employeeWorkSchedule = ''
+          data.employeeWorkScheduleHybridAttempt = true
+        } else {
+          data.employeeWorkSchedule = lower === 'presencial'
+            ? 'Onsite'
+            : (lower === 'home office' || lower === 'remoto')
+              ? 'Remote'
+              : (v === 'Onsite' || v === 'Remote' ? v : '')
+        }
+      } else if (header.includes('% teletrabajo') || header.includes('porcentaje de teletrabajo')) {
+        // Columna informativa: el porcentaje lo deriva el servidor
+        // (`applyWorkScheduleAndTeleworkPercentage`). Se ignora al importar.
       } else if (header.includes('discriminar asistencia')) {
         data.employeeAssistDiscriminator = parseYesNo(value)
       } else if (header.includes('ignorar ausencias consecutivas')) {
@@ -3369,7 +3772,9 @@ export default class EmployeeService {
     const lastname = (employeeData.emergencyContactLastname ?? '').toString().trim()
     const secondLastname = (employeeData.emergencyContactSecondLastname ?? '').toString().trim()
     const relationship = (employeeData.emergencyContactRelationship ?? '').toString().trim()
-    const phone = (employeeData.emergencyContactPhone ?? '').toString().trim()
+    const phone = this.hasImportCellValue(employeeData.emergencyContactPhone)
+      ? String(employeeData.emergencyContactPhone).trim()
+      : ''
     const hasAny = firstname !== '' || lastname !== '' || secondLastname !== '' || relationship !== '' || phone !== ''
     if (!hasAny) return
 
@@ -3387,7 +3792,9 @@ export default class EmployeeService {
       primaryContact.employeeEmergencyContactLastname = lastname || primaryContact.employeeEmergencyContactLastname
       primaryContact.employeeEmergencyContactSecondLastname = secondLastname || primaryContact.employeeEmergencyContactSecondLastname
       primaryContact.employeeEmergencyContactRelationship = relationship || primaryContact.employeeEmergencyContactRelationship
-      primaryContact.employeeEmergencyContactPhone = phone || primaryContact.employeeEmergencyContactPhone
+      if (phone) {
+        primaryContact.employeeEmergencyContactPhone = phone
+      }
       primaryContact.employeeEmergencyContactIsPrimary = true
       await primaryContact.save()
       for (const other of existingContacts) {
@@ -3434,7 +3841,13 @@ export default class EmployeeService {
       }
     }
 
-    existingEmployee.dailySalary = employeeData.dailySalary ?? existingEmployee.dailySalary
+    if (
+      employeeData.dailySalary !== undefined &&
+      employeeData.dailySalary !== null &&
+      Number.isFinite(employeeData.dailySalary)
+    ) {
+      existingEmployee.dailySalary = employeeData.dailySalary
+    }
 
     if (businessUnitId !== null) existingEmployee.businessUnitId = businessUnitId
     if (payrollBusinessUnitId !== null) existingEmployee.payrollBusinessUnitId = payrollBusinessUnitId
@@ -3445,7 +3858,20 @@ export default class EmployeeService {
     if (employeeData.employeeAssistDiscriminator !== undefined) existingEmployee.employeeAssistDiscriminator = employeeData.employeeAssistDiscriminator
     if (employeeData.employeeIgnoreConsecutiveAbsences !== undefined) existingEmployee.employeeIgnoreConsecutiveAbsences = employeeData.employeeIgnoreConsecutiveAbsences
     if (employeeData.employeeAuthorizeAnyZones !== undefined) existingEmployee.employeeAuthorizeAnyZones = employeeData.employeeAuthorizeAnyZones
-    if (employeeData.employeeWorkSchedule === 'Onsite' || employeeData.employeeWorkSchedule === 'Remote') existingEmployee.employeeWorkSchedule = employeeData.employeeWorkSchedule
+    // Modalidad desde Excel: solo se permite Onsite/Remote. El intento de
+    // Híbrido ya fue neutralizado por `extractEmployeeDataFromRow` (queda como
+    // '' y se levanta el flag `employeeWorkScheduleHybridAttempt` para reportar
+    // la advertencia). Cuando el empleado era Híbrido y se lo pasa a Onsite/
+    // Remote, delegamos a `applyWorkScheduleAndTeleworkPercentage` para que
+    // limpie `hybridMode`/`hybridConfig` y recalcule `employeeTeleworkPercentage`
+    // (0 para Onsite, 100 para Remote). RN-04 y RN-12.
+    if (employeeData.employeeWorkSchedule === 'Onsite' || employeeData.employeeWorkSchedule === 'Remote') {
+      await this.applyWorkScheduleAndTeleworkPercentage(
+        existingEmployee,
+        { employeeWorkSchedule: employeeData.employeeWorkSchedule },
+        existingEmployee.employeeId
+      )
+    }
     const mappedTypeId = this.mapEmployeeType(employeeData.employeeTypeName, employeeTypes)
     if (mappedTypeId !== null) existingEmployee.employeeTypeId = mappedTypeId
 
@@ -3461,9 +3887,15 @@ export default class EmployeeService {
       person.personFirstname = employeeData.firstName || person.personFirstname
       person.personLastname = employeeData.lastName || person.personLastname
       person.personSecondLastname = employeeData.secondLastName || person.personSecondLastname
-      person.personCurp = employeeData.curp ?? person.personCurp
-      person.personRfc = employeeData.rfc ?? person.personRfc
-      person.personImssNss = employeeData.nss ?? person.personImssNss
+      if (this.hasImportCellValue(employeeData.curp)) {
+        person.personCurp = String(employeeData.curp).trim()
+      }
+      if (this.hasImportCellValue(employeeData.rfc)) {
+        person.personRfc = String(employeeData.rfc).trim()
+      }
+      if (this.hasImportCellValue(employeeData.nss)) {
+        person.personImssNss = String(employeeData.nss).trim()
+      }
       if (employeeData.personGender !== undefined) person.personGender = employeeData.personGender || ''
       if (employeeData.personPlaceOfBirthCountry !== undefined) person.personPlaceOfBirthCountry = employeeData.personPlaceOfBirthCountry || ''
       if (employeeData.personPlaceOfBirthState !== undefined) person.personPlaceOfBirthState = employeeData.personPlaceOfBirthState || ''
@@ -3471,8 +3903,12 @@ export default class EmployeeService {
       if (employeeData.personMaritalStatus !== undefined) person.personMaritalStatus = employeeData.personMaritalStatus || ''
       const parsedBirthday = this.parseDate(employeeData.birthDate)
       if (parsedBirthday) person.personBirthday = parsedBirthday
-      if (employeeData.personalEmail !== undefined) person.personEmail = employeeData.personalEmail || ''
-      if (employeeData.personalPhone !== undefined) person.personPhone = employeeData.personalPhone || ''
+      if (this.hasImportCellValue(employeeData.personalEmail)) {
+        person.personEmail = String(employeeData.personalEmail).trim()
+      }
+      if (this.hasImportCellValue(employeeData.personalPhone)) {
+        person.personPhone = String(employeeData.personalPhone).trim()
+      }
       await person.save()
     }
 
@@ -3494,7 +3930,9 @@ export default class EmployeeService {
     } while (existingCodes.includes(code) && attempts < 100)
 
     if (attempts >= 100) {
-      throw new Error('No se pudo generar un código de empleado único')
+      // Mensaje propio del importador: viaja tal cual a la fila fallida por la
+      // bandera, no por el texto.
+      throw this.createImportRowMessageError('No se pudo generar un código de empleado único')
     }
 
     return code
@@ -3573,6 +4011,15 @@ export default class EmployeeService {
 
     // Generar código único
     return this.generateUniqueEmployeeCode(existingCodes)
+  }
+
+  /**
+   * Normaliza el nombre de una empresa para compararlo: sin espacios sobrantes
+   * y sin distinguir mayúsculas, igual que la coincidencia exacta de
+   * `mapBusinessUnit`.
+   */
+  private normalizeBusinessUnitCell(businessUnitName: string): string {
+    return String(businessUnitName ?? '').trim().toLowerCase()
   }
 
   /**
@@ -3656,18 +4103,19 @@ export default class EmployeeService {
   /**
    * Crear persona
    */
-  private async createPerson(employeeData: any) {
+  private async createPerson(employeeData: any, businessUnitId: number) {
     const person = new Person()
+    person.businessUnitId = businessUnitId
     person.personFirstname = employeeData.firstName || ''
     person.personLastname = employeeData.lastName || ''
     person.personSecondLastname = employeeData.secondLastName || ''
-    person.personCurp = employeeData.curp || ''
-    person.personRfc = employeeData.rfc || ''
-    person.personImssNss = employeeData.nss || ''
+    person.personCurp = this.importSensitiveValueOrDefault(employeeData.curp)
+    person.personRfc = this.importSensitiveValueOrDefault(employeeData.rfc)
+    person.personImssNss = this.importSensitiveValueOrDefault(employeeData.nss)
     person.personBirthday = this.parseDate(employeeData.birthDate)
     person.personGender = employeeData.personGender || ''
-    person.personPhone = employeeData.personalPhone || ''
-    person.personEmail = employeeData.personalEmail || ''
+    person.personPhone = this.importSensitiveValueOrDefault(employeeData.personalPhone)
+    person.personEmail = this.importSensitiveValueOrDefault(employeeData.personalEmail)
     person.personPhoneSecondary = ''
     person.personMaritalStatus = employeeData.personMaritalStatus || ''
     person.personPlaceOfBirthCountry = employeeData.personPlaceOfBirthCountry || ''
@@ -3705,7 +4153,16 @@ export default class EmployeeService {
     employee.payrollBusinessUnitId = payrollBusinessUnitId
     employee.employeeAssistDiscriminator = employeeData.employeeAssistDiscriminator !== undefined ? employeeData.employeeAssistDiscriminator : 0
     employee.employeeTypeId = this.mapEmployeeType(employeeData.employeeTypeName, employeeTypes) ?? 1
-    employee.employeeWorkSchedule = (employeeData.employeeWorkSchedule === 'Remote' || employeeData.employeeWorkSchedule === 'Onsite') ? employeeData.employeeWorkSchedule : 'Onsite'
+    // Modalidad desde Excel: solo Onsite/Remote. Cualquier otro valor (incluido
+    // el intento de Híbrido) cae al default Onsite. Delegamos a
+    // `applyWorkScheduleAndTeleworkPercentage` para dejar consistente el trío
+    // modalidad/hybridMode/hybridConfig + `employeeTeleworkPercentage`. El
+    // empleado aún no tiene turno activo al momento del alta, pero para Onsite
+    // y Remote la rama no lo consulta (RN-04 y RN-12).
+    const importedWorkSchedule = (employeeData.employeeWorkSchedule === 'Remote' || employeeData.employeeWorkSchedule === 'Onsite')
+      ? employeeData.employeeWorkSchedule
+      : 'Onsite'
+    await this.applyWorkScheduleAndTeleworkPercentage(employee, { employeeWorkSchedule: importedWorkSchedule })
     employee.employeeBusinessEmail = employeeData.businessEmail || ''
     employee.employeeBusinessPhone = employeeData.businessPhone || ''
     employee.employeeTypeOfContract = 'Internal'
@@ -3721,8 +4178,6 @@ export default class EmployeeService {
 
     await employee.save()
 
-    // Generar slug único después de guardar (necesita employeeId)
-    await this.updateEmployeeSlug(employee)
 
     return employee
   }
@@ -4064,7 +4519,10 @@ export default class EmployeeService {
    * Formato basado en la estructura de la base de datos de biométricos
    */
   private mapEmployeeToBiometricFormat(employee: Employee): any {
-    const payrollNum = env.get('SYSTEM_BUSINESS', '')
+    // USRH1783821206455: se estampa la unidad de negocio concreta del empleado
+    // (decisión Wilvardo 2026-07-10: businessUnit, no payrollBusinessUnit) —
+    // el reverse-sync ya empareja por inclusión contra businessUnit.
+    const payrollNum = employee.businessUnit?.businessUnitSlug ?? ''
 
     // Normalizar gender a un solo carácter (M/F) o null
     let genderValue: string | null = null
@@ -4191,8 +4649,9 @@ export default class EmployeeService {
         }
       }
 
-      // Cargar relaciones necesarias
-      await Promise.all(employees.map(emp => emp.load('person')))
+      // Cargar relaciones necesarias (businessUnit: USRH1783821206455, se
+      // estampa como payrollNum en mapEmployeeToBiometricFormat).
+      await Promise.all(employees.map(emp => Promise.all([emp.load('person'), emp.load('businessUnit')])))
 
       // Mapear empleados al formato de la API
       const biometricEmployees = employees.map(emp => this.mapEmployeeToBiometricFormat(emp))
@@ -4230,6 +4689,7 @@ export default class EmployeeService {
         .where('employeeId', employeeId)
         .whereNull('deletedAt')
         .preload('person')
+        .preload('businessUnit')
         .first()
 
       if (!employee) {
@@ -4297,54 +4757,6 @@ export default class EmployeeService {
   }
 
   /**
-   * Calcular la luminosidad de un color hexadecimal
-   * @param hexColor - Color en formato hex (con o sin #, con o sin alpha)
-   * @returns number - Luminosidad entre 0 (oscuro) y 255 (claro)
-   */
-  private calculateColorLuminosity(hexColor: string): number {
-    try {
-      // Remover # y alpha si existen
-      let color = hexColor.replace('#', '').toUpperCase()
-      // Si tiene 8 caracteres (ARGB), quitar los primeros 2 (alpha)
-      if (color.length === 8) {
-        color = color.substring(2)
-      }
-      // Si tiene 6 caracteres, usarlo directamente
-      if (color.length !== 6) {
-        return 128 // Valor por defecto si el formato no es válido
-      }
-
-      // Convertir hex a RGB
-      const r = Number.parseInt(color.substring(0, 2), 16)
-      const g = Number.parseInt(color.substring(2, 4), 16)
-      const b = Number.parseInt(color.substring(4, 6), 16)
-
-      // Calcular luminosidad usando la fórmula estándar
-      // 0.299*R + 0.587*G + 0.114*B
-      const luminosity = 0.299 * r + 0.587 * g + 0.114 * b
-
-      return luminosity
-    } catch (error) {
-      return 128 // Valor por defecto en caso de error
-    }
-  }
-
-  /**
-   * Determinar el color del texto basado en la luminosidad del fondo
-   * @param backgroundColor - Color de fondo en formato ARGB
-   * @returns string - Color del texto en formato ARGB ('FFFFFFFF' para blanco, 'FF001A04' para oscuro)
-   */
-  private getTextColorForBackground(backgroundColor: string): string {
-    // Extraer el color hex sin el alpha para calcular luminosidad
-    const hexColor = backgroundColor.length === 8 ? backgroundColor.substring(2) : backgroundColor
-    const luminosity = this.calculateColorLuminosity(hexColor)
-
-    // Si la luminosidad es menor a 128, el color es oscuro, usar texto blanco
-    // Si es mayor o igual a 128, el color es claro, usar texto oscuro
-    return luminosity < 128 ? 'FFFFFFFF' : 'FF001A04'
-  }
-
-  /**
    * Convertir color hexadecimal a formato ARGB para ExcelJS
    * @param hexColor - Color en formato hex (con o sin #)
    * @returns string - Color en formato ARGB (ej: 'FFE67E22')
@@ -4366,99 +4778,6 @@ export default class EmployeeService {
   }
 
   /**
-   * Obtener el color de la unidad de negocio activa desde SystemSetting
-   * @returns Promise<string> - Color en formato ARGB para ExcelJS (ej: 'FFD6FFDC')
-   */
-  private async getActiveBusinessUnitColor(): Promise<string> {
-    try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      if (!businessConf) {
-        return 'FFD6FFDC' // Color por defecto si no hay configuración (ARGB)
-      }
-
-      const businessList = businessConf.split(',').map((unit: string) => unit.trim())
-
-      const systemSettings = await SystemSetting.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_active', 1)
-
-      for (const systemSetting of systemSettings) {
-        if (systemSetting.systemSettingBusinessUnits) {
-          const units = systemSetting.systemSettingBusinessUnits
-            .split(',')
-            .map((unit: string) => unit.trim())
-
-          const hasMatch = businessList.some((businessUnit: string) =>
-            units.includes(businessUnit)
-          )
-
-          if (hasMatch && systemSetting.systemSettingSidebarColor) {
-            // Remover el # si existe y convertir a ARGB (agregar FF al inicio para alpha)
-            let color = systemSetting.systemSettingSidebarColor.replace('#', '').toUpperCase()
-            // Si el color tiene 6 caracteres, agregar FF al inicio para formato ARGB
-            if (color.length === 6) {
-              color = 'FF' + color
-            }
-            // Si ya tiene 8 caracteres, asumir que ya está en formato ARGB
-            return color
-          }
-        }
-      }
-
-      return 'FFD6FFDC' // Color por defecto si no se encuentra (ARGB)
-    } catch (error) {
-      console.error('Error obteniendo color de unidad de negocio:', error)
-      return 'FFD6FFDC' // Color por defecto en caso de error (ARGB)
-    }
-  }
-
-  /**
-   * Obtener el logo del systemSetting
-   */
-  private async getLogo(): Promise<string> {
-    let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const systemSettingService = new SystemSettingService()
-    const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
-    if (systemSettingActive?.systemSettingLogo) {
-      imageLogo = systemSettingActive.systemSettingLogo
-    }
-    return imageLogo
-  }
-
-  /**
-   * Agregar logo al worksheet
-   */
-  private async addImageLogo(workbook: any, worksheet: any, imageLogo: string) {
-    try {
-      const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-      const imageBuffer = imageResponse.data
-
-      const metadata = await sharp(imageBuffer).metadata()
-      const imageWidth = metadata.width ? metadata.width : 0
-      const imageHeight = metadata.height ? metadata.height : 0
-
-      const targetWidth = 139
-      const targetHeight = 49
-      const scale = Math.min(targetWidth / imageWidth, targetHeight / imageHeight)
-
-      const adjustedWidth = imageWidth * scale
-      const adjustedHeight = imageHeight * scale
-
-      const imageId = workbook.addImage({
-        buffer: imageBuffer,
-        extension: 'png',
-      })
-
-      worksheet.addImage(imageId, {
-        tl: { col: 0.28, row: 0.7 },
-        ext: { width: adjustedWidth, height: adjustedHeight },
-      })
-    } catch (error) {
-      console.error('Error loading logo:', error)
-    }
-  }
-
-  /**
    * Generar plantilla de Excel para importación masiva de empleados.
    * Incluye columna oculta ID Empleado, dropdowns dinámicos y todas las columnas del perfil.
    * @param options.fillWithExisting - Si true, descarga plantilla llena con empleados existentes
@@ -4468,6 +4787,136 @@ export default class EmployeeService {
    * @param options.payrollBusinessUnitId - Filtro opcional: solo empleados de esta unidad de negocio de nómina
    * @param options.branchNameIds - IDs de sucursal (branch_office_id); solo empleados con asignación activa a alguna de ellas
    */
+  async listImportTemplateEmployeeIds(options: {
+    departmentId?: number
+    positionId?: number
+    businessUnitId?: number
+    payrollBusinessUnitId?: number
+    branchNameIds?: number[]
+    orderBy?: string
+    orderDirection?: string
+    allowedBusinessUnitIds?: number[]
+  }): Promise<number[]> {
+    const businessUnitsQuery = BusinessUnit.query()
+      .where('business_unit_active', 1)
+      .whereNull('business_unit_deleted_at')
+      .select('businessUnitId')
+    if (options.allowedBusinessUnitIds && options.allowedBusinessUnitIds.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_id', options.allowedBusinessUnitIds)
+    }
+    const businessUnits = await businessUnitsQuery
+
+    const employees = await this.buildImportTemplateEmployeeQuery({
+      ...options,
+      allowedBusinessUnitIds: businessUnits.map((businessUnit) => businessUnit.businessUnitId),
+    }).select('employee_id')
+
+    return employees.map((employee) => employee.employeeId)
+  }
+
+  /**
+   * Valor de celda sensible en la plantilla de importación.
+   * Sin permiso de export completo se escribe el marcador `*****`.
+   */
+  private templateSensitiveCellValue(
+    maskSensitive: boolean | undefined,
+    value: string | null | undefined
+  ): string {
+    if (maskSensitive) {
+      return SENSITIVE_EXPORT_PLACEHOLDER
+    }
+    return value ?? ''
+  }
+
+  /**
+   * Valor numérico sensible en plantilla de importación.
+   * Sin permiso de export completo se escribe el marcador `*****`.
+   */
+  private templateSensitiveNumericCellValue(
+    maskSensitive: boolean | undefined,
+    value: number | null | undefined
+  ): string | number {
+    if (maskSensitive) {
+      return SENSITIVE_EXPORT_PLACEHOLDER
+    }
+    return value ?? 0
+  }
+
+  /**
+   * Indica si una celda del Excel trae un valor real para persistir.
+   * Vacío o `*****` (marcador de export sin permiso) no actualizan datos existentes.
+   */
+  private hasImportCellValue(value: unknown): boolean {
+    return !isSensitiveExportPlaceholder(value)
+  }
+
+  /**
+   * Normaliza un campo sensible al crear empleado desde importación.
+   */
+  private importSensitiveValueOrDefault(value: unknown, defaultValue: string = ''): string {
+    if (!this.hasImportCellValue(value)) {
+      return defaultValue
+    }
+    return String(value).trim()
+  }
+
+  private buildImportTemplateEmployeeQuery(options: {
+    departmentId?: number
+    positionId?: number
+    businessUnitId?: number
+    payrollBusinessUnitId?: number
+    branchNameIds?: number[]
+    orderBy?: string
+    orderDirection?: string
+    allowedBusinessUnitIds?: number[]
+  }) {
+    let employeesQuery = Employee.query().whereNull('deletedAt')
+
+    if (options.departmentId !== undefined) {
+      employeesQuery = employeesQuery.where('departmentId', options.departmentId)
+    }
+    if (options.positionId !== undefined) {
+      employeesQuery = employeesQuery.where('positionId', options.positionId)
+    }
+    if (options.businessUnitId !== undefined) {
+      employeesQuery = employeesQuery.where('businessUnitId', options.businessUnitId)
+    }
+    if (options.payrollBusinessUnitId !== undefined) {
+      employeesQuery = employeesQuery.where('payrollBusinessUnitId', options.payrollBusinessUnitId)
+    }
+    if (options.branchNameIds && options.branchNameIds.length > 0) {
+      employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+        sub.whereIn('branchOfficeId', options.branchNameIds!)
+      })
+    }
+
+    const allowedBusinessUnitIds = options.allowedBusinessUnitIds ?? []
+    if (allowedBusinessUnitIds.length > 0) {
+      employeesQuery = employeesQuery.where((q) => {
+        q.whereIn('businessUnitId', allowedBusinessUnitIds).orWhereIn(
+          'payrollBusinessUnitId',
+          allowedBusinessUnitIds
+        )
+      })
+    }
+
+    if (options.orderBy === 'number') {
+      const direction = this.getOrderDirection(options.orderDirection)
+      employeesQuery = employeesQuery.orderByRaw(
+        `CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`
+      )
+    } else if (options.orderBy === 'name') {
+      const direction = this.getOrderDirection(options.orderDirection)
+      employeesQuery = employeesQuery.orderByRaw(
+        `CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`
+      )
+    } else {
+      employeesQuery = employeesQuery.orderBy('employee_id')
+    }
+
+    return employeesQuery
+  }
+
   async generateEmployeeImportTemplate(options?: {
     fillWithExisting?: boolean
     departmentId?: number
@@ -4478,23 +4927,21 @@ export default class EmployeeService {
     /** Igual que en el listado: `number` (identificador de nómina), `name` (nombre completo); si no se envía, por `employee_id` ascendente */
     orderBy?: string
     orderDirection?: string
+    allowedBusinessUnitIds?: number[]
+    /** Enmascara columnas del catálogo sensibles (exports sin permiso). */
+    maskSensitive?: boolean
   }): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Empleados')
 
-    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
 
-    const logoUrl = await this.getLogo()
-    await this.addImageLogo(workbook, worksheet, logoUrl)
-
-    const systemBusinessSlugs = (env.get('SYSTEM_BUSINESS', '') || '').split(',').map((s: string) => s.trim()).filter(Boolean)
     const businessUnitsQuery = BusinessUnit.query()
       .where('business_unit_active', 1)
       .whereNull('business_unit_deleted_at')
       .orderBy('business_unit_name')
       .select('businessUnitId', 'businessUnitName')
-    if (systemBusinessSlugs.length > 0) {
-      businessUnitsQuery.whereIn('business_unit_slug', systemBusinessSlugs)
+    if (options?.allowedBusinessUnitIds && options.allowedBusinessUnitIds.length > 0) {
+      businessUnitsQuery.whereIn('business_unit_id', options.allowedBusinessUnitIds)
     }
     const businessUnits = await businessUnitsQuery
     const businessUnitNames = businessUnits.map(bu => bu.businessUnitName).filter(Boolean)
@@ -4582,6 +5029,7 @@ export default class EmployeeService {
       'Teléfono Empresa',
       'Teléfono Personal',
       'Modalidad de trabajo',
+      '% Teletrabajo',
       'Discriminar asistencia',
       'Ignorar ausencias consecutivas',
       'Autorizar cualquier zona',
@@ -4617,10 +5065,12 @@ export default class EmployeeService {
       'Apellido paterno del empleado'
     ]
 
-    worksheet.getRow(1).height = 60
+    // La fila 1 (antes ocupada por el logo) se conserva vacía con alto normal:
+    // el importador y las referencias fijas de filas dependen de esta posición.
+    worksheet.getRow(1).height = 15
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
-    worksheet.mergeCells(2, 1, 2, 45)
+    worksheet.mergeCells(2, 1, 2, headers.length)
     titleRow.getCell(1).value = 'Plantilla de importación de empleados'
     titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
     titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
@@ -4635,10 +5085,12 @@ export default class EmployeeService {
     const headerRow = worksheet.addRow(headers)
     headerRow.height = 30
 
-    const requiredHeaderColor = activeBusinessUnitColor
-    const optionalHeaderColor = 'FFD6D6D6'
-    const requiredHeaderTextColor = this.getTextColorForBackground(requiredHeaderColor)
-    const optionalHeaderTextColor = 'FF001A04'
+    // Formato neutral: obligatorias en gris medio y opcionales en gris claro,
+    // ambas con texto negro, para conservar la distinción sin color de marca.
+    const requiredHeaderColor = REPORT_NEUTRAL_ARGB.headerFill
+    const optionalHeaderColor = REPORT_NEUTRAL_ARGB.subheaderFill
+    const requiredHeaderTextColor = REPORT_NEUTRAL_ARGB.text
+    const optionalHeaderTextColor = REPORT_NEUTRAL_ARGB.text
 
     headerRow.eachCell((cell, colNumber) => {
       const headerValue = headers[colNumber - 1]
@@ -4658,13 +5110,49 @@ export default class EmployeeService {
 
     worksheet.getColumn(1).hidden = true
 
+    // Comentarios en los headers de la sección de modalidad para documentar la
+    // regla operativa: Híbrido solo desde el backoffice; % es calculado por el
+    // servidor y aquí es informativo. Solo en español, como todo descargable
+    // (ver `#helpers/report_locale`).
+    // Las notas cuelgan del encabezado (fila 3), no de la fila 1 vacía.
+    headerRow.getCell(20).note = {
+      texts: [
+        { text: 'Modalidad de trabajo\n\n', font: { bold: true, size: 10 } },
+        {
+          text:
+            'Valores válidos desde Excel: "Presencial" y "Home office". '
+            + 'La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado. '
+            + 'Desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).',
+          font: { size: 10 }
+        }
+      ],
+      margins: { insetmode: 'auto' }
+    } as any
+    headerRow.getCell(21).note = {
+      texts: [
+        { text: '% Teletrabajo\n\n', font: { bold: true, size: 10 } },
+        {
+          text:
+            'Columna informativa (solo lectura). El porcentaje lo calcula el sistema automáticamente: 0% para Presencial, 100% para Home office, y el porcentaje derivado del turno y la configuración híbrida para los empleados en Híbrido. Cualquier valor capturado aquí se ignora al importar.',
+          font: { size: 10 }
+        }
+      ],
+      margins: { insetmode: 'auto' }
+    } as any
+
     const columnWidths = [
       10, 25, 30, 30, 25, 25, 25, 30, 30, 30, 15, 30, 20, 20, 20, 30, 30, 20, 20,
-      22, 20, 28, 24, 12, 18, 18, 18, 14, 25, 25, 25, 20, 20, 18, 18, 18, 18, 18, 18, 25, 15, 15, 18, 18, 15
+      22, 16, 20, 28, 24, 12, 18, 18, 18, 14, 25, 25, 25, 20, 20, 18, 18, 18, 18, 18, 18, 25, 15, 15, 18, 18, 15
     ]
     columnWidths.forEach((w, i) => {
       worksheet.getColumn(i + 1).width = w
     })
+
+    // Columna 21 "% Teletrabajo" es informativa: el porcentaje lo deriva el
+    // servidor (RN-04). Se marca con fondo gris claro en cada fila del
+    // rango imprimible para señalar al usuario que no debe editarla; el
+    // importador ignora silenciosamente cualquier valor que traiga.
+    const teleworkInformativeFill = 'FFF3F3F3'
 
     for (let row = 4; row <= 1001; row++) {
       worksheet.getCell(row, 3).dataValidation = {
@@ -4686,11 +5174,20 @@ export default class EmployeeService {
       }
       worksheet.getCell(row, 20).dataValidation = {
         type: 'list', allowBlank: true, formulae: [workScheduleRange],
-        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Presencial o Home office'
+        errorStyle: 'warning', showErrorMessage: true,
+        errorTitle: 'Modalidad no válida desde Excel',
+        error:
+          'Seleccione Presencial o Home office. La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado; desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).'
       }
-      worksheet.getCell(row, 21).dataValidation = {
-        type: 'list', allowBlank: true, formulae: [yesNoRange],
-        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Sí o No'
+      const teleworkCell = worksheet.getCell(row, 21)
+      teleworkCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: teleworkInformativeFill } }
+      teleworkCell.numFmt = '0.00'
+      teleworkCell.dataValidation = {
+        type: 'custom', allowBlank: true, formulae: ['FALSE'],
+        errorStyle: 'warning', showErrorMessage: true,
+        errorTitle: 'Columna informativa',
+        error:
+          'El porcentaje de teletrabajo lo calcula el sistema automáticamente a partir de la modalidad y el turno del empleado. Si captura un valor aquí, será ignorado al importar.'
       }
       worksheet.getCell(row, 22).dataValidation = {
         type: 'list', allowBlank: true, formulae: [yesNoRange],
@@ -4701,11 +5198,15 @@ export default class EmployeeService {
         errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Sí o No'
       }
       worksheet.getCell(row, 24).dataValidation = {
+        type: 'list', allowBlank: true, formulae: [yesNoRange],
+        errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione Sí o No'
+      }
+      worksheet.getCell(row, 25).dataValidation = {
         type: 'list', allowBlank: true, formulae: [genderRange],
         errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione un género válido'
       }
-      // Columnas 25-27 (país, estado, ciudad de nacimiento): sin dropdown, texto libre
-      worksheet.getCell(row, 28).dataValidation = {
+      // Columnas 26-28 (país, estado, ciudad de nacimiento): sin dropdown, texto libre
+      worksheet.getCell(row, 29).dataValidation = {
         type: 'list', allowBlank: true, formulae: [maritalRange],
         errorStyle: 'warning', showErrorMessage: true, errorTitle: 'Valor inválido', error: 'Seleccione estado civil'
       }
@@ -4722,8 +5223,16 @@ export default class EmployeeService {
     ]
 
     if (options?.fillWithExisting) {
-      let employeesQuery = Employee.query()
-        .whereNull('deletedAt')
+      let employeesQuery = this.buildImportTemplateEmployeeQuery({
+        departmentId: options.departmentId,
+        positionId: options.positionId,
+        businessUnitId: options.businessUnitId,
+        payrollBusinessUnitId: options.payrollBusinessUnitId,
+        branchNameIds: options.branchNameIds,
+        orderBy: options.orderBy,
+        orderDirection: options.orderDirection,
+        allowedBusinessUnitIds: businessUnits.map((bu) => bu.businessUnitId),
+      })
         .preload('person')
         .preload('address', (q) => q.preload('address'))
         .preload('businessUnit')
@@ -4732,60 +5241,18 @@ export default class EmployeeService {
         .preload('employeeType')
         .preload('emergencyContacts')
 
-      if (options.departmentId !== undefined) {
-        employeesQuery = employeesQuery.where('departmentId', options.departmentId)
-      }
-      if (options.positionId !== undefined) {
-        employeesQuery = employeesQuery.where('positionId', options.positionId)
-      }
-      if (options.businessUnitId !== undefined) {
-        employeesQuery = employeesQuery.where('businessUnitId', options.businessUnitId)
-      }
-      if (options.payrollBusinessUnitId !== undefined) {
-        employeesQuery = employeesQuery.where('payrollBusinessUnitId', options.payrollBusinessUnitId)
-      }
-      if (options.branchNameIds && options.branchNameIds.length > 0) {
-        employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
-          sub.whereIn('branchOfficeId', options.branchNameIds!)
-        })
-      }
-
-      const allowedBusinessUnitIds = businessUnits.map(bu => bu.businessUnitId)
-      if (allowedBusinessUnitIds.length > 0) {
-        employeesQuery = employeesQuery.where((q) => {
-          q.whereIn('businessUnitId', allowedBusinessUnitIds).orWhereIn('payrollBusinessUnitId', allowedBusinessUnitIds)
-        })
-      }
-
-      if (options?.orderBy === 'number') {
-        const direction = this.getOrderDirection(options.orderDirection)
-        employeesQuery = employeesQuery.orderByRaw(
-          `CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`
-        )
-      } else if (options?.orderBy === 'name') {
-        const direction = this.getOrderDirection(options.orderDirection)
-        employeesQuery = employeesQuery.orderByRaw(
-          `CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`
-        )
-      } else {
-        employeesQuery = employeesQuery.orderBy('employee_id')
-      }
-
       const employees = await employeesQuery
 
       const payrollUnitName = (payrollId: number) =>
         businessUnits.find(bu => bu.businessUnitId === payrollId)?.businessUnitName ?? ''
 
+      // Fechas DATE leídas como día civil (`formatReportCalendarDate`); la
+      // de ingreso conserva el formato yyyy/MM/dd que espera el importador.
       const DateTimeFmt = (d: DateTime | Date | string | null) => {
-        if (!d) return ''
-        const dt = typeof d === 'string' ? DateTime.fromISO(d) : (d instanceof Date ? DateTime.fromJSDate(d) : d)
-        return dt.isValid ? dt.toFormat('yyyy/MM/dd') : ''
+        const [day, month, year] = formatReportCalendarDate(d).split('/')
+        return year ? `${year}/${month}/${day}` : ''
       }
-      const DateTimeFmtBirth = (d: DateTime | Date | string | null) => {
-        if (!d) return ''
-        const dt = typeof d === 'string' ? DateTime.fromISO(d) : (d instanceof Date ? DateTime.fromJSDate(d) : d)
-        return dt.isValid ? dt.toFormat('dd/MM/yyyy') : ''
-      }
+      const DateTimeFmtBirth = (d: DateTime | Date | string | null) => formatReportCalendarDate(d)
 
       employees.forEach((emp, idx) => {
         const rowNum = idx + 4
@@ -4803,44 +5270,79 @@ export default class EmployeeService {
         worksheet.getCell(rowNum, 8).value = emp.employeeHireDate ? DateTimeFmt(emp.employeeHireDate) : ''
         worksheet.getCell(rowNum, 9).value = emp.department?.departmentName ?? ''
         worksheet.getCell(rowNum, 10).value = emp.position?.positionName ?? ''
-        worksheet.getCell(rowNum, 11).value = emp.dailySalary ?? 0
+        worksheet.getCell(rowNum, 11).value = this.templateSensitiveNumericCellValue(
+          options?.maskSensitive,
+          emp.dailySalary
+        )
         worksheet.getCell(rowNum, 12).value = person?.personBirthday ? DateTimeFmtBirth(person.personBirthday) : ''
-        worksheet.getCell(rowNum, 13).value = person?.personCurp ?? ''
-        worksheet.getCell(rowNum, 14).value = person?.personRfc ?? ''
-        worksheet.getCell(rowNum, 15).value = person?.personImssNss ?? ''
+        worksheet.getCell(rowNum, 13).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personCurp
+        )
+        worksheet.getCell(rowNum, 14).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personRfc
+        )
+        worksheet.getCell(rowNum, 15).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personImssNss
+        )
         worksheet.getCell(rowNum, 16).value = emp.employeeBusinessEmail ?? ''
-        worksheet.getCell(rowNum, 17).value = person?.personEmail ?? ''
+        worksheet.getCell(rowNum, 17).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personEmail
+        )
         worksheet.getCell(rowNum, 18).value = emp.employeeBusinessPhone ?? ''
-        worksheet.getCell(rowNum, 19).value = person?.personPhone ?? ''
-        worksheet.getCell(rowNum, 20).value = emp.employeeWorkSchedule === 'Remote' ? 'Home office' : (emp.employeeWorkSchedule === 'Onsite' ? 'Presencial' : (emp.employeeWorkSchedule || ''))
-        worksheet.getCell(rowNum, 21).value = emp.employeeAssistDiscriminator === 1 ? 'Sí' : 'No'
-        worksheet.getCell(rowNum, 22).value = emp.employeeIgnoreConsecutiveAbsences === 1 ? 'Sí' : 'No'
-        worksheet.getCell(rowNum, 23).value = emp.employeeAuthorizeAnyZones === 1 ? 'Sí' : 'No'
-        worksheet.getCell(rowNum, 24).value = person?.personGender ?? ''
-        worksheet.getCell(rowNum, 25).value = person?.personPlaceOfBirthCountry ?? ''
-        worksheet.getCell(rowNum, 26).value = person?.personPlaceOfBirthState ?? ''
-        worksheet.getCell(rowNum, 27).value = person?.personPlaceOfBirthCity ?? ''
-        worksheet.getCell(rowNum, 28).value = this.translateMaritalStatusToSpanish(person?.personMaritalStatus ?? '') || ''
-        worksheet.getCell(rowNum, 29).value = primaryContact?.employeeEmergencyContactFirstname ?? ''
-        worksheet.getCell(rowNum, 30).value = primaryContact?.employeeEmergencyContactLastname ?? ''
-        worksheet.getCell(rowNum, 31).value = primaryContact?.employeeEmergencyContactSecondLastname ?? ''
-        worksheet.getCell(rowNum, 32).value = primaryContact?.employeeEmergencyContactRelationship ?? ''
-        worksheet.getCell(rowNum, 33).value = primaryContact?.employeeEmergencyContactPhone ?? ''
-        worksheet.getCell(rowNum, 34).value = resAddress?.addressCountry ?? ''
-        worksheet.getCell(rowNum, 35).value = resAddress?.addressState ?? ''
-        worksheet.getCell(rowNum, 36).value = resAddress?.addressTownship ?? ''
-        worksheet.getCell(rowNum, 37).value = resAddress?.addressCity ?? ''
-        worksheet.getCell(rowNum, 38).value = resAddress?.addressSettlement ?? ''
-        worksheet.getCell(rowNum, 39).value = resAddress?.addressSettlementType ?? ''
-        worksheet.getCell(rowNum, 40).value = resAddress?.addressStreet ?? ''
-        worksheet.getCell(rowNum, 41).value = resAddress?.addressInternalNumber ?? ''
-        worksheet.getCell(rowNum, 42).value = resAddress?.addressExternalNumber ?? ''
-        worksheet.getCell(rowNum, 43).value = resAddress?.addressBetweenStreet1 ?? ''
-        worksheet.getCell(rowNum, 44).value = resAddress?.addressBetweenStreet2 ?? ''
-        worksheet.getCell(rowNum, 45).value = resAddress?.addressZipcode ?? ''
+        worksheet.getCell(rowNum, 19).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          person?.personPhone
+        )
+        // Modalidad (col 20) + % Teletrabajo (col 21, informativa/derivada por el servidor).
+        // Los tres casos usan el valor persistido en `employee_telework_percentage`:
+        // Onsite = 0, Remote = 100, Hybrid = el % calculado con base en su turno y config.
+        const modalityLabel = emp.employeeWorkSchedule === 'Remote'
+          ? 'Home office'
+          : emp.employeeWorkSchedule === 'Onsite'
+            ? 'Presencial'
+            : emp.employeeWorkSchedule === 'Hybrid'
+              ? 'Híbrido'
+              : (emp.employeeWorkSchedule || '')
+        worksheet.getCell(rowNum, 20).value = modalityLabel
+        worksheet.getCell(rowNum, 21).value = typeof emp.employeeTeleworkPercentage === 'number'
+          ? emp.employeeTeleworkPercentage
+          : 0
+        worksheet.getCell(rowNum, 22).value = emp.employeeAssistDiscriminator === 1 ? 'Sí' : 'No'
+        worksheet.getCell(rowNum, 23).value = emp.employeeIgnoreConsecutiveAbsences === 1 ? 'Sí' : 'No'
+        worksheet.getCell(rowNum, 24).value = emp.employeeAuthorizeAnyZones === 1 ? 'Sí' : 'No'
+        worksheet.getCell(rowNum, 25).value = person?.personGender ?? ''
+        worksheet.getCell(rowNum, 26).value = person?.personPlaceOfBirthCountry ?? ''
+        worksheet.getCell(rowNum, 27).value = person?.personPlaceOfBirthState ?? ''
+        worksheet.getCell(rowNum, 28).value = person?.personPlaceOfBirthCity ?? ''
+        worksheet.getCell(rowNum, 29).value = this.translateMaritalStatusToSpanish(person?.personMaritalStatus ?? '') || ''
+        worksheet.getCell(rowNum, 30).value = primaryContact?.employeeEmergencyContactFirstname ?? ''
+        worksheet.getCell(rowNum, 31).value = primaryContact?.employeeEmergencyContactLastname ?? ''
+        worksheet.getCell(rowNum, 32).value = primaryContact?.employeeEmergencyContactSecondLastname ?? ''
+        worksheet.getCell(rowNum, 33).value = primaryContact?.employeeEmergencyContactRelationship ?? ''
+        worksheet.getCell(rowNum, 34).value = this.templateSensitiveCellValue(
+          options?.maskSensitive,
+          primaryContact?.employeeEmergencyContactPhone
+        )
+        worksheet.getCell(rowNum, 35).value = resAddress?.addressCountry ?? ''
+        worksheet.getCell(rowNum, 36).value = resAddress?.addressState ?? ''
+        worksheet.getCell(rowNum, 37).value = resAddress?.addressTownship ?? ''
+        worksheet.getCell(rowNum, 38).value = resAddress?.addressCity ?? ''
+        worksheet.getCell(rowNum, 39).value = resAddress?.addressSettlement ?? ''
+        worksheet.getCell(rowNum, 40).value = resAddress?.addressSettlementType ?? ''
+        worksheet.getCell(rowNum, 41).value = resAddress?.addressStreet ?? ''
+        worksheet.getCell(rowNum, 42).value = resAddress?.addressInternalNumber ?? ''
+        worksheet.getCell(rowNum, 43).value = resAddress?.addressExternalNumber ?? ''
+        worksheet.getCell(rowNum, 44).value = resAddress?.addressBetweenStreet1 ?? ''
+        worksheet.getCell(rowNum, 45).value = resAddress?.addressBetweenStreet2 ?? ''
+        worksheet.getCell(rowNum, 46).value = resAddress?.addressZipcode ?? ''
       })
     }
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
@@ -4857,503 +5359,399 @@ export default class EmployeeService {
  * @param branchNameIds - IDs de sucursal; solo empleados con asignación activa a alguna (vacío = sin filtro). Aplica a plantilla y modo reporte.
  * @returns Promise<Buffer> - Buffer del archivo Excel generado
  */
-async generateShiftAssignmentTemplate(
-  startDate: string,
-  endDate: string,
-  employeeIds?: number[],
-  isReport?: boolean,
-  businessUnitId?: number,
-  payrollBusinessUnitId?: number,
-  branchNameIds?: number[]
-): Promise<Buffer> {
+  async generateShiftAssignmentTemplate(
+    startDate: string,
+    endDate: string,
+    employeeIds?: number[],
+    isReport?: boolean,
+    businessUnitId?: number,
+    payrollBusinessUnitId?: number,
+    branchNameIds?: number[],
+    allowedBusinessUnitIds: number[] = []
+  ): Promise<Buffer> {
 
-  const workbook = new ExcelJS.Workbook()
-  const worksheet = workbook.addWorksheet('Plantilla de asignación de turnos')
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('Asignación de turnos')
 
-  // Obtener el color de la unidad de negocio activa
-  const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
+    // Convertir fechas a DateTime
+    const startDateTime = DateTime.fromISO(startDate)
+    const endDateTime = DateTime.fromISO(endDate)
 
-  // Obtener logo y agregarlo
-  const logoUrl = await this.getLogo()
-  await this.addImageLogo(workbook, worksheet, logoUrl)
+    if (!startDateTime.isValid || !endDateTime.isValid) {
+      throw new Error('Fechas inválidas. Use el formato yyyy-MM-dd')
+    }
 
-  // Convertir fechas a DateTime
-  const startDateTime = DateTime.fromISO(startDate)
-  const endDateTime = DateTime.fromISO(endDate)
+    if (startDateTime > endDateTime) {
+      throw new Error('La fecha de inicio debe ser anterior a la fecha de fin')
+    }
 
-  if (!startDateTime.isValid || !endDateTime.isValid) {
-    throw new Error('Fechas inválidas. Use el formato yyyy-MM-dd')
-  }
+    // Generar array de fechas
+    const dates: DateTime[] = []
+    let currentDate = startDateTime
+    while (currentDate <= endDateTime) {
+      dates.push(currentDate)
+      currentDate = currentDate.plus({ days: 1 })
+    }
 
-  if (startDateTime > endDateTime) {
-    throw new Error('La fecha de inicio debe ser anterior a la fecha de fin')
-  }
+    // OBTENER DÍAS FESTIVOS DE LA BASE DE DATOS
+    const holidayDates = new Set<string>()
+    try {
+      // Obtener slugs de las unidades permitidas para la query FIND_IN_SET
+      const allowedUnits = allowedBusinessUnitIds.length > 0
+        ? await BusinessUnit.query().where('business_unit_active', 1).whereIn('business_unit_id', allowedBusinessUnitIds).select('business_unit_slug')
+        : await BusinessUnit.query().where('business_unit_active', 1).select('business_unit_slug')
+      const businessList = allowedUnits.map((u) => u.businessUnitSlug).filter(Boolean)
 
-  // Generar array de fechas
-  const dates: DateTime[] = []
-  let currentDate = startDateTime
-  while (currentDate <= endDateTime) {
-    dates.push(currentDate)
-    currentDate = currentDate.plus({ days: 1 })
-  }
+      // Consultar todos los días festivos que coincidan con las unidades de negocio
+      // No filtramos por fecha aquí porque necesitamos procesar festivos recurrentes
+      let holidaysQuery = Holiday.query().whereNull('holiday_deleted_at')
 
-  // OBTENER DÍAS FESTIVOS DE LA BASE DE DATOS
-  const holidayDates = new Set<string>()
-  try {
-    // Obtener unidades de negocio activas
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
-
-    // Consultar todos los días festivos que coincidan con las unidades de negocio
-    // No filtramos por fecha aquí porque necesitamos procesar festivos recurrentes
-    let holidaysQuery = Holiday.query().whereNull('holiday_deleted_at')
-
-    if (businessList.length > 0) {
-      holidaysQuery = holidaysQuery.andWhere((query) => {
-        query.andWhere((subQuery) => {
-          businessList.forEach((business) => {
-            subQuery.orWhereRaw('FIND_IN_SET(?, holiday_business_units)', [business])
+      if (businessList.length > 0) {
+        holidaysQuery = holidaysQuery.andWhere((query) => {
+          query.andWhere((subQuery) => {
+            businessList.forEach((business) => {
+              subQuery.orWhereRaw('FIND_IN_SET(?, holiday_business_units)', [business])
+            })
           })
         })
+      }
+
+      const holidays = await holidaysQuery
+
+      const startYear = startDateTime.year
+      const endYear = endDateTime.year
+
+      // Procesar cada festivo según su frecuencia
+      // SOLO incluir días festivos que son descanso oficial (feriados)
+      holidays.forEach((holiday) => {
+        // Verificar si es descanso oficial (manejar tanto boolean como number)
+        const holidayAny = holiday as any
+        const isOfficialRestDay =
+          holiday.holidayIsOfficialRestDay === true ||
+          holidayAny.holidayIsOfficialRestDay === 1 ||
+          holidayAny.holiday_is_official_rest_day === true ||
+          holidayAny.holiday_is_official_rest_day === 1
+
+        // Solo procesar si es descanso oficial
+        if (!isOfficialRestDay) {
+          return
+        }
+
+        // Manejar tanto string como Date dependiendo de cómo Lucid devuelva el dato
+        let baseHolidayDate: DateTime
+        const holidayDateValue = holiday.holidayDate as any
+        if (holidayDateValue instanceof Date) {
+          baseHolidayDate = DateTime.fromJSDate(holidayDateValue)
+        } else if (typeof holidayDateValue === 'string') {
+          baseHolidayDate = DateTime.fromISO(holidayDateValue)
+        } else {
+          console.warn(`Tipo de fecha no soportado para festivo: ${holiday.holidayName}`)
+          return
+        }
+
+        if (!baseHolidayDate.isValid) {
+          console.warn(`Fecha inválida para festivo: ${holiday.holidayName}`)
+          return
+        }
+
+        // Si holidayFrequency es 0, es un festivo específico (solo esa fecha exacta)
+        if (holiday.holidayFrequency === 0) {
+          // Solo agregar si la fecha está dentro del rango
+          if (baseHolidayDate >= startDateTime && baseHolidayDate <= endDateTime) {
+            holidayDates.add(baseHolidayDate.toFormat('yyyy-MM-dd'))
+          }
+        } else {
+          // Si holidayFrequency >= 1, es un festivo recurrente
+          // Aplicar para todos los años en el rango basándose en el mes y día
+          for (let year = startYear; year <= endYear; year++) {
+            const recurringDate = DateTime.fromObject({
+              year: year,
+              month: baseHolidayDate.month,
+              day: baseHolidayDate.day
+            })
+
+            if (recurringDate >= startDateTime && recurringDate <= endDateTime) {
+              holidayDates.add(recurringDate.toFormat('yyyy-MM-dd'))
+            }
+          }
+        }
+      })
+    } catch (error) {
+      console.warn('Error obteniendo días festivos de la base de datos:', error)
+    }
+
+    const businessUnitsList = allowedBusinessUnitIds
+
+    // Obtener empleados activos: si se envía businessUnitId/payrollBusinessUnitId se filtra por ellos;
+    // si no, se restringe al scope del usuario
+    let employeesQuery = Employee.query().whereNull('deletedAt')
+
+    if (businessUnitId !== undefined) {
+      employeesQuery = employeesQuery.where('businessUnitId', businessUnitId)
+    } else {
+      employeesQuery = employeesQuery.whereIn('businessUnitId', businessUnitsList)
+    }
+    if (payrollBusinessUnitId !== undefined) {
+      employeesQuery = employeesQuery.where('payrollBusinessUnitId', payrollBusinessUnitId)
+    }
+
+    // Filtrar por IDs de empleados si se proporcionan
+    if (employeeIds && employeeIds.length > 0) {
+      employeesQuery = employeesQuery.whereIn('employeeId', employeeIds)
+    }
+
+    if (branchNameIds && branchNameIds.length > 0) {
+      employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
+        sub.whereIn('branchOfficeId', branchNameIds)
       })
     }
 
-    const holidays = await holidaysQuery
+    const employees = await employeesQuery
+      .preload('position', (query) => {
+        query.whereNull('position_deleted_at')
+        query.where('position_active', 1)
+      })
+      .preload('department', (query) => {
+        query.whereNull('department_deleted_at')
+      })
+      .orderBy('employeeFirstName')
+      .orderBy('employeeLastName')
 
-    const startYear = startDateTime.year
-    const endYear = endDateTime.year
+    // Obtener turnos activos con sus unidades de negocio
+    const shifts = await Shift.query()
+      .whereNull('shift_deleted_at')
+      .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'businessUnitId', 'shiftColor')
+      .orderBy('shiftName')
 
-    // Procesar cada festivo según su frecuencia
-    // SOLO incluir días festivos que son descanso oficial (feriados)
-    holidays.forEach((holiday) => {
-      // Verificar si es descanso oficial (manejar tanto boolean como number)
-      const holidayAny = holiday as any
-      const isOfficialRestDay =
-        holiday.holidayIsOfficialRestDay === true ||
-        holidayAny.holidayIsOfficialRestDay === 1 ||
-        holidayAny.holiday_is_official_rest_day === true ||
-        holidayAny.holiday_is_official_rest_day === 1
+    // Crear mapa de shiftId -> color para uso en modo reporte
+    const shiftColorMap = new Map<number, string>()
+    shifts.forEach((shift) => {
+      const color = this.hexToArgb(shift.shiftColor)
+      shiftColorMap.set(shift.shiftId, color)
+    })
 
-      // Solo procesar si es descanso oficial
-      if (!isOfficialRestDay) {
-        return
-      }
+    // Obtener tipos de excepciones masivas
+    const massiveExceptionTypes = await ExceptionType.query()
+      .whereNull('exception_type_deleted_at')
+      .where('exceptionTypeCanMasive', true)
+      .where('exceptionTypeActive', 1)
+      .orderBy('exceptionTypeTypeName')
 
-      // Manejar tanto string como Date dependiendo de cómo Lucid devuelva el dato
-      let baseHolidayDate: DateTime
-      const holidayDateValue = holiday.holidayDate as any
-      if (holidayDateValue instanceof Date) {
-        baseHolidayDate = DateTime.fromJSDate(holidayDateValue)
-      } else if (typeof holidayDateValue === 'string') {
-        baseHolidayDate = DateTime.fromISO(holidayDateValue)
-      } else {
-        console.warn(`Tipo de fecha no soportado para festivo: ${holiday.holidayName}`)
-        return
-      }
+    // ==============================
+    //   HOJA OCULTA PARA DROPDOWNS
+    // ==============================
+    const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
 
-      if (!baseHolidayDate.isValid) {
-        console.warn(`Fecha inválida para festivo: ${holiday.holidayName}`)
-        return
-      }
+    // Estructura de la hoja oculta:
+    // Columna A: Valor a mostrar en dropdown (alias si existe, sino nombre formateado)
+    // Columna B: Shift ID
+    // Columna C: Business Units (IDs separados por comas)
+    // Columna D: Nombre formateado completo (para búsqueda durante importación)
 
-      // Si holidayFrequency es 0, es un festivo específico (solo esa fecha exacta)
-      if (holiday.holidayFrequency === 0) {
-        // Solo agregar si la fecha está dentro del rango
-        if (baseHolidayDate >= startDateTime && baseHolidayDate <= endDateTime) {
-          holidayDates.add(baseHolidayDate.toFormat('yyyy-MM-dd'))
-        }
-      } else {
-        // Si holidayFrequency >= 1, es un festivo recurrente
-        // Aplicar para todos los años en el rango basándose en el mes y día
-        for (let year = startYear; year <= endYear; year++) {
-          const recurringDate = DateTime.fromObject({
-            year: year,
-            month: baseHolidayDate.month,
-            day: baseHolidayDate.day
-          })
+    // Turnos → Columnas A, B, C, D
+    let shiftRow = 1
+    shifts.forEach((shift) => {
+      // Generar nombre formateado con horario
+      let formattedName = shift.shiftName
+      if (shift.shiftTimeStart && shift.shiftActiveHours && typeof shift.shiftActiveHours === 'number') {
+        try {
+          const startTime = String(shift.shiftTimeStart).trim()
+          const timeParts = startTime.split(':')
+          if (timeParts.length >= 2) {
+            const hours = Number.parseInt(timeParts[0], 10)
+            const minutes = Number.parseInt(timeParts[1], 10)
 
-          if (recurringDate >= startDateTime && recurringDate <= endDateTime) {
-            holidayDates.add(recurringDate.toFormat('yyyy-MM-dd'))
+            if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+              const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
+              const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
+              const endTime = shiftEndTime.toFormat('HH:mm')
+              const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+              formattedName = `${formattedStartTime} to ${endTime} - Rest (NA)`
+            }
           }
+        } catch (error) {
+          console.warn(`Error al formatear turno ${shift.shiftName}:`, error)
         }
       }
+
+      // Valor a mostrar en dropdown: alias si existe, sino nombre formateado
+      const displayValue = shift.shiftAlias && shift.shiftAlias.trim() !== ''
+        ? shift.shiftAlias.trim()
+        : formattedName
+
+      listSheet.getCell(shiftRow, 1).value = displayValue // Valor para dropdown
+      listSheet.getCell(shiftRow, 2).value = shift.shiftId // Shift ID
+      listSheet.getCell(shiftRow, 3).value = shift.businessUnitId // Empresa dueña del turno
+      listSheet.getCell(shiftRow, 4).value = formattedName // Nombre formateado completo
+      shiftRow++
     })
-  } catch (error) {
-    console.warn('Error obteniendo días festivos de la base de datos:', error)
-  }
 
-  // Obtener unidades de negocio del ENV
-  const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-  const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
-  const businessUnits = await BusinessUnit.query()
-    .where('business_unit_active', 1)
-    .whereIn('business_unit_slug', businessList)
-
-  const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
-  // Obtener empleados activos: si se envía businessUnitId/payrollBusinessUnitId se filtra por ellos;
-  // si no, se restringe a las unidades de negocio del ENV
-  let employeesQuery = Employee.query().whereNull('deletedAt')
-
-  if (businessUnitId !== undefined) {
-    employeesQuery = employeesQuery.where('businessUnitId', businessUnitId)
-  } else {
-    employeesQuery = employeesQuery.whereIn('businessUnitId', businessUnitsList)
-  }
-  if (payrollBusinessUnitId !== undefined) {
-    employeesQuery = employeesQuery.where('payrollBusinessUnitId', payrollBusinessUnitId)
-  }
-
-  // Filtrar por IDs de empleados si se proporcionan
-  if (employeeIds && employeeIds.length > 0) {
-    employeesQuery = employeesQuery.whereIn('employeeId', employeeIds)
-  }
-
-  if (branchNameIds && branchNameIds.length > 0) {
-    employeesQuery = employeesQuery.whereHas('activeEmployeeBranchOffice', (sub) => {
-      sub.whereIn('branchOfficeId', branchNameIds)
-    })
-  }
-
-  const employees = await employeesQuery
-    .preload('position', (query) => {
-      query.whereNull('position_deleted_at')
-      query.where('position_active', 1)
-    })
-    .preload('department', (query) => {
-      query.whereNull('department_deleted_at')
-    })
-    .orderBy('employeeFirstName')
-    .orderBy('employeeLastName')
-
-  // Obtener turnos activos con sus unidades de negocio
-  const shifts = await Shift.query()
-    .whereNull('shift_deleted_at')
-    .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'shiftBusinessUnits', 'shiftColor')
-    .orderBy('shiftName')
-
-  // Crear mapa de shiftId -> color para uso en modo reporte
-  const shiftColorMap = new Map<number, string>()
-  shifts.forEach((shift) => {
-    const color = this.hexToArgb(shift.shiftColor)
-    shiftColorMap.set(shift.shiftId, color)
-  })
-
-  // Obtener tipos de excepciones masivas
-  const massiveExceptionTypes = await ExceptionType.query()
-    .whereNull('exception_type_deleted_at')
-    .where('exceptionTypeCanMasive', true)
-    .where('exceptionTypeActive', 1)
-    .orderBy('exceptionTypeTypeName')
-
-  // ==============================
-  //   HOJA OCULTA PARA DROPDOWNS
-  // ==============================
-  const listSheet = workbook.addWorksheet('Listas', { state: 'hidden' })
-
-  // Estructura de la hoja oculta:
-  // Columna A: Valor a mostrar en dropdown (alias si existe, sino nombre formateado)
-  // Columna B: Shift ID
-  // Columna C: Business Units (IDs separados por comas)
-  // Columna D: Nombre formateado completo (para búsqueda durante importación)
-
-  // Turnos → Columnas A, B, C, D
-  let shiftRow = 1
-  shifts.forEach((shift) => {
-    // Generar nombre formateado con horario
-    let formattedName = shift.shiftName
-    if (shift.shiftTimeStart && shift.shiftActiveHours && typeof shift.shiftActiveHours === 'number') {
-      try {
-        const startTime = String(shift.shiftTimeStart).trim()
-        const timeParts = startTime.split(':')
-        if (timeParts.length >= 2) {
-          const hours = Number.parseInt(timeParts[0], 10)
-          const minutes = Number.parseInt(timeParts[1], 10)
-
-          if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
-            const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
-            const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
-            const endTime = shiftEndTime.toFormat('HH:mm')
-            const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-            formattedName = `${formattedStartTime} to ${endTime} - Rest (NA)`
-          }
-        }
-      } catch (error) {
-        console.warn(`Error al formatear turno ${shift.shiftName}:`, error)
-      }
-    }
-
-    // Valor a mostrar en dropdown: alias si existe, sino nombre formateado
-    const displayValue = shift.shiftAlias && shift.shiftAlias.trim() !== ''
-      ? shift.shiftAlias.trim()
-      : formattedName
-
-    listSheet.getCell(shiftRow, 1).value = displayValue // Valor para dropdown
-    listSheet.getCell(shiftRow, 2).value = shift.shiftId // Shift ID
-    listSheet.getCell(shiftRow, 3).value = shift.shiftBusinessUnits || '' // Business Units
-    listSheet.getCell(shiftRow, 4).value = formattedName // Nombre formateado completo
-    shiftRow++
-  })
-
-  // Agregar opciones adicionales
-  listSheet.getCell(shiftRow, 1).value = 'vacaciones'
-  listSheet.getCell(shiftRow, 2).value = 'SPECIAL_VACATION'
-  listSheet.getCell(shiftRow, 3).value = ''
-  listSheet.getCell(shiftRow, 4).value = 'vacaciones'
-  shiftRow++
-
-  listSheet.getCell(shiftRow, 1).value = 'Día festivo'
-  listSheet.getCell(shiftRow, 2).value = 'SPECIAL_HOLIDAY'
-  listSheet.getCell(shiftRow, 3).value = ''
-  listSheet.getCell(shiftRow, 4).value = 'Día festivo'
-  shiftRow++
-
-  // Agregar tipos de excepciones masivas
-  massiveExceptionTypes.forEach((exceptionType) => {
-    listSheet.getCell(shiftRow, 1).value = exceptionType.exceptionTypeTypeName
-    listSheet.getCell(shiftRow, 2).value = `EXCEPTION_${exceptionType.exceptionTypeId}`
+    // Agregar opciones adicionales
+    listSheet.getCell(shiftRow, 1).value = 'vacaciones'
+    listSheet.getCell(shiftRow, 2).value = 'SPECIAL_VACATION'
     listSheet.getCell(shiftRow, 3).value = ''
-    listSheet.getCell(shiftRow, 4).value = exceptionType.exceptionTypeTypeName
+    listSheet.getCell(shiftRow, 4).value = 'vacaciones'
     shiftRow++
-  })
-  const totalShiftOptions = shiftRow - 1
 
-  // Rangos para validación
-  const shiftRange = `Listas!$A$1:$A$${totalShiftOptions}`
+    listSheet.getCell(shiftRow, 1).value = 'Día festivo'
+    listSheet.getCell(shiftRow, 2).value = 'SPECIAL_HOLIDAY'
+    listSheet.getCell(shiftRow, 3).value = ''
+    listSheet.getCell(shiftRow, 4).value = 'Día festivo'
+    shiftRow++
 
-  // ==============================
-  //       TÍTULO Y ENCABEZADOS
-  // ==============================
-  // Fila del título (después del logo)
-  worksheet.getRow(1).height = 60
-  const titleRow = worksheet.addRow([''])
-  titleRow.height = 30
-  worksheet.mergeCells(`A2:${String.fromCharCode(65 + 3 + dates.length)}2`)
-  titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
-  titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
+    // Agregar tipos de excepciones masivas
+    massiveExceptionTypes.forEach((exceptionType) => {
+      listSheet.getCell(shiftRow, 1).value = exceptionType.exceptionTypeTypeName
+      listSheet.getCell(shiftRow, 2).value = `EXCEPTION_${exceptionType.exceptionTypeId}`
+      listSheet.getCell(shiftRow, 3).value = ''
+      listSheet.getCell(shiftRow, 4).value = exceptionType.exceptionTypeTypeName
+      shiftRow++
+    })
+    const totalShiftOptions = shiftRow - 1
 
-  // Primera fila de encabezados (fechas)
-  const headerRow1 = ['ID Empleado (BD)', 'Código de Empleado', 'Empleado', 'Posición']
-  dates.forEach((date) => {
-    const dateStr = date.toFormat('dd/MM/yyyy')
-    headerRow1.push(dateStr)
-  })
-  const row1 = worksheet.addRow(headerRow1)
-  row1.height = 30
+    // Rangos para validación
+    const shiftRange = `Listas!$A$1:$A$${totalShiftOptions}`
 
-  // Segunda fila de encabezados (días de la semana)
-  const headerRow2 = ['', '', '', '']
-  dates.forEach((date) => {
-    const dayName = date.toFormat('cccc', { locale: 'es' })
-    headerRow2.push(dayName)
-  })
-  const row2 = worksheet.addRow(headerRow2)
-  row2.height = 30
+    // ==============================
+    //       TÍTULO Y ENCABEZADOS
+    // ==============================
+    // La fila 1 (antes ocupada por el logo) se conserva vacía con alto normal:
+    // el importador y las referencias fijas de filas dependen de esta posición.
+    worksheet.getRow(1).height = 15
+    const titleRow = worksheet.addRow([''])
+    titleRow.height = 30
+    worksheet.mergeCells(`A2:${String.fromCharCode(65 + 3 + dates.length)}2`)
+    titleRow.getCell(1).font = { bold: true, size: 16, color: { argb: 'FF000000' } }
+    titleRow.getCell(1).alignment = { vertical: 'middle', horizontal: 'center' }
 
-  const headerColor = activeBusinessUnitColor
-  const headerTextColor = this.getTextColorForBackground(headerColor)
-  const subHeaderColor = 'FF4472C4'
-  const subHeaderTextColor = 'FFFFFFFF'
+    // Primera fila de encabezados (fechas)
+    const headerRow1 = ['ID Empleado (BD)', 'Código de Empleado', 'Empleado', 'Posición']
+    dates.forEach((date) => {
+      const dateStr = date.toFormat('dd/MM/yyyy')
+      headerRow1.push(dateStr)
+    })
+    const row1 = worksheet.addRow(headerRow1)
+    row1.height = 30
 
-  // Aplicar formato a la primera fila de encabezados
-  row1.eachCell((cell) => {
-    cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
-    cell.fill = {
-      type: 'pattern',
-      pattern: 'solid',
-      fgColor: { argb: headerColor }
-    }
-    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-    cell.border = {
-      top: { style: 'thin', color: { argb: 'FF000000' } },
-      left: { style: 'thin', color: { argb: 'FF000000' } },
-      bottom: { style: 'thin', color: { argb: 'FF000000' } },
-      right: { style: 'thin', color: { argb: 'FF000000' } }
-    }
-  })
+    // Segunda fila de encabezados (días de la semana)
+    const headerRow2 = ['', '', '', '']
+    dates.forEach((date) => {
+      const dayName = date.toFormat('cccc', { locale: REPORT_LOCALE })
+      headerRow2.push(dayName)
+    })
+    const row2 = worksheet.addRow(headerRow2)
+    row2.height = 30
 
-  // Aplicar formato a la segunda fila de encabezados
-  row2.eachCell((cell, colNum) => {
-    if (colNum > 4) {
-      cell.font = { bold: true, size: 9, color: { argb: subHeaderTextColor } }
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: subHeaderColor }
-      }
-    } else {
+    // Formato neutral: encabezado en gris y fila de días en gris claro, texto negro
+    const headerColor = REPORT_NEUTRAL_ARGB.headerFill
+    const headerTextColor = REPORT_NEUTRAL_ARGB.text
+    const subHeaderColor = REPORT_NEUTRAL_ARGB.subheaderFill
+    const subHeaderTextColor = REPORT_NEUTRAL_ARGB.text
+
+    // Aplicar formato a la primera fila de encabezados
+    row1.eachCell((cell) => {
+      cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
         fgColor: { argb: headerColor }
       }
-      cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      }
+    })
+
+    // Aplicar formato a la segunda fila de encabezados
+    row2.eachCell((cell, colNum) => {
+      if (colNum > 4) {
+        cell.font = { bold: true, size: 9, color: { argb: subHeaderTextColor } }
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: subHeaderColor }
+        }
+      } else {
+        cell.fill = {
+          type: 'pattern',
+          pattern: 'solid',
+          fgColor: { argb: headerColor }
+        }
+        cell.font = { bold: true, size: 9, color: { argb: headerTextColor } }
+      }
+      cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF000000' } },
+        left: { style: 'thin', color: { argb: 'FF000000' } },
+        bottom: { style: 'thin', color: { argb: 'FF000000' } },
+        right: { style: 'thin', color: { argb: 'FF000000' } }
+      }
+    })
+
+    // ==============================
+    //     ANCHO DE COLUMNAS
+    // ==============================
+    worksheet.getColumn(1).width = 0 // ID Empleado (BD) - OCULTA
+    worksheet.getColumn(2).width = 20 // Código de Empleado
+    worksheet.getColumn(3).width = 35 // Empleado
+    worksheet.getColumn(4).width = 30 // Posición
+    worksheet.getColumn(4).alignment = { wrapText: true }
+
+    // Aplicar ancho estándar a todas las columnas de fechas
+    for (let col = 5; col <= 4 + dates.length; col++) {
+      worksheet.getColumn(col).width = 20
     }
-    cell.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true }
-    cell.border = {
-      top: { style: 'thin', color: { argb: 'FF000000' } },
-      left: { style: 'thin', color: { argb: 'FF000000' } },
-      bottom: { style: 'thin', color: { argb: 'FF000000' } },
-      right: { style: 'thin', color: { argb: 'FF000000' } }
-    }
-  })
 
-  // ==============================
-  //     ANCHO DE COLUMNAS
-  // ==============================
-  worksheet.getColumn(1).width = 0 // ID Empleado (BD) - OCULTA
-  worksheet.getColumn(2).width = 20 // Código de Empleado
-  worksheet.getColumn(3).width = 35 // Empleado
-  worksheet.getColumn(4).width = 30 // Posición
-  worksheet.getColumn(4).alignment = { wrapText: true }
+    // ==============================
+    //   CARGAR EMPLEADOS Y TURNOS
+    // ==============================
+    const startDataRow = 5 // Después de los encabezados
 
-  // Aplicar ancho estándar a todas las columnas de fechas
-  for (let col = 5; col <= 4 + dates.length; col++) {
-    worksheet.getColumn(col).width = 20
-  }
+    // Si es modo reporte, cargar calendarios de asistencia
+    let employeeCalendarsMap = new Map<number, Map<string, { shiftId: number | null; shiftName: string | null; isVacation: boolean; isHoliday: boolean; exceptionType?: string }>>()
 
-  // ==============================
-  //   CARGAR EMPLEADOS Y TURNOS
-  // ==============================
-  const startDataRow = 5 // Después de los encabezados
+    if (isReport) {
+      const employeeIdsList = employees.map(emp => emp.employeeId)
+      if (employeeIdsList.length > 0) {
+        // Cargar calendarios de asistencia (datos explícitos guardados)
+        const calendars = await EmployeeAssistCalendar.query()
+          .whereIn('employeeId', employeeIdsList)
+          .whereBetween('day', [startDate, endDate])
+          .whereNull('deletedAt')
+          .preload('dateShift')
 
-  // Si es modo reporte, cargar calendarios de asistencia
-  let employeeCalendarsMap = new Map<number, Map<string, { shiftId: number | null; shiftName: string | null; isVacation: boolean; isHoliday: boolean; exceptionType?: string }>>()
+        calendars.forEach((calendar) => {
+          const empId = calendar.employeeId
+          const day = calendar.day
 
-  if (isReport) {
-    const employeeIdsList = employees.map(emp => emp.employeeId)
-    if (employeeIdsList.length > 0) {
-      // Cargar calendarios de asistencia (datos explícitos guardados)
-      const calendars = await EmployeeAssistCalendar.query()
-        .whereIn('employeeId', employeeIdsList)
-        .whereBetween('day', [startDate, endDate])
-        .whereNull('deletedAt')
-        .preload('dateShift')
-
-      calendars.forEach((calendar) => {
-        const empId = calendar.employeeId
-        const day = calendar.day
-
-        if (!employeeCalendarsMap.has(empId)) {
-          employeeCalendarsMap.set(empId, new Map())
-        }
-
-        const dayMap = employeeCalendarsMap.get(empId)!
-        let shiftName: string | null = null
-        let shiftId: number | null = calendar.shiftId
-
-        if (calendar.isVacationDate) {
-          shiftName = 'vacaciones'
-        } else if (calendar.isHoliday) {
-          shiftName = 'Día festivo'
-        } else if (calendar.dateShift) {
-          // Usar alias si existe, sino usar nombre formateado
-          let formattedDisplayName = calendar.dateShift.shiftName
-          if (calendar.dateShift.shiftTimeStart && calendar.dateShift.shiftActiveHours && typeof calendar.dateShift.shiftActiveHours === 'number') {
-            try {
-              const startTime = String(calendar.dateShift.shiftTimeStart).trim()
-              const timeParts = startTime.split(':')
-              if (timeParts.length >= 2) {
-                const hours = Number.parseInt(timeParts[0], 10)
-                const minutes = Number.parseInt(timeParts[1], 10)
-                if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
-                  const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
-                  const shiftEndTime = shiftStartTime.plus({ hours: calendar.dateShift.shiftActiveHours })
-                  const endTime = shiftEndTime.toFormat('HH:mm')
-                  const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-                  formattedDisplayName = `${formattedStartTime} to ${endTime} - Rest (NA)`
-                }
-              }
-            } catch (error) {
-              // Usar el nombre del turno por defecto
-            }
-          }
-          // Priorizar alias si existe
-          shiftName = (calendar.dateShift.shiftAlias && calendar.dateShift.shiftAlias.trim() !== '')
-            ? calendar.dateShift.shiftAlias.trim()
-            : formattedDisplayName
-        }
-
-        dayMap.set(day, {
-          shiftId,
-          shiftName,
-          isVacation: calendar.isVacationDate || false,
-          isHoliday: calendar.isHoliday || false
-        })
-      })
-
-      // Cargar turnos asignados desde EmployeeShift (basados en applySince)
-      // Obtener todos los turnos asignados que puedan aplicarse en el rango de fechas
-      const employeeShifts = await EmployeeShift.query()
-        .whereIn('employeeId', employeeIdsList)
-        .whereNull('deletedAt')
-        .whereRaw('DATE(employe_shifts_apply_since) <= ?', [endDate])
-        .preload('shift')
-        .orderBy('employe_shifts_apply_since', 'desc')
-
-      // Organizar turnos por empleado para acceso rápido
-      const employeeShiftsMap = new Map<number, EmployeeShift[]>()
-      employeeShifts.forEach((empShift) => {
-        if (!employeeShiftsMap.has(empShift.employeeId)) {
-          employeeShiftsMap.set(empShift.employeeId, [])
-        }
-        employeeShiftsMap.get(empShift.employeeId)!.push(empShift)
-      })
-
-      // Para cada fecha y cada empleado, determinar el turno activo basado en applySince
-      dates.forEach((date) => {
-        const dateStr = date.toFormat('yyyy-MM-dd')
-        const dateDateTime = date.startOf('day')
-
-        employeeIdsList.forEach((empId) => {
-          // Si ya hay un registro en el calendario para esta fecha, no sobrescribir
-          const employeeCalendar = employeeCalendarsMap.get(empId)
-          if (employeeCalendar && employeeCalendar.has(dateStr)) {
-            return
+          if (!employeeCalendarsMap.has(empId)) {
+            employeeCalendarsMap.set(empId, new Map())
           }
 
-          // Buscar el turno asignado más reciente que sea <= a esta fecha
-          const assignedShifts = employeeShiftsMap.get(empId) || []
-          let activeShift: EmployeeShift | null = null
+          const dayMap = employeeCalendarsMap.get(empId)!
+          let shiftName: string | null = null
+          let shiftId: number | null = calendar.shiftId
 
-          for (const shift of assignedShifts) {
-            let shiftApplySince: DateTime
-            const applySinceValue = shift.employeShiftsApplySince
-            if (applySinceValue instanceof Date) {
-              shiftApplySince = DateTime.fromJSDate(applySinceValue).startOf('day')
-            } else if (typeof applySinceValue === 'string') {
-              shiftApplySince = DateTime.fromISO(applySinceValue).startOf('day')
-            } else {
-              continue
-            }
-
-            if (shiftApplySince.isValid && shiftApplySince <= dateDateTime) {
-              activeShift = shift
-              break // Ya está ordenado desc, el primero que cumpla es el más reciente
-            }
-          }
-
-          // Si encontramos un turno activo, agregarlo al calendario
-          if (activeShift && activeShift.shift) {
-            if (!employeeCalendarsMap.has(empId)) {
-              employeeCalendarsMap.set(empId, new Map())
-            }
-
-            const dayMap = employeeCalendarsMap.get(empId)!
-            let formattedDisplayName = activeShift.shift.shiftName
-            const shiftId: number | null = activeShift.shiftId
-
-            // Formatear el nombre del turno con horario si está disponible
-            if (activeShift.shift.shiftTimeStart && activeShift.shift.shiftActiveHours && typeof activeShift.shift.shiftActiveHours === 'number') {
+          if (calendar.isVacationDate) {
+            shiftName = 'vacaciones'
+          } else if (calendar.isHoliday) {
+            shiftName = 'Día festivo'
+          } else if (calendar.dateShift) {
+            // Usar alias si existe, sino usar nombre formateado
+            let formattedDisplayName = calendar.dateShift.shiftName
+            if (calendar.dateShift.shiftTimeStart && calendar.dateShift.shiftActiveHours && typeof calendar.dateShift.shiftActiveHours === 'number') {
               try {
-                const startTime = String(activeShift.shift.shiftTimeStart).trim()
+                const startTime = String(calendar.dateShift.shiftTimeStart).trim()
                 const timeParts = startTime.split(':')
                 if (timeParts.length >= 2) {
                   const hours = Number.parseInt(timeParts[0], 10)
                   const minutes = Number.parseInt(timeParts[1], 10)
                   if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
                     const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
-                    const shiftEndTime = shiftStartTime.plus({ hours: activeShift.shift.shiftActiveHours })
+                    const shiftEndTime = shiftStartTime.plus({ hours: calendar.dateShift.shiftActiveHours })
                     const endTime = shiftEndTime.toFormat('HH:mm')
                     const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
                     formattedDisplayName = `${formattedStartTime} to ${endTime} - Rest (NA)`
@@ -5364,651 +5762,769 @@ async generateShiftAssignmentTemplate(
               }
             }
             // Priorizar alias si existe
-            const shiftName: string | null = (activeShift.shift.shiftAlias && activeShift.shift.shiftAlias.trim() !== '')
-              ? activeShift.shift.shiftAlias.trim()
+            shiftName = (calendar.dateShift.shiftAlias && calendar.dateShift.shiftAlias.trim() !== '')
+              ? calendar.dateShift.shiftAlias.trim()
               : formattedDisplayName
-
-            // Solo agregar si no existe ya un registro para esta fecha
-            if (!dayMap.has(dateStr)) {
-              dayMap.set(dateStr, {
-                shiftId,
-                shiftName,
-                isVacation: false,
-                isHoliday: false
-              })
-            }
           }
+
+          dayMap.set(day, {
+            shiftId,
+            shiftName,
+            isVacation: calendar.isVacationDate || false,
+            isHoliday: calendar.isHoliday || false
+          })
         })
-      })
-    }
-  }
 
-  // Función para obtener color del turno
-  // En modo reporte usa shiftColor, en modo template genera color dinámico
-  const getShiftColor = (shiftId: number | null): string => {
-    if (!shiftId) return 'FFFFFFFF'
-    // En modo reporte, usar el color del turno de la base de datos
-    if (isReport && shiftColorMap.has(shiftId)) {
-      return shiftColorMap.get(shiftId) || 'FFFFFFFF'
-    }
-    // En modo template o si no hay color definido, generar color dinámico
-    const hue = (shiftId * 137.508) % 360
-    const saturation = 50 + (shiftId % 30)
-    const lightness = 75 + (shiftId % 15)
+        // Cargar turnos asignados desde EmployeeShift (basados en applySince)
+        // Obtener todos los turnos asignados que puedan aplicarse en el rango de fechas
+        const employeeShifts = await EmployeeShift.query()
+          .whereIn('employeeId', employeeIdsList)
+          .whereNull('deletedAt')
+          .whereRaw('DATE(employe_shifts_apply_since) <= ?', [endDate])
+          .preload('shift')
+          .orderBy('employe_shifts_apply_since', 'desc')
 
-    const h = hue / 360
-    const s = saturation / 100
-    const l = lightness / 100
-
-    const c = (1 - Math.abs(2 * l - 1)) * s
-    const x = c * (1 - Math.abs((h * 6) % 2 - 1))
-    const m = l - c / 2
-
-    let r = 0
-    let g = 0
-    let b = 0
-    if (h < 1/6) {
-      r = c
-      g = x
-      b = 0
-    } else if (h < 2/6) {
-      r = x
-      g = c
-      b = 0
-    } else if (h < 3/6) {
-      r = 0
-      g = c
-      b = x
-    } else if (h < 4/6) {
-      r = 0
-      g = x
-      b = c
-    } else if (h < 5/6) {
-      r = x
-      g = 0
-      b = c
-    } else {
-      r = c
-      g = 0
-      b = x
-    }
-
-    const R = Math.round((r + m) * 255)
-    const G = Math.round((g + m) * 255)
-    const B = Math.round((b + m) * 255)
-
-    return `FF${R.toString(16).padStart(2, '0')}${G.toString(16).padStart(2, '0')}${B.toString(16).padStart(2, '0')}`.toUpperCase()
-  }
-
-  employees.forEach((employee, index) => {
-    const row = startDataRow + index
-    worksheet.getRow(row).height = 45
-    const fullName = `${employee.employeeFirstName ?? ''} ${employee.employeeLastName ?? ''} ${employee.employeeSecondLastName ?? ''}`.trim().toUpperCase()
-    const positionName = employee.position?.positionName || 'Sin posición'
-
-
-    // ID Empleado (BD) - Columna A (oculta)
-    worksheet.getCell(row, 1).value = employee.employeeId
-    worksheet.getCell(row, 1).protection = { locked: true }
-
-    // Código de Empleado - Columna B
-    worksheet.getCell(row, 2).value = employee.employeePayrollCode || 'Sin código'
-    worksheet.getCell(row, 2).protection = { locked: true }
-
-    // Empleado - Columna C
-    worksheet.getCell(row, 3).value = fullName
-    worksheet.getCell(row, 3).protection = { locked: true }
-
-    // Posición - Columna D
-    worksheet.getCell(row, 4).value = positionName
-    worksheet.getCell(row, 4).protection = { locked: true }
-
-    // Aplicar formato a las primeras 4 columnas
-    for (let col = 1; col <= 4; col++) {
-      worksheet.getCell(row, col).alignment = {
-        vertical: 'middle',
-        horizontal: col === 4 ? 'left' : 'center',
-        wrapText: true
-      }
-      worksheet.getCell(row, col).border = {
-        top: { style: 'thin', color: { argb: 'FF000000' } },
-        left: { style: 'thin', color: { argb: 'FF000000' } },
-        bottom: { style: 'thin', color: { argb: 'FF000000' } },
-        right: { style: 'thin', color: { argb: 'FF000000' } }
-      }
-    }
-
-    // Obtener calendario del empleado si es modo reporte
-    const employeeCalendar = isReport ? employeeCalendarsMap.get(employee.employeeId) : null
-
-    // Columnas de fechas (desde columna E)
-    dates.forEach((date, dateIndex) => {
-      const colNumber = 5 + dateIndex
-      const dateStr = date.toFormat('yyyy-MM-dd')
-      const isHoliday = holidayDates.has(dateStr)
-
-      // Aplicar formato de celda
-      worksheet.getCell(row, colNumber).alignment = {
-        vertical: 'middle',
-        horizontal: 'center',
-        wrapText: true
-      }
-      worksheet.getCell(row, colNumber).border = {
-        top: { style: 'thin', color: { argb: 'FF000000' } },
-        left: { style: 'thin', color: { argb: 'FF000000' } },
-        bottom: { style: 'thin', color: { argb: 'FF000000' } },
-        right: { style: 'thin', color: { argb: 'FF000000' } }
-      }
-
-      if (isReport) {
-        // MODO REPORTE: Mostrar turnos asignados con colores
-        const dayData = employeeCalendar?.get(dateStr)
-        let cellValue = ''
-        let cellColor = 'FFFFFFFF'
-
-        // Solo mostrar "Día festivo" si es descanso oficial (feriado)
-        // isHoliday solo es true para descansos oficiales después del filtro
-        if (isHoliday || dayData?.isHoliday) {
-          cellValue = 'Día festivo'
-          cellColor = 'FFE0E0E0' // Gris claro para días festivos
-        } else if (dayData?.isVacation) {
-          cellValue = 'vacaciones'
-          cellColor = 'FFFFE4B5' // Amarillo claro para vacaciones
-        } else if (dayData?.shiftName) {
-          // Si hay turno asignado, mostrarlo (incluso si es un día festivo que NO es descanso oficial)
-          cellValue = dayData.shiftName
-          cellColor = getShiftColor(dayData.shiftId)
-        }
-
-        worksheet.getCell(row, colNumber).value = cellValue
-        worksheet.getCell(row, colNumber).fill = {
-          type: 'pattern',
-          pattern: 'solid',
-          fgColor: { argb: cellColor }
-        }
-        worksheet.getCell(row, colNumber).protection = { locked: true }
-      } else {
-        // MODO TEMPLATE: Comportamiento normal (editable)
-        if (isHoliday) {
-          // Si es día festivo, solo poner "Día festivo" y proteger la celda
-          worksheet.getCell(row, colNumber).value = 'Día festivo'
-          worksheet.getCell(row, colNumber).protection = { locked: true }
-        } else {
-          // Si NO es día festivo, agregar dropdown para turnos (editable)
-          worksheet.getCell(row, colNumber).dataValidation = {
-            type: 'list',
-            allowBlank: true,
-            formulae: [shiftRange],
-            errorStyle: 'warning',
-            showErrorMessage: true,
-            errorTitle: 'Valor inválido',
-            error: 'Seleccione un turno válido o deje vacío'
+        // Organizar turnos por empleado para acceso rápido
+        const employeeShiftsMap = new Map<number, EmployeeShift[]>()
+        employeeShifts.forEach((empShift) => {
+          if (!employeeShiftsMap.has(empShift.employeeId)) {
+            employeeShiftsMap.set(empShift.employeeId, [])
           }
-          worksheet.getCell(row, colNumber).protection = { locked: false }
-        }
-      }
-    })
-  })
-
-  // ==============================
-  //     OCULTAR COLUMNA ID
-  // ==============================
-  worksheet.getColumn(1).hidden = true
-
-  // ==============================
-  //     PROTEGER HOJA
-  // ==============================
-  // En modo reporte, proteger toda la hoja. En modo template, permitir editar turnos
-  if (isReport) {
-    await worksheet.protect('', {
-      selectLockedCells: true,
-      selectUnlockedCells: false,
-      formatCells: false,
-      formatColumns: false,
-      formatRows: false,
-      insertColumns: false,
-      insertRows: false,
-      deleteColumns: false,
-      deleteRows: false,
-      sort: false,
-      autoFilter: false,
-      pivotTables: false
-    })
-  } else {
-    await worksheet.protect('', {
-      selectLockedCells: true,
-      selectUnlockedCells: true,
-      formatCells: false,
-      formatColumns: false,
-      formatRows: false,
-      insertColumns: false,
-      insertRows: false,
-      deleteColumns: false,
-      deleteRows: false,
-      sort: false,
-      autoFilter: false,
-      pivotTables: false
-    })
-  }
-
-  // ==============================
-  //     CONGELAR ENCABEZADOS
-  // ==============================
-  worksheet.views = [
-    { state: 'frozen', ySplit: 4, xSplit: 4, topLeftCell: 'E5', activeCell: 'E5' }
-  ]
-
-  // ==============================
-  //       GENERAR ARCHIVO
-  // ==============================
-  const buffer = await workbook.xlsx.writeBuffer()
-  return Buffer.from(buffer)
-}
-
-/**
- * Importar asignaciones de turnos desde archivo Excel
- * Lee el Excel generado por generateShiftAssignmentTemplate y guarda las asignaciones
- * @param file - Archivo Excel subido
- * @param rawHeaders - Headers de la request para logs
- * @param userId - ID del usuario para logs
- * @returns Promise con resultados de la importación
- */
-async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?: number) {
-  const workbook = new ExcelJS.Workbook()
-
-  try {
-    // Leer el archivo Excel
-    await workbook.xlsx.readFile(file.tmpPath)
-    const worksheet = workbook.getWorksheet(1)
-
-    if (!worksheet) {
-      throw new Error('No se encontró ninguna hoja de trabajo en el archivo Excel')
-    }
-
-    // Obtener todas las filas
-    const rows: Array<{ row: any; rowNumber: number }> = []
-    worksheet.eachRow({ includeEmpty: false }, (row: any, rowNumber: number) => {
-      rows.push({ row, rowNumber })
-    })
-
-    // Las primeras 4 filas son encabezados
-    const startDataRow = 5
-
-    // Obtener encabezados de fechas (fila 3)
-    const dateHeaders: Array<{ date: DateTime; colNumber: number }> = []
-    const headerRow = worksheet.getRow(3)
-
-    if (headerRow) {
-      headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
-        // Las primeras 4 columnas son: ID (BD), Código, Empleado, Posición
-        if (colNumber > 4) {
-          const cellValue = cell.value
-          if (cellValue && typeof cellValue === 'string') {
-            try {
-              const date = DateTime.fromFormat(cellValue, 'dd/MM/yyyy')
-              if (date.isValid) {
-                dateHeaders.push({ date, colNumber })
-              }
-            } catch (error) {
-              console.warn(`Error parseando fecha en columna ${colNumber}: ${cellValue}`)
-            }
-          }
-        }
-      })
-    }
-
-    // Obtener todos los turnos para mapear nombres/alias a IDs
-    const shifts = await Shift.query()
-      .whereNull('shift_deleted_at')
-      .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'shiftBusinessUnits')
-
-    // Mapa: clave = valor normalizado, valor = objeto con shiftId y businessUnits
-    const shiftMap = new Map<string, Array<{ shiftId: number; businessUnits: string | null }>>()
-
-    shifts.forEach((shift) => {
-      const shiftNameLower = shift.shiftName.toLowerCase().trim()
-
-      // Agregar nombre del turno
-      if (!shiftMap.has(shiftNameLower)) {
-        shiftMap.set(shiftNameLower, [])
-      }
-      shiftMap.get(shiftNameLower)!.push({
-        shiftId: shift.shiftId,
-        businessUnits: shift.shiftBusinessUnits
-      })
-
-      // Si tiene alias, agregarlo también
-      if (shift.shiftAlias && shift.shiftAlias.trim() !== '') {
-        const aliasLower = shift.shiftAlias.toLowerCase().trim()
-        if (!shiftMap.has(aliasLower)) {
-          shiftMap.set(aliasLower, [])
-        }
-        shiftMap.get(aliasLower)!.push({
-          shiftId: shift.shiftId,
-          businessUnits: shift.shiftBusinessUnits
+          employeeShiftsMap.get(empShift.employeeId)!.push(empShift)
         })
-      }
 
-      // Agregar nombres formateados con horarios
-      if (shift.shiftTimeStart && shift.shiftActiveHours) {
-        try {
-          const startTime = String(shift.shiftTimeStart).trim()
-          const timeParts = startTime.split(':')
-          if (timeParts.length >= 2) {
-            const hours = Number.parseInt(timeParts[0], 10)
-            const minutes = Number.parseInt(timeParts[1], 10)
-            if (!Number.isNaN(hours) && !Number.isNaN(minutes)) {
-              const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
-              const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
-              const endTime = shiftEndTime.toFormat('HH:mm')
-              const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
-
-              const formattedName1 = `${formattedStartTime} to ${endTime} - Rest (NA)`
-              const formattedName2 = `${formattedStartTime} to ${endTime}`
-              const formattedName3 = `${formattedStartTime}-${endTime}`
-
-              const formattedNames = [formattedName1, formattedName2, formattedName3]
-              formattedNames.forEach((formattedName) => {
-                const formattedLower = formattedName.toLowerCase()
-                if (!shiftMap.has(formattedLower)) {
-                  shiftMap.set(formattedLower, [])
-                }
-                shiftMap.get(formattedLower)!.push({
-                  shiftId: shift.shiftId,
-                  businessUnits: shift.shiftBusinessUnits
-                })
-              })
-            }
-          }
-        } catch (error) {
-          // Ignorar errores
-        }
-      }
-    })
-
-    const specialOptions = ['vacaciones', 'día festivo', 'dia festivo']
-
-    // Obtener todos los tipos de excepciones para mapeo
-    const exceptionTypes = await ExceptionType.query()
-      .whereNull('exception_type_deleted_at')
-      .select('exceptionTypeId', 'exceptionTypeSlug', 'exceptionTypeTypeName', 'exceptionTypeCanMasive')
-
-    const exceptionTypeMap = new Map<string, number>()
-    exceptionTypes.forEach((exceptionType) => {
-      exceptionTypeMap.set(exceptionType.exceptionTypeSlug, exceptionType.exceptionTypeId)
-    })
-
-    // Mapa de nombres de excepciones masivas a sus IDs
-    const massiveExceptionTypeMap = new Map<string, number>()
-    exceptionTypes.forEach((exceptionType) => {
-      if (exceptionType.exceptionTypeCanMasive) {
-        const typeName = exceptionType.exceptionTypeTypeName?.toLowerCase().trim()
-        if (typeName) {
-          massiveExceptionTypeMap.set(typeName, exceptionType.exceptionTypeId)
-        }
-      }
-    })
-
-    const specialOptionToSlug: Record<string, string> = {
-      'vacaciones': 'vacation',
-      'día festivo': 'absence-from-work',
-      'dia festivo': 'absence-from-work'
-    }
-
-    const results = {
-      totalRows: 0,
-      processed: 0,
-      created: 0,
-      skipped: 0,
-      errors: [] as string[]
-    }
-
-    // Procesar cada fila de datos
-    for (const { row, rowNumber } of rows) {
-      if (rowNumber < startDataRow) continue
-
-      results.totalRows++
-
-      // Obtener ID del empleado de la primera columna (columna A - oculta)
-      const employeeIdCell = row.getCell(1)
-      const employeeId = employeeIdCell.value
-
-      // Si no hay ID de empleado, saltar
-      if (!employeeId || employeeId === '' || employeeId === null || employeeId === undefined) {
-        results.skipped++
-        continue
-      }
-
-      // Verificar que el empleado existe
-      const employee = await Employee.find(employeeId)
-      if (!employee) {
-        results.skipped++
-        results.errors.push(`Fila ${rowNumber}: Empleado con ID ${employeeId} no encontrado`)
-        continue
-      }
-
-      // Procesar cada fecha/columna
-      let processedAny = false
-      for (const { date, colNumber } of dateHeaders) {
-        const shiftCell = row.getCell(colNumber)
-        let shiftValue = shiftCell.value
-
-        // Si es una fórmula, obtener el valor calculado
-        if (shiftCell.type === ExcelJS.ValueType.Formula) {
-          shiftValue = shiftCell.result
-        }
-
-        // Si la celda está vacía, ignorarla (SOLO PROCESAR CELDAS CON VALOR)
-        if (!shiftValue || shiftValue === '' || shiftValue === null || shiftValue === undefined) {
-          continue
-        }
-
-        const shiftName = String(shiftValue).trim()
-        const shiftNameLower = shiftName.toLowerCase()
-
-        let shiftId: number | null = null
-        let isSpecialOption = false
-        let exceptionTypeSlug: string | null = null
-        let isMassiveException = false
-        let massiveExceptionTypeId: number | null = null
-
-        // Verificar si es una excepción masiva
-        massiveExceptionTypeId = massiveExceptionTypeMap.get(shiftNameLower) || null
-        if (massiveExceptionTypeId) {
-          isMassiveException = true
-        }
-
-        // Verificar si es una opción especial
-        if (specialOptions.includes(shiftNameLower)) {
-          isSpecialOption = true
-          exceptionTypeSlug = specialOptionToSlug[shiftNameLower] || null
-        }
-
-        // Si es una excepción masiva, crear excepción
-        if (isMassiveException && massiveExceptionTypeId) {
+        // Para cada fecha y cada empleado, determinar el turno activo basado en applySince
+        dates.forEach((date) => {
           const dateStr = date.toFormat('yyyy-MM-dd')
-          const shiftExceptionService = new ShiftExceptionService(this.i18n)
+          const dateDateTime = date.startOf('day')
 
-          try {
-            const shiftException = {
-              employeeId: employeeId,
-              exceptionTypeId: massiveExceptionTypeId,
-              shiftExceptionsDate: dateStr,
-              shiftExceptionsDescription: `Importado desde Excel: ${shiftName}`,
-              shiftExceptionEnjoymentOfSalary: 0,
-              shiftExceptionCheckInTime: null,
-              shiftExceptionCheckOutTime: null,
-              shiftExceptionTimeByTime: null,
-              vacationSettingId: null,
-              workDisabilityPeriodId: null,
-            } as ShiftException
+          employeeIdsList.forEach((empId) => {
+            // Si ya hay un registro en el calendario para esta fecha, no sobrescribir
+            const employeeCalendar = employeeCalendarsMap.get(empId)
+            if (employeeCalendar && employeeCalendar.has(dateStr)) {
+              return
+            }
 
-            const verifyInfo = await shiftExceptionService.verifyInfo(shiftException)
+            // Buscar el turno asignado más reciente que sea <= a esta fecha
+            const assignedShifts = employeeShiftsMap.get(empId) || []
+            let activeShift: EmployeeShift | null = null
 
-            if (verifyInfo.status !== 200) {
-              const existingException = await ShiftException.query()
-                .whereNull('shift_exceptions_deleted_at')
-                .where('employeeId', employeeId)
-                .where('shiftExceptionsDate', dateStr)
-                .where('exceptionTypeId', massiveExceptionTypeId)
-                .first()
-
-              if (!existingException) {
-                results.errors.push(
-                  `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: ${verifyInfo.message}`
-                )
+            for (const shift of assignedShifts) {
+              let shiftApplySince: DateTime
+              const applySinceValue = shift.employeShiftsApplySince
+              if (applySinceValue instanceof Date) {
+                shiftApplySince = DateTime.fromJSDate(applySinceValue).startOf('day')
+              } else if (typeof applySinceValue === 'string') {
+                shiftApplySince = DateTime.fromISO(applySinceValue).startOf('day')
+              } else {
                 continue
               }
-            } else {
-              await shiftExceptionService.create(shiftException)
+
+              if (shiftApplySince.isValid && shiftApplySince <= dateDateTime) {
+                activeShift = shift
+                break // Ya está ordenado desc, el primero que cumpla es el más reciente
+              }
             }
 
-            processedAny = true
-            results.created++
-          } catch (error: any) {
-            results.errors.push(
-              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al crear excepción - ${error.message}`
-            )
+            // Si encontramos un turno activo, agregarlo al calendario
+            if (activeShift && activeShift.shift) {
+              if (!employeeCalendarsMap.has(empId)) {
+                employeeCalendarsMap.set(empId, new Map())
+              }
+
+              const dayMap = employeeCalendarsMap.get(empId)!
+              let formattedDisplayName = activeShift.shift.shiftName
+              const shiftId: number | null = activeShift.shiftId
+
+              // Formatear el nombre del turno con horario si está disponible
+              if (activeShift.shift.shiftTimeStart && activeShift.shift.shiftActiveHours && typeof activeShift.shift.shiftActiveHours === 'number') {
+                try {
+                  const startTime = String(activeShift.shift.shiftTimeStart).trim()
+                  const timeParts = startTime.split(':')
+                  if (timeParts.length >= 2) {
+                    const hours = Number.parseInt(timeParts[0], 10)
+                    const minutes = Number.parseInt(timeParts[1], 10)
+                    if (!Number.isNaN(hours) && !Number.isNaN(minutes) && hours >= 0 && hours < 24 && minutes >= 0 && minutes < 60) {
+                      const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
+                      const shiftEndTime = shiftStartTime.plus({ hours: activeShift.shift.shiftActiveHours })
+                      const endTime = shiftEndTime.toFormat('HH:mm')
+                      const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+                      formattedDisplayName = `${formattedStartTime} to ${endTime} - Rest (NA)`
+                    }
+                  }
+                } catch (error) {
+                  // Usar el nombre del turno por defecto
+                }
+              }
+              // Priorizar alias si existe
+              const shiftName: string | null = (activeShift.shift.shiftAlias && activeShift.shift.shiftAlias.trim() !== '')
+                ? activeShift.shift.shiftAlias.trim()
+                : formattedDisplayName
+
+              // Solo agregar si no existe ya un registro para esta fecha
+              if (!dayMap.has(dateStr)) {
+                dayMap.set(dateStr, {
+                  shiftId,
+                  shiftName,
+                  isVacation: false,
+                  isHoliday: false
+                })
+              }
+            }
+          })
+        })
+      }
+    }
+
+    // Función para obtener color del turno
+    // En modo reporte usa shiftColor, en modo template genera color dinámico
+    const getShiftColor = (shiftId: number | null): string => {
+      if (!shiftId) return 'FFFFFFFF'
+      // En modo reporte, usar el color del turno de la base de datos
+      if (isReport && shiftColorMap.has(shiftId)) {
+        return shiftColorMap.get(shiftId) || 'FFFFFFFF'
+      }
+      // En modo template o si no hay color definido, generar color dinámico
+      const hue = (shiftId * 137.508) % 360
+      const saturation = 50 + (shiftId % 30)
+      const lightness = 75 + (shiftId % 15)
+
+      const h = hue / 360
+      const s = saturation / 100
+      const l = lightness / 100
+
+      const c = (1 - Math.abs(2 * l - 1)) * s
+      const x = c * (1 - Math.abs((h * 6) % 2 - 1))
+      const m = l - c / 2
+
+      let r = 0
+      let g = 0
+      let b = 0
+      if (h < 1 / 6) {
+        r = c
+        g = x
+        b = 0
+      } else if (h < 2 / 6) {
+        r = x
+        g = c
+        b = 0
+      } else if (h < 3 / 6) {
+        r = 0
+        g = c
+        b = x
+      } else if (h < 4 / 6) {
+        r = 0
+        g = x
+        b = c
+      } else if (h < 5 / 6) {
+        r = x
+        g = 0
+        b = c
+      } else {
+        r = c
+        g = 0
+        b = x
+      }
+
+      const R = Math.round((r + m) * 255)
+      const G = Math.round((g + m) * 255)
+      const B = Math.round((b + m) * 255)
+
+      return `FF${R.toString(16).padStart(2, '0')}${G.toString(16).padStart(2, '0')}${B.toString(16).padStart(2, '0')}`.toUpperCase()
+    }
+
+    employees.forEach((employee, index) => {
+      const row = startDataRow + index
+      worksheet.getRow(row).height = 45
+      const fullName = reportFullName(
+        employee.employeeFirstName,
+        employee.employeeLastName,
+        employee.employeeSecondLastName
+      ).toUpperCase()
+      const positionName = reportText(employee.position?.positionName)
+
+
+      // ID Empleado (BD) - Columna A (oculta)
+      worksheet.getCell(row, 1).value = employee.employeeId
+
+      // Código de Empleado - Columna B
+      worksheet.getCell(row, 2).value = reportText(employee.employeePayrollCode)
+
+      // Empleado - Columna C
+      worksheet.getCell(row, 3).value = fullName
+
+      // Posición - Columna D
+      worksheet.getCell(row, 4).value = positionName
+
+      // Aplicar formato a las primeras 4 columnas
+      for (let col = 1; col <= 4; col++) {
+        worksheet.getCell(row, col).alignment = {
+          vertical: 'middle',
+          horizontal: col === 4 ? 'left' : 'center',
+          wrapText: true
+        }
+        worksheet.getCell(row, col).border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } }
+        }
+      }
+
+      // Obtener calendario del empleado si es modo reporte
+      const employeeCalendar = isReport ? employeeCalendarsMap.get(employee.employeeId) : null
+
+      // Columnas de fechas (desde columna E)
+      dates.forEach((date, dateIndex) => {
+        const colNumber = 5 + dateIndex
+        const dateStr = date.toFormat('yyyy-MM-dd')
+        const isHoliday = holidayDates.has(dateStr)
+
+        // Aplicar formato de celda
+        worksheet.getCell(row, colNumber).alignment = {
+          vertical: 'middle',
+          horizontal: 'center',
+          wrapText: true
+        }
+        worksheet.getCell(row, colNumber).border = {
+          top: { style: 'thin', color: { argb: 'FF000000' } },
+          left: { style: 'thin', color: { argb: 'FF000000' } },
+          bottom: { style: 'thin', color: { argb: 'FF000000' } },
+          right: { style: 'thin', color: { argb: 'FF000000' } }
+        }
+
+        if (isReport) {
+          // MODO REPORTE: Mostrar turnos asignados con colores
+          const dayData = employeeCalendar?.get(dateStr)
+          let cellValue = ''
+          let cellColor = 'FFFFFFFF'
+
+          // Solo mostrar "Día festivo" si es descanso oficial (feriado)
+          // isHoliday solo es true para descansos oficiales después del filtro
+          if (isHoliday || dayData?.isHoliday) {
+            cellValue = 'Día festivo'
+            cellColor = 'FFE0E0E0' // Gris claro para días festivos
+          } else if (dayData?.isVacation) {
+            cellValue = 'vacaciones'
+            cellColor = 'FFFFE4B5' // Amarillo claro para vacaciones
+          } else if (dayData?.shiftName) {
+            // Si hay turno asignado, mostrarlo (incluso si es un día festivo que NO es descanso oficial)
+            cellValue = dayData.shiftName
+            cellColor = getShiftColor(dayData.shiftId)
           }
+
+          worksheet.getCell(row, colNumber).value = cellValue
+          worksheet.getCell(row, colNumber).fill = {
+            type: 'pattern',
+            pattern: 'solid',
+            fgColor: { argb: cellColor }
+          }
+        } else {
+          // MODO TEMPLATE: turnos por dropdown
+          if (isHoliday) {
+            // Si es día festivo, precargar "Día festivo" (editable)
+            worksheet.getCell(row, colNumber).value = 'Día festivo'
+          } else {
+            // Si NO es día festivo, agregar dropdown para turnos (editable)
+            worksheet.getCell(row, colNumber).dataValidation = {
+              type: 'list',
+              allowBlank: true,
+              formulae: [shiftRange],
+              errorStyle: 'warning',
+              showErrorMessage: true,
+              errorTitle: 'Valor inválido',
+              error: 'Seleccione un turno válido o deje vacío'
+            }
+          }
+        }
+      })
+    })
+
+    // ==============================
+    //     OCULTAR COLUMNA ID
+    // ==============================
+    worksheet.getColumn(1).hidden = true
+
+    // ==============================
+    //     CONGELAR ENCABEZADOS
+    // ==============================
+    worksheet.views = [
+      { state: 'frozen', ySplit: 4, xSplit: 4, topLeftCell: 'E5', activeCell: 'E5' }
+    ]
+
+    // ==============================
+    //       GENERAR ARCHIVO
+    // ==============================
+    blankMissingTexts(workbook)
+    const buffer = await workbook.xlsx.writeBuffer()
+    return Buffer.from(buffer)
+  }
+
+  /**
+   * Importar asignaciones de turnos desde archivo Excel
+   * Lee el Excel generado por generateShiftAssignmentTemplate y guarda las asignaciones
+   * @param file - Archivo Excel subido
+   * @param rawHeaders - Headers de la request para logs
+   * @param userId - ID del usuario para logs
+   * @param allowedBusinessUnitIds - Alcance de empresa ya resuelto por el controller (fail-closed si vacío)
+   * @returns Promise con resultados de la importación
+   */
+  async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?: number, allowedBusinessUnitIds: number[] = []) {
+    const workbook = new ExcelJS.Workbook()
+
+    try {
+      // Leer el archivo Excel
+      await workbook.xlsx.readFile(file.tmpPath)
+      const worksheet = workbook.getWorksheet(1)
+
+      if (!worksheet) {
+        throw new Error('No se encontró ninguna hoja de trabajo en el archivo Excel')
+      }
+
+      // Obtener todas las filas
+      const rows: Array<{ row: any; rowNumber: number }> = []
+      worksheet.eachRow({ includeEmpty: false }, (row: any, rowNumber: number) => {
+        rows.push({ row, rowNumber })
+      })
+
+      // Las primeras 4 filas son encabezados
+      const startDataRow = 5
+
+      // Obtener encabezados de fechas (fila 3)
+      const dateHeaders: Array<{ date: DateTime; colNumber: number }> = []
+      const headerRow = worksheet.getRow(3)
+
+      if (headerRow) {
+        headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
+          // Las primeras 4 columnas son: ID (BD), Código, Empleado, Posición
+          if (colNumber > 4) {
+            const cellValue = cell.value
+            if (cellValue && typeof cellValue === 'string') {
+              try {
+                const date = DateTime.fromFormat(cellValue, 'dd/MM/yyyy')
+                if (date.isValid) {
+                  dateHeaders.push({ date, colNumber })
+                }
+              } catch (error) {
+                console.warn(`Error parseando fecha en columna ${colNumber}: ${cellValue}`)
+              }
+            }
+          }
+        })
+      }
+
+      // Obtener todos los turnos para mapear nombres/alias a IDs
+      const shifts = await Shift.query()
+        .whereNull('shift_deleted_at')
+        .select('shiftId', 'shiftName', 'shiftAlias', 'shiftTimeStart', 'shiftActiveHours', 'businessUnitId')
+
+      // Mapa: clave = valor normalizado, valor = objeto con shiftId y businessUnits
+      const shiftMap = new Map<string, Array<{ shiftId: number; businessUnitId: number }>>()
+
+      shifts.forEach((shift) => {
+        const shiftNameLower = shift.shiftName.toLowerCase().trim()
+
+        // Agregar nombre del turno
+        if (!shiftMap.has(shiftNameLower)) {
+          shiftMap.set(shiftNameLower, [])
+        }
+        shiftMap.get(shiftNameLower)!.push({
+          shiftId: shift.shiftId,
+          businessUnitId: shift.businessUnitId
+        })
+
+        // Si tiene alias, agregarlo también
+        if (shift.shiftAlias && shift.shiftAlias.trim() !== '') {
+          const aliasLower = shift.shiftAlias.toLowerCase().trim()
+          if (!shiftMap.has(aliasLower)) {
+            shiftMap.set(aliasLower, [])
+          }
+          shiftMap.get(aliasLower)!.push({
+            shiftId: shift.shiftId,
+            businessUnitId: shift.businessUnitId
+          })
+        }
+
+        // Agregar nombres formateados con horarios
+        if (shift.shiftTimeStart && shift.shiftActiveHours) {
+          try {
+            const startTime = String(shift.shiftTimeStart).trim()
+            const timeParts = startTime.split(':')
+            if (timeParts.length >= 2) {
+              const hours = Number.parseInt(timeParts[0], 10)
+              const minutes = Number.parseInt(timeParts[1], 10)
+              if (!Number.isNaN(hours) && !Number.isNaN(minutes)) {
+                const shiftStartTime = DateTime.fromObject({ hour: hours, minute: minutes })
+                const shiftEndTime = shiftStartTime.plus({ hours: shift.shiftActiveHours })
+                const endTime = shiftEndTime.toFormat('HH:mm')
+                const formattedStartTime = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}`
+
+                const formattedName1 = `${formattedStartTime} to ${endTime} - Rest (NA)`
+                const formattedName2 = `${formattedStartTime} to ${endTime}`
+                const formattedName3 = `${formattedStartTime}-${endTime}`
+
+                const formattedNames = [formattedName1, formattedName2, formattedName3]
+                formattedNames.forEach((formattedName) => {
+                  const formattedLower = formattedName.toLowerCase()
+                  if (!shiftMap.has(formattedLower)) {
+                    shiftMap.set(formattedLower, [])
+                  }
+                  shiftMap.get(formattedLower)!.push({
+                    shiftId: shift.shiftId,
+                    businessUnitId: shift.businessUnitId
+                  })
+                })
+              }
+            }
+          } catch (error) {
+            // Ignorar errores
+          }
+        }
+      })
+
+      const specialOptions = ['vacaciones', 'día festivo', 'dia festivo']
+
+      // Obtener todos los tipos de excepciones para mapeo
+      const exceptionTypes = await ExceptionType.query()
+        .whereNull('exception_type_deleted_at')
+        .select('exceptionTypeId', 'exceptionTypeSlug', 'exceptionTypeTypeName', 'exceptionTypeCanMasive')
+
+      const exceptionTypeMap = new Map<string, number>()
+      exceptionTypes.forEach((exceptionType) => {
+        exceptionTypeMap.set(exceptionType.exceptionTypeSlug, exceptionType.exceptionTypeId)
+      })
+
+      // Mapa de nombres de excepciones masivas a sus IDs
+      const massiveExceptionTypeMap = new Map<string, number>()
+      exceptionTypes.forEach((exceptionType) => {
+        if (exceptionType.exceptionTypeCanMasive) {
+          const typeName = exceptionType.exceptionTypeTypeName?.toLowerCase().trim()
+          if (typeName) {
+            massiveExceptionTypeMap.set(typeName, exceptionType.exceptionTypeId)
+          }
+        }
+      })
+
+      const specialOptionToSlug: Record<string, string> = {
+        'vacaciones': 'vacation',
+        'día festivo': 'absence-from-work',
+        'dia festivo': 'absence-from-work'
+      }
+
+      const results = {
+        totalRows: 0,
+        processed: 0,
+        created: 0,
+        skipped: 0,
+        errors: [] as string[]
+      }
+
+      // Procesar cada fila de datos
+      for (const { row, rowNumber } of rows) {
+        if (rowNumber < startDataRow) continue
+
+        results.totalRows++
+
+        // Obtener ID del empleado de la primera columna (columna A - oculta)
+        const employeeIdCell = row.getCell(1)
+        const employeeId = employeeIdCell.value
+
+        // Si no hay ID de empleado, saltar
+        if (!employeeId || employeeId === '' || employeeId === null || employeeId === undefined) {
+          results.skipped++
           continue
         }
 
-        // Si es una opción especial, crear excepción
-        if (isSpecialOption && exceptionTypeSlug) {
-          const exceptionTypeId = exceptionTypeMap.get(exceptionTypeSlug)
+        // Verificar que el empleado existe DENTRO del alcance de empresa del usuario.
+        // Filtro explícito además del mixin (defensa en profundidad, USRH1786595131487).
+        // whereIn con arreglo vacío produce `1 = 0`: fail-closed sin branch de longitud.
+        const numericEmployeeId = Number(employeeId)
+        const employee = Number.isInteger(numericEmployeeId) && numericEmployeeId > 0
+          ? await Employee.query()
+            .whereIn('businessUnitId', allowedBusinessUnitIds)
+            .where('employeeId', numericEmployeeId)
+            .first()
+          : null
 
-          if (!exceptionTypeId) {
-            results.errors.push(
-              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Tipo de excepción "${exceptionTypeSlug}" no encontrado`
-            )
+        if (!employee) {
+          results.skipped++
+          results.errors.push(`Fila ${rowNumber}: Empleado con ID ${employeeId} no encontrado`)
+          continue
+        }
+
+        // Procesar cada fecha/columna
+        let processedAny = false
+        for (const { date, colNumber } of dateHeaders) {
+          const shiftCell = row.getCell(colNumber)
+          let shiftValue = shiftCell.value
+
+          // Si es una fórmula, obtener el valor calculado
+          if (shiftCell.type === ExcelJS.ValueType.Formula) {
+            shiftValue = shiftCell.result
+          }
+
+          // Si la celda está vacía, ignorarla (SOLO PROCESAR CELDAS CON VALOR)
+          if (!shiftValue || shiftValue === '' || shiftValue === null || shiftValue === undefined) {
             continue
           }
 
-          const dateStr = date.toFormat('yyyy-MM-dd')
-          const shiftExceptionService = new ShiftExceptionService(this.i18n)
+          const shiftName = String(shiftValue).trim()
+          const shiftNameLower = shiftName.toLowerCase()
 
-          try {
-            let vacationSettingId: number | null = null
+          let shiftId: number | null = null
+          let isSpecialOption = false
+          let exceptionTypeSlug: string | null = null
+          let isMassiveException = false
+          let massiveExceptionTypeId: number | null = null
 
-            if (exceptionTypeSlug === 'vacation') {
-              const availableVacation = await this.getAvailableVacationSetting(
-                employee,
-                date
-              )
-
-              if (!availableVacation) {
-                results.errors.push(
-                  `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: No hay vacaciones disponibles para el empleado`
-                )
-                continue
-              }
-
-              vacationSettingId = availableVacation.vacationSettingId
-            }
-
-            const shiftException = {
-              employeeId: employeeId,
-              exceptionTypeId: exceptionTypeId,
-              shiftExceptionsDate: dateStr,
-              shiftExceptionsDescription: `Importado desde Excel: ${shiftName}`,
-              shiftExceptionEnjoymentOfSalary: exceptionTypeSlug === 'vacation' ? 1 : 0,
-              shiftExceptionCheckInTime: null,
-              shiftExceptionCheckOutTime: null,
-              shiftExceptionTimeByTime: null,
-              vacationSettingId: vacationSettingId,
-              workDisabilityPeriodId: null,
-            } as ShiftException
-
-            const verifyInfo = await shiftExceptionService.verifyInfo(shiftException)
-
-            if (verifyInfo.status !== 200) {
-              const existingException = await ShiftException.query()
-                .whereNull('shift_exceptions_deleted_at')
-                .where('employeeId', employeeId)
-                .where('shiftExceptionsDate', dateStr)
-                .where('exceptionTypeId', exceptionTypeId)
-                .first()
-
-              if (!existingException) {
-                results.errors.push(
-                  `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: ${verifyInfo.message}`
-                )
-                continue
-              }
-            } else {
-              await shiftExceptionService.create(shiftException)
-            }
-
-            processedAny = true
-            results.created++
-          } catch (error: any) {
-            results.errors.push(
-              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al crear excepción - ${error.message}`
-            )
+          // Verificar si es una excepción masiva
+          massiveExceptionTypeId = massiveExceptionTypeMap.get(shiftNameLower) || null
+          if (massiveExceptionTypeId) {
+            isMassiveException = true
           }
-          continue
-        }
 
-        // Buscar el turno considerando alias y unidad de negocio del empleado
-        const normalizedShiftName = shiftNameLower.replace(/\s+/g, ' ').trim()
-        const employeeBusinessUnitId = employee.businessUnitId
-
-        // Función auxiliar para verificar si el businessUnitId está en shiftBusinessUnits
-        const isBusinessUnitMatch = (businessUnitsStr: string | null, targetBusinessUnitId: number): boolean => {
-          if (!businessUnitsStr || businessUnitsStr.trim() === '') return false
-          const businessUnitsList = businessUnitsStr.split(',').map(bu => bu.trim())
-          return businessUnitsList.includes(String(targetBusinessUnitId))
-        }
-
-        // Buscar primero por coincidencia exacta
-        const exactMatches = shiftMap.get(normalizedShiftName)
-        if (exactMatches && exactMatches.length > 0) {
-          // Si hay coincidencia exacta, buscar la que coincida con la unidad de negocio
-          const matchingShift = exactMatches.find(s =>
-            isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
-          )
-          if (matchingShift) {
-            shiftId = matchingShift.shiftId
-          } else if (exactMatches.length === 1) {
-            // Si solo hay uno y no hay filtro de unidad de negocio, usarlo
-            shiftId = exactMatches[0].shiftId
+          // Verificar si es una opción especial
+          if (specialOptions.includes(shiftNameLower)) {
+            isSpecialOption = true
+            exceptionTypeSlug = specialOptionToSlug[shiftNameLower] || null
           }
-        }
 
-        // Si no se encontró, buscar por coincidencia parcial
-        if (!shiftId) {
-          for (const [mapKey, shiftsList] of shiftMap.entries()) {
-            const normalizedMapKey = mapKey.replace(/\s+/g, ' ').trim()
+          // Si es una excepción masiva, crear excepción
+          if (isMassiveException && massiveExceptionTypeId) {
+            const dateStr = date.toFormat('yyyy-MM-dd')
+            const shiftExceptionService = new ShiftExceptionService(this.i18n)
 
-            // Coincidencia exacta normalizada
-            if (normalizedMapKey === normalizedShiftName) {
-              const matchingShift = shiftsList.find(s =>
-                isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
-              )
-              if (matchingShift) {
-                shiftId = matchingShift.shiftId
-                break
-              } else if (shiftsList.length === 1) {
-                shiftId = shiftsList[0].shiftId
-                break
+            try {
+              const shiftException = {
+                employeeId: employee.employeeId,
+                exceptionTypeId: massiveExceptionTypeId,
+                shiftExceptionsDate: dateStr,
+                shiftExceptionsDescription: `Importado desde Excel: ${shiftName}`,
+                shiftExceptionEnjoymentOfSalary: 0,
+                shiftExceptionCheckInTime: null,
+                shiftExceptionCheckOutTime: null,
+                shiftExceptionTimeByTime: null,
+                vacationSettingId: null,
+                workDisabilityPeriodId: null,
+              } as ShiftException
+
+              const verifyInfo = await shiftExceptionService.verifyInfo(shiftException)
+
+              if (verifyInfo.status !== 200) {
+                const existingException = await ShiftException.query()
+                  .whereNull('shift_exceptions_deleted_at')
+                  .where('employeeId', employeeId)
+                  .where('shiftExceptionsDate', dateStr)
+                  .where('exceptionTypeId', massiveExceptionTypeId)
+                  .first()
+
+                if (!existingException) {
+                  results.errors.push(
+                    `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: ${verifyInfo.message}`
+                  )
+                  continue
+                }
+              } else {
+                await shiftExceptionService.create(shiftException)
               }
+
+              processedAny = true
+              results.created++
+            } catch (error: any) {
+              logger.error({ err: error, rowNumber }, 'Error al crear excepción de turno en importación masiva')
+              results.errors.push(
+                `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al crear excepción`
+              )
+            }
+            continue
+          }
+
+          // Si es una opción especial, crear excepción
+          if (isSpecialOption && exceptionTypeSlug) {
+            const exceptionTypeId = exceptionTypeMap.get(exceptionTypeSlug)
+
+            if (!exceptionTypeId) {
+              results.errors.push(
+                `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Tipo de excepción "${exceptionTypeSlug}" no encontrado`
+              )
               continue
             }
 
-            // Coincidencia por patrón de tiempo
-            const timePattern = /(\d{1,2}):(\d{2})\s*(?:to|-)\s*(\d{1,2}):(\d{2})/i
-            const matchExcel = normalizedShiftName.match(timePattern)
-            const matchMap = normalizedMapKey.match(timePattern)
+            const dateStr = date.toFormat('yyyy-MM-dd')
+            const shiftExceptionService = new ShiftExceptionService(this.i18n)
 
-            if (matchExcel && matchMap) {
-              const excelStart = `${matchExcel[1].padStart(2, '0')}:${matchExcel[2]}`
-              const excelEnd = `${matchExcel[3].padStart(2, '0')}:${matchExcel[4]}`
-              const mapStart = `${matchMap[1].padStart(2, '0')}:${matchMap[2]}`
-              const mapEnd = `${matchMap[3].padStart(2, '0')}:${matchMap[4]}`
+            try {
+              let vacationSettingId: number | null = null
 
-              if (excelStart === mapStart && excelEnd === mapEnd) {
+              if (exceptionTypeSlug === 'vacation') {
+                const availableVacation = await this.getAvailableVacationSetting(
+                  employee,
+                  date
+                )
+
+                if (!availableVacation) {
+                  results.errors.push(
+                    `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: No hay vacaciones disponibles para el empleado`
+                  )
+                  continue
+                }
+
+                vacationSettingId = availableVacation.vacationSettingId
+              }
+
+              const shiftException = {
+                employeeId: employee.employeeId,
+                exceptionTypeId: exceptionTypeId,
+                shiftExceptionsDate: dateStr,
+                shiftExceptionsDescription: `Importado desde Excel: ${shiftName}`,
+                shiftExceptionEnjoymentOfSalary: exceptionTypeSlug === 'vacation' ? 1 : 0,
+                shiftExceptionCheckInTime: null,
+                shiftExceptionCheckOutTime: null,
+                shiftExceptionTimeByTime: null,
+                vacationSettingId: vacationSettingId,
+                workDisabilityPeriodId: null,
+              } as ShiftException
+
+              const verifyInfo = await shiftExceptionService.verifyInfo(shiftException)
+
+              if (verifyInfo.status !== 200) {
+                const existingException = await ShiftException.query()
+                  .whereNull('shift_exceptions_deleted_at')
+                  .where('employeeId', employeeId)
+                  .where('shiftExceptionsDate', dateStr)
+                  .where('exceptionTypeId', exceptionTypeId)
+                  .first()
+
+                if (!existingException) {
+                  results.errors.push(
+                    `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: ${verifyInfo.message}`
+                  )
+                  continue
+                }
+              } else {
+                await shiftExceptionService.create(shiftException)
+              }
+
+              processedAny = true
+              results.created++
+            } catch (error: any) {
+              logger.error({ err: error, rowNumber }, 'Error al crear excepción de turno en importación masiva')
+              results.errors.push(
+                `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al crear excepción`
+              )
+            }
+            continue
+          }
+
+          // Buscar el turno considerando alias y unidad de negocio del empleado
+          const normalizedShiftName = shiftNameLower.replace(/\s+/g, ' ').trim()
+          const employeeBusinessUnitId = employee.businessUnitId
+
+          // El turno es del empleado si los dos son de la misma empresa. Antes
+          // esto parseaba el CSV `shift_business_units` buscando el id dentro,
+          // pero ese CSV se escribía con SLUGS: la comparación no acertaba nunca
+          // y el import caía siempre al turno por nombre sin mirar la empresa.
+          const isBusinessUnitMatch = (
+            shiftBusinessUnitId: number,
+            targetBusinessUnitId: number
+          ): boolean => shiftBusinessUnitId === targetBusinessUnitId
+
+          // Buscar primero por coincidencia exacta
+          const exactMatches = shiftMap.get(normalizedShiftName)
+          if (exactMatches && exactMatches.length > 0) {
+            // Si hay coincidencia exacta, buscar la que coincida con la unidad de negocio
+            const matchingShift = exactMatches.find(s =>
+              isBusinessUnitMatch(s.businessUnitId, employeeBusinessUnitId)
+            )
+            if (matchingShift) {
+              shiftId = matchingShift.shiftId
+            } else if (exactMatches.length === 1) {
+              // Si solo hay uno y no hay filtro de unidad de negocio, usarlo
+              shiftId = exactMatches[0].shiftId
+            }
+          }
+
+          // Si no se encontró, buscar por coincidencia parcial
+          if (!shiftId) {
+            for (const [mapKey, shiftsList] of shiftMap.entries()) {
+              const normalizedMapKey = mapKey.replace(/\s+/g, ' ').trim()
+
+              // Coincidencia exacta normalizada
+              if (normalizedMapKey === normalizedShiftName) {
                 const matchingShift = shiftsList.find(s =>
-                  isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
+                  isBusinessUnitMatch(s.businessUnitId, employeeBusinessUnitId)
+                )
+                if (matchingShift) {
+                  shiftId = matchingShift.shiftId
+                  break
+                } else if (shiftsList.length === 1) {
+                  shiftId = shiftsList[0].shiftId
+                  break
+                }
+                continue
+              }
+
+              // Coincidencia por patrón de tiempo
+              const timePattern = /(\d{1,2}):(\d{2})\s*(?:to|-)\s*(\d{1,2}):(\d{2})/i
+              const matchExcel = normalizedShiftName.match(timePattern)
+              const matchMap = normalizedMapKey.match(timePattern)
+
+              if (matchExcel && matchMap) {
+                const excelStart = `${matchExcel[1].padStart(2, '0')}:${matchExcel[2]}`
+                const excelEnd = `${matchExcel[3].padStart(2, '0')}:${matchExcel[4]}`
+                const mapStart = `${matchMap[1].padStart(2, '0')}:${matchMap[2]}`
+                const mapEnd = `${matchMap[3].padStart(2, '0')}:${matchMap[4]}`
+
+                if (excelStart === mapStart && excelEnd === mapEnd) {
+                  const matchingShift = shiftsList.find(s =>
+                    isBusinessUnitMatch(s.businessUnitId, employeeBusinessUnitId)
+                  )
+                  if (matchingShift) {
+                    shiftId = matchingShift.shiftId
+                    break
+                  } else if (shiftsList.length === 1) {
+                    shiftId = shiftsList[0].shiftId
+                    break
+                  }
+                }
+              }
+
+              // Coincidencia por inclusión
+              if (normalizedMapKey.includes(normalizedShiftName) || normalizedShiftName.includes(normalizedMapKey)) {
+                const matchingShift = shiftsList.find(s =>
+                  isBusinessUnitMatch(s.businessUnitId, employeeBusinessUnitId)
+                )
+                if (matchingShift) {
+                  shiftId = matchingShift.shiftId
+                  break
+                } else if (shiftsList.length === 1) {
+                  shiftId = shiftsList[0].shiftId
+                  break
+                }
+              }
+
+              // Coincidencia por limpieza de caracteres especiales
+              const nameClean = normalizedMapKey.replace(/[-\s()]/g, '').toLowerCase()
+              const shiftNameClean = normalizedShiftName.replace(/[-\s()]/g, '').toLowerCase()
+              if (nameClean === shiftNameClean && nameClean.length > 0) {
+                const matchingShift = shiftsList.find(s =>
+                  isBusinessUnitMatch(s.businessUnitId, employeeBusinessUnitId)
+                )
+                if (matchingShift) {
+                  shiftId = matchingShift.shiftId
+                  break
+                } else if (shiftsList.length === 1) {
+                  shiftId = shiftsList[0].shiftId
+                  break
+                }
+              }
+
+              // Coincidencia por primera parte del nombre (antes de "to" o "-")
+              const nameOnly = normalizedMapKey.split(/\s*(?:to|-)\s*/)[0].trim()
+              const shiftNameOnly = normalizedShiftName.split(/\s*(?:to|-)\s*/)[0].trim()
+              if (nameOnly && shiftNameOnly && nameOnly === shiftNameOnly) {
+                const matchingShift = shiftsList.find(s =>
+                  isBusinessUnitMatch(s.businessUnitId, employeeBusinessUnitId)
                 )
                 if (matchingShift) {
                   shiftId = matchingShift.shiftId
@@ -6019,134 +6535,95 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
                 }
               }
             }
-
-            // Coincidencia por inclusión
-            if (normalizedMapKey.includes(normalizedShiftName) || normalizedShiftName.includes(normalizedMapKey)) {
-              const matchingShift = shiftsList.find(s =>
-                isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
-              )
-              if (matchingShift) {
-                shiftId = matchingShift.shiftId
-                break
-              } else if (shiftsList.length === 1) {
-                shiftId = shiftsList[0].shiftId
-                break
-              }
-            }
-
-            // Coincidencia por limpieza de caracteres especiales
-            const nameClean = normalizedMapKey.replace(/[-\s()]/g, '').toLowerCase()
-            const shiftNameClean = normalizedShiftName.replace(/[-\s()]/g, '').toLowerCase()
-            if (nameClean === shiftNameClean && nameClean.length > 0) {
-              const matchingShift = shiftsList.find(s =>
-                isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
-              )
-              if (matchingShift) {
-                shiftId = matchingShift.shiftId
-                break
-              } else if (shiftsList.length === 1) {
-                shiftId = shiftsList[0].shiftId
-                break
-              }
-            }
-
-            // Coincidencia por primera parte del nombre (antes de "to" o "-")
-            const nameOnly = normalizedMapKey.split(/\s*(?:to|-)\s*/)[0].trim()
-            const shiftNameOnly = normalizedShiftName.split(/\s*(?:to|-)\s*/)[0].trim()
-            if (nameOnly && shiftNameOnly && nameOnly === shiftNameOnly) {
-              const matchingShift = shiftsList.find(s =>
-                isBusinessUnitMatch(s.businessUnits, employeeBusinessUnitId)
-              )
-              if (matchingShift) {
-                shiftId = matchingShift.shiftId
-                break
-              } else if (shiftsList.length === 1) {
-                shiftId = shiftsList[0].shiftId
-                break
-              }
-            }
           }
-        }
 
-        if (!shiftId) {
-          results.errors.push(
-            `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Turno "${shiftName}" no encontrado para la unidad de negocio del empleado`
-          )
-          continue
-        }
-
-        const employeeShiftService = new EmployeeShiftService(this.i18n)
-        const dateStr = `${date.toFormat('yyyy-MM-dd')} 00:00:00`
-
-        try {
-          const employeeShift = {
-            employeeId: employeeId,
-            shiftId: shiftId,
-            employeShiftsApplySince: employeeShiftService.getDateAndTime(dateStr),
-          } as EmployeeShift
-
-          const verifyInfo = await employeeShiftService.verifyInfo(employeeShift)
-
-          if (verifyInfo.status !== 200) {
+          if (!shiftId) {
             results.errors.push(
-              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: ${verifyInfo.message}`
+              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Turno "${shiftName}" no encontrado para la unidad de negocio del empleado`
             )
             continue
           }
 
-          await employeeShiftService.deleteEmployeeShifts(employeeShift)
-          const newEmployeeShift = await EmployeeShift.create(employeeShift)
+          const employeeShiftService = new EmployeeShiftService(this.i18n)
+          const dateStr = `${date.toFormat('yyyy-MM-dd')} 00:00:00`
 
-          // Guardar log en MongoDB si se proporcionan headers y userId
-          if (rawHeaders && userId) {
-            try {
-              const logEmployeeShift =
-                employeeShiftService.createActionLog(rawHeaders, 'store')
-              logEmployeeShift.user_id = userId
-              logEmployeeShift.record_current =
-                JSON.parse(JSON.stringify(newEmployeeShift))
-              await employeeShiftService.saveActionOnLog(logEmployeeShift)
-            } catch (logError) {
-              // Si falla el log, no interrumpir la importación
-              console.warn('Error guardando log de importación:', logError)
+          try {
+            const employeeShift = {
+              employeeId: employee.employeeId,
+              shiftId: shiftId,
+              employeShiftsApplySince: employeeShiftService.getDateAndTime(dateStr),
+            } as EmployeeShift
+
+            const verifyInfo = await employeeShiftService.verifyInfo(employeeShift)
+
+            if (verifyInfo.status !== 200) {
+              results.errors.push(
+                `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: ${verifyInfo.message}`
+              )
+              continue
             }
+
+            await employeeShiftService.deleteEmployeeShifts(employeeShift)
+            const newEmployeeShift = await EmployeeShift.create(employeeShift)
+
+            // Guardar log en MongoDB si se proporcionan headers y userId
+            if (rawHeaders && userId) {
+              try {
+                const logEmployeeShift =
+                  employeeShiftService.createActionLog(rawHeaders, 'store')
+                logEmployeeShift.user_id = userId
+                logEmployeeShift.record_current =
+                  JSON.parse(JSON.stringify(newEmployeeShift))
+                await employeeShiftService.saveActionOnLog(logEmployeeShift)
+              } catch (logError) {
+                // Si falla el log, no interrumpir la importación
+                console.warn('Error guardando log de importación:', logError)
+              }
+            }
+
+            const dateObj = date.toJSDate()
+            await employeeShiftService.updateAssistCalendar(employee.employeeId, dateObj)
+
+            processedAny = true
+            results.created++
+          } catch (error: any) {
+            logger.error({ err: error, rowNumber }, 'Error al asignar turno en importación masiva')
+            results.errors.push(
+              `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al asignar turno`
+            )
           }
+        }
 
-          const dateObj = date.toJSDate()
-          await employeeShiftService.updateAssistCalendar(employeeId, dateObj)
-
-          processedAny = true
-          results.created++
-        } catch (error: any) {
-          results.errors.push(
-            `Fila ${rowNumber}, Fecha ${date.toFormat('dd/MM/yyyy')}: Error al asignar turno - ${error.message}`
-          )
+        if (processedAny) {
+          results.processed++
         }
       }
 
-      if (processedAny) {
-        results.processed++
+      return {
+        status: 200,
+        type: 'success',
+        title: 'Importación completada',
+        message: 'Las asignaciones de turnos se importaron correctamente',
+        data: results
+      }
+    } catch (error: any) {
+      logger.error({ err: error }, 'Error inesperado al procesar el archivo Excel de asignaciones de turnos')
+      const resolved = resolveEmployeeImportApiError(error, 500, this.i18n, {
+        errorCode: EMPLOYEE_IMPORT_ERROR_CODES.SERVER_SHIFTS,
+        key: 'error-importacion-turnos',
+      })
+      return {
+        status: 500,
+        type: 'error',
+        title: 'Error al importar',
+        message: 'Ocurrió un error al procesar el archivo Excel',
+        detail: resolved.detail,
+        key: resolved.key,
+        code: resolved.errorCode,
+        data: null
       }
     }
-
-    return {
-      status: 200,
-      type: 'success',
-      title: 'Importación completada',
-      message: 'Las asignaciones de turnos se importaron correctamente',
-      data: results
-    }
-  } catch (error: any) {
-    return {
-      status: 500,
-      type: 'error',
-      title: 'Error al importar',
-      message: 'Ocurrió un error al procesar el archivo Excel',
-      error: error.message,
-      data: null
-    }
   }
-}
 
   /**
    * Genera un reporte de asistencia en Excel agrupado por departamento.
@@ -6178,17 +6655,11 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     employeeIds?: number[],
     businessUnitId?: number,
     payrollBusinessUnitId?: number,
-    branchNameIds?: number[]
+    branchNameIds?: number[],
+    allowedBusinessUnitIds: number[] = []
   ): Promise<Buffer> {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Reporte de Asistencia')
-
-    // Obtener el color de la unidad de negocio activa
-    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
-
-    // Obtener logo y agregarlo
-    const logoUrl = await this.getLogo()
-    await this.addImageLogo(workbook, worksheet, logoUrl)
 
     // Convertir fechas a DateTime
     const startDateTime = DateTime.fromISO(startDate)
@@ -6210,17 +6681,12 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       currentDate = currentDate.plus({ days: 1 })
     }
 
-    // Referencia "hoy" en UTC-6 para detectar días/horas futuros (mostrar "próximo" en lugar de falta)
-    const todayStartUtc6 = DateTime.now().setZone('UTC-6').startOf('day')
+    // Zona IANA del sitio del empleado cuya fila se escribe: la entrega el
+    // calendario del sync (`data.timeZone`), la misma con que se evaluó la
+    // asistencia. Sin sitio, la zona de negocio del sistema.
+    let rowZone = getBusinessTimeZone()
 
-    // Obtener unidades de negocio del ENV
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',').map((unit: string) => unit.trim()).filter((unit) => unit.length > 0)
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+    const businessUnitsList = allowedBusinessUnitIds
 
     // Obtener empleados activos agrupados por departamento (misma lógica que index / plantilla de turnos)
     let employeesQuery = Employee.query()
@@ -6293,10 +6759,10 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     const PERMISSION_SLUGS = new Set(['absence-from-work', 'late-arrival', 'rest-day', 'nuevo-ingreso'])
 
     // Fondo gris claro solo para las columnas de información del empleado (Departamento, Puesto, Nómina, Nombre)
-    const EMPLOYEE_INFO_BG = 'f2f2f2'
+    const EMPLOYEE_INFO_BG = 'FFF2F2F2'
 
     // Días/horas futuros: texto "próximo" con fondo y texto gris claro (considera hora de inicio del turno)
-    const PROXIMO_BG = 'FFFFFF'
+    const PROXIMO_BG = 'FFFFFFFF'
     const PROXIMO_TEXT_COLOR = 'FF808080'
 
     // Función para obtener color según estado de asistencia (gama de la imagen: verde, naranja, azul claro, rojo claro)
@@ -6313,11 +6779,11 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         case 'ontime':
           return 'FFC6EFCE' // Verde claro
         case 'tolerance':
-          return 'b7d8fa' // Azul claro
+          return 'FFB7D8FA' // Azul claro
         case 'delay':
           return 'FFFFC000' // Naranja
         case 'fault':
-          return 'ffaaa3' // Rojo claro
+          return 'FFFFAAA3' // Rojo claro
         case 'exception':
           return 'FFFFFFFF'
         default:
@@ -6478,13 +6944,12 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       return 'sin turno'
     }
 
-    // Convierte un valor a HH:mm en zona UTC-6 (como en el frontend).
+    // Hora de pared (HH:mm) del instante en la zona del sitio del empleado.
     const toLocalHHmm = (value: string | DateTime | null | undefined): string | null => {
       if (value === null || value === undefined) return null
       try {
-        const dt = typeof value === 'string' ? DateTime.fromISO(value, { setZone: true }) : value
-        if (!dt?.isValid) return null
-        return dt.setZone('UTC-6').toFormat('HH:mm')
+        const dt = wallTime(value, rowZone)
+        return dt.isValid ? dt.toFormat('HH:mm') : null
       } catch {
         return null
       }
@@ -6528,6 +6993,7 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     // Consultar asistencias para todos los empleados
     const syncAssistsService = new SyncAssistsService(this.i18n)
     const employeeCalendarsMap = new Map<number, AssistDayInterface[]>()
+    const employeeZonesMap = new Map<number, string>()
 
     for (const employee of employees) {
       try {
@@ -6541,6 +7007,10 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           const calendarData = calendarResult.data as any
           const employeeCalendar = calendarData.employeeCalendar as AssistDayInterface[]
           employeeCalendarsMap.set(employee.employeeId, employeeCalendar)
+          const calendarZone: unknown = calendarData.timeZone
+          if (typeof calendarZone === 'string' && isValidTimeZone(calendarZone)) {
+            employeeZonesMap.set(employee.employeeId, calendarZone)
+          }
         } else {
           // Empleado no encontrado o respuesta no exitosa: omitir sin fallar (su informacion aparecera en vacio)
           employeeCalendarsMap.set(employee.employeeId, [])
@@ -6554,7 +7024,9 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     // ==============================
     //       TÍTULO Y ENCABEZADOS
     // ==============================
-    worksheet.getRow(1).height = 60
+    // La fila 1 (antes ocupada por el logo) se conserva vacía con alto normal:
+    // la inmovilización de paneles y el inicio de datos usan filas fijas.
+    worksheet.getRow(1).height = 15
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
     worksheet.mergeCells(`A2:${String.fromCharCode(65 + 5 + dates.length)}2`)
@@ -6574,16 +7046,17 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     // Segunda fila de encabezados (días de la semana)
     const headerRow2 = ['', '', '', '', '', '']
     dates.forEach((date) => {
-      const dayName = date.toFormat('cccc', { locale: 'es' })
+      const dayName = date.toFormat('cccc', { locale: REPORT_LOCALE })
       headerRow2.push(dayName)
     })
     const row2 = worksheet.addRow(headerRow2)
     row2.height = 30
 
-    const headerColor = activeBusinessUnitColor
-    const headerTextColor = this.getTextColorForBackground(headerColor)
-    const subHeaderColor = 'd9d9d9' // Gris oscuro para fila de días de la semana
-    const subHeaderTextColor = '000000'
+    // Formato neutral: encabezado en gris y fila de días en gris claro, texto negro
+    const headerColor = REPORT_NEUTRAL_ARGB.headerFill
+    const headerTextColor = REPORT_NEUTRAL_ARGB.text
+    const subHeaderColor = REPORT_NEUTRAL_ARGB.subheaderFill
+    const subHeaderTextColor = REPORT_NEUTRAL_ARGB.text
 
     // Aplicar formato a la primera fila de encabezados (Departamento, Puesto, Nombre izq; resto centro)
     row1.eachCell((cell) => {
@@ -6686,12 +7159,19 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
         worksheet.getRow(currentRow).height = 45
 
-        const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
-        const positionName = employee.position?.positionName || 'Sin posición'
-        const departmentName = department?.departmentName || 'Sin departamento'
-        const payrollCode = employee.employeePayrollCode || 'Sin código'
-        const payrollBuName = employee.payrollBusinessUnit?.businessUnitName || 'Sin UN'
-        const workBuName = employee.businessUnit?.businessUnitName || 'Sin UN'
+        rowZone = employeeZonesMap.get(employee.employeeId) ?? getBusinessTimeZone()
+        const todayInRowZone = nowInZone(rowZone).toFormat('yyyy-MM-dd')
+
+        const fullName = reportFullName(
+          employee.employeeFirstName,
+          employee.employeeLastName,
+          employee.employeeSecondLastName
+        )
+        const positionName = reportText(employee.position?.positionName)
+        const departmentName = reportText(department?.departmentName)
+        const payrollCode = reportText(employee.employeePayrollCode)
+        const payrollBuName = reportText(employee.payrollBusinessUnit?.businessUnitName)
+        const workBuName = reportText(employee.businessUnit?.businessUnitName)
 
         // UN Trabajo - Columna A
         worksheet.getCell(currentRow, 1).value = workBuName
@@ -6738,10 +7218,9 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
           const dateStr = date.toFormat('yyyy-MM-dd')
           const dayData = calendarByDay.get(dateStr) || null
 
-          // Validar si es día/hora futuro: no mostrar como falta, mostrar "próximo" (considera hora de inicio del turno)
-          const cellDateUtc6 = date.setZone('UTC-6').startOf('day')
-          const isProximo =
-            dayData?.assist?.isFutureDay === true || cellDateUtc6 > todayStartUtc6
+          // Validar si es día/hora futuro: no mostrar como falta, mostrar "próximo" (considera hora de inicio del turno).
+          // Día civil de la celda contra "hoy" en la zona del sitio del empleado.
+          const isProximo = dayData?.assist?.isFutureDay === true || dateStr > todayInRowZone
 
           let cellText: string
           let cellColor: string
@@ -6760,10 +7239,10 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
 
               // PRIORIDAD 1: Día de descanso, vacaciones, incapacidad, festivo o excepciones → blanco
               const isSpecialDay = assist.isRestDay ||
-                                   assist.isVacationDate ||
-                                   assist.isWorkDisabilityDate ||
-                                   assist.isHoliday ||
-                                   (assist.hasExceptions && assist.exceptions && assist.exceptions.length > 0)
+                assist.isVacationDate ||
+                assist.isWorkDisabilityDate ||
+                assist.isHoliday ||
+                (assist.hasExceptions && assist.exceptions && assist.exceptions.length > 0)
 
               if (isSpecialDay) {
                 cellColor = 'FFFFFFFF'
@@ -6831,9 +7310,10 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     // ==============================
     //       GENERAR ARCHIVO
     // ==============================
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
- }
+  }
 
   /**
    * Elimina definitivamente todos los empleados y sus registros relacionados en otras tablas
@@ -6886,14 +7366,24 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
         .count('* as total')
       const totalEmployeeContracts = await EmployeeContract.query()
         .count('* as total')
-      const totalWorkDisabilities = await WorkDisability.query()
-        .count('* as total')
-      const totalWorkDisabilityNotes = await WorkDisabilityNote.query()
-        .count('* as total')
-      const totalWorkDisabilityPeriods = await WorkDisabilityPeriod.query()
-        .count('* as total')
-      const totalWorkDisabilityPeriodExpenses = await WorkDisabilityPeriodExpense.query()
-        .count('* as total')
+      // USRH1784259058487: counts globales de incapacidades bajo bypass del candado.
+      const {
+        totalWorkDisabilities,
+        totalWorkDisabilityNotes,
+        totalWorkDisabilityPeriods,
+        totalWorkDisabilityPeriodExpenses,
+      } = await TenantContext.runUnscoped(async () => {
+        const disabilities = await WorkDisability.query().count('* as total')
+        const notes = await WorkDisabilityNote.query().count('* as total')
+        const periods = await WorkDisabilityPeriod.query().count('* as total')
+        const expenses = await WorkDisabilityPeriodExpense.query().count('* as total')
+        return {
+          totalWorkDisabilities: disabilities,
+          totalWorkDisabilityNotes: notes,
+          totalWorkDisabilityPeriods: periods,
+          totalWorkDisabilityPeriodExpenses: expenses,
+        }
+      }, TENANT_UNSCOPED_REASON.EMPLOYEE_MASS_PURGE)
       const totalEmployeeAddresses = await EmployeeAddress.query()
         .count('* as total')
       const totalEmployeeSpouses = await EmployeeSpouse.query()
@@ -7016,17 +7506,13 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       // 19. Eliminar todas las relaciones en employee_records
       await EmployeeRecord.query().delete()
 
-      // 20. Eliminar todas las relaciones en work_disability_notes
-      await WorkDisabilityNote.query().delete()
-
-      // 22. Eliminar todas las relaciones en work_disability_period_expenses
-      await WorkDisabilityPeriodExpense.query().delete()
-
-      // 22. Eliminar todas las relaciones en work_disability_periods
-      await WorkDisabilityPeriod.query().delete()
-
-      // 23. Eliminar todas las relaciones en work_disabilities
-      await WorkDisability.query().delete()
+      // 20–23. Eliminar incapacidades y colgados (bypass del candado, USRH1784259058487)
+      await TenantContext.runUnscoped(async () => {
+        await WorkDisabilityNote.query().delete()
+        await WorkDisabilityPeriodExpense.query().delete()
+        await WorkDisabilityPeriod.query().delete()
+        await WorkDisability.query().delete()
+      }, TENANT_UNSCOPED_REASON.EMPLOYEE_MASS_PURGE)
 
       // 24. Eliminar todas las relaciones en exception_requests
       await ExceptionRequest.query().delete()
@@ -7164,7 +7650,6 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
     }
 
     await employee.save()
-    await this.updateEmployeeSlug(employee)
     return employee
   }
 
@@ -7199,14 +7684,13 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
    *
    * @returns Objeto con el resultado de la operación y los empleados creados
    */
-  async createEmployeeDemo() {
+  async createEmployeeDemo(allowedBusinessUnitIds: number[] = []) {
     try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-        .first()
+      const businessUnitsQuery = BusinessUnit.query().where('business_unit_active', 1)
+      if (allowedBusinessUnitIds.length > 0) {
+        businessUnitsQuery.whereIn('business_unit_id', allowedBusinessUnitIds)
+      }
+      const businessUnits = await businessUnitsQuery.first()
 
       const businessUnitId = businessUnits?.businessUnitId || 0
 
@@ -7639,5 +8123,156 @@ async importShiftAssignmentsFromExcel(file: any, rawHeaders?: string[], userId?:
       message: 'La deducción de vacaciones fue eliminada correctamente',
       data: { vacationDeductionId },
     }
+  }
+
+  async indexToAssigned(filters: EmployeeFilterSearchInterface, departmentsList: Array<number>, allowedBusinessUnitIds: number[] = []) {
+    const businessUnitsList = allowedBusinessUnitIds
+
+    const normalizeTime = (time?: string | null): string | null => {
+      if (!time) {
+        return null
+      }
+      const trimmed = time.trim()
+      if (!trimmed) {
+        return null
+      }
+      return trimmed.length === 5 ? `${trimmed}:00` : trimmed
+    }
+
+    const shiftStartTimeInit = normalizeTime(filters.shiftStartTimeInit ?? null)
+    const shiftStartTimeEnd = normalizeTime(filters.shiftStartTimeEnd ?? null)
+    const shiftEndTimeStart = normalizeTime(filters.shiftEndTimeStart ?? null)
+    const shiftEndTimeEnd = normalizeTime(filters.shiftEndTimeEnd ?? null)
+
+    const employees = await Employee.query()
+      .whereIn('businessUnitId', businessUnitsList)
+      .if(filters.onlyPayroll, (query) => {
+        query.whereIn('payrollBusinessUnitId', businessUnitsList)
+      })
+      .if(filters.businessUnitId && filters.businessUnitId > 0, (query) => {
+        query.where('businessUnitId', filters.businessUnitId!)
+      })
+      .if(filters.payrollBusinessUnitId && filters.payrollBusinessUnitId > 0, (query) => {
+        query.where('payrollBusinessUnitId', filters.payrollBusinessUnitId!)
+      })
+      .if(filters.search, (query) => {
+        query.where((subQuery) => {
+          subQuery
+            .whereRaw('UPPER(CONCAT(COALESCE(employee_first_name, ""), " ", COALESCE(employee_last_name, ""), " ", COALESCE(employee_second_last_name, ""))) LIKE ?', [`%${filters.search.toUpperCase()}%`])
+            .orWhereRaw('UPPER(employee_payroll_code) = ?', [`${filters.search.toUpperCase()}`])
+          // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss/email cifrados
+        })
+      })
+      .if(filters.employeeWorkSchedule, (query) => {
+        query.where((subQuery) => {
+          subQuery.whereRaw('UPPER(employee_work_schedule) LIKE ?', [
+            `%${filters.employeeWorkSchedule.toUpperCase()}%`,
+          ])
+        })
+      })
+      .if(this.hasFilterValue(filters.departmentId), (query) => {
+        this.applyIdFilter(query, 'department_id', filters.departmentId)
+      })
+      .if(this.hasFilterValue(filters.positionId), (query) => {
+        this.applyIdFilter(query, 'position_id', filters.positionId)
+      })
+      .if(shiftStartTimeInit || shiftStartTimeEnd || shiftEndTimeStart || shiftEndTimeEnd, (query) => {
+        query.whereHas('employeeShifts', (employeeShiftQuery) => {
+          employeeShiftQuery.whereNull('employe_shifts_deleted_at')
+          if (filters.exceptionDate) {
+            employeeShiftQuery.whereRaw('DATE(employe_shifts_apply_since) <= ?', [filters.exceptionDate])
+          }
+          employeeShiftQuery.whereHas('shift', (shiftQuery) => {
+            // Filtro por rango de hora de entrada
+            if (shiftStartTimeInit && shiftStartTimeEnd) {
+              shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTimeInit])
+                .whereRaw('TIME(shift_time_start) <= TIME(?)', [shiftStartTimeEnd])
+            } else if (shiftStartTimeInit) {
+              shiftQuery.whereRaw('TIME(shift_time_start) >= TIME(?)', [shiftStartTimeInit])
+            } else if (shiftStartTimeEnd) {
+              shiftQuery.whereRaw('TIME(shift_time_start) <= TIME(?)', [shiftStartTimeEnd])
+            }
+
+            // Filtro por rango de hora de salida
+            if (shiftEndTimeStart && shiftEndTimeEnd) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) >= TIME(?)',
+                [shiftEndTimeStart]
+              )
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) <= TIME(?)',
+                [shiftEndTimeEnd]
+              )
+            } else if (shiftEndTimeStart) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) >= TIME(?)',
+                [shiftEndTimeStart]
+              )
+            } else if (shiftEndTimeEnd) {
+              shiftQuery.whereRaw(
+                'TIME(ADDTIME(shift_time_start, SEC_TO_TIME(shift_active_hours * 3600))) <= TIME(?)',
+                [shiftEndTimeEnd]
+              )
+            }
+          })
+        })
+      })
+      .if(filters.ignoreDiscriminated === 1, (query) => {
+        query.where('employeeAssistDiscriminator', 0)
+      })
+      .if(filters.ignoreExternal === 1, (query) => {
+        query.where('employee_type_of_contract', 'Internal')
+      })
+      .if(
+        isTerminatedEmployeesFilterRequested(filters.onlyInactive),
+        (query) => {
+          query.whereNotNull('employee_deleted_at')
+          query.withTrashed()
+        }
+      )
+      .if(filters.employeeTypeId, (query) => {
+        query.where('employee_type_id', filters.employeeTypeId ? filters.employeeTypeId : 0)
+      })
+      .if(
+        !filters.userResponsibleId,
+        (query) => {
+          applyVisibleDepartmentsScope(query, departmentsList)
+        }
+      )
+      .if(filters.branchNameIds && filters.branchNameIds.length > 0, (query) => {
+        query.whereHas('activeEmployeeBranchOffice', (sub) => {
+          sub.whereIn('branchOfficeId', filters.branchNameIds!)
+        })
+      })
+      .preload('department')
+      .preload('position')
+      .preload('person')
+      .preload('businessUnit')
+      .preload('address')
+      .preload('activeEmployeeBranchOffice', (q) => {
+        q.preload('branchOffice', (bq) => {
+          bq.preload('businessUnit')
+        })
+      })
+      .if(filters.orderBy === 'number', (query) => {
+        const direction = this.getOrderDirection(filters.orderDirection)
+        query.orderByRaw(`CAST(employee_payroll_code AS UNSIGNED) ${direction}, employee_payroll_code ${direction}`)
+      })
+      .if(filters.orderBy === 'name', (query) => {
+        const direction = this.getOrderDirection(filters.orderDirection)
+        query.orderByRaw(`CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`)
+      })
+      .if(!filters.orderBy, (query) => {
+        query.orderBy('employee_id')
+      })
+      .paginate(filters.page, filters.limit)
+
+    if (this.isGetMailsEnabled(filters)) {
+      for (const employee of employees.all()) {
+        employee.employeeBusinessEmail = this.resolveEmployeeBusinessEmailForGetMails(employee)
+      }
+    }
+
+    return employees
   }
 }

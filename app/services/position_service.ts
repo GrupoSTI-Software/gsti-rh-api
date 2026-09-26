@@ -6,7 +6,6 @@ import EmployeeContract from '#models/employee_contract'
 import EmployeeShift from '#models/employee_shift'
 import Position from '#models/position'
 import Shift from '#models/shift'
-import env from '#start/env'
 import { I18n } from '@adonisjs/i18n'
 import BiometricPositionInterface from '../interfaces/biometric_position_interface.js'
 import { PositionShiftEmployeeWarningInterface } from '../interfaces/position_shift_employee_warning_interface.js'
@@ -16,13 +15,47 @@ import EmployeeShiftService from './employee_shift_service.js'
 import DepartmentService from './department_service.js'
 import PDFDocument from 'pdfkit'
 import ExcelJS from 'exceljs'
-import SystemSetting from '#models/system_setting'
-import axios from 'axios'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { prepareAliasesForPersistence } from '#utils/org_alias_normalize'
 import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
 import OrgAliasUniquenessService from '#services/org_alias_uniqueness_service'
+import { REPORT_NEUTRAL_ARGB, REPORT_NEUTRAL_HEX } from '#constants/report_neutral_theme'
+import { REPORT_DATE_FORMAT, reportI18n } from '#helpers/report_locale'
+import { blankMissingTexts, reportText } from '#helpers/report_text'
+import { getBusinessTimeZone } from '#utils/business_date'
+import { DateTime } from 'luxon'
+
+/** Etiqueta de la frecuencia de un KPI en el perfil de puesto (el valor guardado es un slug). */
+const KPI_FREQUENCY_LABEL: Record<string, string> = {
+  'sin-especificar': 'Sin especificar',
+  'diario': 'Diario',
+  'semanal': 'Semanal',
+  'cada-2-semanas': 'Cada 2 semanas',
+  'mensual': 'Mensual',
+  'trimestral': 'Trimestral',
+  'semestral': 'Semestral',
+  'anual': 'Anual',
+}
+
+const kpiFrequencyLabel = (slug: string | null | undefined): string =>
+  slug ? (KPI_FREQUENCY_LABEL[slug] ?? slug) : ''
+
+/**
+ * Fechas del encabezado del perfil de puesto, compartidas por el PDF y el
+ * Excel para que ambos formatos muestren el mismo dato con el mismo texto
+ * (2026-09-24): `dd/MM/yyyy` en la zona de negocio.
+ * - Fecha de implementación: creación del puesto (en blanco si falta).
+ * - Fecha de emisión / revisión: día en que se genera el archivo.
+ */
+export function positionProfileImplementationDate(createdAt: DateTime | null | undefined): string {
+  if (!createdAt || !createdAt.isValid) return ''
+  return createdAt.setZone(getBusinessTimeZone()).toFormat(REPORT_DATE_FORMAT)
+}
+
+export function positionProfileIssueDate(now: DateTime = DateTime.now()): string {
+  return now.setZone(getBusinessTimeZone()).toFormat(REPORT_DATE_FORMAT)
+}
 
 export default class PositionService {
 
@@ -64,12 +97,6 @@ export default class PositionService {
   }
 
   async create(position: Position) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnit = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-      .first()
 
     const newPosition = new Position()
     newPosition.positionCode = position.positionCode
@@ -84,7 +111,7 @@ export default class PositionService {
     newPosition.positionIsDefault = position.positionIsDefault
     newPosition.positionActive = position.positionActive
     newPosition.parentPositionId = position.parentPositionId
-    newPosition.businessUnitId = businessUnit?.businessUnitId || 0
+    newPosition.businessUnitId = position.businessUnitId
     newPosition.positionProfileExpirationDate = position.positionProfileExpirationDate
     newPosition.positionMinStaff = position.positionMinStaff ?? null
     newPosition.positionIdealStaff = position.positionIdealStaff ?? null
@@ -230,17 +257,11 @@ export default class PositionService {
     }
   }
 
-  async show(positionId: number) {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-
-    const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
+  async show(positionId: number, allowedBusinessUnitIds: number[] = []) {
+    if (allowedBusinessUnitIds.length === 0) return null
 
     const position = await Position.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .whereNull('position_deleted_at')
       .where('position_id', positionId)
       .preload('parentPosition')
@@ -562,16 +583,12 @@ export default class PositionService {
    *
    * @returns Objeto con el resultado de la operación y las posiciones creadas
    */
-  async createPositionDemo() {
+  async createPositionDemo(allowedBusinessUnitIds: number[] = []) {
     try {
-      const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-        .first()
-
-      const businessUnitId = businessUnits?.businessUnitId || 0
+      const query = BusinessUnit.query().where('business_unit_active', 1)
+        .whereIn('business_unit_id', allowedBusinessUnitIds)
+      const firstActiveUnit = await query.first()
+      const businessUnitId = firstActiveUnit?.businessUnitId || 0
       const createdPositions: { [key: string]: Position } = {}
       const createdRelations: Array<{ department: string; position: string }> = []
 
@@ -900,7 +917,7 @@ export default class PositionService {
   /**
    * Genera un documento PDF con la descripción y perfil completo de un puesto.
    *
-   * Construye un PDF en formato carta (Letter) con encabezado corporativo,
+   * Construye un PDF en formato carta (Letter) con encabezado de documento,
    * objetivo general, KPIs, perfil del puesto, perfil de evaluación
    * (psicométrico), competencias funcionales/técnicas, equipo asignado y
    * cuadro de firmas (Elaboró/Validó). El método utiliza `pdfkit` y aplica un
@@ -909,14 +926,13 @@ export default class PositionService {
    * indentación `ql-indent-N`).
    *
    * Reglas y consideraciones:
-   * - El puesto debe pertenecer a una `BusinessUnit` activa cuyo slug esté
-   *   incluido en la variable de entorno `SYSTEM_BUSINESS` (separada por comas).
+   * - El puesto debe pertenecer a una `BusinessUnit` activa dentro del scope
+   *   central del tenant (resuelto vía `TenantContext`/`businessScope()`).
    * - Solo se consideran puestos no eliminados (`position_deleted_at` nulo) y
    *   sus relaciones activas (funciones específicas, KPIs, competencias y
    *   perfiles de evaluación).
-   * - Si existe un logo configurado en `SystemSetting.systemSettingLogo`, se
-   *   descarga vía HTTP (timeout 8s); si la descarga falla, el documento se
-   *   genera sin logo (no es un error fatal).
+   * - Formato neutral (ver `#constants/report_neutral_theme`): sin logotipos
+   *   ni colores de marca; escala de grises con texto negro.
    * - El renderizado de secciones usa `ensureSpace()` para forzar saltos de
    *   página cuando no cabe el bloque siguiente y `drawPageHeader()` se
    *   registra en el evento `pageAdded` para reimprimir el encabezado.
@@ -927,16 +943,11 @@ export default class PositionService {
    * @returns Promesa con el `Buffer` del PDF generado, o `null` si el puesto
    *          no existe o no pertenece a una unidad de negocio permitida.
    */
-  async getPdf(positionId: number): Promise<Buffer | null> {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((b) => b.businessUnitId)
+  async getPdf(positionId: number, allowedBusinessUnitIds: number[] = []): Promise<Buffer | null> {
+    if (allowedBusinessUnitIds.length === 0) return null
 
     const position = await Position.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .whereNull('position_deleted_at')
       .where('position_id', positionId)
       .preload('specificFunctions', (q) => q.whereNull('position_specific_function_deleted_at'))
@@ -951,21 +962,6 @@ export default class PositionService {
 
     if (!position) return null
 
-    // Obtener logo desde SystemSetting
-    const systemSetting = await SystemSetting.query().whereNull('system_setting_deleted_at').first()
-    let logoBuffer: Buffer | null = null
-    if (systemSetting?.systemSettingLogo) {
-      try {
-        const res = await axios.get(systemSetting.systemSettingLogo, {
-          responseType: 'arraybuffer',
-          timeout: 8000,
-        })
-        logoBuffer = Buffer.from(res.data)
-      } catch {
-        logoBuffer = null
-      }
-    }
-
     const DIRNAME = dirname(fileURLToPath(import.meta.url))
     const fontsDir = join(DIRNAME, '..', '..', 'resources', 'fonts')
 
@@ -975,7 +971,6 @@ export default class PositionService {
         margin: 40,
         info: {
           Title: 'Descripcion y Perfil de Puesto',
-          Creator: 'SAE API',
           Producer: 'PDFKit',
         },
       })
@@ -999,13 +994,16 @@ export default class PositionService {
       })
       doc.on('error', reject)
 
-      const navy = '#2E5FA3'
-      const white = '#FFFFFF'
-      const lightGray = '#F5F5F5'
-      const black = '#000000'
+      // Paleta neutral: sin colores de marca, escala de grises con texto negro
+      const black = REPORT_NEUTRAL_HEX.text
+      const muted = REPORT_NEUTRAL_HEX.textMuted
+      const headerFill = REPORT_NEUTRAL_HEX.headerFill
+      const lightGray = REPORT_NEUTRAL_HEX.subheaderFill
       const pageW = doc.page.width - 80
 
-      const t = (key: string) => this.i18n.t(key)
+      // El perfil de puesto es un archivo: siempre en español (report_locale.ts).
+      const reportT = reportI18n()
+      const t = (key: string) => reportT.t(key)
 
       const decodeEntities = (s: string) =>
         s
@@ -1154,12 +1152,12 @@ export default class PositionService {
         }
       }
 
-      const today = new Date().toLocaleDateString('es-MX')
+      const today = positionProfileIssueDate()
 
       // ── Constantes de layout ──────────────────────────────────────────────
-      const logoColW = 120
-      const rightColX = 40 + logoColW
-      const rightColW = pageW - logoColW
+      // Sin columna de logo: el bloque de título y metadatos ocupa todo el ancho
+      const rightColX = 40
+      const rightColW = pageW
       const titleRowH = 22
       const metaRowH = 16
       const hHeight = titleRowH + metaRowH * 3
@@ -1171,9 +1169,7 @@ export default class PositionService {
       const pagColX = rightColX + motivoColW
       const half = pageW / 2
 
-      const implDate = position.positionCreatedAt
-        ? position.positionCreatedAt.setLocale('es-MX').toFormat('d \'de\' MMMM \'del\' yyyy')
-        : today
+      const implDate = positionProfileImplementationDate(position.positionCreatedAt)
 
       let currentPage = 1
       const pageBottomLimit = doc.page.height - 60
@@ -1194,22 +1190,11 @@ export default class PositionService {
         const hBot = hTop + hHeight
 
         doc.rect(40, hTop, pageW, hHeight).stroke()
-        doc.moveTo(rightColX, hTop).lineTo(rightColX, hBot).stroke()
         doc.moveTo(rightColX, row2Y).lineTo(40 + pageW, row2Y).stroke()
         doc.moveTo(rightColX, row3Y).lineTo(40 + pageW, row3Y).stroke()
         doc.moveTo(rightColX, row4Y).lineTo(40 + pageW, row4Y).stroke()
         doc.moveTo(rightSubX, row2Y).lineTo(rightSubX, row4Y).stroke()
         doc.moveTo(pagColX, row4Y).lineTo(pagColX, hBot).stroke()
-
-        if (logoBuffer) {
-          try {
-            doc.image(logoBuffer, 44, hTop + 4, {
-              fit: [logoColW - 8, hHeight - 8],
-              align: 'center',
-              valign: 'center',
-            })
-          } catch { /* sin logo */ }
-        }
 
         doc
           .fontSize(10).font('Bold').fillColor(black)
@@ -1228,13 +1213,13 @@ export default class PositionService {
       }
 
       // ── Función: secciones de contenido ───────────────────────────────────
-      const drawSectionHeader = (label: string, bgColor: string = navy) => {
+      const drawSectionHeader = (label: string) => {
         ensureSpace(40)
         const sY = doc.y
-        doc.rect(40, sY, pageW, 18).fillAndStroke(bgColor, black)
+        doc.rect(40, sY, pageW, 18).fillAndStroke(headerFill, black)
         doc
           .fontSize(9)
-          .fillColor(white)
+          .fillColor(black)
           .font('Bold')
           .text(label, 40, sY + 4, { width: pageW, align: 'center', lineBreak: false })
         doc.y = sY + 18
@@ -1359,9 +1344,9 @@ export default class PositionService {
             .font('Regular')
             .fontSize(8)
             .fillColor(black)
-            .text(kpi.positionKpiName, 45, rowY + 3, { width: kpiCol1 - 10, lineBreak: false })
+            .text(reportText(kpi.positionKpiName), 45, rowY + 3, { width: kpiCol1 - 10, lineBreak: false })
             .text(String(kpi.positionKpiIdeal ?? ''), 45 + kpiCol1, rowY + 3, { width: kpiCol2 - 5, lineBreak: false })
-            .text(kpi.positionKpiFrequency ?? '', 45 + kpiCol1 + kpiCol2, rowY + 3, { width: kpiCol3 - 5, lineBreak: false })
+            .text(kpiFrequencyLabel(kpi.positionKpiFrequency), 45 + kpiCol1 + kpiCol2, rowY + 3, { width: kpiCol3 - 5, lineBreak: false })
           doc.y = rowY + 14
         }
       } else {
@@ -1507,11 +1492,11 @@ export default class PositionService {
 
         ensureSpace(28)
         const competencySubHeaderY = doc.y
-        doc.rect(40, competencySubHeaderY, halfW, 14).fillAndStroke('#2E5FA3', black)
-        doc.rect(40 + halfW, competencySubHeaderY, halfW, 14).fillAndStroke('#2E5FA3', black)
-        doc.fontSize(9).font('Bold').fillColor(white)
+        doc.rect(40, competencySubHeaderY, halfW, 14).fillAndStroke(lightGray, black)
+        doc.rect(40 + halfW, competencySubHeaderY, halfW, 14).fillAndStroke(lightGray, black)
+        doc.fontSize(9).font('Bold').fillColor(black)
           .text(t('profile_position.functional'), 40, competencySubHeaderY + 3, { width: halfW, align: 'center', lineBreak: false })
-        doc.fontSize(9).font('Bold').fillColor(white)
+        doc.fontSize(9).font('Bold').fillColor(black)
           .text(t('profile_position.technical'), 40 + halfW, competencySubHeaderY + 3, { width: halfW, align: 'center', lineBreak: false })
         doc.y = competencySubHeaderY + 14
 
@@ -1554,18 +1539,18 @@ export default class PositionService {
       }
 
       // ── EQUIPO ASIGNADO AL EMPLEADO ───────────────────────────────────────
-      drawSectionHeader(t('profile_position.assigned_equipment'), '#2E5FA3')
+      drawSectionHeader(t('profile_position.assigned_equipment'))
 
       ensureSpace(42)
       const equipSubY = doc.y
       const equipHalfW = pageW / 2
 
       // Sub-encabezados
-      doc.rect(40, equipSubY, equipHalfW, 14).fillAndStroke('#2E5FA3', black)
-      doc.rect(40 + equipHalfW, equipSubY, equipHalfW, 14).fillAndStroke('#2E5FA3', black)
-      doc.fontSize(9).font('Bold').fillColor(white)
+      doc.rect(40, equipSubY, equipHalfW, 14).fillAndStroke(lightGray, black)
+      doc.rect(40 + equipHalfW, equipSubY, equipHalfW, 14).fillAndStroke(lightGray, black)
+      doc.fontSize(9).font('Bold').fillColor(black)
         .text(t('profile_position.personal_security'), 40, equipSubY + 3, { width: equipHalfW, align: 'center', lineBreak: false })
-      doc.fontSize(9).font('Bold').fillColor(white)
+      doc.fontSize(9).font('Bold').fillColor(black)
         .text(t('profile_position.work_equipment'), 40 + equipHalfW, equipSubY + 3, { width: equipHalfW, align: 'center', lineBreak: false })
       doc.y = equipSubY + 14
 
@@ -1582,12 +1567,12 @@ export default class PositionService {
       const signSubY = doc.y
 
       // Sub-encabezados: ELABORÓ | (vacío) | VALIDÓ
-      doc.rect(40, signSubY, signColW, 16).fillAndStroke('#2E5FA3', black)
+      doc.rect(40, signSubY, signColW, 16).fillAndStroke(lightGray, black)
       doc.rect(40 + signColW, signSubY, signColW, 16).fillAndStroke(lightGray, black)
-      doc.rect(40 + signColW * 2, signSubY, signColW, 16).fillAndStroke('#2E5FA3', black)
-      doc.fontSize(9).font('Bold').fillColor(white)
+      doc.rect(40 + signColW * 2, signSubY, signColW, 16).fillAndStroke(lightGray, black)
+      doc.fontSize(9).font('Bold').fillColor(black)
         .text(t('profile_position.elaborated_by'), 40, signSubY + 4, { width: signColW, align: 'center', lineBreak: false })
-      doc.fontSize(9).font('Bold').fillColor(white)
+      doc.fontSize(9).font('Bold').fillColor(black)
         .text(t('profile_position.validated_by'), 40 + signColW * 2, signSubY + 4, { width: signColW, align: 'center', lineBreak: false })
 
       // Bordear las 3 celdas del área de firmas
@@ -1624,7 +1609,7 @@ export default class PositionService {
       // ── Pie de página ─────────────────────────────────────────────────────
       doc
         .fontSize(7)
-        .fillColor('#888888')
+        .fillColor(muted)
         .text(`Generado el ${today}`, 40, doc.y + 6, {
           width: pageW,
           align: 'right',
@@ -1641,19 +1626,18 @@ export default class PositionService {
    * Crea un workbook de `exceljs` con una sola hoja en orientación vertical
    * carta. El layout utiliza 12 columnas (A-L) para mantener proporciones
    * equivalentes a la versión PDF, con celdas combinadas (`mergeCells`) para
-   * armar el encabezado corporativo, los bloques de metadatos
+   * armar el encabezado, los bloques de metadatos
    * (Fecha de Emisión / Revisión / Dirección / Área-Cuenta), nombre del puesto,
    * objetivo general, KPIs, perfil del puesto, perfiles de evaluación
    * (psicométricos), competencias, equipo asignado y firmas.
    *
    * Reglas y consideraciones:
-   * - El puesto debe pertenecer a una `BusinessUnit` activa cuyo slug esté
-   *   incluido en la variable de entorno `SYSTEM_BUSINESS` (separada por comas).
+   * - El puesto debe pertenecer a una `BusinessUnit` activa dentro del scope
+   *   central del tenant (resuelto vía `TenantContext`/`businessScope()`).
    * - Solo se consideran puestos no eliminados y relaciones activas
    *   (funciones específicas, KPIs, competencias y perfiles de evaluación).
-   * - Si existe logo en `SystemSetting`, se descarga (timeout 8s) y se inserta
-   *   como imagen anclada a las celdas A:B (filas 1-4). Detecta la extensión
-   *   automáticamente (png, jpeg o gif) por la URL.
+   * - Formato neutral (ver `#constants/report_neutral_theme`): sin logotipos
+   *   ni colores de marca; escala de grises con texto negro.
    * - El texto enriquecido HTML del objetivo general se convierte a `richText`
    *   mediante `htmlToRichText`, soportando negritas, cursivas, subrayado,
    *   listas ordenadas/desordenadas con indentación `ql-indent-N`.
@@ -1665,17 +1649,11 @@ export default class PositionService {
    * @returns Promesa con el `Buffer` del archivo XLSX generado, o `null` si el
    *          puesto no existe o no pertenece a una unidad de negocio permitida.
    */
-  async getExcel(positionId: number): Promise<Buffer | null> {
-    const businessConf = `${env.get('SYSTEM_BUSINESS')}`
-    const businessList = businessConf.split(',')
-
-    const businessUnits = await BusinessUnit.query()
-      .where('business_unit_active', 1)
-      .whereIn('business_unit_slug', businessList)
-    const businessUnitsList = businessUnits.map((b) => b.businessUnitId)
+  async getExcel(positionId: number, allowedBusinessUnitIds: number[] = []): Promise<Buffer | null> {
+    if (allowedBusinessUnitIds.length === 0) return null
 
     const position = await Position.query()
-      .whereIn('businessUnitId', businessUnitsList)
+      .whereIn('businessUnitId', allowedBusinessUnitIds)
       .whereNull('position_deleted_at')
       .where('position_id', positionId)
       .preload('specificFunctions', (query) => query.whereNull('position_specific_function_deleted_at'))
@@ -1690,35 +1668,16 @@ export default class PositionService {
 
     if (!position) return null
 
-    const systemSetting = await SystemSetting.query().whereNull('system_setting_deleted_at').first()
-    let logoBuffer: Buffer | null = null
-    let logoExtension: 'png' | 'jpeg' | 'gif' = 'png'
-    if (systemSetting?.systemSettingLogo) {
-      try {
-        const logoRes = await axios.get(systemSetting.systemSettingLogo, {
-          responseType: 'arraybuffer',
-          timeout: 8000,
-        })
-        logoBuffer = Buffer.from(logoRes.data)
-        const logoUrl = systemSetting.systemSettingLogo.toLowerCase()
-        if (logoUrl.includes('.jpg') || logoUrl.includes('.jpeg')) logoExtension = 'jpeg'
-        else if (logoUrl.includes('.gif')) logoExtension = 'gif'
-      } catch {
-        logoBuffer = null
-      }
-    }
+    // El perfil de puesto es un archivo: siempre en español (report_locale.ts).
+    const reportT = reportI18n()
+    const t = (key: string) => reportT.t(key)
+    const today = positionProfileIssueDate()
+    const implDate = positionProfileImplementationDate(position.positionCreatedAt)
 
-    const t = (key: string) => this.i18n.t(key)
-    const today = new Date().toLocaleDateString('es-MX', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
-    })
-
-    const BLUE = 'FF2E5FA3'
-    const GRAY = 'FFF2F2F2'
-    const BLACK = 'FF000000'
-    const WHITE = 'FFFFFFFF'
+    // Paleta neutral: sin colores de marca, escala de grises con texto negro
+    const HEADER = REPORT_NEUTRAL_ARGB.headerFill
+    const GRAY = REPORT_NEUTRAL_ARGB.subheaderFill
+    const BLACK = REPORT_NEUTRAL_ARGB.text
 
     const borderAll: Partial<ExcelJS.Borders> = {
       top: { style: 'thin', color: { argb: BLACK } },
@@ -1728,7 +1687,6 @@ export default class PositionService {
     }
 
     const workbook = new ExcelJS.Workbook()
-    workbook.creator = 'SAE'
     workbook.title = t('profile_position.title')
 
     const sheet = workbook.addWorksheet(t('profile_position.title'), {
@@ -1866,10 +1824,10 @@ export default class PositionService {
       return cleaned
     }
 
-    const addSectionHeader = (label: string, bg = BLUE) => {
+    const addSectionHeader = (label: string) => {
       const row = sheet.addRow([label])
       mergeRow(row, 'A', LAST)
-      styleCell(row.getCell('A'), { bold: true, size: 10, color: WHITE, bg, align: 'center' })
+      styleCell(row.getCell('A'), { bold: true, size: 10, bg: HEADER, align: 'center' })
       row.height = 20
       return row
     }
@@ -1900,49 +1858,33 @@ export default class PositionService {
       return row
     }
 
-    // ── Encabezado: Logo + Título + Metadata ─────────────────────────────────
-    // A:B = logo (merged filas 1-4), C:L = contenido
-    const headerRow1 = sheet.addRow(['', '', t('profile_position.title')])
-    sheet.mergeCells(`C${headerRow1.number}:${LAST}${headerRow1.number}`)
-    styleCell(headerRow1.getCell('C'), { bold: true, size: 12, color: WHITE, bg: BLUE, align: 'center' })
+    // ── Encabezado: Título + Metadata (sin logo, ocupa A:L) ──────────────────
+    const headerRow1 = sheet.addRow([t('profile_position.title')])
+    sheet.mergeCells(`A${headerRow1.number}:${LAST}${headerRow1.number}`)
+    styleCell(headerRow1.getCell('A'), { bold: true, size: 12, bg: HEADER, align: 'center' })
     headerRow1.height = 26
 
-    // Metadata: C:G = izquierda, H:L = derecha
-    const headerRow2 = sheet.addRow(['', '', `${t('profile_position.implementation_date')}: ${today}`, '', '', '', '', `${t('profile_position.revision')}: 01`])
-    sheet.mergeCells(`C${headerRow2.number}:G${headerRow2.number}`)
+    // Metadata: A:G = izquierda, H:L = derecha
+    const headerRow2 = sheet.addRow([`${t('profile_position.implementation_date')}: ${implDate}`, '', '', '', '', '', '', `${t('profile_position.revision')}: 01`])
+    sheet.mergeCells(`A${headerRow2.number}:G${headerRow2.number}`)
     sheet.mergeCells(`H${headerRow2.number}:${LAST}${headerRow2.number}`)
-    styleCell(headerRow2.getCell('C'), { size: 8 })
+    styleCell(headerRow2.getCell('A'), { size: 8 })
     styleCell(headerRow2.getCell('H'), { size: 8 })
     headerRow2.height = 16
 
-    const headerRow3 = sheet.addRow(['', '', `${t('profile_position.control_key')}: ${position.positionCode ?? ''}`, '', '', '', '', `${t('profile_position.replaces_revision')}: 00`])
-    sheet.mergeCells(`C${headerRow3.number}:G${headerRow3.number}`)
+    const headerRow3 = sheet.addRow([`${t('profile_position.control_key')}: ${position.positionCode ?? ''}`, '', '', '', '', '', '', `${t('profile_position.replaces_revision')}: 00`])
+    sheet.mergeCells(`A${headerRow3.number}:G${headerRow3.number}`)
     sheet.mergeCells(`H${headerRow3.number}:${LAST}${headerRow3.number}`)
-    styleCell(headerRow3.getCell('C'), { size: 8 })
+    styleCell(headerRow3.getCell('A'), { size: 8 })
     styleCell(headerRow3.getCell('H'), { size: 8 })
     headerRow3.height = 16
 
-    const headerRow4 = sheet.addRow(['', '', `${t('profile_position.reason_for_change')}:`, '', '', '', '', `${t('profile_position.page')} 1`])
-    sheet.mergeCells(`C${headerRow4.number}:G${headerRow4.number}`)
+    const headerRow4 = sheet.addRow([`${t('profile_position.reason_for_change')}:`, '', '', '', '', '', '', `${t('profile_position.page')} 1`])
+    sheet.mergeCells(`A${headerRow4.number}:G${headerRow4.number}`)
     sheet.mergeCells(`H${headerRow4.number}:${LAST}${headerRow4.number}`)
-    styleCell(headerRow4.getCell('C'), { size: 8 })
+    styleCell(headerRow4.getCell('A'), { size: 8 })
     styleCell(headerRow4.getCell('H'), { size: 8, align: 'right' })
     headerRow4.height = 16
-
-    // Merge A:B para el logo (filas 1-4)
-    sheet.mergeCells(`A${headerRow1.number}:B${headerRow4.number}`)
-    const logoCell = sheet.getCell(`A${headerRow1.number}`)
-    logoCell.border = borderAll
-    logoCell.alignment = { horizontal: 'center', vertical: 'middle' }
-
-    if (logoBuffer) {
-      const imageId = workbook.addImage({ base64: logoBuffer.toString('base64'), extension: logoExtension })
-      sheet.addImage(imageId, {
-        tl: { col: 0, row: headerRow1.number - 0.85 } as ExcelJS.Anchor,
-        br: { col: 2, row: headerRow4.number - 0.15 } as ExcelJS.Anchor,
-        editAs: 'oneCell',
-      })
-    }
 
     // ── F. Emisión / F. Revisión ──────────────────────────────────────────────
     const emisionRow = sheet.addRow([`${t('profile_position.emission_date')}:`, '', '', today, '', '', `${t('profile_position.review_date')}:`, '', '', today])
@@ -2003,7 +1945,7 @@ export default class PositionService {
 
     if (position.kpis?.length) {
       for (const kpi of position.kpis) {
-        const kpiRow = sheet.addRow([kpi.positionKpiName ?? '', '', '', '', '', '', '', '', String(kpi.positionKpiIdeal ?? ''), '', kpi.positionKpiFrequency ?? '', ''])
+        const kpiRow = sheet.addRow([kpi.positionKpiName ?? '', '', '', '', '', '', '', '', String(kpi.positionKpiIdeal ?? ''), '', kpiFrequencyLabel(kpi.positionKpiFrequency), ''])
         sheet.mergeCells(`A${kpiRow.number}:H${kpiRow.number}`)
         sheet.mergeCells(`I${kpiRow.number}:J${kpiRow.number}`)
         sheet.mergeCells(`K${kpiRow.number}:${LAST}${kpiRow.number}`)
@@ -2147,8 +2089,8 @@ export default class PositionService {
       const competencyHeaderRow = sheet.addRow([t('profile_position.functional'), '', '', '', '', '', t('profile_position.technical')])
       sheet.mergeCells(`A${competencyHeaderRow.number}:F${competencyHeaderRow.number}`)
       sheet.mergeCells(`G${competencyHeaderRow.number}:${LAST}${competencyHeaderRow.number}`)
-      styleCell(competencyHeaderRow.getCell('A'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
-      styleCell(competencyHeaderRow.getCell('G'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
+      styleCell(competencyHeaderRow.getCell('A'), { bold: true, bg: GRAY, align: 'center' })
+      styleCell(competencyHeaderRow.getCell('G'), { bold: true, bg: GRAY, align: 'center' })
       competencyHeaderRow.height = 18
 
       const numRows = Math.max(transversalCompetencies.length, technicalCompetencies.length, 1)
@@ -2170,8 +2112,8 @@ export default class PositionService {
     const equipHead = sheet.addRow([t('profile_position.personal_security'), '', '', '', '', '', t('profile_position.work_equipment')])
     sheet.mergeCells(`A${equipHead.number}:F${equipHead.number}`)
     sheet.mergeCells(`G${equipHead.number}:${LAST}${equipHead.number}`)
-    styleCell(equipHead.getCell('A'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
-    styleCell(equipHead.getCell('G'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
+    styleCell(equipHead.getCell('A'), { bold: true, bg: GRAY, align: 'center' })
+    styleCell(equipHead.getCell('G'), { bold: true, bg: GRAY, align: 'center' })
     equipHead.height = 18
 
     const equipRow = sheet.addRow(['', '', '', '', '', '', ''])
@@ -2185,8 +2127,8 @@ export default class PositionService {
     const signHead = sheet.addRow([t('profile_position.elaborated_by'), '', '', '', '', '', t('profile_position.validated_by')])
     sheet.mergeCells(`A${signHead.number}:F${signHead.number}`)
     sheet.mergeCells(`G${signHead.number}:${LAST}${signHead.number}`)
-    styleCell(signHead.getCell('A'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
-    styleCell(signHead.getCell('G'), { bold: true, color: WHITE, bg: BLUE, align: 'center' })
+    styleCell(signHead.getCell('A'), { bold: true, bg: GRAY, align: 'center' })
+    styleCell(signHead.getCell('G'), { bold: true, bg: GRAY, align: 'center' })
     signHead.height = 18
 
     const signRow = sheet.addRow([t('profile_position.signed_by'), '', '', '', '', '', t('profile_position.signed_by')])
@@ -2216,6 +2158,7 @@ export default class PositionService {
     sheet.getColumn(13).hidden = true
     sheet.getColumn(14).hidden = true
 
+    blankMissingTexts(workbook)
     const buf = await workbook.xlsx.writeBuffer()
     return Buffer.from(buf)
   }

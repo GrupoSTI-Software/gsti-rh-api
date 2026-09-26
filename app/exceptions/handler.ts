@@ -1,5 +1,39 @@
 import app from '@adonisjs/core/services/app'
 import { HttpContext, ExceptionHandler } from '@adonisjs/core/http'
+import AuthTokenService from '#services/auth_token_service'
+import { respondAccessTokenUnauthorized } from '../helpers/auth_token_response.js'
+import { isEmployeeImportExcelPath } from '../constants/employee_import_error_codes.js'
+import {
+  isRequestEntityTooLarge,
+  respondEmployeeImportValFileError,
+} from '../helpers/employee_import_request_errors.js'
+import {
+  isContratoImportExcelPath,
+  isContratoImportRateLimitError,
+  respondContratoImportRateLimit,
+} from '../helpers/contrato_import_request_errors.js'
+import {
+  isResendAccessPath,
+  isResendAccessRateLimitError,
+  respondResendAccessRateLimit,
+} from '../helpers/user_resend_access_request_errors.js'
+import {
+  isAuthLoginPath,
+  isAuthLoginRateLimitError,
+  respondAuthLoginRateLimit,
+} from '../helpers/auth_login_request_errors.js'
+import {
+  isAuthInvitationPath,
+  isAuthInvitationRateLimitError,
+  respondAuthInvitationRateLimit,
+} from '../helpers/auth_invitation_request_errors.js'
+import {
+  isAdditionalBusinessUnitCreatePath,
+  isAdditionalBusinessUnitRateLimitError,
+  respondAdditionalBusinessUnitRateLimit,
+} from '../helpers/business_unit_request_errors.js'
+import { isFileIntakeError, respondFileIntakeError } from '../helpers/file_intake_api_error.js'
+import { isAdmsChannelUrl } from '#constants/adms_channel'
 
 export default class HttpExceptionHandler extends ExceptionHandler {
   /**
@@ -13,6 +47,83 @@ export default class HttpExceptionHandler extends ExceptionHandler {
    * response to the client
    */
   async handle(error: unknown, ctx: HttpContext) {
+    /**
+     * Canal ADMS (spec 4.6): el checador no entiende JSON ni una pila. La
+     * pasarela ya captura todo; esta rama es la red por si algo escapa.
+     */
+    if (isAdmsChannelUrl(ctx.request.url(false))) {
+      const code = (error as { code?: string; status?: number }).code
+      const status =
+        code === 'E_REQUEST_ENTITY_TOO_LARGE' ? 413 : code === 'E_TOO_MANY_REQUESTS' ? 429 : 500
+      const body =
+        status === 500 ? 'ERROR' : status === 413 ? 'PAYLOAD TOO LARGE' : 'TOO MANY REQUESTS'
+      ctx.response.status(status)
+      ctx.response.header('Content-Type', 'text/plain; charset=utf-8')
+      ctx.response.header('Cache-Control', 'private, no-store')
+      return ctx.response.send(body)
+    }
+
+    /**
+     * Rechazo de la entrada de archivos. Sin esta rama el error llega al
+     * manejador por defecto: responde 500 en vez del 422 que es, y fuera de
+     * produccion (`debug = !app.inProduction`) vuelca la pila y rutas
+     * absolutas del servidor en la respuesta.
+     *
+     * Es la red que recogen los `throw` de los puntos de subida; el que un
+     * modulo prefiera traducir el rechazo a su propio contrato (como hace el
+     * buzon de quejas) sigue siendo valido y no pasa por aquí.
+     */
+    if (isFileIntakeError(error)) {
+      respondFileIntakeError(ctx.response, error)
+      return
+    }
+
+    if (
+      error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      error.code === 'E_UNAUTHORIZED_ACCESS'
+    ) {
+      const authTokenService = new AuthTokenService()
+      const result = await authTokenService.classifyAccessToken(
+        ctx.request.header('authorization')
+      )
+
+      const code = result.status === 'error' ? result.code : 'token_invalid'
+      await respondAccessTokenUnauthorized(ctx.response, code)
+      return
+    }
+
+    if (
+      isRequestEntityTooLarge(error) &&
+      isEmployeeImportExcelPath(ctx.request.url())
+    ) {
+      return respondEmployeeImportValFileError(ctx, ctx.response, 'too_large')
+    }
+
+    if (isContratoImportRateLimitError(error) && isContratoImportExcelPath(ctx.request.url())) {
+      return respondContratoImportRateLimit(ctx, error)
+    }
+
+    if (isResendAccessRateLimitError(error) && isResendAccessPath(ctx.request.url())) {
+      return respondResendAccessRateLimit(ctx, error)
+    }
+
+    if (isAuthLoginRateLimitError(error) && isAuthLoginPath(ctx.request.url())) {
+      return respondAuthLoginRateLimit(ctx, error)
+    }
+
+    if (isAuthInvitationRateLimitError(error) && isAuthInvitationPath(ctx.request.url())) {
+      return respondAuthInvitationRateLimit(ctx, error)
+    }
+
+    if (
+      isAdditionalBusinessUnitRateLimitError(error) &&
+      isAdditionalBusinessUnitCreatePath(ctx.request.url())
+    ) {
+      return respondAdditionalBusinessUnitRateLimit(ctx, error)
+    }
+
     return super.handle(error, ctx)
   }
 

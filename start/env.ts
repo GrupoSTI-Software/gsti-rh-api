@@ -10,15 +10,51 @@
 */
 
 import { Env } from '@adonisjs/core/env'
+import { assertChannelBaseDomain } from '#modules/adms/channel/channel_secret'
+import { DateTime } from 'luxon'
 
 export default await Env.create(new URL('../', import.meta.url), {
   NODE_ENV: Env.schema.enum(['development', 'production', 'test'] as const),
   PORT: Env.schema.number(),
   APP_KEY: Env.schema.string(),
+  /**
+   * Secreto exclusivo para el cálculo del índice ciego (blind-index HMAC-SHA256).
+   * DISTINTO de APP_KEY (que cifra). NUNCA comprometer en el repo.
+   * Generar con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   */
+  BLIND_INDEX_KEY: Env.schema.string(),
+  /**
+   * Secreto del servidor para el sello HMAC-SHA-256 del registro electrónico de
+   * jornada (reforma LFT). DISTINTO de APP_KEY y de BLIND_INDEX_KEY. NUNCA vive
+   * en el repo.
+   * NOTA (spec USRH1782264503158 §12): el spec pide `Env.schema.string()`
+   * (obligatoria, sin fallback). Se deja `optional()` a propósito para no
+   * romper instalaciones/entornos que aún no sellan jornada; el servicio
+   * (`work_journal.hash.ts`) lanza `WJE.SYS.002` en tiempo de sellado si falta.
+   * Si Wilvardo confirma que debe ser obligatoria desde el arranque, cambiar a
+   * `Env.schema.string()` aquí (una línea) y asegurar que TODOS los .env la
+   * definan antes de desplegar.
+   * Generar con: node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   */
+  WORK_JOURNAL_HMAC_SECRET: Env.schema.string.optional(),
   HOST: Env.schema.string({ format: 'host' }),
   LOG_LEVEL: Env.schema.string(),
+  /**
+   * Orígenes autorizados por CORS, separados por comas y sin barra final
+   * (ej. `https://app.valanserh.com,https://admin.valanserh.com`).
+   * OBLIGATORIA a propósito: con `credentials: true`, un API sin lista blanca
+   * expone la sesión de cualquier usuario a cualquier sitio que visite. Arrancar
+   * sin ella debe fallar, no degradar en silencio.
+   */
+  CORS_ALLOWED_ORIGINS: Env.schema.string(),
   /** Zona IANA para reglas de negocio por “día calendario” (vigencias salariales, etc.). Independiente de `TZ` del proceso. */
   APP_BUSINESS_TIMEZONE: Env.schema.string.optional(),
+  /**
+   * Si es `true`, calcula columnas adicionales de HE doble/triple que incluyen
+   * tiempo no autorizado (entrada anticipada / salida tardía) sin duplicar
+   * rangos ya cubiertos por excepciones autorizadas.
+   */
+  PAYROLL_OVERTIME_INCLUDE_UNAUTHORIZED: Env.schema.string.optional(),
 
   /*
   |----------------------------------------------------------
@@ -45,15 +81,107 @@ export default await Env.create(new URL('../', import.meta.url), {
   |----------------------------------------------------------
   */
   SMTP_HOST: Env.schema.string.optional(),
-  SMTP_PORT: Env.schema.string.optional(),
+  /** Puerto numérico del servidor SMTP (587 = StartTLS, 465 = SSL, 1025 = Mailpit local). */
+  SMTP_PORT: Env.schema.number.optional(),
+  /**
+   * Dirección remitente explícita de los correos salientes, independiente de la
+   * credencial de autenticación SMTP. Prelación: SMTP_FROM_ADDRESS → SMTP_USERNAME →
+   * dirección institucional de respaldo `no-reply@valanserh.local`. (USRH1787178944072)
+   */
+  SMTP_FROM_ADDRESS: Env.schema.string.optional(),
   SMTP_USERNAME: Env.schema.string.optional(),
   SMTP_PASSWORD: Env.schema.string.optional(),
+  /**
+   * `'true'` para conexión SSL desde el inicio (puerto 465).
+   * `'false'` (por defecto) para StartTLS en puerto 587 o sin cifrado en local.
+   */
+  SMTP_SECURE: Env.schema.string.optional(),
+  /**
+   * `'true'` para omitir TLS completamente (buzón de pruebas local, Mailpit en
+   * puerto 1025). Evita el error `500 5.5.2 Syntax error` al conectar sin cifrado.
+   */
+  SMTP_IGNORE_TLS: Env.schema.string.optional(),
+  /**
+   * URL pública del backoffice consumida por los correos del flujo de signup
+   * self-service (ej. botón "Ir al sistema" del correo de bienvenida). Se deja
+   * opcional para no romper instalaciones legacy que no lo declaren; el servicio
+   * de correo aplica un fallback razonable cuando no está definida.
+   */
+  BACKOFFICE_URL: Env.schema.string.optional(),
+  /**
+   * URL pública del panel landlord (consola interna GSTI). Usada para construir
+   * los enlaces de magic link y recuperación de contraseña de plataforma.
+   * Opcional: aplica fallback a localhost:3001 (puerto típico del landlord en dev).
+   */
+  LANDLORD_URL: Env.schema.string.optional(),
+  /**
+   * Lista de correos internos de GSTI (administración y atención al cliente) que
+   * reciben el aviso de cada contratación self-service. Separados por coma.
+   * Opcional: si no está definida, aplica el fallback del servicio.
+   */
+  BILLING_INTERNAL_NOTIFICATION_EMAILS: Env.schema.string.optional(),
+  /**
+   * Lista de correos que reciben el aviso de estado de la sincronización automática
+   * de asistencias (`commands/sync_assistance.ts`). Reemplaza las direcciones que
+   * antes estaban escritas dentro del código. Separados por coma. (USRH1787178944072)
+   */
+  ASSIST_SYNC_ALERT_EMAILS: Env.schema.string.optional(),
+  /**
+   * Ventana hacia atrás, en horas, dentro de la cual el API acepta una checada cuya
+   * hora de captura es anterior a la de recepción. Sin definir aplica el default del
+   * accesor (72 h). El valor se satura al intervalo [1, 168] fijado en código: fuera
+   * de rango no interrumpe el registro de checadas, se satura y queda en bitácora.
+   * No es configuración de negocio: no vive en `system_settings` y no se publica.
+   * (USRH1788135907803)
+   */
+  ASSIST_PUNCH_TIME_MAX_BACKDATE_HOURS: Env.schema.number.optional(),
+  /**
+   * Tolerancia, en segundos, para una hora de captura por delante del reloj del
+   * servidor. Default 120: absorbe el desfase natural del reloj de los equipos, que
+   * si no haría perder la checada de todo teléfono adelantado. Aplica a todos los
+   * medios, kiosco y captura administrativa incluidos. Se pone en 0 cuando el equipo
+   * aprenda a corregir su propio reloj contra el del servidor. Se satura a [0, 300].
+   * (USRH1788135907803)
+   */
+  ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS: Env.schema.number.optional(),
+  /**
+   * Ventana de frescura, en minutos, dentro de la cual la compensación del alta
+   * de empleado fallida puede liberar a la persona recién creada
+   * (USRH1789698261608). Sin definir aplica el default del accesor (60 min).
+   * El valor se satura al intervalo [1, 1440] fijado en código: fuera de rango
+   * no interrumpe el alta, se satura y queda en bitácora. No es configuración
+   * de negocio: no vive en `system_settings` y no se publica.
+   */
+  PERSON_RELEASE_WINDOW_MINUTES: Env.schema.number.optional(),
   /*
   |----------------------------------------------------------
-  | Variables for configuring api host synchronization 
+  | Almacenamiento de objetos (DigitalOcean Spaces en produccion,
+  | MinIO en desarrollo). El codigo sirve para ambos: `forcePathStyle`
+  | siempre activo y endpoint por variable.
+  |----------------------------------------------------------
+  */
+  AWS_ACCESS_KEY_ID: Env.schema.string(),
+  AWS_SECRET_ACCESS_KEY: Env.schema.string(),
+  AWS_ENDPOINT: Env.schema.string(),
+  AWS_BUCKET: Env.schema.string(),
+  /** El SDK v3 exige región aunque el proveedor S3-compatible la ignore. */
+  AWS_DEFAULT_REGION: Env.schema.string.optional(),
+  /** Prefijo raiz de todas las keys del bucket. */
+  AWS_ROOT_PATH: Env.schema.string(),
+  AWS_ROOT_NAME: Env.schema.string.optional(),
+  AWS_URL: Env.schema.string.optional(),
+  /*
+  |----------------------------------------------------------
+  | Variables for configuring api host synchronization
   |----------------------------------------------------------
   */
   API_BIOMETRICS_HOST: Env.schema.string.optional(),
+  /**
+   * URL base del servidor de fotos del checador. Su host es el UNICO origen
+   * externo autorizado para leer una foto de empleado
+   * (`helpers/employee_photo_source.ts`).
+   */
+  API_BIOMETRICS_EMPLOYEE_PHOTO_URL: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
   | Variables for configuring MongoDB connection
@@ -76,6 +204,18 @@ export default await Env.create(new URL('../', import.meta.url), {
   BASIC_AUTH_PASSWORD: Env.schema.string.optional(),
   /*
   |----------------------------------------------------------
+  | Usuario root inicial (solo lo consume 0008_user_seeder)
+  |----------------------------------------------------------
+  | Opcionales a propósito: el servidor no las usa al arrancar y exigirlas
+  | tumbaría entornos que nunca siembran. El seeder falla con un error
+  | explícito si faltan, en vez de crear a root sin credenciales.
+  */
+  /** Correo del usuario root de plataforma. */
+  ROOT_USER_EMAIL: Env.schema.string.optional({ format: 'email' }),
+  /** Contraseña inicial del usuario root de plataforma. Nunca vive en el repo. */
+  ROOT_USER_PASSWORD: Env.schema.string.optional(),
+  /*
+  |----------------------------------------------------------
   | Variables para el modo demo y hardening del endpoint demo
   |----------------------------------------------------------
   */
@@ -86,4 +226,60 @@ export default await Env.create(new URL('../', import.meta.url), {
   DEMO_ALLOWED_HOSTNAME: Env.schema.string.optional(),
   DEMO_ALLOWED_DB_PATTERN: Env.schema.string.optional(),
   DEMO_AUDIT_EMAIL: Env.schema.string.optional(),
+
+  /*
+  |----------------------------------------------------------
+  | Retencion del canal de checadores (spec ADMS 13.12)
+  |----------------------------------------------------------
+  | Todas opcionales con default en codigo, y con MINIMO: bajarlas por debajo
+  | del minimo no acorta la retencion, se ignora. Un plazo de un dia puesto por
+  | error borraria la evidencia con la que se reconstruye una nomina.
+  */
+  /**
+   * Dominio comun del canal, sin el subdominio de cada equipo.
+   *
+   * Sin valor no se exige direccion propia: desplegar el codigo no puede tirar
+   * el canal de un cliente que aun no migro.
+   */
+  /**
+   * Token del puente ZK por socket.
+   *
+   * Sin el, los eventos de dispositivo se atienden como hasta ahora y queda
+   * aviso; con el puesto, quien no lo presente no entra. Es lo que separa a un
+   * checador de cualquiera que sepa la direccion del servidor.
+   */
+  ADMS_BRIDGE_TOKEN: Env.schema.string.optional(),
+  /**
+   * Dominio comun del canal: lo que va DETRAS del secreto en la direccion que
+   * teclea el instalador (`<secreto>.<este-dominio>`).
+   *
+   * Se valida al arrancar por la misma razon que la fecha de abajo: un valor
+   * mal escrito no falla, engaña. `hostLabelOf` deja de recortar la etiqueta,
+   * ningun equipo con secreto coincide, y el canal responde 404 a toda la
+   * flota sin un solo error en el log.
+   */
+  ADMS_CHANNEL_BASE_DOMAIN: (name: string, value?: string) =>
+    assertChannelBaseDomain(name, value),
+  /**
+   * Desde cuando un checador sin direccion propia deja de atenderse.
+   *
+   * Fecha ISO, y se valida al arrancar: un valor que no parsea hacia que el
+   * canal NO exigiera nada mientras el operador creia haber puesto la fecha de
+   * corte. Una proteccion apagada en silencio es peor que no tenerla, asi que
+   * el servidor no arranca con basura aqui.
+   */
+  ADMS_CHANNEL_SECRET_ENFORCED_FROM: (name: string, value?: string) => {
+    if (value === undefined || value.trim() === '') return undefined
+    if (!DateTime.fromISO(value.trim()).isValid) {
+      throw new Error(
+        `${name} tiene que ser una fecha ISO (por ejemplo 2026-10-15T00:00:00Z) y llego "${value}"`
+      )
+    }
+    return value.trim()
+  },
+  ADMS_RAW_RETENTION_DAYS: Env.schema.number.optional(),
+  ADMS_RAW_FAILED_RETENTION_DAYS: Env.schema.number.optional(),
+  ADMS_COMMAND_RETENTION_DAYS: Env.schema.number.optional(),
+  ADMS_PHOTO_PUBLICATION_RETENTION_DAYS: Env.schema.number.optional(),
+  ADMS_QUARANTINE_RETENTION_DAYS: Env.schema.number.optional(),
 })

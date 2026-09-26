@@ -1,11 +1,15 @@
 import Employee from '#models/employee'
 import Person from '#models/person'
+import { blindIndex } from '#utils/blind_index'
+import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
+import { personEmailExistsGlobally } from '#helpers/person_email_global_uniqueness'
 import { DateTime } from 'luxon'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { PersonFilterSearchInterface } from '../interfaces/person_filter_search_interface.js'
 import { SyncAssistsServiceIndexInterface } from '../interfaces/sync_assists_service_index_interface.js'
 import SyncAssistsService from './sync_assists_service.js'
 import { I18n } from '@adonisjs/i18n'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 
 export default class PersonService {
 
@@ -38,18 +42,24 @@ export default class PersonService {
           'UPPER(CONCAT(person_firstname, " ", person_lastname, " ", person_second_lastname)) LIKE ?',
           [`%${filters.search.toUpperCase()}%`]
         )
-        query.orWhereRaw('UPPER(person_phone) LIKE ?', [`%${filters.search.toUpperCase()}%`])
-        query.orWhereRaw('UPPER(person_curp) LIKE ?', [`%${filters.search.toUpperCase()}%`])
-        query.orWhereRaw('UPPER(person_rfc) LIKE ?', [`%${filters.search.toUpperCase()}%`])
-        query.orWhereRaw('UPPER(person_imss_nss) LIKE ?', [`%${filters.search.toUpperCase()}%`])
+        // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por phone/curp/rfc/nss cifrados
       })
       .orderBy('person_id')
       .paginate(filters.page, filters.limit)
     return persons
   }
 
-  async create(person: Person) {
+  /**
+   * @param trx Transacción opcional (p. ej. la del alta self-service en
+   * `SignupDraftService.complete()`, USRH1783712837572). Sin `trx`, se
+   * comporta igual que antes (compatible hacia atrás).
+   */
+  async create(person: Person, trx?: TransactionClientContract) {
     const newPerson = new Person()
+    // USRH1789698261609: la marca viaja con la persona que arma el llamador
+    // (signup self-service). Con contexto de tenant y sin marca, la pone el hook
+    // del modelo; sin contexto y sin marca queda null (persona de plataforma).
+    newPerson.businessUnitId = person.businessUnitId ?? null
     newPerson.personFirstname = person.personFirstname
     newPerson.personLastname = person.personLastname
     newPerson.personSecondLastname = person.personSecondLastname || ''
@@ -65,6 +75,9 @@ export default class PersonService {
     newPerson.personPlaceOfBirthCountry = person.personPlaceOfBirthCountry
     newPerson.personPlaceOfBirthState = person.personPlaceOfBirthState
     newPerson.personPlaceOfBirthCity = person.personPlaceOfBirthCity
+    if (trx) {
+      newPerson.useTransaction(trx)
+    }
     await newPerson.save()
 
     await newPerson.load('employee')
@@ -87,60 +100,95 @@ export default class PersonService {
     return newPerson
   }
 
-  async update(currentPerson: Person, person: Person) {
+  /**
+   * @param trx La del llamador (USRH1789698261612). Con `trx`, el recálculo del
+   * calendario de asistencia NO corre aquí: es dato derivado y recalculable,
+   * `SyncAssistsService` no acepta transacción, y lo dispara el llamador con
+   * `syncBirthdayCalendar` después del commit.
+   */
+  async update(currentPerson: Person, person: Person, trx?: TransactionClientContract) {
     const personBirthdayPast = currentPerson.personBirthday
     currentPerson.personFirstname = person.personFirstname
     currentPerson.personLastname = person.personLastname
     currentPerson.personSecondLastname = person.personSecondLastname || ''
     currentPerson.personBirthday = person.personBirthday
     currentPerson.personGender = person.personGender
-    currentPerson.personPhone = person.personPhone
-    currentPerson.personEmail = person.personEmail
-    currentPerson.personCurp = person.personCurp
-    currentPerson.personRfc = person.personRfc
-    currentPerson.personImssNss = person.personImssNss
-    currentPerson.personPhoneSecondary = person.personPhoneSecondary
+    // Campos sensibles: null = "no actualizar" — el BO los envía como null cuando
+    // los muestra enmascarados y el usuario no los modificó en esa sesión.
+    // Solo se sobreescribe si llega un valor concreto (string no nulo).
+    if (person.personPhone !== null && person.personPhone !== undefined) {
+      currentPerson.personPhone = person.personPhone
+    }
+    if (person.personPhoneSecondary !== null && person.personPhoneSecondary !== undefined) {
+      currentPerson.personPhoneSecondary = person.personPhoneSecondary
+    }
+    if (person.personEmail !== null && person.personEmail !== undefined) {
+      currentPerson.personEmail = person.personEmail
+    }
+    if (person.personCurp !== null && person.personCurp !== undefined) {
+      currentPerson.personCurp = person.personCurp
+    }
+    if (person.personRfc !== null && person.personRfc !== undefined) {
+      currentPerson.personRfc = person.personRfc
+    }
+    if (person.personImssNss !== null && person.personImssNss !== undefined) {
+      currentPerson.personImssNss = person.personImssNss
+    }
     currentPerson.personMaritalStatus = person.personMaritalStatus
     currentPerson.personPlaceOfBirthCountry = person.personPlaceOfBirthCountry
     currentPerson.personPlaceOfBirthState = person.personPlaceOfBirthState
     currentPerson.personPlaceOfBirthCity = person.personPlaceOfBirthCity
+    if (trx) currentPerson.useTransaction(trx)
     await currentPerson.save()
 
     await currentPerson.load('employee')
-    if (currentPerson.employee) {
-      if (currentPerson.personBirthday) {
-        const birthdayDate = currentPerson.personBirthday;
-        const date = typeof birthdayDate === 'string' ? new Date(birthdayDate) : birthdayDate;
+    if (!trx) {
+      await this.syncBirthdayCalendar(currentPerson, personBirthdayPast, person.personBirthday)
+    }
+    return currentPerson
+  }
 
-        const currentYear = new Date().getFullYear()
-        const month = date.getMonth()
-        const day = date.getDate()
+  /**
+   * Recalcula el día de cumpleaños en el calendario de asistencia del empleado
+   * de la persona (año en curso y, si cambió, la fecha anterior ya vencida).
+   * Requiere `currentPerson.employee` cargado.
+   */
+  async syncBirthdayCalendar(
+    currentPerson: Person,
+    personBirthdayPast: string | null,
+    personBirthdayInput: string | null
+  ) {
+    if (!currentPerson.employee) return
+    if (currentPerson.personBirthday) {
+      const birthdayDate = currentPerson.personBirthday
+      const date = typeof birthdayDate === 'string' ? new Date(birthdayDate) : birthdayDate
 
-        let updatedBirthday = new Date(currentYear, month, day)
-        if (updatedBirthday.getMonth() !== month || updatedBirthday.getDate() !== day) {
-          updatedBirthday = new Date(currentYear, 1, 28)
-        }
-        await this.updateAssistCalendar(currentPerson.employee.employeeId, updatedBirthday)
+      const currentYear = new Date().getFullYear()
+      const month = date.getMonth()
+      const day = date.getDate()
+
+      let updatedBirthday = new Date(currentYear, month, day)
+      if (updatedBirthday.getMonth() !== month || updatedBirthday.getDate() !== day) {
+        updatedBirthday = new Date(currentYear, 1, 28)
       }
-      if (personBirthdayPast) {
-        const newPersonBirthdayPast = new Date(personBirthdayPast)
-        const datePast = typeof newPersonBirthdayPast === 'string' ? new Date(newPersonBirthdayPast) : newPersonBirthdayPast
-        const fixedBirthdayString = person.personBirthday!.replace('00:000:00', '00:00:00')
+      await this.updateAssistCalendar(currentPerson.employee.employeeId, updatedBirthday)
+    }
+    if (personBirthdayPast) {
+      const newPersonBirthdayPast = new Date(personBirthdayPast)
+      const datePast = typeof newPersonBirthdayPast === 'string' ? new Date(newPersonBirthdayPast) : newPersonBirthdayPast
+      const fixedBirthdayString = personBirthdayInput!.replace('00:000:00', '00:00:00')
 
-        const birthdayISO = DateTime.fromFormat(fixedBirthdayString, 'yyyy-MM-dd HH:mm:ss').toISO()
-        const datePastISO = DateTime.fromJSDate(datePast).toISO()
+      const birthdayISO = DateTime.fromFormat(fixedBirthdayString, 'yyyy-MM-dd HH:mm:ss').toISO()
+      const datePastISO = DateTime.fromJSDate(datePast).toISO()
 
-        if (datePastISO !== birthdayISO) {
-          const today = new Date()
-          const todayAtMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-          if (datePast <= todayAtMidnight) {
-            await this.updateAssistCalendar(currentPerson.employee.employeeId, datePast)
-          }
+      if (datePastISO !== birthdayISO) {
+        const today = new Date()
+        const todayAtMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+        if (datePast <= todayAtMidnight) {
+          await this.updateAssistCalendar(currentPerson.employee.employeeId, datePast)
         }
       }
     }
-
-    return currentPerson
   }
 
   async delete(currentPerson: Person) {
@@ -167,83 +215,64 @@ export default class PersonService {
     return employee ? employee : null
   }
 
-  async verifyInfo(person: Person) {
-    const action = person.personId > 0 ? 'updated' : 'created'
-    const existCurp = await Person.query()
-      .if(person.personId > 0, (query) => {
-        query.whereNot('person_id', person.personId)
-      })
-      .whereNull('person_deleted_at')
-      .where('person_curp', person.personCurp)
-      .first()
+  /**
+   * Verifica duplicados de identidad antes de guardar (USRH1789698261610).
+   *
+   * RFC, CURP y NSS se comparan SOLO dentro de la empresa indicada (reglas 1 y 2);
+   * el correo personal se compara en todo el sistema, como hoy (regla 5). Sin
+   * empresa no hay veredicto: se informa y quien llama responde 400 (regla 10).
+   * Solo cuentan los vivos: la baja libera (regla 4). Ante varios choques se
+   * informa el primero (CURP, RFC, NSS, correo): el mensaje dice un dato y nada más.
+   */
+  async verifyInfo(
+    person: Person,
+    businessUnitId: number | null | undefined
+  ): Promise<
+    | { status: 200 }
+    | { status: 400; missingCompany: true }
+    | { status: 422; field: 'curp' | 'rfc' | 'nss' | 'email' }
+  > {
+    if (!businessUnitId) return { status: 400, missingCompany: true }
 
-    if (existCurp && person.personCurp) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The person curp already exists for another person',
-        message: `The person resource cannot be ${action} because the curp is already assigned to another person`,
-        data: { ...person },
+    const excludePersonId = person.personId > 0 ? person.personId : 0
+
+    if (person.personCurp && person.personCurp.trim() !== '') {
+      const exists = await livePersonWithIdentityExists(
+        'curp',
+        blindIndex(person.personCurp),
+        businessUnitId,
+        excludePersonId
+      )
+      if (exists) return { status: 422, field: 'curp' }
+    }
+
+    if (person.personRfc && person.personRfc.trim() !== '') {
+      const exists = await livePersonWithIdentityExists(
+        'rfc',
+        blindIndex(person.personRfc),
+        businessUnitId,
+        excludePersonId
+      )
+      if (exists) return { status: 422, field: 'rfc' }
+    }
+
+    if (person.personImssNss && person.personImssNss.trim() !== '') {
+      const exists = await livePersonWithIdentityExists(
+        'nss',
+        blindIndex(person.personImssNss),
+        businessUnitId,
+        excludePersonId
+      )
+      if (exists) return { status: 422, field: 'nss' }
+    }
+
+    if (person.personEmail && person.personEmail.trim() !== '') {
+      if (await personEmailExistsGlobally(person.personEmail, excludePersonId)) {
+        return { status: 422, field: 'email' }
       }
     }
-    const existRfc = await Person.query()
-      .if(person.personId > 0, (query) => {
-        query.whereNot('person_id', person.personId)
-      })
-      .whereNull('person_deleted_at')
-      .where('person_rfc', person.personRfc)
-      .first()
 
-    if (existRfc && person.personRfc) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The person rfc already exists for another person',
-        message: `The person resource cannot be ${action} because the rfc is already assigned to another person`,
-        data: { ...person },
-      }
-    }
-    const existImssNss = await Person.query()
-      .if(person.personId > 0, (query) => {
-        query.whereNot('person_id', person.personId)
-      })
-      .whereNull('person_deleted_at')
-      .where('person_imss_nss', person.personImssNss)
-      .first()
-
-    if (existImssNss && person.personImssNss) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The person imss nss already exists for another person',
-        message: `The person resource cannot be ${action} because the imss nss is already assigned to another person`,
-        data: { ...person },
-      }
-    }
-    const existEmail = await Person.query()
-      .if(person.personId > 0, (query) => {
-        query.whereNot('person_id', person.personId)
-      })
-      .whereNull('person_deleted_at')
-      .where('person_email', person.personEmail)
-      .first()
-
-    if (existEmail && person.personEmail) {
-      return {
-        status: 400,
-        type: 'warning',
-        title: 'The person email already exists for another person',
-        message: `The person resource cannot be ${action} because the email is already assigned to another person`,
-        data: { ...person },
-      }
-    }
-    return {
-      status: 200,
-      type: 'success',
-      title: 'Info verifiy successfully',
-      message: 'Info verifiy successfully',
-      data: { ...person },
-    }
+    return { status: 200 }
   }
 
   async getPlacesOfBirth(search: string, field: 'countries' | 'states' | 'cities') {
@@ -256,7 +285,13 @@ export default class PersonService {
     if (!column) return []
     const persons = await Person.query()
       .distinct(column)
-      .orWhereRaw('UPPER(??) LIKE ?', [column, `%${search.toUpperCase()}%`])
+      // USRH1789698261609: `whereRaw`, no `orWhereRaw`. Es la única condición
+      // previa de la query, así que el `or` era semánticamente inútil; con `or`
+      // quedaba expuesto a que un futuro `.orWhere*()` agregado aquí generara
+      // `A OR (B AND business_unit_id IN (...))` y filtrara filas de otro
+      // tenant por la rama A, porque el mixin de tenant inyecta su filtro AL
+      // FINAL. `whereRaw` cierra esa trampa estructuralmente.
+      .whereRaw('UPPER(??) LIKE ?', [column, `%${search.toUpperCase()}%`])
       .withTrashed()
       .orderBy(column)
 

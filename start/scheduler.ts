@@ -1,4 +1,140 @@
 import scheduler from 'adonisjs-scheduler/services/main'
+import { LACTATION_NOTIFY_EXPIRING_COMMAND } from '#constants/employee_lactation_notification'
+import { REPSE_NOTIFY_FOLIO_EXPIRING_COMMAND } from '#constants/repse_folio_aviso'
+import { NOTICE_SEND_SCHEDULED_COMMAND } from '#constants/notice'
+import {
+  ANNIVERSARY_DAY_EMAIL_COMMAND,
+  ANNIVERSARY_REMINDER_EMAIL_COMMAND,
+  BIRTH_DAY_EMAIL_COMMAND,
+  BIRTHDAY_REMINDER_EMAIL_COMMAND,
+  EMPLOYEE_CELEBRATION_EMAIL_CRON,
+} from '#constants/employee_celebration_email'
 
 // scheduler.command('inspire').everyFiveSeconds()
 scheduler.command('sync:assistance').cron('*/5 * * * *')
+
+/**
+ * Barrido de la cola de los checadores (spec ADMS 6.2).
+ *
+ * Cada minuto porque el despacho es de uno a la vez por equipo: un comando que
+ * salio y no recibio acuse no solo se queda colgado, tapona todo lo que venga
+ * detras para ese aparato. El servicio cierra por plazo -- 180 s en vuelo, 120 s
+ * si es un enrolamiento presencial, 30 min acusado sin evidencia -- y sin el
+ * nada devuelve esos comandos a un estado terminal.
+ *
+ * `withoutOverlapping` porque el barrido escribe sobre las mismas filas que el
+ * canal: dos corridas encimadas competirian por ellas.
+ */
+scheduler.command('adms:sweep-commands').everyMinute().withoutOverlapping()
+
+/**
+ * Consume la cola de recalculo que deja la ingesta del checador (spec 5.4).
+ *
+ * El canal NO recalcula dentro de la peticion: el aparato reintenta cada pocos
+ * segundos si no recibe acuse, y un recalculo puede tardar mas que eso. Por eso
+ * cada checada deja un trabajo en cola... que hasta ahora nadie consumia. El
+ * comando existia, el modelo y la migracion lo citaban por nombre, y no estaba
+ * agendado: al 2026-09-10 habia 40 trabajos `pending`, el mas viejo de mas de
+ * un dia. Es decir, las checadas entraban a `assists` y el calendario que ve RH
+ * --y lo que llega a nomina-- no se rehacia nunca.
+ *
+ * Cada minuto, que es la cadencia que el propio servicio asume para dimensionar
+ * su lote. `withoutOverlapping` porque el consumidor reclama trabajos con su
+ * identificador de corrida y dos tandas encimadas competirian por las mismas
+ * filas de calendario.
+ */
+scheduler.command('adms:recalc-calendars').everyMinute().withoutOverlapping()
+
+/**
+ * Borra por plazo lo que cumplio su retencion (spec 13.12): crudos, comandos,
+ * publicaciones de foto y cuarentenas.
+ *
+ * Tampoco estaba agendado. El cuerpo crudo de cada subida guarda el mensaje
+ * completo del equipo --templates biometricos incluidos-- y su plazo declarado
+ * es de 180 dias: sin esta linea, ese plazo no se cumplia y la tabla crecia sin
+ * fin. De madrugada porque borra en tandas y no compite con la operacion.
+ */
+scheduler.command('adms:purge-retention').cron('0 8 * * *').withoutOverlapping()
+
+/**
+ * Aviso diario a RH cuando un periodo de lactancia está a ≤ 30 días de
+ * vencer. Se programa a las 13:00 UTC (07:00 CDMX) para que el correo
+ * llegue antes del inicio normal de la jornada de RH y el equipo pueda
+ * coordinar la renovación con la empleada el mismo día.
+ *
+ * El comando es idempotente: la bitácora
+ * `employee_lactation_period_notifications` evita reenvíos del mismo
+ * tipo de aviso para el mismo periodo.
+ */
+scheduler.command(LACTATION_NOTIFY_EXPIRING_COMMAND).cron('0 13 * * *')
+
+/**
+ * Aviso diario de vigencia del folio REPSE (renovación trienal e
+ * informativas cuatrimestrales). 13:00 UTC = 07:00 CDMX. Idempotente
+ * vía bitácora `repse_folio_avisos`.
+ */
+scheduler.command(REPSE_NOTIFY_FOLIO_EXPIRING_COMMAND).cron('0 13 * * *')
+
+/**
+ * Correos de celebración (cumpleaños y aniversario laboral): felicitación al
+ * empleado y recordatorio a RH, por cada system setting activo con su flag.
+ * 13:00 UTC = 07:00 CDMX. Fuera de producción el servicio aplica
+ * DEVELOPMENT_EMAIL_LIST; en producción solo clientes con la opción encendida.
+ *
+ * Coordinar con infra el retiro de crons externos en Forge al liberar, para
+ * evitar doble envío durante la transición.
+ */
+scheduler.command(BIRTH_DAY_EMAIL_COMMAND).cron(EMPLOYEE_CELEBRATION_EMAIL_CRON)
+scheduler.command(BIRTHDAY_REMINDER_EMAIL_COMMAND).cron(EMPLOYEE_CELEBRATION_EMAIL_CRON)
+scheduler.command(ANNIVERSARY_DAY_EMAIL_COMMAND).cron(EMPLOYEE_CELEBRATION_EMAIL_CRON)
+scheduler.command(ANNIVERSARY_REMINDER_EMAIL_COMMAND).cron(EMPLOYEE_CELEBRATION_EMAIL_CRON)
+
+/**
+ * Cierre automático de jornada (USRH1782268640950): corre una vez al día,
+ * después de medianoche en zona de negocio (07:00 UTC = 01:00 CDMX), para
+ * evaluar como fecha de corte "ayer" completo y detectar los periodos de
+ * nómina que vencieron. Reintenta lo fallido en corridas previas.
+ */
+scheduler.command('work-journal:seal-period').cron('0 7 * * *')
+
+/**
+ * Reloj de suscripción (USRH1784574994921): evalúa cada suscripción no
+ * cancelada y mueve su estado según sus fechas de prueba y periodo
+ * (trialing → active/past_due, active → past_due). Tras el gobierno de
+ * estados, aplica reducciones agendadas cuya fecha de efecto ya se alcanzó
+ * (USRH1786107870859) sin mover las fechas del periodo. Barrido idempotente.
+ *
+ * Se programa a las 13:00 UTC (07:00 CDMX), misma ventana que
+ * `lactation_notify_expiring`, para que los estados queden actualizados
+ * al inicio del día de negocio. Confirmar hora con Wilvardo en review.
+ */
+scheduler.command('billing:tick-subscriptions').cron('0 13 * * *')
+
+/**
+ * Purga diaria de siembras demo abandonadas del onboarding
+ * (USRH1785438247062): limpia las siembras con más de 30 días sin recorrido
+ * terminado u omitido, con el mismo borrado del wipe en modo purga (no cierra
+ * recorridos; el administrador que vuelve re-siembra fresco). 13:00 UTC =
+ * 07:00 CDMX, misma franja del resto de barridos diarios. Cierra además una
+ * superficie de seguridad: credenciales de práctica olvidadas.
+ */
+scheduler.command('onboarding:purge-abandoned-demo').cron('0 13 * * *')
+
+/**
+ * Limpieza de jobs de reporte asíncronos (USRH1785766125019):
+ *   1. Recupera jobs que quedaron en `processing` tras un reinicio del servidor
+ *      (ventana: actualizados hace más de 30 min) y los reencola.
+ *   2. Elimina de S3 y de la BD los jobs completados cuyo `expires_at` ya venció
+ *      (TTL de 24 h) y los jobs fallidos/pendientes con más de 48 h.
+ *
+ * Se programa cada hora para que los archivos temporales no acumulen en S3 y
+ * los jobs atorados se recuperen con latencia razonable sin sobrecargar la BD.
+ */
+scheduler.command('report-jobs:cleanup').cron('0 * * * *')
+
+/**
+ * Avisos programados (Avisos y noticias v2): cada minuto envía los que ya
+ * alcanzaron su hora. `withoutOverlapping` evita que dos corridas tomen el
+ * mismo aviso si un envío masivo tarda más de un minuto.
+ */
+scheduler.command(NOTICE_SEND_SCHEDULED_COMMAND).everyMinute().withoutOverlapping()

@@ -1,13 +1,13 @@
 import { DateTime } from 'luxon'
-import { BaseModel, column, hasMany } from '@adonisjs/lucid/orm'
+import { BaseModel, belongsTo, column, hasMany } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { compose } from '@adonisjs/core/helpers'
-import SystemSettingSystemModule from './system_setting_system_module.js'
-import type { HasMany } from '@adonisjs/lucid/types/relations'
+import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import SystemSettingsEmployee from './system_settings_employee.js'
 import SystemSettingPayrollConfig from './system_setting_payroll_config.js'
 import Tolerance from './tolerance.js'
 import SystemSettingProceedingFile from './system_setting_proceeding_file.js'
+import BusinessUnit from './business_unit.js'
 
 /**
  * @swagger
@@ -37,9 +37,10 @@ import SystemSettingProceedingFile from './system_setting_proceeding_file.js'
  *          systemSettingSidebarColor:
  *            type: string
  *            description: System setting sidebar color
- *          systemSettingBusinessUnits:
- *            type: string
- *            description: Available business Units
+ *          businessUnitId:
+ *            type: number
+ *            nullable: true
+ *            description: Relación formal por identificador hacia la unidad de negocio (tenant) dueña de esta configuración. Nulo en el registro base fundacional (id 1); poblado en los registros creados por el alta self-service (USRH1783712837572).
  *          systemSettingToleranceCountPerAbsence:
  *            type: number
  *            description: System setting tolerance count per absence
@@ -84,25 +85,30 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
   declare systemSettingTradeName: string
 
   @column()
-  declare systemSettingLogo: string
+  declare systemSettingLogo: string | null
 
   @column()
-  declare systemSettingBanner: string
+  declare systemSettingBanner: string | null
 
   @column()
   declare systemSettingSidebarColor: string
 
   @column()
-  declare systemSettingFavicon: string
+  declare systemSettingFavicon: string | null
 
   @column()
-  declare systemSettingEmployeeAplicationIcon: string
+  declare systemSettingEmployeeAplicationIcon: string | null
 
   @column()
   declare systemSettingActive: number
 
+  /**
+   * Relación formal por identificador hacia la unidad de negocio (tenant) dueña de
+   * esta configuración (USRH1783712837572). Nulo en el registro base fundacional
+   * (`system_setting_id = 1`), que no representa un tenant real.
+   */
   @column()
-  declare systemSettingBusinessUnits: string
+  declare businessUnitId: number | null
 
   @column()
   declare systemSettingToleranceCountPerAbsence: number
@@ -143,16 +149,6 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
   @column.dateTime({ columnName: 'system_setting_deleted_at' })
   declare deletedAt: DateTime | null
 
-  @hasMany(() => SystemSettingSystemModule, {
-    foreignKey: 'systemSettingId',
-    onQuery(query) {
-      if (!query.isRelatedSubQuery) {
-        query.preload('systemModule')
-      }
-    },
-  })
-  declare systemSettingSystemModules: HasMany<typeof SystemSettingSystemModule>
-
   @hasMany(() => SystemSettingsEmployee, {
     foreignKey: 'systemSettingId',
   })
@@ -172,4 +168,20 @@ export default class SystemSetting extends compose(BaseModel, SoftDeletes) {
     foreignKey: 'systemSettingId',
   })
   declare systemSettingProceedingFiles: HasMany<typeof SystemSettingProceedingFile>
+
+  /**
+   * Unidad de negocio (tenant) dueña de esta configuración, por relación formal.
+   * Es la ÚNICA fuente: el CSV `system_setting_business_units` se retiró y todos
+   * los consumidores resuelven por esta llave.
+   *
+   * El modelo sigue SIN `withBusinessUnitScope()`, y eso es deliberado: varios
+   * de sus consumidores son procesos batch que corren fuera del contexto de una
+   * petición (avisos, sellado, correos), y ahí el mixin no filtraría nada
+   * mientras que un scope activo cambiaría su alcance en silencio. Cada uno
+   * acota por `business_unit_id` de forma explícita.
+   */
+  @belongsTo(() => BusinessUnit, {
+    foreignKey: 'businessUnitId',
+  })
+  declare businessUnit: BelongsTo<typeof BusinessUnit>
 }

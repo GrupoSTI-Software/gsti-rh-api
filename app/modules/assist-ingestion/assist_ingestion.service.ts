@@ -1,0 +1,386 @@
+import { DateTime } from 'luxon'
+import Employee from '#models/employee'
+import SyncAssistsService from '#services/sync_assists_service'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
+import { getBusinessTimeZone } from '#utils/business_date'
+import { AssistError } from '#exceptions/assist_error'
+import { resolveAssistBusinessUnitId } from '#helpers/assist_business_unit_guard'
+import {
+  assistIngestionNaturalKey,
+  getAssistPunchTimeFutureToleranceSeconds,
+  getAssistPunchTimeMaxBackdateHours,
+  isAssistArrivalDeferred,
+} from './assist_ingestion.constants.js'
+import AssistIngestionRepositoryMysql from './assist_ingestion.repository.mysql.js'
+import CalendarRecalcRepositoryMysql from './calendar-recalc/calendar_recalc.repository.mysql.js'
+import type {
+  CalendarRecalcJob,
+  CalendarRecalcRepository,
+} from './calendar-recalc/calendar_recalc.repository.js'
+import {
+  ASSIST_INGESTION_BATCH_DUPLICATE_ITEM,
+  ASSIST_INGESTION_EMPLOYEE_NOT_FOUND,
+  ASSIST_INGESTION_EMPLOYEE_TERMINATED,
+  ASSIST_INGESTION_PUNCH_TIME_FORMAT,
+  ASSIST_INGESTION_PUNCH_TIME_FUTURE,
+  ASSIST_INGESTION_PUNCH_TIME_OUT_OF_WINDOW,
+  ASSIST_INGESTION_TENANT_UNRESOLVED,
+} from './assist_ingestion.rejections.js'
+import type { AssistIngestionRepository } from './assist_ingestion.repository.js'
+import type {
+  AssistIngestionItem,
+  AssistIngestionItemResult,
+  AssistIngestionPersisted,
+  AssistIngestionRecord,
+  AssistIngestionRejection,
+  AssistIngestionResult,
+  AssistIngestionSubject,
+  AssistIngestionSummary,
+} from './dto/assist_ingestion.dto.js'
+
+/** Colaborador resuelto: a quién pertenece la checada y de qué empresa es. */
+interface ResolvedSubject {
+  employeeId: number
+  employeeCode: string
+  businessUnitId: number
+}
+
+type SubjectResolution =
+  | { ok: true; subject: ResolvedSubject }
+  | { ok: false; rejection: AssistIngestionRejection }
+
+/** Opciones de una entrega. Sin ellas el comportamiento es exactamente el de siempre. */
+export interface AssistIngestionOptions {
+  /**
+   * Encola el recálculo de calendarios en vez de correrlo dentro de la
+   * petición. Lo usa el canal del checador, que debe acusar en segundos.
+   */
+  deferCalendarRecalc?: boolean
+}
+
+/**
+ * Motor de ingesta de checadas.
+ *
+ * Resuelve el sujeto de cada elemento, descarta los gemelos que vienen repetidos
+ * dentro de la misma entrega, delega la escritura idempotente en el puerto y arma
+ * el veredicto por elemento conservando el orden original.
+ *
+ * El recálculo del calendario se dispara **sólo** por los elementos `inserted` y
+ * **una sola vez por colaborador**, cubriendo el rango de todas sus checadas de la
+ * entrega: un reenvío no cuesta trabajo, o una entrega de doscientas repeticiones
+ * se convertiría en doscientos recálculos pedidos por el cliente.
+ */
+export default class AssistIngestionService {
+  private readonly repository: AssistIngestionRepository
+  private readonly calendarRecalc: CalendarRecalcRepository
+  private readonly siteTimeZones: SiteTimeZoneService
+
+  constructor(
+    repository: AssistIngestionRepository = new AssistIngestionRepositoryMysql(),
+    calendarRecalc: CalendarRecalcRepository = new CalendarRecalcRepositoryMysql(),
+    siteTimeZones: SiteTimeZoneService = new SiteTimeZoneService()
+  ) {
+    this.repository = repository
+    this.calendarRecalc = calendarRecalc
+    this.siteTimeZones = siteTimeZones
+  }
+
+  async ingest(
+    items: AssistIngestionItem[],
+    options: AssistIngestionOptions = {}
+  ): Promise<AssistIngestionResult> {
+    const results: AssistIngestionItemResult[] = items.map((item, index) => ({
+      index,
+      clientRef: item.clientRef,
+      outcome: 'rejected',
+      assist: null,
+      error: ASSIST_INGESTION_EMPLOYEE_NOT_FOUND,
+    }))
+
+    const records: AssistIngestionRecord[] = []
+    const seenNaturalKeys = new Set<string>()
+
+    for (const [index, item] of items.entries()) {
+      const resolution = await this.resolveSubject(item.subject)
+      if (!resolution.ok) {
+        results[index].error = resolution.rejection
+        continue
+      }
+
+      const record: AssistIngestionRecord = {
+        index,
+        businessUnitId: resolution.subject.businessUnitId,
+        employeeId: resolution.subject.employeeId,
+        employeeCode: resolution.subject.employeeCode,
+        assistType: item.assistType,
+        punchTimeUtc: item.punchTimeUtc,
+        geo: item.geo,
+        origin: item.origin,
+        createdByUserId: item.createdByUserId,
+        terminalSn: item.terminalSn,
+        terminalAlias: item.terminalAlias,
+        verifyMethod: item.verifyMethod,
+      }
+
+      // Los gemelos se resuelven en memoria, antes de tocar la base: si se dejaran
+      // a la base, el segundo saldría como "ya estaba" —indistinguible de un
+      // reenvío legítimo— y un cliente podría provocar excepciones a voluntad.
+      const naturalKey = assistIngestionNaturalKey(record)
+      if (seenNaturalKeys.has(naturalKey)) {
+        results[index].error = ASSIST_INGESTION_BATCH_DUPLICATE_ITEM
+        continue
+      }
+      seenNaturalKeys.add(naturalKey)
+
+      records.push(record)
+    }
+
+    const persisted = await this.repository.ingestMany(records)
+
+    for (const row of persisted) {
+      results[row.index] = {
+        index: row.index,
+        clientRef: items[row.index].clientRef,
+        outcome: row.outcome,
+        assist: row.assist,
+        error: null,
+      }
+    }
+
+    if (options.deferCalendarRecalc) {
+      await this.enqueueCalendarRecalc(persisted)
+    } else {
+      await this.recalculateCalendars(persisted)
+    }
+
+    return { results, summary: summarize(results) }
+  }
+
+  /**
+   * Encola el recálculo en vez de correrlo (spec ADMS 5.4).
+   *
+   * El checador reintenta cada pocos segundos si no recibe acuse, así que el
+   * recálculo, que puede tardar, no puede vivir dentro de su petición. Los
+   * bordes son los mismos que en el recálculo directo: un día antes y uno
+   * después, en la zona de negocio.
+   *
+   * Cuenta también las `preexisting`: insertar la checada y encolar su
+   * recálculo no ocurre en la misma transacción, así que un proceso que muere
+   * en medio deja la checada guardada y el trabajo no. El reenvío del equipo es
+   * la única reparación posible, y ahí esas checadas ya no son nuevas. Encolar
+   * de más cuesta un INSERT y el consumidor funde por colaborador; no encolar
+   * deja un calendario mal para siempre.
+   */
+  private async enqueueCalendarRecalc(persisted: AssistIngestionPersisted[]): Promise<void> {
+    const ranges = assistIngestionCalendarRanges(persisted, true)
+    if (ranges.size === 0) return
+
+    const byEmployee = new Map<number, number>()
+    for (const row of persisted) {
+      // La inserción exige empresa, así que `null` aquí sería una fila
+      // imposible; se omite en vez de encolar un trabajo sin destino.
+      if (row.assist.businessUnitId === null) continue
+      byEmployee.set(row.assist.assistEmpId, row.assist.businessUnitId)
+    }
+
+    // Los días del rango se recortan en la zona del sitio de cada colaborador,
+    // la misma con la que el recálculo directo arma sus fechas.
+    const zones = await this.siteTimeZones.forEmployees([...ranges.keys()])
+    const jobs: CalendarRecalcJob[] = []
+    for (const [employeeId, range] of ranges) {
+      const businessUnitId = byEmployee.get(employeeId)
+      if (businessUnitId === undefined) continue
+      const zone = zones.get(employeeId)?.zone ?? getBusinessTimeZone()
+      jobs.push({
+        businessUnitId,
+        employeeId,
+        from: range.from.setZone(zone).plus({ day: -1 }).startOf('day'),
+        to: range.to.setZone(zone).plus({ day: 1 }).startOf('day'),
+      })
+    }
+    await this.calendarRecalc.enqueue(jobs)
+  }
+
+  /**
+   * Resuelve el colaborador y su empresa.
+   *
+   * Un colaborador de otra empresa devuelve exactamente el mismo rechazo que uno
+   * inexistente: nadie averigua desde fuera quién trabaja en otra empresa.
+   */
+  private async resolveSubject(subject: AssistIngestionSubject): Promise<SubjectResolution> {
+    const employee =
+      subject.kind === 'employeeId'
+        ? await Employee.query().withTrashed().where('employee_id', subject.employeeId).first()
+        : await Employee.query()
+            .withTrashed()
+            .where('business_unit_id', subject.businessUnitId)
+            .where('employee_code', subject.employeeCode)
+            .first()
+
+    if (!employee) return { ok: false, rejection: ASSIST_INGESTION_EMPLOYEE_NOT_FOUND }
+    if (employee.deletedAt) return { ok: false, rejection: ASSIST_INGESTION_EMPLOYEE_TERMINATED }
+
+    try {
+      return {
+        ok: true,
+        subject: {
+          employeeId: employee.employeeId,
+          employeeCode: employee.employeeCode ? String(employee.employeeCode) : '',
+          businessUnitId: resolveAssistBusinessUnitId(employee.businessUnitId),
+        },
+      }
+    } catch (error) {
+      if (error instanceof AssistError) {
+        return { ok: false, rejection: ASSIST_INGESTION_TENANT_UNRESOLVED }
+      }
+      throw error
+    }
+  }
+
+  /**
+   * Recalcula el calendario de asistencia de cada colaborador con al menos una
+   * checada nueva, una sola vez y cubriendo el rango de todas sus checadas.
+   */
+  private async recalculateCalendars(persisted: AssistIngestionPersisted[]): Promise<void> {
+    const ranges = assistIngestionCalendarRanges(persisted)
+    if (ranges.size === 0) return
+
+    const zones = await this.siteTimeZones.forEmployees([...ranges.keys()])
+    const syncAssistsService = new SyncAssistsService()
+    for (const [employeeID, range] of ranges) {
+      const zone = zones.get(employeeID)?.zone ?? getBusinessTimeZone()
+      await syncAssistsService.setDateCalendar({
+        date: range.from.setZone(zone).plus({ day: -1 }).toFormat('yyyy-MM-dd'),
+        dateEnd: range.to.setZone(zone).plus({ day: 1 }).toFormat('yyyy-MM-dd'),
+        employeeID,
+      })
+    }
+  }
+}
+
+/**
+ * Rango de recálculo por colaborador: un solo tramo por cada persona con al menos
+ * una checada nueva, cubriendo desde su marcaje más antiguo hasta el más reciente.
+ *
+ * Los desenlaces que no escribieron no generan rango: una entrega de doscientas
+ * repeticiones no puede convertirse en doscientos recálculos.
+ */
+/**
+ * Rangos de calendario a recalcular, por colaborador.
+ *
+ * `includePreexisting` es para el camino diferido del canal: ahi el equipo
+ * reenvia el mismo lote cuando no recibe acuse, y si el proceso murio entre
+ * insertar la checada y encolar su recalculo, en el reenvio esas checadas
+ * vuelven como `preexisting`. Sin contarlas, el reintento del aparato --que es
+ * la unica reparacion que hay-- no repara nada y ese calendario se queda sin
+ * recalcular para siempre.
+ *
+ * El camino directo no las cuenta: ahi `preexisting` es una checada que ya
+ * estaba y rehacer su calendario en caliente es trabajo de mas.
+ */
+export function assistIngestionCalendarRanges(
+  persisted: AssistIngestionPersisted[],
+  includePreexisting: boolean = false
+): Map<number, { from: DateTime; to: DateTime }> {
+  const ranges = new Map<number, { from: DateTime; to: DateTime }>()
+
+  for (const row of persisted) {
+    const counts =
+      row.outcome === 'inserted' || (includePreexisting && row.outcome === 'preexisting')
+    if (!counts) continue
+    const punchTime = row.assist.assistPunchTimeUtc
+    const current = ranges.get(row.assist.assistEmpId)
+    if (!current) {
+      ranges.set(row.assist.assistEmpId, { from: punchTime, to: punchTime })
+      continue
+    }
+    if (punchTime.toMillis() < current.from.toMillis()) current.from = punchTime
+    if (punchTime.toMillis() > current.to.toMillis()) current.to = punchTime
+  }
+
+  return ranges
+}
+
+function summarize(results: AssistIngestionItemResult[]): AssistIngestionSummary {
+  const inserted = results.filter((result) => result.outcome === 'inserted').length
+  const preexisting = results.filter((result) => result.outcome === 'preexisting').length
+  const rejected = results.filter((result) => result.outcome === 'rejected').length
+
+  return {
+    received: results.length,
+    inserted,
+    preexisting,
+    rejected,
+    acknowledged: inserted + preexisting,
+  }
+}
+
+const LEGACY_PUNCH_TIME_FORMAT = 'yyyy-MM-dd HH:mm:ss'
+/** ISO-8601 con desfase explícito: `Z`, `+HH:MM`, `-HH:MM` o sin dos puntos. */
+const EXPLICIT_OFFSET = /(?:Z|[+-]\d{2}:?\d{2})$/
+
+/** Hora de captura resuelta, o el motivo por el que no se acepta. */
+export type ResolvedPunchTime =
+  | { ok: true; punchTimeUtc: DateTime; deferredBySeconds: number; deferred: boolean }
+  | { ok: false; rejection: AssistIngestionRejection }
+
+/**
+ * Resuelve la hora en que ocurrió la checada.
+ *
+ * **El orden no es negociable:** parsear → normalizar a UTC → validar futuro →
+ * validar ventana → derivar la marca de diferida. Cualquier ajuste aplicado antes de
+ * validar desplaza la frontera de "futuro" y falsea la marca.
+ *
+ * Sin hora declarada se usa el reloj del servidor y no se evalúa la ventana: un
+ * equipo que no se ha actualizado sigue registrando exactamente como hoy.
+ *
+ * La ventana hacia atrás se puede desactivar: la captura administrativa desde
+ * el backoffice corrige el pasado a propósito y su tope lo pone el alcance en
+ * días del rol (`admin_capture_scope`), no el hueco de conexión del canal.
+ *
+ * @param declared hora que el equipo de origen declara, si la declara
+ * @param receivedAt instante en que el servidor recibió la checada
+ * @param legacyZone zona IANA del sitio con la que se lee el formato sin desfase (`YYYY-MM-DD HH:mm:ss`)
+ * @param options `enforceBackdateWindow` en `false` omite la ventana del canal
+ */
+export function resolvePunchTime(
+  declared: string | null | undefined,
+  receivedAt: DateTime,
+  legacyZone: string = getBusinessTimeZone(),
+  options: { enforceBackdateWindow?: boolean } = {}
+): ResolvedPunchTime {
+  const received = receivedAt.toUTC()
+
+  if (declared === null || declared === undefined || declared.trim() === '') {
+    return { ok: true, punchTimeUtc: received, deferredBySeconds: 0, deferred: false }
+  }
+
+  const value = declared.trim()
+  const parsed = EXPLICIT_OFFSET.test(value)
+    ? DateTime.fromISO(value, { setZone: true }).toUTC()
+    : DateTime.fromFormat(value, LEGACY_PUNCH_TIME_FORMAT, { zone: legacyZone }).toUTC()
+
+  if (!parsed.isValid) {
+    return { ok: false, rejection: ASSIST_INGESTION_PUNCH_TIME_FORMAT }
+  }
+
+  const aheadSeconds = parsed.diff(received, 'seconds').seconds
+  if (aheadSeconds > getAssistPunchTimeFutureToleranceSeconds()) {
+    return { ok: false, rejection: ASSIST_INGESTION_PUNCH_TIME_FUTURE }
+  }
+
+  const behindSeconds = received.diff(parsed, 'seconds').seconds
+  if (
+    options.enforceBackdateWindow !== false &&
+    behindSeconds > getAssistPunchTimeMaxBackdateHours() * 3600
+  ) {
+    return { ok: false, rejection: ASSIST_INGESTION_PUNCH_TIME_OUT_OF_WINDOW }
+  }
+
+  return {
+    ok: true,
+    punchTimeUtc: parsed,
+    deferredBySeconds: Math.max(0, Math.trunc(behindSeconds)),
+    deferred: isAssistArrivalDeferred(parsed, received),
+  }
+}

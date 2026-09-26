@@ -1,6 +1,7 @@
 /* eslint-disable prettier/prettier */
 import mail from '@adonisjs/mail/services/main'
 import env from '#start/env'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import ProceedingFile from '#models/proceeding_file'
 import { DateTime } from 'luxon'
 import { ProceedingFileExpiredFilterInterface } from '../interfaces/proceeding_file_expired_filter_interface.js'
@@ -10,7 +11,6 @@ import ProceedingFileTypeService from './proceeding_file_type_service.js'
 import { ProceedingFileTypeEmailExpiredAndExpiringInterface } from '../interfaces/proceeding_file_type_email_expired_and_expiring_interface.js'
 import { SetProceedingFileToEmailInterface } from '../interfaces/set_proceeding_file_to_email_interface.js'
 import SystemSettingService from './system_setting_service.js'
-import SystemSetting from '#models/system_setting'
 import EmployeeProceedingFileType from '#models/employee_proceeding_file_type'
 import SystemSettingProceedingFile from '#models/system_setting_proceeding_file'
 import { LogStore } from '#models/MongoDB/log_store'
@@ -300,13 +300,22 @@ export default class ProceedingFileService {
       await this.setProceedingFileToEmail(filtersToSetEmail)
     }
 
-    const userEmail = env.get('SMTP_USERNAME')
+    const userEmail = resolveMailSender()
 
     if (userEmail) {
       let tradeName = 'BO'
       let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
+      // USRH1783712837584: NO migrado a resolveByBusinessUnitId a propósito.
+      // Este reporte (`sendFilesExpiresToEmail`, ruta autenticada pero sin
+      // `businessScope`) agrega vencimientos de TODAS las empresas en un solo
+      // correo (sin filtro por business_unit_id en `getExpiredAndExpiring`),
+      // así que no existe un único tenant que resolver aquí. Es de hecho un
+      // proceso cross-tenant tipo batch pese a vivir detrás de un endpoint
+      // HTTP autenticado — se deja con `getActive()` y se reclasifica para la
+      // hermana batch (USRH1783713925140) en vez de forzar un fail-closed que
+      // rompería el reporte.
       const systemSettingService = new SystemSettingService()
-      const systemSettingActive = (await systemSettingService.getActive()) as unknown as SystemSetting
+      const systemSettingActive = await systemSettingService.resolveForActiveTenant()
       if (systemSettingActive) {
         if ( systemSettingActive.systemSettingLogo) {
           backgroundImageLogo = systemSettingActive.systemSettingLogo

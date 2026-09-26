@@ -7,3 +7,4 @@ router
   })
   .prefix('/api/v1/employee-assist-calendars')
   .use(middleware.auth())
+  .use(middleware.businessScope())

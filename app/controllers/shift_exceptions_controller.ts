@@ -8,11 +8,17 @@ import ExceptionType from '#models/exception_type'
 import { ShiftExceptionErrorInterface } from '../interfaces/shift_exception_error_interface.js'
 import VacationAuthorizationSignature from '#models/vacation_authorization_signature'
 import ExceptionRequest from '#models/exception_request'
-import Env from '#start/env'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import { ShiftExceptionGeneralErrorInterface } from '../interfaces/shift_exception_general_error_interface.js'
 import NotificationEmailService from '#services/notification_email_service'
+import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { shiftExceptionTouchesVacation } from '#helpers/shift_exception_touches_vacation'
+import { EMPLOYEES_MANAGE_VACATION_PERMISSION } from '#constants/employees_write_permission_declarations'
+import {
+  assertDayWithinRoleScope,
+  assertDayWithinRoleScopeForEmployees,
+} from '#modules/role-scope/day_scope_guard'
 
 export default class ShiftExceptionController {
   /**
@@ -73,7 +79,8 @@ export default class ShiftExceptionController {
    *       400:
    *         description: Validation error
    */
-  async store({ auth, request, response, i18n }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
     try {
       const employeeId = request.input('employeeId')
       const shiftExceptionsDescription = request.input('shiftExceptionsDescription')
@@ -107,16 +114,45 @@ export default class ShiftExceptionController {
         .where('exception_type_id', exceptionTypeId)
         .first()
       const isVacation = exceptionType?.exceptionTypeSlug === 'vacation'
+      if (await shiftExceptionTouchesVacation({ nextExceptionTypeId: Number(exceptionTypeId) })) {
+        const allowed = await ensureSecondaryPermission(ctx, EMPLOYEES_MANAGE_VACATION_PERMISSION)
+        if (!allowed) {
+          return
+        }
+      }
+
+      const buUnits = businessUnitScope.length > 0
+        ? await BusinessUnit.query()
+            .whereIn('business_unit_id', businessUnitScope)
+            .where('business_unit_active', 1)
+        : []
+      const businessSlugs = buUnits.map((bu) => bu.businessUnitSlug)
 
       const datesToCreate: string[] = isVacation && daysToApply > 0
         ? await new ShiftExceptionService(i18n).getVacationBusinessDays(
             employeeId,
             shiftExceptionsDate,
-            daysToApply
+            daysToApply,
+            businessSlugs
           )
         : Array.from({ length: daysToApply }, (_, i) =>
             shiftExceptionsDate.plus({ days: i }).toISODate()
           )
+
+      // La excepción cubre un día concreto del pasado, igual que una captura
+      // manual de checada, así que respeta los días que el rol alcanza a
+      // modificar. Se juzga la primera fecha porque la tanda avanza hacia
+      // adelante: si la más antigua entra, las demás también.
+      const storeDayScopeRejection = await assertDayWithinRoleScope({
+        user: auth.user,
+        employeeId,
+        day: datesToCreate[0],
+        i18n,
+      })
+      if (storeDayScopeRejection) {
+        response.status(storeDayScopeRejection.status)
+        return storeDayScopeRejection.body
+      }
 
       for (const currentDate of datesToCreate) {
         const shiftException = {
@@ -271,7 +307,8 @@ export default class ShiftExceptionController {
    *       404:
    *         description: Shift exception not found
    */
-  async update({ auth, params, request, response, i18n }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { auth, params, request, response, i18n } = ctx
     try {
       const employeeId = request.input('employeeId')
       const shiftExceptionsDescription = request.input('shiftExceptionsDescription')
@@ -296,6 +333,36 @@ export default class ShiftExceptionController {
       await request.validateUsing(createShiftExceptionValidator)
       const shiftExceptionService = new ShiftExceptionService(i18n)
       const currentShiftException = await ShiftException.findOrFail(params.id)
+
+      // La edición libera el día que tenía y ocupa el nuevo, así que los dos
+      // deben caer dentro del alcance del rol.
+      for (const side of [
+        { employeeId: currentShiftException.employeeId, day: currentShiftException.shiftExceptionsDate },
+        { employeeId, day: shiftExceptionsDate },
+      ]) {
+        const rejection = await assertDayWithinRoleScope({
+          user: auth.user,
+          employeeId: side.employeeId,
+          day: side.day,
+          i18n,
+        })
+        if (rejection) {
+          response.status(rejection.status)
+          return rejection.body
+        }
+      }
+
+      if (
+        await shiftExceptionTouchesVacation({
+          currentExceptionTypeId: currentShiftException.exceptionTypeId,
+          nextExceptionTypeId: Number(exceptionTypeId),
+        })
+      ) {
+        const allowed = await ensureSecondaryPermission(ctx, EMPLOYEES_MANAGE_VACATION_PERMISSION)
+        if (!allowed) {
+          return
+        }
+      }
       const previousShiftException = JSON.parse(JSON.stringify(currentShiftException))
       const shiftException = {
         shiftExceptionId: params.id,
@@ -389,9 +456,28 @@ export default class ShiftExceptionController {
    *       404:
    *         description: Shift exception not found
    */
-  async destroy({ auth, request, params, response, i18n }: HttpContext) {
+  async destroy(ctx: HttpContext) {
+    const { auth, request, params, response, i18n } = ctx
     try {
       const shiftException = await ShiftException.findOrFail(params.id)
+
+      const destroyDayScopeRejection = await assertDayWithinRoleScope({
+        user: auth.user,
+        employeeId: shiftException.employeeId,
+        day: shiftException.shiftExceptionsDate,
+        i18n,
+      })
+      if (destroyDayScopeRejection) {
+        response.status(destroyDayScopeRejection.status)
+        return destroyDayScopeRejection.body
+      }
+
+      if (await shiftExceptionTouchesVacation({ currentExceptionTypeId: shiftException.exceptionTypeId })) {
+        const allowed = await ensureSecondaryPermission(ctx, EMPLOYEES_MANAGE_VACATION_PERMISSION)
+        if (!allowed) {
+          return
+        }
+      }
 
       // Cambiar findByOrFail por findBy
       const signature = await VacationAuthorizationSignature.findBy('shift_exception_id', shiftException.shiftExceptionId)
@@ -877,7 +963,8 @@ export default class ShiftExceptionController {
    *                     error:
    *                       type: string
    */
-   async applyExceptionGeneral({ auth, request, response, i18n }: HttpContext) {
+   async applyExceptionGeneral(ctx: HttpContext) {
+    const { auth, request, response, i18n, businessUnitScope } = ctx
     try {
       const exceptionTypeId = request.input('exceptionTypeId')
       const shiftExceptionsDescription = request.input('shiftExceptionsDescription')
@@ -918,6 +1005,12 @@ export default class ShiftExceptionController {
           data: { ...exceptionTypeId },
         }
       }
+      if (await shiftExceptionTouchesVacation({ nextExceptionTypeId: Number(exceptionTypeId) })) {
+        const allowed = await ensureSecondaryPermission(ctx, EMPLOYEES_MANAGE_VACATION_PERMISSION)
+        if (!allowed) {
+          return
+        }
+      }
 
       const shiftExceptionCheckInTime = request.input('shiftExceptionCheckInTime')
       const shiftExceptionCheckOutTime = request.input('shiftExceptionCheckOutTime')
@@ -947,17 +1040,12 @@ export default class ShiftExceptionController {
       const shiftExceptionsSaved = [] as Array<ShiftException>
       const shiftExceptionsError = [] as Array<ShiftExceptionGeneralErrorInterface>
 
-      const businessConf = `${Env.get('SYSTEM_BUSINESS')}`
-      const businessList = businessConf.split(',')
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_slug', businessList)
-
-
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitId)
-
       const employeesQuery = Employee.query()
-        .whereIn('businessUnitId', businessUnitsList)
+        .if(
+          businessUnitScope.length > 0,
+          (q) => q.whereIn('businessUnitId', businessUnitScope),
+          (q) => q.whereRaw('1 = 0')
+        )
         .preload('person')
         .orderBy('employee_id')
 
@@ -973,6 +1061,21 @@ export default class ShiftExceptionController {
       }
 
       const employees = await employeesQuery
+
+      // La aplicación masiva escribe una sola fecha sobre muchas personas, y el
+      // tope del rol rige igual que en el alta de una. Se corta antes de
+      // escribir nada: aplicarla a medias dejaría sin saber a quién alcanzó.
+      const generalDayScopeRejection = await assertDayWithinRoleScopeForEmployees({
+        user: auth.user,
+        employeeIds: employees.map((employee) => employee.employeeId),
+        day: shiftExceptionsDateISO,
+        i18n,
+      })
+      if (generalDayScopeRejection) {
+        response.status(generalDayScopeRejection.status)
+        return generalDayScopeRejection.body
+      }
+
       const results = await Promise.allSettled(
         employees.map(async (employee) => {
           const shiftException = {

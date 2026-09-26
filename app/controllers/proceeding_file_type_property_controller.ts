@@ -17,6 +17,12 @@ export default class ProceedingFileTypePropertyController {
    *       - Proceeding File Type Properties
    *     summary: get all
    *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Active business unit ID of the authenticated user (businessScope middleware)
    *       - name: search
    *         in: query
    *         required: false
@@ -58,7 +64,7 @@ export default class ProceedingFileTypePropertyController {
    *                   type: object
    *                   description: Object processed
    *       '404':
-   *         description: The resource could not be found
+   *         description: The resource could not be found, or the X-Business-Unit-Id header is invalid or out of the user's scope (key BU.NOT.001, businessScope middleware)
    *         content:
    *           application/json:
    *             schema:
@@ -77,7 +83,7 @@ export default class ProceedingFileTypePropertyController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request.
+   *         description: The parameters entered are invalid or essential data is missing to process the request. Also returned when the X-Business-Unit-Id header is missing (key BU.VAL.000, businessScope middleware)
    *         content:
    *           application/json:
    *             schema:
@@ -157,6 +163,12 @@ export default class ProceedingFileTypePropertyController {
    *     security:
    *       - bearerAuth: []
    *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Active business unit ID of the authenticated user (businessScope middleware). Datos capturados por otra empresa nunca viajan; se devuelve la ficha en blanco (ver 200).
    *       - name: employeeId
    *         in: query
    *         required: true
@@ -178,9 +190,15 @@ export default class ProceedingFileTypePropertyController {
    *     tags:
    *       - Proceeding File Type Properties
    *     summary: get all categories
+   *     description: |
+   *       If the employee or its proceeding file belongs to a business unit other than
+   *       the active one, the response is still 200 and identical in shape to an
+   *       existing-but-empty record: every property comes back with a single blank
+   *       placeholder value. No data captured by another business unit is ever returned,
+   *       and there is no way to distinguish "not found" from "not yours" (anti-IDOR).
    *     responses:
    *       '200':
-   *         description: Resource processed successfully
+   *         description: Resource processed successfully (blank placeholder values when the employee/proceeding file is out of the active business unit's scope)
    *         content:
    *           application/json:
    *             schema:
@@ -199,7 +217,7 @@ export default class ProceedingFileTypePropertyController {
    *                   type: object
    *                   description: Object processed
    *       '404':
-   *         description: The resource could not be found
+   *         description: The resource could not be found, or the X-Business-Unit-Id header is invalid or out of the user's scope (key BU.NOT.001, businessScope middleware)
    *         content:
    *           application/json:
    *             schema:
@@ -218,7 +236,26 @@ export default class ProceedingFileTypePropertyController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request.
+   *         description: The parameters entered are invalid or essential data is missing to process the request. Also returned when the X-Business-Unit-Id header is missing (key BU.VAL.000, businessScope middleware)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Response message
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '403':
+   *         description: Forbidden by permission gate (key PERM.DENIED / PERM.UNRESOLVED)
    *         content:
    *           application/json:
    *             schema:
@@ -297,6 +334,105 @@ export default class ProceedingFileTypePropertyController {
   /**
    * Categorías y valores para proceeding files vinculados a un system setting.
    * Query: systemSettingId, proceedingFileId, proceedingFileTypeId (todos obligatorios).
+   *
+   * @swagger
+   * /api/proceeding-file-type-properties/get-categories-by-system-setting:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Proceeding File Type Properties
+   *     summary: get all categories linked to a system setting proceeding file
+   *     description: |
+   *       If the proceeding file resolves outside the active business unit's scope,
+   *       the response is still 200 with blank placeholder values (anti-IDOR); no data
+   *       captured by another business unit is ever returned.
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Active business unit ID of the authenticated user (businessScope middleware)
+   *       - name: systemSettingId
+   *         in: query
+   *         required: true
+   *         schema:
+   *           type: number
+   *       - name: proceedingFileId
+   *         in: query
+   *         required: true
+   *         schema:
+   *           type: number
+   *       - name: proceedingFileTypeId
+   *         in: query
+   *         required: true
+   *         schema:
+   *           type: number
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully (blank placeholder values when the proceeding file is out of the active business unit's scope)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '400':
+   *         description: Missing/invalid query parameters, or the X-Business-Unit-Id header is missing (key BU.VAL.000, businessScope middleware)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       '404':
+   *         description: The system-setting/proceeding-file link or the proceeding file itself was not found, or the X-Business-Unit-Id header is invalid or out of the user's scope (key BU.NOT.001, businessScope middleware)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *       default:
+   *         description: Unexpected error
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                 title:
+   *                   type: string
+   *                 message:
+   *                   type: string
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     error:
+   *                       type: string
    */
   async getCategoriesBySystemSetting({ request, response }: HttpContext) {
     try {
@@ -433,6 +569,13 @@ export default class ProceedingFileTypePropertyController {
    *     summary: create new proceeding file type property
    *     produces:
    *       - application/json
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Active business unit ID of the authenticated user (businessScope middleware)
    *     requestBody:
    *       content:
    *         application/json:
@@ -484,7 +627,7 @@ export default class ProceedingFileTypePropertyController {
    *                     proceedingFileTypeProperty:
    *                       $ref: '#/components/schemas/ProceedingFileTypeProperty'
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: The parameters entered are invalid or essential data is missing to process the request. Also returned when the X-Business-Unit-Id header is missing (key BU.VAL.000, businessScope middleware)
    *         content:
    *           application/json:
    *             schema:
@@ -503,7 +646,26 @@ export default class ProceedingFileTypePropertyController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '404':
-   *         description: Proceeding file type not found
+   *         description: Proceeding file type not found, or the X-Business-Unit-Id header is invalid or out of the user's scope (key BU.NOT.001, businessScope middleware)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '403':
+   *         description: Forbidden — requires 'tab-expediente-write' on the employees module (key PERM.DENIED / PERM.UNRESOLVED, permissionGate middleware)
    *         content:
    *           application/json:
    *             schema:
@@ -598,6 +760,13 @@ export default class ProceedingFileTypePropertyController {
    *     summary: create multiple proceeding file type properties
    *     produces:
    *       - application/json
+   *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Active business unit ID of the authenticated user (businessScope middleware)
    *     requestBody:
    *       content:
    *         application/json:
@@ -665,7 +834,7 @@ export default class ProceedingFileTypePropertyController {
    *                           error:
    *                             type: string
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: The parameters entered are invalid or essential data is missing to process the request. Also returned when the X-Business-Unit-Id header is missing (key BU.VAL.000, businessScope middleware)
    *         content:
    *           application/json:
    *             schema:
@@ -684,7 +853,26 @@ export default class ProceedingFileTypePropertyController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '404':
-   *         description: Proceeding file type not found
+   *         description: Proceeding file type not found, or the X-Business-Unit-Id header is invalid or out of the user's scope (key BU.NOT.001, businessScope middleware)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '403':
+   *         description: Forbidden — requires 'tab-expediente-write' on the employees module (key PERM.DENIED / PERM.UNRESOLVED, permissionGate middleware)
    *         content:
    *           application/json:
    *             schema:
@@ -778,6 +966,12 @@ export default class ProceedingFileTypePropertyController {
    *     produces:
    *       - application/json
    *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Active business unit ID of the authenticated user (businessScope middleware)
    *       - in: path
    *         name: proceedingFileTypeId
    *         schema:
@@ -810,7 +1004,26 @@ export default class ProceedingFileTypePropertyController {
    *                       items:
    *                         $ref: '#/components/schemas/ProceedingFileTypeProperty'
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: The parameters entered are invalid or essential data is missing to process the request. Also returned when the X-Business-Unit-Id header is missing (key BU.VAL.000, businessScope middleware)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '404':
+   *         description: The X-Business-Unit-Id header is invalid or out of the user's scope (key BU.NOT.001, businessScope middleware)
    *         content:
    *           application/json:
    *             schema:
@@ -908,6 +1121,12 @@ export default class ProceedingFileTypePropertyController {
    *     produces:
    *       - application/json
    *     parameters:
+   *       - in: header
+   *         name: X-Business-Unit-Id
+   *         required: true
+   *         schema:
+   *           type: string
+   *         description: Active business unit ID of the authenticated user (businessScope middleware)
    *       - in: path
    *         name: proceedingFileTypePropertyId
    *         schema:
@@ -938,7 +1157,7 @@ export default class ProceedingFileTypePropertyController {
    *                     proceedingFileTypeProperty:
    *                       $ref: '#/components/schemas/ProceedingFileTypeProperty'
    *       '404':
-   *         description: Property not found
+   *         description: Property not found, or the X-Business-Unit-Id header is invalid or out of the user's scope (key BU.NOT.001, businessScope middleware)
    *         content:
    *           application/json:
    *             schema:
@@ -957,7 +1176,26 @@ export default class ProceedingFileTypePropertyController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: The parameters entered are invalid or essential data is missing to process the request. Also returned when the X-Business-Unit-Id header is missing (key BU.VAL.000, businessScope middleware)
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   description: Type of response generated
+   *                 title:
+   *                   type: string
+   *                   description: Title of response generated
+   *                 message:
+   *                   type: string
+   *                   description: Message of response
+   *                 data:
+   *                   type: object
+   *                   description: List of parameters set by the client
+   *       '403':
+   *         description: Forbidden — requires 'tab-expediente-delete' on the employees module (key PERM.DENIED / PERM.UNRESOLVED, permissionGate middleware)
    *         content:
    *           application/json:
    *             schema:

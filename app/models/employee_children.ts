@@ -1,8 +1,11 @@
 /* eslint-disable max-len */
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, column } from '@adonisjs/lucid/orm'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 import { DateTime } from 'luxon'
+import Employee from './employee.js'
 /**
  * @swagger
  * components:
@@ -40,7 +43,7 @@ import { DateTime } from 'luxon'
  *
  */
 
-export default class EmployeeChildren extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeChildren extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) {
   @column({ isPrimary: true })
   declare employeeChildrenId: number
 
@@ -61,6 +64,20 @@ export default class EmployeeChildren extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare employeeId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, ESB-07-08-03-08). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (ESB-07-08-03-08). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeChildren) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   @column.dateTime({ autoCreate: true })
   declare employeeChildrenCreatedAt: DateTime

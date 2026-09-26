@@ -8,14 +8,121 @@ import Position from '#models/position'
 import Department from '#models/department'
 import { AssistPositionExcelFilterInterface } from '../interfaces/assist_position_excel_filter_interface.js'
 import { AssistDepartmentExcelFilterInterface } from '../interfaces/assist_department_excel_filter_interface.js'
+import { AssistExcelFilterInterface } from '../interfaces/assist_excel_filter_interface.js'
 import UserService from '#services/user_service'
+import {
+  emptyEmployeeRoleScope,
+  resolveEmployeeRoleScopeForUser,
+} from '#helpers/resolve_employee_role_scope'
 import Assist from '#models/assist'
 import { DateTime } from 'luxon'
 import { AssistSyncFilterInterface } from '../interfaces/assist_sync_filter_interface.js'
 import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_interface.js'
 import { PermissionsDatesExcelFilterInterface } from '../interfaces/permissions_dates_excel_filter_interface.js'
+import env from '#start/env'
+import {
+  buildDownloadFileName,
+  contentDisposition,
+  formatDownloadFileDate,
+} from '#helpers/download_file_name'
+import {
+  ASSISTANCE_REPORT_FILE_PREFIX,
+  type AssistanceReportFileKind,
+} from '#constants/assistance_report_file'
+import RoleService from '#services/role_service'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import { ensureEmployeeAssistWrite } from '#helpers/ensure_employee_assist_write'
+import { ASSIST_ERROR_CODES } from '#constants/assist_error_codes'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { resolveAssistApiError } from '#helpers/assist_api_error'
+import { AssistError } from '#exceptions/assist_error'
+import { TenantContext } from '#utils/tenant_context'
+import AssistIngestionService, {
+  resolvePunchTime,
+} from '#modules/assist-ingestion/assist_ingestion.service'
+import {
+  mapIngestionResultToHttp,
+  resolveAssistOrigin,
+} from '#modules/assist-ingestion/assist_ingestion.controller'
+import { resolveAdminCaptureRejection } from '#modules/assist-ingestion/admin_capture_scope'
+import { ASSIST_ORIGIN } from '#constants/assist_origin'
+import {
+  ASSIST_INGESTION_EMPLOYEE_TERMINATED,
+  ASSIST_INGESTION_FOREIGN_WRITE,
+} from '#modules/assist-ingestion/assist_ingestion.rejections'
+import {
+  firstValidationIssue,
+  storeAssistValidator,
+} from '#modules/assist-ingestion/validators/store_assist.validator'
+import type { StoreAssistPayload } from '#modules/assist-ingestion/validators/store_assist.validator'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
+import { employeeSynchronizeAssistsValidator } from '#validators/assist_employee_synchronize'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
+import { reportI18n } from '#helpers/report_locale'
+
+const ATTENDANCE_MONITOR_MODULE_SLUG = 'employees-attendance-monitor'
 
 export default class AssistsController {
+
+  /**
+   * Gate server-side del reporte de nómina (USRH1785766125045): estas rutas
+   * legacy (`get-excel-all`/`get-excel-by-employee`/`get-excel-by-department`)
+   * seguían aceptando `reportType='Incident Summary Payroll'` de cualquier
+   * usuario autenticado (fail-open documentado). El job asíncrono
+   * (`report_jobs_controller`) es el camino recomendado, pero estas rutas
+   * siguen expuestas: se cierran aquí con el mismo permiso `see-payroll`.
+   */
+  private async assertCanSeePayroll(userRoleId: number): Promise<boolean> {
+    const roleService = new RoleService()
+    return roleService.hasAccess(userRoleId, ATTENDANCE_MONITOR_MODULE_SLUG, 'see-payroll')
+  }
+
+  /**
+   * Nombre de descarga de los Excel síncronos de asistencia según `reportType`
+   * (`Assistance Report`, `Incident Summary`, `Incident Summary Payroll`).
+   *
+   * @param reportType - Tipo recibido del cliente (ya validado por el endpoint).
+   * @param filterDate - Inicio del periodo tal como llegó.
+   * @param filterDateEnd - Fin del periodo tal como llegó.
+   * @param employeeSlug - Slug del empleado si el reporte es de uno solo; nunca su nombre o número.
+   */
+  private assistanceReportFileName(
+    reportType: string,
+    filterDate: string | undefined,
+    filterDateEnd: string | undefined,
+    employeeSlug: string | null = null
+  ): string {
+    const kinds: Record<string, AssistanceReportFileKind> = {
+      'Assistance Report': 'assistance',
+      'Incident Summary': 'incidentSummary',
+      'Incident Summary Payroll': 'incidentSummaryPayroll',
+    }
+    const prefix = ASSISTANCE_REPORT_FILE_PREFIX[kinds[reportType] ?? 'assistance']
+    return buildDownloadFileName(
+      [
+        prefix,
+        employeeSlug,
+        // Una fecha ausente se omite: sustituirla por hoy mentiría sobre el periodo.
+        filterDate ? formatDownloadFileDate(filterDate) : null,
+        filterDateEnd ? formatDownloadFileDate(filterDateEnd) : null,
+      ],
+      'xlsx'
+    )
+  }
+
+  /**
+   * branchNameIds=2,3,4 → [2,3,4]. Vacío o ausente → undefined (no aplica filtro).
+   */
+  private parseBranchNameIds(value: unknown): number[] | undefined {
+    if (value === null || value === undefined || value === '') {
+      return undefined
+    }
+    const parts = String(value)
+      .split(',')
+      .map((part) => Number(part.trim()))
+      .filter((id) => !Number.isNaN(id) && id > 0)
+    return parts.length > 0 ? parts : undefined
+  }
 
   /**
    * @swagger
@@ -60,15 +167,20 @@ export default class AssistsController {
    *                 message:
    *                   type: string
    *                   example: Ya se encuentra un proceso en sincronización, por favor espere
+   *       403:
+   *         description: Sin permiso `sync-assist` del módulo `employees-attendance-monitor` (permissionGate, key `PERM.DENIED` / `PERM.UNRESOLVED`).
    */
   @inject()
-  async synchronize({ request, response,i18n }: HttpContext) {
+  async synchronize({ request, response, i18n }: HttpContext) {
     const dateParamApi = request.input('date')
     const page = request.input('page')
 
     try {
       const syncAssistsService = new SyncAssistsService(i18n)
-      const result = await syncAssistsService.synchronize(dateParamApi, page)
+      const result = await TenantContext.runUnscoped(
+        () => syncAssistsService.synchronize(dateParamApi, page),
+        TENANT_UNSCOPED_REASON.ASSIST_SYNC_ON_DEMAND
+      )
       return response.status(200).json(result)
     } catch (error) {
       return response.status(400).json({ message: error.message })
@@ -124,28 +236,71 @@ export default class AssistsController {
    *                 message:
    *                   type: string
    *                   example: Ya se encuentra un proceso en sincronización, por favor espere
+   *       403:
+   *         description: Sin permiso `sync-assist` del módulo `employees-attendance-monitor` (permissionGate, key `PERM.DENIED` / `PERM.UNRESOLVED`).
+   *       422:
+   *         description: Rango o colaborador ausente o mal formado (key `datos-invalidos-para-sincronizar-asistencia`, code `AST.VAL.010`).
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: warning
+   *               title: Datos inválidos para sincronizar asistencia
+   *               message: El campo startDate es obligatorio
+   *               detail: El campo startDate es obligatorio
+   *               key: datos-invalidos-para-sincronizar-asistencia
+   *               code: AST.VAL.010
    */
   @inject()
-  async employeeSynchronize(
-    { auth, request, response, i18n }: HttpContext
-  ) {
-    const startDate = request.input('startDate')
-    const endDate = request.input('endDate')
-    const empCode = request.input('empCode')
+  async employeeSynchronize({ auth, request, response, i18n }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     const userId = auth.user?.userId
     const rawHeaders = request.request.rawHeaders
+
+    // Se valida contra `request.all()` —query y cuerpo— porque el panel de
+    // asistencia manda el rango en el query string, igual que la captura de
+    // checadas. Sin esto, un rango ausente llegaba como `undefined` al servicio
+    // y salía como un 400 crudo de `Invalid time value`.
+    let payload: { startDate: string; endDate: string; empCode: string }
+    try {
+      payload = await employeeSynchronizeAssistsValidator.validate(request.all())
+    } catch (validationError) {
+      const detail =
+        firstValidationIssue(validationError)?.message ??
+        t(
+          'assist_employee_sync_invalid_range_message',
+          undefined,
+          'Indica la fecha inicial, la fecha final y el colaborador a sincronizar.'
+        )
+      response.status(422)
+      return {
+        type: 'warning',
+        title: t(
+          'assist_employee_sync_invalid_range_title',
+          undefined,
+          'Datos inválidos para sincronizar asistencia'
+        ),
+        message: detail,
+        detail,
+        key: 'datos-invalidos-para-sincronizar-asistencia',
+        code: ASSIST_ERROR_CODES.VAL_SYNC_RANGE,
+      }
+    }
+
     try {
       const filters = {
-        startDate: startDate,
-        endDate: endDate,
-        empCode: empCode,
+        startDate: payload.startDate,
+        endDate: payload.endDate,
+        empCode: payload.empCode,
         page: 1,
         limit: 5000,
         userId: userId ? userId : 0,
         rawHeaders: rawHeaders,
       } as AssistSyncFilterInterface
       const  syncAssistsService = new SyncAssistsService(i18n)
-      const result = await syncAssistsService.synchronizeByEmployee(filters)
+      const result = await TenantContext.runUnscoped(
+        () => syncAssistsService.synchronizeByEmployee(filters),
+        TENANT_UNSCOPED_REASON.ASSIST_SYNC_ON_DEMAND
+      )
       return response.status(200).json(result)
     } catch (error) {
       return response.status(400).json({ message: error.message })
@@ -211,21 +366,44 @@ export default class AssistsController {
    *         required: true
    *         schema:
    *           type: number
-   *         description: Number of limit on paginator page
+   *         description: Identificador del empleado cuyas checadas se consultan
    *     responses:
    *       200:
-   *         description: Resource action successful
+   *         description: |
+   *           Incluye `data.employeeCalendar`, `data.temporaryAssignments` (préstamos temporales
+   *           del empleado cuyo rango [startDate, endDate] intersecta el periodo `date`–`date-end`,
+   *           YYYY-MM-DD en la zona del sitio; vacío `[]` si no aplica) y `data.timeZone`: zona
+   *           IANA del sitio del empleado (sucursal base, luego empresa, luego sistema) con la que
+   *           se calculó el calendario. Las checadas son instantes UTC y el cliente las muestra
+   *           en `data.timeZone`, no en la zona de quien consulta.
    *         content:
    *           application/json:
    *             schema:
    *               type: object
    *               example: {}
    *       400:
-   *         description: Invalid data
+   *         description: Falta el parámetro obligatorio employeeId
    *         content:
    *           application/json:
    *             schema:
    *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: warning
+   *                 title:
+   *                   type: string
+   *                   example: Recurso
+   *                 message:
+   *                   type: string
+   *                   example: ID de Empleado no fue encontrado
+   *                 data:
+   *                   type: object
+   *                   properties:
+   *                     employeeId:
+   *                       type: number
+   *                       nullable: true
+   *                       example: null
    */
   async index({ request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
@@ -235,23 +413,18 @@ export default class AssistsController {
     const filterDateEnd = request.input('date-end')
     const page = request.input('page')
     const limit = request.input('limit')
-    /*     if (employeeID) {
-      const employee = await Employee.query()
-        .where('employee_id', employeeID)
-        .first()
-      if (employee) {
 
-          const filter: SyncAssistsServiceIndexInterface = {
-            date: filterDate,
-            dateEnd: filterDateEnd,
-            employeeID: employee.employeeId
-          }
-          console.log('procesando: ' + employee.employeeId)
-          const syncAssistsService = new SyncAssistsService()
-          await syncAssistsService.setDateCalendar(filter)
-
+    if (!employeeID) {
+      const entity = t('employee')
+      response.status(400)
+      return {
+        type: 'warning',
+        title: t('resource'),
+        message: t('entity_id_was_not_found', { entity }),
+        data: { employeeId: employeeID ?? null },
       }
-    } */
+    }
+
     try {
       const result = await syncAssistsService.index(
         {
@@ -330,7 +503,7 @@ export default class AssistsController {
    *             schema:
    *               type: object
    */
-  async getExcelByEmployee({ request, response, i18n }: HttpContext) {
+  async getExcelByEmployee({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeId = request.input('employeeId')
@@ -338,6 +511,24 @@ export default class AssistsController {
       const filterDateEnd = request.input('date-end')
       const filterDatePay = request.input('datePay')
       const reportType = request.input('reportType')
+      if (reportType === 'Incident Summary Payroll') {
+        await auth.check()
+        const user = auth.user
+        if (!user) {
+          response.status(401)
+          return { type: 'error', title: t('user_actions.unauthorized'), message: t('user_actions.unauthorized') }
+        }
+        await user.load('role')
+        if (!(await this.assertCanSeePayroll(user.role.roleId))) {
+          response.status(403)
+          return {
+            type: 'warning',
+            title: t('user_actions.unauthorized'),
+            message: t('user_actions.unauthorized'),
+            data: { key: 'descarga-nomina-sin-permiso' },
+          }
+        }
+      }
       const employee = await Employee.query()
         .withTrashed()
         .where('employee_id', employeeId)
@@ -373,7 +564,7 @@ export default class AssistsController {
         filterDateEnd: filterDateEnd,
         filterDatePay: filterDatePay,
       } as AssistEmployeeExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       let buffer
       if (reportType === 'Assistance Report') {
         buffer = await assistService.getExcelByEmployeeAssistance(employee, filters)
@@ -383,12 +574,17 @@ export default class AssistsController {
         buffer = await assistService.getExcelByEmployeeIncidentSummaryPayroll(employee, filters)
       }
       if (buffer) {
-        if (buffer.status === 201) {
+        if (buffer.status === 201 && 'buffer' in buffer && buffer.buffer) {
           response.header(
             'Content-Type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
           )
-          response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+          response.header(
+            'Content-Disposition',
+            contentDisposition(
+              this.assistanceReportFileName(reportType, filterDate, filterDateEnd, employee.employeeSlug)
+            )
+          )
           response.status(201)
           response.send(buffer.buffer)
         } else {
@@ -397,7 +593,7 @@ export default class AssistsController {
             type: buffer.type,
             title: buffer.title,
             message: buffer.message,
-            error: buffer.error,
+            error: 'error' in buffer ? buffer.error : undefined,
           }
         }
       } else {
@@ -470,7 +666,7 @@ export default class AssistsController {
    *             schema:
    *               type: object
    */
-  async getExcelByPosition({ request, response, i18n }: HttpContext) {
+  async getExcelByPosition({ request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const departmentId = request.input('departmentId')
@@ -510,15 +706,19 @@ export default class AssistsController {
         departmentId: departmentId,
         filterDate: filterDate,
         filterDateEnd: filterDateEnd,
+        businessUnitId: Number(request.input('businessUnitId')) || undefined,
       } as AssistPositionExcelFilterInterface
-      const assistService = new AssistsService(i18n)
-      const buffer = await assistService.getExcelByPosition(filters)
+      const assistService = new AssistsService(reportI18n())
+      const buffer = await assistService.getExcelByPosition(filters, businessUnitScope)
       if (buffer.status === 201) {
         response.header(
           'Content-Type',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+        response.header(
+          'Content-Disposition',
+          contentDisposition(this.assistanceReportFileName('Assistance Report', filterDate, filterDateEnd))
+        )
         response.status(201)
         response.send(buffer.buffer)
       } else {
@@ -604,7 +804,7 @@ export default class AssistsController {
    *             schema:
    *               type: object
    */
-  async getExcelByDepartment({ auth, request, response, i18n }: HttpContext) {
+  async getExcelByDepartment({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       await auth.check()
@@ -612,7 +812,7 @@ export default class AssistsController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -621,6 +821,21 @@ export default class AssistsController {
       const filterDateEnd = request.input('date-end')
       const filterDatePay = request.input('datePay')
       const reportType = request.input('reportType')
+      if (reportType === 'Incident Summary Payroll') {
+        if (!user) {
+          response.status(401)
+          return { type: 'error', title: t('user_actions.unauthorized'), message: t('user_actions.unauthorized') }
+        }
+        if (!(await this.assertCanSeePayroll(user.role.roleId))) {
+          response.status(403)
+          return {
+            type: 'warning',
+            title: t('user_actions.unauthorized'),
+            message: t('user_actions.unauthorized'),
+            data: { key: 'descarga-nomina-sin-permiso' },
+          }
+        }
+      }
       const department = await Department.query()
         .whereNull('department_deleted_at')
         .where('department_id', departmentId)
@@ -653,15 +868,16 @@ export default class AssistsController {
         filterDateEnd: filterDateEnd,
         filterDatePay: filterDatePay,
         userResponsibleId: userResponsibleId,
+        businessUnitId: Number(request.input('businessUnitId')) || undefined,
       } as AssistDepartmentExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+      const assistService = new AssistsService(reportI18n())
       let buffer
       if (reportType === 'Assistance Report') {
-        buffer = await assistService.getExcelByDepartmentAssistance(filters)
+        buffer = await assistService.getExcelByDepartmentAssistance(filters, businessUnitScope)
       } else if (reportType === 'Incident Summary') {
-        buffer = await assistService.getExcelByDepartmentIncidentSummary(filters)
+        buffer = await assistService.getExcelByDepartmentIncidentSummary(filters, businessUnitScope)
       } else if (reportType === 'Incident Summary Payroll') {
-        buffer = await assistService.getExcelByDepartmentIncidentSummaryPayRoll(filters)
+        buffer = await assistService.getExcelByDepartmentIncidentSummaryPayRoll(filters, businessUnitScope)
       }
       if (buffer) {
         if (buffer.status === 201) {
@@ -669,7 +885,10 @@ export default class AssistsController {
             'Content-Type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
           )
-          response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+          response.header(
+            'Content-Disposition',
+            contentDisposition(this.assistanceReportFileName(reportType, filterDate, filterDateEnd))
+          )
           response.status(201)
           response.send(buffer.buffer)
         } else {
@@ -764,7 +983,7 @@ export default class AssistsController {
    *             schema:
    *               type: object
    */
-  async getExcelAll({ auth, request, response, i18n }: HttpContext) {
+  async getExcelAll({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       await auth.check()
@@ -772,18 +991,27 @@ export default class AssistsController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
       const userService = new UserService(i18n)
+      const filterDate = request.input('date')
+      const filterDateEnd = request.input('date-end')
+      const filterDatePay = request.input('datePay')
+      const businessUnitIdRaw = request.input('businessUnitId')
+      const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
+      const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
+      const businessUnitId =
+        businessUnitIdRaw !== null && businessUnitIdRaw !== undefined && Number(businessUnitIdRaw) > 0
+          ? Number(businessUnitIdRaw)
+          : undefined
+      const scopedBusinessUnitIds =
+        businessUnitId !== undefined ? [businessUnitId] : businessUnitScope
       let departmentsList = [] as Array<number>
       if (user) {
         departmentsList = await userService.getRoleDepartments(user.userId)
       }
-      const filterDate = request.input('date')
-      const filterDateEnd = request.input('date-end')
-      const filterDatePay = request.input('datePay')
       const reportType = request.input('reportType')
       const validReportTypes = ['Assistance Report', 'Incident Summary', 'Incident Summary Payroll']
 
@@ -797,37 +1025,67 @@ export default class AssistsController {
           data: { reportType },
         }
       }
+      if (reportType === 'Incident Summary Payroll') {
+        if (!user) {
+          response.status(401)
+          return { type: 'error', title: t('user_actions.unauthorized'), message: t('user_actions.unauthorized') }
+        }
+        if (!(await this.assertCanSeePayroll(user.role.roleId))) {
+          response.status(403)
+          return {
+            type: 'warning',
+            title: t('user_actions.unauthorized'),
+            message: t('user_actions.unauthorized'),
+            data: { key: 'descarga-nomina-sin-permiso' },
+          }
+        }
+      }
       const filters = {
         filterDate: filterDate,
         filterDateEnd: filterDateEnd,
         filterDatePay: filterDatePay,
         userResponsibleId: userResponsibleId,
-      } as AssistDepartmentExcelFilterInterface
-      const assistService = new AssistsService(i18n)
+        businessUnitId: businessUnitId,
+        payrollBusinessUnitId: payrollBusinessUnitId,
+        branchNameIds: branchNameIds,
+      } as AssistExcelFilterInterface
+      const assistService = new AssistsService(reportI18n())
       let buffer
       if (reportType === 'Assistance Report') {
-        buffer = await assistService.getExcelAllAssistance(filters, departmentsList)
+        buffer = await assistService.getExcelAllAssistance(filters, departmentsList, scopedBusinessUnitIds)
       } else if (reportType === 'Incident Summary') {
-        buffer = await assistService.getExcelAllIncidentSummary(filters, departmentsList)
+        buffer = await assistService.getExcelAllIncidentSummary(filters, departmentsList, scopedBusinessUnitIds)
       } else if (reportType === 'Incident Summary Payroll') {
-        buffer = await assistService.getExcelAllIncidentSummaryPayRoll(filters, departmentsList)
+        buffer = await assistService.getExcelAllIncidentSummaryPayRoll(filters, departmentsList, scopedBusinessUnitIds)
       }
       if (buffer) {
-        if (buffer.status === 201) {
+        if ('buffer' in buffer && buffer.buffer) {
           response.header(
             'Content-Type',
             'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
           )
-          response.header('Content-Disposition', 'attachment; filename=datos.xlsx')
+          response.header(
+            'Content-Disposition',
+            contentDisposition(this.assistanceReportFileName(reportType, filterDate, filterDateEnd))
+          )
           response.status(201)
           response.send(buffer.buffer)
+        } else if (buffer.status === 400) {
+          response.status(400)
+          return {
+            type: buffer.type,
+            title: buffer.title,
+            message: buffer.message,
+            error: 'error' in buffer ? buffer.error : undefined,
+          }
         } else {
           response.status(500)
           return {
             type: buffer.type,
             title: buffer.title,
             message: buffer.message,
-            error: buffer.error,
+            error: 'error' in buffer ? buffer.error : undefined,
+            ...('errorDetail' in buffer && buffer.errorDetail ? { errorDetail: buffer.errorDetail } : {}),
           }
         }
       } else {
@@ -839,13 +1097,16 @@ export default class AssistsController {
           data: { filters },
         }
       }
-    } catch (error) {
+    } catch (error: unknown) {
+      const err = error instanceof Error ? error : new Error(String(error))
+      console.error('AssistsController.getExcelAll: error inesperado', err)
       response.status(500)
       return {
         type: 'error',
         title: t('server_error'),
         message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
+        error: err.message,
+        ...(env.get('NODE_ENV') !== 'production' ? { errorDetail: err.stack } : {}),
       }
     }
   }
@@ -874,8 +1135,13 @@ export default class AssistsController {
    *                 default: ''
    *               assistPunchTime:
    *                 type: string
-   *                 format: date
-   *                 description: Assist punch time (YYYY-MM-DD HH:mm:ss)
+   *                 description: |
+   *                   Hora en que ocurrió la checada. ISO-8601 con desfase explícito
+   *                   (`2026-08-30T08:05:00-06:00`) o el formato legado
+   *                   `YYYY-MM-DD HH:mm:ss`, interpretado en UTC-6. Ausente: se usa
+   *                   la hora del servidor. Se acepta dentro de una ventana hacia
+   *                   atrás y sin adelantarse al reloj del servidor más allá de la
+   *                   tolerancia vigente; el ancho de la ventana no se publica.
    *                 required: false
    *                 default: ''
    *               assistLongitude:
@@ -899,9 +1165,19 @@ export default class AssistsController {
    *                 required: false
    *                 default: 'check'
    *                 enum: [check, eatin, eatout]
+   *               assistChannel:
+   *                 type: string
+   *                 description: |
+   *                   Canal por el que se declara la checada. Vocabulario cerrado.
+   *                   Ausente: se deriva de si registra la propia persona (compatibilidad).
+   *                 required: false
+   *                 enum: [app, kiosk, backoffice, device]
    *     responses:
    *       '201':
-   *         description: Resource processed successfully
+   *         description: |
+   *           Checada procesada. **Los dos desenlaces responden 201**: el desenlace
+   *           viaja en `data.outcome` (`inserted` = se registró ahora, `preexisting`
+   *           = ya estaba y no se creó un segundo registro), nunca en el estado.
    *         content:
    *           application/json:
    *             schema:
@@ -918,7 +1194,23 @@ export default class AssistsController {
    *                   description: Message of response
    *                 data:
    *                   type: object
-   *                   description: Processed object
+   *                   properties:
+   *                     assist:
+   *                       type: object
+   *                       description: La fila, insertada o preexistente
+   *                     outcome:
+   *                       type: string
+   *                       enum: [inserted, preexisting]
+   *                     deferred:
+   *                       type: boolean
+   *                       description: La checada llegó con retraso respecto de su hora de captura
+   *                     deferredBySeconds:
+   *                       type: integer
+   *                       description: Segundos de retraso, truncados en cero
+   *                     serverTime:
+   *                       type: string
+   *                       format: date-time
+   *                       description: Hora del servidor en ISO-8601 UTC
    *       '404':
    *         description: Resource not found
    *         content:
@@ -939,24 +1231,78 @@ export default class AssistsController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: |
+   *           Parámetros inválidos. Incluye `employeeId` ausente o no entero positivo
+   *           y cuerpo fuera de la lista blanca (code `AST.VAL.002`), o colaborador
+   *           inexistente o de otra empresa (key `colaborador-no-encontrado`, code
+   *           `AST.VAL.008`), indistinguibles entre sí por diseño.
+   *         content:
+   *           application/json:
+   *             examples:
+   *               invalidEmployeeId:
+   *                 summary: Identificador de colaborador inválido
+   *                 value:
+   *                   type: warning
+   *                   title: Datos inválidos
+   *                   message: El identificador del colaborador es inválido.
+   *                   detail: El identificador del colaborador es inválido.
+   *                   key: identificador-de-colaborador-invalido
+   *                   code: AST.VAL.002
+   *               unknownChannel:
+   *                 summary: Canal de checada no reconocido
+   *                 value:
+   *                   type: warning
+   *                   title: Canal de checada no reconocido
+   *                   message: El canal declarado no es uno de los canales permitidos.
+   *                   detail: El canal declarado no es uno de los canales permitidos.
+   *                   key: canal-de-checada-no-reconocido
+   *                   code: AST.VAL.009
+   *               employeeNotFound:
+   *                 summary: Colaborador inexistente o de otra empresa
+   *                 value:
+   *                   type: warning
+   *                   title: Colaborador no encontrado
+   *                   message: El colaborador indicado no existe en la empresa activa.
+   *                   detail: El colaborador indicado no existe en la empresa activa.
+   *                   key: colaborador-no-encontrado
+   *                   code: AST.VAL.008
+   *       '403':
+   *         description: Captura ajena sin permiso `add-assist-manual` (key `sin-autorizacion-para-registrar-asistencia-ajena`, code `AST.AUTHZ.002`).
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: warning
+   *               title: Sin autorización para registrar asistencia ajena
+   *               message: No tienes autorización para registrar la asistencia de otra persona.
+   *               detail: No tienes autorización para registrar la asistencia de otra persona.
+   *               key: sin-autorizacion-para-registrar-asistencia-ajena
+   *               code: AST.AUTHZ.002
+   *       '422':
+   *         description: |
+   *           Colaborador dado de baja (key `colaborador-dado-de-baja`, code
+   *           `AST.AUTHZ.001`), hora de captura en el futuro más allá de la
+   *           tolerancia (key `hora-de-captura-en-el-futuro`, code `AST.VAL.005`) u
+   *           hora de captura fuera de la ventana permitida (key
+   *           `hora-de-captura-fuera-de-la-ventana-permitida`, code `AST.VAL.006`).
+   *         content:
+   *           application/json:
+   *             example:
+   *               type: warning
+   *               title: Colaborador dado de baja
+   *               message: No se puede registrar asistencia de un colaborador dado de baja.
+   *               detail: No se puede registrar asistencia de un colaborador dado de baja.
+   *               key: colaborador-dado-de-baja
+   *               code: AST.AUTHZ.001
+   *       '429':
+   *         description: Límite de volumen superado (20 registros cada 5 minutos por usuario; respuesta estándar de `@adonisjs/limiter`, code documental `AST.RATE.001`).
    *         content:
    *           application/json:
    *             schema:
    *               type: object
    *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
    *                 message:
    *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
+   *                   description: Mensaje del limitador
    *       default:
    *         description: Unexpected error
    *         content:
@@ -983,65 +1329,201 @@ export default class AssistsController {
   async store({ auth, request, response, i18n }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const employeeId = request.input('employeeId')
-      let assistPunchTime = request.input('assistPunchTime')
-      const assistLongitude = request.input('assistLongitude')
-      const assistLatitude = request.input('assistLatitude')
-      const assistPrecision = request.input('assistPrecision')
-      const assistType = request.input('assistType')
+      const employeeIdNumber = Number(request.input('employeeId'))
+      if (!Number.isInteger(employeeIdNumber) || employeeIdNumber <= 0) {
+        const detail = t('assist_register_val_employee_id_message')
+        response.status(400)
+        return {
+          type: 'warning',
+          title: t('assist_register_val_employee_id_title'),
+          message: detail,
+          detail,
+          key: 'identificador-de-colaborador-invalido',
+          code: ASSIST_ERROR_CODES.VAL_EMPLOYEE_ID,
+        }
+      }
+
+      const { allowed, isOwner, ownerTerminated } = await ensureEmployeeAssistWrite(
+        auth.user,
+        employeeIdNumber
+      )
+      if (!allowed) {
+        // La propia checada de alguien dado de baja se niega por su motivo real y
+        // no como captura ajena: el cliente discrimina por `code` y los dos
+        // desenlaces son opuestos —uno se arregla dando un permiso y se debe
+        // reintentar, el otro no se arregla nunca y no tiene sentido insistir—.
+        const rejection = ownerTerminated
+          ? ASSIST_INGESTION_EMPLOYEE_TERMINATED
+          : ASSIST_INGESTION_FOREIGN_WRITE
+        const detail = t(`${rejection.i18nBase}_message`)
+        response.status(rejection.status)
+        return {
+          type: 'warning',
+          title: t(`${rejection.i18nBase}_title`),
+          message: detail,
+          detail,
+          key: rejection.key,
+          code: rejection.code,
+        }
+      }
+
+      // Lista blanca: el cliente sólo declara el hecho. Todo campo de pertenencia
+      // o de rastro que venga en el cuerpo se descarta aquí y lo deriva el servidor.
+      let payload: StoreAssistPayload
+      try {
+        payload = await storeAssistValidator.validate(request.all())
+      } catch (validationError) {
+        const issue = firstValidationIssue(validationError)
+        // El canal es vocabulario cerrado y tiene rechazo propio: no se normaliza
+        // ni se ignora, y su motivo no se confunde con el resto del cuerpo.
+        if (issue?.field === 'assistChannel') {
+          const detail = t('assist_channel_unknown_message')
+          response.status(400)
+          return {
+            type: 'warning',
+            title: t('assist_channel_unknown_title'),
+            message: detail,
+            detail,
+            key: 'canal-de-checada-no-reconocido',
+            code: ASSIST_ERROR_CODES.VAL_CHANNEL_UNKNOWN,
+          }
+        }
+        const detail = issue?.message ?? t('assist_register_val_employee_id_message')
+        response.status(400)
+        return {
+          type: 'warning',
+          title: t('assist_register_val_employee_id_title'),
+          message: detail,
+          detail,
+          key: 'datos-de-checada-invalidos',
+          code: ASSIST_ERROR_CODES.VAL_EMPLOYEE_ID,
+        }
+      }
+
+      const assistPunchTime = payload.assistPunchTime
+      const assistLongitude = payload.assistLongitude ?? null
+      const assistLatitude = payload.assistLatitude ?? null
+      const assistPrecision = payload.assistPrecision ?? null
+      const assistType = payload.assistType ?? null
       const employee = await Employee.query()
         .withTrashed()
-        .where('employee_id', employeeId)
+        .where('employee_id', employeeIdNumber)
         .preload('position')
         .preload('department')
         .first()
 
+      // Indistinguible de "no existe" aunque el colaborador sea de otra empresa:
+      // el mixin de `Employee` ya lo dejó fuera del alcance y no se delata.
       if (!employee) {
-        const entity = t('employee')
+        const detail = t('assist_employee_not_found_message')
         response.status(400)
         return {
           type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { employeeId, assistPunchTime },
+          title: t('assist_employee_not_found_title'),
+          message: detail,
+          detail,
+          key: 'colaborador-no-encontrado',
+          code: ASSIST_ERROR_CODES.VAL_EMPLOYEE_NOT_FOUND,
         }
       }
 
-      if (!assistPunchTime) {
-        assistPunchTime = DateTime.now().setZone('UTC-6').toFormat('yyyy-MM-dd HH:mm:ss')
-      }
-
-
-      let dateTimePunchTime: DateTime = DateTime.fromFormat(assistPunchTime, 'yyyy-MM-dd HH:mm:ss', {zone: 'UTC-6' }).toUTC()
-
-      if (dateTimePunchTime) {
-        const isSummerDate = this.checkDSTSummerTime(dateTimePunchTime.toJSDate())
-
-        if (isSummerDate) {
-          dateTimePunchTime = dateTimePunchTime.plus({ hour: -1 })
+      if (employee.deletedAt) {
+        const detail = t('assist_employee_terminated_message')
+        response.status(422)
+        return {
+          type: 'warning',
+          title: t('assist_employee_terminated_title'),
+          message: detail,
+          detail,
+          key: 'colaborador-dado-de-baja',
+          code: ASSIST_ERROR_CODES.AUTHZ_EMPLOYEE_TERMINATED,
         }
       }
+
+      // La hora que vale es la hora en que ocurrió la checada, no la hora en que se
+      // logró entregar: si el equipo la declara, se respeta, siempre que no se
+      // adelante al reloj del servidor.
+      //
+      // Hacia atrás hay dos topes distintos y la procedencia decide cuál rige. Un
+      // equipo entrega tarde lo que ya ocurrió y se mide con la ventana del canal,
+      // que existe para cubrir una caída de red. La captura administrativa corrige
+      // el pasado a propósito, así que se mide con los días que el rol de quien
+      // captura tiene autorizado modificar.
+      const assistOrigin = resolveAssistOrigin(payload.assistChannel, isOwner)
+      const isAdminCapture = assistOrigin === ASSIST_ORIGIN.ADMIN_CAPTURE
+
+      const siteZone = await new SiteTimeZoneService().forEmployee(employee.employeeId)
+      const now = DateTime.utc()
+      const resolvedPunchTime = resolvePunchTime(assistPunchTime, now, siteZone.zone, {
+        enforceBackdateWindow: !isAdminCapture,
+      })
+      if (!resolvedPunchTime.ok) {
+        const rejection = resolvedPunchTime.rejection
+        const detail = i18n.t(`${rejection.i18nBase}_message`, undefined, rejection.key)
+        response.status(rejection.status)
+        return {
+          type: 'warning',
+          title: i18n.t(`${rejection.i18nBase}_title`, undefined, rejection.key),
+          message: detail,
+          detail,
+          key: rejection.key,
+          code: rejection.code,
+        }
+      }
+
+      const dateTimePunchTime: DateTime = resolvedPunchTime.punchTimeUtc
+
+      if (isAdminCapture) {
+        const scopeRejection = await resolveAdminCaptureRejection({
+          user: auth.user,
+          punchTimeUtc: dateTimePunchTime,
+          zone: siteZone.zone,
+          now,
+        })
+        if (scopeRejection) {
+          const detail = i18n.t(
+            `${scopeRejection.i18nBase}_message`,
+            undefined,
+            scopeRejection.key
+          )
+          response.status(scopeRejection.status)
+          return {
+            type: 'warning',
+            title: i18n.t(`${scopeRejection.i18nBase}_title`, undefined, scopeRejection.key),
+            message: detail,
+            detail,
+            key: scopeRejection.key,
+            code: scopeRejection.code,
+          }
+        }
+      }
+
+      const assistCreatedByUserId = isOwner ? null : (auth.user?.userId ?? null)
 
       const assist = {
         assistId: 1,
         assistEmpCode: employee.employeeCode ? employee.employeeCode : '',
-        assistTerminalSn: '',
+        assistTerminalSn: null,
         assistTerminalAlias: '',
         assistAreaAlias: '',
         assistLongitude: assistLongitude,
         assistLatitude: assistLatitude,
         assistPrecision: assistPrecision,
         assistUploadTime: dateTimePunchTime,
-        assistEmpId: employeeId,
+        assistEmpId: employee.employeeId,
         assistTerminalId: null,
         assistSyncId: 0,
         assistType: assistType,
+        assistOrigin,
+        assistCreatedByUserId,
         assistPunchTime: dateTimePunchTime,
         assistPunchTimeUtc: dateTimePunchTime,
         assistPunchTimeOrigin: dateTimePunchTime,
         deletedAt: null,
       } as Assist
 
+      // Deduplicación viva heredada: responde 400 ante un reenvío que sí ve.
+      // La retira API-2, que deja la llave natural como criterio único.
       const assistsService = new AssistsService(i18n)
       const verifyInfo = await assistsService.verifyInfo(assist)
 
@@ -1055,27 +1537,41 @@ export default class AssistsController {
         }
       }
 
-      const newAssist = await assistsService.store(assist)
+      // Motor de ingesta: la escritura no puede crear dos filas de la misma checada.
+      const ingestion = await new AssistIngestionService().ingest([
+        {
+          subject: { kind: 'employeeId', employeeId: employee.employeeId },
+          assistType,
+          punchTimeUtc: dateTimePunchTime,
+          geo: {
+            latitude: assistLatitude,
+            longitude: assistLongitude,
+            precision: assistPrecision,
+          },
+          origin: assistOrigin,
+          createdByUserId: assistCreatedByUserId,
+          terminalSn: null,
+          clientRef: null,
+        },
+      ])
 
-      if (newAssist) {
-        const rawHeaders = request.request.rawHeaders
-        const userId = auth.user?.userId
-        if (userId) {
-          const logAssist = await assistsService.createActionLog(rawHeaders, 'store')
-          logAssist.user_id = userId
-          logAssist.create_from = 'manual'
-          logAssist.record_current = JSON.parse(JSON.stringify(newAssist))
-          await assistsService.saveActionOnLog(logAssist)
-        }
-        response.status(201)
+      const envelope = mapIngestionResultToHttp(ingestion.results[0], i18n)
+      response.status(envelope.status)
+      return envelope.body
+    } catch (error) {
+      if (error instanceof AssistError) {
+        const resolved = resolveAssistApiError(error, 422, i18n)
+        response.status(resolved.status)
         return {
-          type: 'success',
-          title: t('resource'),
-          message: t('resource_was_created_successfully'),
-          data: { assist: newAssist },
+          type: 'warning',
+          title: resolved.title,
+          message: resolved.message,
+          detail: resolved.detail,
+          key: resolved.key,
+          code: resolved.code,
         }
       }
-    } catch (error) {
+
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -1087,160 +1583,6 @@ export default class AssistsController {
       }
     }
   }
-
-  /**
-   * @swagger
-   * /api/v1/assists/get-format-payroll:
-   *   get:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Assists
-   *     summary: get format payroll
-   *     produces:
-   *       - application/json
-   *     parameters:
-   *       - name: date
-   *         in: query
-   *         required: true
-   *         schema:
-   *           type: string
-   *         default: "2024-12-29"
-   *         description: Date from get format
-   *     responses:
-   *       '201':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
-  async getFormatPayRoll({ request, response, i18n }: HttpContext) {
-    const t = i18n.formatMessage.bind(i18n)
-    try {
-      const date = request.input('date')
-      if (!date) {
-        const entity = t('date')
-        response.status(400)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found', { entity }),
-          data: { date },
-        }
-      }
-      const assistService = new AssistsService(i18n)
-      const result = assistService.isPayThursday(date, '2025-01-09')
-      if (!result) {
-        const entity = t('date')
-        response.status(400)
-        return {
-          type: 'warning',
-          title: t('entity_is_not_valid', { entity }),
-          message: t('the_date_not_is_pay_thursday'),
-          data: { date },
-        }
-      }
-
-      const buffer = await assistService.getFormatPayRoll(date)
-      if (buffer.status === 201) {
-        response.header('Content-Type', 'text/csv')
-        response.header('Content-Disposition', 'attachment; filename="file.csv"')
-        response.status(201)
-        response.send(buffer.buffer)
-      } else {
-        response.status(500)
-        return {
-          type: buffer.type,
-          title: buffer.title,
-          message: buffer.message,
-          error: buffer.error,
-        }
-      }
-    } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
-      }
-    }
-  }
-
 
   /**
    * @swagger
@@ -1340,8 +1682,10 @@ export default class AssistsController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso `delete-check-assist` del módulo `employees-attendance-monitor` (permissionGate, key `PERM.DENIED` / `PERM.UNRESOLVED`).
    */
-  async inactivate({ request, response, i18n }: HttpContext) {
+  async inactivate({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
       const assistId = request.param('assistId')
@@ -1368,7 +1712,33 @@ export default class AssistsController {
           data: { assistId },
         }
       }
+
+      const assistOwner = await Employee.query()
+        .withTrashed()
+        .where('employee_id', currentAssist.assistEmpId)
+        .first()
+
+      if (!assistOwner) {
+        await ScopeDeniedLogService.log({
+          domain: 'assist',
+          action: 'inactivate',
+          requestedId: assistId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+        const entity = t('assist')
+        response.status(404)
+        return {
+          type: 'warning',
+          title: t('entity_was_not_found', { entity }),
+          message: t('entity_was_not_found_with_entered_id', { entity }),
+          data: { assistId },
+        }
+      }
+
       currentAssist.assistActive = 0
+      // Regla 16 (CA-23): inactivar no libera el slot de llave natural; un reenvío
+      // idéntico del checador/sync choca contra assists_natural_key_unique.
       await currentAssist.save()
       if (currentAssist.assistPunchTimeUtc) {
         const assistService = new AssistsService(i18n)
@@ -1552,30 +1922,6 @@ export default class AssistsController {
     }
   }
 
-  private getMexicoDSTChangeDates (year: number) {
-    const startDST = new Date(year, 3, 1)
-    startDST.setDate(1 + (7 - startDST.getDay()) % 7) // Asegura que es el primer domingo
-
-    // Último domingo de octubre (fin del horario de verano)
-    const endDST = new Date(year, 9, 31)
-    endDST.setDate(endDST.getDate() - endDST.getDay()) // Asegura que es el último domingo
-
-    return { startDST, endDST }
-  }
-
-  private checkDSTSummerTime (date: Date): boolean {
-    const year = date.getFullYear()
-    const { startDST, endDST } = this.getMexicoDSTChangeDates(year)
-
-    if (date >= startDST && date < endDST) {
-      // En horario de verano
-      return true
-    } else {
-      // En horario estándar
-      return false
-    }
-  }
-
   /**
    * @swagger
    * /api/v1/assists/get-excel-permissions-dates:
@@ -1654,18 +2000,10 @@ export default class AssistsController {
    *                   type: string
    *                   example: An unexpected error has occurred on the server
    */
-  async getExcelPermissionsByDates({ auth, request, response, i18n}: HttpContext) {
+  async getExcelPermissionsByDates({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
       const user = auth.user
-      let userResponsibleId = null
-
-      if (user) {
-        await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
-          userResponsibleId = user?.userId
-        }
-      }
 
       const filterDate = request.input('date')
       const filterDateEnd = request.input('date-end')
@@ -1682,26 +2020,34 @@ export default class AssistsController {
         }
       }
 
-      const userService = new UserService(i18n)
-      let departmentsList = [] as Array<number>
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
-      }
+      // Alcance: regla 1, 2, 4 de USRH1788466831312.
+      const scope = user
+        ? (await user.preload('role'), await resolveEmployeeRoleScopeForUser(user, i18n))
+        : emptyEmployeeRoleScope()
 
       const filters = {
         filterDate: filterDate,
         filterDateEnd: filterDateEnd,
-        userResponsibleId: userResponsibleId,
+        userResponsibleId: scope.userResponsibleId,
         businessUnitId: businessUnitId,
         payrollBusinessUnitId: payrollBusinessUnitId,
+        includeUnassigned: scope.includeUnassigned,
       } as PermissionsDatesExcelFilterInterface
 
-      const assistService = new AssistsService(i18n)
-      const result = await assistService.getExcelPermissionsByDates(filters, departmentsList)
+      const assistService = new AssistsService(reportI18n())
+      const result = await assistService.getExcelPermissionsByDates(filters, scope.departmentsList, businessUnitScope)
 
       if (result.buffer) {
         response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-        response.header('Content-Disposition', 'attachment; filename="permisos-fechas.xlsx"')
+        response.header(
+          'Content-Disposition',
+          contentDisposition(
+            buildDownloadFileName(
+              ['permisos', formatDownloadFileDate(filterDate), formatDownloadFileDate(filterDateEnd)],
+              'xlsx'
+            )
+          )
+        )
         return response.send(result.buffer)
       } else {
         response.status(result.status || 500)

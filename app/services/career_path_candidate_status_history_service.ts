@@ -5,6 +5,7 @@ export default class CareerPathCandidateStatusHistoryService {
   async create(careerPathCandidateStatusHistory: CareerPathCandidateStatusHistory) {
     const newCareerPathCandidateStatusHistory = new CareerPathCandidateStatusHistory()
     newCareerPathCandidateStatusHistory.careerPathCandidateId = careerPathCandidateStatusHistory.careerPathCandidateId
+    newCareerPathCandidateStatusHistory.businessUnitId = careerPathCandidateStatusHistory.businessUnitId
     newCareerPathCandidateStatusHistory.changedBy = careerPathCandidateStatusHistory.changedBy
     newCareerPathCandidateStatusHistory.careerPathCandidateStatusHistoryFromStatus = careerPathCandidateStatusHistory.careerPathCandidateStatusHistoryFromStatus
     newCareerPathCandidateStatusHistory.careerPathCandidateStatusHistoryToStatus = careerPathCandidateStatusHistory.careerPathCandidateStatusHistoryToStatus

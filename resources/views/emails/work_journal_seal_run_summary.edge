@@ -1,0 +1,136 @@
+{{--
+  Resumen de corrida del job de cierre automático de jornada (USRH1782268640950).
+  Aviso operativo interno a RH / equipo técnico.
+
+  Convenciones (mismo estándar que lactation_expiring.edge):
+   - Estilos 100% inline (compatibilidad Gmail / Outlook 2007-2019).
+   - Layout con tablas (Outlook requiere tablas, no divs, para renderizado correcto).
+   - Sin imágenes externas (evita bloqueos de descarga).
+--}}<!DOCTYPE html>
+<html lang="es" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="ie=edge" />
+  <title>{{ subject }}</title>
+</head>
+<body style="margin: 0; padding: 0; background-color: #f4f6fa; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1f2937;">
+
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color: #f4f6fa;">
+    <tr>
+      <td align="center" style="padding: 24px 12px;">
+        <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="width: 100%; max-width: 640px;">
+
+          {{-- Encabezado de marca --}}
+          <tr>
+            <td style="background-color: {{ sidebarColor }}; padding: 18px 24px; border-top-left-radius: 12px; border-top-right-radius: 12px; color: #ffffff;">
+              <div style="font-size: 18px; font-weight: 700; line-height: 1.2; color: #ffffff;">{{ tradeName }}</div>
+              <div style="font-size: 13px; color: #e0f2fe; margin-top: 4px;">Registro electrónico de jornada — Resumen de cierre</div>
+            </td>
+          </tr>
+
+          {{-- Tarjeta principal --}}
+          <tr>
+            <td style="background-color: #ffffff; padding: 24px; border-bottom-left-radius: 12px; border-bottom-right-radius: 12px;">
+
+              {{-- Estado de la corrida --}}
+              <p style="margin: 0 0 16px; font-size: 15px; line-height: 1.5; color: #111827;">
+                Corrida <strong>#{{ runId }}</strong> del job de cierre automático — fecha de corte
+                <strong>{{ cutoffDate }}</strong>.
+              </p>
+
+              @if(status === 'ok')
+                <p style="margin: 0 0 20px; padding: 10px 14px; background: #d1fae5; border-left: 4px solid #059669; border-radius: 4px; font-size: 13px; color: #065f46;">
+                  <strong>Estado: {{ statusLabel }}</strong> — Todos los periodos se procesaron sin errores.
+                </p>
+              @elseif(status === 'partial')
+                <p style="margin: 0 0 20px; padding: 10px 14px; background: #fef3c7; border-left: 4px solid #d97706; border-radius: 4px; font-size: 13px; color: #78350f;">
+                  <strong>Estado: {{ statusLabel }}</strong> — Algunos periodos no pudieron sellarse. Revisar la tabla de errores.
+                </p>
+              @elseif(status === 'failed')
+                <p style="margin: 0 0 20px; padding: 10px 14px; background: #fee2e2; border-left: 4px solid #dc2626; border-radius: 4px; font-size: 13px; color: #7f1d1d;">
+                  <strong>Estado: {{ statusLabel }}</strong> — Ningún periodo pudo sellarse. Revisar los errores con urgencia.
+                </p>
+              @end
+
+              {{-- Tabla de conteos --}}
+              <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: 13px; margin-bottom: 20px;">
+                <thead>
+                  <tr style="background: #f3f4f6; text-align: left;">
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-weight: 600;">Métrica</th>
+                    <th style="padding: 10px 8px; border-bottom: 1px solid #e5e7eb; color: #4b5563; font-weight: 600; text-align: center;">Valor</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Empresas con configuración activa</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; text-align: center; font-weight: 600; color: #111827;">{{ businessUnitsProcessed }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Empresas sin configuración de nómina (omitidas)</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; text-align: center; font-weight: 600; color: #6b7280;">{{ businessUnitsWithoutConfig }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Periodos sellados correctamente</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; text-align: center; font-weight: 600; color: #059669;">{{ periodsSealed }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; color: #374151;">Periodos omitidos (ya estaban cerrados)</td>
+                    <td style="padding: 9px 8px; border-bottom: 1px solid #f3f4f6; text-align: center; font-weight: 600; color: #6b7280;">{{ periodsSkipped }}</td>
+                  </tr>
+                  <tr>
+                    <td style="padding: 9px 8px; color: #374151;">Periodos con error</td>
+                    <td style="padding: 9px 8px; text-align: center; font-weight: 600; color: {{ periodsWithErrors > 0 ? '#dc2626' : '#6b7280' }};">{{ periodsWithErrors }}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              @if(businessUnitsWithoutConfig > 0)
+                <p style="margin: 0 0 16px; font-size: 12px; line-height: 1.5; color: #6b7280;">
+                  <strong>Empresas sin configuración:</strong> {{ withoutConfigNames }}
+                </p>
+              @end
+
+              {{-- Tabla de errores (solo si hay) --}}
+              @if(hasErrors)
+                <p style="margin: 0 0 8px; font-size: 13px; font-weight: 600; color: #7f1d1d;">Detalle de errores</p>
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="border-collapse: collapse; font-size: 12px; margin-bottom: 16px;">
+                  <thead>
+                    <tr style="background: #fee2e2; text-align: left;">
+                      <th style="padding: 8px; border-bottom: 1px solid #fecaca; color: #7f1d1d; font-weight: 600;">Empresa</th>
+                      <th style="padding: 8px; border-bottom: 1px solid #fecaca; color: #7f1d1d; font-weight: 600;">Periodo</th>
+                      <th style="padding: 8px; border-bottom: 1px solid #fecaca; color: #7f1d1d; font-weight: 600;">Detalle</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    @each(row in errorRows)
+                      <tr>
+                        <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; color: #374151; vertical-align: top;">{{ row.businessUnitName }}</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; color: #374151; vertical-align: top; white-space: nowrap;">{{ row.period }}</td>
+                        <td style="padding: 8px; border-bottom: 1px solid #f3f4f6; color: #374151; vertical-align: top;">{{ row.detail }}</td>
+                      </tr>
+                    @endeach
+                  </tbody>
+                </table>
+              @end
+
+              <p style="margin: 0; font-size: 12px; line-height: 1.5; color: #9ca3af;">
+                Los periodos con error se reintentarán automáticamente en la siguiente corrida del job.
+              </p>
+
+            </td>
+          </tr>
+
+          {{-- Footer --}}
+          <tr>
+            <td style="padding: 14px 24px; text-align: center; font-size: 11px; color: #9ca3af;">
+              Mensaje generado automáticamente por el sistema {{ tradeName }}. No responder a este correo.
+            </td>
+          </tr>
+
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -2,6 +2,7 @@ import { HttpContext } from '@adonisjs/core/http'
 import PositionApprovalHistoryService from '#services/position_approval_history_service'
 import PositionApprovalHistory from '#models/position_approval_history'
 import { createPositionApprovalHistoryValidator } from '#validators/position_approval_history'
+import { PositionApprovalHistoryError } from '#exceptions/position_approval_history_error'
 
 export default class PositionApprovalHistoryController {
   /**
@@ -135,6 +136,16 @@ export default class PositionApprovalHistoryController {
         data: { positionApprovalHistory: newPositionApprovalHistory },
       }
     } catch (error) {
+      // USRH1784259058555: puesto ajeno o inexistente → 404 uniforme, nunca "prohibido".
+      if (error instanceof PositionApprovalHistoryError) {
+        response.status(error.httpStatus)
+        return {
+          type: 'warning',
+          title: t('resource'),
+          message: error.message,
+          data: null,
+        }
+      }
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -271,6 +282,16 @@ export default class PositionApprovalHistoryController {
       }
       
     } catch (error) {
+      // USRH1784259058555: puesto ajeno o inexistente → 404 uniforme, nunca "prohibido".
+      if (error instanceof PositionApprovalHistoryError) {
+        response.status(error.httpStatus)
+        return {
+          type: 'warning',
+          title: t('resource'),
+          message: error.message,
+          data: null,
+        }
+      }
       response.status(500)
       return {
         type: 'error',

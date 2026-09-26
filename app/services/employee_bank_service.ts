@@ -29,18 +29,22 @@ export default class EmployeeBankService {
   }
 
   async update(currentEmployeeBank: EmployeeBank, employeeBank: EmployeeBank) {
-    currentEmployeeBank.employeeBankAccountClabe = employeeBank.employeeBankAccountClabe
-    currentEmployeeBank.employeeBankAccountClabeLastNumbers =
-      employeeBank.employeeBankAccountClabeLastNumbers
-    currentEmployeeBank.employeeBankAccountNumber = employeeBank.employeeBankAccountNumber
-    currentEmployeeBank.employeeBankAccountNumberLastNumbers =
-      employeeBank.employeeBankAccountNumberLastNumbers
-    currentEmployeeBank.employeeBankAccountCardNumber = employeeBank.employeeBankAccountCardNumber
-    currentEmployeeBank.employeeBankAccountCardNumberLastNumbers =
-      employeeBank.employeeBankAccountCardNumberLastNumbers
+    // Campos sensibles cifrados: null = "no actualizar" — el BO los envía como null
+    // cuando el usuario no los modificó en esa sesión (se mostraban enmascarados).
+    if (employeeBank.employeeBankAccountClabe !== null && employeeBank.employeeBankAccountClabe !== undefined) {
+      currentEmployeeBank.employeeBankAccountClabe = employeeBank.employeeBankAccountClabe
+      currentEmployeeBank.employeeBankAccountClabeLastNumbers = employeeBank.employeeBankAccountClabeLastNumbers
+    }
+    if (employeeBank.employeeBankAccountNumber !== null && employeeBank.employeeBankAccountNumber !== undefined) {
+      currentEmployeeBank.employeeBankAccountNumber = employeeBank.employeeBankAccountNumber
+      currentEmployeeBank.employeeBankAccountNumberLastNumbers = employeeBank.employeeBankAccountNumberLastNumbers
+    }
+    if (employeeBank.employeeBankAccountCardNumber !== null && employeeBank.employeeBankAccountCardNumber !== undefined) {
+      currentEmployeeBank.employeeBankAccountCardNumber = employeeBank.employeeBankAccountCardNumber
+      currentEmployeeBank.employeeBankAccountCardNumberLastNumbers = employeeBank.employeeBankAccountCardNumberLastNumbers
+    }
     currentEmployeeBank.employeeBankAccountType = employeeBank.employeeBankAccountType
-    currentEmployeeBank.employeeBankAccountCurrencyType =
-      employeeBank.employeeBankAccountCurrencyType
+    currentEmployeeBank.employeeBankAccountCurrencyType = employeeBank.employeeBankAccountCurrencyType
     currentEmployeeBank.bankId = employeeBank.bankId
     await currentEmployeeBank.save()
     return currentEmployeeBank

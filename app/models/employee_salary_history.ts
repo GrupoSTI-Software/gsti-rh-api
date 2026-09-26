@@ -1,11 +1,14 @@
 import { DateTime } from 'luxon'
-import { BaseModel, belongsTo, column } from '@adonisjs/lucid/orm'
+import { BaseModel, beforeCreate, belongsTo, column } from '@adonisjs/lucid/orm'
 import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import { compose } from '@adonisjs/core/helpers'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import encryption from '@adonisjs/core/services/encryption'
 import Employee from './employee.js'
 import User from './user.js'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
+import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -20,9 +23,13 @@ import User from './user.js'
  *          employeeId:
  *            type: number
  *            description: Empleado al que corresponde el cambio (FK a employees)
- *          salaryDaily:
+ *          businessUnitId:
  *            type: number
- *            description: Salario diario vigente en este período (cifrado en BD)
+ *            description: Unidad de negocio dueña (defensa en profundidad, USRH1783821206584)
+ *          salaryDaily:
+ *            type: string
+ *            nullable: true
+ *            description: Salario diario vigente en este período (cifrado en BD). Con valor se entrega enmascarado (`•••••`); sin valor, null. El claro solo por reveal.
  *          validFrom:
  *            type: string
  *            description: Inicio del período de vigencia
@@ -40,7 +47,11 @@ import User from './user.js'
  *          employeeSalaryHistoryDeletedAt:
  *            type: string
  */
-export default class EmployeeSalaryHistory extends compose(BaseModel, SoftDeletes) {
+export default class EmployeeSalaryHistory extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope()
+) {
   static table = 'employee_salary_history'
 
   @column({ isPrimary: true })
@@ -48,6 +59,20 @@ export default class EmployeeSalaryHistory extends compose(BaseModel, SoftDelete
 
   @column()
   declare employeeId: number
+
+  /** Marca de pertenencia propia (defensa en profundidad, USRH1783821206584). */
+  @column()
+  declare businessUnitId: number
+
+  /** Resuelve businessUnitId desde el empleado padre (USRH1783821206584). */
+  @beforeCreate()
+  static async assignBusinessUnitId(instance: EmployeeSalaryHistory) {
+    if (instance.businessUnitId) return
+    instance.businessUnitId = await resolveParentBusinessUnitId(
+      () => Employee.query().where('employeeId', instance.employeeId).first(),
+      'el empleado'
+    )
+  }
 
   /**
    * Salario diario — cifrado AES-256-CBC en reposo (LFPDPPP).
@@ -62,6 +87,7 @@ export default class EmployeeSalaryHistory extends compose(BaseModel, SoftDelete
         return value
       }
     },
+    serialize: sensitiveSerializeNumeric('EmployeeSalaryHistory', 'salaryDaily'),
   })
   declare salaryDaily: number
 

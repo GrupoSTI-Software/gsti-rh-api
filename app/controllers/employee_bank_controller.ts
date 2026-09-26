@@ -2,7 +2,10 @@ import EmployeeBank from '#models/employee_bank'
 import EmployeeBankService from '#services/employee_bank_service'
 import { createEmployeeBankValidator, updateEmployeeBankValidator } from '#validators/employee_bank'
 import { HttpContext } from '@adonisjs/core/http'
-import env from '#start/env'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 export default class EmployeeBankController {
   /**
@@ -140,8 +143,28 @@ export default class EmployeeBankController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: Sin permiso para modificar datos sensibles
+   *                 detail:
+   *                   type: string
+   *                   example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó.
+   *                 key:
+   *                   type: string
+   *                   example: sin-permiso-para-modificar-datos-sensibles
+   *                 code:
+   *                   type: string
+   *                   example: EMP.SENS.WRITE.FORBIDDEN
    */
-  async store({ request, response, i18n }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       await request.validateUsing(createEmployeeBankValidator)
@@ -160,19 +183,12 @@ export default class EmployeeBankController {
       const employeeBankAccountCurrencyType = request.input('employeeBankAccountCurrencyType')
       const employeeId = request.input('employeeId')
       const bankId = request.input('bankId')
-      const secretKey = env.get('APP_ENCRYPT_KEY') as string
       const employeeBank = {
-        employeeBankAccountClabe: employeeBankService.encrypt(employeeBankAccountClabe, secretKey),
+        employeeBankAccountClabe: employeeBankAccountClabe,
         employeeBankAccountClabeLastNumbers: employeeBankAccountClabeLastNumbers,
-        employeeBankAccountNumber: employeeBankService.encrypt(
-          employeeBankAccountNumber,
-          secretKey
-        ),
+        employeeBankAccountNumber: employeeBankAccountNumber,
         employeeBankAccountNumberLastNumbers: employeeBankAccountNumberLastNumbers,
-        employeeBankAccountCardNumber: employeeBankService.encrypt(
-          employeeBankAccountCardNumber,
-          secretKey
-        ),
+        employeeBankAccountCardNumber: employeeBankAccountCardNumber,
         employeeBankAccountCardNumberLastNumbers: employeeBankAccountCardNumberLastNumbers,
         employeeBankAccountType: employeeBankAccountType,
         employeeBankAccountCurrencyType: employeeBankAccountCurrencyType,
@@ -201,6 +217,7 @@ export default class EmployeeBankController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
@@ -350,39 +367,54 @@ export default class EmployeeBankController {
    *                   properties:
    *                     error:
    *                       type: string
+   *       '403':
+   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: Sin permiso para modificar datos sensibles
+   *                 detail:
+   *                   type: string
+   *                   example: No tienes permiso para modificar datos financieros. Ningún dato de la petición se guardó.
+   *                 key:
+   *                   type: string
+   *                   example: sin-permiso-para-modificar-datos-sensibles
+   *                 code:
+   *                   type: string
+   *                   example: EMP.SENS.WRITE.FORBIDDEN
    */
-  async update({ request, response, i18n }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response, i18n } = ctx
     const t = i18n.formatMessage.bind(i18n)
     try {
       const employeeBankService = new EmployeeBankService(i18n)
       const employeeBankId = request.param('employeeBankId')
       const employeeBankAccountClabe = request.input('employeeBankAccountClabe')
-      const employeeBankAccountClabeLastNumbers = employeeBankAccountClabe.slice(-4)
+      const employeeBankAccountClabeLastNumbers = employeeBankAccountClabe
+        ? employeeBankAccountClabe.slice(-4)
+        : null
       const employeeBankAccountNumber = request.input('employeeBankAccountNumber')
       const employeeBankAccountNumberLastNumbers = employeeBankAccountNumber
         ? employeeBankAccountNumber.slice(-4)
-        : ''
+        : null
       const employeeBankAccountCardNumber = request.input('employeeBankAccountCardNumber')
       const employeeBankAccountCardNumberLastNumbers = employeeBankAccountCardNumber
         ? employeeBankAccountCardNumber.slice(-4)
-        : ''
+        : null
       const employeeBankAccountType = request.input('employeeBankAccountType')
       const employeeBankAccountCurrencyType = request.input('employeeBankAccountCurrencyType')
       const bankId = request.input('bankId')
-      const secretKey = env.get('APP_ENCRYPT_KEY') as string
       const employeeBank = {
         employeeBankId: employeeBankId,
-        employeeBankAccountClabe: employeeBankService.encrypt(employeeBankAccountClabe, secretKey),
+        employeeBankAccountClabe: employeeBankAccountClabe,
         employeeBankAccountClabeLastNumbers: employeeBankAccountClabeLastNumbers,
-        employeeBankAccountNumber: employeeBankService.encrypt(
-          employeeBankAccountNumber,
-          secretKey
-        ),
+        employeeBankAccountNumber: employeeBankAccountNumber,
         employeeBankAccountNumberLastNumbers: employeeBankAccountNumberLastNumbers,
-        employeeBankAccountCardNumber: employeeBankService.encrypt(
-          employeeBankAccountCardNumber,
-          secretKey
-        ),
+        employeeBankAccountCardNumber: employeeBankAccountCardNumber,
         employeeBankAccountCardNumberLastNumbers: employeeBankAccountCardNumberLastNumbers,
         employeeBankAccountType: employeeBankAccountType,
         employeeBankAccountCurrencyType: employeeBankAccountCurrencyType,
@@ -424,6 +456,7 @@ export default class EmployeeBankController {
         }
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       const messageError =
         error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
       response.status(500)
