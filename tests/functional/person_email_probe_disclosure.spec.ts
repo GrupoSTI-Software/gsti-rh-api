@@ -1,19 +1,28 @@
 import { readFileSync } from 'node:fs'
+import ExcelJS from 'exceljs'
 import { test } from '@japa/runner'
 import type { Assert } from '@japa/assert'
 import type { ApiClient, ApiResponse } from '@japa/api-client'
+import db from '@adonisjs/lucid/services/db'
+import type BusinessUnit from '#models/business_unit'
+import Employee from '#models/employee'
 import Person from '#models/person'
+import type User from '#models/user'
 import { LogStore } from '#models/MongoDB/log_store'
 import { blindIndex } from '#utils/blind_index'
 import {
+  PERSON_EMAIL_PROBE_BUSINESS_RATE,
   PERSON_EMAIL_PROBE_RATE,
   PERSON_WRITE_RATE,
 } from '#helpers/person_email_probe_throttle'
 import {
   businessUnitHeaders,
   cleanupTenantActor,
+  cleanupUnitUser,
   createBypassActor,
+  createBypassUserInBusinessUnit,
   type TenantActor,
+  type UnitUser,
 } from '#tests/helpers/tenant_actor'
 import { captureLogStore, type CapturedLog } from './person_user_email_mirror_support.js'
 
@@ -58,6 +67,17 @@ const SISTER_422_CODE = 'PERSON.IDENTITY.005'
 const PROBE_LIMIT = PERSON_EMAIL_PROBE_RATE.requests
 const PROBE_RETRY_AFTER = PERSON_EMAIL_PROBE_RATE.blockMinutes * 60
 const WRITE_FLOOR_LIMIT = PERSON_WRITE_RATE.requests
+/** El intento que cruza cada umbral: el corte llega en el umbral + 1. */
+const PROBE_CUTOFF = PROBE_LIMIT + 1
+const WRITE_FLOOR_CUTOFF = WRITE_FLOOR_LIMIT + 1
+/** El guión doble del caso mixto: dos tandas del límite individual. */
+const PROBE_LIMIT_DOUBLE = PROBE_LIMIT * 2
+/**
+ * Techo por EMPRESA del CA-4 (`PERSON_EMAIL_PROBE_BUSINESS_RATE`), leído de su
+ * fuente y no copiado. Se usa en la desigualdad que documenta la desviación
+ * declarada del CA-4 (ver el TSDoc del caso en el grupo 2).
+ */
+const BUSINESS_CEILING = PERSON_EMAIL_PROBE_BUSINESS_RATE.requests
 
 /** Cabeceras del 429 del sondeo: `Retry-After` + las tres de RFC 6585. */
 const RATE_LIMIT_HEADER_NAMES = [
@@ -197,13 +217,16 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
     // ── Guión MIXTO: 40 correos distintos, mitad libres y mitad ya ocupados por
     // expedientes sembrados. Es el caso del sondeo en serie (CA-1/CA-3).
     const mixed = await freshActor('probe-ca3-mixed')
-    const mixedEmails = Array.from({ length: 40 }, (_, i) => `probe-ca3-${stamp}-${i}@dominio.test`)
-    for (let i = 1; i < 40; i += 2) {
+    const mixedEmails = Array.from(
+      { length: PROBE_LIMIT_DOUBLE },
+      (_, i) => `probe-ca3-${stamp}-${i}@dominio.test`
+    )
+    for (let i = 1; i < PROBE_LIMIT_DOUBLE; i += 2) {
       await seedOccupiedEmail(mixed.businessUnit.businessUnitId, mixedEmails[i])
     }
 
     const mixedResponses: ApiResponse[] = []
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < PROBE_LIMIT_DOUBLE; i++) {
       const response = await postPerson(client, mixed, {
         personFirstname: 'Probe',
         personLastname: `Mixed${i}`,
@@ -215,7 +238,7 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
 
     // Los 20 primeros proceden con su respuesta estándar (201 el libre, 422 el
     // ocupado) y NINGUNO trae cabeceras de límite: el corte no delató nada todavía.
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < PROBE_LIMIT; i++) {
       const isFree = i % 2 === 0
       assert.equal(
         mixedResponses[i].status(),
@@ -225,12 +248,12 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
       assertNoRateLimitHeaders(assert, mixedResponses[i], `intento ${i + 1}`)
     }
     // Del 21 en adelante TODOS responden el mismo 429, con `Retry-After`.
-    for (let i = 20; i < 40; i++) {
+    for (let i = PROBE_LIMIT; i < PROBE_LIMIT_DOUBLE; i++) {
       assertProbeRateLimited(assert, mixedResponses[i], mixedEmails[i])
       assert.equal(
         JSON.stringify(mixedResponses[i].body()),
-        JSON.stringify(mixedResponses[20].body()),
-        `el 429 del intento ${i + 1} debe ser idéntico al del 21`
+        JSON.stringify(mixedResponses[PROBE_LIMIT].body()),
+        `el 429 del intento ${i + 1} debe ser idéntico al del ${PROBE_CUTOFF}`
       )
     }
 
@@ -238,26 +261,35 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
     // Sin los aceptados, 40 intentos con pocos choques se verían igual que un
     // capturista honesto (regla dura del registro).
     const mixedRows = probeRows(logs).filter((log) => log.payload.actor_user_id === mixed.user.userId)
-    assert.lengthOf(mixedRows, 40)
+    assert.lengthOf(mixedRows, PROBE_LIMIT_DOUBLE)
     const outcomes = mixedRows.map((log) => log.payload.outcome).sort()
     assert.deepEqual(
       [...new Set(outcomes)].sort(),
       ['accepted', 'rate_limited', 'rejected_not_available']
     )
-    assert.lengthOf(mixedRows.filter((log) => log.payload.outcome === 'accepted'), 10)
+    assert.lengthOf(
+      mixedRows.filter((log) => log.payload.outcome === 'accepted'),
+      PROBE_LIMIT / 2
+    )
     assert.lengthOf(
       mixedRows.filter((log) => log.payload.outcome === 'rejected_not_available'),
-      10
+      PROBE_LIMIT / 2
     )
-    assert.lengthOf(mixedRows.filter((log) => log.payload.outcome === 'rate_limited'), 20)
+    assert.lengthOf(
+      mixedRows.filter((log) => log.payload.outcome === 'rate_limited'),
+      PROBE_LIMIT
+    )
 
     // ── CA-2: otro actor hace 21 altas TODAS exitosas (correos libres válidos).
     // La 21ª responde el MISMO 429: el corte no distingue aciertos de fallos, y
     // ese es justo el oráculo que la HU prohíbe (contar solo los fallos).
     const allFree = await freshActor('probe-ca2-free')
-    const freeEmails = Array.from({ length: 21 }, (_, i) => `probe-ca2-${stamp}-${i}@dominio.test`)
+    const freeEmails = Array.from(
+      { length: PROBE_CUTOFF },
+      (_, i) => `probe-ca2-${stamp}-${i}@dominio.test`
+    )
     const freeResponses: ApiResponse[] = []
-    for (let i = 0; i < 21; i++) {
+    for (let i = 0; i < PROBE_CUTOFF; i++) {
       const response = await postPerson(client, allFree, {
         personFirstname: 'Probe',
         personLastname: `Free${i}`,
@@ -266,16 +298,22 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
       freeResponses.push(response)
       trackPerson(response)
     }
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < PROBE_LIMIT; i++) {
       assert.equal(freeResponses[i].status(), 201, `alta libre ${i + 1}`)
     }
-    const freeCutoff = freeResponses[20]
-    assertProbeRateLimited(assert, freeCutoff, freeEmails[20])
+    const freeCutoff = freeResponses[PROBE_LIMIT]
+    assertProbeRateLimited(assert, freeCutoff, freeEmails[PROBE_LIMIT])
 
     // Mismo punto de corte y MISMA respuesta que el guión mixto: byte a byte.
-    assert.equal(JSON.stringify(freeCutoff.body()), JSON.stringify(mixedResponses[20].body()))
-    assert.equal(freeCutoff.headers()['x-ratelimit-limit'], mixedResponses[20].headers()['x-ratelimit-limit'])
-    assert.equal(freeCutoff.headers()['retry-after'], mixedResponses[20].headers()['retry-after'])
+    assert.equal(JSON.stringify(freeCutoff.body()), JSON.stringify(mixedResponses[PROBE_LIMIT].body()))
+    assert.equal(
+      freeCutoff.headers()['x-ratelimit-limit'],
+      mixedResponses[PROBE_LIMIT].headers()['x-ratelimit-limit']
+    )
+    assert.equal(
+      freeCutoff.headers()['retry-after'],
+      mixedResponses[PROBE_LIMIT].headers()['retry-after']
+    )
   })
 
   test('CA-5 — la operación diaria no se estorba: 15 altas sin correo (cero rastro) y 15 con correo libre (sin corte)', async ({
@@ -367,7 +405,7 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
     personIds.push(seeded.personId)
 
     const responses: ApiResponse[] = []
-    for (let i = 0; i < 21; i++) {
+    for (let i = 0; i < PROBE_CUTOFF; i++) {
       responses.push(
         await putPerson(client, actor, seeded.personId, {
           personFirstname: 'Probe',
@@ -380,20 +418,23 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
     // 20 ediciones con SU PROPIO correo proceden (201); la 21ª topa el sondeo.
     // Esto prueba que la edición CONSUME CUOTA igual que el alta: el límite no se
     // esquiva reenviando el correo que el expediente ya tiene.
-    for (let i = 0; i < 20; i++) {
+    for (let i = 0; i < PROBE_LIMIT; i++) {
       assert.equal(responses[i].status(), 201, `edición ${i + 1}`)
       assertNoRateLimitHeaders(assert, responses[i], `edición ${i + 1}`)
     }
-    assertProbeRateLimited(assert, responses[20], email)
+    assertProbeRateLimited(assert, responses[PROBE_LIMIT], email)
 
     const rows = probeRows(logs).filter((log) => log.payload.actor_user_id === actor.user.userId)
-    assert.lengthOf(rows, 21)
-    assert.lengthOf(rows.filter((log) => log.payload.path === 'update'), 21)
+    assert.lengthOf(rows, PROBE_CUTOFF)
+    assert.lengthOf(
+      rows.filter((log) => log.payload.path === 'update'),
+      PROBE_CUTOFF
+    )
     // Cada fila apunta al expediente que el actor editó (el suyo), nunca a un ajeno.
     for (const row of rows) {
       assert.equal(row.payload.target_person_id, seeded.personId)
     }
-    assert.lengthOf(rows.filter((log) => log.payload.outcome === 'accepted'), 20)
+    assert.lengthOf(rows.filter((log) => log.payload.outcome === 'accepted'), PROBE_LIMIT)
     assert.lengthOf(rows.filter((log) => log.payload.outcome === 'rate_limited'), 1)
     assert.equal(rows[0].payload.outcome, 'accepted')
     assert.equal(rows[0].payload.path, 'update')
@@ -635,7 +676,7 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
     // correo) y el corte, si llega, es del piso de ruta. El 41 cruza el umbral.
     const responses: ApiResponse[] = []
     const createdIds: Array<number | null> = []
-    for (let i = 0; i < 41; i++) {
+    for (let i = 0; i < WRITE_FLOOR_CUTOFF; i++) {
       const response = await postPerson(client, actor, {
         personFirstname: 'Probe',
         personLastname: `Floor${i}`,
@@ -644,10 +685,10 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
       createdIds.push(trackPerson(response))
     }
 
-    for (let i = 0; i < 40; i++) {
+    for (let i = 0; i < WRITE_FLOOR_LIMIT; i++) {
       assert.equal(responses[i].status(), 201, `escritura ${i + 1}`)
     }
-    const blocked = responses[40]
+    const blocked = responses[WRITE_FLOOR_LIMIT]
     assert.equal(blocked.status(), 429)
     const body = blocked.body() as Record<string, unknown>
     assert.equal(body.key, PROBE_429_KEY)
@@ -724,5 +765,608 @@ test.group('Sondeo de correo por API — corte, bitácora y bordes (USRH17897628
     assert.equal(rejected.status(), 422)
     assert.equal(rejected.body()?.code, SISTER_422_CODE)
     assertNoRateLimitHeaders(assert, rejected, '422 del PUT')
+  })
+})
+
+/**
+ * ────────────────────────────────────────────────────────────────────────────
+ * Grupo 2 — la carga masiva y el aislamiento del límite (CA-9 y CA-4)
+ * ────────────────────────────────────────────────────────────────────────────
+ *
+ * Montaje propio, y por qué:
+ *  - La carga masiva entra por `POST /api/employees/import-excel`, NO por
+ *    `/api/persons`: es otra ruta y otro camino de registro (`path: 'import'`,
+ *    Task 7). El archivo se fabrica con ExcelJS replicando las cabeceras de la
+ *    plantilla real: `EmployeeService.validateExcelHeaders`
+ *    (`app/services/employee_service.ts:3431`) exige TODAS —no solo las cinco
+ *    obligatorias—, así que con una cabecera de menos la API responde 400
+ *    `EMP.IMPORT.VAL_HEADERS`. Que la importación responda 200 con su `summary`
+ *    es la prueba de que este archivo ES la plantilla de la empresa cliente.
+ *  - El correo "ya registrado" lo ocupa un expediente sembrado por MODELO en OTRA
+ *    empresa: la unicidad del correo personal es GLOBAL, así que una consulta de
+ *    existencia acotada a la empresa del actor (el mixin de tenant) leería ese
+ *    correo como libre y el `outcome` de la bitácora mentiría.
+ *  - Los expedientes que una fila ACTUALIZA se siembran por modelo, con su
+ *    `ID Empleado` (la columna oculta de la plantilla): sembrarlos por HTTP
+ *    consumiría cuota del sondeo y falsearía el caso.
+ *  - Tres personas de la MISMA empresa exigen `createBypassUserInBusinessUnit` (un
+ *    actor por empresa no alcanza): la llave del sondeo es el `user_id` y la del
+ *    techo por empresa es la unidad, así que el caso necesita varias personas
+ *    colgando de UNA unidad. Su limpieza va antes que la de la empresa, por la FK
+ *    `users.person_id`.
+ */
+
+/**
+ * Cabeceras de la plantilla real de importación, verbatim (mismo molde que
+ * `tests/functional/services/employee_import_company_scope.spec.ts`). El orden
+ * importa: la primera columna es la oculta `ID Empleado`.
+ */
+const IMPORT_TEMPLATE_HEADERS = [
+  'ID Empleado',
+  'Identificador de nómina',
+  'Unidad de negocio de trabajo',
+  'Unidad de negocio de nómina',
+  'Nombre del empleado',
+  'Apellido paterno del empleado',
+  'Apellido materno del empleado',
+  'Fecha de contratación (yyyy/mm/dd)',
+  'Departamento',
+  'Posición',
+  'Salario diario',
+  'Fecha de nacimiento (dd/mm/yyyy)',
+  'CURP',
+  'RFC',
+  'NSS',
+  'Correo empresa',
+  'Correo personal',
+  'Teléfono Empresa',
+  'Teléfono Personal',
+  'Modalidad de trabajo',
+  '% Teletrabajo',
+  'Nombre contacto emergencia',
+  'Apellido paterno contacto emergencia',
+  'Apellido materno contacto emergencia',
+  'Parentesco contacto emergencia',
+  'Teléfono contacto emergencia',
+] as const
+
+/** Una fila del archivo: alta (sin `ID Empleado`) o actualización (con él). */
+interface ImportRowSpec {
+  payrollNum: string
+  firstName: string
+  lastName: string
+  personalEmail?: string
+  employeeId?: number
+}
+
+/** Fabrica el `.xlsx` en memoria: cabeceras canónicas + una fila por renglón pedido. */
+async function buildImportBuffer(unitName: string, rows: ImportRowSpec[]): Promise<Buffer> {
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet('Empleados')
+  sheet.addRow([...IMPORT_TEMPLATE_HEADERS])
+
+  const put = (values: Array<string | number>, header: string, value: string | number) => {
+    values[(IMPORT_TEMPLATE_HEADERS as readonly string[]).indexOf(header)] = value
+  }
+
+  for (const row of rows) {
+    const values: Array<string | number> = IMPORT_TEMPLATE_HEADERS.map(() => '')
+    if (row.employeeId !== undefined) put(values, 'ID Empleado', row.employeeId)
+    put(values, 'Identificador de nómina', row.payrollNum)
+    put(values, 'Unidad de negocio de trabajo', unitName)
+    put(values, 'Unidad de negocio de nómina', unitName)
+    put(values, 'Nombre del empleado', row.firstName)
+    put(values, 'Apellido paterno del empleado', row.lastName)
+    if (row.personalEmail !== undefined) put(values, 'Correo personal', row.personalEmail)
+    sheet.addRow(values)
+  }
+
+  return Buffer.from(await workbook.xlsx.writeBuffer())
+}
+
+/**
+ * POST /api/persons con las cabeceras de una empresa concreta: el actor puede no
+ * ser su dueño (varias personas comparten una empresa).
+ */
+async function postPersonInBusinessUnit(
+  client: ApiClient,
+  businessUnit: BusinessUnit,
+  user: User,
+  payload: Record<string, unknown>
+): Promise<ApiResponse> {
+  return client
+    .post('/api/persons')
+    .headers({ 'X-Business-Unit-Id': businessUnit.businessUnitPublicId })
+    .loginAs(user)
+    .json(payload)
+}
+
+test.group('Carga masiva y aislamiento del límite por actor (USRH1789762889970)', (group) => {
+  const actors: TenantActor[] = []
+  const unitUsers: UnitUser[] = []
+  const personIds: number[] = []
+  const unitIds: number[] = []
+
+  /** Actor con empresa propia: el que sube el archivo o el dueño de la empresa ajena. */
+  async function freshActor(prefix: string): Promise<TenantActor> {
+    const actor = await createBypassActor('owner', prefix)
+    actors.push(actor)
+    unitIds.push(actor.businessUnit.businessUnitId)
+    return actor
+  }
+
+  /** Persona EXTRA dentro de una empresa que el spec no creó: la empresa se queda. */
+  async function freshUnitUser(prefix: string, businessUnit: BusinessUnit): Promise<UnitUser> {
+    const unitUser = await createBypassUserInBusinessUnit(
+      'owner',
+      prefix,
+      businessUnit.businessUnitId
+    )
+    unitUsers.push(unitUser)
+    return unitUser
+  }
+
+  /** Anota la persona creada por el caso para que el teardown la borre antes que la empresa. */
+  function trackPerson(response: ApiResponse): number | null {
+    const personId = response.body()?.data?.person?.personId as number | undefined
+    if (typeof personId === 'number') personIds.push(personId)
+    return personId ?? null
+  }
+
+  /** Expediente que OCUPA un correo, sin pasar por HTTP (no consume cuota de nadie). */
+  async function seedOccupiedEmail(businessUnitId: number, email: string): Promise<number> {
+    const person = await Person.create({
+      personFirstname: 'Probe',
+      personLastname: 'Ocupado',
+      personSecondLastname: `Ocupado${uniqueStamp()}`,
+      personEmail: email,
+      businessUnitId,
+    })
+    personIds.push(person.personId)
+    return person.personId
+  }
+
+  /**
+   * Empleado existente (con su expediente) para las filas que ACTUALIZAN. El
+   * importador reconoce la actualización por `ID Empleado`, no por el número de
+   * nómina, y la fila actualizada deja la bitácora con ESE expediente como objetivo.
+   */
+  async function seedEmployee(
+    businessUnitId: number,
+    label: string
+  ): Promise<{ employeeId: number; personId: number }> {
+    const stamp = uniqueStamp()
+    const person = await Person.create({
+      personFirstname: 'Probe',
+      personLastname: `Carga${label}`,
+      personSecondLastname: stamp.slice(0, 20),
+      personEmail: `probe-import-seed-${label}-${stamp}@dominio.test`,
+      businessUnitId,
+    })
+    personIds.push(person.personId)
+
+    const employee = new Employee()
+    employee.employeeSyncId = Date.now() + Math.floor(Math.random() * 1000)
+    employee.employeeCode = `IMP${label}${stamp.slice(-6)}`
+    employee.employeeFirstName = 'Probe'
+    employee.employeeLastName = `Carga${label}`
+    employee.employeeSecondLastName = stamp.slice(0, 20)
+    employee.employeePayrollNum = `IMP${label}${stamp.slice(-6)}`
+    employee.employeeBusinessEmail = `probe-import-biz-${label}-${stamp}@dominio.test`
+    employee.companyId = businessUnitId
+    employee.personId = person.personId
+    employee.businessUnitId = businessUnitId
+    employee.payrollBusinessUnitId = businessUnitId
+    employee.employeeTypeId = 1
+    employee.departmentId = null
+    employee.positionId = null
+    employee.employeeTerminatedDate = null
+    await employee.save()
+
+    return { employeeId: employee.employeeId, personId: person.personId }
+  }
+
+  /** Sube el archivo como el actor dueño de la empresa: su usuario y su empresa viajan al rastro. */
+  async function postImport(
+    client: ApiClient,
+    actor: TenantActor,
+    buffer: Buffer
+  ): Promise<ApiResponse> {
+    return client
+      .post('/api/employees/import-excel')
+      .headers(businessUnitHeaders(actor))
+      .loginAs(actor.user)
+      .file('file', buffer, {
+        filename: 'import.xlsx',
+        contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+  }
+
+  group.teardown(async () => {
+    // Orden obligado por las FK (todas RESTRICT): empleados → usuarios prestados →
+    // personas → empresa (que `cleanupTenantActor` borra al final).
+    if (unitIds.length > 0) {
+      const employees = await Employee.query()
+        .withTrashed()
+        .whereIn('business_unit_id', unitIds)
+        .select('employee_id')
+      const employeeIds = employees.map((employee) => employee.employeeId)
+      if (employeeIds.length > 0) {
+        await db.from('employee_salary_history').whereIn('employee_id', employeeIds).delete()
+        await Employee.query().withTrashed().whereIn('employee_id', employeeIds).delete()
+      }
+    }
+
+    for (const unitUser of unitUsers) {
+      await cleanupUnitUser(unitUser)
+    }
+
+    // Las personas que dejó la carga masiva no se conocen por id (el 200 trae el
+    // `summary`, no las filas): se borran todas las de esas empresas menos las de los
+    // actores, que cuelgan de `users.person_id` y salen con `cleanupTenantActor`.
+    const leftoverIds: number[] = []
+    if (unitIds.length > 0) {
+      const actorPersonIds = actors.map((actor) => actor.person.personId)
+      const leftovers = await Person.query()
+        .withTrashed()
+        .whereIn('business_unit_id', unitIds)
+        .whereNotIn('person_id', actorPersonIds.length > 0 ? actorPersonIds : [0])
+        .select('person_id')
+      for (const person of leftovers) leftoverIds.push(person.personId)
+    }
+
+    const idsToDelete = [...new Set([...personIds, ...leftoverIds])]
+    if (idsToDelete.length > 0) {
+      await Person.query().withTrashed().whereIn('person_id', idsToDelete).delete()
+    }
+
+    for (const actor of actors) {
+      await cleanupTenantActor(actor)
+    }
+  })
+
+  test('CA-9 — una fila de bitácora por fila del archivo con correo, con quién subió y desde qué empresa', async ({
+    client,
+    assert,
+    cleanup,
+  }) => {
+    const logs = captureLogStore(cleanup)
+    const stamp = uniqueStamp()
+    const uploader = await freshActor('probe-ca9-uploader')
+    const foreign = await freshActor('probe-ca9-foreign')
+
+    // Un correo "ya registrado" por fila, para poder mapear fila del archivo ↔ fila
+    // de bitácora por `email_hash`: con un correo repetido, dos filas del archivo
+    // compartirían hash y el mapa mentiría.
+    const takenOnCreate = `probe-ca9-taken-create-${stamp}@dominio.test`
+    const takenOnUpdate = `probe-ca9-taken-update-${stamp}@dominio.test`
+    await seedOccupiedEmail(foreign.businessUnit.businessUnitId, takenOnCreate)
+    await seedOccupiedEmail(foreign.businessUnit.businessUnitId, takenOnUpdate)
+
+    const editable = await seedEmployee(uploader.businessUnit.businessUnitId, 'Uno')
+    const editableTaken = await seedEmployee(uploader.businessUnit.businessUnitId, 'Dos')
+
+    const email = (label: string) => `probe-ca9-${label}-${stamp}@dominio.test`
+    const fileRows = {
+      createFreeA: email('create-a'),
+      createFreeB: email('create-b'),
+      createTaken: takenOnCreate,
+      updateFree: email('update-free'),
+      updateTaken: takenOnUpdate,
+      createFreeC: email('create-c'),
+    }
+
+    const buffer = await buildImportBuffer(uploader.businessUnit.businessUnitName, [
+      {
+        payrollNum: `CA9A${stamp}`,
+        firstName: 'Probe',
+        lastName: 'AltaUno',
+        personalEmail: fileRows.createFreeA,
+      },
+      {
+        payrollNum: `CA9B${stamp}`,
+        firstName: 'Probe',
+        lastName: 'AltaDos',
+        personalEmail: fileRows.createFreeB,
+      },
+      {
+        payrollNum: `CA9C${stamp}`,
+        firstName: 'Probe',
+        lastName: 'AltaOcupada',
+        personalEmail: fileRows.createTaken,
+      },
+      // Cuarta fila: SIN correo personal. No es intento y no debe dejar rastro.
+      { payrollNum: `CA9D${stamp}`, firstName: 'Probe', lastName: 'AltaVacia' },
+      {
+        employeeId: editable.employeeId,
+        payrollNum: `CA9E${stamp}`,
+        firstName: 'Probe',
+        lastName: 'EditaUno',
+        personalEmail: fileRows.updateFree,
+      },
+      {
+        employeeId: editableTaken.employeeId,
+        payrollNum: `CA9F${stamp}`,
+        firstName: 'Probe',
+        lastName: 'EditaDos',
+        personalEmail: fileRows.updateTaken,
+      },
+      // Séptima fila: la segunda sin correo.
+      { payrollNum: `CA9G${stamp}`, firstName: 'Probe', lastName: 'AltaVaciaDos' },
+      {
+        payrollNum: `CA9H${stamp}`,
+        firstName: 'Probe',
+        lastName: 'AltaTres',
+        personalEmail: fileRows.createFreeC,
+      },
+    ])
+
+    const response = await postImport(client, uploader, buffer)
+    assert.equal(response.status(), 200)
+    // Ocho filas: seis ALTAS (dos de ellas sin correo) y dos ACTUALIZACIONES.
+    assert.deepEqual(response.body()?.data?.summary, {
+      totalRows: 8,
+      processed: 8,
+      created: 6,
+      updated: 2,
+      failed: 0,
+      skipped: 0,
+      limitReached: false,
+    })
+    assert.lengthOf(response.body()?.data?.rowErrors, 0)
+
+    // ── La bitácora: UNA fila por cada fila del archivo con correo no vacío.
+    const rows = probeRows(logs).filter((log) => log.payload.path === 'import')
+    assert.lengthOf(rows, 6)
+    // Las siete llaves del contrato (N8), también en este camino.
+    assert.deepEqual(Object.keys(rows[0].payload).sort(), [
+      'actor_user_id',
+      'business_unit_scope',
+      'date',
+      'email_hash',
+      'outcome',
+      'path',
+      'target_person_id',
+    ])
+    // Quién SUBIÓ el archivo y desde qué empresa: el actor y SU scope, en las seis.
+    for (const row of rows) {
+      assert.equal(row.payload.actor_user_id, uploader.user.userId)
+      assert.deepEqual(row.payload.business_unit_scope, [uploader.businessUnit.businessUnitId])
+      assert.equal(row.payload.path, 'import')
+      assert.isString(row.payload.date)
+    }
+
+    // El mapa fila del archivo → fila de bitácora es por `email_hash` (el correo en
+    // claro NUNCA viaja): seis hashes distintos, uno por correo del archivo.
+    const byHash = new Map(rows.map((row) => [row.payload.email_hash as string, row.payload]))
+    assert.equal(byHash.size, 6)
+
+    /** La fila del archivo con este correo dejó ESTE desenlace, con ESTE objetivo. */
+    const expectRow = (probedEmail: string, outcome: string, targetPersonId: number | null) => {
+      const row = byHash.get(blindIndex(probedEmail))
+      assert.isDefined(row, `falta la fila de bitácora de la fila con desenlace ${outcome}`)
+      assert.equal(row?.outcome, outcome)
+      assert.equal(row?.target_person_id, targetPersonId)
+      assert.equal(row?.email_hash, blindIndex(probedEmail))
+    }
+
+    // Las ALTAS: `target_person_id` null y el veredicto del sondeo, no el destino de la
+    // fila (la carga masiva NO impone unicidad: guarda igual, también el correo tomado).
+    expectRow(fileRows.createFreeA, 'accepted', null)
+    expectRow(fileRows.createFreeB, 'accepted', null)
+    expectRow(fileRows.createFreeC, 'accepted', null)
+    expectRow(fileRows.createTaken, 'rejected_not_available', null)
+    // Las ACTUALIZACIONES: el expediente tocado como objetivo (convenio del camino de
+    // edición), que es lo que las distingue de las altas en la bitácora.
+    expectRow(fileRows.updateFree, 'accepted', editable.personId)
+    expectRow(fileRows.updateTaken, 'rejected_not_available', editableTaken.personId)
+
+    assert.lengthOf(rows.filter((row) => row.payload.outcome === 'accepted'), 4)
+    assert.lengthOf(rows.filter((row) => row.payload.outcome === 'rejected_not_available'), 2)
+
+    // Las dos filas SIN correo (la cuarta y la séptima) no dejaron rastro: hashear el
+    // vacío produce una constante que envenenaría la colección y agruparía a todo el que
+    // captura sin correo. El aserto es sobre el hash exacto, no sobre el conteo.
+    assert.notInclude(rows.map((row) => row.payload.email_hash), blindIndex(''))
+
+    // Y el correo en claro no aparece en ninguna fila.
+    const raw = JSON.stringify(rows.map((row) => row.payload))
+    for (const value of Object.values(fileRows)) {
+      assert.notInclude(raw, value)
+    }
+
+    // ── La carga masiva NO consume cuota del sondeo. Prueba directa: el MISMO actor que
+    // acaba de dejar seis filas de `import` conserva ENTERA su cuota individual. Si el
+    // importador hubiera contado esos intentos, el corte habría llegado en el intento 15
+    // de esta tanda (20 - 6) y no en el 21.
+    const captureEmails = Array.from(
+      { length: PROBE_LIMIT },
+      (_, i) => `probe-ca9-capture-${stamp}-${i}@dominio.test`
+    )
+    const captureResponses: ApiResponse[] = []
+    for (let i = 0; i < PROBE_LIMIT; i++) {
+      const captured = await postPerson(client, uploader, {
+        personFirstname: 'Probe',
+        personLastname: `Cuota${i}`,
+        personEmail: captureEmails[i],
+      })
+      captureResponses.push(captured)
+      trackPerson(captured)
+    }
+    for (let i = 0; i < PROBE_LIMIT; i++) {
+      assert.equal(captureResponses[i].status(), 201, `captura ${i + 1} con la cuota intacta`)
+      assertNoRateLimitHeaders(assert, captureResponses[i], `captura ${i + 1}`)
+    }
+    const cutoffEmail = `probe-ca9-capture-cut-${stamp}@dominio.test`
+    const uploaderCutoff = await postPerson(client, uploader, {
+      personFirstname: 'Probe',
+      personLastname: 'CuotaCorte',
+      personEmail: cutoffEmail,
+    })
+    assertProbeRateLimited(assert, uploaderCutoff, cutoffEmail)
+
+    // El corte de esa tanda es el del sondeo (20/hora, `X-RateLimit-Limit` lo confirma
+    // dentro de `assertProbeRateLimited`), no el del piso de escritura (40/min): la tanda
+    // lleva 21 escrituras, muy por debajo del piso.
+    const storeRows = probeRows(logs).filter(
+      (log) => log.payload.actor_user_id === uploader.user.userId && log.payload.path === 'store'
+    )
+    assert.lengthOf(storeRows, PROBE_CUTOFF)
+    assert.lengthOf(storeRows.filter((log) => log.payload.outcome === 'accepted'), PROBE_LIMIT)
+    assert.lengthOf(storeRows.filter((log) => log.payload.outcome === 'rate_limited'), 1)
+  })
+
+  /**
+   * CA-4 — el aislamiento del límite: POR PERSONA, no por empresa.
+   *
+   * DESVIACIÓN DECLARADA (dictamen de coordinación de la HU): el criterio CA-4 también
+   * habla de un techo por EMPRESA de 200/hora (`PERSON_EMAIL_PROBE_BUSINESS_RATE`). Ese
+   * techo es INALCANZABLE por HTTP con las llaves que existen: el límite individual es
+   * de 20/hora por persona, así que harían falta DIEZ personas de la misma empresa
+   * topando su propio límite para llegar justo al techo (10 × 20 = 200) y una UNDÉCIMA
+   * para que el corte de empresa disparara en su primer intento. Un caso HTTP que
+   * "alcanzara" los 200 tendría que fabricar once usuarios y ~200 peticiones para probar
+   * un umbral que no corta —o peor, mover el umbral para que el caso pase—. Por eso:
+   *  1. el techo por empresa se prueba donde SÍ es alcanzable: a nivel UNITARIO, contra
+   *     su clase y su umbral real (Task 3,
+   *     `tests/unit/helpers/person_email_probe_throttle.spec.ts`);
+   *  2. aquí se cubre lo que el CA-4 SÍ puede demostrar por HTTP: tres personas de la
+   *     MISMA empresa topan su límite individual con el mismo 429, la empresa NO queda
+   *     topada (una cuarta persona suya sigue capturando), una empresa distinta captura
+   *     sin fricción en el mismo momento, y la bitácora deja el conteo por PERSONA;
+   *  3. la desigualdad que sostiene la desviación queda ASERTADA abajo
+   *     (`topados.length * PROBE_LIMIT < BUSINESS_CEILING`): si algún día el límite
+   *     individual sube o el techo de empresa baja hasta que se toquen, el aserto falla
+   *     y obliga a revisar este caso.
+   */
+  test('CA-4 (parte demostrable) — tres personas de la misma empresa topadas por su límite no dejan sin operar a su empresa ni a otra', async ({
+    client,
+    assert,
+    cleanup,
+  }) => {
+    const logs = captureLogStore(cleanup)
+    const stamp = uniqueStamp()
+    const companyA = await freshActor('probe-ca4-a')
+    const companyB = await freshActor('probe-ca4-b')
+    const topadoEmail = (index: number, attempt: number) =>
+      `probe-ca4-${index}-${stamp}-${attempt}@dominio.test`
+
+    // TRES personas de la MISMA empresa: cada una topa su propio contador.
+    const topados = [
+      await freshUnitUser('probe-ca4-a-uno', companyA.businessUnit),
+      await freshUnitUser('probe-ca4-a-dos', companyA.businessUnit),
+      await freshUnitUser('probe-ca4-a-tres', companyA.businessUnit),
+    ]
+    // La cuarta es de la misma empresa y no ha intentado nada: es la prueba de que la
+    // empresa NO quedó topada.
+    const fourth = await freshUnitUser('probe-ca4-a-cuarta', companyA.businessUnit)
+
+    const cutBodies: string[] = []
+    for (const [index, topado] of topados.entries()) {
+      const responses: ApiResponse[] = []
+      for (let i = 0; i < PROBE_CUTOFF; i++) {
+        const response = await postPersonInBusinessUnit(
+          client,
+          companyA.businessUnit,
+          topado.user,
+          {
+            personFirstname: 'Probe',
+            personLastname: `Topado${index}${i}`,
+            personEmail: topadoEmail(index, i),
+          }
+        )
+        responses.push(response)
+        trackPerson(response)
+      }
+
+      // Cada persona procede con SU límite individual y topa en el intento 21.
+      for (let i = 0; i < PROBE_LIMIT; i++) {
+        assert.equal(responses[i].status(), 201, `persona ${index + 1}, intento ${i + 1}`)
+        assertNoRateLimitHeaders(assert, responses[i], `persona ${index + 1}, intento ${i + 1}`)
+      }
+      assertProbeRateLimited(assert, responses[PROBE_LIMIT], topadoEmail(index, PROBE_LIMIT))
+      cutBodies.push(JSON.stringify(responses[PROBE_LIMIT].body()))
+    }
+
+    // Las tres reciben EXACTAMENTE el mismo corte: cuerpo byte a byte idéntico (el 429 no
+    // distingue a quién cortó) y con el `X-RateLimit-Limit` del contador INDIVIDUAL
+    // (20/h), no el del techo por empresa (200/h) — o sea, el contador que cortó es el de
+    // la persona, y ninguna de las tres topó nada de su empresa.
+    assert.equal(new Set(cutBodies).size, 1)
+    for (const body of cutBodies) {
+      const parsed = JSON.parse(body) as Record<string, unknown>
+      assert.equal(parsed.key, PROBE_429_KEY)
+      assert.equal(parsed.code, PROBE_429_CODE)
+    }
+
+    // ── 1/3 La empresa no quedó topada: una cuarta persona de la MISMA empresa sigue
+    // capturando con normalidad. Si el cubo fuera por empresa, ya estaría cortada: las
+    // tres anteriores suman 60 intentos en el mismo minuto.
+    const fourthResponse = await postPersonInBusinessUnit(
+      client,
+      companyA.businessUnit,
+      fourth.user,
+      {
+        personFirstname: 'Probe',
+        personLastname: 'Cuarta',
+        personEmail: `probe-ca4-cuarta-${stamp}@dominio.test`,
+      }
+    )
+    assert.equal(fourthResponse.status(), 201)
+    assertNoRateLimitHeaders(assert, fourthResponse, 'la cuarta persona de la empresa cortada')
+    trackPerson(fourthResponse)
+
+    // ── 2/3 Una empresa DISTINTA captura sin fricción en el mismo momento: el corte de
+    // una empresa no se contagia a otra.
+    const otherResponse = await postPerson(client, companyB, {
+      personFirstname: 'Probe',
+      personLastname: 'OtraEmpresa',
+      personEmail: `probe-ca4-otra-${stamp}@dominio.test`,
+    })
+    assert.equal(otherResponse.status(), 201)
+    assertNoRateLimitHeaders(assert, otherResponse, 'la otra empresa')
+    trackPerson(otherResponse)
+
+    // ── 3/3 El conteo es por PERSONA: la bitácora lo deja por actor, con el scope de SU
+    // empresa (el mismo para las tres topadas y para la cuarta, que no fue cortada).
+    const rows = probeRows(logs)
+    for (const [index, topado] of topados.entries()) {
+      const own = rows.filter((log) => log.payload.actor_user_id === topado.user.userId)
+      assert.lengthOf(own, PROBE_CUTOFF)
+      assert.lengthOf(own.filter((log) => log.payload.outcome === 'accepted'), PROBE_LIMIT)
+      assert.lengthOf(own.filter((log) => log.payload.outcome === 'rate_limited'), 1)
+      assert.isTrue(
+        own.every(
+          (log) =>
+            (log.payload.business_unit_scope as number[])[0] ===
+            companyA.businessUnit.businessUnitId
+        ),
+        `las filas de la persona ${index + 1} llevan el scope de su empresa`
+      )
+    }
+
+    const fourthRows = rows.filter((log) => log.payload.actor_user_id === fourth.user.userId)
+    assert.lengthOf(fourthRows, 1)
+    assert.equal(fourthRows[0].payload.outcome, 'accepted')
+    assert.deepEqual(fourthRows[0].payload.business_unit_scope, [
+      companyA.businessUnit.businessUnitId,
+    ])
+
+    const otherRows = rows.filter((log) => log.payload.actor_user_id === companyB.user.userId)
+    assert.lengthOf(otherRows, 1)
+    assert.equal(otherRows[0].payload.outcome, 'accepted')
+    assert.deepEqual(otherRows[0].payload.business_unit_scope, [
+      companyB.businessUnit.businessUnitId,
+    ])
+
+    // Solo las tres topadas dejaron un `rate_limited`: el corte de una persona no
+    // arrastró a la cuarta ni a la otra empresa.
+    assert.lengthOf(
+      rows.filter((log) => log.payload.outcome === 'rate_limited'),
+      topados.length
+    )
+
+    // ── La desviación, EJECUTABLE. Ver el TSDoc del caso.
+    assert.isBelow(topados.length * PROBE_LIMIT, BUSINESS_CEILING)
   })
 })
