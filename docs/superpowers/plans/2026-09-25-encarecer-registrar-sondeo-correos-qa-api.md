@@ -37,7 +37,7 @@ Identificador del expediente propio de B (el correo va protegido en la base, as�
 SELECT person_id FROM people WHERE person_second_lastname = 'Correo' AND person_lastname = 'CorreoLibreB';
 ```
 
-Los escenarios 1 a 7 se recorren con un cliente HTTP; los escenarios 8, 9 y 10 consultan la bitácora directamente en Mongo (`mongosh`). La base es `sae_rh` (`DB_NAME` de tu `.env`):
+Los escenarios 1 a 7 se recorren con un cliente HTTP; los escenarios 8, 9 y 10 consultan la bitácora directamente en Mongo. La base es `sae_rh` (la variable `MONGODB_DB_NAME` de tu `.env`):
 
 ```bash
 mongosh "mongodb://gsti:<tu contraseña de Mongo>@localhost:27017/sae_rh?authSource=admin"
@@ -329,7 +329,7 @@ En ese momento, un `GET /api/persons?page=1&limit=10` como **A** responde normal
 
 Objetivo: al revisar la bitácora se reconstruye quién intentó capturar correos, desde qué empresa y cuándo, y se distingue quien probó muchos correos distintos de quien capturó quince trabajadores; en ningún registro aparece un correo legible ni otro dato personal.
 
-No hay pantalla: la bitácora vive en la colección de Mongo `log_person_email_probe`. Consúltala con `mongosh` (la base es `sae_rh`).
+No hay pantalla: la bitácora vive en la colección de Mongo `log_person_email_probes`. Consúltala con `mongosh` (la base es `sae_rh`).
 
 Primero, el identificador del capturista **B**:
 
@@ -340,7 +340,7 @@ SELECT user_id, user_email FROM users WHERE user_email = 'qa-correo-capturista-b
 Filtra por él:
 
 ```js
-db.log_person_email_probe.find({ actor_user_id: <user_id de B> }).sort({ date: 1 })
+db.log_person_email_probes.find({ actor_user_id: <user_id de B> }).sort({ date: 1 })
 ```
 
 Cada intento dejó una fila con exactamente estas siete llaves:
@@ -372,14 +372,14 @@ Y distingue a los dos perfiles:
 
 ```js
 // Quien probó muchos correos distintos: muchas filas y muchos códigos ciegos distintos.
-db.log_person_email_probe.countDocuments({ actor_user_id: <user_id de B> })
-db.log_person_email_probe.distinct('email_hash', { actor_user_id: <user_id de B> }).length
-db.log_person_email_probe.countDocuments({ actor_user_id: <user_id de B>, outcome: 'rate_limited' })
+db.log_person_email_probes.countDocuments({ actor_user_id: <user_id de B> })
+db.log_person_email_probes.distinct('email_hash', { actor_user_id: <user_id de B> }).length
+db.log_person_email_probes.countDocuments({ actor_user_id: <user_id de B>, outcome: 'rate_limited' })
 ```
 
 ```js
 // Quien capturó quince trabajadores sin correo (Escenario 3, parte A): cero filas.
-db.log_person_email_probe.countDocuments({ actor_user_id: <user_id de B>, date: { $gte: '<inicio del Escenario 3>', $lte: '<fin>' } })
+db.log_person_email_probes.countDocuments({ actor_user_id: <user_id de B>, date: { $gte: '<inicio del Escenario 3>', $lte: '<fin>' } })
 ```
 
 El sondeo en serie deja muchas filas con desenlaces `accepted`, `rejected_not_available` y `rate_limited`, y muchos códigos ciegos distintos; las quince altas sin correo no dejan **ni una** fila. Eso es lo que separa a quien probó correos de quien solo capturó trabajadores.
@@ -412,7 +412,7 @@ Los números del `summary` siguen a tu archivo: `totalRows` son las filas del ar
 **Verificación del rastro en Mongo:**
 
 ```js
-db.log_person_email_probe.find({ actor_user_id: <user_id de B>, path: 'import' }).sort({ date: 1 })
+db.log_person_email_probes.find({ actor_user_id: <user_id de B>, path: 'import' }).sort({ date: 1 })
 ```
 
 Debe haber **una fila por cada fila del archivo con correo no vacío** (las filas sin correo no dejan nada), todas con `path: 'import'`, `actor_user_id` del que subió el archivo y `business_unit_scope` de su empresa. El desenlace de cada una: `accepted` si el correo estaba libre, `rejected_not_available` si ya estaba registrado; `target_person_id` es `null` en las altas y el expediente actualizado en las filas con `ID Empleado`. El correo legible no aparece en ninguna.
@@ -426,7 +426,7 @@ Objetivo: consultar el registro por quién y por rango de fechas sigue siendo vi
 Consulta la bitácora por persona y por rango de fechas:
 
 ```js
-db.log_person_email_probe.find({
+db.log_person_email_probes.find({
   actor_user_id: <user_id de B>,
   date: { $gte: '2026-09-25T00:00:00.000Z', $lte: '2026-09-25T23:59:59.999Z' }
 }).sort({ date: -1 })
