@@ -64,6 +64,8 @@ import {
 } from '#helpers/person_user_email_mirror'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
 import { canAccessBackoffice } from '#helpers/backoffice_access'
+import { TenantContext } from '#utils/tenant_context'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { ensureCredentialChangeAllowed } from '#helpers/credential_change_gate'
 import { notifyAndAudit, revokeSessions } from '#services/credential_change_service'
 import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
@@ -285,18 +287,23 @@ export default class UserController {
       const deviceToken = request.input('deviceToken')
       const userEmail = request.input('userEmail')
       const userPassword = request.input('userPassword')
-      const user = await User.query()
-        .where('user_email', userEmail)
-        .where('user_active', 1)
-        .preload('person', (personQuery) =>
-          personQuery.preload('employee', (employeeQuery) => {
-            employeeQuery.preload('position', (positionQuery) =>
-              positionQuery.whereNull('position_deleted_at')
+      const user = await TenantContext.runUnscoped(
+        () =>
+          User.query()
+            .where('user_email', userEmail)
+            .where('user_active', 1)
+            .preload('person', (personQuery) =>
+              personQuery.preload('employee', (employeeQuery) => {
+                employeeQuery.preload('position', (positionQuery) =>
+                  positionQuery.whereNull('position_deleted_at')
+                )
+                employeeQuery.preload('businessUnit')
+              })
             )
-            employeeQuery.preload('businessUnit')
-          })
-        )
-        .first()
+            .first(),
+        TENANT_UNSCOPED_REASON.AUTH_OWN_SESSION,
+        'login'
+      )
 
       if (!user) {
         response.status(404)
@@ -370,15 +377,20 @@ export default class UserController {
           }
         }
 
-        const binding = await new EmployeeDeviceService(i18n).bindToEmployee({
-          employeeDeviceToken: deviceToken,
-          employeeDeviceModel: request.input('deviceModel') || 'Unknown',
-          employeeDeviceBrand: request.input('deviceBrand') || 'Unknown',
-          employeeDeviceType: request.input('deviceType') || 'Unknown',
-          employeeDeviceOs: request.input('deviceOs') || 'Unknown',
-          employeeId: currentEmployee.employeeId,
-          businessUnitId: currentEmployee.businessUnitId,
-        })
+        const binding = await TenantContext.runUnscoped(
+          () =>
+            new EmployeeDeviceService(i18n).bindToEmployee({
+              employeeDeviceToken: deviceToken,
+              employeeDeviceModel: request.input('deviceModel') || 'Unknown',
+              employeeDeviceBrand: request.input('deviceBrand') || 'Unknown',
+              employeeDeviceType: request.input('deviceType') || 'Unknown',
+              employeeDeviceOs: request.input('deviceOs') || 'Unknown',
+              employeeId: currentEmployee.employeeId,
+              businessUnitId: currentEmployee.businessUnitId,
+            }),
+          TENANT_UNSCOPED_REASON.AUTH_OWN_SESSION,
+          'login-device'
+        )
 
         if (binding.status === 'inactive') {
           response.status(400)
@@ -391,7 +403,11 @@ export default class UserController {
         }
 
         if (binding.status === 'transferred') {
-          await this.closePreviousOwnerAppSession(binding, currentEmployee.employeeId)
+          await TenantContext.runUnscoped(
+            () => this.closePreviousOwnerAppSession(binding, currentEmployee.employeeId),
+            TENANT_UNSCOPED_REASON.AUTH_OWN_SESSION,
+            'login-device'
+          )
         }
       }
 
@@ -620,20 +636,25 @@ export default class UserController {
     const userData = await auth.authenticateUsing(['api'])
     await auth.use('api').authenticate()
 
-    const user = await User.query()
-      .where('user_id', userData.userId)
-      .preload('person', (query) => {
-        query.preload('employee', (employeeQuery) => {
-          employeeQuery.preload('position', (positionQuery) =>
-            positionQuery.whereNull('position_deleted_at')
-          )
-          // La app cliente lee businessUnitPublicId de aquí para el header
-          // x-business-unit-id; /auth/session no exige ese header.
-          employeeQuery.preload('businessUnit')
-        })
-      })
-      .preload('role')
-      .first()
+    const user = await TenantContext.runUnscoped(
+      () =>
+        User.query()
+          .where('user_id', userData.userId)
+          .preload('person', (query) => {
+            query.preload('employee', (employeeQuery) => {
+              employeeQuery.preload('position', (positionQuery) =>
+                positionQuery.whereNull('position_deleted_at')
+              )
+              // La app cliente lee businessUnitPublicId de aquí para el header
+              // x-business-unit-id; /auth/session no exige ese header.
+              employeeQuery.preload('businessUnit')
+            })
+          })
+          .preload('role')
+          .first(),
+      TENANT_UNSCOPED_REASON.AUTH_OWN_SESSION,
+      'session'
+    )
 
     response.status(200)
     return response.send(user)
