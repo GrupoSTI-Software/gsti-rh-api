@@ -37,11 +37,52 @@ Identificador del expediente propio de B (el correo va protegido en la base, as�
 SELECT person_id FROM people WHERE person_second_lastname = 'Correo' AND person_lastname = 'CorreoLibreB';
 ```
 
-Los escenarios 1 a 7 se recorren con un cliente HTTP; los escenarios 8, 9 y 10 consultan la bitácora directamente en Mongo. La base es `sae_rh` (la variable `MONGODB_DB_NAME` de tu `.env`):
+Los escenarios 1 a 7 se recorren con un cliente HTTP; los escenarios 8, 9 y 10 consultan la bitácora directamente en Mongo (ver "Cómo llegar a la bitácora", abajo).
+
+### Cómo llegar a la bitácora (base y colección)
+
+La bitácora no tiene pantalla. Para verla hay que **elegir base y colección**, y si te quedas en la base equivocada la consulta es válida pero no devuelve nada:
+
+- **Base:** `sae_rh` (es la variable `MONGODB_DB_NAME` de tu `.env`).
+- **Colección:** `log_person_email_probes`, **en plural**: Mongoose pluraliza el nombre que usa el código. La forma en singular (`log_person_email_probe`) no existe y no trae nada.
+
+Con `mongosh`:
 
 ```bash
 mongosh "mongodb://gsti:<tu contraseña de Mongo>@localhost:27017/sae_rh?authSource=admin"
 ```
+
+Conectado así, la base ya viene seleccionada. Compruébalo antes de consultar:
+
+```js
+db                 // debe responder: sae_rh
+show collections   // debe aparecer entre ellas: log_person_email_probes
+```
+
+Si te conectaste sin la base en la URL, elígela primero:
+
+```js
+use sae_rh
+```
+
+En un cliente gráfico (Compass, Studio 3T, o el que uses): conéctate con esa misma URL, abre la base `sae_rh` y, dentro, la colección `log_person_email_probes`. Ahí el filtro va **solo como documento**, sin `db.`, sin el nombre de la colección y sin `.find(...)`; los mismos filtros de los escenarios 8, 9 y 10, escritos para la barra del cliente, se ven así:
+
+```
+{ actor_user_id: 53 }
+{ actor_user_id: 53, path: 'import' }
+{ actor_user_id: 53, date: { $gte: '2026-09-25T00:00:00.000Z', $lte: '2026-09-25T23:59:59.999Z' } }
+```
+
+Los identificadores de los capturistas de este recorrido se confirman siempre con SQL, nunca de memoria:
+
+```sql
+SELECT user_id, user_email FROM users
+WHERE user_email IN ('qa-correo-capturista-a@gsti-tests.local',
+                     'qa-correo-capturista-b@gsti-tests.local',
+                     'qa-sondeo-capturista-b2@gsti-tests.local');
+```
+
+En la corrida con la que se escribió este manual dieron **A = 52, B = 53, B2 = 54**; si tu base se sembró de nuevo, vuelve a confirmarlos con esa consulta.
 
 ### Cómo se distingue un corte de un rechazo
 
@@ -329,7 +370,7 @@ En ese momento, un `GET /api/persons?page=1&limit=10` como **A** responde normal
 
 Objetivo: al revisar la bitácora se reconstruye quién intentó capturar correos, desde qué empresa y cuándo, y se distingue quien probó muchos correos distintos de quien capturó quince trabajadores; en ningún registro aparece un correo legible ni otro dato personal.
 
-No hay pantalla: la bitácora vive en la colección de Mongo `log_person_email_probes`. Consúltala con `mongosh` (la base es `sae_rh`).
+No hay pantalla: la bitácora vive en la colección de Mongo `log_person_email_probes`, dentro de la base `sae_rh` (cómo llegar a ella y qué elegir en tu cliente, en "Cómo llegar a la bitácora", arriba).
 
 Primero, el identificador del capturista **B**:
 
@@ -409,7 +450,7 @@ Usuario: **B**. Objetivo: subir un archivo con correos personales deja el intent
 
 Los números del `summary` siguen a tu archivo: `totalRows` son las filas del archivo, `created` las altas y `updated` las filas que traían `ID Empleado`. La importación termina igual aunque una fila traiga un correo ya registrado: la carga masiva no impone la unicidad del correo.
 
-**Verificación del rastro en Mongo:**
+**Verificación del rastro en Mongo:** en la base `sae_rh` y la colección `log_person_email_probes` (o en la barra de filtro de tu cliente, como documento: `{ actor_user_id: <user_id de B>, path: 'import' }`).
 
 ```js
 db.log_person_email_probes.find({ actor_user_id: <user_id de B>, path: 'import' }).sort({ date: 1 })
@@ -423,7 +464,7 @@ La carga masiva **no consume** la cuota del sondeo de quien sube el archivo: sus
 
 Objetivo: consultar el registro por quién y por rango de fechas sigue siendo viable, y la consulta que hace cada intento de captura no se degrada al crecer la tabla de expedientes.
 
-Consulta la bitácora por persona y por rango de fechas:
+Consulta la bitácora por persona y por rango de fechas (misma base y colección: `sae_rh`, `log_person_email_probes`):
 
 ```js
 db.log_person_email_probes.find({
