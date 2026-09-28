@@ -7,6 +7,7 @@ import BusinessUnitUser from '#models/business_unit_user'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import { LogStore } from '#models/MongoDB/log_store'
 import { blindIndex } from '#utils/blind_index'
 
 const TEST_PASSWORD = 'PersonSubjectTypeGate123!'
@@ -119,6 +120,19 @@ test.group('Alta/listado persona — exigencia OFF', (group) => {
   let employeesModule: SystemModule
   let actor: TenantActor | null = null
   const createdEmails: string[] = []
+  let originalLogStoreSet: typeof LogStore.set
+
+  // La ruta feliz del `store` registra el sondeo (LogStore.set → Mongo); sin aislar, el
+  // temporizador de reconexión de Mongo retiene el event loop y el runner no termina.
+  // Molde del repo: guardar el original, no-op durante los casos, restaurar en teardown.
+  group.each.setup(() => {
+    originalLogStoreSet = LogStore.set
+    LogStore.set = async () => {}
+  })
+
+  group.each.teardown(() => {
+    LogStore.set = originalLogStoreSet
+  })
 
   group.setup(async () => {
     employeesModule = await SystemModule.query()
@@ -177,6 +191,18 @@ test.group('Alta/listado persona — exigencia ON', (group) => {
   let employeesModule: SystemModule
   let actor: TenantActor | null = null
   const createdEmails: string[] = []
+  let originalLogStoreSet: typeof LogStore.set
+
+  // Mismo aislamiento que el grupo OFF: el POST con personEmail llega a la ruta feliz
+  // del `store` y registraría el sondeo contra Mongo real.
+  group.each.setup(() => {
+    originalLogStoreSet = LogStore.set
+    LogStore.set = async () => {}
+  })
+
+  group.each.teardown(() => {
+    LogStore.set = originalLogStoreSet
+  })
 
   group.setup(async () => {
     employeesModule = await SystemModule.query()

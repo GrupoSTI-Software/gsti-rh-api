@@ -2,10 +2,9 @@ import { randomBytes, randomInt } from 'node:crypto'
 
 /**
  * Generador de cadenas aleatorias criptográficamente seguras
- * (USRH1783115930049). Extraído del mecanismo que ya probó
- * `demo_password.ts` (USRH1785438246847, regla dura 2026-07-21:
- * `Math.random`/`cuid`/`cuid2` vetados para credenciales) para
- * que el resto del sistema deje de reimplementarlo.
+ * (USRH1783115930049). Extraído del mecanismo que ya probó su primer
+ * consumidor (regla dura 2026-07-21: `Math.random`/`cuid`/`cuid2` vetados
+ * para credenciales) para que el resto del sistema deje de reimplementarlo.
  *
  * Usa `randomBytes` de `node:crypto` con muestreo con rechazo: se
  * descartan los bytes que caerían fuera del múltiplo exacto del

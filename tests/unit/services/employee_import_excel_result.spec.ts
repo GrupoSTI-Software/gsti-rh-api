@@ -32,7 +32,7 @@ test.group('employee_service importFromExcel — USRH1785169801695', () => {
     const content = readFileSync(SERVICE_FILE, 'utf-8')
 
     assert.include(content, 'if (isOwnMessage) return importRowErrorMessage(error)')
-    assert.include(content, 'this.createPerson(employeeData, businessUnitId!)')
+    assert.include(content, 'this.createPerson(employeeData, businessUnitId!, actorUserId, allowedBusinessUnitIds)')
     assert.include(content, 'person.businessUnitId = businessUnitId')
   })
 
