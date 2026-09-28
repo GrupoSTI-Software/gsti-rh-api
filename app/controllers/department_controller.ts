@@ -1,9 +1,6 @@
 import Department from '#models/department'
 import DepartmentService from '#services/department_service'
-import env from '#start/env'
 import { HttpContext } from '@adonisjs/core/http'
-import axios from 'axios'
-import BiometricDepartmentInterface from '../interfaces/biometric_department_interface.js'
 import Employee from '#models/employee'
 import DepartmentPosition from '#models/department_position'
 import DepartmentPositionService from '#services/department_position_service'
@@ -30,175 +27,6 @@ import { resolveDepartmentParentFromBody } from '#utils/org_chart_parent_input'
 import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 
 export default class DepartmentController {
-  /**
-   * @swagger
-   * /api/synchronization/departments:
-   *   post:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Departments
-   *     summary: sync information
-   *     produces:
-   *       - application/json
-   *     requestBody:
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               page:
-   *                 type: integer
-   *                 description: The page number for pagination
-   *                 required: false
-   *                 default: 1
-   *               limit:
-   *                 type: integer
-   *                 description: The number of records per page
-   *                 required: false
-   *                 default: 200
-   *               deptCode:
-   *                 type: string
-   *                 description: The department code to filter by
-   *                 required: false
-   *                 default: ''
-   *               deptName:
-   *                 required: false
-   *                 description: The department name to filter by
-   *                 type: string
-   *                 default: ''
-   *     responses:
-   *       '200':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: Object processed
-   *       '404':
-   *         description: The resource could not be found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
-  async synchronization({ request, response, i18n }: HttpContext) {
-    const t = i18n.formatMessage.bind(i18n)
-    try {
-      const page = request.input('page', 1)
-      const limit = request.input('limit', 200)
-      const deptCode = request.input('deptCode')
-      const deptName = request.input('deptName')
-
-      let apiUrl = `${env.get('API_BIOMETRICS_HOST')}/departments`
-      apiUrl = `${apiUrl}?page=${page || ''}`
-      apiUrl = `${apiUrl}&limit=${limit || ''}`
-      apiUrl = `${apiUrl}&deptCode=${deptCode || ''}`
-      apiUrl = `${apiUrl}&deptName=${deptName || ''}`
-      const apiResponse = await axios.get(apiUrl)
-      const data = apiResponse.data.data
-      if (data) {
-        const departmentService = new DepartmentService(i18n)
-        data.sort((a: BiometricDepartmentInterface, b: BiometricDepartmentInterface) => a.id - b.id)
-        for await (const department of data) {
-          await this.verify(department, departmentService)
-        }
-        const entity = t('departments')
-        response.status(200)
-        return {
-          type: 'success',
-          title: t('sync_entity', { entity }),
-          message: t('entity_have_been_synchronized_successfully', { entity }),
-          data: {
-            data,
-          },
-        }
-      } else {
-        const entity = t('departments')
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('sync_entity', { entity }),
-          message: t('no_data_found_to_synchronize'),
-          data: { data },
-        }
-      }
-    } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
-      }
-    }
-  }
 
   /**
    * @swagger
@@ -2415,17 +2243,6 @@ export default class DepartmentController {
     }
   }
 
-  private async verify(
-    department: BiometricDepartmentInterface,
-    departmentService: DepartmentService
-  ) {
-    const existDepartment = await Department.query()
-      .where('department_sync_id', department.id)
-      .first()
-    if (!existDepartment) {
-      await departmentService.syncCreate(department)
-    }
-  }
 
   private async verifyRelatedPosition(
     departmentId: number,

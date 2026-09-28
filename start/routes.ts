@@ -40,7 +40,6 @@ import './routes/auth_recovery_routes.js'
 import './routes/auth_invitation_routes.js'
 import './routes/auth_magic_link_routes.js'
 import './routes/passkey_routes.js'
-import './routes/synchronization_routes.js'
 import './routes/department_routes.js'
 import './routes/position_routes.js'
 import './routes/employee_routes.js'
@@ -157,7 +156,6 @@ import './routes/employee_medical_condition_routes.js'
 import './routes/medical_condition_type_property_value_routes.js'
 import './routes/employee_annotation_routes.js'
 // import './routes/employee_coordinate_routes.js'
-import './routes/face_routes.js'
 import './routes/employee_zone_routes.js'
 import '#modules/working-time-rules/overrides/overrides.routes'
 import '#modules/working-time-rules/effective/effective.routes'
@@ -169,9 +167,9 @@ import '#modules/onboarding/state/state.routes'
 // USRH1789079078167: trial-access y simulate-attendance se retiraron — eran
 // puertas HTTP de versiones viejas del onboarding sin ningún consumidor vivo
 // (backoffice, app del empleado y Panel verificados) y sin validación de
-// pertenencia (IDOR). El generador de checadas de práctica sigue vivo como
-// pieza interna del recorrido guiado (demo_seed lo llama directo por clase).
-import '#modules/onboarding/demo_seed/demo_seed.routes'
+// pertenencia (IDOR). USRH1789079078168 retiró además la siembra de práctica
+// del onboarding por completo, incluido el generador de checadas que quedaba
+// como pieza interna: ya no queda ninguna forma de crear datos de práctica.
 import '#modules/consent/acceptance/acceptance.routes'
 import '#modules/consent/evidence/evidence.routes'
 import '#modules/consent/physical/physical_consent.routes'

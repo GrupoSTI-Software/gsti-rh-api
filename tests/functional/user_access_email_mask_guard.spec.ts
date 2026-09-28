@@ -5,6 +5,9 @@ import User from '#models/user'
 import Role from '#models/role'
 import Person from '#models/person'
 import Employee from '#models/employee'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import RoleSystemPermission from '#models/role_system_permission'
@@ -191,6 +194,7 @@ async function createEmployeeForPerson(
     position_created_at: now,
   })
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: person.personFirstname,
@@ -208,7 +212,10 @@ async function createEmployeeForPerson(
     employee_created_at: now,
   })
 
-  return Employee.findOrFail(Number(employeeInsert[0]))
+  return TenantContext.runUnscoped(
+    () => Employee.findOrFail(Number(employeeInsert[0])),
+    TENANT_UNSCOPED_REASON.TEST_FIXTURE
+  )
 }
 
 function assertMaskedEmailRejected(body: Record<string, unknown>, assert: Assert) {
@@ -432,7 +439,10 @@ test.group('Users — correo de acceso sin máscara (USRH1789328027034)', (group
     assertMaskedEmailRejected(response.body(), assert)
 
     const reloadedUser = await User.findOrFail(target.user.userId)
-    const reloadedEmployee = await Employee.findOrFail(target.employee.employeeId)
+    const reloadedEmployee = await TenantContext.runUnscoped(
+      () => Employee.findOrFail(target.employee.employeeId),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    )
     assert.equal(reloadedUser.userEmail, userEmailBefore)
     assert.equal(reloadedEmployee.employeeBusinessEmail, businessEmailBefore)
     const reloadedPerson = await Person.findOrFail(target.person.personId)
