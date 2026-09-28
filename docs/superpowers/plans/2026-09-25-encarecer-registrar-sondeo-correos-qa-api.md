@@ -180,7 +180,7 @@ Qué significa cada dato:
 - `X-RateLimit-Limit`: cuántos intentos permite el contador que cortó (20 el del sondeo).
 - `X-RateLimit-Remaining`: cuántos quedan (0 cuando ya se cortó).
 - `Retry-After`: los segundos que hay que esperar (3600 = la hora de bloqueo).
-- `X-RateLimit-Reset`: el instante en que se rearma.
+- `X-RateLimit-Reset`: el instante en que se rearma (cambia en cada corrida: es el momento del corte más la ventana).
 
 El cuerpo del `429` no trae el correo probado, ni la palabra `registrado`, ni `sondeo`, ni cuál de los contadores se topó. Compruébalo: busca en el cuerpo el correo que acabas de enviar y no aparece.
 
@@ -470,11 +470,13 @@ Consulta la bitácora por persona y por rango de fechas:
 ```js
 db.log_person_email_probes.find({
   actor_user_id: <user_id de B>,
-  date: { $gte: '2026-09-25T00:00:00.000Z', $lte: '2026-09-25T23:59:59.999Z' }
+  date: { $gte: '2026-09-28T06:00:00.000Z', $lte: '2026-09-29T05:59:59.999Z' }
 }).sort({ date: -1 })
 ```
 
-Debe traer solo los intentos de esa persona dentro de la ventana. El filtro por persona y por rango de fechas es el mismo que usa la búsqueda de bitácoras de la plataforma (`LogStore.get`, por `date`).
+**Cambia el rango por el día en que estás recorriendo**, y con la conversión hecha: la bitácora guarda las fechas en UTC, así que tu día local (UTC−6) va de las `06:00:00Z` de ese día a las `05:59:59.999Z` del día siguiente. El ejemplo de arriba cubre el 28 de septiembre local. Una ventana que no toca tu recorrido no devuelve nada aunque la bitácora tenga filas: si sale vacío, revisa primero las fechas.
+
+Debe traer solo los intentos de esa persona dentro de la ventana. Es el mismo filtro por persona y por fecha que usa la búsqueda de bitácoras de la plataforma.
 
 Y la consulta que corre en cada intento —¿este correo ya existe?— va contra el índice `people_person_email_hash_index`:
 
