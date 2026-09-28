@@ -495,14 +495,16 @@ Se declaran, sin inventarles pasos, porque no se pueden provocar con un cliente 
 
 ## 13. Checklist
 
-- [ ] Escenario 1 — Sondeo en serie: 20 intentos (201/422) y el 21 con `429` `PERSON.IDENTITY.006`, sin mencionar el correo
-- [ ] Escenario 2 — Puros aciertos: el 21 también recibe el `429`, idéntico al del Escenario 1
-- [ ] Escenario 3 — Operación diaria: 15 altas sin correo y 15 con correos libres, sin fricción
-- [ ] Escenario 4 — Correo vacío (`""`, ausente, `"   "`): `201`, sin intento
-- [ ] Escenario 5 — Editar con el propio correo: `201` y consume el mismo contador
-- [ ] Escenario 6 — El corte es por persona: B2 (misma empresa) y A (otra empresa) capturan mientras B está cortado
-- [ ] Escenario 7 — Piso de escritura: la 41ª escritura responde `429` con `X-RateLimit-Limit: 40`; la lectura sigue abierta
-- [ ] Escenario 8 — Bitácora: quién, empresa y cuándo; sin correo legible; distingue al sondeador del capturista
-- [ ] Escenario 9 — Carga masiva: una fila de bitácora por fila del archivo con correo, con quién subió y desde qué empresa
-- [ ] Escenario 10 — Consulta por persona y rango de fechas, e índice `people_person_email_hash_index`
-- [ ] Estados no observables — techo de 200/h y bitácora caída, declarados sin pasos inventados
+Recorrido completo el 28 de septiembre de 2026. Las dos situaciones de la última casilla no se pueden provocar a mano (el techo por empresa y la bitácora caída): quedan declaradas y cubiertas por las pruebas automatizadas de la historia.
+
+- [x] Escenario 1 — Sondeo en serie: 20 intentos (201/422) y el 21 con `429` `PERSON.IDENTITY.006`, sin mencionar el correo
+- [x] Escenario 2 — Puros aciertos: el 21 también recibe el `429`, idéntico al del Escenario 1
+- [x] Escenario 3 — Operación diaria: 15 altas sin correo y 15 con correos libres, sin fricción
+- [x] Escenario 4 — Correo vacío (`""`, ausente, `"   "`): `201`, sin intento
+- [x] Escenario 5 — Editar con el propio correo: `201` y consume el mismo contador
+- [x] Escenario 6 — El corte es por persona: B2 (misma empresa) y A (otra empresa) capturan mientras B está cortado
+- [x] Escenario 7 — Piso de escritura: la 41ª escritura responde `429` con `X-RateLimit-Limit: 40`; la lectura sigue abierta
+- [x] Escenario 8 — Bitácora: quién, empresa y cuándo; sin correo legible; distingue al sondeador del capturista
+- [x] Escenario 9 — Carga masiva: una fila de bitácora por fila del archivo con correo, con quién subió y desde qué empresa
+- [x] Escenario 10 — Consulta por persona y rango de fechas, e índice `people_person_email_hash_index`
+- [x] Estados no observables — techo de 200/h y bitácora caída, declarados sin pasos inventados
