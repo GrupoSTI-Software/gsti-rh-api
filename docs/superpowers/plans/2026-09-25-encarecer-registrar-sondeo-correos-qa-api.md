@@ -418,26 +418,38 @@ El sondeo en serie deja muchas filas con desenlaces `accepted`, `rejected_not_av
 
 Usuario: **B**. Objetivo: subir un archivo con correos personales deja el intento de cada fila, con quién subió el archivo y desde qué empresa.
 
-1. Descarga la plantilla real: `GET /api/employees/template-excel` (headers `Authorization` y `X-Business-Unit-Id` de B).
-2. Llena unas filas: alguna con correo libre, alguna con el correo ocupado `qa-correo-ocupado@gsti-tests.local`, y alguna sin correo personal.
-3. Súbela: `POST /api/employees/import-excel` (multipart, campo `file`, headers `Authorization` y `X-Business-Unit-Id` de B).
+1. Descarga la plantilla: `GET /api/employees/template-excel` (headers `Authorization` y `X-Business-Unit-Id` de B). Guárdala como `.xlsx`, **sin cambiar los encabezados, su orden ni quitar columnas**.
+2. Llena **tres filas de datos**, y solo estas celdas; todo lo demás del perfil va vacío:
 
-**Response exacto:** `200`
+| Columna | Fila 1 | Fila 2 | Fila 3 |
+|---|---|---|---|
+| `Identificador de nómina` | `QA-CARGA-1-<fecha-hora>` | `QA-CARGA-2-<fecha-hora>` | `QA-CARGA-3-<fecha-hora>` |
+| `Nombre del empleado` | `QA` | `QA` | `QA` |
+| `Apellido paterno del empleado` | `CargaLibre` | `CargaOcupada` | `CargaSinCorreo` |
+| `Correo personal` | `qa-carga-libre-<fecha-hora>@gsti-tests.local` | `qa-correo-ocupado@gsti-tests.local` | *(celda vacía)* |
+| `ID Empleado` (columna oculta de la plantilla) | *(vacía)* | *(vacía)* | *(vacía)* |
+
+Las reglas del archivo, para que no falle ninguna fila:
+
+- Obligatorias en cada fila: `Identificador de nómina`, `Unidad de negocio de trabajo`, `Unidad de negocio de nómina`, `Nombre del empleado` y `Apellido paterno del empleado`.
+- `Unidad de negocio de trabajo` y `Unidad de negocio de nómina` **van vacías a propósito**: una celda vacía significa "la empresa del header `X-Business-Unit-Id`". Si escribes ahí el nombre de otra empresa, esa fila se rechaza.
+- `ID Empleado` es la columna oculta que ya trae la plantilla: vacía = alta; con el id de un empleado que ya existe, esa fila lo **actualiza** en vez de crear.
+- `Correo personal` es la celda que prueba esta historia, y cada fila deja un rastro distinto: correo libre → el empleado se crea y la bitácora anota `accepted`; el correo ocupado → el empleado **también se crea** (la carga masiva no impone la unicidad del correo) y la bitácora anota `rejected_not_available`; celda vacía → el empleado se crea y **no deja ninguna fila** en la bitácora.
+- La marca `<fecha-hora>` debe ser distinta en cada corrida, tanto en los identificadores de nómina como en el correo libre, para no chocar con lo que ya capturaste.
+
+3. Súbela: `POST /api/employees/import-excel` (multipart/form-data; el campo se llama `file` y su valor es el archivo `.xlsx`, no su contenido pegado; headers `Authorization` y `X-Business-Unit-Id` de B).
+
+**Response:** `200`. El `summary` sale de tu archivo; con estas tres filas da exactamente:
 
 ```json
 {
-  "type": "success",
-  "title": "Importación completada",
-  "message": "Importación exitosa: 4 empleados creados, 0 empleados actualizados.",
-  "data": {
-    "summary": { "totalRows": 5, "processed": 5, "created": 4, "updated": 0, "failed": 0, "skipped": 0, "limitReached": false },
-    "rowErrors": [],
-    "warnings": []
-  }
+  "summary": { "totalRows": 3, "processed": 3, "created": 3, "updated": 0, "failed": 0, "skipped": 0, "limitReached": false }
 }
 ```
 
-Los números del `summary` siguen a tu archivo: `totalRows` son las filas del archivo, `created` las altas y `updated` las filas que traían `ID Empleado`. La importación termina igual aunque una fila traiga un correo ya registrado: la carga masiva no impone la unicidad del correo.
+`totalRows` son las filas del archivo, `created` las altas y `updated` las filas que traían `ID Empleado`. La importación termina igual aunque una fila traiga un correo ya registrado: la carga masiva no impone la unicidad del correo.
+
+El `type`, el `title` y las advertencias **no dependen de esta historia**: si el servicio de biométricos no está levantado —lo habitual en un recorrido local—, la respuesta llega como `"type": "warning"` con `"title": "Importación completada con advertencias"` y trae en `warnings` y en `errors` la línea `Error al sincronizar con biométricos: ... connect ECONNREFUSED 127.0.0.1:3334`; si está levantado, llega como `"type": "success"` con `"title": "Importación completada"` y sin advertencias. En los dos casos los empleados se crean y el rastro es el mismo: lo que se revisa aquí es el `summary` y la bitácora, no el título.
 
 **Verificación del rastro en Mongo:**
 
@@ -445,7 +457,7 @@ Los números del `summary` siguen a tu archivo: `totalRows` son las filas del ar
 db.log_person_email_probes.find({ actor_user_id: <user_id de B>, path: 'import' }).sort({ date: 1 })
 ```
 
-Debe haber **una fila por cada fila del archivo con correo no vacío** (las filas sin correo no dejan nada), todas con `path: 'import'`, `actor_user_id` del que subió el archivo y `business_unit_scope` de su empresa. El desenlace de cada una: `accepted` si el correo estaba libre, `rejected_not_available` si ya estaba registrado; `target_person_id` es `null` en las altas y el expediente actualizado en las filas con `ID Empleado`. El correo legible no aparece en ninguna.
+Debe salir **una fila por cada fila del archivo con correo no vacío**: con este archivo, dos —el correo libre como `accepted` y el ocupado como `rejected_not_available`—, y ninguna por la fila del correo vacío. Todas con `path: 'import'`, `actor_user_id` del que subió el archivo y `business_unit_scope` de su empresa. `target_person_id` es `null` en las altas y el expediente actualizado en las filas con `ID Empleado`. El correo legible no aparece en ninguna.
 
 La carga masiva **no consume** la cuota del sondeo de quien sube el archivo: sus filas no cuentan contra las veinte por hora.
 
