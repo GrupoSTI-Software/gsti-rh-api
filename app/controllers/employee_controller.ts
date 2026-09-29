@@ -1,4 +1,3 @@
-import Department from '#models/department'
 import { isUploadFailureSentinel } from '#constants/upload_sentinels'
 import { assertSpreadsheetFile } from '#helpers/spreadsheet_intake_guard'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
@@ -59,7 +58,6 @@ import ShiftException from '#models/shift_exception'
 import EmployeeShift from '#models/employee_shift'
 import EmployeeType from '#models/employee_type'
 import BusinessUnit from '#models/business_unit'
-import Position from '#models/position'
 import User from '#models/user'
 import Role from '#models/role'
 import AssistsService from '#services/assist_service'
@@ -463,23 +461,6 @@ export default class EmployeeController {
       const apiResponse = await axios.get(apiUrl)
       const data = apiResponse.data.data
 
-      let withOutDepartmentId = null
-      let withOutPositionId = null
-
-      const department = await Department.query()
-        .whereNull('department_deleted_at')
-        .where('department_name', 'Sin departamento')
-        .first()
-      if (department) {
-        withOutDepartmentId = department.departmentId
-      }
-      const position = await Position.query()
-        .whereNull('position_deleted_at')
-        .where('position_name', 'Sin posición')
-        .first()
-      if (position) {
-        withOutPositionId = position.positionId
-      }
       const roles = await Role.query()
         .whereIn('role_slug', ['rh-manager', 'admin', 'nominas'])
         .whereNull('role_deleted_at')
@@ -532,8 +513,9 @@ export default class EmployeeController {
           if (existInBusinessUnitList) {
             employee.lastName = employeeLastName
             employee.secondLastName = employeeSecondLastName
-            employee.departmentId = withOutDepartmentId
-            employee.positionId = withOutPositionId
+            // BioTime trae sus propios ids de departamento y puesto: no son de Valanserh.
+            employee.departmentId = null
+            employee.positionId = null
             employee.usersResponsible = usersResponsible
             employee.businessUnitId = businessUnitApply?.businessUnitId || 1
             employeeCountSaved += 1
@@ -7084,23 +7066,6 @@ export default class EmployeeController {
       let apiUrl = `${env.get('API_BIOMETRICS_HOST')}/employees-by-selection?${params.toString()}`
       const apiResponse = await axios.get(apiUrl)
       const data = apiResponse.data
-      let withOutDepartmentId = null
-      let withOutPositionId = null
-
-      const department = await Department.query()
-        .whereNull('department_deleted_at')
-        .where('department_name', 'Sin departamento')
-        .first()
-      if (department) {
-        withOutDepartmentId = department.departmentId
-      }
-      const position = await Position.query()
-        .whereNull('position_deleted_at')
-        .where('position_name', 'Sin posición')
-        .first()
-      if (position) {
-        withOutPositionId = position.positionId
-      }
       const roles = await Role.query()
         .whereIn('role_slug', ['rh-manager', 'admin', 'nominas'])
         .whereNull('role_deleted_at')
@@ -7143,8 +7108,9 @@ export default class EmployeeController {
           }
 
           if (existInBusinessUnitList) {
-            employee.departmentId = withOutDepartmentId
-            employee.positionId = withOutPositionId
+            // BioTime trae sus propios ids de departamento y puesto: no son de Valanserh.
+            employee.departmentId = null
+            employee.positionId = null
             employee.usersResponsible = usersResponsible
             employee.businessUnitId = businessUnitApply?.businessUnitId || 1
             employeeCountSaved += 1
