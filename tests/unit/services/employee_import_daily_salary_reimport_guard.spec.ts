@@ -14,8 +14,6 @@ type ServiceWithImportInternals = {
     employeeData: Record<string, unknown>,
     departments: unknown[],
     positions: unknown[],
-    defaultDepartment: unknown,
-    defaultPosition: unknown,
     businessUnitId: number | null,
     payrollBusinessUnitId: number | null,
     employeeTypes?: unknown[]
@@ -90,8 +88,6 @@ test.group('Reimportación Excel — guard de salario diario enmascarado (USRH17
       [],
       [],
       null,
-      null,
-      null,
       null
     )
 
@@ -117,8 +113,6 @@ test.group('Reimportación Excel — guard de salario diario enmascarado (USRH17
       [],
       [],
       null,
-      null,
-      null,
       null
     )
 
@@ -143,8 +137,6 @@ test.group('Reimportación Excel — guard de salario diario enmascarado (USRH17
       { dailySalary: 1200 },
       [],
       [],
-      null,
-      null,
       null,
       null
     )
