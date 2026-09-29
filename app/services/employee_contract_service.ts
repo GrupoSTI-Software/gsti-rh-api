@@ -99,10 +99,13 @@ export default class EmployeeContractService {
         data: { ...employeeContract },
       }
     }
-    const existDepartment = await Department.query()
-      .whereNull('department_deleted_at')
-      .where('department_id', employeeContract.departmentId)
-      .first()
+    const existDepartment =
+      employeeContract.departmentId !== null
+        ? await Department.query()
+            .whereNull('department_deleted_at')
+            .where('department_id', employeeContract.departmentId)
+            .first()
+        : null
 
     if (!existDepartment && employeeContract.departmentId) {
       return {
@@ -113,10 +116,13 @@ export default class EmployeeContractService {
         data: { ...employeeContract },
       }
     }
-    const existPosition = await Position.query()
-      .whereNull('position_deleted_at')
-      .where('position_id', employeeContract.positionId)
-      .first()
+    const existPosition =
+      employeeContract.positionId !== null
+        ? await Position.query()
+            .whereNull('position_deleted_at')
+            .where('position_id', employeeContract.positionId)
+            .first()
+        : null
 
     if (!existPosition && employeeContract.positionId) {
       return {
