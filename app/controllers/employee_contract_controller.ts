@@ -812,12 +812,14 @@ export default class EmployeeContractController {
         }
       }
     } catch (error) {
+      // Solo código e id; nunca el mensaje de BD ni datos del contrato.
+      logger.error({ code: error.code, employeeContractId: request.param('employeeContractId') ?? null }, 'employee contract delete failed')
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
-        error: error.message,
+        error: 'An unexpected error has occurred on the server',
       }
     }
   }
@@ -953,12 +955,14 @@ export default class EmployeeContractController {
         }
       }
     } catch (error) {
+      // Solo código e id; nunca el mensaje de BD ni datos del contrato.
+      logger.error({ code: error.code, employeeContractId: request.param('employeeContractId') ?? null }, 'employee contract read failed')
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
-        error: error.message,
+        error: 'An unexpected error has occurred on the server',
       }
     }
   }
