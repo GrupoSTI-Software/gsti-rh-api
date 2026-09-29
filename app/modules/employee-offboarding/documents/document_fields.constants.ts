@@ -58,10 +58,11 @@ const CAPTURE_TAB = {
 } as const
 
 /**
- * Las diez entradas iniciales (regla 3) más las dos del convenio de
- * terminación (USRH1789097550394), en orden ESTABLE (regla 6): empresa →
- * colaborador → sistema. `as const satisfies`: la unión de claves se DERIVA
- * de la tupla y una entrada mal formada no compila.
+ * Las diez entradas iniciales (regla 3), las dos del convenio de terminación
+ * (USRH1789097550394) y las tres del importe (USRH1789097550395, K-7), en
+ * orden ESTABLE (regla 6): empresa → colaborador → sistema. `as const
+ * satisfies`: la unión de claves se DERIVA de la tupla y una entrada mal
+ * formada no compila.
  */
 export const OFFBOARDING_DOCUMENT_FIELDS = [
   {
@@ -161,6 +162,36 @@ export const OFFBOARDING_DOCUMENT_FIELDS = [
     captureTabLabelKey: null,
     documentTypes: SHARED_DOCUMENT_TYPES,
     source: 'employee_offboarding_documents.employee_offboarding_document_created_at',
+  },
+  // Importe del convenio (USRH1789097550395): los tres los provee el sistema
+  // (`captureTabLabelKey: null`, nunca bloquean la guarda) y los tres son
+  // obligatorios en la plantilla propia. `amounts_disclaimer` (K-7) es lo que
+  // hace obligatoria la leyenda también en la plantilla de la empresa: sin ese
+  // hueco, la validación la rechaza y ningún convenio sale sin ella.
+  {
+    key: 'total_amount',
+    labelKey: 'employee_offboarding_document_field_label_total_amount',
+    requiredInTemplate: true,
+    captureTabLabelKey: null,
+    documentTypes: TERMINATION_AGREEMENT_ONLY,
+    source:
+      'SUM(employee_offboarding_items.employee_offboarding_item_amount) de los pendientes vivos',
+  },
+  {
+    key: 'total_amount_in_words',
+    labelKey: 'employee_offboarding_document_field_label_total_amount_in_words',
+    requiredInTemplate: true,
+    captureTabLabelKey: null,
+    documentTypes: TERMINATION_AGREEMENT_ONLY,
+    source: 'calculado: amountInWords() sobre la misma suma',
+  },
+  {
+    key: 'amounts_disclaimer',
+    labelKey: 'employee_offboarding_document_field_label_amounts_disclaimer',
+    requiredInTemplate: true,
+    captureTabLabelKey: null,
+    documentTypes: TERMINATION_AGREEMENT_ONLY,
+    source: 'leyenda declarativa completa, constante del sistema (K-7)',
   },
 ] as const satisfies readonly OffboardingDocumentField[]
 

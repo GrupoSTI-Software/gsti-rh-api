@@ -9,6 +9,7 @@ import SystemSettingService from '#services/system_setting_service'
 import TenantBillingProfileService from '#services/tenant_billing_profile_service'
 import UploadService from '#services/upload_service'
 import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { amountInWords, formatAmountMxn } from '#helpers/amount_in_words'
 import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
 import {
@@ -59,6 +60,7 @@ import SeparationLetterPdfService, {
   sanitizeRenderText,
 } from './separation_letter_pdf.service.js'
 import TerminationAgreementPdfService, {
+  AMOUNTS_DISCLAIMER,
   buildLegalAddressLine,
 } from './termination_agreement_pdf.service.js'
 import {
@@ -282,6 +284,20 @@ export default class DocumentsService {
       throw this.dateRangeInvalidError(documentType)
     }
 
+    // Suma de los importes capturados (USRH1789097550395): DESPUÉS de la guarda
+    // (no se calcula para una emisión que va a fallar) y FUERA del bucle de
+    // folio (no depende del folio y no se repite en cada colisión), solo para
+    // el tipo que la imprime. MySQL suma sobre decimal; aquí se pasa a número
+    // UNA sola vez y del mismo valor salen la cifra, la letra y lo persistido:
+    // por construcción no pueden discrepar. Nunca se loguea.
+    const printsAmounts = this.printsAmounts(documentType)
+    const totalAmount = printsAmounts
+      ? Number(await this.repository.sumItemAmounts(offboarding.employeeOffboardingId))
+      : null
+    const totalAmountText = totalAmount === null ? '' : formatAmountMxn(totalAmount)
+    const totalAmountInWords = totalAmount === null ? '' : amountInWords(totalAmount)
+    const amountsDisclaimer = totalAmount === null ? '' : AMOUNTS_DISCLAIMER
+
     const issuedAt = todayInBusinessZone()
 
     // Regla 3 — folio consecutivo por expediente y tipo. El folio SE IMPRIME
@@ -327,6 +343,9 @@ export default class DocumentsService {
             seniority: formatSeniority(seniority),
             folio,
             issue_date: issuedAt.toFormat(DOCUMENT_PRINTED_DATE_FORMAT),
+            total_amount: totalAmountText,
+            total_amount_in_words: totalAmountInWords,
+            amounts_disclaimer: amountsDisclaimer,
           })
         : {
             buffer: await this.renderSystemTemplateOrFail(documentType, {
@@ -338,6 +357,8 @@ export default class DocumentsService {
               legalAddress,
               legalRepresentativeName,
               legalRepresentativeRole,
+              totalAmountText,
+              totalAmountInWords,
               hireDateIso,
               referenceDateIso,
               seniority,
@@ -413,6 +434,9 @@ export default class DocumentsService {
             // Regla 4: amarrada a la versión resuelta; `null` = plantilla del sistema
             employeeOffboardingDocumentTemplateVersionId:
               template?.employeeOffboardingDocumentTemplateId ?? null,
+            // Snapshot de la cifra impresa (USRH1789097550395, regla 7); `null` en la constancia
+            employeeOffboardingDocumentTotalAmount:
+              totalAmount === null ? null : totalAmount.toFixed(2),
           },
           trx
         )
@@ -537,6 +561,11 @@ export default class DocumentsService {
   /** Qué tipos imprimen domicilio y representante: lo dice el catálogo, no una lista aparte. */
   private printsFiscalIdentity(documentType: EmployeeOffboardingDocumentType): boolean {
     return fieldByKey('legal_address')?.documentTypes.includes(documentType) === true
+  }
+
+  /** Qué tipos imprimen la suma de importes (USRH1789097550395): también lo dice el catálogo. */
+  private printsAmounts(documentType: EmployeeOffboardingDocumentType): boolean {
+    return fieldByKey('total_amount')?.documentTypes.includes(documentType) === true
   }
 
   /**

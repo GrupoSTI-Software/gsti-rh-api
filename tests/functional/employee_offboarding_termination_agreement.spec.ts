@@ -448,6 +448,7 @@ interface DocumentDto {
   isCurrent: boolean
   supersededDocumentId: number | null
   templateVersionId: number | null
+  totalAmount: string | null
 }
 
 interface IssueBody {
@@ -701,7 +702,7 @@ test.group('Convenio de terminación (USRH1789097550394)', (group) => {
     })
     assert.lengthOf(await documentRows(offboardingActive.employeeOffboardingId), 0)
   })
-  test('CA-1: el convenio sale con folio CT- propio, las dos partes, la relación circunstanciada y ningún importe', async ({
+  test('CA-1: el convenio sale con folio CT- propio, las dos partes y la relación circunstanciada', async ({
     client,
     assert,
   }) => {
@@ -763,11 +764,12 @@ test.group('Convenio de terminación (USRH1789097550394)', (group) => {
     assert.include(text, 'Centro de Conciliación o el Tribunal laboral')
     assert.notInclude(text.toLowerCase(), 'ya ratificado')
     assert.notInclude(text.toLowerCase(), 'queda ratificado')
-    // Reglas 5 y 10: sin RFC del patrón, sin datos sensibles del colaborador y sin ningún importe
+    // Regla 5: sin RFC del patrón ni datos sensibles del colaborador
     assert.notInclude(text, 'RFC')
-    assert.notInclude(text, '$')
-    assert.notInclude(text.toLowerCase(), 'pesos')
-    assert.notInclude(text, 'M.N.')
+    // USRH1789097550395: el convenio imprime la suma de los importes capturados; sin pendientes sale en cero
+    assert.include(text, '$0.00')
+    assert.include(text, '(CERO PESOS 00/100 M.N.)')
+    assert.strictEqual(agreementFirst.totalAmount, '0.00')
   })
 
   test('CA-2: la constancia no se entera — su consecutivo y su vigencia siguen intactos', async ({

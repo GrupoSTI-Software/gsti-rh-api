@@ -37,7 +37,8 @@ const ACCESS_TOKENS_TABLE = 'api_tokens'
 /**
  * Orden literal del catálogo (regla 6): empresa → colaborador → sistema. Las
  * dos entradas de la empresa del convenio (USRH1789097550394) van en el bloque
- * de empresa.
+ * de empresa; las tres del importe (USRH1789097550395) cierran el bloque del
+ * sistema.
  */
 const EXPECTED_KEYS_IN_ORDER = [
   'legal_name',
@@ -52,9 +53,12 @@ const EXPECTED_KEYS_IN_ORDER = [
   'seniority',
   'folio',
   'issue_date',
+  'total_amount',
+  'total_amount_in_words',
+  'amounts_disclaimer',
 ]
 
-/** Los seis obligatorios en la plantilla (regla 4) más los dos del convenio. */
+/** Los seis obligatorios en la plantilla (regla 4) más los cinco del convenio. */
 const EXPECTED_REQUIRED_KEYS = [
   'legal_name',
   'legal_address',
@@ -64,14 +68,30 @@ const EXPECTED_REQUIRED_KEYS = [
   'hire_date',
   'separation_date',
   'folio',
+  'total_amount',
+  'total_amount_in_words',
+  'amounts_disclaimer',
 ]
 
 /** Los que provee el sistema: sin pantalla de captura. */
-const SYSTEM_PROVIDED_KEYS = ['seniority', 'folio', 'issue_date']
+const SYSTEM_PROVIDED_KEYS = [
+  'seniority',
+  'folio',
+  'issue_date',
+  'total_amount',
+  'total_amount_in_words',
+  'amounts_disclaimer',
+]
 
-/** Solo el membrete de la constancia (C-4) y solo el domicilio/representante del convenio (regla 3). */
+/** Solo el membrete de la constancia (C-4); solo el convenio: domicilio, representante (regla 3) e importe (USRH1789097550395). */
 const SEPARATION_LETTER_ONLY_KEYS = ['trade_name']
-const TERMINATION_AGREEMENT_ONLY_KEYS = ['legal_address', 'legal_representative_name']
+const TERMINATION_AGREEMENT_ONLY_KEYS = [
+  'legal_address',
+  'legal_representative_name',
+  'total_amount',
+  'total_amount_in_words',
+  'amounts_disclaimer',
+]
 
 /** Cinco propiedades por elemento, ni una más (nunca labelKey, captureTabLabelKey ni source). */
 const EXPECTED_DTO_KEYS = ['key', 'label', 'requiredInTemplate', 'documentTypes', 'captureTabLabel']
@@ -284,7 +304,7 @@ test.group('Catálogo de campos combinables (USRH1788579938623)', (group) => {
     first.assertStatus(200)
     const fields = fieldsOf(first.body() as FieldsBody)
 
-    assert.lengthOf(fields, 12)
+    assert.lengthOf(fields, 15)
     assert.deepEqual(
       fields.map((field) => field.key),
       EXPECTED_KEYS_IN_ORDER

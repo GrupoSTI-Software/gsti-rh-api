@@ -30,13 +30,24 @@ const FIELD_ROW_H = 28
 const DEFAULT_REPRESENTATIVE_ROLE = 'representante legal'
 
 /**
+ * Leyenda declarativa del importe (USRH1789097550395, regla 6): no es
+ * opcional ni configurable, acompaña también al cero, y es el valor del
+ * campo combinable `amounts_disclaimer` (K-7) en la plantilla propia.
+ * Constante del sistema, no clave i18n: el documento es en español siempre.
+ */
+export const AMOUNTS_DISCLAIMER =
+  'El importe señalado corresponde a los conceptos capturados por la empresa en los pendientes del ' +
+  'expediente de salida y no constituye un finiquito calculado conforme a la Ley Federal del Trabajo.'
+
+/**
  * Plantilla FIJA del sistema del convenio de terminación (USRH1789097550394),
  * siempre en español: un solo bloque de constantes. Es un punto de partida,
  * no asesoría legal: la redacción que rige para cada empresa es la de su
  * plantilla propia (supuesto declarado de la HU).
  *
- * Lo que este texto NO dice, a propósito: ningún importe (regla 10) y ninguna
- * afirmación de que el convenio ya esté ratificado (regla 4).
+ * Lo que este texto NO dice, a propósito: ninguna afirmación de que el
+ * convenio ya esté ratificado (regla 4), ningún desglose por concepto y
+ * ninguna cifra que no sea la suma capturada (USRH1789097550395, regla 1).
  */
 const AGREEMENT_TEXT = {
   title: 'CONVENIO DE TERMINACIÓN DE LA RELACIÓN DE TRABAJO',
@@ -70,6 +81,8 @@ const AGREEMENT_TEXT = {
     'SEGUNDA. Los conceptos y prestaciones derivados de la relación de trabajo son los que constan en el ' +
     'expediente de salida de «la persona trabajadora». Este convenio no contiene renuncia de salarios ' +
     'devengados, indemnizaciones ni demás prestaciones derivadas de los servicios prestados.',
+  /** Bloque de importes (USRH1789097550395): la suma en número y en letra, del mismo valor. */
+  amountsLabel: 'Importe total capturado:',
   /** Regla 4: la validez la da la ratificación, que ocurre fuera del sistema. */
   thirdClause:
     'TERCERA. De conformidad con el artículo 33 de la Ley Federal del Trabajo, este convenio se somete a ' +
@@ -151,6 +164,10 @@ export interface TerminationAgreementData {
   legalRepresentativeName: string
   /** Cargo con el que firma; vacío = se imprime solo como representante legal. */
   legalRepresentativeRole: string
+  /** Cifra impresa (`$43,250.80`), salida de `formatAmountMxn` (USRH1789097550395). */
+  totalAmountText: string
+  /** Cantidad con letra, salida de `amountInWords` sobre el MISMO valor. */
+  totalAmountInWords: string
   hireDateIso: string
   referenceDateIso: string
   seniority: SeniorityParts
@@ -171,9 +188,9 @@ export interface TerminationAgreementData {
  * RFC del patrón ni identificador fiscal, de población o de seguridad
  * social del colaborador, ni su salario ni importe alguno (reglas 5 y 10).
  *
- * Bloque de importes: la suma en número y en letra con su leyenda es de
- * USRH1789097550395, que la inserta entre la cláusula SEGUNDA y la TERCERA
- * (ver la marca en `renderContent`). Esta rebanada no imprime ningún importe.
+ * Bloque de importes (USRH1789097550395): entre la cláusula SEGUNDA y la
+ * TERCERA, la suma en número y en letra (recibidas ya derivadas del mismo
+ * valor) con la leyenda declarativa. Nunca el desglose por concepto.
  */
 export default class TerminationAgreementPdfService {
   async render(data: TerminationAgreementData): Promise<Buffer> {
@@ -192,16 +209,7 @@ export default class TerminationAgreementPdfService {
 
       const chunks: Uint8Array[] = []
       doc.on('data', (chunk: Uint8Array) => chunks.push(chunk))
-      doc.on('end', () => {
-        const total = chunks.reduce((acc, c) => acc + c.length, 0)
-        const merged = new Uint8Array(total)
-        let offset = 0
-        for (const c of chunks) {
-          merged.set(c, offset)
-          offset += c.length
-        }
-        resolve(Buffer.from(merged.buffer))
-      })
+      doc.on('end', () => resolve(Buffer.concat(chunks)))
       doc.on('error', reject)
 
       this.renderContent(doc, data)
@@ -294,9 +302,7 @@ export default class TerminationAgreementPdfService {
     this.heading(doc, margin, pageW, AGREEMENT_TEXT.clausesHeading)
     this.paragraph(doc, margin, pageW, AGREEMENT_TEXT.firstClause({ referenceDate }))
     this.paragraph(doc, margin, pageW, AGREEMENT_TEXT.secondClause)
-    // Punto de inserción RESERVADO del bloque de importes (USRH1789097550395):
-    // la suma en número y en letra con su leyenda va aquí, entre la SEGUNDA y
-    // la TERCERA. Esta rebanada no imprime ninguna cantidad (regla 10).
+    this.renderAmounts(doc, margin, pageW, data)
     this.paragraph(doc, margin, pageW, AGREEMENT_TEXT.thirdClause)
     doc.moveDown(0.6)
 
@@ -315,6 +321,39 @@ export default class TerminationAgreementPdfService {
     ])
 
     this.renderSignatures(doc, margin, pageW, data, representative)
+  }
+
+  /**
+   * Bloque de importes (USRH1789097550395, reglas 2 y 6): cifra, debajo la
+   * cantidad con letra entre paréntesis y, en el mismo bloque, la leyenda
+   * declarativa completa. Los textos llegan derivados del mismo valor y no
+   * pasan por saneado: son salida del sistema sobre un número.
+   */
+  private renderAmounts(
+    doc: PDFKit.PDFDocument,
+    margin: number,
+    pageW: number,
+    data: TerminationAgreementData
+  ) {
+    doc
+      .font(FONT_REGULAR)
+      .fontSize(10)
+      .fillColor(PDF_COLORS.text)
+      .text(`${AGREEMENT_TEXT.amountsLabel} `, margin, doc.y, { continued: true })
+      .font(FONT_BOLD)
+      .text(data.totalAmountText, { continued: false })
+    doc
+      .font(FONT_BOLD)
+      .fontSize(10)
+      .fillColor(PDF_COLORS.text)
+      .text(`(${data.totalAmountInWords})`, margin, doc.y, { width: pageW, align: 'left' })
+    doc.moveDown(0.3)
+    doc
+      .font(FONT_REGULAR)
+      .fontSize(9)
+      .fillColor(PDF_COLORS.textMuted)
+      .text(AMOUNTS_DISCLAIMER, margin, doc.y, { width: pageW, align: 'justify', lineGap: 1 })
+    doc.moveDown(0.6)
   }
 
   private heading(doc: PDFKit.PDFDocument, margin: number, pageW: number, text: string) {

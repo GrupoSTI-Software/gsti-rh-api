@@ -1,9 +1,11 @@
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import EmployeeOffboarding from '#models/employee_offboarding'
 import EmployeeOffboardingDocument from '#models/employee_offboarding_document'
+import EmployeeOffboardingItem from '#models/employee_offboarding_item'
 import User from '#models/user'
 import { TenantContext } from '#utils/tenant_context'
 import {
@@ -158,6 +160,18 @@ export default class DocumentsRepositoryMysql implements DocumentsRepository {
       .where('employee_offboarding_id', employeeOffboardingId)
       .whereNull('employee_offboarding_document_deleted_at')
       .first()
+  }
+
+  async sumItemAmounts(employeeOffboardingId: number): Promise<string> {
+    // SUM exacta en MySQL sobre decimal(12,2); COALESCE para el expediente sin
+    // pendientes. El total llega como cadena decimal y así se devuelve.
+    const row = await db
+      .from(EmployeeOffboardingItem.table)
+      .where('employee_offboarding_id', employeeOffboardingId)
+      .whereNull('employee_offboarding_item_deleted_at')
+      .select(db.raw('COALESCE(SUM(employee_offboarding_item_amount), 0.00) AS total'))
+      .first()
+    return String(row?.total ?? '0.00')
   }
 
   async findUsersByIds(userIds: number[]): Promise<User[]> {

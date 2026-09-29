@@ -66,7 +66,7 @@ const TEMPLATE_V1_FIELDS = [
   'folio',
 ] as const
 
-/** Lo que devolvía el DTO antes de esta historia, más los dos campos nuevos. */
+/** Lo que devolvía el DTO antes de esta historia, más los dos campos nuevos (y `totalAmount`, USRH1789097550395). */
 const EXPECTED_DTO_KEYS = [
   'employeeOffboardingDocumentId',
   'employeeOffboardingId',
@@ -90,6 +90,7 @@ const EXPECTED_DTO_KEYS = [
   'supersededDocumentId',
   'templateVersionId',
   'templateVersionNumber',
+  'totalAmount',
 ]
 
 const created = {
