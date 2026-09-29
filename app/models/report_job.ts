@@ -38,6 +38,15 @@ export interface ReportJobFilters {
    */
   canDisplayPaymentsSummary?: boolean
   canDisplayDiscountsSummary?: boolean
+  /**
+   * Resuelto por el servidor al encolar: `true` si quien encoló es root o
+   * tiene `full-employee-assigned`; `false` para acceso restringido.
+   * NUNCA acepta el valor del cliente. El worker lo lee sin volver a
+   * resolver el rol. Un job encolado antes del despliegue no trae la llave:
+   * cualquier lector evalúa `=== true`; la ausencia vale `false`.
+   * USRH1788466831312.
+   */
+  includeUnassigned?: boolean
 }
 
 export default class ReportJob extends BaseModel {

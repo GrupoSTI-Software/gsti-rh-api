@@ -17,6 +17,8 @@ import {
   type TenantActor,
 } from '#tests/helpers/tenant_actor'
 import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import {
   asRecord,
   buHeader,
@@ -77,6 +79,7 @@ async function createRepseEmployee(
     personSecondLastname: stamp.slice(-12),
     personEmail: `repse-${prefix}-${stamp}@gsti-tests.local`,
     personImssNss: nss,
+    businessUnitId,
   })
   const departmentInsert = await db.table('departments').insert({
     department_sync_id: stamp,
@@ -116,7 +119,10 @@ async function createRepseEmployee(
     employee_business_email: `work-${prefix}-${stamp}@gsti-tests.local`,
     employee_created_at: now,
   })
-  const employee = await Employee.findOrFail(Number(employeeInsert[0]))
+  const employee = await TenantContext.runUnscoped(
+    () => Employee.findOrFail(Number(employeeInsert[0])),
+    TENANT_UNSCOPED_REASON.TEST_FIXTURE
+  )
   return { employee, person, departmentId, positionId, nssClaro: nss }
 }
 
@@ -125,11 +131,16 @@ async function createContratoVigenteInTenant(params: {
   numeroContrato: string
 }): Promise<number> {
   const contratoId = await createContratoInTenant(params)
-  const contrato = await ContratoServicioEspecializado.findOrFail(contratoId)
+  const contrato = await TenantContext.run(
+    [params.fixture.businessUnit.businessUnitId],
+    () => ContratoServicioEspecializado.findOrFail(contratoId)
+  )
   contrato.estatus = 'vigente'
   contrato.fechaInicio = DateTime.fromISO('2026-01-01')
   contrato.fechaFin = DateTime.fromISO('2027-12-31')
-  await contrato.save()
+  await TenantContext.run([params.fixture.businessUnit.businessUnitId], async () => {
+    await contrato.save()
+  })
   return contratoId
 }
 
@@ -186,6 +197,7 @@ async function createRepseActorConIdentificacion(
     personLastname: 'Con',
     personSecondLastname: prefix,
     personEmail: email,
+    businessUnitId: base.businessUnit.businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -370,12 +382,20 @@ export async function cleanupRepseSensitiveMaskActors(actors: RepseSensitiveMask
   await cleanupTenantActor(actors.sin)
 }
 
-export async function reloadContratanteRfc(empresaContratanteId: number): Promise<string | null> {
-  const row = await EmpresaContratante.findOrFail(empresaContratanteId)
+export async function reloadContratanteRfc(
+  empresaContratanteId: number,
+  businessUnitId: number
+): Promise<string | null> {
+  const row = await TenantContext.run([businessUnitId], () =>
+    EmpresaContratante.findOrFail(empresaContratanteId)
+  )
   return row.rfc
 }
 
-export async function reloadPersonNss(personId: number): Promise<string | null> {
-  const row = await Person.findOrFail(personId)
+export async function reloadPersonNss(
+  personId: number,
+  businessUnitId: number
+): Promise<string | null> {
+  const row = await TenantContext.run([businessUnitId], () => Person.findOrFail(personId))
   return row.personImssNss
 }

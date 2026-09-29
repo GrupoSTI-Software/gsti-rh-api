@@ -1,9 +1,93 @@
+import db from '@adonisjs/lucid/services/db'
 import Supplie from '#models/supplie'
+import SupplyType from '#models/supply_type'
+import SupplyValueHistory from '#models/supply_value_history'
 import EmployeeSupplie from '#models/employee_supplie'
 import ExcelJS from 'exceljs'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 import { DateTime } from 'luxon'
+import { getBusinessTimeZone } from '#utils/business_date'
+import {
+  formatReportCalendarDate,
+  REPORT_DATE_FORMAT,
+  REPORT_LOCALE,
+} from '#helpers/report_locale'
+import { frozenHeaderViews } from '#helpers/report_sheet_views'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
+
+/**
+ * Textos del reporte de activos. El reporte sale siempre en español, sin
+ * importar el idioma de la petición.
+ */
+const REPORT_TEXT = {
+  sheet: 'Activos',
+  title: 'Reporte de activos y resguardos',
+  generatedOn: 'Generado el',
+  // "Sin asignar" es un estado del activo, no un dato ausente: se conserva.
+  notAssigned: 'Sin asignar',
+  // Dato ausente en blanco (2026-09-24): antes "—".
+  noData: '',
+} as const
+
+const REPORT_HEADERS = [
+  'Folio',
+  'Activo',
+  'Tipo',
+  'Estado del activo',
+  'No. de colaborador',
+  'Colaborador',
+  'Departamento',
+  'Puesto',
+  'Estado del resguardo',
+  'Fecha de asignación',
+  'Vencimiento',
+  'Fecha de devolución',
+  'Motivo de devolución',
+] as const
+
+const ASSET_STATUS_LABEL: Record<string, string> = {
+  active: 'En operación',
+  inactive: 'Baja',
+  lost: 'Extraviado',
+  damaged: 'Dañado',
+}
+
+const ASSIGNMENT_STATUS_LABEL: Record<string, string> = {
+  active: 'Activo',
+  retired: 'Devuelto',
+  shipping: 'En envío',
+}
+
 import { SupplieFilterSearchInterface } from '../interfaces/supplie_filter_search_interface.js'
+import {
+  ACQUISITION_VALUE_HISTORY_NOTE,
+  type AssetDeactivationStatus,
+  type AssetStatus,
+} from '#modules/assets/assets.constants'
+import {
+  assertAssetWithoutActiveAssignment,
+  assertFileNumberAvailable,
+  closeActiveAssignments,
+} from '#modules/assets/assets.rules'
+
+interface SupplyCreateInput {
+  supplyFileNumber: string
+  supplyName: string
+  supplySerialNumber?: string | null
+  supplyDescription?: string
+  supplyTypeId: number
+  supplyStatus?: AssetStatus
+  supplyAcquisitionDate?: string | null
+  supplyAcquisitionValue?: number | null
+}
+
+type SupplyUpdateInput = Partial<SupplyCreateInput>
+
+interface SupplyDeactivationInput {
+  supplyStatus?: AssetDeactivationStatus
+  supplyDeactivationReason: string
+  supplyDeactivationDate?: string
+}
 
 export default class SupplieService {
   /**
@@ -26,7 +110,8 @@ export default class SupplieService {
         builder
           .whereILike('supplyName', `%${filters.search}%`)
           .orWhereILike('supplyDescription', `%${filters.search}%`)
-          .orWhere('supplyFileNumber', filters.search as unknown as number)
+          .orWhereILike('supplyFileNumber', `%${filters.search}%`)
+          .orWhereILike('supplySerialNumber', `%${filters.search}%`)
       })
     }
 
@@ -57,101 +142,119 @@ export default class SupplieService {
   }
 
   /**
-   * Create new supply
+   * Alta de un activo. El folio es único por empresa (la del tipo, que es la
+   * que el modelo le asigna). Con valor de adquisición, el historial nace con
+   * su primer registro ("Valor de adquisición"), en la misma transacción.
+   *
+   * @throws AssetError 409 `folio-de-activo-duplicado`.
    */
-  static async create(data: {
-    supplyFileNumber: number
-    supplyName: string
-    supplyDescription?: string
-    supplyTypeId: number
-    supplyStatus?: 'active' | 'inactive' | 'lost' | 'damaged'
-    supplyAcquisitionDate?: string | null
-    supplyAcquisitionValue?: number | null
-  }) {
-    // Check if file number already exists
-    const existingSupply = await Supplie.query()
-      .where('supplyFileNumber', data.supplyFileNumber)
-      .first()
+  static async create(data: SupplyCreateInput) {
+    const supplyType = await SupplyType.findOrFail(data.supplyTypeId)
+    await assertFileNumberAvailable(supplyType.businessUnitId, data.supplyFileNumber)
 
-    if (existingSupply) {
-      throw new Error('Supply with this file number already exists')
-    }
+    return db.transaction(async (trx) => {
+      const supply = new Supplie()
+      supply.useTransaction(trx)
+      supply.businessUnitId = supplyType.businessUnitId
+      supply.merge({
+        supplyFileNumber: data.supplyFileNumber,
+        supplyName: data.supplyName,
+        supplySerialNumber: data.supplySerialNumber ?? null,
+        supplyDescription: data.supplyDescription ?? null,
+        supplyTypeId: data.supplyTypeId,
+        supplyStatus: data.supplyStatus ?? 'active',
+        supplyAcquisitionDate: data.supplyAcquisitionDate
+          ? DateTime.fromISO(data.supplyAcquisitionDate)
+          : null,
+        supplyAcquisitionValue: data.supplyAcquisitionValue ?? null,
+      })
+      await supply.save()
 
-    const createData: any = { ...data }
-
-    if (data.supplyAcquisitionDate) {
-      createData.supplyAcquisitionDate = DateTime.fromISO(data.supplyAcquisitionDate)
-    }
-
-    return await Supplie.create(createData)
+      if (data.supplyAcquisitionValue !== null && data.supplyAcquisitionValue !== undefined) {
+        // La empresa va explícita: el hook la resolvería consultando el activo
+        // fuera de la transacción, donde todavía no existe.
+        await SupplyValueHistory.create(
+          {
+            businessUnitId: supply.businessUnitId,
+            supplyId: supply.supplyId,
+            supplyValueHistoryCost: data.supplyAcquisitionValue,
+            supplyValueHistoryCurrentValue: data.supplyAcquisitionValue,
+            supplyValueHistoryNotes: ACQUISITION_VALUE_HISTORY_NOTE,
+          },
+          { client: trx }
+        )
+      }
+      return supply
+    })
   }
 
   /**
-   * Update supply
+   * Edición de un activo. Volver a `active` (reactivar) limpia el motivo y la
+   * fecha de baja.
+   *
+   * @throws AssetError 409 `folio-de-activo-duplicado`.
    */
-  static async update(id: number, data: {
-    supplyFileNumber?: number
-    supplyName?: string
-    supplyDescription?: string
-    supplyTypeId?: number
-    supplyStatus?: 'active' | 'inactive' | 'lost' | 'damaged'
-    supplyAcquisitionDate?: string | null
-    supplyAcquisitionValue?: number | null
-  }) {
+  static async update(id: number, data: SupplyUpdateInput) {
     const supply = await Supplie.findOrFail(id)
 
-    // Check if file number already exists (excluding current record)
-    if (data.supplyFileNumber) {
-      const existingSupply = await Supplie.query()
-        .where('supplyFileNumber', data.supplyFileNumber)
-        .where('supplyId', '!=', id)
-        .first()
-
-      if (existingSupply) {
-        throw new Error('Supply with this file number already exists')
-      }
+    if (data.supplyFileNumber !== undefined && data.supplyFileNumber !== supply.supplyFileNumber) {
+      await assertFileNumberAvailable(supply.businessUnitId, data.supplyFileNumber, supply.supplyId)
     }
 
-    const updateData: any = { ...data }
-
-    if (data.supplyAcquisitionDate !== undefined) {
-      updateData.supplyAcquisitionDate = data.supplyAcquisitionDate
-        ? DateTime.fromISO(data.supplyAcquisitionDate)
+    const { supplyAcquisitionDate, ...rest } = data
+    supply.merge(rest)
+    if (supplyAcquisitionDate !== undefined) {
+      supply.supplyAcquisitionDate = supplyAcquisitionDate
+        ? DateTime.fromISO(supplyAcquisitionDate)
         : null
     }
-
-    supply.merge(updateData)
+    if (data.supplyStatus === 'active') {
+      supply.supplyDeactivationReason = null
+      supply.supplyDeactivationDate = null
+    }
     await supply.save()
 
     return supply
   }
 
   /**
-   * Delete supply (soft delete)
+   * Borrado lógico. Un activo en resguardo no se borra.
+   *
+   * @throws AssetError 409 `activo-con-resguardo-activo`.
    */
   static async delete(id: number) {
     const supply = await Supplie.findOrFail(id)
+    await assertAssetWithoutActiveAssignment(supply.supplyId)
     await supply.delete()
     return supply
   }
 
   /**
-   * Deactivate supply with reason
+   * Baja del activo: pasa al estado destino (`inactive` por omisión, `lost` o
+   * `damaged`) con motivo y fecha, y cierra su resguardo activo (lo pasa a
+   * `retired` con el mismo motivo y fecha), todo en una transacción.
    */
-  static async deactivate(id: number, data: {
-    supplyDeactivationReason: string
-    supplyDeactivationDate?: string
-  }) {
+  static async deactivate(id: number, data: SupplyDeactivationInput) {
     const supply = await Supplie.findOrFail(id)
-
-    supply.supplyStatus = 'inactive'
-    supply.supplyDeactivationReason = data.supplyDeactivationReason
-    supply.supplyDeactivationDate = data.supplyDeactivationDate
+    const date = data.supplyDeactivationDate
       ? DateTime.fromISO(data.supplyDeactivationDate)
       : DateTime.now()
 
-    await supply.save()
-    return supply
+    return db.transaction(async (trx) => {
+      supply.useTransaction(trx)
+      supply.supplyStatus = data.supplyStatus ?? 'inactive'
+      supply.supplyDeactivationReason = data.supplyDeactivationReason
+      supply.supplyDeactivationDate = date
+      await supply.save()
+
+      const closedAssignments = await closeActiveAssignments(
+        supply.supplyId,
+        data.supplyDeactivationReason,
+        date,
+        trx
+      )
+      return { supply, closedAssignments }
+    })
   }
 
   /**
@@ -196,18 +299,20 @@ export default class SupplieService {
       // Formato neutral (report_neutral_theme): sin logo ni colores de la
       // empresa, así que el reporte ya no consulta la configuración del sistema.
       const workbook = new ExcelJS.Workbook()
-      const worksheet = workbook.addWorksheet('Supplies Report')
+      const worksheet = workbook.addWorksheet(REPORT_TEXT.sheet)
 
       // Fila 1: título en negro, sin relleno
-      const titleRow = worksheet.addRow(['Supplies and Assignments Report'])
+      const titleRow = worksheet.addRow([REPORT_TEXT.title])
       titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       titleRow.height = 42
       titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
       worksheet.mergeCells('A1:M1')
 
       // Fila 2: fecha de generación en texto secundario
-      const currentDate = DateTime.now().toFormat('DDDD')
-      const periodRow = worksheet.addRow([`Generated on: ${currentDate}`])
+      const currentDate = DateTime.now()
+        .setZone(getBusinessTimeZone())
+        .setLocale(REPORT_LOCALE).toFormat("d 'de' LLLL 'de' yyyy")
+      const periodRow = worksheet.addRow([`${REPORT_TEXT.generatedOn} ${currentDate}`])
       periodRow.font = { size: 15, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
       periodRow.height = 30
@@ -220,6 +325,7 @@ export default class SupplieService {
       await SupplieService.addDataRows(supplies, employeeSupplies, worksheet)
 
       // Generate buffer
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
 
       return {
@@ -244,23 +350,7 @@ export default class SupplieService {
    * Add header row
    */
 private static addHeadRow(worksheet: ExcelJS.Worksheet) {
-  const headers = [
-    'File Number',
-    'Supply Name',
-    'Supply Type',
-    'Supply Status',
-    'Employee ID',
-    'Employee Name',
-    'Department',
-    'Position',
-    'Assignment Status',
-    'Assignment Date',
-    'Expiration Date',
-    'Retirement Date',
-    'Retirement Reason',
-  ]
-
-  const headerRow = worksheet.addRow(headers)
+  const headerRow = worksheet.addRow([...REPORT_HEADERS])
 
   headerRow.eachCell((cell) => {
     cell.fill = {
@@ -287,14 +377,7 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
   const widths = [15, 40, 25, 15, 15, 45, 30, 30, 20, 25, 25, 25, 40]
   widths.forEach((w, i) => (worksheet.getColumn(i + 1).width = w))
 
-  worksheet.views = [
-    {
-      state: 'frozen',
-      ySplit: headerRow.number, // Congela hasta la fila del header
-      topLeftCell: 'A1',
-      activeCell: 'A1',
-    },
-  ]
+  worksheet.views = frozenHeaderViews(headerRow.number)
 }
 
 
@@ -342,47 +425,49 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
           const person = employee?.person
 
           const employeeName = person
-            ? `${person.personFirstname || ''} ${person.personLastname || ''} ${person.personSecondLastname || ''}`.trim()
-            : 'N/A'
+            ? reportFullName(
+                person.personFirstname,
+                person.personLastname,
+                person.personSecondLastname
+              )
+            : REPORT_TEXT.noData
 
           // Get department name
-          let departmentName = 'N/A'
+          let departmentName: string = REPORT_TEXT.noData
           if (employee?.department) {
-            departmentName = employee.department.departmentAlias || employee.department.departmentName || 'N/A'
+            departmentName =
+              employee.department.departmentAlias ||
+              employee.department.departmentName ||
+              REPORT_TEXT.noData
           }
 
           // Get position name
-          let positionName = 'N/A'
+          let positionName: string = REPORT_TEXT.noData
           if (employee?.position) {
-            positionName = employee.position.positionAlias || employee.position.positionName || 'N/A'
+            positionName =
+              employee.position.positionAlias || employee.position.positionName || REPORT_TEXT.noData
           }
 
           worksheet.addRow([
-            supply.supplyFileNumber,
-            supply.supplyName,
-            supply.supplyType?.supplyTypeName || 'N/A',
-            supply.supplyStatus,
-            employee?.employeeCode || 'N/A',
+            reportText(supply.supplyFileNumber),
+            reportText(supply.supplyName),
+            supply.supplyType?.supplyTypeName || REPORT_TEXT.noData,
+            ASSET_STATUS_LABEL[supply.supplyStatus] ?? reportText(supply.supplyStatus),
+            employee?.employeeCode || REPORT_TEXT.noData,
             employeeName,
             departmentName,
             positionName,
-            assignment.employeeSupplyStatus,
-            assignment.employeeSupplyCreatedAt
-              ? DateTime.fromJSDate(assignment.employeeSupplyCreatedAt.toJSDate())
-                  .setZone('UTC-6')
-                  .toFormat('MMM d, yyyy, h:mm:ss a')
-              : '',
-            assignment.employeeSupplyExpirationDate
-              ? DateTime.fromJSDate(assignment.employeeSupplyExpirationDate.toJSDate())
-                  .setZone('UTC-6')
-                  .toFormat('MMM d, yyyy, h:mm:ss a')
-              : '',
-            assignment.employeeSupplyRetirementDate
-              ? DateTime.fromJSDate(assignment.employeeSupplyRetirementDate.toJSDate())
-                  .setZone('UTC-6')
-                  .toFormat('MMM d, yyyy, h:mm:ss a')
-              : '',
-            assignment.employeeSupplyRetirementReason || '',
+            ASSIGNMENT_STATUS_LABEL[assignment.employeeSupplyStatus] ??
+              assignment.employeeSupplyStatus,
+            // Fecha de asignación capturada; sin ella, la de alta del registro.
+            assignment.employeeSupplyAssignamentDate
+              ? formatReportCalendarDate(assignment.employeeSupplyAssignamentDate)
+              : (assignment.employeeSupplyCreatedAt
+                  ?.setZone(getBusinessTimeZone())
+                  .toFormat(REPORT_DATE_FORMAT) ?? ''),
+            formatReportCalendarDate(assignment.employeeSupplyExpirationDate),
+            formatReportCalendarDate(assignment.employeeSupplyRetirementDate),
+            reportText(assignment.employeeSupplyRetirementReason),
           ])
 
           // Color status cells (now in column I instead of G)
@@ -393,12 +478,12 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
       } else {
         // Supply has no assignments
         worksheet.addRow([
-          supply.supplyFileNumber,
-          supply.supplyName,
-          supply.supplyType?.supplyTypeName || 'N/A',
-          supply.supplyStatus,
+          reportText(supply.supplyFileNumber),
+          reportText(supply.supplyName),
+          supply.supplyType?.supplyTypeName || REPORT_TEXT.noData,
+          ASSET_STATUS_LABEL[supply.supplyStatus] ?? reportText(supply.supplyStatus),
           '',
-          'Not Assigned',
+          REPORT_TEXT.notAssigned,
           '',
           '',
           '',
@@ -425,14 +510,14 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
     let fgColor = REPORT_NEUTRAL_ARGB.text as string
 
     if (status === 'active') {
-      color = 'C6EFCE'
-      fgColor = '006100'
+      color = 'FFC6EFCE'
+      fgColor = 'FF006100'
     } else if (status === 'retired') {
-      color = 'FFC7CE'
-      fgColor = '9C0006'
+      color = 'FFFFC7CE'
+      fgColor = 'FF9C0006'
     } else if (status === 'shipping') {
-      color = 'FFEB9C'
-      fgColor = '9C6500'
+      color = 'FFFFEB9C'
+      fgColor = 'FF9C6500'
     }
 
     // Status is now in column I (9th column)
@@ -449,8 +534,8 @@ private static addHeadRow(worksheet: ExcelJS.Worksheet) {
    * Paint unassigned row
    */
   private static paintUnassigned(worksheet: ExcelJS.Worksheet, row: number) {
-    const color = 'E4E4E4'
-    const fgColor = '000000'
+    const color = 'FFE4E4E4'
+    const fgColor = 'FF000000'
 
     // Now we have 13 columns
     for (let col = 1; col <= 13; col++) {

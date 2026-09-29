@@ -38,6 +38,7 @@ import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
 import { normalizeRfc } from '../../../app/shared/validators/rfc.validator.js'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
 import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 
 export function countGateLookups(sqls: string[]) {
   const roles = sqls.filter((sql) => /from\s+[`"]?roles[`"]?/i.test(sql)).length
@@ -369,34 +370,47 @@ export async function createSensitiveFixture(
     employee_business_email: `work-${prefix}-${stamp}@gsti-tests.local`,
     employee_created_at: now,
   })
-  const employee = await Employee.findOrFail(Number(employeeInsert[0]))
+  const employee = await TenantContext.runUnscoped(
+    () => Employee.findOrFail(Number(employeeInsert[0])),
+    TENANT_UNSCOPED_REASON.TEST_FIXTURE
+  )
   const bankRow = await Bank.query().whereNull('bank_deleted_at').firstOrFail()
-  const bank = await EmployeeBank.create({
-    employeeBankAccountClabe: clear.clabe,
-    employeeBankAccountClabeLastNumbers: clear.clabe.slice(-4),
-    employeeBankAccountNumber: clear.account,
-    employeeBankAccountNumberLastNumbers: clear.account.slice(-4),
-    employeeBankAccountCardNumber: clear.card,
-    employeeBankAccountCardNumberLastNumbers: clear.card.slice(-4),
-    employeeBankAccountCurrencyType: 'MXN',
-    employeeId: employee.employeeId,
-    bankId: bankRow.bankId,
-  })
-  const medicalConditionType = await TenantContext.run([businessUnitId], async () => {
-    const type = new MedicalConditionType()
-    type.medicalConditionTypeName = `TEST-MCT-SENS-${stamp}`
-    type.medicalConditionTypeDescription = 'fixture lectura sensible'
-    type.medicalConditionTypeActive = 1
-    await type.save()
-    return type
-  })
-  const medical = await EmployeeMedicalCondition.create({
-    employeeId: employee.employeeId,
-    medicalConditionTypeId: medicalConditionType.medicalConditionTypeId,
-    employeeMedicalConditionDiagnosis: clear.diagnosis,
-    employeeMedicalConditionNotes: clear.notes,
-    employeeMedicalConditionActive: 1,
-  })
+  const { bank, medicalConditionType, medical } = await TenantContext.run(
+    [businessUnitId],
+    async () => {
+      const createdBank = await EmployeeBank.create({
+        employeeBankAccountClabe: clear.clabe,
+        employeeBankAccountClabeLastNumbers: clear.clabe.slice(-4),
+        employeeBankAccountNumber: clear.account,
+        employeeBankAccountNumberLastNumbers: clear.account.slice(-4),
+        employeeBankAccountCardNumber: clear.card,
+        employeeBankAccountCardNumberLastNumbers: clear.card.slice(-4),
+        employeeBankAccountCurrencyType: 'MXN',
+        employeeId: employee.employeeId,
+        bankId: bankRow.bankId,
+      })
+      const createdMedicalConditionType = await (async () => {
+        const type = new MedicalConditionType()
+        type.medicalConditionTypeName = `TEST-MCT-SENS-${stamp}`
+        type.medicalConditionTypeDescription = 'fixture lectura sensible'
+        type.medicalConditionTypeActive = 1
+        await type.save()
+        return type
+      })()
+      const createdMedical = await EmployeeMedicalCondition.create({
+        employeeId: employee.employeeId,
+        medicalConditionTypeId: createdMedicalConditionType.medicalConditionTypeId,
+        employeeMedicalConditionDiagnosis: clear.diagnosis,
+        employeeMedicalConditionNotes: clear.notes,
+        employeeMedicalConditionActive: 1,
+      })
+      return {
+        bank: createdBank,
+        medicalConditionType: createdMedicalConditionType,
+        medical: createdMedical,
+      }
+    }
+  )
   return {
     employee,
     person,
@@ -437,7 +451,7 @@ export async function cleanupSensitiveFixture(fixture: SensitiveFixture | null) 
     await MedicalConditionType.query()
       .where('medical_condition_type_id', fixture.medicalConditionType.medicalConditionTypeId)
       .delete()
-  }, 'limpieza fixture lectura sensible')
+  }, TENANT_UNSCOPED_REASON.TEST_FIXTURE)
 }
 
 export function buHeader(actor: TenantActor) {
@@ -741,14 +755,15 @@ export async function createRemainingSensitiveFixture(
   actor: TenantActor,
   base: SensitiveFixture
 ): Promise<RemainingSensitiveFixture> {
-  const coverage = await InsuranceCoverageType.query()
-    .whereNull('insurance_coverage_type_deleted_at')
-    .firstOrFail()
-  const disability = await WorkDisability.create({
-    employeeId: base.employee.employeeId,
-    insuranceCoverageTypeId: coverage.insuranceCoverageTypeId,
-    workDisabilityUuid: `wd-sens15-${Date.now()}`,
-  })
+  return TenantContext.run([actor.businessUnit.businessUnitId], async () => {
+    const coverage = await InsuranceCoverageType.query()
+      .whereNull('insurance_coverage_type_deleted_at')
+      .firstOrFail()
+    const disability = await WorkDisability.create({
+      employeeId: base.employee.employeeId,
+      insuranceCoverageTypeId: coverage.insuranceCoverageTypeId,
+      workDisabilityUuid: `wd-sens15-${Date.now()}`,
+    })
   const note = await WorkDisabilityNote.create({
     workDisabilityId: disability.workDisabilityId,
     workDisabilityNoteDescription: CLEAR_REMAINING.disabilityDescription,
@@ -872,22 +887,23 @@ export async function createRemainingSensitiveFixture(
       userConsentChannel: 'digital',
     })
   }
-  return {
-    disability,
-    note,
-    spouse,
-    emergency,
-    lactation,
-    trauma,
-    biometric,
-    faceId,
-    salary,
-    range,
-    rangeAudit,
-    empresa,
-    proveedor,
-    consent,
-  }
+return {
+      disability,
+      note,
+      spouse,
+      emergency,
+      lactation,
+      trauma,
+      biometric,
+      faceId,
+      salary,
+      range,
+      rangeAudit,
+      empresa,
+      proveedor,
+      consent,
+    }
+  })
 }
 
 export async function cleanupRemainingSensitiveFixture(

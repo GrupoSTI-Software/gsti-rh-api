@@ -1,5 +1,6 @@
 import router from '@adonisjs/core/services/router'
 import { middleware } from '#start/kernel'
+import { personEmailProbeGuard, personWriteRateLimit } from '#helpers/person_email_probe_throttle'
 import { EMPLOYEES_PERSON_COLLABORATOR_READ_PERMISSION } from '#constants/employees_read_permission_declarations'
 
 // USRH1785766406726/USRH1787433076995 — regla C-13: `/api/persons` es superficie compartida
@@ -29,8 +30,8 @@ router
     router
       .get('/', '#controllers/person_controller.index')
       .use(middleware.permissionGate(EMPLOYEES_PERSON_COLLABORATOR_READ_PERMISSION))
-    router.post('/', '#controllers/person_controller.store')
-    router.put('/:personId', '#controllers/person_controller.update')
+    router.post('/', '#controllers/person_controller.store').use([personWriteRateLimit, personEmailProbeGuard])
+    router.put('/:personId', '#controllers/person_controller.update').use([personWriteRateLimit, personEmailProbeGuard])
     router.delete('/:personId', '#controllers/person_controller.delete')
     router.get('/:personId', '#controllers/person_controller.show')
   })

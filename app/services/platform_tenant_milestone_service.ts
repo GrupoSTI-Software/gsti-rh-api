@@ -81,8 +81,7 @@ function rowsToMilestoneMap(
  * (USRH1789079078170). Ocho consultas fijas con Knex crudo (nunca Lucid: el
  * mixin de tenant es fail-open sin `TenantContext`, y desde `/api/platform/*`
  * nunca hay uno activo — §7 del spec), agregación condicional (fecha CON
- * borrados, estado SIN borrados en la misma consulta) y anti-join contra la
- * siembra demo del recorrido guiado para los hitos 1-4 (RN-19).
+ * borrados, estado SIN borrados en la misma consulta).
  *
  * `runUnscoped` NO se usa: con Knex crudo no hay filtro que desactivar, y el
  * universo siempre llega explícito por `businessUnitIds` — nunca se descubre
@@ -169,17 +168,11 @@ export default class PlatformTenantMilestoneService {
 
   // ─── Las ocho consultas fijas ──────────────────────────────────────────────
 
-  /** Hito 1a — primer departamento propio (RN-19: excluye la siembra demo). */
+  /** Hito 1a — primer departamento. */
   private async queryDepartamentos(buIds: number[]): Promise<RawMilestoneRow[]> {
     return db
       .from('departments as d')
-      .leftJoin('onboarding_seeded_records as osr', (join) => {
-        join
-          .on('osr.onboarding_seeded_record_entity_id', 'd.department_id')
-          .andOnVal('osr.onboarding_seeded_record_entity_type', 'department')
-      })
       .whereIn('d.business_unit_id', buIds)
-      .whereNull('osr.onboarding_seeded_record_id')
       .groupBy('d.business_unit_id')
       .select([
         'd.business_unit_id as businessUnitId',
@@ -188,17 +181,11 @@ export default class PlatformTenantMilestoneService {
       ])
   }
 
-  /** Hito 1b — primer puesto propio (RN-19). */
+  /** Hito 1b — primer puesto. */
   private async queryPuestos(buIds: number[]): Promise<RawMilestoneRow[]> {
     return db
       .from('positions as p')
-      .leftJoin('onboarding_seeded_records as osr', (join) => {
-        join
-          .on('osr.onboarding_seeded_record_entity_id', 'p.position_id')
-          .andOnVal('osr.onboarding_seeded_record_entity_type', 'position')
-      })
       .whereIn('p.business_unit_id', buIds)
-      .whereNull('osr.onboarding_seeded_record_id')
       .groupBy('p.business_unit_id')
       .select([
         'p.business_unit_id as businessUnitId',
@@ -208,20 +195,14 @@ export default class PlatformTenantMilestoneService {
   }
 
   /**
-   * Hito 2 — primer turno propio (RN-19). `Shift` no compone `SoftDeletes`
+   * Hito 2 — primer turno. `Shift` no compone `SoftDeletes`
    * (`app/models/shift.ts`): el `whereNull` de vida se escribe a mano contra
    * `shifts.shift_deleted_at`, que sí existe como columna física.
    */
   private async queryTurnos(buIds: number[]): Promise<RawMilestoneRow[]> {
     return db
       .from('shifts as s')
-      .leftJoin('onboarding_seeded_records as osr', (join) => {
-        join
-          .on('osr.onboarding_seeded_record_entity_id', 's.shift_id')
-          .andOnVal('osr.onboarding_seeded_record_entity_type', 'shift')
-      })
       .whereIn('s.business_unit_id', buIds)
-      .whereNull('osr.onboarding_seeded_record_id')
       .groupBy('s.business_unit_id')
       .select([
         's.business_unit_id as businessUnitId',
@@ -231,20 +212,14 @@ export default class PlatformTenantMilestoneService {
   }
 
   /**
-   * Hito 3 — primer empleado con turno asignado (RN-19). El typo real de
+   * Hito 3 — primer empleado con turno asignado. El typo real de
    * columna se copia tal cual: `employe_shifts_*` (no `employee_shifts_*`),
    * confirmado en `app/models/employee_shift.ts`.
    */
   private async queryEmpleadoConTurno(buIds: number[]): Promise<RawMilestoneRow[]> {
     return db
       .from('employee_shifts as es')
-      .leftJoin('onboarding_seeded_records as osr', (join) => {
-        join
-          .on('osr.onboarding_seeded_record_entity_id', 'es.employee_shift_id')
-          .andOnVal('osr.onboarding_seeded_record_entity_type', 'employee_shift')
-      })
       .whereIn('es.business_unit_id', buIds)
-      .whereNull('osr.onboarding_seeded_record_id')
       .groupBy('es.business_unit_id')
       .select([
         'es.business_unit_id as businessUnitId',
@@ -254,11 +229,11 @@ export default class PlatformTenantMilestoneService {
   }
 
   /**
-   * Hito 4 — acceso a la app (RN-16, RN-19, RN-49-CA-06). Corta por
+   * Hito 4 — acceso a la app (RN-16, RN-49-CA-06). Corta por
    * `employees.business_unit_id`, NUNCA por `users` (tabla global: ahí viven
    * también los administradores de GSTI). Fecha = la MÁS TARDÍA entre el
    * alta del usuario y la del empleado ligado, por par, luego el mínimo entre
-   * pares. El anti-join va contra el tipo `user` de la siembra demo.
+   * pares.
    */
   private async queryAccesoApp(
     buIds: number[],
@@ -267,13 +242,7 @@ export default class PlatformTenantMilestoneService {
     const rows = await db
       .from('employees as e')
       .join('users as u', 'u.person_id', 'e.person_id')
-      .leftJoin('onboarding_seeded_records as osr', (join) => {
-        join
-          .on('osr.onboarding_seeded_record_entity_id', 'u.user_id')
-          .andOnVal('osr.onboarding_seeded_record_entity_type', 'user')
-      })
       .whereIn('e.business_unit_id', buIds)
-      .whereNull('osr.onboarding_seeded_record_id')
       .select([
         'e.business_unit_id as businessUnitId',
         'e.employee_created_at as employeeCreatedAt',
@@ -343,9 +312,7 @@ export default class PlatformTenantMilestoneService {
 
   /**
    * Hito 6 — primera checada con canal (RN-18). Fecha = `assist_punch_time_utc`
-   * (nunca `assist_created_at` ni `assist_punch_time_origin`). Sin anti-join
-   * (R-4): la siembra demo crea sus checadas sin canal (`assist_origin`
-   * nulo), así que ya quedan fuera por el propio `whereNotNull`.
+   * (nunca `assist_created_at` ni `assist_punch_time_origin`).
    */
   private async queryChecada(buIds: number[]): Promise<RawMilestoneRow[]> {
     return db
@@ -360,7 +327,7 @@ export default class PlatformTenantMilestoneService {
       ])
   }
 
-  /** Hito 8 — primer documento en el expediente. Sin anti-join: la siembra demo no crea expedientes. */
+  /** Hito 8 — primer documento en el expediente. */
   private async queryExpediente(buIds: number[]): Promise<RawMilestoneRow[]> {
     return db
       .from('employee_proceeding_files as epf')

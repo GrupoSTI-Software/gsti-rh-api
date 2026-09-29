@@ -104,11 +104,16 @@ export class LogRequest {
     if (this.isReconnecting) return
 
     this.isReconnecting = true
-    setTimeout(async () => {
+    // `unref()`: un temporizador de fondo no debe impedir que el proceso termine
+    // (con Mongo no conectado, el `setTimeout` sin `unref` mantenía vivo el event
+    // loop y `node ace test` se quedaba colgado tras imprimir PASSED). En
+    // producción el servidor tiene listeners propios, así que el efecto es nulo.
+    const reconnectTimer = setTimeout(async () => {
       // console.log("reconectando")
       await this.dbConnect()
       this.isReconnecting = false
     }, this.retryTimeout)
+    reconnectTimer.unref()
   }
 
   getModel(collectionName: string): mongoose.Model<any> {

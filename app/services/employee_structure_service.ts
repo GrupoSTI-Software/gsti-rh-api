@@ -1,5 +1,6 @@
 import Department from '#models/department'
 import Position from '#models/position'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 
 /** Departamento, puesto y empresa que el empleado tiene GUARDADOS. */
@@ -162,7 +163,7 @@ export default class EmployeeStructureService {
 
         return { ok: true }
       },
-      'EmployeeStructureService.verifyAssignable: filtra explicitamente por la empresa del empleado, no por el scope ambiental del actor'
+      TENANT_UNSCOPED_REASON.EMPLOYEE_STRUCTURE
     )
   }
 }

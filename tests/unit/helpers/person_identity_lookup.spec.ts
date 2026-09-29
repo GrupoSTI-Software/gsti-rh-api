@@ -87,7 +87,10 @@ test.group('resolveRacedIdentityField', () => {
 
   test('sin choque de identidad en la reverificación se usa el índice', ({ assert }) => {
     assert.equal(resolveRacedIdentityField({ status: 200 }, 'rfc'), 'rfc')
-    assert.equal(resolveRacedIdentityField({ status: 422, field: 'email' }, 'nss'), 'nss')
+    assert.equal(
+      resolveRacedIdentityField({ status: 422, reason: 'email-not-available' }, 'nss'),
+      'nss'
+    )
     assert.equal(resolveRacedIdentityField({ status: 400, missingCompany: true }, 'curp'), 'curp')
     assert.equal(resolveRacedIdentityField(null, 'rfc'), 'rfc')
   })
