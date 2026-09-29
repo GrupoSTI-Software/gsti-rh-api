@@ -2788,14 +2788,6 @@ export default class EmployeeService {
         .whereNull('employee_type_deleted_at')
         .select('employeeTypeId', 'employeeTypeName')
 
-      // Buscar departamento y posición por defecto
-      const defaultDepartment = departments.find(dept =>
-        dept.departmentName?.toLowerCase().includes('sin departamento')
-      )
-      const defaultPosition = positions.find(pos =>
-        pos.positionName?.toLowerCase().includes('sin posición')
-      )
-
       // Obtener empleados existentes por número de nómina
       const existingEmployees = await Employee.query()
         .whereNull('deletedAt')
@@ -3053,7 +3045,7 @@ export default class EmployeeService {
           if (isUpdate) {
             const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
             if (existingEmployee) {
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, businessUnitId, payrollBusinessUnitId, employeeTypes)
               if (employeeData.employeeWorkScheduleHybridAttempt) {
                 warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
               }
@@ -3079,8 +3071,8 @@ export default class EmployeeService {
           }
           existingEmployeeCodes.push(employeeCode)
 
-          const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
-          const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+          const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments)
+          const positionId = this.mapPositionBySimilarity(employeeData.position, positions)
 
           const person = await this.createPerson(employeeData, businessUnitId!)
           const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
@@ -3931,8 +3923,6 @@ export default class EmployeeService {
     employeeData: any,
     departments: any[],
     positions: any[],
-    defaultDepartment: any,
-    defaultPosition: any,
     businessUnitId: number | null,
     payrollBusinessUnitId: number | null,
     employeeTypes: any[] = []
@@ -3982,9 +3972,9 @@ export default class EmployeeService {
     const mappedTypeId = this.mapEmployeeType(employeeData.employeeTypeName, employeeTypes)
     if (mappedTypeId !== null) existingEmployee.employeeTypeId = mappedTypeId
 
-    const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+    const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments)
     if (departmentId !== null) existingEmployee.departmentId = departmentId
-    const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+    const positionId = this.mapPositionBySimilarity(employeeData.position, positions)
     if (positionId !== null) existingEmployee.positionId = positionId
 
     await existingEmployee.save()
@@ -4160,51 +4150,34 @@ export default class EmployeeService {
   }
 
   /**
-   * Mapear departamento usando búsqueda por similitud
+   * Mapear departamento usando búsqueda por similitud. Sin coincidencia devuelve null:
+   * el importador ya no usa registros de relleno (USRH1789328927648).
    */
-  private mapDepartmentBySimilarity(departmentName: string, departments: any[], defaultDepartment: any): number | null {
-    if (!departmentName) return defaultDepartment ? defaultDepartment.departmentId : null
-
-    // Buscar coincidencia exacta primero
-    const exactMatch = departments.find(dept =>
-      dept.departmentName?.toLowerCase() === departmentName.toLowerCase()
+  private mapDepartmentBySimilarity(
+    departmentName: string,
+    departments: Pick<Department, 'departmentId' | 'departmentName'>[]
+  ): number | null {
+    if (!departmentName) return null
+    const exactMatch = departments.find(
+      (dept) => dept.departmentName?.toLowerCase() === departmentName.toLowerCase()
     )
-
     if (exactMatch) return exactMatch.departmentId
-
-    // Buscar por similitud
-    const similarMatch = this.findMostSimilar(
-      departmentName,
-      departments,
-      'departmentName',
-      0.6
-    )
-
-    return similarMatch ? similarMatch.departmentId : (defaultDepartment ? defaultDepartment.departmentId : null)
+    const similarMatch = this.findMostSimilar(departmentName, departments, 'departmentName', 0.6)
+    return similarMatch ? similarMatch.departmentId : null
   }
 
-  /**
-   * Mapear posición usando búsqueda por similitud
-   */
-  private mapPositionBySimilarity(positionName: string, positions: any[], defaultPosition: any): number | null {
-    if (!positionName) return defaultPosition ? defaultPosition.positionId : null
-
-    // Buscar coincidencia exacta primero
-    const exactMatch = positions.find(pos =>
-      pos.positionName?.toLowerCase() === positionName.toLowerCase()
+  /** Mapear posición usando búsqueda por similitud. Sin coincidencia devuelve null. */
+  private mapPositionBySimilarity(
+    positionName: string,
+    positions: Pick<Position, 'positionId' | 'positionName'>[]
+  ): number | null {
+    if (!positionName) return null
+    const exactMatch = positions.find(
+      (pos) => pos.positionName?.toLowerCase() === positionName.toLowerCase()
     )
-
     if (exactMatch) return exactMatch.positionId
-
-    // Buscar por similitud
-    const similarMatch = this.findMostSimilar(
-      positionName,
-      positions,
-      'positionName',
-      0.6
-    )
-
-    return similarMatch ? similarMatch.positionId : (defaultPosition ? defaultPosition.positionId : null)
+    const similarMatch = this.findMostSimilar(positionName, positions, 'positionName', 0.6)
+    return similarMatch ? similarMatch.positionId : null
   }
 
   /**
