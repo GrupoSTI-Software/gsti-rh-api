@@ -1,9 +1,6 @@
 import Department from '#models/department'
 import DepartmentService from '#services/department_service'
-import env from '#start/env'
 import { HttpContext } from '@adonisjs/core/http'
-import axios from 'axios'
-import BiometricDepartmentInterface from '../interfaces/biometric_department_interface.js'
 import Employee from '#models/employee'
 import DepartmentPosition from '#models/department_position'
 import DepartmentPositionService from '#services/department_position_service'
@@ -16,8 +13,11 @@ import OrgChartMoveService from '#services/org_chart_move_service'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { DepartmentShiftFilterInterface } from '../interfaces/department_shift_filter_interface.js'
 import { DateTime } from 'luxon'
-import UserService from '#services/user_service'
 import { DepartmentIndexFilterInterface } from '../interfaces/department_index_filter_interface.js'
+import {
+  emptyEmployeeRoleScope,
+  resolveEmployeeRoleScopeForUser,
+} from '#helpers/resolve_employee_role_scope'
 import db from '@adonisjs/lucid/services/db'
 import RoleDepartment from '#models/role_department'
 import Role from '#models/role'
@@ -27,175 +27,6 @@ import { resolveDepartmentParentFromBody } from '#utils/org_chart_parent_input'
 import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 
 export default class DepartmentController {
-  /**
-   * @swagger
-   * /api/synchronization/departments:
-   *   post:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Departments
-   *     summary: sync information
-   *     produces:
-   *       - application/json
-   *     requestBody:
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               page:
-   *                 type: integer
-   *                 description: The page number for pagination
-   *                 required: false
-   *                 default: 1
-   *               limit:
-   *                 type: integer
-   *                 description: The number of records per page
-   *                 required: false
-   *                 default: 200
-   *               deptCode:
-   *                 type: string
-   *                 description: The department code to filter by
-   *                 required: false
-   *                 default: ''
-   *               deptName:
-   *                 required: false
-   *                 description: The department name to filter by
-   *                 type: string
-   *                 default: ''
-   *     responses:
-   *       '200':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: Object processed
-   *       '404':
-   *         description: The resource could not be found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request.
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Response message
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
-  async synchronization({ request, response, i18n }: HttpContext) {
-    const t = i18n.formatMessage.bind(i18n)
-    try {
-      const page = request.input('page', 1)
-      const limit = request.input('limit', 200)
-      const deptCode = request.input('deptCode')
-      const deptName = request.input('deptName')
-
-      let apiUrl = `${env.get('API_BIOMETRICS_HOST')}/departments`
-      apiUrl = `${apiUrl}?page=${page || ''}`
-      apiUrl = `${apiUrl}&limit=${limit || ''}`
-      apiUrl = `${apiUrl}&deptCode=${deptCode || ''}`
-      apiUrl = `${apiUrl}&deptName=${deptName || ''}`
-      const apiResponse = await axios.get(apiUrl)
-      const data = apiResponse.data.data
-      if (data) {
-        const departmentService = new DepartmentService(i18n)
-        data.sort((a: BiometricDepartmentInterface, b: BiometricDepartmentInterface) => a.id - b.id)
-        for await (const department of data) {
-          await this.verify(department, departmentService)
-        }
-        const entity = t('departments')
-        response.status(200)
-        return {
-          type: 'success',
-          title: t('sync_entity', { entity }),
-          message: t('entity_have_been_synchronized_successfully', { entity }),
-          data: {
-            data,
-          },
-        }
-      } else {
-        const entity = t('departments')
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('sync_entity', { entity }),
-          message: t('no_data_found_to_synchronize'),
-          data: { data },
-        }
-      }
-    } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
-      }
-    }
-  }
 
   /**
    * @swagger
@@ -955,21 +786,23 @@ export default class DepartmentController {
   async getAll({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const user = auth.user!
-      let userResponsibleId = null
-      await user.preload('role')
-      if (resolveResponsibleUserId(user) !== null) {
-        userResponsibleId = user.userId
-      }
-      const userService = new UserService(i18n)
+      const user = auth.user
+      const scope = user
+        ? (await user.preload('role'), await resolveEmployeeRoleScopeForUser(user, i18n))
+        : emptyEmployeeRoleScope()
       const departmentName = request.input('department-name')
       const onlyParents = request.input('only-parents')
-
-      const departmentsList = await userService.getRoleDepartments(user.userId)
-
       const allowedBusinessUnitIds = businessUnitScope
-      const filters: DepartmentIndexFilterInterface = { departmentName, onlyParents, userResponsibleId }
-      const departments = await new DepartmentService(i18n).index(departmentsList, filters, allowedBusinessUnitIds)
+      const filters: DepartmentIndexFilterInterface = {
+        departmentName,
+        onlyParents,
+        userResponsibleId: scope.userResponsibleId,
+      }
+      const departments = await new DepartmentService(i18n).index(
+        scope.departmentsList,
+        filters,
+        allowedBusinessUnitIds
+      )
 
       response.status(200)
       return {
@@ -2019,10 +1852,7 @@ export default class DepartmentController {
     try {
       await auth.check()
       const user = auth.user
-      const userService = new UserService(i18n)
       const departmentId = request.param('departmentId')
-
-      let departmentsList = [] as Array<number>
 
       if (!departmentId) {
         response.status(400)
@@ -2034,14 +1864,17 @@ export default class DepartmentController {
         }
       }
 
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
-      }
+      // Alcance: regla 3 de USRH1788466831312 — acceso completo ve cualquier
+      // departamento de su empresa; el restringido solo los de su lista.
+      const scope = user
+        ? (await user.preload('role'), await resolveEmployeeRoleScopeForUser(user, i18n))
+        : emptyEmployeeRoleScope()
 
       const departmentService = new DepartmentService(i18n)
       const showDepartment = await departmentService.show(departmentId, businessUnitScope)
 
       if (!showDepartment) {
+        // El departamento no existe o es de otra empresa: 404 + log (CA-04).
         await ScopeDeniedLogService.log({
           domain: 'department',
           action: 'show',
@@ -2059,24 +1892,27 @@ export default class DepartmentController {
         }
       }
 
-      const validAccess = departmentsList.find((id) => showDepartment.departmentId === id)
-
-      if (!validAccess) {
-        const entity = t('department')
-        response.status(403)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: `${t('entity_was_not_found_with_entered_id', { entity })} - ${t('not_access')}`,
-          data: { departmentId },
+      // Acceso restringido: verificar que el departamento esté en la lista del rol.
+      if (scope.userResponsibleId !== null) {
+        const validAccess = scope.departmentsList.find((id) => showDepartment.departmentId === id)
+        if (!validAccess) {
+          const entity = t('department')
+          response.status(403)
+          return {
+            type: 'warning',
+            title: t('entity_was_not_found', { entity }),
+            message: `${t('entity_was_not_found_with_entered_id', { entity })} - ${t('not_access')}`,
+            data: { departmentId },
+          }
         }
       }
 
+      // Acceso completo o root: cualquier departamento de la empresa es válido.
       response.status(200)
       return {
         type: 'success',
         title: t('resource'),
-          message: t('resource_was_found_successfully'),
+        message: t('resource_was_found_successfully'),
         data: { department: showDepartment },
       }
     } catch (error) {
@@ -2369,22 +2205,20 @@ export default class DepartmentController {
   async getOnlyWithEmployees({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const user = auth.user!
-      let userResponsibleId = null
-      await user.preload('role')
-      if (resolveResponsibleUserId(user) !== null) {
-        userResponsibleId = user.userId
-      }
-      const userService = new UserService(i18n)
+      const user = auth.user
+      const scope = user
+        ? (await user.preload('role'), await resolveEmployeeRoleScopeForUser(user, i18n))
+        : emptyEmployeeRoleScope()
       const departmentName = request.input('department-name')
       const onlyParents = request.input('only-parents')
-
-      const departmentsList = await userService.getRoleDepartments(user.userId)
-
       const allowedBusinessUnitIds = businessUnitScope
-      const filters: DepartmentIndexFilterInterface = { departmentName, onlyParents, userResponsibleId }
+      const filters: DepartmentIndexFilterInterface = {
+        departmentName,
+        onlyParents,
+        userResponsibleId: scope.userResponsibleId,
+      }
       const departments = await new DepartmentService(i18n).getOnlyWithEmployees(
-        departmentsList,
+        scope.departmentsList,
         filters,
         allowedBusinessUnitIds
       )
@@ -2409,17 +2243,6 @@ export default class DepartmentController {
     }
   }
 
-  private async verify(
-    department: BiometricDepartmentInterface,
-    departmentService: DepartmentService
-  ) {
-    const existDepartment = await Department.query()
-      .where('department_sync_id', department.id)
-      .first()
-    if (!existDepartment) {
-      await departmentService.syncCreate(department)
-    }
-  }
 
   private async verifyRelatedPosition(
     departmentId: number,

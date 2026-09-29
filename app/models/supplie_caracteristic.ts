@@ -8,6 +8,7 @@ import { belongsTo } from '@adonisjs/lucid/orm'
 import SupplyType from './supply_type.js'
 import * as relations from '@adonisjs/lucid/types/relations'
 import SupplieCaracteristicValue from './supplie_caracteristic_value.js'
+import type { AssetCharacteristicType } from '#modules/assets/assets.constants'
 
 /**
  * @swagger
@@ -95,7 +96,7 @@ export default class SupplieCaracteristic extends compose(
   declare supplieCaracteristicName: string
 
   @column()
-  declare supplieCaracteristicType: 'text' | 'number' | 'date' | 'boolean' | 'radio' | 'file'
+  declare supplieCaracteristicType: AssetCharacteristicType
 
   @column.dateTime({ autoCreate: true })
   declare supplieCaracteristicCreatedAt: DateTime

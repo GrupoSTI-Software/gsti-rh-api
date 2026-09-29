@@ -9,6 +9,7 @@ import type {
   EvidenceRepository,
 } from './evidence.repository.js'
 import type { EvidencePageDto, EvidenceRowDto } from './dto/evidence.dto.js'
+import { reportFullName } from '#helpers/report_text'
 
 /** Slug del `system_module` sembrado para esta historia (acceso y revelado). */
 const CONSENT_EVIDENCE_MODULE_SLUG = 'consent-evidence'
@@ -119,9 +120,7 @@ export default class EvidenceService {
 
   private buildPersonName(person: Person | null | undefined): string | null {
     if (!person) return null
-    return [person.personFirstname, person.personLastname, person.personSecondLastname]
-      .filter(Boolean)
-      .join(' ')
+    return reportFullName(person.personFirstname, person.personLastname, person.personSecondLastname)
   }
 
   /** Enmascara salvo que el caller tenga el permiso de revelado (regla 4 — sin fuga). */

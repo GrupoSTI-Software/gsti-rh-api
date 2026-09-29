@@ -22,6 +22,9 @@ import logger from '@adonisjs/core/services/logger'
 import { ELP_ERROR_CODES } from '../constants/employee_lactation_period_error_codes.js'
 import { EmployeeLactationPeriodError } from '../exceptions/employee_lactation_period_error.js'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { CIVIL_DATE_ANCHOR_ZONE } from '#utils/business_date'
+import { dayKeyOf } from '#modules/attendance-time/attendance_clock'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
 
 /**
  * Slug del tipo de excepción que representa una jornada reducida por lactancia.
@@ -166,11 +169,11 @@ export default class ShiftExceptionService {
       .if(filters.dateStart && filters.dateEnd, (query) => {
         const stringDate = `${filters.dateStart}T00:00:00.000-06:00`
         const time = DateTime.fromISO(stringDate, { setZone: true })
-        const timeCST = time.setZone('UTC-6')
+        const timeCST = time.setZone(CIVIL_DATE_ANCHOR_ZONE)
         const filterInitialDate = timeCST.toFormat('yyyy-LL-dd HH:mm:ss')
         const stringEndDate = `${filters.dateEnd}T23:59:59.000-06:00`
         const timeEnd = DateTime.fromISO(stringEndDate, { setZone: true })
-        const timeEndCST = timeEnd.setZone('UTC-6')
+        const timeEndCST = timeEnd.setZone(CIVIL_DATE_ANCHOR_ZONE)
         const filterEndDate = timeEndCST.toFormat('yyyy-LL-dd HH:mm:ss')
         query.where('shift_exceptions_date', '>=', filterInitialDate)
         query.where('shift_exceptions_date', '<=', filterEndDate)
@@ -365,9 +368,9 @@ export default class ShiftExceptionService {
     compareDateTime: DateTime,
     dailyShifts: ShiftRecordInterface[]
   ): ShiftRecordInterface | undefined {
-    const checkTime = compareDateTime.setZone('UTC-6')
+    const checkTime = compareDateTime.setZone(CIVIL_DATE_ANCHOR_ZONE)
     const availableShifts = dailyShifts.filter((shift) => {
-      const shiftDate = DateTime.fromJSDate(new Date(shift.employeShiftsApplySince)).setZone('UTC-6')
+      const shiftDate = DateTime.fromJSDate(new Date(shift.employeShiftsApplySince)).setZone(CIVIL_DATE_ANCHOR_ZONE)
       return checkTime >= shiftDate
     })
     const sorted = availableShifts.sort(
@@ -383,7 +386,7 @@ export default class ShiftExceptionService {
    * Misma lógica que SyncAssistsService.isRestDay usando día natural en UTC-6.
    */
   private isRestDayForShift(dayDate: DateTime, shiftRestDays: string): boolean {
-    const naturalDay = dayDate.setZone('UTC-6').toFormat('c')
+    const naturalDay = dayDate.setZone(CIVIL_DATE_ANCHOR_ZONE).toFormat('c')
     const restDays = shiftRestDays.split(',').map((d) => d.trim())
     return restDays.some((d) => Number.parseInt(d, 10) === Number.parseInt(naturalDay, 10))
   }
@@ -435,7 +438,7 @@ export default class ShiftExceptionService {
       return []
     }
 
-    const dateStart = startDate.setZone('UTC-6').startOf('day')
+    const dateStart = startDate.setZone(CIVIL_DATE_ANCHOR_ZONE).startOf('day')
     const rangeEnd = dateStart.plus({ days: Math.max(daysToApply * 3 + 31, 90) })
     const filterDateStart = dateStart.minus({ years: 10 }).toFormat('yyyy-LL-dd')
     const filterDateEnd = rangeEnd.toFormat('yyyy-LL-dd')
@@ -678,7 +681,7 @@ export default class ShiftExceptionService {
     const period = await this.loadLactationPeriodOrThrow(periodId, trx)
     const exceptionTypeId = await this.resolveLactationExceptionTypeId(trx)
 
-    const today = DateTime.now().setZone('UTC-6').startOf('day')
+    const today = await this.siteCalendarToday(period.employeeId)
     const periodStart = this.toDateTime(period.employeeLactationPeriodStartDate)
     const periodEnd = this.toDateTime(period.employeeLactationPeriodEndDate)
 
@@ -799,8 +802,8 @@ export default class ShiftExceptionService {
     // Pre-carga de los Sets de conflicto para todo el rango (una sola
     // query por bucket). El slug de BU se necesita para los festivos
     // (cada empresa puede tener su propio calendario de descansos).
-    const firstIso = rangeStart.setZone('UTC-6').startOf('day').toFormat('yyyy-LL-dd')
-    const lastIso = rangeEnd.setZone('UTC-6').startOf('day').toFormat('yyyy-LL-dd')
+    const firstIso = rangeStart.setZone(CIVIL_DATE_ANCHOR_ZONE).startOf('day').toFormat('yyyy-LL-dd')
+    const lastIso = rangeEnd.setZone(CIVIL_DATE_ANCHOR_ZONE).startOf('day').toFormat('yyyy-LL-dd')
     const employeeBusinessUnitSlug = await this.resolveEmployeeBusinessUnitSlug(
       period.employeeId,
       trx
@@ -825,8 +828,8 @@ export default class ShiftExceptionService {
       'el empleado'
     )
 
-    let current = rangeStart.setZone('UTC-6').startOf('day')
-    const end = rangeEnd.setZone('UTC-6').startOf('day')
+    let current = rangeStart.setZone(CIVIL_DATE_ANCHOR_ZONE).startOf('day')
+    const end = rangeEnd.setZone(CIVIL_DATE_ANCHOR_ZONE).startOf('day')
 
     while (current <= end) {
       const isoDate = current.toFormat('yyyy-LL-dd')
@@ -1016,7 +1019,7 @@ export default class ShiftExceptionService {
       const shiftRestDays = `${shift.shiftRestDays ?? ''}`
       if (!shiftTimeStart || !shiftActiveHours) continue
 
-      const applySince = this.toDateTime(record.employeShiftsApplySince).setZone('UTC-6')
+      const applySince = this.toDateTime(record.employeShiftsApplySince).setZone(CIVIL_DATE_ANCHOR_ZONE)
       if (!applySince.isValid) continue
 
       assignments.push({
@@ -1035,7 +1038,7 @@ export default class ShiftExceptionService {
     dayDate: DateTime,
     assignments: LactationActiveAssignment[]
   ): LactationActiveAssignment | null {
-    const day = dayDate.setZone('UTC-6').startOf('day')
+    const day = dayDate.setZone(CIVIL_DATE_ANCHOR_ZONE).startOf('day')
     for (const a of assignments) {
       // assignments está ordenado por applySince DESC; tomamos el primero compatible
       if (a.applySince.startOf('day') <= day) {
@@ -1095,7 +1098,7 @@ export default class ShiftExceptionService {
   private parseTimeOfDay(value: string): DateTime | null {
     if (!value) return null
     const normalized = value.length === 5 ? `${value}:00` : value
-    const dt = DateTime.fromISO(`1970-01-01T${normalized}`, { zone: 'UTC-6' })
+    const dt = DateTime.fromISO(`1970-01-01T${normalized}`, { zone: CIVIL_DATE_ANCHOR_ZONE })
     return dt.isValid ? dt : null
   }
 
@@ -1118,19 +1121,19 @@ export default class ShiftExceptionService {
   private toDateTime(value: unknown): DateTime {
     if (DateTime.isDateTime(value)) {
       const iso = (value as DateTime).toUTC().toISODate()
-      if (iso) return DateTime.fromISO(iso, { zone: 'UTC-6' })
-      return (value as DateTime).setZone('UTC-6')
+      if (iso) return DateTime.fromISO(iso, { zone: CIVIL_DATE_ANCHOR_ZONE })
+      return (value as DateTime).setZone(CIVIL_DATE_ANCHOR_ZONE)
     }
     if (value instanceof Date) {
       const iso = DateTime.fromJSDate(value, { zone: 'utc' }).toISODate()
-      if (iso) return DateTime.fromISO(iso, { zone: 'UTC-6' })
-      return DateTime.fromJSDate(value).setZone('UTC-6')
+      if (iso) return DateTime.fromISO(iso, { zone: CIVIL_DATE_ANCHOR_ZONE })
+      return DateTime.fromJSDate(value).setZone(CIVIL_DATE_ANCHOR_ZONE)
     }
     if (typeof value === 'string') {
       const head = value.length >= 10 ? value.substring(0, 10) : value
-      const direct = DateTime.fromISO(head, { zone: 'UTC-6' })
+      const direct = DateTime.fromISO(head, { zone: CIVIL_DATE_ANCHOR_ZONE })
       if (direct.isValid) return direct
-      const sql = DateTime.fromSQL(value, { zone: 'UTC-6' })
+      const sql = DateTime.fromSQL(value, { zone: CIVIL_DATE_ANCHOR_ZONE })
       if (sql.isValid) return sql
     }
     return DateTime.invalid('Fecha no parseable para lactancia')
@@ -1147,6 +1150,16 @@ export default class ShiftExceptionService {
   /**
    * Soft-delete masivo de las excepciones futuras del periodo (fecha >= hoy).
    */
+  /**
+   * Hoy en el sitio donde trabaja el colaborador, como fecha civil anclada igual
+   * que las columnas `DATE`. Cerca de medianoche el sitio puede ir en otro día
+   * que el servidor o que CDMX; lo que ya pasó se decide con el día del sitio.
+   */
+  private async siteCalendarToday(employeeId: number): Promise<DateTime> {
+    const { zone } = await new SiteTimeZoneService().forEmployee(employeeId)
+    return DateTime.fromISO(dayKeyOf(DateTime.now(), zone), { zone: CIVIL_DATE_ANCHOR_ZONE })
+  }
+
   private async softDeleteFutureExceptionsByPeriod(
     periodId: number,
     today: DateTime,
@@ -1205,8 +1218,8 @@ export default class ShiftExceptionService {
     if (!rangeStart.isValid || !rangeEnd.isValid) {
       return []
     }
-    const firstIso = rangeStart.setZone('UTC-6').startOf('day').toFormat('yyyy-LL-dd')
-    const lastIso = rangeEnd.setZone('UTC-6').startOf('day').toFormat('yyyy-LL-dd')
+    const firstIso = rangeStart.setZone(CIVIL_DATE_ANCHOR_ZONE).startOf('day').toFormat('yyyy-LL-dd')
+    const lastIso = rangeEnd.setZone(CIVIL_DATE_ANCHOR_ZONE).startOf('day').toFormat('yyyy-LL-dd')
 
     const employeeBusinessUnitSlug = await this.resolveEmployeeBusinessUnitSlug(
       period.employeeId,
@@ -1407,7 +1420,7 @@ export default class ShiftExceptionService {
     afterDate: DateTime,
     trx?: TransactionClientContract
   ): Promise<DateTime | null> {
-    const horizonStart = afterDate.setZone('UTC-6').startOf('day').plus({ days: 1 })
+    const horizonStart = afterDate.setZone(CIVIL_DATE_ANCHOR_ZONE).startOf('day').plus({ days: 1 })
     const horizonEnd = horizonStart.plus({ days: ShiftExceptionService.REASSIGN_SEARCH_HORIZON_DAYS - 1 })
     const firstIso = horizonStart.toFormat('yyyy-LL-dd')
     const lastIso = horizonEnd.toFormat('yyyy-LL-dd')
@@ -1517,7 +1530,7 @@ export default class ShiftExceptionService {
       period.employeeLactationPeriodReductionApplication
     )
 
-    const isoDate = newDate.setZone('UTC-6').startOf('day').toFormat('yyyy-LL-dd')
+    const isoDate = newDate.setZone(CIVIL_DATE_ANCHOR_ZONE).startOf('day').toFormat('yyyy-LL-dd')
     const row = new ShiftException()
     row.employeeId = period.employeeId
     row.exceptionTypeId = exceptionTypeId
@@ -1528,7 +1541,7 @@ export default class ShiftExceptionService {
     row.shiftExceptionEnjoymentOfSalary = 1
     row.shiftExceptionTimeByTime = 0
     row.lactationPeriodId = period.employeeLactationPeriodId
-    row.shiftExceptionsLactationReplacedDate = DateTime.fromISO(replacedDateIso, { zone: 'UTC-6' })
+    row.shiftExceptionsLactationReplacedDate = DateTime.fromISO(replacedDateIso, { zone: CIVIL_DATE_ANCHOR_ZONE })
     if (trx) row.useTransaction(trx)
     await row.save()
     return row

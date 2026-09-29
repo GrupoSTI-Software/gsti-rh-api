@@ -10,7 +10,7 @@ export interface ExpirationMatrixRecord {
   id: number
   /**
    * Id con el que el módulo dueño abre el recurso cuando no es `id`:
-   * certificación, tipo de expediente de la empresa y tipo de insumo.
+   * certificación, tipo de expediente de la empresa y activo del resguardo.
    */
   targetId?: number
   /** `null` cuando la fuente no tiene nombre propio (el service pone la etiqueta genérica). */

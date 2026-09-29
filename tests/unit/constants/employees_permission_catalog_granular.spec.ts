@@ -118,7 +118,6 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
       'download-vacations-report',
       'download-vacations-summary',
       'download-vacation-import-template',
-      'download-payroll-format',
       'download-attendance-by-employee',
       'download-attendance-by-position',
       'download-attendance-by-department',
@@ -186,12 +185,6 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
       {
         slug: 'download-vacation-import-template',
         displayName: 'Descargar plantilla de importación de vacaciones',
-        kind: 'read',
-        section: 'descargas',
-      },
-      {
-        slug: 'download-payroll-format',
-        displayName: 'Descargar formato de nómina',
         kind: 'read',
         section: 'descargas',
       },

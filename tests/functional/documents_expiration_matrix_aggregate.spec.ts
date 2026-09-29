@@ -93,9 +93,8 @@ function getItemFile(client: ApiClient, actor: TenantActor, key: string) {
 
 const uniqueSpecStamp = () => `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
 
-/** Número de inventario único (la columna es UNIQUE y de 9 dígitos a lo más). */
-const uniqueSupplyFileNumber = () =>
-  Number(`${Date.now()}${Math.floor(Math.random() * 1000)}`.slice(-9))
+/** Folio único de la corrida (texto; único por empresa). */
+const uniqueSupplyFileNumber = () => `MATRIZ-${Date.now()}-${Math.floor(Math.random() * 1000)}`
 
 /** Empleado extra de la empresa, insertado por tabla como en `employee_fixture`. */
 interface ExtraEmployee {
@@ -286,7 +285,7 @@ test.group('Matriz de vencimientos agregada', (group) => {
     })
     employeeContractId = Number(insertedContractId)
 
-    // Insumo asignado que vence en la ventana: su targetId es el tipo del insumo.
+    // Insumo asignado que vence en la ventana: su targetId es el activo.
     const supplyType = await SupplyType.create({
       businessUnitId: actor.businessUnit.businessUnitId,
       supplyTypeName: uniqueTestName('Tipo matriz'),
@@ -295,7 +294,7 @@ test.group('Matriz de vencimientos agregada', (group) => {
     supplyTypeId = supplyType.supplyTypeId
     const supply = await Supplie.create({
       businessUnitId: actor.businessUnit.businessUnitId,
-      supplyFileNumber: Number(`${Date.now()}${Math.floor(Math.random() * 100)}`.slice(-9)),
+      supplyFileNumber: uniqueSupplyFileNumber(),
       supplyName: uniqueTestName('Activo matriz'),
       supplyTypeId: supplyType.supplyTypeId,
       supplyStatus: 'active',
@@ -662,7 +661,7 @@ test.group('Matriz de vencimientos agregada', (group) => {
     assert.equal(buildContractDocumentName('Temporal', contractOfTypeIn('en')), 'temporal contract')
   })
 
-  test('targetId: tipo del insumo y tipo del expediente de la empresa', async ({
+  test('targetId: activo del resguardo y tipo del expediente de la empresa', async ({
     client,
     assert,
   }) => {
@@ -676,7 +675,7 @@ test.group('Matriz de vencimientos agregada', (group) => {
     const companyItem = items.find((item) => item.key === `company-file-${companyFileId}`)
 
     assert.exists(supplyItem)
-    assert.equal(supplyItem?.targetId, supplyTypeId, 'supplyTypeId para abrir /supplies por tipo')
+    assert.equal(supplyItem?.targetId, supplyId, 'supplyId para abrir la ficha del activo')
     assert.exists(companyItem)
     assert.equal(companyItem?.targetId, companyFileTypeId, 'proceedingFileTypeId de la carpeta')
   })

@@ -50,8 +50,8 @@ export interface ExpirationMatrixItemDto {
    * - `certification`: `certificationId` (panel de la certificación).
    * - `company-file`: `proceedingFileTypeId` (carpeta del tipo en el expediente
    *   de la empresa).
-   * - `supply`: `supplyTypeId` (listado de `/supplies` del tipo); `null` si el
-   *   tipo del insumo está dado de baja.
+   * - `supply`: `supplyId` del activo (el BO abre su ficha en la pestaña
+   *   Resguardo con `?activo=<supplyId>`).
    * `null` en el resto de las fuentes.
    */
   targetId: number | null

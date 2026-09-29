@@ -11,6 +11,8 @@ import {
   diffAttendanceDay,
   type ReconcileDifference,
 } from '#modules/attendance-time/reconcile/attendance_timezone_diff'
+import { TenantContext } from '#utils/tenant_context'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 
 const DEFAULT_TOLERANCE_DELAY_MINUTES = 10
 const DEFAULT_TOLERANCE_FAULT_MINUTES = 30
@@ -66,6 +68,16 @@ export default class AttendanceReconcileTimezone extends BaseCommand {
   declare output: string
 
   async run() {
+    await TenantContext.runUnscoped(
+      async () => {
+        await this.execute()
+      },
+      TENANT_UNSCOPED_REASON.BACKFILL_MAINTENANCE,
+      AttendanceReconcileTimezone.commandName
+    )
+  }
+
+  private async execute() {
     const tolerances = await this.loadTolerances()
     const employees = await this.loadEmployees()
     if (employees.length === 0) {

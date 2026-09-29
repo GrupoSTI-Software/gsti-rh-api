@@ -2,7 +2,7 @@ import Employee from '#models/employee'
 import Person from '#models/person'
 import { blindIndex } from '#utils/blind_index'
 import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
-import { TenantContext } from '#utils/tenant_context'
+import { personEmailExistsGlobally } from '#helpers/person_email_global_uniqueness'
 import { DateTime } from 'luxon'
 import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { PersonFilterSearchInterface } from '../interfaces/person_filter_search_interface.js'
@@ -100,7 +100,13 @@ export default class PersonService {
     return newPerson
   }
 
-  async update(currentPerson: Person, person: Person) {
+  /**
+   * @param trx La del llamador (USRH1789698261612). Con `trx`, el recálculo del
+   * calendario de asistencia NO corre aquí: es dato derivado y recalculable,
+   * `SyncAssistsService` no acepta transacción, y lo dispara el llamador con
+   * `syncBirthdayCalendar` después del commit.
+   */
+  async update(currentPerson: Person, person: Person, trx?: TransactionClientContract) {
     const personBirthdayPast = currentPerson.personBirthday
     currentPerson.personFirstname = person.personFirstname
     currentPerson.personLastname = person.personLastname
@@ -132,43 +138,57 @@ export default class PersonService {
     currentPerson.personPlaceOfBirthCountry = person.personPlaceOfBirthCountry
     currentPerson.personPlaceOfBirthState = person.personPlaceOfBirthState
     currentPerson.personPlaceOfBirthCity = person.personPlaceOfBirthCity
+    if (trx) currentPerson.useTransaction(trx)
     await currentPerson.save()
 
     await currentPerson.load('employee')
-    if (currentPerson.employee) {
-      if (currentPerson.personBirthday) {
-        const birthdayDate = currentPerson.personBirthday;
-        const date = typeof birthdayDate === 'string' ? new Date(birthdayDate) : birthdayDate;
+    if (!trx) {
+      await this.syncBirthdayCalendar(currentPerson, personBirthdayPast, person.personBirthday)
+    }
+    return currentPerson
+  }
 
-        const currentYear = new Date().getFullYear()
-        const month = date.getMonth()
-        const day = date.getDate()
+  /**
+   * Recalcula el día de cumpleaños en el calendario de asistencia del empleado
+   * de la persona (año en curso y, si cambió, la fecha anterior ya vencida).
+   * Requiere `currentPerson.employee` cargado.
+   */
+  async syncBirthdayCalendar(
+    currentPerson: Person,
+    personBirthdayPast: string | null,
+    personBirthdayInput: string | null
+  ) {
+    if (!currentPerson.employee) return
+    if (currentPerson.personBirthday) {
+      const birthdayDate = currentPerson.personBirthday
+      const date = typeof birthdayDate === 'string' ? new Date(birthdayDate) : birthdayDate
 
-        let updatedBirthday = new Date(currentYear, month, day)
-        if (updatedBirthday.getMonth() !== month || updatedBirthday.getDate() !== day) {
-          updatedBirthday = new Date(currentYear, 1, 28)
-        }
-        await this.updateAssistCalendar(currentPerson.employee.employeeId, updatedBirthday)
+      const currentYear = new Date().getFullYear()
+      const month = date.getMonth()
+      const day = date.getDate()
+
+      let updatedBirthday = new Date(currentYear, month, day)
+      if (updatedBirthday.getMonth() !== month || updatedBirthday.getDate() !== day) {
+        updatedBirthday = new Date(currentYear, 1, 28)
       }
-      if (personBirthdayPast) {
-        const newPersonBirthdayPast = new Date(personBirthdayPast)
-        const datePast = typeof newPersonBirthdayPast === 'string' ? new Date(newPersonBirthdayPast) : newPersonBirthdayPast
-        const fixedBirthdayString = person.personBirthday!.replace('00:000:00', '00:00:00')
+      await this.updateAssistCalendar(currentPerson.employee.employeeId, updatedBirthday)
+    }
+    if (personBirthdayPast) {
+      const newPersonBirthdayPast = new Date(personBirthdayPast)
+      const datePast = typeof newPersonBirthdayPast === 'string' ? new Date(newPersonBirthdayPast) : newPersonBirthdayPast
+      const fixedBirthdayString = personBirthdayInput!.replace('00:000:00', '00:00:00')
 
-        const birthdayISO = DateTime.fromFormat(fixedBirthdayString, 'yyyy-MM-dd HH:mm:ss').toISO()
-        const datePastISO = DateTime.fromJSDate(datePast).toISO()
+      const birthdayISO = DateTime.fromFormat(fixedBirthdayString, 'yyyy-MM-dd HH:mm:ss').toISO()
+      const datePastISO = DateTime.fromJSDate(datePast).toISO()
 
-        if (datePastISO !== birthdayISO) {
-          const today = new Date()
-          const todayAtMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
-          if (datePast <= todayAtMidnight) {
-            await this.updateAssistCalendar(currentPerson.employee.employeeId, datePast)
-          }
+      if (datePastISO !== birthdayISO) {
+        const today = new Date()
+        const todayAtMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+        if (datePast <= todayAtMidnight) {
+          await this.updateAssistCalendar(currentPerson.employee.employeeId, datePast)
         }
       }
     }
-
-    return currentPerson
   }
 
   async delete(currentPerson: Person) {
@@ -196,13 +216,17 @@ export default class PersonService {
   }
 
   /**
-   * Verifica duplicados de identidad antes de guardar (USRH1789698261610).
+   * Comprueba los datos de identidad del expediente antes de escribirlo (USRH1789698261614).
    *
-   * RFC, CURP y NSS se comparan SOLO dentro de la empresa indicada (reglas 1 y 2);
-   * el correo personal se compara en todo el sistema, como hoy (regla 5). Sin
-   * empresa no hay veredicto: se informa y quien llama responde 400 (regla 10).
-   * Solo cuentan los vivos: la baja libera (regla 4). Ante varios choques se
-   * informa el primero (CURP, RFC, NSS, correo): el mensaje dice un dato y nada más.
+   * Devuelve una unión discriminada, no un cuerpo de respuesta: traducir a HTTP
+   * es del controlador, y en el caso del correo, del emisor único
+   * `respondPersonEmailNotAvailable` compartido con `POST /api/persons`, que es
+   * lo que hace que los dos caminos respondan byte a byte igual. El correo se
+   * comprueba GLOBAL a propósito (puede ser credencial) y precede a CURP/RFC/NSS:
+   * si coinciden ambos, responde el que no revela; nunca se acumulan. RFC, CURP y
+   * NSS se comparan SOLO dentro de la empresa indicada; sin empresa no hay
+   * veredicto: se informa y quien llama responde 400. Solo cuentan los vivos: la
+   * baja libera.
    */
   async verifyInfo(
     person: Person,
@@ -210,11 +234,18 @@ export default class PersonService {
   ): Promise<
     | { status: 200 }
     | { status: 400; missingCompany: true }
-    | { status: 422; field: 'curp' | 'rfc' | 'nss' | 'email' }
+    | { status: 422; field: 'curp' | 'rfc' | 'nss' }
+    | { status: 422; reason: 'email-not-available' }
   > {
     if (!businessUnitId) return { status: 400, missingCompany: true }
 
     const excludePersonId = person.personId > 0 ? person.personId : 0
+
+    if (person.personEmail && person.personEmail.trim() !== '') {
+      if (await personEmailExistsGlobally(person.personEmail, excludePersonId)) {
+        return { status: 422, reason: 'email-not-available' }
+      }
+    }
 
     if (person.personCurp && person.personCurp.trim() !== '') {
       const exists = await livePersonWithIdentityExists(
@@ -244,20 +275,6 @@ export default class PersonService {
         excludePersonId
       )
       if (exists) return { status: 422, field: 'nss' }
-    }
-
-    if (person.personEmail && person.personEmail.trim() !== '') {
-      const emailHash = blindIndex(person.personEmail)
-      const existing = await TenantContext.runUnscoped(
-        () =>
-          Person.query()
-            .whereNull('person_deleted_at')
-            .where('person_email_hash', emailHash)
-            .if(excludePersonId > 0, (query) => query.whereNot('person_id', excludePersonId))
-            .first(),
-        'person-identity: verificación global de correo personal (regla 5, USRH1789698261610)'
-      )
-      if (existing) return { status: 422, field: 'email' }
     }
 
     return { status: 200 }

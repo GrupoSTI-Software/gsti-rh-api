@@ -6,6 +6,9 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import Employee from '#models/employee'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
@@ -146,6 +149,7 @@ async function createEmployeeFixture(
   })
   const positionId = Number(positionInsert[0])
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: 'Empleado',
@@ -165,7 +169,10 @@ async function createEmployeeFixture(
   })
   const employeeId = Number(employeeInsert[0])
   return {
-    employee: await Employee.findOrFail(employeeId),
+    employee: await TenantContext.runUnscoped(
+      () => Employee.findOrFail(employeeId),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    ),
     person,
     departmentId,
     positionId,
@@ -268,7 +275,10 @@ test.group(
         assert.equal(await dailySalarySnapshot(fixture.employee.employeeId), KNOWN_DAILY_SALARY)
         assert.equal(await salaryHistoryCount(fixture.employee.employeeId), 0)
 
-        const reloaded = await Employee.findOrFail(fixture.employee.employeeId)
+        const reloaded = await TenantContext.runUnscoped(
+      () => Employee.findOrFail(fixture.employee.employeeId),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    )
         assert.equal(
           reloaded.employeeBusinessEmail,
           `changed-${fixture.employee.employeeId}@gsti-tests.local`

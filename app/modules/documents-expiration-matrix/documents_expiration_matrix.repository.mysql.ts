@@ -75,9 +75,9 @@ interface ProviderFolioRow {
 
 interface SupplyRow extends EmployeeOwnerRow {
   employee_supply_id: number
-  supply_type_id: number | null
+  supply_id: number
   supply_name: string
-  supply_file_number: number | null
+  supply_file_number: string | null
   supply_type_name: string | null
   employee_supply_response_contract_file: string | null
   expires_at: string
@@ -591,7 +591,7 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
 
     const rows: SupplyRow[] = await query.select(
       'es.employee_supply_id',
-      'st.supply_type_id',
+      's.supply_id',
       's.supply_name',
       's.supply_file_number',
       'st.supply_type_name',
@@ -606,8 +606,8 @@ export default class ExpirationMatrixRepositoryMysql implements ExpirationMatrix
       return {
         source: 'supply',
         id: row.employee_supply_id,
-        // Tipo vigente del insumo: con el tipo dado de baja no hay a dónde abrir.
-        targetId: row.supply_type_id ?? undefined,
+        // El BO abre la ficha del activo en la pestaña Resguardo (`?activo=<supplyId>`).
+        targetId: row.supply_id,
         documentName: supplyName && typeName ? `${supplyName} (${typeName})` : supplyName,
         reference: textOrNull(row.supply_file_number),
         expiresAt: row.expires_at,

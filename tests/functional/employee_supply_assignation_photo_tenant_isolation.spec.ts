@@ -118,7 +118,7 @@ test.group('Fotos de insumos — aislamiento HTTP por tenant', (group) => {
       createdSupplyTypeId = supplyType.supplyTypeId
       catalogSupply = await Supplie.create({
         businessUnitId: supplyType.businessUnitId,
-        supplyFileNumber: 900000000 + Math.floor(Math.random() * 99999999),
+        supplyFileNumber: `FOTO-${Date.now()}-${Math.floor(Math.random() * 99999999)}`,
         supplyName: `Insumo de prueba ${cuid()}`,
         supplyDescription: 'Insumo para pruebas de aislamiento HTTP',
         supplyTypeId: supplyType.supplyTypeId,

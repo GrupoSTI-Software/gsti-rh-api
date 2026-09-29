@@ -11,5 +11,10 @@ interface LogUser {
   date: string
   record_previous: User
   record_current: User
+  /**
+   * Correo personal del expediente antes de que el espejo lo sobrescribiera
+   * (USRH1789698261612, LFPDPPP art. 11). Nunca va a la respuesta ni al logger.
+   */
+  record_previous_person_email?: string
 }
 export type { LogUser }

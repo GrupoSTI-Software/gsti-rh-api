@@ -17,6 +17,7 @@ import { resolveContratoServicioEspecializadoApiError } from '../helpers/contrat
 import { findRepseSpecializedServicesByNamesInTenant } from '../helpers/repse_tenant_scope.js'
 import { normalizeRfc } from '../shared/validators/rfc.validator.js'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
+import { blankMissingTexts } from '#helpers/report_text'
 
 /**
  * Motor de importación de contratos de servicios especializados por Excel
@@ -261,6 +262,7 @@ export default class ContratoServicioEspecializadoImportService {
 
     this.appendInstructionsSheet(workbook)
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }

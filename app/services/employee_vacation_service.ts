@@ -7,13 +7,21 @@ import { resolveEmployeeImportApiError } from '#helpers/employee_import_api_erro
 import { EmployeeVacationExcelFilterInterface } from '../interfaces/employee_vacation_excel_filter_interface.js'
 import EmployeeService from './employee_service.js'
 import { EmployeeVacationExcelRowInterface } from '../interfaces/employee_vacation_excel_row_interface.js'
-import BusinessUnit from '#models/business_unit'
 import { EmployeeVacationUsedDaysExcelRowInterface } from '../interfaces/employee_vacation_used_days_excel_row_interface.js'
 import ShiftException from '#models/shift_exception'
 import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
 import { EmployeeVacationExcelRowSummaryInterface } from '../interfaces/employee_vacation_excel_row_summary_interface.js'
 import { EmployeeVacationExcelRowSummaryYearInterface } from '../interfaces/employee_vacation_excel_row_summary_year_interface.js'
 import { I18n } from '@adonisjs/i18n'
+import {
+  formatReportCalendarDate,
+  REPORT_DATE_FORMAT,
+  REPORT_LOCALE,
+  reportI18n,
+} from '#helpers/report_locale'
+import { frozenHeaderViews } from '#helpers/report_sheet_views'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
+import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
 import ExceptionType from '#models/exception_type'
 import ShiftExceptionService from './shift_exception_service.js'
 import VacationSetting from '#models/vacation_setting'
@@ -30,24 +38,56 @@ import VacationDeduction from '#models/vacation_deduction'
  */
 const MAX_VACATION_IMPORT_DATA_ROWS = 500
 
+/** Colaboradores por consulta al cargar saldos de vacaciones en lote. */
+const VACATION_BALANCE_EMPLOYEE_CHUNK = 1000
+
+/** Saldo de un periodo de vacaciones (un `VacationSetting`) de un colaborador. */
+interface VacationPeriodBalance {
+  vacationSettingId: number
+  totalDays: number
+  available: number
+}
+
+/**
+ * Lo que el cálculo de periodos necesita, cargado una sola vez para un grupo de
+ * colaboradores: las configuraciones vivas y los días ya consumidos por
+ * colaborador y periodo (excepciones de vacaciones más deducciones).
+ */
+interface VacationBalanceSources {
+  /** Configuraciones vivas en orden de id, el mismo en que MySQL las recorre. */
+  settings: VacationSetting[]
+  /** Días consumidos, con llave `employeeId:vacationSettingId`. */
+  usedDays: Map<string, number>
+}
+
+function usedDaysKey(employeeId: number, vacationSettingId: number): string {
+  return `${employeeId}:${vacationSettingId}`
+}
+
+
 export default class EmployeeVacationService {
 
   private i18n: I18n
+  /**
+   * Traductor de los Excel de vacaciones: fijo en el idioma de los reportes
+   * (`REPORT_LOCALE`), sin importar el idioma de la petición. `this.i18n`
+   * sigue siendo el de la petición para los servicios y errores que se
+   * devuelven como JSON.
+   */
   private t: (key: string, params?: { [key: string]: string | number }) => string
-  private localeToUse: string
 
   constructor(i18n: I18n) {
     this.i18n = i18n
-    this.t = i18n.formatMessage.bind(i18n)
-    this.localeToUse = i18n.locale
+    const reportTranslator = reportI18n()
+    this.t = reportTranslator.formatMessage.bind(reportTranslator)
   }
 
   /**
-   * Formatea el rango de fechas del título del resumen según el locale activo.
+   * Formatea el rango de fechas del título del resumen en el idioma de los reportes.
    */
   private formatSummaryReportTitle(start: DateTime, end: DateTime): string {
-    const startLabel = start.setLocale(this.localeToUse).toFormat('DDD')
-    const endLabel = end.setLocale(this.localeToUse).toFormat('DDD')
+    const startLabel = start.setLocale(REPORT_LOCALE).toFormat('DDD')
+    const endLabel = end.setLocale(REPORT_LOCALE).toFormat('DDD')
     return this.t('vacation_summary_report_title', { start: startLabel, end: endLabel })
   }
   async getExcelAll(filters: EmployeeVacationExcelFilterInterface) {
@@ -128,6 +168,7 @@ export default class EmployeeVacationService {
         this.paintBorderAll(sheet, rows.length)
       }
       // Crear un buffer del archivo Excel
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -258,9 +299,13 @@ export default class EmployeeVacationService {
       }
       const newRow = {
         employeeCode: employee.employeePayrollCode?.toString() || '',
-        employeeName: `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
-        department: employee.department ? employee.department.departmentName : '',
-        position: employee.position ? employee.position.positionName : '',
+        employeeName: reportFullName(
+          employee.person?.personFirstname,
+          employee.person?.personLastname,
+          employee.person?.personSecondLastname
+        ),
+        department: reportText(employee.department?.departmentName),
+        position: reportText(employee.position?.positionName),
         employeeHireDate: employee.employeeHireDate
           ? this.getDate(employee.employeeHireDate.toString())
           : '',
@@ -299,13 +344,25 @@ export default class EmployeeVacationService {
     }
   }
 
+  /**
+   * Fecha de calendario (`dd/MM/yyyy`) de una columna DATE serializada. La
+   * conexión está en UTC, así que se lee en UTC para no correrla un día.
+   */
   getDate(date: string) {
-    return DateTime.fromISO(date).toFormat('yyyy-MM-dd')
+    return formatReportCalendarDate(date)
   }
 
+  /**
+   * Fecha de calendario (`dd/MM/yyyy`) de `shift_exceptions_date`: se guarda
+   * como medianoche UTC del día de la vacación, por eso se lee en UTC.
+   */
   getDateFromHttp(date: string) {
-    const dateObject = new Date(date)
-    return DateTime.fromJSDate(dateObject).toFormat('yyyy-MM-dd')
+    return formatReportCalendarDate(new Date(date))
+  }
+
+  /** Lee de vuelta una fecha escrita con `getDate`/`getDateFromHttp`. */
+  private parseReportDate(date: string): DateTime {
+    return DateTime.fromFormat(date, REPORT_DATE_FORMAT, { zone: 'utc' })
   }
 
   async getVacationUsedExcel(filters: EmployeeVacationExcelFilterInterface) {
@@ -361,13 +418,14 @@ export default class EmployeeVacationService {
         years.push(year)
       }
       for await (const year of years) {
-        const sheet = workbook.addWorksheet(`${year} Vacations used`)
+        const sheet = workbook.addWorksheet(this.t('vacation_used_report_sheet_name', { year: String(year) }))
         this.addVacationUsedHeadRow(sheet)
         const rows = await this.addEmployeesVacationUsed(employees, year)
         await this.addRowVacationUsedToWorkSheet(rows, sheet)
         this.paintVacationUsedBorderAll(sheet, rows.length)
       }
       // Crear un buffer del archivo Excel
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -408,9 +466,13 @@ export default class EmployeeVacationService {
             const newRow = {
               date: this.getDateFromHttp(shiftException.shiftExceptionsDate.toString()),
               employeeCode: employee.employeePayrollCode?.toString() || '',
-              employeeName: `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
-              department: employee.department ? employee.department.departmentName : '',
-              position: employee.position ? employee.position.positionName : '',
+              employeeName: reportFullName(
+          employee.person?.personFirstname,
+          employee.person?.personLastname,
+          employee.person?.personSecondLastname
+        ),
+              department: reportText(employee.department?.departmentName),
+              position: reportText(employee.position?.positionName),
             } as EmployeeVacationUsedDaysExcelRowInterface
             rows.push(newRow)
           }
@@ -421,8 +483,8 @@ export default class EmployeeVacationService {
 
   async addRowVacationUsedToWorkSheet(rows: EmployeeVacationUsedDaysExcelRowInterface[], worksheet: ExcelJS.Worksheet) {
     rows.sort((a, b) => {
-      const dateA = new Date(a.date)
-      const dateB = new Date(b.date)
+      const dateA = this.parseReportDate(a.date)
+      const dateB = this.parseReportDate(b.date)
 
       if (dateA < dateB) return -1
       if (dateA > dateB) return 1
@@ -606,6 +668,7 @@ export default class EmployeeVacationService {
       this.paintBorderAllSummary(sheet, rows.length, years)
 
       // Crear un buffer del archivo Excel
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return {
         status: 201,
@@ -727,12 +790,7 @@ export default class EmployeeVacationService {
     columnE.width = 16
     columnE.alignment = { vertical: 'middle', horizontal: 'center' }
 
-    worksheet.views = [
-      { state: 'frozen', ySplit: 1 },
-      { state: 'frozen', ySplit: 2 },
-      { state: 'frozen', ySplit: 3 },
-      { state: 'frozen', ySplit: 4 },
-    ]
+    worksheet.views = frozenHeaderViews(4)
     const row = worksheet.getRow(1)
     row.eachCell({ includeEmpty: true }, (currentCell) => {
       currentCell.alignment = { vertical: 'middle', horizontal: 'center' }
@@ -792,9 +850,9 @@ export default class EmployeeVacationService {
           employee.employeePayrollCode?.toString() || employee.employeePayrollNum?.toString() || '',
         employeeCode:
           employee.employeePayrollCode?.toString() || employee.employeePayrollNum?.toString() || '',
-        employeeName: `${employee.employeeFirstName} ${employee.employeeLastName}`,
-        department: employee.department ? employee.department.departmentName : '',
-        position: employee.position ? employee.position.positionName : '',
+        employeeName: reportFullName(employee.employeeFirstName, employee.employeeLastName),
+        department: reportText(employee.department?.departmentName),
+        position: reportText(employee.position?.positionName),
         employeeHireDate: employee.employeeHireDate
           ? this.getDate(employee.employeeHireDate.toString())
           : '',
@@ -806,7 +864,9 @@ export default class EmployeeVacationService {
   }
 
   paintBorderAllSummary(worksheet: ExcelJS.Worksheet, rowCount: number, years: number[]) {
-    const today = DateTime.now()
+    // Hoy como día civil de la zona de negocio, leído en UTC igual que la
+    // fecha de ingreso (`parseReportDate`), para comparar días sin desfase.
+    const today = DateTime.fromISO(toBusinessDateString(), { zone: 'utc' })
     const rowTempYear = worksheet.getRow(3)
     for (let rowIndex = 1; rowIndex <= rowCount + 4; rowIndex++) {
       const row = worksheet.getRow(rowIndex)
@@ -822,7 +882,7 @@ export default class EmployeeVacationService {
         let startColIndex = 7
         const cellValue = cellDate.value
         const hireDate = typeof cellValue === 'string'
-          ? DateTime.fromISO(cellValue)
+          ? this.parseReportDate(cellValue)
           : DateTime.fromJSDate(cellValue as Date)
         for (let i = 0; i < years.length; i++) {
           let cellYear = rowTempYear.getCell(startColIndex)
@@ -950,6 +1010,7 @@ export default class EmployeeVacationService {
         .preload('department')
         .preload('position')
         .preload('businessUnit')
+        .preload('payrollBusinessUnit')
         .orderBy('employee_code')
 
       // ── Calcular días disponibles por empleado y MAX global ──
@@ -968,18 +1029,18 @@ export default class EmployeeVacationService {
       const empInfoList: EmpInfo[] = []
       let maxVacationCols = 0
 
+      const balanceSources = await this.loadVacationBalanceSources(
+        employees.map((emp) => emp.employeeId)
+      )
+
       for (const emp of employees) {
-        const periods = await this.getVacationPeriodsOrdered(emp)
+        const periods = this.computeVacationPeriods(emp, balanceSources)
         const availableDays = periods.reduce((acc, p) => acc + p.available, 0)
         const totalDays = periods.reduce((acc, p) => acc + p.totalDays, 0)
 
         if (totalDays > maxVacationCols) maxVacationCols = totalDays
 
-        let payrollUnitName = ''
-        if (emp.payrollBusinessUnitId) {
-          const pu = await BusinessUnit.find(emp.payrollBusinessUnitId)
-          payrollUnitName = pu?.businessUnitName ?? ''
-        }
+        const payrollUnitName = emp.payrollBusinessUnit?.businessUnitName ?? ''
 
         empInfoList.push({
           payrollId: emp.employeePayrollNum || emp.employeePayrollCode || '',
@@ -1218,6 +1279,7 @@ export default class EmployeeVacationService {
       })
       wsInstr.getColumn(1).width = 95
 
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
       return { status: 201, buffer: Buffer.from(buffer) }
     } catch (error: any) {
@@ -1559,10 +1621,72 @@ export default class EmployeeVacationService {
    * Retorna la lista de periodos (VacationSetting) del empleado ordenados
    * del más antiguo al más reciente, con los días disponibles de cada uno
    * descontando ShiftExceptions y VacationDeductions activas.
+   *
+   * Consulta la base en cada llamada: la importación la invoca entre altas y
+   * necesita el saldo vigente. Para muchos colaboradores a la vez se usa
+   * `loadVacationBalanceSources` más `computeVacationPeriods`.
    */
-  private async getVacationPeriodsOrdered(
-    employee: Employee
-  ): Promise<Array<{ vacationSettingId: number; totalDays: number; available: number }>> {
+  private async getVacationPeriodsOrdered(employee: Employee): Promise<VacationPeriodBalance[]> {
+    const sources = await this.loadVacationBalanceSources([employee.employeeId])
+    return this.computeVacationPeriods(employee, sources)
+  }
+
+  /**
+   * Carga en tres consultas (más una por cada bloque de colaboradores) lo que
+   * antes se pedía por colaborador y por año de antigüedad.
+   */
+  private async loadVacationBalanceSources(employeeIds: number[]): Promise<VacationBalanceSources> {
+    const settings = await VacationSetting.query()
+      .whereNull('vacation_setting_deleted_at')
+      .orderBy('vacation_setting_id', 'asc')
+
+    const usedDays = new Map<string, number>()
+    const addUsed = (employeeId: number, vacationSettingId: number, days: number) => {
+      const key = usedDaysKey(employeeId, vacationSettingId)
+      usedDays.set(key, (usedDays.get(key) ?? 0) + days)
+    }
+
+    const uniqueIds = [...new Set(employeeIds)]
+    for (let i = 0; i < uniqueIds.length; i += VACATION_BALANCE_EMPLOYEE_CHUNK) {
+      const chunk = uniqueIds.slice(i, i + VACATION_BALANCE_EMPLOYEE_CHUNK)
+
+      const exceptionCounts = await ShiftException.query()
+        .whereNull('shift_exceptions_deleted_at')
+        .whereIn('employee_id', chunk)
+        .whereNotNull('vacation_setting_id')
+        .select('employee_id', 'vacation_setting_id')
+        .count('* as total')
+        .groupBy('employee_id', 'vacation_setting_id')
+        .pojo<{ employee_id: number; vacation_setting_id: number; total: number | string }>()
+      for (const row of exceptionCounts) {
+        addUsed(row.employee_id, row.vacation_setting_id, Number(row.total))
+      }
+
+      const deductionSums = await VacationDeduction.query()
+        .whereNull('vacation_deduction_deleted_at')
+        .whereIn('employee_id', chunk)
+        .whereNotNull('vacation_setting_id')
+        .select('employee_id', 'vacation_setting_id')
+        .sum('vacation_deduction_days as total')
+        .groupBy('employee_id', 'vacation_setting_id')
+        .pojo<{ employee_id: number; vacation_setting_id: number; total: number | string | null }>()
+      for (const row of deductionSums) {
+        addUsed(row.employee_id, row.vacation_setting_id, Number(row.total ?? 0))
+      }
+    }
+
+    return { settings, usedDays }
+  }
+
+  /**
+   * Periodos del colaborador con su saldo, sin tocar la base. Replica la regla
+   * que antes resolvía una consulta por año: la configuración viva con esos años
+   * de servicio y vigente al aniversario; si hay varias, la de menor id.
+   */
+  private computeVacationPeriods(
+    employee: Employee,
+    sources: VacationBalanceSources
+  ): VacationPeriodBalance[] {
     if (!employee.employeeHireDate) return []
 
     const start = DateTime.fromISO(employee.employeeHireDate.toString())
@@ -1573,39 +1697,31 @@ export default class EmployeeVacationService {
     const month = start.month
     const day = start.day
 
-    const result: Array<{ vacationSettingId: number; totalDays: number; available: number }> = []
+    const result: VacationPeriodBalance[] = []
 
     for (let checkYear = startYear; checkYear <= currentYear + 1; checkYear++) {
       const yearsPassed = checkYear - startYear
 
-      const checkFormattedDate = DateTime.fromObject({ year: checkYear, month, day }).toFormat('yyyy-MM-dd')
+      // Un 29 de febrero en año no bisiesto no es fecha: en SQL la comparación
+      // daba NULL y no había configuración; aquí se salta igual.
+      const checkDate = DateTime.fromObject({ year: checkYear, month, day })
+      if (!checkDate.isValid) continue
+      const checkFormattedDate = checkDate.toFormat('yyyy-MM-dd')
 
-      const vacationSetting = await VacationSetting.query()
-        .whereNull('vacation_setting_deleted_at')
-        .where('vacation_setting_years_of_service', yearsPassed)
-        .where('vacation_setting_apply_since', '<=', checkFormattedDate)
-        .orderBy('vacation_setting_years_of_service', 'desc')
-        .first()
+      const vacationSetting = sources.settings.find((setting) => {
+        if (setting.vacationSettingYearsOfService !== yearsPassed) return false
+        const applySince = toCalendarIsoDate(setting.vacationSettingApplySince)
+        return applySince !== null && applySince <= checkFormattedDate
+      })
 
       if (!vacationSetting) continue
 
       // Evitar duplicados (mismo vacationSettingId puede aparecer si empleado tiene mismo rango de años)
       if (result.find((r) => r.vacationSettingId === vacationSetting.vacationSettingId)) continue
 
-      const exceptionsUsed = await ShiftException.query()
-        .whereNull('shift_exceptions_deleted_at')
-        .where('vacation_setting_id', vacationSetting.vacationSettingId)
-        .where('employee_id', employee.employeeId)
-
-      const deductions = await VacationDeduction.query()
-        .whereNull('vacation_deduction_deleted_at')
-        .where('vacation_setting_id', vacationSetting.vacationSettingId)
-        .where('employee_id', employee.employeeId)
-
-      const daysUsedByExceptions = exceptionsUsed.length
-      const daysUsedByDeductions = deductions.reduce((acc, d) => acc + d.vacationDeductionDays, 0)
-      const available =
-        vacationSetting.vacationSettingVacationDays - daysUsedByExceptions - daysUsedByDeductions
+      const used =
+        sources.usedDays.get(usedDaysKey(employee.employeeId, vacationSetting.vacationSettingId)) ?? 0
+      const available = vacationSetting.vacationSettingVacationDays - used
 
       result.push({
         vacationSettingId: vacationSetting.vacationSettingId,

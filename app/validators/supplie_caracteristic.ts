@@ -1,10 +1,11 @@
 import vine from '@vinejs/vine'
+import { ASSET_CHARACTERISTIC_TYPES } from '#modules/assets/assets.constants'
 
 export const createSupplieCaracteristicValidator = vine.compile(
   vine.object({
     supplyTypeId: vine.number().positive(),
     supplieCaracteristicName: vine.string().trim().minLength(1).maxLength(255),
-    supplieCaracteristicType: vine.enum(['text', 'number', 'date', 'boolean', 'radio', 'file']),
+    supplieCaracteristicType: vine.enum(ASSET_CHARACTERISTIC_TYPES),
   })
 )
 
@@ -12,7 +13,7 @@ export const updateSupplieCaracteristicValidator = vine.compile(
   vine.object({
     supplyTypeId: vine.number().positive().optional(),
     supplieCaracteristicName: vine.string().trim().minLength(1).maxLength(255).optional(),
-    supplieCaracteristicType: vine.enum(['text', 'number', 'date', 'boolean', 'radio', 'file']).optional(),
+    supplieCaracteristicType: vine.enum(ASSET_CHARACTERISTIC_TYPES).optional(),
   })
 )
 

@@ -5,6 +5,7 @@ import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
 import { SensitiveAccessContext, type SensitiveWriteDecision } from '#utils/sensitive_access_context'
 import type { LegalCategory } from '#constants/sensitive_fields'
 import EmployeeBiometricService from '#services/employee_biometric_service'
+import { TenantContext } from '#utils/tenant_context'
 import {
   allDenied,
   buHeader,
@@ -272,7 +273,11 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
     assert,
   }) => {
     const service = new EmployeeBiometricService(fakeI18n())
-    const masked = await service.getEnrollmentStatus(fixture!.employee.employeeId)
+    const businessUnitId = actor!.businessUnit.businessUnitId
+    const employeeId = fixture!.employee.employeeId
+    const masked = await TenantContext.run([businessUnitId], () =>
+      service.getEnrollmentStatus(employeeId)
+    )
     assert.exists(masked)
     assert.equal(masked!.biometricData, MASK_CHAR.repeat(5))
     assert.include(masked!.fingers, 1)
@@ -283,7 +288,8 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
         read: { ...allDenied, biometrico: true },
         write: deniedWrite,
       },
-      () => service.getEnrollmentStatus(fixture!.employee.employeeId)
+      () =>
+        TenantContext.run([businessUnitId], () => service.getEnrollmentStatus(employeeId))
     )
     assert.equal(stillMasked!.biometricData, MASK_CHAR.repeat(5))
   })
@@ -291,7 +297,7 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
   test('CA-1: serialize de FaceId tapa token y photoUrl aunque haya permiso biométrico', async ({
     assert,
   }) => {
-    await extra!.faceId.refresh()
+    await TenantContext.run([actor!.businessUnit.businessUnitId], () => extra!.faceId.refresh())
     const masked = extra!.faceId.serialize()
     assert.equal(masked.employeeBiometricFaceIdToken, MASK_CHAR.repeat(5))
     assert.equal(masked.employeeBiometricFaceIdPhotoUrl, MASK_CHAR.repeat(5))
@@ -313,7 +319,7 @@ test.group('Lectura sensible — 15 columnas restantes — HTTP', (group) => {
       assert.isTrue(true)
       return
     }
-    await extra!.consent.refresh()
+    await TenantContext.run([actor!.businessUnit.businessUnitId], () => extra!.consent!.refresh())
     const masked = extra!.consent.serialize()
     assert.equal(
       masked.userConsentIp,

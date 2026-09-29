@@ -1766,7 +1766,7 @@ export default class ComplaintController {
       const filename = complaintService.buildReportExportFilename(report, payload.format)
 
       if (payload.format === 'xlsx') {
-        const buffer = await complaintService.buildReportExcel(report, i18n)
+        const buffer = await complaintService.buildReportExcel(report)
         response.header(
           'Content-Type',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -1777,7 +1777,7 @@ export default class ComplaintController {
         return response.send(buffer)
       }
 
-      const pdfBuffer = await complaintService.buildReportPdf(report, i18n)
+      const pdfBuffer = await complaintService.buildReportPdf(report)
       response.header('Content-Type', 'application/pdf')
       response.header('Content-Disposition', contentDisposition(filename))
       response.header('Content-Length', pdfBuffer.length.toString())

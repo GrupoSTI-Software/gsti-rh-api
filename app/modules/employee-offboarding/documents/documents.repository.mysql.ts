@@ -5,6 +5,7 @@ import Employee from '#models/employee'
 import EmployeeOffboarding from '#models/employee_offboarding'
 import EmployeeOffboardingDocument from '#models/employee_offboarding_document'
 import User from '#models/user'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import {
   DOCUMENT_TEMPLATE_VERSION_NUMBER_EXTRA,
@@ -48,7 +49,7 @@ export default class DocumentsRepositoryMysql implements DocumentsRepository {
           .preload('position')
           .preload('department')
           .first(),
-      'colaborador del expediente ya autorizado por su BU snapshoteado (constancia)'
+      TENANT_UNSCOPED_REASON.OFFBOARDING_AUTHORIZED_SNAPSHOT
     )
   }
 

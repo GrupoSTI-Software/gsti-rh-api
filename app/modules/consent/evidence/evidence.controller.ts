@@ -1,5 +1,9 @@
+import { formatReportCalendarDate } from '#helpers/report_locale'
+import { blankMissingTexts, reportText } from '#helpers/report_text'
 import type { HttpContext } from '@adonisjs/core/http'
 import ExcelJS from 'exceljs'
+import { DateTime } from 'luxon'
+import { getBusinessTimeZone } from '#utils/business_date'
 import { buildDownloadFileName, contentDisposition, formatDownloadFileDate } from '#helpers/download_file_name'
 import { assertConsentEvidenceAccess } from '#helpers/consent_evidence_rbac'
 import { CONSENT_EVIDENCE_ERROR_CODES } from '#constants/consent_evidence_error_codes'
@@ -31,6 +35,22 @@ const DOCUMENT_TYPE_LABELS: Record<LegalDocumentType, string> = {
 const CHANNEL_LABELS: Record<UserConsentChannel, string> = {
   digital: 'Digital',
   physical: 'Físico',
+}
+
+/**
+ * Fecha y hora de aceptación (TIMESTAMP en UTC, llega en ISO) en la zona del
+ * negocio como `dd/MM/yyyy HH:mm`, igual que el resto de reportes en español.
+ */
+function formatExportTimestamp(iso: string | null): string {
+  if (!iso) return ''
+  const parsed = DateTime.fromISO(iso, { setZone: true })
+  return parsed.isValid ? parsed.setZone(getBusinessTimeZone()).toFormat('dd/MM/yyyy HH:mm') : iso
+}
+
+/** Fecha de firma (columna DATE, llega como `yyyy-MM-dd`) como `dd/MM/yyyy`, sin cambiar de zona. */
+function formatExportCalendarDate(isoDate: string | null): string {
+  if (!isoDate) return ''
+  return formatReportCalendarDate(isoDate) || isoDate
 }
 
 /**
@@ -341,17 +361,17 @@ export default class EvidenceController {
     // pide bajo demanda a `evidence/:id/download-url`, nunca embebida en el archivo.
     for (const row of rows) {
       worksheet.addRow({
-        userName: row.userName,
-        businessUnitNames: row.businessUnitNames.join(', '),
+        userName: reportText(row.userName),
+        businessUnitNames: row.businessUnitNames.map((name) => reportText(name)).filter(Boolean).join(', '),
         documentTypeLabel: DOCUMENT_TYPE_LABELS[row.documentType],
         version: row.version,
         channelLabel: CHANNEL_LABELS[row.channel],
-        acceptedAt: row.acceptedAt,
-        signedAt: row.signedAt,
-        registeredByName: row.registeredByName ?? '',
+        acceptedAt: formatExportTimestamp(row.acceptedAt),
+        signedAt: formatExportCalendarDate(row.signedAt),
+        registeredByName: reportText(row.registeredByName),
         hasAttachmentLabel: row.hasAttachment ? 'Sí' : 'No',
-        ip: row.ip,
-        userAgent: row.userAgent,
+        ip: reportText(row.ip),
+        userAgent: reportText(row.userAgent),
       })
     }
 
@@ -359,6 +379,7 @@ export default class EvidenceController {
     headerRow.font = { bold: true }
     headerRow.alignment = { vertical: 'middle', horizontal: 'center' }
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     const filename = buildDownloadFileName(
       ['evidencia-consentimientos', formatDownloadFileDate()],

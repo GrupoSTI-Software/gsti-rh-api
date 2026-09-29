@@ -9,7 +9,10 @@ import {
 } from '#validators/employee_proceeding_file'
 import { HttpContext } from '@adonisjs/core/http'
 import { EmployeeProceedingFileFilterInterface } from '../interfaces/employee_proceeding_file_filter_interface.js'
-import UserService from '#services/user_service'
+import {
+  emptyEmployeeRoleScope,
+  resolveEmployeeRoleScopeForUser,
+} from '#helpers/resolve_employee_role_scope'
 import UploadService from '#services/upload_service'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { inject } from '@adonisjs/core'
@@ -931,23 +934,27 @@ export default class EmployeeProceedingFileController {
    *                     error:
    *                       type: string
    */
-  async getExpiresAndExpiring({ auth, request, response, i18n }: HttpContext) {
+  async getExpiresAndExpiring({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       await auth.check()
-
       const user = auth.user
-      const userService = new UserService(i18n)
-      let departmentsList = [] as Array<number>
-
-      if (user) {
-        departmentsList = await userService.getRoleDepartments(user.userId)
-      }
-
+      // Alcance: regla 1, 2, 4 de USRH1788466831312.
+      const scope = user
+        ? (await user.preload('role'), await resolveEmployeeRoleScopeForUser(user, i18n))
+        : emptyEmployeeRoleScope()
       const dateStart = request.input('dateStart')
       const dateEnd = request.input('dateEnd')
-      const filters = { dateStart: dateStart, dateEnd: dateEnd } as EmployeeProceedingFileFilterInterface
+      const filters = {
+        dateStart: dateStart,
+        dateEnd: dateEnd,
+        includeUnassigned: scope.includeUnassigned,
+      } as EmployeeProceedingFileFilterInterface
       const employeeProceddingFileService = new EmployeeProceedingFileService()
-      const employeeProceedingFiles = await employeeProceddingFileService.getExpiredAndExpiring(filters, departmentsList)
+      const employeeProceedingFiles = await employeeProceddingFileService.getExpiredAndExpiring(
+        filters,
+        scope,
+        businessUnitScope
+      )
 
       response.status(200)
       return {

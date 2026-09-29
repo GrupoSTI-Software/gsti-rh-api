@@ -33,14 +33,21 @@ interface RouteFileContract {
   businessScope: boolean
 }
 
+/** `file` sin carpeta vive en `start/routes`; con carpeta, es relativo a la raíz (módulos verticales). */
 const readRoutes = (fileName: string) =>
-  readFileSync(join(process.cwd(), 'start/routes', fileName), 'utf-8')
+  readFileSync(
+    join(process.cwd(), fileName.includes('/') ? fileName : join('start/routes', fileName)),
+    'utf-8'
+  )
 
 /** Sin espacios ni saltos, para no depender del formato de la cadena. */
 const compact = (content: string) => content.replace(/\s+/g, '')
 
-const routeDeclaration = (route: RouteDeclaration) =>
-  compact(`router.${route.method}('${route.path}', '#controllers/${route.handler}')`)
+/** El handler con `#` va completo (módulos verticales); sin él, cuelga de `#controllers/`. */
+const routeDeclaration = (route: RouteDeclaration) => {
+  const handler = route.handler.startsWith('#') ? route.handler : `#controllers/${route.handler}`
+  return compact(`router.${route.method}('${route.path}', '${handler}')`)
+}
 
 function assertGated(assert: Assert, content: string, route: GatedRoute) {
   assert.include(
@@ -170,6 +177,22 @@ const SUPPLIES_ROUTE_FILES: RouteFileContract[] = [
       { method: 'delete', path: '/supply-value-histories/:id', handler: 'supply_value_histories_controller.destroy', declaration: supplies('destroySupplyValueHistory') },
       { method: 'get', path: '/supplies/:supplyId/value-histories', handler: 'supply_value_histories_controller.getBySupply', declaration: supplies('indexSupplyValueHistoriesBySupply') },
       { method: 'get', path: '/supplies/:supplyId/value-histories/latest', handler: 'supply_value_histories_controller.getLatestValue', declaration: supplies('showLatestSupplyValueHistory') },
+    ],
+    open: [],
+  },
+  {
+    file: 'app/modules/assets/assets.routes.ts',
+    businessScope: true,
+    gated: [
+      { method: 'get', path: '/assets', handler: '#modules/assets/assets.controller.index', declaration: supplies('indexAssets') },
+      { method: 'get', path: '/assets/summary', handler: '#modules/assets/assets.controller.summary', declaration: supplies('showAssetsSummary') },
+      { method: 'get', path: '/assets/:supplyId', handler: '#modules/assets/assets.controller.show', declaration: supplies('showAsset') },
+      { method: 'get', path: '/assets/:supplyId/assignments', handler: '#modules/assets/assets.controller.assignments', declaration: supplies('indexAssetAssignments') },
+      { method: 'get', path: '/assets/:supplyId/value-history', handler: '#modules/assets/assets.controller.valueHistory', declaration: supplies('showAssetValueHistory') },
+      { method: 'put', path: '/assets/:supplyId/characteristic-values', handler: '#modules/assets/assets.controller.upsertCharacteristicValues', declaration: supplies('upsertAssetCharacteristicValues') },
+      { method: 'get', path: '/asset-types', handler: '#modules/assets/assets.controller.types', declaration: supplies('indexAssetTypes') },
+      { method: 'get', path: '/employee-supplies-response-contracts/:id/file', handler: '#modules/assets/asset_files.controller.responseContract', declaration: supplies('downloadSupplyResponseContract') },
+      { method: 'get', path: '/employee-supply-assignation-photos/photo/:photoId/file', handler: '#modules/assets/asset_files.controller.assignationPhoto', declaration: supplies('downloadSupplyAssignationPhoto') },
     ],
     open: [],
   },

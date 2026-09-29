@@ -52,8 +52,9 @@ export default class ComplaintCategoryService {
   /** Etiqueta traducida con fallback al slug legible si falta la key. */
   resolveLabel(slug: string, i18n: I18n): string {
     const key = this.categoryLabelKey(slug)
-    const translated = i18n.formatMessage(key)
-    return translated === key ? slug : translated
+    // Sin la clave, Adonis devuelve "translation missing: …", no la clave:
+    // el respaldo se pasa explícito.
+    return i18n.formatMessage(key, undefined, humanizeCategorySlug(slug))
   }
 
   serializeCatalogItem(category: ComplaintCategory, i18n: I18n): ComplaintCategoryCatalogItem {
@@ -72,4 +73,10 @@ export default class ComplaintCategoryService {
       'CMPL.VAL.CATEGORY'
     )
   }
+}
+
+/** `acoso-sexual` → `Acoso sexual`: texto legible de un slug sin traducción. */
+export function humanizeCategorySlug(slug: string): string {
+  const words = slug.replace(/[-_]+/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase()
+  return words.length === 0 ? '' : words.charAt(0).toUpperCase() + words.slice(1)
 }
