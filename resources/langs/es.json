@@ -3108,5 +3108,6 @@
   "platform_quarantine_claimed_message": "El equipo quedo asignado a la empresa y registrado como propiedad del cliente",
   "access_point_sync_answered_message": "El equipo respondio y su ficha esta al dia",
   "access_point_sync_pending_message": "Se le pidio al equipo; contestara en cuanto vuelva a consultar",
-  "access_point_sync_failed_message": "El equipo respondio que no pudo completar la peticion"
+  "access_point_sync_failed_message": "El equipo respondio que no pudo completar la peticion",
+  "assist_excel_unassigned_block_label": "EMPLEADOS SIN DEPARTAMENTO ASIGNADO"
 }

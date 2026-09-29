@@ -1039,6 +1039,334 @@ export default class AssistsService {
    * reportar progreso real. Si el conteo falla, el callback recibe 0/0 y
    * el progreso queda indeterminado sin bloquear la generación.
    */
+
+  // ─── USRH1788466831333: bloque de empleados sin departamento ──────────────
+
+  /**
+   * Guard tipado sobre el resultado de `SyncAssistsService.index`.
+   * Devuelve el arreglo de días si existe, o `null`.
+   * Elimina los `any` de los bloques que lo usan (asistencia, resumen y nómina).
+   */
+  private readEmployeeCalendar(data: unknown): AssistDayInterface[] | null {
+    if (!data || typeof data !== 'object') return null
+    if (!('employeeCalendar' in data)) return null
+    const raw = (data as Record<string, unknown>).employeeCalendar
+    if (!Array.isArray(raw)) return null
+    return raw as AssistDayInterface[]
+  }
+
+  /**
+   * Devuelve los empleados sin departamento que deben ir en el bloque final,
+   * respetando el acceso guardado en el trabajo (USRH1788466831333, R2/R3/R12).
+   *
+   * · Restringido (`userResponsibleId > 0`): empleados bajo su responsabilidad
+   *   con `department_id IS NULL` (filtrado en memoria después de la consulta).
+   * · Acceso completo (`includeUnassigned === true`, sin responsable): todos los
+   *   empleados sin departamento de la empresa (`departmentIds: []` compila a
+   *   `1=0 OR department_id IS NULL` vía `applyVisibleDepartmentsScope`).
+   * · Trabajo encolado antes o usuario principal sin la llave: lista vacía.
+   *
+   * Se consulta UNA VEZ por archivo; el mismo arreglo alimenta el conteo y la
+   * generación para no hacer una segunda llamada a la BD (SEC-6).
+   */
+  private async fetchUnassignedEmployeesForExcelReport(
+    employeeService: EmployeeService,
+    filters: import('../interfaces/assist_excel_filter_interface.js').AssistExcelFilterInterface,
+    scope: { resolvedBusinessUnitId: number; businessUnitFilterIds: number[] },
+    baseFilters: import('../interfaces/employee_filter_search_interface.js').EmployeeFilterSearchInterface
+  ): Promise<import('#models/employee').default[]> {
+    const userResponsibleId = filters.userResponsibleId
+    if (userResponsibleId && userResponsibleId > 0) {
+      // Restringido: extrae todos los empleados del responsable y filtra los sin departamento.
+      const result = await this.fetchEmployeesForExcelReport(
+        employeeService,
+        { ...baseFilters, departmentId: 0, positionId: 0, userResponsibleId },
+        [],
+        scope.resolvedBusinessUnitId,
+        scope.businessUnitFilterIds
+      )
+      if (!result) return []
+      return result.all().filter((e) => e.departmentId === null)
+    }
+    if (filters.includeUnassigned === true) {
+      // Acceso completo: departmentIds=[] → 1=0 OR department_id IS NULL → solo nulos.
+      const result = await this.fetchEmployeesForExcelReport(
+        employeeService,
+        { ...baseFilters, departmentId: 0, positionId: 0, userResponsibleId: undefined },
+        [],
+        scope.resolvedBusinessUnitId,
+        scope.businessUnitFilterIds
+      )
+      if (!result) return []
+      return result.all()
+    }
+    return []
+  }
+
+  /**
+   * Agrega al arreglo `rows` la fila-rótulo y las filas de los empleados sin
+   * departamento para la **Exportación detallada** (tipo `assistance_all`).
+   * Devuelve el índice 0-based de la fila-rótulo dentro de `rows`, o `null`
+   * si la lista de empleados está vacía (no se agrega nada al archivo).
+   * USRH1788466831333, R4/R5/R8/R10/R11.
+   */
+  private async appendAssistanceUnassignedRows(
+    label: string,
+    employees: import('#models/employee').default[],
+    filterDate: string,
+    filterDateEnd: string,
+    rows: AssistExcelRowInterface[],
+    progressRef: { current: number; total: number },
+    onProgress: (current: number, total: number) => Promise<void>
+  ): Promise<number | null> {
+    if (employees.length === 0) return null
+    const labelIndex = rows.length
+    // Fila-rótulo: code '0' para que el writer no pinte "TOTAL FAULTS" en la columna P,
+    // department = label para que se vea en columna C, hoursWorked 0 (se borra en style).
+    rows.push({
+      code: '0',
+      name: '',
+      department: label,
+      position: '',
+      date: '',
+      shiftAssigned: '',
+      shiftStartDate: '',
+      shiftEndsDate: '',
+      checkInTime: '',
+      firstCheck: '',
+      lunchTime: '',
+      returnLunchTime: '',
+      checkOutTime: '',
+      lastCheck: '',
+      hoursWorked: 0,
+      incidents: '',
+      notes: '',
+      sundayPremium: '',
+      checkOutStatus: '',
+      exceptions: [],
+    })
+    const syncAssistsService = new SyncAssistsService(this.i18n)
+    for (const employee of employees) {
+      const result = await syncAssistsService.index(
+        { date: filterDate, dateEnd: filterDateEnd, employeeID: employee.employeeId },
+        { page: 1, limit: 999999999999999 }
+      )
+      const employeeCalendar = this.readEmployeeCalendar(result.data)
+      if (employeeCalendar) {
+        const newRows = await this.addRowCalendar(employee, employeeCalendar)
+        for (const row of newRows) {
+          rows.push(row)
+        }
+      }
+      progressRef.current++
+      await onProgress(progressRef.current, progressRef.total)
+    }
+    return labelIndex
+  }
+
+  /**
+   * Aplica negritas a la fila-rótulo del bloque sin departamento en la
+   * Exportación detallada y borra la celda O (hoursWorked = "00:00" del writer).
+   */
+  private styleAssistanceUnassignedLabelRow(
+    worksheet: ExcelJS.Worksheet,
+    worksheetRowNumber: number
+  ): void {
+    const row = worksheet.getRow(worksheetRowNumber)
+    row.font = { bold: true }
+    worksheet.getCell(worksheetRowNumber, 15).value = ''
+  }
+
+  /**
+   * Agrega las filas del bloque sin departamento al **Resumen de incidencias**
+   * (`assistance_incident_summary`). Si hay empleados con datos en el periodo,
+   * empuja sus filas (con `department = label`), el subtotal del bloque y
+   * acumula el subtotal en TOTALES. Sin empleados con datos, no agrega nada.
+   * USRH1788466831333, R4-R7/R10/R11.
+   */
+  private async appendIncidentSummaryUnassignedRows(
+    label: string,
+    employees: import('#models/employee').default[],
+    filterDate: string,
+    filterDateEnd: string,
+    tardies: number,
+    toleranceCountPerAbsences: number,
+    weekHoursByLawMap: Map<string, number | null>,
+    rowsIncident: AssistIncidentSummaryV2ExcelRowInterface[],
+    totalRowIncident: AssistIncidentSummaryV2ExcelRowInterface,
+    progressRef: { current: number; total: number },
+    onProgress: (current: number, total: number) => Promise<void>
+  ): Promise<void> {
+    if (employees.length === 0) return
+    const blockTotal = {} as AssistIncidentSummaryV2ExcelRowInterface
+    this.cleanIncidentSummaryTotalRow(blockTotal)
+    let hasEmployees = false
+    const syncAssistsService = new SyncAssistsService(this.i18n)
+    for (const employee of employees) {
+      const result = await syncAssistsService.index(
+        { date: filterDate, dateEnd: filterDateEnd, employeeID: employee.employeeId },
+        { page: 1, limit: 999999999999999 }
+      )
+      const employeeCalendar = this.readEmployeeCalendar(result.data)
+      if (employeeCalendar) {
+        hasEmployees = true
+        const row = this.buildIncidentSummaryRow({
+          employee,
+          employeeCalendar,
+          tardies,
+          toleranceCountPerAbsences,
+          dateEnd: filterDateEnd,
+          weekHoursByLawMap,
+        })
+        row.department = label
+        this.addIncidentSummaryDepartmentTotal(blockTotal, row)
+        rowsIncident.push(row)
+      }
+      progressRef.current++
+      await onProgress(progressRef.current, progressRef.total)
+    }
+    if (hasEmployees) {
+      // Subtotal del bloque: sin `department` para no abrir un nuevo corte en el writer.
+      rowsIncident.push({ ...blockTotal })
+      this.addIncidentSummaryGrandTotal(totalRowIncident, blockTotal)
+    }
+  }
+
+  /**
+   * Itera un arreglo de empleados ya cargados y genera sus filas de nómina,
+   * extrayendo la lógica del bucle interno de
+   * `appendIncidentPayrollRowsForDepartmentEmployees`.
+   * Sin consulta propia: quien llama ya resolvió el listado (SEC-1/SEC-5).
+   */
+  private async appendIncidentPayrollRowsForEmployees(
+    employees: import('#models/employee').default[],
+    params: {
+      filterDate: string
+      filterDateEnd: string
+      filterDatePay: string
+      syncAssistsService: SyncAssistsService
+      tardies: number
+      toleranceCountPerAbsences: number
+      rowsIncidentPayroll: AssistIncidentPayrollExcelRowInterface[]
+      page: number
+      limit: number
+      onEmployeeIterated?: () => Promise<void>
+    }
+  ): Promise<void> {
+    for (const employee of employees) {
+      if (!this.isPayrollAssistEligibleEmployee(employee)) {
+        await params.onEmployeeIterated?.()
+        continue
+      }
+      const result = await params.syncAssistsService.index(
+        {
+          date: params.filterDate,
+          dateEnd: params.filterDateEnd,
+          employeeID: employee.employeeId,
+          withOutExternal: true,
+        },
+        { page: params.page, limit: params.limit }
+      )
+      const employeeCalendar = this.readEmployeeCalendar(result.data)
+      if (!employeeCalendar) {
+        await params.onEmployeeIterated?.()
+        continue
+      }
+      if (!this.hasPayrollEvaluableAttendance(employeeCalendar)) {
+        await params.onEmployeeIterated?.()
+        continue
+      }
+      const incidentPayrollFilters: AssistIncidentPayrollCalendarExcelFilterInterface = {
+        employee: employee,
+        employeeCalendar: employeeCalendar,
+        tardies: params.tardies,
+        datePay: params.filterDatePay,
+        toleranceCountPerAbsences: params.toleranceCountPerAbsences,
+      }
+      const newRows = await this.addRowIncidentPayrollCalendar(incidentPayrollFilters)
+      for (const row of newRows) {
+        params.rowsIncidentPayroll.push(row)
+      }
+      await params.onEmployeeIterated?.()
+    }
+  }
+
+  /**
+   * Construye la fila-rótulo del bloque sin departamento para la
+   * **Exportación de nóminas**. `department` (columna E) lleva el rótulo;
+   * `employeeName` queda vacío (el writer lo escribe, a diferencia de 'null'
+   * que lo omite). Numéricos en 0 (el writer imprime vacío si es falsy).
+   */
+  private buildIncidentPayrollBlockLabelRow(
+    label: string
+  ): AssistIncidentPayrollExcelRowInterface {
+    return {
+      workBusinessUnit: '',
+      payrollBusinessUnit: '',
+      employeeName: '',
+      employeeId: '',
+      department: label,
+      company: '',
+      faults: 0,
+      delays: 0,
+      inc: 0,
+      overtimeDouble: 0,
+      overtimeTriple: 0,
+      workingTimeRuleUnresolved: false,
+      sundayBonus: 0,
+      laborRest: 0,
+      vacationBonus: 0,
+      leveling: '',
+      bonus: '',
+      others: '',
+    }
+  }
+
+  /**
+   * Agrega al arreglo `rowsIncidentPayroll` el rótulo y las filas elegibles
+   * de los empleados sin departamento para la **Exportación de nóminas**.
+   * Si ninguno produce filas (no elegibles o sin asistencia evaluable), no se
+   * agrega nada al arreglo (R7). `onEmployeeIterated` se invoca por cada
+   * empleado considerado para mantener el avance actualizado (R10).
+   * USRH1788466831333, R4/R5/R7/R10/R11, SEC-5.
+   */
+  private async appendIncidentPayrollRowsForUnassignedEmployees(
+    label: string,
+    employees: import('#models/employee').default[],
+    params: {
+      filterDate: string
+      filterDateEnd: string
+      filterDatePay: string
+      syncAssistsService: SyncAssistsService
+      tardies: number
+      toleranceCountPerAbsences: number
+      rowsIncidentPayroll: AssistIncidentPayrollExcelRowInterface[]
+      onEmployeeIterated?: () => Promise<void>
+    }
+  ): Promise<void> {
+    if (employees.length === 0) return
+    const blockRows: AssistIncidentPayrollExcelRowInterface[] = []
+    await this.appendIncidentPayrollRowsForEmployees(employees, {
+      filterDate: params.filterDate,
+      filterDateEnd: params.filterDateEnd,
+      filterDatePay: params.filterDatePay,
+      syncAssistsService: params.syncAssistsService,
+      tardies: params.tardies,
+      toleranceCountPerAbsences: params.toleranceCountPerAbsences,
+      rowsIncidentPayroll: blockRows,
+      page: 1,
+      limit: 999999999999999,
+      onEmployeeIterated: params.onEmployeeIterated,
+    })
+    if (blockRows.length === 0) return
+    params.rowsIncidentPayroll.push(this.buildIncidentPayrollBlockLabelRow(label))
+    for (const row of blockRows) {
+      params.rowsIncidentPayroll.push(row)
+    }
+  }
+
+  // ─── fin USRH1788466831333 ────────────────────────────────────────────────
+
   async generateAssistanceAllBuffer(
     filters: import('../interfaces/assist_excel_filter_interface.js').AssistExcelFilterInterface,
     departmentsList: number[],
@@ -1062,6 +1390,27 @@ export default class AssistsService {
     const filterDate = filters.filterDate
     const filterDateEnd = filters.filterDateEnd
 
+    // USRH1788466831333: consulta única; la misma lista alimenta el conteo y la generación.
+    const label = this.t('assist_excel_unassigned_block_label')
+    const unassignedEmployees = await this.fetchUnassignedEmployeesForExcelReport(
+      employeeService,
+      filters,
+      scope,
+      {
+        search: '',
+        page: 1,
+        limit: 999999999999999,
+        departmentId: 0,
+        employeeWorkSchedule: '',
+        positionId: 0,
+        orderBy: 'positionThenName',
+        orderDirection: 'ascend',
+        ignoreDiscriminated: 0,
+        ignoreExternal: 1,
+        payrollBusinessUnitId: filters.payrollBusinessUnitId,
+      }
+    )
+
     let progressTotal = 0
     try {
       for (const departmentRow of departments) {
@@ -1075,6 +1424,7 @@ export default class AssistsService {
           progressTotal += departmentEmployees.all().length
         }
       }
+      progressTotal += unassignedEmployees.length
     } catch {
       progressTotal = 0
     }
@@ -1110,6 +1460,19 @@ export default class AssistsService {
         await onProgress(progressCurrent, progressTotal)
       }
     }
+
+    // USRH1788466831333: bloque final sin departamento.
+    const progressRefDetail = { current: progressCurrent, total: progressTotal }
+    const unassignedLabelIndex = await this.appendAssistanceUnassignedRows(
+      label,
+      unassignedEmployees,
+      filterDate,
+      filterDateEnd,
+      rows,
+      progressRefDetail,
+      onProgress
+    )
+    progressCurrent = progressRefDetail.current
 
     const workbook = new ExcelJS.Workbook()
     let worksheet = workbook.addWorksheet(this.t('assistance_report'))
@@ -1153,6 +1516,10 @@ export default class AssistsService {
     ]
     this.addHeadRow(worksheet)
     await this.addRowToWorkSheet(rows, worksheet)
+    // USRH1788466831333: aplica negrita y borra columna O de la fila-rótulo.
+    if (unassignedLabelIndex !== null) {
+      this.styleAssistanceUnassignedLabelRow(worksheet, 5 + unassignedLabelIndex)
+    }
     const buffer = await workbook.xlsx.writeBuffer()
     return {
       status: 201,
@@ -1914,6 +2281,27 @@ export default class AssistsService {
       scope.resolvedBusinessUnitId
     )
 
+    // USRH1788466831333: consulta única; la misma lista alimenta el conteo y la generación.
+    const summaryLabel = this.t('assist_excel_unassigned_block_label')
+    const summaryUnassigned = await this.fetchUnassignedEmployeesForExcelReport(
+      employeeService,
+      filters,
+      scope,
+      {
+        search: '',
+        page: 1,
+        limit: 999999999999999,
+        departmentId: 0,
+        employeeWorkSchedule: '',
+        positionId: 0,
+        orderBy: 'positionThenName',
+        orderDirection: 'ascend',
+        ignoreDiscriminated: 0,
+        ignoreExternal: 1,
+        payrollBusinessUnitId: filters.payrollBusinessUnitId,
+      }
+    )
+
     let progressTotal = 0
     try {
       for (const departmentRow of departments) {
@@ -1927,6 +2315,7 @@ export default class AssistsService {
           progressTotal += departmentEmployees.all().length
         }
       }
+      progressTotal += summaryUnassigned.length
     } catch {
       progressTotal = 0
     }
@@ -1978,6 +2367,22 @@ export default class AssistsService {
         this.addIncidentSummaryGrandTotal(totalRowIncident, totalRowByDepartmentIncident)
       }
     }
+    // USRH1788466831333: bloque final sin departamento en el resumen de incidencias.
+    const summaryProgressRef = { current: progressCurrent, total: progressTotal }
+    await this.appendIncidentSummaryUnassignedRows(
+      summaryLabel,
+      summaryUnassigned,
+      filterDate,
+      filterDateEnd,
+      tardies,
+      toleranceCountPerAbsences,
+      weekHoursByLawMap,
+      rowsIncident,
+      totalRowIncident,
+      summaryProgressRef,
+      onProgress
+    )
+    progressCurrent = summaryProgressRef.current
     rowsIncident.push(totalRowIncident)
 
     const workbook = new ExcelJS.Workbook()
@@ -2114,6 +2519,29 @@ export default class AssistsService {
     const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
     await this.getBusinessUnits()
 
+    // USRH1788466831333: consulta única; la misma lista alimenta el conteo y la generación.
+    const payrollLabel = this.t('assist_excel_unassigned_block_label')
+    const payrollUnassigned = await this.fetchUnassignedEmployeesForExcelReport(
+      employeeService,
+      filters,
+      scope,
+      {
+        search: '',
+        page: 1,
+        limit: 999999999999999,
+        departmentId: 0,
+        employeeWorkSchedule: '',
+        positionId: 0,
+        orderBy: 'name',
+        orderDirection: 'ascend',
+        ignoreDiscriminated: 1,
+        ignoreExternal: 1,
+        onlyPayroll: false,
+        payrollBusinessUnitId: filters.payrollBusinessUnitId,
+        branchNameIds: filters.branchNameIds,
+      }
+    )
+
     // Primera pasada solo para estimar el total del progreso (no altera el
     // cálculo del reporte; si falla, el progreso queda indeterminado).
     let progressTotal = 0
@@ -2143,6 +2571,7 @@ export default class AssistsService {
         )
         if (countResult) progressTotal += countResult.all().length
       }
+      progressTotal += payrollUnassigned.length
     } catch {
       progressTotal = 0
     }
@@ -2181,6 +2610,25 @@ export default class AssistsService {
         },
       })
     }
+    // USRH1788466831333: bloque final sin departamento en la exportación de nóminas.
+    await this.appendIncidentPayrollRowsForUnassignedEmployees(
+      payrollLabel,
+      payrollUnassigned,
+      {
+        filterDate,
+        filterDateEnd,
+        filterDatePay: filters.filterDatePay ?? '',
+        syncAssistsService,
+        tardies,
+        toleranceCountPerAbsences,
+        rowsIncidentPayroll,
+        onEmployeeIterated: async () => {
+          progressCurrent++
+          await onProgress(progressCurrent, progressTotal)
+        },
+      }
+    )
+
     await this.addRowIncidentPayrollToWorkSheet(rowsIncidentPayroll, worksheet)
     await this.paintBorderAll(worksheet, rowsIncidentPayroll.length)
 
@@ -3820,46 +4268,18 @@ export default class AssistsService {
       return
     }
 
-    for (const employee of resultEmployes.all()) {
-      if (!this.isPayrollAssistEligibleEmployee(employee)) {
-        await params.onEmployeeIterated?.()
-        continue
-      }
-
-      const result = await params.syncAssistsService.index(
-        {
-          date: params.filterDate,
-          dateEnd: params.filterDateEnd,
-          employeeID: employee.employeeId,
-          withOutExternal: true,
-        },
-        { page: params.page, limit: params.limit }
-      )
-      const data: any = result.data
-      if (!data?.employeeCalendar) {
-        await params.onEmployeeIterated?.()
-        continue
-      }
-
-      const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
-      if (!this.hasPayrollEvaluableAttendance(employeeCalendar)) {
-        await params.onEmployeeIterated?.()
-        continue
-      }
-
-      const incidentPayrollFilters: AssistIncidentPayrollCalendarExcelFilterInterface = {
-        employee: employee,
-        employeeCalendar: employeeCalendar,
-        tardies: params.tardies,
-        datePay: params.filterDatePay,
-        toleranceCountPerAbsences: params.toleranceCountPerAbsences,
-      }
-      const newRows = await this.addRowIncidentPayrollCalendar(incidentPayrollFilters)
-      for (const row of newRows) {
-        params.rowsIncidentPayroll.push(row)
-      }
-      await params.onEmployeeIterated?.()
-    }
+    await this.appendIncidentPayrollRowsForEmployees(resultEmployes.all(), {
+      filterDate: params.filterDate,
+      filterDateEnd: params.filterDateEnd,
+      filterDatePay: params.filterDatePay,
+      syncAssistsService: params.syncAssistsService,
+      tardies: params.tardies,
+      toleranceCountPerAbsences: params.toleranceCountPerAbsences,
+      rowsIncidentPayroll: params.rowsIncidentPayroll,
+      page: params.page,
+      limit: params.limit,
+      onEmployeeIterated: params.onEmployeeIterated,
+    })
   }
 
   async addTitleIncidentPayrollToWorkSheet(
