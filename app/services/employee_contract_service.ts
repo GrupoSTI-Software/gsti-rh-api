@@ -101,7 +101,7 @@ export default class EmployeeContractService {
       }
     }
     const existDepartment =
-      employeeContract.departmentId !== null
+      employeeContract.departmentId !== null && employeeContract.departmentId !== undefined
         ? await Department.query()
             .whereNull('department_deleted_at')
             .where('department_id', employeeContract.departmentId)
@@ -118,7 +118,7 @@ export default class EmployeeContractService {
       }
     }
     const existPosition =
-      employeeContract.positionId !== null
+      employeeContract.positionId !== null && employeeContract.positionId !== undefined
         ? await Position.query()
             .whereNull('position_deleted_at')
             .where('position_id', employeeContract.positionId)
