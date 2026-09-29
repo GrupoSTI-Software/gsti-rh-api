@@ -6,6 +6,7 @@ import Department from '#models/department'
 import Position from '#models/position'
 import { DateTime } from 'luxon'
 import BusinessUnit from '#models/business_unit'
+import EmployeeStructureService from '#services/employee_structure_service'
 
 export default class EmployeeContractService {
   async create(employeeContract: EmployeeContract) {
@@ -40,8 +41,8 @@ export default class EmployeeContractService {
     currentEmployeeContract.employeeContractFile = employeeContract.employeeContractFile
     currentEmployeeContract.employeeContractTypeId = employeeContract.employeeContractTypeId
     currentEmployeeContract.employeeId = employeeContract.employeeId
-    currentEmployeeContract.departmentId = employeeContract.departmentId
-    currentEmployeeContract.positionId = employeeContract.positionId
+    if ('departmentId' in employeeContract) currentEmployeeContract.departmentId = employeeContract.departmentId ?? null
+    if ('positionId' in employeeContract) currentEmployeeContract.positionId = employeeContract.positionId ?? null
     currentEmployeeContract.payrollBusinessUnitId = employeeContract.payrollBusinessUnitId
     currentEmployeeContract.employeeContractActive = employeeContract.employeeContractActive
     await currentEmployeeContract.save()
@@ -212,8 +213,8 @@ export default class EmployeeContractService {
     
   }
 
-  async setDepartmentAndPositionFromLastContract(employeeContract: EmployeeContract) {
-    const firstEmployeeContract = await EmployeeContract.query()
+  async setDepartmentAndPositionFromLastContract(employeeContract: EmployeeContract): Promise<void> {
+    const lastEmployeeContract = await EmployeeContract.query()
       .whereNull('employee_contract_deleted_at')
       .where('employee_id', employeeContract.employeeId)
       .orderBy('employeeContractStartDate', 'desc')
@@ -222,35 +223,36 @@ export default class EmployeeContractService {
       .whereNull('employee_deleted_at')
       .where('employee_id', employeeContract.employeeId)
       .first()
-    if (employee) {
-      if (firstEmployeeContract) {
-        employee.departmentId = firstEmployeeContract.departmentId
-        employee.positionId = firstEmployeeContract.positionId
-        await employee.save()
-      } else {
-        const department = await Department.query()
-          .whereNull('department_deleted_at')
-          .where('department_name', 'Sin departamento')
-          .first()
-        if (department) {
-          employee.departmentId = department.departmentId
-        } else {
-          employee.departmentId = null
-        }
-        const position = await Position.query()
-          .whereNull('position_deleted_at')
-          .where('position_name', 'Sin posición')
-          .first()
-        if (position) {
-          employee.positionId = position.positionId
-        } else {
-          employee.positionId = null
-        }
-        
-       
-        await employee.save()
-      }
+
+    // Regla 4: sin empleado o sin contratos vivos no se toca nada (ni NULL ni relleno).
+    if (!employee || !lastEmployeeContract) return
+
+    // Regla 3: solo lo que el contrato trae, vivo y de la empresa DEL EMPLEADO.
+    // Una llamada por campo: el otro va en null para que no se verifique.
+    const structureService = new EmployeeStructureService()
+    const { departmentId, positionId } = lastEmployeeContract
+    if (departmentId !== null && departmentId !== employee.departmentId) {
+      const verification = await structureService.verifyAssignable({
+        departmentId,
+        positionId: null,
+        businessUnitId: employee.businessUnitId,
+        departmentIdToVerify: departmentId,
+        positionIdToVerify: null,
+      })
+      if (verification.ok) employee.departmentId = departmentId
     }
+    if (positionId !== null && positionId !== employee.positionId) {
+      const verification = await structureService.verifyAssignable({
+        departmentId: null,
+        positionId,
+        businessUnitId: employee.businessUnitId,
+        departmentIdToVerify: null,
+        positionIdToVerify: positionId,
+      })
+      if (verification.ok) employee.positionId = positionId
+    }
+
+    if (employee.$isDirty) await employee.save()
   }
 
   async setPayrollBusinessUnitFromLastContract(employeeContract: EmployeeContract) {
