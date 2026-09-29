@@ -150,11 +150,27 @@ Headers: `Authorization: Bearer <token de A>`, `X-Business-Unit-Id: <identificad
 Confirmación de las consecuencias (una por una):
 
 1. El contrato quedó sin asignar en la base. Consulta SQL:
-   `SELECT d.department_code, p.position_code FROM employee_contracts c LEFT JOIN departments d ON d.department_id = c.department_id LEFT JOIN positions p ON p.position_id = c.position_id WHERE c.employee_contract_folio = 'QA-CON-01-ALTA';`
+
+   ```sql
+   SELECT d.department_code, p.position_code
+   FROM employee_contracts c
+   LEFT JOIN departments d ON d.department_id = c.department_id
+   LEFT JOIN positions p ON p.position_id = c.position_id
+   WHERE c.employee_contract_folio = 'QA-CON-01-ALTA';
+   ```
+
    Resultado: 1 fila con `NULL` y `NULL`.
 
 2. El colaborador no cambió. Consulta SQL:
-   `SELECT d.department_code, p.position_code FROM employees e LEFT JOIN departments d ON d.department_id = e.department_id LEFT JOIN positions p ON p.position_id = e.position_id WHERE e.employee_payroll_code = 'QA-CON-01';`
+
+   ```sql
+   SELECT d.department_code, p.position_code
+   FROM employees e
+   LEFT JOIN departments d ON d.department_id = e.department_id
+   LEFT JOIN positions p ON p.position_id = e.position_id
+   WHERE e.employee_payroll_code = 'QA-CON-01';
+   ```
+
    Resultado: 1 fila con `QA-CON-DA1` y `QA-CON-PA1`.
 
 Qué significa cada dato:
@@ -212,7 +228,15 @@ Usuario: **A**. Colaborador: `QA-CON-02`.
 ```
 
 Confirmación del paso 1: al ser el contrato más reciente, con estructura vigente y de su empresa, el colaborador la toma. Consulta SQL:
-`SELECT d.department_code, p.position_code FROM employees e LEFT JOIN departments d ON d.department_id = e.department_id LEFT JOIN positions p ON p.position_id = e.position_id WHERE e.employee_payroll_code = 'QA-CON-02';`
+
+```sql
+SELECT d.department_code, p.position_code
+FROM employees e
+LEFT JOIN departments d ON d.department_id = e.department_id
+LEFT JOIN positions p ON p.position_id = e.position_id
+WHERE e.employee_payroll_code = 'QA-CON-02';
+```
+
 Resultado: 1 fila con `QA-CON-DA2` y `QA-CON-PA2`.
 
 El identificador del contrato para el paso 2:
@@ -261,11 +285,27 @@ SELECT employee_contract_id FROM employee_contracts WHERE employee_contract_foli
 Confirmación de las consecuencias del paso 2:
 
 1. El contrato quedó sin asignar. Consulta SQL:
-   `SELECT d.department_code, p.position_code FROM employee_contracts c LEFT JOIN departments d ON d.department_id = c.department_id LEFT JOIN positions p ON p.position_id = c.position_id WHERE c.employee_contract_folio = 'QA-CON-02-CONTRATO';`
+
+   ```sql
+   SELECT d.department_code, p.position_code
+   FROM employee_contracts c
+   LEFT JOIN departments d ON d.department_id = c.department_id
+   LEFT JOIN positions p ON p.position_id = c.position_id
+   WHERE c.employee_contract_folio = 'QA-CON-02-CONTRATO';
+   ```
+
    Resultado: 1 fila con `NULL` y `NULL`.
 
 2. El colaborador conserva lo suyo. Consulta SQL:
-   `SELECT d.department_code, p.position_code FROM employees e LEFT JOIN departments d ON d.department_id = e.department_id LEFT JOIN positions p ON p.position_id = e.position_id WHERE e.employee_payroll_code = 'QA-CON-02';`
+
+   ```sql
+   SELECT d.department_code, p.position_code
+   FROM employees e
+   LEFT JOIN departments d ON d.department_id = e.department_id
+   LEFT JOIN positions p ON p.position_id = e.position_id
+   WHERE e.employee_payroll_code = 'QA-CON-02';
+   ```
+
    Resultado: 1 fila con `QA-CON-DA2` y `QA-CON-PA2` (no se vacía ni vuelve a `QA-CON-DA1`).
 
 Qué significa lo nuevo aquí:
@@ -344,7 +384,15 @@ SELECT employee_contract_id FROM employee_contracts WHERE employee_contract_foli
 Confirmación de las consecuencias:
 
 1. La edición sí se aplicó y la estructura se conservó. Consulta SQL:
-   `SELECT c.employee_contract_monthly_net_salary, d.department_code, p.position_code FROM employee_contracts c LEFT JOIN departments d ON d.department_id = c.department_id LEFT JOIN positions p ON p.position_id = c.position_id WHERE c.employee_contract_folio = 'QA-CON-03-CONTRATO';`
+
+   ```sql
+   SELECT c.employee_contract_monthly_net_salary, d.department_code, p.position_code
+   FROM employee_contracts c
+   LEFT JOIN departments d ON d.department_id = c.department_id
+   LEFT JOIN positions p ON p.position_id = c.position_id
+   WHERE c.employee_contract_folio = 'QA-CON-03-CONTRATO';
+   ```
+
    Resultado: 1 fila con sueldo `12345` (puede verse como `12345.00`), `QA-CON-DA2` y `QA-CON-PA2`.
 
 Qué significa lo nuevo aquí:
@@ -384,7 +432,15 @@ Resultado: 1 fila con `QA-CON-DBAJA` y `1` (sí está dado de baja).
 ```
 
 **Response exacto:** `201` (datos ya explicados en el Escenario 1). El colaborador pasa a `QA-CON-DA2` / `QA-CON-PA2`; compruébalo con:
-`SELECT d.department_code, p.position_code FROM employees e LEFT JOIN departments d ON d.department_id = e.department_id LEFT JOIN positions p ON p.position_id = e.position_id WHERE e.employee_payroll_code = 'QA-CON-04';`
+
+```sql
+SELECT d.department_code, p.position_code
+FROM employees e
+LEFT JOIN departments d ON d.department_id = e.department_id
+LEFT JOIN positions p ON p.position_id = e.position_id
+WHERE e.employee_payroll_code = 'QA-CON-04';
+```
+
 Resultado: 1 fila con `QA-CON-DA2` y `QA-CON-PA2`.
 
 El identificador del contrato para el paso 2:
@@ -417,11 +473,26 @@ SELECT employee_contract_id FROM employee_contracts WHERE employee_contract_foli
 Confirmación de las consecuencias:
 
 1. El contrato reciente ya no está vigente. Consulta SQL:
-   `SELECT employee_contract_folio FROM employee_contracts WHERE employee_id = <id de QA-CON-04> AND employee_contract_deleted_at IS NULL;`
+
+   ```sql
+   SELECT employee_contract_folio
+   FROM employee_contracts
+   WHERE employee_id = <id de QA-CON-04>
+     AND employee_contract_deleted_at IS NULL;
+   ```
+
    Resultado: 1 fila con `QA-CON-04-ANTIGUO` (el reciente ya no aparece).
 
 2. El colaborador no recibió el departamento dado de baja. Consulta SQL:
-   `SELECT d.department_code, p.position_code FROM employees e LEFT JOIN departments d ON d.department_id = e.department_id LEFT JOIN positions p ON p.position_id = e.position_id WHERE e.employee_payroll_code = 'QA-CON-04';`
+
+   ```sql
+   SELECT d.department_code, p.position_code
+   FROM employees e
+   LEFT JOIN departments d ON d.department_id = e.department_id
+   LEFT JOIN positions p ON p.position_id = e.position_id
+   WHERE e.employee_payroll_code = 'QA-CON-04';
+   ```
+
    Resultado: 1 fila con `QA-CON-DA2` y `QA-CON-PA2` (no `QA-CON-DBAJA`).
 
 Qué significa lo nuevo aquí:
@@ -496,11 +567,25 @@ Usuario: **A**. Colaborador: `QA-CON-05`, que ya trae el contrato antiguo `QA-CO
 Confirmación de las consecuencias de los pasos 1 y 2 (una por una):
 
 1. No se guardó ningún contrato. Consulta SQL:
-   `SELECT employee_contract_folio FROM employee_contracts WHERE employee_contract_folio = 'QA-CON-05-RECHAZADO';`
+
+   ```sql
+   SELECT employee_contract_folio
+   FROM employee_contracts
+   WHERE employee_contract_folio = 'QA-CON-05-RECHAZADO';
+   ```
+
    Resultado: 0 filas.
 
 2. El colaborador no cambió. Consulta SQL:
-   `SELECT d.department_code, p.position_code FROM employees e LEFT JOIN departments d ON d.department_id = e.department_id LEFT JOIN positions p ON p.position_id = e.position_id WHERE e.employee_payroll_code = 'QA-CON-05';`
+
+   ```sql
+   SELECT d.department_code, p.position_code
+   FROM employees e
+   LEFT JOIN departments d ON d.department_id = e.department_id
+   LEFT JOIN positions p ON p.position_id = e.position_id
+   WHERE e.employee_payroll_code = 'QA-CON-05';
+   ```
+
    Resultado: 1 fila con `QA-CON-DA1` y `QA-CON-PA1`.
 
 **Paso 3 — Alta de un contrato más reciente con estructura de la empresa de prueba.**
@@ -539,7 +624,15 @@ SELECT employee_contract_id FROM employee_contracts WHERE employee_contract_foli
 Confirmación de la consecuencia del paso 4:
 
 1. El colaborador no recibió la estructura de la empresa ajena. Consulta SQL:
-   `SELECT d.department_code, p.position_code FROM employees e LEFT JOIN departments d ON d.department_id = e.department_id LEFT JOIN positions p ON p.position_id = e.position_id WHERE e.employee_payroll_code = 'QA-CON-05';`
+
+   ```sql
+   SELECT d.department_code, p.position_code
+   FROM employees e
+   LEFT JOIN departments d ON d.department_id = e.department_id
+   LEFT JOIN positions p ON p.position_id = e.position_id
+   WHERE e.employee_payroll_code = 'QA-CON-05';
+   ```
+
    Resultado: 1 fila con `QA-CON-DA2` y `QA-CON-PA2` (no `QA-CON-DB1` ni `QA-CON-PB1`).
 
 Qué significa lo nuevo aquí:
@@ -590,11 +683,26 @@ SELECT employee_contract_id FROM employee_contracts WHERE employee_contract_foli
 Confirmación de las consecuencias:
 
 1. No queda ningún contrato vigente. Consulta SQL:
-   `SELECT COUNT(*) AS vigentes FROM employee_contracts WHERE employee_id = <id de QA-CON-06> AND employee_contract_deleted_at IS NULL;`
+
+   ```sql
+   SELECT COUNT(*) AS vigentes
+   FROM employee_contracts
+   WHERE employee_id = <id de QA-CON-06>
+     AND employee_contract_deleted_at IS NULL;
+   ```
+
    Resultado: `0`.
 
 2. El colaborador conserva su estructura. Consulta SQL:
-   `SELECT d.department_code, p.position_code FROM employees e LEFT JOIN departments d ON d.department_id = e.department_id LEFT JOIN positions p ON p.position_id = e.position_id WHERE e.employee_payroll_code = 'QA-CON-06';`
+
+   ```sql
+   SELECT d.department_code, p.position_code
+   FROM employees e
+   LEFT JOIN departments d ON d.department_id = e.department_id
+   LEFT JOIN positions p ON p.position_id = e.position_id
+   WHERE e.employee_payroll_code = 'QA-CON-06';
+   ```
+
    Resultado: 1 fila con `QA-CON-DA2` y `QA-CON-PA2` (ni `NULL` ni un departamento de relleno).
 
 (Los datos son los ya explicados en los Escenarios 1 y 4.)
@@ -646,7 +754,13 @@ Usuario: **A**. Colaborador: `QA-CON-07`, que ya trae el contrato `QA-CON-07-BAS
 ```
 
 Confirmación: no se guardó nada. Consulta SQL:
-`SELECT employee_contract_folio FROM employee_contracts WHERE employee_contract_folio = 'QA-CON-07-ALTA';`
+
+```sql
+SELECT employee_contract_folio
+FROM employee_contracts
+WHERE employee_contract_folio = 'QA-CON-07-ALTA';
+```
+
 Resultado: 0 filas.
 
 **Paso 2 — Edición con `departmentId: 0`.** Primero resuelve el identificador del contrato sembrado:
@@ -676,11 +790,27 @@ SELECT employee_contract_id FROM employee_contracts WHERE employee_contract_foli
 Confirmación de las consecuencias del paso 2:
 
 1. El contrato no cambió. Consulta SQL:
-   `SELECT c.employee_contract_monthly_net_salary, d.department_code, p.position_code FROM employee_contracts c LEFT JOIN departments d ON d.department_id = c.department_id LEFT JOIN positions p ON p.position_id = c.position_id WHERE c.employee_contract_folio = 'QA-CON-07-BASE';`
+
+   ```sql
+   SELECT c.employee_contract_monthly_net_salary, d.department_code, p.position_code
+   FROM employee_contracts c
+   LEFT JOIN departments d ON d.department_id = c.department_id
+   LEFT JOIN positions p ON p.position_id = c.position_id
+   WHERE c.employee_contract_folio = 'QA-CON-07-BASE';
+   ```
+
    Resultado: 1 fila con sueldo `10000` (puede verse como `10000.00`, no `55555`), `QA-CON-DA2` y `QA-CON-PA2`.
 
 2. El colaborador no cambió. Consulta SQL:
-   `SELECT d.department_code, p.position_code FROM employees e LEFT JOIN departments d ON d.department_id = e.department_id LEFT JOIN positions p ON p.position_id = e.position_id WHERE e.employee_payroll_code = 'QA-CON-07';`
+
+   ```sql
+   SELECT d.department_code, p.position_code
+   FROM employees e
+   LEFT JOIN departments d ON d.department_id = e.department_id
+   LEFT JOIN positions p ON p.position_id = e.position_id
+   WHERE e.employee_payroll_code = 'QA-CON-07';
+   ```
+
    Resultado: 1 fila con `QA-CON-DA1` y `QA-CON-PA1`.
 
 Qué significa lo nuevo aquí:
@@ -763,7 +893,14 @@ Qué produce la fila: la fila 2 crea un colaborador nuevo, sin departamento y si
 Confirmación de la consecuencia:
 
 1. El colaborador quedó sin asignar y no en «Sin departamento». Consulta SQL:
-   `SELECT e.department_id, e.position_id, d.department_name FROM employees e LEFT JOIN departments d ON d.department_id = e.department_id WHERE e.employee_payroll_code = 'QA-CON-IMP-<fecha-hora>-A';`
+
+   ```sql
+   SELECT e.department_id, e.position_id, d.department_name
+   FROM employees e
+   LEFT JOIN departments d ON d.department_id = e.department_id
+   WHERE e.employee_payroll_code = 'QA-CON-IMP-<fecha-hora>-A';
+   ```
+
    Resultado: 1 fila con `NULL`, `NULL` y `NULL`.
 
 Qué significa cada dato:
@@ -826,7 +963,15 @@ Qué produce la fila: la fila 2 crea un colaborador nuevo en el departamento `QA
 Confirmación de la consecuencia:
 
 1. El colaborador quedó en `QA-CON-DA2` y sin puesto. Consulta SQL:
-   `SELECT d.department_code, p.position_code FROM employees e LEFT JOIN departments d ON d.department_id = e.department_id LEFT JOIN positions p ON p.position_id = e.position_id WHERE e.employee_payroll_code = 'QA-CON-IMP-<fecha-hora>-B';`
+
+   ```sql
+   SELECT d.department_code, p.position_code
+   FROM employees e
+   LEFT JOIN departments d ON d.department_id = e.department_id
+   LEFT JOIN positions p ON p.position_id = e.position_id
+   WHERE e.employee_payroll_code = 'QA-CON-IMP-<fecha-hora>-B';
+   ```
+
    Resultado: 1 fila con `QA-CON-DA2` y `NULL`.
 
 ### Escenario 10 — Reimportar a un colaborador existente con las celdas vacías conserva su estructura
@@ -874,7 +1019,15 @@ Qué produce la fila: la fila 2, al traer `ID Empleado`, actualiza a `QA-CON-10`
 Confirmación de la consecuencia:
 
 1. El colaborador conserva su estructura. Consulta SQL:
-   `SELECT d.department_code, p.position_code FROM employees e LEFT JOIN departments d ON d.department_id = e.department_id LEFT JOIN positions p ON p.position_id = e.position_id WHERE e.employee_payroll_code = 'QA-CON-10';`
+
+   ```sql
+   SELECT d.department_code, p.position_code
+   FROM employees e
+   LEFT JOIN departments d ON d.department_id = e.department_id
+   LEFT JOIN positions p ON p.position_id = e.position_id
+   WHERE e.employee_payroll_code = 'QA-CON-10';
+   ```
+
    Resultado: 1 fila con `QA-CON-DA1` y `QA-CON-PA1`.
 
 ## 4. Lo que no se revisa aquí
@@ -884,13 +1037,13 @@ Confirmación de la consecuencia:
 
 ## 5. Checklist
 
-- [ ] Escenario 1: contrato sin departamento ni puesto se guarda sin asignar y `QA-CON-01` conserva `QA-CON-DA1` / `QA-CON-PA1`
-- [ ] Escenario 2: editar con `null` deja el contrato sin asignar y `QA-CON-02` conserva `QA-CON-DA2` / `QA-CON-PA2`
-- [ ] Escenario 3: editar sin mandar las llaves conserva `QA-CON-DA2` / `QA-CON-PA2` en el contrato de `QA-CON-03` y aplica el nuevo sueldo
-- [ ] Escenario 4: al borrar el contrato reciente de `QA-CON-04`, no recibe el departamento dado de baja
-- [ ] Escenario 5: departamento y puesto de otra empresa dan `400` sin guardar nada, y `QA-CON-05` no recibe la estructura ajena de su contrato antiguo
-- [ ] Escenario 6: al borrar su único contrato, `QA-CON-06` conserva `QA-CON-DA2` / `QA-CON-PA2`
-- [ ] Escenario 7: `departmentId: 0` da `422` con `EMP.CONTRACT.VAL_INPUT` en el alta y en la edición, sin guardar ni modificar nada
-- [ ] Escenario 8: fila nueva con celdas vacías crea al colaborador sin asignar, no en «Sin departamento»
-- [ ] Escenario 9: fila nueva con el nombre exacto de `QA Contrato Depto A2` deja al colaborador en `QA-CON-DA2`
-- [ ] Escenario 10: reimportar a `QA-CON-10` con celdas vacías conserva `QA-CON-DA1` / `QA-CON-PA1`
+- [x] Escenario 1: contrato sin departamento ni puesto se guarda sin asignar y `QA-CON-01` conserva `QA-CON-DA1` / `QA-CON-PA1`
+- [x] Escenario 2: editar con `null` deja el contrato sin asignar y `QA-CON-02` conserva `QA-CON-DA2` / `QA-CON-PA2`
+- [x] Escenario 3: editar sin mandar las llaves conserva `QA-CON-DA2` / `QA-CON-PA2` en el contrato de `QA-CON-03` y aplica el nuevo sueldo
+- [x] Escenario 4: al borrar el contrato reciente de `QA-CON-04`, no recibe el departamento dado de baja
+- [x] Escenario 5: departamento y puesto de otra empresa dan `400` sin guardar nada, y `QA-CON-05` no recibe la estructura ajena de su contrato antiguo
+- [x] Escenario 6: al borrar su único contrato, `QA-CON-06` conserva `QA-CON-DA2` / `QA-CON-PA2`
+- [x] Escenario 7: `departmentId: 0` da `422` con `EMP.CONTRACT.VAL_INPUT` en el alta y en la edición, sin guardar ni modificar nada
+- [x] Escenario 8: fila nueva con celdas vacías crea al colaborador sin asignar, no en «Sin departamento»
+- [x] Escenario 9: fila nueva con el nombre exacto de `QA Contrato Depto A2` deja al colaborador en `QA-CON-DA2`
+- [x] Escenario 10: reimportar a `QA-CON-10` con celdas vacías conserva `QA-CON-DA1` / `QA-CON-PA1`
