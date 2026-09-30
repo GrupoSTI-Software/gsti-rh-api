@@ -634,19 +634,19 @@ SET d.legal_document_is_current = (d.legal_document_id = r.id_real);
 
 ## 5. Checklist
 
-- [ ] Escenario 1: una persona sin cuenta recibe los Términos y Condiciones en español con solo cuatro datos y con la instrucción de guardarse solo en su navegador (`200`, `Cache-Control: private, max-age=300`, `Vary` con `Origin`)
-- [ ] Escenario 2: pidiendo inglés, el texto y los mensajes salen en inglés con la misma forma de entrega
-- [ ] Escenario 3: quien no dice el idioma, o lo deja vacío, recibe español y no un error
-- [ ] Escenario 4: si la versión no tiene el idioma pedido (Aviso en inglés), se entrega el español
-- [ ] Escenario 5: lo guardado está sucio y lo entregado sale limpio, con todo enlace marcado con `rel="noopener noreferrer"`
-- [ ] Escenario 6: el consentimiento biométrico y un documento inexistente dan el mismo `422` (`LGDOC.VAL.001`) con cuerpo idéntico, sin revelar si existe
-- [ ] Escenario 7: una consulta sin `type` recibe un `422` que le dice qué documentos puede pedir
-- [ ] Escenario 8: un idioma inexistente recibe `422` de idioma (`LGDOC.PUBLIC.001`), y con documento e idioma mal pedidos gana el aviso del documento
-- [ ] Escenario 9: el rechazo trae `Cache-Control: no-store` para que el navegador no lo guarde
-- [ ] Escenario 10: el idioma declarado por el navegador (`Accept-Language`) no cambia lo entregado
-- [ ] Escenario 11: un sitio autorizado recibe el permiso de lectura (`Access-Control-Allow-Origin` con su sitio)
-- [ ] Escenario 12: un sitio no autorizado no recibe ese permiso
-- [ ] Escenario 13: sin versión vigente se recibe `404` (`LGDOC.NF.001`) con `no-store`, y la vigencia quedó restaurada
-- [ ] Escenario 14: al cambiar la vigente, la consulta siguiente ya trae la versión nueva, y la vigencia quedó restaurada
-- [ ] Escenario 15: pasado el límite de 60 por minuto se recibe `429` (`LGDOC.PUBLIC.002`) con `retryAfterSeconds`, `no-store` y las cabeceras de espera, y tras esperar se vuelve a ser atendido
-- [ ] Limpieza: las versiones reales volvieron a ser las vigentes y las tres versiones `QA-LEGAL` quedaron sin vigencia
+- [x] Escenario 1: una persona sin cuenta recibe los Términos y Condiciones en español con solo cuatro datos y con la instrucción de guardarse solo en su navegador (`200`, `Cache-Control: private, max-age=300`, `Vary` con `Origin`)
+- [x] Escenario 2: pidiendo inglés, el texto y los mensajes salen en inglés con la misma forma de entrega
+- [x] Escenario 3: quien no dice el idioma, o lo deja vacío, recibe español y no un error
+- [x] Escenario 4: si la versión no tiene el idioma pedido (Aviso en inglés), se entrega el español
+- [x] Escenario 5: lo guardado está sucio y lo entregado sale limpio, con todo enlace marcado con `rel="noopener noreferrer"`
+- [x] Escenario 6: el consentimiento biométrico y un documento inexistente dan el mismo `422` (`LGDOC.VAL.001`) con cuerpo idéntico, sin revelar si existe
+- [x] Escenario 7: una consulta sin `type` recibe un `422` que le dice qué documentos puede pedir
+- [x] Escenario 8: un idioma inexistente recibe `422` de idioma (`LGDOC.PUBLIC.001`), y con documento e idioma mal pedidos gana el aviso del documento
+- [x] Escenario 9: el rechazo trae `Cache-Control: no-store` para que el navegador no lo guarde
+- [x] Escenario 10: el idioma declarado por el navegador (`Accept-Language`) no cambia lo entregado
+- [x] Escenario 11: un sitio autorizado recibe el permiso de lectura (`Access-Control-Allow-Origin` con su sitio)
+- [x] Escenario 12: un sitio no autorizado no recibe ese permiso
+- [x] Escenario 13: sin versión vigente se recibe `404` (`LGDOC.NF.001`) con `no-store`, y la vigencia quedó restaurada
+- [x] Escenario 14: al cambiar la vigente, la consulta siguiente ya trae la versión nueva, y la vigencia quedó restaurada
+- [x] Escenario 15: pasado el límite de 60 por minuto se recibe `429` (`LGDOC.PUBLIC.002`) con `retryAfterSeconds`, `no-store` y las cabeceras de espera, y tras esperar se vuelve a ser atendido
+- [x] Limpieza: las versiones reales volvieron a ser las vigentes y las tres versiones `QA-LEGAL` quedaron sin vigencia
