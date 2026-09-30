@@ -50,6 +50,7 @@ test.group('sanitize_legal_document_content | HTML legítimo de Quill', () => {
     assert.include(result, '<blockquote>')
     assert.include(result, '<span style="color:#ff0000">')
     assert.include(result, 'href="https://valanserh.com"')
+    assert.include(result, 'target="_blank"')
     assert.include(result, 'href="https://example.com"')
   })
 

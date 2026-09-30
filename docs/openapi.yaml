@@ -12707,6 +12707,18 @@ paths:
           headers:
             Cache-Control:
               schema: { type: string, example: no-store }
+            Retry-After:
+              schema: { type: integer }
+              description: Segundos que hay que esperar antes de volver a consultar.
+            X-RateLimit-Limit:
+              schema: { type: integer }
+              description: Consultas permitidas por minuto para esta dirección.
+            X-RateLimit-Remaining:
+              schema: { type: integer }
+              description: Consultas que quedan en la ventana actual de un minuto.
+            X-RateLimit-Reset:
+              schema: { type: string }
+              description: Fecha y hora en que se libera el límite, en hora universal.
           content:
             application/json:
               schema:

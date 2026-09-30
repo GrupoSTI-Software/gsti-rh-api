@@ -538,7 +538,7 @@ test.group('GET /api/public/legal-documents/current - límite por IP (CA-8, CA-1
     assert.isNumber(retryAfterSeconds)
     assert.isAbove(retryAfterSeconds, 0)
 
-    assert.exists(blocked.header('retry-after'))
+    assert.equal(Number(blocked.header('retry-after')), retryAfterSeconds)
     assert.equal(blocked.header('x-ratelimit-limit'), '60')
     assert.equal(blocked.header('x-ratelimit-remaining'), '0')
     assert.exists(blocked.header('x-ratelimit-reset'))

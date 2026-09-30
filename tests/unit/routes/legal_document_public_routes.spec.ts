@@ -18,10 +18,8 @@ test.group('LegalDocument public — tabla de rutas (CA-16)', () => {
 
     const routeDeclarations = content.match(/\.\s*(get|post|put|patch|delete)\(/g) ?? []
     assert.lengthOf(routeDeclarations, 1)
-    assert.include(
-      content,
-      "router\n      .get('/current', '#modules/legal-documents/legal_document_public.controller.current')"
-    )
+    assert.include(content, ".get('/current'")
+    assert.include(content, 'legal_document_public.controller.current')
   })
 
   test('la ruta cuelga del prefijo /api/public/legal-documents', ({ assert }) => {
