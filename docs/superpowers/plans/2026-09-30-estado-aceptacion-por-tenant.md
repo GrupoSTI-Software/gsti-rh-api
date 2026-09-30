@@ -640,9 +640,9 @@ git commit -m "test: Cubrir acceso exclusivo de plataforma al listado"
 En `_tmp_do_not_commit_qa_seeder.ts` (agregar una línea al docblock de historia del encabezado), sembrar con **fechas fijas** para que los responses del manual sean literales:
 
 - Usuarios (`qa-aceptacion-<variante>@gsti-tests.local`, password `password`): `qa-aceptacion-plataforma` (plataforma, entra por el login de consola), `qa-aceptacion-owner-bo` (owner de un tenant, entra por el login del BO), `qa-aceptacion-plataforma-bo` (`isPlatformAdmin` que entra por el login del BO).
-- Tres tenants con nombre único y reconocible: `QA Aceptación Al Día`, `QA Aceptación Pendiente`, `QA Aceptación Nunca` — el prefijo `QA Aceptación` es la seña para distinguirlos de los datos de otras historias que comparten la base.
+- Tres tenants con nombre único y reconocible: `QA Aceptacion Al Dia`, `QA Aceptacion Pendiente`, `QA Aceptacion Nunca` — el prefijo `QA Aceptacion` es la seña para distinguirlos de los datos de otras historias que comparten la base. Nombres sin acentos: los valores de dato se comparan con SQL literal y el acento viaja mal entre clientes mysql con charsets distintos.
 - Documentos legales: Términos v1.0 (deja de ser vigente) y v2.0 (vigente, `published`, con `publishedAt` fija), Aviso v1.0 (vigente, `published`, fecha fija).
-- Owner + membresía por tenant; aceptaciones con `userConsentAcceptedAt` fijas: el owner de `Al Día` aceptó v2.0 del Aviso y de Términos; el de `Pendiente` aceptó solo Términos v1.0; el de `Nunca`, ninguna. Uno de los tres tenants lleva perfil fiscal con RFC fijo válido (para el escenario de búsqueda por RFC vía blind index).
+- Owner + membresía por tenant; aceptaciones con `userConsentAcceptedAt` fijas: el owner de `Al Dia` aceptó v2.0 del Aviso y de Términos; el de `Pendiente` aceptó solo Términos v1.0; el de `Nunca`, ninguna. Uno de los tres tenants lleva perfil fiscal con RFC fijo válido (para el escenario de búsqueda por RFC vía blind index).
 - Idempotente: si se vuelve a correr, deja el estado sembrado de nuevo.
 
 - [ ] **Step 2: Correr el seeder y cotejar los cuerpos literales**
@@ -655,7 +655,7 @@ Expected: salida del seeder sin errores; los tres tenants y los tres usuarios ex
 Estructura obligatoria:
 
 1. **Problema / Solución / Ejemplo** (dos párrafos + una línea `Ejemplo:` en lenguaje cotidiano) + **glosario** de términos de negocio (`tenant`, `propietario de la cuenta`, `versión vigente`, `pendiente de volver a aceptar`).
-2. **Preparar**: el único comando del seeder + tabla de usuarios con la variante de cada uno + aclaración de que la pantalla puede traer datos de otras historias y la seña para reconocer los propios (prefijo `QA Aceptación`). Sin interruptores globales → no hay paso de limpieza (decirlo).
+2. **Preparar**: el único comando del seeder + tabla de usuarios con la variante de cada uno + aclaración de que la pantalla puede traer datos de otras historias y la seña para reconocer los propios (prefijo `QA Aceptacion`). Sin interruptores globales → no hay paso de limpieza (decirlo).
 3. **Un escenario por variante**, cada uno abriendo con su `Objetivo:` (qué se comprueba, en lenguaje de negocio, sin repetir literal el del otro) y luego endpoint + response exacto:
    - Lista completa → 200 con los tres tenants en su estado (`al-dia`, `pendiente`, `nunca`), `currentVersions` y `meta`.
    - Filtro `status=pendiente` → solo los pendientes; filtro `status=al-dia` → solo los al día.

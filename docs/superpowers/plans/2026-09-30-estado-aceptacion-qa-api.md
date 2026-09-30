@@ -44,12 +44,12 @@ node ace db:seed --files=database/seeders/_tmp_do_not_commit_qa_seeder.ts
 
 Volver a correrlo deja todo otra vez como al inicio (las aceptaciones se rehacen con sus fechas fijas).
 
-Deja tres empresas —**`QA Aceptación Al Día`**, **`QA Aceptación Pendiente`** y **`QA Aceptación Nunca`**—, los tres documentos de abajo y cinco usuarios.
+Deja tres empresas —**`QA Aceptacion Al Dia`**, **`QA Aceptacion Pendiente`** y **`QA Aceptacion Nunca`**—, los tres documentos de abajo y cinco usuarios.
 
 | | Correo | Contraseña | Variante |
 |---|---|---|---|
 | **A** | `qa-aceptacion-plataforma@gsti-tests.local` | `password` | Administrador de plataforma que entra por la **consola**: el único que puede leer el listado |
-| **B** | `qa-aceptacion-owner-bo@gsti-tests.local` | `password` | Cuenta propietaria de `QA Aceptación Pendiente`; entra por el **backoffice** |
+| **B** | `qa-aceptacion-owner-bo@gsti-tests.local` | `password` | Cuenta propietaria de `QA Aceptacion Pendiente`; entra por el **backoffice** |
 | **C** | `qa-aceptacion-plataforma-bo@gsti-tests.local` | `password` | Administrador de plataforma que entra por el **backoffice** (no por la consola) |
 | — | `qa-aceptacion-owner-aldia@gsti-tests.local`, `qa-aceptacion-owner-nunca@gsti-tests.local` | `password` | Cuentas propietarias de las otras dos empresas; sostienen sus estados y no se usan para iniciar sesión en este manual |
 
@@ -65,24 +65,24 @@ Qué aceptó la cuenta propietaria de cada empresa:
 
 | Empresa | Términos | Aviso |
 |---|---|---|
-| `QA Aceptación Al Día` | `QA-ACEP-T2.0`, el 2026-09-02 09:30 | `QA-ACEP-P1.0`, el 2026-09-05 10:00 |
-| `QA Aceptación Pendiente` | `QA-ACEP-T1.0`, el 2026-03-10 09:15 (la vigente es la v2.0) | nada |
-| `QA Aceptación Nunca` | nada | nada |
+| `QA Aceptacion Al Dia` | `QA-ACEP-T2.0`, el 2026-09-02 09:30 | `QA-ACEP-P1.0`, el 2026-09-05 10:00 |
+| `QA Aceptacion Pendiente` | `QA-ACEP-T1.0`, el 2026-03-10 09:15 (la vigente es la v2.0) | nada |
+| `QA Aceptacion Nunca` | nada | nada |
 
-`QA Aceptación Al Día` tiene además un perfil fiscal con el RFC `XAXX010101000` (para el Escenario 3).
+`QA Aceptacion Al Dia` tiene además un perfil fiscal con el RFC `XAXX010101000` (para el Escenario 3).
 
-**La base trae empresas de otras historias.** El listado sin filtro de búsqueda también trae a todas las empresas de pruebas de otras historias (decenas), cuyo estado no depende de este manual. La seña para reconocer las propias es el prefijo **`QA Aceptación`**: por eso los escenarios 1 a 4 lo usan en `search`, y los totales que se escriben aquí son los de ese filtro.
+**La base trae empresas de otras historias.** El listado sin filtro de búsqueda también trae a todas las empresas de pruebas de otras historias (decenas), cuyo estado no depende de este manual. La seña para reconocer las propias es el prefijo **`QA Aceptacion`**: por eso los escenarios 1 a 4 lo usan en `search`, y los totales que se escriben aquí son los de ese filtro.
 
-Identificadores públicos de las tres empresas, solo para reconocer cada fila en las respuestas (se escriben `<id público de QA Aceptación Al Día>`, etc.):
+Identificadores públicos de las tres empresas, solo para reconocer cada fila en las respuestas (se escriben `<id público de QA Aceptacion Al Dia>`, etc.):
 
 ```sql
 SELECT business_unit_name, business_unit_public_id
 FROM business_units
-WHERE business_unit_name LIKE 'QA Aceptación%'
+WHERE business_unit_name LIKE 'QA Aceptacion%'
 ORDER BY business_unit_name;
 ```
 
-Resultado: 3 filas (`QA Aceptación Al Día`, `QA Aceptación Nunca`, `QA Aceptación Pendiente`).
+Resultado: 3 filas (`QA Aceptacion Al Dia`, `QA Aceptacion Nunca`, `QA Aceptacion Pendiente`).
 
 El endpoint solo lee: no crea ni cambia nada, así que ningún escenario tiene consecuencias que verificar en la base (la única excepción es el paso de Limpieza).
 
@@ -94,7 +94,7 @@ Objetivo: comprobar que la consola ve a cada empresa con el estado real de sus d
 
 Usuario: **A** (token de la consola).
 
-**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptación`
+**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptacion`
 
 Headers: `Authorization: Bearer <token de A>` (sin `X-Business-Unit-Id`)
 
@@ -115,8 +115,8 @@ Headers: `Authorization: Bearer <token de A>` (sin `X-Business-Unit-Id`)
   },
   "data": [
     {
-      "businessUnitPublicId": "<id público de QA Aceptación Al Día>",
-      "businessUnitName": "QA Aceptación Al Día",
+      "businessUnitPublicId": "<id público de QA Aceptacion Al Dia>",
+      "businessUnitName": "QA Aceptacion Al Dia",
       "termsConditions": {
         "status": "al-dia",
         "lastAcceptedAt": "2026-09-02T15:30:00.000+00:00"
@@ -127,8 +127,8 @@ Headers: `Authorization: Bearer <token de A>` (sin `X-Business-Unit-Id`)
       }
     },
     {
-      "businessUnitPublicId": "<id público de QA Aceptación Nunca>",
-      "businessUnitName": "QA Aceptación Nunca",
+      "businessUnitPublicId": "<id público de QA Aceptacion Nunca>",
+      "businessUnitName": "QA Aceptacion Nunca",
       "termsConditions": {
         "status": "nunca",
         "lastAcceptedAt": null
@@ -139,8 +139,8 @@ Headers: `Authorization: Bearer <token de A>` (sin `X-Business-Unit-Id`)
       }
     },
     {
-      "businessUnitPublicId": "<id público de QA Aceptación Pendiente>",
-      "businessUnitName": "QA Aceptación Pendiente",
+      "businessUnitPublicId": "<id público de QA Aceptacion Pendiente>",
+      "businessUnitName": "QA Aceptacion Pendiente",
       "termsConditions": {
         "status": "pendiente",
         "lastAcceptedAt": "2026-03-10T15:15:00.000+00:00"
@@ -189,7 +189,7 @@ Usuario: **A** (token de la consola).
 
 **Paso 1 — Solo las pendientes.**
 
-**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptación&status=pendiente`
+**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptacion&status=pendiente`
 
 **Response exacto:** `200`
 
@@ -208,8 +208,8 @@ Usuario: **A** (token de la consola).
   },
   "data": [
     {
-      "businessUnitPublicId": "<id público de QA Aceptación Pendiente>",
-      "businessUnitName": "QA Aceptación Pendiente",
+      "businessUnitPublicId": "<id público de QA Aceptacion Pendiente>",
+      "businessUnitName": "QA Aceptacion Pendiente",
       "termsConditions": {
         "status": "pendiente",
         "lastAcceptedAt": "2026-03-10T15:15:00.000+00:00"
@@ -231,7 +231,7 @@ Usuario: **A** (token de la consola).
 
 **Paso 2 — Solo las al día.**
 
-**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptación&status=al-dia`
+**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptacion&status=al-dia`
 
 **Response exacto:** `200`
 
@@ -250,8 +250,8 @@ Usuario: **A** (token de la consola).
   },
   "data": [
     {
-      "businessUnitPublicId": "<id público de QA Aceptación Al Día>",
-      "businessUnitName": "QA Aceptación Al Día",
+      "businessUnitPublicId": "<id público de QA Aceptacion Al Dia>",
+      "businessUnitName": "QA Aceptacion Al Dia",
       "termsConditions": {
         "status": "al-dia",
         "lastAcceptedAt": "2026-09-02T15:30:00.000+00:00"
@@ -284,21 +284,21 @@ Usuario: **A** (token de la consola).
 
 **Paso 1 — Por nombre.**
 
-**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptación Pendiente`
+**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptacion Pendiente`
 
-**Response exacto:** `200` — el mismo cuerpo del Paso 1 del Escenario 2 (una sola fila, `QA Aceptación Pendiente`, y `meta` con `total` `1`).
+**Response exacto:** `200` — el mismo cuerpo del Paso 1 del Escenario 2 (una sola fila, `QA Aceptacion Pendiente`, y `meta` con `total` `1`).
 
 **Paso 2 — Por RFC completo.**
 
 **Endpoint:** `GET /api/platform/legal-acceptances?search=XAXX010101000`
 
-**Response exacto:** `200` — el mismo cuerpo del Paso 2 del Escenario 2 (una sola fila, `QA Aceptación Al Día`, la empresa que tiene ese RFC, y `meta` con `total` `1`).
+**Response exacto:** `200` — el mismo cuerpo del Paso 2 del Escenario 2 (una sola fila, `QA Aceptacion Al Dia`, la empresa que tiene ese RFC, y `meta` con `total` `1`).
 
 Confirmación: busca el texto `XAXX010101000` dentro de la respuesta completa. Resultado: 0 coincidencias (el RFC sirvió para encontrar la empresa, pero no viaja en la respuesta).
 
 **Paso 3 — Algo que no existe.**
 
-**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptación Inexistente`
+**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptacion Inexistente`
 
 **Response exacto:** `200`
 
@@ -339,7 +339,7 @@ Usuario: **A** (token de la consola).
 
 **Paso 1 — Primera página.**
 
-**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptación&limit=1`
+**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptacion&limit=1`
 
 **Response exacto:** `200`
 
@@ -358,8 +358,8 @@ Usuario: **A** (token de la consola).
   },
   "data": [
     {
-      "businessUnitPublicId": "<id público de QA Aceptación Al Día>",
-      "businessUnitName": "QA Aceptación Al Día",
+      "businessUnitPublicId": "<id público de QA Aceptacion Al Dia>",
+      "businessUnitName": "QA Aceptacion Al Dia",
       "termsConditions": {
         "status": "al-dia",
         "lastAcceptedAt": "2026-09-02T15:30:00.000+00:00"
@@ -381,7 +381,7 @@ Usuario: **A** (token de la consola).
 
 **Paso 2 — Última página.**
 
-**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptación&limit=1&page=3`
+**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptacion&limit=1&page=3`
 
 **Response exacto:** `200`
 
@@ -400,8 +400,8 @@ Usuario: **A** (token de la consola).
   },
   "data": [
     {
-      "businessUnitPublicId": "<id público de QA Aceptación Pendiente>",
-      "businessUnitName": "QA Aceptación Pendiente",
+      "businessUnitPublicId": "<id público de QA Aceptacion Pendiente>",
+      "businessUnitName": "QA Aceptacion Pendiente",
       "termsConditions": {
         "status": "pendiente",
         "lastAcceptedAt": "2026-03-10T15:15:00.000+00:00"
@@ -423,7 +423,7 @@ Usuario: **A** (token de la consola).
 
 Qué significa lo nuevo aquí:
 
-- `limit` y `page` (en la URL): cuántas empresas por página (de 1 a 100) y cuál página ver (desde la 1). Con tres empresas y una por página, `lastPage` vale `3`; la página 2 sería `QA Aceptación Nunca`.
+- `limit` y `page` (en la URL): cuántas empresas por página (de 1 a 100) y cuál página ver (desde la 1). Con tres empresas y una por página, `lastPage` vale `3`; la página 2 sería `QA Aceptacion Nunca`.
 - (Los demás datos son los ya explicados en el Escenario 1.)
 
 ### Escenario 5 — Sin token
@@ -432,7 +432,7 @@ Objetivo: comprobar que quien llega sin sesión recibe solo el aviso de «token 
 
 Usuario: ninguno.
 
-**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptación`
+**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptacion`
 
 Headers: ninguno (sin `Authorization`).
 
@@ -472,7 +472,7 @@ Antes, obtén el token: `POST /api/auth/login` con
 
 El token sale en `data.token`.
 
-**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptación`
+**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptacion`
 
 Headers: `Authorization: Bearer <token de B>` (sin `X-Business-Unit-Id`)
 
@@ -506,7 +506,7 @@ Antes, obtén el token: `POST /api/auth/login` con
 
 El token sale en `data.token`.
 
-**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptación`
+**Endpoint:** `GET /api/platform/legal-acceptances?search=QA Aceptacion`
 
 Headers: `Authorization: Bearer <token de C>` (sin `X-Business-Unit-Id`)
 
@@ -593,15 +593,15 @@ Para repetir el recorrido, vuelve a correr el seeder de Preparar: deja de nuevo 
 ## 4. Lo que no se revisa aquí
 
 - **Que un documento no tenga ninguna versión vigente** (`currentVersions` en `null` y `status` en `sin-version-publicada`): en este ambiente los dos documentos siempre quedan con versión vigente, y apagarla a mano afectaría a todo el que comparta la base; no es revisable aquí.
-- **El listado completo de todas las empresas de la base, sin búsqueda:** su contenido y su `meta.total` dependen de las empresas de otras historias; aquí solo se revisan las empresas con el prefijo `QA Aceptación`.
+- **El listado completo de todas las empresas de la base, sin búsqueda:** su contenido y su `meta.total` dependen de las empresas de otras historias; aquí solo se revisan las empresas con el prefijo `QA Aceptacion`.
 - **Otros filtros inválidos** (p. ej. `page=0` o una búsqueda de más de 191 caracteres): reciben el mismo rechazo del Escenario 8; no llevan escenario propio.
 
 ## 5. Checklist
 
-- [ ] Escenario 1: `QA Aceptación Al Día` sale `al-dia` en ambos documentos, `QA Aceptación Nunca` sale `nunca` en ambos y `QA Aceptación Pendiente` sale `pendiente` en Términos y `nunca` en Aviso, con `currentVersions` y `meta` (`total` `3`)
-- [ ] Escenario 2: `status=pendiente` trae solo `QA Aceptación Pendiente` y `status=al-dia` trae solo `QA Aceptación Al Día`
+- [ ] Escenario 1: `QA Aceptacion Al Dia` sale `al-dia` en ambos documentos, `QA Aceptacion Nunca` sale `nunca` en ambos y `QA Aceptacion Pendiente` sale `pendiente` en Términos y `nunca` en Aviso, con `currentVersions` y `meta` (`total` `3`)
+- [ ] Escenario 2: `status=pendiente` trae solo `QA Aceptacion Pendiente` y `status=al-dia` trae solo `QA Aceptacion Al Dia`
 - [ ] Escenario 3: la búsqueda por nombre y por RFC completo encuentra la empresa correcta sin que el RFC aparezca en la respuesta, y una búsqueda sin coincidencias da `data` vacío con `total` `0`
-- [ ] Escenario 4: con `limit=1` la página 1 es `QA Aceptación Al Día`, la 3 es `QA Aceptación Pendiente` y `lastPage` vale `3`
+- [ ] Escenario 4: con `limit=1` la página 1 es `QA Aceptacion Al Dia`, la 3 es `QA Aceptacion Pendiente` y `lastPage` vale `3`
 - [ ] Escenario 5: sin token da `401` con `AUTH.TOKEN.MISSING`
 - [ ] Escenario 6: el token del backoffice de la cuenta propietaria da `403` con `AUTH.PLATFORM.FORBIDDEN`
 - [ ] Escenario 7: el token del backoffice de un administrador de plataforma da el mismo `403`
