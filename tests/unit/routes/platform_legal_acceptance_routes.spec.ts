@@ -13,7 +13,7 @@ const ROUTES_PATH = 'start/routes/platform_legal_acceptance_routes.ts'
 test.group('platform_legal_acceptance_routes — guard de plataforma', () => {
   test('declara un único router.group cerrado con prefijo y guard', async ({ assert }) => {
     const content = await readFile(join(process.cwd(), ROUTES_PATH), 'utf8')
-    const groupMatches = content.match(/router\.group\(/g)
+    const groupMatches = content.match(/router\s*\.group\(/g)
     assert.equal(groupMatches?.length ?? 0, 1)
     assert.include(content, ".prefix('/api/platform')")
     assert.include(content, "middleware.auth({ guards: ['api'] })")
@@ -35,7 +35,8 @@ test.group('platform_legal_acceptance_routes — guard de plataforma', () => {
 
   test('ninguna ruta fuera del grupo', async ({ assert }) => {
     const content = await readFile(join(process.cwd(), ROUTES_PATH), 'utf8')
-    const groupIndex = content.indexOf('router.group(')
+    // Prettier parte la cadena en `router\n  .group(`: se tolera el salto de línea.
+    const groupIndex = content.search(/router\s*\.group\(/)
     const firstGetIndex = content.indexOf('router.get(')
     assert.isTrue(groupIndex >= 0 && firstGetIndex >= 0)
     assert.isTrue(groupIndex < firstGetIndex)

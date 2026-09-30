@@ -9,8 +9,9 @@ import { middleware } from '../kernel.js'
  *
  *   GET    /api/platform/legal-acceptances → listado de aceptaciones legales
  */
-router.group(() => {
-  router.get('/legal-acceptances', '#modules/consent/platform/platform_consent.controller.index')
-})
+router
+  .group(() => {
+    router.get('/legal-acceptances', '#modules/consent/platform/platform_consent.controller.index')
+  })
   .prefix('/api/platform')
   .use([middleware.auth({ guards: ['api'] }), middleware.platformAdmin()])
