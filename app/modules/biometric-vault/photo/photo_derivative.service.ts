@@ -12,6 +12,7 @@ import {
   PHOTO_DERIVATIVE_WIDTH,
   PHOTO_SOURCE_MIN_HEIGHT,
   PHOTO_SOURCE_MIN_WIDTH,
+  PHOTO_MIN_FACE_WIDTH_PX,
   PHOTO_VERDICT,
   derivativeKeyFor,
   type PhotoVerdict,
@@ -44,19 +45,31 @@ export default class PhotoDerivativeService {
    * decide si publicar, porque el mismo derivado sirve para varios equipos.
    */
   async build(sourceKey: string): Promise<DerivativeOutcome> {
-    const original = await this.readOriginal(sourceKey)
+    return this.buildFromBuffer(await this.readOriginal(sourceKey))
+  }
+
+  /**
+   * Lo mismo que `build`, sobre una imagen que todavia no esta en el bucket.
+   *
+   * Es la regla que se aplica al SUBIR la foto: si aqui no sale un derivado
+   * valido, la foto no entra al expediente. Asi una foto guardada siempre
+   * sirve en la app y en cualquier checador, y encender el uso en dispositivos
+   * nunca se topa con una foto que no se puede mandar.
+   */
+  async buildFromBuffer(original: Buffer): Promise<DerivativeOutcome> {
     const meta = await sharp(original).metadata()
+    const { width, height } = orientedSize(meta)
 
     /**
      * El minimo es del ORIGINAL, no del resultado: `sharp` amplia lo que le
      * den y devolveria 640 x 800 borrosos que el aparato aceptaria y con los
      * que despues no reconoceria a nadie.
      */
-    if ((meta.width ?? 0) < PHOTO_SOURCE_MIN_WIDTH || (meta.height ?? 0) < PHOTO_SOURCE_MIN_HEIGHT) {
+    if (width < PHOTO_SOURCE_MIN_WIDTH || height < PHOTO_SOURCE_MIN_HEIGHT) {
       return {
         ok: false,
         verdict: PHOTO_VERDICT.RESOLUTION,
-        detail: `La foto original debe medir al menos ${PHOTO_SOURCE_MIN_WIDTH} por ${PHOTO_SOURCE_MIN_HEIGHT} pixeles.`,
+        detail: `La foto debe medir al menos ${PHOTO_SOURCE_MIN_WIDTH} por ${PHOTO_SOURCE_MIN_HEIGHT} pixeles y mide ${width} por ${height}.`,
       }
     }
 
@@ -86,7 +99,9 @@ export default class PhotoDerivativeService {
       }
     }
 
-    const report = await this.quality.evaluate(buffer)
+    /** `cover` escala por el lado que primero llena el cuadro. */
+    const sourceScale = Math.max(PHOTO_DERIVATIVE_WIDTH / width, PHOTO_DERIVATIVE_HEIGHT / height)
+    const report = await this.quality.evaluate(buffer, { sourceScale })
     if (report.verdict !== PHOTO_VERDICT.OK) {
       return { ok: false, verdict: report.verdict, detail: explain(report.verdict) }
     }
@@ -149,10 +164,20 @@ function explain(verdict: PhotoVerdict): string {
     case PHOTO_VERDICT.MANY_FACES:
       return 'Se detecto mas de un rostro; la foto debe ser solo del colaborador.'
     case PHOTO_VERDICT.FACE_TOO_SMALL:
-      return 'El rostro ocupa muy poco de la imagen; hace falta un acercamiento.'
+      return `El rostro ocupa muy poco de la imagen; acercate hasta que la cara mida al menos ${PHOTO_MIN_FACE_WIDTH_PX} pixeles de ancho.`
     case PHOTO_VERDICT.BRIGHTNESS:
       return 'La foto esta demasiado oscura o demasiado clara.'
     default:
       return 'La foto no cumple los requisitos para usarse en un checador.'
   }
+}
+
+/**
+ * Ancho y alto como se ven, no como estan guardados: con orientacion EXIF 5 a 8
+ * la foto esta acostada en el archivo y `rotate()` la endereza.
+ */
+function orientedSize(meta: sharp.Metadata): { width: number; height: number } {
+  const width = meta.width ?? 0
+  const height = meta.height ?? 0
+  return (meta.orientation ?? 1) >= 5 ? { width: height, height: width } : { width, height }
 }
