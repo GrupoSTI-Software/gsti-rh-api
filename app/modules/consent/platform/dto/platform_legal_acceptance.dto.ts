@@ -50,11 +50,18 @@ export function toCurrentDocumentVersionDto(
 
 /**
  * Mapea estado calculado y última aceptación al DTO por documento (§4 reglas 2 y 4).
+ *
+ * Regla 4 (único punto donde se codifica): si el estado es `sin-version-publicada`,
+ * `lastAcceptedAt` se responde `null` aunque el adaptador traiga el máximo real de
+ * aceptaciones, porque el contrato §10 exige `null` junto a ese estado. La firma no cambia.
  */
 export function toDocumentAcceptanceDto(
   status: PlatformDocumentAcceptanceStatus,
   lastAcceptedAt: DateTime | null
 ): DocumentAcceptanceDto {
+  if (status === 'sin-version-publicada') {
+    return { status, lastAcceptedAt: null }
+  }
   return {
     status,
     lastAcceptedAt: lastAcceptedAt !== null ? lastAcceptedAt.toISO() : null,
