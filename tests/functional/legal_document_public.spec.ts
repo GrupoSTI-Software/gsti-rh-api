@@ -393,3 +393,157 @@ test.group('GET /api/public/legal-documents/current - cabeceras y Accept-Languag
     assert.deepEqual(withEn.body(), withEs.body())
   })
 })
+
+test.group(
+  'GET /api/public/legal-documents/current - frescura sin caché de servidor (CA-11)',
+  (group) => {
+    let originalCurrentId: number | null = null
+    let createdId: number | null = null
+
+    group.setup(async () => {
+      const current = await LegalDocument.query()
+        .where('legal_document_type', 'terms_conditions')
+        .where('legal_document_is_current', true)
+        .first()
+      originalCurrentId = current?.legalDocumentId ?? null
+    })
+
+    group.teardown(async () => {
+      // Restaura la vigente original y borra la fila creada por el escenario.
+      if (createdId !== null) {
+        await LegalDocument.query().where('legal_document_id', createdId).delete()
+      }
+      if (originalCurrentId !== null) {
+        await LegalDocument.query()
+          .where('legal_document_id', originalCurrentId)
+          .update({ legal_document_is_current: true })
+      }
+    })
+
+    group.each.setup(async () => {
+      await limiter.clear()
+    })
+
+    test('tras cambiar la vigente en la base, la siguiente consulta trae la versión nueva', async ({
+      client,
+      assert,
+    }) => {
+      assert.isNotNull(originalCurrentId, 'terms_conditions debe tener una vigente sembrada')
+
+      const before = await client.get(PUBLIC_URL).qs({ type: 'terms_conditions', locale: 'es' })
+      before.assertStatus(200)
+      const versionBefore: string = before.body().data.version
+
+      const newVersion = `QA-${Date.now()}`
+      await LegalDocument.query()
+        .where('legal_document_type', 'terms_conditions')
+        .where('legal_document_is_current', true)
+        .update({ legal_document_is_current: false })
+      const created = await LegalDocument.create({
+        legalDocumentType: 'terms_conditions',
+        legalDocumentVersion: newVersion,
+        legalDocumentContent: { es: '<p>Contenido QA frescura</p>', en: '<p>QA freshness</p>' },
+        legalDocumentIsCurrent: true,
+        legalDocumentStatus: 'published',
+      })
+      createdId = created.legalDocumentId
+
+      const after = await client.get(PUBLIC_URL).qs({ type: 'terms_conditions', locale: 'es' })
+      after.assertStatus(200)
+      assert.equal(after.body().data.version, newVersion)
+      assert.notEqual(after.body().data.version, versionBefore)
+      assert.equal(after.body().data.content, '<p>Contenido QA frescura</p>')
+    })
+  }
+)
+
+test.group('GET /api/public/legal-documents/current - CORS (CA-13)', (group) => {
+  group.each.setup(async () => {
+    await limiter.clear()
+  })
+
+  test('un origen fuera de la lista blanca no recibe Access-Control-Allow-Origin', async ({
+    client,
+    assert,
+  }) => {
+    const origin = 'https://origin-no-permitido.example'
+    const response = await client
+      .get(PUBLIC_URL)
+      .qs({ type: 'terms_conditions' })
+      .header('Origin', origin)
+
+    response.assertStatus(200)
+    assert.notProperty(response.headers(), 'access-control-allow-origin')
+    assert.notEqual(response.header('access-control-allow-origin'), origin)
+  })
+})
+
+/**
+ * IMPORTANTE: este grupo va SIEMPRE al final del archivo. Agota el límite de la IP de pruebas y
+ * `limiter.clear()` en `each.setup`/`teardown` es lo que evita contaminar a cualquier grupo
+ * que se agregue después.
+ */
+test.group('GET /api/public/legal-documents/current - límite por IP (CA-8, CA-10)', (group) => {
+  let previousCurrentId: number | null = null
+
+  group.setup(async () => {
+    const previous = await LegalDocument.query()
+      .where('legal_document_type', 'terms_conditions')
+      .where('legal_document_is_current', true)
+      .first()
+    previousCurrentId = previous?.legalDocumentId ?? null
+  })
+
+  group.teardown(async () => {
+    if (previousCurrentId !== null) {
+      await LegalDocument.query()
+        .where('legal_document_id', previousCurrentId)
+        .update({ legal_document_is_current: true })
+    }
+    await limiter.clear()
+  })
+
+  group.each.setup(async () => {
+    await limiter.clear()
+  })
+
+  test('la petición 61 responde 429 con el contrato exacto, cabeceras y sin llegar a la base', async ({
+    client,
+    assert,
+  }) => {
+    assert.isNotNull(previousCurrentId, 'terms_conditions debe tener una vigente sembrada')
+
+    for (let attempt = 1; attempt <= 60; attempt++) {
+      const ok = await client.get(PUBLIC_URL).qs({ type: 'terms_conditions' })
+      assert.equal(ok.status(), 200, `la petición ${attempt} debe responder 200`)
+    }
+
+    // Prueba de que la 61 no toca la base: sin vigente el controller respondería 404.
+    await LegalDocument.query()
+      .where('legal_document_id', previousCurrentId!)
+      .update({ legal_document_is_current: false })
+
+    const blocked = await client.get(PUBLIC_URL).qs({ type: 'terms_conditions' })
+
+    blocked.assertStatus(429)
+    const { retryAfterSeconds, ...body } = blocked.body()
+    assert.deepEqual(body, {
+      type: 'error',
+      title: 'Demasiadas consultas de documentos legales',
+      detail:
+        'Se alcanzó el límite de consultas. Espera unos segundos antes de volver a intentarlo.',
+      key: 'demasiadas-consultas-de-documentos-legales',
+      code: 'LGDOC.PUBLIC.002',
+    })
+    assert.isNumber(retryAfterSeconds)
+    assert.isAbove(retryAfterSeconds, 0)
+
+    assert.exists(blocked.header('retry-after'))
+    assert.equal(blocked.header('x-ratelimit-limit'), '60')
+    assert.equal(blocked.header('x-ratelimit-remaining'), '0')
+    assert.exists(blocked.header('x-ratelimit-reset'))
+
+    // CA-10: el 429 tampoco se cachea.
+    assert.equal(blocked.header('cache-control'), 'no-store')
+  })
+})
