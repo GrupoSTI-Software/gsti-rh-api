@@ -1120,6 +1120,7 @@ export default class AssistsService {
         { date: filterDate, dateEnd: filterDateEnd, employeeID: employee.employeeId },
         { page: 1, limit: 999999999999999 }
       )
+      this.adoptCalendarZone(result.data && 'timeZone' in result.data ? result.data : null)
       const employeeCalendar = this.readEmployeeCalendar(result.data)
       if (employeeCalendar) {
         const newRows = await this.addRowCalendar(employee, employeeCalendar)
@@ -1176,6 +1177,7 @@ export default class AssistsService {
         { date: filterDate, dateEnd: filterDateEnd, employeeID: employee.employeeId },
         { page: 1, limit: 999999999999999 }
       )
+      this.adoptCalendarZone(result.data && 'timeZone' in result.data ? result.data : null)
       const employeeCalendar = this.readEmployeeCalendar(result.data)
       if (employeeCalendar) {
         hasEmployees = true
@@ -1236,6 +1238,7 @@ export default class AssistsService {
         },
         { page: params.page, limit: params.limit }
       )
+      this.adoptCalendarZone(result.data && 'timeZone' in result.data ? result.data : null)
       const employeeCalendar = this.readEmployeeCalendar(result.data)
       if (!employeeCalendar) {
         await params.onEmployeeIterated?.()
