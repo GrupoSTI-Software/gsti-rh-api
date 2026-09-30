@@ -17,7 +17,7 @@ import { blindIndex } from '#utils/blind_index'
  * USRH1790610965452 — contrato del listado de aceptaciones legales por empresa
  * (`GET /api/platform/legal-acceptances`): estado de Términos y Aviso por tenant.
  *
- * Cubre CA-1 a CA-13. Cada test monta su propio mundo
+ * Cubre CA-1 a CA-16. Cada test monta su propio mundo
  * (empresas, cuentas, documentos vigentes) y lo desmonta al terminar, restaurando
  * los documentos vigentes globales de `sae_pruebas` que hubiera antes.
  */
@@ -39,6 +39,27 @@ const EXPECTED_ROW_KEYS = [
   'privacyNotice',
   'termsConditions',
 ]
+
+/**
+ * Cuerpo EXACTO del 403 del guard de plataforma (SEC-C-02). Lista cerrada a propósito:
+ * tres llaves, sin `code` y sin ningún dato de empresa. Si alguien le agrega o le quita una,
+ * CA-15 y CA-16 lo detienen.
+ */
+const PLATFORM_FORBIDDEN_BODY = {
+  title: 'Acceso restringido a plataforma',
+  detail: 'Esta sección es exclusiva de administradores de plataforma.',
+  key: 'AUTH.PLATFORM.FORBIDDEN',
+}
+
+/** Cuerpo EXACTO del 401 del middleware `auth` cuando la petición llega sin token. */
+const TOKEN_MISSING_BODY = {
+  type: 'warning',
+  title: 'Token requerido',
+  detail: 'No se envió un access token válido',
+  message: 'No se envió un access token válido',
+  key: 'AUTH.TOKEN.MISSING',
+  data: { refreshable: false },
+}
 
 const INVALID_FILTERS_BODY = {
   type: 'error',
@@ -115,6 +136,8 @@ async function createPlatformAdmin(): Promise<void> {
     userEmail: email,
     userPassword: TEST_PASSWORD,
     userActive: 1,
+    // El login del backoffice rechaza cuentas pendientes de activar (contraseña sin fijar).
+    userPasswordSetAt: DateTime.utc(),
     isPlatformAdmin: true,
     roleId: role.roleId,
     personId: adminPerson.personId,
@@ -137,6 +160,24 @@ async function platformToken(client: ApiClient): Promise<string> {
     throw new Error('Login de plataforma no devolvió token')
   }
   adminToken = token
+  return token
+}
+
+/**
+ * Token del login del backoffice (`POST /api/auth/login`, origen `web`): el mismo que usa
+ * cualquier cuenta de empresa. No es un token de consola, así que el guard de plataforma
+ * debe rechazarlo aunque la cuenta sea administradora de plataforma.
+ */
+async function backofficeToken(client: ApiClient, user: User): Promise<string> {
+  const response = await client.post('/api/auth/login').json({
+    userEmail: user.userEmail,
+    userPassword: TEST_PASSWORD,
+  })
+  response.assertStatus(200)
+  const token = response.body().data?.token as string | undefined
+  if (!token) {
+    throw new Error('Login del backoffice no devolvió token')
+  }
   return token
 }
 
@@ -192,6 +233,8 @@ async function createAccount(label: string, userRoleId: number): Promise<User> {
     userEmail: email,
     userPassword: TEST_PASSWORD,
     userActive: 1,
+    // El login del backoffice rechaza cuentas pendientes de activar (contraseña sin fijar).
+    userPasswordSetAt: DateTime.utc(),
     roleId: userRoleId,
     personId: person.personId,
     userEmailType: 'institutional',
@@ -379,6 +422,7 @@ test.group('GET /api/platform/legal-acceptances — contrato del listado', (grou
 
     try {
       if (w.userIds.length > 0) {
+        await ApiToken.query().whereIn('tokenable_id', w.userIds).delete()
         await db.from('user_consents').whereIn('user_id', w.userIds).delete()
       }
       if (w.legalDocumentIds.length > 0) {
@@ -1130,5 +1174,97 @@ test.group('GET /api/platform/legal-acceptances — contrato del listado', (grou
         assert.notInclude(serialized, secret)
       }
     }
+  })
+
+  test('CA-14: sin token', async ({ client, assert }) => {
+    /**
+     * Objetivo: comprobar que quien llega sin sesión recibe el aviso de "token requerido" que
+     * ya da el sistema a cualquier sección protegida, y que ese aviso no revela nada de
+     * ninguna empresa.
+     *
+     * Dado: una empresa sembrada con su owner y las versiones vigentes publicadas.
+     * Cuando: se pide el listado sin cabecera de autorización.
+     * Entonces: 401 con el cuerpo existente de "token requerido" (sin `code`), sin el nombre,
+     * el identificador público ni el sello de ninguna empresa.
+     */
+    const w = currentWorld()
+    await publishDocument(
+      TERMS,
+      docVersion(w, 'T1'),
+      DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+    )
+    const tenant = await createTenant('Alfa')
+    await createTenantOwner(tenant, 'Alfa')
+
+    const response = await client.get(BASE_URL).qs({ search: w.stamp })
+
+    response.assertStatus(401)
+    assert.deepEqual(response.body(), TOKEN_MISSING_BODY)
+
+    const serialized = JSON.stringify(response.body())
+    for (const leak of [
+      w.stamp,
+      tenant.businessUnit.businessUnitName,
+      tenant.businessUnit.businessUnitPublicId,
+    ]) {
+      assert.notInclude(serialized, leak)
+    }
+  })
+
+  test('CA-15: owner de tenant con token del BO', async ({ client, assert }) => {
+    /**
+     * Objetivo: comprobar que el dueño de una empresa, aun con una sesión válida del
+     * backoffice, no entra a la sección de plataforma ni ve nada de ninguna empresa.
+     *
+     * Dado: una empresa con su owner, que inicia sesión por el login del backoffice.
+     * Cuando: pide el listado con ese token.
+     * Entonces: 403 con exactamente el aviso de acceso restringido (tres llaves, sin `code`)
+     * y sin datos de ninguna empresa.
+     */
+    const w = currentWorld()
+    const tenant = await createTenant('Alfa')
+    const owner = await createTenantOwner(tenant, 'Alfa')
+    const token = await backofficeToken(client, owner)
+
+    const response = await client
+      .get(BASE_URL)
+      .qs({ search: w.stamp })
+      .header('Authorization', `Bearer ${token}`)
+
+    response.assertStatus(403)
+    assert.deepEqual(response.body(), PLATFORM_FORBIDDEN_BODY)
+
+    const serialized = JSON.stringify(response.body())
+    for (const leak of [
+      w.stamp,
+      tenant.businessUnit.businessUnitName,
+      tenant.businessUnit.businessUnitPublicId,
+    ]) {
+      assert.notInclude(serialized, leak)
+    }
+  })
+
+  test('CA-16: admin de plataforma con token del BO', async ({ client, assert }) => {
+    /**
+     * Objetivo: lo mismo que CA-15, pero con una cuenta que SÍ es administradora de
+     * plataforma, para comprobar que lo que abre la sección es la sesión de la consola y no
+     * solo la marca de la cuenta.
+     *
+     * Dado: el administrador de plataforma, que inicia sesión por el login del backoffice
+     * (no por el de la consola).
+     * Cuando: pide el listado con ese token.
+     * Entonces: el mismo 403 exacto del Escenario CA-15 (tres llaves, sin `code`).
+     */
+    const w = currentWorld()
+    await createTenant('Alfa')
+    const token = await backofficeToken(client, adminUser!)
+
+    const response = await client
+      .get(BASE_URL)
+      .qs({ search: w.stamp })
+      .header('Authorization', `Bearer ${token}`)
+
+    response.assertStatus(403)
+    assert.deepEqual(response.body(), PLATFORM_FORBIDDEN_BODY)
   })
 })
