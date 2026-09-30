@@ -598,12 +598,12 @@ Para repetir el recorrido, vuelve a correr el seeder de Preparar: deja de nuevo 
 
 ## 5. Checklist
 
-- [ ] Escenario 1: `QA Aceptacion Al Dia` sale `al-dia` en ambos documentos, `QA Aceptacion Nunca` sale `nunca` en ambos y `QA Aceptacion Pendiente` sale `pendiente` en Términos y `nunca` en Aviso, con `currentVersions` y `meta` (`total` `3`)
-- [ ] Escenario 2: `status=pendiente` trae solo `QA Aceptacion Pendiente` y `status=al-dia` trae solo `QA Aceptacion Al Dia`
-- [ ] Escenario 3: la búsqueda por nombre y por RFC completo encuentra la empresa correcta sin que el RFC aparezca en la respuesta, y una búsqueda sin coincidencias da `data` vacío con `total` `0`
-- [ ] Escenario 4: con `limit=1` la página 1 es `QA Aceptacion Al Dia`, la 3 es `QA Aceptacion Pendiente` y `lastPage` vale `3`
-- [ ] Escenario 5: sin token da `401` con `AUTH.TOKEN.MISSING`
-- [ ] Escenario 6: el token del backoffice de la cuenta propietaria da `403` con `AUTH.PLATFORM.FORBIDDEN`
-- [ ] Escenario 7: el token del backoffice de un administrador de plataforma da el mismo `403`
-- [ ] Escenario 8: `status=foo` y `limit=101` dan `422` con `CONSENT.PLATFORM.001`
-- [ ] Limpieza: las versiones vigentes de Términos y Aviso quedaron como `QA-LEGAL-1`
+- [x] Escenario 1: `QA Aceptacion Al Dia` sale `al-dia` en ambos documentos, `QA Aceptacion Nunca` sale `nunca` en ambos y `QA Aceptacion Pendiente` sale `pendiente` en Términos y `nunca` en Aviso, con `currentVersions` y `meta` (`total` `3`)
+- [x] Escenario 2: `status=pendiente` trae solo `QA Aceptacion Pendiente` y `status=al-dia` trae solo `QA Aceptacion Al Dia`
+- [x] Escenario 3: la búsqueda por nombre y por RFC completo encuentra la empresa correcta sin que el RFC aparezca en la respuesta, y una búsqueda sin coincidencias da `data` vacío con `total` `0`
+- [x] Escenario 4: con `limit=1` la página 1 es `QA Aceptacion Al Dia`, la 3 es `QA Aceptacion Pendiente` y `lastPage` vale `3`
+- [x] Escenario 5: sin token da `401` con `AUTH.TOKEN.MISSING`
+- [x] Escenario 6: el token del backoffice de la cuenta propietaria da `403` con `AUTH.PLATFORM.FORBIDDEN`
+- [x] Escenario 7: el token del backoffice de un administrador de plataforma da el mismo `403`
+- [x] Escenario 8: `status=foo` y `limit=101` dan `422` con `CONSENT.PLATFORM.001`
+- [x] Limpieza: las versiones vigentes de Términos y Aviso quedaron como `QA-LEGAL-1`
