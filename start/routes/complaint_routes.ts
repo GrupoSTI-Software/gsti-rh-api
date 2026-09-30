@@ -7,8 +7,7 @@ import { middleware } from '#start/kernel'
  * minuto. Endpoint autenticado y sin reintentos automáticos de la app, así
  * que aquí sí corre como middleware — a diferencia de `/status`, que
  * penaliza solo fallos desde el controller (ver `complaint_controller.ts`).
- * Espejo de `employee-badge/badge.routes.ts` (bulk) y
- * `onboarding/demo_seed.routes.ts`.
+ * Espejo de `employee-badge/badge.routes.ts` (bulk).
  */
 const complaintAttachmentsRateLimit = limiter.define('complaint-attachments', (ctx) => {
   const key = ctx.auth?.user?.userId ?? ctx.request.ip()

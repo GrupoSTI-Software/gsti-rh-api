@@ -47,49 +47,6 @@ async function createBu(tag: string): Promise<BusinessUnit> {
   return bu
 }
 
-/** Usuario + `onboarding_user_states` desechables, solo para colgar la constancia de siembra demo. */
-async function createOnboardingActor(): Promise<{ onboardingUserStateId: number; userId: number }> {
-  const stamp = STAMP()
-  const person = await Person.create({
-    personFirstname: 'Demo',
-    personLastname: 'Seeder',
-    personSecondLastname: stamp,
-  })
-  const role = await Role.query().whereNull('role_deleted_at').where('role_slug', 'root').firstOrFail()
-  const user = await User.create({
-    userEmail: `onboarding-actor-${stamp}@gsti-tests.local`,
-    userPassword: 'DemoSeederTest123!',
-    userActive: 1,
-    isPlatformAdmin: false,
-    roleId: role.roleId,
-    personId: person.personId,
-    userEmailType: 'institutional',
-  })
-  const state = await db
-    .table('onboarding_user_states')
-    .insert({
-      user_id: user.userId,
-      onboarding_user_state_status: 'in_progress',
-      onboarding_user_state_created_at: DateTime.utc().toFormat('yyyy-MM-dd HH:mm:ss'),
-    })
-  return { onboardingUserStateId: state[0], userId: user.userId }
-}
-
-async function markSeeded(
-  businessUnitId: number,
-  onboardingUserStateId: number,
-  entityType: string,
-  entityId: number
-): Promise<void> {
-  await db.table('onboarding_seeded_records').insert({
-    onboarding_user_state_id: onboardingUserStateId,
-    business_unit_id: businessUnitId,
-    onboarding_seeded_record_entity_type: entityType,
-    onboarding_seeded_record_entity_id: entityId,
-    onboarding_seeded_record_created_at: DateTime.utc().toFormat('yyyy-MM-dd HH:mm:ss'),
-  })
-}
-
 async function createDepartment(businessUnitId: number, tag: string): Promise<Department> {
   return Department.create({
     departmentSyncId: Date.now() + Math.floor(Math.random() * 1000),
@@ -287,7 +244,6 @@ async function cleanupBu(businessUnitId: number): Promise<void> {
     await db.from('assists').whereIn('assist_emp_id', ids).delete()
   }
 
-  await db.from('onboarding_seeded_records').where('business_unit_id', businessUnitId).delete()
   await db.from('shifts').where('business_unit_id', businessUnitId).delete()
 
   const personIds: Array<{ person_id: number }> = await db
@@ -304,18 +260,6 @@ async function cleanupBu(businessUnitId: number): Promise<void> {
   }
 
   await db.from('business_units').where('business_unit_id', businessUnitId).delete()
-}
-
-async function cleanupOnboardingActor(userId: number): Promise<void> {
-  const state = await db.from('onboarding_user_states').where('user_id', userId).first()
-  if (state) {
-    await db.from('onboarding_user_states').where('onboarding_user_state_id', state.onboarding_user_state_id).delete()
-  }
-  const user = await db.from('users').where('user_id', userId).first()
-  await db.from('users').where('user_id', userId).delete()
-  if (user) {
-    await db.from('people').where('person_id', user.person_id).delete()
-  }
 }
 
 function milestone(hitos: TenantMilestone[], clave: TenantMilestone['clave']): TenantMilestone {
@@ -393,61 +337,23 @@ test.group('PlatformTenantMilestoneService.resolveMilestones (USRH1789079078170)
     }
   })
 
-  test('CA-03 · los datos de la demostración no cumplen ningún hito (1-4), pero el propio sí', async ({
+  test('USRH1789079078168 · las ocho consultas de hitos no leen la constancia de la siembra demo y conservan el filtro por empresa', async ({
     assert,
   }) => {
-    const bu = await createBu('ca03')
-    const actor = await createOnboardingActor()
+    const service = new PlatformTenantMilestoneService()
+    const bu = await createBu('baja-demo-sql')
     try {
-      // Todo lo capturado por este tenant es SOLO lo de la demostración.
-      const deptDemo = await createDepartment(bu.businessUnitId, 'ca03-demo')
-      await markSeeded(bu.businessUnitId, actor.onboardingUserStateId, 'department', deptDemo.departmentId)
-      const posDemo = await createPosition(bu.businessUnitId, 'ca03-demo')
-      await markSeeded(bu.businessUnitId, actor.onboardingUserStateId, 'position', posDemo.positionId)
-      const shiftDemo = await createShift(bu.businessUnitId, 'ca03-demo')
-      await markSeeded(bu.businessUnitId, actor.onboardingUserStateId, 'shift', shiftDemo.shiftId)
-      const employeeDemo = await createEmployee(
-        bu.businessUnitId,
-        deptDemo.departmentId,
-        posDemo.positionId,
-        'ca03-demo'
-      )
-      const employeeShiftDemo = await createEmployeeShift(
-        employeeDemo.employeeId,
-        shiftDemo.shiftId,
-        bu.businessUnitId
-      )
-      await markSeeded(
-        bu.businessUnitId,
-        actor.onboardingUserStateId,
-        'employee_shift',
-        employeeShiftDemo.employeeShiftId
-      )
-      const userDemo = await createAppUserForEmployee(employeeDemo)
-      await markSeeded(bu.businessUnitId, actor.onboardingUserStateId, 'user', userDemo.userId)
-
-      const service = new PlatformTenantMilestoneService()
-      const soloDemoMap = await service.resolveMilestones([bu.businessUnitId])
-      const soloDemo = soloDemoMap.get(bu.businessUnitId)!
-
-      for (const clave of ['estructura', 'turnos', 'empleado-con-turno', 'acceso-app'] as const) {
-        const hito = milestone(soloDemo, clave)
-        assert.isFalse(hito.cumplido, `${clave} no debe cumplirse solo con la demostración`)
-        assert.isNull(hito.fecha, `${clave} no debe tener fecha de la demostración`)
+      const { sqls } = await withSqlLog(() => service.resolveMilestones([bu.businessUnitId]))
+      assert.lengthOf(sqls, 8)
+      for (const sql of sqls) {
+        assert.notInclude(sql, 'onboarding_seeded_records')
+        assert.match(sql, /business_unit_id`?\s+in\s*\(/i)
       }
-
-      // El tenant captura DESPUÉS su propio departamento y puesto (no demo).
-      await createDepartment(bu.businessUnitId, 'ca03-propio')
-      await createPosition(bu.businessUnitId, 'ca03-propio')
-
-      const conPropioMap = await service.resolveMilestones([bu.businessUnitId])
-      const conPropio = conPropioMap.get(bu.businessUnitId)!
-      const estructura = milestone(conPropio, 'estructura')
-      assert.isTrue(estructura.cumplido)
-      assert.isNotNull(estructura.fecha)
+      const { result, sqls: vacias } = await withSqlLog(() => service.resolveMilestones([]))
+      assert.lengthOf(vacias, 0)
+      assert.equal(result.size, 0)
     } finally {
       await cleanupBu(bu.businessUnitId)
-      await cleanupOnboardingActor(actor.userId)
     }
   })
 

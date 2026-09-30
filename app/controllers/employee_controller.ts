@@ -6977,7 +6977,13 @@ export default class EmployeeController {
       }
 
       const employeeService = new EmployeeService(i18n)
-      const result = await employeeService.importFromExcel(file, businessUnitScope)
+      // El actor del intento es quien SUBIÓ el archivo: su usuario y su scope de
+      // empresas viajan hasta `createPerson` para atribuir el rastro por fila.
+      const result = await employeeService.importFromExcel(
+        file,
+        businessUnitScope,
+        ctx.auth.user?.userId ?? null
+      )
 
       const { summary, rowErrors, warnings } = result
 

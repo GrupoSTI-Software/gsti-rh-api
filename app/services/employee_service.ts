@@ -35,6 +35,7 @@ import FlightAttendant from '#models/flight_attendant'
 import Customer from '#models/customer'
 import env from '#start/env'
 import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
+import { personEmailExistsGlobally } from '#helpers/person_email_global_uniqueness'
 import {
   importRowErrorMessage,
   personIdentityDuplicatedIndexFromError,
@@ -69,6 +70,7 @@ import {
 } from '../helpers/employee_quota_api_error.js'
 import { isSensitiveDataWriteError } from '#helpers/sensitive_data_write_api_error'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import PersonEmailProbeLogService from '#services/person_email_probe_log_service'
 import { resolvePersonRelease, type PersonReleaseContext } from '#helpers/person_release_guard'
 import { findSensitiveCategoriesInExcelHeaders } from '#constants/employee_excel_sensitive_headers'
 import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
@@ -140,6 +142,16 @@ export interface ApplyWorkScheduleResult {
  * corre esas esperas una por una dentro de una sola petición HTTP.
  */
 const EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY = 10
+
+/**
+ * Puesto visible del empleado para ordenar los reportes de asistencia:
+ * el alias si la empresa lo capturó y, si no, el nombre. Un puesto dado de
+ * baja no entra, así que ese empleado queda junto a los que no tienen puesto.
+ * Subconsulta por llave primaria, sin join, para no volver ambiguos los
+ * `where` de `employees` que no califican la tabla.
+ */
+const EMPLOYEE_VISIBLE_POSITION_ORDER_SQL =
+  "(SELECT COALESCE(NULLIF(p.position_alias, ''), p.position_name) FROM positions p WHERE p.position_id = employees.position_id AND p.position_deleted_at IS NULL)"
 
 export default class EmployeeService {
 
@@ -407,6 +419,15 @@ export default class EmployeeService {
       .if(filters.orderBy === 'name', (query) => {
         const direction = this.getOrderDirection(filters.orderDirection)
         query.orderByRaw(`CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`)
+      })
+      .if(filters.orderBy === 'positionThenName', (query) => {
+        const direction = this.getOrderDirection(filters.orderDirection)
+        query.orderByRaw(`${EMPLOYEE_VISIBLE_POSITION_ORDER_SQL} IS NULL`)
+        query.orderByRaw(`${EMPLOYEE_VISIBLE_POSITION_ORDER_SQL} ${direction}`)
+        query.orderByRaw(
+          `CONCAT(COALESCE(employee_first_name, ''), ' ', COALESCE(employee_last_name, ''), ' ', COALESCE(employee_second_last_name, '')) ${direction}`
+        )
+        query.orderBy('employee_id', 'asc')
       })
       .if(!filters.orderBy, (query) => {
         query.orderBy('employee_id')
@@ -2640,10 +2661,16 @@ export default class EmployeeService {
 
   /**
    * Import employees from Excel file
+   *
+   * @param allowedBusinessUnitIds — empresas del actor que sube el archivo.
+   * @param actorUserId — usuario que subió el archivo; se propaga hasta
+   * `createPerson` para poder atribuir el intento de correo de cada fila. `null`
+   * cuando no hay sesión.
    */
   async importFromExcel(
     file: any,
-    allowedBusinessUnitIds: number[] = []
+    allowedBusinessUnitIds: number[] = [],
+    actorUserId: number | null = null
   ): Promise<EmployeeImportResult> {
     const workbook = new ExcelJS.Workbook()
 
@@ -2946,7 +2973,7 @@ export default class EmployeeService {
           if (isUpdate) {
             const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
             if (existingEmployee) {
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, actorUserId, allowedBusinessUnitIds, employeeTypes)
               if (employeeData.employeeWorkScheduleHybridAttempt) {
                 warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
               }
@@ -2975,7 +3002,7 @@ export default class EmployeeService {
           const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
           const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
 
-          const person = await this.createPerson(employeeData, businessUnitId!)
+          const person = await this.createPerson(employeeData, businessUnitId!, actorUserId, allowedBusinessUnitIds)
           const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
           if (employeeData.employeeWorkScheduleHybridAttempt) {
             // El empleado nuevo queda con Onsite (default de `createEmployee`).
@@ -3818,6 +3845,9 @@ export default class EmployeeService {
 
   /**
    * Actualizar empleado existente
+   *
+   * @param actorUserId — quién subió el archivo (el actor del intento).
+   * @param businessUnitScope — empresas del actor, no las del expediente.
    */
   private async updateExistingEmployee(
     existingEmployee: any,
@@ -3828,6 +3858,8 @@ export default class EmployeeService {
     defaultPosition: any,
     businessUnitId: number | null,
     payrollBusinessUnitId: number | null,
+    actorUserId: number | null,
+    businessUnitScope: number[],
     employeeTypes: any[] = []
   ) {
     existingEmployee.employeeFirstName = employeeData.firstName || existingEmployee.employeeFirstName
@@ -3906,6 +3938,41 @@ export default class EmployeeService {
       if (this.hasImportCellValue(employeeData.personalEmail)) {
         person.personEmail = String(employeeData.personalEmail).trim()
       }
+
+      // Rastro del intento de captura del correo personal (USRH1789762889970, D7).
+      // Misma bitácora que el alta, pero en una fila que ACTUALIZA: el expediente
+      // tocado es el `targetPersonId` (convenio del camino de edición), a
+      // diferencia del `null` del alta. El importador NO impone unicidad: sigue
+      // guardando directo. Esta HU solo deja el rastro que hoy no existe, y es de
+      // APOYO — si la consulta o el registro fallan, la fila se actualiza igual y
+      // el usuario no ve nada raro. NUNCA se guarda el correo en claro, ni el
+      // nombre, ni el expediente ajeno: solo la huella, el actor y su scope.
+      const importedEmail = this.importSensitiveValueOrDefault(employeeData.personalEmail)
+
+      // Una fila sin correo (celda vacía o el placeholder del export) no cambia
+      // nada y NO es un intento: sin correo no hay hash ni fila — `blindIndex('')`
+      // es una constante que envenenaría la colección.
+      if (importedEmail !== '') {
+        try {
+          const emailHash = blindIndex(importedEmail)
+          // Unicidad GLOBAL del correo personal (USRH1789698261610 regla 5): la
+          // consulta canónica corre sin filtro de empresa. Se excluye al propio
+          // expediente: en una edición, el correo que ya es suyo no está tomado.
+          const taken = await personEmailExistsGlobally(importedEmail, person.personId)
+
+          await PersonEmailProbeLogService.log({
+            path: 'import',
+            personEmailHash: emailHash,
+            outcome: taken ? 'rejected_not_available' : 'accepted',
+            actorUserId,
+            businessUnitScope,
+            targetPersonId: person.personId,
+          })
+        } catch {
+          // Best-effort: la bitácora no puede cambiar el resultado de la carga.
+        }
+      }
+
       if (this.hasImportCellValue(employeeData.personalPhone)) {
         person.personPhone = String(employeeData.personalPhone).trim()
       }
@@ -4102,8 +4169,16 @@ export default class EmployeeService {
 
   /**
    * Crear persona
+   *
+   * @param actorUserId — quién subió el archivo (el actor del intento).
+   * @param businessUnitScope — empresas del actor, no las del expediente.
    */
-  private async createPerson(employeeData: any, businessUnitId: number) {
+  private async createPerson(
+    employeeData: any,
+    businessUnitId: number,
+    actorUserId: number | null,
+    businessUnitScope: number[]
+  ) {
     const person = new Person()
     person.businessUnitId = businessUnitId
     person.personFirstname = employeeData.firstName || ''
@@ -4121,6 +4196,39 @@ export default class EmployeeService {
     person.personPlaceOfBirthCountry = employeeData.personPlaceOfBirthCountry || ''
     person.personPlaceOfBirthState = employeeData.personPlaceOfBirthState || ''
     person.personPlaceOfBirthCity = employeeData.personPlaceOfBirthCity || ''
+
+    // Rastro del intento de captura del correo personal (USRH1789762889970, D7).
+    // El importador NO impone unicidad: sigue guardando directo. Esta HU solo
+    // deja la bitácora que hoy no existe, y es de APOYO — si la consulta o el
+    // registro fallan, la fila se importa igual y el usuario no ve nada raro.
+    // NUNCA se guarda el correo en claro, ni el nombre, ni el expediente del
+    // titular colisionado: solo la huella, el actor y su scope de empresas.
+    const importedEmail = typeof person.personEmail === 'string' ? person.personEmail.trim() : ''
+
+    // Correo vacío o el placeholder de `importSensitiveValueOrDefault` (''): NO
+    // es intento y no se hashea — `blindIndex('')` es una constante que
+    // envenenaría la colección.
+    if (importedEmail !== '') {
+      try {
+        const emailHash = blindIndex(importedEmail)
+        // Unicidad GLOBAL del correo personal (USRH1789698261610 regla 5): la
+        // consulta canónica corre sin filtro de empresa. Con una query pelada el
+        // mixin de tenant la acotaría a las empresas del actor y un correo
+        // tomado por otra empresa se leería como libre.
+        const taken = await personEmailExistsGlobally(importedEmail, 0)
+
+        await PersonEmailProbeLogService.log({
+          path: 'import',
+          personEmailHash: emailHash,
+          outcome: taken ? 'rejected_not_available' : 'accepted',
+          actorUserId,
+          businessUnitScope,
+          targetPersonId: null,
+        })
+      } catch {
+        // Best-effort: la bitácora no puede cambiar el resultado de la carga.
+      }
+    }
 
     await person.save()
     return person

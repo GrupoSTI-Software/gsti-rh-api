@@ -167,9 +167,9 @@ import '#modules/onboarding/state/state.routes'
 // USRH1789079078167: trial-access y simulate-attendance se retiraron — eran
 // puertas HTTP de versiones viejas del onboarding sin ningún consumidor vivo
 // (backoffice, app del empleado y Panel verificados) y sin validación de
-// pertenencia (IDOR). El generador de checadas de práctica sigue vivo como
-// pieza interna del recorrido guiado (demo_seed lo llama directo por clase).
-import '#modules/onboarding/demo_seed/demo_seed.routes'
+// pertenencia (IDOR). USRH1789079078168 retiró además la siembra de práctica
+// del onboarding por completo, incluido el generador de checadas que quedaba
+// como pieza interna: ya no queda ninguna forma de crear datos de práctica.
 import '#modules/consent/acceptance/acceptance.routes'
 import '#modules/consent/evidence/evidence.routes'
 import '#modules/consent/physical/physical_consent.routes'
