@@ -16,6 +16,10 @@ import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_wr
 import { ensureBiometricFaceToPhotoCopy } from '#helpers/ensure_biometric_face_to_photo_copy'
 import EmployeeService from '#services/employee_service'
 import PiiAccessLogService from '#services/pii_access_log_service'
+import logger from '@adonisjs/core/services/logger'
+import DeviceFaceService, {
+  type FacePhotoChangeOutcome,
+} from '#modules/biometric-vault/photo/device_face.service'
 
 export default class EmployeeBiometricFaceIdController {
   /**
@@ -240,12 +244,13 @@ export default class EmployeeBiometricFaceIdController {
         if (oldPhotoUrl) {
           await uploadService.deleteFile(oldPhotoUrl)
         }
+        const deviceFace = await syncDevicesAfterPhotoChange(ctx, currentEmployee)
         response.status(200)
         return {
           type: 'success',
           title: 'Foto reemplazada',
           message: 'La foto biométrica fue reemplazada exitosamente',
-          data: { employeeBiometricFaceId: result },
+          data: { employeeBiometricFaceId: result, deviceFace },
         }
       } else {
         // Si no existe, crear nuevo registro
@@ -478,13 +483,15 @@ export default class EmployeeBiometricFaceIdController {
       // Reemplazar la foto (elimina la anterior del S3 y crea/actualiza con la nueva)
       const service = new EmployeeBiometricFaceIdService()
       const result = await service.replacePhoto(employeeId, photoUrl, uploadService, quality)
+      const deviceFace =
+        result.status === 200 ? await syncDevicesAfterPhotoChange(ctx, currentEmployee) : null
 
       response.status(result.status)
       return {
         type: result.type,
         title: result.title,
         message: result.message,
-        data: result.data,
+        data: deviceFace ? { ...result.data, deviceFace } : result.data,
       }
     } catch (error: any) {
       // Un rechazo de la entrada de archivos es 422 con triplete, no un fallo del
@@ -585,9 +592,10 @@ export default class EmployeeBiometricFaceIdController {
    */
   @inject()
   async deletePhoto(
-    { request, response }: HttpContext,
+    ctx: HttpContext,
     uploadService: UploadService
   ) {
+    const { request, response } = ctx
     try {
       const employeeId = request.param('employeeId')
 
@@ -630,6 +638,14 @@ export default class EmployeeBiometricFaceIdController {
           data: { employeeId },
         }
       }
+
+      // Si la foto estaba en los checadores, primero se retira de ellos: borrar
+      // solo el archivo dejaba la cara viva en cada equipo.
+      await new DeviceFaceService().withdrawBeforePhotoDeletion({
+        employeeId: currentEmployee.employeeId,
+        businessUnitId: currentEmployee.businessUnitId as number,
+        actorUserId: ctx.auth.user?.userId ?? null,
+      })
 
       // Eliminar la foto del S3 y el registro de la base de datos
       const result = await service.deletePhotoAndRecord(biometricFaceId, uploadService)
@@ -1211,5 +1227,30 @@ export default class EmployeeBiometricFaceIdController {
         error: error.message,
       }
     }
+  }
+}
+
+/**
+ * Lleva la foto nueva a los checadores si estaba en uso ahi.
+ *
+ * La foto ya se guardo y la respuesta no puede fallar por esto: si algo revienta
+ * se registra y se responde `null`, y la ficha de equipos mostrara el estado real.
+ */
+async function syncDevicesAfterPhotoChange(
+  ctx: HttpContext,
+  employee: Employee
+): Promise<FacePhotoChangeOutcome | null> {
+  try {
+    return await new DeviceFaceService().syncAfterPhotoChange({
+      employeeId: employee.employeeId,
+      businessUnitId: employee.businessUnitId as number,
+      actorUserId: ctx.auth.user?.userId ?? null,
+    })
+  } catch (error) {
+    logger.error(
+      { employeeId: employee.employeeId, error: (error as Error).message.slice(0, 200) },
+      'foto biometrica: se guardo pero no se pudo actualizar en los checadores'
+    )
+    return null
   }
 }
