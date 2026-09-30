@@ -60,6 +60,8 @@ export const PHOTO_VERDICT = {
   FACE_TOO_SMALL: 'face_too_small',
   /** Demasiado oscura o demasiado quemada. */
   BRIGHTNESS: 'brightness',
+  /** El archivo no se pudo leer como imagen. */
+  UNREADABLE: 'unreadable',
   /** El derivado no pesa lo que deberia: el proceso salio mal. */
   DERIVATIVE_SIZE: 'derivative_size',
   /** No se pudo evaluar (modelos, memoria). NO es un rechazo de la foto. */

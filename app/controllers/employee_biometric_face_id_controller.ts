@@ -9,6 +9,7 @@ import {
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
 import { checkEmployeeBiometricFaceIdQuality } from '#helpers/employee_biometric_face_id_quality'
+import { checkEmployeeBiometricFaceIdDeviceReadiness } from '#helpers/employee_biometric_face_id_device_readiness'
 import { ensureEmployeeBiometricRead } from '#helpers/ensure_employee_biometric_read'
 import { EMPLOYEES_READ_PERMISSION_DECLARATIONS } from '#constants/employees_read_permission_declarations'
 import { EMPLOYEES_WRITE_PERMISSION_DECLARATIONS } from '#constants/employees_write_permission_declarations'
@@ -206,6 +207,13 @@ export default class EmployeeBiometricFaceIdController {
         return response.status(qualityCheck.rejection.status).json(qualityCheck.rejection.body)
       }
       const quality = qualityCheck.quality
+
+      // La misma foto sirve a la app y a los checadores: si no saldria un
+      // derivado valido para el aparato, no entra. Tambien antes de S3.
+      const readiness = await checkEmployeeBiometricFaceIdDeviceReadiness(photo.tmpPath)
+      if (!readiness.accepted) {
+        return response.status(readiness.rejection.status).json(readiness.rejection.body)
+      }
 
       // Subir la foto al S3
       const photoUrl = await uploadService.fileUpload(photo, 'profile-photo', 'employee-biometric-faces')
@@ -447,6 +455,13 @@ export default class EmployeeBiometricFaceIdController {
         return response.status(qualityCheck.rejection.status).json(qualityCheck.rejection.body)
       }
       const quality = qualityCheck.quality
+
+      // La misma foto sirve a la app y a los checadores: si no saldria un
+      // derivado valido para el aparato, no entra. Tambien antes de S3.
+      const readiness = await checkEmployeeBiometricFaceIdDeviceReadiness(photo.tmpPath)
+      if (!readiness.accepted) {
+        return response.status(readiness.rejection.status).json(readiness.rejection.body)
+      }
 
       // Subir la nueva foto al S3
       const photoUrl = await uploadService.fileUpload(photo, 'profile-photo', 'employee-biometric-faces')

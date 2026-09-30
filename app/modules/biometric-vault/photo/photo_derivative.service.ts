@@ -57,7 +57,14 @@ export default class PhotoDerivativeService {
    * nunca se topa con una foto que no se puede mandar.
    */
   async buildFromBuffer(original: Buffer): Promise<DerivativeOutcome> {
-    const meta = await sharp(original).metadata()
+    const meta = await readMetadata(original)
+    if (!meta) {
+      return {
+        ok: false,
+        verdict: PHOTO_VERDICT.UNREADABLE,
+        detail: 'El archivo no se pudo leer como imagen. Usa una foto JPG o PNG.',
+      }
+    }
     const { width, height } = orientedSize(meta)
 
     /**
@@ -180,4 +187,13 @@ function orientedSize(meta: sharp.Metadata): { width: number; height: number } {
   const width = meta.width ?? 0
   const height = meta.height ?? 0
   return (meta.orientation ?? 1) >= 5 ? { width: height, height: width } : { width, height }
+}
+
+/** `null` si `sharp` no reconoce el archivo: es un rechazo, no un fallo del servidor. */
+async function readMetadata(buffer: Buffer): Promise<sharp.Metadata | null> {
+  try {
+    return await sharp(buffer).metadata()
+  } catch {
+    return null
+  }
 }
