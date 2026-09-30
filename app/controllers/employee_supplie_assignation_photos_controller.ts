@@ -83,6 +83,7 @@ export default class EmployeeSupplieAssignationPhotosController {
         type: result.type,
         title: result.title,
         message: result.message,
+        ...(result.key ? { detail: result.detail, key: result.key } : {}),
         data: result.data,
       }
     } catch (error: any) {

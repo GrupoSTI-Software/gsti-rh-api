@@ -7,6 +7,7 @@ import BusinessUnitUser from '#models/business_unit_user'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
+import { LogStore } from '#models/MongoDB/log_store'
 import { blindIndex } from '#utils/blind_index'
 
 const TEST_PASSWORD = 'PersonSubjectTypeGate123!'
@@ -90,6 +91,11 @@ async function cleanupActor(actor: TenantActor | null) {
     .delete()
 }
 
+/** Header de empresa activa: el middleware exige el UUID v4 público, no el id entero. */
+function buHeader(actor: TenantActor): string {
+  return actor.businessUnit.businessUnitPublicId
+}
+
 function personPayload(suffix: string, subjectType?: string) {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   return {
@@ -114,6 +120,19 @@ test.group('Alta/listado persona — exigencia OFF', (group) => {
   let employeesModule: SystemModule
   let actor: TenantActor | null = null
   const createdEmails: string[] = []
+  let originalLogStoreSet: typeof LogStore.set
+
+  // La ruta feliz del `store` registra el sondeo (LogStore.set → Mongo); sin aislar, el
+  // temporizador de reconexión de Mongo retiene el event loop y el runner no termina.
+  // Molde del repo: guardar el original, no-op durante los casos, restaurar en teardown.
+  group.each.setup(() => {
+    originalLogStoreSet = LogStore.set
+    LogStore.set = async () => {}
+  })
+
+  group.each.teardown(() => {
+    LogStore.set = originalLogStoreSet
+  })
 
   group.setup(async () => {
     employeesModule = await SystemModule.query()
@@ -148,13 +167,21 @@ test.group('Alta/listado persona — exigencia OFF', (group) => {
   test('sin personSubjectType y sin permiso no responde PERM.DENIED', async ({ client, assert }) => {
     const payload = personPayload('off-ausente')
     createdEmails.push(payload.personEmail)
-    const response = await client.post('/api/persons').loginAs(actor!.user).json(payload)
+    const response = await client
+      .post('/api/persons')
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .loginAs(actor!.user)
+      .json(payload)
     assert.notEqual(response.status(), 403)
     assert.notEqual(response.body()?.key, 'PERM.DENIED')
   })
 
   test('GET /api/persons sin tab-persona-read no responde PERM.DENIED', async ({ client, assert }) => {
-    const response = await client.get('/api/persons').qs({ page: 1, limit: 10 }).loginAs(actor!.user)
+    const response = await client
+      .get('/api/persons')
+      .qs({ page: 1, limit: 10 })
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .loginAs(actor!.user)
     assert.notEqual(response.status(), 403)
     assert.notEqual(response.body()?.key, 'PERM.DENIED')
   })
@@ -164,6 +191,18 @@ test.group('Alta/listado persona — exigencia ON', (group) => {
   let employeesModule: SystemModule
   let actor: TenantActor | null = null
   const createdEmails: string[] = []
+  let originalLogStoreSet: typeof LogStore.set
+
+  // Mismo aislamiento que el grupo OFF: el POST con personEmail llega a la ruta feliz
+  // del `store` y registraría el sondeo contra Mongo real.
+  group.each.setup(() => {
+    originalLogStoreSet = LogStore.set
+    LogStore.set = async () => {}
+  })
+
+  group.each.teardown(() => {
+    LogStore.set = originalLogStoreSet
+  })
 
   group.setup(async () => {
     employeesModule = await SystemModule.query()
@@ -211,7 +250,11 @@ test.group('Alta/listado persona — exigencia ON', (group) => {
     for (const subject of subjects) {
       const payload = personPayload(`on-${String(subject)}`, subject)
       const before = await countByEmail(payload.personEmail)
-      const response = await client.post('/api/persons').loginAs(actor!.user).json(payload)
+      const response = await client
+        .post('/api/persons')
+        .header('X-Business-Unit-Id', buHeader(actor!))
+        .loginAs(actor!.user)
+        .json(payload)
       assert.equal(response.status(), 403)
       assert.equal(response.body()?.key, 'PERM.DENIED')
       assert.equal(await countByEmail(payload.personEmail), before)
@@ -221,7 +264,11 @@ test.group('Alta/listado persona — exigencia ON', (group) => {
   test('valor-invalido con write llega al validador y responde 422', async ({ client, assert }) => {
     await grantEmployeesOnly(actor!.role.roleId, ['tab-persona-write'])
     const payload = personPayload('on-invalid-with-write', 'valor-invalido')
-    const response = await client.post('/api/persons').loginAs(actor!.user).json(payload)
+    const response = await client
+      .post('/api/persons')
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .loginAs(actor!.user)
+      .json(payload)
     assert.equal(response.status(), 422)
     assert.equal(await countByEmail(payload.personEmail), 0)
   })
@@ -235,7 +282,11 @@ test.group('Alta/listado persona — exigencia ON', (group) => {
     for (const subject of ['system-user'] as const) {
       const payload = personPayload(`on-${subject}`, subject)
       createdEmails.push(payload.personEmail)
-      const response = await client.post('/api/persons').loginAs(actor!.user).json(payload)
+      const response = await client
+        .post('/api/persons')
+        .header('X-Business-Unit-Id', buHeader(actor!))
+        .loginAs(actor!.user)
+        .json(payload)
       assert.notEqual(response.status(), 403)
       assert.notEqual(response.body()?.key, 'PERM.DENIED')
     }
@@ -246,12 +297,20 @@ test.group('Alta/listado persona — exigencia ON', (group) => {
     assert,
   }) => {
     await grantEmployeesOnly(actor!.role.roleId, [])
-    const denied = await client.get('/api/persons').qs({ page: 1, limit: 10 }).loginAs(actor!.user)
+    const denied = await client
+      .get('/api/persons')
+      .qs({ page: 1, limit: 10 })
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .loginAs(actor!.user)
     assert.equal(denied.status(), 403)
     assert.equal(denied.body()?.key, 'PERM.DENIED')
 
     await grantEmployeesOnly(actor!.role.roleId, ['tab-persona-read'])
-    const allowed = await client.get('/api/persons').qs({ page: 1, limit: 10 }).loginAs(actor!.user)
+    const allowed = await client
+      .get('/api/persons')
+      .qs({ page: 1, limit: 10 })
+      .header('X-Business-Unit-Id', buHeader(actor!))
+      .loginAs(actor!.user)
     assert.notEqual(allowed.status(), 403)
     assert.notEqual(allowed.body()?.key, 'PERM.DENIED')
   })

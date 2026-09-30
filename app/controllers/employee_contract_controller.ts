@@ -1,5 +1,7 @@
 import { HttpContext } from '@adonisjs/core/http'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { resolveStoredFileExtension } from '#helpers/stored_file_extension'
 import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
 import Env from '#start/env'
@@ -980,10 +982,16 @@ export default class EmployeeContractController {
         }
       }
 
-      const fileName = `contrato-${contract.employeeContractFolio || employeeContractId}`
+      const fileName = buildDownloadFileName(
+        ['contrato', employeeContractId],
+        resolveStoredFileExtension({
+          storedPath: contract.employeeContractFile,
+          contentType: object.contentType,
+        })
+      )
 
       response.header('Content-Type', object.contentType || 'application/octet-stream')
-      response.header('Content-Disposition', `inline; filename="${fileName}"`)
+      response.header('Content-Disposition', contentDisposition(fileName, 'inline'))
       response.header('Cache-Control', 'private, no-store')
       if (object.contentLength !== undefined) {
         response.header('Content-Length', String(object.contentLength))

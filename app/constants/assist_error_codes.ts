@@ -19,6 +19,8 @@ export const ASSIST_ERROR_CODES = {
   VAL_PUNCH_TIME_FUTURE: 'AST.VAL.005',
   /** Hora de captura anterior al inicio de la ventana vigente. */
   VAL_PUNCH_TIME_OUT_OF_WINDOW: 'AST.VAL.006',
+  /** Captura administrativa más atrás de los días que el rol puede modificar. */
+  VAL_PUNCH_TIME_ROLE_SCOPE: 'AST.VAL.011',
   /** Lote vacío, no-arreglo o por encima del tope de elementos o de tamaño. */
   VAL_BATCH_SIZE: 'AST.VAL.004',
   /** Dos elementos de la misma entrega comparten llave natural. */

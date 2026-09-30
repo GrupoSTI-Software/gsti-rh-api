@@ -144,6 +144,15 @@ export default await Env.create(new URL('../', import.meta.url), {
    * (USRH1788135907803)
    */
   ASSIST_PUNCH_TIME_FUTURE_TOLERANCE_SECONDS: Env.schema.number.optional(),
+  /**
+   * Ventana de frescura, en minutos, dentro de la cual la compensación del alta
+   * de empleado fallida puede liberar a la persona recién creada
+   * (USRH1789698261608). Sin definir aplica el default del accesor (60 min).
+   * El valor se satura al intervalo [1, 1440] fijado en código: fuera de rango
+   * no interrumpe el alta, se satura y queda en bitácora. No es configuración
+   * de negocio: no vive en `system_settings` y no se publica.
+   */
+  PERSON_RELEASE_WINDOW_MINUTES: Env.schema.number.optional(),
   /*
   |----------------------------------------------------------
   | Almacenamiento de objetos (DigitalOcean Spaces en produccion,

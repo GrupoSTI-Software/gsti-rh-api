@@ -1,19 +1,13 @@
 import { DateTime } from 'luxon'
 import { HttpContext } from '@adonisjs/core/http'
-import mail from '@adonisjs/mail/services/main'
-import env from '#start/env'
 import Employee from '#models/employee'
 import ExceptionRequest from '#models/exception_request'
 import ExceptionType from '#models/exception_type'
 import ShiftException from '#models/shift_exception'
-import User from '#models/user'
 import EmployeeService from '#services/employee_service'
+import ExceptionRequestNotificationService from '#services/exception_request_notification_service'
 import NotificationEmailService from '#services/notification_email_service'
 import ShiftExceptionService from '#services/shift_exception_service'
-import SystemSettingService from '#services/system_setting_service'
-import { SystemSettingResolutionError } from '#exceptions/system_setting_resolution_error'
-import { resolveMailSender } from '#helpers/resolve_mail_sender'
-import { resolveRequestBusinessUnitId } from '#helpers/resolve_request_business_unit_id'
 
 /** Resolución que se puede aplicar a una solicitud pendiente. */
 export type ExceptionRequestResolution = 'accepted' | 'refused'
@@ -43,6 +37,14 @@ export interface ResolveExceptionRequestParams {
   status: ExceptionRequestResolution
   /** Nota de la resolución; cadena vacía si no hay. */
   resolutionNote: string
+  /**
+   * Si el servicio manda el aviso al colaborador. Por omisión sí.
+   *
+   * La resolución en lote lo apaga y avisa una sola vez al terminar: resolver
+   * tres días seleccionados produce una decisión, no tres, y tres correos
+   * seguidos diciendo casi lo mismo hacen que el siguiente no se lea.
+   */
+  notify?: boolean
 }
 
 /**
@@ -77,7 +79,13 @@ export default class ExceptionRequestResolutionService {
     exceptionRequest.exceptionRequestResolvedAt = DateTime.now()
     await exceptionRequest.save()
 
-    await this.notifyEmployee(params)
+    if (params.notify !== false) {
+      await new ExceptionRequestNotificationService().notifyResolution({
+        exceptionRequests: [exceptionRequest],
+        status,
+        resolutionNote,
+      })
+    }
 
     if (status === 'accepted') {
       const applied = await this.applyAcceptedEffects(params)
@@ -85,73 +93,6 @@ export default class ExceptionRequestResolutionService {
     }
 
     return { ok: true, exceptionRequest }
-  }
-
-  /**
-   * Avisa al empleado del resultado.
-   *
-   * Un fallo de correo no revierte la resolución: la decisión ya está tomada y
-   * registrada, y dejarla a medias por el buzón sería peor.
-   */
-  private async notifyEmployee(params: ResolveExceptionRequestParams): Promise<void> {
-    const { ctx, exceptionRequest, status, resolutionNote } = params
-
-    if (!exceptionRequest.userId) return
-
-    const user = await User.query()
-      .where('user_id', exceptionRequest.userId)
-      .whereNull('user_deleted_at')
-      .preload('person')
-      .first()
-
-    if (!user?.userEmail) return
-
-    const sender = resolveMailSender()
-    if (!sender) return
-
-    let tradeName = 'BO'
-    let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-
-    // USRH1783712837584: la ruta tiene `auth()` pero no `businessScope()`, así
-    // que la empresa se resuelve desde el header y se aplica fail-closed
-    // silencioso: sin configuración propia se conserva el branding por defecto
-    // en vez de filtrar el de otra empresa.
-    const businessUnitId = await resolveRequestBusinessUnitId(ctx)
-
-    if (businessUnitId) {
-      try {
-        const systemSettingActive = await new SystemSettingService().resolveByBusinessUnitId(
-          businessUnitId
-        )
-        if (systemSettingActive.systemSettingLogo) {
-          backgroundImageLogo = systemSettingActive.systemSettingLogo
-        }
-        if (systemSettingActive.systemSettingTradeName) {
-          tradeName = systemSettingActive.systemSettingTradeName
-        }
-      } catch (error) {
-        if (!(error instanceof SystemSettingResolutionError)) throw error
-      }
-    }
-
-    const userName = user.person
-      ? `${user.person.personFirstname} ${user.person.personLastname} ${user.person.personSecondLastname}`
-      : 'User'
-
-    await mail.send((message) => {
-      message
-        .to(user.userEmail)
-        .from(sender, tradeName)
-        .subject(
-          `${tradeName}, Exception Request - ${`${exceptionRequest.exceptionRequestId}`.padStart(5, '0')}`
-        )
-        .htmlView('emails/update_status_mail', {
-          newStatus: status,
-          newDescription: resolutionNote,
-          userName,
-          backgroundImageLogo,
-        })
-    })
   }
 
   /**

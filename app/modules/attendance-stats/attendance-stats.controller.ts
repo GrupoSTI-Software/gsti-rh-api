@@ -32,7 +32,7 @@ export default class AttendanceStatsController {
    *
    *       **Serie mensual** (modo anual del monitor): con `granularity=month` agrega `monthly`, un arreglo `{ month: 'yyyy-MM', statistics }` con una entrada por cada mes calendario entre `startDay` y `endDay` inclusive, ordenado ascendente. Cada mes suma los contadores de sus días con el mismo cierre al 100% que `statistics`; `employeesQty` cuenta los empleados con al menos un día evaluable en ese mes. Los meses sin registros aparecen en cero. Con `granularity=day`, vacío (`granularity=`) o sin el parámetro la respuesta no trae `monthly`; `statistics` y `daily` no cambian en ningún caso.
    *
-   *       **Huso horario**: `startDay`/`endDay` se interpretan como días laborales en huso México (UTC-6). El servidor no acepta `Timezone` header; el cliente es responsable de enviar la fecha mexicana correcta (no la fecha local del cliente si está fuera de México).
+   *       **Huso horario**: `startDay`/`endDay` son días civiles del sitio de cada colaborador (zona IANA de su sucursal, o de la empresa). El servidor no acepta `Timezone` header; el cliente envía la fecha civil del sitio, no la local del observador.
    *     security:
    *       - bearerAuth: []
    *     tags: [AttendanceStats]
@@ -84,7 +84,7 @@ export default class AttendanceStatsController {
    *     description: |
    *       Array con un objeto por departamento (clean counters + informational + porcentajes).
    *
-   *       **Huso horario**: `startDay`/`endDay` se interpretan como días laborales en huso México (UTC-6). El servidor no acepta `Timezone` header.
+   *       **Huso horario**: `startDay`/`endDay` son días civiles del sitio de cada colaborador (zona IANA de su sucursal, o de la empresa). El servidor no acepta `Timezone` header.
    *     security: [{ bearerAuth: [] }]
    *     tags: [AttendanceStats]
    *     parameters:
@@ -114,7 +114,7 @@ export default class AttendanceStatsController {
    *     description: |
    *       Array con un objeto por empleado (clean counters + informational + porcentajes). No incluye el calendar individual — para detalle día por día usar /api/v1/employee-assist-calendars.
    *
-   *       **Huso horario**: `startDay`/`endDay` se interpretan como días laborales en huso México (UTC-6). El servidor no acepta `Timezone` header.
+   *       **Huso horario**: `startDay`/`endDay` son días civiles del sitio de cada colaborador (zona IANA de su sucursal, o de la empresa). El servidor no acepta `Timezone` header.
    *     security: [{ bearerAuth: [] }]
    *     tags: [AttendanceStats]
    *     parameters:

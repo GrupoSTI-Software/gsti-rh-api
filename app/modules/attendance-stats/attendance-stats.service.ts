@@ -370,7 +370,7 @@ export default class AttendanceStatsService {
     for (const bundle of bundles) {
       const deptId = bundle.employee.departmentId
       if (deptId === null) continue
-      const { clean, informational } = aggregateCalendar(bundle.calendar, thresholds)
+      const { clean, informational } = aggregateCalendar(bundle.calendar, thresholds, bundle.timeZone)
       // Mismo criterio que el overview: cuenta al empleado solo si tuvo al
       // menos un día evaluable. Sin esto el conteo por departamento no sería
       // comparable con el total de la pantalla, que sí lo aplica.
@@ -420,7 +420,7 @@ export default class AttendanceStatsService {
     ])
 
     const data: EmployeeRow[] = bundles.map((bundle) => {
-      const { clean, informational } = aggregateCalendar(bundle.calendar, thresholds)
+      const { clean, informational } = aggregateCalendar(bundle.calendar, thresholds, bundle.timeZone)
       return {
         employee: bundle.employee,
         statistics: toStatistics(clean, informational),
@@ -534,7 +534,7 @@ export function buildOverviewResponse(input: BuildOverviewInput): OverviewRespon
     let hasEvaluableDay = false
     const evaluableMonths = new Set<string>()
     for (const day of bundle.calendar) {
-      const { clean, informational } = classifyDay(day, thresholds)
+      const { clean, informational } = classifyDay(day, thresholds, bundle.timeZone)
       addClean(totalClean, clean)
       addInformational(totalInfo, informational)
 

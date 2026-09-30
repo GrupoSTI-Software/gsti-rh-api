@@ -24,9 +24,14 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
   // 163: +createEmployeeProceedingFileType, el alta de carpeta del expediente del
   // colaborador. Su ruta no verificaba nada y el módulo propio del catálogo de
   // tipos está retirado y sin permisos, así que la gobierna la pestaña que la usa.
-  test('declara exactamente 163 operaciones con module employees y bypass standard', ({ assert }) => {
+  // 162: sale unassignEmployeeBranchOffice. Un empleado siempre pertenece a una
+  // sucursal, así que desasignar dejó de ser una operación posible: la ruta se
+  // retiró y cambiar de sucursal es un assign.
+  // 157: salen syncDepartments, syncPositions, syncEmployees, syncShift y
+  // syncEmployeesBySelection con el retiro de /api/synchronization/* (USRH1790276646847).
+  test('declara exactamente 157 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 163)
+    assert.equal(keys.length, 157)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 

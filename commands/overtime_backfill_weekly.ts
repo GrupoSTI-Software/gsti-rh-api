@@ -7,6 +7,8 @@ import type {
   PayrollOvertimeBackfillSummary,
   PayrollOvertimeRevertSummary,
 } from '../app/interfaces/payroll_overtime_backfill_interface.js'
+import { TenantContext } from '#utils/tenant_context'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 
 /**
  * Comando de backfill histórico del desglose semanal de horas extra (doble/triple).
@@ -85,6 +87,16 @@ export default class OvertimeBackfillWeekly extends BaseCommand {
       return
     }
 
+    await TenantContext.runUnscoped(
+      async () => {
+        await this.execute()
+      },
+      TENANT_UNSCOPED_REASON.BACKFILL_MAINTENANCE,
+      OvertimeBackfillWeekly.commandName
+    )
+  }
+
+  private async execute() {
     const dryLabel = this.dryRun ? '[DRY-RUN] ' : ''
     const modeLabel = this.revert ? 'REVERTIR' : 'BACKFILL'
     const payrollBuLabel =

@@ -27,12 +27,12 @@ const readIdentificacionStore = {
 
 test.group('neutralizeSensitiveMaskEchoInBody', () => {
   test('sin ALS devuelve el cuerpo intacto', ({ assert }) => {
-    const body = { personRfc: maskSensitiveValue('VARL850602AB3', 'identificacion') }
+    const body = { personRfc: maskSensitiveValue('VARL850602AB3') }
     assert.strictEqual(neutralizeSensitiveMaskEchoInBody(body as Record<string, unknown>), body)
   })
 
   test('elimina eco de catálogo si no hay lectura de la categoría', ({ assert }) => {
-    const echo = maskSensitiveValue('VARL850602AB3', 'identificacion')
+    const echo = maskSensitiveValue('VARL850602AB3')
     const body = { personRfc: echo, personFirstname: 'Ana' }
     SensitiveAccessContext.run(deniedStore, () => {
       const out = neutralizeSensitiveMaskEchoInBody(body as Record<string, unknown>)
@@ -41,12 +41,37 @@ test.group('neutralizeSensitiveMaskEchoInBody', () => {
     })
   })
 
-  test('no elimina si el usuario tiene lectura de la categoría', ({ assert }) => {
-    const echo = maskSensitiveValue('VARL850602AB3', 'identificacion')
+  test('elimina el eco aunque el usuario tenga lectura de la categoría', ({ assert }) => {
+    const echo = maskSensitiveValue('VARL850602AB3')
     const body = { personRfc: echo }
     SensitiveAccessContext.run(readIdentificacionStore, () => {
       const out = neutralizeSensitiveMaskEchoInBody(body as Record<string, unknown>)
-      assert.equal(out.personRfc, echo)
+      assert.notProperty(out, 'personRfc')
+    })
+  })
+
+  test('vuelve null el eco dentro de propertyValues y conserva el id de la propiedad', ({ assert }) => {
+    const body = {
+      propertyValues: [
+        { medicalConditionTypePropertyId: 7, medicalConditionTypePropertyValue: maskSensitiveValue('A+') },
+        { medicalConditionTypePropertyId: 8, medicalConditionTypePropertyValue: 'Penicilina' },
+      ],
+    }
+    SensitiveAccessContext.run(deniedStore, () => {
+      const out = neutralizeSensitiveMaskEchoInBody(body as Record<string, unknown>)
+      assert.deepEqual(out.propertyValues, [
+        { medicalConditionTypePropertyId: 7, medicalConditionTypePropertyValue: null },
+        { medicalConditionTypePropertyId: 8, medicalConditionTypePropertyValue: 'Penicilina' },
+      ])
+    })
+  })
+
+  test('propertyValues sin eco deja el cuerpo intacto', ({ assert }) => {
+    const body = {
+      propertyValues: [{ medicalConditionTypePropertyId: 7, medicalConditionTypePropertyValue: 'O-' }],
+    }
+    SensitiveAccessContext.run(deniedStore, () => {
+      assert.strictEqual(neutralizeSensitiveMaskEchoInBody(body as Record<string, unknown>), body)
     })
   })
 

@@ -1,13 +1,16 @@
 /* eslint-disable max-len */
 import { compose } from '@adonisjs/core/helpers'
-import { BaseModel, beforeSave, column, hasOne } from '@adonisjs/lucid/orm'
-import type { HasOne } from '@adonisjs/lucid/types/relations'
+import { BaseModel, beforeCreate, beforeSave, belongsTo, column, hasOne } from '@adonisjs/lucid/orm'
+import type { BelongsTo, HasOne } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import { DateTime } from 'luxon'
 import encryption from '@adonisjs/core/services/encryption'
-import { blindIndex } from '#utils/blind_index'
+import { blindIndexOrNull } from '#utils/blind_index'
 import { sensitiveSerialize } from '#helpers/sensitive_serialize'
+import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
+import { TenantContext } from '#utils/tenant_context'
+import BusinessUnit from './business_unit.js'
 import Employee from './employee.js'
 import User from './user.js'
 /**
@@ -74,9 +77,40 @@ import User from './user.js'
  *
  */
 
-export default class Person extends compose(BaseModel, SoftDeletes, withSensitiveWriteGuard()) {
+export default class Person extends compose(
+  BaseModel,
+  SoftDeletes,
+  withBusinessUnitScope(),
+  withSensitiveWriteGuard()
+) {
   @column({ isPrimary: true })
   declare personId: number
+
+  /**
+   * Marca de empresa dueña del expediente (USRH1789698261609). `null` significa
+   * "persona de plataforma" (regla 4): no es dato faltante. La columna NUNCA se
+   * vuelve NOT NULL. No se serializa: la marca no aparece en ninguna respuesta ni
+   * pantalla (§10 del spec, CA-1), igual que las huellas.
+   *
+   * Fail-closed: el modelo compone `withBusinessUnitScope()` sin la opción de
+   * filas globales. Con contexto de tenant una fila NULL es invisible para todo
+   * inquilino: se prefiere el dato que se esconde a la PII que se filtra
+   * (regla 6). NO seguir el precedente de `employee_type.ts`, que sí incluye
+   * las filas NULL para todos: aquél es un catálogo, esto es un expediente.
+   * (La palabra de esa opción no se escribe aquí a propósito: el DoD exige que
+   * un grep sobre este archivo la encuentre cero veces.)
+   *
+   * Minas conocidas, no se arreglan aquí:
+   *  - El mixin NO filtra escrituras. Lucid solo corre `before:fetch` cuando el
+   *    método es SELECT: `Person.query().where(...).update()` / `.delete()`
+   *    escriben sin filtro de tenant aun con contexto activo. Ningún update o
+   *    delete masivo sobre `people` sin `where('business_unit_id', ...)` explícito.
+   *  - Los hooks de Lucid no corren en INSERT crudo de Knex (`db.table('people')`).
+   *  - `PersonService.syncCreate` (sync biométrico) crea personas sin contexto:
+   *    nacen NULL e invisibles para su propio cliente (residual D3 de la HU).
+   */
+  @column({ serializeAs: null })
+  declare businessUnitId: number | null
 
   @column()
   declare personFirstname: string
@@ -256,13 +290,41 @@ export default class Person extends compose(BaseModel, SoftDeletes, withSensitiv
    * Calcula las huellas de los identificadores antes de persistir.
    * Se ejecuta sobre los valores en claro (antes de que `prepare` los cifre).
    * Las huellas permiten validar unicidad sin descifrar (blind-index).
+   *
+   * Vaciar el campo libera la huella (USRH1789698261610, regla 7): antes solo
+   * se ponían y un RFC vaciado conservaba la anterior, bloqueando su reúso
+   * sin que ninguna pantalla lo mostrara. NULL tampoco compite en los UNIQUE
+   * compuestos por empresa, así que la baja también libera (regla 4).
    */
   @beforeSave()
   static calculateIdentifierHashes(person: Person) {
-    if (person.personCurp) person.personCurpHash = blindIndex(person.personCurp)
-    if (person.personRfc) person.personRfcHash = blindIndex(person.personRfc)
-    if (person.personImssNss) person.personImssNssHash = blindIndex(person.personImssNss)
-    if (person.personEmail) person.personEmailHash = blindIndex(person.personEmail)
+    person.personCurpHash = blindIndexOrNull(person.personCurp)
+    person.personRfcHash = blindIndexOrNull(person.personRfc)
+    person.personImssNssHash = blindIndexOrNull(person.personImssNss)
+    person.personEmailHash = blindIndexOrNull(person.personEmail)
+  }
+
+  /**
+   * Marca la empresa dueña desde la empresa activa de la petición, nunca desde
+   * el cuerpo. Variante TOLERANTE del patrón de `zone.ts`: donde `Zone` lanza sin
+   * contexto, `Person` deja `null` y no interrumpe el alta de landlord, el seeder
+   * raíz, el signup ni el sync biométrico. Si la persona ya trae marca (signup
+   * self-service la asigna antes de guardar), no la pisa (regla 8).
+   *
+   * Asume que `TenantContext.getScope()` trae como mucho un elemento y toma
+   * SOLO el primero: hoy es correcto porque la única forma de que exista un
+   * `Person` con contexto de tenant activo es `businessScope()` (el middleware
+   * estricto), que siempre monta el scope con un solo id. `businessScopeOptional`
+   * (usado en otras rutas) sí puede correr con un scope de varios elementos; si
+   * alguna ruta bajo ese middleware alguna vez crea un `Person`, este hook
+   * tomaría una empresa arbitraria en silencio en vez de fallar. No hay ruta así
+   * hoy — no se arregla aquí, solo se deja constancia.
+   */
+  @beforeCreate()
+  static assignBusinessUnitId(person: Person) {
+    if (person.businessUnitId) return
+    const [businessUnitId] = TenantContext.getScope()
+    person.businessUnitId = businessUnitId ?? null
   }
 
   @hasOne(() => Employee, {
@@ -282,4 +344,10 @@ export default class Person extends compose(BaseModel, SoftDeletes, withSensitiv
     },
   })
   declare user: HasOne<typeof User>
+
+  @belongsTo(() => BusinessUnit, {
+    foreignKey: 'businessUnitId',
+    localKey: 'businessUnitId',
+  })
+  declare businessUnit: BelongsTo<typeof BusinessUnit>
 }

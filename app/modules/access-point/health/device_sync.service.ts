@@ -6,6 +6,7 @@ import {
 } from '#modules/device-commands/device_command.constants'
 import DeviceCommandService from '#modules/device-commands/device_command.service'
 import type { DeviceCommandPort } from '#modules/device-commands/device_command_port'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 
 /**
@@ -70,7 +71,7 @@ export default class DeviceSyncService {
     while (DateTime.utc() < deadline) {
       const command = await TenantContext.runUnscoped(
         () => DeviceCommand.query().where('device_command_id', commandId).first(),
-        'sincronizacion manual: se relee el comando propio para saber si ya contestaron'
+        TENANT_UNSCOPED_REASON.ACCESS_POINT_OWN_COMMAND
       )
       if (!command) return { kind: 'pending', commandId }
 

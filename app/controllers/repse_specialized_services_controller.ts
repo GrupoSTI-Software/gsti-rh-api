@@ -52,8 +52,16 @@ export default class RepseSpecializedServicesController {
    *         name: repseRegistrationId
    *         required: true
    *         schema: { type: integer, minimum: 1 }
+   *       - in: query
+   *         name: status
+   *         required: false
+   *         schema: { type: string, enum: [active, inactive] }
+   *         description: Filtra por estado; sin él se listan todos.
    *     responses:
-   *       '200': { description: Listado paginado ordenado por createdAt DESC }
+   *       '200':
+   *         description: |
+   *           Listado paginado ordenado por createdAt DESC. Cada fila agrega
+   *           `contratosCount` (contratos no borrados que cubren el servicio).
    *       '400': { description: Validación inválida (page, limit, repseRegistrationId) }
    *       '401': { description: Sin autenticación }
    *       '404':
@@ -70,7 +78,8 @@ export default class RepseSpecializedServicesController {
       const bundle = await service.listByRepseRegistration(
         filters.page,
         filters.limit,
-        filters.repseRegistrationId
+        filters.repseRegistrationId,
+        filters.status
       )
 
       return StandardResponseFormatter.success(
@@ -161,7 +170,7 @@ export default class RepseSpecializedServicesController {
    *                 minLength: 1
    *               status:
    *                 type: string
-   *                 enum: [active]
+   *                 enum: [active, inactive]
    *     responses:
    *       '201': { description: Creado }
    *       '400': { description: Validación VineJS (p.ej. sin name) }
@@ -227,7 +236,7 @@ export default class RepseSpecializedServicesController {
    *                 minLength: 1
    *               status:
    *                 type: string
-   *                 enum: [active]
+   *                 enum: [active, inactive]
    *     responses:
    *       '200': { description: Actualizado }
    *       '400': { description: Validación VineJS }

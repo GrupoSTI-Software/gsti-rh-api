@@ -76,8 +76,6 @@ const assistBatchItemsLimit = async (ctx: HttpContext, next: NextFn) => {
 router
   .group(() => {
     router.get('/get-flat-list', '#controllers/assists_controller.getAssistFlatList')
-    router.get('/get-format-payroll', '#controllers/assists_controller.getFormatPayRoll')
-      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getPayrollFormat))
     router.get('/get-excel-by-employee', '#controllers/assists_controller.getExcelByEmployee')
       .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getAttendanceByEmployee))
     router.get('/get-excel-by-position', '#controllers/assists_controller.getExcelByPosition')

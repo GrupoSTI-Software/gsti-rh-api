@@ -2,6 +2,7 @@ import type { I18n } from '@adonisjs/i18n'
 import User from '#models/user'
 import RoleService from '#services/role_service'
 import UserService from '#services/user_service'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 
 /**
  * Alcance de colaboradores que un usuario puede ver, con la misma regla que
@@ -15,7 +16,7 @@ export interface EmployeeRoleScope {
    */
   departmentsList: number[]
   /**
-   * `true` solo para `root` y roles con `full-employee-assigned`; `false` para
+   * `true` para `root`, `owner` y roles con `full-employee-assigned`; `false` para
    * el acceso restringido. Cuando es `true`, las salidas incluyen a los empleados
    * con `department_id IS NULL` además de los departamentos de la lista.
    * Extensión de USRH1788466831312.
@@ -60,16 +61,21 @@ export async function resolveEmployeeRoleScopeForUser(user: User, i18n: I18n): P
   const hasAccessToFullEmployees = isRoot
     ? false
     : await new RoleService().hasAccessToFullEmployees(user.roleId)
-  const includeUnassigned = isRoot || hasAccessToFullEmployees
+  // Root y owner ven toda la plantilla (regla única de `resolveResponsibleUserId`):
+  // sin candado de colaboradores a cargo y con los empleados sin departamento.
+  const userResponsibleId = hasAccessToFullEmployees ? null : resolveResponsibleUserId(user)
+  const includeUnassigned = userResponsibleId === null
+  // El segundo argumento es solo `full-employee-assigned`: con `true` la consulta
+  // no acota por empresa, y el owner resuelve sus departamentos por su propia rama.
   const departmentsList = await new UserService(i18n).getRoleDepartments(
     user.userId,
-    includeUnassigned
+    hasAccessToFullEmployees
   )
 
   return {
     departmentsList,
     includeUnassigned,
-    userResponsibleId: !isRoot && !hasAccessToFullEmployees ? user.userId : null,
+    userResponsibleId,
   }
 }
 

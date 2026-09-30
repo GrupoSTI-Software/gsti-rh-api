@@ -9,8 +9,8 @@ import { test } from '@japa/runner'
  *
  * Estos tests verifican en tiempo de lint/CI que:
  *   1. `generateAssistanceAllBuffer` exista y comparta el mismo pipeline de
- *      construcción de workbook que `getExcelAllAssistance` (misma paleta de
- *      colores, mismo `addHeadRow`, mismo `addRowToWorkSheet`, mismo logo).
+ *      construcción de workbook que `getExcelAllAssistance` (misma paleta
+ *      neutral, mismo `addHeadRow`, mismo `addRowToWorkSheet`, sin logo).
  *   2. La diferencia entre ambos métodos se limite al iterador con progreso
  *      y a la firma del parámetro `departmentsList` explícito.
  *   3. El servicio de jobs llame a `generateAssistanceAllBuffer` y no
@@ -37,28 +37,24 @@ test.group('ReportJobService — paridad de formato con getExcelAllAssistance', 
     )
   })
 
-  test('generateAssistanceAllBuffer usa el mismo color de título "244062"', ({ assert }) => {
+  test('generateAssistanceAllBuffer usa la paleta neutral en título y periodo', ({ assert }) => {
     const content = readSource(ASSIST_SERVICE)
     const start = content.indexOf('async generateAssistanceAllBuffer')
     assert.isAbove(start, -1)
     const snippet = content.slice(start, start + 5000)
     assert.include(
       snippet,
-      '244062',
-      'generateAssistanceAllBuffer debe usar el mismo color de título que getExcelAllAssistance'
+      'REPORT_NEUTRAL_ARGB.text',
+      'generateAssistanceAllBuffer debe usar el texto negro de la paleta neutral en el título'
     )
-  })
-
-  test('generateAssistanceAllBuffer usa el mismo color de periodo "366092"', ({ assert }) => {
-    const content = readSource(ASSIST_SERVICE)
-    const start = content.indexOf('async generateAssistanceAllBuffer')
-    assert.isAbove(start, -1)
-    const snippet = content.slice(start, start + 5000)
     assert.include(
       snippet,
-      '366092',
-      'generateAssistanceAllBuffer debe usar el mismo color de periodo que getExcelAllAssistance'
+      'REPORT_NEUTRAL_ARGB.textMuted',
+      'generateAssistanceAllBuffer debe usar el texto secundario de la paleta neutral en el periodo'
     )
+    for (const brandColor of ['244062', '366092']) {
+      assert.notInclude(snippet, brandColor, `generateAssistanceAllBuffer no debe usar el color de marca ${brandColor}`)
+    }
   })
 
   test('generateAssistanceAllBuffer llama a addHeadRow', ({ assert }) => {
@@ -85,16 +81,11 @@ test.group('ReportJobService — paridad de formato con getExcelAllAssistance', 
     )
   })
 
-  test('generateAssistanceAllBuffer llama a addImageLogo', ({ assert }) => {
+  test('assist_service ya no inserta logotipos en los reportes', ({ assert }) => {
     const content = readSource(ASSIST_SERVICE)
-    const start = content.indexOf('async generateAssistanceAllBuffer')
-    assert.isAbove(start, -1)
-    const snippet = content.slice(start, start + 5000)
-    assert.include(
-      snippet,
-      'addImageLogo',
-      'generateAssistanceAllBuffer debe incluir el logo igual que getExcelAllAssistance'
-    )
+    assert.notInclude(content, 'addImageLogo', 'Los descargables van en formato neutral, sin logo')
+    assert.notInclude(content, 'getLogo', 'Los descargables van en formato neutral, sin logo')
+    assert.notInclude(content, '.addImage(', 'Los descargables van en formato neutral, sin logo')
   })
 
   test('generateAssistanceAllBuffer acepta departmentsList como parámetro explícito', ({ assert }) => {

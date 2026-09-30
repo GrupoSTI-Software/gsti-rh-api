@@ -1,6 +1,10 @@
 import type { NormalizeConstructor } from '@adonisjs/core/types/helpers'
 import { BaseModel } from '@adonisjs/lucid/orm'
 import { TenantContext } from '#utils/tenant_context'
+import {
+  recordTenantScopeBlock,
+  type TenantScopeBlockHook,
+} from '#utils/tenant_scope_block_log'
 
 export interface BusinessUnitScopeOptions {
   /**
@@ -16,23 +20,34 @@ type ScopedQuery = {
   whereNull: (column: string) => ScopedQuery
   orWhereNull: (column: string) => void
   where: (callback: (subQuery: ScopedQuery) => void) => void
+  readonly model?: { readonly table: string }
+}
+
+type ApplyFilterOptions = BusinessUnitScopeOptions & {
+  hook?: TenantScopeBlockHook
 }
 
 /**
  * Aplica el filtro de tenant a una query dado el contexto activo.
  *
  * Comportamiento según el estado del TenantContext:
- *  - Sin contexto activo   → sin filtro (ruta pública, test sin middleware, proceso batch propio).
- *  - Contexto bypassed     → sin filtro (rol root, ver runUnscoped).
+ *  - Sin contexto activo   → sin filtro; registra observación muestreada (modo observed).
+ *  - Contexto bypassed     → sin filtro (excepción declarada vía runUnscoped).
  *  - Scope vacío + activo  → `1 = 0`, salvo `includeGlobal: true` → solo filas NULL del sistema.
  *  - Scope con IDs         → `whereIn(column, scope)`; con `includeGlobal: true` también filas NULL.
  */
 function applyTenantFilter(
   query: ScopedQuery,
   column: string,
-  options: BusinessUnitScopeOptions = {}
+  options: ApplyFilterOptions = {}
 ): void {
-  if (!TenantContext.isActive()) return
+  if (!TenantContext.isActive()) {
+    const table = query.model?.table
+    if (table && options.hook) {
+      recordTenantScopeBlock({ table, hook: options.hook })
+    }
+    return
+  }
   if (TenantContext.isBypassed()) return
 
   const scope = TenantContext.getScope()
@@ -96,7 +111,7 @@ function applyTenantFilter(
  *
  * ## Bypass explícito
  * ```typescript
- * return TenantContext.runUnscoped(() => myQuery(), 'proceso de sincronización batch')
+ * return TenantContext.runUnscoped(() => myQuery(), TENANT_UNSCOPED_REASON.REPORT_JOB)
  * ```
  *
  * @param tenantColumn - Nombre de la columna FK. Por defecto `'business_unit_id'`.
@@ -112,16 +127,16 @@ export function withBusinessUnitScope(
         super.boot()
 
         this.before('find', (query: ScopedQuery) => {
-          applyTenantFilter(query, tenantColumn, options)
+          applyTenantFilter(query, tenantColumn, { ...options, hook: 'find' })
         })
 
         this.before('fetch', (query: ScopedQuery) => {
-          applyTenantFilter(query, tenantColumn, options)
+          applyTenantFilter(query, tenantColumn, { ...options, hook: 'fetch' })
         })
 
         this.before('paginate', ([countQuery, query]: ScopedQuery[]) => {
           applyTenantFilter(countQuery, tenantColumn, options)
-          applyTenantFilter(query, tenantColumn, options)
+          applyTenantFilter(query, tenantColumn, { ...options, hook: 'paginate' })
         })
       }
     }

@@ -1,5 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import vine from '@vinejs/vine'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { StandardResponseFormatter } from '#helpers/standard_response_formatter'
 import EmployeeBiometricSummaryService from '#modules/biometric-vault/device-biometrics/employee_biometric_summary.service'
 import { BIOMETRIC_SLOT_STATE } from '#modules/biometric-vault/device-biometrics/biometric_slot_state'
@@ -470,10 +471,6 @@ async function countBiometrics(employeeId: number): Promise<EmployeeBiometricSum
   }
 }
 
-/** El catalogo de modelos es de plataforma, no de una empresa. */
-const MODEL_UNSCOPED_REASON =
-  'alta en checador: el catalogo de modelos es de plataforma, no de una empresa'
-
 /**
  * Checadores del alcance donde la persona todavia no esta.
  *
@@ -537,7 +534,7 @@ async function modelsOf(
           'm.platform_device_model_name',
           'm.platform_device_model_slug'
         ),
-    MODEL_UNSCOPED_REASON
+    TENANT_UNSCOPED_REASON.ACCESS_POINT_MODEL_CATALOG
   )
 
   const result = new Map<number, EmployeeAvailableAccessPointDto['model']>()

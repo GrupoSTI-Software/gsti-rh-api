@@ -4,6 +4,7 @@ import {
   createBranchOfficeValidator,
   updateBranchOfficeValidator,
   branchOfficeFilterValidator,
+  deleteBranchOfficeValidator,
 } from '#validators/branch_office'
 import { resolveBranchOfficeApiError } from '../helpers/branch_office_api_error.js'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
@@ -273,9 +274,10 @@ export default class BranchOfficesController {
    *       404:
    *         description: No encontrada
    */
-  async destroy({ params, response, businessUnitScope, i18n }: HttpContext) {
+  async destroy({ params, request, response, businessUnitScope, i18n }: HttpContext) {
     try {
-      await BranchOfficeService.delete(params.id, businessUnitScope)
+      const { targetBranchOfficeId } = await request.validateUsing(deleteBranchOfficeValidator)
+      await BranchOfficeService.delete(params.id, businessUnitScope, { targetBranchOfficeId })
       return StandardResponseFormatter.success(response, null, 'Branch', 'Sucursal eliminada correctamente')
     } catch (error) {
       return this.respondError(error, response, 404, i18n)

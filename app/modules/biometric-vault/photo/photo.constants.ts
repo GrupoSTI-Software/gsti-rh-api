@@ -1,3 +1,5 @@
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+
 /**
  * Foto del colaborador en el checador (spec ADMS 7.2 y 7.3).
  *
@@ -73,5 +75,4 @@ export function derivativeKeyFor(employeeId: number, version: number): string {
  * Lectura del token fuera de scope: la peticion del equipo no trae sesion ni
  * empresa, y la empresa se resuelve DESDE la fila encontrada.
  */
-export const ADMS_PHOTO_TOKEN_UNSCOPED_REASON =
-  'canal ADMS: la descarga de foto llega sin sesion; la empresa se resuelve desde la publicacion'
+export const ADMS_PHOTO_TOKEN_UNSCOPED_REASON = TENANT_UNSCOPED_REASON.ADMS_PHOTO_TOKEN
