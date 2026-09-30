@@ -1,0 +1,14 @@
+/**
+ * Códigos estables para el cliente — consentimiento y aceptaciones legales de plataforma.
+ * Prefijo CONSENT.PLATFORM.
+ *
+ * Rangos reservados para historias hermanas del sub-slice: la historia C usa 001-009;
+ * la historia D usa 010-019. No reutilizar números fuera de esos bloques.
+ */
+export const PLATFORM_CONSENT_ERROR_CODES = {
+  /** Query de listado inválida: `search`, `status`, `page` o `limit` fuera de contrato (422). */
+  INVALID_FILTERS: 'CONSENT.PLATFORM.001',
+} as const
+
+export type PlatformConsentErrorCode =
+  (typeof PLATFORM_CONSENT_ERROR_CODES)[keyof typeof PLATFORM_CONSENT_ERROR_CODES]
