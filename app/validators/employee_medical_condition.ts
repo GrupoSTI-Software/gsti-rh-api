@@ -25,7 +25,9 @@ export const createEmployeeMedicalConditionValidator = vine.compile(
     propertyValues: vine.array(
       vine.object({
         medicalConditionTypePropertyId: vine.number(),
-        medicalConditionTypePropertyValue: vine.string().trim().minLength(1).maxLength(500),
+        // null conserva el valor guardado y `...Active: 0` lo borra: el dato viaja
+        // enmascarado y el BO solo reenvía lo que el usuario cambió.
+        medicalConditionTypePropertyValue: vine.string().trim().maxLength(500).use(noMaskCharRule()).nullable().optional(),
         medicalConditionTypePropertyValueActive: vine.number().in([0, 1]).optional(),
       })
     ).optional(),
@@ -54,7 +56,9 @@ export const updateEmployeeMedicalConditionValidator = vine.compile(
     propertyValues: vine.array(
       vine.object({
         medicalConditionTypePropertyId: vine.number(),
-        medicalConditionTypePropertyValue: vine.string().trim().minLength(1).maxLength(500),
+        // null conserva el valor guardado y `...Active: 0` lo borra: el dato viaja
+        // enmascarado y el BO solo reenvía lo que el usuario cambió.
+        medicalConditionTypePropertyValue: vine.string().trim().maxLength(500).use(noMaskCharRule()).nullable().optional(),
         medicalConditionTypePropertyValueActive: vine.number().in([0, 1]).optional(),
       })
     ).optional(),

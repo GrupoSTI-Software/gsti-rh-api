@@ -42,6 +42,8 @@ import {
 const MODULE = 'employees'
 const READ = 'tab-condicion-medica-read'
 const WRITE = 'tab-condicion-medica-write'
+/** El valor de propiedad es dato de salud: escribirlo exige además el permiso sensible. */
+const HEALTH_WRITE = 'sensitive-salud-write'
 const DELETE = 'tab-condicion-medica-delete'
 
 type HttpVerb = 'get' | 'post' | 'put' | 'delete'
@@ -297,10 +299,27 @@ test.group('Condición médica — catálogo de tipos, propiedades y valores con
   }) => {
     const tenant = required(actor, 'el actor')
     const fixture = required(catalog, 'el catálogo')
-    await grantModulePermissions(tenant, MODULE, [WRITE])
+    await grantModulePermissions(tenant, MODULE, [WRITE, HEALTH_WRITE])
 
     await assertSucceedsAll(assert, client, tenant, writeCalls(fixture))
     await assertDeniedAll(assert, client, tenant, [...readCalls(fixture), ...deleteCalls(fixture)])
+  })
+
+  test('-write sin salud-write no escribe valores: el guard sensible responde 403 sin guardar', async ({
+    client,
+    assert,
+  }) => {
+    const tenant = required(actor, 'el actor')
+    const fixture = required(catalog, 'el catálogo')
+    await grantModulePermissions(tenant, MODULE, [WRITE])
+
+    const valueCalls = writeCalls(fixture).filter((call) => call.label.endsWith('de valor'))
+    assert.lengthOf(valueCalls, 2)
+    for (const call of valueCalls) {
+      const response = await send(client, tenant, call)
+      assert.equal(response.status(), 403, call.label)
+      assert.equal(response.body().code, 'EMP.SENS.WRITE.FORBIDDEN', call.label)
+    }
   })
 
   test('-delete abre las bajas de valor, propiedad y tipo; no altas ni ediciones', async ({

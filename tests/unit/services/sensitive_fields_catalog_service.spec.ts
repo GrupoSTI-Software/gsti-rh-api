@@ -24,6 +24,21 @@ test.group('SensitiveFieldsCatalogService.categoryOf', () => {
     )
   })
 
+  test('el valor de propiedad de condición médica es salud revelable', ({ assert }) => {
+    const catalog = new SensitiveFieldsCatalogService()
+    assert.equal(
+      catalog.categoryOf('MedicalConditionTypePropertyValue', 'medicalConditionTypePropertyValue'),
+      'salud'
+    )
+    assert.equal(
+      catalog.revealEligibility(
+        'MedicalConditionTypePropertyValue',
+        'medicalConditionTypePropertyValue'
+      ),
+      'revealable'
+    )
+  })
+
   test('Employee.dailySalary está clasificado como financiero (USRH1787433076994)', ({ assert }) => {
     const catalog = new SensitiveFieldsCatalogService()
     assert.equal(catalog.categoryOf('Employee', 'dailySalary'), 'financiero')
