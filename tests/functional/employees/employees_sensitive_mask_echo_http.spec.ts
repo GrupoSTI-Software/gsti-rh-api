@@ -102,15 +102,21 @@ test.group('Eco de máscara HTTP — USRH1787433076990', (group) => {
     assert.equal(personAfterCorruption.personRfc, RFC_ORIGINAL)
   })
 
-  test('F.4 CA-3: con lectura identificación el eco no se neutraliza', async ({ client, assert }) => {
+  test('F.4 CA-1: con lectura identificación el eco se neutraliza', async ({ client, assert }) => {
     await grantOnly(actor.role.roleId, ['tab-persona-write', 'sensitive-identificacion-read'])
+    const person = fixture.person
     const response = await client
-      .put(`/api/persons/${fixture.person.personId}`)
+      .put(`/api/persons/${person.personId}`)
       .loginAs(actor.user)
       .header('X-Business-Unit-Id', buHeader(actor))
-      .json(personUpdateBase(fixture.person, { personRfc: MASK_ECHO_RFC }))
+      .json(
+        personUpdateBase(person, { personRfc: MASK_ECHO_RFC, personSecondLastname: 'EcoQa' })
+      )
 
-    assertMaskCorruptionRejected(response, assert)
+    assertMaskEchoAccepted(response, assert)
+    const reloaded = await reloadPerson(person.personId)
+    assert.equal(reloaded.personRfc, RFC_ORIGINAL)
+    assert.equal(reloaded.personSecondLastname, 'EcoQa')
   })
 
   test('F.5 CA-4: campo no catálogo con aspecto de máscara no se toca', async ({ client, assert }) => {

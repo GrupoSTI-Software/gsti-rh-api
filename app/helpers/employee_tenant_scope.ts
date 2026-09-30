@@ -1,6 +1,8 @@
+import db from '@adonisjs/lucid/services/db'
 import Employee from '#models/employee'
 import { TenantContext } from '#utils/tenant_context'
 import { isTenantScopeActive } from '#helpers/system_setting_tenant_scope'
+import { recordTenantScopeBlock } from '#utils/tenant_scope_block_log'
 
 export { isTenantScopeActive }
 
@@ -18,7 +20,15 @@ export { isTenantScopeActive }
  * bajo la guarda de `isTenantScopeActive()`.
  */
 export function scopedEmployeeIds() {
+  if (!TenantContext.isActive()) {
+    recordTenantScopeBlock({ table: 'exception_requests', hook: 'fetch' })
+  }
   const scope = TenantContext.getScope()
+
+  if (scope.length === 0) {
+    // Alcance vacío sin tocar Lucid: `Employee` compone el mixin y fuera de HTTP lanzaría.
+    return db.from('employees').select('employee_id').whereRaw('1 = 0')
+  }
 
   return Employee.query()
     .select('employee_id')

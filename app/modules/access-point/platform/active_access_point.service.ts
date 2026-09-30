@@ -3,10 +3,8 @@ import PlatformDevice from '#models/platform_device'
 import PlatformDeviceAssignment from '#models/platform_device_assignment'
 import { PLATFORM_DEVICE_ERROR_CODES } from '#constants/platform_device_error_codes'
 import { PlatformDeviceServiceError } from '#exceptions/platform_device_service_error'
+import { PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON } from '#constants/platform_device_access_point'
 import { TenantContext } from '#utils/tenant_context'
-
-const UNSCOPED_REASON =
-  'vista de plataforma: el punto de acceso de una unidad puede ser de cualquier empresa'
 
 /** La unidad, su entrega abierta y el punto de acceso que le corresponde hoy. */
 export interface ActiveAccessPoint {
@@ -89,6 +87,6 @@ export default class ActiveAccessPointService {
       }
 
       return { device, assignment, accessPoint }
-    }, UNSCOPED_REASON)
+    }, PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON)
   }
 }

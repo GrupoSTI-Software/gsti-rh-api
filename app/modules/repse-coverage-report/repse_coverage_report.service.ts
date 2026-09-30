@@ -4,6 +4,7 @@ import { DateTime } from 'luxon'
 import AttendanceStatsRepositoryMysql from '#modules/attendance-stats/attendance-stats.repository.mysql'
 import type { EmployeeCalendarBundle } from '#modules/attendance-stats/dto/attendance-stats.dto'
 import { getAllowedBusinessUnitIds } from '../../helpers/repse_tenant_scope.js'
+import { reportFullName } from '#helpers/report_text'
 import type {
   RepseCoverageEmployeeRow,
   RepseCoverageExportRow,
@@ -16,7 +17,25 @@ import type {
 type DeclaredPercentRow = {
   employeeId: number
   companyId: number
+  companyName: string | null
   porcentajeDeclarado: number
+}
+
+/**
+ * Empleados por lote al calcular el reporte: el calendario de un año por
+ * empleado pesa, así que se carga y se resume por lotes en lugar de todo el
+ * tenant de una vez. Solo el resumen (una fila por empresa) queda en memoria.
+ */
+export const REPSE_COVERAGE_EMPLOYEE_BATCH_SIZE = 200
+
+/** Parte una lista de ids en lotes de `size` sin perder ni repetir ninguno. */
+export function chunkEmployeeIds(ids: number[], size: number): number[][] {
+  const safeSize = Math.max(1, Math.floor(size))
+  const batches: number[][] = []
+  for (let index = 0; index < ids.length; index += safeSize) {
+    batches.push(ids.slice(index, index + safeSize))
+  }
+  return batches
 }
 
 type BaseAssignmentRow = {
@@ -88,12 +107,14 @@ export default class RepseCoverageReportService {
     }
   }
 
+  /**
+   * Filas del Excel: todos los empleados del filtro, sin paginar. Antes se
+   * pedía `perPage: 500`, que daba a entender un tope; el cálculo se hace por
+   * lotes (`REPSE_COVERAGE_EMPLOYEE_BATCH_SIZE`) para no truncar ni cargar el
+   * calendario de todo el tenant a la vez.
+   */
   async getExportRows(filters: RepseCoverageReportExportFilters): Promise<RepseCoverageExportRow[]> {
-    const employeeRows = await this.buildEmployeeRows({
-      ...filters,
-      page: 1,
-      perPage: 500,
-    })
+    const employeeRows = await this.buildEmployeeRows(filters)
 
     const rows: RepseCoverageExportRow[] = []
     for (const employee of employeeRows) {
@@ -122,33 +143,70 @@ export default class RepseCoverageReportService {
     })
   }
 
-  private async buildEmployeeRows(filters: RepseCoverageReportFilters): Promise<RepseCoverageEmployeeRow[]> {
+  /**
+   * Resumen por empleado de todo el filtro. Los empleados se procesan por
+   * lotes: `getEmployeeCalendars` sigue aplicando el scope completo (unidad de
+   * negocio, bajas, discriminados), la lista previa solo decide los lotes.
+   */
+  private async buildEmployeeRows(
+    filters: RepseCoverageReportExportFilters
+  ): Promise<RepseCoverageEmployeeRow[]> {
     const allowedBusinessUnitIds = await getAllowedBusinessUnitIds()
     if (allowedBusinessUnitIds.length === 0) return []
 
-    const attendanceRepo = new AttendanceStatsRepositoryMysql(this.i18n)
-    const bundles = await attendanceRepo.getEmployeeCalendars(
-      {
-        startDay: filters.from,
-        endDay: filters.to,
-        employeeIds: filters.employeeId ? [filters.employeeId] : undefined,
-      },
-      allowedBusinessUnitIds
-    )
-    if (bundles.length === 0) return []
+    const candidateIds = filters.employeeId
+      ? [filters.employeeId]
+      : await this.loadCandidateEmployeeIds(allowedBusinessUnitIds)
+    if (candidateIds.length === 0) return []
 
+    const attendanceRepo = new AttendanceStatsRepositoryMysql(this.i18n)
+    const branchMetaById = await this.loadBranchMetadata()
+    const result: RepseCoverageEmployeeRow[] = []
+
+    for (const batch of chunkEmployeeIds(candidateIds, REPSE_COVERAGE_EMPLOYEE_BATCH_SIZE)) {
+      const bundles = await attendanceRepo.getEmployeeCalendars(
+        { startDay: filters.from, endDay: filters.to, employeeIds: batch },
+        allowedBusinessUnitIds
+      )
+      if (bundles.length === 0) continue
+      result.push(...(await this.buildBatchRows(bundles, filters, branchMetaById)))
+    }
+
+    return result
+  }
+
+  /** Empleados vivos de las unidades permitidas, en orden estable para partirlos en lotes. */
+  private async loadCandidateEmployeeIds(allowedBusinessUnitIds: number[]): Promise<number[]> {
+    const rows: Array<{ employee_id: number | string }> = await db
+      .from('employees')
+      .whereNull('employee_deleted_at')
+      .whereIn('business_unit_id', allowedBusinessUnitIds)
+      .orderBy('employee_id', 'asc')
+      .select('employee_id')
+    return rows.map((row) => Number(row.employee_id))
+  }
+
+  private async buildBatchRows(
+    bundles: EmployeeCalendarBundle[],
+    filters: RepseCoverageReportExportFilters,
+    branchMetaById: Map<number, BranchMeta>
+  ): Promise<RepseCoverageEmployeeRow[]> {
     const employeeIds = bundles.map((bundle) => bundle.employee.employeeId)
 
-    const [baseAssignments, loans, branchMetaById, declaredRows] = await Promise.all([
+    const [baseAssignments, loans, declaredRows] = await Promise.all([
       this.loadBaseAssignments(employeeIds, filters.from, filters.to),
       this.loadCoverageLoans(employeeIds, filters.from, filters.to),
-      this.loadBranchMetadata(),
       this.loadDeclaredPercentages(employeeIds, filters.from, filters.to),
     ])
 
     const baseByEmployee = this.groupBaseAssignmentsByEmployee(baseAssignments)
     const loansByEmployee = this.groupLoansByEmployee(loans)
     const declaredByEmployeeCompany = this.groupDeclaredPercentages(declaredRows)
+    const declaredCompanyNames = new Map(
+      declaredRows
+        .filter((row) => row.companyName !== null)
+        .map((row) => [row.companyId, row.companyName as string])
+    )
 
     const result: RepseCoverageEmployeeRow[] = []
 
@@ -180,7 +238,7 @@ export default class RepseCoverageReportService {
             this.bumpCompanyCounter(
               accumulator,
               targetMeta.companyId,
-              targetMeta.companyName ?? this.i18n.t('resources'),
+              targetMeta.companyName ?? '',
               'diasPrestados'
             )
           }
@@ -196,7 +254,7 @@ export default class RepseCoverageReportService {
         this.bumpCompanyCounter(
           accumulator,
           baseMeta.companyId,
-          baseMeta.companyName ?? this.i18n.t('resources'),
+          baseMeta.companyName ?? '',
           'diasBase'
         )
       }
@@ -206,10 +264,14 @@ export default class RepseCoverageReportService {
       for (const [companyId] of employeeDeclared) {
         const companyAcc = accumulator.companies.get(companyId)
         if (companyAcc) continue
-        const companyName = this.resolveCompanyNameFromBranches(companyId, branchMetaById)
+        // Razón social del contrato; si no llegó, la de una sucursal de esa
+        // empresa. Sin ninguna, en blanco: el dato falta, no es "Recursos".
+        const companyName =
+          declaredCompanyNames.get(companyId) ??
+          this.resolveCompanyNameFromBranches(companyId, branchMetaById)
         accumulator.companies.set(companyId, {
           companyId,
-          companyName: companyName ?? this.i18n.t('resources'),
+          companyName: companyName ?? '',
           diasBase: 0,
           diasPrestados: 0,
         })
@@ -374,6 +436,11 @@ export default class RepseCoverageReportService {
         'cse.contrato_servicio_especializado_id',
         'ace.contrato_servicio_especializado_id'
       )
+      .leftJoin(
+        'empresas_contratantes AS ec',
+        'ec.empresa_contratante_id',
+        'cse.empresa_contratante_id'
+      )
       .whereNull('ace.asignacion_contrato_especializado_deleted_at')
       .whereNull('cse.contrato_servicio_especializado_deleted_at')
       .whereIn('ace.employee_id', employeeIds)
@@ -387,6 +454,7 @@ export default class RepseCoverageReportService {
       .select(
         'ace.employee_id AS employee_id',
         'cse.empresa_contratante_id AS company_id',
+        db.raw('MAX(ec.empresa_contratante_razon_social) AS company_name'),
         db.raw(
           'ROUND(SUM(ace.asignacion_contrato_especializado_porcentaje_tiempo), 2) AS porcentaje_declarado'
         )
@@ -398,6 +466,7 @@ export default class RepseCoverageReportService {
       .map((row) => ({
         employeeId: Number(row.employee_id),
         companyId: Number(row.company_id),
+        companyName: row.company_name ? String(row.company_name) : null,
         porcentajeDeclarado: Number(row.porcentaje_declarado ?? 0),
       }))
   }
@@ -527,14 +596,11 @@ export default class RepseCoverageReportService {
   }
 
   private buildEmployeeName(bundle: EmployeeCalendarBundle): string {
-    return [
+    return reportFullName(
       bundle.employee.employeeFirstName,
       bundle.employee.employeeLastName,
-      bundle.employee.employeeSecondLastName,
-    ]
-      .filter((part) => part && part.trim().length > 0)
-      .join(' ')
-      .trim()
+      bundle.employee.employeeSecondLastName
+    )
   }
 
   private isWorkedDay(day: EmployeeCalendarBundle['calendar'][number]): boolean {

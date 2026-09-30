@@ -2,6 +2,13 @@ import EmployeeSupplie from '#models/employee_supplie'
 import Supplie from '#models/supplie'
 import { EmployeeSupplieFilterSearchInterface } from '../interfaces/employee_supplie_filter_search_interface.js'
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
+import { assertNoOtherActiveAssignment } from '#modules/assets/assets.rules'
+import { OPEN_ASSIGNMENT_STATUSES } from '#modules/assets/assets.constants'
+
+/** El estado deja el activo comprometido con un colaborador. */
+const isOpenStatus = (status: string): boolean =>
+  (OPEN_ASSIGNMENT_STATUSES as readonly string[]).includes(status)
 
 export default class EmployeeSupplieService {
   /**
@@ -49,13 +56,18 @@ export default class EmployeeSupplieService {
   }
 
   /**
-   * Create new employee supply assignment
+   * Alta de un resguardo. Un activo tiene a lo más un resguardo `active`: la
+   * verificación bloquea la fila del activo dentro de la transacción.
+   *
+   * @throws AssetError 409 `activo-ya-tiene-resguardo-activo`.
    */
   static async create(data: {
     employeeId: number
     supplyId: number
     employeeSupplyExpirationDate?: string
     employeeSupplyStatus?: 'active' | 'retired' | 'shipping'
+    employeeSupplyAdditions?: string
+    employeeSupplyAssignamentDate?: string
   }) {
     // Get supply to check its type
     const supply = await Supplie.findOrFail(data.supplyId)
@@ -65,17 +77,32 @@ export default class EmployeeSupplieService {
       throw new Error('Supply is not available for assignment')
     }
 
-    const createData: any = {
-      ...data,
-      employeeSupplyStatus: data.employeeSupplyStatus || 'active'
-    }
+    const status = data.employeeSupplyStatus || 'active'
 
-    // Convert expiration date string to DateTime if provided
-    if (data.employeeSupplyExpirationDate) {
-      createData.employeeSupplyExpirationDate = DateTime.fromISO(data.employeeSupplyExpirationDate)
-    }
+    return db.transaction(async (trx) => {
+      if (isOpenStatus(status)) {
+        await assertNoOtherActiveAssignment(data.supplyId, undefined, trx)
+      }
 
-    return await EmployeeSupplie.create(createData)
+      const assignment = new EmployeeSupplie()
+      assignment.useTransaction(trx)
+      assignment.merge({
+        employeeId: data.employeeId,
+        supplyId: data.supplyId,
+        employeeSupplyStatus: status,
+        employeeSupplyAdditions: data.employeeSupplyAdditions ?? null,
+        employeeSupplyExpirationDate: data.employeeSupplyExpirationDate
+          ? DateTime.fromISO(data.employeeSupplyExpirationDate)
+          : null,
+      })
+      if (data.employeeSupplyAssignamentDate) {
+        assignment.employeeSupplyAssignamentDate = DateTime.fromISO(
+          data.employeeSupplyAssignamentDate
+        )
+      }
+      await assignment.save()
+      return assignment
+    })
   }
 
   /**
@@ -88,6 +115,13 @@ export default class EmployeeSupplieService {
     employeeSupplyStatus?: 'active' | 'retired' | 'shipping'
   }) {
     const employeeSupply = await EmployeeSupplie.findOrFail(id)
+
+    // Un activo tiene a lo más un resguardo abierto (el que resulte de la edición).
+    const resultingSupplyId = data.supplyId ?? employeeSupply.supplyId
+    const resultingStatus = data.employeeSupplyStatus ?? employeeSupply.employeeSupplyStatus
+    if (isOpenStatus(resultingStatus)) {
+      await assertNoOtherActiveAssignment(resultingSupplyId, employeeSupply.employeeSupplyId)
+    }
 
     // If changing supply, check for conflicts
     if (data.supplyId && data.supplyId !== employeeSupply.supplyId) {

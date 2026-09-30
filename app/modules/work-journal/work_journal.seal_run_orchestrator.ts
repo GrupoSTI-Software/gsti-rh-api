@@ -9,6 +9,7 @@ import WorkJournalSealRun, { type WorkJournalSealRunSummary } from '#models/work
 import WorkJournalSealRunItem, {
   type WorkJournalSealRunItemResult,
 } from '#models/work_journal_seal_run_item'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import { getBusinessTimeZone, todayInBusinessZone, toCalendarIsoDate } from '#utils/business_date'
 import WorkJournalService from './work_journal.service.js'
@@ -80,7 +81,7 @@ export default class WorkJournalSealRunOrchestrator {
             summary,
             options.businessUnitId
           ),
-        'job cierre de jornada'
+        TENANT_UNSCOPED_REASON.WORK_JOURNAL_SEAL
       )
       run.status = this.computeStatus(summary)
     } catch (error) {

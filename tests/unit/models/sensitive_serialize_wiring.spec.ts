@@ -42,6 +42,11 @@ const TEXT_WIRING: Array<{ file: string; model: string; columns: string[] }> = [
     columns: ['userConsentIp', 'userConsentUserAgent'],
   },
   { file: 'app/models/empresa_contratante.ts', model: 'EmpresaContratante', columns: ['rfc'] },
+  {
+    file: 'app/models/medical_condition_type_property_value.ts',
+    model: 'MedicalConditionTypePropertyValue',
+    columns: ['medicalConditionTypePropertyValue'],
+  },
 ]
 
 test.group('Wiring sensitiveSerialize en Person, EmployeeBank y EmployeeMedicalCondition', () => {

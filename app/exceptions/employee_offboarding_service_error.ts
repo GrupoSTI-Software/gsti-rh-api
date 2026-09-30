@@ -51,6 +51,7 @@ export type EmployeeOffboardingErrorKey =
   | 'plantilla-vigente-no-recuperable'
   | 'dato-no-imprimible-en-la-plantilla'
   | 'documento-no-generado-con-plantilla'
+  | 'datos-fiscales-no-disponibles'
   | 'error-interno'
   | 'sin-permiso'
   | 'datos-invalidos'

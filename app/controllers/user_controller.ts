@@ -2,6 +2,7 @@
 import User from '../models/user.js'
 import Ws from '#services/ws'
 import { HttpContext } from '@adonisjs/core/http'
+import db from '@adonisjs/lucid/services/db'
 import ApiToken from '../models/api_token.js'
 import { uuid } from 'uuidv4'
 import mail from '@adonisjs/mail/services/main'
@@ -13,8 +14,7 @@ import { DateTime } from 'luxon'
 import { LogStore } from '#models/MongoDB/log_store'
 import { LogAuthentication } from '../interfaces/MongoDB/log_authentication.js'
 import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_assigned_filter_search_interface.js'
-import EmployeeDevice from '#models/employee_device'
-import EmployeeDeviceService from '#services/employee_device_service'
+import EmployeeDeviceService, { type DeviceBindingResult } from '#services/employee_device_service'
 import Person from '#models/person'
 import Employee from '#models/employee'
 import BusinessUnit from '#models/business_unit'
@@ -40,14 +40,35 @@ import {
 } from '#helpers/sensitive_data_write_api_error'
 import {
   assertUserAccessEmailNotMasked,
+  isUserAccessEmailDuplicatedIndexError,
+  isEmailMirrorConflictError,
+  isEmailMirrorRefusedError,
+  isUserAccessEmailDuplicatedValidationError,
   isUserAccessEmailMaskedError,
+  respondEmailMirrorConflict,
+  respondEmailMirrorRefused,
+  respondUserAccessEmailDuplicated,
   respondUserAccessEmailMasked,
 } from '#helpers/user_access_email_api_error'
 import { normalizeToken } from '#helpers/employee_termination_record'
 import { SensitiveAccessContext } from '#utils/sensitive_access_context'
 import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
+import { USER_EMAIL_TYPE_DEFAULT, type UserEmailTypeValue } from '#constants/user_email_type'
+import { USER_VALIDATION_ERROR_CODES } from '#constants/user_validation_error_codes'
+import {
+  emailMirrorActorFromContext,
+  mirrorUserEmailToRecord,
+  previousEmailRecipients,
+  toPublicEmailMirrorOutcome,
+  type EmailMirrorOutcome,
+} from '#helpers/person_user_email_mirror'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
 import { canAccessBackoffice } from '#helpers/backoffice_access'
+import { TenantContext } from '#utils/tenant_context'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { ensureCredentialChangeAllowed } from '#helpers/credential_change_gate'
+import { notifyAndAudit, revokeSessions } from '#services/credential_change_service'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
 
 /**
  * CSPRNG (USRH1786458240779): mismo rango 100000-999999 y misma vigencia
@@ -93,6 +114,12 @@ function assertContactoEmailWriteAllowed(
     throw new SensitiveDataWriteError(SENSITIVE_DATA_WRITE_ERROR_CODES.UNRESOLVED)
   }
   throw new SensitiveDataWriteError(SENSITIVE_DATA_WRITE_ERROR_CODES.FORBIDDEN, 'contacto')
+}
+
+/** Correo personal que el espejo sobrescribió, para el registro de auditoría. */
+function previousPersonEmailOf(outcome: EmailMirrorOutcome): string | null {
+  if (outcome.status !== 'written' || outcome.target !== 'people') return null
+  return outcome.previousValue
 }
 
 export default class UserController {
@@ -260,18 +287,23 @@ export default class UserController {
       const deviceToken = request.input('deviceToken')
       const userEmail = request.input('userEmail')
       const userPassword = request.input('userPassword')
-      const user = await User.query()
-        .where('user_email', userEmail)
-        .where('user_active', 1)
-        .preload('person', (personQuery) =>
-          personQuery.preload('employee', (employeeQuery) => {
-            employeeQuery.preload('position', (positionQuery) =>
-              positionQuery.whereNull('position_deleted_at')
+      const user = await TenantContext.runUnscoped(
+        () =>
+          User.query()
+            .where('user_email', userEmail)
+            .where('user_active', 1)
+            .preload('person', (personQuery) =>
+              personQuery.preload('employee', (employeeQuery) => {
+                employeeQuery.preload('position', (positionQuery) =>
+                  positionQuery.whereNull('position_deleted_at')
+                )
+                employeeQuery.preload('businessUnit')
+              })
             )
-            employeeQuery.preload('businessUnit')
-          })
-        )
-        .first()
+            .first(),
+        TENANT_UNSCOPED_REASON.AUTH_OWN_SESSION,
+        'login'
+      )
 
       if (!user) {
         response.status(404)
@@ -294,112 +326,19 @@ export default class UserController {
         }
       }
 
-      if (deviceToken) {
-        const currentUser = await User.query()
-          .where('user_id', user.userId)
-          .preload('person', (query) => query.preload('employee'))
-          .first()
-
-        const currentEmployee = currentUser?.person?.employee
-
-        if (!currentEmployee) {
-          response.status(400)
-          return {
-            type: 'warning',
-            title: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.title,
-            message: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.detail,
-            detail: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.detail,
-            key: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.key,
-            data: { user: {} },
-          }
-        }
-
-        const employeeDevice = await EmployeeDevice.query()
-          .where('employee_device_token', deviceToken)
-          .whereNull('employee_device_deleted_at')
-          .first()
-
-        if (employeeDevice && employeeDevice.employeeId !== currentEmployee.employeeId) {
-          response.status(400)
-          return {
-            type: 'warning',
-            title: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.title,
-            message: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.detail,
-            detail: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.detail,
-            key: AUTH_LOGIN_ERRORS.DEVICE_TAKEN.key,
-            data: { user: {} },
-          }
-        }
-
-        if (
-          employeeDevice &&
-          employeeDevice.employeeDeviceActive !== 1 &&
-          employeeDevice.employeeId === currentEmployee.employeeId
-        ) {
-          response.status(400)
-          return {
-            type: 'warning',
-            title: 'Login',
-            message: 'This device is not active.',
-            data: { user: {} },
-          }
-        }
-
-        // Crear o verificar dispositivo si no existe
-        if (!employeeDevice) {
-          // const employeeDeviceActive = await EmployeeDevice.query()
-          //   .where('employee_id', currentEmployee.employeeId)
-          //   .where('employeeDeviceActive', 1)
-          //   .whereNull('employee_device_deleted_at')
-          //   .first()
-
-          // if (employeeDeviceActive) {
-          //   response.status(400)
-          //   return {
-          //     type: 'warning',
-          //     title: 'Login',
-          //     message: 'This account is already registered on another device. Please contact your manager to activate access on this new device.',
-          //     data: { user: {} }
-          //   }
-          // }
-
-          const deviceData = {
-            employeeDeviceToken: deviceToken,
-            employeeDeviceModel: request.input('deviceModel') || 'Unknown',
-            employeeDeviceBrand: request.input('deviceBrand') || 'Unknown',
-            employeeDeviceType: request.input('deviceType') || 'Unknown',
-            employeeDeviceOs: request.input('deviceOs') || 'Unknown',
-            employeeId: currentEmployee.employeeId,
-          } as EmployeeDevice
-
-          const employeeDeviceService = new EmployeeDeviceService(i18n)
-          const verifyInfo = await employeeDeviceService.verifyInfoExist(deviceData)
-
-          if (verifyInfo.status !== 200) {
-            response.status(verifyInfo.status)
-            return {
-              type: verifyInfo.type,
-              title: verifyInfo.title,
-              message: verifyInfo.message,
-              data: { user: {} },
-            }
-          }
-
-          await employeeDeviceService.create(deviceData)
-        }
-      }
-
-      let userVerify = false
+      let verifiedUserId: number | null = null
       try {
-        await User.verifyCredentials(userEmail, userPassword)
-        userVerify = true
+        const verified = await User.verifyCredentials(userEmail, userPassword)
+        verifiedUserId = (verified as unknown as { userId?: unknown }).userId as number
+        // verifyCredentials devuelve el modelo; si la forma cambiara, el comparador de abajo cae a 404 (fail-closed)
       } catch (error) {
-        if (error.code !== 'E_INVALID_CREDENTIALS') {
+        const e = error as { code?: unknown }
+        if (e.code !== 'E_INVALID_CREDENTIALS') {
           throw error
         }
       }
 
-      if (!userVerify) {
+      if (verifiedUserId === null || user === null || user.userId !== verifiedUserId) {
         response.status(404)
         return {
           type: 'warning',
@@ -417,6 +356,58 @@ export default class UserController {
             detail: AUTH_LOGIN_ERRORS.BACKOFFICE_FORBIDDEN.detail,
             key: AUTH_LOGIN_ERRORS.BACKOFFICE_FORBIDDEN.key,
           }
+        }
+      }
+
+      if (deviceToken) {
+        // El celular se amarra solo con la contraseña ya validada: antes se
+        // registraba primero y cualquiera con el correo de un colaborador podía
+        // dejar su equipo a nombre de otro.
+        const currentEmployee = user.person?.employee
+
+        if (!currentEmployee) {
+          response.status(400)
+          return {
+            type: 'warning',
+            title: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.title,
+            message: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.detail,
+            detail: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.detail,
+            key: AUTH_LOGIN_ERRORS.EMPLOYEE_NOT_FOUND.key,
+            data: { user: {} },
+          }
+        }
+
+        const binding = await TenantContext.runUnscoped(
+          () =>
+            new EmployeeDeviceService(i18n).bindToEmployee({
+              employeeDeviceToken: deviceToken,
+              employeeDeviceModel: request.input('deviceModel') || 'Unknown',
+              employeeDeviceBrand: request.input('deviceBrand') || 'Unknown',
+              employeeDeviceType: request.input('deviceType') || 'Unknown',
+              employeeDeviceOs: request.input('deviceOs') || 'Unknown',
+              employeeId: currentEmployee.employeeId,
+              businessUnitId: currentEmployee.businessUnitId,
+            }),
+          TENANT_UNSCOPED_REASON.AUTH_OWN_SESSION,
+          'login-device'
+        )
+
+        if (binding.status === 'inactive') {
+          response.status(400)
+          return {
+            type: 'warning',
+            title: 'Login',
+            message: 'This device is not active.',
+            data: { user: {} },
+          }
+        }
+
+        if (binding.status === 'transferred') {
+          await TenantContext.runUnscoped(
+            () => this.closePreviousOwnerAppSession(binding, currentEmployee.employeeId),
+            TENANT_UNSCOPED_REASON.AUTH_OWN_SESSION,
+            'login-device'
+          )
         }
       }
 
@@ -645,20 +636,25 @@ export default class UserController {
     const userData = await auth.authenticateUsing(['api'])
     await auth.use('api').authenticate()
 
-    const user = await User.query()
-      .where('user_id', userData.userId)
-      .preload('person', (query) => {
-        query.preload('employee', (employeeQuery) => {
-          employeeQuery.preload('position', (positionQuery) =>
-            positionQuery.whereNull('position_deleted_at')
-          )
-          // La app cliente lee businessUnitPublicId de aquí para el header
-          // x-business-unit-id; /auth/session no exige ese header.
-          employeeQuery.preload('businessUnit')
-        })
-      })
-      .preload('role')
-      .first()
+    const user = await TenantContext.runUnscoped(
+      () =>
+        User.query()
+          .where('user_id', userData.userId)
+          .preload('person', (query) => {
+            query.preload('employee', (employeeQuery) => {
+              employeeQuery.preload('position', (positionQuery) =>
+                positionQuery.whereNull('position_deleted_at')
+              )
+              // La app cliente lee businessUnitPublicId de aquí para el header
+              // x-business-unit-id; /auth/session no exige ese header.
+              employeeQuery.preload('businessUnit')
+            })
+          })
+          .preload('role')
+          .first(),
+      TENANT_UNSCOPED_REASON.AUTH_OWN_SESSION,
+      'session'
+    )
 
     response.status(200)
     return response.send(user)
@@ -1558,6 +1554,24 @@ export default class UserController {
    *                 data:
    *                   type: object
    *                   description: Processed object
+   *                   properties:
+   *                     user:
+   *                       type: object
+   *                       description: Cuenta de acceso creada
+   *                     emailMirror:
+   *                       type: object
+   *                       description: Resultado del espejo del correo de la credencial hacia el expediente
+   *                       properties:
+   *                         status:
+   *                           type: string
+   *                           enum: [written, skipped]
+   *                           description: written si se copió el correo al expediente; skipped si no se escribió
+   *                         target:
+   *                           type: string
+   *                           description: Destino de la copia cuando status es written (people o employees)
+   *                         reason:
+   *                           type: string
+   *                           description: Motivo de la omisión cuando status es skipped
    *       '404':
    *         description: Resource not found
    *         content:
@@ -1578,24 +1592,36 @@ export default class UserController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: |
+   *           The parameters entered are invalid or essential data is missing to process the request.
+   *           También responde 400 cuando el correo de acceso ya está en uso por otra cuenta activa (código USR.MAIL.002): ningún campo se guardó.
+   *           También 400 cuando el correo ya lo usa otra persona (USR.MAIL.003, tipo `personal`) u otro empleado vivo (USR.MAIL.004, tipo `institutional`). Ningún campo se guardó.
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
+   *               oneOf:
+   *                 - type: object
+   *                   description: Parámetros inválidos o datos indispensables faltantes
+   *                   properties:
+   *                     type:
+   *                       type: string
+   *                       description: Type of response generated
+   *                     title:
+   *                       type: string
+   *                       description: Title of response generated
+   *                     message:
+   *                       type: string
+   *                       description: Message of response
+   *                     data:
+   *                       type: object
+   *                       description: List of parameters set by the client
+   *                 - type: object
+   *                   description: El correo de acceso ya está en uso por otra cuenta activa. Ningún campo se guardó.
+   *                   properties:
+   *                     title: { type: string, example: Este correo de acceso ya está en uso }
+   *                     detail: { type: string, example: Otra cuenta activa usa este correo de acceso; usa uno distinto o da de baja la cuenta que lo tiene. No se guardó ningún cambio. }
+   *                     key: { type: string, example: correo-de-acceso-ya-registrado }
+   *                     code: { type: string, example: USR.MAIL.002 }
    *       default:
    *         description: Unexpected error
    *         content:
@@ -1630,7 +1656,9 @@ export default class UserController {
    *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
    *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '422':
-   *         description: El correo de acceso contiene la máscara de un dato protegido. Ningún campo se guardó.
+   *         description: |
+   *           El correo de acceso contiene la máscara de un dato protegido. Ningún campo se guardó.
+   *           Datos inválidos, incluido `userEmailType` fuera de `institutional` | `personal`.
    *         content:
    *           application/json:
    *             schema:
@@ -1642,15 +1670,24 @@ export default class UserController {
    *                 code: { type: string, example: USR.MAIL.001 }
    */
   async store(ctx: HttpContext) {
-    const { auth, request, response, i18n, businessUnitScope } = ctx
+    const { request, response, i18n, businessUnitScope } = ctx
     try {
       const userEmail = request.input('userEmail')
       const userActive = request.input('userActive')
       const roleId = request.input('roleId')
       const personId = request.input('personId')
-      const userEmailType = request.input('userEmailType')
 
       assertUserAccessEmailNotMasked(userEmail)
+
+      if (personId === undefined || personId === null) {
+        response.status(400)
+        return {
+          title: i18n.t('user_person_required_title'),
+          detail: i18n.t('user_person_required_detail'),
+          key: 'persona-requerida',
+          code: USER_VALIDATION_ERROR_CODES.PERSON_REQUIRED,
+        }
+      }
 
       const businessUnits = await BusinessUnit.query()
         .whereIn('business_unit_id', businessUnitScope)
@@ -1660,19 +1697,29 @@ export default class UserController {
 
       const businessUnitIds = businessUnits.map((unit) => unit.businessUnitId)
 
+      const userService = new UserService(i18n)
+      // El bodyparser convierte `""` en `null` antes de Vine, y el enum opcional
+      // acepta null como "no enviado". Restaurar la cadena vacía hace que el
+      // enum la rechace (422) sin cambiar el default cuando el campo se omite.
+      const payload = { ...request.all() }
+      if (Object.hasOwn(payload, 'userEmailType') && payload.userEmailType === null) {
+        payload.userEmailType = ''
+      }
+      const data = await request.validateUsing(createUserValidator, { data: payload })
+      // H1: el tipo se resuelve UNA vez y es lo que se persiste; el guard y el
+      // destino del espejo leen este mismo valor.
+      const userEmailType: UserEmailTypeValue = data.userEmailType ?? USER_EMAIL_TYPE_DEFAULT
       const user = {
-        userEmail: userEmail,
+        userEmail: data.userEmail,
         userPassword: generateProvisionalPassword(),
         userActive: userActive,
         roleId: roleId,
-        personId: personId,
-        userEmailType: userEmailType,
+        personId: data.personId,
+        userEmailType,
         userToken: generateInvitationToken(),
         userTokenExpiresAt: buildInvitationTokenExpiresAt(),
         userPasswordSetAt: null,
       } as User
-      const userService = new UserService(i18n)
-      const data = await request.validateUsing(createUserValidator)
       const exist = await userService.verifyInfoExist(user)
       if (exist.status !== 200) {
         response.status(exist.status)
@@ -1680,70 +1727,72 @@ export default class UserController {
           type: exist.type,
           title: exist.title,
           message: exist.message,
+          key: exist.key,
           data: { ...data },
         }
       }
-      let personForEmailSync: Person | null = null
       if (userEmailType === 'personal') {
-        personForEmailSync = await Person.query()
-          .where('person_id', personId)
+        const personForGuard = await Person.query()
+          .where('person_id', data.personId)
           .whereNull('person_deleted_at')
           .first()
-        if (personForEmailSync) {
-          // Verificar el permiso de `contacto` ANTES de crear el `User`: evita dejar
-          // un `User` huérfano si el correo de la persona no puede actualizarse.
-          assertContactoEmailWriteAllowed(personForEmailSync.personEmail, userEmail)
-        }
+        // Fuera de la transacción: falla rápido antes de escribir nada.
+        if (personForGuard) assertContactoEmailWriteAllowed(personForGuard.personEmail, data.userEmail)
       }
 
-      const newUser = await userService.create(user, businessUnitIds)
-      if (newUser) {
-        if (newUser.userEmailType === 'personal') {
-          if (personForEmailSync) {
-            personForEmailSync.personEmail = newUser.userEmail
-            await personForEmailSync.save()
-          }
-        } else {
-          const employee = await Employee.query()
-            .where('person_id', personId)
-            .whereNull('employee_deleted_at')
-            .first()
-          if (employee) {
-            employee.employeeBusinessEmail = newUser.userEmail
-            await employee.save()
-          }
-        }
+      const actor = emailMirrorActorFromContext(ctx)
+      const { newUser, emailMirror } = await db.transaction(async (trx) => {
+        const created = await userService.create(user, businessUnitIds, trx)
+        const outcome = await mirrorUserEmailToRecord({
+          personId: created.personId,
+          userEmail: created.userEmail,
+          userEmailType: created.userEmailType,
+          previousCredentialEmail: null,
+          actor,
+          trx,
+        })
+        return { newUser: created, emailMirror: outcome }
+      })
 
-        const rawHeaders = request.request.rawHeaders
-        const userId = auth.user?.userId
-        if (userId) {
-          const logUser = await userService.createActionLog(rawHeaders, 'store')
-          logUser.user_id = userId
-          logUser.record_current = JSON.parse(JSON.stringify(newUser))
-          await userService.saveActionOnLog(logUser)
-        }
+      const rawHeaders = request.request.rawHeaders
+      const logUser = await userService.createActionLog(rawHeaders, 'store')
+      logUser.user_id = actor.userId
+      logUser.record_current = JSON.parse(JSON.stringify(newUser))
+      const previousPersonEmail = previousPersonEmailOf(emailMirror)
+      if (previousPersonEmail) logUser.record_previous_person_email = previousPersonEmail
+      await userService.saveActionOnLog(logUser)
 
-        await dispatchUserInvitationEmail(newUser)
+      await dispatchUserInvitationEmail(newUser)
 
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Users',
-          message: 'The user was created successfully',
-          data: { user: newUser },
-        }
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Users',
+        message: 'The user was created successfully',
+        data: { user: newUser, emailMirror: toPublicEmailMirrorOutcome(emailMirror) },
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (isUserAccessEmailMaskedError(error)) return respondUserAccessEmailMasked(ctx, error)
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      if (isUserAccessEmailDuplicatedValidationError(error) || isUserAccessEmailDuplicatedIndexError(error)) return respondUserAccessEmailDuplicated(ctx)
+      if (isEmailMirrorConflictError(error)) return respondEmailMirrorConflict(ctx, error)
+      if (isEmailMirrorRefusedError(error)) return respondEmailMirrorRefused(ctx, error)
+      if (error.code === 'E_VALIDATION_ERROR') {
+        response.status(422)
+        return {
+          type: 'validation_error',
+          title: 'Validation error',
+          message: 'The provided data is invalid',
+          error: error.messages?.[0]?.message ?? 'Validation error',
+          errors: error.messages,
+        }
+      }
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
-        error: messageError,
+        error: error.message,
       }
     }
   }
@@ -1895,6 +1944,8 @@ export default class UserController {
    *     tags:
    *       - Users
    *     summary: update user
+   *     description: |
+   *       Sin `userEmailType`, se conserva el tipo guardado. `personId` no puede apuntar a una persona con otra cuenta viva ni a una persona fuera de la empresa activa (422).
    *     produces:
    *       - application/json
    *     parameters:
@@ -1955,6 +2006,24 @@ export default class UserController {
    *                 data:
    *                   type: object
    *                   description: Processed object
+   *                   properties:
+   *                     user:
+   *                       type: object
+   *                       description: Cuenta de acceso actualizada
+   *                     emailMirror:
+   *                       type: object
+   *                       description: Resultado del espejo del correo de la credencial hacia el expediente
+   *                       properties:
+   *                         status:
+   *                           type: string
+   *                           enum: [written, skipped]
+   *                           description: written si se copió el correo al expediente; skipped si no se escribió
+   *                         target:
+   *                           type: string
+   *                           description: Destino de la copia cuando status es written (people o employees)
+   *                         reason:
+   *                           type: string
+   *                           description: Motivo de la omisión cuando status es skipped
    *       '404':
    *         description: Resource not found
    *         content:
@@ -1975,24 +2044,36 @@ export default class UserController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: |
+   *           The parameters entered are invalid or essential data is missing to process the request.
+   *           También responde 400 cuando el correo de acceso ya está en uso por otra cuenta activa (código USR.MAIL.002): ningún campo se guardó.
+   *           También 400 cuando el correo ya lo usa otra persona (USR.MAIL.003, tipo `personal`) u otro empleado vivo (USR.MAIL.004, tipo `institutional`). Ningún campo se guardó.
    *         content:
    *           application/json:
    *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
+   *               oneOf:
+   *                 - type: object
+   *                   description: Parámetros inválidos o datos indispensables faltantes
+   *                   properties:
+   *                     type:
+   *                       type: string
+   *                       description: Type of response generated
+   *                     title:
+   *                       type: string
+   *                       description: Title of response generated
+   *                     message:
+   *                       type: string
+   *                       description: Message of response
+   *                     data:
+   *                       type: object
+   *                       description: List of parameters set by the client
+   *                 - type: object
+   *                   description: El correo de acceso ya está en uso por otra cuenta activa. Ningún campo se guardó.
+   *                   properties:
+   *                     title: { type: string, example: Este correo de acceso ya está en uso }
+   *                     detail: { type: string, example: Otra cuenta activa usa este correo de acceso; usa uno distinto o da de baja la cuenta que lo tiene. No se guardó ningún cambio. }
+   *                     key: { type: string, example: correo-de-acceso-ya-registrado }
+   *                     code: { type: string, example: USR.MAIL.002 }
    *       default:
    *         description: Unexpected error
    *         content:
@@ -2016,7 +2097,9 @@ export default class UserController {
    *                     error:
    *                       type: string
    *       '403':
-   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         description: |
+   *           Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *           Si el correo cambia la credencial y falta el permiso propio, responde {"title":"Sin permiso","detail":"No tienes permiso para realizar esta operación.","key":"PERM.DENIED"}.
    *         content:
    *           application/json:
    *             schema:
@@ -2027,7 +2110,9 @@ export default class UserController {
    *                 key: { type: string, example: sin-permiso-para-modificar-datos-sensibles }
    *                 code: { type: string, example: EMP.SENS.WRITE.FORBIDDEN }
    *       '422':
-   *         description: El correo de acceso contiene la máscara de un dato protegido. Ningún campo se guardó.
+   *         description: |
+   *           El correo de acceso contiene la máscara de un dato protegido. Ningún campo se guardó.
+   *           Datos inválidos, incluido `userEmailType` fuera de `institutional` | `personal`.
    *         content:
    *           application/json:
    *             schema:
@@ -2039,7 +2124,7 @@ export default class UserController {
    *                 code: { type: string, example: USR.MAIL.001 }
    */
   async update(ctx: HttpContext) {
-    const { auth, request, response, i18n, scopedUser } = ctx
+    const { request, response, i18n, scopedUser } = ctx
     try {
       const currentUser = scopedUser!
       const userId = currentUser.userId
@@ -2049,88 +2134,165 @@ export default class UserController {
       const userActive = request.input('userActive')
       const roleId = request.input('roleId')
       const personId = request.input('personId')
-      const userEmailType = request.input('userEmailType')
 
       assertUserAccessEmailNotMasked(userEmail)
+      const credentialChangeAllowed = await ensureCredentialChangeAllowed(ctx, {
+        currentUser,
+        incomingEmail: userEmail,
+        persistedEmailType: currentUser.userEmailType,
+        origin: 'user-screen',
+      })
+      if (!credentialChangeAllowed) return
 
+      if (personId === undefined || personId === null) {
+        response.status(400)
+        return {
+          title: i18n.t('user_person_required_title'),
+          detail: i18n.t('user_person_required_detail'),
+          key: 'persona-requerida',
+          code: USER_VALIDATION_ERROR_CODES.PERSON_REQUIRED,
+        }
+      }
+
+      // El bodyparser convierte `""` en `null` antes de Vine, y el enum opcional
+      // acepta null como "no enviado". Restaurar la cadena vacía hace que el
+      // enum la rechace (422) sin cambiar el "conservar el tipo guardado" que
+      // aplica cuando el campo se omite del todo (mismo criterio que store()).
+      const payload = { ...request.all() }
+      if (Object.hasOwn(payload, 'userEmailType') && payload.userEmailType === null) {
+        payload.userEmailType = ''
+      }
+      const data = await request.validateUsing(updateUserValidator, {
+        data: payload,
+        meta: { userId, currentPersonId: currentUser.personId },
+      })
+      // H1 y riesgo nº1: sin el campo se CONSERVA el tipo guardado. Aplicar aquí
+      // el default del alta convertiría en silencio cuentas `personal` en
+      // `institutional` y mandaría su correo al expediente de empleado.
+      const userEmailType: UserEmailTypeValue = data.userEmailType ?? currentUser.userEmailType
       const user = {
         userId: userId,
-        userEmail: userEmail,
+        userEmail: data.userEmail,
         userActive: userActive,
         roleId: roleId,
-        personId: personId,
-        userEmailType: userEmailType,
+        personId: data.personId,
+        userEmailType,
       } as User
       const previousUser = JSON.parse(JSON.stringify(currentUser))
-      const data = await request.validateUsing(updateUserValidator)
       const verifyInfo = await userService.verifyInfo(user)
       if (verifyInfo.status !== 200) {
-        response.status(verifyInfo.status)
-        return {
-          type: verifyInfo.type,
-          title: verifyInfo.title,
-          message: verifyInfo.message,
-          data: { ...data },
-        }
+        return respondUserAccessEmailDuplicated(ctx)
       }
-      let personForEmailSync: Person | null = null
       if (userEmailType === 'personal') {
-        personForEmailSync = await Person.query()
-          .where('person_id', personId)
+        const personForGuard = await Person.query()
+          .where('person_id', data.personId)
           .whereNull('person_deleted_at')
           .first()
-        if (personForEmailSync) {
-          // Verificar el permiso de `contacto` ANTES de actualizar el `User`: evita
-          // dejar el `User` ya actualizado sin poder sincronizar el correo de la persona.
-          assertContactoEmailWriteAllowed(personForEmailSync.personEmail, userEmail)
-        }
+        // Fuera de la transacción: falla rápido antes de escribir nada.
+        if (personForGuard) assertContactoEmailWriteAllowed(personForGuard.personEmail, data.userEmail)
       }
 
-      const updateUser = await userService.update(currentUser, user)
-      if (updateUser) {
-        if (updateUser.userEmailType === 'personal') {
-          if (personForEmailSync) {
-            personForEmailSync.personEmail = updateUser.userEmail
-            await personForEmailSync.save()
-          }
-        } else {
-          const employee = await Employee.query()
-            .where('person_id', personId)
-            .whereNull('employee_deleted_at')
-            .first()
-          if (employee) {
-            employee.employeeBusinessEmail = updateUser.userEmail
-            await employee.save()
-          }
+      const actor = emailMirrorActorFromContext(ctx)
+      const { updateUser, emailMirror } = await db.transaction(async (trx) => {
+        const before = await User.query({ client: trx })
+          .where('user_id', currentUser.userId)
+          .whereNull('user_deleted_at')
+          .forUpdate()
+          .first()
+        const updated = await userService.update(currentUser, user, trx)
+        // La credencial ya está escrita; si el espejo falla o el guard del
+        // modelo `Person` niega, el rollback la devuelve a como estaba.
+        const outcome = await mirrorUserEmailToRecord({
+          personId: updated.personId,
+          userEmail: updated.userEmail,
+          userEmailType: updated.userEmailType,
+          previousCredentialEmail: before?.userEmail ?? null,
+          actor,
+          trx,
+        })
+        if (outcome.status === 'written') {
+          const currentTokenId = ctx.auth.user?.currentAccessToken?.identifier
+          const preservedTokenId =
+            ctx.auth.user?.userId === updated.userId &&
+              currentTokenId !== undefined &&
+              currentTokenId !== null
+              ? String(currentTokenId)
+              : null
+          const revokedCount = await revokeSessions(trx, {
+            affectedUserId: updated.userId,
+            preservedTokenId,
+          })
+          return { updateUser: updated, emailMirror: { outcome, revokedCount } }
         }
-        const rawHeaders = request.request.rawHeaders
-        const tokenUserId = auth.user?.userId
-        if (tokenUserId) {
-          const logUser = await userService.createActionLog(rawHeaders, 'update')
-          logUser.user_id = tokenUserId
-          logUser.record_current = JSON.parse(JSON.stringify(updateUser))
-          logUser.record_previous = previousUser
-          await userService.saveActionOnLog(logUser)
-        }
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Users',
-          message: 'The user was updated successfully',
-          data: { user: updateUser },
-        }
+        return { updateUser: updated, emailMirror: { outcome, revokedCount: 0 } }
+      })
+
+      const rawHeaders = request.request.rawHeaders
+      // Sin correo anterior no hay buzón que avisar ni imagen previa que auditar.
+      if (
+        emailMirror.outcome.status === 'written' &&
+        emailMirror.outcome.previousEmail !== null
+      ) {
+        await notifyAndAudit({
+          actorUserId: actor.userId,
+          affectedUserId: updateUser.userId,
+          origin: 'user-screen',
+          previousEmail: emailMirror.outcome.previousEmail,
+          newEmail: updateUser.userEmail.trim(),
+          userEmailType: updateUser.userEmailType,
+          previousRecipients: previousEmailRecipients(emailMirror.outcome),
+          rawHeaders,
+          revokedCount: emailMirror.revokedCount,
+        })
+      }
+      const logUser = await userService.createActionLog(rawHeaders, 'update')
+      logUser.user_id = actor.userId
+      logUser.record_previous = {
+        user_id: previousUser.userId,
+        user_email: previousUser.userEmail,
+        user_email_type: previousUser.userEmailType,
+      } as unknown as User
+      logUser.record_current = {
+        user_id: updateUser.userId,
+        user_email: updateUser.userEmail,
+        user_email_type: updateUser.userEmailType,
+      } as unknown as User
+      const previousPersonEmail = previousPersonEmailOf(emailMirror.outcome)
+      if (previousPersonEmail) logUser.record_previous_person_email = previousPersonEmail
+      await userService.saveActionOnLog(logUser)
+
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Users',
+        message: 'The user was updated successfully',
+        data: {
+          user: updateUser,
+          emailMirror: toPublicEmailMirrorOutcome(emailMirror.outcome),
+        },
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (isUserAccessEmailMaskedError(error)) return respondUserAccessEmailMasked(ctx, error)
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      if (isUserAccessEmailDuplicatedValidationError(error) || isUserAccessEmailDuplicatedIndexError(error)) return respondUserAccessEmailDuplicated(ctx)
+      if (isEmailMirrorConflictError(error)) return respondEmailMirrorConflict(ctx, error)
+      if (isEmailMirrorRefusedError(error)) return respondEmailMirrorRefused(ctx, error)
+      if (error.code === 'E_VALIDATION_ERROR') {
+        response.status(422)
+        return {
+          type: 'validation_error',
+          title: 'Validation error',
+          message: 'The provided data is invalid',
+          error: error.messages?.[0]?.message ?? 'Validation error',
+          errors: error.messages,
+        }
+      }
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
-        error: messageError,
+        error: error.message,
       }
     }
   }
@@ -2557,6 +2719,51 @@ export default class UserController {
    * @param isApp - true cuando la solicitud viene de la aplicación móvil.
    * @returns El `data` de la respuesta: `{ user: { userToken } }` o `null`.
    */
+  /**
+   * Cierra la sesión de la app del dueño anterior de un celular transferido,
+   * solo si ese celular era su equipo más reciente: si ya usa otro, su sesión
+   * vive allá y no se toca. El cambio de manos queda en la bitácora; el
+   * historial de `employee_devices` conserva quién tuvo el celular y cuándo.
+   */
+  private async closePreviousOwnerAppSession(
+    binding: Extract<DeviceBindingResult, { status: 'transferred' }>,
+    newEmployeeId: number
+  ) {
+    logger.info(
+      {
+        event: 'employee_device_transferred',
+        employeeDeviceId: binding.device.employeeDeviceId,
+        previousEmployeeId: binding.previousEmployeeId,
+        newEmployeeId,
+        previousOwnerUsedItLast: binding.previousOwnerUsedItLast,
+      },
+      'Celular transferido entre colaboradores'
+    )
+
+    if (!binding.previousOwnerUsedItLast) return
+
+    const previousEmployee = await Employee.query()
+      .withTrashed()
+      .where('employee_id', binding.previousEmployeeId)
+      .first()
+    if (!previousEmployee) return
+
+    const previousUser = await User.query()
+      .where('person_id', previousEmployee.personId)
+      .whereNull('user_deleted_at')
+      .first()
+    if (!previousUser) return
+
+    await new AuthTokenService().revokeByOrigin(previousUser.userId, 'app')
+    if (Ws.io) {
+      try {
+        Ws.io.emit(`user-forze-logout:${previousUser.userEmail}:app`, {})
+      } catch (error) {
+        console.error('UserController: error al avisar el cierre de sesión del dueño anterior', error)
+      }
+    }
+  }
+
   private buildRecoveryAppPayload(isApp: boolean) {
     return isApp ? { user: { userToken: uuid() } } : null
   }
@@ -2698,7 +2905,7 @@ export default class UserController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }

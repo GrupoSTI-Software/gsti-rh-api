@@ -190,7 +190,10 @@ export default class EmployeeAssistsCalendarService {
       }
 
       await Promise.all(promises)
-      assistDay = syncAssistService.verifyCheckOutToday(assistDay)
+      assistDay = syncAssistService.verifyCheckOutToday(
+        assistDay,
+        employee?.employeeAssistDiscriminator === 1
+      )
 
       // El calendario devuelve el instante que quedó registrado, tal cual, cualquier
       // día del año y venga la checada de donde venga (USRH1788135907804). El ajuste

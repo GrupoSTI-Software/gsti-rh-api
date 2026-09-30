@@ -2,6 +2,7 @@ import db from '@adonisjs/lucid/services/db'
 import Person from '#models/person'
 import EmployeeBank from '#models/employee_bank'
 import EmployeeMedicalCondition from '#models/employee_medical_condition'
+import MedicalConditionTypePropertyValue from '#models/medical_condition_type_property_value'
 import WorkDisability from '#models/work_disability'
 import WorkDisabilityNote from '#models/work_disability_note'
 import TraumaticEventReport from '#models/traumatic_event_report'
@@ -9,6 +10,12 @@ import EmployeeLactationPeriod from '#models/employee_lactation_period'
 import EmployeeEmergencyContact from '#models/employee_emergency_contact'
 import EmployeeSpouse from '#models/employee_spouse'
 import EmpresaContratante from '#models/empresa_contratante'
+import ProveedorRepse from '#models/proveedor_repse'
+import Employee from '#models/employee'
+import EmployeeSalaryHistory from '#models/employee_salary_history'
+import PositionSalaryRange from '#models/position_salary_range'
+import PositionSalaryRangeAudit from '#models/position_salary_range_audit'
+import { SENSITIVE_MASK } from '#helpers/sensitive_mask'
 import SensitiveFieldsCatalogService from '#services/sensitive_fields_catalog_service'
 import PiiAccessLogService from '#services/pii_access_log_service'
 import type { PiiAccessInputInterface } from '../interfaces/pii_access_input_interface.js'
@@ -39,9 +46,11 @@ export type PiiRevealLogContext = Pick<
 /**
  * Servicio de reveal de datos personales sensibles.
  *
- * Registry: Person, EmployeeBank, EmployeeMedicalCondition, WorkDisabilityNote,
+ * Registry: Person, EmployeeBank, EmployeeMedicalCondition,
+ * MedicalConditionTypePropertyValue, WorkDisabilityNote,
  * TraumaticEventReport, EmployeeLactationPeriod, EmployeeEmergencyContact,
- * EmployeeSpouse, EmpresaContratante.
+ * EmployeeSpouse, EmpresaContratante, ProveedorRepse, Employee,
+ * EmployeeSalaryHistory, PositionSalaryRange, PositionSalaryRangeAudit.
  */
 export default class PiiRevealService {
   private catalogService = new SensitiveFieldsCatalogService()
@@ -95,6 +104,8 @@ export default class PiiRevealService {
         return this.resolveEmployeeBank(column, recordId, buScope)
       case 'EmployeeMedicalCondition':
         return this.resolveEmployeeMedicalCondition(column, recordId, buScope)
+      case 'MedicalConditionTypePropertyValue':
+        return this.resolveMedicalConditionTypePropertyValue(column, recordId, buScope)
       case 'WorkDisabilityNote':
         return this.resolveWorkDisabilityNote(column, recordId, buScope)
       case 'TraumaticEventReport':
@@ -107,6 +118,16 @@ export default class PiiRevealService {
         return this.resolveEmployeeSpouse(column, recordId, buScope)
       case 'EmpresaContratante':
         return this.resolveEmpresaContratante(column, recordId, buScope)
+      case 'ProveedorRepse':
+        return this.resolveProveedorRepse(column, recordId, buScope)
+      case 'Employee':
+        return this.resolveEmployee(column, recordId, buScope)
+      case 'EmployeeSalaryHistory':
+        return this.resolveEmployeeSalaryHistory(column, recordId, buScope)
+      case 'PositionSalaryRange':
+        return this.resolvePositionSalaryRange(column, recordId, buScope)
+      case 'PositionSalaryRangeAudit':
+        return this.resolvePositionSalaryRangeAudit(column, recordId, buScope)
       default:
         return null
     }
@@ -177,6 +198,27 @@ export default class PiiRevealService {
       value: this.readColumn(condition, column),
       businessUnitId: condition.employee.businessUnitId,
       subjectEmployeeId: condition.employee.employeeId,
+    }
+  }
+
+  /** El titular es el empleado de la condición médica a la que pertenece el valor. */
+  private async resolveMedicalConditionTypePropertyValue(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const propertyValue = await MedicalConditionTypePropertyValue.query()
+      .where('medicalConditionTypePropertyValueId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .preload('employeeMedicalCondition')
+      .first()
+
+    if (!propertyValue?.employeeMedicalCondition) return null
+
+    return {
+      value: this.readColumn(propertyValue, column),
+      businessUnitId: propertyValue.businessUnitId,
+      subjectEmployeeId: propertyValue.employeeMedicalCondition.employeeId,
     }
   }
 
@@ -300,4 +342,126 @@ export default class PiiRevealService {
       subjectEmployeeId: null,
     }
   }
+
+  private async resolveProveedorRepse(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const proveedor = await ProveedorRepse.query()
+      .where('proveedorRepseId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .first()
+
+    if (!proveedor) return null
+
+    return {
+      value: this.readColumn(proveedor, column),
+      businessUnitId: proveedor.businessUnitId,
+      subjectEmployeeId: null,
+    }
+  }
+
+  private async resolveEmployee(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const employee = await Employee.query()
+      .where('employeeId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .first()
+
+    if (!employee) return null
+
+    return {
+      value: toAmount(this.readColumn(employee, column)),
+      businessUnitId: employee.businessUnitId,
+      subjectEmployeeId: employee.employeeId,
+    }
+  }
+
+  private async resolveEmployeeSalaryHistory(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const history = await EmployeeSalaryHistory.query()
+      .where('employeeSalaryHistoryId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .first()
+
+    if (!history) return null
+
+    return {
+      value: toAmount(this.readColumn(history, column)),
+      businessUnitId: history.businessUnitId,
+      subjectEmployeeId: history.employeeId,
+    }
+  }
+
+  private async resolvePositionSalaryRange(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const range = await PositionSalaryRange.query()
+      .where('positionSalaryRangeId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .first()
+
+    if (!range) return null
+
+    return {
+      value: toAmount(this.readColumn(range, column)),
+      businessUnitId: range.businessUnitId,
+      subjectEmployeeId: null,
+    }
+  }
+
+  private async resolvePositionSalaryRangeAudit(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const audit = await PositionSalaryRangeAudit.query()
+      .where('positionSalaryRangeAuditId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .first()
+
+    if (!audit) return null
+
+    return {
+      value: toAmount(this.readColumn(audit, column)),
+      businessUnitId: audit.businessUnitId,
+      subjectEmployeeId: null,
+    }
+  }
+}
+
+const DECIMAL_AMOUNT_PATTERN = /^-?\d+(\.\d+)?$/
+
+/**
+ * Normaliza un importe salarial revelable a número JSON o null (USRH1788478865952).
+ * No redondea ni trunca; nunca devuelve texto cifrado ni máscaras.
+ */
+export function toAmount(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null
+  }
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim()
+    if (trimmed.length === 0 || trimmed === SENSITIVE_MASK) {
+      return null
+    }
+    if (!DECIMAL_AMOUNT_PATTERN.test(trimmed)) {
+      return null
+    }
+    const parsed = Number(trimmed)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
 }

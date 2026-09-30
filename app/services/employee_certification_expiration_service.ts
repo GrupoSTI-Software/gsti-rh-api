@@ -51,15 +51,13 @@ export type EmployeeCertificationExpirationRow = {
  * aquí (no hay hooks de modelo en una query builder cruda). El reporte de
  * vencimientos cruza TODOS los empleados por diseño, así que hay que acotarlo
  * manualmente a la unidad activa — mismo criterio fail-closed que el mixin:
- * sin contexto activo → sin filtro (batch/tests sin middleware); contexto
- * bypassed → sin filtro (root); scope vacío + activo → sin resultados; scope
+ * sin contexto → sin resultados (alcance vacío); bypass → sin filtro; scope
  * con ids → `whereIn`.
  */
 function applyTenantFilterToEmployeeAlias(
   query: { whereIn: (col: string, ids: number[]) => any; whereRaw: (sql: string) => any },
   column: string = 'e.business_unit_id'
 ): void {
-  if (!TenantContext.isActive()) return
   if (TenantContext.isBypassed()) return
 
   const scope = TenantContext.getScope()

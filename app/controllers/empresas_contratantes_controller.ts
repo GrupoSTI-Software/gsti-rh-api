@@ -329,7 +329,13 @@ export default class EmpresasContratantesController {
       if (!(await this.assertAuthenticated(ctx))) return
       if (!(await this.assertHasPermission(ctx, 'update'))) return
 
-      if (request.input('businessUnitId') !== undefined) {
+      const attemptedBusinessUnitId = request.input('businessUnitId')
+      const scopedBusinessUnitId = ctx.businessUnitScope?.[0]
+      if (
+        attemptedBusinessUnitId !== undefined &&
+        (scopedBusinessUnitId === undefined ||
+          Number(attemptedBusinessUnitId) !== scopedBusinessUnitId)
+      ) {
         throw new EmpresaContratanteError(
           'No se permite modificar la unidad de negocio de la empresa contratante.',
           EMPRESA_CONTRATANTE_ERROR_CODES.VAL_INPUT,

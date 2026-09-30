@@ -1,3 +1,5 @@
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+
 /**
  * Motivo auditado para `TenantContext.runUnscoped` al precargar el punto de
  * acceso del tenant desde el panel de plataforma (USRH1787189981879 · §13.1).
@@ -9,7 +11,7 @@
  * escribió en los datos de una empresa cliente y por qué.
  */
 export const PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON =
-  'Precarga del punto de acceso del tenant al asignar una unidad de inventario desde el panel landlord'
+  TENANT_UNSCOPED_REASON.PLATFORM_DEVICES
 
 /**
  * Motivo auditado para `TenantContext.runUnscoped` al desactivar el punto de
@@ -21,7 +23,7 @@ export const PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON =
  * deja rastro auditable de que el panel escribió en datos de un cliente.
  */
 export const PLATFORM_DEVICE_ACCESS_POINT_DEACTIVATE_REASON =
-  'Desasignación de unidad de inventario: desactivar el punto de acceso del tenant'
+  TENANT_UNSCOPED_REASON.PLATFORM_DEVICES
 
 /**
  * Motivo auditado para `TenantContext.runUnscoped` al calcular el tablero de
@@ -34,4 +36,4 @@ export const PLATFORM_DEVICE_ACCESS_POINT_DEACTIVATE_REASON =
  * cruzados de todas las empresas a propósito.
  */
 export const PLATFORM_DEVICE_DISCREPANCY_RUN_UNSCOPED_REASON =
-  'Tablero de discrepancias de plataforma: lectura cruzada de puntos de acceso de todos los tenants'
+  TENANT_UNSCOPED_REASON.PLATFORM_DEVICES

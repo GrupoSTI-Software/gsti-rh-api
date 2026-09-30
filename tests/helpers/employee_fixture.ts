@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import db from '@adonisjs/lucid/services/db'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
@@ -7,6 +8,8 @@ import {
   createDepartmentFixture,
   createPositionFixture,
 } from '#tests/helpers/org_chart_fixtures'
+import { TenantContext } from '#utils/tenant_context'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 
 /**
  * Colaborador de prueba dentro de la unidad de negocio de un actor de
@@ -30,6 +33,11 @@ export interface EmployeeFixture {
 
 const uniqueStamp = () => `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
 
+/** Slug opaco para inserts directos que omiten el hook `beforeCreate` del modelo. */
+export function opaqueEmployeeSlug(): string {
+  return randomUUID()
+}
+
 /** Prefijo con el que `tenant_actor` nombra las unidades que crea y borra. */
 const SPEC_BUSINESS_UNIT_SLUG_PREFIX = 'gate-'
 
@@ -43,11 +51,13 @@ export async function createEmployeeFixture(
     personLastname: 'Fixture',
     personSecondLastname: prefix,
     personEmail: `employee-${prefix}-${stamp}@gsti-tests.local`,
+    businessUnitId,
   })
   const department = await createDepartmentFixture(businessUnitId, `Departamento ${prefix}`)
   const position = await createPositionFixture(businessUnitId, `Puesto ${prefix}`)
   const code = `EMP-${stamp}`.slice(0, 40)
   const [employeeId] = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: code,
     employee_code: code,
     employee_first_name: 'Empleado',
@@ -55,6 +65,7 @@ export async function createEmployeeFixture(
     employee_second_last_name: prefix,
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     department_id: department.departmentId,
     position_id: position.positionId,
     person_id: person.personId,
@@ -65,7 +76,14 @@ export async function createEmployeeFixture(
   })
 
   return {
-    employee: await Employee.query().withTrashed().where('employee_id', Number(employeeId)).firstOrFail(),
+    employee: await TenantContext.runUnscoped(
+      () =>
+        Employee.query()
+          .withTrashed()
+          .where('employee_id', Number(employeeId))
+          .firstOrFail(),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    ),
     person,
     businessUnitId,
   }

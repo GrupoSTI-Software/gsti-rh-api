@@ -467,6 +467,41 @@ export default class BillingTenantController {
   }
 
   /**
+   * Avisa al equipo que el cliente quiere renovar su contratacion vencida.
+   *
+   * No registra nada ni cobra: el pago se acuerda fuera de la plataforma, asi
+   * que la respuesta solo confirma que el aviso salio.
+   */
+  async requestRenewal(ctx: HttpContext) {
+    const { auth, response } = ctx
+    try {
+      const user = auth.user
+      await user?.preload('person')
+
+      const person = user?.person
+      const requesterName =
+        [person?.personFirstname, person?.personLastname].filter(Boolean).join(' ').trim() ||
+        user?.userEmail ||
+        ''
+
+      const renewal = await this.service.requestRenewal({
+        requesterName,
+        requesterEmail: user?.userEmail ?? '',
+      })
+
+      return response.status(200).json({
+        type: 'success',
+        title: 'Solicitud enviada',
+        message: 'El equipo de Valanserh recibió tu solicitud de renovación.',
+        data: { status: renewal.status },
+      })
+    } catch (error) {
+      const { status, ...body } = resolveBillingSubscriptionApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
    * @swagger
    * /api/billing/subscription:
    *   post:

@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { getBusinessTimeZone } from '#utils/business_date'
+import { resolveSiteTimeZone } from '#modules/attendance-time/attendance_clock'
 
 export type DeviceTimeResult =
   | { ok: true; utc: DateTime }
@@ -16,19 +16,17 @@ export interface ResolvedZone {
  *
  * El equipo manda hora LOCAL sin zona. La zona sale del punto de acceso, si no
  * de la empresa, si no del sistema. Una zona mal configurada nunca retiene el
- * acuse ni la checada: se usa la del sistema y el llamador levanta el incidente
- * `timezone_invalid` (spec 15).
+ * acuse ni la checada: se usa la siguiente de la cadena y el llamador levanta el
+ * incidente `timezone_invalid` (spec 15). La cadena es la misma que usa el
+ * resto de asistencia (`#modules/attendance-time`).
  */
 export default class DeviceTimeService {
   resolveZone(deviceZone: string | null, businessUnitZone: string | null): ResolvedZone {
-    const candidate = deviceZone ?? businessUnitZone
-    if (candidate === null || candidate.trim().length === 0) {
-      return { zone: getBusinessTimeZone(), fellBack: false }
-    }
-    if (!DateTime.now().setZone(candidate).isValid) {
-      return { zone: getBusinessTimeZone(), fellBack: true }
-    }
-    return { zone: candidate, fellBack: false }
+    const resolved = resolveSiteTimeZone([
+      { zone: deviceZone, source: 'access_point' },
+      { zone: businessUnitZone, source: 'business_unit' },
+    ])
+    return { zone: resolved.zone, fellBack: resolved.fellBack }
   }
 
   /**

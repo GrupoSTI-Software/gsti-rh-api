@@ -14,7 +14,10 @@ import {
   todayInBusinessZone,
 } from '../repse_provider_dates.js'
 import ValidationsRepositoryMysql from './validations.repository.mysql.js'
-import type { ValidationsRepository } from './validations.repository.js'
+import type {
+  ValidacionAutorPersona,
+  ValidationsRepository,
+} from './validations.repository.js'
 import type { ProveedorRepseValidacionDto } from './dto/validations.dto.js'
 
 /** Mismo límite que la evidencia de contratos especializados. */
@@ -86,13 +89,14 @@ export default class ValidationsService {
       return created
     })
 
-    return this.serialize(row)
+    const [dto] = await this.serializeAll([row])
+    return dto
   }
 
   async listByProveedor(proveedorRepseId: number): Promise<ProveedorRepseValidacionDto[]> {
     await findProveedorRepseInTenantOrFail(proveedorRepseId)
     const rows = await this.repository.listByProveedor(proveedorRepseId)
-    return rows.map((row) => this.serialize(row))
+    return this.serializeAll(rows)
   }
 
   /**
@@ -238,13 +242,24 @@ export default class ValidationsService {
     return result
   }
 
-  private serialize(row: ProveedorRepseValidacion): ProveedorRepseValidacionDto {
-    const person = row.autor?.person
-    const autorNombre = person
-      ? [person.personFirstname, person.personLastname, person.personSecondLastname]
+  private async serializeAll(
+    rows: ProveedorRepseValidacion[]
+  ): Promise<ProveedorRepseValidacionDto[]> {
+    const autorUserIds = [...new Set(rows.map((row) => row.autorUserId))]
+    const personas = await this.repository.findAutorPersonas(autorUserIds)
+    return rows.map((row) => this.serialize(row, personas.get(row.autorUserId)))
+  }
+
+  /** Nombre de la persona del autor; sin persona o sin nombre cae al correo de la cuenta. */
+  private serialize(
+    row: ProveedorRepseValidacion,
+    persona: ValidacionAutorPersona | undefined
+  ): ProveedorRepseValidacionDto {
+    const autorNombre = persona
+      ? [persona.personFirstname, persona.personLastname, persona.personSecondLastname]
+          .map((part) => part?.trim())
           .filter(Boolean)
           .join(' ')
-          .trim()
       : ''
 
     return {

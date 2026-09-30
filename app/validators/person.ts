@@ -1,6 +1,8 @@
 import vine from '@vinejs/vine'
-import Person from '#models/person'
 import { blindIndex } from '#utils/blind_index'
+import { TenantContext } from '#utils/tenant_context'
+import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
+import { personEmailExistsGlobally } from '#helpers/person_email_global_uniqueness'
 import { noMaskCharRule } from './no_mask_char_rule.js'
 import { PERSON_SUBJECT_TYPES } from '#constants/person_subject_type'
 
@@ -17,14 +19,7 @@ export const createPersonValidator = vine.compile(
       .minLength(0)
       .maxLength(200)
       .use(noMaskCharRule())
-      .unique(async (_db, value) => {
-        if (!value || value.trim() === '') return true
-        const existing = await Person.query()
-          .whereNull('person_deleted_at')
-          .where('person_email_hash', blindIndex(value))
-          .first()
-        return !existing
-      })
+      .unique(async (_db, value) => !(await personEmailExistsGlobally(value, 0)))
       .optional(),
     personGender: vine.string().trim().minLength(0).maxLength(10).optional(),
     personCurp: vine
@@ -35,11 +30,14 @@ export const createPersonValidator = vine.compile(
       .use(noMaskCharRule())
       .unique(async (_db, value) => {
         if (!value || value.trim() === '') return true
-        const existing = await Person.query()
-          .whereNull('person_deleted_at')
-          .where('person_curp_hash', blindIndex(value))
-          .first()
-        return !existing
+        // USRH1789698261610: se compara solo dentro de la empresa activa. Sin
+        // contexto o sin empresa no hay veredicto (regla 10): el controller ya
+        // rechazó con 400 antes de validar, así que aquí se deja pasar.
+        if (!TenantContext.isActive()) return true
+        const [businessUnitId] = TenantContext.getScope()
+        if (!businessUnitId) return true
+        const exists = await livePersonWithIdentityExists('curp', blindIndex(value), businessUnitId)
+        return !exists
       })
       .optional(),
     personRfc: vine
@@ -50,11 +48,14 @@ export const createPersonValidator = vine.compile(
       .use(noMaskCharRule())
       .unique(async (_db, value) => {
         if (!value || value.trim() === '') return true
-        const existing = await Person.query()
-          .whereNull('person_deleted_at')
-          .where('person_rfc_hash', blindIndex(value))
-          .first()
-        return !existing
+        // USRH1789698261610: se compara solo dentro de la empresa activa. Sin
+        // contexto o sin empresa no hay veredicto (regla 10): el controller ya
+        // rechazó con 400 antes de validar, así que aquí se deja pasar.
+        if (!TenantContext.isActive()) return true
+        const [businessUnitId] = TenantContext.getScope()
+        if (!businessUnitId) return true
+        const exists = await livePersonWithIdentityExists('rfc', blindIndex(value), businessUnitId)
+        return !exists
       })
       .optional(),
     personImssNss: vine
@@ -65,11 +66,14 @@ export const createPersonValidator = vine.compile(
       .use(noMaskCharRule())
       .unique(async (_db, value) => {
         if (!value || value.trim() === '') return true
-        const existing = await Person.query()
-          .whereNull('person_deleted_at')
-          .where('person_imss_nss_hash', blindIndex(value))
-          .first()
-        return !existing
+        // USRH1789698261610: se compara solo dentro de la empresa activa. Sin
+        // contexto o sin empresa no hay veredicto (regla 10): el controller ya
+        // rechazó con 400 antes de validar, así que aquí se deja pasar.
+        if (!TenantContext.isActive()) return true
+        const [businessUnitId] = TenantContext.getScope()
+        if (!businessUnitId) return true
+        const exists = await livePersonWithIdentityExists('nss', blindIndex(value), businessUnitId)
+        return !exists
       })
       .optional(),
   })

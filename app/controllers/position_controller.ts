@@ -1,10 +1,8 @@
 import Position from '#models/position'
 import DepartmentPosition from '#models/department_position'
 import PositionService from '#services/position_service'
-import env from '#start/env'
 import { HttpContext } from '@adonisjs/core/http'
-import axios from 'axios'
-import BiometricPositionInterface from '../interfaces/biometric_position_interface.js'
+import logger from '@adonisjs/core/services/logger'
 import OrgChartMoveService from '#services/org_chart_move_service'
 import {
   createPositionValidator,
@@ -15,175 +13,9 @@ import { PositionShiftFilterInterface } from '../interfaces/position_shift_filte
 import OrgAliasAppError from '#exceptions/org_alias_app_error'
 import { resolvePositionParentFromBody } from '#utils/org_chart_parent_input'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
 
 export default class PositionController {
-  /**
-   * @swagger
-   * /api/synchronization/positions:
-   *   post:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Positions
-   *     summary: sync information
-   *     produces:
-   *       - application/json
-   *     requestBody:
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               page:
-   *                 type: integer
-   *                 description: The page number for pagination
-   *                 required: false
-   *                 default: 1
-   *               limit:
-   *                 type: integer
-   *                 description: The number of records per page
-   *                 required: false
-   *                 default: 200
-   *               positionCode:
-   *                 type: string
-   *                 description: The position code to filter by
-   *                 required: false
-   *                 default: ''
-   *               positionName:
-   *                 required: false
-   *                 description: The position name to filter by
-   *                 type: string
-   *                 default: ''
-   *     responses:
-   *       '200':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
-
-  async synchronization({ request, response, i18n }: HttpContext) {
-    try {
-      const page = request.input('page', 1)
-      const limit = request.input('limit', 200)
-      const positionCode = request.input('positionCode')
-      const positionName = request.input('positionName')
-
-      let apiUrl = `${env.get('API_BIOMETRICS_HOST')}/positions`
-      apiUrl = `${apiUrl}?page=${page || ''}`
-      apiUrl = `${apiUrl}&limit=${limit || ''}`
-      apiUrl = `${apiUrl}&positionCode=${positionCode || ''}`
-      apiUrl = `${apiUrl}&positionName=${positionName || ''}`
-      const apiResponse = await axios.get(apiUrl)
-      const data = apiResponse.data.data
-      if (data) {
-        const positionService = new PositionService(i18n)
-        data.sort((a: BiometricPositionInterface, b: BiometricPositionInterface) => a.id - b.id)
-        for await (const position of data) {
-          await this.verify(position, positionService)
-        }
-        response.status(200)
-        return {
-          type: 'success',
-          title: 'Sync positions',
-          message: 'Positions have been synchronized successfully',
-          data: {
-            data,
-          },
-        }
-      } else {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'Sync positions',
-          message: 'No data found to synchronize',
-          data: { data },
-        }
-      }
-    } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
-      }
-    }
-  }
 
   /**
    * @swagger
@@ -1646,12 +1478,6 @@ export default class PositionController {
     }
   }
 
-  private async verify(position: BiometricPositionInterface, positionService: PositionService) {
-    const existPosition = await Position.query().where('position_sync_id', position.id).first()
-    if (!existPosition) {
-      await positionService.syncCreate(position)
-    }
-  }
 
   /**
    * @swagger
@@ -1745,12 +1571,12 @@ export default class PositionController {
    *                 message:
    *                   type: string
    *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
+   *                 detail:
+   *                   type: string
+   *                   description: Generic detail; the technical error only goes to the log
+   *                 key:
+   *                   type: string
+   *                   description: Stable slug of the error (error-inesperado)
    */
   async getPdf({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
@@ -1759,8 +1585,8 @@ export default class PositionController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The position Id was not found',
-          message: 'Missing data to process',
+          title: i18n.formatMessage('position_profile_position_id_required'),
+          message: i18n.formatMessage('missing_data_to_process'),
           data: { positionId },
         }
       }
@@ -1772,24 +1598,30 @@ export default class PositionController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position was not found',
-          message: 'The position was not found with the entered ID',
+          title: i18n.formatMessage('position_profile_not_found_title'),
+          message: i18n.formatMessage('position_profile_not_found_message'),
           data: { positionId },
         }
       }
 
       response.header('Content-Type', 'application/pdf')
-      response.header('Content-Disposition', `attachment; filename="perfil-puesto-${positionId}.pdf"`)
+      response.header(
+        'Content-Disposition',
+        contentDisposition(await this.buildPositionProfileFileName(positionId, 'pdf'))
+      )
       response.header('Content-Length', pdfBuffer.length.toString())
       response.status(200)
       return response.send(pdfBuffer)
-    } catch (error) {
+    } catch (error: unknown) {
+      // El detalle va al log, nunca a la respuesta: puede traer SQL o rutas internas.
+      logger.error({ err: error }, 'perfil de puesto: error inesperado al generar el PDF')
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
+        title: i18n.formatMessage('server_error'),
+        message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
+        detail: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
+        key: 'error-inesperado',
       }
     }
   }
@@ -1886,12 +1718,12 @@ export default class PositionController {
    *                 message:
    *                   type: string
    *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
+   *                 detail:
+   *                   type: string
+   *                   description: Generic detail; the technical error only goes to the log
+   *                 key:
+   *                   type: string
+   *                   description: Stable slug of the error (error-inesperado)
    */
   async getExcel({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
@@ -1900,8 +1732,8 @@ export default class PositionController {
         response.status(400)
         return {
           type: 'warning',
-          title: 'The position Id was not found',
-          message: 'Missing data to process',
+          title: i18n.formatMessage('position_profile_position_id_required'),
+          message: i18n.formatMessage('missing_data_to_process'),
           data: { positionId },
         }
       }
@@ -1913,25 +1745,46 @@ export default class PositionController {
         response.status(404)
         return {
           type: 'warning',
-          title: 'The position was not found',
-          message: 'The position was not found with the entered ID',
+          title: i18n.formatMessage('position_profile_not_found_title'),
+          message: i18n.formatMessage('position_profile_not_found_message'),
           data: { positionId },
         }
       }
 
       response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      response.header('Content-Disposition', `attachment; filename="perfil-puesto-${positionId}.xlsx"`)
+      response.header(
+        'Content-Disposition',
+        contentDisposition(await this.buildPositionProfileFileName(positionId, 'xlsx'))
+      )
       response.header('Content-Length', excelBuffer.length.toString())
       response.status(200)
       return response.send(excelBuffer)
-    } catch (error) {
+    } catch (error: unknown) {
+      // El detalle va al log, nunca a la respuesta: puede traer SQL o rutas internas.
+      logger.error({ err: error }, 'perfil de puesto: error inesperado al generar el Excel')
       response.status(500)
       return {
         type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
+        title: i18n.formatMessage('server_error'),
+        message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
+        detail: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
+        key: 'error-inesperado',
       }
     }
+  }
+
+  /**
+   * Nombre del perfil de puesto descargable: `perfil-puesto-{nombre}.{ext}`.
+   * El nombre del puesto no es dato personal; si viene vacío se usa el id.
+   * Solo se llama tras generar el archivo, así que el puesto ya pasó el
+   * filtro de unidad de negocio del servicio.
+   */
+  private async buildPositionProfileFileName(positionId: string | number, extension: string): Promise<string> {
+    const position = await Position.query()
+      .select('position_id', 'position_name')
+      .where('position_id', positionId)
+      .first()
+    const positionName = position?.positionName?.trim()
+    return buildDownloadFileName(['perfil-puesto', positionName || positionId], extension)
   }
 }

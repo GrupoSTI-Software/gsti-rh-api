@@ -25,6 +25,7 @@ import type { EmployeeDepartmentScope } from '#helpers/resolve_employee_role_sco
 import type {
   EmployeeImportResult,
   EmployeeImportRowError,
+  EmployeeImportCompanyMismatchRow,
 } from '../interfaces/employee_import_result_interface.js'
 import DepartmentService from './department_service.js'
 import PersonService from './person_service.js'
@@ -33,7 +34,15 @@ import VacationSetting from '#models/vacation_setting'
 import FlightAttendant from '#models/flight_attendant'
 import Customer from '#models/customer'
 import env from '#start/env'
+import { livePersonWithIdentityExists } from '#helpers/person_identity_lookup'
+import { personEmailExistsGlobally } from '#helpers/person_email_global_uniqueness'
+import {
+  importRowErrorMessage,
+  personIdentityDuplicatedIndexFromError,
+} from '#helpers/person_identity_api_error'
+import { shouldAbortImportOnRowError } from '#helpers/employee_import_api_error'
 import { blindIndex } from '#utils/blind_index'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import BusinessUnit from '#models/business_unit'
 import EmployeeType from '#models/employee_type'
@@ -43,12 +52,11 @@ import EmployeeBank from '#models/employee_bank'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import { EmployeeSyncInterface } from '../interfaces/employee_sync_interface.js'
 import VacationAuthorizationSignature from '#models/vacation_authorization_signature'
-import SystemSetting from '#models/system_setting'
 import { I18n } from '@adonisjs/i18n'
 import Shift from '#models/shift'
-import SystemSettingService from './system_setting_service.js'
-import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
-import sharp from 'sharp'
+import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
+import { formatReportCalendarDate, REPORT_LOCALE } from '#helpers/report_locale'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
 import EmployeeShiftService from './employee_shift_service.js'
 import EmployeeShift from '#models/employee_shift'
 import ShiftExceptionService from './shift_exception_service.js'
@@ -61,6 +69,9 @@ import {
   employeeImportQuotaNoPlanError,
 } from '../helpers/employee_quota_api_error.js'
 import { isSensitiveDataWriteError } from '#helpers/sensitive_data_write_api_error'
+import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import PersonEmailProbeLogService from '#services/person_email_probe_log_service'
+import { resolvePersonRelease, type PersonReleaseContext } from '#helpers/person_release_guard'
 import { findSensitiveCategoriesInExcelHeaders } from '#constants/employee_excel_sensitive_headers'
 import { SENSITIVE_DATA_WRITE_ERROR_CODES } from '#constants/sensitive_data_write_error_codes'
 import { SensitiveDataWriteError } from '#exceptions/sensitive_data_write_error'
@@ -72,6 +83,8 @@ import EmployeeZone from '#models/employee_zone'
 import Address from '#models/address'
 import AddressType from '#models/address_type'
 import SyncAssistsService from './sync_assists_service.js'
+import { isValidTimeZone, nowInZone, wallTime } from '#modules/attendance-time/attendance_clock'
+import { getBusinessTimeZone } from '#utils/business_date'
 import EmployeeSalaryHistoryService from './employee_salary_history_service.js'
 import logger from '@adonisjs/core/services/logger'
 import OffboardingsService from '#modules/employee-offboarding/offboardings/offboardings.service'
@@ -217,116 +230,6 @@ export default class EmployeeService {
     return DateTime.fromMillis(randomTimestamp)
   }
 
-  async syncCreate(employee: BiometricEmployeeInterface) {
-    // Guardar el personId que viene del frontend
-    let personIdToDelete = employee.personId || null
-    // const newEmployee = new Employee()
-    // const personService = new PersonService(this.i18n)
-    // const newPerson = await personService.syncCreate(employee)
-    // const employeeType = await EmployeeType.query()
-    //   .where('employee_type_slug', 'employee')
-    //   .whereNull('employee_type_deleted_at')
-    //   .first()
-
-    try {
-      // Verificar límite de empleados dentro del try-catch
-      const businessUnitId = employee.businessUnitId || 1
-      await this.verifyEmployeeLimit(businessUnitId)
-
-      const newEmployee = new Employee()
-
-      const employeeType = await EmployeeType.query()
-        .where('employee_type_slug', 'employee')
-        .whereNull('employee_type_deleted_at')
-        .first()
-
-      // Usar el personId que viene del frontend
-      if (employee.personId) {
-        newEmployee.personId = employee.personId
-      } else {
-        const personService = new PersonService(this.i18n)
-        const newPerson = await personService.syncCreate(employee)
-        newEmployee.personId = newPerson.personId
-        personIdToDelete = newPerson.personId
-      }
-
-      newEmployee.employeeSyncId = employee.id
-
-      // Generar código de empleado automáticamente si no se proporciona
-      if (!employee.empCode || employee.empCode.toString().trim() === '') {
-        newEmployee.employeeCode = await this.generateAutoEmployeeCode()
-      } else {
-        newEmployee.employeeCode = employee.empCode
-      }
-
-      newEmployee.employeeFirstName = employee.firstName
-      newEmployee.employeeLastName = employee.lastName
-      newEmployee.employeeSecondLastName = employee.secondLastName
-      newEmployee.employeePayrollNum = employee.payrollNum
-      newEmployee.employeeHireDate = employee.hireDate
-      newEmployee.companyId = employee.companyId
-      newEmployee.departmentId = employee.departmentId
-      newEmployee.positionId = employee.positionId
-      newEmployee.businessUnitId = businessUnitId
-
-      if (employeeType?.employeeTypeId) {
-        newEmployee.employeeTypeId = employeeType.employeeTypeId
-      }
-
-      if (employee.empCode) {
-        const urlPhoto = `${env.get('API_BIOMETRICS_EMPLOYEE_PHOTO_URL')}/${employee.empCode}.jpg`
-        const existPhoto = await this.verifyExistPhoto(urlPhoto)
-        if (existPhoto) {
-          newEmployee.employeePhoto = urlPhoto
-        }
-      }
-
-      newEmployee.employeeLastSynchronizationAt = new Date()
-
-      // Guardar empleado
-      await newEmployee.save()
-
-      await this.updateEmployeeSlug(newEmployee)
-
-      // Asignar usuarios responsables
-      await this.setUserResponsible(newEmployee.employeeId, employee.usersResponsible ? employee.usersResponsible : [])
-
-      return newEmployee
-    } catch (error) {
-      // Si hay error y tenemos un personId, eliminarlo
-      if (personIdToDelete) {
-        try {
-          await this.deletePersonById(personIdToDelete)
-        } catch (deleteError) {
-          console.error('Error eliminando persona huérfana:', deleteError)
-        }
-      }
-      throw error
-    }
-
-    /*  await newEmployee.load('employeeType')
-     if (newEmployee.employeeType.employeeTypeSlug === 'employee' && newPerson) {
-       const user = {
-         userEmail: newPerson.personEmail,
-         userPassword: '',
-         userActive: 1,
-         roleId: roleId,
-         personId: personId,
-       } as User
-       const userService = new UserService()
-       const data = await request.validateUsing(createUserValidator)
-       const exist = await userService.verifyInfoExist(user)
-       if (exist.status !== 200) {
-         response.status(exist.status)
-         return {
-           type: exist.type,
-           title: exist.title,
-           message: exist.message,
-           data: { ...data },
-         }
-       }
-     } */
-  }
 
   async syncUpdate(
     employee: BiometricEmployeeInterface,
@@ -362,7 +265,6 @@ export default class EmployeeService {
     currentEmployee.positionSyncId = employee.positionId
     currentEmployee.employeeLastSynchronizationAt = new Date()
     await currentEmployee.save()
-    await this.updateEmployeeSlug(currentEmployee)
     return currentEmployee
   }
 
@@ -702,15 +604,6 @@ export default class EmployeeService {
     if (!employeeData.employeeNumber || employeeData.employeeNumber.toString().trim() === '') {
       missing.push('Identificador de nómina')
     }
-    if (!employeeData.businessUnit || employeeData.businessUnit.toString().trim() === '') {
-      missing.push('Unidad de negocio de trabajo')
-    }
-    if (
-      !employeeData.payrollBusinessUnit ||
-      employeeData.payrollBusinessUnit.toString().trim() === ''
-    ) {
-      missing.push('Unidad de negocio de nómina')
-    }
     if (!employeeData.firstName || employeeData.firstName.toString().trim() === '') {
       missing.push('Nombre del empleado')
     }
@@ -720,7 +613,12 @@ export default class EmployeeService {
     return missing
   }
 
-  async create(employee: Employee, usersResponsible: User[], SNDeviceList: string = '') {
+  async create(
+    employee: Employee,
+    usersResponsible: User[],
+    releaseContext: PersonReleaseContext,
+    SNDeviceList: string = ''
+  ) {
     // Persona del mismo acto de alta (creada por el BO en el request previo):
     // si el alta falla se libera solo si quedó huérfana, para que el reintento
     // no choque con "personEmail has already been taken" (USRH1785436961832).
@@ -785,7 +683,6 @@ export default class EmployeeService {
         await this.verifyEmployeeLimit(employee.businessUnitId, trx)
         newEmployee.useTransaction(trx)
         await newEmployee.save()
-        await this.updateEmployeeSlug(newEmployee, trx)
         await this.setUserResponsible(
           newEmployee.employeeId,
           usersResponsible ? usersResponsible : [],
@@ -821,7 +718,7 @@ export default class EmployeeService {
       return newEmployee
     } catch (error) {
       if (personIdCandidate) {
-        await this.releasePersonIfOrphan(personIdCandidate)
+        await this.releasePersonIfOrphan(personIdCandidate, releaseContext)
       }
       throw error
     }
@@ -832,7 +729,8 @@ export default class EmployeeService {
   async update(
     currentEmployee: Employee,
     employee: Employee,
-    options?: { changedBy?: number; salaryChangeReason?: string | null }
+    options?: { changedBy?: number; salaryChangeReason?: string | null },
+    trx?: TransactionClientContract
   ) {
     const salarioAnterior = currentEmployee.dailySalary
     // Eco destructivo (USRH1787433076994): propiedad ausente = conservar el
@@ -891,19 +789,22 @@ export default class EmployeeService {
     currentEmployee.employeeBusinessEmail = employee.employeeBusinessEmail
     currentEmployee.employeeIgnoreConsecutiveAbsences = employee.employeeIgnoreConsecutiveAbsences
     currentEmployee.employeeAuthorizeAnyZones = employee.employeeAuthorizeAnyZones
+    if (trx) currentEmployee.useTransaction(trx)
     await currentEmployee.save()
 
     if (Number(salarioAnterior) !== Number(salarioNuevo) && options?.changedBy) {
       const historialService = new EmployeeSalaryHistoryService()
-      await historialService.registrarCambio({
-        employeeId: currentEmployee.employeeId,
-        salaryDaily: salarioNuevo,
-        changedBy: options.changedBy,
-        reason: options.salaryChangeReason ?? null,
-      })
+      await historialService.registrarCambio(
+        {
+          employeeId: currentEmployee.employeeId,
+          salaryDaily: salarioNuevo,
+          changedBy: options.changedBy,
+          reason: options.salaryChangeReason ?? null,
+        },
+        trx
+      )
     }
 
-    await this.updateEmployeeSlug(currentEmployee)
     await currentEmployee.load('businessUnit')
     return currentEmployee
   }
@@ -1094,52 +995,6 @@ export default class EmployeeService {
   }
 
   /**
-   * Público desde USRH1785438246847: la siembra demo del onboarding lo reusa
-   * para poblar el slug del empleado de práctica dentro de su transacción.
-   */
-  async updateEmployeeSlug(employee: Employee, trx?: TransactionClientContract) {
-    if (!employee.employeeId) {
-      return
-    }
-
-    const slug = this.generateEmployeeSlug(employee)
-    await Employee.query({ client: trx })
-      .where('employee_id', employee.employeeId)
-      .update({ employee_slug: slug })
-    employee.employeeSlug = slug
-  }
-
-  private generateEmployeeSlug(employee: Employee) {
-    const firstNamePart = this.normalizeSlugSegment(employee.employeeFirstName)
-    const lastNamePart = this.normalizeSlugSegment(employee.employeeLastName)
-    const secondLastNamePart = this.normalizeSlugSegment(employee.employeeSecondLastName)
-    const namePart =
-      [firstNamePart, lastNamePart, secondLastNamePart].filter((part) => part).join('-') || 'sin-nombre'
-
-    const payrollPart = this.normalizeSlugSegment(employee.employeePayrollCode, 'sin-codigo')
-    const idPart = employee.employeeId ? `${employee.employeeId}` : '0'
-
-    return `${namePart}---${payrollPart}---${idPart}`.toLowerCase()
-  }
-
-  private normalizeSlugSegment(value?: string | null, fallback = '') {
-    if (!value) {
-      return fallback
-    }
-
-    return value
-      .toString()
-      .trim()
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/\s+/g, '-')
-      .replace(/[^a-zA-Z0-9\-]/g, '-')
-      .replace(/-+/g, '-')
-      .replace(/^-|-$/g, '')
-      .toLowerCase()
-  }
-
-  /**
    * Reactivar un empleado eliminado (soft delete)
    * @param currentEmployee - Empleado a reactivar
    * @returns Promise<Employee>
@@ -1216,6 +1071,27 @@ export default class EmployeeService {
       .withTrashed()
       .first()
     return employee ? employee : null
+  }
+
+  /**
+   * Canjea el token opaco de la URL del Backoffice por el empleado.
+   *
+   * Resuelve el id y delega en `getById` en vez de repetir su query: el filtro
+   * por usuario responsable, los preloads y el `withTrashed` viven en un solo
+   * lugar. La búsqueda del slug hereda el alcance por empresa del mixin
+   * `withBusinessUnitScope`, así que un token de otra empresa no resuelve.
+   */
+  async getBySlug(employeeSlug: string, userResponsibleId?: number | null) {
+    const match = await Employee.query()
+      .where('employee_slug', employeeSlug)
+      .select('employee_id')
+      .withTrashed()
+      .first()
+
+    if (!match) {
+      return null
+    }
+    return this.getById(match.employeeId, userResponsibleId)
   }
 
   async getNewPosition(
@@ -1430,17 +1306,39 @@ export default class EmployeeService {
     }
   }
 
-  async indexWithOutUser(filters: EmployeeFilterSearchInterface) {
+  /**
+   * Empleados de la empresa activa que todavía no tienen cuenta de usuario
+   * EN ELLA.
+   *
+   * La exclusión se mide con la misma regla que el listado de usuarios
+   * (`UserService.index`): una cuenta cuenta para la empresa solo si está
+   * ligada a ella en `business_unit_users`. Antes se medía contra todas las
+   * cuentas del sistema, así que una cuenta de otra empresa —o huérfana de la
+   * pivote— dejaba al empleado fuera del catálogo sin que nadie pudiera verla
+   * ni corregirla desde la pantalla.
+   *
+   * Sin empresa en el alcance no hay catálogo que ofrecer.
+   *
+   * @param filters - Búsqueda, estructura y paginación del catálogo.
+   * @param allowedBusinessUnitIds - Alcance de empresas de quien consulta.
+   */
+  async indexWithOutUser(
+    filters: EmployeeFilterSearchInterface,
+    allowedBusinessUnitIds: number[] = []
+  ) {
     const personUsed = await User.query()
       .whereNull('user_deleted_at')
+      .whereHas('businessUnits', (subQuery) => {
+        subQuery.whereIn('business_units.business_unit_id', allowedBusinessUnitIds)
+      })
       .select('person_id')
       .distinct('person_id')
       .orderBy('person_id')
-    const persons = [] as Array<number>
-    for await (const user of personUsed) {
-      persons.push(user.personId)
-    }
+    const persons = personUsed.map((user) => user.personId)
     const employees = await Employee.query()
+      .if(allowedBusinessUnitIds.length === 0, (query) => {
+        query.whereRaw('1 = 0')
+      })
       .if(filters.search, (query) => {
         query.whereRaw('UPPER(CONCAT(employee_first_name, " ", employee_last_name)) LIKE ?', [
           `%${filters.search.toUpperCase()}%`,
@@ -2611,48 +2509,77 @@ export default class EmployeeService {
 
 
   /**
-   * Libera (soft-delete) la persona de un intento de alta fallido para que el
-   * reintento del formulario no choque con los únicos de persona (correo,
-   * CURP, RFC — sus validadores ignoran filas eliminadas). Solo procede si la
-   * persona quedó huérfana: sin empleado, usuario ni cliente activos. Una
-   * persona preexistente ligada a algo más no se toca — el sistema queda como
-   * antes del intento (USRH1785436961832, reglas 2 y 3).
+   * Libera (soft delete) a la persona del alta de empleado fallida para que el
+   * capturista pueda reintentar sin chocar con "el correo ya está registrado"
+   * (USRH1785436961832), ahora blindada (USRH1789698261608).
+   *
+   * Solo procede si la persona no tiene NI HA TENIDO vínculo alguno —empleado,
+   * usuario o cliente, vivo o dado de baja— y nació dentro de la ventana de
+   * frescura. Cualquier otro caso se niega en silencio y queda trazado. No
+   * comprueba de qué empresa es la persona: `people` no tiene esa marca.
+   *
+   * @param personId Persona candidata; llega del payload del alta o del API de biométricos.
+   * @param context Actor y scope del acto, para la traza de la decisión. No decide nada.
+   * @returns `true` solo si la persona quedó liberada. Nunca lanza.
    */
-  async releasePersonIfOrphan(personId: number): Promise<boolean> {
+  async releasePersonIfOrphan(
+    personId: number,
+    context: PersonReleaseContext
+  ): Promise<boolean> {
     try {
-      const orphan = await Person.query()
-        .where('person_id', personId)
-        .whereNotExists((query) => {
-          query.from('employees')
-            .whereRaw('employees.person_id = people.person_id')
-            .whereNull('employees.employee_deleted_at')
-        })
-        .whereNotExists((query) => {
-          query.from('users')
-            .whereRaw('users.person_id = people.person_id')
-            .whereNull('users.user_deleted_at')
-        })
-        .whereNotExists((query) => {
-          query.from('customers')
-            .whereRaw('customers.person_id = people.person_id')
-            .whereNull('customers.customer_deleted_at')
-        })
-        .first()
+      const decision = await resolvePersonRelease(personId)
 
-      if (!orphan) {
+      if (!decision.releasable) {
+        // `not-found` es el camino normal de la segunda compensación del mismo
+        // acto (la primera ya liberó): registrarlo llenaría la auditoría de
+        // falsos positivos en cada alta fallida legítima.
+        if (decision.reason !== 'not-found') {
+          logger.warn(
+            { personId, reason: decision.reason, actorUserId: context.actorUserId },
+            'EmployeeService.releasePersonIfOrphan: liberación denegada'
+          )
+          // Best-effort y posterior a la decisión: si Mongo está caído no
+          // guarda y no avisa, y el rechazo se sostiene igual.
+          await ScopeDeniedLogService.log({
+            domain: 'person',
+            action: 'release-orphan',
+            requestedId: personId,
+            actorUserId: context.actorUserId,
+            businessUnitScope: context.businessUnitScope,
+          })
+        }
         return false
       }
 
-      await orphan.delete()
+      await decision.person.delete()
+
+      // La CONCESIÓN también se registra. Sin esto, un barrido exitoso de
+      // expedientes en vuelo sería invisible — justo el escenario que interesa
+      // poder reconstruir después. Mismo carácter best-effort.
+      await ScopeDeniedLogService.log({
+        domain: 'person',
+        action: 'release-orphan-granted',
+        requestedId: personId,
+        actorUserId: context.actorUserId,
+        businessUnitScope: context.businessUnitScope,
+      })
+
       return true
     } catch (error) {
-      console.error('Error liberando persona huérfana del alta fallida:', error)
+      logger.error(
+        { err: error, personId },
+        'EmployeeService.releasePersonIfOrphan: fallo al liberar la persona del alta fallida'
+      )
       return false
     }
   }
 
   /**
-   * Eliminar una persona por su ID
+   * Eliminar una persona por su ID.
+   *
+   * @deprecated Sin llamadores desde USRH1789698261608: borraba sin comprobar
+   * vínculo ni antigüedad. Toda compensación del alta fallida pasa por
+   * `releasePersonIfOrphan`. Se retira junto con el alta transaccional.
    * @param personId - ID de la persona a eliminar
    * @returns Promise<boolean> - true si se eliminó correctamente
    */
@@ -2734,10 +2661,16 @@ export default class EmployeeService {
 
   /**
    * Import employees from Excel file
+   *
+   * @param allowedBusinessUnitIds — empresas del actor que sube el archivo.
+   * @param actorUserId — usuario que subió el archivo; se propaga hasta
+   * `createPerson` para poder atribuir el intento de correo de cada fila. `null`
+   * cuando no hay sesión.
    */
   async importFromExcel(
     file: any,
-    allowedBusinessUnitIds: number[] = []
+    allowedBusinessUnitIds: number[] = [],
+    actorUserId: number | null = null
   ): Promise<EmployeeImportResult> {
     const workbook = new ExcelJS.Workbook()
 
@@ -2774,14 +2707,6 @@ export default class EmployeeService {
       const employeeTypes = await EmployeeType.query()
         .whereNull('employee_type_deleted_at')
         .select('employeeTypeId', 'employeeTypeName')
-
-      // Buscar departamento y posición por defecto
-      const defaultDepartment = departments.find(dept =>
-        dept.departmentName?.toLowerCase().includes('sin departamento')
-      )
-      const defaultPosition = positions.find(pos =>
-        pos.positionName?.toLowerCase().includes('sin posición')
-      )
 
       // Obtener empleados existentes por número de nómina
       const existingEmployees = await Employee.query()
@@ -2872,6 +2797,18 @@ export default class EmployeeService {
       let newEmployeesCount = 0
       const validRows: Array<{ row: any; rowNumber: number; employeeData: any; businessUnitId: number | null; payrollBusinessUnitId: number | null; isUpdate: boolean }> = []
 
+      // USRH1789747321650 regla 1: el archivo es de una sola empresa, la activa.
+      // Misma fuente que el cupo (`resolveImportScopeBusinessUnitId`): el supuesto
+      // de la historia es que siempre hay una sola activa; sin ella no hay contra
+      // qué comparar y se propaga el mismo error que el cupo lanzaría.
+      const activeBusinessUnitId = this.resolveImportScopeBusinessUnitId(allowedBusinessUnitIds)
+      // El nombre de la activa sale de la lista ya filtrada por alcance (un
+      // elemento): sin consulta extra y sin consultar nunca el padrón completo
+      // de empresas.
+      const activeBusinessUnit =
+        businessUnits.find((unit) => unit.businessUnitId === activeBusinessUnitId) ?? null
+      const foreignRows: EmployeeImportCompanyMismatchRow[] = []
+
       for (const { row, rowNumber } of rows) {
         totalRows++
 
@@ -2916,14 +2853,45 @@ export default class EmployeeService {
             continue
           }
 
-          // Mapear unidad de negocio de trabajo por nombre
+          // La comparación es sobre la celda tecleada contra el nombre de la
+          // empresa activa, normalizando ambos igual (sin espacios sobrantes y
+          // sin distinguir mayúsculas). Es igualdad de texto, no parecido: un
+          // nombre a pocas letras del de la activa es otra empresa, y dejarlo
+          // pasar por similitud cargaría el archivo ajeno en silencio.
+          // `mapBusinessUnit` queda solo para elegir el id a asignar más
+          // abajo; comparar ids nunca detecta nada porque el valor alternativo
+          // los iguala. Celda vacía significa la activa y no ofende. Con la
+          // activa desconocida (inactiva o dada de baja) no se evalúa nada: el
+          // cierre seguro de hoy queda intacto.
+          if (activeBusinessUnit !== null) {
+            const activeBusinessUnitName = this.normalizeBusinessUnitCell(
+              activeBusinessUnit.businessUnitName
+            )
+            const declaredCells: Array<{ value: unknown; column: 'businessUnit' | 'payrollBusinessUnit' }> = [
+              { value: employeeData.businessUnit, column: 'businessUnit' },
+              { value: employeeData.payrollBusinessUnit, column: 'payrollBusinessUnit' },
+            ]
+            for (const { value, column } of declaredCells) {
+              const typed = String(value ?? '').trim()
+              if (
+                this.hasImportCellValue(value) &&
+                this.normalizeBusinessUnitCell(typed) !== activeBusinessUnitName
+              ) {
+                foreignRows.push({
+                  row: rowNumber,
+                  businessUnit: column === 'businessUnit' ? typed : '',
+                  payrollBusinessUnit: column === 'payrollBusinessUnit' ? typed : '',
+                })
+              }
+            }
+          }
+
           let businessUnitId = this.mapBusinessUnit(employeeData.businessUnit, businessUnits)
           // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
           if (businessUnitId === null && businessUnits.length > 0) {
             businessUnitId = businessUnits[0].businessUnitId
           }
 
-          // Mapear unidad de negocio de nómina por nombre
           let payrollBusinessUnitId = this.mapBusinessUnit(employeeData.payrollBusinessUnit, businessUnits)
           // Si no se encuentra, usar la primera unidad de negocio de la base de datos (sin mensaje)
           if (payrollBusinessUnitId === null && businessUnits.length > 0) {
@@ -2962,8 +2930,30 @@ export default class EmployeeService {
 
         } catch (error: any) {
           skipped++
-          rowErrors.push({ row: rowNumber, message: error.message })
+          rowErrors.push({
+            row: rowNumber,
+            message: this.resolveImportRowErrorMessage(error, rowNumber, activeBusinessUnitId),
+          })
         }
+      }
+
+      // Todo-o-nada en el mismo punto donde se valida el cupo, antes de
+      // escribir la primera fila. El aviso al log del servidor es parte del
+      // rechazo: no se lanza sin dejar constancia. Nunca lleva nombres del
+      // archivo ni el texto del error (entrada no confiable, con datos
+      // personales pegados a veces); solo números de fila y conteos.
+      if (foreignRows.length > 0) {
+        const offendingRowNumbers = [...new Set(foreignRows.map((item) => item.row))]
+        logger.warn(
+          {
+            businessUnitId: activeBusinessUnitId,
+            rows: offendingRowNumbers,
+            rowCount: offendingRowNumbers.length,
+            totalRows,
+          },
+          'Carga masiva rechazada: el archivo declara empresas distintas de la activa'
+        )
+        throw this.createCompanyMismatchValidationError(foreignRows, activeBusinessUnit?.businessUnitName ?? '')
       }
 
       await this.assertImportWithinQuota(allowedBusinessUnitIds, newEmployeesCount)
@@ -2975,7 +2965,7 @@ export default class EmployeeService {
           if (isUpdate) {
             const existingEmployee = this.findExistingEmployeeForImport(employeeData, existingEmployeesById)
             if (existingEmployee) {
-              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, defaultDepartment, defaultPosition, businessUnitId, payrollBusinessUnitId, employeeTypes)
+              await this.updateExistingEmployee(existingEmployee, employeeData, departments, positions, businessUnitId, payrollBusinessUnitId, actorUserId, allowedBusinessUnitIds, employeeTypes)
               if (employeeData.employeeWorkScheduleHybridAttempt) {
                 warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'update'))
               }
@@ -2987,52 +2977,12 @@ export default class EmployeeService {
 
           // Crear nuevo empleado: verificar CURP duplicado antes de crear
           if (this.hasImportCellValue(employeeData.curp)) {
-            const curpExists = await this.personWithCurpExists(employeeData.curp)
+            const curpExists = await this.personWithCurpExists(employeeData.curp, businessUnitId)
             if (curpExists) {
               skipped++
               rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })
               continue
             }
-
-            // Crear nuevo empleado: verificar CURP duplicado antes de crear
-          //   if (this.hasImportCellValue(employeeData.curp)) {
-          //     const curpExists = await this.personWithCurpExists(employeeData.curp)
-          //     if (curpExists) {
-          //       skipped++
-          //       rowErrors.push({ row: rowNumber, message: 'CURP duplicado' })
-          //       continue
-          //     }
-          //   }
-
-          //   let employeeCode = employeeData.employeeNumber
-          //   if (!employeeCode || existingEmployeeCodes.includes(employeeCode)) {
-          //     employeeCode = this.generateUniqueEmployeeCode(existingEmployeeCodes)
-          //   }
-          //   existingEmployeeCodes.push(employeeCode)
-
-          //   const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
-          //   const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
-
-          //   const person = await this.createPerson(employeeData)
-          //   const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
-          //   if (employeeData.employeeWorkScheduleHybridAttempt) {
-          //     // El empleado nuevo queda con Onsite (default de `createEmployee`).
-          //     // Se avisa a RH para que ajuste la modalidad desde el sistema.
-          //     warnings.push(this.buildHybridFromExcelWarning(rowNumber, 'create'))
-          //   }
-          //   await this.ensureEmployeeResidenceAddress(newEmployee.employeeId, employeeData)
-          //   await this.ensureEmployeePrimaryEmergencyContact(newEmployee.employeeId, employeeData)
-
-          //   createdEmployees.push(newEmployee)
-          //   created++
-          //   processed++
-          // } catch (error: any) {
-          //   // Una denegación por dato sensible no es un error de fila: aborta
-          //   // toda la importación con un 403 (Important 2, revisión final de
-          //   // sensitive-write-by-category). No se registra como fila fallida.
-          //   if (isSensitiveDataWriteError(error)) throw error
-          //   skipped++
-          //   rowErrors.push({ row: rowNumber, message: error.message })
           }
 
           let employeeCode = employeeData.employeeNumber
@@ -3041,10 +2991,10 @@ export default class EmployeeService {
           }
           existingEmployeeCodes.push(employeeCode)
 
-          const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
-          const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+          const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments)
+          const positionId = this.mapPositionBySimilarity(employeeData.position, positions)
 
-          const person = await this.createPerson(employeeData)
+          const person = await this.createPerson(employeeData, businessUnitId!, actorUserId, allowedBusinessUnitIds)
           const newEmployee = await this.createEmployee(employeeData, person.personId, businessUnitId!, payrollBusinessUnitId!, departmentId, positionId, employeeCode, employeeTypes)
           if (employeeData.employeeWorkScheduleHybridAttempt) {
             // El empleado nuevo queda con Onsite (default de `createEmployee`).
@@ -3058,8 +3008,19 @@ export default class EmployeeService {
           created++
           processed++
         } catch (error: any) {
+          // USRH1789747321650 regla 5 (restaura la intención del bloque
+          // comentado de la revisión sensitive-write-by-category): el fallo al
+          // guardar un dato protegido detiene la carga y se reporta vía 403
+          // del controlador. No es una fila fallida más ni desaparece del
+          // reporte. El `catch` externo ya re-lanza sensibles (`:3126-3128`).
+          // Esta guarda hoy es inalcanzable: la importación corre en `runUnguarded` y el permiso
+          // sensible se exige por cabeceras antes de las pasadas; se conserva como defensa futura.
+          if (shouldAbortImportOnRowError(error)) throw error
           skipped++
-          rowErrors.push({ row: rowNumber, message: error.message })
+          rowErrors.push({
+            row: rowNumber,
+            message: this.resolveImportRowErrorMessage(error, rowNumber, businessUnitId),
+          })
         }
       }
 
@@ -3102,6 +3063,9 @@ export default class EmployeeService {
       // propagan tal cual — ya traen `statusCode`/mensaje listos para el
       // controlador, no son fallos internos que deban enmascararse.
       if (error.isHeaderValidationError || error.isRowLimitError) {
+        throw error
+      }
+      if (error.isCompanyMismatchError) {
         throw error
       }
       if (error instanceof EmployeeQuotaError) {
@@ -3229,16 +3193,18 @@ export default class EmployeeService {
   }
 
   /**
-   * Verificar si ya existe una persona con el CURP dado (para evitar duplicados al crear empleados).
-   * Compara por huella HMAC-SHA256 (blind-index) porque person_curp está cifrado en reposo.
+   * Verificar si ya existe una persona viva de la MISMA empresa con la CURP dada
+   * (USRH1789698261610, regla 1). Compara por huella HMAC-SHA256 (blind-index)
+   * porque person_curp está cifrado en reposo. Sin empresa no hay veredicto
+   * (regla 10): la fila ya se rechazó antes por falta de unidad.
    */
-  private async personWithCurpExists(curp: string): Promise<boolean> {
+  private async personWithCurpExists(
+    curp: string,
+    businessUnitId: number | null | undefined
+  ): Promise<boolean> {
     if (!curp || typeof curp !== 'string' || curp.trim() === '') return false
-    const found = await Person.query()
-      .whereNull('person_deleted_at')
-      .where('person_curp_hash', blindIndex(curp))
-      .first()
-    return !!found
+    if (!businessUnitId) return false
+    return livePersonWithIdentityExists('curp', blindIndex(curp), businessUnitId)
   }
 
   /**
@@ -3265,6 +3231,86 @@ export default class EmployeeService {
       ; (error as any).isRowLimitError = true
       ; (error as any).statusCode = 400
     return error
+  }
+
+  /**
+   * Error redactado por el propio importador para una fila: su mensaje está
+   * escrito para quien subió el archivo y puede viajar tal cual. La bandera
+   * es lo que lo identifica (mismo patrón que `isRowLimitError` y
+   * `isHeaderValidationError`); nunca se reconoce por el texto.
+   */
+  private createImportRowMessageError(message: string): Error {
+    const error = new Error(message)
+      ; (error as any).isImportRowMessageError = true
+    return error
+  }
+
+  /**
+   * Mensaje que ve quien subió el archivo cuando una fila falla.
+   *
+   * El criterio es de procedencia, no de tipo de excepción: viaja tal cual lo
+   * que el importador redacta (lo marcado con `isImportRowMessageError` y la
+   * familia de identidad duplicada que se traduce a negocio); cualquier otra
+   * excepción sale con un texto genérico y su traza queda en el log del
+   * servidor. Así quedan cubiertos por omisión índices, controladores de base
+   * de datos y fallas futuras sin tener que conocerlas de antemano.
+   */
+  private resolveImportRowErrorMessage(
+    error: unknown,
+    rowNumber: number,
+    businessUnitId: number | null
+  ): string {
+    const isOwnMessage =
+      (typeof error === 'object' && error !== null && (error as any).isImportRowMessageError === true) ||
+      personIdentityDuplicatedIndexFromError(error) !== null
+    if (isOwnMessage) return importRowErrorMessage(error)
+
+    logger.error({ err: error, row: rowNumber, businessUnitId }, 'Fila de carga masiva no procesada')
+    return 'No fue posible procesar esta fila'
+  }
+
+  /**
+   * Rechazo todo-o-nada por empresa distinta (USRH1789747321650).
+   * El texto habla de filas, así que se agrupa por fila: una cita por fila con
+   * el valor —o los dos valores— que ahí se tecleó, tope de 20 filas y cierre
+   * `… y N filas más.` con las filas restantes. `offendingRows` sigue yendo por
+   * celda para que el reporte distinga trabajo de nómina. El listado cita lo
+   * que el usuario tecleó (su propio dato), nunca nada resuelto en base, y lo
+   * recorta a `MAX_OFFENDING_CELL_ECHO_LENGTH` para que una celda larguísima no
+   * se repita entera en todo el mensaje.
+   */
+  private createCompanyMismatchValidationError(
+    offendingRows: EmployeeImportCompanyMismatchRow[],
+    activeName: string
+  ): Error & { isCompanyMismatchError: true; statusCode: 409; offendingRows: EmployeeImportCompanyMismatchRow[] } {
+    const MAX_OFFENDING_ROWS_SHOWN = 20
+    const MAX_OFFENDING_CELL_ECHO_LENGTH = 80
+    const echoOf = (value: string): string => value.slice(0, MAX_OFFENDING_CELL_ECHO_LENGTH)
+    const typedValuesByRow = new Map<number, string[]>()
+    for (const item of offendingRows) {
+      const typedValues = typedValuesByRow.get(item.row) ?? []
+      for (const value of [item.businessUnit, item.payrollBusinessUnit]) {
+        if (value !== '' && !typedValues.includes(echoOf(value))) typedValues.push(echoOf(value))
+      }
+      typedValuesByRow.set(item.row, typedValues)
+    }
+    const offendingRowNumbers = [...typedValuesByRow.keys()]
+    const shown = offendingRowNumbers.slice(0, MAX_OFFENDING_ROWS_SHOWN)
+    const listing = shown
+      .map((row) => `fila ${row} («${(typedValuesByRow.get(row) ?? []).join('», «')}»)`)
+      .join(', ')
+    const tail =
+      offendingRowNumbers.length > shown.length
+        ? ` … y ${offendingRowNumbers.length - shown.length} filas más.`
+        : ''
+    const error = new Error(
+      `La empresa activa es «${activeName}». Estas filas declaran otra: ${listing}.${tail} No se aplicó ninguna línea del archivo: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo.`
+    )
+    return Object.assign(error, {
+      isCompanyMismatchError: true as const,
+      statusCode: 409 as const,
+      offendingRows,
+    })
   }
 
   /**
@@ -3791,16 +3837,19 @@ export default class EmployeeService {
 
   /**
    * Actualizar empleado existente
+   *
+   * @param actorUserId — quién subió el archivo (el actor del intento).
+   * @param businessUnitScope — empresas del actor, no las del expediente.
    */
   private async updateExistingEmployee(
     existingEmployee: any,
     employeeData: any,
     departments: any[],
     positions: any[],
-    defaultDepartment: any,
-    defaultPosition: any,
     businessUnitId: number | null,
     payrollBusinessUnitId: number | null,
+    actorUserId: number | null,
+    businessUnitScope: number[],
     employeeTypes: any[] = []
   ) {
     existingEmployee.employeeFirstName = employeeData.firstName || existingEmployee.employeeFirstName
@@ -3848,9 +3897,9 @@ export default class EmployeeService {
     const mappedTypeId = this.mapEmployeeType(employeeData.employeeTypeName, employeeTypes)
     if (mappedTypeId !== null) existingEmployee.employeeTypeId = mappedTypeId
 
-    const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments, defaultDepartment)
+    const departmentId = this.mapDepartmentBySimilarity(employeeData.department, departments)
     if (departmentId !== null) existingEmployee.departmentId = departmentId
-    const positionId = this.mapPositionBySimilarity(employeeData.position, positions, defaultPosition)
+    const positionId = this.mapPositionBySimilarity(employeeData.position, positions)
     if (positionId !== null) existingEmployee.positionId = positionId
 
     await existingEmployee.save()
@@ -3879,6 +3928,41 @@ export default class EmployeeService {
       if (this.hasImportCellValue(employeeData.personalEmail)) {
         person.personEmail = String(employeeData.personalEmail).trim()
       }
+
+      // Rastro del intento de captura del correo personal (USRH1789762889970, D7).
+      // Misma bitácora que el alta, pero en una fila que ACTUALIZA: el expediente
+      // tocado es el `targetPersonId` (convenio del camino de edición), a
+      // diferencia del `null` del alta. El importador NO impone unicidad: sigue
+      // guardando directo. Esta HU solo deja el rastro que hoy no existe, y es de
+      // APOYO — si la consulta o el registro fallan, la fila se actualiza igual y
+      // el usuario no ve nada raro. NUNCA se guarda el correo en claro, ni el
+      // nombre, ni el expediente ajeno: solo la huella, el actor y su scope.
+      const importedEmail = this.importSensitiveValueOrDefault(employeeData.personalEmail)
+
+      // Una fila sin correo (celda vacía o el placeholder del export) no cambia
+      // nada y NO es un intento: sin correo no hay hash ni fila — `blindIndex('')`
+      // es una constante que envenenaría la colección.
+      if (importedEmail !== '') {
+        try {
+          const emailHash = blindIndex(importedEmail)
+          // Unicidad GLOBAL del correo personal (USRH1789698261610 regla 5): la
+          // consulta canónica corre sin filtro de empresa. Se excluye al propio
+          // expediente: en una edición, el correo que ya es suyo no está tomado.
+          const taken = await personEmailExistsGlobally(importedEmail, person.personId)
+
+          await PersonEmailProbeLogService.log({
+            path: 'import',
+            personEmailHash: emailHash,
+            outcome: taken ? 'rejected_not_available' : 'accepted',
+            actorUserId,
+            businessUnitScope,
+            targetPersonId: person.personId,
+          })
+        } catch {
+          // Best-effort: la bitácora no puede cambiar el resultado de la carga.
+        }
+      }
+
       if (this.hasImportCellValue(employeeData.personalPhone)) {
         person.personPhone = String(employeeData.personalPhone).trim()
       }
@@ -3903,7 +3987,9 @@ export default class EmployeeService {
     } while (existingCodes.includes(code) && attempts < 100)
 
     if (attempts >= 100) {
-      throw new Error('No se pudo generar un código de empleado único')
+      // Mensaje propio del importador: viaja tal cual a la fila fallida por la
+      // bandera, no por el texto.
+      throw this.createImportRowMessageError('No se pudo generar un código de empleado único')
     }
 
     return code
@@ -3985,6 +4071,15 @@ export default class EmployeeService {
   }
 
   /**
+   * Normaliza el nombre de una empresa para compararlo: sin espacios sobrantes
+   * y sin distinguir mayúsculas, igual que la coincidencia exacta de
+   * `mapBusinessUnit`.
+   */
+  private normalizeBusinessUnitCell(businessUnitName: string): string {
+    return String(businessUnitName ?? '').trim().toLowerCase()
+  }
+
+  /**
    * Mapear unidad de negocio por nombre
    */
   private mapBusinessUnit(businessUnitName: string, businessUnits: any[]): number | null {
@@ -4015,58 +4110,50 @@ export default class EmployeeService {
   }
 
   /**
-   * Mapear departamento usando búsqueda por similitud
+   * Mapear departamento usando búsqueda por similitud. Sin coincidencia devuelve null:
+   * el importador ya no usa registros de relleno (USRH1789328927648).
    */
-  private mapDepartmentBySimilarity(departmentName: string, departments: any[], defaultDepartment: any): number | null {
-    if (!departmentName) return defaultDepartment ? defaultDepartment.departmentId : null
-
-    // Buscar coincidencia exacta primero
-    const exactMatch = departments.find(dept =>
-      dept.departmentName?.toLowerCase() === departmentName.toLowerCase()
+  private mapDepartmentBySimilarity(
+    departmentName: string,
+    departments: Pick<Department, 'departmentId' | 'departmentName'>[]
+  ): number | null {
+    if (!departmentName) return null
+    const exactMatch = departments.find(
+      (dept) => dept.departmentName?.toLowerCase() === departmentName.toLowerCase()
     )
-
     if (exactMatch) return exactMatch.departmentId
-
-    // Buscar por similitud
-    const similarMatch = this.findMostSimilar(
-      departmentName,
-      departments,
-      'departmentName',
-      0.6
-    )
-
-    return similarMatch ? similarMatch.departmentId : (defaultDepartment ? defaultDepartment.departmentId : null)
+    const similarMatch = this.findMostSimilar(departmentName, departments, 'departmentName', 0.6)
+    return similarMatch ? similarMatch.departmentId : null
   }
 
-  /**
-   * Mapear posición usando búsqueda por similitud
-   */
-  private mapPositionBySimilarity(positionName: string, positions: any[], defaultPosition: any): number | null {
-    if (!positionName) return defaultPosition ? defaultPosition.positionId : null
-
-    // Buscar coincidencia exacta primero
-    const exactMatch = positions.find(pos =>
-      pos.positionName?.toLowerCase() === positionName.toLowerCase()
+  /** Mapear posición usando búsqueda por similitud. Sin coincidencia devuelve null. */
+  private mapPositionBySimilarity(
+    positionName: string,
+    positions: Pick<Position, 'positionId' | 'positionName'>[]
+  ): number | null {
+    if (!positionName) return null
+    const exactMatch = positions.find(
+      (pos) => pos.positionName?.toLowerCase() === positionName.toLowerCase()
     )
-
     if (exactMatch) return exactMatch.positionId
-
-    // Buscar por similitud
-    const similarMatch = this.findMostSimilar(
-      positionName,
-      positions,
-      'positionName',
-      0.6
-    )
-
-    return similarMatch ? similarMatch.positionId : (defaultPosition ? defaultPosition.positionId : null)
+    const similarMatch = this.findMostSimilar(positionName, positions, 'positionName', 0.6)
+    return similarMatch ? similarMatch.positionId : null
   }
 
   /**
    * Crear persona
+   *
+   * @param actorUserId — quién subió el archivo (el actor del intento).
+   * @param businessUnitScope — empresas del actor, no las del expediente.
    */
-  private async createPerson(employeeData: any) {
+  private async createPerson(
+    employeeData: any,
+    businessUnitId: number,
+    actorUserId: number | null,
+    businessUnitScope: number[]
+  ) {
     const person = new Person()
+    person.businessUnitId = businessUnitId
     person.personFirstname = employeeData.firstName || ''
     person.personLastname = employeeData.lastName || ''
     person.personSecondLastname = employeeData.secondLastName || ''
@@ -4082,6 +4169,39 @@ export default class EmployeeService {
     person.personPlaceOfBirthCountry = employeeData.personPlaceOfBirthCountry || ''
     person.personPlaceOfBirthState = employeeData.personPlaceOfBirthState || ''
     person.personPlaceOfBirthCity = employeeData.personPlaceOfBirthCity || ''
+
+    // Rastro del intento de captura del correo personal (USRH1789762889970, D7).
+    // El importador NO impone unicidad: sigue guardando directo. Esta HU solo
+    // deja la bitácora que hoy no existe, y es de APOYO — si la consulta o el
+    // registro fallan, la fila se importa igual y el usuario no ve nada raro.
+    // NUNCA se guarda el correo en claro, ni el nombre, ni el expediente del
+    // titular colisionado: solo la huella, el actor y su scope de empresas.
+    const importedEmail = typeof person.personEmail === 'string' ? person.personEmail.trim() : ''
+
+    // Correo vacío o el placeholder de `importSensitiveValueOrDefault` (''): NO
+    // es intento y no se hashea — `blindIndex('')` es una constante que
+    // envenenaría la colección.
+    if (importedEmail !== '') {
+      try {
+        const emailHash = blindIndex(importedEmail)
+        // Unicidad GLOBAL del correo personal (USRH1789698261610 regla 5): la
+        // consulta canónica corre sin filtro de empresa. Con una query pelada el
+        // mixin de tenant la acotaría a las empresas del actor y un correo
+        // tomado por otra empresa se leería como libre.
+        const taken = await personEmailExistsGlobally(importedEmail, 0)
+
+        await PersonEmailProbeLogService.log({
+          path: 'import',
+          personEmailHash: emailHash,
+          outcome: taken ? 'rejected_not_available' : 'accepted',
+          actorUserId,
+          businessUnitScope,
+          targetPersonId: null,
+        })
+      } catch {
+        // Best-effort: la bitácora no puede cambiar el resultado de la carga.
+      }
+    }
 
     await person.save()
     return person
@@ -4139,8 +4259,6 @@ export default class EmployeeService {
 
     await employee.save()
 
-    // Generar slug único después de guardar (necesita employeeId)
-    await this.updateEmployeeSlug(employee)
 
     return employee
   }
@@ -4720,54 +4838,6 @@ export default class EmployeeService {
   }
 
   /**
-   * Calcular la luminosidad de un color hexadecimal
-   * @param hexColor - Color en formato hex (con o sin #, con o sin alpha)
-   * @returns number - Luminosidad entre 0 (oscuro) y 255 (claro)
-   */
-  private calculateColorLuminosity(hexColor: string): number {
-    try {
-      // Remover # y alpha si existen
-      let color = hexColor.replace('#', '').toUpperCase()
-      // Si tiene 8 caracteres (ARGB), quitar los primeros 2 (alpha)
-      if (color.length === 8) {
-        color = color.substring(2)
-      }
-      // Si tiene 6 caracteres, usarlo directamente
-      if (color.length !== 6) {
-        return 128 // Valor por defecto si el formato no es válido
-      }
-
-      // Convertir hex a RGB
-      const r = Number.parseInt(color.substring(0, 2), 16)
-      const g = Number.parseInt(color.substring(2, 4), 16)
-      const b = Number.parseInt(color.substring(4, 6), 16)
-
-      // Calcular luminosidad usando la fórmula estándar
-      // 0.299*R + 0.587*G + 0.114*B
-      const luminosity = 0.299 * r + 0.587 * g + 0.114 * b
-
-      return luminosity
-    } catch (error) {
-      return 128 // Valor por defecto en caso de error
-    }
-  }
-
-  /**
-   * Determinar el color del texto basado en la luminosidad del fondo
-   * @param backgroundColor - Color de fondo en formato ARGB
-   * @returns string - Color del texto en formato ARGB ('FFFFFFFF' para blanco, 'FF001A04' para oscuro)
-   */
-  private getTextColorForBackground(backgroundColor: string): string {
-    // Extraer el color hex sin el alpha para calcular luminosidad
-    const hexColor = backgroundColor.length === 8 ? backgroundColor.substring(2) : backgroundColor
-    const luminosity = this.calculateColorLuminosity(hexColor)
-
-    // Si la luminosidad es menor a 128, el color es oscuro, usar texto blanco
-    // Si es mayor o igual a 128, el color es claro, usar texto oscuro
-    return luminosity < 128 ? 'FFFFFFFF' : 'FF001A04'
-  }
-
-  /**
    * Convertir color hexadecimal a formato ARGB para ExcelJS
    * @param hexColor - Color en formato hex (con o sin #)
    * @returns string - Color en formato ARGB (ej: 'FFE67E22')
@@ -4786,110 +4856,6 @@ export default class EmployeeService {
     }
     // Color por defecto si el formato no es válido
     return 'FFFFFFFF'
-  }
-
-  /**
-   * Obtener el color de la unidad de negocio activa desde SystemSetting
-   * @returns Promise<string> - Color en formato ARGB para ExcelJS (ej: 'FFD6FFDC')
-   */
-  private async getActiveBusinessUnitColor(): Promise<string> {
-    try {
-      // USRH1783821206455: la unidad ya no sale de la lista global — se toma
-      // la unidad seleccionada del request, activa vía TenantContext (el
-      // middleware businessScope() ya la fijó en los 3 llamadores de este método).
-      const [selectedBusinessUnitId] = TenantContext.getScope()
-      if (!selectedBusinessUnitId) {
-        return 'FFD6FFDC' // Color por defecto si no hay unidad seleccionada (ARGB)
-      }
-
-      const businessUnit = await BusinessUnit.find(selectedBusinessUnitId)
-      if (!businessUnit) {
-        return 'FFD6FFDC' // Color por defecto si la unidad no existe (ARGB)
-      }
-
-      // La configuración de la empresa se pide por su llave; antes se recorrían
-      // todas las activas buscando el slug dentro de su CSV.
-      const systemSettings = await SystemSetting.query()
-        .whereNull('system_setting_deleted_at')
-        .where('system_setting_active', 1)
-        .where('business_unit_id', businessUnit.businessUnitId)
-
-      for (const systemSetting of systemSettings) {
-        {
-          if (systemSetting.systemSettingSidebarColor) {
-            // Remover el # si existe y convertir a ARGB (agregar FF al inicio para alpha)
-            let color = systemSetting.systemSettingSidebarColor.replace('#', '').toUpperCase()
-            // Si el color tiene 6 caracteres, agregar FF al inicio para formato ARGB
-            if (color.length === 6) {
-              color = 'FF' + color
-            }
-            // Si ya tiene 8 caracteres, asumir que ya está en formato ARGB
-            return color
-          }
-        }
-      }
-
-      return 'FFD6FFDC' // Color por defecto si no se encuentra (ARGB)
-    } catch (error) {
-      console.error('Error obteniendo color de unidad de negocio:', error)
-      return 'FFD6FFDC' // Color por defecto en caso de error (ARGB)
-    }
-  }
-
-  /**
-   * Obtener el logo del systemSetting
-   */
-  // USRH1783712837584: las rutas de `/api/employees` (`businessScope`
-  // middleware) ya resuelven el tenant en `TenantContext`; fail-closed
-  // silencioso — sin configuración propia se conserva el logo por defecto.
-  private async getLogo(): Promise<string> {
-    let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const businessUnitId = TenantContext.getScope()[0]
-    if (businessUnitId) {
-      const systemSettingService = new SystemSettingService()
-      try {
-        const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
-        if (systemSettingActive.systemSettingLogo) {
-          imageLogo = systemSettingActive.systemSettingLogo
-        }
-      } catch (error) {
-        if (!(error instanceof SystemSettingResolutionError)) throw error
-      }
-    }
-    return imageLogo
-  }
-
-  /**
-   * Agregar logo al worksheet
-   */
-  private async addImageLogo(workbook: any, worksheet: any, imageLogo: string) {
-    try {
-      const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-      const imageBuffer = imageResponse.data
-
-      const metadata = await sharp(imageBuffer).metadata()
-      const imageWidth = metadata.width ? metadata.width : 0
-      const imageHeight = metadata.height ? metadata.height : 0
-
-      const targetWidth = 139
-      const targetHeight = 49
-      const scale = Math.min(targetWidth / imageWidth, targetHeight / imageHeight)
-
-      const adjustedWidth = imageWidth * scale
-      const adjustedHeight = imageHeight * scale
-
-      const imageId = workbook.addImage({
-        buffer: imageBuffer,
-        extension: 'png',
-      })
-
-      worksheet.addImage(imageId, {
-        tl: { col: 0.28, row: 0.7 },
-        ext: { width: adjustedWidth, height: adjustedHeight },
-      })
-    } catch (error) {
-      console.error('Error loading logo:', error)
-    }
   }
 
   /**
@@ -5049,10 +5015,6 @@ export default class EmployeeService {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Empleados')
 
-    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
-
-    const logoUrl = await this.getLogo()
-    await this.addImageLogo(workbook, worksheet, logoUrl)
 
     const businessUnitsQuery = BusinessUnit.query()
       .where('business_unit_active', 1)
@@ -5184,7 +5146,9 @@ export default class EmployeeService {
       'Apellido paterno del empleado'
     ]
 
-    worksheet.getRow(1).height = 60
+    // La fila 1 (antes ocupada por el logo) se conserva vacía con alto normal:
+    // el importador y las referencias fijas de filas dependen de esta posición.
+    worksheet.getRow(1).height = 15
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
     worksheet.mergeCells(2, 1, 2, headers.length)
@@ -5202,10 +5166,12 @@ export default class EmployeeService {
     const headerRow = worksheet.addRow(headers)
     headerRow.height = 30
 
-    const requiredHeaderColor = activeBusinessUnitColor
-    const optionalHeaderColor = 'FFD6D6D6'
-    const requiredHeaderTextColor = this.getTextColorForBackground(requiredHeaderColor)
-    const optionalHeaderTextColor = 'FF001A04'
+    // Formato neutral: obligatorias en gris medio y opcionales en gris claro,
+    // ambas con texto negro, para conservar la distinción sin color de marca.
+    const requiredHeaderColor = REPORT_NEUTRAL_ARGB.headerFill
+    const optionalHeaderColor = REPORT_NEUTRAL_ARGB.subheaderFill
+    const requiredHeaderTextColor = REPORT_NEUTRAL_ARGB.text
+    const optionalHeaderTextColor = REPORT_NEUTRAL_ARGB.text
 
     headerRow.eachCell((cell, colNumber) => {
       const headerValue = headers[colNumber - 1]
@@ -5225,32 +5191,30 @@ export default class EmployeeService {
 
     worksheet.getColumn(1).hidden = true
 
-    // Comentarios bilingües en los headers de la sección de modalidad para
-    // documentar la regla operativa: Híbrido solo desde el backoffice; % es
-    // calculado por el servidor y aquí es informativo.
-    worksheet.getCell(1, 20).note = {
+    // Comentarios en los headers de la sección de modalidad para documentar la
+    // regla operativa: Híbrido solo desde el backoffice; % es calculado por el
+    // servidor y aquí es informativo. Solo en español, como todo descargable
+    // (ver `#helpers/report_locale`).
+    // Las notas cuelgan del encabezado (fila 3), no de la fila 1 vacía.
+    headerRow.getCell(20).note = {
       texts: [
-        { text: 'Modalidad de trabajo · Work modality\n\n', font: { bold: true, size: 10 } },
+        { text: 'Modalidad de trabajo\n\n', font: { bold: true, size: 10 } },
         {
           text:
-            '[ES] Valores válidos desde Excel: "Presencial" y "Home office". '
+            'Valores válidos desde Excel: "Presencial" y "Home office". '
             + 'La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado. '
-            + 'Desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).\n\n'
-            + '[EN] Valid values from Excel: "Presencial" (Onsite) and "Home office" (Remote). '
-            + 'Hybrid modality must be configured from the backoffice system because it requires validating the configuration against the employee\'s shift. '
-            + 'From Excel you can only switch from Hybrid to Onsite (0%) or Remote (100%).',
+            + 'Desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).',
           font: { size: 10 }
         }
       ],
       margins: { insetmode: 'auto' }
     } as any
-    worksheet.getCell(1, 21).note = {
+    headerRow.getCell(21).note = {
       texts: [
-        { text: '% Teletrabajo · Telework %\n\n', font: { bold: true, size: 10 } },
+        { text: '% Teletrabajo\n\n', font: { bold: true, size: 10 } },
         {
           text:
-            '[ES] Columna informativa (solo lectura). El porcentaje lo calcula el sistema automáticamente: 0% para Presencial, 100% para Home office, y el porcentaje derivado del turno y la configuración híbrida para los empleados en Híbrido. Cualquier valor capturado aquí se ignora al importar.\n\n'
-            + '[EN] Read-only column. The percentage is calculated automatically by the system: 0% for Onsite, 100% for Remote, and the value derived from the shift and hybrid configuration for Hybrid employees. Any value entered here is ignored on import.',
+            'Columna informativa (solo lectura). El porcentaje lo calcula el sistema automáticamente: 0% para Presencial, 100% para Home office, y el porcentaje derivado del turno y la configuración híbrida para los empleados en Híbrido. Cualquier valor capturado aquí se ignora al importar.',
           font: { size: 10 }
         }
       ],
@@ -5292,10 +5256,9 @@ export default class EmployeeService {
       worksheet.getCell(row, 20).dataValidation = {
         type: 'list', allowBlank: true, formulae: [workScheduleRange],
         errorStyle: 'warning', showErrorMessage: true,
-        errorTitle: 'Modalidad no válida desde Excel / Modality not valid from Excel',
+        errorTitle: 'Modalidad no válida desde Excel',
         error:
-          'Seleccione Presencial o Home office. La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado; desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).\n\n'
-          + 'Choose Onsite or Remote. Hybrid modality must be configured from the backoffice system because it requires validating the configuration against the employee\'s shift; from Excel you can only switch from Hybrid to Onsite (0%) or Remote (100%).'
+          'Seleccione Presencial o Home office. La modalidad Híbrido debe configurarse desde el sistema del backoffice porque requiere validar la configuración contra el turno del empleado; desde Excel solo se permite cambiar de Híbrido a Presencial (0%) o a Home office (100%).'
       }
       const teleworkCell = worksheet.getCell(row, 21)
       teleworkCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: teleworkInformativeFill } }
@@ -5303,10 +5266,9 @@ export default class EmployeeService {
       teleworkCell.dataValidation = {
         type: 'custom', allowBlank: true, formulae: ['FALSE'],
         errorStyle: 'warning', showErrorMessage: true,
-        errorTitle: 'Columna informativa / Read-only column',
+        errorTitle: 'Columna informativa',
         error:
-          'El porcentaje de teletrabajo lo calcula el sistema automáticamente a partir de la modalidad y el turno del empleado. Si captura un valor aquí, será ignorado al importar.\n\n'
-          + 'The telework percentage is calculated automatically by the system from the employee\'s modality and shift. Any value entered here will be ignored on import.'
+          'El porcentaje de teletrabajo lo calcula el sistema automáticamente a partir de la modalidad y el turno del empleado. Si captura un valor aquí, será ignorado al importar.'
       }
       worksheet.getCell(row, 22).dataValidation = {
         type: 'list', allowBlank: true, formulae: [yesNoRange],
@@ -5365,16 +5327,13 @@ export default class EmployeeService {
       const payrollUnitName = (payrollId: number) =>
         businessUnits.find(bu => bu.businessUnitId === payrollId)?.businessUnitName ?? ''
 
+      // Fechas DATE leídas como día civil (`formatReportCalendarDate`); la
+      // de ingreso conserva el formato yyyy/MM/dd que espera el importador.
       const DateTimeFmt = (d: DateTime | Date | string | null) => {
-        if (!d) return ''
-        const dt = typeof d === 'string' ? DateTime.fromISO(d) : (d instanceof Date ? DateTime.fromJSDate(d) : d)
-        return dt.isValid ? dt.toFormat('yyyy/MM/dd') : ''
+        const [day, month, year] = formatReportCalendarDate(d).split('/')
+        return year ? `${year}/${month}/${day}` : ''
       }
-      const DateTimeFmtBirth = (d: DateTime | Date | string | null) => {
-        if (!d) return ''
-        const dt = typeof d === 'string' ? DateTime.fromISO(d) : (d instanceof Date ? DateTime.fromJSDate(d) : d)
-        return dt.isValid ? dt.toFormat('dd/MM/yyyy') : ''
-      }
+      const DateTimeFmtBirth = (d: DateTime | Date | string | null) => formatReportCalendarDate(d)
 
       employees.forEach((emp, idx) => {
         const rowNum = idx + 4
@@ -5464,6 +5423,7 @@ export default class EmployeeService {
       })
     }
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
@@ -5492,14 +5452,7 @@ export default class EmployeeService {
   ): Promise<Buffer> {
 
     const workbook = new ExcelJS.Workbook()
-    const worksheet = workbook.addWorksheet('Plantilla de asignación de turnos')
-
-    // Obtener el color de la unidad de negocio activa
-    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
-
-    // Obtener logo y agregarlo
-    const logoUrl = await this.getLogo()
-    await this.addImageLogo(workbook, worksheet, logoUrl)
+    const worksheet = workbook.addWorksheet('Asignación de turnos')
 
     // Convertir fechas a DateTime
     const startDateTime = DateTime.fromISO(startDate)
@@ -5743,8 +5696,9 @@ export default class EmployeeService {
     // ==============================
     //       TÍTULO Y ENCABEZADOS
     // ==============================
-    // Fila del título (después del logo)
-    worksheet.getRow(1).height = 60
+    // La fila 1 (antes ocupada por el logo) se conserva vacía con alto normal:
+    // el importador y las referencias fijas de filas dependen de esta posición.
+    worksheet.getRow(1).height = 15
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
     worksheet.mergeCells(`A2:${String.fromCharCode(65 + 3 + dates.length)}2`)
@@ -5763,16 +5717,17 @@ export default class EmployeeService {
     // Segunda fila de encabezados (días de la semana)
     const headerRow2 = ['', '', '', '']
     dates.forEach((date) => {
-      const dayName = date.toFormat('cccc', { locale: 'es' })
+      const dayName = date.toFormat('cccc', { locale: REPORT_LOCALE })
       headerRow2.push(dayName)
     })
     const row2 = worksheet.addRow(headerRow2)
     row2.height = 30
 
-    const headerColor = activeBusinessUnitColor
-    const headerTextColor = this.getTextColorForBackground(headerColor)
-    const subHeaderColor = 'FF4472C4'
-    const subHeaderTextColor = 'FFFFFFFF'
+    // Formato neutral: encabezado en gris y fila de días en gris claro, texto negro
+    const headerColor = REPORT_NEUTRAL_ARGB.headerFill
+    const headerTextColor = REPORT_NEUTRAL_ARGB.text
+    const subHeaderColor = REPORT_NEUTRAL_ARGB.subheaderFill
+    const subHeaderTextColor = REPORT_NEUTRAL_ARGB.text
 
     // Aplicar formato a la primera fila de encabezados
     row1.eachCell((cell) => {
@@ -6062,25 +6017,25 @@ export default class EmployeeService {
     employees.forEach((employee, index) => {
       const row = startDataRow + index
       worksheet.getRow(row).height = 45
-      const fullName = `${employee.employeeFirstName ?? ''} ${employee.employeeLastName ?? ''} ${employee.employeeSecondLastName ?? ''}`.trim().toUpperCase()
-      const positionName = employee.position?.positionName || 'Sin posición'
+      const fullName = reportFullName(
+        employee.employeeFirstName,
+        employee.employeeLastName,
+        employee.employeeSecondLastName
+      ).toUpperCase()
+      const positionName = reportText(employee.position?.positionName)
 
 
       // ID Empleado (BD) - Columna A (oculta)
       worksheet.getCell(row, 1).value = employee.employeeId
-      worksheet.getCell(row, 1).protection = { locked: true }
 
       // Código de Empleado - Columna B
-      worksheet.getCell(row, 2).value = employee.employeePayrollCode || 'Sin código'
-      worksheet.getCell(row, 2).protection = { locked: true }
+      worksheet.getCell(row, 2).value = reportText(employee.employeePayrollCode)
 
       // Empleado - Columna C
       worksheet.getCell(row, 3).value = fullName
-      worksheet.getCell(row, 3).protection = { locked: true }
 
       // Posición - Columna D
       worksheet.getCell(row, 4).value = positionName
-      worksheet.getCell(row, 4).protection = { locked: true }
 
       // Aplicar formato a las primeras 4 columnas
       for (let col = 1; col <= 4; col++) {
@@ -6145,13 +6100,11 @@ export default class EmployeeService {
             pattern: 'solid',
             fgColor: { argb: cellColor }
           }
-          worksheet.getCell(row, colNumber).protection = { locked: true }
         } else {
-          // MODO TEMPLATE: Comportamiento normal (editable)
+          // MODO TEMPLATE: turnos por dropdown
           if (isHoliday) {
-            // Si es día festivo, solo poner "Día festivo" y proteger la celda
+            // Si es día festivo, precargar "Día festivo" (editable)
             worksheet.getCell(row, colNumber).value = 'Día festivo'
-            worksheet.getCell(row, colNumber).protection = { locked: true }
           } else {
             // Si NO es día festivo, agregar dropdown para turnos (editable)
             worksheet.getCell(row, colNumber).dataValidation = {
@@ -6163,7 +6116,6 @@ export default class EmployeeService {
               errorTitle: 'Valor inválido',
               error: 'Seleccione un turno válido o deje vacío'
             }
-            worksheet.getCell(row, colNumber).protection = { locked: false }
           }
         }
       })
@@ -6175,42 +6127,6 @@ export default class EmployeeService {
     worksheet.getColumn(1).hidden = true
 
     // ==============================
-    //     PROTEGER HOJA
-    // ==============================
-    // En modo reporte, proteger toda la hoja. En modo template, permitir editar turnos
-    if (isReport) {
-      await worksheet.protect('', {
-        selectLockedCells: true,
-        selectUnlockedCells: false,
-        formatCells: false,
-        formatColumns: false,
-        formatRows: false,
-        insertColumns: false,
-        insertRows: false,
-        deleteColumns: false,
-        deleteRows: false,
-        sort: false,
-        autoFilter: false,
-        pivotTables: false
-      })
-    } else {
-      await worksheet.protect('', {
-        selectLockedCells: true,
-        selectUnlockedCells: true,
-        formatCells: false,
-        formatColumns: false,
-        formatRows: false,
-        insertColumns: false,
-        insertRows: false,
-        deleteColumns: false,
-        deleteRows: false,
-        sort: false,
-        autoFilter: false,
-        pivotTables: false
-      })
-    }
-
-    // ==============================
     //     CONGELAR ENCABEZADOS
     // ==============================
     worksheet.views = [
@@ -6220,6 +6136,7 @@ export default class EmployeeService {
     // ==============================
     //       GENERAR ARCHIVO
     // ==============================
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
@@ -6825,13 +6742,6 @@ export default class EmployeeService {
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet('Reporte de Asistencia')
 
-    // Obtener el color de la unidad de negocio activa
-    const activeBusinessUnitColor = await this.getActiveBusinessUnitColor()
-
-    // Obtener logo y agregarlo
-    const logoUrl = await this.getLogo()
-    await this.addImageLogo(workbook, worksheet, logoUrl)
-
     // Convertir fechas a DateTime
     const startDateTime = DateTime.fromISO(startDate)
     const endDateTime = DateTime.fromISO(endDate)
@@ -6852,8 +6762,10 @@ export default class EmployeeService {
       currentDate = currentDate.plus({ days: 1 })
     }
 
-    // Referencia "hoy" en UTC-6 para detectar días/horas futuros (mostrar "próximo" en lugar de falta)
-    const todayStartUtc6 = DateTime.now().setZone('UTC-6').startOf('day')
+    // Zona IANA del sitio del empleado cuya fila se escribe: la entrega el
+    // calendario del sync (`data.timeZone`), la misma con que se evaluó la
+    // asistencia. Sin sitio, la zona de negocio del sistema.
+    let rowZone = getBusinessTimeZone()
 
     const businessUnitsList = allowedBusinessUnitIds
 
@@ -6928,10 +6840,10 @@ export default class EmployeeService {
     const PERMISSION_SLUGS = new Set(['absence-from-work', 'late-arrival', 'rest-day', 'nuevo-ingreso'])
 
     // Fondo gris claro solo para las columnas de información del empleado (Departamento, Puesto, Nómina, Nombre)
-    const EMPLOYEE_INFO_BG = 'f2f2f2'
+    const EMPLOYEE_INFO_BG = 'FFF2F2F2'
 
     // Días/horas futuros: texto "próximo" con fondo y texto gris claro (considera hora de inicio del turno)
-    const PROXIMO_BG = 'FFFFFF'
+    const PROXIMO_BG = 'FFFFFFFF'
     const PROXIMO_TEXT_COLOR = 'FF808080'
 
     // Función para obtener color según estado de asistencia (gama de la imagen: verde, naranja, azul claro, rojo claro)
@@ -6948,11 +6860,11 @@ export default class EmployeeService {
         case 'ontime':
           return 'FFC6EFCE' // Verde claro
         case 'tolerance':
-          return 'b7d8fa' // Azul claro
+          return 'FFB7D8FA' // Azul claro
         case 'delay':
           return 'FFFFC000' // Naranja
         case 'fault':
-          return 'ffaaa3' // Rojo claro
+          return 'FFFFAAA3' // Rojo claro
         case 'exception':
           return 'FFFFFFFF'
         default:
@@ -7113,13 +7025,12 @@ export default class EmployeeService {
       return 'sin turno'
     }
 
-    // Convierte un valor a HH:mm en zona UTC-6 (como en el frontend).
+    // Hora de pared (HH:mm) del instante en la zona del sitio del empleado.
     const toLocalHHmm = (value: string | DateTime | null | undefined): string | null => {
       if (value === null || value === undefined) return null
       try {
-        const dt = typeof value === 'string' ? DateTime.fromISO(value, { setZone: true }) : value
-        if (!dt?.isValid) return null
-        return dt.setZone('UTC-6').toFormat('HH:mm')
+        const dt = wallTime(value, rowZone)
+        return dt.isValid ? dt.toFormat('HH:mm') : null
       } catch {
         return null
       }
@@ -7163,6 +7074,7 @@ export default class EmployeeService {
     // Consultar asistencias para todos los empleados
     const syncAssistsService = new SyncAssistsService(this.i18n)
     const employeeCalendarsMap = new Map<number, AssistDayInterface[]>()
+    const employeeZonesMap = new Map<number, string>()
 
     for (const employee of employees) {
       try {
@@ -7176,6 +7088,10 @@ export default class EmployeeService {
           const calendarData = calendarResult.data as any
           const employeeCalendar = calendarData.employeeCalendar as AssistDayInterface[]
           employeeCalendarsMap.set(employee.employeeId, employeeCalendar)
+          const calendarZone: unknown = calendarData.timeZone
+          if (typeof calendarZone === 'string' && isValidTimeZone(calendarZone)) {
+            employeeZonesMap.set(employee.employeeId, calendarZone)
+          }
         } else {
           // Empleado no encontrado o respuesta no exitosa: omitir sin fallar (su informacion aparecera en vacio)
           employeeCalendarsMap.set(employee.employeeId, [])
@@ -7189,7 +7105,9 @@ export default class EmployeeService {
     // ==============================
     //       TÍTULO Y ENCABEZADOS
     // ==============================
-    worksheet.getRow(1).height = 60
+    // La fila 1 (antes ocupada por el logo) se conserva vacía con alto normal:
+    // la inmovilización de paneles y el inicio de datos usan filas fijas.
+    worksheet.getRow(1).height = 15
     const titleRow = worksheet.addRow([''])
     titleRow.height = 30
     worksheet.mergeCells(`A2:${String.fromCharCode(65 + 5 + dates.length)}2`)
@@ -7209,16 +7127,17 @@ export default class EmployeeService {
     // Segunda fila de encabezados (días de la semana)
     const headerRow2 = ['', '', '', '', '', '']
     dates.forEach((date) => {
-      const dayName = date.toFormat('cccc', { locale: 'es' })
+      const dayName = date.toFormat('cccc', { locale: REPORT_LOCALE })
       headerRow2.push(dayName)
     })
     const row2 = worksheet.addRow(headerRow2)
     row2.height = 30
 
-    const headerColor = activeBusinessUnitColor
-    const headerTextColor = this.getTextColorForBackground(headerColor)
-    const subHeaderColor = 'd9d9d9' // Gris oscuro para fila de días de la semana
-    const subHeaderTextColor = '000000'
+    // Formato neutral: encabezado en gris y fila de días en gris claro, texto negro
+    const headerColor = REPORT_NEUTRAL_ARGB.headerFill
+    const headerTextColor = REPORT_NEUTRAL_ARGB.text
+    const subHeaderColor = REPORT_NEUTRAL_ARGB.subheaderFill
+    const subHeaderTextColor = REPORT_NEUTRAL_ARGB.text
 
     // Aplicar formato a la primera fila de encabezados (Departamento, Puesto, Nombre izq; resto centro)
     row1.eachCell((cell) => {
@@ -7321,12 +7240,19 @@ export default class EmployeeService {
 
         worksheet.getRow(currentRow).height = 45
 
-        const fullName = `${employee.employeeFirstName} ${employee.employeeLastName} ${employee.employeeSecondLastName || ''}`.trim()
-        const positionName = employee.position?.positionName || 'Sin posición'
-        const departmentName = department?.departmentName || 'Sin departamento'
-        const payrollCode = employee.employeePayrollCode || 'Sin código'
-        const payrollBuName = employee.payrollBusinessUnit?.businessUnitName || 'Sin UN'
-        const workBuName = employee.businessUnit?.businessUnitName || 'Sin UN'
+        rowZone = employeeZonesMap.get(employee.employeeId) ?? getBusinessTimeZone()
+        const todayInRowZone = nowInZone(rowZone).toFormat('yyyy-MM-dd')
+
+        const fullName = reportFullName(
+          employee.employeeFirstName,
+          employee.employeeLastName,
+          employee.employeeSecondLastName
+        )
+        const positionName = reportText(employee.position?.positionName)
+        const departmentName = reportText(department?.departmentName)
+        const payrollCode = reportText(employee.employeePayrollCode)
+        const payrollBuName = reportText(employee.payrollBusinessUnit?.businessUnitName)
+        const workBuName = reportText(employee.businessUnit?.businessUnitName)
 
         // UN Trabajo - Columna A
         worksheet.getCell(currentRow, 1).value = workBuName
@@ -7373,10 +7299,9 @@ export default class EmployeeService {
           const dateStr = date.toFormat('yyyy-MM-dd')
           const dayData = calendarByDay.get(dateStr) || null
 
-          // Validar si es día/hora futuro: no mostrar como falta, mostrar "próximo" (considera hora de inicio del turno)
-          const cellDateUtc6 = date.setZone('UTC-6').startOf('day')
-          const isProximo =
-            dayData?.assist?.isFutureDay === true || cellDateUtc6 > todayStartUtc6
+          // Validar si es día/hora futuro: no mostrar como falta, mostrar "próximo" (considera hora de inicio del turno).
+          // Día civil de la celda contra "hoy" en la zona del sitio del empleado.
+          const isProximo = dayData?.assist?.isFutureDay === true || dateStr > todayInRowZone
 
           let cellText: string
           let cellColor: string
@@ -7466,6 +7391,7 @@ export default class EmployeeService {
     // ==============================
     //       GENERAR ARCHIVO
     // ==============================
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
@@ -7538,7 +7464,7 @@ export default class EmployeeService {
           totalWorkDisabilityPeriods: periods,
           totalWorkDisabilityPeriodExpenses: expenses,
         }
-      }, 'purga masiva de empleados')
+      }, TENANT_UNSCOPED_REASON.EMPLOYEE_MASS_PURGE)
       const totalEmployeeAddresses = await EmployeeAddress.query()
         .count('* as total')
       const totalEmployeeSpouses = await EmployeeSpouse.query()
@@ -7667,7 +7593,7 @@ export default class EmployeeService {
         await WorkDisabilityPeriodExpense.query().delete()
         await WorkDisabilityPeriod.query().delete()
         await WorkDisability.query().delete()
-      }, 'purga masiva de empleados')
+      }, TENANT_UNSCOPED_REASON.EMPLOYEE_MASS_PURGE)
 
       // 24. Eliminar todas las relaciones en exception_requests
       await ExceptionRequest.query().delete()
@@ -7805,7 +7731,6 @@ export default class EmployeeService {
     }
 
     await employee.save()
-    await this.updateEmployeeSlug(employee)
     return employee
   }
 

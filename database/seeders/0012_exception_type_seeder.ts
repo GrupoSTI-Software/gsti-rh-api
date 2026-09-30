@@ -18,6 +18,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 0,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 1,
+        exceptionTypeCanEmployeeRequests: 1
       },
       {
         exceptionTypeSlug: 'late-arrival',
@@ -32,6 +33,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 0,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 0,
+        exceptionTypeCanEmployeeRequests: 1
       },
       {
         exceptionTypeSlug: 'early-departure',
@@ -46,6 +48,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 0,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 0,
+        exceptionTypeCanEmployeeRequests: 1
       },
       {
         exceptionTypeSlug: 'leaving-during-work-hours',
@@ -60,6 +63,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 1,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 0,
+        exceptionTypeCanEmployeeRequests: 0
       },
       {
         exceptionTypeSlug: 'working-during-non-working-hours',
@@ -74,6 +78,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 1,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 0,
+        exceptionTypeCanEmployeeRequests: 0
       },
       {
         exceptionTypeSlug: 'vacation',
@@ -88,6 +93,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 0,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 0,
+        exceptionTypeCanEmployeeRequests: 1
       },
       {
         exceptionTypeSlug: 'overtime',
@@ -102,6 +108,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 0,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 0,
+        exceptionTypeCanEmployeeRequests: 0
       },
       {
         exceptionTypeSlug: 'rest-day',
@@ -116,6 +123,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 0,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 1,
+        exceptionTypeCanEmployeeRequests: 0
       },
       {
         exceptionTypeSlug: 'nuevo-ingreso',
@@ -130,6 +138,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 0,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 1,
+        exceptionTypeCanEmployeeRequests: 0
       },
       {
         exceptionTypeSlug: 'falta-por-incapacidad',
@@ -144,6 +153,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 0,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 0,
+        exceptionTypeCanEmployeeRequests: 0
       },
       {
         exceptionTypeSlug: 'descanso-laborado',
@@ -158,6 +168,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 0,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 0,
+        exceptionTypeCanEmployeeRequests: 0
       },
       {
         exceptionTypeSlug: 'skip-checkout',
@@ -172,6 +183,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 0,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 0,
+        exceptionTypeCanEmployeeRequests: 0
       },
       {
         exceptionTypeSlug: 'skip-checkin',
@@ -186,6 +198,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 0,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 0,
+        exceptionTypeCanEmployeeRequests: 0
       },
       {
         exceptionTypeSlug: 'apply-sunday-bonus',
@@ -200,6 +213,7 @@ export default class extends BaseSeeder {
         exceptionTypeNeedPeriodInHours: 0,
         exceptionTypeActive: 1,
         exceptionTypeCanMasive: 0,
+        exceptionTypeCanEmployeeRequests: 0
       },
     ]
 
@@ -210,6 +224,12 @@ export default class extends BaseSeeder {
         {
           ...exceptionTypeData,
           exceptionTypeCanMasive: Boolean(exceptionTypeData.exceptionTypeCanMasive),
+          // La columna es booleana en el modelo y la lista de arriba usa 0/1
+          // como el resto de las banderas; se convierte aqui, igual que
+          // `canMasive`, para no mezclar dos notaciones en el catalogo.
+          exceptionTypeCanEmployeeRequests: Boolean(
+            exceptionTypeData.exceptionTypeCanEmployeeRequests
+          ),
           exceptionTypeCreatedAt: DateTime.now(),
         }
       )

@@ -9,6 +9,7 @@ import type { BelongsTo, ManyToMany } from '@adonisjs/lucid/types/relations'
 import { SoftDeletes } from 'adonis-lucid-soft-deletes'
 import Role from './role.js'
 import BusinessUnit from './business_unit.js'
+import type { UserEmailTypeValue } from '#constants/user_email_type'
 
 /**
  * @swagger
@@ -127,10 +128,10 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   @column({ serializeAs: null })
   declare userPassword: string
 
-  @column()
+  @column({ serializeAs: null })
   declare userToken: string
 
-  @column.dateTime()
+  @column.dateTime({ serializeAs: null })
   declare userTokenExpiresAt: DateTime | null
 
   /**
@@ -159,10 +160,10 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   @column.dateTime()
   declare userEmailVerifiedAt: DateTime | null
 
-  @column()
+  @column({ serializeAs: null })
   declare pinCode: string
 
-  @column.dateTime({ columnName: 'pin_code_expires_at' })
+  @column.dateTime({ columnName: 'pin_code_expires_at', serializeAs: null })
   declare pinCodeExpiresAt: DateTime | null
 
   @column()
@@ -172,7 +173,7 @@ export default class User extends compose(BaseModel, SoftDeletes, AuthFinder) {
   declare personId: number
 
   @column()
-  declare userEmailType: string
+  declare userEmailType: UserEmailTypeValue
 
   @column.dateTime({ autoCreate: true })
   declare userCreatedAt: DateTime

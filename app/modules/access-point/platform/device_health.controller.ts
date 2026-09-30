@@ -1,13 +1,11 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import { DateTime } from 'luxon'
 import { resolvePlatformDeviceApiError } from '#helpers/platform_device_api_error'
+import { PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON } from '#constants/platform_device_access_point'
 import { TenantContext } from '#utils/tenant_context'
 import HealthService from '#modules/access-point/health/health.service'
 import DeviceSyncService from '#modules/access-point/health/device_sync.service'
 import ActiveAccessPointService from './active_access_point.service.js'
-
-const UNSCOPED_REASON =
-  'estado del equipo: plataforma consulta el punto de acceso de cualquier empresa'
 
 /**
  * Estado de conexion de una unidad del inventario.
@@ -102,7 +100,7 @@ export default class DeviceHealthController {
        */
       const health = await TenantContext.runUnscoped(
         () => this.health.buildFor(accessPoint, DateTime.utc()),
-        UNSCOPED_REASON
+        PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON
       )
 
       return response.status(200).json({ type: 'success', data: { sync: outcome, health } })
@@ -118,7 +116,7 @@ export default class DeviceHealthController {
 
       const health = await TenantContext.runUnscoped(
         () => this.health.buildFor(accessPoint, DateTime.utc()),
-        UNSCOPED_REASON
+        PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON
       )
 
       return response.status(200).json({ type: 'success', data: { health } })

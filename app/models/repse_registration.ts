@@ -44,6 +44,17 @@ export type RepseRegistrationStatus = 'active'
  *           type: string
  *           enum: [active]
  *           description: Estado del registro.
+ *         activities:
+ *           type: string
+ *           nullable: true
+ *           description: Actividades registradas ante la STPS (texto libre).
+ *         constancia:
+ *           type: object
+ *           nullable: true
+ *           description: Constancia de registro REPSE cargada (PDF); null si no hay.
+ *           properties:
+ *             fileName: { type: string }
+ *             uploadedAt: { type: string, format: date-time }
  *         repseRegistrationCreatedAt:
  *           type: string
  *           format: date-time
@@ -80,6 +91,21 @@ export default class RepseRegistration extends compose(
 
   @column({ columnName: 'repse_registration_status' })
   declare status: RepseRegistrationStatus
+
+  /** Actividades registradas ante la STPS (texto libre). */
+  @column({ columnName: 'repse_registration_activities' })
+  declare activities: string | null
+
+  /** Key privada de la constancia de registro REPSE (PDF). Uso interno: nunca se serializa. */
+  @column({ columnName: 'repse_registration_constancia_storage_key', serializeAs: null })
+  declare constanciaStorageKey: string | null
+
+  /** Nombre original del PDF de la constancia, tal como lo subió el usuario. */
+  @column({ columnName: 'repse_registration_constancia_file_name' })
+  declare constanciaFileName: string | null
+
+  @column.dateTime({ columnName: 'repse_registration_constancia_uploaded_at' })
+  declare constanciaUploadedAt: DateTime | null
 
   @column.dateTime({ autoCreate: true })
   declare repseRegistrationCreatedAt: DateTime

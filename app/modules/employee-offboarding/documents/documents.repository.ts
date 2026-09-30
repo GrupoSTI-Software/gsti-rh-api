@@ -27,6 +27,8 @@ export interface EmployeeOffboardingDocumentCreateData {
   employeeOffboardingDocumentSupersededDocumentId: number | null
   /** Versión de plantilla propia usada; `null` = plantilla del sistema (USRH1789097550389). */
   employeeOffboardingDocumentTemplateVersionId: number | null
+  /** Suma impresa con dos decimales (USRH1789097550395); `null` en la constancia. */
+  employeeOffboardingDocumentTotalAmount: string | null
 }
 
 /**
@@ -125,4 +127,14 @@ export interface DocumentsRepository {
 
   /** Usuarios con su persona, para el nombre visible del emisor. */
   findUsersByIds(userIds: number[]): Promise<User[]>
+
+  /**
+   * Suma de los importes capturados en los pendientes VIVOS del expediente
+   * (cumplidos o no, USRH1789097550395 regla 4); los eliminados no cuentan y
+   * los que no tienen importe aportan cero. La suma la hace MySQL sobre
+   * `decimal`, nunca un acumulador flotante. Devuelve la cadena decimal cruda
+   * (`'0.00'` sin pendientes) para no perder precisión; nunca `number`. El
+   * expediente ya viene resuelto dentro del alcance: jamás un id del cliente.
+   */
+  sumItemAmounts(employeeOffboardingId: number): Promise<string>
 }
