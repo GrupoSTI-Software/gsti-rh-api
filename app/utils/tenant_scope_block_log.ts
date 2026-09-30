@@ -8,7 +8,7 @@ export type TenantScopeBlockMode = 'observed' | 'blocked'
 export const TENANT_SCOPE_BLOCK_LOG_CODE = 'TENANT.CONTEXT.MISSING'
 export const TENANT_SCOPE_BLOCK_LOG_WINDOW_MS = 300_000
 export const TENANT_SCOPE_BLOCK_LOG_MAX_KEYS = 500
-export const TENANT_SCOPE_BLOCK_MODE: TenantScopeBlockMode = 'observed'
+export const TENANT_SCOPE_BLOCK_MODE: TenantScopeBlockMode = 'blocked'
 
 export interface TenantScopeBlockEvent {
   table: string

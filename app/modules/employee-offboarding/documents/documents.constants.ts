@@ -8,13 +8,74 @@ import type {
  * Conjuntos cerrados del slice: `varchar` en BD, literal aquí.
  */
 
-/** Tipos de documento; hoy solo la constancia de separación. */
+/** Tipos de documento: la constancia de separación y el convenio de terminación (USRH1789097550394). */
 export const EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE = {
   SEPARATION_LETTER: 'separation_letter',
+  TERMINATION_AGREEMENT: 'termination_agreement',
 } as const
 
 export type EmployeeOffboardingDocumentType =
   (typeof EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE)[keyof typeof EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE]
+
+/** Los tipos como lista, para los `enum` de VineJS del slice. */
+export const EMPLOYEE_OFFBOARDING_DOCUMENT_TYPES = Object.values(EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE)
+
+/**
+ * Prefijo del folio por tipo (USRH1789097550394, regla 6). `CS` se conserva
+ * literal: los folios ya emitidos no cambian, y las series son independientes
+ * porque el consecutivo ya se cuenta por (expediente, tipo). `Record` cerrado
+ * sobre la unión: un tipo nuevo sin prefijo no compila.
+ */
+export const DOCUMENT_FOLIO_PREFIX: Readonly<Record<EmployeeOffboardingDocumentType, string>> = {
+  separation_letter: 'CS',
+  termination_agreement: 'CT',
+}
+
+/** Primer segmento del nombre de descarga por tipo; `buildDownloadFileName` lo sanea. */
+export const DOCUMENT_FILE_NAME_PREFIX: Readonly<Record<EmployeeOffboardingDocumentType, string>> =
+  {
+    separation_letter: 'constancia-separacion',
+    termination_agreement: 'convenio-terminacion',
+  }
+
+/**
+ * Claves i18n del copy de la ruta de emisión por tipo (USRH1789097550394,
+ * Anexo A): título de los errores, mensaje de éxito y los detalles que
+ * nombran al documento. Los `key` y los `code` de error NO cambian por tipo
+ * (candado R-6: el backoffice ramifica por `key`); solo cambia el texto.
+ */
+export interface DocumentIssueCopyKeys {
+  issueErrorTitle: string
+  issuedMessage: string
+  incompleteDetail: string
+  employeeActiveDetail: string
+  dateRangeDetail: string
+  renderFailedDetail: string
+  storageFailedDetail: string
+}
+
+export const DOCUMENT_ISSUE_COPY_KEYS: Readonly<
+  Record<EmployeeOffboardingDocumentType, DocumentIssueCopyKeys>
+> = {
+  separation_letter: {
+    issueErrorTitle: 'employee_offboarding_document_issue_error_title',
+    issuedMessage: 'employee_offboarding_document_issued_message',
+    incompleteDetail: 'employee_offboarding_document_incomplete_detail',
+    employeeActiveDetail: 'employee_offboarding_document_employee_active_detail',
+    dateRangeDetail: 'employee_offboarding_document_date_range_detail',
+    renderFailedDetail: 'employee_offboarding_document_render_failed_detail',
+    storageFailedDetail: 'employee_offboarding_document_storage_failed_detail',
+  },
+  termination_agreement: {
+    issueErrorTitle: 'employee_offboarding_document_agreement_issue_error_title',
+    issuedMessage: 'employee_offboarding_document_agreement_issued_message',
+    incompleteDetail: 'employee_offboarding_document_agreement_incomplete_detail',
+    employeeActiveDetail: 'employee_offboarding_document_agreement_employee_active_detail',
+    dateRangeDetail: 'employee_offboarding_document_agreement_date_range_detail',
+    renderFailedDetail: 'employee_offboarding_document_agreement_render_failed_detail',
+    storageFailedDetail: 'employee_offboarding_document_agreement_storage_failed_detail',
+  },
+}
 
 /** De dónde salió la fecha de separación impresa. H1a siempre `terminated`. */
 export const REFERENCE_DATE_SOURCE = {

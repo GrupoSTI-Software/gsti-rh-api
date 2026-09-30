@@ -6,8 +6,10 @@ import logger from '@adonisjs/core/services/logger'
 import type { I18n } from '@adonisjs/i18n'
 import RoleService from '#services/role_service'
 import SystemSettingService from '#services/system_setting_service'
+import TenantBillingProfileService from '#services/tenant_billing_profile_service'
 import UploadService from '#services/upload_service'
 import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { amountInWords, formatAmountMxn } from '#helpers/amount_in_words'
 import EmployeeOffboardingServiceError from '#exceptions/employee_offboarding_service_error'
 import { EMPLOYEE_OFFBOARDING_ERROR_CODES } from '#constants/employee_offboarding_error_codes'
 import {
@@ -17,6 +19,7 @@ import {
   todayInBusinessZone,
 } from '#utils/business_date'
 import type EmployeeOffboardingDocumentTemplate from '#models/employee_offboarding_document_template'
+import type { TenantFiscalIdentity } from '../../../interfaces/tenant_billing_profile_interface.js'
 import { EMPLOYEE_OFFBOARDINGS_MODULE_SLUG } from '../concepts/concepts.constants.js'
 import { buildUserNamesMap } from '../offboardings/dto/offboardings.dto.js'
 import DocumentTemplatesRepositoryMysql from '../document-templates/document_templates.repository.mysql.js'
@@ -33,12 +36,16 @@ import DocumentTemplateFillService, {
 import {
   DOCUMENT_DEPARTMENT_NAME_MAX_LENGTH,
   DOCUMENT_EMPLOYEE_NAME_MAX_LENGTH,
+  DOCUMENT_FILE_NAME_PREFIX,
+  DOCUMENT_FOLIO_PREFIX,
+  DOCUMENT_ISSUE_COPY_KEYS,
   DOCUMENT_LEGAL_NAME_MAX_LENGTH,
   DOCUMENT_MIME_TYPE,
   DOCUMENT_POSITION_NAME_MAX_LENGTH,
   DOCUMENT_PRINTED_DATE_FORMAT,
   DOCUMENT_SIGNED_URL_EXPIRES_SECONDS,
   DOCUMENTS_S3_FOLDER,
+  EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE,
   LEGACY_FIELD_GUARD_LABEL_KEY,
   REFERENCE_DATE_SOURCE,
   resolveRequiredFieldKeys,
@@ -52,6 +59,10 @@ import SeparationLetterPdfService, {
   formatSeniority,
   sanitizeRenderText,
 } from './separation_letter_pdf.service.js'
+import TerminationAgreementPdfService, {
+  AMOUNTS_DISCLAIMER,
+  buildLegalAddressLine,
+} from './termination_agreement_pdf.service.js'
 import {
   templateVersionNumberOf,
   toDocumentDto,
@@ -87,6 +98,12 @@ interface RenderedDocument {
  * emisión queda amarrada a esa versión. Sin plantilla propia, el camino de
  * siempre. Una vigente no recuperable es error explícito, jamás caída
  * silenciosa a la del sistema (regla 6).
+ *
+ * Convenio de terminación (USRH1789097550394): segundo tipo sobre el MISMO
+ * motor — folio con serie propia `CT-`, nombre de archivo propio, plantilla
+ * del sistema propia y dos campos más (domicilio fiscal y representante
+ * legal) leídos SOLO por `getFiscalIdentityForDocuments`, que nunca trae el
+ * RFC. El copy de la ruta de emisión se resuelve por tipo; los `key` no.
  */
 export default class DocumentsService {
   private t: (key: string, params?: { [key: string]: string | number }) => string
@@ -95,13 +112,17 @@ export default class DocumentsService {
   private readonly pdfService: SeparationLetterPdfService
   private readonly templatesRepository: DocumentTemplatesRepository
   private readonly fillService: DocumentTemplateFillService
+  private readonly agreementPdfService: TerminationAgreementPdfService
+  private readonly billingProfileService: TenantBillingProfileService
 
   constructor(
     i18n: I18n,
     repository: DocumentsRepository = new DocumentsRepositoryMysql(),
     pdfService: SeparationLetterPdfService = new SeparationLetterPdfService(),
     templatesRepository: DocumentTemplatesRepository = new DocumentTemplatesRepositoryMysql(),
-    fillService: DocumentTemplateFillService = new DocumentTemplateFillService()
+    fillService: DocumentTemplateFillService = new DocumentTemplateFillService(),
+    agreementPdfService: TerminationAgreementPdfService = new TerminationAgreementPdfService(),
+    billingProfileService: TenantBillingProfileService = new TenantBillingProfileService()
   ) {
     this.t = i18n.formatMessage.bind(i18n)
     this.locale = i18n.locale
@@ -109,6 +130,8 @@ export default class DocumentsService {
     this.pdfService = pdfService
     this.templatesRepository = templatesRepository
     this.fillService = fillService
+    this.agreementPdfService = agreementPdfService
+    this.billingProfileService = billingProfileService
   }
 
   /**
@@ -130,12 +153,13 @@ export default class DocumentsService {
   }
 
   /**
-   * Emite la constancia (orden deliberado): expediente en alcance → baja
-   * ejecutada → datos saneados → plantilla propia resuelta y leída →
-   * completitud → render (propia o del sistema) → sello → subida privada →
-   * fila. Render y subida van fuera de transacción; si la fila falla tras
-   * subir queda un objeto huérfano en S3, nunca una fila que apunte a un
-   * objeto inexistente.
+   * Emite el documento (orden deliberado): expediente en alcance → baja
+   * ejecutada → datos saneados (con la identidad fiscal de la empresa cuando
+   * el tipo la imprime) → plantilla propia resuelta y leída → completitud →
+   * render (propia o del sistema del tipo) → sello → subida privada → fila.
+   * Render y subida van fuera de transacción; si la fila falla tras subir
+   * queda un objeto huérfano en S3, nunca una fila que apunte a un objeto
+   * inexistente.
    */
   async issue(
     employeeOffboardingId: number,
@@ -152,7 +176,7 @@ export default class DocumentsService {
 
     // Regla 1: el documento hace constar un hecho consumado
     if (employee.deletedAt === null || employee.deletedAt === undefined) {
-      throw this.employeeStillActiveError()
+      throw this.employeeStillActiveError(documentType)
     }
 
     // Datos ya saneados: lo mismo que se imprime es lo que se snapshotea
@@ -192,6 +216,26 @@ export default class DocumentsService {
     // se resuelve aquí para que la guarda la evalúe ya resuelta (regla 10)
     const departmentOrUnit = departmentName.length > 0 ? departmentName : legalName
 
+    // Domicilio fiscal y representante legal (USRH1789097550394, regla 3):
+    // SOLO para los tipos que los imprimen, por la vía acotada de
+    // USRH1789097550393 (sin RFC) y con el BU snapshoteado. Un fallo de esa
+    // lectura es error propio (nunca un dato faltante ni un domicilio en
+    // blanco) y jamás alcanza a la constancia. Saneados aquí aunque ya se
+    // hayan saneado al capturarse: entran a la guarda y al render por la
+    // misma ruta de datos que el resto.
+    const fiscalIdentity = this.printsFiscalIdentity(documentType)
+      ? await this.readFiscalIdentityOrFail(offboarding.businessUnitId, documentType)
+      : null
+    const legalAddress = fiscalIdentity
+      ? sanitizeRenderText(buildLegalAddressLine(fiscalIdentity))
+      : ''
+    const legalRepresentativeName = sanitizeRenderText(
+      fiscalIdentity?.legalRepresentativeName ?? ''
+    )
+    const legalRepresentativeRole = sanitizeRenderText(
+      fiscalIdentity?.legalRepresentativeRole ?? ''
+    )
+
     // Plantilla propia (USRH1789097550389, reglas 1, 6 y 9): resuelta AL
     // EMITIR por el BU SNAPSHOTEADO del expediente — nunca el del encabezado —
     // y leída UNA sola vez, fuera del bucle de folio y de la transacción (I/O
@@ -202,7 +246,7 @@ export default class DocumentsService {
       offboarding.businessUnitId,
       documentType
     )
-    const templateBuffer = template ? await this.readTemplateOrFail(template) : null
+    const templateBuffer = template ? await this.readTemplateOrFail(template, documentType) : null
 
     // Regla 1 — guarda PURA en un punto único, antes de gastar CPU o red:
     // el 422 enumera cada dato con su pestaña destino (regla 2). La lista
@@ -216,6 +260,8 @@ export default class DocumentsService {
     // Los MISMOS valores saneados que se imprimen: no hay segunda ruta de datos
     const missing = collectMissingDocumentFields(requiredFieldKeys, {
       legal_name: legalName,
+      legal_address: legalAddress,
+      legal_representative_name: legalRepresentativeName,
       employee_name: employeeName,
       position_name: positionName,
       department_or_unit: departmentOrUnit,
@@ -223,20 +269,34 @@ export default class DocumentsService {
       separation_date: referenceDateIso,
     })
     if (missing.length > 0) {
-      throw this.incompleteError(missing)
+      throw this.incompleteError(documentType, missing)
     }
     // Las dos fechas entran siempre a la lista efectiva (obligatorias y
     // dependencias de la antigüedad); la guarda ya las exigió.
     if (!hireDateIso || !referenceDateIso) {
-      throw this.incompleteError(missing)
+      throw this.incompleteError(documentType, missing)
     }
 
     // Regla 7 — coherencia DESPUÉS de la guarda: sin las dos fechas no hay
     // nada que comparar y el usuario recibiría el error equivocado.
     const seniorityDays = daysBetweenBusinessDates(hireDateIso, referenceDateIso)
     if (seniorityDays < 0) {
-      throw this.dateRangeInvalidError()
+      throw this.dateRangeInvalidError(documentType)
     }
+
+    // Suma de los importes capturados (USRH1789097550395): DESPUÉS de la guarda
+    // (no se calcula para una emisión que va a fallar) y FUERA del bucle de
+    // folio (no depende del folio y no se repite en cada colisión), solo para
+    // el tipo que la imprime. MySQL suma sobre decimal; aquí se pasa a número
+    // UNA sola vez y del mismo valor salen la cifra, la letra y lo persistido:
+    // por construcción no pueden discrepar. Nunca se loguea.
+    const printsAmounts = this.printsAmounts(documentType)
+    const totalAmount = printsAmounts
+      ? Number(await this.repository.sumItemAmounts(offboarding.employeeOffboardingId))
+      : null
+    const totalAmountText = totalAmount === null ? '' : formatAmountMxn(totalAmount)
+    const totalAmountInWords = totalAmount === null ? '' : amountInWords(totalAmount)
+    const amountsDisclaimer = totalAmount === null ? '' : AMOUNTS_DISCLAIMER
 
     const issuedAt = todayInBusinessZone()
 
@@ -254,6 +314,7 @@ export default class DocumentsService {
         documentType
       )
       const folio = this.buildFolio(
+        documentType,
         offboarding.employeeOffboardingId,
         issuedAt.year,
         expectedCount + 1
@@ -264,10 +325,16 @@ export default class DocumentsService {
       // valores que imprime la del sistema; no hay segunda ruta de datos.
       const seniority = computeSeniority(hireDateIso, referenceDateIso)
       const tradeName = await this.resolveTradeName(offboarding.businessUnitId)
+      // Un solo objeto de valores para la plantilla propia de cualquier tipo:
+      // el llenado escribe únicamente los huecos del catálogo de ese tipo, así
+      // que a una plantilla de constancia jamás le llegan domicilio ni
+      // representante (que en ella viajan vacíos).
       const rendered: RenderedDocument = templateBuffer
         ? await this.fillTemplateOrFail(templateBuffer, documentType, {
             legal_name: legalName,
             trade_name: tradeName,
+            legal_address: legalAddress,
+            legal_representative_name: legalRepresentativeName,
             employee_name: employeeName,
             position_name: positionName,
             department_or_unit: departmentOrUnit,
@@ -276,14 +343,22 @@ export default class DocumentsService {
             seniority: formatSeniority(seniority),
             folio,
             issue_date: issuedAt.toFormat(DOCUMENT_PRINTED_DATE_FORMAT),
+            total_amount: totalAmountText,
+            total_amount_in_words: totalAmountInWords,
+            amounts_disclaimer: amountsDisclaimer,
           })
         : {
-            buffer: await this.renderOrFail({
+            buffer: await this.renderSystemTemplateOrFail(documentType, {
               folio,
               employeeName,
               positionName,
               departmentOrUnit,
               legalName,
+              legalAddress,
+              legalRepresentativeName,
+              legalRepresentativeRole,
+              totalAmountText,
+              totalAmountInWords,
               hireDateIso,
               referenceDateIso,
               seniority,
@@ -297,14 +372,14 @@ export default class DocumentsService {
       const contentHash = createHash('sha256').update(buffer).digest('hex')
       // Nombre solo con folio y literales del sistema: nunca datos personales.
       // La key de S3 lleva además un prefijo único; el nombre de descarga no.
-      const fileName = this.buildSeparationLetterFileName(folio)
+      const fileName = this.buildDocumentFileName(documentType, folio)
       const storedKey = await new UploadService().uploadPrivateBuffer(
         `${DOCUMENTS_S3_FOLDER}/${offboarding.employeeOffboardingId}/${cuid()}-${fileName}`,
         buffer,
         DOCUMENT_MIME_TYPE
       )
       if (!storedKey) {
-        throw this.storageFailedError()
+        throw this.storageFailedError(documentType)
       }
 
       // Transacción corta y al final: lock del expediente YA resuelto en
@@ -359,6 +434,9 @@ export default class DocumentsService {
             // Regla 4: amarrada a la versión resuelta; `null` = plantilla del sistema
             employeeOffboardingDocumentTemplateVersionId:
               template?.employeeOffboardingDocumentTemplateId ?? null,
+            // Snapshot de la cifra impresa (USRH1789097550395, regla 7); `null` en la constancia
+            employeeOffboardingDocumentTotalAmount:
+              totalAmount === null ? null : totalAmount.toFixed(2),
           },
           trx
         )
@@ -429,14 +507,12 @@ export default class DocumentsService {
     }
 
     // `inline`: el BO la abre en pestaña, pero al guardarla lleva el nombre
-    // limpio por folio y no la key de S3 con su prefijo único.
+    // limpio por folio y no la key de S3 con su prefijo único. Es el nombre
+    // que esta misma emisión guardó (por tipo desde USRH1789097550394).
     const url = await new UploadService().getDownloadLink(
       record.employeeOffboardingDocumentFile,
       DOCUMENT_SIGNED_URL_EXPIRES_SECONDS,
-      contentDisposition(
-        this.buildSeparationLetterFileName(record.employeeOffboardingDocumentFolio),
-        'inline'
-      )
+      contentDisposition(record.employeeOffboardingDocumentFileName, 'inline')
     )
     // `getDownloadLink` no lanza: devuelve null u objeto en error. Nunca `!url`.
     if (typeof url !== 'string') {
@@ -457,31 +533,71 @@ export default class DocumentsService {
     return offboarding
   }
 
-  private async renderOrFail(
-    data: Parameters<SeparationLetterPdfService['render']>[0]
+  /**
+   * Plantilla del sistema del tipo (USRH1789097550394): la constancia y el
+   * convenio reciben el MISMO objeto de datos ya saneado; cada servicio de
+   * render toma lo que imprime. La rama de plantilla propia no pasa por aquí.
+   */
+  private async renderSystemTemplateOrFail(
+    documentType: EmployeeOffboardingDocumentType,
+    data: Parameters<TerminationAgreementPdfService['render']>[0] &
+      Parameters<SeparationLetterPdfService['render']>[0]
   ): Promise<Buffer> {
     let buffer: Buffer
     try {
-      buffer = await this.pdfService.render(data)
+      buffer =
+        documentType === EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.TERMINATION_AGREEMENT
+          ? await this.agreementPdfService.render(data)
+          : await this.pdfService.render(data)
     } catch {
-      throw this.renderFailedError()
+      throw this.renderFailedError(documentType)
     }
     if (buffer.byteLength === 0) {
-      throw this.renderFailedError()
+      throw this.renderFailedError(documentType)
     }
     return buffer
+  }
+
+  /** Qué tipos imprimen domicilio y representante: lo dice el catálogo, no una lista aparte. */
+  private printsFiscalIdentity(documentType: EmployeeOffboardingDocumentType): boolean {
+    return fieldByKey('legal_address')?.documentTypes.includes(documentType) === true
+  }
+
+  /** Qué tipos imprimen la suma de importes (USRH1789097550395): también lo dice el catálogo. */
+  private printsAmounts(documentType: EmployeeOffboardingDocumentType): boolean {
+    return fieldByKey('total_amount')?.documentTypes.includes(documentType) === true
+  }
+
+  /**
+   * Regla 3 (USRH1789097550394): única vía de lectura del perfil fiscal, sin
+   * RFC. Un fallo al consultar es error propio (500): nunca se disfraza de
+   * dato faltante ni se emite con el domicilio en blanco. Que el domicilio o
+   * el representante no estén capturados NO es fallo: lo decide la guarda.
+   */
+  private async readFiscalIdentityOrFail(
+    businessUnitId: number,
+    documentType: EmployeeOffboardingDocumentType
+  ): Promise<TenantFiscalIdentity> {
+    try {
+      return await this.billingProfileService.getFiscalIdentityForDocuments(businessUnitId)
+    } catch {
+      throw this.fiscalIdentityUnavailableError(documentType)
+    }
   }
 
   /**
    * Regla 6 — `readStoredFileBuffer` devuelve `null` sin lanzar: la guarda es
    * obligatoria y el fallo es explícito. Jamás fallback a la del sistema.
    */
-  private async readTemplateOrFail(template: EmployeeOffboardingDocumentTemplate): Promise<Buffer> {
+  private async readTemplateOrFail(
+    template: EmployeeOffboardingDocumentTemplate,
+    documentType: EmployeeOffboardingDocumentType
+  ): Promise<Buffer> {
     const buffer = await new UploadService().readStoredFileBuffer(
       template.employeeOffboardingDocumentTemplateStorageKey
     )
     if (!buffer || buffer.byteLength === 0) {
-      throw this.templateUnavailableError()
+      throw this.templateUnavailableError(documentType)
     }
     return buffer
   }
@@ -500,9 +616,9 @@ export default class DocumentsService {
       return { buffer: result.buffer, skippedFieldKeys: result.skippedFieldKeys }
     }
     if (result.failure.reason === 'unrenderable_text') {
-      throw this.templateTextUnrenderableError(result.failure.fieldKey)
+      throw this.templateTextUnrenderableError(documentType, result.failure.fieldKey)
     }
-    throw this.templateFillFailedError(result.failure)
+    throw this.templateFillFailedError(documentType, result.failure)
   }
 
   /**
@@ -540,9 +656,20 @@ export default class DocumentsService {
     return toDocumentDto(record, buildUserNamesMap(users), templateVersionNumber)
   }
 
-  /** `constancia-separacion-{folio saneado}.pdf`, p. ej. `constancia-separacion-cs-45-2026-0001.pdf`. */
-  private buildSeparationLetterFileName(folio: string): string {
-    return buildDownloadFileName(['constancia-separacion', folio], 'pdf')
+  /**
+   * `{prefijo del tipo}-{folio saneado}.pdf`: `constancia-separacion-cs-45-2026-0001.pdf`
+   * (byte-idéntico al de siempre) o `convenio-terminacion-ct-45-2026-0001.pdf`.
+   */
+  private buildDocumentFileName(
+    documentType: EmployeeOffboardingDocumentType,
+    folio: string
+  ): string {
+    return buildDownloadFileName([DOCUMENT_FILE_NAME_PREFIX[documentType], folio], 'pdf')
+  }
+
+  /** Título de los errores de la ruta de emisión, por tipo (Anexo A). */
+  private issueErrorTitle(documentType: EmployeeOffboardingDocumentType): string {
+    return this.t(DOCUMENT_ISSUE_COPY_KEYS[documentType].issueErrorTitle)
   }
 
   private forbiddenError() {
@@ -576,13 +703,19 @@ export default class DocumentsService {
   }
 
   /**
-   * Detalle compuesto en el idioma de la petición con las etiquetas del
-   * catálogo (nunca valores de la ficha): "a, b y c" por `Intl.ListFormat`,
-   * que resuelve la conjunción por locale sin una clave i18n extra.
+   * `{prefijo del tipo}-{expediente}-{año en zona de negocio}-{consecutivo a 4 dígitos}`
+   * (regla 3): `CS-` para la constancia, byte-idéntico al de siempre, y `CT-`
+   * para el convenio, cuyo consecutivo es una serie aparte porque
+   * `countByOffboardingAndType` ya cuenta por tipo (USRH1789097550394, regla 6).
    */
-  /** `CS-{expediente}-{año en zona de negocio}-{consecutivo a 4 dígitos}` (regla 3). */
-  private buildFolio(employeeOffboardingId: number, year: number, sequence: number): string {
-    return `CS-${employeeOffboardingId}-${year}-${String(sequence).padStart(4, '0')}`
+  private buildFolio(
+    documentType: EmployeeOffboardingDocumentType,
+    employeeOffboardingId: number,
+    year: number,
+    sequence: number
+  ): string {
+    const prefix = DOCUMENT_FOLIO_PREFIX[documentType]
+    return `${prefix}-${employeeOffboardingId}-${year}-${String(sequence).padStart(4, '0')}`
   }
 
   /**
@@ -604,8 +737,14 @@ export default class DocumentsService {
    * históricos conservan su frase viva; cualquier otro del catálogo se
    * enuncia "etiqueta (pestaña de captura)", donde la pestaña ya dice si la
    * captura el dueño de la cuenta. Nunca el valor del campo ni su `source`.
+   * Detalle compuesto en el idioma de la petición: "a, b y c" por
+   * `Intl.ListFormat`. El `key` es el mismo para todo tipo (candado R-6); el
+   * copy va por tipo.
    */
-  private incompleteError(missing: readonly OffboardingDocumentFieldKey[]) {
+  private incompleteError(
+    documentType: EmployeeOffboardingDocumentType,
+    missing: readonly OffboardingDocumentFieldKey[]
+  ) {
     const labels = missing.map((key) => this.guardFieldLabel(key))
     const fields = new Intl.ListFormat(this.locale, { style: 'long', type: 'conjunction' }).format(
       labels
@@ -614,8 +753,8 @@ export default class DocumentsService {
       key: 'constancia-incompleta',
       errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_INCOMPLETE,
       httpStatus: 422,
-      title: this.t('employee_offboarding_document_issue_error_title'),
-      detail: this.t('employee_offboarding_document_incomplete_detail', { fields }),
+      title: this.issueErrorTitle(documentType),
+      detail: this.t(DOCUMENT_ISSUE_COPY_KEYS[documentType].incompleteDetail, { fields }),
     })
   }
 
@@ -628,64 +767,82 @@ export default class DocumentsService {
     return field.captureTabLabelKey ? `${label} (${this.t(field.captureTabLabelKey)})` : label
   }
 
-  private dateRangeInvalidError() {
+  private dateRangeInvalidError(documentType: EmployeeOffboardingDocumentType) {
     return new EmployeeOffboardingServiceError({
       key: 'fechas-de-la-constancia-incoherentes',
       errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_DATE_RANGE_INVALID,
       httpStatus: 422,
-      title: this.t('employee_offboarding_document_issue_error_title'),
-      detail: this.t('employee_offboarding_document_date_range_detail'),
+      title: this.issueErrorTitle(documentType),
+      detail: this.t(DOCUMENT_ISSUE_COPY_KEYS[documentType].dateRangeDetail),
     })
   }
 
-  private employeeStillActiveError() {
+  private employeeStillActiveError(documentType: EmployeeOffboardingDocumentType) {
     return new EmployeeOffboardingServiceError({
       key: 'baja-no-ejecutada',
       errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_EMPLOYEE_STILL_ACTIVE,
       httpStatus: 422,
-      title: this.t('employee_offboarding_document_issue_error_title'),
-      detail: this.t('employee_offboarding_document_employee_active_detail'),
+      title: this.issueErrorTitle(documentType),
+      detail: this.t(DOCUMENT_ISSUE_COPY_KEYS[documentType].employeeActiveDetail),
     })
   }
 
-  private renderFailedError() {
+  private renderFailedError(documentType: EmployeeOffboardingDocumentType) {
     return new EmployeeOffboardingServiceError({
       key: 'constancia-no-generada',
       errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_RENDER_FAILED,
       httpStatus: 500,
-      title: this.t('employee_offboarding_document_issue_error_title'),
-      detail: this.t('employee_offboarding_document_render_failed_detail'),
+      title: this.issueErrorTitle(documentType),
+      detail: this.t(DOCUMENT_ISSUE_COPY_KEYS[documentType].renderFailedDetail),
     })
   }
 
-  private storageFailedError() {
+  private storageFailedError(documentType: EmployeeOffboardingDocumentType) {
     return new EmployeeOffboardingServiceError({
       key: 'constancia-no-almacenada',
       errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_STORAGE_FAILED,
       httpStatus: 500,
-      title: this.t('employee_offboarding_document_issue_error_title'),
-      detail: this.t('employee_offboarding_document_storage_failed_detail'),
+      title: this.issueErrorTitle(documentType),
+      detail: this.t(DOCUMENT_ISSUE_COPY_KEYS[documentType].storageFailedDetail),
+    })
+  }
+
+  /**
+   * Regla 3 (USRH1789097550394): el perfil fiscal no se pudo consultar. Es
+   * 500 y no 422: la usuaria no tiene nada que capturar, y decirle lo
+   * contrario la mandaría a buscar un dato que sí está.
+   */
+  private fiscalIdentityUnavailableError(documentType: EmployeeOffboardingDocumentType) {
+    return new EmployeeOffboardingServiceError({
+      key: 'datos-fiscales-no-disponibles',
+      errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_FISCAL_IDENTITY_UNAVAILABLE,
+      httpStatus: 500,
+      title: this.issueErrorTitle(documentType),
+      detail: this.t('employee_offboarding_document_fiscal_identity_unavailable_detail'),
     })
   }
 
   /** Regla 6: hay vigente registrada pero su objeto no se leyó. No es 404: la plantilla existe. */
-  private templateUnavailableError() {
+  private templateUnavailableError(documentType: EmployeeOffboardingDocumentType) {
     return new EmployeeOffboardingServiceError({
       key: 'plantilla-vigente-no-recuperable',
       errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_TEMPLATE_UNAVAILABLE,
       httpStatus: 500,
-      title: this.t('employee_offboarding_document_issue_error_title'),
+      title: this.issueErrorTitle(documentType),
       detail: this.t('employee_offboarding_document_template_unavailable_detail'),
     })
   }
 
   /** Regla 7: 422 porque lo corrige el usuario en la ficha; nombra el dato, nunca su valor. */
-  private templateTextUnrenderableError(fieldKey: OffboardingDocumentFieldKey) {
+  private templateTextUnrenderableError(
+    documentType: EmployeeOffboardingDocumentType,
+    fieldKey: OffboardingDocumentFieldKey
+  ) {
     return new EmployeeOffboardingServiceError({
       key: 'dato-no-imprimible-en-la-plantilla',
       errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_TEMPLATE_TEXT_UNRENDERABLE,
       httpStatus: 422,
-      title: this.t('employee_offboarding_document_issue_error_title'),
+      title: this.issueErrorTitle(documentType),
       detail: this.t('employee_offboarding_document_template_text_unrenderable_detail', {
         field: this.fieldLabel(fieldKey),
       }),
@@ -696,7 +853,10 @@ export default class DocumentsService {
    * Regla 7: un solo `code` para "no se pudo producir el documento"; el
    * `detail` distingue la causa (ICU `select`) y nombra el hueco cuando lo hay.
    */
-  private templateFillFailedError(failure: DocumentTemplateFillFailure) {
+  private templateFillFailedError(
+    documentType: EmployeeOffboardingDocumentType,
+    failure: DocumentTemplateFillFailure
+  ) {
     const cause =
       failure.reason === 'required_field_unwritable'
         ? 'field'
@@ -709,7 +869,7 @@ export default class DocumentsService {
       key: 'documento-no-generado-con-plantilla',
       errorCode: EMPLOYEE_OFFBOARDING_ERROR_CODES.DOC_TEMPLATE_FILL_FAILED,
       httpStatus: 500,
-      title: this.t('employee_offboarding_document_issue_error_title'),
+      title: this.issueErrorTitle(documentType),
       detail: this.t('employee_offboarding_document_template_fill_failed_detail', { cause, field }),
     })
   }

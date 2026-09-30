@@ -20,6 +20,8 @@ import {
   lastRevealLog,
 } from '../pii/pii_permission_gate_support.js'
 import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 
 const TEST_PASSWORD = 'BiometricFacePhotoStream123!'
 const FAKE_IMAGE = Buffer.from('fake-biometric-photo-stream-bytes')
@@ -123,6 +125,7 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
     personLastname: 'BioStream',
     personSecondLastname: prefix,
     personEmail: `employee-${prefix}-${stamp}@gsti-tests.local`,
+    businessUnitId,
   })
   const departmentInsert = await db.table('departments').insert({
     department_sync_id: stamp,
@@ -153,6 +156,7 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
     employee_second_last_name: prefix,
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     department_id: departmentId,
     position_id: positionId,
     person_id: person.personId,
@@ -163,7 +167,10 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
   })
 
   return {
-    employee: await Employee.findOrFail(Number(employeeInsert[0])),
+    employee: await TenantContext.runUnscoped(
+      () => Employee.findOrFail(Number(employeeInsert[0])),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    ),
     person,
     departmentId,
     positionId,

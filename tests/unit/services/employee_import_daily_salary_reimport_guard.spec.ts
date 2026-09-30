@@ -16,6 +16,8 @@ type ServiceWithImportInternals = {
     positions: unknown[],
     businessUnitId: number | null,
     payrollBusinessUnitId: number | null,
+    actorUserId: number | null,
+    businessUnitScope: number[],
     employeeTypes?: unknown[]
   ): Promise<void>
   ensureEmployeeResidenceAddress(employeeId: number, employeeData: unknown): Promise<void>
@@ -88,7 +90,9 @@ test.group('Reimportación Excel — guard de salario diario enmascarado (USRH17
       [],
       [],
       null,
-      null
+      null,
+      null,
+      []
     )
 
     assert.equal(existingEmployee.dailySalary, 850.5)
@@ -113,7 +117,9 @@ test.group('Reimportación Excel — guard de salario diario enmascarado (USRH17
       [],
       [],
       null,
-      null
+      null,
+      null,
+      []
     )
 
     assert.equal(existingEmployee.dailySalary, 0)
@@ -138,7 +144,9 @@ test.group('Reimportación Excel — guard de salario diario enmascarado (USRH17
       [],
       [],
       null,
-      null
+      null,
+      null,
+      []
     )
 
     assert.equal(existingEmployee.dailySalary, 1200)

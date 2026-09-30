@@ -1,5 +1,7 @@
 import type { NormalizeConstructor } from '@adonisjs/core/types/helpers'
 import { BaseModel } from '@adonisjs/lucid/orm'
+import { TenantContextMissingException } from '#exceptions/tenant_context_missing_exception'
+import { HttpRequestMarker } from '#utils/http_request_marker'
 import { TenantContext } from '#utils/tenant_context'
 import {
   recordTenantScopeBlock,
@@ -12,6 +14,15 @@ export interface BusinessUnitScopeOptions {
    * del sistema y son visibles junto al scope del tenant activo.
    */
   includeGlobal?: boolean
+}
+
+export type NoContextBehavior = 'empty' | 'throw'
+
+/**
+ * Qué hace el mixin cuando la consulta llega sin contexto de empresa y sin bypass.
+ */
+export function noContextBehavior(insideHttpRequest: boolean): NoContextBehavior {
+  return insideHttpRequest ? 'empty' : 'throw'
 }
 
 type ScopedQuery = {
@@ -30,28 +41,37 @@ type ApplyFilterOptions = BusinessUnitScopeOptions & {
 /**
  * Aplica el filtro de tenant a una query dado el contexto activo.
  *
- * Comportamiento según el estado del TenantContext:
- *  - Sin contexto activo   → sin filtro; registra observación muestreada (modo observed).
- *  - Contexto bypassed     → sin filtro (excepción declarada vía runUnscoped).
- *  - Scope vacío + activo  → `1 = 0`, salvo `includeGlobal: true` → solo filas NULL del sistema.
- *  - Scope con IDs         → `whereIn(column, scope)`; con `includeGlobal: true` también filas NULL.
+ * Regla única: sin contexto equivale a contexto activo con alcance vacío.
+ *  - Bypass → sin filtro.
+ *  - Sin contexto → registro muestreado (bloqueado). Con `includeGlobal`, solo NULL.
+ *    Sin `includeGlobal`: vacío en petición HTTP; `TenantContextMissingException` fuera.
+ *  - Alcance vacío + activo → `1 = 0`, salvo `includeGlobal` → solo NULL.
+ *  - Alcance con IDs → `whereIn`; con `includeGlobal` también NULL.
  */
 function applyTenantFilter(
   query: ScopedQuery,
   column: string,
   options: ApplyFilterOptions = {}
 ): void {
+  if (TenantContext.isBypassed()) return
+
+  const includeGlobal = options.includeGlobal === true
+
   if (!TenantContext.isActive()) {
     const table = query.model?.table
     if (table && options.hook) {
       recordTenantScopeBlock({ table, hook: options.hook })
     }
-    return
+
+    if (
+      !includeGlobal &&
+      noContextBehavior(HttpRequestMarker.isInHttpRequest()) === 'throw'
+    ) {
+      throw new TenantContextMissingException(table ?? 'desconocida', options.hook ?? 'find')
+    }
   }
-  if (TenantContext.isBypassed()) return
 
   const scope = TenantContext.getScope()
-  const includeGlobal = options.includeGlobal === true
 
   if (includeGlobal) {
     if (scope.length === 0) {
@@ -81,41 +101,21 @@ function applyTenantFilter(
  * Representan catálogo del sistema, no de un tenant. Solo los modelos que pasen
  * `{ includeGlobal: true }` las incluyen en consultas con contexto activo.
  *
- * Precedente alternativo documentado: `WorkingTimeRule` omite el mixin y filtra
- * con queries explícitas `whereNull('business_unit_id')` (USRH1784259058567).
- * Wilvardo eligió `includeGlobal` para catálogos híbridos (sistema + tenant futuro).
- *
- * ## Aplicar a un modelo nuevo (una línea)
- * ```typescript
- * export default class MyModel extends compose(BaseModel, SoftDeletes, withBusinessUnitScope()) { ... }
- * ```
- *
- * ## Catálogo global del sistema
- * ```typescript
- * export default class EmployeeType extends compose(
- *   BaseModel,
- *   SoftDeletes,
- *   withBusinessUnitScope('business_unit_id', { includeGlobal: true })
- * ) { ... }
- * ```
- *
- * ## Columna personalizada
- * ```typescript
- * export default class MyModel extends compose(BaseModel, withBusinessUnitScope('tenant_unit_id')) { ... }
- * ```
- *
  * ## Cuándo se filtra
- * El filtro solo se activa cuando hay un `TenantContext` activo en la cadena async
- * (es decir, la request pasó por `BusinessUnitScopeMiddleware`). Las rutas públicas,
- * comandos y tests que no usen el middleware no se ven afectados.
+ * Siempre. Con `TenantContext.run(scope)` se filtra por ese alcance. Sin contexto
+ * la consulta NO sale completa: dentro de una petición HTTP resuelve a vacío;
+ * fuera de ella lanza `TenantContextMissingException`. Cada caso queda en el
+ * registro muestreado de `tenant_scope_block_log`.
  *
- * ## Bypass explícito
+ * ## Bypass explícito (solo vías catalogadas)
  * ```typescript
- * return TenantContext.runUnscoped(() => myQuery(), TENANT_UNSCOPED_REASON.REPORT_JOB)
+ * return TenantContext.runUnscoped(() => myQuery(), TENANT_UNSCOPED_REASON.BACKFILL_MAINTENANCE)
  * ```
+ * Nunca por rol de empresa. Si una vía legítima falla tras el cambio, se declara
+ * con un motivo del catálogo; jamás se reabre la regla general.
  *
- * @param tenantColumn - Nombre de la columna FK. Por defecto `'business_unit_id'`.
- * @param options - Opciones de scope; `includeGlobal` queda false por defecto.
+ * ## No cubre (residual declarado)
+ * `update()`/`delete()` masivos por query builder y Knex crudo.
  */
 export function withBusinessUnitScope(
   tenantColumn: string = 'business_unit_id',
@@ -135,7 +135,7 @@ export function withBusinessUnitScope(
         })
 
         this.before('paginate', ([countQuery, query]: ScopedQuery[]) => {
-          applyTenantFilter(countQuery, tenantColumn, options)
+          applyTenantFilter(countQuery, tenantColumn, { ...options, hook: 'paginate' })
           applyTenantFilter(query, tenantColumn, { ...options, hook: 'paginate' })
         })
       }

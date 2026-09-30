@@ -37,7 +37,8 @@ export async function livePersonWithIdentityExists(
 export type PersonIdentityRecheck =
   | { status: 200 }
   | { status: 400; missingCompany: true }
-  | { status: 422; field: PersonIdentityField | 'email' }
+  | { status: 422; field: PersonIdentityField }
+  | { status: 422; reason: 'email-not-available' }
 
 /**
  * Qué dato informar cuando el guardado perdió una carrera contra el UNIQUE.
@@ -45,12 +46,14 @@ export type PersonIdentityRecheck =
  * MySQL reporta el índice que chocó primero en SU orden, no en el de la HU. La
  * reverificación (`verifyInfo`) aplica el orden CURP > RFC > NSS y por eso manda;
  * el índice solo se usa si la reverificación ya no encuentra choque de identidad
- * (p. ej. el ganador se dio de baja entre tanto) o no se pudo hacer.
+ * (p. ej. el ganador se dio de baja entre tanto) o no se pudo hacer. La rama del
+ * correo (`reason: 'email-not-available'`) no es un dato de identidad enumerable:
+ * se ignora y manda el índice.
  */
 export function resolveRacedIdentityField(
   recheck: PersonIdentityRecheck | null,
   indexField: PersonIdentityField
 ): PersonIdentityField {
-  if (recheck && recheck.status === 422 && recheck.field !== 'email') return recheck.field
+  if (recheck && recheck.status === 422 && 'field' in recheck) return recheck.field
   return indexField
 }

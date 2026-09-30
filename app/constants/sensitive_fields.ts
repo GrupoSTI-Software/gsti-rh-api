@@ -172,6 +172,12 @@ export const SENSITIVE_FIELDS: readonly SensitiveField[] = [
   { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionDiagnosis', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
   { model: 'EmployeeMedicalCondition', column: 'employeeMedicalConditionNotes', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
 
+  // ─── MedicalConditionTypePropertyValue: salud (sensible reforzado) ────────
+  // Valor capturado por propiedad del tipo (grupo sanguíneo, alergeno, dosis):
+  // mismo dato clínico que el diagnóstico. No se busca en SQL.
+  // Ancla: app/models/medical_condition_type_property_value.ts
+  { model: 'MedicalConditionTypePropertyValue', column: 'medicalConditionTypePropertyValue', legalCategory: 'salud', treatment: 'cifrar', encrypted: true, maskedInApi: true },
+
   // ─── WorkDisabilityNote: salud (sensible reforzado) ───────────────────────
   // Nota descriptiva de incapacidad; no se busca en SQL.
   // Ancla: app/models/work_disability_note.ts

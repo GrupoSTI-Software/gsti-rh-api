@@ -51,7 +51,7 @@ export const VALID_TEMPLATE_FIELD_NAMES = [
   'folio',
 ] as const
 
-/** Los diez `key` del catálogo en su orden; el spec unitario del contraste vigila que no se desfasen. */
+/** Los diez `key` del catálogo DE LA CONSTANCIA en su orden; el spec unitario del contraste vigila que no se desfasen. */
 export const ALL_CATALOG_FIELD_NAMES = [
   'legal_name',
   'trade_name',

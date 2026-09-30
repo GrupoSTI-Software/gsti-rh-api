@@ -101,6 +101,8 @@ export const EMPLOYEE_OFFBOARDING_ERROR_CODES = {
   DOC_TEMPLATE_TEXT_UNRENDERABLE: 'OFFB.DOC.TEMPLATE_TEXT_UNRENDERABLE',
   /** La plantilla propia no produjo el documento: obligatorio sin texto, aplanado con campos vivos o fallo de pdf-lib — 500. */
   DOC_TEMPLATE_FILL_FAILED: 'OFFB.DOC.TEMPLATE_FILL_FAILED',
+  /** El perfil fiscal de la empresa no se pudo consultar al emitir el convenio (USRH1789097550394); no se emite nada — 500. */
+  DOC_FISCAL_IDENTITY_UNAVAILABLE: 'OFFB.DOC.FISCAL_IDENTITY_UNAVAILABLE',
   /** Paginado mal formado, `versionId` no entero positivo o campo `file` ausente (USRH1788553841100) — 400. */
   TEMPLATE_VAL_INPUT: 'OFFB.TEMPLATE.VAL_INPUT',
   /** Sin permiso read (consultar/descargar) o create (subir) sobre las plantillas — 403. */

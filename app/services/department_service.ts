@@ -127,22 +127,6 @@ export default class DepartmentService {
     return departments
   }
 
-  async syncCreate(department: BiometricDepartmentInterface) {
-    const newDepartment = new Department()
-    newDepartment.departmentSyncId = department.id
-    newDepartment.parentDepartmentSyncId = department.parentDeptId
-    newDepartment.departmentCode = department.deptCode
-    newDepartment.departmentName = department.deptName
-    newDepartment.departmentIsDefault = department.isDefault
-    newDepartment.departmentActive = 1
-    newDepartment.parentDepartmentId = department.parentDeptId
-      ? await this.getIdBySyncId(department.parentDeptId)
-      : null
-    newDepartment.companyId = department.companyId
-    newDepartment.departmentLastSynchronizationAt = new Date()
-    await newDepartment.save()
-    return newDepartment
-  }
 
   async syncUpdate(department: BiometricDepartmentInterface, currentDepartment: Department) {
     currentDepartment.parentDepartmentSyncId = department.parentDeptId

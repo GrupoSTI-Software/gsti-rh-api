@@ -8,6 +8,7 @@ export const createEmployeeBankValidator = vine.compile(
     employeeBankAccountCardNumber: vine.string().trim().minLength(0).maxLength(250).use(noMaskCharRule()).optional(),
     employeeBankAccountType: vine.string().trim().minLength(0).maxLength(50).optional(),
     employeeBankAccountCurrencyType: vine.string().trim().minLength(1).maxLength(3),
+    employeeBankAlias: vine.string().trim().maxLength(40).nullable().optional(),
     employeeId: vine.number(),
     bankId: vine.number(),
   })
@@ -22,5 +23,6 @@ export const updateEmployeeBankValidator = vine.compile(
     employeeBankAccountCardNumber: vine.string().trim().minLength(0).maxLength(250).use(noMaskCharRule()).optional(),
     employeeBankAccountType: vine.string().trim().minLength(0).maxLength(50).optional(),
     employeeBankAccountCurrencyType: vine.string().trim().minLength(1).maxLength(3),
+    employeeBankAlias: vine.string().trim().maxLength(40).nullable().optional(),
   })
 )

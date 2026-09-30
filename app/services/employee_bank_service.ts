@@ -24,6 +24,7 @@ export default class EmployeeBankService {
     newEmployeeBank.employeeBankAccountCurrencyType = employeeBank.employeeBankAccountCurrencyType
     newEmployeeBank.employeeId = employeeBank.employeeId
     newEmployeeBank.bankId = employeeBank.bankId
+    newEmployeeBank.employeeBankAlias = employeeBank.employeeBankAlias || null
     await newEmployeeBank.save()
     return newEmployeeBank
   }
@@ -46,6 +47,10 @@ export default class EmployeeBankService {
     currentEmployeeBank.employeeBankAccountType = employeeBank.employeeBankAccountType
     currentEmployeeBank.employeeBankAccountCurrencyType = employeeBank.employeeBankAccountCurrencyType
     currentEmployeeBank.bankId = employeeBank.bankId
+    // El alias no es sensible: undefined conserva, vacío lo borra.
+    if (employeeBank.employeeBankAlias !== undefined) {
+      currentEmployeeBank.employeeBankAlias = employeeBank.employeeBankAlias || null
+    }
     await currentEmployeeBank.save()
     return currentEmployeeBank
   }

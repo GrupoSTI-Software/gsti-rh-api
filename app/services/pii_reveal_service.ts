@@ -2,6 +2,7 @@ import db from '@adonisjs/lucid/services/db'
 import Person from '#models/person'
 import EmployeeBank from '#models/employee_bank'
 import EmployeeMedicalCondition from '#models/employee_medical_condition'
+import MedicalConditionTypePropertyValue from '#models/medical_condition_type_property_value'
 import WorkDisability from '#models/work_disability'
 import WorkDisabilityNote from '#models/work_disability_note'
 import TraumaticEventReport from '#models/traumatic_event_report'
@@ -45,7 +46,8 @@ export type PiiRevealLogContext = Pick<
 /**
  * Servicio de reveal de datos personales sensibles.
  *
- * Registry: Person, EmployeeBank, EmployeeMedicalCondition, WorkDisabilityNote,
+ * Registry: Person, EmployeeBank, EmployeeMedicalCondition,
+ * MedicalConditionTypePropertyValue, WorkDisabilityNote,
  * TraumaticEventReport, EmployeeLactationPeriod, EmployeeEmergencyContact,
  * EmployeeSpouse, EmpresaContratante, ProveedorRepse, Employee,
  * EmployeeSalaryHistory, PositionSalaryRange, PositionSalaryRangeAudit.
@@ -102,6 +104,8 @@ export default class PiiRevealService {
         return this.resolveEmployeeBank(column, recordId, buScope)
       case 'EmployeeMedicalCondition':
         return this.resolveEmployeeMedicalCondition(column, recordId, buScope)
+      case 'MedicalConditionTypePropertyValue':
+        return this.resolveMedicalConditionTypePropertyValue(column, recordId, buScope)
       case 'WorkDisabilityNote':
         return this.resolveWorkDisabilityNote(column, recordId, buScope)
       case 'TraumaticEventReport':
@@ -194,6 +198,27 @@ export default class PiiRevealService {
       value: this.readColumn(condition, column),
       businessUnitId: condition.employee.businessUnitId,
       subjectEmployeeId: condition.employee.employeeId,
+    }
+  }
+
+  /** El titular es el empleado de la condición médica a la que pertenece el valor. */
+  private async resolveMedicalConditionTypePropertyValue(
+    column: string,
+    recordId: number,
+    buScope: number[]
+  ): Promise<ResolvedSensitiveRecord | null> {
+    const propertyValue = await MedicalConditionTypePropertyValue.query()
+      .where('medicalConditionTypePropertyValueId', recordId)
+      .whereIn('businessUnitId', buScope)
+      .preload('employeeMedicalCondition')
+      .first()
+
+    if (!propertyValue?.employeeMedicalCondition) return null
+
+    return {
+      value: this.readColumn(propertyValue, column),
+      businessUnitId: propertyValue.businessUnitId,
+      subjectEmployeeId: propertyValue.employeeMedicalCondition.employeeId,
     }
   }
 
