@@ -1781,24 +1781,21 @@ export default class DepartmentController {
           data: { departmentId },
         }
       }
-      // Obtener empleados relacionados con el departamento
+      // Verificar si el departamento tiene empleados activos
       const employees = await currentDepartment
         .related('employees')
         .query()
         .whereNull('employee_deleted_at')
 
-      // Si hay empleados, asignarles el departamento "Sin Departamento"
+      // Si hay empleados no se puede eliminar directamente: requiere confirmación (force-delete)
       if (employees.length > 0) {
-        const defaultDepartment = await Department.query()
-          .whereNull('department_deleted_at')
-          .where('department_name', 'Sin departamento')
-          .first()
-
-        if (defaultDepartment) {
-          for (const employee of employees) {
-            employee.departmentId = defaultDepartment.departmentId
-            await employee.save()
-          }
+        response.status(409)
+        return {
+          type: 'warning',
+          title: t('department'),
+          message: t('department_has_related_employees'),
+          code: 'ORG.DEPARTMENT.HAS_EMPLOYEES',
+          data: { affectedEmployees: employees.length },
         }
       }
 
@@ -1810,7 +1807,7 @@ export default class DepartmentController {
           type: 'success',
           title: t('resource'),
           message: t('resource_was_deleted_successfully'),
-          data: { department: deleteDepartment },
+          data: { department: deleteDepartment, affectedEmployees: 0 },
         }
       }
     } catch (error) {
@@ -1864,7 +1861,9 @@ export default class DepartmentController {
         .query()
         .whereNull('employee_deleted_at')
 
-      if (employees.length > 0) {
+      const affectedEmployees = employees.length
+
+      if (affectedEmployees > 0) {
         // Obtener el departamento por defecto "Sin Departamento"
         const defaultDepartment = await Department.query()
           .whereNull('department_deleted_at')
@@ -1906,7 +1905,7 @@ export default class DepartmentController {
         title: t('departments'),
         message:
         t('the_department_its_related_positions_and_employees_were_reassigned_successfully_and_the_department_was_soft_deleted'),
-        data: { department: currentDepartment },
+        data: { department: currentDepartment, affectedEmployees },
       }
     } catch (error) {
       response.status(500)
