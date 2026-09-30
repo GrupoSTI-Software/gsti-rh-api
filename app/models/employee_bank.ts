@@ -136,6 +136,10 @@ export default class EmployeeBank extends compose(BaseModel, SoftDeletes, withBu
   @column()
   declare bankId: number
 
+  /** Etiqueta libre de la cuenta (uso), p. ej. "Cuenta de nómina". No es dato sensible. */
+  @column()
+  declare employeeBankAlias: string | null
+
   /** Resuelve businessUnitId desde el empleado padre (ESB-07-08-03-08). */
   @beforeCreate()
   static async assignBusinessUnitId(instance: EmployeeBank) {
