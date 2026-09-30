@@ -24,6 +24,7 @@ import BillingInternalNotificationService from '#services/billing_internal_notif
 import { resolveSignupApiError } from '#helpers/signup_api_error'
 import { resolveBillingSubscriptionApiError } from '#helpers/billing_subscription_api_error'
 import { planNotSelectedError } from '#helpers/billing_tenant_error'
+import { BillingProviderServiceError } from '#exceptions/billing_provider_service_error'
 import { BillingSubscriptionServiceError } from '#exceptions/billing_subscription_service_error'
 import TenantRoleProvisioningService from '#services/tenant_role_provisioning_service'
 import BranchOfficeProvisioningService from '#services/branch_office_provisioning_service'
@@ -76,7 +77,10 @@ export default class SignupDraftService {
   }
 
   private toServiceResult(error: unknown): ServiceResult | null {
-    if (error instanceof BillingSubscriptionServiceError) {
+    if (
+      error instanceof BillingSubscriptionServiceError ||
+      error instanceof BillingProviderServiceError
+    ) {
       const billing = resolveBillingSubscriptionApiError(error)
       return {
         status: billing.status,
