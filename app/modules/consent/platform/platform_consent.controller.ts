@@ -1,6 +1,6 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import PlatformConsentError from '#exceptions/platform_consent_error'
-import { PLATFORM_CONSENT_ERROR_CODES } from '#constants/platform_consent_error_codes'
+import { PLATFORM_CONSENT_ERROR_CODES_BY_KEY } from '#constants/platform_consent_error_codes'
 import { PLATFORM_ACCEPTANCES_DEFAULT_LIMIT } from '#modules/consent/platform/platform_consent.constants'
 import PlatformConsentService from '#modules/consent/platform/platform_consent.service'
 import { listPlatformLegalAcceptancesValidator } from '#modules/consent/platform/validators/list_platform_legal_acceptances.validator'
@@ -239,7 +239,7 @@ export default class PlatformConsentController {
         title: i18n.formatMessage(`platformLegalAcceptances.errors.${error.key}.title`),
         detail: i18n.formatMessage(`platformLegalAcceptances.errors.${error.key}.detail`),
         key: error.key,
-        code: PLATFORM_CONSENT_ERROR_CODES.INVALID_FILTERS,
+        code: PLATFORM_CONSENT_ERROR_CODES_BY_KEY[error.key],
       })
     }
     throw error

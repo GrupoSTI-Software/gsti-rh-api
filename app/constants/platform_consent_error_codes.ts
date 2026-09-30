@@ -1,3 +1,5 @@
+import type { PlatformConsentErrorKey } from '#exceptions/platform_consent_error'
+
 /**
  * Códigos estables para el cliente — consentimiento y aceptaciones legales de plataforma.
  * Prefijo CONSENT.PLATFORM.
@@ -12,3 +14,14 @@ export const PLATFORM_CONSENT_ERROR_CODES = {
 
 export type PlatformConsentErrorCode =
   (typeof PLATFORM_CONSENT_ERROR_CODES)[keyof typeof PLATFORM_CONSENT_ERROR_CODES]
+
+/**
+ * Código de cliente de cada key de `PlatformConsentError`. `Record` sobre la unión de keys:
+ * agregar una key al error sin asignarle código aquí no compila.
+ */
+export const PLATFORM_CONSENT_ERROR_CODES_BY_KEY: Record<
+  PlatformConsentErrorKey,
+  PlatformConsentErrorCode
+> = {
+  'filtros-de-aceptaciones-invalidos': PLATFORM_CONSENT_ERROR_CODES.INVALID_FILTERS,
+}

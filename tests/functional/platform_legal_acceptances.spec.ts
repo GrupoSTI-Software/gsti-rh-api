@@ -1030,22 +1030,26 @@ test.group('GET /api/platform/legal-acceptances — contrato del listado', (grou
   test('CA-10: filtro no excluyente', async ({ client, assert }) => {
     /**
      * Objetivo: comprobar que el filtro por estado mira cada documento por separado: una
-     * empresa con Términos pendiente y Aviso nunca aparece en ambos filtros, y solo se
-     * considera "al día" la que lo está en todos los documentos.
+     * empresa con Términos pendiente y Aviso nunca aparece en ambos filtros, una al día en
+     * Términos pero pendiente en Aviso no cuenta como "al día", y solo se considera "al día"
+     * la que lo está en todos los documentos.
      *
      * Dado: empresa F con un owner que solo aceptó Términos v1 (luego se publica v2) y
-     * nada de Aviso; empresa A con un owner al día en Términos v2 y Aviso. Antes de publicar
-     * nada, el catálogo no tiene documentos vigentes.
+     * nada de Aviso; empresa M con un owner al día en Términos v2 pero que aceptó Aviso v1
+     * (luego se publica v2); empresa A con un owner al día en Términos v2 y Aviso v2. Antes
+     * de publicar nada, el catálogo no tiene documentos vigentes.
      * Cuando: el administrador de plataforma lista con `status` al-dia, pendiente y nunca.
      * Entonces: sin documentos vigentes ningún filtro trae empresas; después F sale en
-     * `pendiente` y en `nunca` pero no en `al-dia`, y A sale en `al-dia` y en ninguno de
-     * los otros dos.
+     * `pendiente` y en `nunca` pero no en `al-dia`, M sale en `pendiente` y no en `al-dia`
+     * ni en `nunca`, y A sale en `al-dia` y en ninguno de los otros dos.
      */
     const w = currentWorld()
     const tenantF = await createTenant('Foxtrot')
     const tenantA = await createTenant('Alfa')
+    const tenantM = await createTenant('Mixta')
     const ownerF = await createTenantOwner(tenantF, 'Foxtrot')
     const ownerA = await createTenantOwner(tenantA, 'Alfa')
+    const ownerM = await createTenantOwner(tenantM, 'Mixta')
 
     // Sin documentos vigentes: ningún filtro devuelve empresas.
     for (const status of ['al-dia', 'pendiente', 'nunca']) {
@@ -1060,12 +1064,13 @@ test.group('GET /api/platform/legal-acceptances — contrato del listado', (grou
       docVersion(w, 'T1'),
       DateTime.fromISO('2026-02-01T12:00:00.000-06:00')
     )
-    const privacy = await publishDocument(
+    const privacyV1 = await publishDocument(
       PRIVACY,
       docVersion(w, 'P1'),
       DateTime.fromISO('2026-02-02T12:00:00.000-06:00')
     )
     await acceptDocument(ownerF, termsV1, DateTime.fromISO('2026-02-10T09:00:00.000-06:00'))
+    await acceptDocument(ownerM, privacyV1, DateTime.fromISO('2026-02-11T09:00:00.000-06:00'))
 
     const termsV2 = await publishDocument(
       TERMS,
@@ -1073,25 +1078,43 @@ test.group('GET /api/platform/legal-acceptances — contrato del listado', (grou
       DateTime.fromISO('2026-09-01T12:00:00.000-06:00')
     )
     await acceptDocument(ownerA, termsV2, DateTime.fromISO('2026-09-02T09:00:00.000-06:00'))
-    await acceptDocument(ownerA, privacy, DateTime.fromISO('2026-09-02T09:05:00.000-06:00'))
+    await acceptDocument(ownerM, termsV2, DateTime.fromISO('2026-09-02T09:10:00.000-06:00'))
+
+    // Aviso v2 deja pendiente a M (solo aceptó v1); A sí acepta la vigente.
+    const privacyV2 = await publishDocument(
+      PRIVACY,
+      docVersion(w, 'P2'),
+      DateTime.fromISO('2026-09-03T12:00:00.000-06:00')
+    )
+    await acceptDocument(ownerA, privacyV2, DateTime.fromISO('2026-09-04T09:05:00.000-06:00'))
 
     const idF = tenantF.businessUnit.businessUnitPublicId
     const idA = tenantA.businessUnit.businessUnitPublicId
+    const idM = tenantM.businessUnit.businessUnitPublicId
 
     const pending = await listAcceptances(client, { search: w.stamp, status: 'pendiente' })
     pending.assertStatus(200)
     assert.include(publicIdsOf(pending), idF)
+    assert.include(publicIdsOf(pending), idM)
     assert.notInclude(publicIdsOf(pending), idA)
 
     const never = await listAcceptances(client, { search: w.stamp, status: 'nunca' })
     never.assertStatus(200)
     assert.include(publicIdsOf(never), idF)
+    assert.notInclude(publicIdsOf(never), idM)
     assert.notInclude(publicIdsOf(never), idA)
 
+    // `al-dia` exige estar al día en AMBOS documentos: M (al día solo en Términos) queda fuera.
     const upToDate = await listAcceptances(client, { search: w.stamp, status: 'al-dia' })
     upToDate.assertStatus(200)
     assert.include(publicIdsOf(upToDate), idA)
+    assert.notInclude(publicIdsOf(upToDate), idM)
     assert.notInclude(publicIdsOf(upToDate), idF)
+
+    // M conserva el estado propio de cada documento.
+    const rowM = findRow(pending.body().data, tenantM)
+    assert.equal(rowM.termsConditions.status, 'al-dia')
+    assert.equal(rowM.privacyNotice.status, 'pendiente')
 
     // La fila de F sigue mostrando cada documento con su propio estado.
     const rowF = findRow(pending.body().data, tenantF)
