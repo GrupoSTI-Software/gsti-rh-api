@@ -35,3 +35,4 @@ router
   .prefix('/api/medical-condition-type-property-values')
   .use(middleware.auth())
   .use(middleware.businessScope())
+  .use(middleware.sensitiveMaskEcho())

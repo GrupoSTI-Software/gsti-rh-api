@@ -14,6 +14,7 @@ import { reportI18n } from '#helpers/report_locale'
 import env from '#start/env'
 import { buildDownloadFileName, formatDownloadFileDate } from '#helpers/download_file_name'
 import { ASSISTANCE_REPORT_FILE_PREFIX } from '#constants/assistance_report_file'
+import { TenantContext } from '#utils/tenant_context'
 
 /** Prefijo que indica que la key es una ruta local de disco (solo en desarrollo). */
 const LOCAL_KEY_PREFIX = 'local://'
@@ -156,22 +157,24 @@ export default class ReportJobService {
       return
     }
 
-    await jobSemaphore.acquire()
-    try {
-      await job.merge({ reportJobStatus: 'processing' }).save()
+    return TenantContext.run(job.reportJobAllowedBusinessUnitIds ?? [], async () => {
+      await jobSemaphore.acquire()
+      try {
+        await job.merge({ reportJobStatus: 'processing' }).save()
 
-      await this.runGeneration(job)
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error({ jobId, err: message }, 'ReportJobService.processJob: fallo durante generación')
-      await job.merge({
-        reportJobStatus: 'failed',
-        reportJobErrorMessage: message,
-        reportJobCompletedAt: DateTime.now(),
-      }).save()
-    } finally {
-      jobSemaphore.release()
-    }
+        await this.runGeneration(job)
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        logger.error({ jobId, err: message }, 'ReportJobService.processJob: fallo durante generación')
+        await job.merge({
+          reportJobStatus: 'failed',
+          reportJobErrorMessage: message,
+          reportJobCompletedAt: DateTime.now(),
+        }).save()
+      } finally {
+        jobSemaphore.release()
+      }
+    })
   }
 
   /**
@@ -431,8 +434,8 @@ export default class ReportJobService {
    * Recupera jobs que quedaron en estado `processing` por un reinicio del servidor
    * y los vuelve a encolar. Llamado por el comando de scheduler.
    *
-   * Deuda conocida (USRH1786566437097, §15.4): el re-despacho no envuelve
-   * `processJob` en `TenantContext.run` — queda fuera de alcance de esta HU.
+   * `processJob` abre `TenantContext.run` con el alcance persistido al encolar
+   * (USRH1789600808831), incluida la recuperación tras reinicio.
    */
   async recoverStuckJobs(): Promise<number> {
     const stuckThreshold = DateTime.now().minus({ minutes: 30 })

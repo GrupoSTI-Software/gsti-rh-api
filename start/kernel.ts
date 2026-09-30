@@ -24,6 +24,7 @@ server.errorHandler(() => import('#exceptions/handler'))
  * the request URL.
  */
 server.use([
+  () => import('#middleware/http_request_marker_middleware'),
   () => import('#middleware/container_bindings_middleware'),
   /** Canal ADMS del checador: se atiende aqui y no llega al router (spec ADMS 4.1). */
   () => import('#middleware/adms_gateway_middleware'),

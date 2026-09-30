@@ -182,6 +182,9 @@ if (env.get('APP_MODE') === 'demo') {
     console.warn('Módulo demo no disponible en este bundle')
   }
 }
+if (env.get('NODE_ENV') === 'test') {
+  await import('./routes/test_tenant_scope_probe_routes.js')
+}
 import './routes/employee_device_routes.js'
 import './routes/user_fcm_token_routes.js'
 import './routes/employee_biometric_routes.js'

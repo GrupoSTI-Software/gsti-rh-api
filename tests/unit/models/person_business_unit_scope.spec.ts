@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { test } from '@japa/runner'
 import BusinessUnit from '#models/business_unit'
 import Person from '#models/person'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 
 /**
@@ -169,9 +170,12 @@ test.group('Person — scope fail-closed y FK RESTRICT contra BD (CA-2, CA-5, CA
       .delete()
   })
 
-  test('sin contexto no se filtra: las tres son visibles (regla 7)', async ({ assert }) => {
-    const rows = await Person.query().whereIn('person_id', personIds)
-    assert.lengthOf(rows, 3)
+  test('sin contexto lanza TenantContextMissingException (regla 7 derogada, USRH1789600808831)', async ({
+    assert,
+  }) => {
+    await assert.rejects(async () => {
+      await Person.query().whereIn('person_id', personIds)
+    }, /No se identificó la empresa de la consulta/)
   })
 
   test('con la empresa A solo se ve la persona de A: ni la de B ni la NULL (reglas 5 y 6)', async ({
@@ -212,8 +216,8 @@ test.group('Person — scope fail-closed y FK RESTRICT contra BD (CA-2, CA-5, CA
 
   test('runUnscoped no filtra', async ({ assert }) => {
     const rows = await TenantContext.runUnscoped(
-      () => Person.query().whereIn('person_id', personIds),
-      'spec person scope'
+      async () => Person.query().whereIn('person_id', personIds),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
     )
     assert.lengthOf(rows, 3)
   })

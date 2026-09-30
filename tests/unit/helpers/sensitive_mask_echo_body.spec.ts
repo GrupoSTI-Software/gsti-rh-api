@@ -50,6 +50,31 @@ test.group('neutralizeSensitiveMaskEchoInBody', () => {
     })
   })
 
+  test('vuelve null el eco dentro de propertyValues y conserva el id de la propiedad', ({ assert }) => {
+    const body = {
+      propertyValues: [
+        { medicalConditionTypePropertyId: 7, medicalConditionTypePropertyValue: maskSensitiveValue('A+') },
+        { medicalConditionTypePropertyId: 8, medicalConditionTypePropertyValue: 'Penicilina' },
+      ],
+    }
+    SensitiveAccessContext.run(deniedStore, () => {
+      const out = neutralizeSensitiveMaskEchoInBody(body as Record<string, unknown>)
+      assert.deepEqual(out.propertyValues, [
+        { medicalConditionTypePropertyId: 7, medicalConditionTypePropertyValue: null },
+        { medicalConditionTypePropertyId: 8, medicalConditionTypePropertyValue: 'Penicilina' },
+      ])
+    })
+  })
+
+  test('propertyValues sin eco deja el cuerpo intacto', ({ assert }) => {
+    const body = {
+      propertyValues: [{ medicalConditionTypePropertyId: 7, medicalConditionTypePropertyValue: 'O-' }],
+    }
+    SensitiveAccessContext.run(deniedStore, () => {
+      assert.strictEqual(neutralizeSensitiveMaskEchoInBody(body as Record<string, unknown>), body)
+    })
+  })
+
   test('no toca campos fuera del catálogo aunque parezcan máscara', ({ assert }) => {
     const body = { personFirstname: '••••', employeeCode: '••••1234' }
     SensitiveAccessContext.run(deniedStore, () => {

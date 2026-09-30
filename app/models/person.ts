@@ -92,11 +92,11 @@ export default class Person extends compose(
    * vuelve NOT NULL. No se serializa: la marca no aparece en ninguna respuesta ni
    * pantalla (§10 del spec, CA-1), igual que las huellas.
    *
-   * Fail-closed: el modelo compone `withBusinessUnitScope()` sin la opción de
-   * filas globales. Con contexto de tenant una fila NULL es invisible para todo
-   * inquilino: se prefiere el dato que se esconde a la PII que se filtra
-   * (regla 6). NO seguir el precedente de `employee_type.ts`, que sí incluye
-   * las filas NULL para todos: aquél es un catálogo, esto es un expediente.
+   * Fail-closed: el modelo compone `withBusinessUnitScope()` sin filas globales.
+   * Sin contexto de tenant la consulta no devuelve expedientes (regla 7 de
+   * USRH1789698261609 derogada en la parte «visible sin contexto» por
+   * USRH1789600808831); con contexto activo una fila NULL es invisible para
+   * todo inquilino (regla 6). NO seguir el precedente de `employee_type.ts`.
    * (La palabra de esa opción no se escribe aquí a propósito: el DoD exige que
    * un grep sobre este archivo la encuentre cero veces.)
    *
