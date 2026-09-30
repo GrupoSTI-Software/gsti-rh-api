@@ -7,7 +7,9 @@ import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingVolumeTier from '#models/billing_volume_tier'
 import BillingSubscription from '#models/billing_subscription'
+import BillingSubscriptionTransition from '#models/billing_subscription_transition'
 import BillingSubscriptionChange from '#models/billing_subscription_change'
+import { BILLING_PROVIDER_KEYS } from '#modules/billing-provider/billing_provider.port'
 import Employee from '#models/employee'
 import Person from '#models/person'
 import BillingCatalogService from '#services/billing_catalog_service'
@@ -15,7 +17,13 @@ import BillingSubscriptionService from '#services/billing_subscription_service'
 import BillingSubscriptionChangeService from '#services/billing_subscription_change_service'
 import BillingSubscriptionClockService from '#services/billing_subscription_clock_service'
 import EmployeeQuotaService from '#services/employee_quota_service'
-import { getBusinessTimeZone, toCalendarIsoDate } from '#utils/business_date'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import {
+  getBusinessTimeZone,
+  toCalendarIsoDate,
+  todayInBusinessZone,
+} from '#utils/business_date'
+import { TenantContext } from '#utils/tenant_context'
 
 /**
  * Tests funcionales — `billing:tick-subscriptions` / `BillingSubscriptionClockService`
@@ -23,11 +31,34 @@ import { getBusinessTimeZone, toCalendarIsoDate } from '#utils/business_date'
  */
 
 const STAMP = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
-const PERIOD_START = '2026-08-01'
-const PERIOD_END = '2026-09-01'
-const BEFORE_EFFECTIVE = '2026-08-25'
-const ON_EFFECTIVE = PERIOD_END
-const AFTER_EFFECTIVE = '2026-09-02'
+
+/** Fechas ancladas al calendario de negocio vigente (evita PERIOD_NOT_PRORATABLE cuando “hoy” avanza). */
+function buildTickDecreaseFixtureCalendar() {
+  const today = todayInBusinessZone()
+  const periodEnd = today.plus({ days: 45 })
+  const periodStart = periodEnd.minus({ months: 1 })
+  const periodEndIso = periodEnd.toISODate()!
+  const periodStartIso = periodStart.toISODate()!
+
+  return {
+    periodStart: periodStartIso,
+    periodEnd: periodEndIso,
+    onEffective: periodEndIso,
+    beforeEffective: periodEnd.minus({ days: 7 }).toISODate()!,
+    afterEffective: periodEnd.plus({ days: 1 }).toISODate()!,
+    trialEndsAt: periodEnd.minus({ days: 1 }).toISODate()!,
+    noTransitionDate: today.plus({ days: 3 }).toISODate()!,
+  }
+}
+
+const FIXTURE_CALENDAR = buildTickDecreaseFixtureCalendar()
+const PERIOD_START = FIXTURE_CALENDAR.periodStart
+const PERIOD_END = FIXTURE_CALENDAR.periodEnd
+const BEFORE_EFFECTIVE = FIXTURE_CALENDAR.beforeEffective
+const ON_EFFECTIVE = FIXTURE_CALENDAR.onEffective
+const AFTER_EFFECTIVE = FIXTURE_CALENDAR.afterEffective
+const TRIAL_ENDS_AT = FIXTURE_CALENDAR.trialEndsAt
+const NO_TRANSITION_DATE = FIXTURE_CALENDAR.noTransitionDate
 
 interface TenantFixture {
   businessUnit: BusinessUnit
@@ -109,31 +140,85 @@ async function createSubscriptionWithPeriod(
   return subscription
 }
 
-async function seedActiveEmployees(businessUnitId: number, count: number): Promise<void> {
-  const template = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+async function createActiveSubscriptionForProvider(
+  planId: number,
+  provider: string
+): Promise<{ businessUnit: BusinessUnit; subscription: BillingSubscription }> {
+  const businessUnit = await createBusinessUnit(`7525-active-${provider || 'empty'}`)
+  const subscription = await createSubscriptionWithPeriod(businessUnit, planId, 10, {
+    status: 'active',
+  })
+  subscription.billingSubscriptionProvider = provider
+  await subscription.save()
+  return { businessUnit, subscription }
+}
 
-  for (let i = 0; i < count; i++) {
-    const person = new Person()
-    person.personFirstname = 'TickDecrease'
-    person.personLastname = 'Seed'
-    person.personSecondLastname = `${businessUnitId}-${i}`
-    person.personEmail = `tick-decrease-${businessUnitId}-${i}-${STAMP}@gsti-tests.local`
-    await person.save()
+async function createTrialingTwinSubscriptions(planId: number): Promise<{
+  manualUnit: BusinessUnit
+  stripeUnit: BusinessUnit
+  manual: BillingSubscription
+  stripe: BillingSubscription
+}> {
+  const manualUnit = await createBusinessUnit('7525-trial-manual')
+  const stripeUnit = await createBusinessUnit('7525-trial-stripe')
+  const manual = await createSubscriptionWithPeriod(manualUnit, planId, 10, { status: 'trialing' })
+  const stripe = await createSubscriptionWithPeriod(stripeUnit, planId, 10, { status: 'trialing' })
+  const trialEndsAt = DateTime.fromISO(TRIAL_ENDS_AT, { zone: getBusinessTimeZone() })
 
-    const employee = new Employee()
-    employee.personId = person.personId
-    employee.businessUnitId = businessUnitId
-    employee.companyId = template.companyId
-    employee.departmentId = template.departmentId
-    employee.positionId = template.positionId
-    employee.employeeTypeId = template.employeeTypeId
-    employee.employeeFirstName = 'TickDecrease'
-    employee.employeeLastName = `Emp${i}`
-    employee.employeeCode = `TDC-${businessUnitId}-${i}-${STAMP}`
-    employee.employeePayrollNum = `TDC-${businessUnitId}-${i}`
-    employee.employeeHireDate = DateTime.fromISO('2024-01-15')
-    await employee.save()
+  for (const sub of [manual, stripe]) {
+    sub.billingSubscriptionTrialEndsAt = trialEndsAt
+    await sub.save()
   }
+
+  stripe.billingSubscriptionProvider = BILLING_PROVIDER_KEYS.STRIPE
+  await stripe.save()
+
+  return { manualUnit, stripeUnit, manual, stripe }
+}
+
+async function createActiveTwinSubscriptions(planId: number): Promise<{
+  manualUnit: BusinessUnit
+  stripeUnit: BusinessUnit
+  manual: BillingSubscription
+  stripe: BillingSubscription
+}> {
+  const manualFixture = await createActiveSubscriptionForProvider(planId, BILLING_PROVIDER_KEYS.MANUAL)
+  const stripeFixture = await createActiveSubscriptionForProvider(planId, BILLING_PROVIDER_KEYS.STRIPE)
+  return {
+    manualUnit: manualFixture.businessUnit,
+    stripeUnit: stripeFixture.businessUnit,
+    manual: manualFixture.subscription,
+    stripe: stripeFixture.subscription,
+  }
+}
+
+async function seedActiveEmployees(businessUnitId: number, count: number): Promise<void> {
+  await TenantContext.runUnscoped(async () => {
+    const template = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+
+    for (let i = 0; i < count; i++) {
+      const person = new Person()
+      person.personFirstname = 'TickDecrease'
+      person.personLastname = 'Seed'
+      person.personSecondLastname = `${businessUnitId}-${i}`
+      person.personEmail = `tick-decrease-${businessUnitId}-${i}-${STAMP}@gsti-tests.local`
+      await person.save()
+
+      const employee = new Employee()
+      employee.personId = person.personId
+      employee.businessUnitId = businessUnitId
+      employee.companyId = template.companyId
+      employee.departmentId = template.departmentId
+      employee.positionId = template.positionId
+      employee.employeeTypeId = template.employeeTypeId
+      employee.employeeFirstName = 'TickDecrease'
+      employee.employeeLastName = `Emp${i}`
+      employee.employeeCode = `TDC-${businessUnitId}-${i}-${STAMP}`
+      employee.employeePayrollNum = `TDC-${businessUnitId}-${i}`
+      employee.employeeHireDate = DateTime.fromISO('2024-01-15')
+      await employee.save()
+    }
+  }, TENANT_UNSCOPED_REASON.TEST_FIXTURE)
 }
 
 async function scheduleDecreaseFixture(
@@ -155,9 +240,8 @@ async function scheduleDecreaseFixture(
   )
 
   const changeService = new BillingSubscriptionChangeService()
-  const record = await changeService.scheduleDecrease(
-    businessUnit.businessUnitId,
-    options.newEmployees
+  const record = await TenantContext.run([businessUnit.businessUnitId], () =>
+    changeService.scheduleDecrease(businessUnit.businessUnitId, options.newEmployees)
   )
 
   return {
@@ -648,6 +732,225 @@ test.group('BillingSubscriptionClockService — aplicar reducción agendada (085
         await quotaService.assertWithinQuota(fixture.businessUnit.businessUnitId, 1)
       })
     } finally {
+      await cleanupBusinessUnit(fixture.businessUnit.businessUnitId)
+    }
+  })
+})
+
+test.group('BillingSubscriptionClockService — excluir Stripe del gobierno (7525)', (group) => {
+  let planId: number | null = null
+  const clock = new BillingSubscriptionClockService()
+
+  group.setup(async () => {
+    planId = await createPublishedPlan(Date.now())
+  })
+
+  group.teardown(async () => {
+    await cleanupPlan(planId)
+  })
+
+  test('7525-CA-2: prueba vencida — manual transiciona, stripe no', async ({ assert }) => {
+    const twins = await createTrialingTwinSubscriptions(planId!)
+
+    try {
+      const result = await clock.run(AFTER_EFFECTIVE)
+
+      const manual = await BillingSubscription.findOrFail(twins.manual.billingSubscriptionId)
+      const stripe = await BillingSubscription.findOrFail(twins.stripe.billingSubscriptionId)
+
+      assert.equal(manual.billingSubscriptionStatus, 'past_due')
+      const manualTransitions = await BillingSubscriptionTransition.query().where(
+        'billing_subscription_id',
+        manual.billingSubscriptionId
+      )
+      assert.isAtLeast(manualTransitions.length, 1)
+      assert.include(
+        manualTransitions.map((row) => row.billingSubscriptionTransitionReason),
+        'trial_expired_uncovered'
+      )
+
+      assert.equal(stripe.billingSubscriptionStatus, 'trialing')
+      const stripeTransitions = await BillingSubscriptionTransition.query().where(
+        'billing_subscription_id',
+        stripe.billingSubscriptionId
+      )
+      assert.lengthOf(stripeTransitions, 0)
+      assert.isUndefined(
+        result.details.find((item) => item.billingSubscriptionId === stripe.billingSubscriptionId)
+      )
+    } finally {
+      await cleanupBusinessUnit(twins.manualUnit.businessUnitId)
+      await cleanupBusinessUnit(twins.stripeUnit.businessUnitId)
+    }
+  })
+
+  test('7525-CA-3: periodo vencido — manual past_due, stripe sigue active', async ({ assert }) => {
+    const twins = await createActiveTwinSubscriptions(planId!)
+
+    try {
+      await clock.run(AFTER_EFFECTIVE)
+
+      const manual = await BillingSubscription.findOrFail(twins.manual.billingSubscriptionId)
+      const stripe = await BillingSubscription.findOrFail(twins.stripe.billingSubscriptionId)
+
+      assert.equal(manual.billingSubscriptionStatus, 'past_due')
+      const manualTransitions = await BillingSubscriptionTransition.query().where(
+        'billing_subscription_id',
+        manual.billingSubscriptionId
+      )
+      assert.include(
+        manualTransitions.map((row) => row.billingSubscriptionTransitionReason),
+        'period_expired'
+      )
+
+      assert.equal(stripe.billingSubscriptionStatus, 'active')
+      const stripeTransitions = await BillingSubscriptionTransition.query().where(
+        'billing_subscription_id',
+        stripe.billingSubscriptionId
+      )
+      assert.lengthOf(stripeTransitions, 0)
+    } finally {
+      await cleanupBusinessUnit(twins.manualUnit.businessUnitId)
+      await cleanupBusinessUnit(twins.stripeUnit.businessUnitId)
+    }
+  })
+
+  test('7525-CA-4: solo stripe exacto se salta — otros proveedores transicionan', async ({
+    assert,
+  }) => {
+    const providers = ['Stripe', 'desconocido', ''] as const
+    const fixtures: Array<{ businessUnit: BusinessUnit; subscription: BillingSubscription }> = []
+
+    try {
+      const baseline = await clock.run(AFTER_EFFECTIVE)
+      const baselineSkippedByProvider = baseline.skippedByProvider
+
+      for (const provider of providers) {
+        fixtures.push(await createActiveSubscriptionForProvider(planId!, provider))
+      }
+
+      const after = await clock.run(AFTER_EFFECTIVE)
+
+      assert.equal(after.skippedByProvider, baselineSkippedByProvider)
+
+      for (const fixture of fixtures) {
+        const sub = await BillingSubscription.findOrFail(fixture.subscription.billingSubscriptionId)
+        assert.equal(sub.billingSubscriptionStatus, 'past_due')
+        const transitions = await BillingSubscriptionTransition.query().where(
+          'billing_subscription_id',
+          sub.billingSubscriptionId
+        )
+        assert.include(
+          transitions.map((row) => row.billingSubscriptionTransitionReason),
+          'period_expired'
+        )
+      }
+    } finally {
+      for (const fixture of fixtures) {
+        await cleanupBusinessUnit(fixture.businessUnit.businessUnitId)
+      }
+    }
+  })
+
+  test('7525-CA-5: reducción agendada se aplica a suscripción stripe', async ({ assert }) => {
+    const fixture = await scheduleDecreaseFixture(planId!, {
+      contractedEmployees: 100,
+      newEmployees: 80,
+      activeEmployeesAtSchedule: 60,
+    })
+
+    try {
+      const subscription = await BillingSubscription.findOrFail(fixture.subscription.billingSubscriptionId)
+      subscription.billingSubscriptionProvider = BILLING_PROVIDER_KEYS.STRIPE
+      await subscription.save()
+
+      const beforeStatus = subscription.billingSubscriptionStatus
+      const periodStartBefore = toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodStart)
+      const periodEndBefore = toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodEnd)
+
+      const result = await clock.run(ON_EFFECTIVE)
+
+      const detail = result.changeDetails.find(
+        (item) => item.billingSubscriptionChangeId === fixture.changeId
+      )
+      assert.isDefined(detail)
+      assert.equal(detail!.outcome, 'applied')
+
+      const afterSub = await BillingSubscription.findOrFail(fixture.subscription.billingSubscriptionId)
+      assert.equal(afterSub.billingSubscriptionStatus, beforeStatus)
+      assert.equal(toCalendarIsoDate(afterSub.billingSubscriptionCurrentPeriodStart), periodStartBefore)
+      assert.equal(toCalendarIsoDate(afterSub.billingSubscriptionCurrentPeriodEnd), periodEndBefore)
+      assert.equal(afterSub.billingSubscriptionContractedEmployees, 80)
+    } finally {
+      await cleanupBusinessUnit(fixture.businessUnit.businessUnitId)
+    }
+  })
+
+  test('7525-CA-6: conteos excluyentes skipped vs skippedByProvider', async ({ assert }) => {
+    const fixture = await createActiveSubscriptionForProvider(planId!, BILLING_PROVIDER_KEYS.MANUAL)
+
+    try {
+      await clock.run(NO_TRANSITION_DATE)
+      const second = await clock.run(NO_TRANSITION_DATE)
+
+      const subscription = await BillingSubscription.findOrFail(fixture.subscription.billingSubscriptionId)
+      subscription.billingSubscriptionProvider = BILLING_PROVIDER_KEYS.STRIPE
+      await subscription.save()
+
+      const third = await clock.run(NO_TRANSITION_DATE)
+
+      assert.equal(third.processed, second.processed)
+      assert.equal(third.transitioned, second.transitioned)
+      assert.equal(third.skipped, second.skipped - 1)
+      assert.equal(third.skippedByProvider, second.skippedByProvider + 1)
+
+      if (third.failed === 0) {
+        assert.equal(
+          third.processed,
+          third.transitioned + third.skipped + third.skippedByProvider
+        )
+      }
+    } finally {
+      await cleanupBusinessUnit(fixture.businessUnit.businessUnitId)
+    }
+  })
+
+  test('7525-CA-8: fallo en reducción stripe cuenta failed y skippedByProvider', async ({
+    assert,
+  }) => {
+    const fixture = await scheduleDecreaseFixture(planId!, {
+      contractedEmployees: 100,
+      newEmployees: 80,
+      activeEmployeesAtSchedule: 60,
+    })
+
+    const subscription = await BillingSubscription.findOrFail(fixture.subscription.billingSubscriptionId)
+    subscription.billingSubscriptionProvider = BILLING_PROVIDER_KEYS.STRIPE
+    await subscription.save()
+
+    const failingSubId = subscription.billingSubscriptionId
+    const original = BillingSubscriptionChangeService.prototype.applyScheduledDecrease
+
+    BillingSubscriptionChangeService.prototype.applyScheduledDecrease = async function (
+      sub,
+      businessDate
+    ) {
+      if (sub.billingSubscriptionId === failingSubId) {
+        throw new Error('fallo simulado 7525-CA-8')
+      }
+      return original.call(this, sub, businessDate)
+    }
+
+    try {
+      const result = await clock.run(ON_EFFECTIVE)
+
+      assert.isAtLeast(result.failed, 1)
+      assert.isAtLeast(result.skippedByProvider, 1)
+
+      const change = await BillingSubscriptionChange.findOrFail(fixture.changeId)
+      assert.equal(change.billingSubscriptionChangeStatus, 'scheduled')
+    } finally {
+      BillingSubscriptionChangeService.prototype.applyScheduledDecrease = original
       await cleanupBusinessUnit(fixture.businessUnit.businessUnitId)
     }
   })

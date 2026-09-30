@@ -7,6 +7,7 @@ import type { BillingSubscriptionTransitionReason } from '#models/billing_subscr
 import BillingSubscriptionChangeService, {
   type ApplyScheduledDecreaseOutcome,
 } from '#services/billing_subscription_change_service'
+import { BILLING_PROVIDER_KEYS } from '#modules/billing-provider/billing_provider.port'
 import { toBusinessDateString, isBusinessCalendarDateBefore } from '../utils/business_date.js'
 
 // ─── Tipos internos ──────────────────────────────────────────────────────────
@@ -18,8 +19,16 @@ export interface ClockRunResult {
   processed: number
   /** Suscripciones cuyo estado cambió en esta corrida. */
   transitioned: number
-  /** Suscripciones sin transición de estado en esta corrida. */
+  /**
+   * Suscripciones gobernadas por el reloj sin transición de estado en esta corrida;
+   * no incluye las saltadas por proveedor.
+   */
   skipped: number
+  /**
+   * Suscripciones con proveedor `stripe` a las que el reloj no aplica R1/R2; su estado
+   * lo gobierna Stripe (USRH1790708507723).
+   */
+  skippedByProvider: number
   details: ClockTransitionDetail[]
   /** Reducciones agendadas materializadas con desenlace `applied`. */
   changesApplied: number
@@ -47,6 +56,24 @@ export interface ClockScheduledChangeDetail {
   activeEmployees: number
   minimumContractedEmployees: number
   reason: string | null
+}
+
+/** Línea `fin:` de `billing:tick-subscriptions` (USRH1790708507525). */
+export function formatClockRunSummary(result: ClockRunResult): string {
+  let line =
+    `billing:tick-subscriptions — fin: corte=${result.businessDate} ` +
+    `evaluadas=${result.processed} transicionadas=${result.transitioned} ` +
+    `sin cambio=${result.skipped}`
+
+  if (result.skippedByProvider > 0) {
+    line += ` saltadas_por_proveedor=${result.skippedByProvider}`
+  }
+
+  line +=
+    ` reducciones_aplicadas=${result.changesApplied} ` +
+    `reducciones_no_aplicables=${result.changesNotApplicable} fallidas=${result.failed}`
+
+  return line
 }
 
 // ─── Servicio ────────────────────────────────────────────────────────────────
@@ -91,6 +118,7 @@ export default class BillingSubscriptionClockService {
       processed: 0,
       transitioned: 0,
       skipped: 0,
+      skippedByProvider: 0,
       details: [],
       changesApplied: 0,
       changesNotApplicable: 0,
@@ -109,33 +137,38 @@ export default class BillingSubscriptionClockService {
 
       let subscriptionFailed = false
 
-      try {
-        const transition = this.resolveTransition(sub, businessDate)
+      if (sub.billingSubscriptionProvider === BILLING_PROVIDER_KEYS.STRIPE) {
+        // Stripe gobierna el estado (USRH1790708507723): sin R1/R2 ni bitácora.
+        result.skippedByProvider++
+      } else {
+        try {
+          const transition = this.resolveTransition(sub, businessDate)
 
-        if (!transition) {
-          result.skipped++
-        } else {
-          const wasIdempotent = await this.applyTransition(sub, transition, businessDate)
+          if (!transition) {
+            result.skipped++
+          } else {
+            const wasIdempotent = await this.applyTransition(sub, transition, businessDate)
 
-          result.transitioned++
-          result.details.push({
-            billingSubscriptionId: sub.billingSubscriptionId,
-            fromStatus: transition.from,
-            toStatus: transition.to,
-            reason: transition.reason,
-            idempotent: wasIdempotent,
-          })
+            result.transitioned++
+            result.details.push({
+              billingSubscriptionId: sub.billingSubscriptionId,
+              fromStatus: transition.from,
+              toStatus: transition.to,
+              reason: transition.reason,
+              idempotent: wasIdempotent,
+            })
+          }
+        } catch (error: unknown) {
+          subscriptionFailed = true
+          logger.error(
+            {
+              err: error,
+              billingSubscriptionId: sub.billingSubscriptionId,
+              businessDate,
+            },
+            'billing:tick-subscriptions — fallo al transicionar suscripción'
+          )
         }
-      } catch (error: unknown) {
-        subscriptionFailed = true
-        logger.error(
-          {
-            err: error,
-            billingSubscriptionId: sub.billingSubscriptionId,
-            businessDate,
-          },
-          'billing:tick-subscriptions — fallo al transicionar suscripción'
-        )
       }
 
       try {
