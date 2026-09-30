@@ -295,45 +295,52 @@ test.group('GET /api/platform/legal-acceptances — contrato del listado', (grou
       return
     }
 
-    if (w.userIds.length > 0) {
-      await db.from('user_consents').whereIn('user_id', w.userIds).delete()
-    }
-    if (w.legalDocumentIds.length > 0) {
-      await db.from('user_consents').whereIn('legal_document_id', w.legalDocumentIds).delete()
-    }
-    if (w.businessUnitIds.length > 0) {
-      await db.from('business_unit_users').whereIn('business_unit_id', w.businessUnitIds).delete()
-      await db
-        .from('tenant_billing_profiles')
-        .whereIn('business_unit_id', w.businessUnitIds)
-        .delete()
-    }
-    if (w.userIds.length > 0) {
-      await db.from('users').whereIn('user_id', w.userIds).delete()
-    }
-    if (w.personIds.length > 0) {
-      await db.from('people').whereIn('person_id', w.personIds).delete()
-    }
-    if (w.roleIds.length > 0) {
-      await db.from('roles').whereIn('role_id', w.roleIds).delete()
-    }
-    if (w.businessUnitIds.length > 0) {
-      await db.from('business_units').whereIn('business_unit_id', w.businessUnitIds).delete()
-    }
-    if (w.legalDocumentIds.length > 0) {
-      await db.from('legal_documents').whereIn('legal_document_id', w.legalDocumentIds).delete()
-    }
-
-    // Restaura el catálogo global tal como estaba.
-    await db
-      .from('legal_documents')
-      .whereIn('legal_document_type', [TERMS, PRIVACY])
-      .update({ legal_document_is_current: 0 })
-    if (w.previousCurrentIds.length > 0) {
-      await db
-        .from('legal_documents')
-        .whereIn('legal_document_id', w.previousCurrentIds)
-        .update({ legal_document_is_current: 1 })
+    try {
+      if (w.userIds.length > 0) {
+        await db.from('user_consents').whereIn('user_id', w.userIds).delete()
+      }
+      if (w.legalDocumentIds.length > 0) {
+        await db.from('user_consents').whereIn('legal_document_id', w.legalDocumentIds).delete()
+      }
+      if (w.businessUnitIds.length > 0) {
+        await db.from('business_unit_users').whereIn('business_unit_id', w.businessUnitIds).delete()
+        await db
+          .from('tenant_billing_profiles')
+          .whereIn('business_unit_id', w.businessUnitIds)
+          .delete()
+      }
+      if (w.userIds.length > 0) {
+        await db.from('users').whereIn('user_id', w.userIds).delete()
+      }
+      if (w.personIds.length > 0) {
+        await db.from('people').whereIn('person_id', w.personIds).delete()
+      }
+      if (w.roleIds.length > 0) {
+        await db.from('roles').whereIn('role_id', w.roleIds).delete()
+      }
+      if (w.businessUnitIds.length > 0) {
+        await db.from('business_units').whereIn('business_unit_id', w.businessUnitIds).delete()
+      }
+      if (w.legalDocumentIds.length > 0) {
+        await db.from('legal_documents').whereIn('legal_document_id', w.legalDocumentIds).delete()
+      }
+    } finally {
+      // Va en `finally`: si algún borrado truena, el catálogo global (compartido con otras
+      // suites) se restaura igual y `sae_pruebas` nunca se queda sin vigentes.
+      // Restaura el catálogo global tal como estaba. Una sola transacción: apagar y
+      // reencender van juntos o ninguno, así nunca queda a medias.
+      await db.transaction(async (trx) => {
+        await trx
+          .from('legal_documents')
+          .whereIn('legal_document_type', [TERMS, PRIVACY])
+          .update({ legal_document_is_current: 0 })
+        if (w.previousCurrentIds.length > 0) {
+          await trx
+            .from('legal_documents')
+            .whereIn('legal_document_id', w.previousCurrentIds)
+            .update({ legal_document_is_current: 1 })
+        }
+      })
     }
   })
 
