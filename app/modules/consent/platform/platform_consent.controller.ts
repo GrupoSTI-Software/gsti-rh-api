@@ -136,7 +136,7 @@ export default class PlatformConsentController {
    *                     lastPage:
    *                       type: integer
    *       '401':
-   *         description: Sin sesión válida (respuesta existente del middleware auth)
+   *         description: Sin sesión válida (respuesta existente del middleware auth; title, detail, key y refreshable varían según el motivo — token ausente, inválido, expirado o revocado)
    *       '403':
    *         description: Sin permisos de administrador de plataforma
    *         content:
@@ -188,7 +188,7 @@ export default class PlatformConsentController {
    * @paramQuery page - Página (default 1) - integer
    * @paramQuery limit - Resultados por página, máx 100 (default 20) - integer
    * @responseBody 200 - {"type": "success", "currentVersions": {"termsConditions": {"version": "2.0", "publishedAt": "2026-09-01T12:00:00.000-06:00"}, "privacyNotice": null}, "data": [{"businessUnitPublicId": "5f1c2a…", "businessUnitName": "Acme", "termsConditions": {"status": "pendiente", "lastAcceptedAt": "2026-03-10T09:15:00.000-06:00"}, "privacyNotice": {"status": "sin-version-publicada", "lastAcceptedAt": null}}], "meta": {"total": 1, "page": 1, "limit": 20, "lastPage": 1}}
-   * @responseBody 401 - {"type": "error", "title": "string", "detail": "string", "key": "string", "code": "string"}
+   * @responseBody 401 - {"type": "warning", "title": "Token requerido", "detail": "No se envió un access token válido", "message": "No se envió un access token válido", "key": "AUTH.TOKEN.MISSING", "data": {"refreshable": false}}
    * @responseBody 403 - {"title": "Acceso restringido a plataforma", "detail": "Esta sección es exclusiva de administradores de plataforma.", "key": "AUTH.PLATFORM.FORBIDDEN"}
    * @responseBody 422 - {"type": "error", "title": "Filtros de aceptaciones inválidos", "detail": "string", "key": "filtros-de-aceptaciones-invalidos", "code": "CONSENT.PLATFORM.001"}
    */
