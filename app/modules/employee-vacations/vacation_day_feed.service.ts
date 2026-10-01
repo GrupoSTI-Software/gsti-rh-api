@@ -5,6 +5,13 @@ import ShiftException from '#models/shift_exception'
 import ShiftExceptionEvidence from '#models/shift_exception_evidence'
 import User from '#models/user'
 import VacationAuthorizationSignature from '#models/vacation_authorization_signature'
+import UploadService from '#services/upload_service'
+
+/**
+ * Vigencia de la URL firmada de cada firma: alcanza para la sesión de la
+ * pantalla, que la vuelve a pedir al recargar.
+ */
+const SIGNATURE_URL_TTL_SECONDS = 60 * 60
 
 export const VACATION_DAY_STATUS = {
   PENDING: 'pending',
@@ -182,7 +189,14 @@ export default class VacationDayFeedService {
     return counts
   }
 
-  /** La primera firma vigente de cada dia, igual que `get-vacations-by-period`. */
+  /**
+   * La primera firma vigente de cada dia, igual que `get-vacations-by-period`,
+   * como URL que el navegador puede abrir.
+   *
+   * La firma se guarda privada y en la fila queda su llave del storage; sin
+   * firmarla, el `<img>` del backoffice no la puede pintar. Las filas viejas
+   * con URL publica completa se entregan tal cual.
+   */
   private async signatures(dayIds: number[]): Promise<Map<number, string>> {
     const byDay = new Map<number, string>()
     if (dayIds.length === 0) return byDay
@@ -194,6 +208,16 @@ export default class VacationDayFeedService {
       if (!byDay.has(row.shiftExceptionId)) {
         byDay.set(row.shiftExceptionId, row.vacationAuthorizationSignatureFile)
       }
+    }
+
+    const keys = [...byDay.values()].filter((file) => file && !/^https?:\/\//i.test(file))
+    if (keys.length === 0) return byDay
+    const signedUrls = await new UploadService().getDownloadLinks(keys, SIGNATURE_URL_TTL_SECONDS)
+    for (const [dayId, file] of byDay) {
+      // Sin URL firmada (storage caido) se deja la llave: la imagen no carga,
+      // pero el dia sigue firmado y no se ofrece firmarlo otra vez.
+      const url = signedUrls[file]
+      if (url) byDay.set(dayId, url)
     }
     return byDay
   }

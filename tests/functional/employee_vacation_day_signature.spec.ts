@@ -94,6 +94,7 @@ test.group('Firma del día de vacaciones', (group) => {
     const day = (feed.body().data.vacationDays as Array<Record<string, unknown>>).find(
       (row) => row.shiftExceptionId === dayId
     )
-    assert.isString(day?.signatureUrl)
+    // URL que el navegador puede abrir, no la llave privada del storage.
+    assert.match(String(day?.signatureUrl), /^https?:\/\//)
   })
 })
