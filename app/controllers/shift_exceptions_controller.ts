@@ -18,6 +18,7 @@ import {
   assertDayWithinRoleScope,
   assertDayWithinRoleScopeForEmployees,
 } from '#modules/role-scope/day_scope_guard'
+import { assertVacationPeriodStarted } from '#modules/employee-vacations/future_vacation_guard'
 
 export default class ShiftExceptionController {
   /**
@@ -151,6 +152,21 @@ export default class ShiftExceptionController {
       if (storeDayScopeRejection) {
         response.status(storeDayScopeRejection.status)
         return storeDayScopeRejection.body
+      }
+
+      // La empresa puede prohibir adelantar vacaciones: el período del alta
+      // tiene que haber iniciado.
+      if (isVacation) {
+        const futureVacationRejection = await assertVacationPeriodStarted({
+          user: auth.user,
+          employeeId,
+          vacationSettingId,
+          i18n,
+        })
+        if (futureVacationRejection) {
+          response.status(futureVacationRejection.status)
+          return futureVacationRejection.body
+        }
       }
 
       for (const currentDate of datesToCreate) {

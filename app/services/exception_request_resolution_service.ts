@@ -5,6 +5,10 @@ import ExceptionRequest from '#models/exception_request'
 import ExceptionType from '#models/exception_type'
 import ShiftException from '#models/shift_exception'
 import EmployeeService from '#services/employee_service'
+import {
+  assertVacationPeriodStarted,
+  resolveFutureVacationCutoff,
+} from '#modules/employee-vacations/future_vacation_guard'
 import ExceptionRequestNotificationService from '#services/exception_request_notification_service'
 import NotificationEmailService from '#services/notification_email_service'
 import ShiftExceptionService from '#services/shift_exception_service'
@@ -150,10 +154,36 @@ export default class ExceptionRequestResolutionService {
         }
       }
 
-      const oldestPeriod = await new EmployeeService(i18n).getOldestAvailableVacationPeriod(
+      // Con la regla "no adelantar vacaciones" solo cuentan los periodos que
+      // ya iniciaron; si el saldo está en uno futuro, se dice eso y no "sin días".
+      const employeeService = new EmployeeService(i18n)
+      const cutoff = await resolveFutureVacationCutoff({
+        user: auth.user,
+        employeeId: employee.employeeId,
+      })
+      const oldestPeriod = await employeeService.getOldestAvailableVacationPeriod(
         employee,
-        requestedDate
+        requestedDate,
+        { notStartingAfter: cutoff }
       )
+
+      if (!oldestPeriod && cutoff) {
+        const futurePeriod = await employeeService.getOldestAvailableVacationPeriod(
+          employee,
+          requestedDate
+        )
+        if (futurePeriod) {
+          const rejection = await assertVacationPeriodStarted({
+            user: auth.user,
+            employeeId: employee.employeeId,
+            vacationSettingId: futurePeriod.vacationSettingId,
+            i18n,
+          })
+          if (rejection) {
+            return { ok: false, status: rejection.status, body: rejection.body }
+          }
+        }
+      }
 
       if (!oldestPeriod) {
         return {

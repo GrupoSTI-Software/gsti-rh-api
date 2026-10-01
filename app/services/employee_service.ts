@@ -1903,11 +1903,14 @@ export default class EmployeeService {
    * Usado al aprobar solicitudes de vacaciones para asignar el día al periodo más antiguo con cupo.
    * @param employee - Empleado
    * @param vacationDate - Fecha de la vacación solicitada
+   * @param options.notStartingAfter - Con la regla "no adelantar vacaciones",
+   *   hoy (`yyyy-MM-dd`): se descartan los periodos que inician después.
    * @returns { vacationSettingId, year } del periodo más antiguo con días disponibles, o null
    */
   async getOldestAvailableVacationPeriod(
     employee: Employee,
-    vacationDate: DateTime
+    vacationDate: DateTime,
+    options: { notStartingAfter?: string | null } = {}
   ): Promise<{ vacationSettingId: number; year: number } | null> {
     if (!employee.employeeHireDate) {
       return null
@@ -1941,6 +1944,12 @@ export default class EmployeeService {
 
     for (let checkYear = startYear; checkYear <= vacationYear; checkYear++) {
       const yearsPassed = checkYear - startYear
+      if (
+        options.notStartingAfter &&
+        vacationPeriodDates(start, checkYear).periodStartsAt > options.notStartingAfter
+      ) {
+        break
+      }
 
       const checkFormattedDate = DateTime.fromObject({
         year: checkYear,
