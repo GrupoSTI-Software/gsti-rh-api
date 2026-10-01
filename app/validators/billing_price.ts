@@ -15,7 +15,5 @@ export const createBillingPriceValidator = vine.compile(
       .string()
       .trim()
       .regex(/^\d{4}-\d{2}-\d{2}$/),
-    billingPlanPriceStripePriceId: vine.string().trim().maxLength(120).optional().nullable(),
-    billingPlanPriceProvider: vine.string().trim().maxLength(20).optional(),
   })
 )

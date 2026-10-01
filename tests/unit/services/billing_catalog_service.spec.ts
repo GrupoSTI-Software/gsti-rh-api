@@ -1,4 +1,11 @@
+import { DateTime } from 'luxon'
 import { test } from '@japa/runner'
+import BillingPlan from '#models/billing_plan'
+import BillingPlanPrice from '#models/billing_plan_price'
+import BillingVolumeTier from '#models/billing_volume_tier'
+import { BILLING_PROVIDER_KEYS } from '#modules/billing-provider/billing_provider.port'
+import BillingCatalogService from '#services/billing_catalog_service'
+import { toBusinessDateString } from '#utils/business_date'
 import { BILLING_CATALOG_ERROR_CODES } from '../../../app/constants/billing_catalog_error_codes.js'
 import { BillingCatalogServiceError } from '../../../app/exceptions/billing_catalog_service_error.js'
 import { resolveBillingCatalogApiError } from '../../../app/helpers/billing_catalog_api_error.js'
@@ -1710,5 +1717,118 @@ test.group('BillingCatalogService — deactivatePlan: retiro quita la marca de p
       const result = applyDeactivate(plan)
       assert.equal(result.billingPlanIsPublic, 0, `Fallo con isPublic=${plan.billingPlanIsPublic}`)
     }
+  })
+})
+
+// ---------------------------------------------------------------------------
+// USRH1790712873743 — proveedor e ids solo por vinculación
+// ---------------------------------------------------------------------------
+
+/** No invocar: solo verifica @ts-expect-error (CA-4b). */
+function _createPlanInputStripeCompileChecks(_catalog: BillingCatalogService): void {
+  // @ts-expect-error stripe no compila en CreatePlanInput
+  _catalog.createPlan({ billingPlanName: 'X', billingPlanProvider: 'stripe' })
+  // @ts-expect-error ids de Stripe no están en CreatePlanInput
+  _catalog.createPlan({ billingPlanName: 'X', billingPlanStripeProductId: 'prod_evil' })
+  _catalog.addPrice(1, {
+    billingPlanPriceAmount: 1,
+    billingPlanPriceEffectiveFrom: '2026-10-01',
+    // @ts-expect-error provider de precio no está en CreatePriceInput
+    billingPlanPriceProvider: 'stripe',
+  })
+}
+
+test.group('BillingCatalogService — restricción Stripe (3743 / CA-4)', () => {
+  test('CA-4b — CreatePlanInput rechaza stripe en typecheck', ({ assert }) => {
+    assert.isFunction(_createPlanInputStripeCompileChecks)
+  })
+
+  test('createPlan y addPrice persisten manual sin referencias', async ({ assert }) => {
+    const catalog = new BillingCatalogService()
+    const stamp = Date.now()
+    const plan = await catalog.createPlan({
+      billingPlanName: `Restrict ${stamp}`,
+      billingPlanDescription: 'CA-4',
+    })
+    assert.equal(plan.billingPlanProvider, BILLING_PROVIDER_KEYS.MANUAL)
+    assert.isNull(plan.billingPlanStripeProductId)
+
+    const price = await catalog.addPrice(plan.billingPlanId, {
+      billingPlanPriceAmount: 79,
+      billingPlanPriceEffectiveFrom: toBusinessDateString(DateTime.now().plus({ months: 1 })),
+    })
+    assert.equal(price.billingPlanPriceProvider, BILLING_PROVIDER_KEYS.MANUAL)
+    assert.isNull(price.billingPlanPriceStripePriceId)
+  })
+
+  test('createPlan con billingPlanProvider MANUAL en tipo persiste manual', async ({ assert }) => {
+    const catalog = new BillingCatalogService()
+    const plan = await catalog.createPlan({
+      billingPlanName: `Fixture manual ${Date.now()}`,
+      billingPlanProvider: BILLING_PROVIDER_KEYS.MANUAL,
+    })
+    assert.equal(plan.billingPlanProvider, BILLING_PROVIDER_KEYS.MANUAL)
+  })
+})
+
+test.group('BillingCatalogService — updatePlan no toca producto (3743 / CA-5)', () => {
+  test('PATCH lógico conserva billingPlanStripeProductId', async ({ assert }) => {
+    const catalog = new BillingCatalogService()
+    const plan = await BillingPlan.create({
+      billingPlanName: `Draft prod ${Date.now()}`,
+      billingPlanDescription: 'antes',
+      billingPlanProvider: BILLING_PROVIDER_KEYS.MANUAL,
+      billingPlanStripeProductId: 'prod_A',
+      billingPlanActive: 1,
+      billingPlanPublishedAt: null,
+    })
+
+    const updated = await catalog.updatePlan(plan.billingPlanId, {
+      billingPlanDescription: 'nueva',
+    })
+    assert.equal(updated.billingPlanDescription, 'nueva')
+    assert.equal(updated.billingPlanStripeProductId, 'prod_A')
+  })
+})
+
+test.group('BillingCatalogService — clonePlan manual (3743 / CA-6)', () => {
+  test('clon manual aunque origen stripe', async ({ assert }) => {
+    const catalog = new BillingCatalogService()
+    const stamp = Date.now()
+    const source = await BillingPlan.create({
+      billingPlanName: `Stripe source ${stamp}`,
+      billingPlanDescription: null,
+      billingPlanProvider: BILLING_PROVIDER_KEYS.STRIPE,
+      billingPlanStripeProductId: 'prod_A',
+      billingPlanActive: 1,
+      billingPlanPublishedAt: DateTime.now(),
+    })
+
+    await BillingPlanPrice.create({
+      billingPlanId: source.billingPlanId,
+      billingPlanPriceAmount: 65,
+      billingPlanPriceCurrency: 'MXN',
+      billingPlanPriceTaxRate: 0.16,
+      billingPlanPriceTrialDays: 7,
+      billingPlanPriceEffectiveFrom: '2025-01-01',
+      billingPlanPriceProvider: BILLING_PROVIDER_KEYS.STRIPE,
+      billingPlanPriceStripePriceId: 'price_A',
+    })
+
+    await BillingVolumeTier.create({
+      billingPlanId: source.billingPlanId,
+      billingVolumeTierMinEmployees: 1,
+      billingVolumeTierDiscountPercent: 0,
+    })
+
+    const clone = await catalog.clonePlan(source.billingPlanId)
+    assert.equal(clone.billingPlanProvider, BILLING_PROVIDER_KEYS.MANUAL)
+    assert.isNull(clone.billingPlanStripeProductId)
+
+    const clonePrice = await BillingPlanPrice.query()
+      .where('billing_plan_id', clone.billingPlanId)
+      .firstOrFail()
+    assert.equal(clonePrice.billingPlanPriceProvider, BILLING_PROVIDER_KEYS.MANUAL)
+    assert.isNull(clonePrice.billingPlanPriceStripePriceId)
   })
 })

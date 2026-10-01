@@ -1,5 +1,7 @@
 import { test } from '@japa/runner'
 import { HttpContext } from '@adonisjs/core/http'
+import BillingPlanPrice from '#models/billing_plan_price'
+import { createBillingPriceValidator } from '#validators/billing_price'
 import BillingPriceController from '../../../app/controllers/billing_price_controller.js'
 
 // ---------------------------------------------------------------------------
@@ -314,5 +316,42 @@ test.group('BillingPriceController.linkStripe', () => {
     assert.equal(captured.status, 500)
     assert.equal(captured.body?.code, 'PLT.PRV.STRIPE_NOT_CONFIGURED')
     assert.equal(captured.body?.title, 'Proveedor de cobro')
+  })
+})
+
+test.group('BillingPriceController.store — Stripe descartado (3743 / CA-3)', () => {
+  test('pasa al servicio solo campos de precio permitidos', async ({ assert }) => {
+    let captured: Record<string, unknown> | null = null
+    const controller = new BillingPriceController()
+    ;(controller as unknown as { service: { addPrice: (planId: number, input: unknown) => Promise<BillingPlanPrice> } }).service =
+      {
+        async addPrice(_planId, input) {
+          captured = input as Record<string, unknown>
+          return { billingPlanPriceId: 1 } as BillingPlanPrice
+        },
+      }
+
+    const body = {
+      billingPlanPriceAmount: 79,
+      billingPlanPriceEffectiveFrom: '2026-10-01',
+      billingPlanPriceProvider: 'stripe',
+      billingPlanPriceStripePriceId: 'price_evil',
+    }
+    const { response, captured: http } = makeResponse()
+    await controller.store({
+      params: { planId: '2' },
+      request: {
+        async validateUsing(validator: typeof createBillingPriceValidator) {
+          return validator.validate(body)
+        },
+      },
+      response,
+    } as unknown as HttpContext)
+
+    assert.equal(http.status, 201)
+    assert.deepEqual(captured, {
+      billingPlanPriceAmount: 79,
+      billingPlanPriceEffectiveFrom: '2026-10-01',
+    })
   })
 })

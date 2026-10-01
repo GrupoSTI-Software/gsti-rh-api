@@ -26,14 +26,13 @@ const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
 export interface CreatePlanInput {
   billingPlanName: string
   billingPlanDescription?: string | null
-  billingPlanProvider?: string
-  billingPlanStripeProductId?: string | null
+  /** Solo compatibilidad con fixtures: se ignora, siempre se escribe manual. */
+  billingPlanProvider?: typeof BILLING_PROVIDER_KEYS.MANUAL
 }
 
 export interface UpdatePlanInput {
   billingPlanName?: string
   billingPlanDescription?: string | null
-  billingPlanStripeProductId?: string | null
   billingPlanActive?: number
 }
 
@@ -43,8 +42,6 @@ export interface CreatePriceInput {
   billingPlanPriceTaxRate?: number
   billingPlanPriceTrialDays?: number
   billingPlanPriceEffectiveFrom: string
-  billingPlanPriceStripePriceId?: string | null
-  billingPlanPriceProvider?: string
 }
 
 export interface CreateTierInput {
@@ -160,8 +157,8 @@ export default class BillingCatalogService {
     return BillingPlan.create({
       billingPlanName: input.billingPlanName,
       billingPlanDescription: input.billingPlanDescription ?? null,
-      billingPlanProvider: input.billingPlanProvider ?? 'manual',
-      billingPlanStripeProductId: input.billingPlanStripeProductId ?? null,
+      billingPlanProvider: BILLING_PROVIDER_KEYS.MANUAL,
+      billingPlanStripeProductId: null,
       billingPlanActive: 1,
       billingPlanPublishedAt: null,
     })
@@ -184,8 +181,6 @@ export default class BillingCatalogService {
     }
     if (input.billingPlanDescription !== undefined)
       plan.billingPlanDescription = input.billingPlanDescription
-    if (input.billingPlanStripeProductId !== undefined)
-      plan.billingPlanStripeProductId = input.billingPlanStripeProductId
 
     // El estado de venta (billingPlanActive) no se edita por esta vía: tiene
     // endpoints dedicados (`/publish` y `/deactivate`). Solo se rechaza
@@ -371,6 +366,7 @@ export default class BillingCatalogService {
    *  - No puede existir más de un clon en borrador vivo por plan origen a la vez.
    *  - Copia nombre, descripción, únicamente el precio VIGENTE (no el historial completo) y los tramos activos.
    *  - El clon queda con `billingPlanParentId` apuntando al origen (linaje).
+   *  - Nace en cobro manual y sin referencias de Stripe (USRH1790712873743), aunque el origen estuviera vinculado.
    */
   async clonePlan(planId: number): Promise<BillingPlan> {
     const source = await this.getPlan(planId)
@@ -422,7 +418,7 @@ export default class BillingCatalogService {
         {
           billingPlanName: `${source.billingPlanName} (copia)`,
           billingPlanDescription: source.billingPlanDescription,
-          billingPlanProvider: source.billingPlanProvider,
+          billingPlanProvider: BILLING_PROVIDER_KEYS.MANUAL,
           billingPlanStripeProductId: null,
           billingPlanActive: 1,
           billingPlanPublishedAt: null,
@@ -441,7 +437,7 @@ export default class BillingCatalogService {
             billingPlanPriceTrialDays: currentPrice.billingPlanPriceTrialDays,
             billingPlanPriceEffectiveFrom: currentPrice.billingPlanPriceEffectiveFrom,
             billingPlanPriceStripePriceId: null,
-            billingPlanPriceProvider: 'manual',
+            billingPlanPriceProvider: BILLING_PROVIDER_KEYS.MANUAL,
           },
           { client: trx }
         )
@@ -533,8 +529,8 @@ export default class BillingCatalogService {
       billingPlanPriceTaxRate: input.billingPlanPriceTaxRate ?? 0.16,
       billingPlanPriceTrialDays: input.billingPlanPriceTrialDays ?? 7,
       billingPlanPriceEffectiveFrom: input.billingPlanPriceEffectiveFrom,
-      billingPlanPriceStripePriceId: input.billingPlanPriceStripePriceId ?? null,
-      billingPlanPriceProvider: input.billingPlanPriceProvider ?? 'manual',
+      billingPlanPriceStripePriceId: null,
+      billingPlanPriceProvider: BILLING_PROVIDER_KEYS.MANUAL,
     })
   }
 

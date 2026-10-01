@@ -93,12 +93,6 @@ export default class BillingPriceController {
    *                 type: string
    *                 format: date
    *                 description: Fecha YYYY-MM-DD desde la que aplica este precio
-   *               billingPlanPriceStripePriceId:
-   *                 type: string
-   *                 nullable: true
-   *               billingPlanPriceProvider:
-   *                 type: string
-   *                 default: manual
    *     responses:
    *       '201':
    *         description: Versión de precio creada
