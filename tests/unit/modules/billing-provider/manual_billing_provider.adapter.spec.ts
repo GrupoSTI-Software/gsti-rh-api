@@ -28,3 +28,33 @@ test.group('ManualBillingProviderAdapter (USRH1790708507467 / CA-7)', () => {
     )
   })
 })
+
+test.group('ManualBillingProviderAdapter — catálogo (7553 / CA-14)', () => {
+  test('las cuatro operaciones de catálogo lanzan OPERATION_NOT_AVAILABLE', async ({ assert }) => {
+    const adapter = new ManualBillingProviderAdapter()
+    const calls = [
+      () => adapter.createCatalogProduct({ billingPlanId: 1, name: 'X' }),
+      () =>
+        adapter.createCatalogPrice({
+          productRef: 'prod_1',
+          billingPlanId: 1,
+          billingPlanPriceId: 2,
+          currency: 'MXN',
+          unitAmountCents: 0,
+          intervalMonths: 1,
+        }),
+      () => adapter.archiveCatalogProduct('prod_1'),
+      () => adapter.archiveCatalogPrice('price_1'),
+    ] as const
+
+    for (const call of calls) {
+      try {
+        await call()
+        assert.fail('Debió lanzar')
+      } catch (error) {
+        assert.equal((error as { errorCode?: string }).errorCode, 'PLT.PRV.OPERATION_NOT_AVAILABLE')
+        assert.equal((error as { key?: string }).key, 'operacion-de-cobro-no-disponible')
+      }
+    }
+  })
+})

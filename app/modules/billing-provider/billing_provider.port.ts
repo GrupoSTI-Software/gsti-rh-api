@@ -41,3 +41,39 @@ export interface BillingProviderPort {
   /** Lanza BillingProviderServiceError si el proveedor no admite pagos capturados por operación. */
   admitRecordedPayment(request: RecordedPaymentRequest): Promise<void>
 }
+
+export interface CatalogProductDraft {
+  billingPlanId: number
+  name: string
+}
+
+export interface CatalogPriceDraft {
+  productRef: string
+  billingPlanId: number
+  billingPlanPriceId: number
+  currency: string
+  unitAmountCents: 0
+  intervalMonths: 1
+}
+
+export interface ProviderObjectRef {
+  externalId: string
+}
+
+/** Operaciones de catálogo en Stripe (USRH1790708507553); interfaz aparte del alta de suscripción. */
+export interface BillingCatalogProviderPort {
+  createCatalogProduct(draft: CatalogProductDraft): Promise<ProviderObjectRef>
+  createCatalogPrice(draft: CatalogPriceDraft): Promise<ProviderObjectRef>
+  archiveCatalogProduct(externalId: string): Promise<void>
+  archiveCatalogPrice(externalId: string): Promise<void>
+}
+
+export function isBillingCatalogProvider(
+  provider: BillingProviderPort
+): provider is BillingProviderPort & BillingCatalogProviderPort {
+  const candidate = provider as unknown as BillingCatalogProviderPort
+  return (
+    typeof candidate.createCatalogProduct === 'function' &&
+    typeof candidate.createCatalogPrice === 'function'
+  )
+}

@@ -9,6 +9,8 @@ export const BILLING_PROVIDER_ERROR_CODES = {
   OPERATION_NOT_AVAILABLE: 'PLT.PRV.OPERATION_NOT_AVAILABLE',
   /** Stripe deshabilitado o sin llaves válidas en el entorno */
   STRIPE_NOT_CONFIGURED: 'PLT.PRV.STRIPE_NOT_CONFIGURED',
+  /** Stripe rechazó la operación o no respondió (USRH1790708507553) */
+  PROVIDER_REQUEST_FAILED: 'PLT.PRV.PROVIDER_REQUEST_FAILED',
 } as const
 
 export type BillingProviderErrorCode =
@@ -25,3 +27,7 @@ export const BILLING_PROVIDER_OPERATION_NOT_AVAILABLE_DETAIL =
 /** Texto fijo cuando Stripe no está configurado en el entorno (USRH1790708507496). */
 export const BILLING_PROVIDER_STRIPE_NOT_CONFIGURED_DETAIL =
   'El cobro con Stripe no está configurado en este entorno.'
+
+/** Texto fijo cuando Stripe no completa la operación (USRH1790708507553). */
+export const BILLING_PROVIDER_PROVIDER_REQUEST_FAILED_DETAIL =
+  'El proveedor de cobro no pudo completar la operación. Intenta de nuevo.'
