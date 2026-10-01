@@ -1,13 +1,16 @@
 import { DateTime } from 'luxon'
 
 /**
- * Meses entre el fin del periodo y la prescripcion de los dias no gozados.
+ * Meses entre el inicio del periodo y la prescripcion de sus dias.
  *
- * El derecho nace al cumplir el año de servicio, que es el ultimo dia del
- * periodo. Desde ahi el patron tiene seis meses para otorgarlas (LFT art. 81)
- * y el trabajador un año para reclamarlas (LFT art. 516): 18 meses.
+ * En Valanserh los dias de un periodo se ganan en el aniversario que lo abre:
+ * el periodo nov-2025 a nov-2026 trae los dias por los años cumplidos en
+ * nov-2025. Desde ese aniversario el patron tiene seis meses para otorgarlas
+ * (LFT art. 81) y el trabajador un año para reclamarlas (LFT art. 516). Es lo
+ * mismo que dice la pantalla: el año del periodo para gozarlas y seis meses mas
+ * para reclamarlas.
  */
-export const VACATION_PRESCRIPTION_MONTHS_AFTER_PERIOD = 18
+export const VACATION_PRESCRIPTION_MONTHS_AFTER_START = 18
 
 export const VACATION_PERIOD_STATE = {
   /** El periodo todavia corre. */
@@ -25,7 +28,7 @@ export interface VacationPeriodDates {
   periodStartsAt: string
   /** Vispera del siguiente aniversario. */
   periodEndsAt: string
-  /** Dia en que prescriben los dias no gozados de este periodo. */
+  /** Ultimo dia para gozar o reclamar los dias no gozados de este periodo. */
   prescribesAt: string
   state: VacationPeriodState
 }
@@ -47,7 +50,7 @@ export function vacationPeriodDates(
 ): VacationPeriodDates {
   const start = hireDate.startOf('day').plus({ years: year - hireDate.year })
   const end = start.plus({ years: 1 }).minus({ days: 1 })
-  const prescribes = end.plus({ months: VACATION_PRESCRIPTION_MONTHS_AFTER_PERIOD })
+  const prescribes = start.plus({ months: VACATION_PRESCRIPTION_MONTHS_AFTER_START }).minus({ days: 1 })
   const day = today.startOf('day')
 
   const state =
