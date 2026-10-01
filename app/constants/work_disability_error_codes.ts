@@ -11,4 +11,14 @@ export const WORK_DISABILITY_ERROR_CODES = {
   FILE_TOO_LARGE: 'WD.VAL.FILE.002',
   /** Registrado en BD pero no encontrado en el almacenamiento (S3). */
   FILE_NOT_IN_STORAGE: 'WD.NF.FILE.001',
+  /** Folio ausente o fuera del formato del IMSS (dos letras y seis dígitos). */
+  FOLIO_INVALID: 'WD.VAL.FOLIO.001',
+  /** El folio ya está asignado a otro periodo de la empresa. */
+  FOLIO_DUPLICATED: 'WD.VAL.FOLIO.002',
+  /** El rango se empalma con otro periodo del colaborador. */
+  PERIOD_OVERLAP: 'WD.VAL.PER.001',
+  /** El periodo inicial no se borra suelto: se borra la incapacidad. */
+  INITIAL_PERIOD_LOCKED: 'WD.VAL.PER.002',
+  /** Cobertura o tipo de periodo que no existe o no aplica. */
+  INVALID_CATALOG: 'WD.VAL.CAT.001',
 } as const
