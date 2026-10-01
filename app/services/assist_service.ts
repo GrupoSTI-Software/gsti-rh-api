@@ -3712,6 +3712,11 @@ export default class AssistsService {
   }
 
   getFaultsFromDelays(delays: number, tardies: number) {
+    // Sin cantidad configurada (0) los retardos no se convierten en faltas;
+    // antes dividía entre cero y el bloqueo saltaba con un solo retardo.
+    if (tardies <= 0) {
+      return 0
+    }
     const faults = Math.floor(delays / tardies) // Cada 3 retardos es 1 falta
     return faults
   }
