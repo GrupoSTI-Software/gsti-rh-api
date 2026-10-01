@@ -116,13 +116,16 @@ export default class EmployeeAccessService {
     return User.query().where('person_id', employee.personId).whereNull('user_deleted_at').first()
   }
 
-  /** Usuarios que pueden consultar al colaborador; la jefatura directa primero. */
+  /**
+   * Usuarios que pueden consultar al colaborador; la jefatura directa primero.
+   * Su propio usuario no se lista: cada quien ve siempre su información.
+   */
   async consultedBy(employee: Employee, scope: AccessScope): Promise<ConsultedByItem[]> {
     const rows = await UserResponsibleEmployee.query()
       .where('employee_id', employee.employeeId)
       .whereNull('user_responsible_employee_deleted_at')
       .whereHas('user', (userQuery) => {
-        userQuery.whereNull('user_deleted_at')
+        userQuery.whereNull('user_deleted_at').whereNot('person_id', employee.personId)
       })
       .preload('user')
       .orderBy('user_responsible_employee_direct_boss', 'desc')
@@ -146,7 +149,10 @@ export default class EmployeeAccessService {
     })
   }
 
-  /** Colaboradores que el usuario del colaborador puede consultar. */
+  /**
+   * Colaboradores que el usuario del colaborador puede consultar. Su propia
+   * ficha no se lista: cada quien ve siempre su información.
+   */
   async canConsult(employeeUser: User | null, scope: AccessScope): Promise<CanConsultItem[]> {
     if (!employeeUser) return []
     const rows = await UserResponsibleEmployee.query()
@@ -156,6 +162,7 @@ export default class EmployeeAccessService {
         employeeQuery
           .whereIn('business_unit_id', scope.businessUnitIds)
           .whereNull('employee_deleted_at')
+          .whereNot('person_id', employeeUser.personId)
         this.restrictToVisible(employeeQuery, scope)
       })
       .preload('employee', (employeeQuery) => {

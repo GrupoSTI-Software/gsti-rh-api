@@ -83,6 +83,8 @@ test.group('Acceso a personal', (group) => {
 
     await grant(edgarUser.userId, wilvardo.employee.employeeId, 1)
     await grant(wilvardoUser.userId, jesus.employee.employeeId)
+    // Acceso a sí mismo: existe en los datos, pero no se lista.
+    await grant(wilvardoUser.userId, wilvardo.employee.employeeId)
 
     return async () => {
       const employeeIds = fixtures.map((fixture) => fixture.employee.employeeId)
@@ -108,6 +110,10 @@ test.group('Acceso a personal', (group) => {
     response.assertStatus(200)
     const items = response.body().data.consultedBy as Array<Record<string, unknown>>
     assert.equal(items[0].userId, edgarUser.userId)
+    assert.notInclude(
+      items.map((item) => item.userId),
+      wilvardoUser.userId
+    )
     assert.isTrue(items[0].isDirectBoss)
     assert.isString(items[0].position)
     assert.isString(items[0].department)
