@@ -45,3 +45,7 @@ router
   })
   .prefix('/api/vacation-authorizations')
   .use(middleware.auth())
+  // Sin el alcance de empresa, los modelos con scope (ShiftException) no
+  // encuentran nada en una petición HTTP: firmar respondía "success" sin
+  // guardar ninguna firma.
+  .use(middleware.businessScope())
