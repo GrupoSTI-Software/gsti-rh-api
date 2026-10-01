@@ -1,3 +1,4 @@
+import { vacationPeriodDates } from '#modules/employee-vacations/vacation_period_dates'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Department from '#models/department'
@@ -1637,7 +1638,15 @@ export default class EmployeeService {
             } as any
           })
         }
-        yearsWroked.push({ year, yearsPassed, vacationSetting, vacationsUsedList })
+        // Fechas del periodo y su prescripcion: la regla legal vive aqui, no en
+        // cada pantalla que la muestra.
+        yearsWroked.push({
+          year,
+          yearsPassed,
+          vacationSetting,
+          vacationsUsedList,
+          ...vacationPeriodDates(start, year),
+        })
       }
       return {
         status: 200,
