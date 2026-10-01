@@ -21,9 +21,27 @@ router
           EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.signVacationShiftExceptions
         )
       )
-    router.get('/pending', '#controllers/vacation_authorization_signatures_controller.getPendingVacationRequests')
-    router.get('/authorized', '#controllers/vacation_authorization_signatures_controller.getAuthorizedVacationRequests')
-    router.get('/shift-exceptions', '#controllers/vacation_authorization_signatures_controller.getVacationShiftExceptions')
+    router
+      .get('/pending', '#controllers/vacation_authorization_signatures_controller.getPendingVacationRequests')
+      .use(
+        middleware.permissionGate(
+          EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.listVacationAuthorizationRequests
+        )
+      )
+    router
+      .get('/authorized', '#controllers/vacation_authorization_signatures_controller.getAuthorizedVacationRequests')
+      .use(
+        middleware.permissionGate(
+          EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.listVacationAuthorizationRequests
+        )
+      )
+    router
+      .get('/shift-exceptions', '#controllers/vacation_authorization_signatures_controller.getVacationShiftExceptions')
+      .use(
+        middleware.permissionGate(
+          EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.listVacationAuthorizationRequests
+        )
+      )
   })
   .prefix('/api/vacation-authorizations')
   .use(middleware.auth())
