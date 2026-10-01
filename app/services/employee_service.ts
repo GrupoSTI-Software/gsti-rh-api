@@ -1,4 +1,5 @@
 import { vacationPeriodDates } from '#modules/employee-vacations/vacation_period_dates'
+import { attendanceStatusCellColor } from '#helpers/attendance_report_cell_color'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Department from '#models/department'
@@ -6882,32 +6883,6 @@ export default class EmployeeService {
     const PROXIMO_BG = 'FFFFFFFF'
     const PROXIMO_TEXT_COLOR = 'FF808080'
 
-    // Función para obtener color según estado de asistencia (gama de la imagen: verde, naranja, azul claro, rojo claro)
-    const getStatusColor = (checkInStatus: string | null | undefined, checkOutStatus: string | null | undefined): string => {
-      const checkIn = (checkInStatus || '').trim()
-      const checkOut = (checkOutStatus || '').trim()
-      const status = checkIn || checkOut
-
-      if (!status && (checkInStatus !== null || checkOutStatus !== null)) {
-        return 'FFC6EFCE' // Verde claro (ontime por defecto)
-      }
-
-      switch (status.toLowerCase()) {
-        case 'ontime':
-          return 'FFC6EFCE' // Verde claro
-        case 'tolerance':
-          return 'FFB7D8FA' // Azul claro
-        case 'delay':
-          return 'FFFFC000' // Naranja
-        case 'fault':
-          return 'FFFFAAA3' // Rojo claro
-        case 'exception':
-          return 'FFFFFFFF'
-        default:
-          return status ? 'FFC6EFCE' : 'FFFFFFFF'
-      }
-    }
-
     // Función para obtener texto del turno (alias o horario)
     const getShiftDisplayText = (assist: AssistDayInterface['assist']): string => {
       if (!assist?.dateShift) return ''
@@ -7366,12 +7341,7 @@ export default class EmployeeService {
               }
               // PRIORIDAD 2: Hay turno y NO es especial → color según estado (verde, naranja, azul, rojo)
               else if (assist.dateShift) {
-                const checkInStatus = assist.checkInStatus || ''
-                const checkOutStatus = assist.checkOutStatus || ''
-                cellColor = getStatusColor(checkInStatus, checkOutStatus)
-                if (cellColor === 'FFFFFFFF' && assist.dateShift) {
-                  cellColor = 'FFC6EFCE' // Verde claro (ontime por defecto)
-                }
+                cellColor = attendanceStatusCellColor(assist.checkInStatus)
               } else {
                 cellColor = 'FFFFFFFF' // Sin turno asignado → blanco
               }
