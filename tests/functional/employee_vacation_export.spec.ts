@@ -9,9 +9,11 @@ import type { EmployeeFixture } from '#tests/helpers/employee_fixture'
 import { cleanupEmployeeFixture, createEmployeeFixture } from '#tests/helpers/employee_fixture'
 
 /**
- * Exportación de vacaciones desde la ficha del empleado: el mismo reporte del
- * calendario acotado a un colaborador, con `onlyOneYear` para que arranque en
- * la fecha pedida y no en la primera vacación de toda la empresa.
+ * Exportación de vacaciones desde la ficha del empleado: el resumen de control
+ * de vacaciones del calendario acotado a un colaborador. `onlyOneYear` hace
+ * que arranque en la fecha pedida y no en la primera vacación de toda la
+ * empresa; `periodOnly` deja un solo bloque con el rango completo del período
+ * en el título.
  */
 const HIRE_DATE = '2020-11-26'
 const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
@@ -19,10 +21,23 @@ const XLSX_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.s
 let actor: TenantActor | null = null
 let fixture: EmployeeFixture | null = null
 
-async function sheetNames(body: Buffer): Promise<string[]> {
+interface SummarySheet {
+  title: string
+  years: string[]
+  rows: number
+}
+
+/** Título, años de los bloques (fila 3) y filas de empleados del resumen. */
+async function readSummary(body: Buffer): Promise<SummarySheet> {
   const workbook = new ExcelJS.Workbook()
   await workbook.xlsx.load(body as unknown as ExcelJS.Buffer)
-  return workbook.worksheets.map((sheet) => sheet.name)
+  const sheet = workbook.worksheets[0]
+  const years: string[] = []
+  sheet.getRow(3).eachCell((cell) => {
+    const value = String(cell.value ?? '')
+    if (/^\d{4}$/.test(value) && !years.includes(value)) years.push(value)
+  })
+  return { title: String(sheet.getCell('A1').value ?? ''), years, rows: sheet.rowCount - 4 }
 }
 
 test.group('Exportar vacaciones del empleado', (group) => {
@@ -49,28 +64,32 @@ test.group('Exportar vacaciones del empleado', (group) => {
 
   const download = (client: ApiClient, qs: object) =>
     client
-      .get('/api/employees-vacations/get-excel')
+      .get('/api/employees-vacations/get-vacations-summary-excel')
       .qs({ employeeId: fixture!.employee.employeeId, onlyOneYear: true, ...qs })
       .loginAs(actor!.user)
       .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
 
-  test('el período elegido sale en una sola hoja', async ({ client, assert }) => {
-    const response = await download(client, { startDate: '2025-11-26', endDate: '2025-11-26' })
+  test('el período elegido sale en un bloque con su rango en el título', async ({
+    client,
+    assert,
+  }) => {
+    const response = await download(client, {
+      startDate: '2025-11-26',
+      endDate: '2026-11-25',
+      periodOnly: true,
+    })
     response.assertStatus(201)
-    assert.deepEqual(await sheetNames(response.body() as Buffer), ['2025'])
+    const summary = await readSummary(response.body() as Buffer)
+    assert.deepEqual(summary.years, ['2025'])
+    assert.include(summary.title, '2025')
+    assert.include(summary.title, '2026')
+    assert.equal(summary.rows, 1)
   })
 
-  test('el historial va del ingreso a hoy, una hoja por período', async ({ client, assert }) => {
+  test('el historial va del ingreso a hoy, un bloque por período', async ({ client, assert }) => {
     const response = await download(client, { startDate: HIRE_DATE, endDate: '2026-10-01' })
     response.assertStatus(201)
-    assert.deepEqual(await sheetNames(response.body() as Buffer), [
-      '2020',
-      '2021',
-      '2022',
-      '2023',
-      '2024',
-      '2025',
-      '2026',
-    ])
+    const summary = await readSummary(response.body() as Buffer)
+    assert.deepEqual(summary.years, ['2020', '2021', '2022', '2023', '2024', '2025', '2026'])
   })
 })
