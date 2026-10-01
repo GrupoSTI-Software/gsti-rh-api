@@ -74,10 +74,15 @@ export default class CalendarRecalcService {
     )
     if (Number(claimed) === 0) return { taken: 0, done: 0, failed: 0, recovered }
 
-    /** Solo lo que lleva la marca de ESTA corrida. */
+    /**
+     * Solo lo que lleva la marca de ESTA corrida. La consulta se espera DENTRO
+     * del bypass: devolver el query builder sin esperarlo la ejecutaba ya
+     * fuera del contexto, el filtro de empresa la bloqueaba y la corrida
+     * entera fallaba con los trabajos reclamados.
+     */
     const jobs = await TenantContext.runUnscoped(
-      () =>
-        AssistCalendarRecalcJob.query()
+      async () =>
+        await AssistCalendarRecalcJob.query()
           .where('assist_calendar_recalc_job_claimed_by', runId)
           .where('assist_calendar_recalc_job_status', 'processing')
           .orderBy('assist_calendar_recalc_job_id', 'asc'),
