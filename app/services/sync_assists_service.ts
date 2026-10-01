@@ -2275,15 +2275,25 @@ export default class SyncAssistsService {
       // Con el turno ya iniciado, la entrada que no llega se califica como se
       // calificaría si llegara en este momento: tolerancia, retardo y, pasada
       // la tolerancia de falta, falta. Antes del inicio el día es futuro y se
-      // queda como estaba.
+      // queda como estaba. Con un permiso que autoriza otra hora de entrada,
+      // se cuenta desde esa hora, y antes de ella el día no se califica.
       if (checkAssist.assist.checkInStatus === 'fault') {
-        const shiftStart = shiftStartInstant(checkAssist.day, checkAssist.assist.dateShift.shiftTimeStart, zone)
-        const minutesElapsed = minutesAfter(shiftStart, DateTime.utc())
+        const authorizedCheckIn = checkAssist.assist.exceptions.find(
+          (ex) => ex.shiftExceptionCheckInTime
+        )?.shiftExceptionCheckInTime
+        const expectedCheckIn = shiftStartInstant(
+          checkAssist.day,
+          authorizedCheckIn || checkAssist.assist.dateShift.shiftTimeStart,
+          zone
+        )
+        const minutesElapsed = minutesAfter(expectedCheckIn, DateTime.utc())
         if (minutesElapsed >= 0) {
           checkAssist.assist.checkInStatus = bucketMissingCheckIn(minutesElapsed, {
             delayMinutes: TOLERANCE_DELAY_MINUTES,
             faultMinutes: TOLERANCE_FAULT_MINUTES,
           })
+        } else if (authorizedCheckIn) {
+          checkAssist.assist.checkInStatus = ''
         }
       }
 

@@ -199,6 +199,25 @@ test.group('SyncAssistsService.checkInStatus — hoy, con el turno iniciado y si
     assert.equal(classifier().checkInStatus(day, 30, 10, false, CDMX).assist.checkInStatus, 'fault')
   })
 
+  test('con hora de entrada autorizada cuenta desde esa hora y antes no califica', ({ assert }) => {
+    const conPermiso = (): AssistDayInterface => {
+      const day = buildDay('2026-07-22', {}, turnoDeOcho)
+      day.assist.exceptions = [
+        { shiftExceptionCheckInTime: '10:00:00' },
+      ] as unknown as AssistDayInterface['assist']['exceptions']
+      return day
+    }
+
+    freezeAt('2026-07-22T14:20:00.000Z') // 08:20, antes de la hora autorizada
+    assert.equal(classifier().checkInStatus(conPermiso(), 30, 10, false, CDMX).assist.checkInStatus, '')
+
+    freezeAt('2026-07-22T16:05:00.000Z') // 10:05
+    assert.equal(
+      classifier().checkInStatus(conPermiso(), 30, 10, false, CDMX).assist.checkInStatus,
+      'tolerance'
+    )
+  })
+
   test('un colaborador discriminado sigue sin evaluarse', ({ assert }) => {
     freezeAt('2026-07-22T14:05:00.000Z')
     const day = buildDay('2026-07-22', {}, turnoDeOcho)
