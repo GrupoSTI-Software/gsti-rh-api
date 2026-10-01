@@ -64,6 +64,10 @@ export default defineConfig({
     () => import('#start/routes'),
     () => import('#start/kernel'),
     {
+      file: () => import('#start/billing_provider'),
+      environment: ['web'],
+    },
+    {
       file: () => import('#start/scheduler'),
       environment: ['console'],
     },

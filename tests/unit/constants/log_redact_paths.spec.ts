@@ -12,7 +12,11 @@ import {
 
 type CapturedLog = Record<string, unknown>
 
-function createCaptureLogger(options?: { paths?: string[] }) {
+function createCaptureLogger(options?: {
+  paths?: string[]
+  /** Sin esto, el serializer por defecto de pino omite `raw` antes de redactar. */
+  preserveErrFields?: boolean
+}) {
   const chunks: string[] = []
   const destination = new Writable({
     write(chunk, _encoding, callback) {
@@ -28,6 +32,9 @@ function createCaptureLogger(options?: { paths?: string[] }) {
         paths: options?.paths ?? [...LOG_REDACT_PATHS],
         censor: LOG_REDACT_CENSOR,
       },
+      ...(options?.preserveErrFields
+        ? { serializers: { err: (value: unknown) => value } }
+        : {}),
     },
     destination
   )
@@ -261,6 +268,39 @@ test.group('LOG_REDACT_PATHS — registro técnico (USRH1788551528000)', () => {
     const line = await readLine()
     assert.deepEqual(stripPinoMeta(line), payload)
     assert.notInclude(JSON.stringify(line), LOG_REDACT_CENSOR)
+  })
+
+  test('CA-12 (7496): error Stripe redacta raw y objetos de pago; conserva type, code y requestId', async ({
+    assert,
+  }) => {
+    const { logger, readLine } = createCaptureLogger({ preserveErrFields: true })
+    const stripeLikeError = {
+      message: 'Stripe card error',
+      stack: 'Error: Stripe card error\n    at test',
+      type: 'card_error',
+      code: 'card_declined',
+      requestId: 'req_fixture123',
+      raw: { secret: 'should-not-leak' },
+      payment_method: { id: 'pm_fixture', card: { last4: '4242' } },
+      payment_intent: { id: 'pi_fixture', client_secret: 'cs_fixture' },
+      setup_intent: { id: 'seti_fixture', client_secret: 'cs_setup_fixture' },
+      source: { id: 'src_fixture' },
+    }
+
+    logger.error({ err: stripeLikeError }, 'fallo stripe simulado')
+    const line = await readLine()
+    const errObj = line.err as Record<string, unknown>
+
+    assert.equal(errObj.raw, LOG_REDACT_CENSOR)
+    assert.equal(errObj.payment_method, LOG_REDACT_CENSOR)
+    assert.equal(errObj.payment_intent, LOG_REDACT_CENSOR)
+    assert.equal(errObj.setup_intent, LOG_REDACT_CENSOR)
+    assert.equal(errObj.source, LOG_REDACT_CENSOR)
+    assert.equal(errObj.type, 'card_error')
+    assert.equal(errObj.code, 'card_declined')
+    assert.equal(errObj.requestId, 'req_fixture123')
+    assert.notInclude(JSON.stringify(line), 'should-not-leak')
+    assert.notInclude(JSON.stringify(line), 'cs_fixture')
   })
 
   test('T9: conexión mysql declara compileSqlOnError en false', ({ assert }) => {

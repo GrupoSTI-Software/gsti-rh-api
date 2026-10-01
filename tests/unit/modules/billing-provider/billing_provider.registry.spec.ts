@@ -15,6 +15,7 @@ import {
   billingProviderRegistry,
   resolveBillingProvider,
 } from '#modules/billing-provider/billing_provider.registry'
+import StripeBillingProviderAdapter from '#modules/billing-provider/stripe_billing_provider.adapter'
 
 class StripeProbeAdapter implements BillingProviderPort {
   readonly key = BILLING_PROVIDER_KEYS.STRIPE
@@ -45,7 +46,13 @@ test.group('billingProviderRegistry — fail-closed (USRH1790708507467 / CA-6)',
     assert.equal(adapter.key, 'manual')
   })
 
-  for (const key of ['', 'Manual', ' manual ', 'manual ', 'stripe', 'desconocido'] as const) {
+  test('CA-8: resolve("stripe") devuelve StripeBillingProviderAdapter', ({ assert }) => {
+    const adapter = resolveBillingProvider('stripe')
+    assert.equal(adapter.key, 'stripe')
+    assert.instanceOf(adapter, StripeBillingProviderAdapter)
+  })
+
+  for (const key of ['', 'Manual', ' manual ', 'manual ', 'Stripe', 'stripe ', 'desconocido'] as const) {
     test(`resolve("${key}") lanza ADAPTER_NOT_REGISTERED`, ({ assert }) => {
       try {
         resolveBillingProvider(key)
@@ -61,7 +68,7 @@ test.group('billingProviderRegistry — fail-closed (USRH1790708507467 / CA-6)',
     })
   }
 
-  test('register restaura el adaptador anterior', ({ assert }) => {
+  test('register restaura el adaptador esqueleto de stripe', ({ assert }) => {
     const restore = billingProviderRegistry.register(new StripeProbeAdapter())
     try {
       assert.equal(resolveBillingProvider('stripe').key, 'stripe')
@@ -69,11 +76,7 @@ test.group('billingProviderRegistry — fail-closed (USRH1790708507467 / CA-6)',
       restore()
     }
 
-    try {
-      resolveBillingProvider('stripe')
-      assert.fail('Debió lanzar tras restaurar')
-    } catch (error) {
-      assertAdapterNotRegistered(error)
-    }
+    const adapter = resolveBillingProvider('stripe')
+    assert.instanceOf(adapter, StripeBillingProviderAdapter)
   })
 })

@@ -282,4 +282,25 @@ export default await Env.create(new URL('../', import.meta.url), {
   ADMS_COMMAND_RETENTION_DAYS: Env.schema.number.optional(),
   ADMS_PHOTO_PUBLICATION_RETENTION_DAYS: Env.schema.number.optional(),
   ADMS_QUARANTINE_RETENTION_DAYS: Env.schema.number.optional(),
+
+  /*
+  |----------------------------------------------------------
+  | Stripe — cobro recurrente con tarjeta (USRH1790708507496)
+  |----------------------------------------------------------
+  */
+  /**
+   * Llave secreta o restringida de Stripe (`sk_*` / `rk_*`). Opcional: sin ella el
+   * arranque sigue y el cobro manual no cambia. La forma y el modo (prueba/en vivo)
+   * se validan en el módulo del proveedor, no aquí, para no detener el servidor.
+   */
+  STRIPE_SECRET_KEY: Env.schema.string.optional(),
+  /**
+   * Llave publicable (`pk_*`). Opcional; la entrega el API al preparar captura de
+   * tarjeta en historias posteriores. Nunca se expone en esta HU.
+   */
+  STRIPE_PUBLISHABLE_KEY: Env.schema.string.optional(),
+  /**
+   * Secreto de firma de webhooks (`whsec_*`). Opcional; lo usa la HU de webhooks.
+   */
+  STRIPE_WEBHOOK_SECRET: Env.schema.string.optional(),
 })

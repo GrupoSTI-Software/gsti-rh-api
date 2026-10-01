@@ -9,6 +9,11 @@ import {
   type BillingProviderPort,
 } from '#modules/billing-provider/billing_provider.port'
 import ManualBillingProviderAdapter from '#modules/billing-provider/manual_billing_provider.adapter'
+import StripeBillingProviderAdapter from '#modules/billing-provider/stripe_billing_provider.adapter'
+import {
+  readStripeRawSettings,
+  resolveStripeSettings,
+} from '#modules/billing-provider/stripe_billing_provider.config'
 
 class BillingProviderRegistry {
   private readonly adapters = new Map<BillingProviderKey, BillingProviderPort>()
@@ -51,8 +56,13 @@ function adapterNotRegisteredError(key: string): BillingProviderServiceError {
   )
 }
 
+export const stripeBillingProvider = new StripeBillingProviderAdapter(
+  resolveStripeSettings(readStripeRawSettings())
+)
+
 export const billingProviderRegistry = new BillingProviderRegistry()
 billingProviderRegistry.register(new ManualBillingProviderAdapter())
+billingProviderRegistry.register(stripeBillingProvider)
 
 export function resolveBillingProvider(key: string): BillingProviderPort {
   return billingProviderRegistry.resolve(key)
