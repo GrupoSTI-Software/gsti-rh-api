@@ -8299,14 +8299,14 @@ paths:
                     key: tipo-de-documento-invalido
                     code: LGDOC.VAL.001
 
-  /api/legal-documents:
+  /api/platform/legal-documents:
     get:
-      summary: "[Gestión GSTI] Histórico de versiones de un tipo de documento legal"
+      summary: "[Plataforma] Histórico de versiones de un tipo de documento legal"
       description: |
         Devuelve todas las versiones (borrador y publicadas) de un tipo de documento
-        legal, con cuál está vigente. Reservado al rol `root`; cualquier otro rol
-        recibe 403, incluida esta consulta de solo lectura. Sin `X-Business-Unit-Id`:
-        documento global de plataforma.
+        legal, con cuál está vigente. Reservado a usuarios de plataforma con token
+        de la consola (`origin = 'platform'`); cualquier otro actor recibe 403.
+        Dato global de plataforma, sin scope de tenant.
       tags: [LegalDocuments]
       security:
         - bearerAuth: []
@@ -8372,18 +8372,15 @@ paths:
                 data:
                   refreshable: true
         '403':
-          description: El usuario autenticado no tiene rol `root`
+          description: El actor no es usuario de plataforma o su token no es de la consola
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
               example:
-                type: error
-                title: Sin permiso
-                message: No tienes permiso para realizar esta operación.
-                key: sin-permiso
-                errorCode: LGDOC.FORB.001
-                data: null
+                title: Acceso restringido a plataforma
+                detail: Esta sección es exclusiva de administradores de plataforma.
+                key: AUTH.PLATFORM.FORBIDDEN
         '422':
           description: El parámetro `type` es inválido o falta
           content:
@@ -8397,13 +8394,13 @@ paths:
                 key: tipo-de-documento-invalido
                 code: LGDOC.VAL.001
     post:
-      summary: "[Gestión GSTI] Crear una versión en borrador"
+      summary: "[Plataforma] Crear una versión en borrador"
       description: |
         Crea una versión nueva en `status='draft'` (nunca vigente). El contenido
         puede llegar con un solo idioma completo (regla de negocio 8): la
         obligatoriedad de ambos idiomas se valida al publicar, no al crear el
         borrador. El contenido se sanea por idioma en el servidor antes de
-        persistir. Reservado al rol `root`.
+        persistir. Reservado a usuarios de plataforma con token de la consola.
       tags: [LegalDocuments]
       security:
         - bearerAuth: []
@@ -8473,18 +8470,15 @@ paths:
                 data:
                   refreshable: true
         '403':
-          description: El usuario autenticado no tiene rol `root`
+          description: El actor no es usuario de plataforma o su token no es de la consola
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
               example:
-                type: error
-                title: Sin permiso
-                message: No tienes permiso para realizar esta operación.
-                key: sin-permiso
-                errorCode: LGDOC.FORB.001
-                data: null
+                title: Acceso restringido a plataforma
+                detail: Esta sección es exclusiva de administradores de plataforma.
+                key: AUTH.PLATFORM.FORBIDDEN
         '409':
           description: La combinación tipo + versión ya existe
           content:
@@ -8511,12 +8505,12 @@ paths:
                 key: entrada-invalida
                 data: null
 
-  /api/legal-documents/{id}:
+  /api/platform/legal-documents/{id}:
     get:
-      summary: "[Gestión GSTI] Detalle administrativo de una versión"
+      summary: "[Plataforma] Detalle administrativo de una versión"
       description: |
         Devuelve una versión puntual con su contenido completo en ambos idiomas y
-        metadatos de auditoría. Reservado al rol `root`.
+        metadatos de auditoría. Reservado a usuarios de plataforma con token de la consola.
       tags: [LegalDocuments]
       security:
         - bearerAuth: []
@@ -8568,18 +8562,15 @@ paths:
                 data:
                   refreshable: true
         '403':
-          description: El usuario autenticado no tiene rol `root`
+          description: El actor no es usuario de plataforma o su token no es de la consola
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
               example:
-                type: error
-                title: Sin permiso
-                message: No tienes permiso para realizar esta operación.
-                key: sin-permiso
-                errorCode: LGDOC.FORB.001
-                data: null
+                title: Acceso restringido a plataforma
+                detail: Esta sección es exclusiva de administradores de plataforma.
+                key: AUTH.PLATFORM.FORBIDDEN
         '404':
           description: No existe ninguna versión con ese id
           content:
@@ -8593,12 +8584,12 @@ paths:
                 key: documento-legal-inexistente
                 code: LGDOC.NF.002
     put:
-      summary: "[Gestión GSTI] Editar un borrador"
+      summary: "[Plataforma] Editar un borrador"
       description: |
         Actualiza el contenido y/o la versión de una versión en `status='draft'`.
         Sobre una versión ya publicada responde 409 (regla de negocio 3: el
         contenido publicado es inmutable — corregir significa publicar una
-        versión nueva). Reservado al rol `root`.
+        versión nueva). Reservado a usuarios de plataforma con token de la consola.
       tags: [LegalDocuments]
       security:
         - bearerAuth: []
@@ -8669,18 +8660,15 @@ paths:
                 data:
                   refreshable: true
         '403':
-          description: El usuario autenticado no tiene rol `root`
+          description: El actor no es usuario de plataforma o su token no es de la consola
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
               example:
-                type: error
-                title: Sin permiso
-                message: No tienes permiso para realizar esta operación.
-                key: sin-permiso
-                errorCode: LGDOC.FORB.001
-                data: null
+                title: Acceso restringido a plataforma
+                detail: Esta sección es exclusiva de administradores de plataforma.
+                key: AUTH.PLATFORM.FORBIDDEN
         '404':
           description: No existe ninguna versión con ese id
           content:
@@ -8717,9 +8705,9 @@ paths:
                     key: version-duplicada
                     code: LGDOC.CONF.002
 
-  /api/legal-documents/{id}/publish:
+  /api/platform/legal-documents/{id}/publish:
     post:
-      summary: "[Gestión GSTI] Publicar un borrador (transaccional)"
+      summary: "[Plataforma] Publicar un borrador (transaccional)"
       description: |
         Publica un borrador existente: lo marca `published` + vigente y apaga la
         versión vigente anterior del mismo tipo en una sola transacción (regla de
@@ -8728,7 +8716,7 @@ paths:
         Requiere contenido en español e inglés (regla de negocio 8); si falta
         alguno, 422 y el borrador permanece sin publicar. Habilita la
         re-aceptación de los usuarios (la aplican las historias hermanas).
-        Reservado al rol `root`.
+        Reservado a usuarios de plataforma con token de la consola.
       tags: [LegalDocuments]
       security:
         - bearerAuth: []
@@ -8780,18 +8768,15 @@ paths:
                 data:
                   refreshable: true
         '403':
-          description: El usuario autenticado no tiene rol `root`
+          description: El actor no es usuario de plataforma o su token no es de la consola
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ApiError'
               example:
-                type: error
-                title: Sin permiso
-                message: No tienes permiso para realizar esta operación.
-                key: sin-permiso
-                errorCode: LGDOC.FORB.001
-                data: null
+                title: Acceso restringido a plataforma
+                detail: Esta sección es exclusiva de administradores de plataforma.
+                key: AUTH.PLATFORM.FORBIDDEN
         '404':
           description: No existe ninguna versión con ese id
           content:
