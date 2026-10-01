@@ -1482,6 +1482,9 @@ export default class EmployeeService {
         .if(employeeIsCrew, (query) => {
           query.where('vacation_setting_crew', 1)
         })
+        // Con varias escalas (anterior y reforma 2023) gana la más reciente que ya
+        // aplicaba; sin orden, MySQL podía devolver cualquiera.
+        .orderBy('vacation_setting_apply_since', 'desc')
         .first()
       if (!vacationSetting) {
         vacationSetting = await VacationSetting.query()
@@ -1490,6 +1493,9 @@ export default class EmployeeService {
           .if(employeeIsCrew, (query) => {
             query.where('vacation_setting_crew', 1)
           })
+          // Con varias escalas (anterior y reforma 2023) gana la más reciente que ya
+          // aplicaba; sin orden, MySQL podía devolver cualquiera.
+          .orderBy('vacation_setting_apply_since', 'desc')
           .first()
         if (!vacationSetting) {
           return {
@@ -1608,6 +1614,9 @@ export default class EmployeeService {
           .if(employeeIsCrew, (query) => {
             query.where('vacation_setting_crew', 1)
           })
+          // Con varias escalas (anterior y reforma 2023) gana la más reciente que ya
+          // aplicaba; sin orden, MySQL podía devolver cualquiera.
+          .orderBy('vacation_setting_apply_since', 'desc')
           .first()
         let vacationsUsedList = [] as Array<ShiftException>
         if (vacationSetting) {
@@ -1719,6 +1728,9 @@ export default class EmployeeService {
         .if(employeeIsCrew, (query) => {
           query.where('vacation_setting_crew', 1)
         })
+        // Con varias escalas (anterior y reforma 2023) gana la más reciente que ya
+        // aplicaba; sin orden, MySQL podía devolver cualquiera.
+        .orderBy('vacation_setting_apply_since', 'desc')
         .first()
       let vacationsUsedList = [] as Array<ShiftException>
       if (vacationSetting) {
@@ -1868,6 +1880,9 @@ export default class EmployeeService {
           query.where('vacation_setting_crew', 1)
         })
         .orderBy('vacation_setting_years_of_service', 'desc')
+        // Con varias escalas (anterior y reforma 2023) gana la más reciente que ya
+        // aplicaba; sin orden, MySQL podía devolver cualquiera.
+        .orderBy('vacation_setting_apply_since', 'desc')
         .first()
 
       if (!vacationSetting) {
@@ -1965,6 +1980,9 @@ export default class EmployeeService {
           query.where('vacation_setting_crew', 1)
         })
         .orderBy('vacation_setting_years_of_service', 'desc')
+        // Con varias escalas (anterior y reforma 2023) gana la más reciente que ya
+        // aplicaba; sin orden, MySQL podía devolver cualquiera.
+        .orderBy('vacation_setting_apply_since', 'desc')
         .first()
 
       if (!vacationSetting) {
