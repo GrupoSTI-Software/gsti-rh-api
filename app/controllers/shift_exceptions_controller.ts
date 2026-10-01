@@ -1,4 +1,5 @@
 import ShiftExceptionService from '#services/shift_exception_service'
+import ShiftExceptionRemovalService from '#services/shift_exception_removal_service'
 import { DateTime } from 'luxon'
 import { ShiftExceptionFilterInterface } from '../interfaces/shift_exception_filter_interface.js'
 import ShiftException from '../models/shift_exception.js'
@@ -6,8 +7,6 @@ import { createShiftExceptionValidator } from '../validators/shift_exception.js'
 import { HttpContext } from '@adonisjs/core/http'
 import ExceptionType from '#models/exception_type'
 import { ShiftExceptionErrorInterface } from '../interfaces/shift_exception_error_interface.js'
-import VacationAuthorizationSignature from '#models/vacation_authorization_signature'
-import ExceptionRequest from '#models/exception_request'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import { ShiftExceptionGeneralErrorInterface } from '../interfaces/shift_exception_general_error_interface.js'
@@ -482,51 +481,15 @@ export default class ShiftExceptionController {
         }
       }
 
-      // Cambiar findByOrFail por findBy
-      const signature = await VacationAuthorizationSignature.findBy('shift_exception_id', shiftException.shiftExceptionId)
-
-      // Solo procesar si existe la firma y tiene exceptionRequestId
-      if (signature && signature.exceptionRequestId) {
-        const exceptionRequest = await ExceptionRequest.query()
-          .where('exception_request_id', signature.exceptionRequestId)
-          .where('exception_type_id', shiftException.exceptionTypeId)
-          .where('exception_request_status', 'accepted')
-          .whereNull('exception_request_deleted_at')
-
-        if (exceptionRequest.length > 0) {
-          await exceptionRequest[0].delete()
-        }
-      }
-
-      await shiftException.delete()
-
-      const shiftExceptionService = new ShiftExceptionService(i18n)
-      const exceptionDate = shiftException.shiftExceptionsDate
-      const date = typeof exceptionDate === 'string' ? new Date(exceptionDate) : exceptionDate
-
-      await shiftExceptionService.updateAssistCalendar(shiftException.employeeId, date)
-
-      const userId = auth.user?.userId
-
-      if (userId) {
-        const rawHeaders = request.request.rawHeaders
-        const logShiftException = await shiftExceptionService.createActionLog(rawHeaders, 'delete')
-        logShiftException.user_id = userId
-        logShiftException.record_current = JSON.parse(JSON.stringify(shiftException))
-
-        const exceptionType = await ExceptionType.query()
-          .whereNull('exception_type_deleted_at')
-          .where('exception_type_slug', 'vacation')
-          .first()
-
-        let table = 'log_shift_exceptions'
-        if (exceptionType) {
-          if (exceptionType.exceptionTypeId === shiftException.exceptionTypeId) {
-            table = 'log_vacations'
-          }
-        }
-        await shiftExceptionService.saveActionOnLog(logShiftException, table)
-      }
+      // Mismo retiro que la cancelacion de vacaciones de la ficha del empleado,
+      // sin motivo: este flujo no lo pide.
+      await new ShiftExceptionRemovalService().remove({
+        shiftException,
+        actorUserId: auth.user?.userId ?? null,
+        rawHeaders: request.request.rawHeaders,
+        reason: null,
+        i18n,
+      })
 
       return response.status(200).json({
         type: 'success',
