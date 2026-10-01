@@ -36,7 +36,8 @@ import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_inte
 import { I18n } from '@adonisjs/i18n'
 import Holiday from '#models/holiday'
 import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
-import { resolveSiteTimeZone, wallTime, dayKeyOf, toInstant } from '#modules/attendance-time/attendance_clock'
+import { closedLockDays } from '#modules/attendance-time/attendance_lock_days'
+import { resolveSiteTimeZone, wallTime, dayKeyOf, toInstant, nowInZone } from '#modules/attendance-time/attendance_clock'
 import EmployeeShift from '#models/employee_shift'
 import User from '#models/user'
 import mail from '@adonisjs/mail/services/main'
@@ -5394,13 +5395,17 @@ export default class AssistsService {
         }
       }
 
+      // El mes se toma en la zona del sitio del colaborador, no en la del
+      // servidor (UTC), que adelantaba el cambio de mes seis horas.
+      const { zone } = await new SiteTimeZoneService().forEmployee(employee.employeeId)
+      const today = nowInZone(zone)
       const page = 1
       const limit = 999999999999999
       const syncAssistsService = new SyncAssistsService(this.i18n)
       const resultAssists = await syncAssistsService.index(
         {
-          date: DateTime.now().startOf('month').toFormat('yyyy-MM-dd'),
-          dateEnd: DateTime.now().endOf('month').toFormat('yyyy-MM-dd'),
+          date: today.startOf('month').toFormat('yyyy-MM-dd'),
+          dateEnd: today.endOf('month').toFormat('yyyy-MM-dd'),
           employeeID: employee.employeeId,
         },
         { page, limit }
@@ -5413,7 +5418,10 @@ export default class AssistsService {
       if (data) {
         const tardies = await this.getTardiesTolerance()
         const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
-        const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+        const employeeCalendar = closedLockDays(
+          data.employeeCalendar as AssistDayInterface[],
+          today.toISODate() as string
+        )
         const result = await this.getFaultsAndDelaysFromEmployeeCalendar(employeeCalendar, tardies, toleranceCountPerAbsences)
         faults = result.faults
         delays = result.delays
