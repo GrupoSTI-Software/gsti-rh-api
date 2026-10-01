@@ -2487,8 +2487,9 @@ export default class SyncAssistsService {
     const nextDay = assistList.find((assistDate) => assistDate.day === nextEvaluatedDay)
 
     if (nextDay && nextDay?.assist?.assitFlatList) {
-      const nexDayCheckList: AssistInterface[] = JSON.parse(JSON.stringify(nextDay.assist.assitFlatList))
-      nexDayCheckList.forEach((checkItem) => {
+      const originals = nextDay.assist.assitFlatList
+      const nexDayCheckList: AssistInterface[] = JSON.parse(JSON.stringify(originals))
+      nexDayCheckList.forEach((checkItem, index) => {
         const punchTime = toInstant(checkItem.assistPunchTimeUtc)
         const diffToCheckOut = punchTime.diff(checkOutDateTime.plus({ hours: 3 }), 'milliseconds').milliseconds
 
@@ -2497,6 +2498,9 @@ export default class SyncAssistsService {
           checkItem.assistPunchTimeUtc = punchTime
           checkItem.assistPunchTimeOrigin = punchTime
           calendarDay.push(checkItem)
+          // La checada ya es parte de este turno: el día siguiente no la vuelve
+          // a usar como su entrada ni la lista como un registro adicional.
+          originals[index].assistUsed = true
         }
       })
     }
