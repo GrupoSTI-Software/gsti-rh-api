@@ -7,9 +7,10 @@ import { cleanupEmployeeFixture, createEmployeeFixture } from '#tests/helpers/em
 import { WORK_DISABILITY_ERROR_CODES } from '#constants/work_disability_error_codes'
 
 /**
- * Incapacidades desde la ficha del empleado: registro en un paso (incapacidad,
- * periodo inicial y nota), ampliación con su tipo, la consulta de la sección y
- * las reglas de folio, traslape y periodo inicial.
+ * Incapacidades desde la ficha del empleado: registro en un paso (incapacidad
+ * y periodo inicial), ampliación con su tipo, la consulta de la sección (con
+ * la nota publicada aparte, por JSON) y las reglas de folio, traslape y periodo
+ * inicial.
  */
 
 /** PDF mínimo válido para el documento del periodo. */
@@ -77,7 +78,7 @@ test.group('Incapacidades del empleado', (group) => {
     }
   })
 
-  test('registra la incapacidad con su periodo inicial, la nota y la consulta la devuelve completa', async ({
+  test('registra la incapacidad con su periodo inicial y la consulta la devuelve con su nota', async ({
     client,
     assert,
   }) => {
@@ -88,7 +89,6 @@ test.group('Incapacidades del empleado', (group) => {
       .field('folio', ticket.toLowerCase())
       .field('startDate', START)
       .field('days', '3')
-      .field('note', 'Influenza, reposo en casa')
       .file('document', PDF, { filename: 'certificado.pdf', contentType: 'application/pdf' })
       .loginAs(actor!.user)
       .headers(headers())
@@ -108,6 +108,14 @@ test.group('Incapacidades del empleado', (group) => {
         .whereNull('shift_exceptions_deleted_at')
       assert.lengthOf(days, 3, 'una excepción de turno por día amparado')
     }
+
+    // La nota es dato de salud: el backoffice la publica aparte, por JSON.
+    const note = await client
+      .post('/api/work-disability-notes')
+      .json({ workDisabilityId, workDisabilityNoteDescription: 'Influenza, reposo en casa' })
+      .loginAs(actor!.user)
+      .headers(headers())
+    assert.equal(note.status(), 201, JSON.stringify(note.body()))
 
     const feed = await client.get(base()).loginAs(actor!.user).headers(headers())
     feed.assertStatus(200)

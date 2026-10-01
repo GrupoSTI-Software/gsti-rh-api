@@ -3,11 +3,6 @@ import Employee from '#models/employee'
 import WorkDisability from '#models/work_disability'
 import { StandardResponseFormatter } from '#helpers/standard_response_formatter'
 import { WORK_DISABILITY_ERROR_CODES } from '#constants/work_disability_error_codes'
-import { isFileIntakeError } from '#helpers/file_intake_api_error'
-import {
-  isSensitiveDataWriteError,
-  respondSensitiveDataWriteDenial,
-} from '#helpers/sensitive_data_write_api_error'
 import WorkDisabilityFeedService from './work_disability_feed.service.js'
 import { toIsoDay } from './work_disability_rules.js'
 import WorkDisabilityRegistrationService, {
@@ -80,7 +75,7 @@ export default class EmployeeWorkDisabilitiesController {
    *     security:
    *       - bearerAuth: []
    *     tags: [Incapacidades]
-   *     summary: Registra una incapacidad con su periodo inicial y, opcionalmente, una nota
+   *     summary: Registra una incapacidad con su periodo inicial (la nota va aparte, por JSON)
    *     requestBody:
    *       content:
    *         multipart/form-data:
@@ -92,7 +87,6 @@ export default class EmployeeWorkDisabilitiesController {
    *               folio: { type: string, description: 'Dos letras y seis dígitos; opcional en incapacidad interna' }
    *               startDate: { type: string, format: date }
    *               days: { type: integer, minimum: 1, maximum: 90 }
-   *               note: { type: string }
    *               document: { type: string, format: binary }
    *     responses:
    *       201:
@@ -117,7 +111,6 @@ export default class EmployeeWorkDisabilitiesController {
         folio: payload.folio || null,
         startDate: toIsoDay(payload.startDate),
         days: payload.days,
-        note: payload.note ?? null,
         document: document.file,
       })
     )
@@ -187,28 +180,24 @@ export default class EmployeeWorkDisabilitiesController {
     )
   }
 
-  /** Corre el alta y traduce su resultado o sus rechazos conocidos a la respuesta. */
+  /**
+   * Corre el alta y traduce su resultado a la respuesta. Un rechazo del archivo
+   * (FileIntakeError) sube tal cual: lo formatea el handler global con su 422.
+   */
   private async respond(
     ctx: HttpContext,
     run: () => Promise<WorkDisabilityRegistrationResult>
   ) {
-    try {
-      const result = await run()
-      if (!result.ok) return ctx.response.status(result.rejection.status).json(result.rejection.body)
-      return StandardResponseFormatter.success(
-        ctx.response,
-        { workDisabilityId: result.workDisabilityId, workDisabilityPeriodId: result.workDisabilityPeriodId },
-        'Incapacidades',
-        'La incapacidad quedó registrada',
-        201,
-        'workDisability'
-      )
-    } catch (error) {
-      // Rechazos del archivo y de escritura sensible tienen su propio formato.
-      if (isFileIntakeError(error)) throw error
-      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
-      throw error
-    }
+    const result = await run()
+    if (!result.ok) return ctx.response.status(result.rejection.status).json(result.rejection.body)
+    return StandardResponseFormatter.success(
+      ctx.response,
+      { workDisabilityId: result.workDisabilityId, workDisabilityPeriodId: result.workDisabilityPeriodId },
+      'Incapacidades',
+      'La incapacidad quedó registrada',
+      201,
+      'workDisability'
+    )
   }
 
   /** El documento es obligatorio: sin él no se registra el periodo. */

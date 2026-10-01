@@ -4,7 +4,6 @@ import type { HttpContext } from '@adonisjs/core/http'
 import type { MultipartFile } from '@adonisjs/core/bodyparser'
 import InsuranceCoverageType from '#models/insurance_coverage_type'
 import WorkDisability from '#models/work_disability'
-import WorkDisabilityNote from '#models/work_disability_note'
 import WorkDisabilityPeriod from '#models/work_disability_period'
 import WorkDisabilityType from '#models/work_disability_type'
 import { WORK_DISABILITY_ERROR_CODES } from '#constants/work_disability_error_codes'
@@ -40,7 +39,6 @@ export interface RegisterWorkDisabilityInput extends PeriodInput {
   ctx: HttpContext
   employeeId: number
   insuranceCoverageTypeId: number
-  note: string | null
 }
 
 export interface RegisterExtensionInput extends PeriodInput {
@@ -63,10 +61,13 @@ const reject = (
 /**
  * Alta de incapacidades desde la ficha del empleado.
  *
- * Registrar crea en una sola transacción la incapacidad, su periodo inicial y,
- * si viene, la primera nota de seguimiento: antes eran tres llamadas y una
- * falla en el periodo dejaba una incapacidad vacía. Ampliar agrega un periodo
- * a una incapacidad existente.
+ * Registrar crea en una sola transacción la incapacidad y su periodo inicial:
+ * antes eran dos llamadas y una falla en el periodo dejaba una incapacidad
+ * vacía. Ampliar agrega un periodo a una incapacidad existente.
+ *
+ * La primera nota de seguimiento no viaja aquí: es dato de salud y los datos
+ * sensibles se guardan por JSON (`/work-disability-notes`), donde el middleware
+ * neutraliza ecos de máscara; este alta es multipart por el documento.
  *
  * En los dos casos, al quedar guardado el periodo se generan sus excepciones
  * de turno y se recalcula el calendario, igual que en el alta de periodos.
@@ -117,16 +118,6 @@ export default class WorkDisabilityRegistrationService {
       newPeriod.workDisabilityPeriodFile = file
       newPeriod.workDisabilityPeriodRegisteredByUserId = actorUserId
       await newPeriod.save()
-
-      if (input.note && actorUserId) {
-        const note = new WorkDisabilityNote()
-        note.useTransaction(trx)
-        note.businessUnitId = newDisability.businessUnitId
-        note.workDisabilityId = newDisability.workDisabilityId
-        note.userId = actorUserId
-        note.workDisabilityNoteDescription = input.note
-        await note.save()
-      }
 
       return { disability: newDisability, period: newPeriod }
     })

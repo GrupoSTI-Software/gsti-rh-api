@@ -1,5 +1,4 @@
 import vine from '@vinejs/vine'
-import { noMaskCharRule } from '#validators/no_mask_char_rule'
 import { WORK_DISABILITY_MAX_DAYS } from './work_disability_rules.js'
 
 /**
@@ -29,7 +28,6 @@ export const registerWorkDisabilityValidator = vine.compile(
     params: vine.object({ employeeId: vine.number().min(1) }),
     insuranceCoverageTypeId: vine.number().min(1),
     ...periodFields,
-    note: vine.string().trim().minLength(1).maxLength(2000).use(noMaskCharRule()).optional(),
   })
 )
 
