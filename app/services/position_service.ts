@@ -23,6 +23,7 @@ import { dirname, join } from 'node:path'
 import { prepareAliasesForPersistence } from '#utils/org_alias_normalize'
 import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
 import OrgAliasUniquenessService from '#services/org_alias_uniqueness_service'
+import db from '@adonisjs/lucid/services/db'
 
 export default class PositionService {
 
@@ -63,7 +64,7 @@ export default class PositionService {
     return currentPosition
   }
 
-  async create(position: Position) {
+  async create(position: Position, trx?: TransactionClientContract) {
 
     const newPosition = new Position()
     newPosition.positionCode = position.positionCode
@@ -87,16 +88,73 @@ export default class PositionService {
 
     const prepared = prepareAliasesForPersistence(position.aliases ?? null)
     newPosition.aliases = prepared.display
+    // La verificación de alias es una lectura sin efectos secundarios: se puede
+    // ejecutar fuera de la transacción activa sin riesgo de doble escritura.
     await new OrgAliasUniquenessService().assertUniqueForBusinessUnit({
       businessUnitId: newPosition.businessUnitId,
       normalizedTokens: prepared.normalizedTokens,
     })
 
+    if (trx) {
+      newPosition.useTransaction(trx)
+    }
     await newPosition.save()
     await newPosition.load('parentPosition')
     await newPosition.load('subPositions')
 
     return newPosition
+  }
+
+  /**
+   * Crea un puesto y lo liga atómicamente al departamento indicado insertando
+   * una fila en `department_position`. El departamento se bloquea con `forUpdate`
+   * para evitar condiciones de carrera.
+   *
+   * La verificación de que el departamento pertenece a la empresa se hace **antes**
+   * de la transacción; si el departamento no existe o es de otra empresa, lanza
+   * el error que el controller convierte en 404 (POSITION_DEPARTMENT_NOT_FOUND).
+   *
+   * @param position          - Datos del puesto a crear.
+   * @param linkDepartmentId  - Id del departamento al que se va a ligar.
+   * @param businessUnitId    - Id de la empresa activa (scope del header).
+   * @returns El puesto creado más el `departmentPositionId` de la fila insertada.
+   */
+  async createLinkedToDepartment(
+    position: Position,
+    linkDepartmentId: number,
+    businessUnitId: number,
+  ): Promise<{ position: Position; departmentPositionId: number }> {
+    return db.transaction(async (trx) => {
+      // Bloqueamos el departamento para evitar eliminaciones concurrentes.
+      const dept = await trx
+        .from('departments')
+        .where('department_id', linkDepartmentId)
+        .where('business_unit_id', businessUnitId)
+        .whereNull('department_deleted_at')
+        .forUpdate()
+        .first()
+
+      if (!dept) {
+        throw Object.assign(new Error('POSITION_DEPARTMENT_NOT_FOUND'), {
+          code: 'POSITION_DEPARTMENT_NOT_FOUND',
+        })
+      }
+
+      const newPosition = await this.create(position, trx)
+
+      // Insertamos la fila de ligado directamente en la tabla para evitar el
+      // @beforeCreate de DepartmentPosition que haría una consulta extra fuera
+      // de la transacción cuando businessUnitId ya viene disponible.
+      const [dpId] = await trx.table('department_position').insert({
+        department_id: linkDepartmentId,
+        position_id: newPosition.positionId,
+        business_unit_id: businessUnitId,
+        department_position_created_at: trx.knexClient.raw('NOW()'),
+        department_position_updated_at: trx.knexClient.raw('NOW()'),
+      })
+
+      return { position: newPosition, departmentPositionId: dpId as number }
+    })
   }
 
   async update(currentPosition: Position, position: Position) {

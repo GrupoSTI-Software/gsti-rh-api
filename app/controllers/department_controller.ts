@@ -21,8 +21,6 @@ import {
   resolveEmployeeRoleScopeForUser,
 } from '#helpers/resolve_employee_role_scope'
 import db from '@adonisjs/lucid/services/db'
-import RoleDepartment from '#models/role_department'
-import Role from '#models/role'
 import OrgAliasAppError from '#exceptions/org_alias_app_error'
 import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
 import { resolveDepartmentParentFromBody } from '#utils/org_chart_parent_input'
@@ -1253,101 +1251,79 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, i18n }: HttpContext) {
+  /**
+   * Crea un departamento de forma atómica:
+   *
+   * 1. Valida el cuerpo con `createDepartmentValidator` (R1 → 422 si falla).
+   * 2. Verifica que el `businessUnitId` del cuerpo coincida con el scope del
+   *    header (R2 → 422 BUSINESS_UNIT_MISMATCH si difieren).
+   * 3. Llama a `createWithRoleAssignment` para crear el departamento y asignarlo
+   *    a todos los roles activos en una sola transacción (R3).
+   * 4. En el `catch` usa `resolveOrgStructureStoreError` para devolver 400/422/500
+   *    sin filtrar mensaje crudo de SQL.
+   */
+  async store({ request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const businessUnitId = request.input('businessUnitId')
-      const departmentName = request.input('departmentName')
-      const departmentAlias = request.input('departmentAlias')
-      const aliasesInput = request.input('aliases')
-      const departmentIsDefault = request.input('departmentIsDefault')
-      const departmentActive = request.input('departmentActive')
-      const parentDepartmentId = request.input('parentDepartmentId')
+      // ── R1: validación de entrada ─────────────────────────────────────────
+      const data = await request.validateUsing(createDepartmentValidator)
+
+      // ── R2: empresa del header ────────────────────────────────────────────
+      const bodyBusinessUnitId = request.input('businessUnitId')
+      if (
+        bodyBusinessUnitId !== undefined &&
+        bodyBusinessUnitId !== null &&
+        !businessUnitScope.includes(Number(bodyBusinessUnitId))
+      ) {
+        const { buildDepartmentBusinessUnitMismatchError } = await import(
+          '../helpers/org_structure_api_error.js'
+        )
+        const err = buildDepartmentBusinessUnitMismatchError(i18n)
+        response.status(err.status)
+        return err.body
+      }
+
+      // Si no se envía businessUnitId en el cuerpo se usa el primer scope activo.
+      const businessUnitId = bodyBusinessUnitId
+        ? Number(bodyBusinessUnitId)
+        : businessUnitScope[0]
+
       const lastDepartment = await Department.query().orderBy('departmentId', 'desc').first()
       const departmentCode = (lastDepartment ? lastDepartment.departmentId + 1 : 0).toString()
 
       const department = {
-        departmentCode: departmentCode,
-        departmentName: departmentName,
-        departmentAlias: departmentAlias || '',
+        departmentCode,
+        departmentName: data.departmentName,
+        departmentAlias: data.departmentAlias ?? '',
         aliases:
-          aliasesInput === null || aliasesInput === undefined || aliasesInput === ''
+          data.aliases === null || data.aliases === undefined || data.aliases === ''
             ? null
-            : String(aliasesInput),
-        departmentIsDefault: departmentIsDefault || 0,
-        departmentActive: departmentActive || 1,
-        parentDepartmentId: parentDepartmentId,
-        businessUnitId: businessUnitId,
-      } as Department
+            : String(data.aliases),
+        departmentIsDefault: data.departmentIsDefault ? 1 : 0,
+        departmentActive: data.departmentActive !== false ? 1 : 0,
+        parentDepartmentId: data.parentDepartmentId ?? null,
+        businessUnitId,
+      } as unknown as Department
 
       const departmentService = new DepartmentService(i18n)
-      const data = await request.validateUsing(createDepartmentValidator)
-      const exist = await departmentService.verifyInfoExist(department)
 
-      if (exist.status !== 200) {
-        response.status(exist.status)
-        return {
-          type: exist.type,
-          title: exist.title,
-          message: exist.message,
-          data: { ...data },
-        }
-      }
+      // ── R3: alta atómica (departamento + role_departments) ────────────────
+      const newDepartment = await departmentService.createWithRoleAssignment(department)
 
-      const newDepartment = await departmentService.create(department)
-
-      if (newDepartment) {
-        // Asignar automáticamente el departamento a todos los roles activos (excepto root)
-        // para que todos los usuarios puedan verlo inmediatamente después de su creación
-        const activeRoles = await Role.query()
-          .whereNull('role_deleted_at')
-          .where('role_active', 1)
-          .whereNot('role_slug', 'root')
-
-        for (const role of activeRoles) {
-          // Verificar si ya existe la relación para evitar duplicados
-          const existingRoleDepartment = await RoleDepartment.query()
-            .whereNull('role_department_deleted_at')
-            .where('role_id', role.roleId)
-            .where('department_id', newDepartment.departmentId)
-            .first()
-
-          if (!existingRoleDepartment) {
-            const roleDepartment = new RoleDepartment()
-            roleDepartment.roleId = role.roleId
-            roleDepartment.departmentId = newDepartment.departmentId
-            await roleDepartment.save()
-          }
-        }
-
-        response.status(201)
-        return {
-          type: 'success',
-          title: t('resource'),
-          message: t('resource_was_created_successfully'),
-          data: { department: newDepartment },
-        }
+      response.status(201)
+      return {
+        type: 'success',
+        title: t('resource'),
+        message: t('resource_was_created_successfully'),
+        data: { department: newDepartment },
       }
     } catch (error) {
-      if (error instanceof OrgAliasAppError) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: error.title,
-          message: error.detail,
-          detail: error.detail,
-          data: { key: error.key },
-        }
-      }
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: messageError,
-      }
+      const { resolveOrgStructureStoreError } = await import(
+        '../helpers/org_structure_api_error.js'
+      )
+      const err = resolveOrgStructureStoreError(error, 'department', i18n)
+      response.status(err.status)
+      return err.body
     }
   }
 

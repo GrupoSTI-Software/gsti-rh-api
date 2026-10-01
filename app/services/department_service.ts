@@ -17,6 +17,8 @@ import { DepartmentIndexFilterInterface } from '../interfaces/department_index_f
 import Employee from '#models/employee'
 import EmployeeContract from '#models/employee_contract'
 import RoleDepartment from '#models/role_department'
+import Role from '#models/role'
+import db from '@adonisjs/lucid/services/db'
 import { I18n } from '@adonisjs/i18n'
 import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
 import type {
@@ -159,7 +161,7 @@ export default class DepartmentService {
     return currentDepartment
   }
 
-  async create(department: Department) {
+  async create(department: Department, trx?: TransactionClientContract) {
     const newDepartment = new Department()
     newDepartment.departmentCode = department.departmentCode
     newDepartment.departmentName = department.departmentName
@@ -172,13 +174,78 @@ export default class DepartmentService {
 
     const prepared = prepareAliasesForPersistence(department.aliases ?? null)
     newDepartment.aliases = prepared.display
+    // La verificación de alias es una lectura sin efectos secundarios: se puede
+    // ejecutar fuera de la transacción activa sin riesgo de doble escritura.
     await new OrgAliasUniquenessService().assertUniqueForBusinessUnit({
       businessUnitId: newDepartment.businessUnitId,
       normalizedTokens: prepared.normalizedTokens,
     })
 
+    if (trx) {
+      newDepartment.useTransaction(trx)
+    }
     await newDepartment.save()
     return newDepartment
+  }
+
+  /**
+   * Crea un departamento y lo asigna atómicamente a todos los roles activos
+   * (excepto root) dentro de una sola transacción de base de datos.
+   *
+   * Si se pasa `trx`, la operación se une a esa transacción existente;
+   * de lo contrario se crea una nueva.
+   *
+   * @param department - Datos del departamento a crear.
+   * @param outerTrx   - Transacción externa opcional.
+   * @returns El modelo del departamento recién creado.
+   */
+  async createWithRoleAssignment(
+    department: Department,
+    outerTrx?: TransactionClientContract,
+  ): Promise<Department> {
+    const run = async (trx: TransactionClientContract) => {
+      const newDepartment = await this.create(department, trx)
+      await this.assignToActiveRoles(newDepartment.departmentId, trx)
+      return newDepartment
+    }
+
+    if (outerTrx) {
+      return run(outerTrx)
+    }
+    return db.transaction(run)
+  }
+
+  /**
+   * Inserta filas en `role_departments` para todos los roles activos (excepto
+   * root) que aún no tengan ese departamento. Se ejecuta dentro de `trx`.
+   *
+   * @param departmentId - Id del departamento recién creado.
+   * @param trx          - Transacción activa.
+   */
+  async assignToActiveRoles(
+    departmentId: number,
+    trx: TransactionClientContract,
+  ): Promise<void> {
+    const activeRoles = await Role.query({ client: trx })
+      .whereNull('role_deleted_at')
+      .where('role_active', 1)
+      .whereNot('role_slug', 'root')
+
+    for (const role of activeRoles) {
+      const existing = await RoleDepartment.query({ client: trx })
+        .whereNull('role_department_deleted_at')
+        .where('role_id', role.roleId)
+        .where('department_id', departmentId)
+        .first()
+
+      if (!existing) {
+        const rd = new RoleDepartment()
+        rd.roleId = role.roleId
+        rd.departmentId = departmentId
+        rd.useTransaction(trx)
+        await rd.save()
+      }
+    }
   }
 
   async update(currentDepartment: Department, department: Department) {
