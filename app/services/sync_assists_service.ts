@@ -54,6 +54,12 @@ import {
 } from '#modules/attendance-time/attendance_bucketing'
 import { biometricStoredToUtc, parseBiometricStored } from '#modules/attendance-time/biometric_clock'
 
+/** Tipos de excepción que marcan el día como incapacidad. */
+const WORK_DISABILITY_EXCEPTION_SLUGS: ReadonlySet<string> = new Set([
+  'falta-por-incapacidad',
+  'incapacidad-por-maternidad',
+])
+
 /**
  * Servicio para la sincronización y procesamiento de asistencias de empleados.
  *
@@ -2766,7 +2772,13 @@ export default class SyncAssistsService {
     }
 
     if (checkAssist.assist.exceptions.length > 0) {
-      const absentException = checkAssist.assist.exceptions.find((ex) => ex.shiftExceptionEnjoymentOfSalary !== 0 && ex.exceptionType?.exceptionTypeSlug === 'falta-por-incapacidad')
+      // La incapacidad por maternidad también es incapacidad: sin esto el día
+      // salía como excepción genérica y el backoffice lo pintaba a tiempo.
+      const absentException = checkAssist.assist.exceptions.find(
+        (ex) =>
+          ex.shiftExceptionEnjoymentOfSalary !== 0 &&
+          WORK_DISABILITY_EXCEPTION_SLUGS.has(ex.exceptionType?.exceptionTypeSlug ?? '')
+      )
 
       if (absentException) {
         checkAssist.assist.isWorkDisabilityDate = true
