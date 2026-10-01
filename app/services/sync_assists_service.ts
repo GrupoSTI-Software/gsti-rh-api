@@ -49,6 +49,7 @@ import {
 import {
   bucketCheckIn,
   bucketCheckOut,
+  bucketMissingCheckIn,
   minutesAfter,
 } from '#modules/attendance-time/attendance_bucketing'
 import { biometricStoredToUtc, parseBiometricStored } from '#modules/attendance-time/biometric_clock'
@@ -2262,6 +2263,21 @@ export default class SyncAssistsService {
         if (changeShiftException) {
           checkAssist.assist.checkInStatus = ''
           return checkAssist
+        }
+      }
+
+      // Con el turno ya iniciado, la entrada que no llega se califica como se
+      // calificaría si llegara en este momento: tolerancia, retardo y, pasada
+      // la tolerancia de falta, falta. Antes del inicio el día es futuro y se
+      // queda como estaba.
+      if (checkAssist.assist.checkInStatus === 'fault') {
+        const shiftStart = shiftStartInstant(checkAssist.day, checkAssist.assist.dateShift.shiftTimeStart, zone)
+        const minutesElapsed = minutesAfter(shiftStart, DateTime.utc())
+        if (minutesElapsed >= 0) {
+          checkAssist.assist.checkInStatus = bucketMissingCheckIn(minutesElapsed, {
+            delayMinutes: TOLERANCE_DELAY_MINUTES,
+            faultMinutes: TOLERANCE_FAULT_MINUTES,
+          })
         }
       }
 
