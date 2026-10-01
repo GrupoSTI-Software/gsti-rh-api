@@ -83,17 +83,27 @@ export default class ExceptionRequestResolutionService {
     exceptionRequest.exceptionRequestResolvedAt = DateTime.now()
     await exceptionRequest.save()
 
+    // Aceptar sin alta del día dejaba la solicitud aceptada, sin día y con el
+    // aviso ya enviado al empleado. Si el alta no procede, la solicitud vuelve
+    // a pendiente y solo se avisa cuando todo quedó aplicado.
+    if (status === 'accepted') {
+      const applied = await this.applyAcceptedEffects(params)
+      if (!applied.ok) {
+        exceptionRequest.exceptionRequestStatus = 'pending'
+        exceptionRequest.exceptionRequestResolutionNote = null
+        exceptionRequest.resolvedByUserId = null
+        exceptionRequest.exceptionRequestResolvedAt = null
+        await exceptionRequest.save()
+        return applied
+      }
+    }
+
     if (params.notify !== false) {
       await new ExceptionRequestNotificationService().notifyResolution({
         exceptionRequests: [exceptionRequest],
         status,
         resolutionNote,
       })
-    }
-
-    if (status === 'accepted') {
-      const applied = await this.applyAcceptedEffects(params)
-      if (!applied.ok) return applied
     }
 
     return { ok: true, exceptionRequest }
