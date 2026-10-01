@@ -1,3 +1,4 @@
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Department from '#models/department'
 import Position from '#models/position'
 import { cuid } from '@adonisjs/core/helpers'
@@ -203,9 +204,89 @@ export default class DepartmentService {
     return currentDepartment
   }
 
-  async delete(currentDepartment: Department) {
-    await currentDepartment.delete()
-    return currentDepartment
+  /**
+   * Cuenta los empleados activos de la empresa que serían afectados al eliminar
+   * el departamento. Se ejecuta bajo bloqueo `FOR UPDATE` dentro de `trx` para
+   * garantizar consistencia con el `update()` posterior (C06-3).
+   *
+   * @param departmentId - Id del departamento.
+   * @param businessUnitId - Id de la empresa de la petición.
+   * @param trx - Transacción activa.
+   * @returns Número de empleados afectados (entero ≥ 0).
+   */
+  async countDeleteImpact(
+    departmentId: number,
+    businessUnitId: number,
+    trx: TransactionClientContract,
+  ): Promise<number> {
+    const rows = await trx
+      .from('employees')
+      .where('department_id', departmentId)
+      .where('business_unit_id', businessUnitId)
+      .whereNull('employee_deleted_at')
+      .forUpdate()
+      .count('* as total')
+    return Number((rows[0] as { total: string | number }).total)
+  }
+
+  /**
+   * Elimina (marca como eliminado) un departamento en una transacción única.
+   *
+   * - Sin empleados activos de la empresa (`allowEmployees: false`, por defecto):
+   *   retira relaciones y permisos, hace la baja lógica, devuelve `affectedEmployees: 0`.
+   * - Con empleados (`allowEmployees: true`, forzado): además anula `department_id`
+   *   de todos los empleados activos de la empresa; el conteo es el resultado del UPDATE.
+   *
+   * Escrito con `trx.from(...)` para evitar mixins y SoftDeletes en las
+   * escrituras masivas (nota 2 del spec).
+   *
+   * @param currentDepartment - Departamento ya validado y bloqueado con `forUpdate`.
+   * @param options.allowEmployees - `true` = force-delete; `false` (defecto) = sin empleados.
+   * @returns Resultado con `affectedEmployees`.
+   */
+  async delete(
+    currentDepartment: Department,
+    options: { allowEmployees: boolean } = { allowEmployees: false },
+    trx: TransactionClientContract,
+  ): Promise<{ affectedEmployees: number }> {
+    const departmentId = currentDepartment.departmentId
+    const businessUnitId = currentDepartment.businessUnitId
+
+    // 1. Nulificar department_id de los empleados activos de la empresa
+    let affectedEmployees = 0
+    if (options.allowEmployees) {
+      const result = await trx
+        .from('employees')
+        .where('department_id', departmentId)
+        .where('business_unit_id', businessUnitId)
+        .whereNull('employee_deleted_at')
+        .update({ department_id: null })
+      affectedEmployees = Number(result)
+    }
+
+    // 2. Retirar relaciones departamento-puesto de la empresa (físico, C06-2)
+    await trx
+      .from('department_position')
+      .where('department_id', departmentId)
+      .where('business_unit_id', businessUnitId)
+      .delete()
+
+    // 3. Retirar permisos de rol sobre el departamento (físico; sin columna de empresa, §13)
+    await trx
+      .from('role_departments')
+      .where('department_id', departmentId)
+      .delete()
+
+    // 4. Baja lógica del departamento
+    await trx
+      .from('departments')
+      .where('department_id', departmentId)
+      // `db.raw()` no viaja dentro de `update({...})`: Lucid no lo convierte y
+      // MySQL lo interpreta como la columna `bindings`. El raw de la
+      // transacción sí es el de Knex y queda en el mismo reloj de la BD.
+      .update({ department_deleted_at: trx.knexClient.raw('NOW()') })
+
+    return { affectedEmployees }
   }
 
   async getIdBySyncId(departmentSyncId: number) {

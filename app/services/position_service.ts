@@ -1,3 +1,4 @@
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import BusinessUnit from '#models/business_unit'
 import Department from '#models/department'
 import DepartmentPosition from '#models/department_position'
@@ -143,10 +144,52 @@ export default class PositionService {
     return currentPosition
   }
 
-  async delete(currentPosition: Position) {
-    await DepartmentPosition.query().where('position_id', currentPosition.positionId).delete()
-    await currentPosition.delete()
-    return currentPosition
+  /**
+   * Elimina (marca como eliminado) un puesto en una transacción única.
+   *
+   * - Anula `position_id` y `position_level_config_id` de los empleados activos
+   *   de la empresa que tenían ese puesto (R1); sin registro de relleno.
+   * - Retira físicamente las filas de `department_position` de la empresa (R1, R5).
+   * - Hace la baja lógica del puesto.
+   *
+   * Escrito con `trx.from(...)` para evitar mixins y SoftDeletes en las
+   * escrituras masivas (nota 2 del spec).
+   *
+   * @param currentPosition - Puesto ya validado y bloqueado con `forUpdate`.
+   * @param trx - Transacción activa.
+   * @returns Resultado con `affectedEmployees`.
+   */
+  async delete(
+    currentPosition: Position,
+    trx: TransactionClientContract,
+  ): Promise<{ affectedEmployees: number }> {
+    const positionId = currentPosition.positionId
+    const businessUnitId = currentPosition.businessUnitId
+
+    // 1. Nulificar position_id y position_level_config_id de empleados activos de la empresa (R1)
+    const result = await trx
+      .from('employees')
+      .where('position_id', positionId)
+      .where('business_unit_id', businessUnitId)
+      .whereNull('employee_deleted_at')
+      .update({ position_id: null, position_level_config_id: null })
+    const affectedEmployees = Number(result)
+
+    // 2. Retirar relaciones departamento-puesto de la empresa (físico, C06-2)
+    await trx
+      .from('department_position')
+      .where('position_id', positionId)
+      .where('business_unit_id', businessUnitId)
+      .delete()
+
+    // 3. Baja lógica del puesto
+    await trx
+      .from('positions')
+      .where('position_id', positionId)
+      // Mismo motivo que en departamentos: el raw tiene que ser el de Knex.
+      .update({ position_deleted_at: trx.knexClient.raw('NOW()') })
+
+    return { affectedEmployees }
   }
 
   async assignShift(filters: PositionShiftFilterInterface) {

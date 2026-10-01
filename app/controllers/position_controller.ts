@@ -1,3 +1,4 @@
+import db from '@adonisjs/lucid/services/db'
 import Position from '#models/position'
 import DepartmentPosition from '#models/department_position'
 import PositionService from '#services/position_service'
@@ -15,6 +16,11 @@ import { PositionShiftFilterInterface } from '../interfaces/position_shift_filte
 import OrgAliasAppError from '#exceptions/org_alias_app_error'
 import { resolvePositionParentFromBody } from '#utils/org_chart_parent_input'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
+import { ORG_STRUCTURE_ERROR_CODES } from '../constants/org_structure_error_codes.js'
+import {
+  classifyOrgStructureDbError,
+  buildOrgStructureApiError,
+} from '../helpers/org_structure_api_error.js'
 
 export default class PositionController {
   /**
@@ -1136,9 +1142,20 @@ export default class PositionController {
   //     }
   //   }
   // }
+  /**
+   * Elimina (marca como eliminado) un puesto.
+   *
+   * Los empleados activos de la empresa que lo tenían quedan sin puesto y sin
+   * nivel de puesto (`position_id = NULL`, `position_level_config_id = NULL`).
+   * No se usa ningún registro de relleno. La operación es todo o nada.
+   *
+   * @returns 201 con `data.affectedEmployees`; 404 si no existe/otra empresa;
+   *   409 si hay concurrencia; 500 si falla algo no previsto.
+   */
   async delete({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+    // Nota 4: declarar antes del try para que el catch pueda armar `data`.
+    const positionId = request.param('positionId')
     try {
-      const positionId = request.param('positionId')
       if (!positionId) {
         response.status(400)
         return {
@@ -1148,12 +1165,14 @@ export default class PositionController {
           data: { positionId },
         }
       }
-      // Buscar la posición actual
+
+      // Guarda IDOR: busca dentro del scope de empresa, intacta (nota 1 / S06-6).
       const currentPosition = await Position.query()
         .whereNull('position_deleted_at')
         .where('position_id', positionId)
         .whereIn('businessUnitId', businessUnitScope)
         .first()
+
       if (!currentPosition) {
         await ScopeDeniedLogService.log({
           domain: 'position',
@@ -1162,55 +1181,66 @@ export default class PositionController {
           actorUserId: auth.user?.userId ?? null,
           businessUnitScope,
         })
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The position was not found',
-          message: 'The position was not found with the entered ID',
-          data: { positionId },
-        }
+        const err = buildOrgStructureApiError(
+          ORG_STRUCTURE_ERROR_CODES.POSITION_NOT_FOUND,
+          { positionId },
+          i18n,
+        )
+        response.status(err.status)
+        return err.body
       }
-      // Obtener empleados relacionados con la posición
-      const employees = await currentPosition
-        .related('employees')
-        .query()
-        .whereNull('employee_deleted_at')
 
-      // Si hay empleados, asignarles la posición "Sin posición"
-      if (employees.length > 0) {
-        const defaultPosition = await Position.query()
+      const positionService = new PositionService(i18n)
+
+      // Todo o nada: transacción con relectura forUpdate (C06-1, S06-4).
+      let affectedEmployees = 0
+      await db.transaction(async (trx) => {
+        // Relectura bajo bloqueo dentro de la transacción.
+        const locked = await trx
+          .from('positions')
+          .where('position_id', currentPosition.positionId)
+          .where('business_unit_id', currentPosition.businessUnitId)
           .whereNull('position_deleted_at')
-          .where('position_name', 'Sin posición')
+          .forUpdate()
           .first()
 
-        if (defaultPosition) {
-          for (const employee of employees) {
-            employee.positionId = defaultPosition.positionId
-            await employee.save()
-          }
+        if (!locked) {
+          // El puesto desapareció entre la guarda y el bloqueo (CA7 dentro de trx).
+          throw Object.assign(new Error('not_found'), { _orgNotFound: true })
         }
-      }
 
-      // Proceder con la eliminación
-      const positionService = new PositionService(i18n)
-      const deletePosition = await positionService.delete(currentPosition)
-      if (deletePosition) {
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Positions',
-          message: 'The position was deleted successfully',
-          data: { position: deletePosition },
-        }
+        const result = await positionService.delete(currentPosition, trx)
+        affectedEmployees = result.affectedEmployees
+      })
+
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Positions',
+        message: 'The position was deleted successfully',
+        data: { position: currentPosition, affectedEmployees },
       }
     } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
+      // Puesto desapareció durante la transacción → 404.
+      if ((error as { _orgNotFound?: boolean })._orgNotFound) {
+        const err = buildOrgStructureApiError(
+          ORG_STRUCTURE_ERROR_CODES.POSITION_NOT_FOUND,
+          { positionId },
+          i18n,
+        )
+        response.status(err.status)
+        return err.body
       }
+      // Concurrencia → 409; cualquier otro → 500 saneado (C06-5 / RT5).
+      const kind = classifyOrgStructureDbError(error)
+      const code =
+        kind === 'conflict'
+          ? ORG_STRUCTURE_ERROR_CODES.POSITION_DELETE_CONFLICT
+          : ORG_STRUCTURE_ERROR_CODES.POSITION_DELETE_FAILED
+      const err = buildOrgStructureApiError(code, { positionId }, i18n)
+      response.status(err.status)
+      // En 500 el campo `error` repite `detail` (contrato aditivo §10).
+      return err.status >= 500 ? { ...err.body, error: err.body.detail } : err.body
     }
   }
   /**

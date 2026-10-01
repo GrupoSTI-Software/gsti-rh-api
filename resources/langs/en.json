@@ -3106,5 +3106,20 @@
   "access_point_sync_answered_message": "The device answered and its details are up to date",
   "access_point_sync_pending_message": "The device was asked; it will answer on its next poll",
   "access_point_sync_failed_message": "The device replied that it could not complete the request",
-  "assist_excel_unassigned_block_label": "EMPLOYEES WITHOUT AN ASSIGNED DEPARTMENT"
+  "assist_excel_unassigned_block_label": "EMPLOYEES WITHOUT AN ASSIGNED DEPARTMENT",
+  "org_structure_department_not_found_title": "Department not found",
+  "org_structure_department_not_found_message": "The department does not exist, has already been deleted, or does not belong to this company.",
+  "org_structure_department_has_employees_title": "The department has employees",
+  "org_structure_department_has_employees_message": "This department has assigned employees. If you delete it permanently, they will be left without a department.",
+  "org_structure_department_delete_conflict_title": "The department could not be deleted at this time",
+  "org_structure_department_delete_conflict_message": "Another operation is using this department at the same time; no changes were made. Please try again.",
+  "org_structure_department_delete_failed_title": "The department could not be deleted",
+  "org_structure_department_delete_failed_message": "An unexpected error occurred and no changes were made. Please try again or contact support.",
+  "org_structure_department_force_deleted_message": "The department was deleted.",
+  "org_structure_position_not_found_title": "Position not found",
+  "org_structure_position_not_found_message": "The position does not exist, has already been deleted, or does not belong to this company.",
+  "org_structure_position_delete_conflict_title": "The position could not be deleted at this time",
+  "org_structure_position_delete_conflict_message": "Another operation is using this position at the same time; no changes were made. Please try again.",
+  "org_structure_position_delete_failed_title": "The position could not be deleted",
+  "org_structure_position_delete_failed_message": "An unexpected error occurred and no changes were made. Please try again or contact support."
 }

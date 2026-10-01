@@ -3109,5 +3109,20 @@
   "access_point_sync_answered_message": "El equipo respondio y su ficha esta al dia",
   "access_point_sync_pending_message": "Se le pidio al equipo; contestara en cuanto vuelva a consultar",
   "access_point_sync_failed_message": "El equipo respondio que no pudo completar la peticion",
-  "assist_excel_unassigned_block_label": "EMPLEADOS SIN DEPARTAMENTO ASIGNADO"
+  "assist_excel_unassigned_block_label": "EMPLEADOS SIN DEPARTAMENTO ASIGNADO",
+  "org_structure_department_not_found_title": "Departamento no encontrado",
+  "org_structure_department_not_found_message": "El departamento no existe, ya fue eliminado o no pertenece a esta empresa.",
+  "org_structure_department_has_employees_title": "El departamento tiene empleados",
+  "org_structure_department_has_employees_message": "Este departamento tiene empleados asignados. Si lo elimina de forma definitiva, quedarán sin departamento.",
+  "org_structure_department_delete_conflict_title": "No fue posible eliminar el departamento en este momento",
+  "org_structure_department_delete_conflict_message": "Otra operación está usando este departamento al mismo tiempo; no se realizó ningún cambio. Intente de nuevo.",
+  "org_structure_department_delete_failed_title": "No fue posible eliminar el departamento",
+  "org_structure_department_delete_failed_message": "Ocurrió un error inesperado y no se realizó ningún cambio. Intente de nuevo o contacte a soporte.",
+  "org_structure_department_force_deleted_message": "El departamento fue eliminado.",
+  "org_structure_position_not_found_title": "Puesto no encontrado",
+  "org_structure_position_not_found_message": "El puesto no existe, ya fue eliminado o no pertenece a esta empresa.",
+  "org_structure_position_delete_conflict_title": "No fue posible eliminar el puesto en este momento",
+  "org_structure_position_delete_conflict_message": "Otra operación está usando este puesto al mismo tiempo; no se realizó ningún cambio. Intente de nuevo.",
+  "org_structure_position_delete_failed_title": "No fue posible eliminar el puesto",
+  "org_structure_position_delete_failed_message": "Ocurrió un error inesperado y no se realizó ningún cambio. Intente de nuevo o contacte a soporte."
 }
