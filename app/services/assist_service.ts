@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
 import { AssistDayInterface } from '../interfaces/assist_day_interface.js'
 import { AssistEmployeeExcelFilterInterface } from '../interfaces/assist_employee_excel_filter_interface.js'
 import ExcelJS from 'exceljs'
@@ -5446,7 +5447,7 @@ export default class AssistsService {
       if (type === 'absences') {
         if (maxAbsences) {
           if (faults >= maxAbsences) {
-            if (userEmail) {
+            if (userEmail && (await this.claimAttendanceLockNotice(employee, 'absences', today))) {
               const emailData = {
                 user: user,
                 backgroundImageLogo,
@@ -5476,7 +5477,7 @@ export default class AssistsService {
       } else if (type === 'tardiness') {
         if (maxTardiness) {
           if (delays >= maxTardiness) {
-            if (userEmail) {
+            if (userEmail && (await this.claimAttendanceLockNotice(employee, 'tardiness', today))) {
               const emailData = {
                 user: user,
                 backgroundImageLogo,
@@ -5527,6 +5528,27 @@ export default class AssistsService {
         error: error.message,
       }
     }
+  }
+
+  /**
+   * Reserva el aviso de un bloqueo: `true` solo la primera vez por
+   * colaborador, tipo de bloqueo y mes del sitio. El bloqueo se consulta cada
+   * vez que el colaborador intenta checar, y sin esta reserva cada intento
+   * volvía a mandar el correo al colaborador y a todo Capital Humano.
+   */
+  async claimAttendanceLockNotice(
+    employee: Employee,
+    type: 'absences' | 'tardiness',
+    today: DateTime
+  ): Promise<boolean> {
+    const result = await db.rawQuery(
+      `INSERT IGNORE INTO attendance_lock_notification_logs
+        (business_unit_id, employee_id, attendance_lock_notification_log_type,
+         attendance_lock_notification_log_period, attendance_lock_notification_log_created_at)
+       VALUES (?, ?, ?, ?, UTC_TIMESTAMP())`,
+      [employee.businessUnitId, employee.employeeId, type, today.toFormat('yyyy-LL')]
+    )
+    return Number(result[0]?.affectedRows ?? 0) > 0
   }
 
   async sendEmailAttendanceLock(systemSettingActive: SystemSetting, newMessage: string, user: User) {
