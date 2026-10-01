@@ -21,4 +21,6 @@ export const WORK_DISABILITY_ERROR_CODES = {
   INITIAL_PERIOD_LOCKED: 'WD.VAL.PER.002',
   /** Cobertura o tipo de periodo que no existe o no aplica. */
   INVALID_CATALOG: 'WD.VAL.CAT.001',
+  /** El regreso anticipado cae fuera de los días amparados. */
+  RETURN_OUT_OF_RANGE: 'WD.VAL.RET.001',
 } as const

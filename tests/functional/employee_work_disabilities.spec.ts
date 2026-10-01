@@ -234,6 +234,67 @@ test.group('Incapacidades del empleado', (group) => {
     assert.isFalse(updated.expenses[0].hasFile)
   })
 
+  test('el regreso anticipado recorta el periodo y retira las ampliaciones y sus excepciones', async ({
+    client,
+    assert,
+  }) => {
+    const created = await client
+      .post(base())
+      .field('insuranceCoverageTypeId', String(coverageId))
+      .field('folio', folio())
+      .field('startDate', '2027-03-01')
+      .field('days', '3')
+      .file('document', PDF, { filename: 'certificado.pdf', contentType: 'application/pdf' })
+      .loginAs(actor!.user)
+      .headers(headers())
+    assert.equal(created.status(), 201, JSON.stringify(created.body()))
+    const { workDisabilityId, workDisabilityPeriodId } = created.body().data.workDisability
+
+    const extended = await client
+      .post(`${base()}/${workDisabilityId}/extensions`)
+      .field('workDisabilityTypeId', String(subsequentTypeId))
+      .field('folio', folio())
+      .field('startDate', '2027-03-04')
+      .field('days', '4')
+      .file('document', PDF, { filename: 'ampliacion.pdf', contentType: 'application/pdf' })
+      .loginAs(actor!.user)
+      .headers(headers())
+    assert.equal(extended.status(), 201, JSON.stringify(extended.body()))
+
+    const outOfRange = await client
+      .post(`${base()}/${workDisabilityId}/early-return`)
+      .json({ returnDate: '2027-03-01' })
+      .loginAs(actor!.user)
+      .headers(headers())
+    outOfRange.assertStatus(422)
+    assert.equal(outOfRange.body().code, WORK_DISABILITY_ERROR_CODES.RETURN_OUT_OF_RANGE)
+
+    const back = await client
+      .post(`${base()}/${workDisabilityId}/early-return`)
+      .json({ returnDate: '2027-03-03' })
+      .loginAs(actor!.user)
+      .headers(headers())
+    assert.equal(back.status(), 200, JSON.stringify(back.body()))
+    assert.deepEqual(back.body().data.earlyReturn, { lastCoveredDay: '2027-03-02', removedDays: 5 })
+
+    const feed = await client.get(base()).loginAs(actor!.user).headers(headers())
+    const disability = (feed.body().data.workDisabilities as Array<Record<string, any>>).find(
+      (row) => row.workDisabilityId === workDisabilityId
+    )!
+    assert.lengthOf(disability.periods, 1, 'la ampliación que empezaba después del regreso se retira')
+    assert.equal(disability.endDate, '2027-03-02')
+    assert.equal(disability.totalDays, 2)
+
+    const exceptionType = await db.from('exception_types').where('exception_type_slug', 'falta-por-incapacidad').first()
+    if (exceptionType) {
+      const remaining = await db
+        .from('shift_exceptions')
+        .where('work_disability_period_id', workDisabilityPeriodId)
+        .whereNull('shift_exceptions_deleted_at')
+      assert.lengthOf(remaining, 2, 'solo quedan las excepciones de los días amparados')
+    }
+  })
+
   test('otro colaborador fuera de la empresa responde 404', async ({ client }) => {
     const response = await client
       .get('/api/v1/employees/999999999/work-disabilities')

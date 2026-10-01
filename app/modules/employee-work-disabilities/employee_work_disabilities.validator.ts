@@ -41,3 +41,14 @@ export const registerWorkDisabilityExtensionValidator = vine.compile(
     ...periodFields,
   })
 )
+
+export const workDisabilityEarlyReturnValidator = vine.compile(
+  vine.object({
+    params: vine.object({
+      employeeId: vine.number().min(1),
+      workDisabilityId: vine.number().min(1),
+    }),
+    /** Primer día que el colaborador vuelve a trabajar. */
+    returnDate: vine.date({ formats: ['YYYY-MM-DD'] }),
+  })
+)

@@ -8,10 +8,12 @@ import { toIsoDay } from './work_disability_rules.js'
 import WorkDisabilityRegistrationService, {
   type WorkDisabilityRegistrationResult,
 } from './work_disability_registration.service.js'
+import WorkDisabilityEarlyReturnService from './work_disability_early_return.service.js'
 import {
   employeeWorkDisabilityParamsValidator,
   registerWorkDisabilityExtensionValidator,
   registerWorkDisabilityValidator,
+  workDisabilityEarlyReturnValidator,
 } from './employee_work_disabilities.validator.js'
 
 /** Error con el triplete título/detalle/key del estándar. */
@@ -148,21 +150,8 @@ export default class EmployeeWorkDisabilitiesController {
     const employee = await this.scopedEmployee(ctx, payload.params.employeeId)
     if (!employee) return this.notFound(response)
 
-    const workDisability = await WorkDisability.query()
-      .whereNull('work_disability_deleted_at')
-      .where('work_disability_id', payload.params.workDisabilityId)
-      .where('employee_id', employee.employeeId)
-      .first()
-    if (!workDisability) {
-      return fail(
-        response,
-        404,
-        'Incapacidad no encontrada',
-        'La incapacidad no existe o no es de este colaborador.',
-        'recurso-no-encontrado',
-        WORK_DISABILITY_ERROR_CODES.NOT_FOUND
-      )
-    }
+    const workDisability = await this.employeeDisability(employee.employeeId, payload.params.workDisabilityId)
+    if (!workDisability) return this.disabilityNotFound(response)
 
     const document = this.document(ctx)
     if ('rejection' in document) return response.status(422).json(document.rejection)
@@ -177,6 +166,53 @@ export default class EmployeeWorkDisabilitiesController {
         days: payload.days,
         document: document.file,
       })
+    )
+  }
+
+  /**
+   * @swagger
+   * /api/v1/employees/{employeeId}/work-disabilities/{workDisabilityId}/early-return:
+   *   post:
+   *     security:
+   *       - bearerAuth: []
+   *     tags: [Incapacidades]
+   *     summary: Registra el regreso anticipado; recorta la incapacidad a la víspera del regreso
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [returnDate]
+   *             properties:
+   *               returnDate: { type: string, format: date, description: 'Primer día de regreso al trabajo' }
+   *     responses:
+   *       200:
+   *         description: data.earlyReturn con el nuevo último día amparado y los días retirados
+   */
+  async earlyReturn(ctx: HttpContext) {
+    const { request, response } = ctx
+    const payload = await request.validateUsing(workDisabilityEarlyReturnValidator, {
+      data: { ...request.all(), params: request.params() },
+    })
+    const employee = await this.scopedEmployee(ctx, payload.params.employeeId)
+    if (!employee) return this.notFound(response)
+
+    const workDisability = await this.employeeDisability(employee.employeeId, payload.params.workDisabilityId)
+    if (!workDisability) return this.disabilityNotFound(response)
+
+    const result = await new WorkDisabilityEarlyReturnService().register({
+      ctx,
+      workDisability,
+      returnDate: toIsoDay(payload.returnDate),
+    })
+    if (!result.ok) return response.status(result.rejection.status).json(result.rejection.body)
+    return StandardResponseFormatter.success(
+      response,
+      { lastCoveredDay: result.lastCoveredDay, removedDays: result.removedDays },
+      'Incapacidades',
+      'El regreso anticipado quedó registrado',
+      200,
+      'earlyReturn'
     )
   }
 
@@ -227,6 +263,25 @@ export default class EmployeeWorkDisabilitiesController {
       .whereIn('business_unit_id', scope)
       .whereNull('employee_deleted_at')
       .first()
+  }
+
+  private employeeDisability(employeeId: number, workDisabilityId: number) {
+    return WorkDisability.query()
+      .whereNull('work_disability_deleted_at')
+      .where('work_disability_id', workDisabilityId)
+      .where('employee_id', employeeId)
+      .first()
+  }
+
+  private disabilityNotFound(response: HttpContext['response']) {
+    return fail(
+      response,
+      404,
+      'Incapacidad no encontrada',
+      'La incapacidad no existe o no es de este colaborador.',
+      'recurso-no-encontrado',
+      WORK_DISABILITY_ERROR_CODES.NOT_FOUND
+    )
   }
 
   private notFound(response: HttpContext['response']) {
