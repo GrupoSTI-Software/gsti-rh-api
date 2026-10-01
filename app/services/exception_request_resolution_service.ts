@@ -190,6 +190,11 @@ export default class ExceptionRequestResolutionService {
       vacationSettingId,
       shiftExceptionCheckInTime: exceptionRequest.exceptionRequestCheckInTime,
       shiftExceptionCheckOutTime: exceptionRequest.exceptionRequestCheckOutTime,
+      // El dia queda ligado a su solicitud y a quien la autorizo: sin esto la
+      // ficha del empleado no puede decir de donde salio ni quien lo aprobo.
+      exceptionRequestId: exceptionRequest.exceptionRequestId,
+      shiftExceptionAuthorizedByUserId: exceptionRequest.resolvedByUserId,
+      shiftExceptionAuthorizedAt: exceptionRequest.exceptionRequestResolvedAt,
     } as ShiftException
 
     const verifyInfo = await shiftExceptionService.verifyInfo(shiftException)

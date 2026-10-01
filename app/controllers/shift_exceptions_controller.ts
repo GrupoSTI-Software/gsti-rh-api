@@ -167,6 +167,9 @@ export default class ShiftExceptionController {
             : null,
           shiftExceptionEnjoymentOfSalary: shiftExceptionEnjoymentOfSalary,
           shiftExceptionTimeByTime: shiftExceptionTimeByTime,
+          // Registrar un dia directo es autorizarlo: queda quien y cuando.
+          shiftExceptionAuthorizedByUserId: auth.user?.userId ?? null,
+          shiftExceptionAuthorizedAt: DateTime.now(),
         } as ShiftException
         try {
           await request.validateUsing(createShiftExceptionValidator)
