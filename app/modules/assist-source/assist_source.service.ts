@@ -31,6 +31,14 @@ export interface AssistSourceDevice {
   registered: AssistRegisteredDevice | null
 }
 
+/** Quién registró a mano una checada y cuándo. */
+export interface AssistCapture {
+  /** Nombre de quien la registró; `null` si el registro no lo guardó. */
+  name: string | null
+  /** Momento en que se registró (no el de la checada). */
+  capturedAt: string | null
+}
+
 /** Dónde y cómo se hizo una checada. */
 export interface AssistSource {
   assistId: number
@@ -38,8 +46,8 @@ export interface AssistSource {
   kind: AssistSourceKind
   location: AssistLocation | null
   device: AssistSourceDevice | null
-  /** Quién la capturó desde el backoffice. */
-  capturedBy: { name: string } | null
+  /** Registro manual: quién y cuándo. Solo en las capturas del backoffice. */
+  capture: AssistCapture | null
 }
 
 /**
@@ -70,9 +78,7 @@ export default class AssistSourceService {
       kind,
       location,
       device: kind === ASSIST_SOURCE_KIND.DEVICE ? await this.device(assist) : null,
-      capturedBy: assist.assistCreatedByUserId
-        ? await this.capturedBy(assist.assistCreatedByUserId)
-        : null,
+      capture: kind === ASSIST_SOURCE_KIND.BACKOFFICE ? await this.capture(assist) : null,
     }
   }
 
@@ -111,13 +117,21 @@ export default class AssistSourceService {
     }
   }
 
-  private async capturedBy(userId: number): Promise<{ name: string } | null> {
-    const user = await User.query().where('userId', userId).preload('person').first()
+  private async capture(assist: Assist): Promise<AssistCapture> {
+    return {
+      name: assist.assistCreatedByUserId ? await this.userName(assist.assistCreatedByUserId) : null,
+      capturedAt: assist.assistCreatedAt?.toISO?.() ?? null,
+    }
+  }
+
+  /** Nombre de la persona del usuario; también si ya fue dado de baja. */
+  private async userName(userId: number): Promise<string | null> {
+    const user = await User.query().withTrashed().where('userId', userId).preload('person').first()
     const person = user?.person
     if (!person) return null
     const name = [person.personFirstname, person.personLastname, person.personSecondLastname]
       .filter(Boolean)
       .join(' ')
-    return name ? { name } : null
+    return name || null
   }
 }

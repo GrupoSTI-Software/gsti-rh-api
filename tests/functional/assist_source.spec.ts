@@ -68,6 +68,7 @@ test.group('Origen de la checada', (group) => {
     ids.backoffice = await insertAssist(3, {
       assist_origin: 'admin-capture',
       assist_created_by_user_id: actor.user.userId,
+      assist_created_at: '2026-09-01 16:30:00',
     })
 
     return async () => {
@@ -110,12 +111,18 @@ test.group('Origen de la checada', (group) => {
     assert.isNull(source.device)
   })
 
-  test('una captura en backoffice dice quién la hizo', async ({ client, assert }) => {
+  test('un registro manual dice quién lo hizo y cuándo', async ({ client, assert }) => {
     const response = await get(client, `/api/v1/assists/${ids.backoffice}/source`)
     response.assertStatus(200)
     const source = response.body().data.assistSource
     assert.equal(source.kind, 'backoffice')
-    assert.isString(source.capturedBy?.name)
+    assert.isString(source.capture?.name)
+    assert.isString(source.capture?.capturedAt)
+  })
+
+  test('una checada que no es manual no trae datos de registro', async ({ client, assert }) => {
+    const response = await get(client, `/api/v1/assists/${ids.app}/source`)
+    assert.isNull(response.body().data.assistSource.capture)
   })
 
   test('la checada de otra empresa responde 404', async ({ client, assert }) => {
