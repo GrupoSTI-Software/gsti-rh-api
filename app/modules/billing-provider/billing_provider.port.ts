@@ -77,3 +77,33 @@ export function isBillingCatalogProvider(
     typeof candidate.createCatalogPrice === 'function'
   )
 }
+
+/** Resumen del objeto del evento: sin payload ni PII (USRH1790708507579). */
+export interface ProviderEventObjectSummary {
+  subscriptionRef: string | null
+  customerRef: string | null
+  status: string | null
+}
+
+export interface VerifiedProviderEvent {
+  id: string
+  type: string
+  objectId: string | null
+  objectType: string | null
+  livemode: boolean
+  createdAt: number
+  fromConnectedAccount: boolean
+  object: ProviderEventObjectSummary
+}
+
+/** Verificación síncrona de webhooks; sin red. */
+export interface BillingWebhookProviderPort {
+  verifyWebhookEvent(rawBody: string, signatureHeader: string | null): VerifiedProviderEvent
+}
+
+export function isBillingWebhookProvider(
+  provider: BillingProviderPort
+): provider is BillingProviderPort & BillingWebhookProviderPort {
+  const candidate = provider as unknown as BillingWebhookProviderPort
+  return typeof candidate.verifyWebhookEvent === 'function'
+}

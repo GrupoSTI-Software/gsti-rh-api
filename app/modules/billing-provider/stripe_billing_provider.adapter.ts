@@ -3,6 +3,8 @@ import logger from '@adonisjs/core/services/logger'
 import {
   BILLING_PROVIDER_ERROR_CODES,
   BILLING_PROVIDER_STRIPE_NOT_CONFIGURED_DETAIL,
+  BILLING_PROVIDER_WEBHOOK_MODE_MISMATCH_DETAIL,
+  BILLING_PROVIDER_WEBHOOK_SIGNATURE_INVALID_DETAIL,
 } from '#constants/billing_provider_error_codes'
 import { BillingProviderServiceError } from '#exceptions/billing_provider_service_error'
 import { operationNotAvailable, providerRequestFailed } from '#modules/billing-provider/billing_provider.errors'
@@ -10,12 +12,15 @@ import {
   BILLING_PROVIDER_KEYS,
   type BillingCatalogProviderPort,
   type BillingProviderPort,
+  type BillingWebhookProviderPort,
   type CatalogPriceDraft,
   type CatalogProductDraft,
+  type ProviderEventObjectSummary,
   type ProviderObjectRef,
   type RecordedPaymentRequest,
   type SubscriptionOpening,
   type SubscriptionOpeningRequest,
+  type VerifiedProviderEvent,
 } from '#modules/billing-provider/billing_provider.port'
 import type { StripeProviderDescription, StripeSettings } from '#modules/billing-provider/stripe_billing_provider.config'
 import { toStripeProviderDescription } from '#modules/billing-provider/stripe_billing_provider.config'
@@ -74,11 +79,106 @@ function stripeNotConfigured(): BillingProviderServiceError {
   )
 }
 
+function webhookSignatureInvalid(): BillingProviderServiceError {
+  return new BillingProviderServiceError(
+    'Firma de webhook inválida',
+    BILLING_PROVIDER_ERROR_CODES.WEBHOOK_SIGNATURE_INVALID,
+    400,
+    'firma-del-aviso-invalida',
+    BILLING_PROVIDER_WEBHOOK_SIGNATURE_INVALID_DETAIL
+  )
+}
+
+function webhookModeMismatch(): BillingProviderServiceError {
+  return new BillingProviderServiceError(
+    'Modo del webhook distinto al ambiente',
+    BILLING_PROVIDER_ERROR_CODES.WEBHOOK_MODE_MISMATCH,
+    400,
+    'modo-del-aviso-no-coincide',
+    BILLING_PROVIDER_WEBHOOK_MODE_MISMATCH_DETAIL
+  )
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === 'string' ? value : null
+}
+
+function readNestedString(record: unknown, key: string): string | null {
+  if (typeof record !== 'object' || record === null) return null
+  return readString((record as Record<string, unknown>)[key])
+}
+
+function resolveSubscriptionRef(objectType: string | null, dataObject: unknown): string | null {
+  if (objectType === 'subscription') {
+    return readNestedString(dataObject, 'id')
+  }
+  if (objectType === 'invoice' && typeof dataObject === 'object' && dataObject !== null) {
+    const parentObj = (dataObject as Record<string, unknown>).parent
+    if (typeof parentObj === 'object' && parentObj !== null) {
+      const details = (parentObj as Record<string, unknown>).subscription_details
+      if (typeof details === 'object' && details !== null) {
+        return readNestedString(details, 'subscription')
+      }
+    }
+  }
+  return null
+}
+
+function resolveCustomerRef(dataObject: unknown): string | null {
+  if (typeof dataObject !== 'object' || dataObject === null) return null
+  const customer = (dataObject as Record<string, unknown>).customer
+  if (typeof customer === 'string') return customer
+  if (typeof customer === 'object' && customer !== null) {
+    return readNestedString(customer, 'id')
+  }
+  return null
+}
+
+function mapStripeEventToVerified(event: Stripe.Event): VerifiedProviderEvent {
+  const id = readString(event.id)
+  const type = readString(event.type)
+  if (!id || !id.startsWith('evt_') || id.length > 191) {
+    throw webhookSignatureInvalid()
+  }
+  if (!type || type.length > 100) {
+    throw webhookSignatureInvalid()
+  }
+
+  const dataObject = event.data?.object
+  let objectId = readNestedString(dataObject, 'id')
+  let objectType = readNestedString(dataObject, 'object')
+  if (objectId !== null && objectId.length > 191) {
+    objectId = null
+  }
+  if (objectType !== null && objectType.length > 50) {
+    objectType = null
+  }
+
+  const objectSummary: ProviderEventObjectSummary = {
+    subscriptionRef: resolveSubscriptionRef(objectType, dataObject),
+    customerRef: resolveCustomerRef(dataObject),
+    status: readNestedString(dataObject, 'status'),
+  }
+
+  const account = readString((event as Stripe.Event & { account?: string }).account)
+
+  return {
+    id,
+    type,
+    objectId,
+    objectType,
+    livemode: event.livemode === true,
+    createdAt: typeof event.created === 'number' ? event.created : 0,
+    fromConnectedAccount: account !== null && account.length > 0,
+    object: objectSummary,
+  }
+}
+
 /**
  * Adaptador Stripe: guardia de configuración, catálogo (USRH1790708507553) y esqueleto de cobro (7496).
  */
 export default class StripeBillingProviderAdapter
-  implements BillingProviderPort, BillingCatalogProviderPort
+  implements BillingProviderPort, BillingCatalogProviderPort, BillingWebhookProviderPort
 {
   readonly key = BILLING_PROVIDER_KEYS.STRIPE
 
@@ -103,6 +203,32 @@ export default class StripeBillingProviderAdapter
   async admitRecordedPayment(_request: RecordedPaymentRequest): Promise<void> {
     this.#requireClient()
     throw operationNotAvailable('admitRecordedPayment')
+  }
+
+  verifyWebhookEvent(rawBody: string, signatureHeader: string | null): VerifiedProviderEvent {
+    const client = this.#requireClient()
+    if (this.#settings.status !== 'enabled' || this.#settings.webhookSecret === null) {
+      throw stripeNotConfigured()
+    }
+
+    if (signatureHeader === null || signatureHeader.trim() === '') {
+      throw webhookSignatureInvalid()
+    }
+
+    const webhookSecret = this.#settings.webhookSecret
+    let event: Stripe.Event
+    try {
+      event = client.webhooks.constructEvent(rawBody, signatureHeader, webhookSecret)
+    } catch {
+      throw webhookSignatureInvalid()
+    }
+
+    const expectedLive = this.#settings.mode === 'live'
+    if (event.livemode !== expectedLive) {
+      throw webhookModeMismatch()
+    }
+
+    return mapStripeEventToVerified(event)
   }
 
   async createCatalogProduct(draft: CatalogProductDraft): Promise<ProviderObjectRef> {

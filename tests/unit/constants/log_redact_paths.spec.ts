@@ -303,6 +303,21 @@ test.group('LOG_REDACT_PATHS — registro técnico (USRH1788551528000)', () => {
     assert.notInclude(JSON.stringify(line), 'cs_fixture')
   })
 
+  test('7579: error de firma Stripe redacta header y payload', async ({ assert }) => {
+    const { logger, readLine } = createCaptureLogger({ preserveErrFields: true })
+    const signatureError = Object.assign(new Error('signature mismatch'), {
+      header: 't=1,v1=abc',
+      payload: '{"id":"evt_x","email":"prospecto.fixture@correo.test"}',
+    })
+
+    logger.error({ err: signatureError })
+    const line = await readLine()
+    const errObj = line.err as Record<string, unknown>
+    assert.equal(errObj.header, LOG_REDACT_CENSOR)
+    assert.equal(errObj.payload, LOG_REDACT_CENSOR)
+    assert.notInclude(JSON.stringify(line), 'prospecto.fixture@correo.test')
+  })
+
   test('T9: conexión mysql declara compileSqlOnError en false', ({ assert }) => {
     const mysql = dbConfig.connections.mysql
     if (!('compileSqlOnError' in mysql)) {

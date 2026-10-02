@@ -43,6 +43,8 @@ export const LOG_REDACT_PATHS = [
   'err.payment_intent', // Stripe: intent de pago
   'err.setup_intent', // Stripe: intent de setup
   'err.source', // Stripe: fuente legacy
+  'err.header', // Stripe: cabecera stripe-signature en error de verificación (7579)
+  'err.payload', // Stripe: cuerpo en error de verificación (7579)
 ] as const satisfies readonly string[]
 
 /** Valor sustituto fijo; distinto de la máscara de producto (`•`) para no confundir eco y log. */

@@ -11,6 +11,12 @@ export const BILLING_PROVIDER_ERROR_CODES = {
   STRIPE_NOT_CONFIGURED: 'PLT.PRV.STRIPE_NOT_CONFIGURED',
   /** Stripe rechazó la operación o no respondió (USRH1790708507553) */
   PROVIDER_REQUEST_FAILED: 'PLT.PRV.PROVIDER_REQUEST_FAILED',
+  /** Firma del webhook ausente, inválida o fuera de tolerancia (USRH1790708507579) */
+  WEBHOOK_SIGNATURE_INVALID: 'PLT.PRV.WEBHOOK_SIGNATURE_INVALID',
+  /** livemode del evento distinto al modo del adaptador (USRH1790708507579) */
+  WEBHOOK_MODE_MISMATCH: 'PLT.PRV.WEBHOOK_MODE_MISMATCH',
+  /** El manejador falló; Stripe debe reintentar (USRH1790708507579) */
+  WEBHOOK_PROCESSING_FAILED: 'PLT.PRV.WEBHOOK_PROCESSING_FAILED',
 } as const
 
 export type BillingProviderErrorCode =
@@ -31,3 +37,15 @@ export const BILLING_PROVIDER_STRIPE_NOT_CONFIGURED_DETAIL =
 /** Texto fijo cuando Stripe no completa la operación (USRH1790708507553). */
 export const BILLING_PROVIDER_PROVIDER_REQUEST_FAILED_DETAIL =
   'El proveedor de cobro no pudo completar la operación. Intenta de nuevo.'
+
+/** Texto fijo cuando la firma del webhook no es válida (USRH1790708507579). */
+export const BILLING_PROVIDER_WEBHOOK_SIGNATURE_INVALID_DETAIL =
+  'El aviso no trae una firma válida del proveedor de cobro.'
+
+/** Texto fijo cuando el modo del evento no coincide con el ambiente (USRH1790708507579). */
+export const BILLING_PROVIDER_WEBHOOK_MODE_MISMATCH_DETAIL =
+  'El aviso corresponde a un modo del proveedor de cobro distinto al de este entorno.'
+
+/** Texto fijo hacia Stripe cuando el procesamiento falló (USRH1790708507579). */
+export const BILLING_PROVIDER_WEBHOOK_PROCESSING_FAILED_DETAIL =
+  'El aviso del proveedor de cobro no se pudo procesar. Se reintentará.'
