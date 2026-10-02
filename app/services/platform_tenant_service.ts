@@ -577,7 +577,7 @@ export default class PlatformTenantService {
 
   // ─── Helpers internos ────────────────────────────────────────────────────────
 
-  private async fetchAllCompanyIds(
+  async fetchAllCompanyIds(
     search?: string
   ): Promise<Array<{ buId: number; buPublicId: string }>> {
     const q = db

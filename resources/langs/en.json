@@ -2872,6 +2872,14 @@
       }
     }
   },
+  "platformLegalAcceptances": {
+    "errors": {
+      "filtros-de-aceptaciones-invalidos": {
+        "title": "Invalid acceptance filters",
+        "detail": "Check the search (1 to 191 characters), the status (al-dia, pendiente or nunca), the page and the limit (maximum 100)."
+      }
+    }
+  },
   "telework_policy": {
     "title": "Telework Policy",
     "get_success": "Telework Policy status retrieved successfully.",
@@ -3319,5 +3327,40 @@
   "asset_unexpected_error_title": "Unexpected error",
   "asset_unexpected_error_detail": "An unexpected error occurred while querying assets.",
   "vacation_period_not_started_title": "The period has not started",
-  "vacation_period_not_started_message": "The company does not allow vacation in advance. This period starts on {startsAt}; register the days in the current period."
+  "vacation_period_not_started_message": "The company does not allow vacation in advance. This period starts on {startsAt}; register the days in the current period.",
+  "org_structure_department_not_found_title": "Department not found",
+  "org_structure_department_not_found_message": "The department does not exist, has already been deleted, or does not belong to this company.",
+  "org_structure_department_has_employees_title": "The department has employees",
+  "org_structure_department_has_employees_message": "This department has assigned employees. If you delete it permanently, they will be left without a department.",
+  "org_structure_department_delete_conflict_title": "The department could not be deleted at this time",
+  "org_structure_department_delete_conflict_message": "Another operation is using this department at the same time; no changes were made. Please try again.",
+  "org_structure_department_delete_failed_title": "The department could not be deleted",
+  "org_structure_department_delete_failed_message": "An unexpected error occurred and no changes were made. Please try again or contact support.",
+  "org_structure_department_force_deleted_message": "The department was deleted.",
+  "org_structure_position_not_found_title": "Position not found",
+  "org_structure_position_not_found_message": "The position does not exist, has already been deleted, or does not belong to this company.",
+  "org_structure_position_delete_conflict_title": "The position could not be deleted at this time",
+  "org_structure_position_delete_conflict_message": "Another operation is using this position at the same time; no changes were made. Please try again.",
+  "org_structure_position_delete_failed_title": "The position could not be deleted",
+  "org_structure_position_delete_failed_message": "An unexpected error occurred and no changes were made. Please try again or contact support.",
+  "org_structure_department_val_input_title": "Invalid department data",
+  "org_structure_department_val_input_message": "One or more department fields failed validation. Please review the request body.",
+  "org_structure_department_business_unit_mismatch_title": "Business unit mismatch",
+  "org_structure_department_business_unit_mismatch_message": "The businessUnitId in the request body does not match the active business unit for this session. Use the same business unit identifier as in the request header.",
+  "org_structure_department_alias_taken_title": "Alias already in use",
+  "org_structure_department_alias_taken_message": "That alias is already registered to another department in this company. Please choose a different alias.",
+  "org_structure_department_alias_invalid_title": "Invalid alias",
+  "org_structure_department_alias_invalid_message": "The alias contains invalid characters or has an incorrect format.",
+  "org_structure_department_create_failed_title": "Department could not be created",
+  "org_structure_department_create_failed_message": "An unexpected error occurred and the department was not created. Please try again or contact support.",
+  "org_structure_position_val_input_title": "Invalid position data",
+  "org_structure_position_val_input_message": "One or more position fields failed validation. Please review the request body.",
+  "org_structure_position_department_not_found_title": "Department not found",
+  "org_structure_position_department_not_found_message": "The department specified in linkDepartmentId does not exist, has been deleted, or does not belong to this company.",
+  "org_structure_position_alias_taken_title": "Alias already in use",
+  "org_structure_position_alias_taken_message": "That alias is already registered to another position in this company. Please choose a different alias.",
+  "org_structure_position_alias_invalid_title": "Invalid alias",
+  "org_structure_position_alias_invalid_message": "The alias contains invalid characters or has an incorrect format.",
+  "org_structure_position_create_failed_title": "Position could not be created",
+  "org_structure_position_create_failed_message": "An unexpected error occurred and the position was not created. Please try again or contact support."
 }
