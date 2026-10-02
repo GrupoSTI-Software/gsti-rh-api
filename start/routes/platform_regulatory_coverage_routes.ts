@@ -11,9 +11,6 @@ import { middleware } from '#start/kernel'
  *   GET /api/platform/regulatory-coverage/:regulationId     → detalle de cobertura de una norma
  *
  * "/summary" va ANTES de "/:regulationId": si no, "summary" se toma como id (400).
- *
- * Solo registrables bajo el grupo `[auth, platformAdmin]`: el controller no tiene
- * control de acceso propio.
  */
 router
   .group(() => {
