@@ -111,6 +111,10 @@ export default class ShiftExceptionService {
       shiftException.shiftExceptionEnjoymentOfSalary
     newShiftException.shiftExceptionTimeByTime = shiftException.shiftExceptionTimeByTime
     newShiftException.workDisabilityPeriodId = shiftException.workDisabilityPeriodId
+    newShiftException.exceptionRequestId = shiftException.exceptionRequestId ?? null
+    newShiftException.shiftExceptionAuthorizedByUserId =
+      shiftException.shiftExceptionAuthorizedByUserId ?? null
+    newShiftException.shiftExceptionAuthorizedAt = shiftException.shiftExceptionAuthorizedAt ?? null
     await newShiftException.save()
 
     const exceptionDate = newShiftException.shiftExceptionsDate

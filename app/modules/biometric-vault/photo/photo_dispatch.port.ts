@@ -14,4 +14,18 @@ export interface PhotoDispatchPort {
    * debe salir (la publicacion se retiro, la foto se apago).
    */
   refreshForDispatch(command: DeviceCommand, now: DateTime): Promise<string | null>
+
+  /**
+   * Verdadero si el equipo ya bajo la foto de ese `biophoto_write`.
+   *
+   * Es la prueba de ejecucion del comando: el aparato descarga la imagen
+   * mientras procesa la orden y acusa despues. Un `Return=0` sin descarga es
+   * justo el caso que la bateria midio -- acuse limpio y ninguna cara dentro.
+   */
+  wasDownloaded(command: DeviceCommand): Promise<boolean>
+  /**
+   * Cierra la publicacion de un comando ya cumplido: el enlace no tiene por que
+   * seguir vivo una vez que la foto esta dentro del equipo.
+   */
+  closeAfterDelivery(command: DeviceCommand, now: DateTime): Promise<void>
 }

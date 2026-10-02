@@ -28,6 +28,10 @@ export const EMPLOYEE_BIOMETRIC_FACE_ID_ERROR_CODES = {
   QUALITY_MISSING: 'EBFI.VAL.001',
   /** La calidad medida esta por debajo del minimo de reconocimiento. */
   QUALITY_BELOW_MINIMUM: 'EBFI.VAL.002',
+  /** La foto no cumple la regla del checador: resolucion, rostro, luz o formato. */
+  NOT_DEVICE_READY: 'EBFI.VAL.003',
+  /** El servidor no pudo evaluar la foto. No es un rechazo de la foto. */
+  EVALUATION_FAILED: 'EBFI.SYS.001',
 } as const
 
 export type EmployeeBiometricFaceIdErrorCode =

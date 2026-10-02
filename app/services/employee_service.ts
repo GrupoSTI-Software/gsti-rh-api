@@ -1,3 +1,5 @@
+import { vacationPeriodDates } from '#modules/employee-vacations/vacation_period_dates'
+import { attendanceStatusCellColor } from '#helpers/attendance_report_cell_color'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Department from '#models/department'
@@ -1481,6 +1483,9 @@ export default class EmployeeService {
         .if(employeeIsCrew, (query) => {
           query.where('vacation_setting_crew', 1)
         })
+        // Con varias escalas (anterior y reforma 2023) gana la más reciente que ya
+        // aplicaba; sin orden, MySQL podía devolver cualquiera.
+        .orderBy('vacation_setting_apply_since', 'desc')
         .first()
       if (!vacationSetting) {
         vacationSetting = await VacationSetting.query()
@@ -1489,6 +1494,9 @@ export default class EmployeeService {
           .if(employeeIsCrew, (query) => {
             query.where('vacation_setting_crew', 1)
           })
+          // Con varias escalas (anterior y reforma 2023) gana la más reciente que ya
+          // aplicaba; sin orden, MySQL podía devolver cualquiera.
+          .orderBy('vacation_setting_apply_since', 'desc')
           .first()
         if (!vacationSetting) {
           return {
@@ -1607,6 +1615,9 @@ export default class EmployeeService {
           .if(employeeIsCrew, (query) => {
             query.where('vacation_setting_crew', 1)
           })
+          // Con varias escalas (anterior y reforma 2023) gana la más reciente que ya
+          // aplicaba; sin orden, MySQL podía devolver cualquiera.
+          .orderBy('vacation_setting_apply_since', 'desc')
           .first()
         let vacationsUsedList = [] as Array<ShiftException>
         if (vacationSetting) {
@@ -1637,7 +1648,15 @@ export default class EmployeeService {
             } as any
           })
         }
-        yearsWroked.push({ year, yearsPassed, vacationSetting, vacationsUsedList })
+        // Fechas del periodo y su prescripcion: la regla legal vive aqui, no en
+        // cada pantalla que la muestra.
+        yearsWroked.push({
+          year,
+          yearsPassed,
+          vacationSetting,
+          vacationsUsedList,
+          ...vacationPeriodDates(start, year),
+        })
       }
       return {
         status: 200,
@@ -1710,6 +1729,9 @@ export default class EmployeeService {
         .if(employeeIsCrew, (query) => {
           query.where('vacation_setting_crew', 1)
         })
+        // Con varias escalas (anterior y reforma 2023) gana la más reciente que ya
+        // aplicaba; sin orden, MySQL podía devolver cualquiera.
+        .orderBy('vacation_setting_apply_since', 'desc')
         .first()
       let vacationsUsedList = [] as Array<ShiftException>
       if (vacationSetting) {
@@ -1859,6 +1881,9 @@ export default class EmployeeService {
           query.where('vacation_setting_crew', 1)
         })
         .orderBy('vacation_setting_years_of_service', 'desc')
+        // Con varias escalas (anterior y reforma 2023) gana la más reciente que ya
+        // aplicaba; sin orden, MySQL podía devolver cualquiera.
+        .orderBy('vacation_setting_apply_since', 'desc')
         .first()
 
       if (!vacationSetting) {
@@ -1894,11 +1919,14 @@ export default class EmployeeService {
    * Usado al aprobar solicitudes de vacaciones para asignar el día al periodo más antiguo con cupo.
    * @param employee - Empleado
    * @param vacationDate - Fecha de la vacación solicitada
+   * @param options.notStartingAfter - Con la regla "no adelantar vacaciones",
+   *   hoy (`yyyy-MM-dd`): se descartan los periodos que inician después.
    * @returns { vacationSettingId, year } del periodo más antiguo con días disponibles, o null
    */
   async getOldestAvailableVacationPeriod(
     employee: Employee,
-    vacationDate: DateTime
+    vacationDate: DateTime,
+    options: { notStartingAfter?: string | null } = {}
   ): Promise<{ vacationSettingId: number; year: number } | null> {
     if (!employee.employeeHireDate) {
       return null
@@ -1932,6 +1960,12 @@ export default class EmployeeService {
 
     for (let checkYear = startYear; checkYear <= vacationYear; checkYear++) {
       const yearsPassed = checkYear - startYear
+      if (
+        options.notStartingAfter &&
+        vacationPeriodDates(start, checkYear).periodStartsAt > options.notStartingAfter
+      ) {
+        break
+      }
 
       const checkFormattedDate = DateTime.fromObject({
         year: checkYear,
@@ -1947,6 +1981,9 @@ export default class EmployeeService {
           query.where('vacation_setting_crew', 1)
         })
         .orderBy('vacation_setting_years_of_service', 'desc')
+        // Con varias escalas (anterior y reforma 2023) gana la más reciente que ya
+        // aplicaba; sin orden, MySQL podía devolver cualquiera.
+        .orderBy('vacation_setting_apply_since', 'desc')
         .first()
 
       if (!vacationSetting) {
@@ -6846,32 +6883,6 @@ export default class EmployeeService {
     const PROXIMO_BG = 'FFFFFFFF'
     const PROXIMO_TEXT_COLOR = 'FF808080'
 
-    // Función para obtener color según estado de asistencia (gama de la imagen: verde, naranja, azul claro, rojo claro)
-    const getStatusColor = (checkInStatus: string | null | undefined, checkOutStatus: string | null | undefined): string => {
-      const checkIn = (checkInStatus || '').trim()
-      const checkOut = (checkOutStatus || '').trim()
-      const status = checkIn || checkOut
-
-      if (!status && (checkInStatus !== null || checkOutStatus !== null)) {
-        return 'FFC6EFCE' // Verde claro (ontime por defecto)
-      }
-
-      switch (status.toLowerCase()) {
-        case 'ontime':
-          return 'FFC6EFCE' // Verde claro
-        case 'tolerance':
-          return 'FFB7D8FA' // Azul claro
-        case 'delay':
-          return 'FFFFC000' // Naranja
-        case 'fault':
-          return 'FFFFAAA3' // Rojo claro
-        case 'exception':
-          return 'FFFFFFFF'
-        default:
-          return status ? 'FFC6EFCE' : 'FFFFFFFF'
-      }
-    }
-
     // Función para obtener texto del turno (alias o horario)
     const getShiftDisplayText = (assist: AssistDayInterface['assist']): string => {
       if (!assist?.dateShift) return ''
@@ -7330,12 +7341,7 @@ export default class EmployeeService {
               }
               // PRIORIDAD 2: Hay turno y NO es especial → color según estado (verde, naranja, azul, rojo)
               else if (assist.dateShift) {
-                const checkInStatus = assist.checkInStatus || ''
-                const checkOutStatus = assist.checkOutStatus || ''
-                cellColor = getStatusColor(checkInStatus, checkOutStatus)
-                if (cellColor === 'FFFFFFFF' && assist.dateShift) {
-                  cellColor = 'FFC6EFCE' // Verde claro (ontime por defecto)
-                }
+                cellColor = attendanceStatusCellColor(assist.checkInStatus)
               } else {
                 cellColor = 'FFFFFFFF' // Sin turno asignado → blanco
               }
