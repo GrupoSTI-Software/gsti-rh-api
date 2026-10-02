@@ -22,6 +22,7 @@ import {
   assertMinimumContractedEmployees,
   resolveMinimumContractedEmployees,
 } from '../helpers/contracted_employees_rules.js'
+import { resolveBillingProvider } from '#modules/billing-provider/billing_provider.registry'
 import { todayInBusinessZone, toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
 
 // ---------------------------------------------------------------------------
@@ -404,7 +405,7 @@ export default class BillingSubscriptionService {
    *
    * Congela (snapshot) el precio por empleado, el descuento por volumen y los
    * días de prueba vigentes en el catálogo al momento de contratar. Nace
-   * siempre en estado `trialing`, con `provider = 'manual'`.
+   * siempre en estado `trialing`, hereda el `provider` de la versión de precio vigente.
    *
    * @param trx Transacción opcional del llamador (p. ej. `SignupDraftService.complete()`).
    * Sin `trx`, abre la suya y se comporta igual que antes (landlord).
@@ -552,6 +553,14 @@ export default class BillingSubscriptionService {
       )
     }
 
+    const provider = resolveBillingProvider(currentPrice.billingPlanPriceProvider)
+    const opening = await provider.openSubscription({
+      businessUnitId: businessUnit.businessUnitId,
+      billingPlanId: input.billingPlanId,
+      billingPlanPriceId: currentPrice.billingPlanPriceId,
+      contractedEmployees,
+    })
+
     const nowBusiness = todayInBusinessZone()
     const skipTrial =
       input.skipTrial === true ||
@@ -609,7 +618,7 @@ export default class BillingSubscriptionService {
           businessUnitId: businessUnit.businessUnitId,
           billingPlanId: input.billingPlanId,
           billingPlanPriceId: currentPrice.billingPlanPriceId,
-          billingSubscriptionProvider: 'manual',
+          billingSubscriptionProvider: opening.provider,
           billingSubscriptionStatus: skipTrial ? 'active' : 'trialing',
           billingSubscriptionContractedUnitAmount: resolved.pricePerEmployee,
           billingSubscriptionContractedEmployees: contractedEmployees,
@@ -626,8 +635,8 @@ export default class BillingSubscriptionService {
           billingSubscriptionTrialEndsAt: trialEndsAt,
           billingSubscriptionCurrentPeriodStart: nowBusiness,
           billingSubscriptionCurrentPeriodEnd: periodEnd,
-          billingSubscriptionStripeCustomerId: null,
-          billingSubscriptionStripeSubscriptionId: null,
+          billingSubscriptionStripeCustomerId: opening.externalCustomerRef,
+          billingSubscriptionStripeSubscriptionId: opening.externalSubscriptionRef,
           billingSubscriptionSubscribedAt: nowBusiness,
           billingSubscriptionLiveBusinessUnitId: businessUnit.businessUnitId,
           // Canje y congelado del código (§10.1): NULL/0 sin `discountCode`,
