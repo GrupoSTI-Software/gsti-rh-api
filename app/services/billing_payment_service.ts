@@ -25,6 +25,11 @@ import { todayInBusinessZone, toCalendarIsoDate } from '../utils/business_date.j
 import { RECEIPT_MAX_BYTES, RECEIPT_ALLOWED_MIMES } from '../validators/billing_payment.js'
 import { BILLING_TAX_RECEIPT_LIVE_STATUS } from '#constants/billing_tax_receipt'
 import { hasFinancialSnapshot } from '#helpers/billing_payment_financial_snapshot'
+import {
+  toPeriodAmountCents,
+  resolveCompositeIncreaseCents,
+  type CompositeIncreaseAmounts,
+} from '#helpers/billing_period_amount'
 import AllianceCommissionService from '#services/alliance_commission_service'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { resolveBillingProvider } from '#modules/billing-provider/billing_provider.registry'
@@ -440,9 +445,7 @@ export default class BillingPaymentService {
 
     const saldoTrasAdeudo = saldoDisponible - consumedCents
 
-    const periodAmountCents = this.toPeriodAmountCents(
-      subscription.billingSubscriptionContractedTotal
-    )
+    const periodAmountCents = toPeriodAmountCents(subscription.billingSubscriptionContractedTotal)
     if (periodAmountCents === null) {
       throw new BillingPaymentServiceError(
         `Suscripción ${subscriptionId}: contracted_total no permite determinar el monto del periodo tras el aumento`,
@@ -642,7 +645,7 @@ export default class BillingPaymentService {
     input: RegisterPaymentInput,
     allowCustomAmount: boolean
   ): Promise<GovernedAmountResolution> {
-    const periodAmountCents = this.toPeriodAmountCents(subscription.billingSubscriptionContractedTotal)
+    const periodAmountCents = toPeriodAmountCents(subscription.billingSubscriptionContractedTotal)
 
     if (periodAmountCents === null) {
       throw new BillingPaymentServiceError(
@@ -718,9 +721,9 @@ export default class BillingPaymentService {
    * cambió, el pago se rechaza en vez de asentarse con una cifra que dejó de
    * corresponder (ver `registerPayment`, verificación post-`applyOutcome`).
    */
-  private async resolveCompositeIncreaseAmounts(
+  async resolveCompositeIncreaseAmounts(
     subscription: BillingSubscription
-  ): Promise<{ debtCents: number; debtPlusPeriodCents: number } | null> {
+  ): Promise<CompositeIncreaseAmounts | null> {
     const liveChange = await BillingSubscriptionChange.query()
       .where('billing_subscription_id', subscription.billingSubscriptionId)
       .where('business_unit_id', subscription.businessUnitId)
@@ -734,22 +737,10 @@ export default class BillingPaymentService {
       return null
     }
 
-    const newPeriodAmountCents = this.toPeriodAmountCents(liveChange.billingSubscriptionChangeTotal)
-    if (newPeriodAmountCents === null) {
-      return null
-    }
-
-    const debtCents = liveChange.billingSubscriptionChangeProratedAmountCents
-    return { debtCents, debtPlusPeriodCents: debtCents + newPeriodAmountCents }
-  }
-
-  /** Convierte el trato congelado (pesos, decimal) a centavos con redondeo único. Null si no es determinable. */
-  private toPeriodAmountCents(contractedTotal: unknown): number | null {
-    const value = Number(contractedTotal)
-    if (!Number.isFinite(value) || value <= 0) {
-      return null
-    }
-    return Math.round(value * 100)
+    return resolveCompositeIncreaseCents({
+      proratedAmountCents: liveChange.billingSubscriptionChangeProratedAmountCents,
+      changeTotal: liveChange.billingSubscriptionChangeTotal,
+    })
   }
 
   // ─── Descuento congelado (USRH1787714804403 §11.3) ────────────────────────
