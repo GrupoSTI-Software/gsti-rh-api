@@ -1,0 +1,17 @@
+---
+description: Convención de mensajes de commit — Conventional Commits 1.0.0 en español, con el código de la HU en el footer Refs.
+globs:
+alwaysApply: true
+---
+
+# Commits
+
+**Lee la regla completa:** `.claude/rules/commits.md`
+
+@.claude/rules/commits.md
+
+Lo esencial:
+
+- `<tipo>(<alcance>): <descripción imperativa en español>`; pasa `commitlint`.
+- Todo commit de una HU lleva su código en el footer: `Refs: VLRH-H1789101459906` (o el código viejo `USRH…` si la HU aún lo tiene).
+- Nunca `--no-verify`. El agente no hace push.

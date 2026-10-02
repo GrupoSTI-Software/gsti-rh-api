@@ -196,7 +196,11 @@ test.group('employee_routes — PermissionGate deducciones de vacaciones', () =>
 })
 
 test.group('vacation_authorization_signatures_routes — PermissionGate', () => {
-  test('authorize y signShiftExceptions declaran manage-vacation; GETs no', async ({ assert }) => {
+  /**
+   * Los GET tambien: traen solicitudes y firmas de cualquier colaborador y
+   * solo pedian sesion.
+   */
+  test('authorize, signShiftExceptions y los tres GET declaran manage-vacation', async ({ assert }) => {
     const content = await readFile(
       join(process.cwd(), 'start/routes/vacation_authorization_signatures_routes.ts'),
       'utf8'
@@ -212,7 +216,13 @@ test.group('vacation_authorization_signatures_routes — PermissionGate', () => 
     const matches =
       compact(content).match(/permissionGate\(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS\.\w+\)/g) ??
       []
-    assert.equal(matches.length, 2)
+    assert.equal(matches.length, 5)
+    assert.equal(
+      compact(content).split(
+        'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.listVacationAuthorizationRequests)'
+      ).length - 1,
+      3
+    )
   })
 })
 

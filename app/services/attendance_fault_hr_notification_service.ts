@@ -14,13 +14,33 @@ import Database from '@adonisjs/lucid/services/db'
 import i18nManager from '@adonisjs/i18n/services/main'
 import { DateTime } from 'luxon'
 import { resolveBusinessUnitSlugsForSetting } from '#helpers/system_settings_by_business_unit'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
+import { shiftStartInstant } from '#modules/attendance-time/attendance_clock'
+import SyncAssistsService from '#services/sync_assists_service'
+import { TenantContext } from '#utils/tenant_context'
+import type { AssistDayInterface } from '../interfaces/assist_day_interface.js'
 
 export interface AttendanceFaultHrNotifyRow {
   employeeAssistCalendarId: number
   employeeId: number
+  businessUnitId: number
   day: string
   shiftTimeStart: string
   shiftName: string | null
+}
+
+/**
+ * La entrada que no llega se vuelve falta pasada la tolerancia de falta,
+ * contada desde el inicio del turno en la zona del sitio del colaborador.
+ */
+export function isPastFaultDeadline(
+  dayIso: string,
+  shiftTimeStart: string,
+  zone: string,
+  faultOffsetMinutes: number,
+  now: DateTime
+): boolean {
+  return now > shiftStartInstant(dayIso, shiftTimeStart, zone).plus({ minutes: faultOffsetMinutes })
 }
 
 export interface AttendanceFaultHrRunOptions {
@@ -139,12 +159,13 @@ export default class AttendanceFaultHrNotificationService {
 
   /**
    * Empleados activos (no dados de baja) en unidades del ajuste, con calendario del día,
-   * sin entrada, plazo Fault vencido y sin registro previo en log. No usa rol: solo BU del system setting.
+   * sin entrada y sin registro previo en log. No usa rol: solo BU del system setting.
+   * El plazo de falta se revisa después, en la zona del sitio de cada colaborador
+   * (`selectOverdueFaults`); antes se calculaba aquí con `-06:00` fijo.
    */
   async fetchPendingFaultRows(
     calendarDay: string,
-    businessUnitSlugs: string[],
-    faultOffsetMinutes: number
+    businessUnitSlugs: string[]
   ): Promise<AttendanceFaultHrNotifyRow[]> {
     if (businessUnitSlugs.length === 0) {
       return []
@@ -174,18 +195,13 @@ export default class AttendanceFaultHrNotificationService {
       .where('eac.is_vacation_date', 0)
       .where('eac.is_work_disability_date', 0)
       .whereRaw(`LOWER(TRIM(bu.business_unit_slug)) IN (${slugPlaceholders})`, slugBindings)
+      // El colaborador discriminado del informe de asistencias no se evalúa.
+      .where('e.employee_assist_discriminator', 0)
       .whereRaw(
         `NOT EXISTS (
           SELECT 1 FROM attendance_fault_hr_notification_logs l
           WHERE l.employee_assist_calendar_id = eac.employee_assist_calendar_id
         )`
-      )
-      .whereRaw(
-        `UTC_TIMESTAMP() > TIMESTAMPADD(MINUTE, ?, CONVERT_TZ(
-          STR_TO_DATE(CONCAT(eac.day, ' ', TIME_FORMAT(s.shift_time_start, '%H:%i:%s')), '%Y-%m-%d %H:%i:%s'),
-          '-06:00', '+00:00'
-        ))`,
-        [faultOffsetMinutes]
       )
       .orderBy('e.employee_last_name', 'asc')
       .orderBy('e.employee_first_name', 'asc')
@@ -193,6 +209,7 @@ export default class AttendanceFaultHrNotificationService {
       .select(
         'eac.employee_assist_calendar_id as employeeAssistCalendarId',
         'eac.employee_id as employeeId',
+        'e.business_unit_id as businessUnitId',
         'eac.day as day',
         Database.raw('TIME_FORMAT(s.shift_time_start, \'%H:%i:%s\') as shiftTimeStart'),
         's.shift_name as shiftName'
@@ -243,6 +260,7 @@ export default class AttendanceFaultHrNotificationService {
       .select(
         'eac.employee_assist_calendar_id as employeeAssistCalendarId',
         'eac.employee_id as employeeId',
+        'e.business_unit_id as businessUnitId',
         'eac.day as day',
         Database.raw('TIME_FORMAT(s.shift_time_start, \'%H:%i:%s\') as shiftTimeStart'),
         's.shift_name as shiftName'
@@ -291,6 +309,7 @@ export default class AttendanceFaultHrNotificationService {
   async ensureEmployeeAssistCalendarsForDay(
     calendarDay: string,
     businessUnitSlugs: string[],
+    zone: string,
     logger?: { info: (m: string) => void; error: (m: string) => void }
   ): Promise<void> {
     const missingIds = await this.findEmployeeIdsMissingCalendar(calendarDay, businessUnitSlugs)
@@ -300,7 +319,7 @@ export default class AttendanceFaultHrNotificationService {
 
     const i18n = i18nManager.locale(i18nManager.defaultLocale)
     const assistsService = new AssistsService(i18n)
-    const dateJs = DateTime.fromFormat(calendarDay, 'yyyy-MM-dd', { zone: 'UTC-6' }).toJSDate()
+    const dateJs = DateTime.fromFormat(calendarDay, 'yyyy-MM-dd', { zone }).toJSDate()
 
     let ok = 0
     const chunkSize = 8
@@ -503,6 +522,57 @@ export default class AttendanceFaultHrNotificationService {
   }
 
   /**
+   * Filas cuyo plazo de falta ya venció en la zona del sitio de cada colaborador.
+   */
+  async selectOverdueFaults(
+    rows: AttendanceFaultHrNotifyRow[],
+    calendarDay: string,
+    faultOffsetMinutes: number,
+    now: DateTime
+  ): Promise<AttendanceFaultHrNotifyRow[]> {
+    if (rows.length === 0) return []
+    const zones = await new SiteTimeZoneService().forEmployees(rows.map((row) => row.employeeId))
+    return rows.filter((row) => {
+      const zone = zones.get(row.employeeId)?.zone
+      return (
+        !!zone && isPastFaultDeadline(calendarDay, row.shiftTimeStart, zone, faultOffsetMinutes, now)
+      )
+    })
+  }
+
+  /**
+   * Confirma cada falta con el cálculo de asistencia vigente antes de avisar.
+   *
+   * La tabla guardada solo se actualiza cuando algo la toca: las checadas de
+   * BioTime no la recalculan, así que quien sí checó podía salir como falta.
+   * El cálculo al momento también respeta permisos, excepciones y festivos.
+   */
+  async confirmFaultsWithAttendanceEngine(
+    rows: AttendanceFaultHrNotifyRow[],
+    calendarDay: string
+  ): Promise<AttendanceFaultHrNotifyRow[]> {
+    const confirmed: AttendanceFaultHrNotifyRow[] = []
+    for (const row of rows) {
+      const response = await TenantContext.run([row.businessUnitId], () =>
+        new SyncAssistsService().index({
+          date: calendarDay,
+          dateEnd: calendarDay,
+          employeeID: row.employeeId,
+        })
+      )
+      const data = response?.data
+      const calendar = (
+        data && !Array.isArray(data) && 'employeeCalendar' in data ? data.employeeCalendar : []
+      ) as AssistDayInterface[]
+      const day = calendar.find((entry) => entry.day === calendarDay)
+      if (day && !day.assist.checkIn?.assistPunchTimeUtc && day.assist.checkInStatus === 'fault') {
+        confirmed.push(row)
+      }
+    }
+    return confirmed
+  }
+
+  /**
    * Procesa un system setting de punta a punta: faltas pendientes, correo y log de deduplicación.
    */
   private async processSetting(
@@ -533,8 +603,12 @@ export default class AttendanceFaultHrNotificationService {
     const faultMinutes = await this.getFaultToleranceMinutes(systemSetting.systemSettingId)
     const faultOffsetMinutes = 1 + faultMinutes
 
-    const nowCst = DateTime.now().setZone('UTC-6')
-    const calendarDay = nowCst.toFormat('yyyy-MM-dd')
+    // El día y el plazo se toman en la zona del sitio, no con UTC-6 fijo.
+    const now = DateTime.utc()
+    const { zone: businessZone } = await new SiteTimeZoneService().forBusinessUnit(
+      systemSetting.businessUnitId
+    )
+    const calendarDay = now.setZone(businessZone).toFormat('yyyy-MM-dd')
     const settingBusinessUnitSlugs = await resolveBusinessUnitSlugsForSetting(systemSetting)
     const businessUnitSlugs = settingBusinessUnitSlugs.map((slug) => slug.toLowerCase())
 
@@ -556,11 +630,19 @@ export default class AttendanceFaultHrNotificationService {
       return { sent: false, reason: 'no_recipients' }
     }
 
-    await this.ensureEmployeeAssistCalendarsForDay(calendarDay, businessUnitSlugs, log)
+    await this.ensureEmployeeAssistCalendarsForDay(calendarDay, businessUnitSlugs, businessZone, log)
 
     const pendingRaw = isTest
       ? await this.fetchTestPendingFaultRows(calendarDay, businessUnitSlugs)
-      : await this.fetchPendingFaultRows(calendarDay, businessUnitSlugs, faultOffsetMinutes)
+      : await this.confirmFaultsWithAttendanceEngine(
+          await this.selectOverdueFaults(
+            await this.fetchPendingFaultRows(calendarDay, businessUnitSlugs),
+            calendarDay,
+            faultOffsetMinutes,
+            now
+          ),
+          calendarDay
+        )
     const pending = this.dedupePendingByEmployeeId(pendingRaw)
     if (pending.length === 0) {
       log.info(
@@ -642,7 +724,7 @@ export default class AttendanceFaultHrNotificationService {
     const emailData = {
       tradeName: systemSetting.systemSettingTradeName,
       sidebarColor,
-      calendarDayLabel: nowCst.setLocale('es').toFormat("cccc d 'de' LLLL yyyy"),
+      calendarDayLabel: now.setZone(businessZone).setLocale('es').toFormat("cccc d 'de' LLLL yyyy"),
       employees: emailRows,
       faultCount: emailRows.length,
       hasBranchOfficesInSystem,

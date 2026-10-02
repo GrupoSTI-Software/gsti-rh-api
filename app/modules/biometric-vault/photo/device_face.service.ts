@@ -11,8 +11,10 @@ import type AccessPointEmployee from '#models/access_point_employee'
 import { ACCESS_POINT_EMPLOYEE_SYNC_STATUS } from '#models/access_point_employee'
 import ConsentGate from '../consent/consent_gate.js'
 import PhotoDerivativeService from './photo_derivative.service.js'
-import PhotoPublicationService, { photoCorrelationKey } from './photo_publication.service.js'
+import PhotoPublicationService, { photoDeleteCorrelationKey } from './photo_publication.service.js'
 import { PHOTO_VERDICT } from './photo.constants.js'
+import AccessPointProfile from '#models/access_point_profile'
+import { acceptsFacePhoto } from './device_face_support.js'
 
 export interface EnableFaceInput {
   employeeId: number
@@ -26,8 +28,18 @@ export interface EnableFaceInput {
 export interface FaceTargetResult {
   accessPointId: number
   status: 'published' | 'already_published' | 'skipped'
-  reason?: string
+  reason?: 'sin-pin-en-el-equipo' | 'equipo-sin-rostro'
 }
+
+/** Lo que paso con los checadores despues de cambiar o borrar la foto. */
+export type FacePhotoChangeOutcome =
+  | { status: 'not_in_use' }
+  | { status: 'republished'; derivativeVersion: number; targets: FaceTargetResult[] }
+  /**
+   * No se pudo re-publicar (sin consentimiento, almacenamiento): se apago el uso
+   * en dispositivos para que ningun equipo se quede con la cara anterior.
+   */
+  | { status: 'disabled'; reason: string }
 
 export interface EnableFaceResult {
   derivativeVersion: number
@@ -95,6 +107,7 @@ export default class DeviceFaceService {
 
     const targets = await this.resolveTargets(input)
     const results: FaceTargetResult[] = []
+    const supported = await this.faceCapableAccessPoints(targets)
     for (const pivot of targets) {
       const pin = pivot.accessPointEmployeePin
       if (!pin || pin.length === 0) {
@@ -102,6 +115,15 @@ export default class DeviceFaceService {
           accessPointId: pivot.accessPointId,
           status: 'skipped',
           reason: 'sin-pin-en-el-equipo',
+        })
+        continue
+      }
+      /** Un aparato que declaro no tener rostro rechazaria la foto con un acuse limpio. */
+      if (!supported.has(pivot.accessPointId)) {
+        results.push({
+          accessPointId: pivot.accessPointId,
+          status: 'skipped',
+          reason: 'equipo-sin-rostro',
         })
         continue
       }
@@ -149,10 +171,12 @@ export default class DeviceFaceService {
     const withdrawn = await this.publications.withdrawForEmployee(input.employeeId, now)
 
     const pivots = await this.pivots.listLiveByEmployee(input.employeeId)
+    const supported = await this.faceCapableAccessPoints(pivots)
     let deleteCommands = 0
     for (const pivot of pivots) {
       const pin = pivot.accessPointEmployeePin
       if (!pin || pin.length === 0) continue
+      if (!supported.has(pivot.accessPointId)) continue
       await this.commands.enqueue({
         accessPointId: pivot.accessPointId,
         businessUnitId: pivot.businessUnitId,
@@ -160,13 +184,73 @@ export default class DeviceFaceService {
         fields: { pin, bioNo: 9 },
         employeeId: input.employeeId,
         accessPointEmployeeId: pivot.accessPointEmployeeId,
-        correlationKey: photoCorrelationKey(pin),
+        correlationKey: photoDeleteCorrelationKey(pin),
         requestedByUserId: input.actorUserId,
       })
       deleteCommands += 1
     }
 
     return { withdrawn, deleteCommands }
+  }
+
+  /**
+   * La foto del expediente cambio: si esta en uso en los checadores, se manda
+   * la nueva a los mismos equipos.
+   *
+   * Nunca lanza. La foto nueva ya quedo guardada y eso no se deshace; si no se
+   * puede re-publicar, se apaga el uso en dispositivos y se pide el borrado, para
+   * que ningun checador siga reconociendo con una cara que el expediente ya no
+   * tiene.
+   */
+  async syncAfterPhotoChange(input: {
+    employeeId: number
+    businessUnitId: number
+    actorUserId: number | null
+    now?: DateTime
+  }): Promise<FacePhotoChangeOutcome> {
+    const faceId = await EmployeeBiometricFaceId.query()
+      .where('employee_id', input.employeeId)
+      .whereNull('employee_biometric_face_id_deleted_at')
+      .first()
+    if (!faceId || !faceId.employeeBiometricFaceIdDeviceUse) return { status: 'not_in_use' }
+
+    try {
+      const result = await this.enable({ ...input, accessPointIds: [] })
+      return { status: 'republished', ...result }
+    } catch (error) {
+      await this.disable(input)
+      return {
+        status: 'disabled',
+        reason: (error instanceof BiometricVaultError ? error.key : undefined) ?? 'error-inesperado',
+      }
+    }
+  }
+
+  /**
+   * Antes de borrar la foto del expediente: si estaba en los checadores, se
+   * retira de ellos. Borrar solo el archivo dejaba la cara viva en cada equipo.
+   */
+  async withdrawBeforePhotoDeletion(input: {
+    employeeId: number
+    businessUnitId: number
+    actorUserId: number | null
+    now?: DateTime
+  }): Promise<{ withdrawn: number; deleteCommands: number } | null> {
+    const faceId = await EmployeeBiometricFaceId.query()
+      .where('employee_id', input.employeeId)
+      .whereNull('employee_biometric_face_id_deleted_at')
+      .first()
+    if (!faceId || !faceId.employeeBiometricFaceIdDeviceUse) return null
+    return this.disable(input)
+  }
+
+  /** Equipos de la lista que no declararon carecer de rostro. */
+  private async faceCapableAccessPoints(pivots: AccessPointEmployee[]): Promise<Set<number>> {
+    const ids = [...new Set(pivots.map((pivot) => pivot.accessPointId))]
+    if (ids.length === 0) return new Set()
+    const profiles = await AccessPointProfile.query().whereIn('access_point_id', ids)
+    const byId = new Map(profiles.map((profile) => [profile.accessPointId, profile]))
+    return new Set(ids.filter((id) => acceptsFacePhoto(byId.get(id) ?? null)))
   }
 
   private async requireFaceId(employeeId: number): Promise<EmployeeBiometricFaceId> {
