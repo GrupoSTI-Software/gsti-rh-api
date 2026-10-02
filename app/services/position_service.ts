@@ -1,3 +1,4 @@
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import BusinessUnit from '#models/business_unit'
 import Department from '#models/department'
 import DepartmentPosition from '#models/department_position'
@@ -25,6 +26,7 @@ import { REPORT_DATE_FORMAT, reportI18n } from '#helpers/report_locale'
 import { blankMissingTexts, reportText } from '#helpers/report_text'
 import { getBusinessTimeZone } from '#utils/business_date'
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
 
 /** Etiqueta de la frecuencia de un KPI en el perfil de puesto (el valor guardado es un slug). */
 const KPI_FREQUENCY_LABEL: Record<string, string> = {
@@ -96,7 +98,7 @@ export default class PositionService {
     return currentPosition
   }
 
-  async create(position: Position) {
+  async create(position: Position, trx?: TransactionClientContract) {
 
     const newPosition = new Position()
     newPosition.positionCode = position.positionCode
@@ -120,16 +122,73 @@ export default class PositionService {
 
     const prepared = prepareAliasesForPersistence(position.aliases ?? null)
     newPosition.aliases = prepared.display
+    // La verificación de alias es una lectura sin efectos secundarios: se puede
+    // ejecutar fuera de la transacción activa sin riesgo de doble escritura.
     await new OrgAliasUniquenessService().assertUniqueForBusinessUnit({
       businessUnitId: newPosition.businessUnitId,
       normalizedTokens: prepared.normalizedTokens,
     })
 
+    if (trx) {
+      newPosition.useTransaction(trx)
+    }
     await newPosition.save()
     await newPosition.load('parentPosition')
     await newPosition.load('subPositions')
 
     return newPosition
+  }
+
+  /**
+   * Crea un puesto y lo liga atómicamente al departamento indicado insertando
+   * una fila en `department_position`. El departamento se bloquea con `forUpdate`
+   * para evitar condiciones de carrera.
+   *
+   * La verificación de que el departamento pertenece a la empresa se hace **antes**
+   * de la transacción; si el departamento no existe o es de otra empresa, lanza
+   * el error que el controller convierte en 404 (POSITION_DEPARTMENT_NOT_FOUND).
+   *
+   * @param position          - Datos del puesto a crear.
+   * @param linkDepartmentId  - Id del departamento al que se va a ligar.
+   * @param businessUnitId    - Id de la empresa activa (scope del header).
+   * @returns El puesto creado más el `departmentPositionId` de la fila insertada.
+   */
+  async createLinkedToDepartment(
+    position: Position,
+    linkDepartmentId: number,
+    businessUnitId: number,
+  ): Promise<{ position: Position; departmentPositionId: number }> {
+    return db.transaction(async (trx) => {
+      // Bloqueamos el departamento para evitar eliminaciones concurrentes.
+      const dept = await trx
+        .from('departments')
+        .where('department_id', linkDepartmentId)
+        .where('business_unit_id', businessUnitId)
+        .whereNull('department_deleted_at')
+        .forUpdate()
+        .first()
+
+      if (!dept) {
+        throw Object.assign(new Error('POSITION_DEPARTMENT_NOT_FOUND'), {
+          code: 'POSITION_DEPARTMENT_NOT_FOUND',
+        })
+      }
+
+      const newPosition = await this.create(position, trx)
+
+      // Insertamos la fila de ligado directamente en la tabla para evitar el
+      // @beforeCreate de DepartmentPosition que haría una consulta extra fuera
+      // de la transacción cuando businessUnitId ya viene disponible.
+      const [dpId] = await trx.table('department_position').insert({
+        department_id: linkDepartmentId,
+        position_id: newPosition.positionId,
+        business_unit_id: businessUnitId,
+        department_position_created_at: trx.knexClient.raw('NOW()'),
+        department_position_updated_at: trx.knexClient.raw('NOW()'),
+      })
+
+      return { position: newPosition, departmentPositionId: dpId as number }
+    })
   }
 
   async update(currentPosition: Position, position: Position) {
@@ -177,10 +236,52 @@ export default class PositionService {
     return currentPosition
   }
 
-  async delete(currentPosition: Position) {
-    await DepartmentPosition.query().where('position_id', currentPosition.positionId).delete()
-    await currentPosition.delete()
-    return currentPosition
+  /**
+   * Elimina (marca como eliminado) un puesto en una transacción única.
+   *
+   * - Anula `position_id` y `position_level_config_id` de los empleados activos
+   *   de la empresa que tenían ese puesto (R1); sin registro de relleno.
+   * - Retira físicamente las filas de `department_position` de la empresa (R1, R5).
+   * - Hace la baja lógica del puesto.
+   *
+   * Escrito con `trx.from(...)` para evitar mixins y SoftDeletes en las
+   * escrituras masivas (nota 2 del spec).
+   *
+   * @param currentPosition - Puesto ya validado y bloqueado con `forUpdate`.
+   * @param trx - Transacción activa.
+   * @returns Resultado con `affectedEmployees`.
+   */
+  async delete(
+    currentPosition: Position,
+    trx: TransactionClientContract,
+  ): Promise<{ affectedEmployees: number }> {
+    const positionId = currentPosition.positionId
+    const businessUnitId = currentPosition.businessUnitId
+
+    // 1. Nulificar position_id y position_level_config_id de empleados activos de la empresa (R1)
+    const result = await trx
+      .from('employees')
+      .where('position_id', positionId)
+      .where('business_unit_id', businessUnitId)
+      .whereNull('employee_deleted_at')
+      .update({ position_id: null, position_level_config_id: null })
+    const affectedEmployees = Number(result)
+
+    // 2. Retirar relaciones departamento-puesto de la empresa (físico, C06-2)
+    await trx
+      .from('department_position')
+      .where('position_id', positionId)
+      .where('business_unit_id', businessUnitId)
+      .delete()
+
+    // 3. Baja lógica del puesto
+    await trx
+      .from('positions')
+      .where('position_id', positionId)
+      // Mismo motivo que en departamentos: el raw tiene que ser el de Knex.
+      .update({ position_deleted_at: trx.knexClient.raw('NOW()') })
+
+    return { affectedEmployees }
   }
 
   async assignShift(filters: PositionShiftFilterInterface) {

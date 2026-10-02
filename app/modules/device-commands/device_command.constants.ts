@@ -119,6 +119,8 @@ export const DEVICE_COMMAND_EVIDENCE = {
   ATTLOG_VERIFY: 'attlog_verify',
   /** El contador del equipo subio respecto al que se guardo al acusar. */
   COUNTER_UP: 'counter_up',
+  /** El equipo bajo la foto por su enlace y despues acuso `Return=0`. */
+  PHOTO_DOWNLOADED: 'photo_downloaded',
 } as const
 
 export type DeviceCommandEvidence =
@@ -126,6 +128,8 @@ export type DeviceCommandEvidence =
 
 /** Metodo de verificacion de una checada hecha con huella (gramatica ZK). */
 export const ATTLOG_VERIFY_FINGERPRINT = 1
+/** Metodo de verificacion de una checada hecha con el rostro (medido en V5L y SenseFace). */
+export const ATTLOG_VERIFY_FACE = 15
 
 /** Motivos con los que el barrido cierra un comando colgado (spec 6.2). */
 export const DEVICE_COMMAND_FAILURE = {

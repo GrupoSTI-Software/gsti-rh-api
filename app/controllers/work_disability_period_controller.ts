@@ -793,6 +793,23 @@ export default class WorkDisabilityPeriodController {
       if (!currentWorkDisabilityPeriod) {
         return workDisabilityPeriodNotFoundResponse(response)
       }
+      // El periodo inicial es el que da origen a la incapacidad: sin él quedaría
+      // una incapacidad con ampliaciones de nada. Se borra la incapacidad entera.
+      const initialPeriod = await WorkDisabilityPeriod.query()
+        .whereNull('work_disability_period_deleted_at')
+        .where('work_disability_id', currentWorkDisabilityPeriod.workDisabilityId)
+        .orderBy('work_disability_period_start_date', 'asc')
+        .orderBy('work_disability_period_id', 'asc')
+        .first()
+      if (initialPeriod?.workDisabilityPeriodId === currentWorkDisabilityPeriod.workDisabilityPeriodId) {
+        return response.status(422).json({
+          type: 'warning',
+          title: 'Periodo inicial',
+          detail: 'El periodo inicial no se borra solo: elimina la incapacidad completa.',
+          key: 'periodo-inicial-protegido',
+          code: WORK_DISABILITY_ERROR_CODES.INITIAL_PERIOD_LOCKED,
+        })
+      }
       const workDisabilityPeriodService = new WorkDisabilityPeriodService(i18n)
       const deleteWorkDisabilityPeriod = await workDisabilityPeriodService.delete(
         currentWorkDisabilityPeriod

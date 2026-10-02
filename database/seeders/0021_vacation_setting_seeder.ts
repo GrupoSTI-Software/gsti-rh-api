@@ -1,24 +1,33 @@
 import { BaseSeeder } from '@adonisjs/lucid/seeders'
 import VacationSetting from '../../app/models/vacation_setting.js'
+import { vacationScaleRows } from '../../app/modules/employee-vacations/vacation_scale_catalog.js'
 
+/**
+ * Escalas de vacaciones de la LFT: la anterior a la reforma y la de 2023, de 1
+ * a 50 años de servicio (`vacation_scale_catalog.ts`).
+ *
+ * Una fila se identifica por años de servicio y fecha de vigencia: antes se
+ * buscaba solo por años, así que con la escala de 2023 sembrada la anterior
+ * nunca se creaba. Las filas que ya existen no se tocan, para respetar lo que
+ * se haya capturado desde la pantalla de Vacaciones.
+ */
 export default class VacationSettingSeeder extends BaseSeeder {
   async run() {
-    const vacationSettings = [
-      { vacationSettingYearsOfService: 1, vacationSettingVacationDays: 12, vacationSettingCrew: 0, vacation_setting_apply_since: '2023-01-01' },
-      { vacationSettingYearsOfService: 2, vacationSettingVacationDays: 14, vacationSettingCrew: 0, vacation_setting_apply_since: '2023-01-01' },
-      { vacationSettingYearsOfService: 3, vacationSettingVacationDays: 16, vacationSettingCrew: 0, vacation_setting_apply_since: '2023-01-01' },
-      { vacationSettingYearsOfService: 4, vacationSettingVacationDays: 18, vacationSettingCrew: 0, vacation_setting_apply_since: '2023-01-01' },
-      { vacationSettingYearsOfService: 5, vacationSettingVacationDays: 20, vacationSettingCrew: 0, vacation_setting_apply_since: '2023-01-01' },
-      { vacationSettingYearsOfService: 6, vacationSettingVacationDays: 22, vacationSettingCrew: 0, vacation_setting_apply_since: '2023-01-01' },
-      { vacationSettingYearsOfService: 7, vacationSettingVacationDays: 22, vacationSettingCrew: 0, vacation_setting_apply_since: '2023-01-01' },
-      { vacationSettingYearsOfService: 8, vacationSettingVacationDays: 22, vacationSettingCrew: 0, vacation_setting_apply_since: '2023-01-01' },
-      { vacationSettingYearsOfService: 9, vacationSettingVacationDays: 22, vacationSettingCrew: 0, vacation_setting_apply_since: '2023-01-01' },
-      { vacationSettingYearsOfService: 10, vacationSettingVacationDays: 22, vacationSettingCrew: 0, vacation_setting_apply_since: '2023-01-01' },
-    ]
+    for (const row of vacationScaleRows()) {
+      const existing = await VacationSetting.query()
+        .whereNull('vacation_setting_deleted_at')
+        .where('vacation_setting_years_of_service', row.yearsOfService)
+        .whereRaw('DATE(vacation_setting_apply_since) = ?', [row.applySince])
+        .where('vacation_setting_crew', 0)
+        .first()
+      if (existing) continue
 
-    for (const setting of vacationSettings) {
-      const { vacationSettingYearsOfService, ...settingData } = setting
-      await VacationSetting.firstOrCreate({ vacationSettingYearsOfService }, settingData)
+      await VacationSetting.create({
+        vacationSettingYearsOfService: row.yearsOfService,
+        vacationSettingVacationDays: row.vacationDays,
+        vacationSettingApplySince: row.applySince,
+        vacationSettingCrew: 0,
+      })
     }
   }
 }

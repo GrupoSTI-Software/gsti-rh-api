@@ -33,9 +33,23 @@ export function photoUrlFor(token: string, pin: string): string {
   return `iclock/doc/biophoto/${token}/${pin}.jpg`
 }
 
-/** Llave de idempotencia: una foto viva por PIN y equipo. */
-export function photoCorrelationKey(pin: string): string {
-  return `biophoto:${pin}`
+/**
+ * Llave de idempotencia: una foto viva por PIN, equipo y VERSION. Sin la version,
+ * una foto nueva encolada con la anterior aun pendiente recibia ese comando
+ * viejo --atado a una publicacion ya retirada-- y el despacho lo descartaba: la
+ * foto nueva nunca salia.
+ */
+export function photoCorrelationKey(pin: string, derivativeVersion: number): string {
+  return `biophoto:${pin}:v${derivativeVersion}`
+}
+
+/**
+ * El borrado lleva su propia clave. Con la misma que el alta, encolarlo devolvia
+ * la alta pendiente en su lugar: apagar la foto con un envio en cola no pedia
+ * el borrado y el equipo se quedaba con la cara anterior.
+ */
+export function photoDeleteCorrelationKey(pin: string): string {
+  return `biophoto-delete:${pin}`
 }
 
 /**
@@ -72,7 +86,7 @@ export default class PhotoPublicationService {
       employeeId: input.employeeId,
       accessPointEmployeeId: input.accessPointEmployeeId,
       biometricPhotoPublicationId: publication.biometricPhotoPublicationId,
-      correlationKey: photoCorrelationKey(input.pin),
+      correlationKey: photoCorrelationKey(input.pin, input.derivativeVersion),
       requestedByUserId: input.requestedByUserId,
     })
 

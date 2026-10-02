@@ -16,6 +16,7 @@ import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import { restoreDeviceReadyPhoto, stubDeviceReadyPhoto } from '#tests/helpers/device_ready_photo_stub'
 
 const TEST_PASSWORD = 'BiometricosDispositivosPermissionGate123!'
 
@@ -345,6 +346,11 @@ async function disableEnforcementAndVerify(employeesModule: SystemModule) {
 }
 
 test.group('Biometricos/Dispositivos - soft-rollout (exigencia OFF)', (group) => {
+  group.each.setup(() => {
+    stubDeviceReadyPhoto()
+    return () => restoreDeviceReadyPhoto()
+  })
+
   let actor: TenantActor | null = null
   let fixture: EmployeeFixture | null = null
   let employeesModule: SystemModule
@@ -464,6 +470,11 @@ test.group('Biometricos/Dispositivos - soft-rollout (exigencia OFF)', (group) =>
 })
 
 test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
+  group.each.setup(() => {
+    stubDeviceReadyPhoto()
+    return () => restoreDeviceReadyPhoto()
+  })
+
   let actor: TenantActor | null = null
   let fixture: EmployeeFixture | null = null
   let employeesModule: SystemModule
@@ -727,6 +738,11 @@ test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
 })
 
 test.group('Biometricos/Dispositivos - bypass standard (owner/root)', (group) => {
+  group.each.setup(() => {
+    stubDeviceReadyPhoto()
+    return () => restoreDeviceReadyPhoto()
+  })
+
   let ownerActor: SystemActor | null = null
   let rootActor: SystemActor | null = null
   let ownerFixture: EmployeeFixture | null = null

@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import db from '@adonisjs/lucid/services/db'
 import { AssistDayInterface } from '../interfaces/assist_day_interface.js'
 import { AssistEmployeeExcelFilterInterface } from '../interfaces/assist_employee_excel_filter_interface.js'
 import ExcelJS from 'exceljs'
@@ -36,7 +37,8 @@ import { AssistFlatFilterInterface } from '../interfaces/assist_flat_filter_inte
 import { I18n } from '@adonisjs/i18n'
 import Holiday from '#models/holiday'
 import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
-import { resolveSiteTimeZone, wallTime, dayKeyOf, toInstant } from '#modules/attendance-time/attendance_clock'
+import { closedLockDays } from '#modules/attendance-time/attendance_lock_days'
+import { resolveSiteTimeZone, wallTime, dayKeyOf, toInstant, nowInZone } from '#modules/attendance-time/attendance_clock'
 import EmployeeShift from '#models/employee_shift'
 import User from '#models/user'
 import mail from '@adonisjs/mail/services/main'
@@ -3711,6 +3713,11 @@ export default class AssistsService {
   }
 
   getFaultsFromDelays(delays: number, tardies: number) {
+    // Sin cantidad configurada (0) los retardos no se convierten en faltas;
+    // antes dividía entre cero y el bloqueo saltaba con un solo retardo.
+    if (tardies <= 0) {
+      return 0
+    }
     const faults = Math.floor(delays / tardies) // Cada 3 retardos es 1 falta
     return faults
   }
@@ -5394,13 +5401,17 @@ export default class AssistsService {
         }
       }
 
+      // El mes se toma en la zona del sitio del colaborador, no en la del
+      // servidor (UTC), que adelantaba el cambio de mes seis horas.
+      const { zone } = await new SiteTimeZoneService().forEmployee(employee.employeeId)
+      const today = nowInZone(zone)
       const page = 1
       const limit = 999999999999999
       const syncAssistsService = new SyncAssistsService(this.i18n)
       const resultAssists = await syncAssistsService.index(
         {
-          date: DateTime.now().startOf('month').toFormat('yyyy-MM-dd'),
-          dateEnd: DateTime.now().endOf('month').toFormat('yyyy-MM-dd'),
+          date: today.startOf('month').toFormat('yyyy-MM-dd'),
+          dateEnd: today.endOf('month').toFormat('yyyy-MM-dd'),
           employeeID: employee.employeeId,
         },
         { page, limit }
@@ -5413,7 +5424,10 @@ export default class AssistsService {
       if (data) {
         const tardies = await this.getTardiesTolerance()
         const toleranceCountPerAbsences = await this.getToleranceCountPerAbsence()
-        const employeeCalendar = data.employeeCalendar as AssistDayInterface[]
+        const employeeCalendar = closedLockDays(
+          data.employeeCalendar as AssistDayInterface[],
+          today.toISODate() as string
+        )
         const result = await this.getFaultsAndDelaysFromEmployeeCalendar(employeeCalendar, tardies, toleranceCountPerAbsences)
         faults = result.faults
         delays = result.delays
@@ -5433,7 +5447,7 @@ export default class AssistsService {
       if (type === 'absences') {
         if (maxAbsences) {
           if (faults >= maxAbsences) {
-            if (userEmail) {
+            if (userEmail && (await this.claimAttendanceLockNotice(employee, 'absences', today))) {
               const emailData = {
                 user: user,
                 backgroundImageLogo,
@@ -5463,7 +5477,7 @@ export default class AssistsService {
       } else if (type === 'tardiness') {
         if (maxTardiness) {
           if (delays >= maxTardiness) {
-            if (userEmail) {
+            if (userEmail && (await this.claimAttendanceLockNotice(employee, 'tardiness', today))) {
               const emailData = {
                 user: user,
                 backgroundImageLogo,
@@ -5514,6 +5528,27 @@ export default class AssistsService {
         error: error.message,
       }
     }
+  }
+
+  /**
+   * Reserva el aviso de un bloqueo: `true` solo la primera vez por
+   * colaborador, tipo de bloqueo y mes del sitio. El bloqueo se consulta cada
+   * vez que el colaborador intenta checar, y sin esta reserva cada intento
+   * volvía a mandar el correo al colaborador y a todo Capital Humano.
+   */
+  async claimAttendanceLockNotice(
+    employee: Employee,
+    type: 'absences' | 'tardiness',
+    today: DateTime
+  ): Promise<boolean> {
+    const result = await db.rawQuery(
+      `INSERT IGNORE INTO attendance_lock_notification_logs
+        (business_unit_id, employee_id, attendance_lock_notification_log_type,
+         attendance_lock_notification_log_period, attendance_lock_notification_log_created_at)
+       VALUES (?, ?, ?, ?, UTC_TIMESTAMP())`,
+      [employee.businessUnitId, employee.employeeId, type, today.toFormat('yyyy-LL')]
+    )
+    return Number(result[0]?.affectedRows ?? 0) > 0
   }
 
   async sendEmailAttendanceLock(systemSettingActive: SystemSetting, newMessage: string, user: User) {

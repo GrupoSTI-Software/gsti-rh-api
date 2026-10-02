@@ -46,6 +46,14 @@ scheduler.command('adms:sweep-commands').everyMinute().withoutOverlapping()
 scheduler.command('adms:recalc-calendars').everyMinute().withoutOverlapping()
 
 /**
+ * Cierre de día del calendario de asistencia guardado. A las 09:00 UTC ya
+ * terminó el día anterior en todas las zonas del país (03:00 en CDMX, entre
+ * 01:00 y 02:00 en Tijuana). Solo encola: el recálculo lo hace
+ * `adms:recalc-calendars` en tandas de cincuenta por minuto.
+ */
+scheduler.command('assist:close-calendar-days').cron('0 9 * * *')
+
+/**
  * Borra por plazo lo que cumplio su retencion (spec 13.12): crudos, comandos,
  * publicaciones de foto y cuarentenas.
  *

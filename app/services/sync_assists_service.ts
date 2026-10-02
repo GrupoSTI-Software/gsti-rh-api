@@ -49,9 +49,16 @@ import {
 import {
   bucketCheckIn,
   bucketCheckOut,
+  bucketMissingCheckIn,
   minutesAfter,
 } from '#modules/attendance-time/attendance_bucketing'
 import { biometricStoredToUtc, parseBiometricStored } from '#modules/attendance-time/biometric_clock'
+
+/** Tipos de excepción que marcan el día como incapacidad. */
+const WORK_DISABILITY_EXCEPTION_SLUGS: ReadonlySet<string> = new Set([
+  'falta-por-incapacidad',
+  'incapacidad-por-maternidad',
+])
 
 /**
  * Servicio para la sincronización y procesamiento de asistencias de empleados.
@@ -2265,6 +2272,31 @@ export default class SyncAssistsService {
         }
       }
 
+      // Con el turno ya iniciado, la entrada que no llega se califica como se
+      // calificaría si llegara en este momento: tolerancia, retardo y, pasada
+      // la tolerancia de falta, falta. Antes del inicio el día es futuro y se
+      // queda como estaba. Con un permiso que autoriza otra hora de entrada,
+      // se cuenta desde esa hora, y antes de ella el día no se califica.
+      if (checkAssist.assist.checkInStatus === 'fault') {
+        const authorizedCheckIn = checkAssist.assist.exceptions.find(
+          (ex) => ex.shiftExceptionCheckInTime
+        )?.shiftExceptionCheckInTime
+        const expectedCheckIn = shiftStartInstant(
+          checkAssist.day,
+          authorizedCheckIn || checkAssist.assist.dateShift.shiftTimeStart,
+          zone
+        )
+        const minutesElapsed = minutesAfter(expectedCheckIn, DateTime.utc())
+        if (minutesElapsed >= 0) {
+          checkAssist.assist.checkInStatus = bucketMissingCheckIn(minutesElapsed, {
+            delayMinutes: TOLERANCE_DELAY_MINUTES,
+            faultMinutes: TOLERANCE_FAULT_MINUTES,
+          })
+        } else if (authorizedCheckIn) {
+          checkAssist.assist.checkInStatus = ''
+        }
+      }
+
       return checkAssist
     }
 
@@ -2455,8 +2487,9 @@ export default class SyncAssistsService {
     const nextDay = assistList.find((assistDate) => assistDate.day === nextEvaluatedDay)
 
     if (nextDay && nextDay?.assist?.assitFlatList) {
-      const nexDayCheckList: AssistInterface[] = JSON.parse(JSON.stringify(nextDay.assist.assitFlatList))
-      nexDayCheckList.forEach((checkItem) => {
+      const originals = nextDay.assist.assitFlatList
+      const nexDayCheckList: AssistInterface[] = JSON.parse(JSON.stringify(originals))
+      nexDayCheckList.forEach((checkItem, index) => {
         const punchTime = toInstant(checkItem.assistPunchTimeUtc)
         const diffToCheckOut = punchTime.diff(checkOutDateTime.plus({ hours: 3 }), 'milliseconds').milliseconds
 
@@ -2465,6 +2498,9 @@ export default class SyncAssistsService {
           checkItem.assistPunchTimeUtc = punchTime
           checkItem.assistPunchTimeOrigin = punchTime
           calendarDay.push(checkItem)
+          // La checada ya es parte de este turno: el día siguiente no la vuelve
+          // a usar como su entrada ni la lista como un registro adicional.
+          originals[index].assistUsed = true
         }
       })
     }
@@ -2750,7 +2786,13 @@ export default class SyncAssistsService {
     }
 
     if (checkAssist.assist.exceptions.length > 0) {
-      const absentException = checkAssist.assist.exceptions.find((ex) => ex.shiftExceptionEnjoymentOfSalary !== 0 && ex.exceptionType?.exceptionTypeSlug === 'falta-por-incapacidad')
+      // La incapacidad por maternidad también es incapacidad: sin esto el día
+      // salía como excepción genérica y el backoffice lo pintaba a tiempo.
+      const absentException = checkAssist.assist.exceptions.find(
+        (ex) =>
+          ex.shiftExceptionEnjoymentOfSalary !== 0 &&
+          WORK_DISABILITY_EXCEPTION_SLUGS.has(ex.exceptionType?.exceptionTypeSlug ?? '')
+      )
 
       if (absentException) {
         checkAssist.assist.isWorkDisabilityDate = true
