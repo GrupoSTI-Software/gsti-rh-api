@@ -4,8 +4,11 @@ import RegulatoryCoverageService from './regulatory_coverage.service.js'
 /**
  * Controller del módulo regulatory-coverage.
  *
- * Expone el endpoint GET /api/v1/regulatory-coverage que devuelve el resumen
+ * Expone el endpoint GET /api/platform/regulatory-coverage que devuelve el resumen
  * de cobertura regulatoria del producto Valanserh frente a las normas vigentes.
+ *
+ * Solo registrables bajo el grupo `[auth, platformAdmin]`: el controller no tiene
+ * control de acceso propio.
  *
  * El cálculo usa la fórmula ponderada sobre numerales hoja:
  *   coveragePercentage = (total × 1 + parcial × 0.5) / evaluableClauses × 100
@@ -17,7 +20,7 @@ import RegulatoryCoverageService from './regulatory_coverage.service.js'
 export default class RegulatoryCoverageController {
   /**
    * @swagger
-   * /api/v1/regulatory-coverage:
+   * /api/platform/regulatory-coverage:
    *   get:
    *     summary: Resumen de cobertura regulatoria por norma
    *     description: |
@@ -124,6 +127,8 @@ export default class RegulatoryCoverageController {
    *                 key:
    *                   type: string
    *                   example: no-autenticado
+   *       403:
+   *         description: Acceso restringido a plataforma (AUTH.PLATFORM.FORBIDDEN)
    *       500:
    *         description: Error interno en el cálculo de cobertura
    *         content:
@@ -145,7 +150,7 @@ export default class RegulatoryCoverageController {
 
   /**
    * @swagger
-   * /api/v1/regulatory-coverage/summary:
+   * /api/platform/regulatory-coverage/summary:
    *   get:
    *     summary: Resumen ejecutivo de cobertura regulatoria agregada y proyectada
    *     description: |
@@ -163,7 +168,7 @@ export default class RegulatoryCoverageController {
    *
    *       **Por norma**: una fila por norma vigente con sus tres porcentajes, donde
    *       el bucket `disponible` coincide con el del endpoint por-norma
-   *       `GET /api/v1/regulatory-coverage`.
+   *       `GET /api/platform/regulatory-coverage`.
    *
    *       **Caché**: caché en memoria propio (TTL 5 min), independiente del endpoint
    *       por-norma.
@@ -284,6 +289,8 @@ export default class RegulatoryCoverageController {
    *                 key:
    *                   type: string
    *                   example: no-autenticado
+   *       403:
+   *         description: Acceso restringido a plataforma (AUTH.PLATFORM.FORBIDDEN)
    *       500:
    *         description: Error interno en el cálculo del summary
    *         content:
@@ -305,7 +312,7 @@ export default class RegulatoryCoverageController {
 
   /**
    * @swagger
-   * /api/v1/regulatory-coverage/{regulationId}:
+   * /api/platform/regulatory-coverage/{regulationId}:
    *   get:
    *     summary: Detalle de cobertura de una norma con numerales hoja y módulos
    *     description: |
@@ -476,6 +483,8 @@ export default class RegulatoryCoverageController {
    *                 key:
    *                   type: string
    *                   example: no-autenticado
+   *       403:
+   *         description: Acceso restringido a plataforma (AUTH.PLATFORM.FORBIDDEN)
    *       404:
    *         description: Norma no encontrada o no vigente
    *         content:
