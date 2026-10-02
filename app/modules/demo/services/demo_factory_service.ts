@@ -44,8 +44,16 @@ import {
   demoAssistNow,
   DEMO_ASSIST_CALENDAR_ZONE,
 } from '../factories/assist_factory.js'
-import { DepartmentFactory, DEMO_DEPARTMENTS } from '../factories/department_factory.js'
-import { PositionFactory, DEMO_POSITIONS } from '../factories/position_factory.js'
+import {
+  DepartmentFactory,
+  DEMO_DEPARTMENTS,
+  DEMO_SUPPORT_DEPARTMENT_KEY,
+} from '../factories/department_factory.js'
+import {
+  PositionFactory,
+  DEMO_POSITIONS,
+  DEMO_SUPPORT_POSITION_KEY,
+} from '../factories/position_factory.js'
 import { ShiftFactory, DEMO_SHIFTS, DEMO_DEFAULT_SHIFT_NAME } from '../factories/shift_factory.js'
 import {
   UserFactory,
@@ -87,6 +95,11 @@ async function demoDbCounts(tag: string, label: string): Promise<void> {
 // ---------------------------------------------------------------------------
 // Resultado estructurado por paso
 // ---------------------------------------------------------------------------
+
+export interface DemoStructureMaps {
+  departmentsMap: Record<string, Department>
+  positionsMap: Record<string, Position>
+}
 
 export interface DemoFactoryResult {
   departments: { created: number; total: number }
@@ -269,7 +282,7 @@ export default class DemoFactoryService {
     // 1–7
     console.log(tag, 'iniciando seedOrganizationAndPeople()')
     await this.seedOrganizationAndPeople(businessUnitId, employeeTypeId, systemBusiness, result)
-    console.log(tag, 'seedOrganizationAndPeople() terminó', {
+    console.log(tag, 'seedOrganizationAndPeople() terminado', {
       departments: result.departments,
       positions: result.positions,
       shifts: result.shifts,
@@ -294,46 +307,23 @@ export default class DemoFactoryService {
   // Pasos internos
   // -------------------------------------------------------------------------
 
-  private async seedOrganizationAndPeople(
+  /**
+   * Pasos 1-2: departamentos, puestos y relación, solo en `businessUnitId`.
+   * Idempotente por alias dentro de la empresa.
+   *
+   * Público para que la prueba funcional no llame `run()`, que purga tablas de toda la BD.
+   */
+  async seedStructure(
     businessUnitId: number,
-    employeeTypeId: number,
-    systemBusiness: string,
     result: DemoFactoryResult
-  ) {
-    console.log(`[DEMO-SEED-ORG ${new Date().toISOString()}]`, 'inicio', {
-      businessUnitId,
-      employeeTypeId,
-      systemBusiness,
-    })
+  ): Promise<DemoStructureMaps> {
     // --- 1. Departamentos ---------------------------------------------------
     const departmentsMap: Record<string, Department> = {}
 
     for (const deptData of DEMO_DEPARTMENTS) {
-      if (deptData.departmentId === 999) {
-        let dept = await Department.query()
-          .where('department_id', 999)
-          .whereNull('department_deleted_at')
-          .first()
-
-        if (!dept) {
-          dept = await DepartmentFactory.merge({
-            departmentId: deptData.departmentId,
-            departmentCode: deptData.code,
-            departmentName: deptData.name,
-            departmentAlias: deptData.alias,
-            businessUnitId,
-            parentDepartmentId: null,
-          }).create()
-          result.departments.created++
-        }
-
-        departmentsMap[deptData.key] = dept
-        result.departments.total++
-        continue
-      }
-
       let dept = await Department.query()
         .where('department_alias', deptData.alias)
+        .where('business_unit_id', businessUnitId)
         .whereNull('department_deleted_at')
         .first()
 
@@ -360,45 +350,9 @@ export default class DemoFactoryService {
     const positionsMap: Record<string, Position> = {}
 
     for (const posData of DEMO_POSITIONS) {
-      if (posData.positionId === 999) {
-        let pos = await Position.query()
-          .where('position_id', 999)
-          .whereNull('position_deleted_at')
-          .first()
-
-        if (!pos) {
-          pos = await PositionFactory.merge({
-            positionId: posData.positionId,
-            positionCode: posData.code,
-            positionName: posData.name,
-            positionAlias: posData.alias,
-            businessUnitId,
-            parentPositionId: null,
-          }).create()
-          result.positions.created++
-        }
-
-        positionsMap[posData.key] = pos
-        result.positions.total++
-
-        const existsRel = await DepartmentPosition.query()
-          .where('position_id', pos.positionId)
-          .where('department_id', 999)
-          .whereNull('department_position_deleted_at')
-          .first()
-
-        if (!existsRel) {
-          const dp = new DepartmentPosition()
-          dp.positionId = pos.positionId
-          dp.departmentId = 999
-          dp.departmentPositionLastSynchronizationAt = new Date()
-          await dp.save()
-        }
-        continue
-      }
-
       let pos = await Position.query()
         .where('position_alias', posData.alias)
+        .where('business_unit_id', businessUnitId)
         .whereNull('position_deleted_at')
         .first()
 
@@ -432,11 +386,34 @@ export default class DemoFactoryService {
           const dp = new DepartmentPosition()
           dp.positionId = pos.positionId
           dp.departmentId = dept.departmentId
+          dp.businessUnitId = businessUnitId
           dp.departmentPositionLastSynchronizationAt = new Date()
           await dp.save()
         }
       }
     }
+
+    return { departmentsMap, positionsMap }
+  }
+
+  private async seedOrganizationAndPeople(
+    businessUnitId: number,
+    employeeTypeId: number,
+    systemBusiness: string,
+    result: DemoFactoryResult
+  ) {
+    console.log(`[DEMO-SEED-ORG ${new Date().toISOString()}]`, 'inicio', {
+      businessUnitId,
+      employeeTypeId,
+      systemBusiness,
+    })
+
+    const { departmentsMap, positionsMap } = await this.seedStructure(businessUnitId, result)
+
+    console.log(`[DEMO-SEED-ORG ${new Date().toISOString()}]`, 'estructura sembrada', {
+      departments: result.departments,
+      positions: result.positions,
+    })
 
     // --- 3. Turnos ----------------------------------------------------------
     const shiftsMap: Record<string, Shift> = {}
@@ -630,6 +607,7 @@ export default class DemoFactoryService {
       )
     }
     const rootRoleId = rootRole.roleId
+    const supportStructure = requireDemoSupportStructure({ departmentsMap, positionsMap })
 
     for (const [index, rootData] of DEMO_ROOT_USERS.entries()) {
       const existingUser = await User.query()
@@ -682,8 +660,8 @@ export default class DemoFactoryService {
           employeePayrollNum: empCode,
           employeePayrollCode: empCode,
           personId: rootPerson.personId,
-          positionId: 999,
-          departmentId: 999,
+          positionId: supportStructure.position.positionId,
+          departmentId: supportStructure.department.departmentId,
           businessUnitId,
           payrollBusinessUnitId: businessUnitId,
           employeeTypeId,
@@ -1077,4 +1055,27 @@ export default class DemoFactoryService {
 
     console.log(t0, 'fin seedAssists', result.assists)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Helpers exportados
+// ---------------------------------------------------------------------------
+
+/**
+ * Exige el departamento y el puesto de soporte dentro de los mapas ya sembrados.
+ * Si falta alguno, detiene la demo sin recurrir a un registro de relleno.
+ */
+export function requireDemoSupportStructure(maps: DemoStructureMaps): {
+  department: Department
+  position: Position
+} {
+  const department = maps.departmentsMap[DEMO_SUPPORT_DEPARTMENT_KEY]
+  const position = maps.positionsMap[DEMO_SUPPORT_POSITION_KEY]
+  if (!department || !position) {
+    const missing = !department ? DEMO_SUPPORT_DEPARTMENT_KEY : DEMO_SUPPORT_POSITION_KEY
+    throw new Error(
+      `[demo_factory_service] Falta la estructura de soporte de la demo: ${missing}. Revisa DEMO_DEPARTMENTS y DEMO_POSITIONS.`
+    )
+  }
+  return { department, position }
 }
