@@ -14,6 +14,19 @@ import { isBiometricsPhotoUrl, readEmployeePhotoBuffer } from '#helpers/employee
  * Los endpoints que la usan viven dentro del grupo con `auth()` y declaran su
  * `permissionGate`; este servicio no decide permisos, solo entrega bytes.
  */
+/** Opciones de caché de la respuesta. */
+interface StreamCacheOptions {
+  /** Segundos que el navegador puede reutilizar la respuesta (300 por omisión). */
+  maxAgeSeconds?: number
+  /** Prohíbe guardar la respuesta: para archivos que se reemplazan en la misma URL. */
+  noStore?: boolean
+}
+
+/** Valor de `Cache-Control` según las opciones; siempre `private`. */
+function cacheControlHeader(options: StreamCacheOptions): string {
+  return options.noStore ? 'private, no-store' : `private, max-age=${options.maxAgeSeconds ?? 300}`
+}
+
 export default class StoredFileStreamService {
   constructor(private readonly uploadService: UploadService = new UploadService()) {}
 
@@ -28,14 +41,14 @@ export default class StoredFileStreamService {
   async streamInto(
     ctx: Pick<HttpContext, 'response'>,
     storedPath: string,
-    options: { fallbackContentType?: string; maxAgeSeconds?: number } = {}
+    options: StreamCacheOptions & { fallbackContentType?: string } = {}
   ): Promise<boolean> {
     const object = await this.uploadService.streamStoredFile(storedPath)
     if (!object) return false
 
     const { response } = ctx
     response.header('Content-Type', object.contentType || options.fallbackContentType || 'application/octet-stream')
-    response.header('Cache-Control', `private, max-age=${options.maxAgeSeconds ?? 300}`)
+    response.header('Cache-Control', cacheControlHeader(options))
 
     if (object.contentLength !== undefined) {
       response.header('Content-Length', String(object.contentLength))
@@ -56,16 +69,19 @@ export default class StoredFileStreamService {
    * Variante para la foto de un empleado, que puede vivir en el bucket o en el
    * servidor de biométricos. Se entrega como buffer porque el origen externo no
    * expone un stream que se pueda encadenar con garantías.
+   *
+   * Siempre sin caché del navegador: la foto se reemplaza en la misma URL
+   * (`/employees/:id/photo`) y con `max-age` la nueva no aparecía hasta que la
+   * copia vieja vencía.
    */
   async streamEmployeePhotoInto(
     ctx: Pick<HttpContext, 'response'>,
-    storedPath: string,
-    options: { maxAgeSeconds?: number } = {}
+    storedPath: string
   ): Promise<boolean> {
     if (!isBiometricsPhotoUrl(storedPath)) {
       return this.streamInto(ctx, storedPath, {
         fallbackContentType: 'image/jpeg',
-        maxAgeSeconds: options.maxAgeSeconds,
+        noStore: true,
       })
     }
 
@@ -74,7 +90,7 @@ export default class StoredFileStreamService {
 
     const { response } = ctx
     response.header('Content-Type', 'image/jpeg')
-    response.header('Cache-Control', `private, max-age=${options.maxAgeSeconds ?? 300}`)
+    response.header('Cache-Control', cacheControlHeader({ noStore: true }))
     response.header('Content-Length', String(buffer.length))
     response.status(200)
     response.send(buffer)

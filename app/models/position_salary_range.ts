@@ -28,11 +28,13 @@ import { sensitiveSerializeNumeric } from '#helpers/sensitive_serialize'
  *            type: number
  *            description: Puesto (FK a positions)
  *          minSalaryDaily:
- *            type: number
- *            description: Salario mínimo diario (cifrado en BD). Sin permiso de lectura financiera se entrega null, nunca enmascarado por partes.
+ *            type: string
+ *            nullable: true
+ *            description: Salario mínimo diario (cifrado en BD). Con valor se entrega enmascarado (`•••••`); sin valor, null. El claro solo por reveal.
  *          maxSalaryDaily:
- *            type: number
- *            description: Salario máximo diario (cifrado en BD). Sin permiso de lectura financiera se entrega null, nunca enmascarado por partes.
+ *            type: string
+ *            nullable: true
+ *            description: Salario máximo diario (cifrado en BD). Con valor se entrega enmascarado (`•••••`); sin valor, null. El claro solo por reveal.
  *          validFrom:
  *            type: string
  *            description: Inicio de vigencia

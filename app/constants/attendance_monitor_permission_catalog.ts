@@ -7,6 +7,17 @@ import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
 export type AttendanceMonitorSection = 'listado' | 'nomina' | 'asistencia' | 'descargas'
 
 /**
+ * Nombre legible de cada sección, serializado en el árbol de permisos de
+ * sesión. El `satisfies` obliga a nombrar toda sección nueva.
+ */
+export const ATTENDANCE_MONITOR_SECTION_LABELS = {
+  'listado': 'Listado',
+  'nomina': 'Nómina',
+  'asistencia': 'Asistencia',
+  'descargas': 'Descargas',
+} as const satisfies Record<AttendanceMonitorSection, string>
+
+/**
  * Las 11 acciones del módulo `employees-attendance-monitor`.
  *
  * Las once se siembran desde este catálogo (`0062_system_module_seeder`).

@@ -5,8 +5,8 @@ import type { UserConsentChannel } from '#models/user_consent'
  * Fila de evidencia de aceptación (USRH1783368377327; extendida por
  * USRH1784146205513 con el canal físico).
  *
- * `ip`/`userAgent` llegan enmascarados por default (`maskSensitiveValue`, categoría
- * `contacto`) y solo en claro si el caller tiene el permiso dedicado de revelado
+ * `ip`/`userAgent` llegan enmascarados por default (`maskSensitiveValue`, máscara fija
+ * `•••••`) y solo en claro si el caller tiene el permiso dedicado de revelado
  * (`consent-evidence:reveal`) Y pidió `reveal=true`. `businessUnitPublicIds`/
  * `businessUnitNames` son arreglos porque un usuario puede pertenecer a varias
  * empresas (pivot `business_unit_users`); listar un único id sería ambiguo.

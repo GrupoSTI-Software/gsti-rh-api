@@ -1,22 +1,9 @@
 import LegalDocument from '#models/legal_document'
 import UserConsent from '#models/user_consent'
 import Employee from '#models/employee'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import type { ConsentGateRepository, ConsentRecord } from './consent_gate.repository.js'
-
-/**
- * El documento legal es de la plataforma, no de una empresa: se lee sin corte
- * por empresa a proposito y solo devuelve un identificador, nunca contenido.
- */
-const LEGAL_DOCUMENT_UNSCOPED_REASON =
-  'consentimiento biometrico: el documento legal vigente es de la plataforma, no de una empresa'
-
-/**
- * El asiento del consentimiento tampoco lleva empresa: cuelga de la persona.
- * El colaborador por el que se pregunta ya se resolvio dentro del scope.
- */
-const CONSENT_UNSCOPED_REASON =
-  'consentimiento biometrico: el asiento cuelga de la persona, no de la empresa'
 
 export default class ConsentGateRepositoryMysql implements ConsentGateRepository {
   async findCurrentBiometricDocumentId(): Promise<number | null> {
@@ -27,7 +14,7 @@ export default class ConsentGateRepositoryMysql implements ConsentGateRepository
           .where('legal_document_is_current', true)
           .select('legal_document_id')
           .first(),
-      LEGAL_DOCUMENT_UNSCOPED_REASON
+      TENANT_UNSCOPED_REASON.BIOMETRIC_CONSENT_GATE
     )
     return document?.legalDocumentId ?? null
   }
@@ -54,7 +41,7 @@ export default class ConsentGateRepositoryMysql implements ConsentGateRepository
           })
           .orderBy('user_consent_id', 'asc')
           .first(),
-      CONSENT_UNSCOPED_REASON
+      TENANT_UNSCOPED_REASON.BIOMETRIC_CONSENT_GATE
     )
     if (!row) return null
 

@@ -3,7 +3,7 @@ import { isFileIntakeError } from '#helpers/file_intake_api_error'
 import SystemSetting from '#models/system_setting'
 import SystemSettingProceedingFile from '#models/system_setting_proceeding_file'
 import SystemSettingService from '#services/system_setting_service'
-import { createSystemSettingValidator } from '#validators/system_setting'
+import { createSystemSettingValidator, updateSiteTimezoneValidator } from '#validators/system_setting'
 import UploadService from '#services/upload_service'
 import path from 'node:path'
 import Env from '#start/env'
@@ -2422,6 +2422,80 @@ export default class SystemSettingController {
    *                     error:
    *                       type: string
    */
+  /**
+   * @swagger
+   * /api/system-settings/{systemSettingId}/site-timezone:
+   *   put:
+   *     summary: Cambiar la zona horaria del sitio de la empresa
+   *     description: La zona vive en la empresa (`business_unit_timezone`) y es la que hereda toda sucursal sin zona propia. Se edita desde Reglas de operación, con el permiso de actualización de la configuración.
+   *     tags: [System Settings]
+   *     parameters:
+   *       - in: path
+   *         name: systemSettingId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     requestBody:
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [businessUnitTimezone]
+   *             properties:
+   *               businessUnitTimezone:
+   *                 type: string
+   *                 example: America/Ciudad_Juarez
+   *     responses:
+   *       200:
+   *         description: Zona guardada; `data.businessUnitTimezone` trae el valor vigente
+   *       400:
+   *         description: La zona no es un identificador IANA reconocido (key zona-horaria-invalida)
+   *       404:
+   *         description: Configuración fuera del alcance del usuario
+   */
+  async updateSiteTimezone({ auth, request, response, businessUnitScope, i18n }: HttpContext) {
+    try {
+      const systemSettingId = Number(request.param('systemSettingId'))
+      const { businessUnitTimezone } = await request.validateUsing(updateSiteTimezoneValidator)
+
+      const result = await new SystemSettingService().updateSiteTimezone(
+        systemSettingId,
+        businessUnitTimezone,
+        businessUnitScope,
+        i18n
+      )
+
+      if (result.status === 404) {
+        await ScopeDeniedLogService.log({
+          domain: 'system_setting',
+          action: 'updateSiteTimezone',
+          requestedId: systemSettingId,
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
+      }
+
+      response.status(result.status)
+      return {
+        type: result.type,
+        title: result.title,
+        message: result.message,
+        key: result.key,
+        data: result.data,
+      }
+    } catch (error) {
+      const messageError =
+        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      response.status(error.code === 'E_VALIDATION_ERROR' ? 400 : 500)
+      return {
+        type: 'error',
+        title: error.code === 'E_VALIDATION_ERROR' ? 'Validation error' : 'Server error',
+        message: messageError,
+        error: messageError,
+      }
+    }
+  }
+
   async updateBirthdayEmailsStatus({ auth, request, response, businessUnitScope }: HttpContext) {
     try {
       const systemSettingId = request.param('systemSettingId')

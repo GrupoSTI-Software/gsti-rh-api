@@ -3,6 +3,7 @@ import type { Readable } from 'node:stream'
 import AccessPoint from '#models/access_point'
 import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
 import UploadService from '#services/upload_service'
+import { ADMS_PHOTO_TOKEN_UNSCOPED_REASON } from './photo.constants.js'
 import { TenantContext } from '#utils/tenant_context'
 import PhotoPublicationRepositoryMysql from './photo_publication.repository.mysql.js'
 import type { PhotoPublicationRepository } from './photo_publication.repository.js'
@@ -134,7 +135,7 @@ export default class PhotoDownloadService {
       const point = await TenantContext.runUnscoped(
         () =>
           AccessPoint.query().where('access_point_id', publication.accessPointId).first(),
-        'foto por token: la direccion propia del equipo al que va'
+        ADMS_PHOTO_TOKEN_UNSCOPED_REASON
       )
       const secret = point?.accessPointChannelSecret ?? null
       /**

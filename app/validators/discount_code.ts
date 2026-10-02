@@ -68,11 +68,15 @@ export const listDiscountCodesValidator = vine.compile(
 )
 
 /**
- * Query para `GET /api/platform/billing/discount-codes/:discountCodeText/quote`
- * (USRH1787714804400).
+ * Body de `POST /api/platform/billing/discount-codes/quote`
+ * (USRH1787714804400, USRH1788551528002).
+ *
+ * `minLength(1)`, no 3: un texto corto sigue cayendo en `NOT_FOUND`,
+ * no en `VAL_INPUT`. El texto viaja en el body para no quedar en la URL.
  */
 export const quoteDiscountCodeValidator = vine.compile(
   vine.object({
+    discountCodeText: vine.string().trim().minLength(1).maxLength(40),
     billingPlanId: vine.number().positive().withoutDecimals(),
     employeeCount: vine.number().positive().withoutDecimals(),
   })

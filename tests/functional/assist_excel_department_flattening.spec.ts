@@ -12,6 +12,7 @@ import DepartmentPosition from '#models/department_position'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import AssistsService from '#services/assist_service'
 import EmployeeService from '#services/employee_service'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 import type { AssistExcelFilterInterface } from '../../app/interfaces/assist_excel_filter_interface.js'
 
 /**
@@ -30,8 +31,8 @@ const SHIFT_SINCE = '2024-06-01'
 
 const VENTAS_ORDER = ['Diana Soto', 'Adela Rivas', 'Beto Ruiz', 'Carla Mena', 'Ernesto Gil']
 const DETAILED_HEADER = [
-  'Empleado ID',
-  'Empleado Nombre',
+  'ID de empleado',
+  'Nombre del empleado',
   'Departamento',
   'Posición',
   'Fecha',
@@ -317,6 +318,7 @@ async function insertEmployee(input: {
   })
   input.personIds.push(person.personId)
   const [employeeId] = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${input.stamp}-${input.first}`,
     employee_code: `EMP-${input.stamp}-${input.first}`,
     employee_payroll_code: `NOM-${input.first}-${input.stamp}`.slice(0, 50),

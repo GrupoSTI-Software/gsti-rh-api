@@ -32,6 +32,13 @@ export interface EmployeeOffboardingDocumentDto {
   templateVersionId: number | null
   /** Número legible de esa versión (K-4), derivado por join; `null` sin versión. */
   templateVersionNumber: number | null
+  /**
+   * Suma de los importes capturados tal como se imprimió en el convenio
+   * (USRH1789097550395): cadena decimal con dos decimales, NUNCA `number`;
+   * `null` en toda constancia y en toda emisión anterior. La cantidad con
+   * letra no viaja: se deriva del número y solo existe impresa.
+   */
+  totalAmount: string | null
 }
 
 /** Número de versión proyectado por el adaptador en `$extras`; `null` cuando no hay versión. */
@@ -70,5 +77,6 @@ export function toDocumentDto(
     supersededDocumentId: record.employeeOffboardingDocumentSupersededDocumentId ?? null,
     templateVersionId: record.employeeOffboardingDocumentTemplateVersionId ?? null,
     templateVersionNumber,
+    totalAmount: record.employeeOffboardingDocumentTotalAmount ?? null,
   }
 }

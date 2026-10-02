@@ -205,10 +205,13 @@ test.group('Assist — scope fail-closed en BD real (USRH1786566437097 / D1–D5
     assert.lengthOf(rows, 0)
   })
 
-  test('D3 · sin contexto activo la query no filtra (caracterización)', async ({ assert }) => {
+  test('D3 · sin contexto activo lanza TenantContextMissingException (USRH1789600808831)', async ({
+    assert,
+  }) => {
     assert.isFalse(TenantContext.isActive())
-    const rows = await Assist.query()
-    assert.equal(rows.length, totalCount)
+    await assert.rejects(async () => {
+      await Assist.query()
+    }, /No se identificó la empresa de la consulta/)
   })
 
   test('D4 · runUnscoped no aplica filtro de tenant', async ({ assert }) => {

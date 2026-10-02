@@ -13,6 +13,7 @@ import ReportJob from '#models/report_job'
 import UserResponsibleEmployee from '#models/user_responsible_employee'
 import AssistsService from '#services/assist_service'
 import ReportJobService from '#services/report_job_service'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 import type { ReportJobStatus } from '#models/report_job'
 import type { AssistExcelFilterInterface } from '../../app/interfaces/assist_excel_filter_interface.js'
 
@@ -285,6 +286,7 @@ async function createWorld(): Promise<World> {
     w.personIds.push(person.personId)
     const code = `${first.toUpperCase()}-${stamp}`.slice(0, 50)
     const [empId] = await db.table('employees').insert({
+      employee_slug: opaqueEmployeeSlug(),
       employee_sync_id: code,
       employee_code: code,
       employee_payroll_code: code.slice(0, 50),

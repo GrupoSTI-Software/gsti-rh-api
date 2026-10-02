@@ -88,6 +88,13 @@ const TABLES: TableConfig[] = [
     ],
   },
   {
+    table: 'medical_condition_type_property_values',
+    pk: 'medical_condition_type_property_value_id',
+    columns: ['medical_condition_type_property_value'],
+    tenantJoins: [],
+    tenantColumn: 'medical_condition_type_property_values.business_unit_id',
+  },
+  {
     table: 'traumatic_event_reports',
     pk: 'traumatic_event_report_id',
     columns: [

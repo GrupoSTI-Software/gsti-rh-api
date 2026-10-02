@@ -6,6 +6,7 @@ import { ASSIST_CHANNEL, ASSIST_ORIGIN } from '#constants/assist_origin'
 import type { AssistChannel, AssistCreateFrom } from '#constants/assist_origin'
 import { ensureEmployeeAssistWrite } from '#helpers/ensure_employee_assist_write'
 import AssistIngestionService, { resolvePunchTime } from './assist_ingestion.service.js'
+import SiteTimeZoneService from '#modules/attendance-time/site_time_zone.service'
 import {
   ASSIST_INGESTION_BATCH_MAX_BODY_BYTES,
   ASSIST_INGESTION_BATCH_MAX_ITEMS,
@@ -16,6 +17,7 @@ import {
   ASSIST_INGESTION_FOREIGN_WRITE,
   ASSIST_INGESTION_INVALID_ITEM,
 } from './assist_ingestion.rejections.js'
+import { resolveAdminCaptureRejection } from './admin_capture_scope.js'
 import {
   assistBatchItemValidator,
   inspectAssistBatchEnvelope,
@@ -214,7 +216,7 @@ export default class AssistIngestionController {
    *                       description: |
    *                         Hora en que ocurrió la checada, obligatoria por elemento.
    *                         ISO-8601 con desfase explícito o el formato legado
-   *                         `YYYY-MM-DD HH:mm:ss` en UTC-6.
+   *                         `YYYY-MM-DD HH:mm:ss` en hora civil del sitio del colaborador.
    *                     assistType:
    *                       type: string
    *                       enum: [check, eatin, eatout]
@@ -284,6 +286,7 @@ export default class AssistIngestionController {
     // El permiso se resuelve una vez por colaborador distinto, nunca una vez por
     // entrega: evaluarlo una sola vez dejaría colar checadas ajenas detrás de un
     // primer elemento propio.
+    const siteTimeZones = new SiteTimeZoneService()
     const writeAccess = new Map<
       number,
       Awaited<ReturnType<typeof ensureEmployeeAssistWrite>>
@@ -324,10 +327,35 @@ export default class AssistIngestionController {
         continue
       }
 
-      const resolvedPunchTime = resolvePunchTime(item.assistPunchTime, DateTime.utc())
+      // Una hora declarada sin desfase es hora civil del sitio del colaborador.
+      //
+      // La procedencia decide el tope hacia atrás, igual que en la captura suelta:
+      // la ventana del canal para lo que entrega un equipo, los días del rol para
+      // lo que captura una persona desde el backoffice.
+      const origin = resolveAssistOrigin(item.assistChannel, access.isOwner)
+      const isAdminCapture = origin === ASSIST_ORIGIN.ADMIN_CAPTURE
+
+      const siteZone = await siteTimeZones.forEmployee(item.employeeId)
+      const now = DateTime.utc()
+      const resolvedPunchTime = resolvePunchTime(item.assistPunchTime, now, siteZone.zone, {
+        enforceBackdateWindow: !isAdminCapture,
+      })
       if (!resolvedPunchTime.ok) {
         results[index].error = rejectionBody(resolvedPunchTime.rejection, i18n)
         continue
+      }
+
+      if (isAdminCapture) {
+        const scopeRejection = await resolveAdminCaptureRejection({
+          user: auth.user,
+          punchTimeUtc: resolvedPunchTime.punchTimeUtc,
+          zone: siteZone.zone,
+          now,
+        })
+        if (scopeRejection) {
+          results[index].error = rejectionBody(scopeRejection, i18n)
+          continue
+        }
       }
 
       accepted.push({
@@ -339,7 +367,7 @@ export default class AssistIngestionController {
           longitude: item.assistLongitude ?? null,
           precision: item.assistPrecision ?? null,
         },
-        origin: resolveAssistOrigin(item.assistChannel, access.isOwner),
+        origin,
         createdByUserId: access.isOwner ? null : (auth.user?.userId ?? null),
         terminalSn: null,
         clientRef: item.clientRef ?? null,

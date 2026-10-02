@@ -23,7 +23,6 @@ const DOWNLOAD_SURFACES: Array<{ slug: string; method: 'get' | 'post'; path: str
   { slug: 'download-vacations-history', method: 'get', path: '/api/employees-vacations/get-vacations-used-excel' },
   { slug: 'download-vacations-summary', method: 'get', path: '/api/employees-vacations/get-vacations-summary-excel' },
   { slug: 'download-vacation-import-template', method: 'get', path: '/api/employees-vacations/get-vacation-import-template' },
-  { slug: 'download-payroll-format', method: 'get', path: '/api/v1/assists/get-format-payroll?date=2026-01-15' },
   { slug: 'download-attendance-by-employee', method: 'get', path: '/api/v1/assists/get-excel-by-employee' },
   { slug: 'download-attendance-by-position', method: 'get', path: '/api/v1/assists/get-excel-by-position' },
   { slug: 'download-attendance-by-department', method: 'get', path: '/api/v1/assists/get-excel-by-department' },

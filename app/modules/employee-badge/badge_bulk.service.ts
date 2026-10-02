@@ -2,12 +2,14 @@ import type { HttpContext } from '@adonisjs/core/http'
 import type { Readable } from 'node:stream'
 import { ZipArchive } from 'archiver'
 import PDFDocument from 'pdfkit'
+import { REPORT_NEUTRAL_HEX } from '#constants/report_neutral_theme'
 import { EMPLOYEE_BADGE_ERROR_CODES } from '#constants/employee_badge_error_codes'
 import { EmployeeBadgeError } from '#exceptions/employee_badge_error'
-import { todayInBusinessZone } from '#utils/business_date'
+import { buildDownloadFileName, contentDisposition, formatDownloadFileDate } from '#helpers/download_file_name'
 import BadgeRepositoryMysql from './badge.repository.mysql.js'
 import BadgeRenderService from './badge_render.service.js'
 import BadgeService from './badge.service.js'
+import BadgeNssAuditService, { type BadgeAccessor } from './badge_nss_audit.service.js'
 import type { BadgeRepository } from './badge.repository.js'
 import type { BadgeEmployeeContext } from './dto/badge.dto.js'
 
@@ -25,7 +27,8 @@ const VERTICAL_MARGIN = (792 - 4 * BULK_CELL_HEIGHT - 3 * GUTTER) / 2
 
 const CUT_MARK_LENGTH = 8
 const CUT_MARK_OFFSET = 4
-const CUT_MARK_COLOR = '#9CA3AF'
+/** Guías de corte en gris neutral de la paleta compartida. */
+const CUT_MARK_COLOR = REPORT_NEUTRAL_HEX.border
 
 export type BulkBadgeFormat = 'pdf' | 'png'
 
@@ -33,18 +36,23 @@ export interface BulkBadgeStreamInput {
   empleadoIds: number[]
   formato: BulkBadgeFormat
   businessUnitIds: number[]
+  /** Quién genera el lote; cada NSS impreso se registra a su nombre. */
+  accessor: BadgeAccessor
   response: HttpContext['response']
 }
 
-/** Sanea el nombre de entrada del ZIP — espejo `expediente.controller.ts:510`. */
-export function sanitizeBulkEntryName(nombreCompleto: string): string {
-  return nombreCompleto.replace(/[^\w.\- ]/g, '_').replace(/\s+/g, '-')
+/**
+ * Nombre de un gafete individual (descarga suelta o entrada del ZIP):
+ * `gafete-{employeeSlug}.{ext}`. Sin nombre ni número del empleado; el slug
+ * es único, así que las entradas del ZIP no chocan.
+ */
+export function buildBadgeFileName(employeeSlug: string, extension: 'pdf' | 'png'): string {
+  return buildDownloadFileName(['gafete', employeeSlug], extension)
 }
 
-/** Nombre del archivo de descarga masiva con fecha de negocio. */
+/** Nombre del archivo de descarga masiva con fecha de negocio: `gafetes-{hoy}.{pdf|zip}`. */
 export function buildBulkDownloadFilename(formato: BulkBadgeFormat): string {
-  const date = todayInBusinessZone().toFormat('yyyy-MM-dd')
-  return `gafetes-empleados-${date}.${formato === 'pdf' ? 'pdf' : 'zip'}`
+  return buildDownloadFileName(['gafetes', formatDownloadFileDate()], formato === 'pdf' ? 'pdf' : 'zip')
 }
 
 /** Posición de celda en la cuadrícula LETTER (índice global 0-based). */
@@ -69,15 +77,18 @@ export default class BadgeBulkService {
   private readonly repository: BadgeRepository
   private readonly badgeService: BadgeService
   private readonly renderService: BadgeRenderService
+  private readonly nssAuditService: BadgeNssAuditService
 
   constructor(
     repository: BadgeRepository = new BadgeRepositoryMysql(),
     badgeService: BadgeService = new BadgeService(repository),
-    renderService: BadgeRenderService = new BadgeRenderService()
+    renderService: BadgeRenderService = new BadgeRenderService(),
+    nssAuditService: BadgeNssAuditService = new BadgeNssAuditService()
   ) {
     this.repository = repository
     this.badgeService = badgeService
     this.renderService = renderService
+    this.nssAuditService = nssAuditService
   }
 
   async streamBulk(input: BulkBadgeStreamInput): Promise<void> {
@@ -96,6 +107,10 @@ export default class BadgeBulkService {
       )
     }
 
+    // Todos los asientos del NSS antes de abrir el stream: una vez enviados los
+    // encabezados ya no se puede responder con error, y sin bitácora no hay lote.
+    await this.nssAuditService.recordNssDisclosures(employees, input.accessor)
+
     if (input.formato === 'png') {
       await this.streamBulkZip(employees, input.response)
     } else {
@@ -109,7 +124,7 @@ export default class BadgeBulkService {
     filename: string
   ): void {
     response.header('Content-Type', contentType)
-    response.header('Content-Disposition', `attachment; filename="${filename}"`)
+    response.header('Content-Disposition', contentDisposition(filename))
     response.header('Cache-Control', 'private, no-store')
     response.status(200)
   }
@@ -158,11 +173,7 @@ export default class BadgeBulkService {
       for (const employee of employees) {
         const renderContext = await this.badgeService.buildRenderContext(employee)
         const pngBuffer = await this.renderService.renderBadgePng(renderContext)
-        const entryName = `${employee.employeeId}-${sanitizeBulkEntryName(
-          renderContext.nombreCompleto
-        )}.png`
-
-        archive.append(pngBuffer, { name: entryName })
+        archive.append(pngBuffer, { name: buildBadgeFileName(employee.employeeSlug, 'png') })
       }
 
       await archive.finalize()

@@ -32,6 +32,11 @@ import {
   isAdditionalBusinessUnitRateLimitError,
   respondAdditionalBusinessUnitRateLimit,
 } from '../helpers/business_unit_request_errors.js'
+import {
+  isPersonWritePath,
+  isPersonWriteRateLimitError,
+  respondPersonWriteRateLimit,
+} from '../helpers/person_email_request_errors.js'
 import { isFileIntakeError, respondFileIntakeError } from '../helpers/file_intake_api_error.js'
 import { isAdmsChannelUrl } from '#constants/adms_channel'
 
@@ -122,6 +127,10 @@ export default class HttpExceptionHandler extends ExceptionHandler {
       isAdditionalBusinessUnitCreatePath(ctx.request.url())
     ) {
       return respondAdditionalBusinessUnitRateLimit(ctx, error)
+    }
+
+    if (isPersonWriteRateLimitError(error) && isPersonWritePath(ctx.request.url())) {
+      return respondPersonWriteRateLimit(ctx, error)
     }
 
     return super.handle(error, ctx)

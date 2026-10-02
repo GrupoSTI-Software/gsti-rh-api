@@ -57,5 +57,30 @@ export default class extends BaseSeeder {
         { roleId, systemPermissionId: systemPermission.systemPermissionId }
       )
     }
+
+    // 1. Resolver el permiso nuevo. Si no existe, THROW: 0062 va antes.
+    const target = await SystemPermission.query()
+      .where('system_permission_slug', 'credential-change')
+      .andWhereHas('systemModule', (q) => q.where('system_module_slug', 'users'))
+      .first()
+    if (!target) throw new Error('0063: users:credential-change no existe. Corre 0062 primero.')
+
+    // 2. Permiso origen (users:update) y roles que YA lo tienen.
+    const source = await SystemPermission.query()
+      .where('system_permission_slug', 'update')
+      .andWhereHas('systemModule', (q) => q.where('system_module_slug', 'users'))
+      .firstOrFail()
+
+    const roleIds = await RoleSystemPermission.query()
+      .where('system_permission_id', source.systemPermissionId)
+      .select('role_id')
+
+    // 3. firstOrCreate por rol. Idempotente, re-ejecutable en cada base de cliente.
+    for (const { roleId } of roleIds) {
+      await RoleSystemPermission.firstOrCreate(
+        { roleId, systemPermissionId: target.systemPermissionId },
+        { roleId, systemPermissionId: target.systemPermissionId }
+      )
+    }
   }
 }

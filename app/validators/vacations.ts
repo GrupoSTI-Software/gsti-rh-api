@@ -19,7 +19,8 @@ export const createVacationSettingValidator = vine.compile(
         }
         return true
       }),
-    vacationSettingVacationDays: vine.number().min(1).max(30),
+    // La escala de la reforma pasa de 30 días a los 31 años de servicio.
+    vacationSettingVacationDays: vine.number().min(1).max(60),
     vacationSettingApplySince: vine.date(),
   })
 )
@@ -43,7 +44,8 @@ export const updateVacationSettingValidator = vine.compile(
         }
         return true
       }),
-    vacationSettingVacationDays: vine.number().min(1).max(30),
+    // La escala de la reforma pasa de 30 días a los 31 años de servicio.
+    vacationSettingVacationDays: vine.number().min(1).max(60),
     vacationSettingApplySince: vine.date(),
   })
 )

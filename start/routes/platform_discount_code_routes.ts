@@ -13,7 +13,7 @@ import { middleware } from '../kernel.js'
  *   PATCH  /api/platform/billing/discount-codes/:discountCodeId → edición (sin el texto)
  *   POST   /api/platform/billing/discount-codes/:discountCodeId/activate   → reactivar
  *   POST   /api/platform/billing/discount-codes/:discountCodeId/deactivate → apagar
- *   GET    /api/platform/billing/discount-codes/:discountCodeText/quote    → cotizar (solo lectura)
+ *   POST   /api/platform/billing/discount-codes/quote                     → cotizar (solo lectura; el texto va en el body)
  */
 router
   .group(() => {
@@ -35,8 +35,8 @@ router
       '/discount-codes/:discountCodeId/deactivate',
       '#controllers/discount_code_controller.deactivate'
     )
-    router.get(
-      '/discount-codes/:discountCodeText/quote',
+    router.post(
+      '/discount-codes/quote',
       '#controllers/discount_code_controller.quote'
     )
   })

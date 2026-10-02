@@ -1,6 +1,6 @@
 import { test } from '@japa/runner'
 import { PDF_TEMPLATE_DETAIL_MAX_LENGTH } from '#helpers/pdf_template_safety'
-import { OFFBOARDING_DOCUMENT_FIELDS } from '#modules/employee-offboarding/documents/document_fields.constants'
+import { fieldsForDocumentType } from '#modules/employee-offboarding/documents/document_fields.constants'
 import {
   levenshteinDistance,
   suggestFieldKey,
@@ -24,10 +24,13 @@ import {
 
 const DOCUMENT_TYPE = EMPLOYEE_OFFBOARDING_DOCUMENT_TYPE.SEPARATION_LETTER
 const CHECKED_AT = '2026-09-17T12:00:00.000Z'
-const CATALOG_KEYS = OFFBOARDING_DOCUMENT_FIELDS.map((field) => field.key)
-const REQUIRED_KEYS = OFFBOARDING_DOCUMENT_FIELDS.filter((field) => field.requiredInTemplate).map(
-  (field) => field.key
-)
+// Catálogo DE LA CONSTANCIA: desde USRH1789097550394 el catálogo global también
+// declara los campos propios del convenio, que en una plantilla de constancia
+// serían "no reconocidos".
+const CATALOG_KEYS = fieldsForDocumentType(DOCUMENT_TYPE).map((field) => field.key)
+const REQUIRED_KEYS = fieldsForDocumentType(DOCUMENT_TYPE)
+  .filter((field) => field.requiredInTemplate)
+  .map((field) => field.key)
 
 function nearestDistance(name: string): number {
   return Math.min(...CATALOG_KEYS.map((key) => levenshteinDistance(name, key)))

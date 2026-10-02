@@ -62,7 +62,7 @@ async function createSupplyTypeFixture(label: string, tenant: TenantActor): Prom
 async function createSupplyFixture(supplyType: SupplyType, label: string): Promise<Supplie> {
   return Supplie.create({
     businessUnitId: supplyType.businessUnitId,
-    supplyFileNumber: Number(`${Date.now()}${Math.floor(Math.random() * 100)}`.slice(-9)),
+    supplyFileNumber: `GATE-${Date.now()}-${Math.floor(Math.random() * 100)}`,
     supplyName: uniqueTestName(`Activo ${label}`),
     supplyTypeId: supplyType.supplyTypeId,
     supplyStatus: 'active',

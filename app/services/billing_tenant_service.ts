@@ -1,3 +1,4 @@
+import mail from '@adonisjs/mail/services/main'
 import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
 import BillingSubscription, { LIVE_SUBSCRIPTION_STATUSES } from '#models/billing_subscription'
@@ -9,6 +10,9 @@ import BusinessUnit, { type BusinessUnitOrigin } from '#models/business_unit'
 import BillingCatalogService, { type ResolvedPrice } from '#services/billing_catalog_service'
 import BillingSubscriptionService from '#services/billing_subscription_service'
 import EmployeeQuotaService from '#services/employee_quota_service'
+import SubscriptionRenewalRequestMail from '#mails/subscription_renewal_request_mail'
+import { INTERNAL_CONTACT_EMAIL } from '#constants/support_contact'
+import { resolveMailSender } from '#helpers/resolve_mail_sender'
 import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscription_error_codes.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import {
@@ -24,7 +28,12 @@ import {
   rethrowCatalogErrorForPublicSurface,
 } from '../helpers/billing_tenant_error.js'
 import { TenantContext } from '../utils/tenant_context.js'
-import { todayInBusinessZone, toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
+import {
+  daysBetweenBusinessDates,
+  todayInBusinessZone,
+  toBusinessDateString,
+  toCalendarIsoDate,
+} from '../utils/business_date.js'
 
 // ---------------------------------------------------------------------------
 // Tipos de salida (lista blanca de la superficie pública / tenant)
@@ -64,6 +73,40 @@ export interface PublicResolvedPlanPrice {
   trialDays: number
   firstPaymentDate: string
   resolvedAt: string
+}
+
+/**
+ * Contratacion que el cliente puede renovar: vencida o dada de baja.
+ *
+ * Va aparte de `subscription` a proposito. `subscription` significa "hay
+ * contratacion viva" y con eso decide el muro de acceso del backoffice; una
+ * cancelada no es viva y meterla ahi abriria la puerta a una cuenta dada de
+ * baja. Este bloque solo alimenta la pantalla de renovacion.
+ *
+ * El importe es el total contratado del periodo, que es la misma base con la
+ * que la plataforma arma su cartera (`CONTRACTED_TOTAL_CENTS_SQL` en
+ * `platform_receivable_service`). Se replica esa regla a proposito: si el
+ * cliente viera una cifra distinta de la que cobranza le reclama, cada
+ * llamada empezaria discutiendo el monto.
+ */
+export interface TenantRenewalSnapshot {
+  /** Estado que dejo la contratacion fuera de servicio. */
+  status: 'past_due' | 'canceled'
+  planName: string
+  contractedEmployees: number
+  /** Importe a cubrir para ponerse al corriente, en la moneda contratada. */
+  amount: number
+  currency: string
+  /** Fin del periodo que quedo sin cubrir, fecha calendario ISO. */
+  periodEnd: string | null
+  /** Dias transcurridos desde que vencio el periodo. */
+  daysOverdue: number
+  /**
+   * Periodos sin cubrir. Hoy siempre es uno: el reloj marca `past_due` al
+   * vencer el periodo y no vuelve a tocar la fila (regla R3 de
+   * `billing_subscription_clock_service`), asi que el periodo no avanza.
+   */
+  periodsOverdue: number
 }
 
 export interface TenantSubscriptionSnapshot {
@@ -124,6 +167,19 @@ export interface TenantLiveChangeSnapshot {
 export interface MySubscriptionResult {
   businessUnitOrigin: BusinessUnitOrigin
   subscription: TenantSubscriptionSnapshot | null
+  /**
+   * Contratacion renovable (vencida o cancelada), o `null` cuando la empresa
+   * esta al corriente o nunca contrato.
+   */
+  renewal: TenantRenewalSnapshot | null
+  /**
+   * Estado de la cuenta para cualquier usuario de la empresa.
+   *
+   * Va fuera de `subscription` porque no es dinero ni detalle del contrato:
+   * es el aviso de que la cuenta esta vencida, y todo el equipo necesita
+   * verlo. El recorte para quien no es dueno lo conserva.
+   */
+  accountStatus: BillingSubscription['billingSubscriptionStatus'] | null
   /**
    * Mínimo contratable para empresas `self_service` (con o sin suscripción viva).
    * El muro de contratación lo ignora cuando hay suscripción viva; la pantalla de
@@ -459,11 +515,16 @@ export default class BillingTenantService {
       minimumContractedEmployees = this.resolveMinimumContractedEmployees(activeEmployees)
     }
 
+    const renewal = await this.findRenewableSubscription(businessUnitId)
+
     return {
       businessUnitOrigin: businessUnit.businessUnitOrigin,
       subscription: subscription
         ? await this.toTenantSubscriptionSnapshot(subscription, businessUnitId)
         : null,
+      renewal,
+      accountStatus:
+        subscription?.billingSubscriptionStatus ?? renewal?.status ?? null,
       minimumContractedEmployees,
     }
   }
@@ -626,6 +687,128 @@ export default class BillingTenantService {
         subscription.billingSubscriptionCurrentPeriodEnd
       ),
       liveChange: liveChangeRow ? this.toLiveChangeSnapshot(liveChangeRow) : null,
+    }
+  }
+
+  /**
+   * Busca la contratacion que el cliente puede renovar.
+   *
+   * Mira vencidas y canceladas, que son los dos finales de una contratacion:
+   * la consulta de suscripcion viva deja fuera a `canceled`, asi que sin esta
+   * segunda lectura una cuenta dada de baja llegaria al backoffice igual que
+   * una empresa que nunca contrato.
+   *
+   * @param businessUnitId - Empresa activa del tenant.
+   * @returns Contratacion renovable, o `null` si no hay ninguna.
+   */
+  /**
+   * Avisa al equipo de que un cliente quiere renovar su contratacion.
+   *
+   * No hay pasarela de cobro ni registro de la solicitud: el pago se acuerda
+   * fuera de la plataforma, asi que el correo es el disparo que el equipo
+   * recibe para responder con la referencia. Si no hay contratacion renovable
+   * no se manda nada, para que el buzon no reciba avisos de cuentas al
+   * corriente.
+   *
+   * @param params - Quien pide la renovacion.
+   * @param params.requesterName - Nombre de quien apreto el boton.
+   * @param params.requesterEmail - Correo al que el equipo puede responder.
+   * @returns La contratacion por la que se aviso.
+   * @throws Si la empresa no tiene contratacion vencida ni cancelada.
+   */
+  async requestRenewal(params: {
+    requesterName: string
+    requesterEmail: string
+  }): Promise<TenantRenewalSnapshot> {
+    const businessUnitId = TenantContext.getScope()[0]
+
+    if (!businessUnitId || businessUnitId <= 0) {
+      throw new BillingSubscriptionServiceError(
+        'No se pudo resolver la empresa activa del tenant',
+        BILLING_SUBSCRIPTION_ERROR_CODES.BUSINESS_UNIT_NOT_FOUND,
+        500,
+        'empresa-no-resuelta',
+        'No se pudo determinar la empresa activa para solicitar la renovación.'
+      )
+    }
+
+    const businessUnit = await BusinessUnit.query()
+      .where('business_unit_id', businessUnitId)
+      .whereNull('business_unit_deleted_at')
+      .first()
+
+    const renewal = await this.findRenewableSubscription(businessUnitId)
+
+    if (!businessUnit || !renewal) {
+      throw new BillingSubscriptionServiceError(
+        `La empresa ${businessUnitId} no tiene contratación que renovar`,
+        BILLING_SUBSCRIPTION_ERROR_CODES.NO_LIVE_SUBSCRIPTION,
+        422,
+        'sin-contratacion-que-renovar',
+        'Esta empresa no tiene una contratación vencida por renovar.'
+      )
+    }
+
+    const amount = new Intl.NumberFormat('es-MX', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    }).format(renewal.amount)
+
+    await mail.send(
+      new SubscriptionRenewalRequestMail({
+        to: INTERNAL_CONTACT_EMAIL,
+        from: resolveMailSender(),
+        language: 'es',
+        branding: {
+          tradeName: 'Valanserh',
+          backgroundImageLogo:
+            'https://gsti-assets.sfo3.cdn.digitaloceanspaces.com/valanserh/logos/logotipo-min.png',
+        },
+        companyName: businessUnit.businessUnitName,
+        planName: renewal.planName,
+        status: renewal.status,
+        amount,
+        currency: renewal.currency,
+        periodsOverdue: renewal.periodsOverdue,
+        contractedEmployees: renewal.contractedEmployees,
+        requesterName: params.requesterName,
+        requesterEmail: params.requesterEmail,
+      })
+    )
+
+    return renewal
+  }
+
+  private async findRenewableSubscription(
+    businessUnitId: number
+  ): Promise<TenantRenewalSnapshot | null> {
+    const subscription = await BillingSubscription.query()
+      .where('business_unit_id', businessUnitId)
+      .whereIn('billing_subscription_status', ['past_due', 'canceled'])
+      .whereNull('billing_subscription_deleted_at')
+      .preload('plan')
+      .orderBy('billing_subscription_id', 'desc')
+      .first()
+
+    if (!subscription) {
+      return null
+    }
+
+    const periodEnd = toCalendarIsoDate(subscription.billingSubscriptionCurrentPeriodEnd)
+    const businessDate = toBusinessDateString()
+    const daysOverdue = periodEnd
+      ? Math.max(0, daysBetweenBusinessDates(periodEnd, businessDate))
+      : 0
+
+    return {
+      status: subscription.billingSubscriptionStatus as 'past_due' | 'canceled',
+      planName: subscription.plan?.billingPlanName ?? '',
+      contractedEmployees: subscription.billingSubscriptionContractedEmployees,
+      amount: Number(subscription.billingSubscriptionContractedTotal),
+      currency: subscription.billingSubscriptionContractedCurrency,
+      periodEnd,
+      daysOverdue,
+      periodsOverdue: 1,
     }
   }
 

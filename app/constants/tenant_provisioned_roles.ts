@@ -14,6 +14,13 @@
  *
  * `root` NO está aquí: es la cuenta de plataforma, global y sin empresa dueña
  * (`0006_role_seeder`, `SYSTEM_ROLE_SLUGS`).
+ *
+ * Su identidad está blindada en `app/helpers/system_role_lock.ts`, y todo endpoint que edite,
+ * elimine o reasigne permisos de un rol aplica esas guardas: `owner` y `empleado` no se
+ * administran desde Roles y permisos, ninguno de los tres se elimina y `admin` no se renombra
+ * (sus permisos sí se ajustan, que es lo que lo distingue del dueño). Quedarse sin alguno deja
+ * a la empresa sin quién administre, sin quién facture o sin rol que asignar en el alta
+ * self-service, y sin forma de repararlo desde la aplicación.
  */
 
 import {

@@ -5,6 +5,9 @@ import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import TeleworkPolicy from '#models/telework_policy'
 import TeleworkPolicyNotificationLog from '#models/telework_policy_notification_log'
 import TeleworkPolicyNotificationService from '#modules/telework-policy/telework_policy_notification.service'
@@ -64,15 +67,20 @@ async function createTestEmployee(businessUnitId: number): Promise<Employee> {
   })
 
   const [employeeId] = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-NOTIF-${syncSeed}`,
     employee_code: `EMP-NOTIF-${syncSeed}`,
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     person_id: personId,
     employee_created_at: now,
   })
 
-  return Employee.findOrFail(Number(employeeId))
+  return TenantContext.runUnscoped(
+    () => Employee.findOrFail(Number(employeeId)),
+    TENANT_UNSCOPED_REASON.TEST_FIXTURE
+  )
 }
 
 async function createTestPolicy(businessUnitId: number, userId: number): Promise<TeleworkPolicy> {

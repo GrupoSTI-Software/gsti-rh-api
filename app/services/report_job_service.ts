@@ -10,8 +10,11 @@ import Employee from '#models/employee'
 import AssistsService from '#services/assist_service'
 import UploadService from '#services/upload_service'
 import logger from '@adonisjs/core/services/logger'
-import i18nManager from '@adonisjs/i18n/services/main'
+import { reportI18n } from '#helpers/report_locale'
 import env from '#start/env'
+import { buildDownloadFileName, formatDownloadFileDate } from '#helpers/download_file_name'
+import { ASSISTANCE_REPORT_FILE_PREFIX } from '#constants/assistance_report_file'
+import { TenantContext } from '#utils/tenant_context'
 
 /** Prefijo que indica que la key es una ruta local de disco (solo en desarrollo). */
 const LOCAL_KEY_PREFIX = 'local://'
@@ -57,8 +60,38 @@ class InMemorySemaphore {
 
 const jobSemaphore = new InMemorySemaphore(MAX_CONCURRENT_JOBS)
 
-/** Nombre del archivo Excel final (igual al que producía el flujo anterior). */
-const REPORT_FILE_NAME = 'datos.xlsx'
+/** Prefijo del nombre de descarga por tipo de job. */
+const REPORT_FILE_NAME_PREFIX: Record<ReportJobType, string> = {
+  assistance_all: ASSISTANCE_REPORT_FILE_PREFIX.assistance,
+  assistance_employee: ASSISTANCE_REPORT_FILE_PREFIX.assistance,
+  assistance_incident_summary: ASSISTANCE_REPORT_FILE_PREFIX.incidentSummary,
+  assistance_incident_summary_payroll: ASSISTANCE_REPORT_FILE_PREFIX.incidentSummaryPayroll,
+}
+
+/**
+ * Nombre de descarga del reporte asíncrono, independiente del idioma.
+ * Por empleado lleva su `employeeSlug` (token opaco), nunca nombre ni número.
+ *
+ * @param reportJobType - Tipo de job.
+ * @param filters - Filtros del job (periodo).
+ * @param employeeSlug - Slug del empleado cuando el reporte es de uno solo.
+ * @returns P. ej. `reporte-asistencia-2026-09-01-2026-09-15.xlsx`.
+ */
+export function buildReportJobFileName(
+  reportJobType: ReportJobType,
+  filters: Pick<ReportJobFilters, 'filterDate' | 'filterDateEnd'>,
+  employeeSlug: string | null
+): string {
+  return buildDownloadFileName(
+    [
+      REPORT_FILE_NAME_PREFIX[reportJobType],
+      employeeSlug,
+      formatDownloadFileDate(filters.filterDate),
+      formatDownloadFileDate(filters.filterDateEnd),
+    ],
+    'xlsx'
+  )
+}
 
 /** Contenido-tipo del archivo. */
 const REPORT_CONTENT_TYPE =
@@ -124,27 +157,29 @@ export default class ReportJobService {
       return
     }
 
-    await jobSemaphore.acquire()
-    try {
-      await job.merge({ reportJobStatus: 'processing' }).save()
+    return TenantContext.run(job.reportJobAllowedBusinessUnitIds ?? [], async () => {
+      await jobSemaphore.acquire()
+      try {
+        await job.merge({ reportJobStatus: 'processing' }).save()
 
-      await this.runGeneration(job)
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err)
-      logger.error({ jobId, err: message }, 'ReportJobService.processJob: fallo durante generación')
-      await job.merge({
-        reportJobStatus: 'failed',
-        reportJobErrorMessage: message,
-        reportJobCompletedAt: DateTime.now(),
-      }).save()
-    } finally {
-      jobSemaphore.release()
-    }
+        await this.runGeneration(job)
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        logger.error({ jobId, err: message }, 'ReportJobService.processJob: fallo durante generación')
+        await job.merge({
+          reportJobStatus: 'failed',
+          reportJobErrorMessage: message,
+          reportJobCompletedAt: DateTime.now(),
+        }).save()
+      } finally {
+        jobSemaphore.release()
+      }
+    })
   }
 
   /**
    * Ejecuta la generación del Excel y persiste el resultado.
-   * - En `development`: disco local (`storage/reports/<jobId>/datos.xlsx`).
+   * - En `development`: disco local (`storage/reports/<jobId>/<nombre>.xlsx`).
    * - En `production`/`staging`: S3 privado vía `upload_service.ts`.
    * Actualiza `progress_current` y `progress_total` en BD según avanza.
    */
@@ -152,10 +187,9 @@ export default class ReportJobService {
     const filters = job.reportJobFilters
     const allowedIds = job.reportJobAllowedBusinessUnitIds
 
-    const locale = filters.locale || i18nManager.defaultLocale
-    const i18n = i18nManager.locale(locale)
-
-    const assistsService = new AssistsService(i18n)
+    // El archivo sale siempre en el idioma de los reportes; `filters.locale`
+    // (idioma de quien lo pidió) ya no decide el contenido del Excel.
+    const assistsService = new AssistsService(reportI18n())
     const onProgress = async (current: number, total: number) => {
       await job.merge({
         reportJobProgressCurrent: current,
@@ -167,6 +201,8 @@ export default class ReportJobService {
       | Awaited<ReturnType<AssistsService['generateAssistanceAllBuffer']>>
       | Awaited<ReturnType<AssistsService['generateIncidentSummaryBuffer']>>
       | Awaited<ReturnType<AssistsService['generateIncidentSummaryPayrollBuffer']>>
+    /** Slug del empleado cuando el reporte es de uno solo (va en el nombre del archivo). */
+    let employeeSlug: string | null = null
 
     if (
       job.reportJobType === 'assistance_employee' ||
@@ -195,6 +231,7 @@ export default class ReportJobService {
         if (!allowedIds.includes(employee.businessUnitId)) {
           throw new Error('Empleado no encontrado al generar el reporte')
         }
+        employeeSlug = employee.employeeSlug
         buffer = await assistsService.generateIncidentSummaryPayrollEmployeeBuffer(
           employee,
           {
@@ -221,6 +258,7 @@ export default class ReportJobService {
         if (!allowedIds.includes(employee.businessUnitId)) {
           throw new Error('Empleado no encontrado al generar el reporte')
         }
+        employeeSlug = employee.employeeSlug
         buffer = await assistsService.generateIncidentSummaryEmployeeBuffer(
           employee,
           {
@@ -259,6 +297,7 @@ export default class ReportJobService {
         if (!allowedIds.includes(employee.businessUnitId)) {
           throw new Error('Empleado no encontrado al generar el reporte')
         }
+        employeeSlug = employee.employeeSlug
         buffer = await assistsService.generateAssistanceEmployeeBuffer(
           employee,
           {
@@ -305,20 +344,15 @@ export default class ReportJobService {
     }
 
     const fileBuffer = Buffer.from(buffer.buffer as ArrayBuffer)
-    const displayFileName =
-      job.reportJobType === 'assistance_employee'
-        ? `${i18n.formatMessage('assistance_report')}.xlsx`
-        : job.reportJobType === 'assistance_incident_summary'
-          ? `${i18n.formatMessage('incident_summary')}.xlsx`
-          : job.reportJobType === 'assistance_incident_summary_payroll'
-            ? `${i18n.formatMessage('incident_summary_payroll_report')}.xlsx`
-            : REPORT_FILE_NAME
+    const displayFileName = buildReportJobFileName(job.reportJobType, filters, employeeSlug)
     let savedKey: string
 
+    // El objeto se guarda con el mismo nombre de descarga: la URL firmada de S3
+    // no manda `Content-Disposition` y el navegador toma el último segmento.
     if (env.get('NODE_ENV') !== 'production') {
-      savedKey = await this.saveToLocalDisk(job.reportJobId, fileBuffer)
+      savedKey = await this.saveToLocalDisk(job.reportJobId, fileBuffer, displayFileName)
     } else {
-      const s3Key = `reports/${job.reportJobId}/${REPORT_FILE_NAME}`
+      const s3Key = `reports/${job.reportJobId}/${displayFileName}`
       const uploadedKey = await this.uploadService.uploadPrivateBuffer(
         s3Key,
         fileBuffer,
@@ -341,14 +375,14 @@ export default class ReportJobService {
   }
 
   /**
-   * Guarda el buffer en disco local bajo `storage/reports/<jobId>/datos.xlsx`.
+   * Guarda el buffer en disco local bajo `storage/reports/<jobId>/<fileName>`.
    * Solo se usa en entornos distintos de producción.
    * Devuelve la key con prefijo `local://` para distinguirla de las keys de S3.
    */
-  private async saveToLocalDisk(jobId: string, fileBuffer: Buffer): Promise<string> {
+  private async saveToLocalDisk(jobId: string, fileBuffer: Buffer, fileName: string): Promise<string> {
     const dir = path.join(process.cwd(), 'storage', 'reports', jobId)
     await fs.promises.mkdir(dir, { recursive: true })
-    const filePath = path.join(dir, REPORT_FILE_NAME)
+    const filePath = path.join(dir, fileName)
     await fs.promises.writeFile(filePath, Uint8Array.from(fileBuffer))
     return `${LOCAL_KEY_PREFIX}${filePath}`
   }
@@ -400,8 +434,8 @@ export default class ReportJobService {
    * Recupera jobs que quedaron en estado `processing` por un reinicio del servidor
    * y los vuelve a encolar. Llamado por el comando de scheduler.
    *
-   * Deuda conocida (USRH1786566437097, §15.4): el re-despacho no envuelve
-   * `processJob` en `TenantContext.run` — queda fuera de alcance de esta HU.
+   * `processJob` abre `TenantContext.run` con el alcance persistido al encolar
+   * (USRH1789600808831), incluida la recuperación tras reinicio.
    */
   async recoverStuckJobs(): Promise<number> {
     const stuckThreshold = DateTime.now().minus({ minutes: 30 })

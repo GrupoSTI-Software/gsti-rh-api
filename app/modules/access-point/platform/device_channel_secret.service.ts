@@ -1,11 +1,9 @@
 import env from '#start/env'
 import BusinessUnit from '#models/business_unit'
+import { PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON } from '#constants/platform_device_access_point'
 import { TenantContext } from '#utils/tenant_context'
 import { channelAddressOf } from '#modules/adms/channel/channel_secret'
 import ActiveAccessPointService from './active_access_point.service.js'
-
-const UNSCOPED_REASON =
-  'direccion del canal: plataforma consulta el punto de acceso de cualquier empresa'
 
 /** Lo que el operador necesita para configurar el aparato en sitio. */
 export interface DeviceChannelAddress {
@@ -77,6 +75,6 @@ export default class DeviceChannelSecretService {
         ),
         secretSetAt: accessPoint.accessPointChannelSecretSetAt?.toISO() ?? null,
       }
-    }, UNSCOPED_REASON)
+    }, PLATFORM_DEVICE_ACCESS_POINT_RUN_UNSCOPED_REASON)
   }
 }

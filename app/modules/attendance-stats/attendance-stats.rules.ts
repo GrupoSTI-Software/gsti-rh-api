@@ -1,4 +1,7 @@
 import { DateTime } from 'luxon'
+import { getBusinessTimeZone } from '#utils/business_date'
+import { shiftStartInstant, toInstant } from '#modules/attendance-time/attendance_clock'
+import { minutesAfter } from '#modules/attendance-time/attendance_bucketing'
 import type { AssistDayInterface } from '../../interfaces/assist_day_interface.js'
 import type { ShiftExceptionInterface } from '../../interfaces/shift_exception_interface.js'
 import type {
@@ -122,7 +125,8 @@ export function toOverviewStatistics(
  */
 export function classifyDay(
   day: AssistDayInterface,
-  thresholds: ToleranceThresholds
+  thresholds: ToleranceThresholds,
+  zone: string = getBusinessTimeZone()
 ): { clean: CleanCounters; informational: InformationalCounters } {
   const clean = emptyClean()
   const info = emptyInformational()
@@ -140,7 +144,7 @@ export function classifyDay(
 
   // Recompute check_in_status si hay permiso de llegada tarde.
   const effectiveStatus = lateArrival
-    ? computeCheckInStatusWithPermission(day, lateArrival, thresholds)
+    ? computeCheckInStatusWithPermission(day, lateArrival, thresholds, zone)
     : mapStoredStatus(day.assist.checkInStatus)
 
   if (effectiveStatus === 'ontime') clean.assists += 1
@@ -150,7 +154,7 @@ export function classifyDay(
 
   // earlyOut: solo cuenta si check_out_status='delay' Y no hay permiso que lo neutralice.
   if (day.assist.checkOutStatus === 'delay') {
-    if (!earlyDeparture || isStillEarlyAfterPermission(day, earlyDeparture, thresholds)) {
+    if (!earlyDeparture || isStillEarlyAfterPermission(day, earlyDeparture, thresholds, zone)) {
       clean.earlyOuts += 1
     }
   }
@@ -164,12 +168,13 @@ export function classifyDay(
  */
 export function aggregateCalendar(
   calendar: AssistDayInterface[],
-  thresholds: ToleranceThresholds
+  thresholds: ToleranceThresholds,
+  zone: string = getBusinessTimeZone()
 ): { clean: CleanCounters; informational: InformationalCounters } {
   const clean = emptyClean()
   const info = emptyInformational()
   for (const day of calendar) {
-    const r = classifyDay(day, thresholds)
+    const r = classifyDay(day, thresholds, zone)
     addClean(clean, r.clean)
     addInformational(info, r.informational)
   }
@@ -241,13 +246,14 @@ function mapStoredStatus(stored: string | null | undefined): 'ontime' | 'toleran
 }
 
 /**
- * Recomputa check_in_status contra la hora autorizada por el permiso late-arrival.
- * Replica la lógica de sync_assists_service.ts:1932-1965.
+ * Recomputa check_in_status contra la hora autorizada por el permiso late-arrival,
+ * leída como hora civil del sitio (`zone`). Misma regla que el sync.
  */
 function computeCheckInStatusWithPermission(
   day: AssistDayInterface,
   lateArrival: ShiftExceptionInterface,
-  thresholds: ToleranceThresholds
+  thresholds: ToleranceThresholds,
+  zone: string
 ): 'ontime' | 'tolerance' | 'delay' | 'fault' | null {
   const punch = day.assist.checkIn?.assistPunchTimeUtc
   if (!punch) return 'fault'
@@ -255,7 +261,7 @@ function computeCheckInStatusWithPermission(
   const authorizedTime = lateArrival.shiftExceptionCheckInTime
   if (!authorizedTime) return mapStoredStatus(day.assist.checkInStatus)
 
-  const minutes = minutesLateAgainst(day.day, String(authorizedTime), String(punch))
+  const minutes = minutesLateAgainst(day.day, String(authorizedTime), String(punch), zone)
   if (minutes === null) return mapStoredStatus(day.assist.checkInStatus)
 
   if (minutes > thresholds.faultMinutes) return 'fault'
@@ -271,7 +277,8 @@ function computeCheckInStatusWithPermission(
 function isStillEarlyAfterPermission(
   day: AssistDayInterface,
   earlyDeparture: ShiftExceptionInterface,
-  thresholds: ToleranceThresholds
+  thresholds: ToleranceThresholds,
+  zone: string
 ): boolean {
   const punch = day.assist.checkOut?.assistPunchTimeUtc
   if (!punch) return false
@@ -279,21 +286,33 @@ function isStillEarlyAfterPermission(
   const authorizedTime = earlyDeparture.shiftExceptionCheckOutTime
   if (!authorizedTime) return true
 
-  const minutesEarly = minutesEarlyAgainst(day.day, String(authorizedTime), String(punch))
+  const minutesEarly = minutesEarlyAgainst(day.day, String(authorizedTime), String(punch), zone)
   if (minutesEarly === null) return true
   return minutesEarly > thresholds.delayMinutes
 }
 
-function minutesLateAgainst(day: string, hhmmss: string, punchUtc: string): number | null {
-  const expected = DateTime.fromISO(`${day}T${hhmmss}`, { zone: 'UTC-6' })
-  const actual = DateTime.fromISO(punchUtc, { setZone: true }).setZone('UTC-6')
+/** Minutos completos de retraso de la checada contra una hora civil del sitio. */
+function minutesLateAgainst(
+  day: string,
+  hhmmss: string,
+  punchUtc: string,
+  zone: string
+): number | null {
+  const expected = shiftStartInstant(day, hhmmss, zone)
+  const actual = toInstant(punchUtc)
   if (!expected.isValid || !actual.isValid) return null
-  return actual.diff(expected, 'minutes').minutes
+  return minutesAfter(expected, actual)
 }
 
-function minutesEarlyAgainst(day: string, hhmmss: string, punchUtc: string): number | null {
-  const expected = DateTime.fromISO(`${day}T${hhmmss}`, { zone: 'UTC-6' })
-  const actual = DateTime.fromISO(punchUtc, { setZone: true }).setZone('UTC-6')
+/** Minutos completos de anticipación de la checada contra una hora civil del sitio. */
+function minutesEarlyAgainst(
+  day: string,
+  hhmmss: string,
+  punchUtc: string,
+  zone: string
+): number | null {
+  const expected = shiftStartInstant(day, hhmmss, zone)
+  const actual = toInstant(punchUtc)
   if (!expected.isValid || !actual.isValid) return null
-  return expected.diff(actual, 'minutes').minutes
+  return minutesAfter(actual, expected)
 }

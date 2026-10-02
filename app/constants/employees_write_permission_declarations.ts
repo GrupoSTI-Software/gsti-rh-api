@@ -29,7 +29,6 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   updateEmployeeContract: employeesStandard('tab-trabajo-write'),
   deleteEmployeeContract: employeesStandard('tab-trabajo-delete'),
   assignEmployeeBranchOffice: employeesStandard('tab-trabajo-write'),
-  unassignEmployeeBranchOffice: employeesStandard('tab-trabajo-delete'),
   createTemporaryAssignment: employeesStandard('tab-trabajo-write'),
   updateTemporaryAssignment: employeesStandard('tab-trabajo-write'),
   cancelTemporaryAssignment: employeesStandard('tab-trabajo-write'),
@@ -47,11 +46,6 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   getEmployeeBadgePdf: employeesStandard('generate-badges'),
   getEmployeeBadgePng: employeesStandard('generate-badges'),
   bulkEmployeeBadges: employeesStandard('generate-badges'),
-  syncDepartments: employeesStandard('manage-biotime'),
-  syncPositions: employeesStandard('manage-biotime'),
-  syncEmployees: employeesStandard('manage-biotime'),
-  syncShift: employeesStandard('manage-biotime'),
-  syncEmployeesBySelection: employeesStandard('manage-biotime'),
   inverseSyncEmployee: employeesStandard('manage-biotime'),
   createAddress: employeesStandard('tab-domicilio-write'),
   updateAddress: employeesStandard('tab-domicilio-write'),
@@ -163,6 +157,12 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   deleteVacationDeduction: employeesStandard('manage-vacation'),
   authorizeVacationWithSignature: employeesStandard('manage-vacation'),
   signVacationShiftExceptions: employeesStandard('manage-vacation'),
+  /**
+   * Lecturas del formulario de autorizacion con firma: solicitudes pendientes,
+   * autorizadas con sus firmas y dias sin firmar. Solo las usa quien autoriza,
+   * y traen imagenes de firmas: piden el mismo permiso que autorizar.
+   */
+  listVacationAuthorizationRequests: employeesStandard('manage-vacation'),
   importVacationExcel: employeesStandard('import-vacations'),
   uploadEmployeeFaceId: employeesStandard('upload-face-id'),
   replaceEmployeeFaceId: employeesStandard('upload-face-id'),

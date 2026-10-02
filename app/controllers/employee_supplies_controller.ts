@@ -7,6 +7,7 @@ import {
   employeeSupplieRetirementValidator
 } from '#validators/employee_supplie'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
+import { AssetError, respondAssetError } from '#modules/assets/assets.error'
 
 export default class EmployeeSuppliesController {
   /**
@@ -176,8 +177,11 @@ export default class EmployeeSuppliesController {
    *                   $ref: '#/components/schemas/EmployeeSupplie'
    *       400:
    *         description: Validation error or business rule violation
+   *       409:
+   *         description: "El activo ya tiene un resguardo activo (`key: activo-ya-tiene-resguardo-activo`)"
    */
-  async store({ request, response }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const data = await request.validateUsing(createEmployeeSupplieValidator)
       const employeeSupply = await EmployeeSupplieService.create(data)
@@ -185,6 +189,7 @@ export default class EmployeeSuppliesController {
       return StandardResponseFormatter.success(response, employeeSupply
       , 'Employee Supply', 'Employee supply assignment created successfully', 201)
     } catch (error) {
+      if (error instanceof AssetError) return respondAssetError(ctx, error)
       return StandardResponseFormatter.error(response, error.message
       , 400)
     }
@@ -245,8 +250,11 @@ export default class EmployeeSuppliesController {
    *         description: Validation error or business rule violation
    *       404:
    *         description: Employee supply not found
+   *       409:
+   *         description: "El activo ya tiene un resguardo activo (`key: activo-ya-tiene-resguardo-activo`)"
    */
-  async update({ params, request, response }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { params, request, response } = ctx
     try {
       const data = await request.validateUsing(updateEmployeeSupplieValidator)
       const body = request.body()
@@ -264,6 +272,7 @@ export default class EmployeeSuppliesController {
       return StandardResponseFormatter.success(response, employeeSupply
       , 'Employee Supply', 'Employee supply assignment updated successfully')
     } catch (error) {
+      if (error instanceof AssetError) return respondAssetError(ctx, error)
       return StandardResponseFormatter.error(response, error.message
       , 400)
     }
@@ -303,7 +312,12 @@ export default class EmployeeSuppliesController {
    * @swagger
    * /api/employee-supplies/{id}/retire:
    *   post:
-   *     summary: Retire employee supply with reason
+   *     summary: Registrar la devolución de un resguardo
+   *     description: |
+   *       Cierra el resguardo (`retired`) con motivo y fecha (hoy si no llega) y
+   *       devuelve el resguardo cerrado en `data.employeeSupply`. Las fotos de
+   *       devolución se suben aparte en
+   *       `POST /api/employee-supply-assignation-photos/{employeeSupplyId}/return`.
    *     tags: [Employee Supplies]
    *     parameters:
    *       - in: path
