@@ -2817,6 +2817,25 @@
     "physical_register_success": "Consentimiento físico registrado correctamente.",
     "download_url_success": "URL de descarga generada correctamente."
   },
+  "legalDocumentsPublic": {
+    "title": "Documento legal",
+    "current_success": "Documento legal vigente obtenido correctamente.",
+    "errors": {
+      "tipo-de-documento-invalido": {
+        "title": "Tipo de documento inválido",
+        "detail": "El tipo de documento solicitado no está disponible para consulta pública.",
+        "detail_missing": "Indica el tipo de documento: terms_conditions o privacy_notice."
+      },
+      "idioma-de-documento-invalido": {
+        "title": "Idioma de documento inválido",
+        "detail": "El idioma solicitado no está disponible. Usa es o en."
+      },
+      "documento-legal-sin-version-vigente": {
+        "title": "Documento legal sin versión vigente",
+        "detail": "Este documento todavía no tiene una versión publicada."
+      }
+    }
+  },
   "legalDocuments": {
     "title": "Documento legal",
     "current_success": "Documento legal vigente obtenido correctamente.",
