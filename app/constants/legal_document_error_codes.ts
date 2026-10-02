@@ -4,7 +4,12 @@
  * Prefijo LGDOC = Legal Document.
  *
  * NOT_CURRENT / INVALID_TYPE se usan en el cimiento (`GET /current`). El resto
- * los añade la gestión desde backoffice GSTI (ESB-08-09-03-01).
+ * los añade la gestión desde la consola de plataforma (ESB-08-09-03-01,
+ * USRH1790610965394).
+ *
+ * LGDOC.FORB.001 retirado (USRH1790610965394): la barrera pasó a ser el guard
+ * `platformAdmin` en el grupo de rutas; 403 usa `AUTH.PLATFORM.FORBIDDEN`.
+ * No reutilizar este código.
  */
 export const LEGAL_DOCUMENT_ERROR_CODES = {
   /** El tipo consultado no tiene ninguna versión vigente (`is_current = true`). */
@@ -17,8 +22,6 @@ export const LEGAL_DOCUMENT_ERROR_CODES = {
   PUBLISHED_IMMUTABLE: 'LGDOC.CONF.001',
   /** La combinación `(type, version)` ya existe (choca `unique`). */
   VERSION_COLLISION: 'LGDOC.CONF.002',
-  /** Un usuario no-root intentó acceder a la gestión de documentos legales. */
-  FORBIDDEN_PLATFORM: 'LGDOC.FORB.001',
   /** Se intentó publicar un borrador sin contenido en español o en inglés. */
   INCOMPLETE_LOCALE: 'LGDOC.VAL.002',
 } as const

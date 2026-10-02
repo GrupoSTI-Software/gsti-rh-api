@@ -6,6 +6,7 @@ import WorkDisability from './work_disability.js'
 import type { BelongsTo, HasMany } from '@adonisjs/lucid/types/relations'
 import WorkDisabilityType from './work_disability_type.js'
 import WorkDisabilityPeriodExpense from './work_disability_period_expense.js'
+import User from './user.js'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
 /**
@@ -92,6 +93,10 @@ export default class WorkDisabilityPeriod extends compose(
   @column()
   declare workDisabilityTypeId: number
 
+  /** Quién registró el periodo; `null` en los anteriores a que se guardara. */
+  @column()
+  declare workDisabilityPeriodRegisteredByUserId: number | null
+
   @column.dateTime({ autoCreate: true })
   declare workDisabilityPeriodCreatedAt: DateTime
 
@@ -113,6 +118,14 @@ export default class WorkDisabilityPeriod extends compose(
     foreignKey: 'workDisabilityTypeId',
   })
   declare workDisabilityType: BelongsTo<typeof WorkDisabilityType>
+
+  @belongsTo(() => User, {
+    foreignKey: 'workDisabilityPeriodRegisteredByUserId',
+    onQuery: (query) => {
+      query.preload('person')
+    },
+  })
+  declare registeredBy: BelongsTo<typeof User>
 
   @hasMany(() => WorkDisabilityPeriodExpense, {
     foreignKey: 'workDisabilityPeriodId',

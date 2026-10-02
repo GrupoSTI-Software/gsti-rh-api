@@ -21,7 +21,14 @@ export default class VacationAuthorizationSignaturesService {
    * @param vacationSettingId - Vacation setting ID to use for ShiftExceptions
    * @returns Result object with created shift exceptions, signatures, updated requests and errors
    */
-  async authorize(signatureFile: any, requestIds: number[], vacationSettingId: number, i18n: I18n) {
+  async authorize(
+    signatureFile: any,
+    requestIds: number[],
+    vacationSettingId: number,
+    i18n: I18n,
+    actorUserId: number | null = null
+  ) {
+    const resolvedAt = DateTime.now()
     // Ensure vacation exception type exists
     const vacationType = await ExceptionType.query()
       .whereNull('exception_type_deleted_at')
@@ -85,6 +92,9 @@ export default class VacationAuthorizationSignaturesService {
           vacationSettingId: vacationSettingId,
           shiftExceptionCheckInTime: req.exceptionRequestCheckInTime,
           shiftExceptionCheckOutTime: req.exceptionRequestCheckOutTime,
+          exceptionRequestId: req.exceptionRequestId,
+          shiftExceptionAuthorizedByUserId: actorUserId,
+          shiftExceptionAuthorizedAt: resolvedAt,
         } as ShiftException
 
         const verify = await shiftExceptionService.verifyInfo(shiftException)
@@ -107,7 +117,11 @@ export default class VacationAuthorizationSignaturesService {
         })
         createdSignatures.push(signatureRecord)
 
+        // La firma tambien es una resolucion: queda quien y cuando, igual que
+        // cuando se autoriza desde la bandeja.
         req.exceptionRequestStatus = 'accepted'
+        req.resolvedByUserId = actorUserId
+        req.exceptionRequestResolvedAt = resolvedAt
         await req.save()
         updatedRequests.push(req)
       } catch (e: any) {

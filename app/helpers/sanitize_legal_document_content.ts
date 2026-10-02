@@ -31,6 +31,12 @@ const SANITIZE_OPTIONS: sanitizeHtml.IOptions = {
     span: ['style'],
   },
   allowedSchemes: ['http', 'https', 'mailto'],
+  // El contenido se sirve sin sesión: `//host` heredaría el esquema de la página.
+  allowProtocolRelative: false,
+  // Todo enlace sale con `rel` forzado; un `rel` de origen se reemplaza.
+  transformTags: {
+    a: sanitizeHtml.simpleTransform('a', { rel: 'noopener noreferrer' }),
+  },
   allowedStyles: {
     span: {
       color: [/^#[0-9a-fA-F]{3,6}$/],

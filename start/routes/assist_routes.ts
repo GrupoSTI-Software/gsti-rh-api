@@ -98,6 +98,10 @@ router
       .use([assistStoreLimit, assistBatchItemsLimit])
     router.put('/:assistId/inactivate', '#controllers/assists_controller.inactivate')
       .use(middleware.permissionGate(EMPLOYEES_ATTENDANCE_MONITOR_PERMISSION_DECLARATIONS.inactivateAssist))
+    // Origen de una checada para el detalle del registro. Lee como el
+    // calendario: dentro de la empresa activa, sin permiso propio.
+    router.get('/:assistId/source', '#modules/assist-source/assist_source.controller.show')
+    router.get('/:assistId/address', '#modules/assist-source/assist_source.controller.address')
     router.get('/websocket-docs', '#controllers/assists_controller.websocketDocs')
     router.get('/verify-attendance-lock/:type', '#controllers/assists_controller.verifyAttendanceLock')
 

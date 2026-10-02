@@ -55,11 +55,7 @@ export default class WorkJournalService {
     const failed: SealFailure[] = []
 
     for (const employee of employees) {
-      const days = await this.materializer.buildForEmployee(
-        employee.employeeId,
-        input.from,
-        input.to
-      )
+      const days = await this.materializer.buildForEmployee(employee, input.from, input.to)
 
       if (days.length === 0) {
         // No hay jornada materializable: no se crean entradas vacías (AC).

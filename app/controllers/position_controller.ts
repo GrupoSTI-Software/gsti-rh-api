@@ -1,3 +1,4 @@
+import db from '@adonisjs/lucid/services/db'
 import Position from '#models/position'
 import DepartmentPosition from '#models/department_position'
 import PositionService from '#services/position_service'
@@ -14,6 +15,11 @@ import OrgAliasAppError from '#exceptions/org_alias_app_error'
 import { resolvePositionParentFromBody } from '#utils/org_chart_parent_input'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { ORG_STRUCTURE_ERROR_CODES } from '../constants/org_structure_error_codes.js'
+import {
+  classifyOrgStructureDbError,
+  buildOrgStructureApiError,
+} from '../helpers/org_structure_api_error.js'
 
 export default class PositionController {
 
@@ -206,98 +212,107 @@ export default class PositionController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, i18n }: HttpContext) {
+  /**
+   * Crea un puesto de forma atómica:
+   *
+   * 1. Valida el cuerpo con `createPositionValidator` (R1 → 422 si falla).
+   * 2a. Sin `linkDepartmentId`: alta simple igual que antes.
+   * 2b. Con `linkDepartmentId`: verifica que el departamento pertenezca a la
+   *     empresa del scope (IDOR, R4), luego crea el puesto y la fila en
+   *     `department_position` en una sola transacción (R5).
+   * 3. En el `catch` usa `resolveOrgStructureStoreError` para devolver
+   *    400/422/500 sin filtrar mensajes crudos de SQL.
+   */
+  async store({ request, response, i18n, businessUnitScope }: HttpContext) {
+    const t = i18n.formatMessage.bind(i18n)
     try {
+      // ── R1: validación de entrada ─────────────────────────────────────────
+      const data = await request.validateUsing(createPositionValidator)
+
       const businessUnitId = request.input('businessUnitId')
-      const positionCode = request.input('positionCode')
-      const positionName = request.input('positionName')
-      const positionAlias = request.input('positionAlias')
-      const positionDescription = request.input('positionDescription')
-      const positionGeneralObjective = request.input('positionGeneralObjective')
-      const positionSpecificRequirement = request.input('positionSpecificRequirement')
-      const positionEvaluationFrequency = request.input('positionEvaluationFrequency')
-      const positionEvaluationDurationDays = request.input('positionEvaluationDurationDays')
-      const positionEvaluationStartDay = request.input('positionEvaluationStartDay')
-      const positionIsDefault = request.input('positionIsDefault')
-      const positionActive = request.input('positionActive')
-      const parentPositionId = request.input('parentPositionId')
-      const positionProfileExpirationDate = request.input('positionProfileExpirationDate')
-      const positionMinStaff = request.input('positionMinStaff')
-      const positionIdealStaff = request.input('positionIdealStaff')
-      const positionMaxStaff = request.input('positionMaxStaff')
-      const positionMinActiveStaffPerShift = request.input('positionMinActiveStaffPerShift')
-      const aliasesInput = request.input('aliases')
+        ? Number(request.input('businessUnitId'))
+        : businessUnitScope[0]
 
       const position = {
-        businessUnitId: businessUnitId,
-        positionCode: positionCode,
-        positionName: positionName,
-        positionAlias: positionAlias,
+        businessUnitId,
+        positionCode: data.positionCode,
+        positionName: data.positionName,
+        positionAlias: data.positionAlias,
         aliases:
-          aliasesInput === null || aliasesInput === undefined || aliasesInput === ''
+          data.aliases === null || data.aliases === undefined || data.aliases === ''
             ? null
-            : String(aliasesInput),
-        positionDescription: positionDescription,
-        positionGeneralObjective: positionGeneralObjective,
-        positionSpecificRequirement: positionSpecificRequirement,
-        positionEvaluationFrequency: positionEvaluationFrequency,
-        positionEvaluationDurationDays: positionEvaluationDurationDays,
-        positionEvaluationStartDay: positionEvaluationStartDay,
-        positionIsDefault: positionIsDefault,
-        positionActive: positionActive,
-        parentPositionId: parentPositionId,
-        positionProfileExpirationDate: positionProfileExpirationDate ? new Date(positionProfileExpirationDate) : null,
-        positionMinStaff,
-        positionIdealStaff,
-        positionMaxStaff,
-        positionMinActiveStaffPerShift,
-      } as Position
+            : String(data.aliases),
+        positionDescription: request.input('positionDescription'),
+        positionGeneralObjective: request.input('positionGeneralObjective'),
+        positionSpecificRequirement: request.input('positionSpecificRequirement'),
+        positionEvaluationFrequency: request.input('positionEvaluationFrequency'),
+        positionEvaluationDurationDays: request.input('positionEvaluationDurationDays'),
+        positionEvaluationStartDay: request.input('positionEvaluationStartDay'),
+        positionIsDefault: data.positionIsDefault ?? false,
+        positionActive: data.positionActive !== false,
+        parentPositionId: data.parentPositionId ?? null,
+        positionProfileExpirationDate: request.input('positionProfileExpirationDate')
+          ? new Date(request.input('positionProfileExpirationDate'))
+          : null,
+        positionMinStaff: data.positionMinStaff ?? null,
+        positionIdealStaff: data.positionIdealStaff ?? null,
+        positionMaxStaff: data.positionMaxStaff ?? null,
+        positionMinActiveStaffPerShift: data.positionMinActiveStaffPerShift ?? null,
+      } as unknown as Position
 
       const positionService = new PositionService(i18n)
-      const data = await request.validateUsing(createPositionValidator)
-      const exist = await positionService.verifyInfoExist(position)
 
-      if (exist.status !== 200) {
-        response.status(exist.status)
-        return {
-          type: exist.type,
-          title: exist.title,
-          message: exist.message,
-          data: { ...data },
+      // ── R5: alta con ligado atómico o alta simple ─────────────────────────
+      if (data.linkDepartmentId) {
+        // ── R4: guardia IDOR — el departamento debe ser de la empresa del scope
+        const deptExists = await db
+          .from('departments')
+          .where('department_id', data.linkDepartmentId)
+          .where('business_unit_id', businessUnitId)
+          .whereNull('department_deleted_at')
+          .first()
+
+        if (!deptExists) {
+          const { buildPositionDepartmentNotFoundError } = await import(
+            '../helpers/org_structure_api_error.js'
+          )
+          const err = buildPositionDepartmentNotFoundError(i18n, data.linkDepartmentId)
+          response.status(err.status)
+          return err.body
         }
-      }
 
-      const newPosition = await positionService.create(position)
+        const result = await positionService.createLinkedToDepartment(
+          position,
+          data.linkDepartmentId,
+          businessUnitId,
+        )
 
-      if (newPosition) {
         response.status(201)
         return {
           type: 'success',
-          title: 'Positions',
-          message: 'The position was created successfully',
-          data: { position: newPosition },
+          title: t('resource'),
+          message: t('resource_was_created_successfully'),
+          data: { position: result.position, departmentPositionId: result.departmentPositionId },
         }
+      }
+
+      // ── Alta simple (sin ligar departamento) ──────────────────────────────
+      const newPosition = await positionService.create(position)
+
+      response.status(201)
+      return {
+        type: 'success',
+        title: t('resource'),
+        message: t('resource_was_created_successfully'),
+        data: { position: newPosition },
       }
     } catch (error) {
-      if (error instanceof OrgAliasAppError) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: error.title,
-          message: error.detail,
-          detail: error.detail,
-          data: { key: error.key },
-        }
-      }
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: messageError,
-      }
+      const { resolveOrgStructureStoreError } = await import(
+        '../helpers/org_structure_api_error.js'
+      )
+      const err = resolveOrgStructureStoreError(error, 'position', i18n)
+      response.status(err.status)
+      return err.body
     }
   }
 
@@ -968,9 +983,20 @@ export default class PositionController {
   //     }
   //   }
   // }
+  /**
+   * Elimina (marca como eliminado) un puesto.
+   *
+   * Los empleados activos de la empresa que lo tenían quedan sin puesto y sin
+   * nivel de puesto (`position_id = NULL`, `position_level_config_id = NULL`).
+   * No se usa ningún registro de relleno. La operación es todo o nada.
+   *
+   * @returns 201 con `data.affectedEmployees`; 404 si no existe/otra empresa;
+   *   409 si hay concurrencia; 500 si falla algo no previsto.
+   */
   async delete({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
+    // Nota 4: declarar antes del try para que el catch pueda armar `data`.
+    const positionId = request.param('positionId')
     try {
-      const positionId = request.param('positionId')
       if (!positionId) {
         response.status(400)
         return {
@@ -980,12 +1006,14 @@ export default class PositionController {
           data: { positionId },
         }
       }
-      // Buscar la posición actual
+
+      // Guarda IDOR: busca dentro del scope de empresa, intacta (nota 1 / S06-6).
       const currentPosition = await Position.query()
         .whereNull('position_deleted_at')
         .where('position_id', positionId)
         .whereIn('businessUnitId', businessUnitScope)
         .first()
+
       if (!currentPosition) {
         await ScopeDeniedLogService.log({
           domain: 'position',
@@ -994,55 +1022,66 @@ export default class PositionController {
           actorUserId: auth.user?.userId ?? null,
           businessUnitScope,
         })
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'The position was not found',
-          message: 'The position was not found with the entered ID',
-          data: { positionId },
-        }
+        const err = buildOrgStructureApiError(
+          ORG_STRUCTURE_ERROR_CODES.POSITION_NOT_FOUND,
+          { positionId },
+          i18n,
+        )
+        response.status(err.status)
+        return err.body
       }
-      // Obtener empleados relacionados con la posición
-      const employees = await currentPosition
-        .related('employees')
-        .query()
-        .whereNull('employee_deleted_at')
 
-      // Si hay empleados, asignarles la posición "Sin posición"
-      if (employees.length > 0) {
-        const defaultPosition = await Position.query()
+      const positionService = new PositionService(i18n)
+
+      // Todo o nada: transacción con relectura forUpdate (C06-1, S06-4).
+      let affectedEmployees = 0
+      await db.transaction(async (trx) => {
+        // Relectura bajo bloqueo dentro de la transacción.
+        const locked = await trx
+          .from('positions')
+          .where('position_id', currentPosition.positionId)
+          .where('business_unit_id', currentPosition.businessUnitId)
           .whereNull('position_deleted_at')
-          .where('position_name', 'Sin posición')
+          .forUpdate()
           .first()
 
-        if (defaultPosition) {
-          for (const employee of employees) {
-            employee.positionId = defaultPosition.positionId
-            await employee.save()
-          }
+        if (!locked) {
+          // El puesto desapareció entre la guarda y el bloqueo (CA7 dentro de trx).
+          throw Object.assign(new Error('not_found'), { _orgNotFound: true })
         }
-      }
 
-      // Proceder con la eliminación
-      const positionService = new PositionService(i18n)
-      const deletePosition = await positionService.delete(currentPosition)
-      if (deletePosition) {
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Positions',
-          message: 'The position was deleted successfully',
-          data: { position: deletePosition },
-        }
+        const result = await positionService.delete(currentPosition, trx)
+        affectedEmployees = result.affectedEmployees
+      })
+
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Positions',
+        message: 'The position was deleted successfully',
+        data: { position: currentPosition, affectedEmployees },
       }
     } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
+      // Puesto desapareció durante la transacción → 404.
+      if ((error as { _orgNotFound?: boolean })._orgNotFound) {
+        const err = buildOrgStructureApiError(
+          ORG_STRUCTURE_ERROR_CODES.POSITION_NOT_FOUND,
+          { positionId },
+          i18n,
+        )
+        response.status(err.status)
+        return err.body
       }
+      // Concurrencia → 409; cualquier otro → 500 saneado (C06-5 / RT5).
+      const kind = classifyOrgStructureDbError(error)
+      const code =
+        kind === 'conflict'
+          ? ORG_STRUCTURE_ERROR_CODES.POSITION_DELETE_CONFLICT
+          : ORG_STRUCTURE_ERROR_CODES.POSITION_DELETE_FAILED
+      const err = buildOrgStructureApiError(code, { positionId }, i18n)
+      response.status(err.status)
+      // En 500 el campo `error` repite `detail` (contrato aditivo §10).
+      return err.status >= 500 ? { ...err.body, error: err.body.detail } : err.body
     }
   }
   /**

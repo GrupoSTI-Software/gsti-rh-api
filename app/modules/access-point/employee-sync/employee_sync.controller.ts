@@ -264,7 +264,8 @@ export default class EmployeeSyncController {
                 faces: faceState !== null && isIncompatible(faceState) ? 1 : 0,
               },
             },
-            scoped.withheldBy
+            scoped.withheldBy,
+            scoped.facePhoto
           )
         )
       }
