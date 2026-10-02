@@ -35,6 +35,20 @@ export function bucketCheckIn(minutesLate: number, tolerances: AttendanceToleran
 }
 
 /**
+ * Clasifica una entrada que todavía no llega, por los minutos transcurridos
+ * desde el inicio del turno: se califica como se calificaría la checada si
+ * llegara en ese momento. Nunca es "a tiempo", porque sin checada no hay
+ * puntualidad que reconocer: el minuto cero cuenta como el primero.
+ */
+export function bucketMissingCheckIn(
+  minutesElapsed: number,
+  tolerances: AttendanceTolerances
+): Exclude<CheckInBucket, 'ontime'> {
+  const bucket = bucketCheckIn(Math.max(minutesElapsed, 1), tolerances)
+  return bucket === 'ontime' ? 'tolerance' : bucket
+}
+
+/**
  * Clasifica la salida por minutos de anticipación.
  *
  * - `<= 0` a tiempo (salió a su hora o después).

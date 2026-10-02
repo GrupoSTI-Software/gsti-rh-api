@@ -12544,3 +12544,183 @@ paths:
                 message: Error inesperado
                 errorCode: BDG.SYS.001
                 data: null
+
+  /api/public/legal-documents/current:
+    get:
+      summary: Consulta pública (sin sesión) de la versión vigente de términos o aviso de privacidad
+      description: |
+        Devuelve la versión vigente (`is_current = true`) de `terms_conditions` o
+        `privacy_notice` en el idioma pedido (`es` o `en`; si no se envía `locale`,
+        se usa `es`). Documento global de Valanserh: sin token, sin sesión y sin
+        `X-Business-Unit-Id`. El contenido HTML se entrega siempre saneado y la salida
+        trae solo cuatro llaves (`type`, `version`, `content`, `publishedAt`).
+        `biometric_consent` no se expone aquí: responde el mismo 422 que un tipo
+        inexistente. Limitada a 60 solicitudes/minuto por IP (429 al superarla).
+
+        Cabeceras: el `200` lleva `Cache-Control: private, max-age=300` y `Vary: Origin`
+        (puede traer `Set-Cookie` de sesión, por eso nunca `public`); los errores
+        (404, 422 y 429) llevan `Cache-Control: no-store`.
+      tags: [LegalDocumentsPublic]
+      security: []
+      parameters:
+        - name: type
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [terms_conditions, privacy_notice]
+          description: Tipo de documento legal consultable públicamente.
+        - name: locale
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [es, en]
+            default: es
+          description: Idioma del contenido. Un valor vacío equivale a no enviarlo.
+      responses:
+        '200':
+          description: Versión vigente del documento legal, con el contenido saneado.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: 'private, max-age=300' }
+            Vary:
+              schema: { type: string, example: Origin }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type:
+                    type: string
+                    enum: [success]
+                  title:
+                    type: string
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      type:
+                        type: string
+                        enum: [terms_conditions, privacy_notice]
+                      version:
+                        type: string
+                        example: '2.0'
+                      content:
+                        type: string
+                        description: Contenido HTML saneado del idioma pedido.
+                      publishedAt:
+                        type: string
+                        format: date-time
+                        nullable: true
+              example:
+                type: success
+                title: Documento legal
+                message: Documento legal vigente obtenido correctamente.
+                data:
+                  type: terms_conditions
+                  version: '2.0'
+                  content: '<p>HTML saneado del idioma pedido</p>'
+                  publishedAt: '2026-09-01T12:00:00.000-06:00'
+        '404':
+          description: El tipo no tiene una versión vigente publicada.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type: { type: string, enum: [error] }
+                  title: { type: string }
+                  detail: { type: string }
+                  key: { type: string }
+                  code: { type: string }
+              example:
+                type: error
+                title: Documento legal sin versión vigente
+                detail: Este documento todavía no tiene una versión publicada.
+                key: documento-legal-sin-version-vigente
+                code: LGDOC.NF.001
+        '422':
+          description: |
+            El `type` falta, no existe o no es consultable públicamente (incluido
+            `biometric_consent`, con el mismo cuerpo), o el `locale` no es `es` ni `en`.
+            Con ambos inválidos gana el error de tipo.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type: { type: string, enum: [error] }
+                  title: { type: string }
+                  detail: { type: string }
+                  key: { type: string }
+                  code: { type: string }
+              examples:
+                tipoInvalido:
+                  summary: type inexistente o biometric_consent (mismo cuerpo)
+                  value:
+                    type: error
+                    title: Tipo de documento inválido
+                    detail: El tipo de documento solicitado no está disponible para consulta pública.
+                    key: tipo-de-documento-invalido
+                    code: LGDOC.VAL.001
+                tipoAusente:
+                  summary: No se envió el parámetro type
+                  value:
+                    type: error
+                    title: Tipo de documento inválido
+                    detail: "Indica el tipo de documento: terms_conditions o privacy_notice."
+                    key: tipo-de-documento-invalido
+                    code: LGDOC.VAL.001
+                idiomaInvalido:
+                  summary: locale fuera de es/en
+                  value:
+                    type: error
+                    title: Idioma de documento inválido
+                    detail: El idioma solicitado no está disponible. Usa es o en.
+                    key: idioma-de-documento-invalido
+                    code: LGDOC.PUBLIC.001
+        '429':
+          description: Se superó el límite de 60 consultas por minuto por IP.
+          headers:
+            Cache-Control:
+              schema: { type: string, example: no-store }
+            Retry-After:
+              schema: { type: integer }
+              description: Segundos que hay que esperar antes de volver a consultar.
+            X-RateLimit-Limit:
+              schema: { type: integer }
+              description: Consultas permitidas por minuto para esta dirección.
+            X-RateLimit-Remaining:
+              schema: { type: integer }
+              description: Consultas que quedan en la ventana actual de un minuto.
+            X-RateLimit-Reset:
+              schema: { type: string }
+              description: Fecha y hora en que se libera el límite, en hora universal.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  type: { type: string, enum: [error] }
+                  title: { type: string }
+                  detail: { type: string }
+                  key: { type: string }
+                  code: { type: string }
+                  retryAfterSeconds:
+                    type: integer
+                    description: Segundos que hay que esperar antes de volver a consultar.
+              example:
+                type: error
+                title: Demasiadas consultas de documentos legales
+                detail: Se alcanzó el límite de consultas. Espera unos segundos antes de volver a intentarlo.
+                key: demasiadas-consultas-de-documentos-legales
+                code: LGDOC.PUBLIC.002
+                retryAfterSeconds: 30

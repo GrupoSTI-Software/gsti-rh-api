@@ -5,6 +5,10 @@ import ExceptionRequest from '#models/exception_request'
 import ExceptionType from '#models/exception_type'
 import ShiftException from '#models/shift_exception'
 import EmployeeService from '#services/employee_service'
+import {
+  assertVacationPeriodStarted,
+  resolveFutureVacationCutoff,
+} from '#modules/employee-vacations/future_vacation_guard'
 import ExceptionRequestNotificationService from '#services/exception_request_notification_service'
 import NotificationEmailService from '#services/notification_email_service'
 import ShiftExceptionService from '#services/shift_exception_service'
@@ -79,17 +83,27 @@ export default class ExceptionRequestResolutionService {
     exceptionRequest.exceptionRequestResolvedAt = DateTime.now()
     await exceptionRequest.save()
 
+    // Aceptar sin alta del día dejaba la solicitud aceptada, sin día y con el
+    // aviso ya enviado al empleado. Si el alta no procede, la solicitud vuelve
+    // a pendiente y solo se avisa cuando todo quedó aplicado.
+    if (status === 'accepted') {
+      const applied = await this.applyAcceptedEffects(params)
+      if (!applied.ok) {
+        exceptionRequest.exceptionRequestStatus = 'pending'
+        exceptionRequest.exceptionRequestResolutionNote = null
+        exceptionRequest.resolvedByUserId = null
+        exceptionRequest.exceptionRequestResolvedAt = null
+        await exceptionRequest.save()
+        return applied
+      }
+    }
+
     if (params.notify !== false) {
       await new ExceptionRequestNotificationService().notifyResolution({
         exceptionRequests: [exceptionRequest],
         status,
         resolutionNote,
       })
-    }
-
-    if (status === 'accepted') {
-      const applied = await this.applyAcceptedEffects(params)
-      if (!applied.ok) return applied
     }
 
     return { ok: true, exceptionRequest }
@@ -150,10 +164,36 @@ export default class ExceptionRequestResolutionService {
         }
       }
 
-      const oldestPeriod = await new EmployeeService(i18n).getOldestAvailableVacationPeriod(
+      // Con la regla "no adelantar vacaciones" solo cuentan los periodos que
+      // ya iniciaron; si el saldo está en uno futuro, se dice eso y no "sin días".
+      const employeeService = new EmployeeService(i18n)
+      const cutoff = await resolveFutureVacationCutoff({
+        user: auth.user,
+        employeeId: employee.employeeId,
+      })
+      const oldestPeriod = await employeeService.getOldestAvailableVacationPeriod(
         employee,
-        requestedDate
+        requestedDate,
+        { notStartingAfter: cutoff }
       )
+
+      if (!oldestPeriod && cutoff) {
+        const futurePeriod = await employeeService.getOldestAvailableVacationPeriod(
+          employee,
+          requestedDate
+        )
+        if (futurePeriod) {
+          const rejection = await assertVacationPeriodStarted({
+            user: auth.user,
+            employeeId: employee.employeeId,
+            vacationSettingId: futurePeriod.vacationSettingId,
+            i18n,
+          })
+          if (rejection) {
+            return { ok: false, status: rejection.status, body: rejection.body }
+          }
+        }
+      }
 
       if (!oldestPeriod) {
         return {
@@ -190,6 +230,11 @@ export default class ExceptionRequestResolutionService {
       vacationSettingId,
       shiftExceptionCheckInTime: exceptionRequest.exceptionRequestCheckInTime,
       shiftExceptionCheckOutTime: exceptionRequest.exceptionRequestCheckOutTime,
+      // El dia queda ligado a su solicitud y a quien la autorizo: sin esto la
+      // ficha del empleado no puede decir de donde salio ni quien lo aprobo.
+      exceptionRequestId: exceptionRequest.exceptionRequestId,
+      shiftExceptionAuthorizedByUserId: exceptionRequest.resolvedByUserId,
+      shiftExceptionAuthorizedAt: exceptionRequest.exceptionRequestResolvedAt,
     } as ShiftException
 
     const verifyInfo = await shiftExceptionService.verifyInfo(shiftException)

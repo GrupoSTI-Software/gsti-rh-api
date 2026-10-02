@@ -2,6 +2,7 @@ import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import AccessPoint from '#models/access_point'
 import AccessPointProfile from '#models/access_point_profile'
+import { acceptsFacePhoto } from '../photo/device_face_support.js'
 import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
 import { BIO_TYPE } from '../biometric_vault.constants.js'
 import { DEVICE_COMMAND_KIND } from '#modules/device-commands/device_command.constants'
@@ -181,6 +182,7 @@ export default class ReplicationService {
           pin,
           slots,
           photoEnabled,
+          faceSupported: acceptsFacePhoto(profile ?? null),
           derivativeVersion: args.derivativeVersion,
           targetVersion: result.faceVersion,
           platform: profile?.accessPointProfilePlatform ?? null,
@@ -336,12 +338,17 @@ export default class ReplicationService {
     pin: string
     slots: TemplateSlot[]
     photoEnabled: boolean
+    faceSupported: boolean
     derivativeVersion: number
     targetVersion: string | null
     platform: string | null
     now: DateTime
   }): Promise<ReplicationItem> {
     const { input, pivot, pin, slots, photoEnabled, targetVersion, platform, now } = args
+
+    if (!args.faceSupported) {
+      return skip(REPLICATION_MODALITY.FACE, BIO_TYPE.FACE, REPLICATION_SKIP.NO_FACE_SUPPORT)
+    }
 
     /**
      * La foto va primero: es la referencia que el propio equipo convierte a su
