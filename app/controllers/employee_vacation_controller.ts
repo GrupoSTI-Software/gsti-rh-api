@@ -382,6 +382,12 @@ export default class EmployeeVacationController {
    *         default: true
    *         schema:
    *           type: boolean
+   *       - name: periodOnly
+   *         in: query
+   *         required: false
+   *         description: Solo el período que abre en el año de startDate; el título conserva el rango completo
+   *         schema:
+   *           type: boolean
    *     responses:
    *       200:
    *         description: Resource action successful
@@ -417,6 +423,7 @@ export default class EmployeeVacationController {
       const filterEndDate = request.input('endDate')
       const onlyInactive = request.input('onlyInactive')
       const onlyOneYear = request.input('onlyOneYear')
+      const periodOnly = request.input('periodOnly')
       const filters = {
         search: search,
         employeeId: employeeId,
@@ -428,6 +435,7 @@ export default class EmployeeVacationController {
         onlyInactive: onlyInactive,
         userResponsibleId: userResponsibleId,
         onlyOneYear: onlyOneYear,
+        periodOnly: periodOnly,
       } as EmployeeVacationExcelFilterInterface
       const emplpoyeeVacationService = new EmployeeVacationService(i18n)
       const buffer = await emplpoyeeVacationService.getVacationsSummaryExcel(filters)

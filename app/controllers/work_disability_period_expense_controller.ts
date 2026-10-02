@@ -141,6 +141,7 @@ export default class WorkDisabilityPeriodExpenseController {
       const workDisabilityPeriodExpense = {
         workDisabilityPeriodExpenseAmount: workDisabilityPeriodExpenseAmount,
         workDisabilityPeriodId: workDisabilityPeriodId,
+        workDisabilityPeriodExpenseConcept: request.input('workDisabilityPeriodExpenseConcept'),
       } as WorkDisabilityPeriodExpense
       const workDisabilityPeriodExpenseService = new WorkDisabilityPeriodExpenseService()
       const data = await request.validateUsing(createWorkDisabilityPeriodExpenseValidator)
@@ -165,39 +166,38 @@ export default class WorkDisabilityPeriodExpenseController {
         'workDisabilityPeriodExpenseFile',
         validationOptions
       )
-      if (!workDisabilityPeriodExpenseFile) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: 'Missing data to process',
-          message: 'The work disability period expense file was not found',
-          data: { workDisabilityPeriodExpense },
+      // El comprobante es opcional: un gasto puede registrarse antes de tener
+      // la factura. Si viene, se valida y se sube.
+      if (workDisabilityPeriodExpenseFile) {
+        const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
+        if (!allowedExtensions.includes(workDisabilityPeriodExpenseFile.extname || '')) {
+          response.status(400)
+          return {
+            status: 400,
+            type: 'warning',
+            title: 'Please upload a valid file',
+            message: 'Only PDF or image files are allowed',
+            code: WORK_DISABILITY_ERROR_CODES.INVALID_FILE,
+          }
         }
-      }
-      const allowedExtensions = ['pdf', 'jpg', 'jpeg', 'png', 'webp']
-      if (!allowedExtensions.includes(workDisabilityPeriodExpenseFile.extname || '')) {
-        response.status(400)
-        return {
-          status: 400,
-          type: 'warning',
-          title: 'Please upload a valid file',
-          message: 'Only PDF or image files are allowed',
-          code: WORK_DISABILITY_ERROR_CODES.INVALID_FILE,
+        if (!workDisabilityPeriodExpenseFile.isValid) {
+          response.status(400)
+          return {
+            status: 400,
+            type: 'warning',
+            title: 'Please upload a valid file',
+            message: workDisabilityPeriodExpenseFile.errors[0]?.message || 'Invalid file',
+            code: WORK_DISABILITY_ERROR_CODES.FILE_TOO_LARGE,
+          }
         }
+        const uploadService = new UploadService()
+        const fileUrl = await uploadService.fileUpload(
+          workDisabilityPeriodExpenseFile,
+          'evidence-document',
+          'work-disability-period-expenses-files'
+        )
+        workDisabilityPeriodExpense.workDisabilityPeriodExpenseFile = fileUrl
       }
-      if (!workDisabilityPeriodExpenseFile.isValid) {
-        response.status(400)
-        return {
-          status: 400,
-          type: 'warning',
-          title: 'Please upload a valid file',
-          message: workDisabilityPeriodExpenseFile.errors[0]?.message || 'Invalid file',
-          code: WORK_DISABILITY_ERROR_CODES.FILE_TOO_LARGE,
-        }
-      }
-      const uploadService = new UploadService()
-      const fileUrl = await uploadService.fileUpload(workDisabilityPeriodExpenseFile, 'evidence-document', 'work-disability-period-expenses-files')
-      workDisabilityPeriodExpense.workDisabilityPeriodExpenseFile = fileUrl
       const newWorkDisabilityPeriodExpense = await workDisabilityPeriodExpenseService.create(
         workDisabilityPeriodExpense
       )
@@ -417,7 +417,11 @@ export default class WorkDisabilityPeriodExpenseController {
           }
         }
         const uploadService = new UploadService()
-        const fileUrl = await uploadService.fileUpload(workDisabilityPeriodExpenseFile, 'evidence-document', 'work-disability-period-expenses-files')
+        const fileUrl = await uploadService.fileUpload(
+          workDisabilityPeriodExpenseFile,
+          'evidence-document',
+          'work-disability-period-expenses-files'
+        )
         if (currentWorkDisabilityPeriodExpense.workDisabilityPeriodExpenseFile) {
           await uploadService.deleteFile(
             currentWorkDisabilityPeriodExpense.workDisabilityPeriodExpenseFile

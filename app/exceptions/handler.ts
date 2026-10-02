@@ -23,6 +23,11 @@ import {
   respondAuthLoginRateLimit,
 } from '../helpers/auth_login_request_errors.js'
 import {
+  isLegalDocumentPublicPath,
+  isLegalDocumentPublicRateLimitError,
+  respondLegalDocumentPublicRateLimit,
+} from '../helpers/legal_document_public_request_errors.js'
+import {
   isAuthInvitationPath,
   isAuthInvitationRateLimitError,
   respondAuthInvitationRateLimit,
@@ -116,6 +121,13 @@ export default class HttpExceptionHandler extends ExceptionHandler {
 
     if (isAuthLoginRateLimitError(error) && isAuthLoginPath(ctx.request.url())) {
       return respondAuthLoginRateLimit(ctx, error)
+    }
+
+    if (
+      isLegalDocumentPublicRateLimitError(error) &&
+      isLegalDocumentPublicPath(ctx.request.url())
+    ) {
+      return respondLegalDocumentPublicRateLimit(ctx, error)
     }
 
     if (isAuthInvitationRateLimitError(error) && isAuthInvitationPath(ctx.request.url())) {

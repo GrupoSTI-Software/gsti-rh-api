@@ -10,6 +10,8 @@ export default class WorkDisabilityPeriodExpenseService {
       workDisabilityPeriodExpense.workDisabilityPeriodExpenseAmount
     newWorkDisabilityPeriodExpense.workDisabilityPeriodId =
       workDisabilityPeriodExpense.workDisabilityPeriodId
+    newWorkDisabilityPeriodExpense.workDisabilityPeriodExpenseConcept =
+      workDisabilityPeriodExpense.workDisabilityPeriodExpenseConcept ?? null
     await newWorkDisabilityPeriodExpense.save()
     return newWorkDisabilityPeriodExpense
   }
@@ -24,6 +26,11 @@ export default class WorkDisabilityPeriodExpenseService {
       workDisabilityPeriodExpense.workDisabilityPeriodExpenseAmount
     currentWorkDisabilityPeriodExpense.workDisabilityPeriodId =
       workDisabilityPeriodExpense.workDisabilityPeriodId
+    // Una edición sin concepto conserva el que ya tenía.
+    if (workDisabilityPeriodExpense.workDisabilityPeriodExpenseConcept !== undefined) {
+      currentWorkDisabilityPeriodExpense.workDisabilityPeriodExpenseConcept =
+        workDisabilityPeriodExpense.workDisabilityPeriodExpenseConcept
+    }
     await currentWorkDisabilityPeriodExpense.save()
     return currentWorkDisabilityPeriodExpense
   }
