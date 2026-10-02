@@ -18,7 +18,7 @@ export default class SystemSettingTradeNameService {
   private scopedQuery() {
     const query = SystemSettingTradeName.query().whereNull('system_setting_deleted_at')
 
-    if (!TenantContext.isActive() || TenantContext.isBypassed()) {
+    if (TenantContext.isBypassed()) {
       return query
     }
 
@@ -46,7 +46,7 @@ export default class SystemSettingTradeNameService {
       .whereNull('system_setting_deleted_at')
       .where('system_setting_id', systemSettingId)
 
-    if (!TenantContext.isActive() || TenantContext.isBypassed()) {
+    if (TenantContext.isBypassed()) {
       return query.first()
     }
 

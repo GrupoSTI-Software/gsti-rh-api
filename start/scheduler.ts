@@ -46,6 +46,14 @@ scheduler.command('adms:sweep-commands').everyMinute().withoutOverlapping()
 scheduler.command('adms:recalc-calendars').everyMinute().withoutOverlapping()
 
 /**
+ * Cierre de día del calendario de asistencia guardado. A las 09:00 UTC ya
+ * terminó el día anterior en todas las zonas del país (03:00 en CDMX, entre
+ * 01:00 y 02:00 en Tijuana). Solo encola: el recálculo lo hace
+ * `adms:recalc-calendars` en tandas de cincuenta por minuto.
+ */
+scheduler.command('assist:close-calendar-days').cron('0 9 * * *')
+
+/**
  * Borra por plazo lo que cumplio su retencion (spec 13.12): crudos, comandos,
  * publicaciones de foto y cuarentenas.
  *
@@ -109,16 +117,6 @@ scheduler.command('work-journal:seal-period').cron('0 7 * * *')
  * al inicio del día de negocio. Confirmar hora con Wilvardo en review.
  */
 scheduler.command('billing:tick-subscriptions').cron('0 13 * * *')
-
-/**
- * Purga diaria de siembras demo abandonadas del onboarding
- * (USRH1785438247062): limpia las siembras con más de 30 días sin recorrido
- * terminado u omitido, con el mismo borrado del wipe en modo purga (no cierra
- * recorridos; el administrador que vuelve re-siembra fresco). 13:00 UTC =
- * 07:00 CDMX, misma franja del resto de barridos diarios. Cierra además una
- * superficie de seguridad: credenciales de práctica olvidadas.
- */
-scheduler.command('onboarding:purge-abandoned-demo').cron('0 13 * * *')
 
 /**
  * Limpieza de jobs de reporte asíncronos (USRH1785766125019):

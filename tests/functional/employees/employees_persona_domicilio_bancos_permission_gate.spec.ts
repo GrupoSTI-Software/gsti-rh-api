@@ -6,6 +6,9 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import Employee from '#models/employee'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
@@ -83,6 +86,7 @@ async function createActor(emailPrefix: string): Promise<TenantActor> {
     personLastname: 'Test',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId: businessUnit.businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -120,6 +124,7 @@ async function createSystemActor(roleSlug: TestRoleSlug, emailPrefix: string): P
     personLastname: 'Sistema',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId: businessUnit.businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -176,6 +181,7 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
     personLastname: 'SoftRollout',
     personSecondLastname: prefix,
     personEmail: `employee-${prefix}-${stamp}@gsti-tests.local`,
+    businessUnitId,
   })
   const departmentInsert = await db.table('departments').insert({
     department_sync_id: stamp,
@@ -198,6 +204,7 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
   })
   const positionId = Number(positionInsert[0])
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: 'Empleado',
@@ -205,6 +212,7 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
     employee_second_last_name: prefix,
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     department_id: departmentId,
     position_id: positionId,
     person_id: person.personId,
@@ -215,7 +223,10 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
   })
 
   return {
-    employee: await Employee.findOrFail(Number(employeeInsert[0])),
+    employee: await TenantContext.runUnscoped(
+      () => Employee.findOrFail(Number(employeeInsert[0])),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    ),
     person,
     departmentId,
     positionId,
@@ -354,6 +365,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate soft-rollout', (group) =
     const response = await client
       .put(`/api/persons/${fixture!.person.personId}`)
       .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
       .json({
         personFirstname: 'Soft',
         personLastname: 'Rollout',
@@ -547,6 +559,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
     const response = await client
       .put(`/api/persons/${fixture!.person.personId}`)
       .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
       .json({ personLastname: 'Inválido' })
 
     response.assertStatus(403)
@@ -561,6 +574,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
       personLastname: 'PermissionGate',
       personSecondLastname: 'Prueba',
       personEmail: `customer-${stamp}@gsti-tests.local`,
+      businessUnitId: actor!.businessUnit.businessUnitId,
     })
     await db.table('customers').insert({
       person_id: customerPerson.personId,
@@ -570,6 +584,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
     const response = await client
       .put(`/api/persons/${customerPerson.personId}`)
       .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
       .json({ personFirstname: 'Cliente', personLastname: 'Actualizado' })
 
     assert.notEqual(response.status(), 403)
@@ -638,6 +653,7 @@ test.group('Persona/Domicilio/Bancos — PermissionGate exigencia ON', (group) =
     const personDeleteResponse = await client
       .delete(`/api/persons/${fixture!.person.personId}`)
       .loginAs(actor!.user)
+      .header('X-Business-Unit-Id', actor!.businessUnit.businessUnitPublicId)
     personDeleteResponse.assertStatus(403)
     assert.equal(personDeleteResponse.body()?.key, 'PERM.DENIED')
     assert.isNotNull(

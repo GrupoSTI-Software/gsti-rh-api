@@ -27,7 +27,9 @@ import EmployeeBiometric from '#models/employee_biometric'
 import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
 import EmployeeSalaryHistory from '#models/employee_salary_history'
 import PositionSalaryRange from '#models/position_salary_range'
+import PositionSalaryRangeAudit from '#models/position_salary_range_audit'
 import EmpresaContratante from '#models/empresa_contratante'
+import ProveedorRepse from '#models/proveedor_repse'
 import UserConsent from '#models/user_consent'
 import LegalDocument from '#models/legal_document'
 import { TenantContext } from '#utils/tenant_context'
@@ -35,6 +37,8 @@ import { blindIndex } from '#utils/blind_index'
 import { maskSensitiveValue, MASK_CHAR } from '#helpers/sensitive_mask'
 import { normalizeRfc } from '../../../app/shared/validators/rfc.validator.js'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 
 export function countGateLookups(sqls: string[]) {
   const roles = sqls.filter((sql) => /from\s+[`"]?roles[`"]?/i.test(sql)).length
@@ -212,6 +216,7 @@ export async function createActor(emailPrefix: string): Promise<TenantActor> {
     personLastname: 'Qa',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId: businessUnit.businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -250,6 +255,7 @@ export async function createSystemActor(
     personLastname: 'Qa',
     personSecondLastname: emailPrefix,
     personEmail: email,
+    businessUnitId,
   })
   const user = await User.create({
     userEmail: email,
@@ -298,7 +304,9 @@ export async function restoreEmployeesGrants(grants: RoleSystemPermission[]) {
 export async function createSensitiveFixture(
   businessUnitId: number,
   prefix: string,
-  sharedSearchToken?: string
+  sharedSearchToken?: string,
+  /** Una segunda persona en la misma empresa necesita RFC/CURP/NSS propios (USRH1789698261610). */
+  identity?: Pick<ClearPii, 'curp' | 'rfc' | 'nss'>
 ): Promise<SensitiveFixture> {
   const stamp = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
   // employee_second_last_name es VARCHAR(25); el stamp completo no cabe.
@@ -309,6 +317,7 @@ export async function createSensitiveFixture(
   const now = new Date()
   const clear: ClearPii = {
     ...CLEAR_FIXED,
+    ...identity,
     email: `juan-${stamp}@empresa.com`,
   }
   const person = await Person.create({
@@ -321,6 +330,7 @@ export async function createSensitiveFixture(
     personCurp: clear.curp,
     personRfc: clear.rfc,
     personImssNss: clear.nss,
+    businessUnitId,
   })
   const departmentInsert = await db.table('departments').insert({
     department_sync_id: stamp,
@@ -343,6 +353,7 @@ export async function createSensitiveFixture(
   })
   const positionId = Number(positionInsert[0])
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: CLEAR_FIXED.firstname,
@@ -359,34 +370,47 @@ export async function createSensitiveFixture(
     employee_business_email: `work-${prefix}-${stamp}@gsti-tests.local`,
     employee_created_at: now,
   })
-  const employee = await Employee.findOrFail(Number(employeeInsert[0]))
+  const employee = await TenantContext.runUnscoped(
+    () => Employee.findOrFail(Number(employeeInsert[0])),
+    TENANT_UNSCOPED_REASON.TEST_FIXTURE
+  )
   const bankRow = await Bank.query().whereNull('bank_deleted_at').firstOrFail()
-  const bank = await EmployeeBank.create({
-    employeeBankAccountClabe: clear.clabe,
-    employeeBankAccountClabeLastNumbers: clear.clabe.slice(-4),
-    employeeBankAccountNumber: clear.account,
-    employeeBankAccountNumberLastNumbers: clear.account.slice(-4),
-    employeeBankAccountCardNumber: clear.card,
-    employeeBankAccountCardNumberLastNumbers: clear.card.slice(-4),
-    employeeBankAccountCurrencyType: 'MXN',
-    employeeId: employee.employeeId,
-    bankId: bankRow.bankId,
-  })
-  const medicalConditionType = await TenantContext.run([businessUnitId], async () => {
-    const type = new MedicalConditionType()
-    type.medicalConditionTypeName = `TEST-MCT-SENS-${stamp}`
-    type.medicalConditionTypeDescription = 'fixture lectura sensible'
-    type.medicalConditionTypeActive = 1
-    await type.save()
-    return type
-  })
-  const medical = await EmployeeMedicalCondition.create({
-    employeeId: employee.employeeId,
-    medicalConditionTypeId: medicalConditionType.medicalConditionTypeId,
-    employeeMedicalConditionDiagnosis: clear.diagnosis,
-    employeeMedicalConditionNotes: clear.notes,
-    employeeMedicalConditionActive: 1,
-  })
+  const { bank, medicalConditionType, medical } = await TenantContext.run(
+    [businessUnitId],
+    async () => {
+      const createdBank = await EmployeeBank.create({
+        employeeBankAccountClabe: clear.clabe,
+        employeeBankAccountClabeLastNumbers: clear.clabe.slice(-4),
+        employeeBankAccountNumber: clear.account,
+        employeeBankAccountNumberLastNumbers: clear.account.slice(-4),
+        employeeBankAccountCardNumber: clear.card,
+        employeeBankAccountCardNumberLastNumbers: clear.card.slice(-4),
+        employeeBankAccountCurrencyType: 'MXN',
+        employeeId: employee.employeeId,
+        bankId: bankRow.bankId,
+      })
+      const createdMedicalConditionType = await (async () => {
+        const type = new MedicalConditionType()
+        type.medicalConditionTypeName = `TEST-MCT-SENS-${stamp}`
+        type.medicalConditionTypeDescription = 'fixture lectura sensible'
+        type.medicalConditionTypeActive = 1
+        await type.save()
+        return type
+      })()
+      const createdMedical = await EmployeeMedicalCondition.create({
+        employeeId: employee.employeeId,
+        medicalConditionTypeId: createdMedicalConditionType.medicalConditionTypeId,
+        employeeMedicalConditionDiagnosis: clear.diagnosis,
+        employeeMedicalConditionNotes: clear.notes,
+        employeeMedicalConditionActive: 1,
+      })
+      return {
+        bank: createdBank,
+        medicalConditionType: createdMedicalConditionType,
+        medical: createdMedical,
+      }
+    }
+  )
   return {
     employee,
     person,
@@ -427,7 +451,7 @@ export async function cleanupSensitiveFixture(fixture: SensitiveFixture | null) 
     await MedicalConditionType.query()
       .where('medical_condition_type_id', fixture.medicalConditionType.medicalConditionTypeId)
       .delete()
-  }, 'limpieza fixture lectura sensible')
+  }, TENANT_UNSCOPED_REASON.TEST_FIXTURE)
 }
 
 export function buHeader(actor: TenantActor) {
@@ -510,11 +534,11 @@ export function expectPersonContactoClear(person: Record<string, unknown>, clear
 }
 
 export function expectPersonContactoMasked(person: Record<string, unknown>, clear: ClearPii, assert: Assert) {
-  assert.equal(person.personEmail, maskSensitiveValue(clear.email, 'contacto'))
-  assert.equal(person.personPhone, maskSensitiveValue(clear.phone, 'contacto'))
+  assert.equal(person.personEmail, maskSensitiveValue(clear.email))
+  assert.equal(person.personPhone, maskSensitiveValue(clear.phone))
   assert.equal(
     person.personPhoneSecondary,
-    maskSensitiveValue(clear.phoneSecondary, 'contacto')
+    maskSensitiveValue(clear.phoneSecondary)
   )
 }
 
@@ -533,9 +557,9 @@ export function expectPersonIdentificacionMasked(
   clear: ClearPii,
   assert: Assert
 ) {
-  assert.equal(person.personCurp, maskSensitiveValue(clear.curp, 'identificacion'))
-  assert.equal(person.personRfc, maskSensitiveValue(clear.rfc, 'identificacion'))
-  assert.equal(person.personImssNss, maskSensitiveValue(clear.nss, 'identificacion'))
+  assert.equal(person.personCurp, maskSensitiveValue(clear.curp))
+  assert.equal(person.personRfc, maskSensitiveValue(clear.rfc))
+  assert.equal(person.personImssNss, maskSensitiveValue(clear.nss))
 }
 
 export function expectBankClear(bank: Record<string, unknown>, clear: ClearPii, assert: Assert) {
@@ -547,15 +571,15 @@ export function expectBankClear(bank: Record<string, unknown>, clear: ClearPii, 
 export function expectBankMasked(bank: Record<string, unknown>, clear: ClearPii, assert: Assert) {
   assert.equal(
     bank.employeeBankAccountClabe,
-    maskSensitiveValue(clear.clabe, 'financiero')
+    maskSensitiveValue(clear.clabe)
   )
   assert.equal(
     bank.employeeBankAccountNumber,
-    maskSensitiveValue(clear.account, 'financiero')
+    maskSensitiveValue(clear.account)
   )
   assert.equal(
     bank.employeeBankAccountCardNumber,
-    maskSensitiveValue(clear.card, 'financiero')
+    maskSensitiveValue(clear.card)
   )
 }
 
@@ -575,11 +599,11 @@ export function expectMedicalMasked(
 ) {
   assert.equal(
     medical.employeeMedicalConditionDiagnosis,
-    maskSensitiveValue(clear.diagnosis, 'salud')
+    maskSensitiveValue(clear.diagnosis)
   )
   assert.equal(
     medical.employeeMedicalConditionNotes,
-    maskSensitiveValue(clear.notes, 'salud')
+    maskSensitiveValue(clear.notes)
   )
 }
 
@@ -606,6 +630,7 @@ export function expectElevenMasked(
   expectMedicalMasked(medical, clear, assert)
 }
 
+/** @deprecated USRH1789328027048: GET ya no entrega claro con permiso; usar `expectElevenMasked`. */
 export function expectElevenClear(
   person: Record<string, unknown>,
   bank: Record<string, unknown>,
@@ -651,9 +676,15 @@ export const CLEAR_REMAINING = {
   facePhotoUrl: 's3://gsti-qa/face.jpg',
   empresaRfc: 'VACW850312J95',
   empresaRazon: 'QA Contratante Sensible SA de CV',
+  proveedorRfc: 'ASE930101AB1',
+  proveedorRazon: 'QA Proveedor REPSE Sensible SA de CV',
+  proveedorFolio: 'REPSE-QA-SENS-7052',
   salaryDaily: 1250.75,
-  minSalaryDaily: 1000,
-  maxSalaryDaily: 2000,
+  employeeDailySalary: 1250.75,
+  minSalaryDaily: 380.5,
+  maxSalaryDaily: 520,
+  rangeAuditNewMinSalaryDaily: 380.5,
+  rangeAuditNewMaxSalaryDaily: 520,
   consentIp: '203.0.113.10',
   consentUa: 'QaAgent/1.0',
 } as const
@@ -669,7 +700,9 @@ export interface RemainingSensitiveFixture {
   faceId: EmployeeBiometricFaceId
   salary: EmployeeSalaryHistory
   range: PositionSalaryRange
+  rangeAudit: PositionSalaryRangeAudit
   empresa: EmpresaContratante
+  proveedor: ProveedorRepse
   consent: UserConsent | null
 }
 
@@ -722,14 +755,15 @@ export async function createRemainingSensitiveFixture(
   actor: TenantActor,
   base: SensitiveFixture
 ): Promise<RemainingSensitiveFixture> {
-  const coverage = await InsuranceCoverageType.query()
-    .whereNull('insurance_coverage_type_deleted_at')
-    .firstOrFail()
-  const disability = await WorkDisability.create({
-    employeeId: base.employee.employeeId,
-    insuranceCoverageTypeId: coverage.insuranceCoverageTypeId,
-    workDisabilityUuid: `wd-sens15-${Date.now()}`,
-  })
+  return TenantContext.run([actor.businessUnit.businessUnitId], async () => {
+    const coverage = await InsuranceCoverageType.query()
+      .whereNull('insurance_coverage_type_deleted_at')
+      .firstOrFail()
+    const disability = await WorkDisability.create({
+      employeeId: base.employee.employeeId,
+      insuranceCoverageTypeId: coverage.insuranceCoverageTypeId,
+      workDisabilityUuid: `wd-sens15-${Date.now()}`,
+    })
   const note = await WorkDisabilityNote.create({
     workDisabilityId: disability.workDisabilityId,
     workDisabilityNoteDescription: CLEAR_REMAINING.disabilityDescription,
@@ -785,8 +819,15 @@ export async function createRemainingSensitiveFixture(
     employeeBiometricFaceIdToken: CLEAR_REMAINING.faceToken,
     employeeBiometricFaceIdPhotoUrl: CLEAR_REMAINING.facePhotoUrl,
   })
+  await db
+    .from('employees')
+    .where('employee_id', base.employee.employeeId)
+    .update({ daily_salary: CLEAR_REMAINING.employeeDailySalary })
+  await base.employee.refresh()
+
   const salary = await EmployeeSalaryHistory.create({
     employeeId: base.employee.employeeId,
+    businessUnitId: actor.businessUnit.businessUnitId,
     salaryDaily: CLEAR_REMAINING.salaryDaily,
     validFrom: DateTime.now().startOf('day'),
     validTo: null,
@@ -802,6 +843,17 @@ export async function createRemainingSensitiveFixture(
     validTo: null,
     createdBy: actor.user.userId,
   })
+  const rangeAudit = await PositionSalaryRangeAudit.create({
+    rangeId: range.positionSalaryRangeId,
+    businessUnitId: actor.businessUnit.businessUnitId,
+    action: 'create',
+    oldMinSalaryDaily: null,
+    oldMaxSalaryDaily: null,
+    newMinSalaryDaily: CLEAR_REMAINING.rangeAuditNewMinSalaryDaily,
+    newMaxSalaryDaily: CLEAR_REMAINING.rangeAuditNewMaxSalaryDaily,
+    actorId: actor.user.userId,
+    reason: 'qa-reveal-salary-audit',
+  })
   const normalizedRfc = normalizeRfc(CLEAR_REMAINING.empresaRfc)
   const empresa = await EmpresaContratante.create({
     businessUnitId: actor.businessUnit.businessUnitId,
@@ -809,6 +861,17 @@ export async function createRemainingSensitiveFixture(
     rfc: CLEAR_REMAINING.empresaRfc,
     rfcHash: blindIndex(normalizedRfc),
     domicilioFiscal: 'Calle QA 1, CDMX',
+  })
+  const normalizedProveedorRfc = normalizeRfc(CLEAR_REMAINING.proveedorRfc)
+  const proveedor = await ProveedorRepse.create({
+    businessUnitId: actor.businessUnit.businessUnitId,
+    razonSocial: CLEAR_REMAINING.proveedorRazon,
+    rfc: CLEAR_REMAINING.proveedorRfc,
+    rfcHash: blindIndex(normalizedProveedorRfc),
+    folio: CLEAR_REMAINING.proveedorFolio,
+    objetoRegistrado: 'Servicios especializados QA',
+    folioVencimiento: DateTime.now().plus({ years: 1 }).startOf('day'),
+    periodicidadMeses: 1,
   })
   const legal = await LegalDocument.query().first()
   let consent: UserConsent | null = null
@@ -824,20 +887,23 @@ export async function createRemainingSensitiveFixture(
       userConsentChannel: 'digital',
     })
   }
-  return {
-    disability,
-    note,
-    spouse,
-    emergency,
-    lactation,
-    trauma,
-    biometric,
-    faceId,
-    salary,
-    range,
-    empresa,
-    consent,
-  }
+return {
+      disability,
+      note,
+      spouse,
+      emergency,
+      lactation,
+      trauma,
+      biometric,
+      faceId,
+      salary,
+      range,
+      rangeAudit,
+      empresa,
+      proveedor,
+      consent,
+    }
+  })
 }
 
 export async function cleanupRemainingSensitiveFixture(
@@ -847,8 +913,14 @@ export async function cleanupRemainingSensitiveFixture(
   if (extra.consent) {
     await UserConsent.query().where('user_consent_id', extra.consent.userConsentId).delete()
   }
+  await ProveedorRepse.query()
+    .where('proveedor_repse_id', extra.proveedor.proveedorRepseId)
+    .delete()
   await EmpresaContratante.query()
     .where('empresa_contratante_id', extra.empresa.empresaContratanteId)
+    .delete()
+  await PositionSalaryRangeAudit.query()
+    .where('position_salary_range_audit_id', extra.rangeAudit.positionSalaryRangeAuditId)
     .delete()
   await PositionSalaryRange.query()
     .where('position_salary_range_id', extra.range.positionSalaryRangeId)
@@ -929,6 +1001,11 @@ export function expectMaskedHealth(value: unknown, assert: Assert) {
 
 export function expectAmountNull(value: unknown, assert: Assert) {
   assert.isNull(value)
+  assert.notEqual(value, '•••0.75')
+}
+
+export function expectAmountMasked(value: unknown, assert: Assert) {
+  assert.equal(value, MASK_CHAR.repeat(5))
   assert.notEqual(value, '•••0.75')
 }
 

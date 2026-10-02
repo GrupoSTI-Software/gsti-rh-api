@@ -316,35 +316,35 @@ export default class DiscountCodeController {
 
   /**
    * @swagger
-   * /api/platform/billing/discount-codes/{discountCodeText}/quote:
-   *   get:
+   * /api/platform/billing/discount-codes/quote:
+   *   post:
    *     tags:
    *       - Platform Billing
    *     summary: Cotizar una contratación con un código de descuento aplicado
    *     description: >
-   *       Solo lectura (USRH1787714804400): no reserva el código, no
-   *       consume su cupo de canjes ni crea o modifica ninguna suscripción.
+   *       Solo lectura (USRH1787714804400, USRH1788551528002), aunque use
+   *       POST: no reserva el código, no consume su cupo de canjes ni crea
+   *       o modifica ninguna suscripción. El texto viaja en el cuerpo para
+   *       no quedar escrito en la dirección ni en la bitácora del proxy.
    *       Devuelve el precio sin el código (ya con descuento por volumen) y
    *       el precio con el código aplicado, acumulado después del volumen.
    *       Solo se puede cotizar sobre un plan publicado y vigente.
    *     security:
    *       - bearerAuth: []
-   *     parameters:
-   *       - in: path
-   *         name: discountCodeText
-   *         required: true
-   *         schema:
-   *           type: string
-   *       - name: billingPlanId
-   *         in: query
-   *         required: true
-   *         schema:
-   *           type: integer
-   *       - name: employeeCount
-   *         in: query
-   *         required: true
-   *         schema:
-   *           type: integer
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required: [discountCodeText, billingPlanId, employeeCount]
+   *             properties:
+   *               discountCodeText:
+   *                 type: string
+   *               billingPlanId:
+   *                 type: integer
+   *               employeeCount:
+   *                 type: integer
    *     responses:
    *       '200':
    *         description: Cotización con y sin el código de descuento
@@ -354,19 +354,20 @@ export default class DiscountCodeController {
    *           (PLT.DSC.QUOTE_PLAN_NOT_FOUND)
    *       '422':
    *         description: >
-   *           Código no redimible — inactivo (PLT.DSC.CODE_INACTIVE), aún no
-   *           vigente (PLT.DSC.CODE_NOT_YET_VALID), vencido
-   *           (PLT.DSC.CODE_EXPIRED) o agotado (PLT.DSC.CODE_EXHAUSTED) — o
-   *           plan no cotizable (PLT.DSC.QUOTE_PLAN_NOT_QUOTABLE) o sin
-   *           precio vigente (PLT.DSC.QUOTE_NO_ACTIVE_PRICE)
+   *           Datos inválidos (PLT.DSC.VAL_INPUT), código no redimible —
+   *           inactivo (PLT.DSC.CODE_INACTIVE), aún no vigente
+   *           (PLT.DSC.CODE_NOT_YET_VALID), vencido (PLT.DSC.CODE_EXPIRED) o
+   *           agotado (PLT.DSC.CODE_EXHAUSTED) — o plan no cotizable
+   *           (PLT.DSC.QUOTE_PLAN_NOT_QUOTABLE) o sin precio vigente
+   *           (PLT.DSC.QUOTE_NO_ACTIVE_PRICE)
    */
-  async quote({ params, request, response }: HttpContext) {
+  async quote({ request, response }: HttpContext) {
     try {
-      const { billingPlanId, employeeCount } = await request.validateUsing(
+      const { discountCodeText, billingPlanId, employeeCount } = await request.validateUsing(
         quoteDiscountCodeValidator
       )
       const quote = await this.service.quoteWithDiscountCode({
-        discountCodeText: String(params.discountCodeText),
+        discountCodeText,
         billingPlanId,
         employeeCount,
       })

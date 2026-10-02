@@ -35,23 +35,36 @@ export default class ExceptionRequestAttachmentService {
   private readonly fileIntake = new FileIntakeService()
 
   /**
-   * Guarda un comprobante de la solicitud.
+   * Guarda un comprobante y lo cuelga de cada solicitud indicada.
    *
-   * @param params - Solicitud, empresa dueña, archivo y quién lo sube.
-   * @returns El adjunto listo para la UI.
-   * @throws Cuando el archivo no pasa el intake o el bucket rechaza la escritura.
+   * Recibe una lista porque un permiso de varios días son varias solicitudes, y
+   * la constancia que las justifica es una sola: el archivo se sube una vez al
+   * bucket y todas las filas apuntan a la misma clave. Así el comprobante sigue
+   * ahí cuando la empresa resuelve el miércoles por separado del martes, sin
+   * multiplicar el almacenamiento por el número de días pedidos.
+   *
+   * @param params - Solicitudes que cubre, empresa dueña, archivo y quién lo sube.
+   * @returns El adjunto de la primera solicitud de la lista, listo para la UI.
+   * @throws Cuando la lista viene vacía, el archivo no pasa el intake o el
+   *   bucket rechaza la escritura.
    */
   async upload(params: {
-    exceptionRequestId: number
+    exceptionRequestIds: number[]
     businessUnitId: number
     file: MultipartFile
     uploadedByUserId: number | null
   }): Promise<ExceptionRequestAttachmentRow> {
+    const solicitudes = [...new Set(params.exceptionRequestIds)]
+
+    if (solicitudes.length === 0) {
+      throw new Error('ExceptionRequestAttachmentService: no se indico ninguna solicitud')
+    }
+
     const intake = await this.fileIntake.accept(params.file, ATTACHMENT_INTAKE_PROFILE)
 
     // La ruta incluye la empresa y la solicitud: dos objetos de empresas
     // distintas nunca comparten prefijo, ni siquiera por colisión de nombres.
-    const relativeKey = `${ATTACHMENT_FOLDER}/${params.businessUnitId}/${params.exceptionRequestId}/${intake.storageFileName}`
+    const relativeKey = `${ATTACHMENT_FOLDER}/${params.businessUnitId}/${solicitudes[0]}/${intake.storageFileName}`
 
     const storageKey = await new UploadService().uploadPrivateBuffer(
       relativeKey,
@@ -63,17 +76,45 @@ export default class ExceptionRequestAttachmentService {
       throw new Error('ExceptionRequestAttachmentService: el bucket rechazo la escritura')
     }
 
-    const attachment = await ExceptionRequestAttachment.create({
-      exceptionRequestId: params.exceptionRequestId,
-      businessUnitId: params.businessUnitId,
-      attachmentStorageKey: storageKey,
-      attachmentOriginalName: this.displayName(params.file.clientName),
-      attachmentMime: intake.mimeType,
-      attachmentSizeBytes: intake.buffer.length,
-      uploadedByUserId: params.uploadedByUserId,
-    })
+    const displayName = this.displayName(params.file.clientName)
+    const filas: ExceptionRequestAttachment[] = []
 
-    return this.toRow(attachment)
+    for (const exceptionRequestId of solicitudes) {
+      filas.push(
+        await ExceptionRequestAttachment.create({
+          exceptionRequestId,
+          businessUnitId: params.businessUnitId,
+          attachmentStorageKey: storageKey,
+          attachmentOriginalName: displayName,
+          attachmentMime: intake.mimeType,
+          attachmentSizeBytes: intake.buffer.length,
+          uploadedByUserId: params.uploadedByUserId,
+        })
+      )
+    }
+
+    return this.toRow(filas[0])
+  }
+
+  /**
+   * Cuántos comprobantes vivos tiene ya una solicitud.
+   *
+   * Es lo que sostiene el tope del colaborador: sin él, el adjunto opcional se
+   * vuelve almacenamiento ilimitado por cuenta.
+   *
+   * @param exceptionRequestId - Solicitud consultada.
+   * @param uploadedByUserId - Si viene, cuenta solo los que subió esa cuenta.
+   */
+  async countFor(exceptionRequestId: number, uploadedByUserId?: number): Promise<number> {
+    const filas = await ExceptionRequestAttachment.query()
+      .where('exception_request_id', exceptionRequestId)
+      .whereNull('exception_request_attachment_deleted_at')
+      .if(uploadedByUserId !== undefined, (query) => {
+        query.where('uploaded_by_user_id', uploadedByUserId as number)
+      })
+      .count('* as total')
+
+    return Number(filas[0]?.$extras?.total ?? 0)
   }
 
   /**
@@ -81,16 +122,23 @@ export default class ExceptionRequestAttachmentService {
    *
    * @param exceptionRequestId - Solicitud consultada.
    * @param businessUnitId - Empresa activa.
+   * @param uploadedByUserId - Si viene, devuelve solo los que subió esa cuenta.
+   *   Es lo que deja al colaborador ver su propio comprobante sin abrirle los
+   *   que Recursos Humanos guardó en el expediente.
    * @returns Los adjuntos, del más reciente al más antiguo.
    */
   async list(
     exceptionRequestId: number,
-    businessUnitId: number
+    businessUnitId: number,
+    uploadedByUserId?: number
   ): Promise<ExceptionRequestAttachmentRow[]> {
     const rows = await ExceptionRequestAttachment.query()
       .where('exception_request_id', exceptionRequestId)
       .where('business_unit_id', businessUnitId)
       .whereNull('exception_request_attachment_deleted_at')
+      .if(uploadedByUserId !== undefined, (query) => {
+        query.where('uploaded_by_user_id', uploadedByUserId as number)
+      })
       .orderBy('exception_request_attachment_id', 'desc')
 
     return rows.map((row) => this.toRow(row))
@@ -102,19 +150,24 @@ export default class ExceptionRequestAttachmentService {
    * Las tres condiciones viajan en la misma consulta a propósito: pedir un id de
    * otra empresa devuelve `null`, no un archivo.
    *
-   * @param params - Adjunto, solicitud y empresa.
+   * @param params - Adjunto, solicitud, empresa y, si aplica, la cuenta que
+   *   tuvo que haberlo subido para poder descargarlo.
    * @returns El registro, o `null` si no califica.
    */
   async findInScope(params: {
     attachmentId: number
     exceptionRequestId: number
     businessUnitId: number
+    uploadedByUserId?: number
   }): Promise<ExceptionRequestAttachment | null> {
     return ExceptionRequestAttachment.query()
       .where('exception_request_attachment_id', params.attachmentId)
       .where('exception_request_id', params.exceptionRequestId)
       .where('business_unit_id', params.businessUnitId)
       .whereNull('exception_request_attachment_deleted_at')
+      .if(params.uploadedByUserId !== undefined, (query) => {
+        query.where('uploaded_by_user_id', params.uploadedByUserId as number)
+      })
       .first()
   }
 

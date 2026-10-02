@@ -42,7 +42,7 @@ test.group('platform_discount_code_routes — guard de plataforma', () => {
     const content = await readFile(join(process.cwd(), ROUTES_PATH), 'utf8')
     assert.include(
       content,
-      "router.get(\n      '/discount-codes/:discountCodeText/quote',\n      '#controllers/discount_code_controller.quote'\n    )"
+      "router.post(\n      '/discount-codes/quote',\n      '#controllers/discount_code_controller.quote'\n    )"
     )
   })
 })

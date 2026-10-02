@@ -673,7 +673,7 @@ export default class AllianceService {
 
   /**
    * Choque de texto entre el pre-chequeo y el INSERT. Se reintenta.
-   * Nunca reexpone el texto: `CODE_DUPLICATE` lo lleva en `detail`.
+   * El reintento discrimina solo por `errorCode`: el 409 ya no lleva el texto.
    */
   private isRetryableTextCollision(
     error: unknown,

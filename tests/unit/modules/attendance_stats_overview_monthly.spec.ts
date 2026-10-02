@@ -95,6 +95,7 @@ function buildBundle(employeeId: number, calendar: AssistDayInterface[]): Employ
   return {
     employee: {
       employeeId,
+      employeeSlug: `slug-${employeeId}`,
       employeeCode: null,
       employeePayrollCode: null,
       employeeFirstName: `Colaborador ${employeeId}`,
@@ -112,6 +113,7 @@ function buildBundle(employeeId: number, calendar: AssistDayInterface[]): Employ
       businessUnit: null,
     },
     departmentName: null,
+    timeZone: 'America/Mexico_City',
     calendar,
   }
 }

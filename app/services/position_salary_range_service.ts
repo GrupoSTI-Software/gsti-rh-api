@@ -167,6 +167,7 @@ export default class PositionSalaryRangeService {
     await range.save()
 
     await this.recordAudit({
+      businessUnitId: range.businessUnitId,
       rangeId: range.positionSalaryRangeId,
       action: 'create',
       oldMin: null,
@@ -246,6 +247,7 @@ export default class PositionSalaryRangeService {
     await range.save()
 
     await this.recordAudit({
+      businessUnitId: range.businessUnitId,
       rangeId: range.positionSalaryRangeId,
       action: 'close',
       oldMin,
@@ -341,6 +343,7 @@ export default class PositionSalaryRangeService {
 
       await this.recordAuditTrx(
         {
+          businessUnitId: current.businessUnitId,
           rangeId: current.positionSalaryRangeId,
           action: 'close',
           oldMin,
@@ -369,6 +372,7 @@ export default class PositionSalaryRangeService {
 
       await this.recordAuditTrx(
         {
+          businessUnitId: newRange.businessUnitId,
           rangeId: newRange.positionSalaryRangeId,
           action: 'update',
           oldMin,
@@ -422,6 +426,7 @@ export default class PositionSalaryRangeService {
   }
 
   private async recordAudit(params: {
+    businessUnitId: number
     rangeId: number
     action: 'create' | 'update' | 'close'
     oldMin: number | null
@@ -432,6 +437,7 @@ export default class PositionSalaryRangeService {
     reason: string | null
   }) {
     const audit = new PositionSalaryRangeAudit()
+    audit.businessUnitId = params.businessUnitId
     audit.rangeId = params.rangeId
     audit.action = params.action
     audit.oldMinSalaryDaily = params.oldMin
@@ -445,6 +451,7 @@ export default class PositionSalaryRangeService {
 
   private async recordAuditTrx(
     params: {
+      businessUnitId: number
       rangeId: number
       action: 'create' | 'update' | 'close'
       oldMin: number | null
@@ -457,6 +464,7 @@ export default class PositionSalaryRangeService {
     trx: TransactionClientContract
   ) {
     const audit = new PositionSalaryRangeAudit()
+    audit.businessUnitId = params.businessUnitId
     audit.rangeId = params.rangeId
     audit.action = params.action
     audit.oldMinSalaryDaily = params.oldMin

@@ -3,6 +3,7 @@ import db from '@adonisjs/lucid/services/db'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import { personIsCollaborator } from '#helpers/person_is_collaborator'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 
 test.group('personIsCollaborator', (group) => {
   let businessUnitId: number
@@ -72,6 +73,7 @@ test.group('personIsCollaborator', (group) => {
     const positionId = Number(positionInsert[0])
     createdPositionIds.push(positionId)
     const employeeInsert = await db.table('employees').insert({
+      employee_slug: opaqueEmployeeSlug(),
       employee_sync_id: `EMP-PIC-${stamp}`,
       employee_code: `EMP-PIC-${stamp}`,
       employee_first_name: 'Helper',
@@ -79,6 +81,7 @@ test.group('personIsCollaborator', (group) => {
       employee_second_last_name: prefix,
       company_id: businessUnitId,
       business_unit_id: businessUnitId,
+      payroll_business_unit_id: businessUnitId,
       department_id: departmentId,
       position_id: positionId,
       person_id: personId,

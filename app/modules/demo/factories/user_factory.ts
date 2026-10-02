@@ -84,7 +84,7 @@ export const UserFactory = factory
       roleId: 0,
       personId: 0,
       userToken: '',
-      userEmailType: 'institutional',
+      userEmailType: 'institutional' as const,
     }
   })
   .build()

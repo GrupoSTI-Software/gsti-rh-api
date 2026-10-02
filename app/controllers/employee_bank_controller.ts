@@ -181,6 +181,7 @@ export default class EmployeeBankController {
         : ''
       const employeeBankAccountType = request.input('employeeBankAccountType')
       const employeeBankAccountCurrencyType = request.input('employeeBankAccountCurrencyType')
+      const employeeBankAlias = request.input('employeeBankAlias')
       const employeeId = request.input('employeeId')
       const bankId = request.input('bankId')
       const employeeBank = {
@@ -192,6 +193,7 @@ export default class EmployeeBankController {
         employeeBankAccountCardNumberLastNumbers: employeeBankAccountCardNumberLastNumbers,
         employeeBankAccountType: employeeBankAccountType,
         employeeBankAccountCurrencyType: employeeBankAccountCurrencyType,
+        employeeBankAlias: employeeBankAlias,
         employeeId: employeeId,
         bankId: bankId,
       } as EmployeeBank
@@ -407,6 +409,7 @@ export default class EmployeeBankController {
         : null
       const employeeBankAccountType = request.input('employeeBankAccountType')
       const employeeBankAccountCurrencyType = request.input('employeeBankAccountCurrencyType')
+      const employeeBankAlias = request.input('employeeBankAlias')
       const bankId = request.input('bankId')
       const employeeBank = {
         employeeBankId: employeeBankId,
@@ -418,6 +421,7 @@ export default class EmployeeBankController {
         employeeBankAccountCardNumberLastNumbers: employeeBankAccountCardNumberLastNumbers,
         employeeBankAccountType: employeeBankAccountType,
         employeeBankAccountCurrencyType: employeeBankAccountCurrencyType,
+        employeeBankAlias: employeeBankAlias,
         bankId: bankId,
       } as EmployeeBank
       if (!employeeBankId) {

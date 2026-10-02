@@ -3,7 +3,21 @@ import { createPersonValidator, updatePersonValidator } from '../validators/pers
 import Person from '#models/person'
 import PersonService from '#services/person_service'
 import { PersonFilterSearchInterface } from '../interfaces/person_filter_search_interface.js'
-import User from '#models/user'
+import db from '@adonisjs/lucid/services/db'
+import {
+  emailMirrorActorFromContext,
+  mirrorPersonEmailToUserEmail,
+  previousEmailRecipients,
+  toPublicEmailMirrorOutcome,
+} from '#helpers/person_user_email_mirror'
+import {
+  isEmailMirrorConflictError,
+  isEmailMirrorRefusedError,
+  isUserAccessEmailDuplicatedIndexError,
+  respondEmailMirrorConflict,
+  respondEmailMirrorRefused,
+  respondUserAccessEmailDuplicated,
+} from '#helpers/user_access_email_api_error'
 import { personIsCollaborator } from '#helpers/person_is_collaborator'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { sessionUserOwnsPerson } from '#helpers/session_user_owns_employee'
@@ -11,6 +25,17 @@ import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
+import { TenantContext } from '#utils/tenant_context'
+import type { PersonIdentityField } from '#constants/person_identity_error_codes'
+import { resolveRacedIdentityField } from '#helpers/person_identity_lookup'
+import {
+  isPersonEmailUniqueValidationError,
+  personIdentityDuplicatedFieldFromValidationError,
+  personIdentityDuplicatedIndexFromError,
+  respondPersonEmailNotAvailable,
+  respondPersonIdentityDuplicated,
+  respondPersonIdentityMissingCompany,
+} from '#helpers/person_identity_api_error'
 import {
   EMPLOYEES_PERSON_COLLABORATOR_WRITE_PERMISSION,
   EMPLOYEES_PERSON_COLLABORATOR_DELETE_PERMISSION,
@@ -23,6 +48,30 @@ import {
   resolvePersonSubjectType,
   personSubjectRequiresCollaboratorWritePermission,
 } from '#constants/person_subject_type'
+import { ensureCredentialChangeAllowed } from '#helpers/credential_change_gate'
+import { logPersonEmailProbe } from '#helpers/person_email_probe_throttle'
+import { notifyAndAudit, revokeSessions } from '#services/credential_change_service'
+
+type IdentityRecheckTarget = { person: Person; companyId: number }
+
+/**
+ * Carrera contra el UNIQUE por empresa (USRH1789698261610): MySQL reporta el
+ * índice en su propio orden, así que se reverifica con `verifyInfo`, que aplica
+ * CURP > RFC > NSS. El índice reportado queda solo como respaldo.
+ */
+async function racedIdentityField(
+  indexField: PersonIdentityField,
+  i18n: HttpContext['i18n'],
+  target: IdentityRecheckTarget | null
+): Promise<PersonIdentityField> {
+  if (!target) return indexField
+  try {
+    const recheck = await new PersonService(i18n).verifyInfo(target.person, target.companyId)
+    return resolveRacedIdentityField(recheck, indexField)
+  } catch {
+    return indexField
+  }
+}
 
 export default class PersonController {
   /**
@@ -340,9 +389,29 @@ export default class PersonController {
    *                 code:
    *                   type: string
    *                   example: EMP.SENS.WRITE.FORBIDDEN
+   *       '422':
+   *         description: La política de la plataforma no permite registrar ese correo personal. Respuesta idéntica en POST y PUT.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: No es posible registrar ese correo
+   *                 detail:
+   *                   type: string
+   *                   example: "La política de la plataforma no permite registrar ese correo en este expediente. Captura otro correo personal, o deja el campo vacío: el acceso a la aplicación puede otorgarse con el correo institucional del trabajador."
+   *                 key:
+   *                   type: string
+   *                   example: no-es-posible-registrar-ese-correo
+   *                 code:
+   *                   type: string
+   *                   example: PERSON.IDENTITY.005
    */
   async store(ctx: HttpContext) {
     const { request, response, i18n } = ctx
+    let identityRecheck: IdentityRecheckTarget | null = null
     try {
       const subjectType = resolvePersonSubjectType(request.input('personSubjectType'))
       if (personSubjectRequiresCollaboratorWritePermission(subjectType)) {
@@ -353,6 +422,12 @@ export default class PersonController {
         if (!allowed) {
           return
         }
+      }
+      // USRH1789698261610: sin empresa no hay veredicto de duplicados (regla 10).
+      // En HTTP el middleware ya la exige; esta guardia cubre cualquier otro camino.
+      const storeCompanyId = ctx.businessUnitScope?.[0] ?? TenantContext.getScope()[0] ?? null
+      if (!storeCompanyId) {
+        return respondPersonIdentityMissingCompany(ctx)
       }
       const personFirstname = request.input('personFirstname')
       const personLastname = request.input('personLastname')
@@ -368,6 +443,7 @@ export default class PersonController {
       const personRfc = request.input('personRfc')
       const personImssNss = request.input('personImssNss')
       const person = {
+        businessUnitId: storeCompanyId,
         personFirstname: personFirstname,
         personLastname: personLastname,
         personSecondLastname: personSecondLastname || '',
@@ -379,10 +455,13 @@ export default class PersonController {
         personRfc: personRfc,
         personImssNss: personImssNss,
       } as Person
+      identityRecheck = { person, companyId: storeCompanyId }
       const personService = new PersonService(i18n)
       await request.validateUsing(createPersonValidator)
       const newPerson = await personService.create(person)
       if (newPerson) {
+        // Bitácora del intento (USRH1789762889970): best-effort, no altera la respuesta.
+        await logPersonEmailProbe(ctx, 'accepted')
         response.status(201)
         return {
           type: 'success',
@@ -393,6 +472,29 @@ export default class PersonController {
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
+      // USRH1789698261614 — solo el correo personal, y va PRIMERO, igual que en
+      // la edición (`verifyInfo` consulta el correo antes que CURP/RFC/NSS): es
+      // lo que hace las dos respuestas idénticas byte a byte (CA-2) cuando el
+      // correo ocupado coincide con un duplicado de identidad de la empresa, y
+      // es el rechazo que no revela. Mismo emisor que el PUT. El errors[] de
+      // @adonisjs/lucid no se reescribe: no se llega a él.
+      if (isPersonEmailUniqueValidationError(error)) {
+        // Bitácora del intento (USRH1789762889970): best-effort, no altera la respuesta.
+        await logPersonEmailProbe(ctx, 'rejected_not_available')
+        return respondPersonEmailNotAvailable(ctx)
+      }
+      // USRH1789698261610 regla 6: el rechazo habla de negocio, nunca de BD.
+      const duplicatedField = personIdentityDuplicatedFieldFromValidationError(error)
+      if (duplicatedField) {
+        return respondPersonIdentityDuplicated(ctx, duplicatedField)
+      }
+      const racedField = personIdentityDuplicatedIndexFromError(error)
+      if (racedField) {
+        return respondPersonIdentityDuplicated(
+          ctx,
+          await racedIdentityField(racedField, i18n, identityRecheck)
+        )
+      }
       if (error.code === 'E_VALIDATION_ERROR') {
         const messageError = error.messages?.[0]?.message ?? 'Validation error'
         response.status(422)
@@ -509,6 +611,24 @@ export default class PersonController {
    *                 data:
    *                   type: object
    *                   description: Processed object
+   *                   properties:
+   *                     person:
+   *                       type: object
+   *                       description: Persona actualizada
+   *                     emailMirror:
+   *                       type: object
+   *                       description: Resultado del espejo del correo del expediente hacia la credencial de acceso
+   *                       properties:
+   *                         status:
+   *                           type: string
+   *                           enum: [written, skipped]
+   *                           description: written si se copió el correo a la credencial; skipped si no se escribió
+   *                         target:
+   *                           type: string
+   *                           description: Destino de la copia cuando status es written (users)
+   *                         reason:
+   *                           type: string
+   *                           description: Motivo de la omisión cuando status es skipped
    *       '404':
    *         description: Resource not found
    *         content:
@@ -529,7 +649,9 @@ export default class PersonController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: >-
+   *           The parameters entered are invalid or essential data is missing to process the request.
+   *           También responde 400 con {title, detail, key, code} cuando el correo ya lo usa otra cuenta de acceso viva (USR.MAIL.002) o la persona tiene más de una cuenta viva (USR.MAIL.006). Ningún campo se guardó.
    *         content:
    *           application/json:
    *             schema:
@@ -570,7 +692,10 @@ export default class PersonController {
    *                     error:
    *                       type: string
    *       '403':
-   *         description: Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *         description: |
+   *           Sin permiso de categoría para la transición de un dato sensible. Ningún campo se guardó.
+   *           La cuenta de acceso de la persona no pertenece a las empresas del actor (USR.MAIL.005).
+   *           Si el correo cambia la credencial y falta el permiso propio, responde {"title":"Sin permiso","detail":"No tienes permiso para realizar esta operación.","key":"PERM.DENIED"}.
    *         content:
    *           application/json:
    *             schema:
@@ -588,9 +713,29 @@ export default class PersonController {
    *                 code:
    *                   type: string
    *                   example: EMP.SENS.WRITE.FORBIDDEN
+   *       '422':
+   *         description: La política de la plataforma no permite registrar ese correo personal. Respuesta idéntica en POST y PUT.
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 title:
+   *                   type: string
+   *                   example: No es posible registrar ese correo
+   *                 detail:
+   *                   type: string
+   *                   example: "La política de la plataforma no permite registrar ese correo en este expediente. Captura otro correo personal, o deja el campo vacío: el acceso a la aplicación puede otorgarse con el correo institucional del trabajador."
+   *                 key:
+   *                   type: string
+   *                   example: no-es-posible-registrar-ese-correo
+   *                 code:
+   *                   type: string
+   *                   example: PERSON.IDENTITY.005
    */
   async update(ctx: HttpContext) {
     const { request, response, i18n } = ctx
+    let identityRecheck: IdentityRecheckTarget | null = null
     try {
       const personId = request.param('personId')
       const personFirstname = request.input('personFirstname')
@@ -611,6 +756,7 @@ export default class PersonController {
       const personPlaceOfBirthCountry = request.input('personPlaceOfBirthCountry')
       const personPlaceOfBirthState = request.input('personPlaceOfBirthState')
       const personPlaceOfBirthCity = request.input('personPlaceOfBirthCity')
+      const updateCompanyId = ctx.businessUnitScope?.[0] ?? TenantContext.getScope()[0] ?? null
       const person = {
         personId: personId,
         personFirstname: personFirstname,
@@ -638,6 +784,11 @@ export default class PersonController {
           data: { ...person },
         }
       }
+      // USRH1789698261610: sin empresa no hay veredicto de duplicados (regla 10).
+      if (!updateCompanyId) {
+        return respondPersonIdentityMissingCompany(ctx)
+      }
+      identityRecheck = { person, companyId: updateCompanyId }
       if (await personIsCollaborator(Number(personId))) {
         const allowed = await ensureSecondaryPermission(
           ctx,
@@ -660,42 +811,121 @@ export default class PersonController {
           data: { ...person },
         }
       }
-      const previousEmail = currentPerson.personEmail
+      const credentialChangeAllowed = await ensureCredentialChangeAllowed(ctx, {
+        personId: Number(personId),
+        incomingEmail: person.personEmail,
+        persistedEmailType: null,
+        origin: 'person-file',
+      })
+      if (!credentialChangeAllowed) return
+
       const personService = new PersonService(i18n)
       const data = await request.validateUsing(updatePersonValidator)
-      const verifyInfo = await personService.verifyInfo(person)
-      if (verifyInfo.status !== 200) {
-        response.status(verifyInfo.status)
-        return {
-          type: verifyInfo.type,
-          title: verifyInfo.title,
-          message: verifyInfo.message,
-          data: { ...data },
-        }
+      // B7: se escribe el valor validado (con trim), no el crudo del request.
+      person.personEmail = data.personEmail ?? null
+      const identityCheck = await personService.verifyInfo(person, updateCompanyId)
+      if (identityCheck.status === 400) {
+        return respondPersonIdentityMissingCompany(ctx)
       }
-      const updatePerson = await personService.update(currentPerson, person)
-      if (updatePerson) {
-        if (previousEmail && person.personEmail) {
-          const user = await User.query()
-            .where('person_id', currentPerson.personId)
-            .where('user_email', previousEmail)
-            .whereNull('user_deleted_at')
-            .first()
-          if (user) {
-            user.userEmail = person.personEmail
-            await user.save()
-          }
+      // USRH1789698261614 — la rama del correo llama al MISMO emisor que store:
+      // es lo que hace las respuestas idénticas byte a byte, y el emisor no
+      // recibe ningún dato de dominio, así que ningún camino puede pasarle
+      // algo que el otro no.
+      if (identityCheck.status === 422 && 'reason' in identityCheck) {
+        // Bitácora del intento (USRH1789762889970): best-effort, no altera la respuesta.
+        await logPersonEmailProbe(ctx, 'rejected_not_available')
+        return respondPersonEmailNotAvailable(ctx)
+      }
+      if (identityCheck.status === 422) {
+        return respondPersonIdentityDuplicated(ctx, identityCheck.field)
+      }
+      const actor = emailMirrorActorFromContext(ctx)
+      const personBirthdayPast = currentPerson.personBirthday
+      const { updatePerson, emailMirror } = await db.transaction(async (trx) => {
+        const before = await Person.query({ client: trx })
+          .where('person_id', currentPerson.personId)
+          .whereNull('person_deleted_at')
+          .forUpdate()
+          .first()
+        const persisted = await personService.update(currentPerson, person, trx)
+        const outcome = await mirrorPersonEmailToUserEmail({
+          personId: currentPerson.personId,
+          personEmail: person.personEmail,
+          previousSourceEmail: before?.personEmail ?? null,
+          actor,
+          trx,
+        })
+        if (outcome.status === 'written') {
+          const currentTokenId = ctx.auth.user?.currentAccessToken?.identifier
+          const preservedTokenId =
+            ctx.auth.user?.userId === outcome.targetId &&
+            currentTokenId !== undefined &&
+            currentTokenId !== null
+              ? String(currentTokenId)
+              : null
+          const revokedCount = await revokeSessions(trx, {
+            affectedUserId: outcome.targetId,
+            preservedTokenId,
+          })
+          return { updatePerson: persisted, emailMirror: { outcome, revokedCount } }
         }
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Persons',
-          message: 'The person was updated successfully',
-          data: { person: updatePerson },
-        }
+        return { updatePerson: persisted, emailMirror: { outcome, revokedCount: 0 } }
+      })
+      // Sin correo anterior no hay buzón que avisar ni imagen previa que auditar.
+      if (
+        emailMirror.outcome.status === 'written' &&
+        emailMirror.outcome.previousEmail !== null
+      ) {
+        await notifyAndAudit({
+          actorUserId: ctx.auth.user!.userId,
+          affectedUserId: emailMirror.outcome.targetId,
+          origin: 'person-file',
+          previousEmail: emailMirror.outcome.previousEmail,
+          newEmail: person.personEmail!.trim(),
+          userEmailType: 'personal',
+          previousRecipients: previousEmailRecipients(emailMirror.outcome),
+          rawHeaders: request.request.rawHeaders,
+          revokedCount: emailMirror.revokedCount,
+        })
+      }
+      await personService.syncBirthdayCalendar(updatePerson, personBirthdayPast, person.personBirthday)
+      // Bitácora del intento (USRH1789762889970): best-effort, no altera la respuesta.
+      await logPersonEmailProbe(ctx, 'accepted')
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Persons',
+        message: 'The person was updated successfully',
+        data: {
+          person: updatePerson,
+          emailMirror: toPublicEmailMirrorOutcome(emailMirror.outcome),
+        },
       }
     } catch (error) {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
+      if (isEmailMirrorConflictError(error)) return respondEmailMirrorConflict(ctx, error)
+      if (isEmailMirrorRefusedError(error)) return respondEmailMirrorRefused(ctx, error)
+      if (isUserAccessEmailDuplicatedIndexError(error)) return respondUserAccessEmailDuplicated(ctx)
+      // USRH1789698261610 regla 6: el rechazo habla de negocio, nunca de BD.
+      const duplicatedField = personIdentityDuplicatedFieldFromValidationError(error)
+      if (duplicatedField) {
+        return respondPersonIdentityDuplicated(ctx, duplicatedField)
+      }
+      const racedField = personIdentityDuplicatedIndexFromError(error)
+      if (racedField) {
+        return respondPersonIdentityDuplicated(
+          ctx,
+          await racedIdentityField(racedField, i18n, identityRecheck)
+        )
+      }
+      // USRH1789698261614 — espejo del alta: mismo emisor, respuesta idéntica
+      // byte a byte (CA-2). Hoy este camino no se ejercita porque
+      // `updatePersonValidator` no consulta unicidad de correo: la edición con
+      // correo ocupado cae por `personService.verifyInfo`. Se deja puesto como
+      // defensa el día que el validador de edición gane el mismo `.unique()`.
+      if (isPersonEmailUniqueValidationError(error)) {
+        return respondPersonEmailNotAvailable(ctx)
+      }
       if (error.code === 'E_VALIDATION_ERROR') {
         const messageError = error.messages?.[0]?.message ?? 'Validation error'
         response.status(422)

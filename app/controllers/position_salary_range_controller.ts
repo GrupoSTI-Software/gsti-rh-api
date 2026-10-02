@@ -502,7 +502,7 @@ export default class PositionSalaryRangeController {
    *           type: integer
    *     responses:
    *       '200':
-   *         description: Registros de auditoría con montos descifrados, ordenados del más reciente al más antiguo
+   *         description: Registros de auditoría con montos tapados; completos por revelado, ordenados del más reciente al más antiguo
    *       '404':
    *         description: Rango no encontrado
    */

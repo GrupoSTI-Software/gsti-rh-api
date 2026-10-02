@@ -68,6 +68,20 @@ test.group('Calidad de la foto para el checador', () => {
   })
 
   /**
+   * La proporcion sola no basta: en el derivado ampliado desde un original chico
+   * la cara se ve grande, pero la informacion es la que se fotografio.
+   */
+  test('la cara se mide en pixeles del original, no del derivado', async ({ assert }) => {
+    const service = new PhotoQualityService(detectorOf(1, { x: 100, y: 100, width: 300, height: 400 }))
+    const chica = await service.evaluate(await flatImage(128), { sourceScale: 2 })
+    const suficiente = await service.evaluate(await flatImage(128), { sourceScale: 1.25 })
+    assert.equal(chica.verdict, 'face_too_small')
+    assert.equal(chica.faceWidthPx, 150)
+    assert.equal(suficiente.verdict, 'ok')
+    assert.equal(suficiente.faceWidthPx, 240)
+  })
+
+  /**
    * "No se pudo evaluar" no es "la foto no sirve": si el evaluador revienta,
    * la excepcion sube para que se responda 500 y nadie tenga que volver a
    * fotografiar a una persona por un problema del servidor.

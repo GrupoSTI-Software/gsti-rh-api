@@ -6,6 +6,9 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import Employee from '#models/employee'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import EmployeeDevice from '#models/employee_device'
 import EmployeeBiometric from '#models/employee_biometric'
 import EmployeeBiometricFaceId from '#models/employee_biometric_face_id'
@@ -13,6 +16,7 @@ import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import { ensureRole, type TestRoleSlug } from '#tests/helpers/ensure_role'
+import { restoreDeviceReadyPhoto, stubDeviceReadyPhoto } from '#tests/helpers/device_ready_photo_stub'
 
 const TEST_PASSWORD = 'BiometricosDispositivosPermissionGate123!'
 
@@ -213,6 +217,7 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
   })
   const positionId = Number(positionInsert[0])
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: 'Empleado',
@@ -220,6 +225,7 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
     employee_second_last_name: prefix,
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     department_id: departmentId,
     position_id: positionId,
     person_id: person.personId,
@@ -230,7 +236,10 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
   })
 
   return {
-    employee: await Employee.findOrFail(Number(employeeInsert[0])),
+    employee: await TenantContext.runUnscoped(
+      () => Employee.findOrFail(Number(employeeInsert[0])),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    ),
     person,
     departmentId,
     positionId,
@@ -337,6 +346,11 @@ async function disableEnforcementAndVerify(employeesModule: SystemModule) {
 }
 
 test.group('Biometricos/Dispositivos - soft-rollout (exigencia OFF)', (group) => {
+  group.each.setup(() => {
+    stubDeviceReadyPhoto()
+    return () => restoreDeviceReadyPhoto()
+  })
+
   let actor: TenantActor | null = null
   let fixture: EmployeeFixture | null = null
   let employeesModule: SystemModule
@@ -456,6 +470,11 @@ test.group('Biometricos/Dispositivos - soft-rollout (exigencia OFF)', (group) =>
 })
 
 test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
+  group.each.setup(() => {
+    stubDeviceReadyPhoto()
+    return () => restoreDeviceReadyPhoto()
+  })
+
   let actor: TenantActor | null = null
   let fixture: EmployeeFixture | null = null
   let employeesModule: SystemModule
@@ -719,6 +738,11 @@ test.group('Biometricos/Dispositivos - matriz con exigencia ON', (group) => {
 })
 
 test.group('Biometricos/Dispositivos - bypass standard (owner/root)', (group) => {
+  group.each.setup(() => {
+    stubDeviceReadyPhoto()
+    return () => restoreDeviceReadyPhoto()
+  })
+
   let ownerActor: SystemActor | null = null
   let rootActor: SystemActor | null = null
   let ownerFixture: EmployeeFixture | null = null

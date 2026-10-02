@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import Employee from '#models/employee'
 import EmployeeSalaryHistory from '#models/employee_salary_history'
 
@@ -27,11 +28,14 @@ export default class EmployeeSalaryHistoryService {
    * Si existe una versión vigente (valid_to = null) la cierra con valid_to = hoy
    * y crea una nueva fila a partir de hoy con el nuevo valor.
    * El cifrado lo maneja el modelo transparentemente.
+   *
+   * @param trx La del llamador: escribe dos filas y un rollback no debe dejar
+   * historial huérfano (USRH1789698261612).
    */
-  async registrarCambio(input: RegistrarCambioInput): Promise<void> {
+  async registrarCambio(input: RegistrarCambioInput, trx?: TransactionClientContract): Promise<void> {
     const hoy = DateTime.now().toLocal().startOf('day')
 
-    const vigente = await EmployeeSalaryHistory.query()
+    const vigente = await EmployeeSalaryHistory.query({ client: trx })
       .where('employee_id', input.employeeId)
       .whereNull('valid_to')
       .whereNull('employee_salary_history_deleted_at')
@@ -49,6 +53,7 @@ export default class EmployeeSalaryHistoryService {
     nueva.validTo = null
     nueva.changedBy = input.changedBy
     nueva.reason = input.reason ?? null
+    if (trx) nueva.useTransaction(trx)
     await nueva.save()
   }
 

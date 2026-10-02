@@ -1,5 +1,7 @@
 /* eslint-disable prettier/prettier */
 import EmployeeProceedingFile from '#models/employee_proceeding_file'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { resolveStoredFileExtension } from '#helpers/stored_file_extension'
 import EmployeeProceedingFileService from '#services/employee_proceeding_file_service'
 import {
   createEmployeeProceedingFileValidator,
@@ -1100,10 +1102,18 @@ export default class EmployeeProceedingFileController {
         }
       }
 
-      const fileName = proceedingFile.proceedingFileName || `expediente-${employeeProceedingFileId}`
+      // Nunca el nombre original: puede traer datos del empleado.
+      const fileName = buildDownloadFileName(
+        ['expediente', employeeProceedingFileId],
+        resolveStoredFileExtension({
+          storedPath: proceedingFile.proceedingFilePath,
+          fileName: proceedingFile.proceedingFileName,
+          contentType: object.contentType,
+        })
+      )
 
       response.header('Content-Type', object.contentType || 'application/octet-stream')
-      response.header('Content-Disposition', `inline; filename="${fileName}"`)
+      response.header('Content-Disposition', contentDisposition(fileName, 'inline'))
       response.header('Cache-Control', 'private, no-store')
       if (object.contentLength !== undefined) {
         response.header('Content-Length', String(object.contentLength))

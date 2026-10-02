@@ -21,6 +21,11 @@ import {
 } from './biometric_slot_state.js'
 import type { BiometricSlotState } from './biometric_slot_state.js'
 import type { TemplateSlot } from '../template/template.repository.js'
+import {
+  FACE_PHOTO_DEVICE_STATUS,
+  loadFacePhotoStatus,
+  type FacePhotoDeviceStatus,
+} from '../photo/device_face_status.js'
 
 export interface BiometricFingerState {
   fingerId: number
@@ -50,6 +55,13 @@ export interface EmployeeBiometricSummary {
    * ve un alta que no copio nada y ninguna explicacion.
    */
   withheldBy: { incidentId: number; kind: string; since: string | null } | null
+  /**
+   * La foto del colaborador en ese equipo; `null` en el consolidado o si no hay
+   * nada que contar. Va aparte del estado del rostro porque la foto tiene sus
+   * propios fallos --no se descargo, el equipo no tiene rostro-- que el
+   * operador necesita leer con nombre.
+   */
+  facePhoto: FacePhotoDeviceStatus | null
 }
 
 /**
@@ -92,7 +104,7 @@ export default class EmployeeBiometricSummaryService {
       return { ...this.consolidated(slots, legacy), orphanFingers }
     }
 
-    return { ...(await this.scoped(slots, legacy, accessPointId)), orphanFingers }
+    return { ...(await this.scoped(slots, legacy, accessPointId, employeeId)), orphanFingers }
   }
 
   /** Lo que dejo el conector viejo: que dedos hay, sin plantilla ni equipo. */
@@ -133,6 +145,7 @@ export default class EmployeeBiometricSummaryService {
       scopedToAccessPointId: null,
       orphanFingers: [],
       withheldBy: null,
+      facePhoto: null,
     }
   }
 
@@ -155,7 +168,13 @@ export default class EmployeeBiometricSummaryService {
 
     const usable = new Set<number>()
     for (const accessPointId of assigned) {
-      const scoped = await this.scoped(fingerSlots, { fingers: [], face: false }, accessPointId)
+      const scoped = await this.scoped(
+        fingerSlots,
+        { fingers: [], face: false },
+        accessPointId,
+        employeeId,
+        false
+      )
       for (const finger of scoped.fingers) {
         if (
           finger.state === BIOMETRIC_SLOT_STATE.HERE ||
@@ -175,7 +194,9 @@ export default class EmployeeBiometricSummaryService {
   private async scoped(
     slots: TemplateSlot[],
     legacy: { fingers: number[]; face: boolean },
-    accessPointId: number
+    accessPointId: number,
+    employeeId: number,
+    withPhoto: boolean = true
   ): Promise<EmployeeBiometricSummary> {
     const profile = await AccessPointProfile.query()
       .where('access_point_id', accessPointId)
@@ -236,6 +257,21 @@ export default class EmployeeBiometricSummaryService {
     }
     if (legacy.face && face === null) face = BIOMETRIC_SLOT_STATE.UNKNOWN
 
+    /**
+     * La foto es otra via al mismo rostro: el equipo genera su template desde
+     * ella, asi que una foto cargada es un rostro presente aunque la boveda no
+     * tenga template de esa version.
+     */
+    const facePhoto = withPhoto
+      ? await loadFacePhotoStatus(employeeId, accessPointId, profile ?? null)
+      : null
+    if (facePhoto?.status === FACE_PHOTO_DEVICE_STATUS.LOADED) {
+      face = betterState(face, BIOMETRIC_SLOT_STATE.HERE)
+    }
+    if (facePhoto?.status === FACE_PHOTO_DEVICE_STATUS.SENDING) {
+      face = betterState(face, BIOMETRIC_SLOT_STATE.SENT)
+    }
+
     return {
       fingers: [...fingers.entries()]
         .sort(([a], [b]) => a - b)
@@ -244,6 +280,7 @@ export default class EmployeeBiometricSummaryService {
       scopedToAccessPointId: accessPointId,
       orphanFingers: [],
       withheldBy: await this.withholdingIncident(accessPointId),
+      facePhoto,
     }
   }
 

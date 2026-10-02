@@ -15,4 +15,5 @@ export const USERS_PERMISSION_DECLARATIONS = {
   update: usersStandard('update'),
   delete: usersStandard('delete'),
   show: usersStandard('read'),
+  credentialChange: usersStandard('credential-change'), // USRH1789698261613
 } as const satisfies Record<string, PermissionGateOptions>

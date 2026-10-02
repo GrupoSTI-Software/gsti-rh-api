@@ -26,11 +26,17 @@ import SupplyValueHistory from './supply_value_history.js'
  *           nullable: true
  *           description: Unidad de negocio dueña del activo (alcance de lanzamiento SaaS)
  *         supplyFileNumber:
- *           type: number
- *           description: Supply file number
+ *           type: string
+ *           maxLength: 50
+ *           description: Folio alfanumérico del activo, único por empresa entre activos no borrados
  *         supplyName:
  *           type: string
  *           description: Supply name
+ *         supplySerialNumber:
+ *           type: string
+ *           maxLength: 100
+ *           nullable: true
+ *           description: Número de serie del fabricante
  *         supplyDescription:
  *           type: string
  *           description: Supply description
@@ -73,7 +79,7 @@ import SupplyValueHistory from './supply_value_history.js'
  *           description: Date and time when the supply was soft-deleted
  *       example:
  *         supplyId: 1
- *         supplyFileNumber: 123456
+ *         supplyFileNumber: 'LAP-0012'
  *         supplyName: 'Supply Name'
  *         supplyDescription: 'Supply Description'
  *         supplyTypeId: 1
@@ -117,11 +123,16 @@ export default class Supplie extends compose(BaseModel, SoftDeletes, withBusines
     }, 'el tipo de activo')
   }
 
+  /** Folio alfanumérico, único por empresa entre activos no borrados. */
   @column()
-  declare supplyFileNumber: number
+  declare supplyFileNumber: string
 
   @column()
   declare supplyName: string
+
+  /** Número de serie del fabricante; opcional y aparte de la descripción. */
+  @column()
+  declare supplySerialNumber: string | null
 
   @column()
   declare supplyDescription: string | null

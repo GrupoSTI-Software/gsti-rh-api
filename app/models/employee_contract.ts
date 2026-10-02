@@ -113,7 +113,7 @@ export default class EmployeeContract extends compose(BaseModel, SoftDeletes, wi
   declare businessUnitId: number
 
   @column()
-  declare departmentId: number
+  declare departmentId: number | null
 
   /** Resuelve businessUnitId desde el empleado padre (ESB-07-08-03-08). */
   @beforeCreate()
@@ -126,7 +126,7 @@ export default class EmployeeContract extends compose(BaseModel, SoftDeletes, wi
   }
 
   @column()
-  declare positionId: number
+  declare positionId: number | null
 
   @column()
   declare payrollBusinessUnitId: number

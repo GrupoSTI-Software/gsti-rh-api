@@ -15,15 +15,10 @@ import {
   employeeBankBody,
   employeePerson,
   extractEmployeeRows,
-  expectBankMasked,
-  expectContactoClearIdentificacionMasked,
-  expectElevenClear,
   expectElevenMasked,
-  expectMedicalClear,
-  expectMedicalMasked,
-  expectNeverDenied,
   expectPersonContactoMasked,
   expectPersonIdentificacionMasked,
+  expectNeverDenied,
   expectNonSensitiveIntact,
   grantOnly,
   medicalConditionBody,
@@ -147,7 +142,7 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
     )
   })
 
-  test('CA-1: solo sensitive-contacto-read destapa correo y teléfonos; el resto tapado; 200', async ({
+  test('CA-1: solo sensitive-contacto-read deja las 11 tapadas en GET; 200', async ({
     client,
     assert,
   }) => {
@@ -161,13 +156,17 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
     expectNeverDenied(bankRes, assert)
     expectNeverDenied(medicalRes, assert)
     const person = employeePerson(employeeRes.body())
-    expectContactoClearIdentificacionMasked(person, fixture!.clear, assert)
-    expectBankMasked(employeeBankBody(bankRes.body()), fixture!.clear, assert)
-    expectMedicalMasked(medicalConditionBody(medicalRes.body()), fixture!.clear, assert)
+    expectElevenMasked(
+      person,
+      employeeBankBody(bankRes.body()),
+      medicalConditionBody(medicalRes.body()),
+      fixture!.clear,
+      assert
+    )
     expectNonSensitiveIntact(person, employeeRes.body().data.employee, assert)
   })
 
-  test('CA-2: owner sin slugs sensibles y switch OFF recibe las 11 en claro', async ({
+  test('CA-2: owner sin slugs sensibles y switch OFF recibe las 11 tapadas', async ({
     client,
     assert,
   }) => {
@@ -184,7 +183,7 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
         fixture!
       )
       expectNeverDenied(employeeRes, assert)
-      expectElevenClear(
+      expectElevenMasked(
         employeePerson(employeeRes.body()),
         employeeBankBody(bankRes.body()),
         medicalConditionBody(medicalRes.body()),
@@ -197,7 +196,7 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
     }
   })
 
-  test('CA-2: root sin slugs sensibles y switch OFF recibe las 11 en claro', async ({
+  test('CA-2: root sin slugs sensibles y switch OFF recibe las 11 tapadas', async ({
     client,
     assert,
   }) => {
@@ -214,7 +213,7 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
         fixture!
       )
       expectNeverDenied(employeeRes, assert)
-      expectElevenClear(
+      expectElevenMasked(
         employeePerson(employeeRes.body()),
         employeeBankBody(bankRes.body()),
         medicalConditionBody(medicalRes.body()),
@@ -257,7 +256,7 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
     }
   })
 
-  test('CA-3: sensitive-salud-read destapa diagnóstico y notas; bitácora sin filas nuevas', async ({
+  test('CA-3: sensitive-salud-read deja salud tapada en GET; bitácora sin filas nuevas', async ({
     client,
     assert,
   }) => {
@@ -274,14 +273,13 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
     expectNeverDenied(employeeRes, assert)
     expectNeverDenied(bankRes, assert)
     expectNeverDenied(medicalRes, assert)
-    expectMedicalClear(medicalConditionBody(medicalRes.body()), fixture!.clear, assert)
-    expectPersonContactoMasked(employeePerson(employeeRes.body()), fixture!.clear, assert)
-    expectPersonIdentificacionMasked(
+    expectElevenMasked(
       employeePerson(employeeRes.body()),
+      employeeBankBody(bankRes.body()),
+      medicalConditionBody(medicalRes.body()),
       fixture!.clear,
       assert
     )
-    expectBankMasked(employeeBankBody(bankRes.body()), fixture!.clear, assert)
     const after = await PiiAccessLog.query().where(
       'accessorUserId',
       actor!.user.userId
@@ -305,8 +303,8 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
       const response = await client.get('/api/auth/session').loginAs(actor!.user)
       expectNeverDenied(response, assert)
       const person = sessionPerson(response.body())
-      assert.equal(person.personEmail, maskSensitiveValue(actorEmail, 'contacto'))
-      assert.equal(person.personPhone, maskSensitiveValue(fixture!.clear.phone, 'contacto'))
+      assert.equal(person.personEmail, maskSensitiveValue(actorEmail))
+      assert.equal(person.personPhone, maskSensitiveValue(fixture!.clear.phone))
     } finally {
       actor!.person.personEmail = originalEmail
       actor!.person.personPhone = originalPhone
@@ -314,7 +312,7 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
     }
   })
 
-  test('GET /api/persons/:id con contacto destapa correo y teléfonos del colaborador', async ({
+  test('GET /api/persons/:id con contacto sigue entregando contacto e identificación tapados', async ({
     client,
     assert,
   }) => {
@@ -325,7 +323,8 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
       .header('X-Business-Unit-Id', buHeader(actor!))
     expectNeverDenied(response, assert)
     const person = personShowBody(response.body())
-    expectContactoClearIdentificacionMasked(person, fixture!.clear, assert)
+    expectPersonContactoMasked(person, fixture!.clear, assert)
+    expectPersonIdentificacionMasked(person, fixture!.clear, assert)
   })
 
   test('CA-8: las lookups de roles y grants no crecen con el N de empleados del listado', async ({
@@ -351,7 +350,8 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
     const second = await createSensitiveFixture(
       actor!.businessUnit.businessUnitId,
       'sens-ca8',
-      fixture!.searchToken
+      fixture!.searchToken,
+      { curp: 'ABCD123456MDFABC02', rfc: 'VACW850312J96', nss: '12345678902' }
     )
     try {
       const two = await withSqlLog(() => list())
@@ -370,10 +370,10 @@ test.group('Lectura sensible por categoría — HTTP', (group) => {
         listed && typeof listed.person === 'object' && listed.person
           ? (listed.person as Record<string, unknown>)
           : {}
-      assert.equal(listedPerson.personEmail, fixture!.clear.email)
+      assert.equal(listedPerson.personEmail, maskSensitiveValue(fixture!.clear.email))
       assert.equal(
         listedPerson.personCurp,
-        maskSensitiveValue(fixture!.clear.curp, 'identificacion')
+        maskSensitiveValue(fixture!.clear.curp)
       )
     } finally {
       await cleanupSensitiveFixture(second)

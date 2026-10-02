@@ -5,11 +5,28 @@
     "outDir": "./build",
     "baseUrl": "./",
     "paths": {
-      "#models/*": ["./app/models/*"],
+      "#abilities/*": ["./app/abilities/*"],
+      "#config/*": ["./config/*"],
       "#constants/*": ["./app/constants/*"],
-      "#utils/*": ["./app/utils/*"],
+      "#controllers/*": ["./app/controllers/*"],
+      "#database/*": ["./database/*"],
+      "#dtos/*": ["./app/dtos/*"],
+      "#events/*": ["./app/events/*"],
+      "#exceptions/*": ["./app/exceptions/*"],
+      "#helpers/*": ["./app/helpers/*"],
+      "#listeners/*": ["./app/listeners/*"],
+      "#mails/*": ["./app/mails/*"],
+      "#middleware/*": ["./app/middleware/*"],
       "#mixins/*": ["./app/mixins/*"],
-      "#modules/*": ["./app/modules/*"]
+      "#models/*": ["./app/models/*"],
+      "#modules/*": ["./app/modules/*"],
+      "#policies/*": ["./app/policies/*"],
+      "#providers/*": ["./providers/*"],
+      "#services/*": ["./app/services/*"],
+      "#start/*": ["./start/*"],
+      "#tests/*": ["./tests/*"],
+      "#utils/*": ["./app/utils/*"],
+      "#validators/*": ["./app/validators/*"]
     }
   },
   "exclude": ["database/seeders/_tmp_do_not_commit_qa_seeder.ts", "__TO_DELETE__"]

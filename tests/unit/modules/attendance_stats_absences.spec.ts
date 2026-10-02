@@ -138,6 +138,7 @@ function buildBundle(params: {
   return {
     employee: {
       employeeId: params.employeeId,
+      employeeSlug: `slug-${params.employeeId}`,
       employeeCode: null,
       employeePayrollCode: null,
       employeeFirstName: params.firstName,
@@ -160,6 +161,7 @@ function buildBundle(params: {
       businessUnit: null,
     },
     departmentName,
+    timeZone: 'America/Mexico_City',
     calendar: params.calendar,
   }
 }
@@ -591,10 +593,10 @@ test.group('Attendance-stats — motor único de ausencias por día con sucursal
     })
 
     assert.deepEqual(response.employees, [
-      { employeeId: 1, firstName: 'Ana', lastName: 'López', secondLastName: 'Díaz', photo: 'fotos/1.jpg', positionName: 'Vigilante', departmentId: 3, departmentName: 'Ops' },
-      { employeeId: 2, firstName: 'Beto', lastName: null, secondLastName: null, photo: null, positionName: null, departmentId: null, departmentName: null },
-      { employeeId: 3, firstName: 'Carla', lastName: 'Prueba', secondLastName: null, photo: null, positionName: 'Cajera', departmentId: 1, departmentName: 'Ventas' },
-      { employeeId: 4, firstName: '', lastName: 'Zeta', secondLastName: null, photo: null, positionName: null, departmentId: 1, departmentName: null },
+      { employeeId: 1, employeeSlug: 'slug-1', firstName: 'Ana', lastName: 'López', secondLastName: 'Díaz', photo: 'fotos/1.jpg', positionName: 'Vigilante', departmentId: 3, departmentName: 'Ops' },
+      { employeeId: 2, employeeSlug: 'slug-2', firstName: 'Beto', lastName: null, secondLastName: null, photo: null, positionName: null, departmentId: null, departmentName: null },
+      { employeeId: 3, employeeSlug: 'slug-3', firstName: 'Carla', lastName: 'Prueba', secondLastName: null, photo: null, positionName: 'Cajera', departmentId: 1, departmentName: 'Ventas' },
+      { employeeId: 4, employeeSlug: 'slug-4', firstName: '', lastName: 'Zeta', secondLastName: null, photo: null, positionName: null, departmentId: 1, departmentName: null },
     ])
   })
 
