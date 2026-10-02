@@ -13,10 +13,8 @@ import { PLATFORM_DEVICE_ERROR_CODES } from '#constants/platform_device_error_co
 import env from '#start/env'
 import { channelAddressOf, generateChannelSecret } from '#modules/adms/channel/channel_secret'
 import { PlatformDeviceServiceError } from '#exceptions/platform_device_service_error'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
-
-const UNSCOPED_REASON =
-  'reclamo de cuarentena: la fila no pertenece a ninguna empresa hasta que se asigna'
 
 export interface ClaimFromQuarantineInput {
   quarantinedDeviceId: number
@@ -188,7 +186,7 @@ export default class PlatformQuarantineClaimService {
     const existing = await TenantContext.runUnscoped(
       () =>
         AccessPoint.query().where('access_point_id', accessPointId).first(),
-      UNSCOPED_REASON
+      TENANT_UNSCOPED_REASON.PLATFORM_QUARANTINE_CLAIM
     )
     if (existing?.accessPointChannelSecret) return existing.accessPointChannelSecret
 
@@ -212,7 +210,7 @@ export default class PlatformQuarantineClaimService {
       point.accessPointChannelSecret = secret
       point.accessPointChannelSecretSetAt = now
       await point.save()
-    }, UNSCOPED_REASON)
+    }, TENANT_UNSCOPED_REASON.PLATFORM_QUARANTINE_CLAIM)
     return secret
   }
 
@@ -262,7 +260,7 @@ export default class PlatformQuarantineClaimService {
         AdmsQuarantinedDevice.query()
           .where('adms_quarantined_device_id', quarantinedDeviceId)
           .first(),
-      UNSCOPED_REASON
+      TENANT_UNSCOPED_REASON.PLATFORM_QUARANTINE_CLAIM
     )
     if (!row) {
       throw new PlatformDeviceServiceError(
@@ -297,7 +295,7 @@ export default class PlatformQuarantineClaimService {
           .where('business_unit_public_id', tenantPublicId)
           .whereNull('business_unit_deleted_at')
           .first(),
-      UNSCOPED_REASON
+      TENANT_UNSCOPED_REASON.PLATFORM_QUARANTINE_CLAIM
     )
     if (tenant) return tenant
     throw new PlatformDeviceServiceError(
@@ -359,7 +357,7 @@ export default class PlatformQuarantineClaimService {
       dead.accessPointActive = 1
       await dead.save()
       return previous
-    }, UNSCOPED_REASON)
+    }, TENANT_UNSCOPED_REASON.PLATFORM_QUARANTINE_CLAIM)
   }
 
   /**
@@ -381,7 +379,7 @@ export default class PlatformQuarantineClaimService {
         row.deletedAt = revived.deletedAt
         row.accessPointActive = revived.active
         await row.save()
-      }, UNSCOPED_REASON)
+      }, TENANT_UNSCOPED_REASON.PLATFORM_QUARANTINE_CLAIM)
     } catch (error) {
       logger.error(
         {
@@ -491,6 +489,6 @@ export default class PlatformQuarantineClaimService {
       row.admsQuarantinedDeviceResolvedByUserId = userId
       row.admsQuarantinedDeviceResolvedAt = now
       await row.save()
-    }, UNSCOPED_REASON)
+    }, TENANT_UNSCOPED_REASON.PLATFORM_QUARANTINE_CLAIM)
   }
 }

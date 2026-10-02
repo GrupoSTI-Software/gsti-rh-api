@@ -1,5 +1,7 @@
 import { BILLING_CATALOG_ERROR_CODES } from '../constants/billing_catalog_error_codes.js'
 import { BillingCatalogServiceError } from '../exceptions/billing_catalog_service_error.js'
+import { BillingProviderServiceError } from '../exceptions/billing_provider_service_error.js'
+import { resolveBillingProviderApiError } from './billing_provider_api_error.js'
 
 export type ResolvedBillingCatalogError = {
   title: string
@@ -38,6 +40,10 @@ export function resolveBillingCatalogApiError(
       code: error.errorCode,
       status: error.httpStatus,
     }
+  }
+
+  if (error instanceof BillingProviderServiceError) {
+    return resolveBillingProviderApiError(error)
   }
 
   return {

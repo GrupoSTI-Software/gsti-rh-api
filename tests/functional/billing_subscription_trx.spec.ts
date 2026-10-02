@@ -124,6 +124,49 @@ test.group('BillingSubscriptionService.createSubscription — trx compartida (CA
 
     await cleanupPlan(planId)
   })
+
+  test('CA-5: proveedor sin adaptador revierte la trx del llamador', async ({ assert }) => {
+    const stamp = Date.now() + 99
+    const planId = await createPublishedPlan(stamp)
+    const price = await BillingPlanPrice.query().where('billing_plan_id', planId).firstOrFail()
+    price.billingPlanPriceProvider = 'desconocido'
+    await price.save()
+
+    const service = new BillingSubscriptionService()
+    let businessUnitId: number | null = null
+
+    try {
+      await db.transaction(async (trx) => {
+        const businessUnit = new BusinessUnit()
+        businessUnit.businessUnitName = `Provider Trx BU ${stamp}`
+        businessUnit.businessUnitSlug = `provider-trx-bu-${stamp}`
+        businessUnit.businessUnitLegalName = `Provider Trx Legal ${stamp}`
+        businessUnit.businessUnitActive = 1
+        businessUnit.useTransaction(trx)
+        await businessUnit.save()
+        businessUnitId = businessUnit.businessUnitId
+
+        await service.createSubscription(
+          {
+            businessUnitPublicId: businessUnit.businessUnitPublicId,
+            billingPlanId: planId,
+            contractedEmployees: 20,
+          },
+          trx
+        )
+      })
+      assert.fail('debió abortar la transacción')
+    } catch (error) {
+      assert.notEqual((error as Error).message, 'rollback-intencional')
+    }
+
+    const subscriptions = await BillingSubscription.query().where('business_unit_id', businessUnitId!)
+    assert.lengthOf(subscriptions, 0)
+    const businessUnit = await BusinessUnit.find(businessUnitId!)
+    assert.isNull(businessUnit)
+
+    await cleanupPlan(planId)
+  })
 })
 
 test.group('BillingSubscriptionService.createSubscription — skipTrial (USRH1785441822058)', () => {

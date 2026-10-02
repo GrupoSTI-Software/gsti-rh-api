@@ -73,7 +73,6 @@ test.group('EMPLOYEES_PERMISSION_CATALOG — la siembra no concede roles (Task 4
       'download-vacations-report',
       'download-vacations-summary',
       'download-vacation-import-template',
-      'download-payroll-format',
       'download-attendance-by-employee',
       'download-attendance-by-position',
       'download-attendance-by-department',

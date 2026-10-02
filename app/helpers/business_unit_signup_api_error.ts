@@ -1,5 +1,7 @@
 import { BusinessUnitSignupServiceError } from '../exceptions/business_unit_signup_service_error.js'
+import { BillingProviderServiceError } from '../exceptions/billing_provider_service_error.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
+import { resolveBillingProviderApiError } from './billing_provider_api_error.js'
 import { SignupServiceError } from '../exceptions/signup_service_error.js'
 import { BUSINESS_UNIT_SIGNUP_ERRORS } from '../constants/business_unit_signup_error_codes.js'
 
@@ -56,6 +58,17 @@ export function resolveAdditionalBusinessUnitApiError(
       key: error.key ?? error.errorCode,
       code: error.errorCode,
       status: error.httpStatus,
+    }
+  }
+
+  if (error instanceof BillingProviderServiceError) {
+    const resolved = resolveBillingProviderApiError(error)
+    return {
+      title: resolved.title,
+      detail: resolved.detail,
+      key: resolved.key,
+      code: resolved.code,
+      status: resolved.status,
     }
   }
 

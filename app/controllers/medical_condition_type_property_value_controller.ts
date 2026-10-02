@@ -6,6 +6,10 @@ import {
   createMedicalConditionTypePropertyValueValidator,
   updateMedicalConditionTypePropertyValueValidator,
 } from '#validators/medical_condition_type_property_value'
+import {
+  isSensitiveDataWriteError,
+  respondSensitiveDataWriteDenial,
+} from '#helpers/sensitive_data_write_api_error'
 
 export default class MedicalConditionTypePropertyValueController {
   /**
@@ -112,7 +116,8 @@ export default class MedicalConditionTypePropertyValueController {
    *         description: Unexpected error
    */
   @inject()
-  async store({ request, response }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const medicalConditionTypePropertyValueService = new MedicalConditionTypePropertyValueService()
       let inputs = request.all()
@@ -147,6 +152,7 @@ export default class MedicalConditionTypePropertyValueController {
         data: { medicalConditionTypePropertyValue: newMedicalConditionTypePropertyValue },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (error.code === 'E_VALIDATION_ERROR') {
         response.status(422)
         return {
@@ -214,7 +220,8 @@ export default class MedicalConditionTypePropertyValueController {
    *         description: Unexpected error
    */
   @inject()
-  async update({ request, response }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const medicalConditionTypePropertyValueService = new MedicalConditionTypePropertyValueService()
       let inputs = request.all()
@@ -279,6 +286,7 @@ export default class MedicalConditionTypePropertyValueController {
         data: { medicalConditionTypePropertyValue: updateMedicalConditionTypePropertyValue },
       }
     } catch (error) {
+      if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (error.code === 'E_VALIDATION_ERROR') {
         response.status(422)
         return {

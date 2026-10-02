@@ -1,0 +1,34 @@
+---
+description: Reglas base de valanserh-api. Fuente única en .claude/rules/; este archivo solo apunta.
+alwaysApply: true
+---
+
+# valanserh-api — reglas base
+
+Las reglas viven UNA sola vez en `.claude/rules/`. No las copies aquí ni en ningún otro lado.
+
+@.claude/rules/design-principles.md
+@.claude/rules/higiene-repo.md
+@.claude/rules/idioma.md
+@.cursorrules
+
+Si por alguna razón no ves el contenido de esos archivos, **léelos con la herramienta de
+lectura antes de responder**. No improvises la regla.
+
+## Lo que más se rompe
+
+El catálogo de módulos, grupos y permisos tiene una sola fuente:
+`app/constants/system_modules_menu/system_modules.constant.ts`.
+
+No crees archivos nuevos que enumeren módulos o permisos. No siembres catálogo desde
+migraciones. No escribas ids ni slugs a mano. La regla completa está en
+`.claude/rules/catalogo-modulos-permisos.md` y se activa sola al tocar los directorios
+involucrados.
+
+## Antes de dar por terminado un cambio
+
+```
+node ace test unit --files="constants/"
+```
+
+Corre en `pre-push` y en CI. No es opcional.

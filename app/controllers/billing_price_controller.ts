@@ -93,12 +93,6 @@ export default class BillingPriceController {
    *                 type: string
    *                 format: date
    *                 description: Fecha YYYY-MM-DD desde la que aplica este precio
-   *               billingPlanPriceStripePriceId:
-   *                 type: string
-   *                 nullable: true
-   *               billingPlanPriceProvider:
-   *                 type: string
-   *                 default: manual
    *     responses:
    *       '201':
    *         description: Versión de precio creada
@@ -116,6 +110,54 @@ export default class BillingPriceController {
       const data = await request.validateUsing(createBillingPriceValidator)
       const price = await this.service.addPrice(Number(params.planId), data)
       return response.status(201).json({ type: 'success', data: price })
+    } catch (error) {
+      const { status, ...body } = resolveBillingCatalogApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/platform/billing/plans/{planId}/prices/{priceId}/link-stripe:
+   *   post:
+   *     tags:
+   *       - Platform Billing
+   *     summary: Vincular versión de precio con Stripe (producto del plan y precio base)
+   *     description: >
+   *       Crea o reutiliza el producto Stripe del plan y el precio base mensual (monto 0)
+   *       de la versión. Ignora el cuerpo de la petición. Requiere consola de plataforma.
+   *     security:
+   *       - bearerAuth: []
+   *     parameters:
+   *       - in: path
+   *         name: planId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *       - in: path
+   *         name: priceId
+   *         required: true
+   *         schema:
+   *           type: integer
+   *     responses:
+   *       '200':
+   *         description: Versión vinculada o ya vinculada (`alreadyLinked`)
+   *       '404':
+   *         description: Plan o versión no encontrados
+   *       '422':
+   *         description: Plan retirado o versión sustituida
+   *       '409':
+   *         description: Datos de vinculación inconsistentes
+   *       '500':
+   *         description: Stripe no configurado o fallo del proveedor
+   */
+  async linkStripe({ params, response }: HttpContext) {
+    try {
+      const data = await this.service.linkPriceToStripe(
+        Number(params.planId),
+        Number(params.priceId)
+      )
+      return response.status(200).json({ type: 'success', data })
     } catch (error) {
       const { status, ...body } = resolveBillingCatalogApiError(error)
       return response.status(status).json(body)

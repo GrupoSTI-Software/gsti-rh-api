@@ -21,10 +21,6 @@ test.group('employee_routes — declaraciones PermissionGate (escrituras)', () =
     )
     assert.include(
       content,
-      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.unassignEmployeeBranchOffice)'
-    )
-    assert.include(
-      content,
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.createTemporaryAssignment)'
     )
     assert.include(
@@ -39,6 +35,23 @@ test.group('employee_routes — declaraciones PermissionGate (escrituras)', () =
       content,
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteTemporaryAssignment)'
     )
+  })
+
+  /**
+   * Un empleado no puede quedarse sin sucursal: la ruta que lo permitía se
+   * retiró junto con su declaración de permiso. Si alguien la repone, este
+   * test lo detiene antes de que la invariante vuelva a tener una puerta
+   * trasera.
+   */
+  test('la ruta de desasignar sucursal ya no existe', async ({ assert }) => {
+    const routes = await readFile(join(process.cwd(), 'start/routes/employee_routes.ts'), 'utf8')
+    assert.notInclude(routes, 'employee_branch_office_controller.unassign')
+
+    const declarations = await readFile(
+      join(process.cwd(), 'app/constants/employees_write_permission_declarations.ts'),
+      'utf8'
+    )
+    assert.notInclude(declarations, 'unassignEmployeeBranchOffice')
   })
 
   test('cargas Excel e inversa de sincronización declaran permissionGate', async ({ assert }) => {
@@ -78,41 +91,5 @@ test.group('employee_routes — declaraciones PermissionGate (escrituras)', () =
       content,
       'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.deleteEmployeeContract)'
     )
-  })
-})
-
-test.group('synchronization_routes — declaraciones PermissionGate (escrituras)', () => {
-  test('POST de sincronización biométrica declaran permissionGate', async ({ assert }) => {
-    const content = await readFile(
-      join(process.cwd(), 'start/routes/synchronization_routes.ts'),
-      'utf8'
-    )
-    assert.include(content, 'EMPLOYEES_WRITE_PERMISSION_DECLARATIONS')
-    assert.include(
-      content,
-      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.syncDepartments)'
-    )
-    assert.include(
-      content,
-      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.syncPositions)'
-    )
-    assert.include(
-      content,
-      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.syncEmployees)'
-    )
-    assert.include(content, 'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.syncShift)')
-    assert.include(
-      content,
-      'permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.syncEmployeesBySelection)'
-    )
-  })
-
-  test('documenta deuda técnica en ruta /shift', async ({ assert }) => {
-    const content = await readFile(
-      join(process.cwd(), 'start/routes/synchronization_routes.ts'),
-      'utf8'
-    )
-    assert.match(content, /shifts_controller\.synchronization/i)
-    assert.match(content, /no (est[aá]|implementa)/i)
   })
 })

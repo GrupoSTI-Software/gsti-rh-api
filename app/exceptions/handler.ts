@@ -23,6 +23,11 @@ import {
   respondAuthLoginRateLimit,
 } from '../helpers/auth_login_request_errors.js'
 import {
+  isLegalDocumentPublicPath,
+  isLegalDocumentPublicRateLimitError,
+  respondLegalDocumentPublicRateLimit,
+} from '../helpers/legal_document_public_request_errors.js'
+import {
   isAuthInvitationPath,
   isAuthInvitationRateLimitError,
   respondAuthInvitationRateLimit,
@@ -32,6 +37,11 @@ import {
   isAdditionalBusinessUnitRateLimitError,
   respondAdditionalBusinessUnitRateLimit,
 } from '../helpers/business_unit_request_errors.js'
+import {
+  isPersonWritePath,
+  isPersonWriteRateLimitError,
+  respondPersonWriteRateLimit,
+} from '../helpers/person_email_request_errors.js'
 import { isFileIntakeError, respondFileIntakeError } from '../helpers/file_intake_api_error.js'
 import { isAdmsChannelUrl } from '#constants/adms_channel'
 
@@ -113,6 +123,13 @@ export default class HttpExceptionHandler extends ExceptionHandler {
       return respondAuthLoginRateLimit(ctx, error)
     }
 
+    if (
+      isLegalDocumentPublicRateLimitError(error) &&
+      isLegalDocumentPublicPath(ctx.request.url())
+    ) {
+      return respondLegalDocumentPublicRateLimit(ctx, error)
+    }
+
     if (isAuthInvitationRateLimitError(error) && isAuthInvitationPath(ctx.request.url())) {
       return respondAuthInvitationRateLimit(ctx, error)
     }
@@ -122,6 +139,10 @@ export default class HttpExceptionHandler extends ExceptionHandler {
       isAdditionalBusinessUnitCreatePath(ctx.request.url())
     ) {
       return respondAdditionalBusinessUnitRateLimit(ctx, error)
+    }
+
+    if (isPersonWriteRateLimitError(error) && isPersonWritePath(ctx.request.url())) {
+      return respondPersonWriteRateLimit(ctx, error)
     }
 
     return super.handle(error, ctx)

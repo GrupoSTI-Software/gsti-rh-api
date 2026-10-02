@@ -2,7 +2,9 @@ import { BILLING_SUBSCRIPTION_ERROR_CODES } from '../constants/billing_subscript
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
 import { DiscountCodeServiceError } from '../exceptions/discount_code_service_error.js'
 import { AllianceServiceError } from '../exceptions/alliance_service_error.js'
+import { BillingProviderServiceError } from '../exceptions/billing_provider_service_error.js'
 import { resolveAllianceApiError } from './alliance_api_error.js'
+import { resolveBillingProviderApiError } from './billing_provider_api_error.js'
 import { resolveDiscountCodeApiError } from './discount_code_api_error.js'
 
 export type ResolvedBillingSubscriptionError = {
@@ -48,6 +50,10 @@ export function resolveBillingSubscriptionApiError(
       resolved.data = error.data
     }
     return resolved
+  }
+
+  if (error instanceof BillingProviderServiceError) {
+    return resolveBillingProviderApiError(error)
   }
 
   // Delegación (USRH1787714804401 §4/Anexo C §4): un código no canjeable

@@ -118,7 +118,6 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
       'download-vacations-report',
       'download-vacations-summary',
       'download-vacation-import-template',
-      'download-payroll-format',
       'download-attendance-by-employee',
       'download-attendance-by-position',
       'download-attendance-by-department',
@@ -186,12 +185,6 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
       {
         slug: 'download-vacation-import-template',
         displayName: 'Descargar plantilla de importación de vacaciones',
-        kind: 'read',
-        section: 'descargas',
-      },
-      {
-        slug: 'download-payroll-format',
-        displayName: 'Descargar formato de nómina',
         kind: 'read',
         section: 'descargas',
       },
@@ -288,6 +281,20 @@ test.group('EMPLOYEES_PERMISSION_CATALOG granular (USRH1785766406722)', () => {
     const slugs = EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug)
     assert.equal(new Set(slugs).size, slugs.length)
     assert.doesNotThrow(() => validateCatalogIntegrity(SYSTEM_PERMISSION_CATALOG))
+  })
+
+  test('las lecturas sensitive-*-read no heredan reveal-sensitive-data', ({ assert }) => {
+    for (const slug of [
+      'sensitive-identificacion-read',
+      'sensitive-contacto-read',
+      'sensitive-financiero-read',
+      'sensitive-salud-read',
+      'sensitive-biometrico-read',
+    ]) {
+      const action = EMPLOYEES_PERMISSION_CATALOG.find((a) => a.slug === slug)
+      assert.exists(action, slug)
+      assert.isUndefined(action!.legacyEquivalence)
+    }
   })
 
   test('declara manage-employee-supplies en expediente, independiente de manage-files', ({

@@ -23,6 +23,7 @@ import {
 } from '../helpers/business_unit_signup_errors.js'
 import { toCalendarIsoDate, toBusinessDateString } from '../utils/business_date.js'
 import TenantRoleProvisioningService from '#services/tenant_role_provisioning_service'
+import BranchOfficeProvisioningService from '#services/branch_office_provisioning_service'
 import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
 
 // ---------------------------------------------------------------------------
@@ -189,6 +190,10 @@ export default class AdditionalBusinessUnitService {
             },
             trx
           )
+
+          // 3.4d-bis Sucursal default de la empresa nueva: mismo criterio que el
+          // alta self-service. Sin ella, su primer empleado nacería sin destino.
+          await BranchOfficeProvisioningService.ensureDefault(newBu.businessUnitId, trx)
 
           // 3.4e Suscripción — sin periodo de prueba (ADDITIONAL_BUSINESS_UNIT_SKIPS_TRIAL)
           const subscription = await subscriptionService.createSubscription(

@@ -19,6 +19,8 @@ export const CONTRATO_SERVICIO_ESPECIALIZADO_ERROR_CODES = {
   SERVICIOS_REGISTRADOS_REQUERIDOS: 'CSE.VAL.SERVICIOS.001',
   /** Algún id de servicio registrado no existe o es de otro tenant */
   SERVICIO_REGISTRADO_NOT_FOUND: 'CSE.NF.SERVICIO.001',
+  /** Servicio registrado inactivo que no estaba ya ligado al contrato */
+  SERVICIO_REGISTRADO_INACTIVO: 'CSE.VAL.SERVICIO.INACTIVO.001',
   /** Sin permiso sobre el módulo */
   FORBIDDEN: 'CSE.FORBID.001',
   /** Error no clasificado del dominio */

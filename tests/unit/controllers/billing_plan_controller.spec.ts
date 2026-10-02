@@ -1,5 +1,7 @@
 import { test } from '@japa/runner'
 import { HttpContext } from '@adonisjs/core/http'
+import BillingPlan from '#models/billing_plan'
+import { createBillingPlanValidator, updateBillingPlanValidator } from '#validators/billing_plan'
 import BillingPlanController from '../../../app/controllers/billing_plan_controller.js'
 
 // ---------------------------------------------------------------------------
@@ -765,5 +767,68 @@ test.group('BillingPlanController.unmarkPublic — quitar señal de plan públic
 
     assert.equal(captured.status, 404)
     assert.equal(captured.body?.code, 'PLT.CAT.PLAN_NOT_FOUND')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// USRH1790712873743 — mass assignment cerrado (CA-3)
+// ---------------------------------------------------------------------------
+
+test.group('BillingPlanController — campos Stripe descartados (3743 / CA-3)', () => {
+  test('store pasa al servicio solo nombre y descripción', async ({ assert }) => {
+    let captured: Record<string, unknown> | null = null
+    const controller = new BillingPlanController()
+    ;(controller as unknown as { service: { createPlan: (input: unknown) => Promise<BillingPlan> } }).service =
+      {
+        async createPlan(input) {
+          captured = input as Record<string, unknown>
+          return { billingPlanId: 1 } as BillingPlan
+        },
+      }
+
+    const body = {
+      billingPlanName: 'Plan X',
+      billingPlanProvider: 'stripe',
+      billingPlanStripeProductId: 'prod_evil',
+    }
+    const { response, captured: http } = makeResponse()
+    await controller.store({
+      request: {
+        async validateUsing(validator: typeof createBillingPlanValidator) {
+          return validator.validate(body)
+        },
+      },
+      response,
+    } as unknown as HttpContext)
+
+    assert.equal(http.status, 201)
+    assert.deepEqual(captured, { billingPlanName: 'Plan X' })
+  })
+
+  test('update pasa al servicio sin producto Stripe', async ({ assert }) => {
+    let captured: Record<string, unknown> | null = null
+    const controller = new BillingPlanController()
+    ;(controller as unknown as { service: { updatePlan: (id: number, input: unknown) => Promise<BillingPlan> } }).service =
+      {
+        async updatePlan(_planId, input) {
+          captured = input as Record<string, unknown>
+          return { billingPlanId: 1 } as BillingPlan
+        },
+      }
+
+    const body = { billingPlanDescription: 'nueva', billingPlanStripeProductId: 'prod_evil' }
+    const { response, captured: http } = makeResponse()
+    await controller.update({
+      params: { planId: '1' },
+      request: {
+        async validateUsing(validator: typeof updateBillingPlanValidator) {
+          return validator.validate(body)
+        },
+      },
+      response,
+    } as unknown as HttpContext)
+
+    assert.equal(http.status, 200)
+    assert.deepEqual(captured, { billingPlanDescription: 'nueva' })
   })
 })

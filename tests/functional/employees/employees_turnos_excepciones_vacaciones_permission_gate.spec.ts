@@ -6,6 +6,9 @@ import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import Employee from '#models/employee'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import EmployeeShift from '#models/employee_shift'
 import ExceptionRequest from '#models/exception_request'
 import ExceptionType from '#models/exception_type'
@@ -194,6 +197,7 @@ async function createEmployeeFixture(
   })
   const positionId = Number(positionInsert[0])
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: 'Empleado',
@@ -201,6 +205,7 @@ async function createEmployeeFixture(
     employee_second_last_name: prefix,
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     department_id: departmentId,
     position_id: positionId,
     person_id: person.personId,
@@ -228,7 +233,10 @@ async function createEmployeeFixture(
   })
   const shiftId = Number(shiftInsert[0])
   return {
-    employee: await Employee.findOrFail(employeeId),
+    employee: await TenantContext.runUnscoped(
+      () => Employee.findOrFail(employeeId),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    ),
     person,
     departmentId,
     positionId,

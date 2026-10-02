@@ -21,12 +21,14 @@ export interface LegalDocumentPublishedByDto {
 }
 
 /**
- * Forma administrativa de una versión (gestión reservada a `root`).
+ * Forma administrativa de una versión (gestión reservada a usuarios de plataforma
+ * con token de la consola — USRH1790610965394).
  *
  * A diferencia de `LegalDocumentDto`, expone el contenido completo por idioma
  * (`content: { es, en }`, no resuelto a un solo locale) y los metadatos de
  * auditoría (`publishedBy`), necesarios para el histórico y el detalle de
- * gestión. Nunca se devuelve a un usuario no-root (lo garantiza el controller).
+ * gestión. Solo se devuelve bajo el guard `[auth, platformAdmin]` del grupo de
+ * rutas `start/routes/platform_legal_document_routes.ts`.
  */
 export interface LegalDocumentAdminDto {
   id: number

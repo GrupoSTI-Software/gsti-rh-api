@@ -8,6 +8,11 @@ import {
   changeInconsistentSnapshotError,
 } from '../../../app/helpers/billing_payment_error.js'
 import { resolveBillingPaymentApiError } from '../../../app/helpers/billing_payment_api_error.js'
+import {
+  BILLING_PROVIDER_ADAPTER_NOT_REGISTERED_DETAIL,
+  BILLING_PROVIDER_ERROR_CODES,
+} from '../../../app/constants/billing_provider_error_codes.js'
+import { BillingProviderServiceError } from '../../../app/exceptions/billing_provider_service_error.js'
 import { RECEIPT_MAX_BYTES, RECEIPT_ALLOWED_MIMES } from '../../../app/validators/billing_payment.js'
 
 // ─── Constantes de cotas (espejo del servicio para tests) ─────────────────────
@@ -217,6 +222,27 @@ test.group('resolveBillingPaymentApiError — mapeo de errores a HTTP', () => {
     )
     const resolved = resolveBillingPaymentApiError(error)
     assert.deepEqual(resolved.data, { activeEmployees: 73, minimumContractedEmployees: 80 })
+  })
+
+  test('BillingProviderServiceError se delega sin eco del message (USRH1790712872597 / CA-9)', ({
+    assert,
+  }) => {
+    const error = new BillingProviderServiceError(
+      'Proveedor de cobro sin adaptador: desconocido',
+      BILLING_PROVIDER_ERROR_CODES.ADAPTER_NOT_REGISTERED,
+      500,
+      'proveedor-de-cobro-no-soportado',
+      BILLING_PROVIDER_ADAPTER_NOT_REGISTERED_DETAIL
+    )
+    const resolved = resolveBillingPaymentApiError(error)
+    assert.deepEqual(resolved, {
+      title: 'Proveedor de cobro',
+      detail: BILLING_PROVIDER_ADAPTER_NOT_REGISTERED_DETAIL,
+      key: 'proveedor-de-cobro-no-soportado',
+      code: 'PLT.PRV.ADAPTER_NOT_REGISTERED',
+      status: 500,
+    })
+    assert.notEqual(resolved.detail, error.message)
   })
 })
 

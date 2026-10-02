@@ -9,6 +9,14 @@ import {
 import type { DeviceCommandRepository } from '#modules/device-commands/device_command.repository'
 import type DeviceCommand from '#models/device_command'
 import type { PhotoDispatchPort } from '#modules/biometric-vault/photo/photo_dispatch.port'
+import type { DeviceProfileRepository } from '#modules/access-point/device-profile/device_profile.repository'
+
+/** Equipo que aun no manda `options`: el acuse guarda contadores en `null`. */
+const NO_PROFILE = {
+  async findByAccessPoint() {
+    return null
+  },
+} as unknown as DeviceProfileRepository
 
 const NOW = DateTime.fromISO('2026-09-07T12:00:00Z')
 
@@ -198,6 +206,10 @@ test.group('Despacho de comandos', () => {
       async refreshForDispatch() {
         return null
       },
+      async wasDownloaded() {
+        return false
+      },
+      async closeAfterDelivery() {},
     } as unknown as PhotoDispatchPort
     const service = new CommandDispatchService(repository, undefined, photos)
     const line = await service.next({ accessPointId: 12, now: NOW, ipAnomalyOpen: false, hotSession: true })
@@ -250,7 +262,7 @@ test.group('Acuse de comandos', () => {
       deviceCommandStatus: DEVICE_COMMAND_STATUS.SENT,
     })
     const { repository, saved } = makeRepository({ byWireId: command })
-    const service = new CommandAckService(repository)
+    const service = new CommandAckService(repository, undefined, NO_PROFILE)
     const outcome = await service.apply({
       accessPointId: 12,
       body: 'ID=1788912000000&Return=0&CMD=DATA',
@@ -260,6 +272,74 @@ test.group('Acuse de comandos', () => {
     assert.equal(outcome.kind, 'applied')
     assert.equal(saved[0].deviceCommandStatus, 'acked')
     assert.isNull(saved[0].deviceCommandExecutedAt ?? null)
+  })
+
+  /**
+   * La foto la baja el equipo mientras procesa la orden y acusa despues: si la
+   * descarga consta, el acuse cierra el comando. Sin esto todos los envios de
+   * foto acababan en `failed no_evidence` aunque la cara estuviera dentro.
+   */
+  test('la foto descargada antes del acuse deja el comando ejecutado y cierra el enlace', async ({
+    assert,
+  }) => {
+    const command = commandOf({
+      deviceCommandKind: DEVICE_COMMAND_KIND.BIOPHOTO_WRITE,
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.SENT,
+      biometricPhotoPublicationId: 7,
+    })
+    const { repository, saved } = makeRepository({ byWireId: command })
+    const closed: number[] = []
+    const photos = {
+      async refreshForDispatch() {
+        return null
+      },
+      async wasDownloaded() {
+        return true
+      },
+      async closeAfterDelivery(target: DeviceCommand) {
+        closed.push(target.biometricPhotoPublicationId ?? 0)
+      },
+    } as unknown as PhotoDispatchPort
+    const service = new CommandAckService(repository, undefined, undefined, undefined, photos)
+    await service.apply({ accessPointId: 12, body: 'ID=1788912000000&Return=0&CMD=DATA', now: NOW })
+
+    assert.equal(saved[0].deviceCommandStatus, 'executed')
+    assert.equal(saved[0].deviceCommandExecutionEvidence, 'photo_downloaded')
+    assert.deepEqual(closed, [7])
+  })
+
+  test('un acuse de foto sin descarga se queda acusado esperando prueba', async ({ assert }) => {
+    const command = commandOf({
+      deviceCommandKind: DEVICE_COMMAND_KIND.BIOPHOTO_WRITE,
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.SENT,
+      biometricPhotoPublicationId: 7,
+    })
+    const { repository, saved } = makeRepository({ byWireId: command })
+    const photos = {
+      async wasDownloaded() {
+        return false
+      },
+      async closeAfterDelivery() {
+        throw new Error('no deberia cerrarse')
+      },
+    } as unknown as PhotoDispatchPort
+    const service = new CommandAckService(repository, undefined, NO_PROFILE, undefined, photos)
+    await service.apply({ accessPointId: 12, body: 'ID=1788912000000&Return=0&CMD=DATA', now: NOW })
+
+    assert.equal(saved[0].deviceCommandStatus, 'acked')
+  })
+
+  test('el borrado de la foto se da por hecho con el acuse', async ({ assert }) => {
+    const command = commandOf({
+      deviceCommandKind: DEVICE_COMMAND_KIND.BIOPHOTO_DELETE,
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.SENT,
+    })
+    const { repository, saved } = makeRepository({ byWireId: command })
+    const service = new CommandAckService(repository)
+    await service.apply({ accessPointId: 12, body: 'ID=1788912000000&Return=0&CMD=DATA', now: NOW })
+
+    assert.equal(saved[0].deviceCommandStatus, 'executed')
+    assert.equal(saved[0].deviceCommandExecutionEvidence, 'ack')
   })
 
   test('el alta de usuario si pasa a ejecutado al acusar', async ({ assert }) => {

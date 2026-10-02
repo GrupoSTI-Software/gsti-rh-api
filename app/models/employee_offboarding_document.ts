@@ -19,7 +19,7 @@ import User from '#models/user'
  *           type: integer
  *         employeeOffboardingDocumentType:
  *           type: string
- *           enum: [separation_letter]
+ *           enum: [separation_letter, termination_agreement]
  *         employeeOffboardingDocumentFolio:
  *           type: string
  *         employeeOffboardingDocumentFileName:
@@ -59,6 +59,10 @@ import User from '#models/user'
  *           type: integer
  *           nullable: true
  *           description: Versión de plantilla propia con la que salió; null = plantilla del sistema (USRH1789097550389).
+ *         employeeOffboardingDocumentTotalAmount:
+ *           type: string
+ *           nullable: true
+ *           description: Suma de los importes capturados tal como se imprimió en el convenio de terminación, con dos decimales (USRH1789097550395); null en toda constancia y en emisiones anteriores.
  *         employeeOffboardingDocumentCreatedAt:
  *           type: string
  *           format: date-time
@@ -141,6 +145,16 @@ export default class EmployeeOffboardingDocument extends compose(BaseModel, Soft
    */
   @column({ columnName: 'employee_offboarding_document_template_version_id' })
   declare employeeOffboardingDocumentTemplateVersionId: number | null
+
+  /**
+   * Suma de los importes capturados TAL COMO SE IMPRIMIÓ en el convenio de
+   * terminación (USRH1789097550395, regla 7). `string | null`: el driver
+   * devuelve `DECIMAL` como cadena y así viaja hasta el DTO, sin convertirla a
+   * `number` en ningún borde. `null` en toda constancia y en toda emisión
+   * anterior a esta historia.
+   */
+  @column({ columnName: 'employee_offboarding_document_total_amount' })
+  declare employeeOffboardingDocumentTotalAmount: string | null
 
   @column.dateTime({ autoCreate: true })
   declare employeeOffboardingDocumentCreatedAt: DateTime

@@ -1,4 +1,8 @@
 import { test } from '@japa/runner'
+import {
+  type ClockRunResult,
+  formatClockRunSummary,
+} from '#services/billing_subscription_clock_service'
 import { isBusinessCalendarDateBefore } from '../../../app/utils/business_date.js'
 
 // ─── Helpers de prueba ────────────────────────────────────────────────────────
@@ -246,11 +250,12 @@ test.group('BillingTickSubscriptions — R7: guard de entorno', () => {
   })
 
   test('ClockRunResult incluye contadores de reducción agendada (0859)', ({ assert }) => {
-    const result = {
+    const result: ClockRunResult = {
       businessDate: '2026-09-01',
       processed: 0,
       transitioned: 0,
       skipped: 0,
+      skippedByProvider: 0,
       details: [],
       changesApplied: 0,
       changesNotApplicable: 0,
@@ -262,6 +267,50 @@ test.group('BillingTickSubscriptions — R7: guard de entorno', () => {
     assert.property(result, 'changesNotApplicable')
     assert.property(result, 'failed')
     assert.property(result, 'changeDetails')
+    assert.property(result, 'skippedByProvider')
+  })
+})
+
+test.group('BillingSubscriptionClockService — resumen de corrida (7525)', () => {
+  test('CA-1: línea fin sin saltadas por proveedor (Regla 1)', ({ assert }) => {
+    const line = formatClockRunSummary({
+      businessDate: '2026-09-01',
+      processed: 7,
+      transitioned: 2,
+      skipped: 5,
+      skippedByProvider: 0,
+      details: [],
+      changesApplied: 3,
+      changesNotApplicable: 1,
+      failed: 4,
+      changeDetails: [],
+    })
+
+    assert.equal(
+      line,
+      'billing:tick-subscriptions — fin: corte=2026-09-01 evaluadas=7 transicionadas=2 sin cambio=5 reducciones_aplicadas=3 reducciones_no_aplicables=1 fallidas=4'
+    )
+    assert.notInclude(line, 'saltadas_por_proveedor')
+  })
+
+  test('CA-7: línea fin con saltadas_por_proveedor solo si hay alguna (Regla 7)', ({ assert }) => {
+    const line = formatClockRunSummary({
+      businessDate: '2026-09-01',
+      processed: 9,
+      transitioned: 2,
+      skipped: 5,
+      skippedByProvider: 2,
+      details: [],
+      changesApplied: 3,
+      changesNotApplicable: 1,
+      failed: 4,
+      changeDetails: [],
+    })
+
+    assert.equal(
+      line,
+      'billing:tick-subscriptions — fin: corte=2026-09-01 evaluadas=9 transicionadas=2 sin cambio=5 saltadas_por_proveedor=2 reducciones_aplicadas=3 reducciones_no_aplicables=1 fallidas=4'
+    )
   })
 })
 

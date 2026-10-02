@@ -1,19 +1,17 @@
 import { DateTime } from 'luxon'
 import { HttpContext } from '@adonisjs/core/http'
-import mail from '@adonisjs/mail/services/main'
-import env from '#start/env'
 import Employee from '#models/employee'
 import ExceptionRequest from '#models/exception_request'
 import ExceptionType from '#models/exception_type'
 import ShiftException from '#models/shift_exception'
-import User from '#models/user'
 import EmployeeService from '#services/employee_service'
+import {
+  assertVacationPeriodStarted,
+  resolveFutureVacationCutoff,
+} from '#modules/employee-vacations/future_vacation_guard'
+import ExceptionRequestNotificationService from '#services/exception_request_notification_service'
 import NotificationEmailService from '#services/notification_email_service'
 import ShiftExceptionService from '#services/shift_exception_service'
-import SystemSettingService from '#services/system_setting_service'
-import { SystemSettingResolutionError } from '#exceptions/system_setting_resolution_error'
-import { resolveMailSender } from '#helpers/resolve_mail_sender'
-import { resolveRequestBusinessUnitId } from '#helpers/resolve_request_business_unit_id'
 
 /** Resolución que se puede aplicar a una solicitud pendiente. */
 export type ExceptionRequestResolution = 'accepted' | 'refused'
@@ -43,6 +41,14 @@ export interface ResolveExceptionRequestParams {
   status: ExceptionRequestResolution
   /** Nota de la resolución; cadena vacía si no hay. */
   resolutionNote: string
+  /**
+   * Si el servicio manda el aviso al colaborador. Por omisión sí.
+   *
+   * La resolución en lote lo apaga y avisa una sola vez al terminar: resolver
+   * tres días seleccionados produce una decisión, no tres, y tres correos
+   * seguidos diciendo casi lo mismo hacen que el siguiente no se lea.
+   */
+  notify?: boolean
 }
 
 /**
@@ -77,81 +83,30 @@ export default class ExceptionRequestResolutionService {
     exceptionRequest.exceptionRequestResolvedAt = DateTime.now()
     await exceptionRequest.save()
 
-    await this.notifyEmployee(params)
-
+    // Aceptar sin alta del día dejaba la solicitud aceptada, sin día y con el
+    // aviso ya enviado al empleado. Si el alta no procede, la solicitud vuelve
+    // a pendiente y solo se avisa cuando todo quedó aplicado.
     if (status === 'accepted') {
       const applied = await this.applyAcceptedEffects(params)
-      if (!applied.ok) return applied
-    }
-
-    return { ok: true, exceptionRequest }
-  }
-
-  /**
-   * Avisa al empleado del resultado.
-   *
-   * Un fallo de correo no revierte la resolución: la decisión ya está tomada y
-   * registrada, y dejarla a medias por el buzón sería peor.
-   */
-  private async notifyEmployee(params: ResolveExceptionRequestParams): Promise<void> {
-    const { ctx, exceptionRequest, status, resolutionNote } = params
-
-    if (!exceptionRequest.userId) return
-
-    const user = await User.query()
-      .where('user_id', exceptionRequest.userId)
-      .whereNull('user_deleted_at')
-      .preload('person')
-      .first()
-
-    if (!user?.userEmail) return
-
-    const sender = resolveMailSender()
-    if (!sender) return
-
-    let tradeName = 'BO'
-    let backgroundImageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-
-    // USRH1783712837584: la ruta tiene `auth()` pero no `businessScope()`, así
-    // que la empresa se resuelve desde el header y se aplica fail-closed
-    // silencioso: sin configuración propia se conserva el branding por defecto
-    // en vez de filtrar el de otra empresa.
-    const businessUnitId = await resolveRequestBusinessUnitId(ctx)
-
-    if (businessUnitId) {
-      try {
-        const systemSettingActive = await new SystemSettingService().resolveByBusinessUnitId(
-          businessUnitId
-        )
-        if (systemSettingActive.systemSettingLogo) {
-          backgroundImageLogo = systemSettingActive.systemSettingLogo
-        }
-        if (systemSettingActive.systemSettingTradeName) {
-          tradeName = systemSettingActive.systemSettingTradeName
-        }
-      } catch (error) {
-        if (!(error instanceof SystemSettingResolutionError)) throw error
+      if (!applied.ok) {
+        exceptionRequest.exceptionRequestStatus = 'pending'
+        exceptionRequest.exceptionRequestResolutionNote = null
+        exceptionRequest.resolvedByUserId = null
+        exceptionRequest.exceptionRequestResolvedAt = null
+        await exceptionRequest.save()
+        return applied
       }
     }
 
-    const userName = user.person
-      ? `${user.person.personFirstname} ${user.person.personLastname} ${user.person.personSecondLastname}`
-      : 'User'
+    if (params.notify !== false) {
+      await new ExceptionRequestNotificationService().notifyResolution({
+        exceptionRequests: [exceptionRequest],
+        status,
+        resolutionNote,
+      })
+    }
 
-    await mail.send((message) => {
-      message
-        .to(user.userEmail)
-        .from(sender, tradeName)
-        .subject(
-          `${tradeName}, Exception Request - ${`${exceptionRequest.exceptionRequestId}`.padStart(5, '0')}`
-        )
-        .htmlView('emails/update_status_mail', {
-          newStatus: status,
-          newDescription: resolutionNote,
-          userName,
-          backgroundImageLogo,
-        })
-    })
+    return { ok: true, exceptionRequest }
   }
 
   /**
@@ -209,10 +164,36 @@ export default class ExceptionRequestResolutionService {
         }
       }
 
-      const oldestPeriod = await new EmployeeService(i18n).getOldestAvailableVacationPeriod(
+      // Con la regla "no adelantar vacaciones" solo cuentan los periodos que
+      // ya iniciaron; si el saldo está en uno futuro, se dice eso y no "sin días".
+      const employeeService = new EmployeeService(i18n)
+      const cutoff = await resolveFutureVacationCutoff({
+        user: auth.user,
+        employeeId: employee.employeeId,
+      })
+      const oldestPeriod = await employeeService.getOldestAvailableVacationPeriod(
         employee,
-        requestedDate
+        requestedDate,
+        { notStartingAfter: cutoff }
       )
+
+      if (!oldestPeriod && cutoff) {
+        const futurePeriod = await employeeService.getOldestAvailableVacationPeriod(
+          employee,
+          requestedDate
+        )
+        if (futurePeriod) {
+          const rejection = await assertVacationPeriodStarted({
+            user: auth.user,
+            employeeId: employee.employeeId,
+            vacationSettingId: futurePeriod.vacationSettingId,
+            i18n,
+          })
+          if (rejection) {
+            return { ok: false, status: rejection.status, body: rejection.body }
+          }
+        }
+      }
 
       if (!oldestPeriod) {
         return {
@@ -249,6 +230,11 @@ export default class ExceptionRequestResolutionService {
       vacationSettingId,
       shiftExceptionCheckInTime: exceptionRequest.exceptionRequestCheckInTime,
       shiftExceptionCheckOutTime: exceptionRequest.exceptionRequestCheckOutTime,
+      // El dia queda ligado a su solicitud y a quien la autorizo: sin esto la
+      // ficha del empleado no puede decir de donde salio ni quien lo aprobo.
+      exceptionRequestId: exceptionRequest.exceptionRequestId,
+      shiftExceptionAuthorizedByUserId: exceptionRequest.resolvedByUserId,
+      shiftExceptionAuthorizedAt: exceptionRequest.exceptionRequestResolvedAt,
     } as ShiftException
 
     const verifyInfo = await shiftExceptionService.verifyInfo(shiftException)

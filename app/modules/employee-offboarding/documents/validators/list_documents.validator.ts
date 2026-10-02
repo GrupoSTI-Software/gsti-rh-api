@@ -1,4 +1,5 @@
 import vine from '@vinejs/vine'
+import { EMPLOYEE_OFFBOARDING_DOCUMENT_TYPES } from '../documents.constants.js'
 
 /**
  * Query del listado de documentos (USRH1787433503692): sin
@@ -8,7 +9,7 @@ import vine from '@vinejs/vine'
  */
 export const listOffboardingDocumentsValidator = vine.compile(
   vine.object({
-    documentType: vine.enum(['separation_letter']).optional(),
+    documentType: vine.enum(EMPLOYEE_OFFBOARDING_DOCUMENT_TYPES).optional(),
     includeSuperseded: vine.boolean().optional(),
   })
 )
