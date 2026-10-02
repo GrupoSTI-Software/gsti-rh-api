@@ -75,6 +75,28 @@ export default class PhotoDispatchService implements PhotoDispatchPort {
       url: photoUrlFor(token, pin),
     })
   }
+
+  async wasDownloaded(command: DeviceCommand): Promise<boolean> {
+    if (command.deviceCommandKind !== DEVICE_COMMAND_KIND.BIOPHOTO_WRITE) return false
+    const publicationId = command.biometricPhotoPublicationId
+    if (typeof publicationId !== 'number') return false
+    const publication = await this.repository.findById(publicationId)
+    return Boolean(publication?.biometricPhotoPublicationDownloadedAt)
+  }
+
+  async closeAfterDelivery(command: DeviceCommand, now: DateTime): Promise<void> {
+    const publicationId = command.biometricPhotoPublicationId
+    if (typeof publicationId !== 'number') return
+    const publication = await this.repository.findById(publicationId)
+    if (!publication) return
+    const status = publication.biometricPhotoPublicationStatus
+    if (status !== PHOTO_PUBLICATION_STATUS.PUBLISHED && status !== PHOTO_PUBLICATION_STATUS.DOWNLOADED) {
+      return
+    }
+    publication.biometricPhotoPublicationStatus = PHOTO_PUBLICATION_STATUS.EXPIRED
+    publication.biometricPhotoPublicationExpiresAt = now
+    await this.repository.save(publication)
+  }
 }
 
 function earliestOf(a: DateTime, b: DateTime): DateTime {

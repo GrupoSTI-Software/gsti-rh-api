@@ -29,9 +29,11 @@ test.group('EMPLOYEES_WRITE_PERMISSION_DECLARATIONS', () => {
   // retiró y cambiar de sucursal es un assign.
   // 157: salen syncDepartments, syncPositions, syncEmployees, syncShift y
   // syncEmployeesBySelection con el retiro de /api/synchronization/* (USRH1790276646847).
-  test('declara exactamente 157 operaciones con module employees y bypass standard', ({ assert }) => {
+  // 158: entra listVacationAuthorizationRequests, el permiso que les faltaba a
+  // los tres GET del formulario de autorizacion con firma.
+  test('declara exactamente 158 operaciones con module employees y bypass standard', ({ assert }) => {
     const keys = Object.keys(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS)
-    assert.equal(keys.length, 157)
+    assert.equal(keys.length, 158)
 
     const catalogSlugs = new Set(EMPLOYEES_PERMISSION_CATALOG.map((a) => a.slug))
 

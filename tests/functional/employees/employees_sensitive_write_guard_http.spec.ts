@@ -14,6 +14,7 @@ import UploadService from '#services/upload_service'
 import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { TenantContext } from '#utils/tenant_context'
 import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { restoreDeviceReadyPhoto, stubDeviceReadyPhoto } from '#tests/helpers/device_ready_photo_stub'
 
 /**
  * Revisión final de sensitive-write-by-category — Important 3: prueba con una
@@ -250,6 +251,11 @@ function restoreDeleteFileSpy() {
 }
 
 test.group('Sensitive write guard — 403 HTTP real (Important 3)', (group) => {
+  group.each.setup(() => {
+    stubDeviceReadyPhoto()
+    return () => restoreDeviceReadyPhoto()
+  })
+
   let employeesModule: SystemModule
   let actor: TenantActor | null = null
   let fixture: EmployeeFixture | null = null

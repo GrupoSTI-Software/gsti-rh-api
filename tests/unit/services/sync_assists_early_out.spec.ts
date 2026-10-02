@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import { DateTime, Settings } from 'luxon'
 import SyncAssistsService from '#services/sync_assists_service'
 import { AssistDayInterface } from '../../../app/interfaces/assist_day_interface.js'
 import { AssistInterface } from '../../../app/interfaces/assist_interface.js'
@@ -159,5 +160,67 @@ test.group('SyncAssistsService.checkInStatus — entrada en la zona del sitio', 
     assert.equal(classifier().checkInStatus(sinChecadas, 30, 10, false, CDMX).assist.checkInStatus, 'fault')
     const discriminado = buildDay('2026-07-22', { checkIn: '2026-07-22T16:00:00.000Z' })
     assert.equal(classifier().checkInStatus(discriminado, 30, 10, true, CDMX).assist.checkInStatus, '')
+  })
+})
+
+test.group('SyncAssistsService.checkInStatus — hoy, con el turno iniciado y sin checada', (group) => {
+  const realNow = Settings.now
+  group.each.teardown(() => {
+    Settings.now = realNow
+  })
+
+  /** Congela el reloj en un instante UTC. */
+  function freezeAt(isoUtc: string) {
+    const millis = DateTime.fromISO(isoUtc).toMillis()
+    Settings.now = () => millis
+  }
+
+  const turnoDeOcho = { start: '08:00:00', hours: 10 }
+
+  test('dentro del margen de retardo se ve como tolerancia, no como falta ni a tiempo', ({ assert }) => {
+    freezeAt('2026-07-22T14:05:00.000Z') // 08:05 en CDMX
+    const day = buildDay('2026-07-22', {}, turnoDeOcho)
+    assert.equal(classifier().checkInStatus(day, 30, 10, false, CDMX).assist.checkInStatus, 'tolerance')
+  })
+
+  test('pasado el margen de retardo es retardo, y pasada la tolerancia de falta es falta', ({ assert }) => {
+    freezeAt('2026-07-22T14:20:00.000Z') // 08:20
+    const retardo = buildDay('2026-07-22', {}, turnoDeOcho)
+    assert.equal(classifier().checkInStatus(retardo, 30, 10, false, CDMX).assist.checkInStatus, 'delay')
+
+    freezeAt('2026-07-22T14:31:00.000Z') // 08:31
+    const falta = buildDay('2026-07-22', {}, turnoDeOcho)
+    assert.equal(classifier().checkInStatus(falta, 30, 10, false, CDMX).assist.checkInStatus, 'fault')
+  })
+
+  test('antes del inicio del turno no cambia: el día todavía es futuro', ({ assert }) => {
+    freezeAt('2026-07-22T13:50:00.000Z') // 07:50
+    const day = buildDay('2026-07-22', {}, turnoDeOcho)
+    assert.equal(classifier().checkInStatus(day, 30, 10, false, CDMX).assist.checkInStatus, 'fault')
+  })
+
+  test('con hora de entrada autorizada cuenta desde esa hora y antes no califica', ({ assert }) => {
+    const conPermiso = (): AssistDayInterface => {
+      const day = buildDay('2026-07-22', {}, turnoDeOcho)
+      day.assist.exceptions = [
+        { shiftExceptionCheckInTime: '10:00:00' },
+      ] as unknown as AssistDayInterface['assist']['exceptions']
+      return day
+    }
+
+    freezeAt('2026-07-22T14:20:00.000Z') // 08:20, antes de la hora autorizada
+    assert.equal(classifier().checkInStatus(conPermiso(), 30, 10, false, CDMX).assist.checkInStatus, '')
+
+    freezeAt('2026-07-22T16:05:00.000Z') // 10:05
+    assert.equal(
+      classifier().checkInStatus(conPermiso(), 30, 10, false, CDMX).assist.checkInStatus,
+      'tolerance'
+    )
+  })
+
+  test('un colaborador discriminado sigue sin evaluarse', ({ assert }) => {
+    freezeAt('2026-07-22T14:05:00.000Z')
+    const day = buildDay('2026-07-22', {}, turnoDeOcho)
+    assert.equal(classifier().checkInStatus(day, 30, 10, true, CDMX).assist.checkInStatus, '')
   })
 })

@@ -316,3 +316,74 @@ test.group('Evidencia de ejecucion: contadores del equipo', () => {
     )
   })
 })
+
+test.group('Evidencia de ejecucion: rostro', () => {
+  const photo = (overrides: Partial<DeviceCommand> = {}) =>
+    commandOf({
+      deviceCommandKind: DEVICE_COMMAND_KIND.BIOPHOTO_WRITE,
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+      deviceCommandBioNo: 9,
+      deviceCommandCorrelationKey: 'biophoto:1042',
+      deviceCommandCountersSnapshot: { fpCount: 10, faceCount: 4, userCount: 20 },
+      ...overrides,
+    })
+
+  test('el contador de rostros que sube cierra la foto acusada', async ({ assert }) => {
+    const { service, saved } = makeService([photo()])
+    const marked = await service.fromCounters({
+      accessPointId: 12,
+      counters: { fpCount: 10, faceCount: 5, userCount: 20 },
+      now: NOW,
+    })
+    assert.equal(marked, 1)
+    assert.equal(saved[0].deviceCommandExecutionEvidence, 'counter_up')
+  })
+
+  /** Antes el alza de huellas cerraba la copia de un rostro, y al reves nada la cerraba. */
+  test('una huella nueva no cierra una foto, ni una cara cierra una huella', async ({
+    assert,
+  }) => {
+    const fingerCopy = commandOf({
+      deviceCommandId: 2,
+      deviceCommandKind: DEVICE_COMMAND_KIND.BIODATA_WRITE,
+      deviceCommandStatus: DEVICE_COMMAND_STATUS.ACKED,
+      deviceCommandCorrelationKey: 'biodata:1042:1:3',
+      deviceCommandCountersSnapshot: { fpCount: 10, faceCount: 4, userCount: 20 },
+    })
+    const { service, saved } = makeService([photo(), fingerCopy])
+    await service.fromCounters({
+      accessPointId: 12,
+      counters: { fpCount: 11, faceCount: 4, userCount: 20 },
+      now: NOW,
+    })
+    assert.lengthOf(saved, 1)
+    assert.equal(saved[0].deviceCommandId, 2)
+  })
+
+  test('una checada con rostro cierra la foto de ese PIN', async ({ assert }) => {
+    const { service, saved } = makeService([photo()])
+    const marked = await service.fromPunch({ accessPointId: 12, pin: '1042', verify: 15, now: NOW })
+    assert.equal(marked, 1)
+    assert.equal(saved[0].deviceCommandExecutionEvidence, 'attlog_verify')
+  })
+
+  test('el rostro que sube el equipo cierra la foto, no el enrolamiento de huella', async ({
+    assert,
+  }) => {
+    const enroll = commandOf({ deviceCommandId: 3, deviceCommandBioNo: 0 })
+    const { service, saved } = makeService([photo(), enroll])
+    const outcome = await service.fromBiometricUpload({
+      accessPointId: 12,
+      pin: '1042',
+      bioNo: 0,
+      bioType: BIO_TYPE.FACE,
+      now: NOW,
+    })
+    assert.equal(outcome.closed, 1)
+    assert.isNull(outcome.requestedByUserId)
+    assert.deepEqual(
+      saved.map((command) => command.deviceCommandKind),
+      [DEVICE_COMMAND_KIND.BIOPHOTO_WRITE]
+    )
+  })
+})

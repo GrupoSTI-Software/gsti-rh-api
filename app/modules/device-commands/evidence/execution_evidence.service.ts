@@ -1,11 +1,13 @@
 import type { DateTime } from 'luxon'
 import DeviceCommandRepositoryMysql from '../device_command.repository.mysql.js'
 import {
+  ATTLOG_VERIFY_FACE,
   ATTLOG_VERIFY_FINGERPRINT,
   DEVICE_COMMAND_EVIDENCE,
   DEVICE_COMMAND_KIND,
   DEVICE_COMMAND_STATUS,
   type DeviceCommandEvidence,
+  type DeviceCommandKind,
 } from '../device_command.constants.js'
 import type { DeviceCommandRepository } from '../device_command.repository.js'
 import type DeviceCommand from '#models/device_command'
@@ -65,6 +67,17 @@ export default class ExecutionEvidenceService {
      * sola huella. Es el mismo patron del acuse que se contaba como biometrico
      * presente.
      */
+    if (input.bioType === BIO_TYPE.FACE) {
+      /**
+       * Un rostro que sube el equipo prueba la foto o la copia de rostro que se
+       * le mando a ese PIN. No se devuelve quien lo pidio: la foto ya viaja a
+       * los demas equipos por su cuenta, y esparcir ademas el template haria
+       * dos copias del mismo rostro.
+       */
+      const faces = await this.faceWritesAwaiting(input.accessPointId, input.pin)
+      const closed = await this.markAll(faces, DEVICE_COMMAND_EVIDENCE.BIOMETRIC_UPLOAD, input.now)
+      return { closed, requestedByUserId: null }
+    }
     if (input.bioType !== BIO_TYPE.FINGERPRINT) {
       return { closed: 0, requestedByUserId: null }
     }
@@ -104,6 +117,10 @@ export default class ExecutionEvidenceService {
     verify: number | null
     now: DateTime
   }): Promise<number> {
+    if (input.verify === ATTLOG_VERIFY_FACE) {
+      const faces = await this.faceWritesAwaiting(input.accessPointId, input.pin)
+      return this.markAll(faces, DEVICE_COMMAND_EVIDENCE.ATTLOG_VERIFY, input.now)
+    }
     if (input.verify !== ATTLOG_VERIFY_FINGERPRINT) return 0
     const commands = await this.repository.findAwaitingEvidence({
       accessPointId: input.accessPointId,
@@ -134,17 +151,52 @@ export default class ExecutionEvidenceService {
     counters: DeviceCounters
     now: DateTime
   }): Promise<number> {
-    if (input.counters.fpCount === null) return 0
-
-    const commands = await this.repository.findAwaitingEvidence({
+    const fingerprints = await this.closeByRise({
       accessPointId: input.accessPointId,
       kinds: [DEVICE_COMMAND_KIND.ENROLL_FP, DEVICE_COMMAND_KIND.BIODATA_WRITE],
+      belongs: (command) => !isFaceCommand(command),
+      counter: 'fpCount',
+      counters: input.counters,
+      now: input.now,
     })
-    const acked = commands.filter(
-      (command) =>
-        command.deviceCommandStatus === DEVICE_COMMAND_STATUS.ACKED &&
-        this.countersRose(command, input.counters)
-    )
+    /**
+     * El rostro se mide con su propio contador. Una foto que reemplaza a otra
+     * no lo mueve --el PIN ya tenia cara-- y por eso la prueba principal de la
+     * foto es la descarga al acusar; esta cubre la primera vez.
+     */
+    const faces = await this.closeByRise({
+      accessPointId: input.accessPointId,
+      kinds: [DEVICE_COMMAND_KIND.BIOPHOTO_WRITE, DEVICE_COMMAND_KIND.BIODATA_WRITE],
+      belongs: isFaceCommand,
+      counter: 'faceCount',
+      counters: input.counters,
+      now: input.now,
+    })
+    return fingerprints + faces
+  }
+
+  /** Cierra lo que el alza de UN contador alcanza a explicar. */
+  private async closeByRise(args: {
+    accessPointId: number
+    kinds: DeviceCommandKind[]
+    belongs: (command: DeviceCommand) => boolean
+    counter: 'fpCount' | 'faceCount'
+    counters: DeviceCounters
+    now: DateTime
+  }): Promise<number> {
+    const current = args.counters[args.counter]
+    if (current === null) return 0
+
+    const commands = await this.repository.findAwaitingEvidence({
+      accessPointId: args.accessPointId,
+      kinds: args.kinds,
+    })
+    const acked = commands.filter((command) => {
+      if (!args.belongs(command)) return false
+      if (command.deviceCommandStatus !== DEVICE_COMMAND_STATUS.ACKED) return false
+      const before = command.deviceCommandCountersSnapshot?.[args.counter] ?? null
+      return before !== null && current > before
+    })
     if (acked.length === 0) return 0
 
     /**
@@ -152,22 +204,23 @@ export default class ExecutionEvidenceService {
      * snapshot, y el que acuso primero es el que mide el salto completo.
      */
     const rise = Math.max(
-      ...acked.map((command) => {
-        const before = command.deviceCommandCountersSnapshot?.fpCount ?? 0
-        return (input.counters.fpCount ?? 0) - before
-      })
+      ...acked.map(
+        (command) => current - (command.deviceCommandCountersSnapshot?.[args.counter] ?? 0)
+      )
     )
     if (rise < acked.length) return 0
 
-    return this.markAll(acked, DEVICE_COMMAND_EVIDENCE.COUNTER_UP, input.now)
+    return this.markAll(acked, DEVICE_COMMAND_EVIDENCE.COUNTER_UP, args.now)
   }
 
-  /** Verdadero si el contador de huellas subio respecto al snapshot del acuse. */
-  private countersRose(command: DeviceCommand, counters: DeviceCounters): boolean {
-    const snapshot = command.deviceCommandCountersSnapshot
-    const before = snapshot?.fpCount ?? null
-    if (before === null || counters.fpCount === null) return false
-    return counters.fpCount > before
+  /** Fotos y copias de rostro esperando prueba para ese PIN en ese equipo. */
+  private async faceWritesAwaiting(accessPointId: number, pin: string): Promise<DeviceCommand[]> {
+    const commands = await this.repository.findAwaitingEvidence({
+      accessPointId,
+      kinds: [DEVICE_COMMAND_KIND.BIOPHOTO_WRITE, DEVICE_COMMAND_KIND.BIODATA_WRITE],
+      pin,
+    })
+    return commands.filter(isFaceCommand)
   }
 
   private async markAll(
@@ -185,4 +238,16 @@ export default class ExecutionEvidenceService {
     }
     return marked
   }
+}
+
+/**
+ * Verdadero si el comando escribe un rostro: la foto, o la copia de un template
+ * `Type=9`. La modalidad de la copia solo viaja en la clave de correlacion
+ * (`biodata:<pin>:<tipo>:<no>`), que es la que arma la replicacion.
+ */
+export function isFaceCommand(command: DeviceCommand): boolean {
+  if (command.deviceCommandKind === DEVICE_COMMAND_KIND.BIOPHOTO_WRITE) return true
+  if (command.deviceCommandKind !== DEVICE_COMMAND_KIND.BIODATA_WRITE) return false
+  const key = command.deviceCommandCorrelationKey ?? ''
+  return key.split(':')[2] === String(BIO_TYPE.FACE)
 }
