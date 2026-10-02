@@ -27,6 +27,7 @@ import {
   PUBLIC_CONTRACTED_EMPLOYEES_SAFETY_CAP,
   rethrowCatalogErrorForPublicSurface,
 } from '../helpers/billing_tenant_error.js'
+import { BILLING_PROVIDER_KEYS } from '#modules/billing-provider/billing_provider.port'
 import { TenantContext } from '../utils/tenant_context.js'
 import {
   daysBetweenBusinessDates,
@@ -73,6 +74,7 @@ export interface PublicResolvedPlanPrice {
   trialDays: number
   firstPaymentDate: string
   resolvedAt: string
+  cardRequired: boolean
 }
 
 /**
@@ -449,6 +451,10 @@ export default class BillingTenantService {
       todayInBusinessZone().plus({ days: resolved.trialDays })
     )
 
+    const current = await this.subscriptionService.getCurrentPrice(planId, refDate)
+    const cardRequired =
+      current !== null && current.billingPlanPriceProvider !== BILLING_PROVIDER_KEYS.MANUAL
+
     return {
       billingPlanId: resolved.billingPlanId,
       employeeCount: resolved.employeeCount,
@@ -463,6 +469,7 @@ export default class BillingTenantService {
       trialDays: resolved.trialDays,
       firstPaymentDate,
       resolvedAt: resolved.resolvedAt,
+      cardRequired,
     }
   }
 

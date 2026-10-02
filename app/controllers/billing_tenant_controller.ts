@@ -174,7 +174,8 @@ export default class BillingTenantController {
    *       Calcula el precio completo para el plan y la cantidad indicada.
    *       El visitante no envía montos; todo se resuelve server-side desde el
    *       catálogo. La cantidad debe ser entero positivo (forma); la regla de
-   *       bloques de 10 se valida en el servicio.
+   *       bloques de 10 se valida en el servicio. Incluye `cardRequired` (boolean)
+   *       sin exponer proveedor de cobro (USRH1790718243123).
    *     parameters:
    *       - in: path
    *         name: planId

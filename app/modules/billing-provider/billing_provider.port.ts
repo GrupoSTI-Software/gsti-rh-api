@@ -107,3 +107,32 @@ export function isBillingWebhookProvider(
   const candidate = provider as unknown as BillingWebhookProviderPort
   return typeof candidate.verifyWebhookEvent === 'function'
 }
+
+export type CardSetupOwner = { kind: 'signup_draft'; signupDraftId: number }
+
+export interface CardSetupRequest {
+  owner: CardSetupOwner
+  email: string
+  customerRef: string | null
+  setupIntentRef: string | null
+}
+
+export interface CardSetup {
+  customerRef: string
+  setupIntentRef: string
+  clientSecret: string
+  publishableKey: string
+  confirmed: boolean
+}
+
+/** Preparación de tarjeta en checkout (registro, USRH1790718243123). */
+export interface BillingCheckoutProviderPort {
+  prepareCardSetup(request: CardSetupRequest): Promise<CardSetup>
+}
+
+export function isBillingCheckoutProvider(
+  provider: BillingProviderPort
+): provider is BillingProviderPort & BillingCheckoutProviderPort {
+  const candidate = provider as unknown as BillingCheckoutProviderPort
+  return typeof candidate.prepareCardSetup === 'function'
+}

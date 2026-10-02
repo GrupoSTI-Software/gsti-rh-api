@@ -10,9 +10,12 @@ import {
 } from '#constants/billing_provider_error_codes'
 import { BillingProviderServiceError } from '#exceptions/billing_provider_service_error'
 import StripeBillingProviderAdapter, {
+  buildStripeCardSetupCustomerParams,
+  buildStripeSetupIntentParams,
   buildStripePriceParams,
   buildStripeProductParams,
   catalogIdempotencyKey,
+  cardSetupIdempotencyKey,
 } from '#modules/billing-provider/stripe_billing_provider.adapter'
 import type { StripeSettings } from '#modules/billing-provider/stripe_billing_provider.config'
 
@@ -313,6 +316,73 @@ function subscriptionEventPayload(overrides: Record<string, unknown> = {}): stri
     ...overrides,
   })
 }
+
+test.group('StripeBillingProviderAdapter — prepareCardSetup (USRH1790718243123 CA-8)', () => {
+  test('customers.create y setupIntents.create con parámetros del spec', async ({ assert }) => {
+    const customerCalls: unknown[] = []
+    const setupCalls: unknown[] = []
+    const fakeStripe = {
+      customers: {
+        create: async (params: unknown, opts: unknown) => {
+          customerCalls.push([params, opts])
+          return { id: 'cus_sim' }
+        },
+      },
+      setupIntents: {
+        create: async (params: unknown, opts: unknown) => {
+          setupCalls.push([params, opts])
+          return { id: 'seti_sim', client_secret: 'seti_sim_secret', status: 'requires_payment_method' }
+        },
+        retrieve: async () => ({ id: 'seti_old', status: 'canceled', customer: 'cus_sim', metadata: {} }),
+      },
+    } as unknown as Stripe
+
+    const adapter = new StripeBillingProviderAdapter(
+      ENABLED_SETTINGS,
+      () => fakeStripe
+    )
+
+    const result = await adapter.prepareCardSetup({
+      owner: { kind: 'signup_draft', signupDraftId: 42 },
+      email: 'prospecto.fixture@correo.test',
+      customerRef: null,
+      setupIntentRef: null,
+    })
+
+    assert.deepEqual(customerCalls[0], [
+      buildStripeCardSetupCustomerParams('prospecto.fixture@correo.test', 42),
+      { idempotencyKey: 'valanserh-signup-draft-42-customer' },
+    ])
+    assert.deepEqual(setupCalls[0], [
+      buildStripeSetupIntentParams('cus_sim', 42),
+      { idempotencyKey: cardSetupIdempotencyKey(42, null) },
+    ])
+    assert.equal(result.customerRef, 'cus_sim')
+    assert.equal(result.clientSecret, 'seti_sim_secret')
+    assert.equal(result.publishableKey, 'pk_test_fixturePub1')
+  })
+
+  test('publishableKey null → STRIPE_NOT_CONFIGURED', async ({ assert }) => {
+    const adapter = new StripeBillingProviderAdapter({
+      ...ENABLED_SETTINGS,
+      publishableKey: null,
+    })
+    try {
+      await adapter.prepareCardSetup({
+        owner: { kind: 'signup_draft', signupDraftId: 1 },
+        email: 'a@b.test',
+        customerRef: null,
+        setupIntentRef: null,
+      })
+      assert.fail('Debió lanzar')
+    } catch (error) {
+      assert.equal(
+        assertProviderError(error).errorCode,
+        BILLING_PROVIDER_ERROR_CODES.STRIPE_NOT_CONFIGURED
+      )
+    }
+  })
+})
 
 test.group('StripeBillingProviderAdapter — webhooks (7579)', () => {
   test('verifyWebhookEvent: firma válida sobre bytes exactos', ({ assert }) => {

@@ -11,8 +11,11 @@ import { operationNotAvailable, providerRequestFailed } from '#modules/billing-p
 import {
   BILLING_PROVIDER_KEYS,
   type BillingCatalogProviderPort,
+  type BillingCheckoutProviderPort,
   type BillingProviderPort,
   type BillingWebhookProviderPort,
+  type CardSetup,
+  type CardSetupRequest,
   type CatalogPriceDraft,
   type CatalogProductDraft,
   type ProviderEventObjectSummary,
@@ -49,6 +52,44 @@ export function buildStripeProductParams(draft: CatalogProductDraft): Stripe.Pro
     name: draft.name,
     metadata: {
       valanserh_billing_plan_id: String(draft.billingPlanId),
+    },
+  }
+}
+
+const REUSABLE_SETUP_INTENT_STATUSES = new Set([
+  'requires_payment_method',
+  'requires_confirmation',
+  'requires_action',
+  'processing',
+])
+
+export function cardSetupIdempotencyKey(signupDraftId: number, setupIntentRef: string | null): string {
+  const suffix = setupIntentRef ?? 'initial'
+  return `valanserh-signup-draft-${signupDraftId}-setup-${suffix}`
+}
+
+export function buildStripeCardSetupCustomerParams(
+  email: string,
+  signupDraftId: number
+): Stripe.CustomerCreateParams {
+  return {
+    email,
+    metadata: {
+      valanserh_signup_draft_id: String(signupDraftId),
+    },
+  }
+}
+
+export function buildStripeSetupIntentParams(
+  customerId: string,
+  signupDraftId: number
+): Stripe.SetupIntentCreateParams {
+  return {
+    customer: customerId,
+    usage: 'off_session',
+    payment_method_types: ['card'],
+    metadata: {
+      valanserh_signup_draft_id: String(signupDraftId),
     },
   }
 }
@@ -177,8 +218,25 @@ function mapStripeEventToVerified(event: Stripe.Event): VerifiedProviderEvent {
 /**
  * Adaptador Stripe: guardia de configuración, catálogo (USRH1790708507553) y esqueleto de cobro (7496).
  */
+function setupIntentMatchesDraft(
+  setupIntent: Stripe.SetupIntent,
+  customerRef: string,
+  signupDraftId: number
+): boolean {
+  const customer = setupIntent.customer
+  const customerId = typeof customer === 'string' ? customer : customer?.id ?? null
+  if (customerId !== customerRef) {
+    return false
+  }
+  return setupIntent.metadata?.valanserh_signup_draft_id === String(signupDraftId)
+}
+
 export default class StripeBillingProviderAdapter
-  implements BillingProviderPort, BillingCatalogProviderPort, BillingWebhookProviderPort
+  implements
+    BillingProviderPort,
+    BillingCatalogProviderPort,
+    BillingWebhookProviderPort,
+    BillingCheckoutProviderPort
 {
   readonly key = BILLING_PROVIDER_KEYS.STRIPE
 
@@ -274,6 +332,92 @@ export default class StripeBillingProviderAdapter
       await client.prices.update(externalId, { active: false })
     } catch (error) {
       throw this.#wrap('archiveCatalogPrice', error)
+    }
+  }
+
+  async prepareCardSetup(request: CardSetupRequest): Promise<CardSetup> {
+    const client = this.#requireClient()
+    const settings = this.#settings
+    if (settings.status !== 'enabled') {
+      throw stripeNotConfigured()
+    }
+    if (settings.publishableKey === null || settings.publishableKey.trim() === '') {
+      throw stripeNotConfigured()
+    }
+    const publishableKey = settings.publishableKey
+
+    const signupDraftId = request.owner.signupDraftId
+    let customerRef = request.customerRef
+
+    try {
+      if (customerRef === null) {
+        const created = await client.customers.create(
+          buildStripeCardSetupCustomerParams(request.email, signupDraftId),
+          { idempotencyKey: `valanserh-signup-draft-${signupDraftId}-customer` }
+        )
+        customerRef = created.id
+        const createdIntent = await client.setupIntents.create(
+          buildStripeSetupIntentParams(customerRef, signupDraftId),
+          { idempotencyKey: cardSetupIdempotencyKey(signupDraftId, null) }
+        )
+        const clientSecret = createdIntent.client_secret
+        if (clientSecret === null || clientSecret === '') {
+          throw providerRequestFailed('prepareCardSetup', {
+            stripeErrorType: null,
+            stripeRequestId: null,
+          })
+        }
+        return {
+          customerRef,
+          setupIntentRef: createdIntent.id,
+          clientSecret,
+          publishableKey,
+          confirmed: createdIntent.status === 'succeeded',
+        }
+      }
+
+      let setupIntent: Stripe.SetupIntent | null = null
+      let confirmed = false
+
+      if (request.setupIntentRef !== null) {
+        const retrieved = await client.setupIntents.retrieve(request.setupIntentRef)
+        if (setupIntentMatchesDraft(retrieved, customerRef, signupDraftId)) {
+          if (retrieved.status === 'succeeded') {
+            setupIntent = retrieved
+            confirmed = true
+          } else if (REUSABLE_SETUP_INTENT_STATUSES.has(retrieved.status)) {
+            setupIntent = retrieved
+          }
+        }
+      }
+
+      if (setupIntent === null) {
+        setupIntent = await client.setupIntents.create(
+          buildStripeSetupIntentParams(customerRef, signupDraftId),
+          {
+            idempotencyKey: cardSetupIdempotencyKey(signupDraftId, request.setupIntentRef),
+          }
+        )
+        confirmed = setupIntent.status === 'succeeded'
+      }
+
+      const clientSecret = setupIntent.client_secret
+      if (clientSecret === null || clientSecret === '') {
+        throw providerRequestFailed('prepareCardSetup', {
+          stripeErrorType: null,
+          stripeRequestId: null,
+        })
+      }
+
+      return {
+        customerRef,
+        setupIntentRef: setupIntent.id,
+        clientSecret,
+        publishableKey,
+        confirmed,
+      }
+    } catch (error) {
+      throw this.#wrap('prepareCardSetup', error)
     }
   }
 

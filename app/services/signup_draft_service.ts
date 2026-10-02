@@ -23,9 +23,20 @@ import BillingSubscriptionService from '#services/billing_subscription_service'
 import BillingInternalNotificationService from '#services/billing_internal_notification_service'
 import { resolveSignupApiError } from '#helpers/signup_api_error'
 import { resolveBillingSubscriptionApiError } from '#helpers/billing_subscription_api_error'
+import { resolveBillingProviderApiError } from '#helpers/billing_provider_api_error'
 import { planNotSelectedError } from '#helpers/billing_tenant_error'
+import { signupTokenMatches } from '#helpers/signup_token'
 import { BillingProviderServiceError } from '#exceptions/billing_provider_service_error'
 import { BillingSubscriptionServiceError } from '#exceptions/billing_subscription_service_error'
+import { BILLING_PROVIDER_ERROR_CODES } from '#constants/billing_provider_error_codes'
+import { BILLING_PROVIDER_KEYS, isBillingCheckoutProvider } from '#modules/billing-provider/billing_provider.port'
+import { resolveBillingProvider } from '#modules/billing-provider/billing_provider.registry'
+import {
+  operationNotAvailable,
+  providerRequestFailed,
+} from '#modules/billing-provider/billing_provider.errors'
+import { BILLING_SUBSCRIPTION_ERROR_CODES } from '#constants/billing_subscription_error_codes'
+import { toBusinessDateString } from '#utils/business_date'
 import TenantRoleProvisioningService from '#services/tenant_role_provisioning_service'
 import BranchOfficeProvisioningService from '#services/branch_office_provisioning_service'
 
@@ -37,6 +48,33 @@ export interface StartSignupData {
   email: string
   billingPlanId: number
   contractedEmployees: number
+}
+
+export type SignupCardSetupData =
+  | { required: false }
+  | {
+      required: true
+      clientSecret: string
+      publishableKey: string
+      cardConfirmed: boolean
+    }
+
+export type SignupCardSetupErrorBody = {
+  title: string
+  detail: string
+  key: string
+  code: string
+}
+
+export type PrepareCardSetupResult =
+  | { status: 200; body: { type: 'success'; data: SignupCardSetupData } }
+  | { status: number; body: SignupCardSetupErrorBody }
+
+export const SIGNUP_CARD_SETUP_UNAUTHORIZED_BODY: SignupCardSetupErrorBody = {
+  title: 'No pudimos validar tu registro',
+  detail: 'Vuelve a iniciar el registro para continuar.',
+  key: 'no-pudimos-validar-tu-registro',
+  code: BILLING_PROVIDER_ERROR_CODES.CARD_SETUP_UNAUTHORIZED,
 }
 
 interface ServiceResult {
@@ -569,5 +607,217 @@ export default class SignupDraftService {
         expiresAt: pinExpiresAt.toISO(),
       },
     }
+  }
+
+  private billingErrorBody(error: unknown): SignupCardSetupErrorBody | null {
+    if (error instanceof BillingSubscriptionServiceError) {
+      const mapped = resolveBillingSubscriptionApiError(error)
+      return {
+        title: mapped.title,
+        detail: mapped.detail,
+        key: mapped.key,
+        code: mapped.code,
+      }
+    }
+    if (error instanceof BillingProviderServiceError) {
+      const mapped = resolveBillingProviderApiError(error)
+      return {
+        title: mapped.title,
+        detail: mapped.detail,
+        key: mapped.key,
+        code: mapped.code,
+      }
+    }
+    return null
+  }
+
+  private async persistStripeCardSetupRefs(
+    signupDraftId: number,
+    _previousCustomer: string | null,
+    previousSetupIntent: string | null,
+    customerRef: string,
+    setupIntentRef: string
+  ): Promise<boolean> {
+    const updated = await db
+      .from('signup_drafts')
+      .where('signup_draft_id', signupDraftId)
+      .whereNull('signup_draft_deleted_at')
+      .where((query) => {
+        query
+          .whereNull('signup_draft_stripe_customer_id')
+          .orWhere('signup_draft_stripe_customer_id', customerRef)
+      })
+      .where((query) => {
+        if (previousSetupIntent === null) {
+          query.whereNull('signup_draft_stripe_setup_intent_id')
+        } else {
+          query.where('signup_draft_stripe_setup_intent_id', previousSetupIntent)
+        }
+        query.orWhere('signup_draft_stripe_setup_intent_id', setupIntentRef)
+      })
+      .update({
+        signup_draft_stripe_customer_id: customerRef,
+        signup_draft_stripe_setup_intent_id: setupIntentRef,
+      })
+
+    return Number(updated) > 0
+  }
+
+  /**
+   * Prepara cliente Stripe y SetupIntent para el paso de tarjeta del registro (USRH1790718243123).
+   * La credencial se valida antes de precio, proveedor o escritura.
+   */
+  async prepareCardSetup(data: {
+    signupDraftId: number
+    signupToken: string
+  }): Promise<PrepareCardSetupResult> {
+    const draft = await SignupDraft.query().where('signup_draft_id', data.signupDraftId).first()
+
+    if (
+      !draft ||
+      !draft.signupDraftEmailVerifiedAt ||
+      !signupTokenMatches(draft.signupDraftToken, data.signupToken)
+    ) {
+      return { status: 401, body: SIGNUP_CARD_SETUP_UNAUTHORIZED_BODY }
+    }
+
+    if (!draft.signupDraftBillingPlanId) {
+      const body = this.billingErrorBody(planNotSelectedError())
+      if (body) {
+        return { status: 422, body }
+      }
+    }
+
+    const employees = draft.signupDraftContractedEmployees
+    if (employees === null) {
+      return { status: 422, body: this.billingErrorBody(planNotSelectedError())! }
+    }
+
+    const billingValidation = await this.validateSignupBillingSelection(
+      draft.signupDraftBillingPlanId!,
+      employees,
+      'complete'
+    )
+    if (billingValidation) {
+      return {
+        status: billingValidation.status,
+        body: {
+          title: billingValidation.title,
+          detail: billingValidation.detail ?? billingValidation.message,
+          key: billingValidation.key ?? 'error',
+          code: billingValidation.code ?? billingValidation.errorCode ?? 'PLT.SUB.SYS_UNHANDLED',
+        },
+      }
+    }
+
+    const subscriptionService = new BillingSubscriptionService()
+    const currentPrice = await subscriptionService.getCurrentPrice(
+      draft.signupDraftBillingPlanId!,
+      toBusinessDateString()
+    )
+
+    if (!currentPrice) {
+      return {
+        status: 422,
+        body: this.billingErrorBody(
+          new BillingSubscriptionServiceError(
+            'Sin precio vigente',
+            BILLING_SUBSCRIPTION_ERROR_CODES.NO_ACTIVE_PRICE,
+            422,
+            'sin-precio-vigente',
+            'El plan no tiene un precio vigente en el catálogo para la fecha de hoy.'
+          )
+        )!,
+      }
+    }
+
+    if (currentPrice.billingPlanPriceProvider === BILLING_PROVIDER_KEYS.MANUAL) {
+      return {
+        status: 200,
+        body: { type: 'success', data: { required: false } },
+      }
+    }
+
+    let provider
+    try {
+      provider = resolveBillingProvider(currentPrice.billingPlanPriceProvider)
+    } catch (error) {
+      const body = this.billingErrorBody(error)
+      if (body) {
+        return { status: body.code.startsWith('PLT.PRV.') ? 500 : 422, body }
+      }
+      throw error
+    }
+
+    if (!isBillingCheckoutProvider(provider) || !currentPrice.billingPlanPriceStripePriceId) {
+      return {
+        status: 500,
+        body: this.billingErrorBody(operationNotAvailable('prepareCardSetup'))!,
+      }
+    }
+
+    const checkoutProvider = provider
+
+    const owner = { kind: 'signup_draft' as const, signupDraftId: draft.signupDraftId }
+    let customerRef = draft.signupDraftStripeCustomerId
+    let setupIntentRef = draft.signupDraftStripeSetupIntentId
+
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const setup = await checkoutProvider.prepareCardSetup({
+          owner,
+          email: draft.signupDraftEmail,
+          customerRef,
+          setupIntentRef,
+        })
+
+        const previousCustomer = customerRef
+        const previousSetupIntent = setupIntentRef
+        customerRef = setup.customerRef
+        setupIntentRef = setup.setupIntentRef
+
+        const persisted = await this.persistStripeCardSetupRefs(
+          draft.signupDraftId,
+          previousCustomer,
+          previousSetupIntent,
+          setup.customerRef,
+          setup.setupIntentRef
+        )
+
+        if (!persisted) {
+          const reloaded = await SignupDraft.findOrFail(draft.signupDraftId)
+          customerRef = reloaded.signupDraftStripeCustomerId
+          setupIntentRef = reloaded.signupDraftStripeSetupIntentId
+          continue
+        }
+
+        return {
+          status: 200,
+          body: {
+            type: 'success',
+            data: {
+              required: true,
+              clientSecret: setup.clientSecret,
+              publishableKey: setup.publishableKey,
+              cardConfirmed: setup.confirmed,
+            },
+          },
+        }
+      } catch (error) {
+        const body = this.billingErrorBody(error)
+        if (body) {
+          return { status: 500, body }
+        }
+        throw error
+      }
+    }
+
+    const body = this.billingErrorBody(
+      providerRequestFailed('prepareCardSetup', {
+        stripeErrorType: null,
+        stripeRequestId: null,
+      })
+    )
+    return { status: 500, body: body! }
   }
 }

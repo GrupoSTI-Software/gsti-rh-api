@@ -1,7 +1,15 @@
 /* eslint-disable prettier/prettier */
 import { HttpContext } from '@adonisjs/core/http'
-import { startSignupValidator, verifyOtpValidator, completeSignupValidator } from '#validators/signup'
-import SignupDraftService from '#services/signup_draft_service'
+import {
+  startSignupValidator,
+  verifyOtpValidator,
+  completeSignupValidator,
+  setupIntentSignupValidator,
+} from '#validators/signup'
+import SignupDraftService, {
+  SIGNUP_CARD_SETUP_UNAUTHORIZED_BODY,
+} from '#services/signup_draft_service'
+import { BILLING_SUBSCRIPTION_ERROR_CODES } from '#constants/billing_subscription_error_codes'
 
 export default class AuthSignupController {
 
@@ -445,6 +453,72 @@ export default class AuthSignupController {
         message: i18n.formatMessage('an_unexpected_error_has_occurred_on_the_server'),
         error: error.message,
       }
+    }
+  }
+
+  /**
+   * @swagger
+   * /api/auth/signup/setup-intent:
+   *   post:
+   *     security: []
+   *     tags:
+   *       - Auth Signup
+   *     summary: Preparar tarjeta Stripe en el registro (SetupIntent)
+   *     description: |
+   *       Tras verificar el correo, crea o reutiliza el cliente de Stripe y un SetupIntent
+   *       del borrador para capturar tarjeta sin cargo. Con precio manual responde
+   *       `{ required: false }` sin llamar a Stripe. Respuesta con `Cache-Control: no-store`.
+   *       Limitador propio signup-setup-intent (10/min por IP).
+   *     produces:
+   *       - application/json
+   *     requestBody:
+   *       required: true
+   *       content:
+   *         application/json:
+   *           schema:
+   *             type: object
+   *             required:
+   *               - signupDraftId
+   *               - signupToken
+   *             properties:
+   *               signupDraftId:
+   *                 type: integer
+   *                 minimum: 1
+   *               signupToken:
+   *                 type: string
+   *                 maxLength: 64
+   *     responses:
+   *       '200':
+   *         description: No requiere tarjeta o datos para Payment Element
+   *       '401':
+   *         description: Credencial del borrador rechazada (cuerpo uniforme PLT.PRV.CARD_SETUP_UNAUTHORIZED)
+   *       '422':
+   *         description: Plan o precio no listos (PLT.SUB.*)
+   *       '429':
+   *         description: Límite signup-setup-intent
+   *       '500':
+   *         description: Proveedor de cobro o error inesperado
+   */
+  async setupIntent({ request, response, i18n }: HttpContext) {
+    response.header('Cache-Control', 'no-store')
+    try {
+      let payload: { signupDraftId: number; signupToken: string }
+      try {
+        payload = await request.validateUsing(setupIntentSignupValidator)
+      } catch {
+        return response.status(401).json(SIGNUP_CARD_SETUP_UNAUTHORIZED_BODY)
+      }
+
+      const signupDraftService = new SignupDraftService(i18n)
+      const result = await signupDraftService.prepareCardSetup(payload)
+      return response.status(result.status).json(result.body)
+    } catch {
+      return response.status(500).json({
+        title: 'Error del servidor',
+        detail: 'Error inesperado en suscripciones.',
+        key: BILLING_SUBSCRIPTION_ERROR_CODES.SYS_UNHANDLED,
+        code: BILLING_SUBSCRIPTION_ERROR_CODES.SYS_UNHANDLED,
+      })
     }
   }
 
