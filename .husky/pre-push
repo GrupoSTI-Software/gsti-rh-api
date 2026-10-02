@@ -3,3 +3,8 @@
 
 node ace build
 node scripts/lint-terminology.mjs
+
+# Contrato del catálogo de módulos y permisos: fuente única en
+# app/constants/system_modules_menu/system_modules.constant.ts.
+# Solo specs de constants/: no tocan BD y corren en ~60ms.
+node ace test unit --files="constants/"

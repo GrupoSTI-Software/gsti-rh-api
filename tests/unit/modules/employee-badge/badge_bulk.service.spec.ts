@@ -3,20 +3,21 @@ import {
   BULK_BADGES_PER_PAGE,
   BULK_CELL_HEIGHT,
   BULK_CELL_WIDTH,
+  buildBadgeFileName,
   buildBulkDownloadFilename,
   computeBadgeCellPosition,
-  sanitizeBulkEntryName,
 } from '#modules/employee-badge/badge_bulk.service'
 
 test.group('BadgeBulkService - helpers', () => {
-  test('sanitizeBulkEntryName colapsa espacios y reemplaza caracteres inválidos', ({ assert }) => {
-    assert.equal(sanitizeBulkEntryName('Juan Pérez García'), 'Juan-P_rez-Garc_a')
-    assert.equal(sanitizeBulkEntryName('Ana María / López'), 'Ana-Mar_a-_-L_pez')
+  test('buildBadgeFileName usa solo el slug opaco del empleado', ({ assert }) => {
+    const slug = '3f2c1a9e-7b4d-4e21-9a0f-1c2d3e4f5a6b'
+    assert.equal(buildBadgeFileName(slug, 'png'), `gafete-${slug}.png`)
+    assert.equal(buildBadgeFileName(slug, 'pdf'), `gafete-${slug}.pdf`)
   })
 
   test('buildBulkDownloadFilename incluye extensión según formato', ({ assert }) => {
-    assert.match(buildBulkDownloadFilename('pdf'), /^gafetes-empleados-\d{4}-\d{2}-\d{2}\.pdf$/)
-    assert.match(buildBulkDownloadFilename('png'), /^gafetes-empleados-\d{4}-\d{2}-\d{2}\.zip$/)
+    assert.match(buildBulkDownloadFilename('pdf'), /^gafetes-\d{4}-\d{2}-\d{2}\.pdf$/)
+    assert.match(buildBulkDownloadFilename('png'), /^gafetes-\d{4}-\d{2}-\d{2}\.zip$/)
   })
 
   test('computeBadgeCellPosition distribuye 2 columnas × 4 filas por página', ({ assert }) => {

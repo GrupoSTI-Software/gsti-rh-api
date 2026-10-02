@@ -9,11 +9,12 @@ import BusinessUnit from '#models/business_unit'
 /**
  * Guard de atribuciones (USRH1789099318034). Table-driven: si se agrega
  * un endpoint al grupo y no a esta tabla, el spec falla por conteo.
- * El contrato declara cinco operaciones (alta, consulta, histórico, ajuste, cierre).
+ * El contrato declara seis operaciones (alta, consulta, histórico,
+ * listado por alianza, ajuste, cierre).
  */
 
 const TEST_PASSWORD = 'AllianceAttributionGuard123!'
-const ATTRIBUTION_AREA_ROUTE_COUNT = 5
+const ATTRIBUTION_AREA_ROUTE_COUNT = 6
 const SAMPLE_PUBLIC_ID = '00000000-0000-4000-8000-000000000001'
 
 type AttributionHttpMethod = 'get' | 'post' | 'patch'
@@ -25,6 +26,7 @@ const ATTRIBUTION_AREA_ROUTES: Array<{ method: AttributionHttpMethod; path: stri
     method: 'get',
     path: `/api/platform/tenants/${SAMPLE_PUBLIC_ID}/alliance-attributions`,
   },
+  { method: 'get', path: '/api/platform/alliances/1/attributions' },
   { method: 'patch', path: '/api/platform/alliance-attributions/1' },
   { method: 'post', path: '/api/platform/alliance-attributions/1/close' },
 ]
@@ -76,7 +78,7 @@ async function cleanupActor(actor: TestActor | null) {
 }
 
 test.group('Guard /api/platform/alliance-attributions — conteo', () => {
-  test('el área declara exactamente 5 rutas de atribución', ({ assert }) => {
+  test('el área declara exactamente 6 rutas de atribución', ({ assert }) => {
     assert.equal(ATTRIBUTION_AREA_ROUTES.length, ATTRIBUTION_AREA_ROUTE_COUNT)
   })
 

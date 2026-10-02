@@ -44,7 +44,9 @@ async function permissionId(module: string, slug: string): Promise<number | null
 
 async function grantPermission(roleId: number, module: string, slug: string) {
   const pid = await permissionId(module, slug)
-  if (!pid) return
+  // Sin esto, un módulo o slug equivocado no concede nada y la prueba acaba en
+  // un 403 del gate que parece un fallo de alcance.
+  if (!pid) throw new Error(`[grantPermission] No existe el permiso ${module}:${slug}`)
   const existing = await RoleSystemPermission.query()
     .where('role_id', roleId)
     .where('system_permission_id', pid)
@@ -101,8 +103,19 @@ test.group(
   'GET /api/departments/:id — acceso completo DA2=200, DB1=404 (CA-04)',
   (group) => {
     let fx: EmployeeScopeFixtures | null = null
-    group.setup(async () => { fx = await createEmployeeScopeFixtures() })
-    group.teardown(async () => { if (fx) await cleanupEmployeeScopeFixtures(fx) })
+    // La ruta exige organization-chart:read; sin él los 403 vendrían del gate y no del alcance.
+    group.setup(async () => {
+      fx = await createEmployeeScopeFixtures()
+      await grantPermission(fx!.uc.role.roleId, 'organization-chart', 'read')
+      await grantPermission(fx!.ur.role.roleId, 'organization-chart', 'read')
+    })
+    group.teardown(async () => {
+      if (fx) {
+        await revokePermission(fx!.uc.role.roleId, 'organization-chart', 'read')
+        await revokePermission(fx!.ur.role.roleId, 'organization-chart', 'read')
+        await cleanupEmployeeScopeFixtures(fx)
+      }
+    })
 
     test('acceso completo: DA2 fuera de role_departments devuelve 200', async ({ client }) => {
       const res = await client
@@ -170,13 +183,13 @@ test.group(
     let fx: EmployeeScopeFixtures | null = null
     group.setup(async () => {
       fx = await createEmployeeScopeFixtures()
-      await grantPermission(fx!.uc.role.roleId, 'employees-attendance-monitor', 'download-attendance-all')
-      await grantPermission(fx!.ur.role.roleId, 'employees-attendance-monitor', 'download-attendance-all')
+      await grantPermission(fx!.uc.role.roleId, 'employees', 'download-attendance-all')
+      await grantPermission(fx!.ur.role.roleId, 'employees', 'download-attendance-all')
     })
     group.teardown(async () => {
       if (fx) {
-        await revokePermission(fx!.uc.role.roleId, 'employees-attendance-monitor', 'download-attendance-all')
-        await revokePermission(fx!.ur.role.roleId, 'employees-attendance-monitor', 'download-attendance-all')
+        await revokePermission(fx!.uc.role.roleId, 'employees', 'download-attendance-all')
+        await revokePermission(fx!.ur.role.roleId, 'employees', 'download-attendance-all')
         await cleanupEmployeeScopeFixtures(fx)
       }
     })
@@ -203,7 +216,8 @@ test.group(
       assert.include(filters.departmentsList, fx!.tenantA.da1Id)
       assert.include(filters.departmentsList, fx!.tenantA.da2Id)
       assert.notInclude(filters.departmentsList, fx!.tenantB.da1Id)
-      assert.deepEqual(job.report_job_allowed_business_unit_ids ?? [], [])
+      // El job congela la empresa activa: el worker no la deduce de nuevo al procesarlo.
+      assert.deepEqual(job.report_job_allowed_business_unit_ids ?? [], [fx!.tenantA.businessUnit.businessUnitId])
 
       await db.from('report_jobs').where('report_job_id', reportJobId).delete()
     })
@@ -286,9 +300,9 @@ test.group(
   }
 )
 
-// ─── Caso 6 · Vacaciones — owner sin permiso ve solo E1 (CA-08) ──────────────
+// ─── Caso 6 · Vacaciones — owner ve toda la plantilla de su empresa (CA-08) ──
 test.group(
-  'GET /api/employees/get-all-vacations-by-period — owner sin permiso (CA-08)',
+  'GET /api/employees/get-all-vacations-by-period — owner (CA-08)',
   (group) => {
     let fx: EmployeeScopeFixtures | null = null
     let vacTypeId: number | null = null
@@ -304,6 +318,7 @@ test.group(
         await createVacationException(fx!.e1.employee.employeeId, '2026-09-10', vacTypeId)
         await createVacationException(fx!.e2.employee.employeeId, '2026-09-10', vacTypeId)
         await createVacationException(fx!.e0.employee.employeeId, '2026-09-10', vacTypeId)
+        await createVacationException(fx!.eb0.employee.employeeId, '2026-09-10', vacTypeId)
       }
 
       await grantPermission(fx!.uo.role.roleId, 'employees', 'tab-trabajo-read')
@@ -315,7 +330,9 @@ test.group(
       }
     })
 
-    test('CA-08: owner sin full-employee-assigned ve solo su colaborador E1', async ({
+    // Regla vigente de multitenant (c7a8110b, bcd827b8): root y owner ven toda la
+    // plantilla de su empresa aunque su rol no tenga `full-employee-assigned`.
+    test('CA-08: owner sin full-employee-assigned ve toda la plantilla de su empresa', async ({
       client,
       assert,
     }) => {
@@ -329,8 +346,9 @@ test.group(
 
       const ids = (res.body().data.employees ?? []).map((e: { employeeId: number }) => e.employeeId)
       assert.include(ids, fx!.e1.employee.employeeId)
-      assert.notInclude(ids, fx!.e2.employee.employeeId)
-      assert.notInclude(ids, fx!.e0.employee.employeeId)
+      assert.include(ids, fx!.e2.employee.employeeId)
+      assert.include(ids, fx!.e0.employee.employeeId)
+      assert.notInclude(ids, fx!.eb0.employee.employeeId)
     })
   }
 )
@@ -417,7 +435,12 @@ test.group(
         .qs({ dateStart: '2026-09-01', dateEnd: '2026-09-30' })
       res.assertStatus(200)
 
-      const contracts = res.body().data.employeeProceedingFiles.contractsExpiring ?? []
+      // El contrato vence dentro del rango pedido: el servicio lo entrega en
+      // `contractsExpired`; `contractsExpiring` son los 30 días posteriores.
+      const contracts = [
+        ...(res.body().data.employeeProceedingFiles.contractsExpired ?? []),
+        ...(res.body().data.employeeProceedingFiles.contractsExpiring ?? []),
+      ]
       const empIds = contracts.map((c: { employee?: { employeeId: number }; employeeId?: number }) =>
         c.employee?.employeeId ?? c.employeeId ?? 0
       )
@@ -482,6 +505,7 @@ test.group(
         .qs({ dateStart: '2026-09-01', dateEnd: '2026-09-30' })
       res.assertStatus(200)
       const pf = res.body().data.employeeProceedingFiles
+      assert.deepEqual(pf.contractsExpired ?? [], [])
       assert.deepEqual(pf.contractsExpiring ?? [], [])
     })
   }

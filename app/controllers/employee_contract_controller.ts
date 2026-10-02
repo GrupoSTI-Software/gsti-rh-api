@@ -1,5 +1,8 @@
 import { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
+import { resolveStoredFileExtension } from '#helpers/stored_file_extension'
 import { inject } from '@adonisjs/core'
 import UploadService from '#services/upload_service'
 import Env from '#start/env'
@@ -10,6 +13,7 @@ import EmployeeContractService from '#services/employee_contract_service'
 import { createEmployeeContractValidator } from '#validators/employee_contract'
 import EmployeeContract from '#models/employee_contract'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
+import { EMPLOYEE_CONTRACT_ERROR_CODES } from '#constants/employee_contract_error_codes'
 import { EMPLOYEES_CONTRACT_DOWNLOAD_TAB_READ_PERMISSION } from '#constants/employees_download_permission_declarations'
 export default class EmployeeContractController {
   /**
@@ -70,13 +74,15 @@ export default class EmployeeContractController {
    *                 default: ''
    *               departmentId:
    *                 type: number
+   *                 nullable: true
    *                 description: Department id
-   *                 required: true
+   *                 required: false
    *                 default: ''
    *               positionId:
    *                 type: number
+   *                 nullable: true
    *                 description: Position id
-   *                 required: true
+   *                 required: false
    *                 default: ''
    *               payrollBusinessUnitId:
    *                 type: number
@@ -146,6 +152,37 @@ export default class EmployeeContractController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '422':
+   *         description: Datos del contrato no válidos
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: warning
+   *                 title:
+   *                   type: string
+   *                   example: Datos del contrato no válidos
+   *                 message:
+   *                   type: string
+   *                   example: Revisa los datos del contrato
+   *                 detail:
+   *                   type: string
+   *                   description: Primer mensaje de validación
+   *                 error:
+   *                   type: string
+   *                   description: Primer mensaje de validación
+   *                 errors:
+   *                   type: array
+   *                   description: Mensajes de validación
+   *                 key:
+   *                   type: string
+   *                   example: datos-del-contrato-no-validos
+   *                 code:
+   *                   type: string
+   *                   example: EMP.CONTRACT.VAL_INPUT
    *       default:
    *         description: Unexpected error
    *         content:
@@ -173,7 +210,7 @@ export default class EmployeeContractController {
   async store({ request, response }: HttpContext) {
     try {
       const employeeContractService = new EmployeeContractService()
-      await request.validateUsing(createEmployeeContractValidator)
+      const data = await request.validateUsing(createEmployeeContractValidator)
       const validationOptions = {
         types: ['image', 'document'],
         size: '',
@@ -184,8 +221,6 @@ export default class EmployeeContractController {
       const employeeContractMonthlyNetSalary = request.input('employeeContractMonthlyNetSalary')
       const employeeContractTypeId = request.input('employeeContractTypeId')
       const employeeId = request.input('employeeId')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
       const employeeContractActive = request.input('employeeContractActive')
       let employeeContractStartDate = request.input('employeeContractStartDate')
@@ -206,8 +241,8 @@ export default class EmployeeContractController {
         employeeContractMonthlyNetSalary: employeeContractMonthlyNetSalary,
         employeeContractTypeId: employeeContractTypeId,
         employeeId: employeeId,
-        departmentId: departmentId,
-        positionId: positionId,
+        departmentId: data.departmentId ?? null,
+        positionId: data.positionId ?? null,
         payrollBusinessUnitId: payrollBusinessUnitId,
         employeeContractActive: employeeContractActive,
       } as EmployeeContract
@@ -265,14 +300,29 @@ export default class EmployeeContractController {
       // servidor: se relanza para que lo formatee el handler global.
       if (isFileIntakeError(error)) throw error
 
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      if (error.code === 'E_VALIDATION_ERROR') {
+        const firstMessage: string = error.messages?.[0]?.message ?? ''
+        response.status(422)
+        return {
+          type: 'warning',
+          title: 'Datos del contrato no válidos',
+          message: 'Revisa los datos del contrato',
+          detail: firstMessage,
+          error: firstMessage,
+          errors: error.messages,
+          key: 'datos-del-contrato-no-validos',
+          code: EMPLOYEE_CONTRACT_ERROR_CODES.VAL_INPUT,
+        }
+      }
+
+      // Solo código e id; nunca el mensaje de BD ni datos del contrato.
+      logger.error({ code: error.code, employeeContractId: request.param('employeeContractId') ?? null }, 'employee contract write failed')
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
-        error: messageError,
+        error: 'An unexpected error has occurred on the server',
       }
     }
   }
@@ -342,13 +392,15 @@ export default class EmployeeContractController {
    *                 default: ''
    *               departmentId:
    *                 type: number
+   *                 nullable: true
    *                 description: Department id
-   *                 required: true
+   *                 required: false
    *                 default: ''
    *               positionId:
    *                 type: number
+   *                 nullable: true
    *                 description: Position id
-   *                 required: true
+   *                 required: false
    *                 default: ''
    *               payrollBusinessUnitId:
    *                 type: number
@@ -418,6 +470,37 @@ export default class EmployeeContractController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '422':
+   *         description: Datos del contrato no válidos
+   *         content:
+   *           application/json:
+   *             schema:
+   *               type: object
+   *               properties:
+   *                 type:
+   *                   type: string
+   *                   example: warning
+   *                 title:
+   *                   type: string
+   *                   example: Datos del contrato no válidos
+   *                 message:
+   *                   type: string
+   *                   example: Revisa los datos del contrato
+   *                 detail:
+   *                   type: string
+   *                   description: Primer mensaje de validación
+   *                 error:
+   *                   type: string
+   *                   description: Primer mensaje de validación
+   *                 errors:
+   *                   type: array
+   *                   description: Mensajes de validación
+   *                 key:
+   *                   type: string
+   *                   example: datos-del-contrato-no-validos
+   *                 code:
+   *                   type: string
+   *                   example: EMP.CONTRACT.VAL_INPUT
    *       default:
    *         description: Unexpected error
    *         content:
@@ -445,7 +528,7 @@ export default class EmployeeContractController {
   async update({ request, response }: HttpContext) {
     try {
       const employeeContractService = new EmployeeContractService()
-      await request.validateUsing(createEmployeeContractValidator)
+      const data = await request.validateUsing(createEmployeeContractValidator)
       const validationOptions = {
         types: ['image', 'document'],
         size: '',
@@ -479,8 +562,6 @@ export default class EmployeeContractController {
       const employeeContractMonthlyNetSalary = request.input('employeeContractMonthlyNetSalary')
       const employeeContractTypeId = request.input('employeeContractTypeId')
       const employeeId = request.input('employeeId')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
       const payrollBusinessUnitId = request.input('payrollBusinessUnitId')
       const employeeContractActive = request.input('employeeContractActive')
       let employeeContractStartDate = request.input('employeeContractStartDate')
@@ -500,11 +581,11 @@ export default class EmployeeContractController {
         employeeContractMonthlyNetSalary: employeeContractMonthlyNetSalary,
         employeeContractTypeId: employeeContractTypeId,
         employeeId: employeeId,
-        departmentId: departmentId,
-        positionId: positionId,
         payrollBusinessUnitId: payrollBusinessUnitId,
         employeeContractActive: employeeContractActive,
       } as EmployeeContract
+      if ('departmentId' in data) employeeContract.departmentId = data.departmentId ?? null
+      if ('positionId' in data) employeeContract.positionId = data.positionId ?? null
       const verifyExist = await employeeContractService.verifyInfoExist(employeeContract)
       if (verifyExist.status !== 200) {
         response.status(verifyExist.status)
@@ -568,14 +649,29 @@ export default class EmployeeContractController {
       // servidor: se relanza para que lo formatee el handler global.
       if (isFileIntakeError(error)) throw error
 
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
+      if (error.code === 'E_VALIDATION_ERROR') {
+        const firstMessage: string = error.messages?.[0]?.message ?? ''
+        response.status(422)
+        return {
+          type: 'warning',
+          title: 'Datos del contrato no válidos',
+          message: 'Revisa los datos del contrato',
+          detail: firstMessage,
+          error: firstMessage,
+          errors: error.messages,
+          key: 'datos-del-contrato-no-validos',
+          code: EMPLOYEE_CONTRACT_ERROR_CODES.VAL_INPUT,
+        }
+      }
+
+      // Solo código e id; nunca el mensaje de BD ni datos del contrato.
+      logger.error({ code: error.code, employeeContractId: request.param('employeeContractId') ?? null }, 'employee contract write failed')
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
-        error: messageError,
+        error: 'An unexpected error has occurred on the server',
       }
     }
   }
@@ -716,12 +812,14 @@ export default class EmployeeContractController {
         }
       }
     } catch (error) {
+      // Solo código e id; nunca el mensaje de BD ni datos del contrato.
+      logger.error({ code: error.code, employeeContractId: request.param('employeeContractId') ?? null }, 'employee contract delete failed')
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
-        error: error.message,
+        error: 'An unexpected error has occurred on the server',
       }
     }
   }
@@ -857,12 +955,14 @@ export default class EmployeeContractController {
         }
       }
     } catch (error) {
+      // Solo código e id; nunca el mensaje de BD ni datos del contrato.
+      logger.error({ code: error.code, employeeContractId: request.param('employeeContractId') ?? null }, 'employee contract read failed')
       response.status(500)
       return {
         type: 'error',
         title: 'Server error',
         message: 'An unexpected error has occurred on the server',
-        error: error.message,
+        error: 'An unexpected error has occurred on the server',
       }
     }
   }
@@ -903,7 +1003,7 @@ export default class EmployeeContractController {
    */
   @inject()
   async download(ctx: HttpContext, uploadService: UploadService) {
-    const { auth, request, response, logger, businessUnitScope } = ctx
+    const { auth, request, response, logger: ctxLogger, businessUnitScope } = ctx
     try {
       const canReadTab = await ensureSecondaryPermission(
         ctx,
@@ -967,7 +1067,7 @@ export default class EmployeeContractController {
       const object = await uploadService.streamStoredFile(contract.employeeContractFile)
 
       if (!object) {
-        logger.warn(
+        ctxLogger.warn(
           { employeeContractId, path: contract.employeeContractFile },
           'Contrato registrado en BD pero no encontrado en almacenamiento'
         )
@@ -980,10 +1080,16 @@ export default class EmployeeContractController {
         }
       }
 
-      const fileName = `contrato-${contract.employeeContractFolio || employeeContractId}`
+      const fileName = buildDownloadFileName(
+        ['contrato', employeeContractId],
+        resolveStoredFileExtension({
+          storedPath: contract.employeeContractFile,
+          contentType: object.contentType,
+        })
+      )
 
       response.header('Content-Type', object.contentType || 'application/octet-stream')
-      response.header('Content-Disposition', `inline; filename="${fileName}"`)
+      response.header('Content-Disposition', contentDisposition(fileName, 'inline'))
       response.header('Cache-Control', 'private, no-store')
       if (object.contentLength !== undefined) {
         response.header('Content-Length', String(object.contentLength))
@@ -998,7 +1104,7 @@ export default class EmployeeContractController {
       response.status(200)
       return response.stream(object.stream)
     } catch (error: any) {
-      logger.error(
+      ctxLogger.error(
         { err: error, employeeContractId: request.param('employeeContractId') },
         'Error inesperado al descargar contrato del almacenamiento'
       )

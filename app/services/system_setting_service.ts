@@ -1,4 +1,7 @@
 import SystemSetting from '#models/system_setting'
+import BusinessUnit from '#models/business_unit'
+import type { I18n } from '@adonisjs/i18n'
+import { isValidTimeZone } from '#modules/attendance-time/attendance_clock'
 import SystemSettingPayrollConfig from '#models/system_setting_payroll_config'
 import { DateTime } from 'luxon'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
@@ -311,6 +314,80 @@ export default class SystemSettingService {
       title: 'Info verifiy successfully',
       message: 'Info verifiy successfully',
       data: { ...systemSetting },
+    }
+  }
+
+  /**
+   * Cambia la zona horaria del sitio de la empresa dueña de la configuración.
+   *
+   * La zona se guarda en `business_units.business_unit_timezone` porque la
+   * consumen la asistencia y el canal ADMS; la configuración solo es la puerta
+   * de entrada (Reglas de operación) y el corte de alcance. Una zona que Luxon
+   * no reconoce se rechaza: guardada, movería la hora de toda la plantilla.
+   */
+  async updateSiteTimezone(
+    systemSettingId: number,
+    businessUnitTimezone: string,
+    businessUnitScope: number[],
+    i18n: I18n
+  ) {
+    const systemSetting = await SystemSetting.query()
+      .whereNull('system_setting_deleted_at')
+      .where('system_setting_id', systemSettingId)
+      .whereIn('businessUnitId', businessUnitScope)
+      .first()
+
+    if (!systemSetting) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'System setting not found',
+        message: 'The system setting was not found with the entered ID',
+        key: 'configuracion-no-encontrada',
+        data: { systemSettingId },
+      }
+    }
+
+    const zone = businessUnitTimezone.trim()
+    if (!isValidTimeZone(zone)) {
+      return {
+        status: 400,
+        type: 'error',
+        title: i18n.formatMessage('system_setting_timezone_invalid_title'),
+        message: i18n.formatMessage('system_setting_timezone_invalid_detail'),
+        key: 'zona-horaria-invalida',
+        data: { businessUnitTimezone },
+      }
+    }
+
+    const businessUnit = systemSetting.businessUnitId
+      ? await BusinessUnit.query()
+          .where('business_unit_id', systemSetting.businessUnitId)
+          .whereIn('business_unit_id', businessUnitScope)
+          .first()
+      : null
+
+    if (!businessUnit) {
+      return {
+        status: 404,
+        type: 'warning',
+        title: 'Business unit not found',
+        message: 'The business unit of the system setting was not found',
+        key: 'empresa-no-encontrada',
+        data: { systemSettingId },
+      }
+    }
+
+    businessUnit.businessUnitTimezone = zone
+    await businessUnit.save()
+
+    return {
+      status: 200,
+      type: 'success',
+      title: i18n.formatMessage('resources'),
+      message: i18n.formatMessage('resources_were_found_successfully'),
+      key: undefined,
+      data: { businessUnitTimezone: zone },
     }
   }
 

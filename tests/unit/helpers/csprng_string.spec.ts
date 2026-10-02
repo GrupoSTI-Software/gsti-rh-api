@@ -3,8 +3,8 @@ import { randomStringFromAlphabet } from '../../../app/helpers/csprng_string.js'
 
 /**
  * USRH1783115930049 — CSPRNG compartido usado por el buzón de quejas
- * (folio/passphrase) y por `demo_password.ts`. Cubre formato (largo,
- * alfabeto), no-determinismo y los guardas de entrada inválida.
+ * (folio/passphrase). Cubre formato (largo, alfabeto), no-determinismo y
+ * los guardas de entrada inválida.
  */
 test.group('csprng_string — randomStringFromAlphabet', () => {
   test('respeta el largo pedido', ({ assert }) => {

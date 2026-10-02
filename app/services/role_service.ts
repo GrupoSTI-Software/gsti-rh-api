@@ -372,6 +372,12 @@ export default class RoleService {
   }
 
   async hasAccessToFullEmployees(roleId: number) {
+    // `owner` ve toda la plantilla de su empresa, igual que pasa el gate de
+    // `hasAccess`; el scope por empresa lo sigue poniendo el middleware.
+    const role = await Role.query().whereNull('role_deleted_at').where('role_id', roleId).first()
+    if (role?.roleSlug === 'owner') {
+      return true
+    }
     const systemPermissionFullEmployee = await SystemPermission.query()
       .whereNull('system_permission_deleted_at')
       .where('system_permission_slug', 'full-employee-assigned')

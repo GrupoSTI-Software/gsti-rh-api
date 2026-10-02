@@ -6,6 +6,7 @@ import db from '@adonisjs/lucid/services/db'
 import type {
   TenantBillingProfileUpsertInput,
   TenantBillingProfileView,
+  TenantFiscalIdentity,
 } from '../interfaces/tenant_billing_profile_interface.js'
 import { blindIndex } from '#utils/blind_index'
 import { TenantContext } from '#utils/tenant_context'
@@ -21,6 +22,33 @@ import {
 } from '#helpers/tenant_billing_profile_error'
 
 const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
+
+/** Campos opcionales/nullable del perfil que siguen la semántica "ausente = conservar, null = limpiar". */
+type OptionalNullableProfileField =
+  | 'postalCode'
+  | 'taxRegimeCode'
+  | 'billingEmail'
+  | 'cfdiUseCode'
+  | 'street'
+  | 'exteriorNumber'
+  | 'interiorNumber'
+  | 'neighborhood'
+  | 'municipality'
+  | 'state'
+  | 'legalRepresentativeName'
+  | 'legalRepresentativeRole'
+
+/** Domicilio y representante (USRH1789097550393), en el orden en que se aplican y se publican. */
+const FISCAL_IDENTITY_FIELDS = [
+  'street',
+  'exteriorNumber',
+  'interiorNumber',
+  'neighborhood',
+  'municipality',
+  'state',
+  'legalRepresentativeName',
+  'legalRepresentativeRole',
+] as const satisfies readonly OptionalNullableProfileField[]
 
 /**
  * Servicio del perfil de facturación fiscal del tenant (USRH1786737531057, USRH1786737531066).
@@ -100,6 +128,9 @@ export default class TenantBillingProfileService {
         this.applyOptionalNullableUpdate(row, 'taxRegimeCode', input.taxRegimeCode)
         this.applyOptionalNullableUpdate(row, 'billingEmail', input.billingEmail)
         this.applyOptionalNullableUpdate(row, 'cfdiUseCode', input.cfdiUseCode)
+        for (const field of FISCAL_IDENTITY_FIELDS) {
+          this.applyOptionalNullableUpdate(row, field, input[field])
+        }
 
         await row.save()
         return row
@@ -140,17 +171,11 @@ export default class TenantBillingProfileService {
 
       const taxpayerType = deriveTaxpayerTypeFromRfc(effectiveRfc)
 
-      if (
-        taxpayerType === 'fisica' &&
-        taxRegime.satTaxRegimeAppliesToIndividual !== 1
-      ) {
+      if (taxpayerType === 'fisica' && taxRegime.satTaxRegimeAppliesToIndividual !== 1) {
         throw tenantBillingTaxRegimeNotForPersonTypeError()
       }
 
-      if (
-        taxpayerType === 'moral' &&
-        taxRegime.satTaxRegimeAppliesToLegalEntity !== 1
-      ) {
+      if (taxpayerType === 'moral' && taxRegime.satTaxRegimeAppliesToLegalEntity !== 1) {
         throw tenantBillingTaxRegimeNotForPersonTypeError()
       }
     }
@@ -214,13 +239,8 @@ export default class TenantBillingProfileService {
     return null
   }
 
-  private isCfdiUseAllowedForRegime(
-    cfdiUse: SatCfdiUse,
-    taxRegimeCode: string
-  ): boolean {
-    return cfdiUse.taxRegimes.some(
-      (regime) => regime.satTaxRegimeCode === taxRegimeCode
-    )
+  private isCfdiUseAllowedForRegime(cfdiUse: SatCfdiUse, taxRegimeCode: string): boolean {
+    return cfdiUse.taxRegimes.some((regime) => regime.satTaxRegimeCode === taxRegimeCode)
   }
 
   private resolveEffectiveValue(
@@ -234,9 +254,52 @@ export default class TenantBillingProfileService {
     return existingValue
   }
 
+  /**
+   * Identidad de la empresa para documentos formales (USRH1789097550393):
+   * razón social, domicilio y representante — NUNCA el RFC ni su huella.
+   * Filtra por `business_unit_id` explícito (el mixin es fail-open sin
+   * contexto). Sin perfil, la razón social sale de `business_units` y el
+   * resto queda en `null`. No lanza por domicilio incompleto: eso lo decide
+   * la guarda de completitud del documento que lo consuma.
+   */
+  async getFiscalIdentityForDocuments(businessUnitId: number): Promise<TenantFiscalIdentity> {
+    const profile = await TenantBillingProfile.query()
+      .where('business_unit_id', businessUnitId)
+      .first()
+
+    if (profile) {
+      return {
+        legalName: profile.legalName,
+        postalCode: profile.postalCode,
+        street: profile.street,
+        exteriorNumber: profile.exteriorNumber,
+        interiorNumber: profile.interiorNumber,
+        neighborhood: profile.neighborhood,
+        municipality: profile.municipality,
+        state: profile.state,
+        legalRepresentativeName: profile.legalRepresentativeName,
+        legalRepresentativeRole: profile.legalRepresentativeRole,
+      }
+    }
+
+    const businessUnit = await this.assertBusinessUnitExists(businessUnitId)
+    return {
+      legalName: businessUnit.businessUnitLegalName,
+      postalCode: null,
+      street: null,
+      exteriorNumber: null,
+      interiorNumber: null,
+      neighborhood: null,
+      municipality: null,
+      state: null,
+      legalRepresentativeName: null,
+      legalRepresentativeRole: null,
+    }
+  }
+
   private applyOptionalNullableUpdate(
     profile: TenantBillingProfile,
-    field: 'postalCode' | 'taxRegimeCode' | 'billingEmail' | 'cfdiUseCode',
+    field: OptionalNullableProfileField,
     value: string | null | undefined
   ): void {
     if (value === undefined) {
@@ -306,6 +369,14 @@ export default class TenantBillingProfileService {
       taxRegimeCode: null,
       billingEmail: null,
       cfdiUseCode: null,
+      street: null,
+      exteriorNumber: null,
+      interiorNumber: null,
+      neighborhood: null,
+      municipality: null,
+      state: null,
+      legalRepresentativeName: null,
+      legalRepresentativeRole: null,
       taxpayerType: null,
       billingProfileComplete: completeness.complete,
       missingFields: completeness.missingFields,
@@ -331,6 +402,15 @@ export default class TenantBillingProfileService {
       taxRegimeCode: profile.taxRegimeCode,
       billingEmail: profile.billingEmail,
       cfdiUseCode: profile.cfdiUseCode,
+      // Domicilio y representante (USRH1789097550393), campo por campo: nunca un spread del modelo
+      street: profile.street,
+      exteriorNumber: profile.exteriorNumber,
+      interiorNumber: profile.interiorNumber,
+      neighborhood: profile.neighborhood,
+      municipality: profile.municipality,
+      state: profile.state,
+      legalRepresentativeName: profile.legalRepresentativeName,
+      legalRepresentativeRole: profile.legalRepresentativeRole,
       taxpayerType: deriveTaxpayerTypeFromRfc(profile.rfc),
       billingProfileComplete: completeness.complete,
       missingFields: completeness.missingFields,

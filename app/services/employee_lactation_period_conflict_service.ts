@@ -8,6 +8,7 @@ import EmployeeLactationPeriodService from './employee_lactation_period_service.
 import ShiftExceptionService from './shift_exception_service.js'
 import { ELP_ERROR_CODES } from '../constants/employee_lactation_period_error_codes.js'
 import { EmployeeLactationPeriodError } from '../exceptions/employee_lactation_period_error.js'
+import { CIVIL_DATE_ANCHOR_ZONE } from '#utils/business_date'
 
 /**
  * Cap superior de captura aceptado para el rango total del periodo (en
@@ -701,19 +702,19 @@ export default class EmployeeLactationPeriodConflictService {
   private toDateTime(value: unknown): DateTime {
     if (DateTime.isDateTime(value)) {
       const iso = (value as DateTime).toUTC().toISODate()
-      if (iso) return DateTime.fromISO(iso, { zone: 'UTC-6' })
-      return (value as DateTime).setZone('UTC-6')
+      if (iso) return DateTime.fromISO(iso, { zone: CIVIL_DATE_ANCHOR_ZONE })
+      return (value as DateTime).setZone(CIVIL_DATE_ANCHOR_ZONE)
     }
     if (value instanceof Date) {
       const iso = DateTime.fromJSDate(value, { zone: 'utc' }).toISODate()
-      if (iso) return DateTime.fromISO(iso, { zone: 'UTC-6' })
-      return DateTime.fromJSDate(value).setZone('UTC-6')
+      if (iso) return DateTime.fromISO(iso, { zone: CIVIL_DATE_ANCHOR_ZONE })
+      return DateTime.fromJSDate(value).setZone(CIVIL_DATE_ANCHOR_ZONE)
     }
     if (typeof value === 'string') {
       const head = value.length >= 10 ? value.substring(0, 10) : value
-      const iso = DateTime.fromISO(head, { zone: 'UTC-6' })
+      const iso = DateTime.fromISO(head, { zone: CIVIL_DATE_ANCHOR_ZONE })
       if (iso.isValid) return iso
-      const sql = DateTime.fromSQL(value, { zone: 'UTC-6' })
+      const sql = DateTime.fromSQL(value, { zone: CIVIL_DATE_ANCHOR_ZONE })
       if (sql.isValid) return sql
     }
     return DateTime.invalid('Fecha no parseable para conflicto de lactancia')

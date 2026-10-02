@@ -334,48 +334,6 @@ class FaceDescriptorCacheService {
     }
   }
 
-  /**
-   * Obtiene descriptor de empleado (desde caché o lo calcula)
-   */
-  async getEmployeeDescriptor(
-    employeeId: number,
-    photoUrl: string,
-    getImageSource: () => Promise<string | Buffer | null>
-  ): Promise<Float32Array | null> {
-    // 1. Intentar obtener del caché
-    const cached = this.get(employeeId, photoUrl)
-    if (cached) {
-      return cached
-    }
-
-    // 2. Obtener imagen y calcular descriptor
-    const imageSource = await getImageSource()
-    if (!imageSource) return null
-
-    const descriptor = await this.computeDescriptor(imageSource)
-    if (!descriptor) return null
-
-    // 3. Guardar en caché
-    this.set(employeeId, descriptor, photoUrl)
-
-    return descriptor
-  }
-
-  /**
-   * Verifica dos descriptores faciales
-   */
-  compareDescriptors(
-    descriptor1: Float32Array,
-    descriptor2: Float32Array,
-    threshold: number = 0.6
-  ): { match: boolean; distance: number; threshold: number } {
-    const distance = faceapi.euclideanDistance(descriptor1, descriptor2)
-    return {
-      match: distance < threshold,
-      distance,
-      threshold,
-    }
-  }
 
   /**
    * Estadísticas del caché

@@ -912,4 +912,54 @@ Los errores se devuelven como `{ type: 'error', title: string, data: { key: stri
 
 Cada intento al endpoint (exitoso o fallido) dispara un correo a la dirección configurada en `DEMO_AUDIT_EMAIL` con los siguientes datos: timestamp ISO, IP origen, user-agent, GID del usuario autenticado, resultado y motivo. La password y el hash nunca se incluyen en el correo.
 
+---
 
+## Identidad de la persona (`PERSON.IDENTITY.*`)
+
+### PERSON.IDENTITY.005 — No es posible registrar ese correo (`no-es-posible-registrar-ese-correo`)
+
+**HTTP 422.**
+
+**Cuándo:** El correo personal capturado no puede registrarse en el expediente por la política de unicidad global de la plataforma. Se emite en los **dos** caminos de captura, `POST /api/persons` y `PUT /api/persons/:personId`, y **la respuesta es idéntica byte a byte en ambos**: mismo status, mismo cuerpo con el mismo orden de claves y el mismo conjunto de cabeceras.
+
+**Salvedad de alcance:** esa paridad aplica cuando el correo es el conflicto determinante —si el correo está ocupado y además hay un duplicado de identidad de la propia empresa, manda el rechazo del correo en los dos verbos—, y cada verbo pasa antes sus propios guards (la edición puede responder 403 por permiso de cambio de credencial antes de llegar a este rechazo).
+
+**Respuesta:**
+
+```json
+{
+  "title": "No es posible registrar ese correo",
+  "detail": "La política de la plataforma no permite registrar ese correo en este expediente. Captura otro correo personal, o deja el campo vacío: el acceso a la aplicación puede otorgarse con el correo institucional del trabajador.",
+  "key": "no-es-posible-registrar-ese-correo",
+  "code": "PERSON.IDENTITY.005"
+}
+```
+
+**Acción cliente:** Capturar otro correo personal o dejar el campo vacío — el correo personal es opcional y el acceso a la aplicación puede otorgarse con el correo institucional del trabajador.
+
+**Lo que esta respuesta NO trae, y es deliberado:** no confirma que el correo esté registrado, no dice en qué empresa, no dice desde cuándo, no señala el campo que falló, no enumera qué dato del expediente está repetido, no interpola el correo capturado y no lleva ninguna cabecera `X-RateLimit-*`.
+
+**Alcance declarado:** este mensaje evita confirmar la causa, **pero no elimina la señal**. Quien prueba un correo y recibe este rechazo, y prueba otro y pasa, ya obtuvo la información. El límite de intentos y la bitácora atribuible son de `USRH1789762889970`.
+
+### PERSON.IDENTITY.006 — Demasiados intentos de captura de correo (`demasiados-intentos-de-captura-de-correo`)
+
+**HTTP 429.**
+
+**Cuándo:** Se superó el número de capturas de correo personal permitidas en el periodo. Se emite en los **dos** caminos de captura, `POST /api/persons` y `PUT /api/persons/:personId`, y **el cuerpo es idéntico entre contadores**: no distingue cuál de los límites se topó.
+
+**Respuesta:**
+
+```json
+{
+  "title": "Demasiados intentos de captura de correo",
+  "detail": "Superaste el límite de capturas permitidas en este periodo. Espera un momento e intenta de nuevo. Para dar de alta a varias personas, usa la carga masiva desde archivo.",
+  "key": "demasiados-intentos-de-captura-de-correo",
+  "code": "PERSON.IDENTITY.006"
+}
+```
+
+**Cabeceras:** es la única respuesta de esta familia que lleva las cabeceras RFC 6585 — `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `Retry-After` y `X-RateLimit-Reset` (fecha ISO calculada a partir de `Retry-After`). El resto de rechazos de `PERSON.IDENTITY.*` no las trae.
+
+**Acción cliente:** Esperar lo que indique `Retry-After` e intentar de nuevo; para dar de alta a varias personas, usar la carga masiva desde archivo en lugar de capturarlas una por una.
+
+**Lo que esta respuesta NO trae, y es deliberado:** no dice cuál de los contadores se superó, no interpola el correo capturado, no revela el contador consumido ni la identidad sondeada, y no confirma si un correo existe en la plataforma.

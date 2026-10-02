@@ -76,8 +76,6 @@ const assistBatchItemsLimit = async (ctx: HttpContext, next: NextFn) => {
 router
   .group(() => {
     router.get('/get-flat-list', '#controllers/assists_controller.getAssistFlatList')
-    router.get('/get-format-payroll', '#controllers/assists_controller.getFormatPayRoll')
-      .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getPayrollFormat))
     router.get('/get-excel-by-employee', '#controllers/assists_controller.getExcelByEmployee')
       .use(middleware.permissionGate(EMPLOYEES_DOWNLOAD_PERMISSION_DECLARATIONS.getAttendanceByEmployee))
     router.get('/get-excel-by-position', '#controllers/assists_controller.getExcelByPosition')
@@ -100,6 +98,10 @@ router
       .use([assistStoreLimit, assistBatchItemsLimit])
     router.put('/:assistId/inactivate', '#controllers/assists_controller.inactivate')
       .use(middleware.permissionGate(EMPLOYEES_ATTENDANCE_MONITOR_PERMISSION_DECLARATIONS.inactivateAssist))
+    // Origen de una checada para el detalle del registro. Lee como el
+    // calendario: dentro de la empresa activa, sin permiso propio.
+    router.get('/:assistId/source', '#modules/assist-source/assist_source.controller.show')
+    router.get('/:assistId/address', '#modules/assist-source/assist_source.controller.address')
     router.get('/websocket-docs', '#controllers/assists_controller.websocketDocs')
     router.get('/verify-attendance-lock/:type', '#controllers/assists_controller.verifyAttendanceLock')
 

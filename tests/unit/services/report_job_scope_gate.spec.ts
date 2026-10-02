@@ -30,9 +30,12 @@ test.group('Report jobs — gate fail-closed con scope vacío (USRH1786566437097
     )
   })
 
-  test('recoverStuckJobs declara deuda conocida sin TenantContext.run', ({ assert }) => {
+  test('processJob abre TenantContext.run con alcance persistido (USRH1789600808831)', ({
+    assert,
+  }) => {
     const content = readFileSync(REPORT_JOB_SERVICE, 'utf-8')
-    assert.include(content, 'Deuda conocida (USRH1786566437097')
+    assert.include(content, 'USRH1789600808831')
+    assert.include(content, 'TenantContext.run(job.reportJobAllowedBusinessUnitIds')
     assert.include(content, 'recoverStuckJobs')
   })
 })

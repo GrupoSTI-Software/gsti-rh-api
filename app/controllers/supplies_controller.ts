@@ -1,12 +1,18 @@
 import type { HttpContext } from '@adonisjs/core/http'
 import SupplieService from '#services/supplie_service'
 import {
+  buildDownloadFileName,
+  contentDisposition,
+  formatDownloadFileDate,
+} from '#helpers/download_file_name'
+import {
   createSupplieValidator,
   updateSupplieValidator,
   supplieFilterValidator,
   supplieDeactivationValidator
 } from '#validators/supplie'
 import { StandardResponseFormatter } from '../helpers/standard_response_formatter.js'
+import { AssetError, respondAssetError } from '#modules/assets/assets.error'
 
 export default class SuppliesController {
   /**
@@ -53,8 +59,9 @@ export default class SuppliesController {
    *       - in: query
    *         name: supplyFileNumber
    *         schema:
-   *           type: integer
-   *         description: Filter by file number
+   *           type: string
+   *           maxLength: 50
+   *         description: Folio exacto del activo
    *     responses:
    *       200:
    *         description: List of supplies
@@ -147,12 +154,18 @@ export default class SuppliesController {
    *               - supplyTypeId
    *             properties:
    *               supplyFileNumber:
-   *                 type: integer
-   *                 description: Supply file number
+   *                 type: string
+   *                 maxLength: 50
+   *                 description: Folio alfanumérico, único por empresa (acepta también un entero y lo guarda como texto)
    *               supplyName:
    *                 type: string
    *                 maxLength: 255
    *                 description: Supply name
+   *               supplySerialNumber:
+   *                 type: string
+   *                 maxLength: 100
+   *                 nullable: true
+   *                 description: Número de serie del fabricante
    *               supplyDescription:
    *                 type: string
    *                 maxLength: 1000
@@ -186,9 +199,12 @@ export default class SuppliesController {
    *                 data:
    *                   $ref: '#/components/schemas/Supplie'
    *       400:
-   *         description: Validation error or file number already exists
+   *         description: Validation error
+   *       409:
+   *         description: "Folio repetido en la empresa (`key: folio-de-activo-duplicado`)"
    */
-  async store({ request, response }: HttpContext) {
+  async store(ctx: HttpContext) {
+    const { request, response } = ctx
     try {
       const data = await request.validateUsing(createSupplieValidator)
       const supply = await SupplieService.create(data)
@@ -196,6 +212,7 @@ export default class SuppliesController {
       return StandardResponseFormatter.success(response, supply
       , 'Supply', 'Supply created successfully', 201)
     } catch (error) {
+      if (error instanceof AssetError) return respondAssetError(ctx, error)
       return StandardResponseFormatter.error(response, error.message
       , 400)
     }
@@ -222,12 +239,18 @@ export default class SuppliesController {
    *             type: object
    *             properties:
    *               supplyFileNumber:
-   *                 type: integer
-   *                 description: Supply file number
+   *                 type: string
+   *                 maxLength: 50
+   *                 description: Folio alfanumérico, único por empresa (acepta también un entero y lo guarda como texto)
    *               supplyName:
    *                 type: string
    *                 maxLength: 255
    *                 description: Supply name
+   *               supplySerialNumber:
+   *                 type: string
+   *                 maxLength: 100
+   *                 nullable: true
+   *                 description: Número de serie del fabricante
    *               supplyDescription:
    *                 type: string
    *                 maxLength: 1000
@@ -237,8 +260,8 @@ export default class SuppliesController {
    *                 description: Supply type ID
    *               supplyStatus:
    *                 type: string
-   *                 enum: [active, inactive, lost, damaged]
-   *                 description: Supply status
+   *                 enum: [active]
+   *                 description: Solo reactivar; las bajas van por PUT /api/supplies/{id}/deactivate
    *               supplyAcquisitionDate:
    *                 type: string
    *                 format: date
@@ -261,11 +284,14 @@ export default class SuppliesController {
    *                 data:
    *                   $ref: '#/components/schemas/Supplie'
    *       400:
-   *         description: Validation error or file number already exists
+   *         description: Validation error
+   *       409:
+   *         description: "Folio repetido en la empresa (`key: folio-de-activo-duplicado`)"
    *       404:
    *         description: Supply not found
    */
-  async update({ params, request, response }: HttpContext) {
+  async update(ctx: HttpContext) {
+    const { params, request, response } = ctx
     try {
       const data = await request.validateUsing(updateSupplieValidator)
       const supply = await SupplieService.update(params.id, data)
@@ -273,6 +299,7 @@ export default class SuppliesController {
       return StandardResponseFormatter.success(response, supply
       , 'Supply', 'Supply updated successfully')
     } catch (error) {
+      if (error instanceof AssetError) return respondAssetError(ctx, error)
       return StandardResponseFormatter.error(response, error.message
       , 400)
     }
@@ -296,13 +323,17 @@ export default class SuppliesController {
    *         description: Supply deleted successfully
    *       404:
    *         description: Supply not found
+   *       409:
+   *         description: "El activo tiene un resguardo activo (`key: activo-con-resguardo-activo`)"
    */
-  async destroy({ params, response }: HttpContext) {
+  async destroy(ctx: HttpContext) {
+    const { params, response } = ctx
     try {
       await SupplieService.delete(params.id)
       return StandardResponseFormatter.success(response, null
       , 'Supply', 'Supply deleted successfully')
     } catch (error) {
+      if (error instanceof AssetError) return respondAssetError(ctx, error)
       return StandardResponseFormatter.error(response, error.message
       , 404)
     }
@@ -312,7 +343,13 @@ export default class SuppliesController {
    * @swagger
    * /api/supplies/{id}/deactivate:
    *   post:
-   *     summary: Deactivate supply with reason
+   *     summary: Dar de baja un activo con motivo
+   *     description: |
+   *       Pasa el activo al estado destino (`inactive` por omisión, `lost` o
+   *       `damaged`) con motivo y fecha, y cierra su resguardo activo: lo pasa a
+   *       `retired` con el mismo motivo y fecha. `data.supplie` trae el activo
+   *       y `closedAssignments` los resguardos cerrados (vacío si no tenía).
+   *       Reactivar (volver a `active`) se hace con `PUT /api/supplies/{id}`.
    *     tags: [Supplies]
    *     parameters:
    *       - in: path
@@ -330,6 +367,11 @@ export default class SuppliesController {
    *             required:
    *               - supplyDeactivationReason
    *             properties:
+   *               supplyStatus:
+   *                 type: string
+   *                 enum: [inactive, lost, damaged]
+   *                 default: inactive
+   *                 description: Estado destino de la baja
    *               supplyDeactivationReason:
    *                 type: string
    *                 maxLength: 500
@@ -356,10 +398,17 @@ export default class SuppliesController {
   async deactivate({ params, request, response }: HttpContext) {
     try {
       const data = await request.validateUsing(supplieDeactivationValidator)
-      const supply = await SupplieService.deactivate(params.id, data)
+      const { supply, closedAssignments } = await SupplieService.deactivate(params.id, data)
 
-      return StandardResponseFormatter.success(response, supply
-      , 'Supply', 'Supply deactivated successfully')
+      return StandardResponseFormatter.success(
+        response,
+        {
+          ...supply.serialize(),
+          closedAssignments: closedAssignments.map((assignment) => assignment.serialize()),
+        },
+        'Supply',
+        'Supply deactivated successfully'
+      )
     } catch (error) {
       return StandardResponseFormatter.error(response, error.message
       , 400)
@@ -453,7 +502,10 @@ export default class SuppliesController {
           'Content-Type',
           'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
         )
-        response.header('Content-Disposition', 'attachment; filename=supplies-report.xlsx')
+        response.header(
+          'Content-Disposition',
+          contentDisposition(buildDownloadFileName(['reporte-activos', formatDownloadFileDate()], 'xlsx'))
+        )
         response.status(201)
         response.send(result.buffer)
       } else {

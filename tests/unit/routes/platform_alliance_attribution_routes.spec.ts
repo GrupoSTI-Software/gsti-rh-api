@@ -16,13 +16,14 @@ test.group('platform_alliance_attribution_routes — guard de plataforma', () =>
     assert.notInclude(content, 'businessScope')
   })
 
-  test('declara las cinco rutas del contrato', async ({ assert }) => {
+  test('declara las seis rutas del contrato', async ({ assert }) => {
     const content = await readFile(join(process.cwd(), ROUTES_PATH), 'utf8')
     assert.include(content, 'router.post(')
     assert.include(content, 'router.patch(')
     assert.include(content, '/alliance-attributions')
     assert.include(content, '/alliance-attributions/:allianceAttributionId')
     assert.include(content, '/tenants/:businessUnitPublicId/alliance-attributions')
+    assert.include(content, '/alliances/:allianceId/attributions')
     assert.include(content, '/alliance-attributions/:allianceAttributionId/close')
   })
 })

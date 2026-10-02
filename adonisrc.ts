@@ -106,6 +106,12 @@ export default defineConfig({
     {
       pattern: 'resources/lang/**/*.{json,yaml,yml}',
       reloadServer: false,
-    }
+    },
+    // Pesos del detector de rostros: se leen de `<cwd>/models` y sin ellos no
+    // se puede evaluar la foto biometrica al subirla.
+    {
+      pattern: 'models/**/*',
+      reloadServer: false,
+    },
   ],
 })

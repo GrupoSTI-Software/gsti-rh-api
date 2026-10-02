@@ -93,7 +93,8 @@ test.group('Publicacion de la foto hacia un checador', () => {
     assert.equal(enqueued[0].kind, 'biophoto_write')
     assert.equal(enqueued[0].fields.url, photoUrlFor(result.token, '1042'))
     assert.include(enqueued[0].fields.url ?? '', result.token)
-    assert.equal(enqueued[0].correlationKey, photoCorrelationKey('1042'))
+    assert.equal(enqueued[0].correlationKey, photoCorrelationKey('1042', INPUT.derivativeVersion))
+    assert.equal(enqueued[0].correlationKey, `biophoto:1042:v${INPUT.derivativeVersion}`)
     assert.equal(enqueued[0].biometricPhotoPublicationId, 1)
   })
 

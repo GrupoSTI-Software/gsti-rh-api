@@ -2,6 +2,8 @@ import { BaseCommand, flags } from '@adonisjs/core/ace'
 import type { CommandOptions } from '@adonisjs/core/types/ace'
 import EmployeeContract from '#models/employee_contract'
 import UploadService from '#services/upload_service'
+import { TenantContext } from '#utils/tenant_context'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 
 const PAGE_SIZE = 100
 
@@ -32,6 +34,16 @@ export default class BackfillEmployeeContractsAcl extends BaseCommand {
   declare dryRun: boolean
 
   async run() {
+    await TenantContext.runUnscoped(
+      async () => {
+        await this.execute()
+      },
+      TENANT_UNSCOPED_REASON.BACKFILL_MAINTENANCE,
+      BackfillEmployeeContractsAcl.commandName
+    )
+  }
+
+  private async execute() {
     const uploadService = new UploadService()
 
     const modePrefix = this.dryRun ? '[DRY-RUN] ' : ''

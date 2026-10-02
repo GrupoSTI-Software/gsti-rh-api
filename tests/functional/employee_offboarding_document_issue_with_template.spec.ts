@@ -66,7 +66,7 @@ const TEMPLATE_V1_FIELDS = [
   'folio',
 ] as const
 
-/** Lo que devolvía el DTO antes de esta historia, más los dos campos nuevos. */
+/** Lo que devolvía el DTO antes de esta historia, más los dos campos nuevos (y `totalAmount`, USRH1789097550395). */
 const EXPECTED_DTO_KEYS = [
   'employeeOffboardingDocumentId',
   'employeeOffboardingId',
@@ -90,6 +90,7 @@ const EXPECTED_DTO_KEYS = [
   'supersededDocumentId',
   'templateVersionId',
   'templateVersionNumber',
+  'totalAmount',
 ]
 
 const created = {
@@ -660,7 +661,7 @@ test.group('Emisión con la plantilla propia de la empresa (USRH1789097550389)',
     assert.strictEqual(dto.seniorityDays, 2664)
     assert.strictEqual(
       dto.fileName,
-      `constancia-de-separacion-CS-${offboardingB.employeeOffboardingId}-2026-0001.pdf`
+      `constancia-separacion-cs-${offboardingB.employeeOffboardingId}-2026-0001.pdf`
     )
 
     const [row] = await documentRows(offboardingB.employeeOffboardingId)
@@ -670,7 +671,7 @@ test.group('Emisión con la plantilla propia de la empresa (USRH1789097550389)',
     // Render de pdfkit de la plantilla del sistema: sin formulario y con su productor
     const rendered = await PDFDocument.load(new Uint8Array(stored), { updateMetadata: false })
     assert.strictEqual(rendered.getForm().getFields().length, 0)
-    assert.strictEqual(rendered.getProducer(), 'Valanserh')
+    assert.strictEqual(rendered.getProducer(), 'PDFKit')
   })
 
   test('CA-3: subir otra versión no toca lo ya emitido', async ({ client, assert }) => {

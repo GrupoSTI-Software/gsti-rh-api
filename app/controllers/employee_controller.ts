@@ -1,4 +1,3 @@
-import Department from '#models/department'
 import { isUploadFailureSentinel } from '#constants/upload_sentinels'
 import { assertSpreadsheetFile } from '#helpers/spreadsheet_intake_guard'
 import { isFileIntakeError } from '#helpers/file_intake_api_error'
@@ -6,13 +5,30 @@ import DepartmentPosition from '#models/department_position'
 import Employee from '#models/employee'
 import EmployeeService from '#services/employee_service'
 import CalendarExportService from '#services/calendar_export_service'
-import { CALENDAR_EXPORT_FILE_NAMES } from '#constants/calendar_export'
-import env from '#start/env'
+import { buildCalendarExportFileName } from '#constants/calendar_export'
+import {
+  buildDownloadFileName,
+  contentDisposition,
+  formatDownloadFileDate,
+} from '#helpers/download_file_name'
 import { HttpContext } from '@adonisjs/core/http'
-import axios from 'axios'
-import BiometricEmployeeInterface from '../interfaces/biometric_employee_interface.js'
 import { createEmployeeValidator } from '../validators/employee.js'
 import { updateEmployeeValidator } from '../validators/employee.js'
+import db from '@adonisjs/lucid/services/db'
+import {
+  emailMirrorActorFromContext,
+  mirrorEmployeeEmailToUserEmail,
+  previousEmailRecipients,
+  toPublicEmailMirrorOutcome,
+} from '#helpers/person_user_email_mirror'
+import {
+  isEmailMirrorConflictError,
+  isEmailMirrorRefusedError,
+  isUserAccessEmailDuplicatedIndexError,
+  respondEmailMirrorConflict,
+  respondEmailMirrorRefused,
+  respondUserAccessEmailDuplicated,
+} from '#helpers/user_access_email_api_error'
 import EmployeeStructureService, {
   requireEmployeeStructureForCreate,
   resolveEmployeeStructureUpdate,
@@ -38,9 +54,6 @@ import ExcelJS from 'exceljs'
 import ShiftException from '#models/shift_exception'
 import EmployeeShift from '#models/employee_shift'
 import EmployeeType from '#models/employee_type'
-import BusinessUnit from '#models/business_unit'
-import Position from '#models/position'
-import SystemSettingService from '#services/system_setting_service'
 import User from '#models/user'
 import Role from '#models/role'
 import AssistsService from '#services/assist_service'
@@ -56,7 +69,6 @@ import {
   isValidEmployeeTerminationModality,
 } from '../constants/employee_termination.js'
 import EmployeeSalaryHistoryService from '#services/employee_salary_history_service'
-import BusinessAccessScopeService from '#services/business_access_scope_service'
 import PiiExportService from '#services/pii_export_service'
 import logger from '@adonisjs/core/services/logger'
 import { resolveEmployeeImportApiError } from '../helpers/employee_import_api_error.js'
@@ -75,8 +87,11 @@ import {
 } from '#constants/employee_work_schedule'
 import { I18n } from '@adonisjs/i18n'
 import { TenantContext } from '#utils/tenant_context'
-import { SystemSettingResolutionError } from '../exceptions/system_setting_resolution_error.js'
+import { REPORT_NEUTRAL_ARGB } from '#constants/report_neutral_theme'
+import { getBusinessTimeZone, toCalendarIsoDate } from '#utils/business_date'
+import { EMPLOYEE_WORK_SCHEDULE, type EmployeeWorkSchedule } from '#constants/employee_work_schedule'
 import { isEmployeeTerminationRecordChanged } from '#helpers/employee_termination_record'
+import type { PersonReleaseContext } from '#helpers/person_release_guard'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { EMPLOYEES_TERMINATION_RECORD_PERMISSION } from '#constants/employees_write_permission_declarations'
 import EmployeeQuotaService from '#services/employee_quota_service'
@@ -84,6 +99,42 @@ import {
   isSensitiveDataWriteError,
   respondSensitiveDataWriteDenial,
 } from '#helpers/sensitive_data_write_api_error'
+import { ensureCredentialChangeAllowed } from '#helpers/credential_change_gate'
+import { notifyAndAudit, revokeSessions } from '#services/credential_change_service'
+import { formatReportCalendarDate, REPORT_DATE_FORMAT } from '#helpers/report_locale'
+import { blankMissingTexts, reportFullName, reportText } from '#helpers/report_text'
+import { frozenHeaderViews } from '#helpers/report_sheet_views'
+import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
+
+/**
+ * Lo que el reporte de empleados lee de cada empleado (con departamento,
+ * puesto y persona precargados). Todo opcional: un dato ausente sale en blanco.
+ */
+interface EmployeesListReportEmployee {
+  employeeCode?: string | number | null
+  employeeHireDate?: DateTime | Date | string | null
+  employeeWorkSchedule?: string | null
+  department?: { departmentName?: string | null } | null
+  position?: { positionName?: string | null } | null
+  person?: {
+    personFirstname?: string | null
+    personLastname?: string | null
+    personSecondLastname?: string | null
+    personGender?: string | null
+    personPhone?: string | null
+    personCurp?: string | null
+    personRfc?: string | null
+    personImssNss?: string | null
+  } | null
+}
+
+/** Modalidad de trabajo como se escribe en los descargables (mismas etiquetas que la plantilla de importación). */
+const EMPLOYEE_WORK_SCHEDULE_REPORT_LABEL: Record<EmployeeWorkSchedule, string> = {
+  [EMPLOYEE_WORK_SCHEDULE.ONSITE]: 'Presencial',
+  [EMPLOYEE_WORK_SCHEDULE.REMOTE]: 'Home office',
+  [EMPLOYEE_WORK_SCHEDULE.HYBRID]: 'Híbrido',
+}
+
 
 // import { wrapper } from 'axios-cookiejar-support'
 // import { CookieJar } from 'tough-cookie'
@@ -202,310 +253,6 @@ export default class EmployeeController {
     return null
   }
 
-  /**
-   * @swagger
-   * /api/synchronization/employees:
-   *   post:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Employees
-   *     summary: sync information
-   *     produces:
-   *       - application/json
-   *     requestBody:
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               page:
-   *                 type: integer
-   *                 description: The page number for pagination
-   *                 required: false
-   *                 default: 1
-   *               limit:
-   *                 type: integer
-   *                 description: The number of records per page
-   *                 required: false
-   *                 default: 300
-   *               empCode:
-   *                 type: string
-   *                 description: The employee code to filter by
-   *                 required: false
-   *                 default: ''
-   *               firstName:
-   *                 type: string
-   *                 description: The first name to filter by
-   *                 required: false
-   *                 default: ''
-   *               lastName:
-   *                 type: string
-   *                 description: The last name to filter by
-   *                 required: false
-   *                 default: ''
-   *               depName:
-   *                 type: string
-   *                 description: The employee name to filter by
-   *                 required: false
-   *                 default: ''
-   *               positionName:
-   *                 type: string
-   *                 description: The position name to filter by
-   *                 required: false
-   *                 default: ''
-   *               depCode:
-   *                 type: string
-   *                 description: The employee code to filter by
-   *                 required: false
-   *                 default: ''
-   *               positionCode:
-   *                 type: string
-   *                 description: The position code to filter by
-   *                 required: false
-   *                 default: ''
-   *               employeeId:
-   *                 type: integer
-   *                 description: The employee id to filter by
-   *                 required: false
-   *                 default: 0
-   *               positionId:
-   *                 type: integer
-   *                 description: The position id to filter by
-   *                 required: false
-   *                 default: 0
-   *               hireDate:
-   *                 type: string
-   *                 format: date
-   *                 description: The hire date to filter by format year month day
-   *                 required: false
-   *                 default: ''
-   *     responses:
-   *       '201':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
-  async synchronization({ request, response, i18n, auth }: HttpContext) {
-    try {
-      const page = request.input('page', 1)
-      const limit = request.input('limit', 1000)
-      const empCode = request.input('empCode')
-      const firstName = request.input('firstName')
-      const lastName = request.input('lastName')
-      const depName = request.input('depName')
-      const positionName = request.input('positionName')
-      const depCode = request.input('depCode')
-      const positionCode = request.input('positionCode')
-      const departmentId = request.input('departmentId')
-      const positionId = request.input('positionId')
-      const hireDate = request.input('hireDate')
-
-      const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(auth.user!)
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_id', allowedIds)
-
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitName)
-
-      let apiUrl = `${env.get('API_BIOMETRICS_HOST')}/employees`
-      apiUrl = `${apiUrl}?page=${page || ''}`
-      apiUrl = `${apiUrl}&limit=${limit || ''}`
-      apiUrl = `${apiUrl}&empCode=${empCode || ''}`
-      apiUrl = `${apiUrl}&firstName=${firstName || ''}`
-      apiUrl = `${apiUrl}&lastName=${lastName || ''}`
-      apiUrl = `${apiUrl}&depName=${depName || ''}`
-      apiUrl = `${apiUrl}&positionName=${positionName || ''}`
-      apiUrl = `${apiUrl}&depCode=${depCode || ''}`
-      apiUrl = `${apiUrl}&positionCode=${positionCode || ''}`
-      apiUrl = `${apiUrl}&departmentId=${departmentId || ''}`
-      apiUrl = `${apiUrl}&positionId=${positionId || ''}`
-      apiUrl = `${apiUrl}&hireDate=${hireDate || ''}`
-
-      const apiResponse = await axios.get(apiUrl)
-      const data = apiResponse.data.data
-
-      let withOutDepartmentId = null
-      let withOutPositionId = null
-
-      const department = await Department.query()
-        .whereNull('department_deleted_at')
-        .where('department_name', 'Sin departamento')
-        .first()
-      if (department) {
-        withOutDepartmentId = department.departmentId
-      }
-      const position = await Position.query()
-        .whereNull('position_deleted_at')
-        .where('position_name', 'Sin posición')
-        .first()
-      if (position) {
-        withOutPositionId = position.positionId
-      }
-      const roles = await Role.query()
-        .whereIn('role_slug', ['rh-manager', 'admin', 'nominas'])
-        .whereNull('role_deleted_at')
-
-      let usersResponsible: Array<User> = []
-
-      if (roles.length) {
-        const roleIds = roles.map((role) => role.roleId)
-        usersResponsible = await User.query()
-          .whereIn('role_id', roleIds)
-          .preload('role')
-          .orderBy('user_id')
-      }
-
-      if (data) {
-        const employeeService = new EmployeeService(i18n)
-        data.sort((a: BiometricEmployeeInterface, b: BiometricEmployeeInterface) => a.id - b.id)
-
-        let employeeCountSaved = 0
-
-        for await (const employee of data) {
-          let employeeLastName = ''
-          let employeeSecondLastName = ''
-          if (employee.lastName) {
-            const surnames = employeeService.splitCompoundSurnames(employee.lastName)
-            employeeLastName = surnames.paternalSurname
-            employeeSecondLastName = surnames.maternalSurname
-          }
-
-          let existInBusinessUnitList = false
-          let businessUnitApply = null
-
-          if (employee.payrollNum) {
-            if (`${businessUnitsList}`.toLocaleLowerCase().includes(`${employee.payrollNum}`.toLocaleLowerCase())) {
-              existInBusinessUnitList = true
-              businessUnitApply = businessUnits.find((business) => `${business.businessUnitName}`.toLocaleLowerCase() === `${employee.payrollNum}`.toLocaleLowerCase())
-            }
-          } else if (employee.personnelEmployeeArea.length > 0) {
-            for await (const personnelEmployeeArea of employee.personnelEmployeeArea) {
-              if (personnelEmployeeArea.personnelArea) {
-                if (`${businessUnitsList}`.toLocaleLowerCase().includes(`${personnelEmployeeArea.personnelArea.areaName}`.toLocaleLowerCase())) {
-                  existInBusinessUnitList = true
-                  businessUnitApply = businessUnits.find((business) => `${business.businessUnitName}`.toLocaleLowerCase() === `${personnelEmployeeArea.personnelArea.areaName}`.toLocaleLowerCase())
-                  break
-                }
-              }
-            }
-          }
-
-          if (existInBusinessUnitList) {
-            employee.lastName = employeeLastName
-            employee.secondLastName = employeeSecondLastName
-            employee.departmentId = withOutDepartmentId
-            employee.positionId = withOutPositionId
-            employee.usersResponsible = usersResponsible
-            employee.businessUnitId = businessUnitApply?.businessUnitId || 1
-            employeeCountSaved += 1
-
-            await this.verify(employee, employeeService)
-          }
-        }
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Employee synchronization',
-          message: 'Employees have been synchronized successfully',
-          data: {
-            data,
-          },
-        }
-      } else {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'Employee synchronization',
-          message: 'No data found to synchronize',
-          data: { data },
-        }
-      }
-    } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
-      }
-    }
-  }
 
   /**
    * @swagger
@@ -876,9 +623,9 @@ export default class EmployeeController {
    *                 required: true
    *                 default: 1
    *               dailySalary:
-   *                 type: number
+   *                 type: string
    *                 nullable: true
-   *                 description: Daily salary. Nullable in API responses for users without financial-data read permission (returns null). On creation, an absent value defaults to 0 (unchanged create-path behavior).
+   *                 description: Salario diario. En respuestas GET con valor se entrega enmascarado (`•••••`); sin valor, null. El completo solo por reveal. En alta, ausente = 0.
    *                 required: false
    *                 default: 0
    *               payrollBusinessUnitId:
@@ -1084,7 +831,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -1140,13 +887,20 @@ export default class EmployeeController {
         employeeAuthorizeAnyZones: employeeAuthorizeAnyZones,
       } as Employee
       const employeeService = new EmployeeService(i18n)
+      // USRH1789698261608: actor y scope del acto, solo para la traza de la
+      // liberación. `personId` llega crudo del payload: se castea aquí y el
+      // helper vuelve a normalizar (doble cinturón).
+      const releaseContext: PersonReleaseContext = {
+        actorUserId: auth.user?.userId ?? null,
+        businessUnitScope,
+      }
       const requiredStructure = requireEmployeeStructureForCreate({
         departmentId: departmentId,
         positionId: positionId,
       })
       if (!requiredStructure.ok) {
         if (personId) {
-          await employeeService.releasePersonIfOrphan(personId)
+          await employeeService.releasePersonIfOrphan(Number(personId), releaseContext)
         }
         const messageKey =
           requiredStructure.missing === 'both'
@@ -1180,7 +934,7 @@ export default class EmployeeController {
           businessUnitScope,
         })
         if (personId) {
-          await employeeService.releasePersonIfOrphan(personId)
+          await employeeService.releasePersonIfOrphan(Number(personId), releaseContext)
         }
         response.status(400)
         return {
@@ -1197,7 +951,7 @@ export default class EmployeeController {
         // se libera la persona creada para este acto, si quedó huérfana, para
         // que el reintento no choque con "personEmail has already been taken".
         if (personId) {
-          await employeeService.releasePersonIfOrphan(personId)
+          await employeeService.releasePersonIfOrphan(Number(personId), releaseContext)
         }
         response.status(exist.status)
         return {
@@ -1212,7 +966,7 @@ export default class EmployeeController {
       const verifyInfo = await employeeService.verifyInfo(employee)
       if (verifyInfo.status !== 200) {
         if (personId) {
-          await employeeService.releasePersonIfOrphan(personId)
+          await employeeService.releasePersonIfOrphan(Number(personId), releaseContext)
         }
         response.status(verifyInfo.status)
         return {
@@ -1255,7 +1009,7 @@ export default class EmployeeController {
         }
       }
 
-      const newEmployee = await employeeService.create(employee, usersResponsible)
+      const newEmployee = await employeeService.create(employee, usersResponsible, releaseContext)
       if (newEmployee) {
         response.status(201)
         return {
@@ -1273,7 +1027,10 @@ export default class EmployeeController {
       const failedPersonId = Number(request.input('personId')) || 0
       if (failedPersonId > 0) {
         const employeeService = new EmployeeService(i18n)
-        await employeeService.releasePersonIfOrphan(failedPersonId)
+        await employeeService.releasePersonIfOrphan(failedPersonId, {
+          actorUserId: auth.user?.userId ?? null,
+          businessUnitScope,
+        })
       }
       if (error instanceof EmployeePositionLevelError) {
         const resolved = resolveEmployeePositionLevelApiError(error, error.httpStatus, i18n)
@@ -1417,7 +1174,7 @@ export default class EmployeeController {
    *               dailySalary:
    *                 type: number
    *                 nullable: true
-   *                 description: Salario diario. Ausente, `null` o no numérico = no modificar el valor actual. El `0` explícito es válido y sí se persiste (genera asiento de historial si cambió).
+   *                 description: Salario diario. Ausente, `null`, no numérico o marcador `•••••` = no modificar el valor actual. El `0` explícito es válido y sí se persiste (genera asiento de historial si cambió). En respuestas GET con valor se entrega enmascarado.
    *                 required: false
    *               payrollBusinessUnitId:
    *                 type: number
@@ -1525,7 +1282,10 @@ export default class EmployeeController {
    *                   type: object
    *                   description: List of parameters set by the client
    *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
+   *         description: >-
+   *           The parameters entered are invalid or essential data is missing to process the request.
+   *           Además de los rechazos existentes, responde 400 cuando el correo institucional ya lo usa
+   *           otra cuenta de acceso viva (USR.MAIL.002). Ningún campo se guardó.
    *         content:
    *           application/json:
    *             schema:
@@ -1543,6 +1303,10 @@ export default class EmployeeController {
    *                 data:
    *                   type: object
    *                   description: List of parameters set by the client
+   *       '403':
+   *         description: |
+   *           La cuenta de acceso del empleado no pertenece a las empresas del actor (USR.MAIL.005). Nada se guardó.
+   *           Si el correo cambia la credencial y falta el permiso propio, responde {"title":"Sin permiso","detail":"No tienes permiso para realizar esta operación.","key":"PERM.DENIED"}.
    *       '422':
    *         description: Nivel de puesto rechazado — no pertenece a los niveles configurados del puesto del payload, o está inactivo para una asignación nueva
    *         content:
@@ -1592,8 +1356,14 @@ export default class EmployeeController {
    *                       type: string
    */
   async update(ctx: HttpContext) {
-    const { request, response, i18n, auth, businessUnitScope } = ctx
+    const { request, response, i18n, businessUnitScope } = ctx
     try {
+      const actorUser = ctx.auth.user
+      if (!actorUser) {
+        response.status(401)
+        return
+      }
+      const actorId = actorUser.userId
       const employeeId = request.param('employeeId')
       const employeeFirstName = request.input('employeeFirstName')
       const employeeLastName = request.input('employeeLastName')
@@ -1685,6 +1455,13 @@ export default class EmployeeController {
           data: { ...employee },
         }
       }
+      const credentialChangeAllowed = await ensureCredentialChangeAllowed(ctx, {
+        personId: currentEmployee.personId,
+        incomingEmail: employee.employeeBusinessEmail,
+        persistedEmailType: null,
+        origin: 'employee-file',
+      })
+      if (!credentialChangeAllowed) return
 
       const inputTerminationModality = this.normalizeTerminationInput(
         request.input('employeeTerminationModality')
@@ -1756,7 +1533,16 @@ export default class EmployeeController {
       }
 
       const employeeService = new EmployeeService(i18n)
-      const data = await request.validateUsing(updateEmployeeValidator)
+      const data = await request.validateUsing(updateEmployeeValidator, {
+        meta: { employeeId: currentEmployee.employeeId },
+      })
+      // B7: se escribe el valor validado (con trim), no el crudo del request —
+      // mismo criterio que person_controller.ts y user_controller.ts. Sin esto
+      // el correo institucional persistido podía traer espacios que el
+      // espejo, al normalizar, no reflejaba en la credencial.
+      if (data.employeeBusinessEmail !== undefined) {
+        employee.employeeBusinessEmail = data.employeeBusinessEmail
+      }
       const exist = await employeeService.verifyInfoExist(employee)
 
       if (exist.status !== 200) {
@@ -1806,7 +1592,7 @@ export default class EmployeeController {
           domain: structureCheck.field,
           action: 'assign-to-employee',
           requestedId: structureCheck.requestedId,
-          actorUserId: auth.user?.userId ?? null,
+          actorUserId: actorId,
           businessUnitScope,
         })
         response.status(400)
@@ -1846,34 +1632,75 @@ export default class EmployeeController {
         employee.dailySalary = dailySalaryFinite
       }
 
-      const previousEmail = currentEmployee.employeeBusinessEmail
-      const actorId = auth.user?.userId
-
-      const updateEmployee = await employeeService.update(currentEmployee, employee, {
-        changedBy: actorId,
-        salaryChangeReason,
-      })
-
-      if (updateEmployee) {
-        const user = await User.query()
-          .where('person_id', currentEmployee.personId)
-          .where('user_email', previousEmail)
-          .whereNull('user_deleted_at')
+      const actor = emailMirrorActorFromContext(ctx)
+      const { updateEmployee, emailMirror } = await db.transaction(async (trx) => {
+        const before = await Employee.query({ client: trx })
+          .where('employee_id', currentEmployee.employeeId)
+          .whereNull('employee_deleted_at')
+          .forUpdate()
           .first()
-        if (user) {
-          user.userEmail = employee.employeeBusinessEmail
-          await user.save()
+        const persisted = await employeeService.update(
+          currentEmployee,
+          employee,
+          { changedBy: actor.userId, salaryChangeReason },
+          trx
+        )
+        // El origen es lo PERSISTIDO, no el payload: una sola fuente.
+        const outcome = await mirrorEmployeeEmailToUserEmail({
+          personId: currentEmployee.personId,
+          employeeBusinessEmail: persisted.employeeBusinessEmail,
+          previousSourceEmail: before?.employeeBusinessEmail ?? null,
+          actor,
+          trx,
+        })
+        if (outcome.status === 'written') {
+          const currentTokenId = actorUser.currentAccessToken?.identifier
+          const preservedTokenId =
+            actorId === outcome.targetId &&
+              currentTokenId !== undefined &&
+              currentTokenId !== null
+              ? String(currentTokenId)
+              : null
+          const revokedCount = await revokeSessions(trx, {
+            affectedUserId: outcome.targetId,
+            preservedTokenId,
+          })
+          return { updateEmployee: persisted, emailMirror: { outcome, revokedCount } }
         }
+        return { updateEmployee: persisted, emailMirror: { outcome, revokedCount: 0 } }
+      })
+      // Sin correo anterior no hay buzón que avisar ni imagen previa que auditar.
+      if (
+        emailMirror.outcome.status === 'written' &&
+        emailMirror.outcome.previousEmail !== null
+      ) {
+        await notifyAndAudit({
+          actorUserId: actorId,
+          affectedUserId: emailMirror.outcome.targetId,
+          origin: 'employee-file',
+          previousEmail: emailMirror.outcome.previousEmail,
+          newEmail: updateEmployee.employeeBusinessEmail!.trim(),
+          userEmailType: 'institutional',
+          previousRecipients: previousEmailRecipients(emailMirror.outcome),
+          rawHeaders: request.request.rawHeaders,
+          revokedCount: emailMirror.revokedCount,
+        })
+      }
 
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Employees',
-          message: 'The employee was updated successfully',
-          data: { employee: updateEmployee },
-        }
+      response.status(201)
+      return {
+        type: 'success',
+        title: 'Employees',
+        message: 'The employee was updated successfully',
+        data: {
+          employee: updateEmployee,
+          emailMirror: toPublicEmailMirrorOutcome(emailMirror.outcome),
+        },
       }
     } catch (error) {
+      if (isEmailMirrorConflictError(error)) return respondEmailMirrorConflict(ctx, error)
+      if (isEmailMirrorRefusedError(error)) return respondEmailMirrorRefused(ctx, error)
+      if (isUserAccessEmailDuplicatedIndexError(error)) return respondUserAccessEmailDuplicated(ctx)
       if (error instanceof EmployeePositionLevelError) {
         const resolved = resolveEmployeePositionLevelApiError(error, error.httpStatus, i18n)
         response.status(resolved.status)
@@ -2279,6 +2106,108 @@ export default class EmployeeController {
 
   /**
    * @swagger
+   * /api/employees/get-by-slug/{employeeSlug}:
+   *   get:
+   *     security:
+   *       - bearerAuth: []
+   *     tags:
+   *       - Employees
+   *     summary: get employee by opaque slug
+   *     produces:
+   *       - application/json
+   *     parameters:
+   *       - in: path
+   *         name: employeeSlug
+   *         schema:
+   *           type: string
+   *           format: uuid
+   *         description: Employee opaque token
+   *         required: true
+   *     responses:
+   *       '200':
+   *         description: Resource processed successfully
+   *       '400':
+   *         description: The slug was not provided
+   *       '404':
+   *         description: The employee was not found
+   *       '500':
+   *         description: Unexpected server error
+   */
+  /**
+   * Canjea el token opaco de la URL del Backoffice por el empleado.
+   *
+   * Espeja a `getById`: mismo filtro por usuario responsable y mismo gate, que
+   * se resuelve aquí adentro con `ensureEmployeeTabRead` porque necesita el id
+   * ya resuelto para saber qué pestañas puede leer quien pregunta. El alcance
+   * por empresa lo ponen `auth()` y `businessScope()` del prefijo — el token no
+   * es el control de acceso, solo evita que el nombre y el código de nómina
+   * viajen en la URL.
+   */
+  async getBySlug(ctx: HttpContext) {
+    const { auth, request, response, i18n } = ctx
+    try {
+      await auth.check()
+      const user = auth.user
+      let userResponsibleId = null
+      if (user) {
+        await user.preload('role')
+        if (resolveResponsibleUserId(user) !== null) {
+          userResponsibleId = user?.userId
+        }
+      }
+
+      const employeeSlug = request.param('employeeSlug')
+      if (!employeeSlug) {
+        response.status(400)
+        return {
+          type: 'warning',
+          title: 'Missing data to process',
+          message: 'The employee slug was not found',
+          data: { employeeSlug },
+        }
+      }
+
+      const employeeService = new EmployeeService(i18n)
+      const showEmployee = await employeeService.getBySlug(employeeSlug, userResponsibleId)
+      if (!showEmployee) {
+        response.status(404)
+        return {
+          type: 'warning',
+          title: 'The employee was not found',
+          message: 'The employee was not found with the entered slug',
+          data: { employeeSlug },
+        }
+      }
+
+      const allowed = await ensureEmployeeTabRead(
+        ctx,
+        showEmployee.employeeId,
+        EMPLOYEES_READ_PERMISSION_DECLARATIONS.getEmployeeById
+      )
+      if (!allowed) {
+        return
+      }
+
+      response.status(200)
+      return {
+        type: 'success',
+        title: 'Employees',
+        message: 'The employee was found successfully',
+        data: { employee: showEmployee },
+      }
+    } catch (error) {
+      response.status(500)
+      return {
+        type: 'error',
+        title: 'Server error',
+        message: 'An unexpected error has occurred on the server',
+        error: error.message,
+      }
+    }
+  }
+
+  /**
+   * @swagger
    * /api/employees/get-by-id/{employeeId}:
    *   get:
    *     security:
@@ -2384,7 +2313,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -2559,7 +2488,7 @@ export default class EmployeeController {
    *                     error:
    *                       type: string
    */
-  async indexWithOutUser({ request, response, i18n }: HttpContext) {
+  async indexWithOutUser({ request, response, i18n, businessUnitScope }: HttpContext) {
     try {
       const search = request.input('search')
       const departmentId = this.parseIdOrIds(request.input('departmentId'))
@@ -2576,7 +2505,7 @@ export default class EmployeeController {
         branchNameIds: branchNameIds,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const employees = await employeeService.indexWithOutUser(filters)
+      const employees = await employeeService.indexWithOutUser(filters, businessUnitScope)
       response.status(200)
       return {
         type: 'success',
@@ -3846,7 +3775,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -3878,7 +3807,7 @@ export default class EmployeeController {
                 `%${search.toUpperCase()}%`,
               ])
               .orWhereRaw('UPPER(employee_code) = ?', [`${search.toUpperCase()}`])
-              // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss cifrados
+            // PUNTO DE REINTRODUCCIÓN 08-10-04-01: búsqueda por rfc/curp/nss cifrados
           })
         })
         .if(workSchedule, (query) => {
@@ -3968,63 +3897,8 @@ export default class EmployeeController {
           originModule: 'employees',
         },
         async (maskSensitive) => {
-          const workbook = new ExcelJS.Workbook()
-          const worksheet = workbook.addWorksheet('Employee Report')
-          const imageLogo = await this.getLogo()
-          const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-          const imageBuffer = imageResponse.data
-          const imageId = workbook.addImage({
-            buffer: imageBuffer,
-            extension: 'png',
-          })
-          worksheet.addImage(imageId, {
-            tl: { col: 0, row: 0 },
-            ext: { width: 139, height: 49 },
-          })
-          worksheet.getRow(1).height = 60
-          worksheet.mergeCells('A1:F1')
-
-          const titleRow = worksheet.addRow(['Employee Report'])
-          let titleColor = '244062'
-          let titleFgColor = 'FFFFFFFF'
-          titleRow.font = { bold: true, size: 24, color: { argb: titleFgColor } }
-          titleRow.height = 42
-          titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
-          worksheet.mergeCells('A2:K2')
-          worksheet.getCell('A2').fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: titleColor },
-          }
-          const periodRow = worksheet.addRow([''])
-          periodRow.font = { size: 15, color: { argb: titleFgColor } }
-          periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
-          worksheet.mergeCells('A3:K3')
-          let periodColor = '366092'
-          worksheet.getCell('A3').fill = {
-            type: 'pattern',
-            pattern: 'solid',
-            fgColor: { argb: periodColor },
-          }
-          this.addHeadRow(worksheet, employees, maskSensitive)
-
-          for (const employee of employees) {
-            const department = await Department.find(employee.departmentId)
-            const departmentName = department?.departmentName || 'N/A'
-            const hireDate = employee.employeeHireDate
-              ? employee.employeeHireDate.toFormat('yyyy-MM-dd')
-              : ''
-            worksheet.addRow({
-              employeeId: employee.employeeId,
-              employeeFirstName: `${employee.person?.personFirstname}`,
-              employeeLastName: `${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
-              departmentName,
-              positionName: employee.positionId,
-              employeeHireDate: hireDate,
-            })
-          }
-          this.addRowExcelEmpty(worksheet)
-
+          const workbook = this.buildEmployeesListWorkbook(employees, maskSensitive)
+          blankMissingTexts(workbook)
           return workbook.xlsx.writeBuffer()
         }
       )
@@ -4033,7 +3907,10 @@ export default class EmployeeController {
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       )
-      response.header('Content-Disposition', 'attachment; filename=employees.xlsx')
+      response.header(
+        'Content-Disposition',
+        contentDisposition(buildDownloadFileName(['empleados', formatDownloadFileDate()], 'xlsx'))
+      )
       response.status(201).send(buffer)
     } catch (error) {
       const auditError = PiiExportService.formatAuditError(error, i18n)
@@ -4215,8 +4092,11 @@ export default class EmployeeController {
         'Content-Type',
         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
       )
-      const filename = fillWithExisting ? 'plantilla-empleados-con-datos.xlsx' : 'plantilla-importacion-empleados.xlsx'
-      response.header('Content-Disposition', `attachment; filename=${filename}`)
+      const filename = buildDownloadFileName(
+        ['plantilla-importacion-empleados', fillWithExisting ? 'con-datos' : null],
+        'xlsx'
+      )
+      response.header('Content-Disposition', contentDisposition(filename))
       response.status(200)
       response.send(buffer)
     } catch (error: any) {
@@ -4444,7 +4324,7 @@ export default class EmployeeController {
         employee.employeeHireDate instanceof DateTime
           ? employee.employeeHireDate.toJSDate()
           : new Date(employee.employeeHireDate)
-      const currentDate = DateTime.local().toJSDate()
+      const currentDate = DateTime.now().toJSDate()
 
       const shiftExceptions = await ShiftException.query()
         .where('employeeId', employeeId)
@@ -4455,58 +4335,37 @@ export default class EmployeeController {
       const employeeShifts = await EmployeeShift.query()
         .where('employeeId', employeeId)
         .whereNull('deletedAt') // Excluir registros eliminados
-        .whereBetween('employeShiftsApplySince', [hireDate, currentDate])
+        // Sin cota inferior: el turno vigente al contratar pudo asignarse antes.
+        .where('employeShiftsApplySince', '<=', currentDate)
         .preload('shift')
 
       // Crear un mapa de fechas y turnos para facilitar la asociación
       const workbook = new ExcelJS.Workbook()
-      const worksheet = workbook.addWorksheet('Shift Exceptions')
+      const worksheet = workbook.addWorksheet('Excepciones de turno')
 
-      const imageLogo = await this.getLogo()
-      const imageResponse = await axios.get(imageLogo, { responseType: 'arraybuffer' })
-      const imageBuffer = imageResponse.data
-      const imageId = workbook.addImage({
-        buffer: imageBuffer,
-        extension: 'png',
-      })
-      worksheet.addImage(imageId, {
-        tl: { col: 0.38, row: 0.99 },
-        ext: { width: 139, height: 50 },
-      })
-      worksheet.getRow(1).height = 60
-      worksheet.mergeCells('A1:G1')
-
-      const titleRow = worksheet.addRow(['Employee Shift Exceptions'])
-      titleRow.font = { bold: true, size: 24, color: { argb: 'FFFFFFFF' } }
+      // Formato neutral: sin logo ni franjas de marca; título en la fila 1 y
+      // periodo en la fila 2, ambos sin relleno y con texto negro/gris.
+      const titleRow = worksheet.addRow(['Excepciones de turno del empleado'])
+      titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      worksheet.mergeCells('A2:G2')
-      worksheet.getCell('A' + 2).fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: '244062' },
-      }
+      worksheet.mergeCells(`A${titleRow.number}:G${titleRow.number}`)
 
       const periodRow = worksheet.addRow([
-        `From: ${hireDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })} , ${currentDate.toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' })}`,
+        `Del ${formatReportCalendarDate(employee.employeeHireDate)} al ${DateTime.now().setZone(getBusinessTimeZone()).toFormat(REPORT_DATE_FORMAT)}`,
       ])
-      periodRow.font = { italic: true, size: 12, color: { argb: 'FFFFFFFF' } }
-      worksheet.mergeCells('A3:G3')
+      periodRow.font = { italic: true, size: 12, color: { argb: REPORT_NEUTRAL_ARGB.textMuted } }
+      worksheet.mergeCells(`A${periodRow.number}:G${periodRow.number}`)
       periodRow.alignment = { horizontal: 'center', vertical: 'middle' }
-      worksheet.getCell('A3').fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: '365F8B' },
-      }
       const headerRow = worksheet.addRow([
-        'Employee ID',
-        'Employee Name',
-        'Department',
-        'Position',
-        'Date',
-        'Shift Assigned',
-        'Exception Notes',
+        'Código de empleado',
+        'Nombre del empleado',
+        'Departamento',
+        'Puesto',
+        'Fecha',
+        'Turno asignado',
+        'Notas de la excepción',
       ])
-      headerRow.font = { bold: true, color: { argb: 'FFFFFF' } }
+      headerRow.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
       worksheet.columns = [
         { key: 'employeeCode', width: 20 },
         { key: 'employeeName', width: 30 },
@@ -4519,46 +4378,47 @@ export default class EmployeeController {
       worksheet.columns.forEach((col) => {
         col.alignment = { horizontal: 'center', vertical: 'middle' }
       })
-      headerRow.eachCell((cell, colNumber) => {
+      headerRow.eachCell((cell) => {
         cell.fill = {
           type: 'pattern',
           pattern: 'solid',
-          fgColor: { argb: colNumber <= 5 ? '538DD5' : '16365C' },
+          fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
         }
         cell.alignment = { vertical: 'middle', horizontal: 'center' }
       })
 
+      const employeeName = reportFullName(
+        employee.person?.personFirstname,
+        employee.person?.personLastname,
+        employee.person?.personSecondLastname
+      )
       shiftExceptions.forEach((exception) => {
-        const shiftsForDate = employeeShifts
-          .filter(
-            (employeeShift) =>
-              new Date(employeeShift.employeShiftsApplySince).toDateString() !==
-              new Date(exception.shiftExceptionsDate).toDateString()
-          )
-          .map((employeeShift) => employeeShift.shift?.shiftName) // Obtén los nombres de los turnos
-
-        const shiftNames = shiftsForDate.length > 0 ? shiftsForDate.join(', ') : 'N/A'
+        // "Sin turno" es un estado real (ese día no había turno asignado), no
+        // un dato ausente: por eso se conserva y no se deja en blanco.
+        const shiftName = this.resolveVigentShiftName(employeeShifts, exception.shiftExceptionsDate)
+        const exceptionTypeName = reportText(exception.exceptionType?.exceptionTypeTypeName)
+        const description = reportText(exception.shiftExceptionsDescription)
 
         const row = worksheet.addRow({
           employeeCode: employee.employeeCode,
-          employeeName: `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
-          department: employee.department?.departmentName || 'N/A',
-          position: employee.position?.positionName || 'N/A',
-          date: exception.shiftExceptionsDate,
-          shiftAssigned: shiftNames,
-          exceptionNotes: exception.shiftExceptionsDescription || 'N/A',
+          employeeName,
+          department: reportText(employee.department?.departmentName),
+          position: reportText(employee.position?.positionName),
+          date: formatReportCalendarDate(exception.shiftExceptionsDate),
+          shiftAssigned: shiftName ?? 'Sin turno',
+          exceptionNotes: description,
         })
-        const exceptionNotesCell = row.getCell('exceptionNotes')
-        const exceptionTypeName = exception.exceptionType?.exceptionTypeTypeName || 'N/A'
-        const description = exception.shiftExceptionsDescription || 'N/A'
-        exceptionNotesCell.value = {
-          richText: [
-            { text: exceptionTypeName + ': ', font: { bold: true } },
-            { text: description },
-          ],
+        if (exceptionTypeName) {
+          row.getCell('exceptionNotes').value = {
+            richText: [
+              { text: exceptionTypeName + ': ', font: { bold: true } },
+              { text: description },
+            ],
+          }
         }
       })
 
+      blankMissingTexts(workbook)
       const buffer = await workbook.xlsx.writeBuffer()
 
       response.header(
@@ -4567,7 +4427,7 @@ export default class EmployeeController {
       )
       response.header(
         'Content-Disposition',
-        'attachment; filename="shift_exceptions_employee.xlsx"'
+        contentDisposition(buildDownloadFileName(['excepciones-turno', employee.employeeSlug], 'xlsx'))
 
       )
       response.status(201).send(buffer)
@@ -4579,73 +4439,104 @@ export default class EmployeeController {
     }
   }
 
-  private async verify(employee: BiometricEmployeeInterface, employeeService: EmployeeService) {
-    const existEmployee = await Employee.query()
-      .where('employee_code', employee.empCode)
-      .withTrashed()
-      .first()
-    if (!existEmployee) {
-      await employeeService.syncCreate(employee)
+  /**
+   * Nombre del turno vigente en una fecha: la asignación con el mayor
+   * `applySince` anterior o igual a esa fecha (a igual fecha, la creada al
+   * final). Fechas comparadas como día civil (`toCalendarIsoDate`), igual que
+   * el resto de la vigencia de turnos. `null` si ese día no había turno.
+   */
+  resolveVigentShiftName(
+    employeeShifts: Array<
+      Pick<EmployeeShift, 'employeShiftsApplySince'> & {
+        employeShiftsCreatedAt?: DateTime | null
+        shift?: { shiftName?: string | null } | null
+      }
+    >,
+    date: Date | string
+  ): string | null {
+    const day = toCalendarIsoDate(date)
+    if (!day) return null
+    let vigent: (typeof employeeShifts)[number] | null = null
+    let vigentSince = ''
+    for (const assignment of employeeShifts) {
+      const since = toCalendarIsoDate(assignment.employeShiftsApplySince)
+      if (!since || since > day) continue
+      const newer =
+        since > vigentSince ||
+        (since === vigentSince &&
+          (assignment.employeShiftsCreatedAt?.toMillis() ?? 0) >
+          (vigent?.employeShiftsCreatedAt?.toMillis() ?? 0))
+      if (newer) {
+        vigent = assignment
+        vigentSince = since
+      }
     }
+    const name = reportText(vigent?.shift?.shiftName)
+    return name || null
+  }
+
+
+  /**
+   * Libro del reporte de empleados: título, separador, encabezado y una fila
+   * por empleado en una sola pasada. Departamento y puesto llegan precargados
+   * en la consulta; aquí no se consulta la base por fila.
+   */
+  buildEmployeesListWorkbook(
+    employees: EmployeesListReportEmployee[],
+    maskSensitive = false
+  ): ExcelJS.Workbook {
+    const workbook = new ExcelJS.Workbook()
+    const worksheet = workbook.addWorksheet('Reporte de empleados')
+
+    // Formato neutral: sin logo ni franjas de marca. El título ocupa la
+    // fila 1 y la fila 2 queda como separador antes del encabezado.
+    const titleRow = worksheet.addRow(['Reporte de empleados'])
+    titleRow.font = { bold: true, size: 24, color: { argb: REPORT_NEUTRAL_ARGB.text } }
+    titleRow.height = 42
+    titleRow.alignment = { horizontal: 'center', vertical: 'middle' }
+    worksheet.mergeCells(`A${titleRow.number}:K${titleRow.number}`)
+    const spacerRow = worksheet.addRow([''])
+    worksheet.mergeCells(`A${spacerRow.number}:K${spacerRow.number}`)
+    this.addHeadRow(worksheet, employees, maskSensitive)
+    return workbook
   }
 
   // Método para agregar fila de encabezado
-  addHeadRow(worksheet: ExcelJS.Worksheet, employees: any[], maskSensitive = false) {
+  addHeadRow(
+    worksheet: ExcelJS.Worksheet,
+    employees: EmployeesListReportEmployee[],
+    maskSensitive = false
+  ) {
     const headerRow = worksheet.addRow([
-      'Employee Code',
-      'Employee Name',
-      'Department',
-      'Position',
-      'Hire Date',
-      'Work Modality',
-      'Phone',
-      'Gender',
+      'Código de empleado',
+      'Nombre del empleado',
+      'Departamento',
+      'Puesto',
+      'Fecha de ingreso',
+      'Modalidad de trabajo',
+      'Teléfono',
+      'Género',
       'CURP',
       'RFC',
-      'Employee NSS',
+      'NSS',
     ])
 
-    let fgColor = 'FFFFFFF'
-    let color = '538DD5'
-    for (let col = 1; col <= 5; col++) {
-      const cell = worksheet.getCell(4, col)
+    // Encabezado neutral: gris claro con texto negro. Se toma la fila real
+    // del encabezado en vez de una posición fija.
+    headerRow.eachCell((cell) => {
       cell.fill = {
         type: 'pattern',
         pattern: 'solid',
-        fgColor: { argb: color },
+        fgColor: { argb: REPORT_NEUTRAL_ARGB.headerFill },
       }
-    }
-
-    color = '16365C'
-    for (let col = 6; col <= 8; col++) {
-      const cell = worksheet.getCell(4, col)
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-    }
-
-    color = '538DD5'
-    for (let col = 9; col <= 11; col++) {
-      const cell = worksheet.getCell(4, col)
-      cell.fill = {
-        type: 'pattern',
-        pattern: 'solid',
-        fgColor: { argb: color },
-      }
-    }
+    })
 
     headerRow.height = 30
-    headerRow.font = { bold: true, color: { argb: fgColor } }
+    headerRow.font = { bold: true, color: { argb: REPORT_NEUTRAL_ARGB.text } }
 
     this.adjustColumnWidths(worksheet)
-    worksheet.views = [
-      { state: 'frozen', ySplit: 1 }, // Fija la primera fila
-      { state: 'frozen', ySplit: 2 }, // Fija la segunda fila
-      { state: 'frozen', ySplit: 3 }, // Fija la tercer fila
-      { state: 'frozen', ySplit: 4 }, // Fija la cuarta fila
-    ]
+    // Fija título, separador y encabezado de columnas
+    worksheet.views = frozenHeaderViews(headerRow.number)
     employees.forEach((employee) => {
       const masked = SENSITIVE_EXPORT_PLACEHOLDER
       const phone = maskSensitive ? masked : employee.person?.personPhone || ''
@@ -4655,13 +4546,19 @@ export default class EmployeeController {
 
       worksheet.addRow([
         employee.employeeCode,
-        `${employee.person?.personFirstname} ${employee.person?.personLastname} ${employee.person?.personSecondLastname}`,
-        employee.department?.departmentName || '',
-        employee.position?.positionName || '',
-        employee.employeeHireDate ? employee.employeeHireDate.toISODate() : '',
-        employee.employeeWorkSchedule || '',
+        reportFullName(
+          employee.person?.personFirstname,
+          employee.person?.personLastname,
+          employee.person?.personSecondLastname
+        ),
+        reportText(employee.department?.departmentName),
+        reportText(employee.position?.positionName),
+        formatReportCalendarDate(employee.employeeHireDate),
+        EMPLOYEE_WORK_SCHEDULE_REPORT_LABEL[employee.employeeWorkSchedule as EmployeeWorkSchedule] ??
+        employee.employeeWorkSchedule ??
+        '',
         phone,
-        employee.person?.personGender || '',
+        reportText(employee.person?.personGender),
         curp,
         rfc,
         nss,
@@ -4676,36 +4573,6 @@ export default class EmployeeController {
       column.width = width
       column.alignment = { vertical: 'middle', horizontal: 'center' }
     })
-  }
-
-  addRowExcelEmpty(worksheet: ExcelJS.Worksheet) {
-    worksheet.addRow([])
-  }
-
-  /**
-   * Logo para reportes Excel generados dentro de la request del usuario
-   * (USRH1783712837584). Se resuelve por la empresa del usuario
-   * (`TenantContext`, poblado por el middleware `businessScope` de las rutas
-   * de `/api/employees`); fail-closed silencioso: si la empresa no tiene
-   * configuración propia, se conserva el logo por defecto en vez de filtrar
-   * el de otra empresa (antes `getActive()` sin scope podía devolver la
-   * configuración "activa" de cualquier empresa).
-   */
-  async getLogo() {
-    let imageLogo = `${env.get('BACKGROUND_IMAGE_LOGO')}`
-    const businessUnitId = TenantContext.getScope()[0]
-    if (businessUnitId) {
-      const systemSettingService = new SystemSettingService()
-      try {
-        const systemSettingActive = await systemSettingService.resolveByBusinessUnitId(businessUnitId)
-        if (systemSettingActive.systemSettingLogo) {
-          imageLogo = systemSettingActive.systemSettingLogo
-        }
-      } catch (error) {
-        if (!(error instanceof SystemSettingResolutionError)) throw error
-      }
-    }
-    return imageLogo
   }
 
   /**
@@ -5251,7 +5118,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -5410,7 +5277,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -5583,7 +5450,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -6765,219 +6632,6 @@ export default class EmployeeController {
     }
   }
 
-  /**
-   * @swagger
-   * /api/synchronization/by-selection/employees:
-   *   post:
-   *     security:
-   *       - bearerAuth: []
-   *     tags:
-   *       - Employees
-   *     summary: sync information by selection
-   *     produces:
-   *       - application/json
-   *     requestBody:
-   *       content:
-   *         application/json:
-   *           schema:
-   *             type: object
-   *             properties:
-   *               employees:
-   *                 type: array
-   *                 description: Employees selected
-   *                 required: true
-   *                 default: []
-   *     responses:
-   *       '201':
-   *         description: Resource processed successfully
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Processed object
-   *       '404':
-   *         description: Resource not found
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       '400':
-   *         description: The parameters entered are invalid or essential data is missing to process the request
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: List of parameters set by the client
-   *       default:
-   *         description: Unexpected error
-   *         content:
-   *           application/json:
-   *             schema:
-   *               type: object
-   *               properties:
-   *                 type:
-   *                   type: string
-   *                   description: Type of response generated
-   *                 title:
-   *                   type: string
-   *                   description: Title of response generated
-   *                 message:
-   *                   type: string
-   *                   description: Message of response
-   *                 data:
-   *                   type: object
-   *                   description: Error message obtained
-   *                   properties:
-   *                     error:
-   *                       type: string
-   */
-  async synchronizationBySelection({ request, response, i18n, auth }: HttpContext) {
-    try {
-      const employees = request.input('employees')
-      const allowedIds = await new BusinessAccessScopeService().getAccessibleIds(auth.user!)
-      const businessUnits = await BusinessUnit.query()
-        .where('business_unit_active', 1)
-        .whereIn('business_unit_id', allowedIds)
-
-      const businessUnitsList = businessUnits.map((business) => business.businessUnitSlug)
-      const params = new URLSearchParams()
-      params.set('employees', employees.join(','))
-
-      let apiUrl = `${env.get('API_BIOMETRICS_HOST')}/employees-by-selection?${params.toString()}`
-      const apiResponse = await axios.get(apiUrl)
-      const data = apiResponse.data
-      let withOutDepartmentId = null
-      let withOutPositionId = null
-
-      const department = await Department.query()
-        .whereNull('department_deleted_at')
-        .where('department_name', 'Sin departamento')
-        .first()
-      if (department) {
-        withOutDepartmentId = department.departmentId
-      }
-      const position = await Position.query()
-        .whereNull('position_deleted_at')
-        .where('position_name', 'Sin posición')
-        .first()
-      if (position) {
-        withOutPositionId = position.positionId
-      }
-      const roles = await Role.query()
-        .whereIn('role_slug', ['rh-manager', 'admin', 'nominas'])
-        .whereNull('role_deleted_at')
-
-      let usersResponsible: Array<User> = []
-
-      if (roles.length) {
-        const roleIds = roles.map((role) => role.roleId)
-        usersResponsible = await User.query()
-          .whereIn('role_id', roleIds)
-          .preload('role')
-          .orderBy('user_id')
-      }
-
-      if (data) {
-        const employeeService = new EmployeeService(i18n)
-        data.sort((a: BiometricEmployeeInterface, b: BiometricEmployeeInterface) => a.id - b.id)
-
-        let employeeCountSaved = 0
-
-        for await (const employee of data) {
-          let existInBusinessUnitList = false
-          let businessUnitApply = null
-
-          if (employee.payrollNum) {
-            if (`${businessUnitsList}`.toLocaleLowerCase().includes(`${employee.payrollNum}`.toLocaleLowerCase())) {
-              existInBusinessUnitList = true
-              businessUnitApply = businessUnits.find((business) => `${business.businessUnitName}`.toLocaleLowerCase() === `${employee.payrollNum}`.toLocaleLowerCase())
-            }
-          } else if (employee.personnelEmployeeArea.length > 0) {
-            for await (const personnelEmployeeArea of employee.personnelEmployeeArea) {
-              if (personnelEmployeeArea.personnelArea) {
-                if (`${businessUnitsList}`.toLocaleLowerCase().includes(`${personnelEmployeeArea.personnelArea.areaName}`.toLocaleLowerCase())) {
-                  existInBusinessUnitList = true
-                  businessUnitApply = businessUnits.find((business) => `${business.businessUnitName}`.toLocaleLowerCase() === `${personnelEmployeeArea.personnelArea.areaName}`.toLocaleLowerCase())
-                  break
-                }
-              }
-            }
-          }
-
-          if (existInBusinessUnitList) {
-            employee.departmentId = withOutDepartmentId
-            employee.positionId = withOutPositionId
-            employee.usersResponsible = usersResponsible
-            employee.businessUnitId = businessUnitApply?.businessUnitId || 1
-            employeeCountSaved += 1
-            await this.verify(employee, employeeService)
-          }
-        }
-        response.status(201)
-        return {
-          type: 'success',
-          title: 'Employee synchronization',
-          message: 'Employees have been synchronized successfully',
-          data: {
-            data,
-          },
-        }
-      } else {
-        response.status(404)
-        return {
-          type: 'warning',
-          title: 'Employee synchronization',
-          message: 'No data found to synchronize',
-          data: { data },
-        }
-      }
-    } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: 'Server error',
-        message: 'An unexpected error has occurred on the server',
-        error: error.message,
-      }
-    }
-  }
 
   /**
    * @swagger
@@ -7138,7 +6792,8 @@ export default class EmployeeController {
    *                   example: EMP.SENS.WRITE.IMPORT_FORBIDDEN
    *       409:
    *         description: |
-   *           El archivo rebasa el cupo de empleados o la empresa self-service no tiene plan vigente.
+   *           El archivo rebasa el cupo de empleados, la empresa self-service no tiene plan vigente,
+   *           o alguna fila declara una empresa distinta de la activa (trabajo o nómina).
    *           No se aplica ninguna fila del Excel (todo-o-nada).
    *         content:
    *           application/json:
@@ -7156,21 +6811,35 @@ export default class EmployeeController {
    *                   type: string
    *                 key:
    *                   type: string
-   *                   enum: [cupo-empleados-agotado-importacion, sin-plan-contratado-importacion]
+   *                   enum: [cupo-empleados-agotado-importacion, sin-plan-contratado-importacion, archivo-de-otra-empresa]
    *                 code:
    *                   type: string
-   *                   enum: [EMP.IMPORT.QUOTA_EXCEEDED, EMP.IMPORT.NO_PLAN]
+   *                   enum: [EMP.IMPORT.QUOTA_EXCEEDED, EMP.IMPORT.NO_PLAN, EMP.IMPORT.VAL_BUSINESS_UNIT]
    *                 data:
-   *                   type: object
-   *                   description: Solo cantidades; nunca identificadores internos de empresa
-   *                   properties:
-   *                     contracted:
-   *                       type: integer
-   *                     active:
-   *                       type: integer
-   *                     incoming:
-   *                       type: integer
-   *                       description: Altas nuevas en el archivo (filas sin ID Empleado)
+   *                   oneOf:
+   *                     - type: object
+   *                       description: Solo cantidades; nunca identificadores internos de empresa
+   *                       properties:
+   *                         contracted:
+   *                           type: integer
+   *                         active:
+   *                           type: integer
+   *                         incoming:
+   *                           type: integer
+   *                           description: Altas nuevas en el archivo (filas sin ID Empleado)
+   *                     - type: object
+   *                       properties:
+   *                         offendingRows:
+   *                           type: array
+   *                           items:
+   *                             type: object
+   *                             properties:
+   *                               row:
+   *                                 type: integer
+   *                               businessUnit:
+   *                                 type: string
+   *                               payrollBusinessUnit:
+   *                                 type: string
    *             examples:
    *               cupoRebasado:
    *                 value:
@@ -7196,6 +6865,25 @@ export default class EmployeeController {
    *                     contracted: 0
    *                     active: 12
    *                     incoming: 3
+   *               otraEmpresa:
+   *                 value:
+   *                   type: error
+   *                   title: El archivo tiene empleados de otra empresa
+   *                   message: "La empresa activa es «Acme». Estas filas declaran otra: fila 12 («Otra SA»), fila 13 («Otra SA»), fila 40 («Otra SA»). … y 5 filas más. No se aplicó ninguna línea del archivo: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo."
+   *                   detail: "La empresa activa es «Acme». Estas filas declaran otra: fila 12 («Otra SA»), fila 13 («Otra SA»), fila 40 («Otra SA»). … y 5 filas más. No se aplicó ninguna línea del archivo: sube un archivo por empresa, o cambia la empresa activa y vuelve a intentarlo."
+   *                   key: archivo-de-otra-empresa
+   *                   code: EMP.IMPORT.VAL_BUSINESS_UNIT
+   *                   data:
+   *                     offendingRows:
+   *                       - row: 12
+   *                         businessUnit: Otra SA
+   *                         payrollBusinessUnit: ''
+   *                       - row: 13
+   *                         businessUnit: Otra SA
+   *                         payrollBusinessUnit: ''
+   *                       - row: 40
+   *                         businessUnit: ''
+   *                         payrollBusinessUnit: Otra SA
    *       500:
    *         description: Error inesperado del servidor
    *         content:
@@ -7289,7 +6977,13 @@ export default class EmployeeController {
       }
 
       const employeeService = new EmployeeService(i18n)
-      const result = await employeeService.importFromExcel(file, businessUnitScope)
+      // El actor del intento es quien SUBIÓ el archivo: su usuario y su scope de
+      // empresas viajan hasta `createPerson` para atribuir el rastro por fila.
+      const result = await employeeService.importFromExcel(
+        file,
+        businessUnitScope,
+        ctx.auth.user?.userId ?? null
+      )
 
       const { summary, rowErrors, warnings } = result
 
@@ -7317,6 +7011,23 @@ export default class EmployeeController {
       if (isSensitiveDataWriteError(error)) return respondSensitiveDataWriteDenial(ctx, error)
       if (error instanceof EmployeeQuotaError) {
         const resolved = resolveEmployeeQuotaApiError(error, error.httpStatus, i18n)
+        response.status(resolved.status)
+        return {
+          type: 'error',
+          title: resolved.title,
+          message: resolved.message,
+          detail: resolved.detail,
+          key: resolved.key,
+          code: resolved.errorCode,
+          data: resolved.data,
+        }
+      }
+
+      // USRH1789747321650 reglas 1 y 6: el archivo declaraba otra empresa.
+      // Rechazo todo-o-nada con el listado de filas para corregir (409, mismo
+      // camino que cupo: no se aplica ninguna línea del archivo).
+      if ((error as { isCompanyMismatchError?: boolean }).isCompanyMismatchError) {
+        const resolved = resolveEmployeeImportApiError(error, 409, i18n)
         response.status(resolved.status)
         return {
           type: 'error',
@@ -7578,7 +7289,7 @@ export default class EmployeeController {
    *             description: Nombre del archivo descargable
    *             schema:
    *               type: string
-   *               example: 'attachment; filename="plantilla-asignacion-turnos.xlsx"'
+   *               example: 'attachment; filename="plantilla-asignacion-turnos-2026-09-01-2026-09-15.xlsx"'
    *       400:
    *         description: Parámetros inválidos o faltantes
    *         content:
@@ -7732,7 +7443,12 @@ export default class EmployeeController {
       )
       response.header(
         'Content-Disposition',
-        `attachment; filename="plantilla-asignacion-turnos-${startDate}-${endDate}.xlsx"`
+        contentDisposition(
+          buildDownloadFileName(
+            ['plantilla-asignacion-turnos', formatDownloadFileDate(startDate), formatDownloadFileDate(endDate)],
+            'xlsx'
+          )
+        )
       )
       response.status(200)
       return response.send(buffer)
@@ -8072,8 +7788,8 @@ export default class EmployeeController {
           : undefined
       const payrollBusinessUnitId =
         payrollBusinessUnitIdParsed !== undefined &&
-        !Number.isNaN(payrollBusinessUnitIdParsed) &&
-        payrollBusinessUnitIdParsed > 0
+          !Number.isNaN(payrollBusinessUnitIdParsed) &&
+          payrollBusinessUnitIdParsed > 0
           ? payrollBusinessUnitIdParsed
           : undefined
       const branchNameIds = this.parseBranchNameIds(request.input('branchNameIds'))
@@ -8090,6 +7806,12 @@ export default class EmployeeController {
         businessUnitScope
       )
 
+      // Reporte de un solo empleado: el nombre lleva su slug (token opaco), nunca nombre ni número.
+      const singleEmployee =
+        employeeIds?.length === 1
+          ? await Employee.query().withTrashed().where('employee_id', employeeIds[0]).select('employee_slug').first()
+          : null
+
       // Configurar headers para la descarga del archivo
       response.header(
         'Content-Type',
@@ -8097,7 +7819,17 @@ export default class EmployeeController {
       )
       response.header(
         'Content-Disposition',
-        `attachment; filename="reporte-asistencia-${startDate}-${endDate}.xlsx"`
+        contentDisposition(
+          buildDownloadFileName(
+            [
+              'reporte-asistencia',
+              singleEmployee?.employeeSlug,
+              formatDownloadFileDate(startDate),
+              formatDownloadFileDate(endDate),
+            ],
+            'xlsx'
+          )
+        )
       )
       response.status(200)
       return response.send(buffer)
@@ -8947,7 +8679,7 @@ export default class EmployeeController {
       let userResponsibleId = null
       if (user) {
         await user.preload('role')
-        if (user.role.roleSlug !== 'root') {
+        if (resolveResponsibleUserId(user) !== null) {
           userResponsibleId = user?.userId
         }
       }
@@ -8961,13 +8693,13 @@ export default class EmployeeController {
         userResponsibleId,
       } as EmployeeFilterSearchInterface
       const employeeService = new EmployeeService(i18n)
-      const exportService = new CalendarExportService(i18n)
+      const exportService = new CalendarExportService()
       const buffer =
         kind === 'birthdays'
           ? await exportService.birthdays(await employeeService.getBirthday(filters, businessUnitScope), year)
           : await exportService.anniversaries(await employeeService.getAnniversary(filters, businessUnitScope), year)
       response.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
-      response.header('Content-Disposition', `attachment; filename=${year}-${CALENDAR_EXPORT_FILE_NAMES[kind]}`)
+      response.header('Content-Disposition', contentDisposition(buildCalendarExportFileName(kind, year)))
       return response.status(200).send(buffer)
     } catch (error) {
       response.status(500)
