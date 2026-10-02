@@ -86,11 +86,18 @@ async function platformCalls(): Promise<ApiCall[]> {
 }
 
 /** Las mismas ocho lecturas en su ubicación vieja, ya retirada. */
-function legacyCalls(): ApiCall[] {
+async function legacyCalls(): Promise<ApiCall[]> {
+  const regulation = await Regulation.query()
+    .where('regulation_code', REGULATION_CODE)
+    .firstOrFail()
+
   return [
     { label: 'lista de cobertura', url: '/api/v1/regulatory-coverage' },
     { label: 'resumen ejecutivo', url: '/api/v1/regulatory-coverage/summary' },
-    { label: 'detalle de cobertura por norma', url: '/api/v1/regulatory-coverage/1' },
+    {
+      label: 'detalle de cobertura por norma',
+      url: `/api/v1/regulatory-coverage/${regulation.regulationId}`,
+    },
     { label: 'lista de autoridades', url: '/api/v1/regulatory-authorities' },
     { label: 'detalle de autoridad', url: '/api/v1/regulatory-authorities/stps' },
     { label: 'norma con árbol de numerales', url: `/api/v1/regulations/${REGULATION_CODE}` },
@@ -290,7 +297,7 @@ test.group('Cobertura regulatoria — guard de plataforma', (group) => {
   test('T7: las ocho URLs viejas bajo /api/v1 responden 404', async ({ client, assert }) => {
     const account = required(owner, 'el owner')
 
-    for (const call of legacyCalls()) {
+    for (const call of await legacyCalls()) {
       const anonymous = await client.get(call.url)
       assert.equal(anonymous.status(), 404, `sin token — ${call.label}`)
 
