@@ -53,6 +53,10 @@ export default class WorkDisabilityPeriodExpense extends compose(
   @column()
   declare workDisabilityPeriodExpenseAmount: number
 
+  /** Qué se pagó ("Consulta médica de valoración"); `null` en los anteriores. */
+  @column()
+  declare workDisabilityPeriodExpenseConcept: string | null
+
   @column()
   declare workDisabilityPeriodId: number
 

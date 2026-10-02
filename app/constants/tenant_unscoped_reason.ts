@@ -19,6 +19,7 @@ export const TENANT_UNSCOPED_REASON = {
   WORK_JOURNAL_SEAL: 'work-journal-seal',
   ADMS_COMMAND_SWEEP: 'adms-command-sweep',
   ADMS_CALENDAR_RECALC: 'adms-calendar-recalc',
+  ASSIST_CALENDAR_DAY_CLOSE: 'assist-calendar-day-close',
   ADMS_RETENTION: 'adms-retention',
   ADMS_DEVICE_CHANNEL: 'adms-device-channel',
   ADMS_PHOTO_TOKEN: 'adms-photo-token',
@@ -126,6 +127,11 @@ export const TENANT_UNSCOPED_REASON_POLICY: Record<TenantUnscopedReason, TenantU
     origin: 'CRON',
     logLevel: 'debug',
     description: 'Recálculo de calendarios de asistencia, cada minuto',
+  },
+  'assist-calendar-day-close': {
+    origin: 'CRON',
+    logLevel: 'info',
+    description: 'Cierre nocturno de los días del calendario de asistencia guardado',
   },
   'adms-retention': {
     origin: 'CRON',

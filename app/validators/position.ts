@@ -27,6 +27,8 @@ export const createPositionValidator = vine.compile(
     positionIdealStaff: optionalPositiveInteger,
     positionMaxStaff: optionalPositiveInteger,
     positionMinActiveStaffPerShift: optionalPositiveInteger,
+    /** Cuando se envía, el puesto se liga atómicamente a este departamento. */
+    linkDepartmentId: optionalPositiveInteger,
   })
 )
 

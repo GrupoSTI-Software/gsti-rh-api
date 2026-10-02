@@ -1171,26 +1171,21 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModulePermissions: permissionsFromActionCatalog(ACCESS_POINT_PERMISSION_CATALOG),
       },
       {
+        // Dado de baja del catálogo del backoffice (USRH1790610965394): la gestión
+        // pasó a la consola de plataforma bajo /api/platform/legal-documents.
+        // Tras correr el seeder 0062 desaparece del menú "Ajustes y configuración"
+        // y de la administración de roles y permisos de todas las empresas.
         systemModuleName: 'Documentos legales',
         systemModuleSlug: 'legal-documents',
         systemModuleDescription: '',
         systemModules: 1,
         systemModulePath: '/legal-documents',
-        systemModuleOrder: 8,
-        systemModuleActive: 1,
-        systemModulePermissionEnforcementActive: true,
-        systemModuleRetired: false,
-        systemModuleIcon:
-          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"/><path d="M9 9l1 0"/><path d="M9 13l6 0"/><path d="M9 17l6 0"/></svg>',
-        systemModulePermissions: [
-          { systemPermissionName: 'Acceder a documentos legales', systemPermissionSlug: 'read' },
-          { systemPermissionName: 'Crear documentos legales', systemPermissionSlug: 'create' },
-          { systemPermissionName: 'Editar documentos legales', systemPermissionSlug: 'update' },
-          {
-            systemPermissionName: 'Gestión completa de documentos legales',
-            systemPermissionSlug: 'gestion',
-          },
-        ],
+        systemModuleOrder: 0,
+        systemModuleActive: 0,
+        systemModulePermissionEnforcementActive: false,
+        systemModuleRetired: true,
+        systemModuleIcon: '',
+        systemModulePermissions: [],
       },
       {
         systemModuleName: 'Evidencia de aceptaciones',

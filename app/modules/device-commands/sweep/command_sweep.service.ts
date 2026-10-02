@@ -180,9 +180,11 @@ export default class CommandSweepService {
   }
 
   private async requestPendingRosters(now: DateTime, limit: number): Promise<number> {
+    // Se espera dentro del bypass: el builder sin esperar se ejecutaba ya fuera
+    // del contexto y el filtro de empresa bloqueaba la consulta.
     const pending = await TenantContext.runUnscoped(
-      () =>
-        AccessPointEmployee.query()
+      async () =>
+        await AccessPointEmployee.query()
           .where(
             'access_point_employee_sync_status',
             ACCESS_POINT_EMPLOYEE_SYNC_STATUS.REVOKE_ACKED

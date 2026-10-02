@@ -2817,6 +2817,25 @@
     "physical_register_success": "Consentimiento físico registrado correctamente.",
     "download_url_success": "URL de descarga generada correctamente."
   },
+  "legalDocumentsPublic": {
+    "title": "Documento legal",
+    "current_success": "Documento legal vigente obtenido correctamente.",
+    "errors": {
+      "tipo-de-documento-invalido": {
+        "title": "Tipo de documento inválido",
+        "detail": "El tipo de documento solicitado no está disponible para consulta pública.",
+        "detail_missing": "Indica el tipo de documento: terms_conditions o privacy_notice."
+      },
+      "idioma-de-documento-invalido": {
+        "title": "Idioma de documento inválido",
+        "detail": "El idioma solicitado no está disponible. Usa es o en."
+      },
+      "documento-legal-sin-version-vigente": {
+        "title": "Documento legal sin versión vigente",
+        "detail": "Este documento todavía no tiene una versión publicada."
+      }
+    }
+  },
   "legalDocuments": {
     "title": "Documento legal",
     "current_success": "Documento legal vigente obtenido correctamente.",
@@ -2853,6 +2872,14 @@
       },
       "entrada-invalida": {
         "title": "Entrada inválida"
+      }
+    }
+  },
+  "platformLegalAcceptances": {
+    "errors": {
+      "filtros-de-aceptaciones-invalidos": {
+        "title": "Filtros de aceptaciones inválidos",
+        "detail": "Revisa la búsqueda (1 a 191 caracteres), el estado (al-dia, pendiente o nunca), la página y el límite (máximo 100)."
       }
     }
   },
@@ -2912,10 +2939,6 @@
   "consent_evidence_invalid_business_unit_detail": "El businessUnitPublicId indicado no existe o no es válido.",
   "consent_evidence_forbidden_read_title": "Sin permiso",
   "consent_evidence_forbidden_read_message": "No tienes permiso para consultar este módulo.",
-  "legal_document_forbidden_read_title": "Sin permiso de consulta",
-  "legal_document_forbidden_read_message": "No tienes permiso para consultar la gestión de documentos legales.",
-  "legal_document_forbidden_write_title": "Sin permiso",
-  "legal_document_forbidden_write_message": "No tienes permiso para gestionar documentos legales.",
   "telework_policy_forbidden_read_title": "Sin permiso de consulta",
   "telework_policy_forbidden_read_message": "No tienes permiso para consultar la Política de Teletrabajo.",
   "telework_policy_forbidden_write_title": "Sin permiso",
@@ -3305,5 +3328,42 @@
   "asset_invalid_input_title": "Datos inválidos",
   "asset_invalid_input_detail": "Revisa los datos enviados.",
   "asset_unexpected_error_title": "Error inesperado",
-  "asset_unexpected_error_detail": "Ocurrió un error inesperado al consultar los activos."
+  "asset_unexpected_error_detail": "Ocurrió un error inesperado al consultar los activos.",
+  "vacation_period_not_started_title": "El período aún no inicia",
+  "vacation_period_not_started_message": "La empresa no permite adelantar vacaciones. Este período inicia el {startsAt}; registra los días en el período vigente.",
+  "org_structure_department_not_found_title": "Departamento no encontrado",
+  "org_structure_department_not_found_message": "El departamento no existe, ya fue eliminado o no pertenece a esta empresa.",
+  "org_structure_department_has_employees_title": "El departamento tiene empleados",
+  "org_structure_department_has_employees_message": "Este departamento tiene empleados asignados. Si lo elimina de forma definitiva, quedarán sin departamento.",
+  "org_structure_department_delete_conflict_title": "No fue posible eliminar el departamento en este momento",
+  "org_structure_department_delete_conflict_message": "Otra operación está usando este departamento al mismo tiempo; no se realizó ningún cambio. Intente de nuevo.",
+  "org_structure_department_delete_failed_title": "No fue posible eliminar el departamento",
+  "org_structure_department_delete_failed_message": "Ocurrió un error inesperado y no se realizó ningún cambio. Intente de nuevo o contacte a soporte.",
+  "org_structure_department_force_deleted_message": "El departamento fue eliminado.",
+  "org_structure_position_not_found_title": "Puesto no encontrado",
+  "org_structure_position_not_found_message": "El puesto no existe, ya fue eliminado o no pertenece a esta empresa.",
+  "org_structure_position_delete_conflict_title": "No fue posible eliminar el puesto en este momento",
+  "org_structure_position_delete_conflict_message": "Otra operación está usando este puesto al mismo tiempo; no se realizó ningún cambio. Intente de nuevo.",
+  "org_structure_position_delete_failed_title": "No fue posible eliminar el puesto",
+  "org_structure_position_delete_failed_message": "Ocurrió un error inesperado y no se realizó ningún cambio. Intente de nuevo o contacte a soporte.",
+  "org_structure_department_val_input_title": "Datos del departamento inválidos",
+  "org_structure_department_val_input_message": "Uno o más campos del departamento no cumplen las reglas de validación. Revisa el cuerpo de la solicitud.",
+  "org_structure_department_business_unit_mismatch_title": "Empresa distinta a la seleccionada",
+  "org_structure_department_business_unit_mismatch_message": "El businessUnitId enviado no coincide con la empresa activa de esta sesión. Usa el mismo identificador de empresa del encabezado de la solicitud.",
+  "org_structure_department_alias_taken_title": "Alias en uso",
+  "org_structure_department_alias_taken_message": "Ese alias ya está registrado en otro departamento de esta empresa. Elige un alias diferente.",
+  "org_structure_department_alias_invalid_title": "Alias inválido",
+  "org_structure_department_alias_invalid_message": "El alias contiene caracteres no permitidos o un formato incorrecto.",
+  "org_structure_department_create_failed_title": "No fue posible crear el departamento",
+  "org_structure_department_create_failed_message": "Ocurrió un error inesperado y no se creó el departamento. Intente de nuevo o contacte a soporte.",
+  "org_structure_position_val_input_title": "Datos del puesto inválidos",
+  "org_structure_position_val_input_message": "Uno o más campos del puesto no cumplen las reglas de validación. Revisa el cuerpo de la solicitud.",
+  "org_structure_position_department_not_found_title": "Departamento no encontrado",
+  "org_structure_position_department_not_found_message": "El departamento indicado en linkDepartmentId no existe, ya fue eliminado o no pertenece a esta empresa.",
+  "org_structure_position_alias_taken_title": "Alias en uso",
+  "org_structure_position_alias_taken_message": "Ese alias ya está registrado en otro puesto de esta empresa. Elige un alias diferente.",
+  "org_structure_position_alias_invalid_title": "Alias inválido",
+  "org_structure_position_alias_invalid_message": "El alias contiene caracteres no permitidos o un formato incorrecto.",
+  "org_structure_position_create_failed_title": "No fue posible crear el puesto",
+  "org_structure_position_create_failed_message": "Ocurrió un error inesperado y no se creó el puesto. Intente de nuevo o contacte a soporte."
 }

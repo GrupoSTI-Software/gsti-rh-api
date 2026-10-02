@@ -15,6 +15,7 @@ import AssistsService from '#services/assist_service'
 import ReportJobService from '#services/report_job_service'
 import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
 import type { ReportJobStatus } from '#models/report_job'
+import { v4 as uuidv4 } from 'uuid'
 import type { AssistExcelFilterInterface } from '../../app/interfaces/assist_excel_filter_interface.js'
 
 /**
@@ -401,8 +402,12 @@ async function cleanupWorld(w: World): Promise<void> {
   await db.from('business_unit_users').whereIn('user_id', w.userIds).delete()
   if (w.userIds.length > 0)
     await db.from('users').whereIn('user_id', w.userIds).delete()
-  if (w.roleIds.length > 0)
+  if (w.roleIds.length > 0) {
+    // Hard-delete: roles tiene soft-deletes; dejarlo en BD rompe el FK hacia business_units.
+    await db.from('role_departments').whereIn('role_id', w.roleIds).delete()
+    await db.from('role_system_permissions').whereIn('role_id', w.roleIds).delete()
     await db.from('roles').whereIn('role_id', w.roleIds).delete()
+  }
   if (w.employeeIds.length > 0) {
     await db.from('employee_shifts').whereIn('employee_id', w.employeeIds).delete()
     await db.from('employees').whereIn('employee_id', w.employeeIds).delete()
@@ -464,8 +469,9 @@ test.group('Bloque sin departamento en reportes de asistencia — USRH1788466831
 
     // M y P deben aparecer en el bloque (dept vacío) y no antes
     const blockNames = blockEmployeeNamesDetailed(sheet, labelRow!)
-    assert.includeMembers(blockNames, ['Marta Lopez'])
-    assert.includeMembers(blockNames, ['Pedro Ruiz'])
+    // Los nombres incluyen el stamp como segundo apellido; comprobamos por prefijo.
+    assert.ok(blockNames.some((n) => n.startsWith('Marta Lopez')), 'Marta Lopez debe aparecer en el bloque')
+    assert.ok(blockNames.some((n) => n.startsWith('Pedro Ruiz')), 'Pedro Ruiz debe aparecer en el bloque')
     // S (empresa B) no debe aparecer
     const allNames: string[] = []
     sheet.eachRow((row, rowNumber) => {
@@ -641,11 +647,11 @@ test.group('Bloque sin departamento en reportes de asistencia — USRH1788466831
       if (name) allNames.push(name)
     })
     // P debe aparecer (a cargo de R)
-    assert.includeMembers(allNames, ['Pedro Ruiz'])
+    assert.ok(allNames.some((n) => n.startsWith('Pedro Ruiz')), 'Pedro Ruiz debe aparecer (a cargo de R)')
     // M no debe aparecer (no está a cargo de R)
-    assert.notInclude(allNames, 'Marta Lopez')
+    assert.ok(!allNames.some((n) => n.startsWith('Marta Lopez')), 'Marta Lopez no debe aparecer (no a cargo de R)')
     // N no debe aparecer
-    assert.notInclude(allNames, 'Noel Vera')
+    assert.ok(!allNames.some((n) => n.startsWith('Noel Vera')), 'Noel Vera no debe aparecer')
   }).timeout(120_000)
 
   // ── CA8: Restringido sin sin-departamento a cargo → sin bloque ────────────
@@ -710,9 +716,11 @@ test.group('Bloque sin departamento en reportes de asistencia — USRH1788466831
       assert.isFalse(labelExistsInSummary(s2, LABEL), 'Resumen: R2 no debe ver bloque')
     } finally {
       await db.from('user_responsible_employees').where('user_id', r2User.userId).delete()
-      await r2User.delete()
-      await r2Person.delete()
-      await r2Role.delete()
+      await db.from('business_unit_users').where('user_id', r2User.userId).delete()
+      await db.from('users').where('user_id', r2User.userId).delete()
+      await db.from('people').where('person_id', r2Person.personId).delete()
+      // db.from en lugar de model.delete() para hacer hard-delete y evitar FK activa hacia BU.
+      await db.from('roles').where('role_id', r2Role.roleId).delete()
     }
   }).timeout(120_000)
 
@@ -812,10 +820,11 @@ test.group('Bloque sin departamento en reportes de asistencia — USRH1788466831
   // ── CA13: Empresa no resoluble → 400 ────────────────────────────────────
   test('CA13 · Empresa no resoluble: los tres generadores devuelven error 400', async ({ assert }) => {
     const svc = new AssistsService(locale())
+    // Sin businessUnitId y con allowedBusinessUnitIds vacío, resolveExcelBusinessUnitScope
+    // devuelve null → error 400 MISSING_BUSINESS_UNIT_SCOPE (spec §5 CA13).
     const filters: AssistExcelFilterInterface = {
       filterDate: FILTER_DATE,
       filterDateEnd: FILTER_DATE_END,
-      businessUnitId: 999999,
       includeUnassigned: true,
     }
     const r1 = await svc.generateAssistanceAllBuffer(filters, [], [], async () => {})
@@ -834,6 +843,7 @@ test.group('Bloque sin departamento en reportes de asistencia — USRH1788466831
     const world = w!
     // Crear un job en BD con los filtros de empresa A
     const job = await ReportJob.create({
+      reportJobId: uuidv4(),
       userId: 1, // usuario root (existe en sae_principal_db)
       reportJobType: 'assistance_all',
       reportJobFilters: {

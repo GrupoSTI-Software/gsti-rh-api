@@ -12,19 +12,21 @@ import {
 import OrgChartMoveService from '#services/org_chart_move_service'
 import ScopeDeniedLogService from '#services/scope_denied_log_service'
 import { DepartmentShiftFilterInterface } from '../interfaces/department_shift_filter_interface.js'
-import { DateTime } from 'luxon'
 import { DepartmentIndexFilterInterface } from '../interfaces/department_index_filter_interface.js'
 import {
   emptyEmployeeRoleScope,
   resolveEmployeeRoleScopeForUser,
 } from '#helpers/resolve_employee_role_scope'
 import db from '@adonisjs/lucid/services/db'
-import RoleDepartment from '#models/role_department'
-import Role from '#models/role'
 import OrgAliasAppError from '#exceptions/org_alias_app_error'
 import { applyPositionNameOrAliasesSearch } from '#utils/org_alias_search_sql'
 import { resolveDepartmentParentFromBody } from '#utils/org_chart_parent_input'
 import { resolveResponsibleUserId } from '#helpers/responsible_employee_scope'
+import { ORG_STRUCTURE_ERROR_CODES } from '../constants/org_structure_error_codes.js'
+import {
+  classifyOrgStructureDbError,
+  buildOrgStructureApiError,
+} from '../helpers/org_structure_api_error.js'
 
 export default class DepartmentController {
 
@@ -1078,101 +1080,79 @@ export default class DepartmentController {
    *                     error:
    *                       type: string
    */
-  async store({ request, response, i18n }: HttpContext) {
+  /**
+   * Crea un departamento de forma atómica:
+   *
+   * 1. Valida el cuerpo con `createDepartmentValidator` (R1 → 422 si falla).
+   * 2. Verifica que el `businessUnitId` del cuerpo coincida con el scope del
+   *    header (R2 → 422 BUSINESS_UNIT_MISMATCH si difieren).
+   * 3. Llama a `createWithRoleAssignment` para crear el departamento y asignarlo
+   *    a todos los roles activos en una sola transacción (R3).
+   * 4. En el `catch` usa `resolveOrgStructureStoreError` para devolver 400/422/500
+   *    sin filtrar mensaje crudo de SQL.
+   */
+  async store({ request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
     try {
-      const businessUnitId = request.input('businessUnitId')
-      const departmentName = request.input('departmentName')
-      const departmentAlias = request.input('departmentAlias')
-      const aliasesInput = request.input('aliases')
-      const departmentIsDefault = request.input('departmentIsDefault')
-      const departmentActive = request.input('departmentActive')
-      const parentDepartmentId = request.input('parentDepartmentId')
+      // ── R1: validación de entrada ─────────────────────────────────────────
+      const data = await request.validateUsing(createDepartmentValidator)
+
+      // ── R2: empresa del header ────────────────────────────────────────────
+      const bodyBusinessUnitId = request.input('businessUnitId')
+      if (
+        bodyBusinessUnitId !== undefined &&
+        bodyBusinessUnitId !== null &&
+        !businessUnitScope.includes(Number(bodyBusinessUnitId))
+      ) {
+        const { buildDepartmentBusinessUnitMismatchError } = await import(
+          '../helpers/org_structure_api_error.js'
+        )
+        const err = buildDepartmentBusinessUnitMismatchError(i18n)
+        response.status(err.status)
+        return err.body
+      }
+
+      // Si no se envía businessUnitId en el cuerpo se usa el primer scope activo.
+      const businessUnitId = bodyBusinessUnitId
+        ? Number(bodyBusinessUnitId)
+        : businessUnitScope[0]
+
       const lastDepartment = await Department.query().orderBy('departmentId', 'desc').first()
       const departmentCode = (lastDepartment ? lastDepartment.departmentId + 1 : 0).toString()
 
       const department = {
-        departmentCode: departmentCode,
-        departmentName: departmentName,
-        departmentAlias: departmentAlias || '',
+        departmentCode,
+        departmentName: data.departmentName,
+        departmentAlias: data.departmentAlias ?? '',
         aliases:
-          aliasesInput === null || aliasesInput === undefined || aliasesInput === ''
+          data.aliases === null || data.aliases === undefined || data.aliases === ''
             ? null
-            : String(aliasesInput),
-        departmentIsDefault: departmentIsDefault || 0,
-        departmentActive: departmentActive || 1,
-        parentDepartmentId: parentDepartmentId,
-        businessUnitId: businessUnitId,
-      } as Department
+            : String(data.aliases),
+        departmentIsDefault: data.departmentIsDefault ? 1 : 0,
+        departmentActive: data.departmentActive !== false ? 1 : 0,
+        parentDepartmentId: data.parentDepartmentId ?? null,
+        businessUnitId,
+      } as unknown as Department
 
       const departmentService = new DepartmentService(i18n)
-      const data = await request.validateUsing(createDepartmentValidator)
-      const exist = await departmentService.verifyInfoExist(department)
 
-      if (exist.status !== 200) {
-        response.status(exist.status)
-        return {
-          type: exist.type,
-          title: exist.title,
-          message: exist.message,
-          data: { ...data },
-        }
-      }
+      // ── R3: alta atómica (departamento + role_departments) ────────────────
+      const newDepartment = await departmentService.createWithRoleAssignment(department)
 
-      const newDepartment = await departmentService.create(department)
-
-      if (newDepartment) {
-        // Asignar automáticamente el departamento a todos los roles activos (excepto root)
-        // para que todos los usuarios puedan verlo inmediatamente después de su creación
-        const activeRoles = await Role.query()
-          .whereNull('role_deleted_at')
-          .where('role_active', 1)
-          .whereNot('role_slug', 'root')
-
-        for (const role of activeRoles) {
-          // Verificar si ya existe la relación para evitar duplicados
-          const existingRoleDepartment = await RoleDepartment.query()
-            .whereNull('role_department_deleted_at')
-            .where('role_id', role.roleId)
-            .where('department_id', newDepartment.departmentId)
-            .first()
-
-          if (!existingRoleDepartment) {
-            const roleDepartment = new RoleDepartment()
-            roleDepartment.roleId = role.roleId
-            roleDepartment.departmentId = newDepartment.departmentId
-            await roleDepartment.save()
-          }
-        }
-
-        response.status(201)
-        return {
-          type: 'success',
-          title: t('resource'),
-          message: t('resource_was_created_successfully'),
-          data: { department: newDepartment },
-        }
+      response.status(201)
+      return {
+        type: 'success',
+        title: t('resource'),
+        message: t('resource_was_created_successfully'),
+        data: { department: newDepartment },
       }
     } catch (error) {
-      if (error instanceof OrgAliasAppError) {
-        response.status(400)
-        return {
-          type: 'warning',
-          title: error.title,
-          message: error.detail,
-          detail: error.detail,
-          data: { key: error.key },
-        }
-      }
-      const messageError =
-        error.code === 'E_VALIDATION_ERROR' ? error.messages[0].message : error.message
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: messageError,
-      }
+      const { resolveOrgStructureStoreError } = await import(
+        '../helpers/org_structure_api_error.js'
+      )
+      const err = resolveOrgStructureStoreError(error, 'department', i18n)
+      response.status(err.status)
+      return err.body
     }
   }
 
@@ -1574,10 +1554,22 @@ export default class DepartmentController {
     }
   }
 
+  /**
+   * Elimina (marca como eliminado) un departamento sin empleados.
+   *
+   * Si tiene empleados activos de la empresa, responde 409 `HAS_EMPLOYEES` con
+   * el conteo (R3); la eliminación definitiva va por `forceDelete`.
+   * Sin empleados, retira relaciones/permisos y hace baja lógica (R2, R5).
+   * La operación es todo o nada (R7).
+   *
+   * @returns 201 `affectedEmployees: 0`; 404 sin empresa; 409 HAS_EMPLOYEES
+   *   o conflicto de concurrencia; 500 saneado.
+   */
   async delete({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
+    // Nota 4: declarar antes del try para que el catch pueda armar `data`.
+    const departmentId = request.param('departmentId')
     try {
-      const departmentId = request.param('departmentId')
       if (!departmentId) {
         response.status(400)
         return {
@@ -1587,6 +1579,8 @@ export default class DepartmentController {
           data: { departmentId },
         }
       }
+
+      // Guarda IDOR: intacta (nota 1 / S06-6).
       const currentDepartment = await Department.query()
         .whereNull('department_deleted_at')
         .where('department_id', departmentId)
@@ -1601,62 +1595,112 @@ export default class DepartmentController {
           actorUserId: auth.user?.userId ?? null,
           businessUnitScope,
         })
-        const entity = t('department')
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { departmentId },
-        }
-      }
-      // Obtener empleados relacionados con el departamento
-      const employees = await currentDepartment
-        .related('employees')
-        .query()
-        .whereNull('employee_deleted_at')
-
-      // Si hay empleados, asignarles el departamento "Sin Departamento"
-      if (employees.length > 0) {
-        const defaultDepartment = await Department.query()
-          .whereNull('department_deleted_at')
-          .where('department_name', 'Sin departamento')
-          .first()
-
-        if (defaultDepartment) {
-          for (const employee of employees) {
-            employee.departmentId = defaultDepartment.departmentId
-            await employee.save()
-          }
-        }
+        const err = buildOrgStructureApiError(
+          ORG_STRUCTURE_ERROR_CODES.DEPARTMENT_NOT_FOUND,
+          { departmentId },
+          i18n,
+        )
+        response.status(err.status)
+        return err.body
       }
 
       const departmentService = new DepartmentService(i18n)
-      const deleteDepartment = await departmentService.delete(currentDepartment)
-      if (deleteDepartment) {
-        response.status(201)
-        return {
-          type: 'success',
-          title: t('resource'),
-          message: t('resource_was_deleted_successfully'),
-          data: { department: deleteDepartment },
+
+      // Todo o nada: transacción con relectura forUpdate (C06-1, S06-4).
+      let affectedEmployees = 0
+      await db.transaction(async (trx) => {
+        // Relectura bajo bloqueo (S06-4).
+        const locked = await trx
+          .from('departments')
+          .where('department_id', currentDepartment.departmentId)
+          .where('business_unit_id', currentDepartment.businessUnitId)
+          .whereNull('department_deleted_at')
+          .forUpdate()
+          .first()
+
+        if (!locked) {
+          throw Object.assign(new Error('not_found'), { _orgNotFound: true })
         }
+
+        // Conteo bajo bloqueo para el 409 (R3, C06-3).
+        const count = await departmentService.countDeleteImpact(
+          currentDepartment.departmentId,
+          currentDepartment.businessUnitId,
+          trx,
+        )
+
+        if (count > 0) {
+          // No escribir nada; la transacción se revierte al salir del callback.
+          const hasEmployeesErr = buildOrgStructureApiError(
+            ORG_STRUCTURE_ERROR_CODES.DEPARTMENT_HAS_EMPLOYEES,
+            { departmentId: currentDepartment.departmentId, affectedEmployees: count },
+            i18n,
+          )
+          throw Object.assign(new Error('has_employees'), {
+            _orgHasEmployees: true,
+            _apiError: hasEmployeesErr,
+          })
+        }
+
+        const result = await departmentService.delete(
+          currentDepartment,
+          { allowEmployees: false },
+          trx,
+        )
+        affectedEmployees = result.affectedEmployees
+      })
+
+      response.status(201)
+      return {
+        type: 'success',
+        title: t('resource'),
+        message: t('resource_was_deleted_successfully'),
+        data: { department: currentDepartment, affectedEmployees },
       }
     } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
+      if ((error as { _orgNotFound?: boolean })._orgNotFound) {
+        const err = buildOrgStructureApiError(
+          ORG_STRUCTURE_ERROR_CODES.DEPARTMENT_NOT_FOUND,
+          { departmentId },
+          i18n,
+        )
+        response.status(err.status)
+        return err.body
       }
+      if ((error as { _orgHasEmployees?: boolean })._orgHasEmployees) {
+        const apiErr = (error as { _apiError: ReturnType<typeof buildOrgStructureApiError> })
+          ._apiError
+        response.status(apiErr.status)
+        return apiErr.body
+      }
+      const kind = classifyOrgStructureDbError(error)
+      const code =
+        kind === 'conflict'
+          ? ORG_STRUCTURE_ERROR_CODES.DEPARTMENT_DELETE_CONFLICT
+          : ORG_STRUCTURE_ERROR_CODES.DEPARTMENT_DELETE_FAILED
+      const err = buildOrgStructureApiError(code, { departmentId }, i18n)
+      response.status(err.status)
+      return err.status >= 500 ? { ...err.body, error: err.body.detail } : err.body
     }
   }
 
+  /**
+   * Elimina (marca como eliminado) un departamento con o sin empleados.
+   *
+   * Los empleados activos de la empresa que tenían ese departamento quedan con
+   * `department_id = NULL` y conservan su puesto. No se usa ningún registro de
+   * relleno. La operación es todo o nada (R4, R7).
+   *
+   * Nunca devuelve `HAS_EMPLOYEES` (CA-10 del spec USRH1789328927602).
+   *
+   * @returns 201 con `data.affectedEmployees`; 404 si no existe/otra empresa;
+   *   409 si hay concurrencia; 500 saneado.
+   */
   async forceDelete({ auth, request, response, i18n, businessUnitScope }: HttpContext) {
     const t = i18n.formatMessage.bind(i18n)
+    // Nota 4: declarar antes del try para que el catch pueda armar `data`.
+    const departmentId = request.param('departmentId')
     try {
-      const departmentId = request.param('departmentId')
       if (!departmentId) {
         response.status(400)
         return {
@@ -1666,11 +1710,14 @@ export default class DepartmentController {
           data: { departmentId },
         }
       }
+
+      // Guarda IDOR: intacta (nota 1 / S06-6).
       const currentDepartment = await Department.query()
         .whereNull('department_deleted_at')
         .where('department_id', departmentId)
         .whereIn('businessUnitId', businessUnitScope)
         .first()
+
       if (!currentDepartment) {
         await ScopeDeniedLogService.log({
           domain: 'department',
@@ -1679,72 +1726,66 @@ export default class DepartmentController {
           actorUserId: auth.user?.userId ?? null,
           businessUnitScope,
         })
-        const entity = t('department')
-        response.status(404)
-        return {
-          type: 'warning',
-          title: t('entity_was_not_found', { entity }),
-          message: t('entity_was_not_found_with_entered_id', { entity }),
-          data: { departmentId },
-        }
+        const err = buildOrgStructureApiError(
+          ORG_STRUCTURE_ERROR_CODES.DEPARTMENT_NOT_FOUND,
+          { departmentId },
+          i18n,
+        )
+        response.status(err.status)
+        return err.body
       }
-      const employees = await currentDepartment
-        .related('employees')
-        .query()
-        .whereNull('employee_deleted_at')
 
-      if (employees.length > 0) {
-        // Obtener el departamento por defecto "Sin Departamento"
-        const defaultDepartment = await Department.query()
+      const departmentService = new DepartmentService(i18n)
+
+      // Todo o nada: transacción con relectura forUpdate (C06-1, S06-4).
+      let affectedEmployees = 0
+      await db.transaction(async (trx) => {
+        // Relectura bajo bloqueo (S06-4).
+        const locked = await trx
+          .from('departments')
+          .where('department_id', currentDepartment.departmentId)
+          .where('business_unit_id', currentDepartment.businessUnitId)
           .whereNull('department_deleted_at')
-          .where('department_name', 'Sin departamento')
+          .forUpdate()
           .first()
 
-        const newDepartmentId = defaultDepartment ? defaultDepartment.departmentId : 999
-
-        for (const employee of employees) {
-          employee.departmentId = newDepartmentId
-          await employee.save()
-          const currentPositions = await DepartmentPosition.query().where(
-            'department_id',
-            departmentId
-          )
-          if (currentPositions.length > 0) {
-            for (const position of currentPositions) {
-              position.departmentId = newDepartmentId
-              await position.save()
-              const positionEmployees = await Employee.query()
-                .where('department_id', departmentId)
-                .andWhere('position_id', position.positionId)
-              if (positionEmployees.length > 0) {
-                for (const posEmployee of positionEmployees) {
-                  posEmployee.departmentId = newDepartmentId
-                  posEmployee.positionId = position.positionId
-                  await posEmployee.save()
-                }
-              }
-            }
-          }
+        if (!locked) {
+          throw Object.assign(new Error('not_found'), { _orgNotFound: true })
         }
-      }
-      currentDepartment.deletedAt = DateTime.now()
-      await currentDepartment.save()
+
+        const result = await departmentService.delete(
+          currentDepartment,
+          { allowEmployees: true },
+          trx,
+        )
+        affectedEmployees = result.affectedEmployees
+      })
+
       response.status(201)
       return {
         type: 'success',
         title: t('departments'),
-        message:
-        t('the_department_its_related_positions_and_employees_were_reassigned_successfully_and_the_department_was_soft_deleted'),
-        data: { department: currentDepartment },
+        message: t('org_structure_department_force_deleted_message'),
+        data: { department: currentDepartment, affectedEmployees },
       }
     } catch (error) {
-      response.status(500)
-      return {
-        type: 'error',
-        title: t('server_error'),
-        message: t('an_unexpected_error_has_occurred_on_the_server'),
-        error: error.message,
+      if ((error as { _orgNotFound?: boolean })._orgNotFound) {
+        const err = buildOrgStructureApiError(
+          ORG_STRUCTURE_ERROR_CODES.DEPARTMENT_NOT_FOUND,
+          { departmentId },
+          i18n,
+        )
+        response.status(err.status)
+        return err.body
       }
+      const kind = classifyOrgStructureDbError(error)
+      const code =
+        kind === 'conflict'
+          ? ORG_STRUCTURE_ERROR_CODES.DEPARTMENT_DELETE_CONFLICT
+          : ORG_STRUCTURE_ERROR_CODES.DEPARTMENT_DELETE_FAILED
+      const err = buildOrgStructureApiError(code, { departmentId }, i18n)
+      response.status(err.status)
+      return err.status >= 500 ? { ...err.body, error: err.body.detail } : err.body
     }
   }
 
