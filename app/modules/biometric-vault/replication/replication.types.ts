@@ -28,6 +28,8 @@ export const REPLICATION_SKIP = {
   NOTHING_TO_COPY: 'nothing_to_copy',
   /** El destino es el origen. */
   SAME_DEVICE: 'same_device',
+  /** El equipo declaro no tener rostro: no se le manda la foto. */
+  NO_FACE_SUPPORT: 'no_face_support',
 } as const
 
 export type ReplicationSkip = (typeof REPLICATION_SKIP)[keyof typeof REPLICATION_SKIP]

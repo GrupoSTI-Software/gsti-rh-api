@@ -42,6 +42,12 @@ export const ASSIST_ERROR_CODES = {
   RATE_LIMIT: 'AST.RATE.001',
   /** Clave natural duplicada (USRH1786566437097). */
   CONFLICT_DUPLICATE: 'AST.CONFLICT.001',
+  /** La checada no existe o es de otra empresa. */
+  NF_ASSIST: 'AST.NF.001',
+  /** Se pidió la dirección de una checada sin coordenadas. */
+  VAL_NO_LOCATION: 'AST.VAL.012',
+  /** El servicio de direcciones no respondió; el cliente puede reintentar. */
+  SYS_ADDRESS_UNAVAILABLE: 'AST.SYS.001',
 } as const
 
 export type AssistErrorCode = (typeof ASSIST_ERROR_CODES)[keyof typeof ASSIST_ERROR_CODES]
