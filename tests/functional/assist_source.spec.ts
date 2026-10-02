@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import type { ApiClient } from '@japa/api-client'
 import db from '@adonisjs/lucid/services/db'
 import AssistAddressService from '#modules/assist-source/assist_address.service'
 import type { ReverseGeocoder } from '#modules/assist-source/reverse_geocoder'
@@ -37,7 +38,7 @@ async function insertAssist(minute: number, extra: Record<string, unknown>): Pro
 }
 
 function get(
-  client: Parameters<Parameters<typeof test>[1]>[0]['client'],
+  client: ApiClient,
   path: string,
   as = actor!
 ) {
