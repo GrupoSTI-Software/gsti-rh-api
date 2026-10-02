@@ -8,6 +8,7 @@ Las reglas viven UNA sola vez, en `.claude/rules/`. Este archivo solo las import
 @.claude/rules/migraciones-lucid.md
 @.claude/rules/higiene-repo.md
 @.claude/rules/idioma.md
+@.claude/rules/commits.md
 @.cursorrules
 
 ## La que más se rompe, primero
