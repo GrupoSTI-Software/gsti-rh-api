@@ -6,6 +6,7 @@ import Person from '#models/person'
 import Regulation from '#models/regulation'
 import Role from '#models/role'
 import RoleSystemPermission from '#models/role_system_permission'
+import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import User from '#models/user'
 import {
@@ -123,23 +124,47 @@ function assertPlatformForbidden(assert: Assert, response: ApiResponse): void {
 
 /**
  * Siembra la concesión `regulatory-coverage:read` directo sobre el rol. El
- * módulo puede estar soft-deleted en una BD re-sembrada, y
- * `grantModulePermissions` no encontraría su permiso: aquí se busca con
- * `withTrashed` para dejar la concesión huérfana.
+ * módulo está retirado (soft-deleted) y su entrada del catálogo ya no declara
+ * permisos, así que en una BD migrada y sembrada desde cero la fila `read` no
+ * existe. Se busca con `withTrashed` y, si falta, se crea colgada de la fila del
+ * módulo retirado: es exactamente el estado "permiso guardado sin efecto" que
+ * el spec prueba. Devuelve el permiso solo si lo creó aquí, para que el spec lo
+ * retire al terminar y no deje la fila en la BD.
  */
-async function grantOrphanedCoverageRead(role: Role): Promise<void> {
-  const permission = await SystemPermission.query()
+async function grantOrphanedCoverageRead(role: Role): Promise<SystemPermission | null> {
+  const systemModule = await SystemModule.query()
     .withTrashed()
-    .where('system_permission_slug', 'read')
-    .whereHas('systemModule', (query) => {
-      query.withTrashed().where('system_module_slug', MODULE)
-    })
+    .where('system_module_slug', MODULE)
     .firstOrFail()
 
-  await RoleSystemPermission.create({
-    roleId: role.roleId,
-    systemPermissionId: permission.systemPermissionId,
-  })
+  let createdPermission: SystemPermission | null = null
+  let permission = await SystemPermission.query()
+    .withTrashed()
+    .where('system_module_id', systemModule.systemModuleId)
+    .where('system_permission_slug', 'read')
+    .first()
+  if (!permission) {
+    permission = await SystemPermission.create({
+      systemModuleId: systemModule.systemModuleId,
+      systemPermissionSlug: 'read',
+      systemPermissionName: 'Acceder a cobertura regulatoria',
+    })
+    createdPermission = permission
+  }
+
+  const existing = await RoleSystemPermission.query()
+    .withTrashed()
+    .where('role_id', role.roleId)
+    .where('system_permission_id', permission.systemPermissionId)
+    .first()
+  if (!existing) {
+    await RoleSystemPermission.create({
+      roleId: role.roleId,
+      systemPermissionId: permission.systemPermissionId,
+    })
+  }
+
+  return createdPermission
 }
 
 async function createPlatformAdmin(emailPrefix: string): Promise<PlatformActor> {
@@ -197,6 +222,7 @@ test.group('Cobertura regulatoria — guard de plataforma', (group) => {
   let tenant: TenantActor | null = null
   let webPlatformAdmin: PlatformActor | null = null
   let consoleAdmin: PlatformActor | null = null
+  let createdOrphanPermission: SystemPermission | null = null
 
   group.setup(async () => {
     owner = await createBypassActor('owner', 'cobertura-owner')
@@ -210,6 +236,9 @@ test.group('Cobertura regulatoria — guard de plataforma', (group) => {
     await cleanupTenantActor(root)
     await cleanupTenantActor(superAdmin)
     await cleanupActor(webPlatformAdmin)
+    // Los roles (y con ellos sus concesiones) ya salieron: la fila creada por el spec puede irse.
+    if (createdOrphanPermission) await createdOrphanPermission.forceDelete()
+    createdOrphanPermission = null
   })
 
   group.each.teardown(async () => {
@@ -238,7 +267,8 @@ test.group('Cobertura regulatoria — guard de plataforma', (group) => {
     }
 
     tenant = await createTenantActor('cobertura-gate')
-    await grantOrphanedCoverageRead(tenant.role)
+    createdOrphanPermission =
+      (await grantOrphanedCoverageRead(tenant.role)) ?? createdOrphanPermission
     for (const call of await platformCalls()) {
       const response = await client.get(call.url).loginAs(tenant.user)
       assert.equal(response.status(), 403, `concesión guardada — ${call.label}`)

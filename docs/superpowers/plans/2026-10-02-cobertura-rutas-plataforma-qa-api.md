@@ -39,22 +39,27 @@ Ambos con un cuerpo de esta forma (el correo lo indica cada escenario):
 
 Prerrequisito de ambiente: el despliegue de esta historia ya corrido en la base local, es decir, `0062_system_module_seeder` (la semilla del catálogo de funcionalidades, que da de baja la entrada «Cobertura regulatoria»). Sin él, esa entrada sigue viva y el Escenario 3 no puede comprobar que el permiso quedó sin efecto.
 
-Ejecutar el seeder compartido:
+Ejecutar el seeder compartido **contra la misma base que el API local de pruebas** (`sae_pruebas`). Si solo corres `node ace db:seed` sin `NODE_ENV=test`, los datos caen en la base de desarrollo (`sae_principal_db` en el `.env` típico) y las consultas en `sae_pruebas` —o el Escenario 3— salen vacías:
 
 ```bash
-node ace db:seed --files=database/seeders/_tmp_do_not_commit_qa_seeder.ts
+NODE_ENV=test node ace db:seed --files=database/seeders/_tmp_do_not_commit_qa_seeder.ts
 ```
 
-Volver a correrlo deja todo otra vez como al inicio.
+Volver a correrlo deja todo otra vez como al inicio. Al terminar debe aparecer en consola la línea `[qa-seeder] cobertura-plataforma: empresa QA Cobertura…` **sin** el aviso de que falta el permiso `read` del módulo.
 
-Deja una empresa cliente llamada **`QA Cobertura`**, un rol de esa empresa llamado **`QA Cobertura Lector`** con el permiso de lectura de cobertura regulatoria concedido de antes, y cuatro usuarios:
+Deja una empresa cliente llamada **`QA Cobertura`**, un rol de esa empresa llamado **`QA Cobertura Lector`** con el permiso de lectura de cobertura regulatoria concedido de antes, y cuatro usuarios.
 
-| | Correo | Contraseña | Variante |
-|---|---|---|---|
-| **A** | `qa-cobertura-plataforma@gsti-tests.local` | `password` | Administrador de plataforma que entra por la **consola**: el único que puede leer |
-| **B** | `qa-cobertura-owner-bo@gsti-tests.local` | `password` | Cuenta propietaria de `QA Cobertura`; entra por el **backoffice** |
-| **C** | `qa-cobertura-rol-concedido-bo@gsti-tests.local` | `password` | Usuario de `QA Cobertura` con el rol `QA Cobertura Lector` (el que trae el permiso concedido de antes); entra por el **backoffice** |
-| **D** | `qa-cobertura-plataforma-bo@gsti-tests.local` | `password` | Administrador de plataforma que entra por el **backoffice** (no por la consola) |
+**Login por producto** (el cuerpo y el token son los ya descritos arriba; en la tabla solo indica qué producto usar):
+
+- **Consola de plataforma** — `POST /api/platform/auth/login`
+- **Backoffice** — `POST /api/auth/login`
+
+| | Correo | Contraseña | Login (producto) | Variante |
+|---|---|---|---|---|
+| **A** | `qa-cobertura-plataforma@gsti-tests.local` | `password` | Consola de plataforma | Administrador de plataforma por consola: el único que puede leer las ocho rutas |
+| **B** | `qa-cobertura-owner-bo@gsti-tests.local` | `password` | Backoffice | Cuenta propietaria de `QA Cobertura` |
+| **C** | `qa-cobertura-rol-concedido-bo@gsti-tests.local` | `password` | Backoffice | Usuario de `QA Cobertura` con el rol `QA Cobertura Lector` (permiso concedido de antes, ya sin efecto) |
+| **D** | `qa-cobertura-plataforma-bo@gsti-tests.local` | `password` | Backoffice | Administrador de plataforma que **no** entra por la consola (misma cuenta, otro producto) |
 
 **Identificadores de las normas.** Las direcciones de este manual llevan el identificador de `NOM-035-STPS`; no lo escribas de memoria, obtenlo así:
 
@@ -592,6 +597,22 @@ WHERE r.role_slug = 'qa-cobertura-lector'
 
 Resultado: 1 fila: `qa-cobertura-lector`, `regulatory-coverage`, `read` (el permiso de lectura de cobertura regulatoria sigue concedido al rol).
 
+Si sale **vacío**, no es la sintaxis: casi siempre estás en **otra base** (`sae_principal_db` en lugar de `sae_pruebas`) o el seeder no corrió con `NODE_ENV=test`. Comprueba en este orden:
+
+```sql
+SELECT DATABASE();
+```
+
+Debe decir `sae_pruebas`. Si no, ejecuta `USE sae_pruebas;` y repite la consulta del Paso 2.
+
+```sql
+SELECT role_id, role_slug
+FROM roles
+WHERE role_slug = 'qa-cobertura-lector';
+```
+
+Debe dar **1 fila**. Si da 0, vuelve a correr el seeder de Preparar con `NODE_ENV=test` y busca en consola la línea `[qa-seeder] cobertura-plataforma:` **sin** el aviso de permiso `read` faltante.
+
 **Paso 3 — La funcionalidad ya está dada de baja.** Y que el motivo sea que la funcionalidad ya no existe para las empresas:
 
 ```sql
@@ -820,10 +841,10 @@ Qué significa cada dato:
 
 Marca cada escenario contra su `Objetivo:`, no contra «se hicieron los pasos».
 
-- [ ] **Escenario 1** — la consola de plataforma recibe las ocho consultas con su contenido completo.
-- [ ] **Escenario 2** — la cuenta propietaria de una empresa cliente recibe `403` en las ocho y ningún dato.
-- [ ] **Escenario 3** — el rol con el permiso concedido de antes recibe `403` en las ocho, con el permiso aún guardado y la funcionalidad dada de baja.
-- [ ] **Escenario 4** — el administrador de plataforma que entra por el backoffice recibe `403` en las ocho.
-- [ ] **Escenario 5** — las ocho direcciones anteriores responden `404`, con sesión del backoffice y sin sesión.
-- [ ] **Escenario 6** — los cinco avisos propios (`400`, tres `404` y `422`) responden exactamente lo mismo que antes.
-- [ ] **Escenario 7** — sin sesión, las ocho consultas responden `401` sin ningún dato.
+- [x] **Escenario 1** — la consola de plataforma recibe las ocho consultas con su contenido completo.
+- [x] **Escenario 2** — la cuenta propietaria de una empresa cliente recibe `403` en las ocho y ningún dato.
+- [x] **Escenario 3** — el rol con el permiso concedido de antes recibe `403` en las ocho, con el permiso aún guardado y la funcionalidad dada de baja.
+- [x] **Escenario 4** — el administrador de plataforma que entra por el backoffice recibe `403` en las ocho.
+- [x] **Escenario 5** — las ocho direcciones anteriores responden `404`, con sesión del backoffice y sin sesión.
+- [x] **Escenario 6** — los cinco avisos propios (`400`, tres `404` y `422`) responden exactamente lo mismo que antes.
+- [x] **Escenario 7** — sin sesión, las ocho consultas responden `401` sin ningún dato.

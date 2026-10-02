@@ -77,28 +77,37 @@ async function loginPlatformConsole(client: ApiClient, email: string): Promise<s
 }
 
 /**
- * Registra en el grupo un administrador de plataforma (alta en el setup, baja en
- * el teardown) y devuelve la función que le abre sesión de consola. El login se
- * hace una sola vez por grupo: el endpoint de login limita las peticiones por IP.
+ * El endpoint de login de plataforma limita las peticiones por IP (10 intentos cada
+ * 15 min, en memoria). Para no agotarlo en una corrida con otros specs, el
+ * administrador y su token de consola viven a nivel de módulo: se crean una sola vez
+ * (lazy, en el primer test que los pide) y se reutilizan en todos los grupos del archivo.
+ * El cleanup se hace en el teardown del ÚLTIMO grupo que corre (ver `useConsoleAdmin`).
+ */
+let sharedAdmin: PlatformActor | null = null
+let sharedToken: string | null = null
+let registeredGroups = 0
+let tornDownGroups = 0
+
+/**
+ * Registra el grupo en el conteo del archivo y devuelve la función que entrega el
+ * token de consola del administrador compartido. El último grupo en terminar borra
+ * el administrador y su persona.
  */
 function useConsoleAdmin(group: Group): (client: ApiClient) => Promise<string> {
-  let admin: PlatformActor | null = null
-  let token: string | null = null
-
-  group.setup(async () => {
-    admin = await createPlatformAdmin('marco-contenido')
-  })
+  registeredGroups += 1
 
   group.teardown(async () => {
-    await cleanupActor(admin)
-    admin = null
-    token = null
+    tornDownGroups += 1
+    if (tornDownGroups < registeredGroups) return
+    await cleanupActor(sharedAdmin)
+    sharedAdmin = null
+    sharedToken = null
   })
 
   return async (client) => {
-    if (!admin) throw new Error('El administrador de plataforma no se creó en el setup')
-    token ??= await loginPlatformConsole(client, admin.email)
-    return token
+    sharedAdmin ??= await createPlatformAdmin('marco-contenido')
+    sharedToken ??= await loginPlatformConsole(client, sharedAdmin.email)
+    return sharedToken
   }
 }
 

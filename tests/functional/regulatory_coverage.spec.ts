@@ -194,6 +194,8 @@ function assertRegulationShape(assert: Assert, row: RegulationCoverageRow) {
 
 test.group('RegulatoryCoverage - auth & response', (group) => {
   let admin: PlatformActor | null = null
+  // El login de plataforma tiene rate limit por IP (10 intentos/15 min): se hace una sola vez.
+  let cachedToken: string | null = null
 
   group.setup(async () => {
     admin = await createPlatformAdmin('cobertura-contenido')
@@ -205,7 +207,10 @@ test.group('RegulatoryCoverage - auth & response', (group) => {
 
   async function consoleToken(client: ApiClient): Promise<string> {
     if (!admin) throw new Error('El administrador de plataforma no se creó en el setup')
-    return loginPlatformConsole(client, admin.email)
+    if (cachedToken === null) {
+      cachedToken = await loginPlatformConsole(client, admin.email)
+    }
+    return cachedToken
   }
 
   test('401 sin autenticación', async ({ client }) => {
