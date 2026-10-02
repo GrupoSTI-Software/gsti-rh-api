@@ -204,6 +204,30 @@ export default class ShiftException extends compose(BaseModel, SoftDeletes, with
   @column.dateTime({ columnName: 'shift_exceptions_deleted_at' })
   declare deletedAt: DateTime | null
 
+  /** Solicitud de la que salio el dia; `null` si se registro directo. */
+  @column()
+  declare exceptionRequestId: number | null
+
+  /** Quien autorizo (o registro directo) el dia, y cuando. */
+  @column({ columnName: 'shift_exception_authorized_by_user_id' })
+  declare shiftExceptionAuthorizedByUserId: number | null
+
+  @column.dateTime({ columnName: 'shift_exception_authorized_at' })
+  declare shiftExceptionAuthorizedAt: DateTime | null
+
+  /**
+   * Cancelacion de un dia ya autorizado. Cancelar sigue siendo el borrado
+   * logico (`deletedAt`); estas columnas solo dejan quien, cuando y por que.
+   */
+  @column({ columnName: 'shift_exception_cancelled_by_user_id' })
+  declare shiftExceptionCancelledByUserId: number | null
+
+  @column.dateTime({ columnName: 'shift_exception_cancelled_at' })
+  declare shiftExceptionCancelledAt: DateTime | null
+
+  @column({ columnName: 'shift_exception_cancel_reason' })
+  declare shiftExceptionCancelReason: string | null
+
   @hasMany(() => VacationAuthorizationSignature)
   declare vacationAuthorizationSignatures: HasMany<typeof VacationAuthorizationSignature>
 

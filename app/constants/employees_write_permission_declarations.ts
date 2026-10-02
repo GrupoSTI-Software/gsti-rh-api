@@ -157,6 +157,12 @@ export const EMPLOYEES_WRITE_PERMISSION_DECLARATIONS = {
   deleteVacationDeduction: employeesStandard('manage-vacation'),
   authorizeVacationWithSignature: employeesStandard('manage-vacation'),
   signVacationShiftExceptions: employeesStandard('manage-vacation'),
+  /**
+   * Lecturas del formulario de autorizacion con firma: solicitudes pendientes,
+   * autorizadas con sus firmas y dias sin firmar. Solo las usa quien autoriza,
+   * y traen imagenes de firmas: piden el mismo permiso que autorizar.
+   */
+  listVacationAuthorizationRequests: employeesStandard('manage-vacation'),
   importVacationExcel: employeesStandard('import-vacations'),
   uploadEmployeeFaceId: employeesStandard('upload-face-id'),
   replaceEmployeeFaceId: employeesStandard('upload-face-id'),

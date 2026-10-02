@@ -222,7 +222,13 @@ export default class VacationAuthorizationSignaturesController {
     try {
       const payload = await request.validateUsing(authorizeVacationValidator)
       const service = new VacationAuthorizationSignaturesService()
-      const result = await service.authorize(signature, payload.requestIds, payload.vacationSettingId, i18n)
+      const result = await service.authorize(
+        signature,
+        payload.requestIds,
+        payload.vacationSettingId,
+        i18n,
+        user.userId
+      )
       return response.status(result.status).json(result)
     } catch (error: any) {
       return response.status(422).json({

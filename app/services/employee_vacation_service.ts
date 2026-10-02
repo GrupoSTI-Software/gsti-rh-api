@@ -656,7 +656,10 @@ export default class EmployeeVacationService {
       if (firstVacation && !filters.onlyOneYear) {
         startYear = new Date(firstVacation.shiftExceptionsDate.toString()).getUTCFullYear()
       }
-      for (let year = startYear; year <= end.year; year++) {
+      // `periodOnly` llega del query string como texto.
+      const periodOnly = filters.periodOnly === true || filters.periodOnly === 'true'
+      const lastYear = periodOnly ? start.year : end.year
+      for (let year = startYear; year <= lastYear; year++) {
         years.push(year)
       }
       const title = this.formatSummaryReportTitle(start, end)

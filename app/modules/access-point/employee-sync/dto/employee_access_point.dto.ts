@@ -5,6 +5,7 @@ import type { DateTime } from 'luxon'
 import type { AdmsHealthStatus } from '#modules/access-point/health/health.constants'
 import { statusOf } from '#modules/access-point/health/health.service'
 import { isPinQuarantined } from '../employee_sync_state.js'
+import type { FacePhotoDeviceStatus } from '#modules/biometric-vault/photo/device_face_status'
 
 /**
  * Con que puede identificarse la persona EN ESE equipo, y con que todavia no.
@@ -87,6 +88,11 @@ export interface EmployeeAccessPointDto {
    * nota que no llego nada.
    */
   withheldBy: { incidentId: number; kind: string; since: string | null } | null
+  /**
+   * La foto biometrica en este equipo, cuando el uso en checadores esta
+   * encendido o hay un movimiento de foto que reportar. `null` si no aplica.
+   */
+  facePhoto: FacePhotoDeviceStatus | null
   /** La baja va en camino: el numero sigue reservado para esta persona. */
   pinQuarantined: boolean
   syncRequestedAt: string | null
@@ -101,7 +107,8 @@ export function toEmployeeAccessPointDto(
   accessPoint: AccessPoint,
   now: DateTime,
   biometrics: EmployeeAccessPointBiometricsDto = EMPTY_DEVICE_BIOMETRICS,
-  withheldBy: { incidentId: number; kind: string; since: string | null } | null = null
+  withheldBy: { incidentId: number; kind: string; since: string | null } | null = null,
+  facePhoto: FacePhotoDeviceStatus | null = null
 ): EmployeeAccessPointDto {
   const pin = pivot.accessPointEmployeePin
   return {
@@ -113,6 +120,7 @@ export function toEmployeeAccessPointDto(
     lastSeenAt: accessPoint.accessPointLastConnection?.toISO() ?? null,
     biometrics,
     withheldBy,
+    facePhoto,
     hasPin: Boolean(pin && pin.length > 0),
     syncStatus: pivot.accessPointEmployeeSyncStatus,
     pinQuarantined: isPinQuarantined(pivot.accessPointEmployeeSyncStatus),
