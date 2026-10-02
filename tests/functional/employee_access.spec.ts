@@ -1,4 +1,5 @@
 import { test } from '@japa/runner'
+import type { ApiRequest } from '@japa/api-client'
 import db from '@adonisjs/lucid/services/db'
 import User from '#models/user'
 import { attachBusinessUnitsWithRole } from '#helpers/attach_business_units_with_role'
@@ -57,7 +58,7 @@ async function grant(userId: number, employeeId: number, directBoss = 0): Promis
 }
 
 function as(
-  request: ReturnType<Parameters<Parameters<typeof test>[1]>[0]['client']['get']>,
+  request: ApiRequest,
   who = actor!
 ) {
   return request
