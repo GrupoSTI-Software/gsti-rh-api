@@ -1,5 +1,5 @@
 import { test } from '@japa/runner'
-import { readFile } from 'node:fs/promises'
+import { access, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 
 /**
@@ -49,5 +49,13 @@ test.group('start/routes.ts — registro del módulo', () => {
   test('platform_regulatory_coverage_routes.js está importado', async ({ assert }) => {
     const routesTs = await readFile(join(process.cwd(), 'start/routes.ts'), 'utf8')
     assert.include(routesTs, "import './routes/platform_regulatory_coverage_routes.js'")
+  })
+
+  test('el archivo de rutas viejo fue eliminado', async ({ assert }) => {
+    const routesTs = await readFile(join(process.cwd(), 'start/routes.ts'), 'utf8')
+    assert.notInclude(routesTs, "import './routes/regulatory_coverage_routes.js'")
+    await assert.rejects(() =>
+      access(join(process.cwd(), 'start/routes/regulatory_coverage_routes.ts'))
+    )
   })
 })
