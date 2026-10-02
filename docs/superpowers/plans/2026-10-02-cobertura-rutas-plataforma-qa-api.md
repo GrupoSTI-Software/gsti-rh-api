@@ -37,7 +37,7 @@ Ambos con un cuerpo de esta forma (el correo lo indica cada escenario):
 
 ## 1. Preparar
 
-Prerrequisito de ambiente: el despliegue de esta historia ya corrido en la base local (la baja de la entrada «Cobertura regulatoria» del catálogo). Sin él, esa entrada sigue viva y el Escenario 3 no puede comprobar que el permiso quedó sin efecto.
+Prerrequisito de ambiente: el despliegue de esta historia ya corrido en la base local, es decir, `0062_system_module_seeder` (la semilla del catálogo de funcionalidades, que da de baja la entrada «Cobertura regulatoria»). Sin él, esa entrada sigue viva y el Escenario 3 no puede comprobar que el permiso quedó sin efecto.
 
 Ejecutar el seeder compartido:
 
@@ -635,18 +635,43 @@ Usuario: **B** (token del backoffice) y, en la segunda pasada, ninguno.
 | 8 | `GET /api/v1/regulations/NOM-035-STPS/clauses/5.8.a/features` |
 
 **Primera pasada:** cada una con `Authorization: Bearer <token de B>`.
-**Segunda pasada:** cada una sin el header `Authorization`.
 
-**Response de cada una de las 16 peticiones:** `404`. Ejemplo del Paso 1:
+**Response exacto de cada una de las 8 peticiones de la primera pasada:** `404`, con este cuerpo (el `message` es el de la tabla):
 
 ```json
 {
-  "message": "Cannot GET:/api/v1/regulatory-coverage",
+  "message": "<message de la tabla>",
   "name": "Exception",
   "status": 404,
   "frames": [ "..." ]
 }
 ```
+
+| Paso | Endpoint | Status | `message` literal |
+|---|---|---|---|
+| 1.1 | `GET /api/v1/regulatory-coverage` | `404` | `Cannot GET:/api/v1/regulatory-coverage` |
+| 1.2 | `GET /api/v1/regulatory-coverage/summary` | `404` | `Cannot GET:/api/v1/regulatory-coverage/summary` |
+| 1.3 | `GET /api/v1/regulatory-coverage/<id de NOM-035-STPS>` | `404` | `Cannot GET:/api/v1/regulatory-coverage/<id de NOM-035-STPS>` |
+| 1.4 | `GET /api/v1/regulatory-authorities` | `404` | `Cannot GET:/api/v1/regulatory-authorities` |
+| 1.5 | `GET /api/v1/regulatory-authorities/stps` | `404` | `Cannot GET:/api/v1/regulatory-authorities/stps` |
+| 1.6 | `GET /api/v1/regulations/NOM-035-STPS` | `404` | `Cannot GET:/api/v1/regulations/NOM-035-STPS` |
+| 1.7 | `GET /api/v1/regulations/NOM-035-STPS/clauses/5.8.a` | `404` | `Cannot GET:/api/v1/regulations/NOM-035-STPS/clauses/5.8.a` |
+| 1.8 | `GET /api/v1/regulations/NOM-035-STPS/clauses/5.8.a/features` | `404` | `Cannot GET:/api/v1/regulations/NOM-035-STPS/clauses/5.8.a/features` |
+
+**Segunda pasada:** las mismas ocho, sin el header `Authorization`.
+
+**Response exacto de cada una de las 8 peticiones de la segunda pasada:** `404`, con el mismo cuerpo de arriba y exactamente la misma tabla (el rechazo no cambia por llevar o no sesión):
+
+| Paso | Endpoint | Status | `message` literal |
+|---|---|---|---|
+| 2.1 | `GET /api/v1/regulatory-coverage` | `404` | `Cannot GET:/api/v1/regulatory-coverage` |
+| 2.2 | `GET /api/v1/regulatory-coverage/summary` | `404` | `Cannot GET:/api/v1/regulatory-coverage/summary` |
+| 2.3 | `GET /api/v1/regulatory-coverage/<id de NOM-035-STPS>` | `404` | `Cannot GET:/api/v1/regulatory-coverage/<id de NOM-035-STPS>` |
+| 2.4 | `GET /api/v1/regulatory-authorities` | `404` | `Cannot GET:/api/v1/regulatory-authorities` |
+| 2.5 | `GET /api/v1/regulatory-authorities/stps` | `404` | `Cannot GET:/api/v1/regulatory-authorities/stps` |
+| 2.6 | `GET /api/v1/regulations/NOM-035-STPS` | `404` | `Cannot GET:/api/v1/regulations/NOM-035-STPS` |
+| 2.7 | `GET /api/v1/regulations/NOM-035-STPS/clauses/5.8.a` | `404` | `Cannot GET:/api/v1/regulations/NOM-035-STPS/clauses/5.8.a` |
+| 2.8 | `GET /api/v1/regulations/NOM-035-STPS/clauses/5.8.a/features` | `404` | `Cannot GET:/api/v1/regulations/NOM-035-STPS/clauses/5.8.a/features` |
 
 Qué significa cada dato:
 
