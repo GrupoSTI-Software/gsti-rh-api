@@ -10,6 +10,8 @@ import type {
   BillingCheckoutProviderPort,
   CardSetupRequest,
   CardSetup,
+  ProviderSubscription,
+  ProviderSubscriptionRequest,
   SubscriptionOpening,
   SubscriptionOpeningRequest,
   RecordedPaymentRequest,
@@ -55,6 +57,14 @@ class FakeStripeCheckoutAdapter implements BillingProviderPort, BillingCheckoutP
       confirmed: false,
     }
   }
+
+  async createProviderSubscription(
+    _request: ProviderSubscriptionRequest
+  ): Promise<ProviderSubscription> {
+    return { customerRef: 'cus_fake', subscriptionRef: 'sub_fake', reused: false }
+  }
+
+  async cancelProviderSubscription(_subscriptionRef: string): Promise<void> {}
 }
 
 async function createVerifiedDraft(params: {

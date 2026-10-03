@@ -19,6 +19,8 @@ export interface SubscriptionOpeningRequest {
   billingPlanId: number
   billingPlanPriceId: number
   contractedEmployees: number
+  /** Referencias ya creadas fuera de la trx; solo el registro con precio stripe. */
+  providerSubscription?: { customerRef: string; subscriptionRef: string }
 }
 
 export interface SubscriptionOpening {
@@ -125,14 +127,36 @@ export interface CardSetup {
   confirmed: boolean
 }
 
-/** Preparación de tarjeta en checkout (registro, USRH1790718243123). */
+export interface ProviderSubscriptionRequest {
+  owner: CardSetupOwner
+  customerRef: string
+  setupIntentRef: string
+  priceRef: string
+  /** Epoch en segundos de la medianoche CDMX que guardará la fila local. */
+  trialEndsAt: number
+  attempt: number
+}
+
+export interface ProviderSubscription {
+  customerRef: string
+  subscriptionRef: string
+  reused: boolean
+}
+
+/** Preparación de tarjeta y suscripción en checkout (registro). */
 export interface BillingCheckoutProviderPort {
   prepareCardSetup(request: CardSetupRequest): Promise<CardSetup>
+  createProviderSubscription(request: ProviderSubscriptionRequest): Promise<ProviderSubscription>
+  cancelProviderSubscription(subscriptionRef: string): Promise<void>
 }
 
 export function isBillingCheckoutProvider(
   provider: BillingProviderPort
 ): provider is BillingProviderPort & BillingCheckoutProviderPort {
   const candidate = provider as unknown as BillingCheckoutProviderPort
-  return typeof candidate.prepareCardSetup === 'function'
+  return (
+    typeof candidate.prepareCardSetup === 'function' &&
+    typeof candidate.createProviderSubscription === 'function' &&
+    typeof candidate.cancelProviderSubscription === 'function'
+  )
 }

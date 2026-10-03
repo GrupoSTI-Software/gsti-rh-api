@@ -384,6 +384,103 @@ test.group('StripeBillingProviderAdapter — prepareCardSetup (USRH1790718243123
   })
 })
 
+test.group('StripeBillingProviderAdapter — complete alta (USRH1790708507607 CA-12/13)', () => {
+  test('openSubscription con providerSubscription devuelve refs sin red', async ({ assert }) => {
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS)
+    const opening = await adapter.openSubscription({
+      businessUnitId: 1,
+      billingPlanId: 1,
+      billingPlanPriceId: 1,
+      contractedEmployees: 10,
+      providerSubscription: { customerRef: 'cus_fx', subscriptionRef: 'sub_fx' },
+    })
+    assert.equal(opening.externalCustomerRef, 'cus_fx')
+    assert.equal(opening.externalSubscriptionRef, 'sub_fx')
+  })
+
+  test('createProviderSubscription verifica SetupIntent y crea suscripción', async ({ assert }) => {
+    const setupRetrieveCalls: string[] = []
+    const createCalls: unknown[] = []
+    const fakeStripe = {
+      setupIntents: {
+        retrieve: async (id: string) => {
+          setupRetrieveCalls.push(id)
+          return {
+            id: 'seti_fx',
+            status: 'succeeded',
+            customer: 'cus_fx',
+            usage: 'off_session',
+            payment_method: 'pm_fx',
+            metadata: { valanserh_signup_draft_id: '99' },
+          }
+        },
+      },
+      customers: {
+        update: async () => ({}),
+      },
+      subscriptions: {
+        list: async () => ({ data: [] }),
+        create: async (params: unknown, opts: unknown) => {
+          createCalls.push([params, opts])
+          return { id: 'sub_fx', status: 'trialing' }
+        },
+        cancel: async () => ({}),
+        retrieve: async () => ({ status: 'canceled' }),
+      },
+    } as unknown as Stripe
+
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () => fakeStripe)
+    const result = await adapter.createProviderSubscription({
+      owner: { kind: 'signup_draft', signupDraftId: 99 },
+      customerRef: 'cus_fx',
+      setupIntentRef: 'seti_fx',
+      priceRef: 'price_fake_1',
+      trialEndsAt: 1_900_000_000,
+      attempt: 1,
+    })
+
+    assert.deepEqual(setupRetrieveCalls, ['seti_fx'])
+    assert.equal(result.subscriptionRef, 'sub_fx')
+    assert.isFalse(result.reused)
+    assert.lengthOf(createCalls, 1)
+  })
+
+  test('SetupIntent inválido → CARD_NOT_CONFIRMED', async ({ assert }) => {
+    const fakeStripe = {
+      setupIntents: {
+        retrieve: async () => ({
+          id: 'seti_fx',
+          status: 'requires_payment_method',
+          customer: 'cus_fx',
+          usage: 'off_session',
+          payment_method: null,
+          metadata: { valanserh_signup_draft_id: '1' },
+        }),
+      },
+      customers: { update: async () => ({}) },
+      subscriptions: { list: async () => ({ data: [] }) },
+    } as unknown as Stripe
+
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () => fakeStripe)
+    try {
+      await adapter.createProviderSubscription({
+        owner: { kind: 'signup_draft', signupDraftId: 1 },
+        customerRef: 'cus_fx',
+        setupIntentRef: 'seti_fx',
+        priceRef: 'price_fake_1',
+        trialEndsAt: 1_900_000_000,
+        attempt: 1,
+      })
+      assert.fail('Debió lanzar')
+    } catch (error) {
+      assert.equal(
+        assertProviderError(error).errorCode,
+        BILLING_PROVIDER_ERROR_CODES.CARD_NOT_CONFIRMED
+      )
+    }
+  })
+})
+
 test.group('StripeBillingProviderAdapter — webhooks (7579)', () => {
   test('verifyWebhookEvent: firma válida sobre bytes exactos', ({ assert }) => {
     const payload = subscriptionEventPayload()

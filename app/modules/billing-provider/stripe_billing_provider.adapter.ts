@@ -7,7 +7,11 @@ import {
   BILLING_PROVIDER_WEBHOOK_SIGNATURE_INVALID_DETAIL,
 } from '#constants/billing_provider_error_codes'
 import { BillingProviderServiceError } from '#exceptions/billing_provider_service_error'
-import { operationNotAvailable, providerRequestFailed } from '#modules/billing-provider/billing_provider.errors'
+import {
+  cardNotConfirmed,
+  operationNotAvailable,
+  providerRequestFailed,
+} from '#modules/billing-provider/billing_provider.errors'
 import {
   BILLING_PROVIDER_KEYS,
   type BillingCatalogProviderPort,
@@ -16,6 +20,7 @@ import {
   type BillingWebhookProviderPort,
   type CardSetup,
   type CardSetupRequest,
+  type ProviderSubscriptionRequest,
   type CatalogPriceDraft,
   type CatalogProductDraft,
   type ProviderEventObjectSummary,
@@ -78,6 +83,96 @@ export function buildStripeCardSetupCustomerParams(
       valanserh_signup_draft_id: String(signupDraftId),
     },
   }
+}
+
+export const ZERO_TRIAL_END_OFFSET_SECONDS = 300
+
+const REUSABLE_STRIPE_SUBSCRIPTION_STATUSES = new Set([
+  'trialing',
+  'active',
+  'incomplete',
+  'past_due',
+])
+
+export function subscriptionIdempotencyKey(signupDraftId: number, attempt: number): string {
+  return `valanserh-signup-draft-${signupDraftId}-subscription-${attempt}`
+}
+
+export function subscriptionCancelIdempotencyKey(subscriptionRef: string): string {
+  return `valanserh-subscription-${subscriptionRef}-cancel`
+}
+
+export function buildStripeSubscriptionParams(params: {
+  customerRef: string
+  priceRef: string
+  paymentMethodRef: string
+  trialEndEpoch: number
+  signupDraftId: number
+  attempt: number
+}): Stripe.SubscriptionCreateParams {
+  return {
+    customer: params.customerRef,
+    items: [{ price: params.priceRef }],
+    default_payment_method: params.paymentMethodRef,
+    trial_end: params.trialEndEpoch,
+    proration_behavior: 'none',
+    payment_behavior: 'allow_incomplete',
+    collection_method: 'charge_automatically',
+    metadata: {
+      valanserh_signup_draft_id: String(params.signupDraftId),
+      valanserh_signup_attempt: String(params.attempt),
+    },
+  }
+}
+
+function readPaymentMethodId(paymentMethod: Stripe.SetupIntent['payment_method']): string | null {
+  if (typeof paymentMethod === 'string') {
+    return paymentMethod.length > 0 ? paymentMethod : null
+  }
+  if (typeof paymentMethod === 'object' && paymentMethod !== null) {
+    const id = paymentMethod.id
+    return typeof id === 'string' && id.length > 0 ? id : null
+  }
+  return null
+}
+
+function setupIntentReadyForSubscription(
+  setupIntent: Stripe.SetupIntent,
+  customerRef: string,
+  signupDraftId: number
+): string | null {
+  if (setupIntent.status !== 'succeeded') {
+    return null
+  }
+  const customer = setupIntent.customer
+  const customerId = typeof customer === 'string' ? customer : customer?.id ?? null
+  if (customerId !== customerRef) {
+    return null
+  }
+  if (setupIntent.usage !== 'off_session') {
+    return null
+  }
+  const paymentMethodId = readPaymentMethodId(setupIntent.payment_method)
+  if (paymentMethodId === null) {
+    return null
+  }
+  if (setupIntent.metadata?.valanserh_signup_draft_id !== String(signupDraftId)) {
+    return null
+  }
+  return paymentMethodId
+}
+
+function subscriptionBelongsToDraft(subscription: Stripe.Subscription, signupDraftId: number): boolean {
+  return subscription.metadata?.valanserh_signup_draft_id === String(signupDraftId)
+}
+
+function subscriptionPriceRef(subscription: Stripe.Subscription): string | null {
+  const item = subscription.items?.data?.[0]
+  if (!item?.price) {
+    return null
+  }
+  const price = item.price
+  return typeof price === 'string' ? price : price.id ?? null
 }
 
 export function buildStripeSetupIntentParams(
@@ -253,8 +348,15 @@ export default class StripeBillingProviderAdapter
     return toStripeProviderDescription(this.#settings)
   }
 
-  async openSubscription(_request: SubscriptionOpeningRequest): Promise<SubscriptionOpening> {
+  async openSubscription(request: SubscriptionOpeningRequest): Promise<SubscriptionOpening> {
     this.#requireClient()
+    if (request.providerSubscription) {
+      return {
+        provider: BILLING_PROVIDER_KEYS.STRIPE,
+        externalCustomerRef: request.providerSubscription.customerRef,
+        externalSubscriptionRef: request.providerSubscription.subscriptionRef,
+      }
+    }
     throw operationNotAvailable('openSubscription')
   }
 
@@ -418,6 +520,109 @@ export default class StripeBillingProviderAdapter
       }
     } catch (error) {
       throw this.#wrap('prepareCardSetup', error)
+    }
+  }
+
+  async createProviderSubscription(request: ProviderSubscriptionRequest): Promise<{
+    customerRef: string
+    subscriptionRef: string
+    reused: boolean
+  }> {
+    const client = this.#requireClient()
+    const signupDraftId = request.owner.signupDraftId
+
+    try {
+      const setupIntent = await client.setupIntents.retrieve(request.setupIntentRef)
+      const paymentMethodId = setupIntentReadyForSubscription(
+        setupIntent,
+        request.customerRef,
+        signupDraftId
+      )
+      if (paymentMethodId === null) {
+        throw cardNotConfirmed()
+      }
+
+      await client.customers.update(request.customerRef, {
+        invoice_settings: { default_payment_method: paymentMethodId },
+      })
+
+      const nowEpoch = Math.floor(Date.now() / 1000)
+      const trialEndEpoch = Math.max(request.trialEndsAt, nowEpoch + ZERO_TRIAL_END_OFFSET_SECONDS)
+
+      const listed = await client.subscriptions.list({
+        customer: request.customerRef,
+        status: 'all',
+        limit: 20,
+      })
+
+      const liveForDraft = listed.data.filter(
+        (sub) =>
+          REUSABLE_STRIPE_SUBSCRIPTION_STATUSES.has(sub.status) &&
+          subscriptionBelongsToDraft(sub, signupDraftId)
+      )
+
+      const canReuseByTrial =
+        request.trialEndsAt > nowEpoch + ZERO_TRIAL_END_OFFSET_SECONDS
+
+      if (canReuseByTrial) {
+        for (const candidate of liveForDraft) {
+          const priceRef = subscriptionPriceRef(candidate)
+          if (priceRef === request.priceRef && candidate.trial_end === request.trialEndsAt) {
+            return {
+              customerRef: request.customerRef,
+              subscriptionRef: candidate.id,
+              reused: true,
+            }
+          }
+        }
+      }
+
+      for (const sub of liveForDraft) {
+        await client.subscriptions.cancel(
+          sub.id,
+          { invoice_now: false, prorate: false },
+          { idempotencyKey: subscriptionCancelIdempotencyKey(sub.id) }
+        )
+      }
+
+      const created = await client.subscriptions.create(
+        buildStripeSubscriptionParams({
+          customerRef: request.customerRef,
+          priceRef: request.priceRef,
+          paymentMethodRef: paymentMethodId,
+          trialEndEpoch,
+          signupDraftId,
+          attempt: request.attempt,
+        }),
+        {
+          idempotencyKey: subscriptionIdempotencyKey(signupDraftId, request.attempt),
+        }
+      )
+
+      return {
+        customerRef: request.customerRef,
+        subscriptionRef: created.id,
+        reused: false,
+      }
+    } catch (error) {
+      throw this.#wrap('createProviderSubscription', error)
+    }
+  }
+
+  async cancelProviderSubscription(subscriptionRef: string): Promise<void> {
+    const client = this.#requireClient()
+    try {
+      const subscription = await client.subscriptions.retrieve(subscriptionRef)
+      if (subscription.status === 'canceled' || subscription.status === 'incomplete_expired') {
+        return
+      }
+      await client.subscriptions.cancel(
+        subscriptionRef,
+        { invoice_now: false, prorate: false },
+        { idempotencyKey: subscriptionCancelIdempotencyKey(subscriptionRef) }
+      )
+    } catch (error) {
+      throw this.#wrap('cancelProviderSubscription', error)
     }
   }
 
