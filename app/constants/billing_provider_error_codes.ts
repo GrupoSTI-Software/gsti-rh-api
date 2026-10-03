@@ -17,6 +17,8 @@ export const BILLING_PROVIDER_ERROR_CODES = {
   WEBHOOK_MODE_MISMATCH: 'PLT.PRV.WEBHOOK_MODE_MISMATCH',
   /** El manejador falló; Stripe debe reintentar (USRH1790708507579) */
   WEBHOOK_PROCESSING_FAILED: 'PLT.PRV.WEBHOOK_PROCESSING_FAILED',
+  /** Credencial del borrador rechazada en preparar tarjeta (USRH1790718243123) */
+  CARD_SETUP_UNAUTHORIZED: 'PLT.PRV.CARD_SETUP_UNAUTHORIZED',
 } as const
 
 export type BillingProviderErrorCode =

@@ -2,8 +2,11 @@ import factory from '@adonisjs/lucid/factories'
 import User from '#models/user'
 
 /**
- * Usuarios root extra que crea el DEMO — replica exactamente extraRootEmails
- * de createExtraRootUsersDemo() en user_service.ts.
+ * Usuarios root extra que crea el DEMO — mismos correos y nombres que la
+ * lógica de creación de usuarios root en demo_factory_service.ts.
+ *
+ * Las cuentas de soporte quedan en el departamento y el puesto
+ * "Soporte de plataforma" de la propia demostración.
  */
 export interface DemoRootUserData {
   email: string

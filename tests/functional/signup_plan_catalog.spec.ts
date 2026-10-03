@@ -209,7 +209,68 @@ test.group('GET /api/signup/plans/:planId/price — precio resuelto (CA-2, CA-3,
     assert.equal(data.total, expected.total)
     assert.equal(data.trialDays, expected.trialDays)
     assert.equal(data.firstPaymentDate, expectedFirstPayment)
+    assert.equal(data.cardRequired, false)
     assert.notProperty(data, 'effectiveFrom')
+  })
+
+  test('cardRequired true con precio stripe sin filtrar proveedor (USRH1790718243123 CA-2)', async ({
+    client,
+    assert,
+  }) => {
+    const stamp = Date.now()
+    const catalog = new BillingCatalogService()
+    const plan = await catalog.createPlan({
+      billingPlanName: `Signup Stripe Card ${stamp}`,
+      billingPlanDescription: 'Fixture cardRequired',
+      billingPlanProvider: 'manual',
+    })
+    await BillingPlanPrice.create({
+      billingPlanId: plan.billingPlanId,
+      billingPlanPriceAmount: 79,
+      billingPlanPriceCurrency: 'MXN',
+      billingPlanPriceTaxRate: 0.16,
+      billingPlanPriceTrialDays: 14,
+      billingPlanPriceEffectiveFrom: '2025-01-01',
+      billingPlanPriceStripePriceId: 'price_fake_1',
+      billingPlanPriceProvider: 'stripe',
+    })
+    await BillingVolumeTier.create({
+      billingPlanId: plan.billingPlanId,
+      billingVolumeTierMinEmployees: 1,
+      billingVolumeTierDiscountPercent: 0,
+    })
+    await catalog.publishPlan(plan.billingPlanId)
+
+    const response = await client
+      .get(`/api/signup/plans/${plan.billingPlanId}/price`)
+      .qs({ employees: 30 })
+
+    response.assertStatus(200)
+    const data = response.body().data
+    assert.equal(data.cardRequired, true)
+    const keys = Object.keys(data).sort()
+    assert.deepEqual(keys, [
+      'billingPlanId',
+      'cardRequired',
+      'currency',
+      'discountAmount',
+      'discountPercent',
+      'employeeCount',
+      'firstPaymentDate',
+      'pricePerEmployee',
+      'resolvedAt',
+      'subtotal',
+      'taxAmount',
+      'taxRate',
+      'total',
+      'trialDays',
+    ])
+    const raw = JSON.stringify(response.body())
+    assert.notInclude(raw, 'provider')
+    assert.notInclude(raw, 'stripe')
+    assert.notInclude(raw, 'price_fake_1')
+
+    await cleanupPlanTree(plan.billingPlanId)
   })
 
   test('rechaza cantidades inválidas con códigos de dominio', async ({ client, assert }) => {
