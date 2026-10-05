@@ -3141,5 +3141,6 @@
   "org_structure_position_alias_invalid_title": "Invalid alias",
   "org_structure_position_alias_invalid_message": "The alias contains invalid characters or has an incorrect format.",
   "org_structure_position_create_failed_title": "Position could not be created",
-  "org_structure_position_create_failed_message": "An unexpected error occurred and the position was not created. Please try again or contact support."
+  "org_structure_position_create_failed_message": "An unexpected error occurred and the position was not created. Please try again or contact support.",
+  "structure_placeholder_notice_demoted_reason": "the position it targeted (\"Sin posición\") was removed from the system. Choose a position or confirm the whole department before scheduling or sending it."
 }
