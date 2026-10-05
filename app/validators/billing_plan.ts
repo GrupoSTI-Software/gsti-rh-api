@@ -5,8 +5,6 @@ export const createBillingPlanValidator = vine.compile(
   vine.object({
     billingPlanName: vine.string().trim().minLength(1).maxLength(120),
     billingPlanDescription: vine.string().trim().maxLength(255).optional().nullable(),
-    billingPlanProvider: vine.string().trim().maxLength(20).optional(),
-    billingPlanStripeProductId: vine.string().trim().maxLength(120).optional().nullable(),
   })
 )
 
@@ -15,7 +13,6 @@ export const updateBillingPlanValidator = vine.compile(
   vine.object({
     billingPlanName: vine.string().trim().minLength(1).maxLength(120).optional(),
     billingPlanDescription: vine.string().trim().maxLength(255).optional().nullable(),
-    billingPlanStripeProductId: vine.string().trim().maxLength(120).optional().nullable(),
     billingPlanActive: vine.number().min(0).max(1).optional(),
   })
 )

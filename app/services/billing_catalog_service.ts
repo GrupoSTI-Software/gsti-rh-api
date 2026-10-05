@@ -1,4 +1,5 @@
 import { DateTime } from 'luxon'
+import logger from '@adonisjs/core/services/logger'
 import db from '@adonisjs/lucid/services/db'
 import BillingPlan from '#models/billing_plan'
 import BillingPlanPrice from '#models/billing_plan_price'
@@ -7,6 +8,14 @@ import type { DiscountCodeKind } from '#models/discount_code'
 import { BILLING_CATALOG_ERROR_CODES } from '../constants/billing_catalog_error_codes.js'
 import { BillingCatalogServiceError } from '../exceptions/billing_catalog_service_error.js'
 import { toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
+import { operationNotAvailable } from '#modules/billing-provider/billing_provider.errors'
+import {
+  BILLING_PROVIDER_KEYS,
+  isBillingCatalogProvider,
+  type BillingCatalogProviderPort,
+} from '#modules/billing-provider/billing_provider.port'
+import { resolveBillingProvider } from '#modules/billing-provider/billing_provider.registry'
+import { BillingProviderServiceError } from '#exceptions/billing_provider_service_error'
 
 const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
 
@@ -17,14 +26,13 @@ const ER_DUP_ENTRY = 'ER_DUP_ENTRY'
 export interface CreatePlanInput {
   billingPlanName: string
   billingPlanDescription?: string | null
-  billingPlanProvider?: string
-  billingPlanStripeProductId?: string | null
+  /** Solo compatibilidad con fixtures: se ignora, siempre se escribe manual. */
+  billingPlanProvider?: typeof BILLING_PROVIDER_KEYS.MANUAL
 }
 
 export interface UpdatePlanInput {
   billingPlanName?: string
   billingPlanDescription?: string | null
-  billingPlanStripeProductId?: string | null
   billingPlanActive?: number
 }
 
@@ -34,8 +42,6 @@ export interface CreatePriceInput {
   billingPlanPriceTaxRate?: number
   billingPlanPriceTrialDays?: number
   billingPlanPriceEffectiveFrom: string
-  billingPlanPriceStripePriceId?: string | null
-  billingPlanPriceProvider?: string
 }
 
 export interface CreateTierInput {
@@ -62,6 +68,17 @@ export interface AppliedDiscountCode {
 // ---------------------------------------------------------------------------
 // Tipos de salida
 // ---------------------------------------------------------------------------
+
+/** Respuesta de `linkPriceToStripe` (contrato USRH1790708507553 / USRH1790712874900). */
+export interface LinkedStripePrice {
+  billingPlanId: number
+  billingPlanProvider: string
+  billingPlanStripeProductId: string
+  billingPlanPriceId: number
+  billingPlanPriceProvider: typeof BILLING_PROVIDER_KEYS.STRIPE
+  billingPlanPriceStripePriceId: string
+  alreadyLinked: boolean
+}
 
 export interface ResolvedPrice {
   billingPlanId: number
@@ -103,7 +120,9 @@ export interface ResolvedPrice {
  * Lógica de negocio del catálogo de cobro de la plataforma Valanserh.
  *
  * Invariantes garantizados por el servicio:
- *  - Los precios son append-only (ningún UPDATE ni DELETE sobre `billing_plan_prices`).
+ *  - Los precios son append-only (ningún UPDATE ni DELETE sobre `billing_plan_prices`),
+ *    salvo la vinculación con el proveedor (USRH1790708507553): `provider` (`manual` → `stripe`)
+ *    y `stripe_price_id` (nulo → id), una sola vez, solo por `linkPriceToStripe`.
  *  - Los tramos solo son mutables mientras el plan es borrador.
  *  - La publicación de un plan es irreversible.
  *  - El precio resuelto es determinista dado `(planId, employeeCount, referenceDate)`.
@@ -138,8 +157,8 @@ export default class BillingCatalogService {
     return BillingPlan.create({
       billingPlanName: input.billingPlanName,
       billingPlanDescription: input.billingPlanDescription ?? null,
-      billingPlanProvider: input.billingPlanProvider ?? 'manual',
-      billingPlanStripeProductId: input.billingPlanStripeProductId ?? null,
+      billingPlanProvider: BILLING_PROVIDER_KEYS.MANUAL,
+      billingPlanStripeProductId: null,
       billingPlanActive: 1,
       billingPlanPublishedAt: null,
     })
@@ -162,8 +181,6 @@ export default class BillingCatalogService {
     }
     if (input.billingPlanDescription !== undefined)
       plan.billingPlanDescription = input.billingPlanDescription
-    if (input.billingPlanStripeProductId !== undefined)
-      plan.billingPlanStripeProductId = input.billingPlanStripeProductId
 
     // El estado de venta (billingPlanActive) no se edita por esta vía: tiene
     // endpoints dedicados (`/publish` y `/deactivate`). Solo se rechaza
@@ -349,6 +366,7 @@ export default class BillingCatalogService {
    *  - No puede existir más de un clon en borrador vivo por plan origen a la vez.
    *  - Copia nombre, descripción, únicamente el precio VIGENTE (no el historial completo) y los tramos activos.
    *  - El clon queda con `billingPlanParentId` apuntando al origen (linaje).
+   *  - Nace en cobro manual y sin referencias de Stripe (USRH1790712873743), aunque el origen estuviera vinculado.
    */
   async clonePlan(planId: number): Promise<BillingPlan> {
     const source = await this.getPlan(planId)
@@ -400,7 +418,7 @@ export default class BillingCatalogService {
         {
           billingPlanName: `${source.billingPlanName} (copia)`,
           billingPlanDescription: source.billingPlanDescription,
-          billingPlanProvider: source.billingPlanProvider,
+          billingPlanProvider: BILLING_PROVIDER_KEYS.MANUAL,
           billingPlanStripeProductId: null,
           billingPlanActive: 1,
           billingPlanPublishedAt: null,
@@ -419,7 +437,7 @@ export default class BillingCatalogService {
             billingPlanPriceTrialDays: currentPrice.billingPlanPriceTrialDays,
             billingPlanPriceEffectiveFrom: currentPrice.billingPlanPriceEffectiveFrom,
             billingPlanPriceStripePriceId: null,
-            billingPlanPriceProvider: 'manual',
+            billingPlanPriceProvider: BILLING_PROVIDER_KEYS.MANUAL,
           },
           { client: trx }
         )
@@ -511,9 +529,177 @@ export default class BillingCatalogService {
       billingPlanPriceTaxRate: input.billingPlanPriceTaxRate ?? 0.16,
       billingPlanPriceTrialDays: input.billingPlanPriceTrialDays ?? 7,
       billingPlanPriceEffectiveFrom: input.billingPlanPriceEffectiveFrom,
-      billingPlanPriceStripePriceId: input.billingPlanPriceStripePriceId ?? null,
-      billingPlanPriceProvider: input.billingPlanPriceProvider ?? 'manual',
+      billingPlanPriceStripePriceId: null,
+      billingPlanPriceProvider: BILLING_PROVIDER_KEYS.MANUAL,
     })
+  }
+
+  /**
+   * Vincula una versión de precio con Stripe: producto del plan (reutilizado) y precio base mensual en cero.
+   * Orden: validaciones → Stripe fuera de transacción → transacción corta con `forUpdate` → compensación.
+   */
+  async linkPriceToStripe(planId: number, priceId: number): Promise<LinkedStripePrice> {
+    if (!Number.isInteger(planId) || planId <= 0) {
+      throw planNotFoundForLink(planId)
+    }
+    if (!Number.isInteger(priceId) || priceId <= 0) {
+      throw priceNotFoundForLink()
+    }
+
+    const plan = await BillingPlan.query()
+      .where('billing_plan_id', planId)
+      .whereNull('billing_plan_deleted_at')
+      .first()
+
+    if (!plan) {
+      throw planNotFoundForLink(planId)
+    }
+
+    const price = await BillingPlanPrice.query()
+      .where('billing_plan_price_id', priceId)
+      .where('billing_plan_id', planId)
+      .first()
+
+    if (!price) {
+      throw priceNotFoundForLink()
+    }
+
+    if (plan.isPublished && plan.billingPlanActive === 0) {
+      throw new BillingCatalogServiceError(
+        `Plan ${planId} retirado`,
+        BILLING_CATALOG_ERROR_CODES.PRICE_LINK_PLAN_RETIRED,
+        422,
+        'plan-retirado',
+        'El plan fue retirado del catálogo; sus versiones no se vinculan con Stripe.'
+      )
+    }
+
+    const today = toBusinessDateString()
+    const currentEffective = await BillingPlanPrice.query()
+      .where('billing_plan_id', planId)
+      .where('billing_plan_price_effective_from', '<=', today)
+      .orderBy('billing_plan_price_effective_from', 'desc')
+      .first()
+
+    if (
+      currentEffective &&
+      price.billingPlanPriceEffectiveFrom < currentEffective.billingPlanPriceEffectiveFrom
+    ) {
+      throw new BillingCatalogServiceError(
+        `Versión ${priceId} sustituida`,
+        BILLING_CATALOG_ERROR_CODES.PRICE_LINK_SUPERSEDED,
+        422,
+        'version-de-precio-sustituida',
+        'Esta versión de precio ya fue sustituida por otra vigente; solo se vinculan la vigente y las futuras.'
+      )
+    }
+
+    assertPriceLinkConsistency(price, plan)
+
+    if (isPriceLinkedToStripe(price)) {
+      return buildLinkedStripePrice(plan, price, true)
+    }
+
+    const provider = resolveBillingProvider(BILLING_PROVIDER_KEYS.STRIPE)
+    if (!isBillingCatalogProvider(provider)) {
+      throw operationNotAvailable('linkPriceToStripe')
+    }
+    const catalog: BillingCatalogProviderPort = provider
+
+    let productRef = plan.billingPlanStripeProductId
+    if (!productRef) {
+      const createdProduct = await catalog.createCatalogProduct({
+        billingPlanId: plan.billingPlanId,
+        name: plan.billingPlanName,
+      })
+      productRef = createdProduct.externalId
+
+      try {
+        await BillingPlan.query()
+          .where('billing_plan_id', planId)
+          .whereNull('billing_plan_stripe_product_id')
+          .update({
+            billing_plan_stripe_product_id: productRef,
+            billing_plan_provider: BILLING_PROVIDER_KEYS.STRIPE,
+            updated_at: DateTime.now().toSQL({ includeOffset: false }),
+          })
+
+        const freshPlan = await BillingPlan.query().where('billing_plan_id', planId).firstOrFail()
+        const savedProduct = freshPlan.billingPlanStripeProductId
+        if (savedProduct && savedProduct !== productRef) {
+          await bestEffortCatalogArchive(catalog, 'archiveCatalogProduct', productRef)
+          productRef = savedProduct
+        }
+        plan.billingPlanStripeProductId = savedProduct ?? productRef
+        plan.billingPlanProvider = freshPlan.billingPlanProvider
+      } catch (error) {
+        await bestEffortCatalogArchive(catalog, 'archiveCatalogProduct', productRef)
+        throw error
+      }
+    }
+
+    const createdPrice = await catalog.createCatalogPrice({
+      productRef,
+      billingPlanId: plan.billingPlanId,
+      billingPlanPriceId: price.billingPlanPriceId,
+      currency: price.billingPlanPriceCurrency,
+      unitAmountCents: 0,
+      intervalMonths: 1,
+    })
+    const ownPriceRef = createdPrice.externalId
+    let wroteLinkInTransaction = false
+
+    try {
+      await db.transaction(async (trx) => {
+        const lockedPlan = await BillingPlan.query({ client: trx })
+          .where('billing_plan_id', planId)
+          .forUpdate()
+          .firstOrFail()
+
+        const lockedPrice = await BillingPlanPrice.query({ client: trx })
+          .where('billing_plan_price_id', priceId)
+          .where('billing_plan_id', planId)
+          .forUpdate()
+          .firstOrFail()
+
+        if (isPriceLinkedToStripe(lockedPrice)) {
+          plan.billingPlanStripeProductId = lockedPlan.billingPlanStripeProductId
+          plan.billingPlanProvider = lockedPlan.billingPlanProvider
+          Object.assign(price, lockedPrice)
+          wroteLinkInTransaction = false
+          return
+        }
+
+        lockedPrice.billingPlanPriceProvider = BILLING_PROVIDER_KEYS.STRIPE
+        lockedPrice.billingPlanPriceStripePriceId = ownPriceRef
+        lockedPrice.useTransaction(trx)
+        await lockedPrice.save()
+
+        if (lockedPlan.billingPlanProvider !== BILLING_PROVIDER_KEYS.STRIPE) {
+          lockedPlan.billingPlanProvider = BILLING_PROVIDER_KEYS.STRIPE
+        }
+        if (!lockedPlan.billingPlanStripeProductId) {
+          lockedPlan.billingPlanStripeProductId = productRef
+        }
+        lockedPlan.useTransaction(trx)
+        await lockedPlan.save()
+
+        Object.assign(price, lockedPrice)
+        plan.billingPlanStripeProductId = lockedPlan.billingPlanStripeProductId ?? productRef
+        plan.billingPlanProvider = lockedPlan.billingPlanProvider
+        wroteLinkInTransaction = true
+      })
+    } catch (error) {
+      await bestEffortCatalogArchive(catalog, 'archiveCatalogPrice', ownPriceRef)
+      throw error
+    }
+
+    const savedPriceId = price.billingPlanPriceStripePriceId
+    if (savedPriceId && savedPriceId !== ownPriceRef) {
+      await bestEffortCatalogArchive(catalog, 'archiveCatalogPrice', ownPriceRef)
+    }
+
+    return buildLinkedStripePrice(plan, price, !wroteLinkInTransaction)
   }
 
   // ─── Tramos de descuento ─────────────────────────────────────────────────
@@ -982,6 +1168,92 @@ function round2(value: number): number {
  * sustituir el precio por empleado antes del bruto. El resultado nunca es
  * negativo (regla del subtotal no negativo).
  */
+function planNotFoundForLink(planId: number): BillingCatalogServiceError {
+  return new BillingCatalogServiceError(
+    `Plan ${planId} no encontrado`,
+    BILLING_CATALOG_ERROR_CODES.PLAN_NOT_FOUND,
+    404,
+    'PLT.CAT.PLAN_NOT_FOUND',
+    'El plan solicitado no existe o fue eliminado.'
+  )
+}
+
+function priceNotFoundForLink(): BillingCatalogServiceError {
+  return new BillingCatalogServiceError(
+    'Versión de precio no encontrada',
+    BILLING_CATALOG_ERROR_CODES.PRICE_NOT_FOUND,
+    404,
+    'precio-no-encontrado',
+    'La versión de precio no existe en este plan.'
+  )
+}
+
+function isPriceLinkedToStripe(price: BillingPlanPrice): boolean {
+  return (
+    price.billingPlanPriceProvider === BILLING_PROVIDER_KEYS.STRIPE &&
+    price.billingPlanPriceStripePriceId !== null
+  )
+}
+
+function assertPriceLinkConsistency(price: BillingPlanPrice, plan: BillingPlan): void {
+  const provider = price.billingPlanPriceProvider
+  const stripePriceId = price.billingPlanPriceStripePriceId
+
+  const providerKnown =
+    provider === BILLING_PROVIDER_KEYS.MANUAL || provider === BILLING_PROVIDER_KEYS.STRIPE
+
+  const inconsistent =
+    (provider === BILLING_PROVIDER_KEYS.MANUAL && stripePriceId !== null) ||
+    !providerKnown ||
+    (provider === BILLING_PROVIDER_KEYS.STRIPE &&
+      stripePriceId !== null &&
+      !plan.billingPlanStripeProductId)
+
+  if (inconsistent) {
+    throw new BillingCatalogServiceError(
+      `Versión ${price.billingPlanPriceId} inconsistente`,
+      BILLING_CATALOG_ERROR_CODES.PRICE_LINK_INCONSISTENT,
+      409,
+      'vinculo-de-precio-inconsistente',
+      'La versión trae una referencia de Stripe que no corresponde a su proveedor de cobro. Contacta a soporte.'
+    )
+  }
+}
+
+function buildLinkedStripePrice(
+  plan: BillingPlan,
+  price: BillingPlanPrice,
+  alreadyLinked: boolean
+): LinkedStripePrice {
+  return {
+    billingPlanId: plan.billingPlanId,
+    billingPlanProvider: plan.billingPlanProvider,
+    billingPlanStripeProductId: plan.billingPlanStripeProductId!,
+    billingPlanPriceId: price.billingPlanPriceId,
+    billingPlanPriceProvider: BILLING_PROVIDER_KEYS.STRIPE,
+    billingPlanPriceStripePriceId: price.billingPlanPriceStripePriceId!,
+    alreadyLinked,
+  }
+}
+
+async function bestEffortCatalogArchive(
+  catalog: BillingCatalogProviderPort,
+  operation: 'archiveCatalogProduct' | 'archiveCatalogPrice',
+  externalId: string
+): Promise<void> {
+  try {
+    if (operation === 'archiveCatalogProduct') {
+      await catalog.archiveCatalogProduct(externalId)
+    } else {
+      await catalog.archiveCatalogPrice(externalId)
+    }
+  } catch (error) {
+    const errorCode =
+      error instanceof BillingProviderServiceError ? error.errorCode : 'unknown'
+    logger.warn({ operation, externalId, errorCode }, 'Cobro: compensación de catálogo falló')
+  }
+}
+
 function applyCodeDiscount(subtotalAfterVolume: number, appliedCode: AppliedDiscountCode): number {
   if (appliedCode.kind === 'percent') {
     const amount = round2(subtotalAfterVolume * (appliedCode.value / 100))

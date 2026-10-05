@@ -35,6 +35,7 @@ export default class BadgeRepositoryMysql implements BadgeRepository {
       .preload('person')
       .preload('businessUnit')
       .preload('position')
+      .preload('department')
       .first()
 
     return this.toContextIfActive(employee)
@@ -55,6 +56,7 @@ export default class BadgeRepositoryMysql implements BadgeRepository {
       .preload('person')
       .preload('businessUnit')
       .preload('position')
+      .preload('department')
 
     const byId = new Map<number, BadgeEmployeeContext>()
     for (const employee of employees) {
@@ -80,6 +82,7 @@ export default class BadgeRepositoryMysql implements BadgeRepository {
       .preload('person')
       .preload('businessUnit')
       .preload('position')
+      .preload('department')
       .first()
 
     return this.toContextIfActive(employee)
@@ -180,6 +183,7 @@ export default class BadgeRepositoryMysql implements BadgeRepository {
     return {
       employeeId: employee.employeeId,
       businessUnitId: employee.businessUnitId,
+      employeeSlug: employee.employeeSlug,
       employeeBadgeToken: employee.employeeBadgeToken,
       personFirstname: employee.person.personFirstname,
       personLastname: employee.person.personLastname,
@@ -194,6 +198,10 @@ export default class BadgeRepositoryMysql implements BadgeRepository {
       businessUnitActive:
         Number(employee.businessUnit.businessUnitActive) === 1 && !employee.businessUnit.deletedAt,
       positionName: employee.position?.positionName ?? null,
+      departmentName: employee.department?.departmentName ?? null,
+      payrollCode: employee.employeePayrollCode?.trim() || null,
+      personId: employee.person.personId,
+      nss: employee.person.personImssNss?.trim() || null,
       repseFolio: registration?.folio ?? null,
       repseExpiresAt: registration?.expiresAt ?? null,
     }

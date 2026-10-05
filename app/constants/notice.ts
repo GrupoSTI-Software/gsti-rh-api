@@ -1,3 +1,5 @@
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+
 /**
  * Catálogos cerrados del módulo de avisos.
  *
@@ -110,5 +112,4 @@ export const NOTICE_DUPLICATE_SUBJECT_SUFFIX = ' (copia)'
 export const NOTICE_SEND_SCHEDULED_COMMAND = 'notices:send-scheduled'
 
 /** Motivo auditado con el que el comando programado omite el filtro de tenant. */
-export const NOTICE_SEND_SCHEDULED_UNSCOPED_REASON =
-  'envío de avisos programados: barrido de todas las empresas fuera de una request'
+export const NOTICE_SEND_SCHEDULED_UNSCOPED_REASON = TENANT_UNSCOPED_REASON.NOTICE_SEND_SCHEDULED

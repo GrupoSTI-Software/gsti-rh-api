@@ -1,11 +1,8 @@
 import { HttpContext } from '@adonisjs/core/http'
+import logger from '@adonisjs/core/services/logger'
 import LegalDocumentError from '#exceptions/legal_document_error'
 import type { LegalDocumentErrorKey } from '#exceptions/legal_document_error'
 import { LEGAL_DOCUMENT_ERROR_CODES } from '#constants/legal_document_error_codes'
-import {
-  assertComplianceRepsePermission,
-  type ComplianceRepseAction,
-} from '#helpers/compliance_repse_rbac'
 import LegalDocumentService from './legal_document.service.js'
 import { legalDocumentQueryValidator } from './validators/legal_document_query.validator.js'
 import { legalDocumentHistoryQueryValidator } from './validators/legal_document_history_query.validator.js'
@@ -13,12 +10,6 @@ import {
   createLegalDocumentDraftValidator,
   updateLegalDocumentDraftValidator,
 } from './validators/legal_document_draft.validator.js'
-
-const MODULE_SLUG = 'legal-documents'
-const RBAC_FORBIDDEN = {
-  errorCode: LEGAL_DOCUMENT_ERROR_CODES.FORBIDDEN_PLATFORM,
-  i18nPrefix: 'legal_document',
-}
 
 /** `key` de dominio → { status HTTP, código estable }. Evita acoplar el controller al dominio. */
 const ERROR_STATUS_BY_KEY: Record<LegalDocumentErrorKey, { status: number; code: string }> = {
@@ -30,22 +21,34 @@ const ERROR_STATUS_BY_KEY: Record<LegalDocumentErrorKey, { status: number; code:
 }
 
 /**
- * Controller de documentos legales versionados: consulta pública del vigente
- * (cimiento) + gestión/publicación reservada al rol `root` (esta hermana).
+ * Controller de documentos legales versionados.
+ *
+ * SEGURIDAD — dos grupos distintos registran los handlers de este controller:
+ *
+ *   1. `GET /api/legal-documents/current` (app/modules/legal-documents/legal_document.routes.ts)
+ *      — solo middleware.auth(). Lo consumen el backoffice y la app del empleado para
+ *      mostrar y pedir la aceptación del documento vigente. Acceso sin restricción de rol.
+ *
+ *   2. `GET | POST | PUT /api/platform/legal-documents[/:id[/publish]]`
+ *      (start/routes/platform_legal_document_routes.ts)
+ *      — [middleware.auth({ guards: ['api'] }), middleware.platformAdmin()].
+ *      Reservado a usuarios de plataforma con token de la consola (`origin = 'platform'`).
+ *      Owner, root de tenant, super-administrador y cualquier token de BO/app caen en 403
+ *      antes de llegar aquí. Los handlers `listByType`, `getById`, `createDraft`,
+ *      `updateDraft` y `publish` solo se registran bajo ese grupo; sin él responden 404.
+ *
+ * No se duplica la validación de plataforma en el controller: la frontera es el grupo de
+ * rutas, igual que en discount codes y alianzas comerciales.
+ *
+ * Ref: USRH1783364449581 (cimiento) · USRH1790610965394 (poda RBAC + rutas de plataforma).
  *
  * Endpoints:
- *   GET  /api/legal-documents/current?type=...     — documento vigente de un tipo (cimiento).
- *   GET  /api/legal-documents?type=...&status=...  — histórico de versiones de un tipo (root).
- *   GET  /api/legal-documents/:id                  — detalle administrativo de una versión (root).
- *   POST /api/legal-documents                      — crear versión en borrador (root).
- *   PUT  /api/legal-documents/:id                  — editar borrador (root; 409 si ya está publicada).
- *   POST /api/legal-documents/:id/publish          — publicar un borrador por id (root).
- *
- * Seguridad:
- *  - Requiere middleware.auth(). Sin businessScope: documento global de GSTI.
- *  - Gestión reservada al rol `root` en TODOS los verbos, incluido el histórico:
- *    `assertComplianceRepsePermission` (403 `LGDOC.FORB.001` para cualquier no-root).
- *  - `getCurrent` es la única lectura pública (la usan las pantallas de aceptación).
+ *   GET  /api/legal-documents/current?type=...              — vigente de un tipo (lectura pública).
+ *   GET  /api/platform/legal-documents?type=...&status=...  — histórico (plataforma).
+ *   GET  /api/platform/legal-documents/:id                  — detalle administrativo (plataforma).
+ *   POST /api/platform/legal-documents                      — crear borrador (plataforma).
+ *   PUT  /api/platform/legal-documents/:id                  — editar borrador (plataforma).
+ *   POST /api/platform/legal-documents/:id/publish          — publicar borrador (plataforma).
  */
 export default class LegalDocumentController {
   /**
@@ -139,13 +142,13 @@ export default class LegalDocumentController {
 
   /**
    * @swagger
-   * /api/legal-documents:
+   * /api/platform/legal-documents:
    *   get:
-   *     summary: "[Gestión GSTI] Histórico de versiones de un tipo de documento legal"
+   *     summary: "[Plataforma] Histórico de versiones de un tipo de documento legal"
    *     description: |
    *       Devuelve todas las versiones (borrador y publicadas) de un tipo de documento
-   *       legal, con cuál está vigente. Reservado al rol `root`; cualquier otro rol
-   *       recibe 403, incluida esta consulta de solo lectura.
+   *       legal, con cuál está vigente. Reservado a usuarios de plataforma con token
+   *       de la consola (`origin = 'platform'`); cualquier otro actor recibe 403.
    *     security:
    *       - bearerAuth: []
    *     tags: [LegalDocuments]
@@ -154,7 +157,7 @@ export default class LegalDocumentController {
    *         name: Authorization
    *         required: true
    *         schema: { type: string }
-   *         description: "Bearer access token."
+   *         description: "Bearer access token de la consola de plataforma."
    *       - in: query
    *         name: type
    *         required: true
@@ -190,16 +193,13 @@ export default class LegalDocumentController {
    *                   publishedAt: "2026-07-02T00:00:00.000-06:00"
    *                   publishedBy: null
    *       403:
-   *         description: El usuario autenticado no tiene rol `root`
+   *         description: El actor no es usuario de plataforma o su token no es de la consola
    *         content:
    *           application/json:
    *             example:
-   *               type: error
-   *               title: Sin permiso
-   *               message: No tienes permiso para realizar esta operación.
-   *               key: sin-permiso
-   *               errorCode: LGDOC.FORB.001
-   *               data: null
+   *               title: Acceso restringido a plataforma
+   *               detail: Esta sección es exclusiva de administradores de plataforma.
+   *               key: AUTH.PLATFORM.FORBIDDEN
    *       422:
    *         description: El parámetro `type` es inválido o falta
    *         content:
@@ -212,10 +212,6 @@ export default class LegalDocumentController {
    *               code: LGDOC.VAL.001
    */
   async listByType(ctx: HttpContext, service: LegalDocumentService = new LegalDocumentService()) {
-    if (!(await this.assertHasPermission(ctx, 'read'))) {
-      return
-    }
-
     const { request, i18n } = ctx
     let payload
     try {
@@ -238,12 +234,12 @@ export default class LegalDocumentController {
 
   /**
    * @swagger
-   * /api/legal-documents/{id}:
+   * /api/platform/legal-documents/{id}:
    *   get:
-   *     summary: "[Gestión GSTI] Detalle administrativo de una versión"
+   *     summary: "[Plataforma] Detalle administrativo de una versión"
    *     description: |
    *       Devuelve una versión puntual con su contenido completo en ambos idiomas y
-   *       metadatos de auditoría. Reservado al rol `root`.
+   *       metadatos de auditoría. Reservado a usuarios de plataforma con token de la consola.
    *     security:
    *       - bearerAuth: []
    *     tags: [LegalDocuments]
@@ -252,7 +248,7 @@ export default class LegalDocumentController {
    *         name: Authorization
    *         required: true
    *         schema: { type: string }
-   *         description: "Bearer access token."
+   *         description: "Bearer access token de la consola de plataforma."
    *       - in: path
    *         name: id
    *         required: true
@@ -276,16 +272,13 @@ export default class LegalDocumentController {
    *                 publishedAt: "2026-07-05T10:00:00.000-06:00"
    *                 publishedBy: { userId: 12, name: "Ana Root", email: "ana.root@gsti.mx" }
    *       403:
-   *         description: El usuario autenticado no tiene rol `root`
+   *         description: El actor no es usuario de plataforma o su token no es de la consola
    *         content:
    *           application/json:
    *             example:
-   *               type: error
-   *               title: Sin permiso
-   *               message: No tienes permiso para realizar esta operación.
-   *               key: sin-permiso
-   *               errorCode: LGDOC.FORB.001
-   *               data: null
+   *               title: Acceso restringido a plataforma
+   *               detail: Esta sección es exclusiva de administradores de plataforma.
+   *               key: AUTH.PLATFORM.FORBIDDEN
    *       404:
    *         description: No existe ninguna versión con ese id
    *         content:
@@ -298,10 +291,6 @@ export default class LegalDocumentController {
    *               code: LGDOC.NF.002
    */
   async getById(ctx: HttpContext, service: LegalDocumentService = new LegalDocumentService()) {
-    if (!(await this.assertHasPermission(ctx, 'read'))) {
-      return
-    }
-
     try {
       const id = this.parseResourceId(ctx.request.param('id'))
       const data = await service.getById(id)
@@ -318,14 +307,15 @@ export default class LegalDocumentController {
 
   /**
    * @swagger
-   * /api/legal-documents:
+   * /api/platform/legal-documents:
    *   post:
-   *     summary: "[Gestión GSTI] Crear una versión en borrador"
+   *     summary: "[Plataforma] Crear una versión en borrador"
    *     description: |
    *       Crea una versión nueva en `status='draft'` (nunca vigente). El contenido puede
    *       llegar con un solo idioma completo (regla de negocio 8): la obligatoriedad de
    *       ambos idiomas se valida al publicar, no al crear el borrador. El contenido se
-   *       sanea por idioma en el servidor antes de persistir. Reservado al rol `root`.
+   *       sanea por idioma en el servidor antes de persistir. Reservado a usuarios de
+   *       plataforma con token de la consola.
    *     security:
    *       - bearerAuth: []
    *     tags: [LegalDocuments]
@@ -334,7 +324,7 @@ export default class LegalDocumentController {
    *         name: Authorization
    *         required: true
    *         schema: { type: string }
-   *         description: "Bearer access token."
+   *         description: "Bearer access token de la consola de plataforma."
    *     requestBody:
    *       required: true
    *       content:
@@ -371,16 +361,13 @@ export default class LegalDocumentController {
    *                 publishedAt: null
    *                 publishedBy: null
    *       403:
-   *         description: El usuario autenticado no tiene rol `root`
+   *         description: El actor no es usuario de plataforma o su token no es de la consola
    *         content:
    *           application/json:
    *             example:
-   *               type: error
-   *               title: Sin permiso
-   *               message: No tienes permiso para realizar esta operación.
-   *               key: sin-permiso
-   *               errorCode: LGDOC.FORB.001
-   *               data: null
+   *               title: Acceso restringido a plataforma
+   *               detail: Esta sección es exclusiva de administradores de plataforma.
+   *               key: AUTH.PLATFORM.FORBIDDEN
    *       409:
    *         description: La combinación tipo + versión ya existe
    *         content:
@@ -404,10 +391,6 @@ export default class LegalDocumentController {
    *               data: null
    */
   async createDraft(ctx: HttpContext, service: LegalDocumentService = new LegalDocumentService()) {
-    if (!(await this.assertHasPermission(ctx, 'create'))) {
-      return
-    }
-
     let payload
     try {
       payload = await createLegalDocumentDraftValidator.validate(ctx.request.all())
@@ -430,14 +413,14 @@ export default class LegalDocumentController {
 
   /**
    * @swagger
-   * /api/legal-documents/{id}:
+   * /api/platform/legal-documents/{id}:
    *   put:
-   *     summary: "[Gestión GSTI] Editar un borrador"
+   *     summary: "[Plataforma] Editar un borrador"
    *     description: |
    *       Actualiza el contenido y/o la versión de una versión en `status='draft'`.
    *       Sobre una versión ya publicada responde 409 (regla de negocio 3: el contenido
    *       publicado es inmutable — corregir significa publicar una versión nueva).
-   *       Reservado al rol `root`.
+   *       Reservado a usuarios de plataforma con token de la consola.
    *     security:
    *       - bearerAuth: []
    *     tags: [LegalDocuments]
@@ -446,7 +429,7 @@ export default class LegalDocumentController {
    *         name: Authorization
    *         required: true
    *         schema: { type: string }
-   *         description: "Bearer access token."
+   *         description: "Bearer access token de la consola de plataforma."
    *       - in: path
    *         name: id
    *         required: true
@@ -484,16 +467,13 @@ export default class LegalDocumentController {
    *                 publishedAt: null
    *                 publishedBy: null
    *       403:
-   *         description: El usuario autenticado no tiene rol `root`
+   *         description: El actor no es usuario de plataforma o su token no es de la consola
    *         content:
    *           application/json:
    *             example:
-   *               type: error
-   *               title: Sin permiso
-   *               message: No tienes permiso para realizar esta operación.
-   *               key: sin-permiso
-   *               errorCode: LGDOC.FORB.001
-   *               data: null
+   *               title: Acceso restringido a plataforma
+   *               detail: Esta sección es exclusiva de administradores de plataforma.
+   *               key: AUTH.PLATFORM.FORBIDDEN
    *       404:
    *         description: No existe ninguna versión con ese id
    *         content:
@@ -527,10 +507,6 @@ export default class LegalDocumentController {
    *                   code: LGDOC.CONF.002
    */
   async updateDraft(ctx: HttpContext, service: LegalDocumentService = new LegalDocumentService()) {
-    if (!(await this.assertHasPermission(ctx, 'update'))) {
-      return
-    }
-
     let payload
     try {
       payload = await updateLegalDocumentDraftValidator.validate(ctx.request.all())
@@ -554,9 +530,9 @@ export default class LegalDocumentController {
 
   /**
    * @swagger
-   * /api/legal-documents/{id}/publish:
+   * /api/platform/legal-documents/{id}/publish:
    *   post:
-   *     summary: "[Gestión GSTI] Publicar un borrador (transaccional)"
+   *     summary: "[Plataforma] Publicar un borrador (transaccional)"
    *     description: |
    *       Publica un borrador existente: lo marca `published` + vigente y apaga la
    *       versión vigente anterior del mismo tipo en una sola transacción (regla de
@@ -564,7 +540,8 @@ export default class LegalDocumentController {
    *       esta operación crea su primera versión vigente (regla de negocio 2). Requiere
    *       contenido en español e inglés (regla de negocio 8); si falta alguno, 422 y el
    *       borrador permanece sin publicar. Habilita la re-aceptación de los usuarios
-   *       (la aplican las historias hermanas). Reservado al rol `root`.
+   *       (la aplican las historias hermanas). Reservado a usuarios de plataforma con
+   *       token de la consola.
    *     security:
    *       - bearerAuth: []
    *     tags: [LegalDocuments]
@@ -573,7 +550,7 @@ export default class LegalDocumentController {
    *         name: Authorization
    *         required: true
    *         schema: { type: string }
-   *         description: "Bearer access token."
+   *         description: "Bearer access token de la consola de plataforma."
    *       - in: path
    *         name: id
    *         required: true
@@ -597,16 +574,13 @@ export default class LegalDocumentController {
    *                 publishedAt: "2026-07-06T12:00:00.000-06:00"
    *                 publishedBy: { userId: 12, name: "Ana Root", email: "ana.root@gsti.mx" }
    *       403:
-   *         description: El usuario autenticado no tiene rol `root`
+   *         description: El actor no es usuario de plataforma o su token no es de la consola
    *         content:
    *           application/json:
    *             example:
-   *               type: error
-   *               title: Sin permiso
-   *               message: No tienes permiso para realizar esta operación.
-   *               key: sin-permiso
-   *               errorCode: LGDOC.FORB.001
-   *               data: null
+   *               title: Acceso restringido a plataforma
+   *               detail: Esta sección es exclusiva de administradores de plataforma.
+   *               key: AUTH.PLATFORM.FORBIDDEN
    *       404:
    *         description: No existe ninguna versión con ese id
    *         content:
@@ -639,14 +613,21 @@ export default class LegalDocumentController {
    *               code: LGDOC.VAL.002
    */
   async publish(ctx: HttpContext, service: LegalDocumentService = new LegalDocumentService()) {
-    if (!(await this.assertHasPermission(ctx, 'update'))) {
-      return
-    }
-
     try {
       const id = this.parseResourceId(ctx.request.param('id'))
-      const userId = ctx.auth.user?.userId ?? null
+      const userId = ctx.auth.user!.userId
       const data = await service.publishDraft(id, userId)
+
+      logger.info(
+        {
+          userId,
+          legalDocumentId: data.id,
+          type: data.type,
+          version: data.version,
+        },
+        'legal_document_published'
+      )
+
       return ctx.response.status(200).json({
         type: 'success',
         title: ctx.i18n.formatMessage('legalDocuments.title'),
@@ -656,10 +637,6 @@ export default class LegalDocumentController {
     } catch (error) {
       return this.domainError(ctx, error)
     }
-  }
-
-  private async assertHasPermission(ctx: HttpContext, action: ComplianceRepseAction) {
-    return assertComplianceRepsePermission(ctx, MODULE_SLUG, action, RBAC_FORBIDDEN)
   }
 
   private parseResourceId(raw: unknown): number {

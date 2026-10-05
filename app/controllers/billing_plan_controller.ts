@@ -92,12 +92,6 @@ export default class BillingPlanController {
    *               billingPlanDescription:
    *                 type: string
    *                 nullable: true
-   *               billingPlanProvider:
-   *                 type: string
-   *                 default: manual
-   *               billingPlanStripeProductId:
-   *                 type: string
-   *                 nullable: true
    *     responses:
    *       '201':
    *         description: Plan creado en estado borrador
@@ -149,9 +143,6 @@ export default class BillingPlanController {
    *               billingPlanName:
    *                 type: string
    *               billingPlanDescription:
-   *                 type: string
-   *                 nullable: true
-   *               billingPlanStripeProductId:
    *                 type: string
    *                 nullable: true
    *               billingPlanActive:

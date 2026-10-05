@@ -1,3 +1,5 @@
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+
 /**
  * Foto del colaborador en el checador (spec ADMS 7.2 y 7.3).
  *
@@ -5,9 +7,16 @@
  * imagen de 640 x 800 y 133 920 bytes. Las bandas se abren alrededor de eso.
  */
 
-/** Minimo del ORIGINAL. Menos que esto y el recorte saldria borroso. */
-export const PHOTO_SOURCE_MIN_WIDTH = 640
-export const PHOTO_SOURCE_MIN_HEIGHT = 800
+/**
+ * Minimo del ORIGINAL, en vertical 4:5.
+ *
+ * 512 x 640 es la foto con la que el V5L genero el rostro y produjo una checada
+ * facial real (2026-08-12). Exigir 640 x 800 obligaba a tener webcam 1080p en
+ * cada puesto de RH sin que el aparato lo pidiera: el derivado sigue saliendo a
+ * 640 x 800 y el ampliado no agrega ni quita informacion de la cara.
+ */
+export const PHOTO_SOURCE_MIN_WIDTH = 512
+export const PHOTO_SOURCE_MIN_HEIGHT = 640
 
 /** Tamaño del derivado que se le manda al equipo. */
 export const PHOTO_DERIVATIVE_WIDTH = 640
@@ -27,6 +36,14 @@ export const JPEG_MAGIC = Buffer.from([0xff, 0xd8])
  * castigar fotos normales de credencial.
  */
 export const PHOTO_MIN_FACE_AREA_RATIO = 0.1
+/**
+ * Ancho minimo de la cara medido en pixeles del ORIGINAL.
+ *
+ * La proporcion del cuadro no basta: la misma cara al 10 % trae mas detalle en
+ * una foto grande que en una chica. Lo que decide si el aparato puede sacar un
+ * template es cuanta cara real hay, y la foto validada en el V5L traia unos 180.
+ */
+export const PHOTO_MIN_FACE_WIDTH_PX = 180
 export const PHOTO_MIN_BRIGHTNESS = 40
 export const PHOTO_MAX_BRIGHTNESS = 220
 
@@ -43,6 +60,8 @@ export const PHOTO_VERDICT = {
   FACE_TOO_SMALL: 'face_too_small',
   /** Demasiado oscura o demasiado quemada. */
   BRIGHTNESS: 'brightness',
+  /** El archivo no se pudo leer como imagen. */
+  UNREADABLE: 'unreadable',
   /** El derivado no pesa lo que deberia: el proceso salio mal. */
   DERIVATIVE_SIZE: 'derivative_size',
   /** No se pudo evaluar (modelos, memoria). NO es un rechazo de la foto. */
@@ -73,5 +92,4 @@ export function derivativeKeyFor(employeeId: number, version: number): string {
  * Lectura del token fuera de scope: la peticion del equipo no trae sesion ni
  * empresa, y la empresa se resuelve DESDE la fila encontrada.
  */
-export const ADMS_PHOTO_TOKEN_UNSCOPED_REASON =
-  'canal ADMS: la descarga de foto llega sin sesion; la empresa se resuelve desde la publicacion'
+export const ADMS_PHOTO_TOKEN_UNSCOPED_REASON = TENANT_UNSCOPED_REASON.ADMS_PHOTO_TOKEN

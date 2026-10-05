@@ -13,6 +13,8 @@ export const PLATFORM_METRIC_ERROR_CODES = {
   SYS_UNHANDLED: 'PLT.MET.SYS_UNHANDLED',
   /** Tenant inexistente o borrado lógicamente, por `publicId` (USRH1789079078169) */
   TENANT_NOT_FOUND: 'PLT.MET.TENANT_NOT_FOUND',
+  /** El motor de asistencia no pudo calcular el uso de la prueba (USRH1789079078171) */
+  USAGE_UNAVAILABLE: 'PLT.MET.USAGE_UNAVAILABLE',
 } as const
 
 /** Unión de los códigos estables definidos en `PLATFORM_METRIC_ERROR_CODES`. */
@@ -105,4 +107,37 @@ export const TRIAL_METRIC_ERROR_TEXTS: PlatformMetricErrorTexts = {
   failureKey: 'no-fue-posible-obtener-la-prueba-del-tenant',
   unhandledTitle: 'Error inesperado al obtener la prueba del tenant',
   unhandledKey: 'error-inesperado-al-obtener-la-prueba-del-tenant',
+}
+
+/**
+ * Textos del uso (frecuencia de registro) de la prueba de un tenant
+ * (USRH1789079078171).
+ *
+ * `failureTitle`/`failureKey` cubren el 500 dedicado cuando el motor de
+ * asistencia (`AttendanceStatsService.getOverview`) devuelve un
+ * `ServiceResult` con `status !== 200` — nunca un número bajo disfrazado de
+ * resultado (RB-11). El 404 de tenant lo sigue emitiendo `TRIAL_METRIC_ERROR_TEXTS`
+ * (se propaga tal cual desde `USRH1789079078169`, esta HU no lo redefine).
+ */
+export const TRIAL_USAGE_METRIC_ERROR_TEXTS: PlatformMetricErrorTexts = {
+  failureTitle: 'No fue posible obtener el uso de la prueba',
+  failureKey: 'no-fue-posible-obtener-el-uso-de-la-prueba',
+  unhandledTitle: 'Error inesperado al obtener el uso de la prueba',
+  unhandledKey: 'error-inesperado-al-obtener-el-uso-de-la-prueba',
+}
+
+/**
+ * Textos del listado de pruebas vivas (USRH1789079078173, spec técnico §9).
+ *
+ * El fallo del universo o de los hitos en lote (regla local "fallo global ≠
+ * fallo de fila", §4 del spec) llega aquí sin controlar y sale como
+ * `PLT.MET.SYS_UNHANDLED` (500) con estos textos. El fallo de la frecuencia
+ * de UNA sola empresa **nunca** llega a este helper — esa fila se degrada a
+ * `no-disponible` (RN-53) dentro del propio servicio, sin lanzar.
+ */
+export const LIVE_TRIALS_METRIC_ERROR_TEXTS: PlatformMetricErrorTexts = {
+  failureTitle: 'No fue posible obtener las pruebas vivas',
+  failureKey: 'no-fue-posible-obtener-las-pruebas-vivas',
+  unhandledTitle: 'Error inesperado al obtener las pruebas vivas',
+  unhandledKey: 'error-inesperado-al-obtener-las-pruebas-vivas',
 }

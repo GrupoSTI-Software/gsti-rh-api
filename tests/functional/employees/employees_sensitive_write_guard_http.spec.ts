@@ -11,6 +11,10 @@ import RoleSystemPermission from '#models/role_system_permission'
 import SystemModule from '#models/system_module'
 import SystemPermission from '#models/system_permission'
 import UploadService from '#services/upload_service'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { restoreDeviceReadyPhoto, stubDeviceReadyPhoto } from '#tests/helpers/device_ready_photo_stub'
 
 /**
  * Revisión final de sensitive-write-by-category — Important 3: prueba con una
@@ -148,6 +152,7 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
   })
   const positionId = Number(positionInsert[0])
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: 'Empleado',
@@ -155,6 +160,7 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
     employee_second_last_name: prefix,
     company_id: businessUnitId,
     business_unit_id: businessUnitId,
+    payroll_business_unit_id: businessUnitId,
     department_id: departmentId,
     position_id: positionId,
     person_id: person.personId,
@@ -165,7 +171,10 @@ async function createEmployeeFixture(businessUnitId: number, prefix: string): Pr
   })
 
   return {
-    employee: await Employee.findOrFail(Number(employeeInsert[0])),
+    employee: await TenantContext.runUnscoped(
+      () => Employee.findOrFail(Number(employeeInsert[0])),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    ),
     person,
     departmentId,
     positionId,
@@ -242,6 +251,11 @@ function restoreDeleteFileSpy() {
 }
 
 test.group('Sensitive write guard — 403 HTTP real (Important 3)', (group) => {
+  group.each.setup(() => {
+    stubDeviceReadyPhoto()
+    return () => restoreDeviceReadyPhoto()
+  })
+
   let employeesModule: SystemModule
   let actor: TenantActor | null = null
   let fixture: EmployeeFixture | null = null
@@ -326,9 +340,13 @@ test.group('Sensitive write guard — 403 HTTP real (Important 3)', (group) => {
       assertSensitiveWriteForbidden(assert, response)
       assert.lengthOf(deleteFileCalls, 0)
 
-      const reloaded = await EmployeeBiometricFaceId.query()
-        .where('employee_biometric_face_id_id', face.employeeBiometricFaceIdId)
-        .firstOrFail()
+      const reloaded = await TenantContext.runUnscoped(
+        () =>
+          EmployeeBiometricFaceId.query()
+            .where('employee_biometric_face_id_id', face.employeeBiometricFaceIdId)
+            .firstOrFail(),
+        TENANT_UNSCOPED_REASON.TEST_FIXTURE
+      )
       assert.equal(reloaded.employeeBiometricFaceIdPhotoUrl, originalPhotoUrl)
     } finally {
       restoreDeleteFileSpy()

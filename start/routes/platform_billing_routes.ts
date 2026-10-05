@@ -23,6 +23,7 @@ import { middleware } from '../kernel.js'
  * ─── Precios (append-only) ────────────────────────────────────────────────
  *   GET    /api/platform/billing/plans/:planId/prices     → historial
  *   POST   /api/platform/billing/plans/:planId/prices     → agregar versión
+ *   POST   /api/platform/billing/plans/:planId/prices/:priceId/link-stripe → vincular con Stripe
  *
  * ─── Tramos de descuento ──────────────────────────────────────────────────
  *   GET    /api/platform/billing/plans/:planId/tiers              → listar
@@ -58,6 +59,10 @@ router
     // ─── Precios (append-only) ───────────────────────────────────────────────
     router.get('/plans/:planId/prices', '#controllers/billing_price_controller.index')
     router.post('/plans/:planId/prices', '#controllers/billing_price_controller.store')
+    router.post(
+      '/plans/:planId/prices/:priceId/link-stripe',
+      '#controllers/billing_price_controller.linkStripe'
+    )
 
     // ─── Tramos ─────────────────────────────────────────────────────────────
     router.get('/plans/:planId/tiers', '#controllers/billing_tier_controller.index')

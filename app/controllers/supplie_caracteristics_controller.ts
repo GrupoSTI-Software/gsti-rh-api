@@ -47,7 +47,7 @@ export default class SupplieCaracteristicsController {
    *         name: supplieCaracteristicType
    *         schema:
    *           type: string
-   *           enum: [text, number, date, boolean, radio, file]
+   *           enum: [text, number, date, boolean]
    *         description: Filter by characteristic type
    *     responses:
    *       200:
@@ -149,7 +149,7 @@ export default class SupplieCaracteristicsController {
    *                 description: Characteristic name
    *               supplieCaracteristicType:
    *                 type: string
-   *                 enum: [text, number, date, boolean, radio, file]
+   *                 enum: [text, number, date, boolean]
    *                 description: Characteristic type
    *     responses:
    *       201:
@@ -206,7 +206,7 @@ export default class SupplieCaracteristicsController {
    *                 description: Characteristic name
    *               supplieCaracteristicType:
    *                 type: string
-   *                 enum: [text, number, date, boolean, radio, file]
+   *                 enum: [text, number, date, boolean]
    *                 description: Characteristic type
    *     responses:
    *       200:

@@ -7,13 +7,18 @@ import RepseRegistration from '#models/repse_registration'
 import ContratoServicioEspecializado from '#models/contrato_servicio_especializado'
 
 /**
- * Estados permitidos para un servicio especializado REPSE.
+ * Estados permitidos para un servicio especializado REPSE. Fuente única: el
+ * validator y el tipo se derivan de esta lista.
  *
- * Inicialmente sólo se admite `active`; estados adicionales (suspended,
- * cancelled, etc.) se incorporarán en historias posteriores junto con sus
- * reglas de transición.
+ * - `active`: el servicio se presta y puede ligarse a contratos.
+ * - `inactive`: el servicio se conserva en el catálogo (y en los contratos que
+ *   ya lo cubren) pero dejó de ofrecerse.
+ *
+ * La columna es `VARCHAR(20)`, no `ENUM`: agregar un estado no requiere migración.
  */
-export type RepseSpecializedServiceStatus = 'active'
+export const REPSE_SPECIALIZED_SERVICE_STATUS_VALUES = ['active', 'inactive'] as const
+
+export type RepseSpecializedServiceStatus = (typeof REPSE_SPECIALIZED_SERVICE_STATUS_VALUES)[number]
 
 /**
  * Excepción intencional al mixin `withBusinessUnitScope()` (USRH1783691644909):
@@ -47,7 +52,7 @@ export type RepseSpecializedServiceStatus = 'active'
  *           description: Descripción del objeto o alcance del servicio.
  *         status:
  *           type: string
- *           enum: [active]
+ *           enum: [active, inactive]
  *           description: Estado del servicio.
  *         repseSpecializedServiceCreatedAt:
  *           type: string

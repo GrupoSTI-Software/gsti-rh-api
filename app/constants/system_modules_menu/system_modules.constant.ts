@@ -1,12 +1,31 @@
 import type { ActionCatalogEntry } from '#constants/permission_catalog_types'
-import { EMPLOYEES_PERMISSION_CATALOG } from '#constants/employees_permission_catalog'
-import { POSITIONS_PERMISSION_CATALOG } from '#constants/positions_permission_catalog'
-import { ATTENDANCE_MONITOR_PERMISSION_CATALOG } from '#constants/attendance_monitor_permission_catalog'
-import { ACCESS_POINT_PERMISSION_CATALOG } from '#constants/access_point_permission_catalog'
+import {
+  EMPLOYEES_PERMISSION_CATALOG,
+  EMPLOYEES_SECTION_LABELS,
+} from '#constants/employees_permission_catalog'
+import {
+  POSITIONS_PERMISSION_CATALOG,
+  POSITIONS_SECTION_LABELS,
+} from '#constants/positions_permission_catalog'
+import {
+  ATTENDANCE_MONITOR_PERMISSION_CATALOG,
+  ATTENDANCE_MONITOR_SECTION_LABELS,
+} from '#constants/attendance_monitor_permission_catalog'
+import {
+  ACCESS_POINT_PERMISSION_CATALOG,
+  ACCESS_POINT_SECTION_LABELS,
+} from '#constants/access_point_permission_catalog'
 
 /**
  * Fuente única del catálogo de módulos del sistema: menú (grupo, orden,
  * icono, ruta), identidad (slug), permisos y exigencia de permisos.
+ *
+ * NO crees otro archivo con una lista, enum, tipo unión o mapa de módulos o
+ * permisos: aquí se declara y de aquí se deriva por código. Nada de sembrar
+ * catálogo desde migraciones, ni ids o slugs escritos a mano. La regla completa
+ * —qué archivos satélite existen y qué puede declarar cada uno— está en
+ * `.claude/rules/catalogo-modulos-permisos.md`. El contrato lo verifica
+ * `node ace test unit --files="constants/"`, que corre en pre-push y en CI.
  *
  * Cómo se usa:
  *  - Agregar un módulo o permiso, renombrarlo o cambiarle el icono se hace
@@ -87,6 +106,52 @@ export const SYSTEM_MODULE_ACTION_CATALOGS = {
   'employees-attendance-monitor': ATTENDANCE_MONITOR_PERMISSION_CATALOG,
   'biometric-devices': ACCESS_POINT_PERMISSION_CATALOG,
 } as const satisfies Record<string, readonly ActionCatalogEntry<string>[]>
+
+/**
+ * Nombre legible de cada sección, por módulo. Es la fuente única: el árbol de
+ * permisos de sesión la serializa y el backoffice la pinta tal cual, en vez de
+ * mantener su propio diccionario de slugs.
+ *
+ * Un módulo sin entrada aquí sirve sus secciones sin nombre y el cliente
+ * decide cómo mostrarlas; las tablas por módulo ya fuerzan su propia
+ * exhaustividad con `satisfies`.
+ */
+export const SYSTEM_MODULE_SECTION_LABELS = {
+  'employees': EMPLOYEES_SECTION_LABELS,
+  'positions': POSITIONS_SECTION_LABELS,
+  'employees-attendance-monitor': ATTENDANCE_MONITOR_SECTION_LABELS,
+  'biometric-devices': ACCESS_POINT_SECTION_LABELS,
+} as const satisfies Record<keyof typeof SYSTEM_MODULE_ACTION_CATALOGS, Record<string, string>>
+
+/**
+ * Nombre legible de un módulo, derivado del catálogo (nunca transcrito).
+ *
+ * @param moduleSlug - Slug del módulo.
+ * @returns El `systemModuleName` declarado, o `null` si el slug no existe.
+ */
+export function resolveModuleDisplayName(moduleSlug: string): string | null {
+  return (
+    SYSTEM_MODULES.find((systemModule) => systemModule.systemModuleSlug === moduleSlug)
+      ?.systemModuleName ?? null
+  )
+}
+
+/**
+ * Nombre legible de una sección, o `null` si su módulo no declara etiquetas.
+ *
+ * @param moduleSlug - Slug del módulo dueño de la sección.
+ * @param sectionSlug - Slug de la sección.
+ * @returns El nombre declarado en el catálogo, o `null` si no hay ninguno.
+ */
+export function resolveSectionDisplayName(
+  moduleSlug: string,
+  sectionSlug: string
+): string | null {
+  const labels = (
+    SYSTEM_MODULE_SECTION_LABELS as Record<string, Record<string, string> | undefined>
+  )[moduleSlug]
+  return labels?.[sectionSlug] ?? null
+}
 
 /** Las acciones con `exemption` son apartados documentales: no tienen fila en BD. */
 function permissionsFromActionCatalog(
@@ -253,6 +318,10 @@ export const SYSTEM_MODULES_GROUPED = [
           { systemPermissionName: 'Crear usuarios', systemPermissionSlug: 'create' },
           { systemPermissionName: 'Editar usuarios', systemPermissionSlug: 'update' },
           { systemPermissionName: 'Eliminar usuarios', systemPermissionSlug: 'delete' },
+          {
+            systemPermissionName: 'Cambiar la credencial de acceso de un colaborador',
+            systemPermissionSlug: 'credential-change',
+          },
         ],
       },
       {
@@ -593,25 +662,6 @@ export const SYSTEM_MODULES_GROUPED = [
             systemPermissionName: 'Acceder a la bitácora de accesos a datos sensibles',
             systemPermissionSlug: 'read',
           },
-        ],
-      },
-      {
-        systemModuleName: 'Ajustes Generales',
-        systemModuleSlug: 'system-settings',
-        systemModuleDescription: '',
-        systemModules: 1,
-        systemModulePath: '/system-settings',
-        systemModuleOrder: 99,
-        systemModuleActive: 1,
-        systemModulePermissionEnforcementActive: true,
-        systemModuleRetired: false,
-        systemModuleIcon:
-          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h9"/><path d="M9 8h1"/><path d="M9 12h1"/><path d="M9 16h1"/><path d="M14 8h1"/><path d="M14 12h1"/><path d="M5 21v-16c0 -.53 .211 -1.039 .586 -1.414c.375 -.375 .884 -.586 1.414 -.586h10c.53 0 1.039 .211 1.414 .586c.375 .375 .586 .884 .586 1.414v7"/><path d="M16 18c0 .53 .211 1.039 .586 1.414c.375 .375 .884 .586 1.414 .586c.53 0 1.039 -.211 1.414 -.586c.375 -.375 .586 -.884 .586 -1.414c0 -.53 -.211 -1.039 -.586 -1.414c-.375 -.375 -.884 -.586 -1.414 -.586c-.53 0 -1.039 .211 -1.414 .586c-.375 .375 -.586 .884 -.586 1.414z"/><path d="M18 14.5v1.5"/><path d="M18 20v1.5"/><path d="M21.032 16.25l-1.299 .75"/><path d="M16.27 19l-1.3 .75"/><path d="M14.97 16.25l1.3 .75"/><path d="M19.733 19l1.3 .75"/></svg>',
-        systemModulePermissions: [
-          { systemPermissionName: 'Acceder a ajustes generales', systemPermissionSlug: 'read' },
-          { systemPermissionName: 'Crear ajustes generales', systemPermissionSlug: 'create' },
-          { systemPermissionName: 'Editar ajustes generales', systemPermissionSlug: 'update' },
-          { systemPermissionName: 'Eliminar ajustes generales', systemPermissionSlug: 'delete' },
         ],
       },
       {
@@ -1121,26 +1171,21 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModulePermissions: permissionsFromActionCatalog(ACCESS_POINT_PERMISSION_CATALOG),
       },
       {
+        // Dado de baja del catálogo del backoffice (USRH1790610965394): la gestión
+        // pasó a la consola de plataforma bajo /api/platform/legal-documents.
+        // Tras correr el seeder 0062 desaparece del menú "Ajustes y configuración"
+        // y de la administración de roles y permisos de todas las empresas.
         systemModuleName: 'Documentos legales',
         systemModuleSlug: 'legal-documents',
         systemModuleDescription: '',
         systemModules: 1,
         systemModulePath: '/legal-documents',
-        systemModuleOrder: 8,
-        systemModuleActive: 1,
-        systemModulePermissionEnforcementActive: true,
-        systemModuleRetired: false,
-        systemModuleIcon:
-          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21h-10a2 2 0 0 1 -2 -2v-14a2 2 0 0 1 2 -2h7l5 5v11a2 2 0 0 1 -2 2"/><path d="M9 9l1 0"/><path d="M9 13l6 0"/><path d="M9 17l6 0"/></svg>',
-        systemModulePermissions: [
-          { systemPermissionName: 'Acceder a documentos legales', systemPermissionSlug: 'read' },
-          { systemPermissionName: 'Crear documentos legales', systemPermissionSlug: 'create' },
-          { systemPermissionName: 'Editar documentos legales', systemPermissionSlug: 'update' },
-          {
-            systemPermissionName: 'Gestión completa de documentos legales',
-            systemPermissionSlug: 'gestion',
-          },
-        ],
+        systemModuleOrder: 0,
+        systemModuleActive: 0,
+        systemModulePermissionEnforcementActive: false,
+        systemModuleRetired: true,
+        systemModuleIcon: '',
+        systemModulePermissions: [],
       },
       {
         systemModuleName: 'Evidencia de aceptaciones',
@@ -1172,18 +1217,29 @@ export const SYSTEM_MODULES_GROUPED = [
         systemModules: 1,
         systemModulePath: '/regulatory-coverage',
         systemModuleOrder: 10,
+        systemModuleActive: 0,
+        systemModulePermissionEnforcementActive: false,
+        systemModuleRetired: true,
+        systemModuleIcon: '',
+        systemModulePermissions: [],
+      },
+      {
+        systemModuleName: 'Ajustes Generales',
+        systemModuleSlug: 'system-settings',
+        systemModuleDescription: '',
+        systemModules: 1,
+        systemModulePath: '/system-settings',
+        systemModuleOrder: 99,
         systemModuleActive: 1,
         systemModulePermissionEnforcementActive: true,
         systemModuleRetired: false,
         systemModuleIcon:
-          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M9 5h-2a2 2 0 0 0 -2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2 -2v-12a2 2 0 0 0 -2 -2h-2"/><path d="M9 5a2 2 0 0 1 2 -2h2a2 2 0 0 1 2 2a2 2 0 0 1 -2 2h-2a2 2 0 0 1 -2 -2"/><path d="M9 14l2 2l4 -4"/></svg>',
-        // Las lecturas de cobertura y del marco regulatorio exigen este read en el
-        // API (regulatory_coverage_permission_declarations.ts).
+          '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21h9"/><path d="M9 8h1"/><path d="M9 12h1"/><path d="M9 16h1"/><path d="M14 8h1"/><path d="M14 12h1"/><path d="M5 21v-16c0 -.53 .211 -1.039 .586 -1.414c.375 -.375 .884 -.586 1.414 -.586h10c.53 0 1.039 .211 1.414 .586c.375 .375 .586 .884 .586 1.414v7"/><path d="M16 18c0 .53 .211 1.039 .586 1.414c.375 .375 .884 .586 1.414 .586c.53 0 1.039 -.211 1.414 -.586c.375 -.375 .586 -.884 .586 -1.414c0 -.53 -.211 -1.039 -.586 -1.414c-.375 -.375 -.884 -.586 -1.414 -.586c-.53 0 -1.039 .211 -1.414 .586c-.375 .375 -.586 .884 -.586 1.414z"/><path d="M18 14.5v1.5"/><path d="M18 20v1.5"/><path d="M21.032 16.25l-1.299 .75"/><path d="M16.27 19l-1.3 .75"/><path d="M14.97 16.25l1.3 .75"/><path d="M19.733 19l1.3 .75"/></svg>',
         systemModulePermissions: [
-          {
-            systemPermissionName: 'Consultar la cobertura y el marco regulatorio',
-            systemPermissionSlug: 'read',
-          },
+          { systemPermissionName: 'Acceder a ajustes generales', systemPermissionSlug: 'read' },
+          { systemPermissionName: 'Crear ajustes generales', systemPermissionSlug: 'create' },
+          { systemPermissionName: 'Editar ajustes generales', systemPermissionSlug: 'update' },
+          { systemPermissionName: 'Eliminar ajustes generales', systemPermissionSlug: 'delete' },
         ],
       },
     ],

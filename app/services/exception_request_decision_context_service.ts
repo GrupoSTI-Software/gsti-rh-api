@@ -259,12 +259,16 @@ export default class ExceptionRequestDecisionContextService {
   /**
    * Retardos y faltas reales del reloj checador.
    *
-   * Se lee `employee_assist_calendar` directo, con una consulta agregada y
+   * Se lee `employee_assist_calendars` directo, con una consulta agregada y
    * acotada por empresa. **No** se pasa por `EmployeeAssistsCalendarService`: ese
    * servicio materializa los días que falten del rango y su propio código
    * documenta que ese cálculo superaba el timeout del cliente en una carga fría
    * de un mes. La consecuencia, asumida: se cuenta sobre lo ya materializado, y
    * cuando el periodo no tiene datos la señal no aparece en vez de mentir un cero.
+   *
+   * Solo cuentan los días ya cerrados (antes de hoy) que exigían asistencia:
+   * la tabla guarda como falta los días por transcurrir y los de descanso,
+   * festivo, vacaciones e incapacidad, que no son faltas.
    */
   private async attendanceRecord(
     exceptionRequest: ExceptionRequest,
@@ -272,13 +276,20 @@ export default class ExceptionRequestDecisionContextService {
   ): Promise<DecisionSignal | null> {
     const sinceDelays = DateTime.now().minus({ days: SHIFT_WINDOW_DAYS }).toSQLDate()
     const sinceFaults = DateTime.now().minus({ days: ABSENCE_WINDOW_DAYS }).toSQLDate()
+    const today = DateTime.now().toSQLDate()
 
-    if (!sinceDelays || !sinceFaults) return null
+    if (!sinceDelays || !sinceFaults || !today) return null
 
     const query = db
-      .from('employee_assist_calendar')
+      .from('employee_assist_calendars')
+      .whereNull('employee_assist_calendar_deleted_at')
       .where('employee_id', exceptionRequest.employeeId)
       .where('day', '>=', sinceFaults)
+      .where('day', '<', today)
+      .where('is_rest_day', 0)
+      .where('is_holiday', 0)
+      .where('is_vacation_date', 0)
+      .where('is_work_disability_date', 0)
 
     if (businessUnitId) {
       query.where('business_unit_id', businessUnitId)

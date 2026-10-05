@@ -53,7 +53,7 @@ export interface ListDiscountCodesResult {
   meta: { total: number; page: number; limit: number; lastPage: number }
 }
 
-/** Parámetros de `GET /discount-codes/:discountCodeText/quote` (USRH1787714804400). */
+/** Parámetros de `POST /discount-codes/quote` (USRH1787714804400, USRH1788551528002). */
 export interface QuoteWithDiscountCodeInput {
   discountCodeText: string
   billingPlanId: number
@@ -204,7 +204,7 @@ export default class DiscountCodeService {
         trx ? { client: trx } : undefined
       )
     } catch (error) {
-      this.rethrowDuplicateDiscountCodeError(error, normalizedCode)
+      this.rethrowDuplicateDiscountCodeError(error)
     }
   }
 
@@ -437,7 +437,7 @@ export default class DiscountCodeService {
 
     if (!discountCode) {
       throw new DiscountCodeServiceError(
-        `Código de descuento ${normalizedCode} no encontrado`,
+        'Código de descuento no encontrado',
         DISCOUNT_CODE_ERROR_CODES.NOT_FOUND,
         404,
         'codigo-no-encontrado',
@@ -447,7 +447,7 @@ export default class DiscountCodeService {
 
     if (discountCode.discountCodeActive === 0) {
       throw new DiscountCodeServiceError(
-        `Código de descuento ${normalizedCode} está inactivo`,
+        `Código de descuento ${discountCode.discountCodeId} está inactivo`,
         DISCOUNT_CODE_ERROR_CODES.CODE_INACTIVE,
         422,
         'codigo-inactivo',
@@ -463,7 +463,7 @@ export default class DiscountCodeService {
 
     if (validFrom && isBusinessCalendarDateBefore(referenceDate, validFrom)) {
       throw new DiscountCodeServiceError(
-        `Código de descuento ${normalizedCode} aún no inicia su vigencia`,
+        `Código de descuento ${discountCode.discountCodeId} aún no inicia su vigencia`,
         DISCOUNT_CODE_ERROR_CODES.CODE_NOT_YET_VALID,
         422,
         'codigo-aun-no-vigente',
@@ -473,7 +473,7 @@ export default class DiscountCodeService {
 
     if (validTo && isBusinessCalendarDateBefore(validTo, referenceDate)) {
       throw new DiscountCodeServiceError(
-        `Código de descuento ${normalizedCode} ya venció`,
+        `Código de descuento ${discountCode.discountCodeId} ya venció`,
         DISCOUNT_CODE_ERROR_CODES.CODE_EXPIRED,
         422,
         'codigo-vencido',
@@ -486,7 +486,7 @@ export default class DiscountCodeService {
       discountCode.discountCodeRedeemedCount >= discountCode.discountCodeMaxRedemptions
     ) {
       throw new DiscountCodeServiceError(
-        `Código de descuento ${normalizedCode} agotó su cupo de canjes`,
+        `Código de descuento ${discountCode.discountCodeId} agotó su cupo de canjes`,
         DISCOUNT_CODE_ERROR_CODES.CODE_EXHAUSTED,
         422,
         'codigo-agotado',
@@ -595,15 +595,15 @@ export default class DiscountCodeService {
     }
   }
 
-  private rethrowDuplicateDiscountCodeError(error: unknown, code: string): never {
+  private rethrowDuplicateDiscountCodeError(error: unknown): never {
     const dbError = error as { code?: string; sqlMessage?: string }
     if (dbError?.code === ER_DUP_ENTRY && dbError.sqlMessage?.includes('uq_discount_code_code')) {
       throw new DiscountCodeServiceError(
-        `Código de descuento ${code} ya existe`,
+        'Código de descuento duplicado (uq_discount_code_code)',
         DISCOUNT_CODE_ERROR_CODES.CODE_DUPLICATE,
         409,
         'codigo-ya-existe',
-        `Ya existe un código de descuento con el texto ${code}. El texto de un código no se reutiliza.`
+        'Ya existe un código de descuento con ese texto. El texto de un código no se reutiliza.'
       )
     }
 

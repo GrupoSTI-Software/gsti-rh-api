@@ -1,6 +1,8 @@
 import EmployeeSupplieAssignationPhoto from '#models/employee_supplie_assignation_photo'
 import EmployeeSupplie from '#models/employee_supplie'
 import UploadService from '#services/upload_service'
+import { AssetError } from '#modules/assets/assets.error'
+import { assertAssignationPhotoCapacity } from '#modules/assets/assets.rules'
 
 /** Respuesta uniforme del apartado (no homologar en esta historia). */
 type PhotoServiceResult = {
@@ -8,6 +10,9 @@ type PhotoServiceResult = {
   type: 'success' | 'warning' | 'error'
   title: string
   message: string
+  /** Solo en errores de regla: explicación accionable y key semántica. */
+  detail?: string
+  key?: string
   data: unknown
 }
 
@@ -47,6 +52,24 @@ export default class EmployeeSuppplyAssignamentPhotoService {
   ): Promise<PhotoServiceResult> {
     const resolved = await this.findEmployeeSupplyOrNotFound(employeeSupplyId)
     if (!resolved.ok) return resolved.result
+
+    if (type === 'assignation') {
+      const incoming = photos.filter((photo) => photo.isValid).length
+      try {
+        await assertAssignationPhotoCapacity(employeeSupplyId, incoming)
+      } catch (error) {
+        if (!(error instanceof AssetError)) throw error
+        return {
+          status: error.httpStatus,
+          type: 'error',
+          title: error.fallbackTitle,
+          message: error.fallbackDetail,
+          detail: error.fallbackDetail,
+          key: error.key,
+          data: null,
+        }
+      }
+    }
 
     const uploadedPhotos = []
 

@@ -16,6 +16,7 @@
  * - Credencial y cuerpo enviado en una llamada HTTP saliente fallida (axios).
  * - Consulta y valores de una operación fallida en base de datos (knex / mysql2).
  * - Direcciones rechazadas por el servidor de correo (nodemailer).
+ * - Campos sensibles del error del SDK de Stripe bajo `err` (USRH1790708507496).
  *
  * Qué NO cubre (límites declarados):
  * - Texto embebido en mensajes (`err.message`, `err.stack`, `err.sqlMessage`, respuestas SMTP).
@@ -37,6 +38,13 @@ export const LOG_REDACT_PATHS = [
   'err.recipient', // nodemailer: destinatario rechazado
   'err.rejected', // nodemailer: direcciones rechazadas
   'err.rejectedErrors', // nodemailer: errores por destinatario
+  'err.raw', // Stripe: cuerpo crudo del error
+  'err.payment_method', // Stripe: método de pago
+  'err.payment_intent', // Stripe: intent de pago
+  'err.setup_intent', // Stripe: intent de setup
+  'err.source', // Stripe: fuente legacy
+  'err.header', // Stripe: cabecera stripe-signature en error de verificación (7579)
+  'err.payload', // Stripe: cuerpo en error de verificación (7579)
 ] as const satisfies readonly string[]
 
 /** Valor sustituto fijo; distinto de la máscara de producto (`•`) para no confundir eco y log. */

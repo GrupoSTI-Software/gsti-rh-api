@@ -7,6 +7,9 @@ import MedicalConditionTypeProperty from './medical_condition_type_property.js'
 import EmployeeMedicalCondition from './employee_medical_condition.js'
 import { withBusinessUnitScope } from '#mixins/with_business_unit_scope'
 import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_unit_id'
+import { withSensitiveWriteGuard } from '#mixins/with_sensitive_write_guard'
+import encryption from '@adonisjs/core/services/encryption'
+import { sensitiveSerialize } from '#helpers/sensitive_serialize'
 
 /**
  * @swagger
@@ -29,7 +32,7 @@ import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_uni
  *           description: Unidad de negocio dueña (hereda de la condición del empleado, USRH1784259058487)
  *         medicalConditionTypePropertyValue:
  *           type: string
- *           description: Property value
+ *           description: Valor capturado; cifrado en reposo y enmascarado en la respuesta (se revela por /api/v1/pii/reveal)
  *         medicalConditionTypePropertyValueActive:
  *           type: number
  *           description: Property value status
@@ -47,7 +50,8 @@ import { resolveParentBusinessUnitId } from '#mixins/resolve_parent_business_uni
 export default class MedicalConditionTypePropertyValue extends compose(
   BaseModel,
   SoftDeletes,
-  withBusinessUnitScope()
+  withBusinessUnitScope(),
+  withSensitiveWriteGuard()
 ) {
   @column({ isPrimary: true })
   declare medicalConditionTypePropertyValueId: number
@@ -75,7 +79,24 @@ export default class MedicalConditionTypePropertyValue extends compose(
     )
   }
 
-  @column()
+  /**
+   * Valor capturado de la propiedad — cifrado AES-256-CBC en reposo (LFPDPPP
+   * art. 3.VI): guarda el mismo dato clínico que el diagnóstico. No se usa en
+   * cláusulas WHERE de SQL.
+   */
+  @column({
+    prepare: (value: string | null) =>
+      value !== null && value !== undefined ? encryption.encrypt(value) : null,
+    consume: (value: string | null) => {
+      if (value === null || value === undefined) return null
+      try {
+        return encryption.decrypt<string>(value)
+      } catch {
+        return null
+      }
+    },
+    serialize: sensitiveSerialize('MedicalConditionTypePropertyValue', 'medicalConditionTypePropertyValue'),
+  })
   declare medicalConditionTypePropertyValue: string
 
   @column()

@@ -20,6 +20,13 @@ export const completeSignupValidator = vine.compile(
   })
 )
 
+export const setupIntentSignupValidator = vine.compile(
+  vine.object({
+    signupDraftId: vine.number().min(1),
+    signupToken: vine.string().trim().minLength(1).maxLength(64),
+  })
+)
+
 export const startSignupValidator = vine.compile(
   vine.object({
     firstName: vine.string().trim().minLength(1).maxLength(100),

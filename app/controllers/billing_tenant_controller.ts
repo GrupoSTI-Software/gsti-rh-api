@@ -174,7 +174,8 @@ export default class BillingTenantController {
    *       Calcula el precio completo para el plan y la cantidad indicada.
    *       El visitante no envía montos; todo se resuelve server-side desde el
    *       catálogo. La cantidad debe ser entero positivo (forma); la regla de
-   *       bloques de 10 se valida en el servicio.
+   *       bloques de 10 se valida en el servicio. Incluye `cardRequired` (boolean)
+   *       sin exponer proveedor de cobro (USRH1790718243123).
    *     parameters:
    *       - in: path
    *         name: planId
@@ -460,6 +461,41 @@ export default class BillingTenantController {
       const data = isOwner ? result : restrictMySubscription(result)
 
       return response.status(200).json({ type: 'success', data })
+    } catch (error) {
+      const { status, ...body } = resolveBillingSubscriptionApiError(error)
+      return response.status(status).json(body)
+    }
+  }
+
+  /**
+   * Avisa al equipo que el cliente quiere renovar su contratacion vencida.
+   *
+   * No registra nada ni cobra: el pago se acuerda fuera de la plataforma, asi
+   * que la respuesta solo confirma que el aviso salio.
+   */
+  async requestRenewal(ctx: HttpContext) {
+    const { auth, response } = ctx
+    try {
+      const user = auth.user
+      await user?.preload('person')
+
+      const person = user?.person
+      const requesterName =
+        [person?.personFirstname, person?.personLastname].filter(Boolean).join(' ').trim() ||
+        user?.userEmail ||
+        ''
+
+      const renewal = await this.service.requestRenewal({
+        requesterName,
+        requesterEmail: user?.userEmail ?? '',
+      })
+
+      return response.status(200).json({
+        type: 'success',
+        title: 'Solicitud enviada',
+        message: 'El equipo de Valanserh recibió tu solicitud de renovación.',
+        data: { status: renewal.status },
+      })
     } catch (error) {
       const { status, ...body } = resolveBillingSubscriptionApiError(error)
       return response.status(status).json(body)

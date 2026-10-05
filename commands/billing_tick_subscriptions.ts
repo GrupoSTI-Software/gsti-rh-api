@@ -1,7 +1,9 @@
 import { BaseCommand, flags } from '@adonisjs/core/ace'
 import type { CommandOptions } from '@adonisjs/core/types/ace'
 import env from '#start/env'
-import BillingSubscriptionClockService from '#services/billing_subscription_clock_service'
+import BillingSubscriptionClockService, {
+  formatClockRunSummary,
+} from '#services/billing_subscription_clock_service'
 import { toBusinessDateString } from '../app/utils/business_date.js'
 
 /**
@@ -18,6 +20,10 @@ import { toBusinessDateString } from '../app/utils/business_date.js'
  *
  * Guard de entorno: fuera de producción no corre solo; usa --force para
  * pruebas controladas (mismo patrón que `work-journal:seal-period`).
+ *
+ * Suscripciones con proveedor `stripe` no reciben gobierno de estados R1/R2 del
+ * reloj (USRH1790708507525); el resumen incluye `saltadas_por_proveedor` solo
+ * cuando hay al menos una.
  *
  * El comando NUNCA lanza para no romper la cadena del scheduler: ante un
  * error inesperado lo loguea y devuelve exitCode 1.
@@ -58,12 +64,7 @@ export default class BillingTickSubscriptions extends BaseCommand {
       const service = new BillingSubscriptionClockService()
       const result = await service.run(businessDate)
 
-      this.logger.info(
-        `billing:tick-subscriptions — fin: corte=${result.businessDate} ` +
-          `evaluadas=${result.processed} transicionadas=${result.transitioned} ` +
-          `sin cambio=${result.skipped} reducciones_aplicadas=${result.changesApplied} ` +
-          `reducciones_no_aplicables=${result.changesNotApplicable} fallidas=${result.failed}`
-      )
+      this.logger.info(formatClockRunSummary(result))
 
       for (const detail of result.details) {
         const tag = detail.idempotent ? '[idempotente]' : '[nueva]'

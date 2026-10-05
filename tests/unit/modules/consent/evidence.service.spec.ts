@@ -1,6 +1,7 @@
 import { test } from '@japa/runner'
 import { DateTime } from 'luxon'
 import type UserConsent from '#models/user_consent'
+import { SENSITIVE_MASK } from '#helpers/sensitive_mask'
 import EvidenceService from '../../../../app/modules/consent/evidence/evidence.service.js'
 import type {
   EvidenceFilters,
@@ -154,8 +155,8 @@ test.group('EvidenceService.getEvidence — H6: tolerancia a userId NULL (asient
     const page = await service.getEvidence({}, { page: 1, perPage: 20 }, false)
 
     const row = page.data[0]
-    assert.notEqual(row.ip, '203.0.113.10')
-    assert.notEqual(row.userAgent, 'kiosk-agent/1.0')
+    assert.equal(row.ip, SENSITIVE_MASK)
+    assert.equal(row.userAgent, SENSITIVE_MASK)
   })
 
   test('getExportRows también tolera userId NULL (mismo toDto, sin paginar)', async ({ assert }) => {

@@ -1,6 +1,8 @@
 import { BILLING_PAYMENT_ERROR_CODES } from '../constants/billing_payment_error_codes.js'
 import { BillingPaymentServiceError } from '../exceptions/billing_payment_service_error.js'
 import { BillingSubscriptionServiceError } from '../exceptions/billing_subscription_service_error.js'
+import { BillingProviderServiceError } from '../exceptions/billing_provider_service_error.js'
+import { resolveBillingProviderApiError } from './billing_provider_api_error.js'
 
 export type ResolvedBillingPaymentError = {
   title: string
@@ -54,6 +56,10 @@ export function resolveBillingPaymentApiError(
       resolved.data = error.data
     }
     return resolved
+  }
+
+  if (error instanceof BillingProviderServiceError) {
+    return resolveBillingProviderApiError(error)
   }
 
   return {

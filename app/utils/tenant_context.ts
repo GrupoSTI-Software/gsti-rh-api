@@ -1,5 +1,10 @@
 import { AsyncLocalStorage } from 'node:async_hooks'
 import logger from '@adonisjs/core/services/logger'
+import {
+  TENANT_UNSCOPED_REASON_POLICY,
+  isTenantUnscopedReason,
+  type TenantUnscopedReason,
+} from '#constants/tenant_unscoped_reason'
 
 interface TenantStore {
   /** IDs de unidades de negocio accesibles en la request actual. */
@@ -9,6 +14,36 @@ interface TenantStore {
 }
 
 const storage = new AsyncLocalStorage<TenantStore>()
+
+function runUnscopedImpl<T>(fn: () => T, reason: string, detail?: string): T {
+  if (isTenantUnscopedReason(reason)) {
+    const policy = TENANT_UNSCOPED_REASON_POLICY[reason]
+    const payload =
+      detail === undefined
+        ? { reason, origin: policy.origin }
+        : { reason, origin: policy.origin, detail }
+    logger[policy.logLevel](
+      payload,
+      'TenantContext.runUnscoped: excepción declarada al filtro de empresa'
+    )
+  } else {
+    logger.debug(
+      { reason: 'legacy' },
+      'TenantContext.runUnscoped: motivo heredado sin catálogo'
+    )
+  }
+  return storage.run({ scope: [], bypassed: true }, fn)
+}
+
+function runUnscoped<T>(fn: () => T, reason: TenantUnscopedReason, detail?: string): T
+/**
+ * @deprecated Texto libre: solo para pruebas heredadas mientras R3 las migra.
+ * En app/ y commands/ lo prohíbe tests/unit/constants/tenant_unscoped_reason_contract.spec.ts.
+ */
+function runUnscoped<T>(fn: () => T, reason: string, detail?: string): T
+function runUnscoped<T>(fn: () => T, reason: string, detail?: string): T {
+  return runUnscopedImpl(fn, reason, detail)
+}
 
 /**
  * Contexto request-scoped de tenant basado en AsyncLocalStorage.
@@ -24,7 +59,7 @@ const storage = new AsyncLocalStorage<TenantStore>()
  *
  * ## Bypass auditado
  * ```
- * TenantContext.runUnscoped(() => next(), 'usuario con rol root')
+ * TenantContext.runUnscoped(() => next(), TENANT_UNSCOPED_REASON.PLATFORM_ADMIN)
  * ```
  *
  * ## Lectura desde modelos / servicios
@@ -68,17 +103,13 @@ export const TenantContext = {
   },
 
   /**
-   * Ejecuta fn desactivando el filtro de tenant para todos los modelos
-   * con el mixin withBusinessUnitScope.
+   * Ejecuta fn sin filtro de empresa para todos los modelos con withBusinessUnitScope.
    *
-   * **Solo debe usarse en dos casos:**
-   * 1. Usuarios con rol root (acceso total sin restricción de tenant).
-   * 2. Procesos batch/cron que no tienen usuario HTTP y definen su propio scope.
+   * Se usa solo en: consola de la plataforma, procesos programados, comandos, seeders,
+   * pruebas y las excepciones HTTP catalogadas. NUNCA por rol de empresa (root, dueño o
+   * super-administrador): esos roles saltan permisos, no el filtro de empresa.
    *
-   * Toda llamada queda registrada en el log con el motivo (`reason`) para auditoría.
+   * Un TenantContext.run() anidado reemplaza este contexto y apaga el bypass en esa rama.
    */
-  runUnscoped<T>(fn: () => T, reason: string): T {
-    logger.warn({ reason }, 'TenantContext.runUnscoped: bypass de filtro tenant activado')
-    return storage.run({ scope: [], bypassed: true }, fn)
-  },
+  runUnscoped,
 }

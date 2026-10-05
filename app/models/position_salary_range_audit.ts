@@ -30,17 +30,21 @@ export type SalaryRangeAuditAction = 'create' | 'update' | 'close'
  *            enum: [create, update, close]
  *            description: Tipo de operación registrada
  *          oldMinSalaryDaily:
- *            type: number
- *            description: Mínimo anterior cifrado (null en acción create)
+ *            type: string
+ *            nullable: true
+ *            description: Mínimo anterior cifrado (null en acción create). Con valor se entrega enmascarado en GET.
  *          oldMaxSalaryDaily:
- *            type: number
- *            description: Máximo anterior cifrado (null en acción create)
+ *            type: string
+ *            nullable: true
+ *            description: Máximo anterior cifrado (null en acción create). Con valor se entrega enmascarado en GET.
  *          newMinSalaryDaily:
- *            type: number
- *            description: Mínimo nuevo cifrado (null en acción close)
+ *            type: string
+ *            nullable: true
+ *            description: Mínimo nuevo cifrado (null en acción close). Con valor se entrega enmascarado en GET.
  *          newMaxSalaryDaily:
- *            type: number
- *            description: Máximo nuevo cifrado (null en acción close)
+ *            type: string
+ *            nullable: true
+ *            description: Máximo nuevo cifrado (null en acción close). Con valor se entrega enmascarado en GET.
  *          actorId:
  *            type: number
  *            description: Usuario que realizó la operación

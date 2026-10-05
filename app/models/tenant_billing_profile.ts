@@ -71,6 +71,38 @@ export default class TenantBillingProfile extends compose(
   @column({ columnName: 'tenant_billing_profile_cfdi_use_code' })
   declare cfdiUseCode: string | null
 
+  // Domicilio fiscal completo (USRH1789097550393): texto declarado por la
+  // empresa, sin cifrado — no es dato sensible del catálogo (D-10).
+
+  @column({ columnName: 'tenant_billing_profile_street' })
+  declare street: string | null
+
+  @column({ columnName: 'tenant_billing_profile_exterior_number' })
+  declare exteriorNumber: string | null
+
+  @column({ columnName: 'tenant_billing_profile_interior_number' })
+  declare interiorNumber: string | null
+
+  @column({ columnName: 'tenant_billing_profile_neighborhood' })
+  declare neighborhood: string | null
+
+  /** Municipio o alcaldía. */
+  @column({ columnName: 'tenant_billing_profile_municipality' })
+  declare municipality: string | null
+
+  /** Entidad federativa como texto libre: el producto no tiene catálogo de estados. */
+  @column({ columnName: 'tenant_billing_profile_state' })
+  declare state: string | null
+
+  // Representante legal (USRH1789097550393): dato de identificación de quien
+  // representa a la persona moral; no se cataloga como sensible (D-10).
+
+  @column({ columnName: 'tenant_billing_profile_legal_representative_name' })
+  declare legalRepresentativeName: string | null
+
+  @column({ columnName: 'tenant_billing_profile_legal_representative_role' })
+  declare legalRepresentativeRole: string | null
+
   @column.dateTime({ columnName: 'tenant_billing_profile_created_at', autoCreate: true })
   declare createdAt: DateTime
 

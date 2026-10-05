@@ -78,6 +78,9 @@ async function createUserInBusinessUnit(
     personLastname: 'Test',
     personSecondLastname: prefix,
     personEmail: email,
+    // USRH1789698261609: el actor pertenece a su empresa; sin marca, con
+    // `businessScope` su propio expediente le sería invisible (fail-closed).
+    businessUnitId,
   })
   const user = await User.create({
     userEmail: email,

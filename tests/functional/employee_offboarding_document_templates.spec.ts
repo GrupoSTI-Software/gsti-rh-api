@@ -682,7 +682,7 @@ test.group('Plantillas propias del documento de salida (USRH1788553841100)', (gr
     assert,
   }) => {
     const store = await client
-      .post(`${BASE_PATH}/termination_agreement/versions`)
+      .post(`${BASE_PATH}/convenio/versions`)
       .loginAs(uploader)
       .header('X-Business-Unit-Id', businessUnit.businessUnitPublicId)
       .file('file', pdfV1, { filename: 'convenio.pdf', contentType: 'application/pdf' })
@@ -695,7 +695,7 @@ test.group('Plantillas propias del documento de salida (USRH1788553841100)', (gr
     })
 
     const history = await client
-      .get(`${BASE_PATH}/termination_agreement/versions`)
+      .get(`${BASE_PATH}/convenio/versions`)
       .loginAs(uploader)
       .header('X-Business-Unit-Id', businessUnit.businessUnitPublicId)
     history.assertStatus(422)

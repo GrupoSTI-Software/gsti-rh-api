@@ -5,7 +5,8 @@ export const createSupplyTypeValidator = vine.compile(
     supplyTypeName: vine.string().trim().minLength(1).maxLength(255),
     supplyTypeDescription: vine.string().trim().maxLength(1000).optional(),
     supplyTypeIdentifier: vine.string().trim().maxLength(100).optional(),
-    supplyTypeSlug: vine.string().trim().minLength(1).maxLength(255),
+    /** Opcional: si no llega, el service lo deriva del nombre (único por empresa). */
+    supplyTypeSlug: vine.string().trim().minLength(1).maxLength(255).optional(),
   })
 )
 

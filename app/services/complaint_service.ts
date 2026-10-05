@@ -12,7 +12,8 @@ import ComplaintAttachmentService from '#services/complaint_attachment_service'
 import ComplaintStatusHistoryService from '#services/complaint_status_history_service'
 import ComplaintNotificationService from '#services/complaint_notification_service'
 import ComplaintIdentityRevealService from '#services/complaint_identity_reveal_service'
-import ComplaintCategoryService from '#services/complaint_category_service'
+import ComplaintCategoryService, { humanizeCategorySlug } from '#services/complaint_category_service'
+import { blankMissingTexts } from '#helpers/report_text'
 import RetentionGuardService from '#services/retention_guard_service'
 import { COMPLAINT_ERROR_CODES } from '#constants/complaint_error_codes'
 import {
@@ -44,6 +45,8 @@ import type {
 } from '../interfaces/complaint_interface.js'
 import type { ParsedComplaintReportDateRange } from '../helpers/complaint_report_date_range.js'
 import { randomStringFromAlphabet } from '../helpers/csprng_string.js'
+import { buildDownloadFileName, formatDownloadFileDate } from '#helpers/download_file_name'
+import { reportI18n } from '#helpers/report_locale'
 
 const PASSPHRASE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 /** Primer dígito del folio nunca es 0 (mismo rango 100000-999999 de siempre). */
@@ -432,7 +435,9 @@ export default class ComplaintService {
     }
   }
 
-  async buildReportExcel(report: ComplaintReportResult, i18n?: I18n): Promise<Buffer> {
+  /** Excel del reporte agregado; sale siempre en español (report_locale.ts). */
+  async buildReportExcel(report: ComplaintReportResult): Promise<Buffer> {
+    const i18n = reportI18n()
     const workbook = new ExcelJS.Workbook()
     const worksheet = workbook.addWorksheet(
       this.reportLabel(i18n, 'complaint_report_sheet_name', 'Reporte')
@@ -443,7 +448,7 @@ export default class ComplaintService {
     ])
     worksheet.addRow([
       this.reportLabel(i18n, 'complaint_report_period_label', 'Periodo'),
-      `${report.period.from} — ${report.period.to}`,
+      this.reportPeriodLabel(report),
     ])
     worksheet.addRow([
       this.reportLabel(i18n, 'complaint_report_total_volume_label', 'Volumen total'),
@@ -451,8 +456,8 @@ export default class ComplaintService {
     ])
     worksheet.addRow([
       this.reportLabel(i18n, 'complaint_report_avg_resolution_label', 'Tiempo promedio de resolución (horas)'),
-      report.averageResolutionTimeHours ??
-        this.reportLabel(i18n, 'complaint_report_not_applicable', 'N/A'),
+      // Sin casos resueltos no hay promedio: dato ausente, en blanco.
+      report.averageResolutionTimeHours ?? '',
     ])
     worksheet.addRow([
       this.reportLabel(i18n, 'complaint_report_resolved_cases_label', 'Casos resueltos/cerrados en el periodo'),
@@ -474,11 +479,14 @@ export default class ComplaintService {
     worksheet.getRow(1).font = { bold: true, size: 14 }
     worksheet.columns = [{ width: 42 }, { width: 18 }]
 
+    blankMissingTexts(workbook)
     const buffer = await workbook.xlsx.writeBuffer()
     return Buffer.from(buffer)
   }
 
-  async buildReportPdf(report: ComplaintReportResult, i18n?: I18n): Promise<Buffer> {
+  /** PDF del reporte agregado; sale siempre en español (report_locale.ts). */
+  async buildReportPdf(report: ComplaintReportResult): Promise<Buffer> {
+    const i18n = reportI18n()
     return new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({
         size: 'LETTER',
@@ -507,16 +515,13 @@ export default class ComplaintService {
       doc.moveDown(0.5)
       doc.fontSize(10)
       doc.text(
-        `${this.reportLabel(i18n, 'complaint_report_period_label', 'Periodo')}: ${report.period.from} — ${report.period.to}`
+        `${this.reportLabel(i18n, 'complaint_report_period_label', 'Periodo')}: ${this.reportPeriodLabel(report)}`
       )
       doc.text(
         `${this.reportLabel(i18n, 'complaint_report_total_volume_label', 'Volumen total')}: ${report.totalVolume}`
       )
       doc.text(
-        `${this.reportLabel(i18n, 'complaint_report_avg_resolution_label', 'Tiempo promedio de resolución (horas)')}: ${
-          report.averageResolutionTimeHours ??
-          this.reportLabel(i18n, 'complaint_report_not_applicable', 'N/A')
-        }`
+        `${this.reportLabel(i18n, 'complaint_report_avg_resolution_label', 'Tiempo promedio de resolución (horas)')}: ${report.averageResolutionTimeHours ?? ''}`
       )
       doc.text(
         `${this.reportLabel(i18n, 'complaint_report_resolved_cases_label', 'Casos resueltos/cerrados')}: ${report.resolvedCasesCount}`
@@ -545,9 +550,16 @@ export default class ComplaintService {
     })
   }
 
+  /** `reporte-quejas-{desde}-{hasta}.{xlsx|pdf}` con fechas ISO del periodo. */
   buildReportExportFilename(report: ComplaintReportResult, format: 'xlsx' | 'pdf'): string {
-    const extension = format === 'xlsx' ? 'xlsx' : 'pdf'
-    return `reporte-quejas_${report.period.from}_${report.period.to}.${extension}`
+    return buildDownloadFileName(
+      [
+        'reporte-quejas',
+        formatDownloadFileDate(report.period.from),
+        formatDownloadFileDate(report.period.to),
+      ],
+      format === 'xlsx' ? 'xlsx' : 'pdf'
+    )
   }
 
   private async emptyAggregatedReport(
@@ -676,14 +688,40 @@ export default class ComplaintService {
     return [...COMPLAINT_CATEGORIES]
   }
 
-  private reportCategoryLabel(category: ComplaintCategory, i18n?: I18n): string {
-    return this.reportLabel(i18n, `complaint_report_category_${category.replace(/-/g, '_')}`, category)
+  /** Periodo del reporte como `dd/MM/yyyy — dd/MM/yyyy` (llega en ISO de calendario). */
+  private reportPeriodLabel(report: ComplaintReportResult): string {
+    const format = (iso: string) => {
+      const parsed = DateTime.fromISO(iso, { zone: 'utc' })
+      return parsed.isValid ? parsed.toFormat('dd/MM/yyyy') : iso
+    }
+    return `${format(report.period.from)} — ${format(report.period.to)}`
   }
 
-  private reportLabel(i18n: I18n | undefined, key: string, fallback: string): string {
-    if (!i18n) return fallback
-    const translated = i18n.formatMessage(key)
-    return translated === key ? fallback : translated
+  /**
+   * Nombre legible de la categoría en el reporte: etiqueta propia del reporte,
+   * luego la del catálogo (la BD solo guarda el slug) y, si ninguna existe
+   * (categoría nueva sin traducción), el slug humanizado — nunca el slug crudo.
+   */
+  private reportCategoryLabel(category: ComplaintCategory, i18n: I18n): string {
+    const catalogLabel = this.reportLabel(
+      i18n,
+      this.categoryService.categoryLabelKey(category),
+      humanizeCategorySlug(category)
+    )
+    return this.reportLabel(
+      i18n,
+      `complaint_report_category_${category.replace(/-/g, '_')}`,
+      catalogLabel
+    )
+  }
+
+  /**
+   * Texto traducido o `fallback` si la clave no existe. `formatMessage` no
+   * devuelve la clave cuando falta sino "translation missing: …", así que la
+   * comparación anterior (`translated === key`) nunca caía al fallback.
+   */
+  private reportLabel(i18n: I18n, key: string, fallback: string): string {
+    return i18n.formatMessage(key, undefined, fallback)
   }
 
   private async findInScopeOrFail(

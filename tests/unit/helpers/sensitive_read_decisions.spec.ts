@@ -153,10 +153,10 @@ test.group('runWithSensitiveReadDecisions', () => {
     await runWithSensitiveReadDecisions(ctx, next)
 
     assert.isFalse(SensitiveAccessContext.canRead('contacto'))
-    assert.equal(person.serialize().personEmail, maskSensitiveValue(CLEAR_EMAIL, 'contacto'))
+    assert.equal(person.serialize().personEmail, maskSensitiveValue(CLEAR_EMAIL))
   })
 
-  test('send posterior al run() serializa el correo en claro si contacto es true', async ({
+  test('send posterior al run() sigue enmascarando el correo aunque contacto sea true', async ({
     assert,
   }) => {
     const { ctx, sent } = makeCtxWithResponse(contactoGranted())
@@ -168,12 +168,12 @@ test.group('runWithSensitiveReadDecisions', () => {
 
     ctx.response.send(person)
 
-    assert.equal(sent.serialized?.personEmail, CLEAR_EMAIL)
+    assert.equal(sent.serialized?.personEmail, maskSensitiveValue(CLEAR_EMAIL))
     assert.equal(sent.serialized?.personFirstname, 'Ana')
-    assert.equal(sent.serialized?.personCurp, maskSensitiveValue(CLEAR_CURP, 'identificacion'))
+    assert.equal(sent.serialized?.personCurp, maskSensitiveValue(CLEAR_CURP))
   })
 
-  test('finish posterior al run() serializa el correo en claro si contacto es true', async ({
+  test('finish posterior al run() sigue enmascarando el correo aunque contacto sea true', async ({
     assert,
   }) => {
     const { ctx, sent } = makeCtxWithResponse(contactoGranted())
@@ -187,9 +187,9 @@ test.group('runWithSensitiveReadDecisions', () => {
 
     ctx.response.finish()
 
-    assert.equal(sent.serialized?.personEmail, CLEAR_EMAIL)
+    assert.equal(sent.serialized?.personEmail, maskSensitiveValue(CLEAR_EMAIL))
     assert.equal(sent.serialized?.personFirstname, 'Ana')
-    assert.equal(sent.serialized?.personCurp, maskSensitiveValue(CLEAR_CURP, 'identificacion'))
+    assert.equal(sent.serialized?.personCurp, maskSensitiveValue(CLEAR_CURP))
   })
 })
 

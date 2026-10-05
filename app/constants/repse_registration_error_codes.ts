@@ -15,6 +15,8 @@ export const REPSE_ERROR_CODES = {
   BUSINESS_UNIT_NOT_FOUND: 'REPSE.NF.BU.001',
   /** Registro REPSE inexistente al consultar, editar o eliminar */
   REPSE_NOT_FOUND: 'REPSE.NF.REG.001',
+  /** El registro REPSE no tiene constancia cargada (o su archivo no está en el almacenamiento) */
+  CONSTANCIA_NOT_FOUND: 'REPSE.NF.CONST.001',
   /** Folio repetido para la misma empresa */
   FOLIO_DUPLICATE: 'REPSE.CONFLICT.FOLIO.001',
   /** Sin permisos sobre el módulo */

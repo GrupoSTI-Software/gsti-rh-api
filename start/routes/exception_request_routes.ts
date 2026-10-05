@@ -39,22 +39,18 @@ router
     router
       .get('/:id/decision-context', '#controllers/exception_requests_controller.decisionContext')
       .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexAllExceptionRequests))
-    // Adjuntos: leer va con el permiso de lectura del módulo; subir, con el de
-    // resolución, porque el comprobante es parte de resolver.
-    router
-      .get('/:id/attachments', '#controllers/exception_requests_controller.indexAttachments')
-      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexAllExceptionRequests))
-    router
-      .get(
-        '/:id/attachments/:attachmentId',
-        '#controllers/exception_requests_controller.showAttachment'
-      )
-      .use(middleware.permissionGate(EMPLOYEES_READ_PERMISSION_DECLARATIONS.indexAllExceptionRequests))
-    router
-      .post('/:id/attachments', '#controllers/exception_requests_controller.storeAttachment')
-      .use(
-        middleware.permissionGate(EMPLOYEES_WRITE_PERMISSION_DECLARATIONS.updateExceptionRequestStatus)
-      )
+    // Adjuntos: entrada compartida, como el alta. Con la facultad del módulo se
+    // ve y se sube todo lo que cuelga de la solicitud —leer va con el permiso
+    // de lectura y subir con el de resolución, porque el comprobante es parte
+    // de resolver—; sin ella solo se llega a la solicitud propia y solo a lo
+    // que uno mismo subió. El gate no puede vivir en la ruta porque cerraría la
+    // segunda puerta; se evalúa dentro, en `resolveAttachmentScope`.
+    router.get('/:id/attachments', '#controllers/exception_requests_controller.indexAttachments')
+    router.get(
+      '/:id/attachments/:attachmentId',
+      '#controllers/exception_requests_controller.showAttachment'
+    )
+    router.post('/:id/attachments', '#controllers/exception_requests_controller.storeAttachment')
     router
       .post('/resolve-batch', '#controllers/exception_requests_controller.resolveBatch')
       .use(

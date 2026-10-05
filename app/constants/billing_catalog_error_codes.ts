@@ -7,6 +7,14 @@ export const BILLING_CATALOG_ERROR_CODES = {
   VAL_INPUT: 'PLT.CAT.VAL_INPUT',
   /** Plan no encontrado o sin precio vigente para la fecha solicitada */
   PLAN_NOT_FOUND: 'PLT.CAT.PLAN_NOT_FOUND',
+  /** Versión de precio inexistente o no pertenece al plan (USRH1790708507553) */
+  PRICE_NOT_FOUND: 'PLT.CAT.PRICE_NOT_FOUND',
+  /** Versión sustituida por otra vigente — no se vincula (USRH1790708507553) */
+  PRICE_LINK_SUPERSEDED: 'PLT.CAT.PRICE_LINK_SUPERSEDED',
+  /** Plan retirado del catálogo — no se vincula (USRH1790708507553) */
+  PRICE_LINK_PLAN_RETIRED: 'PLT.CAT.PRICE_LINK_PLAN_RETIRED',
+  /** Referencia Stripe incoherente con el proveedor guardado (USRH1790708507553) */
+  PRICE_LINK_INCONSISTENT: 'PLT.CAT.PRICE_LINK_INCONSISTENT',
   /** Intento de mutar una versión de precio publicada */
   PRICE_IMMUTABLE: 'PLT.CAT.PRICE_IMMUTABLE',
   /** Fecha de vigencia duplicada en el mismo plan */

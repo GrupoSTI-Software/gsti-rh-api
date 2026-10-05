@@ -16,6 +16,9 @@ import type { DeviceProfileRepository } from '#modules/access-point/device-profi
 import type { DeviceCommandCountersSnapshot } from '#models/device_command'
 import DeviceCommandService from '../device_command.service.js'
 import { canTransition } from '../device_command.state.js'
+import PhotoDispatchService from '#modules/biometric-vault/photo/photo_dispatch.service'
+import type { PhotoDispatchPort } from '#modules/biometric-vault/photo/photo_dispatch.port'
+import type { DeviceCommandEvidence } from '../device_command.constants.js'
 
 export type AckOutcome =
   | {
@@ -66,7 +69,8 @@ export default class CommandAckService {
     private readonly repository: DeviceCommandRepository = new DeviceCommandRepositoryMysql(),
     private readonly pivots: EmployeeSyncRepository = new EmployeeSyncRepositoryMysql(),
     private readonly profiles: DeviceProfileRepository = new DeviceProfileRepositoryMysql(),
-    private readonly commands: DeviceCommandService = new DeviceCommandService()
+    private readonly commands: DeviceCommandService = new DeviceCommandService(),
+    private readonly photos: PhotoDispatchPort = new PhotoDispatchService()
   ) {}
 
   async apply(input: AckInput): Promise<AckOutcome> {
@@ -91,8 +95,9 @@ export default class CommandAckService {
      * uno que el barrido dio por fallido pasaban a `acked` o `executed` sin
      * haber viajado nunca.
      */
-    const executed =
-      parsed.returnCode === 0 && command.deviceCommandKind === DEVICE_COMMAND_KIND.USER_UPSERT
+    const evidence =
+      parsed.returnCode === 0 ? await this.evidenceAtAck(command) : null
+    const executed = evidence !== null
     const target =
       parsed.returnCode !== 0
         ? DEVICE_COMMAND_STATUS.FAILED
@@ -133,7 +138,7 @@ export default class CommandAckService {
       command.deviceCommandAckedAt = input.now
       if (executed) {
         command.deviceCommandExecutedAt = input.now
-        command.deviceCommandExecutionEvidence = DEVICE_COMMAND_EVIDENCE.ACK
+        command.deviceCommandExecutionEvidence = evidence
       } else {
         /**
          * Foto de los contadores en el momento del acuse. La prueba de que el
@@ -150,6 +155,9 @@ export default class CommandAckService {
 
     await this.repository.save(command)
     await this.syncPivot(command, parsed.returnCode)
+    if (evidence === DEVICE_COMMAND_EVIDENCE.PHOTO_DOWNLOADED) {
+      await this.photos.closeAfterDelivery(command, input.now)
+    }
 
     return {
       kind: 'applied',
@@ -173,6 +181,33 @@ export default class CommandAckService {
    * dijo que recibio la orden, no que la aplico. Hasta que haya evidencia, el
    * PIN sigue en cuarentena y no se le da a nadie mas.
    */
+  /**
+   * Prueba de ejecucion que ya existe en el momento del acuse, o `null` si hay
+   * que esperarla.
+   *
+   * - El alta de usuario se verifico en pantalla al acusar.
+   * - El borrado de la foto tambien basta con el acuse: si el aparato no la
+   *   quita, el colaborador sigue siendo alguien autorizado a marcar ahi; la
+   *   baja que importa para seguridad es la del usuario, que tiene su propio
+   *   cierre por padron.
+   * - La foto nueva solo cuenta si el equipo la descargo por su enlace ANTES
+   *   de acusar. Sin descarga queda acusada y espera su contador o su checada;
+   *   el barrido la da por fallida si no llega.
+   */
+  private async evidenceAtAck(command: DeviceCommand): Promise<DeviceCommandEvidence | null> {
+    switch (command.deviceCommandKind) {
+      case DEVICE_COMMAND_KIND.USER_UPSERT:
+      case DEVICE_COMMAND_KIND.BIOPHOTO_DELETE:
+        return DEVICE_COMMAND_EVIDENCE.ACK
+      case DEVICE_COMMAND_KIND.BIOPHOTO_WRITE:
+        return (await this.photos.wasDownloaded(command))
+          ? DEVICE_COMMAND_EVIDENCE.PHOTO_DOWNLOADED
+          : null
+      default:
+        return null
+    }
+  }
+
   /**
    * Contadores del perfil, que se refresca con cada subida de `options`. Si el
    * equipo aun no ha mandado ninguna, no hay linea base y se guarda `null`: sin

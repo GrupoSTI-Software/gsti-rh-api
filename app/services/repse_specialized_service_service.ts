@@ -50,6 +50,20 @@ function serializeRepseSpecializedService(row: RepseSpecializedService) {
   }
 }
 
+/** Alias en `$extras` del conteo de contratos que cubren el servicio. */
+const CONTRATOS_COUNT_EXTRA = 'contratosCount'
+
+/**
+ * Fila del listado: el servicio más el número de contratos (no borrados) que
+ * lo cubren vía `contrato_servicio_repse`.
+ */
+function serializeRepseSpecializedServiceListItem(row: RepseSpecializedService) {
+  return {
+    ...serializeRepseSpecializedService(row),
+    contratosCount: Number(row.$extras[CONTRATOS_COUNT_EXTRA] ?? 0),
+  }
+}
+
 /**
  * Servicio de dominio del catálogo de servicios especializados REPSE.
  *
@@ -64,25 +78,43 @@ function serializeRepseSpecializedService(row: RepseSpecializedService) {
  */
 export default class RepseSpecializedServiceService {
   /**
-   * Lista paginada de servicios especializados de un registro REPSE.
+   * Lista paginada de servicios especializados de un registro REPSE, con el
+   * conteo de contratos que cubren cada servicio (una sola subconsulta
+   * correlacionada, sin N+1). `status` opcional filtra por estado.
    * Orden: `repse_specialized_service_created_at DESC`.
    */
-  async listByRepseRegistration(page: number, limit: number, repseRegistrationId: number) {
+  async listByRepseRegistration(
+    page: number,
+    limit: number,
+    repseRegistrationId: number,
+    status?: RepseSpecializedServiceStatus
+  ) {
     const safeLimit = Math.min(Math.max(limit, 1), 500)
     const safePage = Math.max(page, 1)
 
     await findRegistrationInTenantOrFail(repseRegistrationId, 'registro-repse-no-encontrado')
 
-    const paginator = await RepseSpecializedService.query()
+    const query = RepseSpecializedService.query()
       .whereNull('repse_specialized_service_deleted_at')
       .where('repse_registration_id', repseRegistrationId)
+      .withCount('contratosServiciosEspecializados', (contratos) => {
+        contratos
+          .whereNull('contratos_servicios_especializados.contrato_servicio_especializado_deleted_at')
+          .as(CONTRATOS_COUNT_EXTRA)
+      })
+
+    if (status !== undefined) {
+      query.where('repse_specialized_service_status', status)
+    }
+
+    const paginator = await query
       .orderBy('repse_specialized_service_created_at', 'desc')
       .paginate(safePage, safeLimit)
 
     const meta = paginator.serialize().meta
     return {
       meta,
-      data: paginator.all().map((row) => serializeRepseSpecializedService(row)),
+      data: paginator.all().map((row) => serializeRepseSpecializedServiceListItem(row)),
     }
   }
 

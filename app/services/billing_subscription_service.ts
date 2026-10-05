@@ -22,6 +22,9 @@ import {
   assertMinimumContractedEmployees,
   resolveMinimumContractedEmployees,
 } from '../helpers/contracted_employees_rules.js'
+import { resolveBillingProvider } from '#modules/billing-provider/billing_provider.registry'
+import { BILLING_PROVIDER_KEYS } from '#modules/billing-provider/billing_provider.port'
+import { subscriptionOpeningMismatch } from '#modules/billing-provider/billing_provider.errors'
 import { todayInBusinessZone, toBusinessDateString, toCalendarIsoDate } from '../utils/business_date.js'
 
 // ---------------------------------------------------------------------------
@@ -51,6 +54,13 @@ export interface CreateSubscriptionInput {
    * sus caminos. Se normaliza a MAYÚSCULAS dentro de `assertRedeemableCode`.
    */
   discountCode?: string
+  /** Snapshot de apertura Stripe creada fuera de la trx (registro self-service). */
+  providerSubscription?: {
+    customerRef: string
+    subscriptionRef: string
+    billingPlanPriceId: number
+    trialEndsAt: DateTime
+  }
 }
 
 export interface BusinessUnitListItem {
@@ -404,7 +414,7 @@ export default class BillingSubscriptionService {
    *
    * Congela (snapshot) el precio por empleado, el descuento por volumen y los
    * días de prueba vigentes en el catálogo al momento de contratar. Nace
-   * siempre en estado `trialing`, con `provider = 'manual'`.
+   * siempre en estado `trialing`, hereda el `provider` de la versión de precio vigente.
    *
    * @param trx Transacción opcional del llamador (p. ej. `SignupDraftService.complete()`).
    * Sin `trx`, abre la suya y se comporta igual que antes (landlord).
@@ -560,6 +570,32 @@ export default class BillingSubscriptionService {
     const trialEndsAt = skipTrial ? null : nowBusiness.plus({ days: trialDays })
     const periodEnd = skipTrial ? nowBusiness : trialEndsAt!
 
+    if (input.providerSubscription) {
+      const expected = input.providerSubscription
+      if (
+        currentPrice.billingPlanPriceProvider !== BILLING_PROVIDER_KEYS.STRIPE ||
+        currentPrice.billingPlanPriceId !== expected.billingPlanPriceId ||
+        trialEndsAt === null ||
+        trialEndsAt.toMillis() !== expected.trialEndsAt.toMillis()
+      ) {
+        throw subscriptionOpeningMismatch()
+      }
+    }
+
+    const provider = resolveBillingProvider(currentPrice.billingPlanPriceProvider)
+    const opening = await provider.openSubscription({
+      businessUnitId: businessUnit.businessUnitId,
+      billingPlanId: input.billingPlanId,
+      billingPlanPriceId: currentPrice.billingPlanPriceId,
+      contractedEmployees,
+      providerSubscription: input.providerSubscription
+        ? {
+            customerRef: input.providerSubscription.customerRef,
+            subscriptionRef: input.providerSubscription.subscriptionRef,
+          }
+        : undefined,
+    })
+
     const existingLive = await BillingSubscription.query({ client: trx })
       .where('business_unit_id', businessUnit.businessUnitId)
       .whereIn('billing_subscription_status', LIVE_SUBSCRIPTION_STATUSES)
@@ -609,7 +645,7 @@ export default class BillingSubscriptionService {
           businessUnitId: businessUnit.businessUnitId,
           billingPlanId: input.billingPlanId,
           billingPlanPriceId: currentPrice.billingPlanPriceId,
-          billingSubscriptionProvider: 'manual',
+          billingSubscriptionProvider: opening.provider,
           billingSubscriptionStatus: skipTrial ? 'active' : 'trialing',
           billingSubscriptionContractedUnitAmount: resolved.pricePerEmployee,
           billingSubscriptionContractedEmployees: contractedEmployees,
@@ -626,8 +662,8 @@ export default class BillingSubscriptionService {
           billingSubscriptionTrialEndsAt: trialEndsAt,
           billingSubscriptionCurrentPeriodStart: nowBusiness,
           billingSubscriptionCurrentPeriodEnd: periodEnd,
-          billingSubscriptionStripeCustomerId: null,
-          billingSubscriptionStripeSubscriptionId: null,
+          billingSubscriptionStripeCustomerId: opening.externalCustomerRef,
+          billingSubscriptionStripeSubscriptionId: opening.externalSubscriptionRef,
           billingSubscriptionSubscribedAt: nowBusiness,
           billingSubscriptionLiveBusinessUnitId: businessUnit.businessUnitId,
           // Canje y congelado del código (§10.1): NULL/0 sin `discountCode`,

@@ -64,6 +64,10 @@ export default defineConfig({
     () => import('#start/routes'),
     () => import('#start/kernel'),
     {
+      file: () => import('#start/billing_provider'),
+      environment: ['web'],
+    },
+    {
       file: () => import('#start/scheduler'),
       environment: ['console'],
     },
@@ -106,6 +110,12 @@ export default defineConfig({
     {
       pattern: 'resources/lang/**/*.{json,yaml,yml}',
       reloadServer: false,
-    }
+    },
+    // Pesos del detector de rostros: se leen de `<cwd>/models` y sin ellos no
+    // se puede evaluar la foto biometrica al subirla.
+    {
+      pattern: 'models/**/*',
+      reloadServer: false,
+    },
   ],
 })

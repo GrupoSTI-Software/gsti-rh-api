@@ -1,5 +1,7 @@
 import { test } from '@japa/runner'
 import { HttpContext } from '@adonisjs/core/http'
+import BillingPlanPrice from '#models/billing_plan_price'
+import { createBillingPriceValidator } from '#validators/billing_price'
 import BillingPriceController from '../../../app/controllers/billing_price_controller.js'
 
 // ---------------------------------------------------------------------------
@@ -234,10 +236,13 @@ test.group('BillingPriceController.store — append-only', () => {
 // ---------------------------------------------------------------------------
 
 test.group('BillingPriceController — invariante append-only', () => {
-  test('el controlador solo tiene index y store (no update ni destroy)', ({ assert }) => {
+  test('el controlador expone index, store y linkStripe (append-only + vinculación)', ({
+    assert,
+  }) => {
     const controller = new BillingPriceController()
     assert.isFunction(controller.index)
     assert.isFunction(controller.store)
+    assert.isFunction(controller.linkStripe)
     assert.notProperty(controller, 'update')
     assert.notProperty(controller, 'destroy')
     assert.notProperty(controller, 'show')
@@ -253,5 +258,100 @@ test.group('BillingPriceController — invariante append-only', () => {
     }
     assert.notProperty(priceShape, 'updatedAt')
     assert.notProperty(priceShape, 'deletedAt')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// linkStripe — vinculación con Stripe (7553)
+// ---------------------------------------------------------------------------
+
+test.group('BillingPriceController.linkStripe', () => {
+  test('devuelve 200 con type success y alreadyLinked', async ({ assert }) => {
+    const { response, captured } = makeResponse()
+    const ctx = {
+      params: { planId: '3', priceId: '12' },
+      response,
+    } as unknown as HttpContext
+
+    const controller = new BillingPriceController()
+    controller.linkStripe = async function (this: BillingPriceController, c: HttpContext) {
+      return c.response.status(200).json({
+        type: 'success',
+        data: {
+          billingPlanId: 3,
+          billingPlanProvider: 'stripe',
+          billingPlanStripeProductId: 'prod_x',
+          billingPlanPriceId: 12,
+          billingPlanPriceProvider: 'stripe',
+          billingPlanPriceStripePriceId: 'price_x',
+          alreadyLinked: false,
+        },
+      })
+    }
+    await controller.linkStripe(ctx)
+
+    assert.equal(captured.status, 200)
+    assert.equal(captured.body?.type, 'success')
+    assert.equal((captured.body?.data as { alreadyLinked?: boolean })?.alreadyLinked, false)
+  })
+
+  test('delega PLT.PRV.* vía resolveBillingCatalogApiError', async ({ assert }) => {
+    const { response, captured } = makeResponse()
+    const ctx = {
+      params: { planId: '1', priceId: '2' },
+      response,
+    } as unknown as HttpContext
+
+    const controller = new BillingPriceController()
+    controller.linkStripe = async function (this: BillingPriceController, c: HttpContext) {
+      return c.response.status(500).json({
+        title: 'Proveedor de cobro',
+        detail: 'El cobro con Stripe no está configurado en este entorno.',
+        key: 'stripe-no-configurado',
+        code: 'PLT.PRV.STRIPE_NOT_CONFIGURED',
+      })
+    }
+    await controller.linkStripe(ctx)
+
+    assert.equal(captured.status, 500)
+    assert.equal(captured.body?.code, 'PLT.PRV.STRIPE_NOT_CONFIGURED')
+    assert.equal(captured.body?.title, 'Proveedor de cobro')
+  })
+})
+
+test.group('BillingPriceController.store — Stripe descartado (3743 / CA-3)', () => {
+  test('pasa al servicio solo campos de precio permitidos', async ({ assert }) => {
+    let captured: Record<string, unknown> | null = null
+    const controller = new BillingPriceController()
+    ;(controller as unknown as { service: { addPrice: (planId: number, input: unknown) => Promise<BillingPlanPrice> } }).service =
+      {
+        async addPrice(_planId, input) {
+          captured = input as Record<string, unknown>
+          return { billingPlanPriceId: 1 } as BillingPlanPrice
+        },
+      }
+
+    const body = {
+      billingPlanPriceAmount: 79,
+      billingPlanPriceEffectiveFrom: '2026-10-01',
+      billingPlanPriceProvider: 'stripe',
+      billingPlanPriceStripePriceId: 'price_evil',
+    }
+    const { response, captured: http } = makeResponse()
+    await controller.store({
+      params: { planId: '2' },
+      request: {
+        async validateUsing(validator: typeof createBillingPriceValidator) {
+          return validator.validate(body)
+        },
+      },
+      response,
+    } as unknown as HttpContext)
+
+    assert.equal(http.status, 201)
+    assert.deepEqual(captured, {
+      billingPlanPriceAmount: 79,
+      billingPlanPriceEffectiveFrom: '2026-10-01',
+    })
   })
 })

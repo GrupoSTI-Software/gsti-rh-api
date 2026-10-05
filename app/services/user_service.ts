@@ -22,6 +22,10 @@ import { EmployeeAssignedFilterSearchInterface } from '../interfaces/employee_as
 import { I18n } from '@adonisjs/i18n'
 import { SUPPORT_EMAIL } from '#constants/support_contact'
 import RoleDepartment from '#models/role_department'
+import { hasFullStaffAccess } from '#helpers/responsible_employee_scope'
+import { resolveEffectiveTenantRole } from '#helpers/effective_tenant_role'
+import BusinessAccessScopeService from '#services/business_access_scope_service'
+import { TenantContext } from '#utils/tenant_context'
 import Position from '#models/position'
 import RoleService from './role_service.js'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
@@ -140,16 +144,24 @@ export default class UserService {
     return newUser
   }
 
-  async update(currentUser: User, user: User) {
+  /**
+   * @param trx La del llamador (USRH1789698261612): la credencial y su espejo
+   * se guardan juntos. El `emit` de logout no se revierte con un rollback: es
+   * molesto, no corrupto (declarado en el spec).
+   */
+  async update(currentUser: User, user: User, trx?: TransactionClientContract) {
+    const previousEmail = currentUser.$original?.userEmail ?? currentUser.userEmail
     currentUser.userEmail = user.userEmail
     currentUser.userActive = user.userActive
     currentUser.roleId = user.roleId
     currentUser.personId = user.personId
     currentUser.userEmailType = user.userEmailType
+    if (trx) currentUser.useTransaction(trx)
     await currentUser.save()
     if (!user.userActive) {
-      await ApiToken.query().where('tokenable_id', currentUser.userId).delete()
+      await ApiToken.query({ client: trx }).where('tokenable_id', currentUser.userId).delete()
       if (Ws.io) {
+        Ws.io.emit(`user-forze-logout:${previousEmail}`, {})
         Ws.io.emit(`user-forze-logout:${currentUser.userEmail}`, {})
       }
     }
@@ -222,7 +234,7 @@ export default class UserService {
       .where('user_email', user.userEmail)
       .first()
 
-    if (existEmail && user.userEmail) {
+    if (existEmail && user.userEmail !== undefined && user.userEmail !== null && user.userEmail !== '') {
       const entity = this.t('user')
       const param = this.t('email')
       return {
@@ -242,6 +254,18 @@ export default class UserService {
     }
   }
 
+  /**
+   * Validaciones del alta de una cuenta: que la persona exista y que todavía
+   * no tenga cuenta.
+   *
+   * Una persona tiene UNA cuenta, y la pivote `business_unit_users` es la que
+   * le da acceso a cada empresa. Antes eso lo impedía de hecho el catálogo de
+   * empleados sin usuario, que excluía a toda persona con cuenta en cualquier
+   * empresa; ahora que ese catálogo mira solo la empresa activa, la regla se
+   * declara aquí, que es donde pertenece.
+   *
+   * @param user - Datos de la cuenta por crear o editar.
+   */
   async verifyInfoExist(user: User) {
     if (!user.userId) {
       const existUser = await Person.query()
@@ -256,7 +280,26 @@ export default class UserService {
           type: 'warning',
           title: this.t('entity_was_not_found', { entity }),
           message: this.t('entity_was_not_found_with_entered_id', { entity }),
+          key: 'persona-no-encontrada',
           data: { ...user },
+        }
+      }
+
+      if (user.personId) {
+        const personAccount = await User.query()
+          .whereNull('user_deleted_at')
+          .where('person_id', user.personId)
+          .first()
+
+        if (personAccount) {
+          return {
+            status: 400,
+            type: 'warning',
+            title: this.t('user_person_already_has_account_title'),
+            message: this.t('user_person_already_has_account_detail'),
+            key: 'persona-ya-tiene-cuenta',
+            data: { ...user },
+          }
         }
       }
     }
@@ -265,6 +308,7 @@ export default class UserService {
       type: 'success',
       title: this.t('info_verify_successfully'),
       message: this.t('info_verify_successfully'),
+      key: undefined,
       data: { ...user },
     }
   }
@@ -288,6 +332,30 @@ export default class UserService {
       const departments = departmentsList.map((department) => department.departmentId)
       return departments
     }
+
+    // El rol que manda es el de la empresa activa, no `users.role_id`: es el
+    // mismo que ya decidió el gate y el candado de colaboradores a cargo.
+    const tenantRole = await this.resolveTenantRole(user)
+
+    // `owner` ve todos los departamentos de SU empresa sin depender de
+    // `role_departments`. No toma la rama de `root`: aquella no acota por
+    // empresa y, fuera del middleware de scope, alcanzaría otros tenants.
+    if (hasFullStaffAccess(tenantRole.roleSlug)) {
+      const ownerBusinessUnitIds =
+        allowedBusinessUnitIds.length > 0
+          ? allowedBusinessUnitIds
+          : await new BusinessAccessScopeService().getAccessibleIds(user)
+      if (ownerBusinessUnitIds.length === 0) {
+        return []
+      }
+
+      const ownerDepartments = await Department.query()
+        .whereNull('department_deleted_at')
+        .whereIn('business_unit_id', ownerBusinessUnitIds)
+        .orderBy('departmentId')
+      return ownerDepartments.map((department) => department.departmentId)
+    }
+
     let businessUnitsList: number[]
     if (allowedBusinessUnitIds.length > 0) {
       businessUnitsList = allowedBusinessUnitIds
@@ -301,7 +369,7 @@ export default class UserService {
     // Obtener departamentos asignados directamente al rol del usuario
     const roleDepartments = await RoleDepartment.query()
       .whereNull('role_department_deleted_at')
-      .where('role_id', user.roleId)
+      .where('role_id', tenantRole.roleId)
       .preload('department', (departmentQuery) => {
         departmentQuery.whereNull('department_deleted_at')
       })
@@ -340,6 +408,22 @@ export default class UserService {
     const allDepartments = [...new Set([...departmentsFromRole, ...departmentsFromEmployees])]
 
     return allDepartments
+  }
+
+  /**
+   * Rol de la cuenta en la empresa activa de la petición (`business_unit_users.role_id`).
+   * Sin contexto de empresa (comandos, jobs) o sin rol escrito en la pivote se
+   * usa `users.role_id`, igual que el middleware de scope.
+   */
+  private async resolveTenantRole(user: User): Promise<Role> {
+    const scope = TenantContext.getScope()
+    if (TenantContext.isActive() && !TenantContext.isBypassed() && scope.length === 1) {
+      const effectiveRole = await resolveEffectiveTenantRole(user, scope[0])
+      if (effectiveRole) {
+        return effectiveRole
+      }
+    }
+    return user.role
   }
 
   createActionLog(rawHeaders: string[], action: string) {

@@ -17,6 +17,10 @@ const signupCatalogRateLimit = limiter.define('signup-catalog', (ctx) => {
   return limiter.allowRequests(30).every('1 minute').usingKey(ctx.request.ip())
 })
 
+const signupSetupIntentRateLimit = limiter.define('signup-setup-intent', (ctx) => {
+  return limiter.allowRequests(10).every('1 minute').usingKey(ctx.request.ip())
+})
+
 router
   .group(() => {
     router.post('/start', '#controllers/auth_signup_controller.start')
@@ -25,6 +29,13 @@ router
   })
   .prefix('/api/auth/signup')
   .use(signupRateLimit)
+
+router
+  .group(() => {
+    router.post('/setup-intent', '#controllers/auth_signup_controller.setupIntent')
+  })
+  .prefix('/api/auth/signup')
+  .use(signupSetupIntentRateLimit)
 
 router
   .group(() => {

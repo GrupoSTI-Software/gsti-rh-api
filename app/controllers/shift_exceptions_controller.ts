@@ -1,4 +1,5 @@
 import ShiftExceptionService from '#services/shift_exception_service'
+import ShiftExceptionRemovalService from '#services/shift_exception_removal_service'
 import { DateTime } from 'luxon'
 import { ShiftExceptionFilterInterface } from '../interfaces/shift_exception_filter_interface.js'
 import ShiftException from '../models/shift_exception.js'
@@ -6,8 +7,6 @@ import { createShiftExceptionValidator } from '../validators/shift_exception.js'
 import { HttpContext } from '@adonisjs/core/http'
 import ExceptionType from '#models/exception_type'
 import { ShiftExceptionErrorInterface } from '../interfaces/shift_exception_error_interface.js'
-import VacationAuthorizationSignature from '#models/vacation_authorization_signature'
-import ExceptionRequest from '#models/exception_request'
 import BusinessUnit from '#models/business_unit'
 import Employee from '#models/employee'
 import { ShiftExceptionGeneralErrorInterface } from '../interfaces/shift_exception_general_error_interface.js'
@@ -15,6 +14,11 @@ import NotificationEmailService from '#services/notification_email_service'
 import { ensureSecondaryPermission } from '#helpers/permission_gate_secondary'
 import { shiftExceptionTouchesVacation } from '#helpers/shift_exception_touches_vacation'
 import { EMPLOYEES_MANAGE_VACATION_PERMISSION } from '#constants/employees_write_permission_declarations'
+import {
+  assertDayWithinRoleScope,
+  assertDayWithinRoleScopeForEmployees,
+} from '#modules/role-scope/day_scope_guard'
+import { assertVacationPeriodStarted } from '#modules/employee-vacations/future_vacation_guard'
 
 export default class ShiftExceptionController {
   /**
@@ -135,6 +139,36 @@ export default class ShiftExceptionController {
             shiftExceptionsDate.plus({ days: i }).toISODate()
           )
 
+      // La excepción cubre un día concreto del pasado, igual que una captura
+      // manual de checada, así que respeta los días que el rol alcanza a
+      // modificar. Se juzga la primera fecha porque la tanda avanza hacia
+      // adelante: si la más antigua entra, las demás también.
+      const storeDayScopeRejection = await assertDayWithinRoleScope({
+        user: auth.user,
+        employeeId,
+        day: datesToCreate[0],
+        i18n,
+      })
+      if (storeDayScopeRejection) {
+        response.status(storeDayScopeRejection.status)
+        return storeDayScopeRejection.body
+      }
+
+      // La empresa puede prohibir adelantar vacaciones: el período del alta
+      // tiene que haber iniciado.
+      if (isVacation) {
+        const futureVacationRejection = await assertVacationPeriodStarted({
+          user: auth.user,
+          employeeId,
+          vacationSettingId,
+          i18n,
+        })
+        if (futureVacationRejection) {
+          response.status(futureVacationRejection.status)
+          return futureVacationRejection.body
+        }
+      }
+
       for (const currentDate of datesToCreate) {
         const shiftException = {
           employeeId: employeeId,
@@ -148,6 +182,9 @@ export default class ShiftExceptionController {
             : null,
           shiftExceptionEnjoymentOfSalary: shiftExceptionEnjoymentOfSalary,
           shiftExceptionTimeByTime: shiftExceptionTimeByTime,
+          // Registrar un dia directo es autorizarlo: queda quien y cuando.
+          shiftExceptionAuthorizedByUserId: auth.user?.userId ?? null,
+          shiftExceptionAuthorizedAt: DateTime.now(),
         } as ShiftException
         try {
           await request.validateUsing(createShiftExceptionValidator)
@@ -314,6 +351,25 @@ export default class ShiftExceptionController {
       await request.validateUsing(createShiftExceptionValidator)
       const shiftExceptionService = new ShiftExceptionService(i18n)
       const currentShiftException = await ShiftException.findOrFail(params.id)
+
+      // La edición libera el día que tenía y ocupa el nuevo, así que los dos
+      // deben caer dentro del alcance del rol.
+      for (const side of [
+        { employeeId: currentShiftException.employeeId, day: currentShiftException.shiftExceptionsDate },
+        { employeeId, day: shiftExceptionsDate },
+      ]) {
+        const rejection = await assertDayWithinRoleScope({
+          user: auth.user,
+          employeeId: side.employeeId,
+          day: side.day,
+          i18n,
+        })
+        if (rejection) {
+          response.status(rejection.status)
+          return rejection.body
+        }
+      }
+
       if (
         await shiftExceptionTouchesVacation({
           currentExceptionTypeId: currentShiftException.exceptionTypeId,
@@ -422,6 +478,18 @@ export default class ShiftExceptionController {
     const { auth, request, params, response, i18n } = ctx
     try {
       const shiftException = await ShiftException.findOrFail(params.id)
+
+      const destroyDayScopeRejection = await assertDayWithinRoleScope({
+        user: auth.user,
+        employeeId: shiftException.employeeId,
+        day: shiftException.shiftExceptionsDate,
+        i18n,
+      })
+      if (destroyDayScopeRejection) {
+        response.status(destroyDayScopeRejection.status)
+        return destroyDayScopeRejection.body
+      }
+
       if (await shiftExceptionTouchesVacation({ currentExceptionTypeId: shiftException.exceptionTypeId })) {
         const allowed = await ensureSecondaryPermission(ctx, EMPLOYEES_MANAGE_VACATION_PERMISSION)
         if (!allowed) {
@@ -429,51 +497,15 @@ export default class ShiftExceptionController {
         }
       }
 
-      // Cambiar findByOrFail por findBy
-      const signature = await VacationAuthorizationSignature.findBy('shift_exception_id', shiftException.shiftExceptionId)
-
-      // Solo procesar si existe la firma y tiene exceptionRequestId
-      if (signature && signature.exceptionRequestId) {
-        const exceptionRequest = await ExceptionRequest.query()
-          .where('exception_request_id', signature.exceptionRequestId)
-          .where('exception_type_id', shiftException.exceptionTypeId)
-          .where('exception_request_status', 'accepted')
-          .whereNull('exception_request_deleted_at')
-
-        if (exceptionRequest.length > 0) {
-          await exceptionRequest[0].delete()
-        }
-      }
-
-      await shiftException.delete()
-
-      const shiftExceptionService = new ShiftExceptionService(i18n)
-      const exceptionDate = shiftException.shiftExceptionsDate
-      const date = typeof exceptionDate === 'string' ? new Date(exceptionDate) : exceptionDate
-
-      await shiftExceptionService.updateAssistCalendar(shiftException.employeeId, date)
-
-      const userId = auth.user?.userId
-
-      if (userId) {
-        const rawHeaders = request.request.rawHeaders
-        const logShiftException = await shiftExceptionService.createActionLog(rawHeaders, 'delete')
-        logShiftException.user_id = userId
-        logShiftException.record_current = JSON.parse(JSON.stringify(shiftException))
-
-        const exceptionType = await ExceptionType.query()
-          .whereNull('exception_type_deleted_at')
-          .where('exception_type_slug', 'vacation')
-          .first()
-
-        let table = 'log_shift_exceptions'
-        if (exceptionType) {
-          if (exceptionType.exceptionTypeId === shiftException.exceptionTypeId) {
-            table = 'log_vacations'
-          }
-        }
-        await shiftExceptionService.saveActionOnLog(logShiftException, table)
-      }
+      // Mismo retiro que la cancelacion de vacaciones de la ficha del empleado,
+      // sin motivo: este flujo no lo pide.
+      await new ShiftExceptionRemovalService().remove({
+        shiftException,
+        actorUserId: auth.user?.userId ?? null,
+        rawHeaders: request.request.rawHeaders,
+        reason: null,
+        i18n,
+      })
 
       return response.status(200).json({
         type: 'success',
@@ -1011,6 +1043,21 @@ export default class ShiftExceptionController {
       }
 
       const employees = await employeesQuery
+
+      // La aplicación masiva escribe una sola fecha sobre muchas personas, y el
+      // tope del rol rige igual que en el alta de una. Se corta antes de
+      // escribir nada: aplicarla a medias dejaría sin saber a quién alcanzó.
+      const generalDayScopeRejection = await assertDayWithinRoleScopeForEmployees({
+        user: auth.user,
+        employeeIds: employees.map((employee) => employee.employeeId),
+        day: shiftExceptionsDateISO,
+        i18n,
+      })
+      if (generalDayScopeRejection) {
+        response.status(generalDayScopeRejection.status)
+        return generalDayScopeRejection.body
+      }
+
       const results = await Promise.allSettled(
         employees.map(async (employee) => {
           const shiftException = {

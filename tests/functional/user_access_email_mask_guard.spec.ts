@@ -5,6 +5,9 @@ import User from '#models/user'
 import Role from '#models/role'
 import Person from '#models/person'
 import Employee from '#models/employee'
+import { opaqueEmployeeSlug } from '#tests/helpers/employee_fixture'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import BusinessUnit from '#models/business_unit'
 import BusinessUnitUser from '#models/business_unit_user'
 import RoleSystemPermission from '#models/role_system_permission'
@@ -131,13 +134,15 @@ async function createBusinessUnit(label: string): Promise<BusinessUnit> {
   })
 }
 
-async function createPerson(emailPrefix: string, email?: string): Promise<Person> {
+async function createPerson(emailPrefix: string, email?: string, businessUnitId?: number): Promise<Person> {
   const stamp = await uniqueStamp()
   return Person.create({
     personFirstname: 'AccessEmail',
     personLastname: 'MaskGuard',
     personSecondLastname: emailPrefix,
     personEmail: email ?? `${emailPrefix}-${stamp}@gsti-tests.local`,
+    // USRH1789698261609: sin marca la persona es invisible con `businessScope`.
+    businessUnitId: businessUnitId ?? null,
   })
 }
 
@@ -189,6 +194,7 @@ async function createEmployeeForPerson(
     position_created_at: now,
   })
   const employeeInsert = await db.table('employees').insert({
+    employee_slug: opaqueEmployeeSlug(),
     employee_sync_id: `EMP-${stamp}`,
     employee_code: `EMP-${stamp}`,
     employee_first_name: person.personFirstname,
@@ -206,7 +212,10 @@ async function createEmployeeForPerson(
     employee_created_at: now,
   })
 
-  return Employee.findOrFail(Number(employeeInsert[0]))
+  return TenantContext.runUnscoped(
+    () => Employee.findOrFail(Number(employeeInsert[0])),
+    TENANT_UNSCOPED_REASON.TEST_FIXTURE
+  )
 }
 
 function assertMaskedEmailRejected(body: Record<string, unknown>, assert: Assert) {
@@ -233,10 +242,10 @@ async function buildFixtures(): Promise<TestFixtures> {
   })
   await grantUsersPermissions(role.roleId, ['create', 'update'])
 
-  const actorPerson = await createPerson('mask-guard-actor')
+  const actorPerson = await createPerson('mask-guard-actor', undefined, tenantBu.businessUnitId)
   const actorUser = await createUserForPerson(actorPerson, role.roleId, [tenantBu.businessUnitId])
 
-  const personalPerson = await createPerson('mask-guard-personal', realPersonalEmail)
+  const personalPerson = await createPerson('mask-guard-personal', realPersonalEmail, tenantBu.businessUnitId)
   const personalUser = await createUserForPerson(
     personalPerson,
     role.roleId,
@@ -244,7 +253,7 @@ async function buildFixtures(): Promise<TestFixtures> {
     { userEmail: realPersonalEmail, userEmailType: 'personal' }
   )
 
-  const institutionalPerson = await createPerson('mask-guard-institutional')
+  const institutionalPerson = await createPerson('mask-guard-institutional', undefined, tenantBu.businessUnitId)
   const institutionalEmployee = await createEmployeeForPerson(
     institutionalPerson,
     tenantBu.businessUnitId,
@@ -257,10 +266,10 @@ async function buildFixtures(): Promise<TestFixtures> {
     { userEmail: realInstitutionalEmail, userEmailType: 'institutional' }
   )
 
-  const foreignPerson = await createPerson('mask-guard-foreign')
+  const foreignPerson = await createPerson('mask-guard-foreign', undefined, foreignBu.businessUnitId)
   const foreignUser = await createUserForPerson(foreignPerson, role.roleId, [foreignBu.businessUnitId])
 
-  const preparedPerson = await createPerson('mask-guard-prepared', `prepared-${stamp}@correo.com`)
+  const preparedPerson = await createPerson('mask-guard-prepared', `prepared-${stamp}@correo.com`, tenantBu.businessUnitId)
 
   return {
     actor: {
@@ -412,6 +421,7 @@ test.group('Users — correo de acceso sin máscara (USRH1789328027034)', (group
     const target = fx.institutionalUser
     const userEmailBefore = target.user.userEmail
     const businessEmailBefore = target.employee.employeeBusinessEmail
+    const personEmailBefore = target.person.personEmail
 
     const response = await client
       .put(`/api/users/${target.user.userId}`)
@@ -429,9 +439,14 @@ test.group('Users — correo de acceso sin máscara (USRH1789328027034)', (group
     assertMaskedEmailRejected(response.body(), assert)
 
     const reloadedUser = await User.findOrFail(target.user.userId)
-    const reloadedEmployee = await Employee.findOrFail(target.employee.employeeId)
+    const reloadedEmployee = await TenantContext.runUnscoped(
+      () => Employee.findOrFail(target.employee.employeeId),
+      TENANT_UNSCOPED_REASON.TEST_FIXTURE
+    )
     assert.equal(reloadedUser.userEmail, userEmailBefore)
     assert.equal(reloadedEmployee.employeeBusinessEmail, businessEmailBefore)
+    const reloadedPerson = await Person.findOrFail(target.person.personId)
+    assert.equal(reloadedPerson.personEmail, personEmailBefore)
   })
 
   test('CA-4: PUT con correo real y escritura de contacto sincroniza userEmail y personEmail', async ({

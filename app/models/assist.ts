@@ -199,6 +199,16 @@ export default class Assist extends compose(BaseModel, SoftDeletes, withBusiness
   declare assistPunchTimeOrigin: DateTime
 
   /**
+   * Momento en que `assist_punch_time_utc` quedó expresado en UTC real. El
+   * puente BioTime lo escribe al insertar (convierte la marca del checador al
+   * guardarla) y `attendance:backfill-biotime-utc` lo usa para no normalizar
+   * dos veces una fila histórica. NULL = histórico pendiente de respaldo o
+   * fila de otro canal, que ya nace en UTC real.
+   */
+  @column.dateTime()
+  declare assistPunchTimeNormalizedAt: DateTime | null
+
+  /**
    * Testigo de llegada: el único dato que dice cuándo entró la checada al sistema.
    *
    * **Invariante:** lo llena `autoCreate` con el reloj del servidor y nadie más.

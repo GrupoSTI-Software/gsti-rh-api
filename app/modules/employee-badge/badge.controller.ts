@@ -2,9 +2,11 @@ import type { HttpContext } from '@adonisjs/core/http'
 import { resolveEmployeeBadgeApiError } from '#helpers/employee_badge_api_error'
 import { StandardResponseFormatter } from '#helpers/standard_response_formatter'
 import BadgeService from './badge.service.js'
+import BadgeNssAuditService, { badgeAccessorFromRequest } from './badge_nss_audit.service.js'
 import BadgePdfService from './badge_pdf.service.js'
 import BadgeRenderService from './badge_render.service.js'
-import BadgeBulkService from './badge_bulk.service.js'
+import BadgeBulkService, { buildBadgeFileName } from './badge_bulk.service.js'
+import { contentDisposition } from '#helpers/download_file_name'
 import { bulkBadgesValidator } from './validators/bulk_badges.validator.js'
 import { parseEmployeeIdParam } from './validators/get_badge.validator.js'
 
@@ -231,23 +233,21 @@ export default class BadgeController {
     try {
       const employeeId = parseEmployeeIdParam(params.employeeId)
       const service = new BadgeService()
-      const { dto } = await service.getBadgeContextForPdf(employeeId, businessUnitScope)
+      const { renderContext, employeeSlug, context } = await service.getRenderContextInTenant(
+        employeeId,
+        businessUnitScope
+      )
+      // Asiento del NSS antes de generar el archivo: sin bitácora no hay gafete.
+      await new BadgeNssAuditService().recordNssDisclosures([context], badgeAccessorFromRequest(ctx))
 
       const pdfService = new BadgePdfService()
-      const buffer = await pdfService.buildBadgePdf({
-        employeeId: dto.empleadoId,
-        nombreCompleto: dto.nombreCompleto,
-        fotoUrl: dto.fotoUrl,
-        empresa: dto.empresa,
-        puesto: dto.puesto,
-        folioRepse: dto.folioRepse,
-        folioVigente: dto.folioVigente,
-        urlVerificacion: dto.urlVerificacion,
-      })
+      const buffer = await pdfService.buildBadgePdf(renderContext)
 
-      const safeName = `gafete-empleado-${employeeId}`.replace(/[^\w.\- ]/g, '_')
       response.header('Content-Type', 'application/pdf')
-      response.header('Content-Disposition', `attachment; filename="${safeName}.pdf"`)
+      response.header(
+        'Content-Disposition',
+        contentDisposition(buildBadgeFileName(employeeSlug, 'pdf'))
+      )
       response.header('Cache-Control', 'private, no-store')
       response.header('Content-Length', String(buffer.length))
       response.status(200)
@@ -331,23 +331,21 @@ export default class BadgeController {
     try {
       const employeeId = parseEmployeeIdParam(params.employeeId)
       const service = new BadgeService()
-      const { dto } = await service.getBadgeContextForPdf(employeeId, businessUnitScope)
+      const { renderContext, employeeSlug, context } = await service.getRenderContextInTenant(
+        employeeId,
+        businessUnitScope
+      )
+      // Asiento del NSS antes de generar el archivo: sin bitácora no hay gafete.
+      await new BadgeNssAuditService().recordNssDisclosures([context], badgeAccessorFromRequest(ctx))
 
       const renderService = new BadgeRenderService()
-      const buffer = await renderService.renderBadgePng({
-        employeeId: dto.empleadoId,
-        nombreCompleto: dto.nombreCompleto,
-        fotoUrl: dto.fotoUrl,
-        empresa: dto.empresa,
-        puesto: dto.puesto,
-        folioRepse: dto.folioRepse,
-        folioVigente: dto.folioVigente,
-        urlVerificacion: dto.urlVerificacion,
-      })
+      const buffer = await renderService.renderBadgePng(renderContext)
 
-      const safeName = `gafete-empleado-${employeeId}`.replace(/[^\w.\- ]/g, '_')
       response.header('Content-Type', 'image/png')
-      response.header('Content-Disposition', `attachment; filename="${safeName}.png"`)
+      response.header(
+        'Content-Disposition',
+        contentDisposition(buildBadgeFileName(employeeSlug, 'png'))
+      )
       response.header('Cache-Control', 'private, no-store')
       response.header('Content-Length', String(buffer.length))
       response.status(200)
@@ -369,7 +367,7 @@ export default class BadgeController {
    *
    *       **PDF:** documento LETTER con cuadrícula 2×4 (8 gafetes/hoja) y
    *       líneas de corte. **PNG:** ZIP con una imagen por trabajador
-   *       (`{employeeId}-{nombre}.png`). Streaming chunked — sin persistencia.
+   *       (`gafete-{employeeSlug}.png`). Streaming chunked — sin persistencia.
    *     tags: [EmployeeBadge]
    *     security:
    *       - bearerAuth: []
@@ -473,6 +471,7 @@ export default class BadgeController {
         empleadoIds: body.empleadoIds,
         formato,
         businessUnitIds: businessUnitScope,
+        accessor: badgeAccessorFromRequest(ctx),
         response,
       })
     } catch (error) {

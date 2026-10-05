@@ -1,6 +1,7 @@
 import logger from '@adonisjs/core/services/logger'
 import { isFileIntakeError, respondFileIntakeError } from '#helpers/file_intake_api_error'
 import { assertSpreadsheetFile } from '#helpers/spreadsheet_intake_guard'
+import { buildDownloadFileName, contentDisposition } from '#helpers/download_file_name'
 import type { HttpContext } from '@adonisjs/core/http'
 import ContratoServicioEspecializadoService, {
   type Anexo15dCreatePayload,
@@ -78,9 +79,15 @@ export default class ContratosServiciosEspecializadosController {
    *       - in: query
    *         name: q
    *         schema: { type: string }
+   *       - in: query
+   *         name: porVencer
+   *         description: |
+   *           `true`: solo contratos con estatus efectivo vigente y fechaFin a 45 días o menos
+   *           (zona de negocio). `false`: los excluye. Se combina por AND con `estatus`.
+   *         schema: { type: boolean }
    *     responses:
    *       '200':
-   *         description: Listado paginado con anexo 15-D, contratante y serviciosRegistrados
+   *         description: Listado paginado con anexo 15-D, contratante, serviciosRegistrados y datos de tarjeta
    *         content:
    *           application/json:
    *             schema:
@@ -119,6 +126,7 @@ export default class ContratosServiciosEspecializadosController {
         fechaInicioDesde: request.input('fechaInicioDesde'),
         fechaInicioHasta: request.input('fechaInicioHasta'),
         q: request.input('q'),
+        porVencer: request.input('porVencer'),
       })
       const service = new ContratoServicioEspecializadoService()
       const bundle = await service.listPaginated(filters.page ?? 1, filters.perPage ?? 20, {
@@ -127,6 +135,7 @@ export default class ContratosServiciosEspecializadosController {
         fechaInicioDesde: filters.fechaInicioDesde,
         fechaInicioHasta: filters.fechaInicioHasta,
         q: filters.q,
+        porVencer: filters.porVencer,
       })
 
       return StandardResponseFormatter.success(
@@ -462,7 +471,9 @@ export default class ContratosServiciosEspecializadosController {
       )
       response.header(
         'Content-Disposition',
-        'attachment; filename=plantilla-importacion-contratos-servicios-especializados.xlsx'
+        contentDisposition(
+          buildDownloadFileName(['plantilla-importacion-contratos-servicios-especializados'], 'xlsx')
+        )
       )
       response.status(200)
       return response.send(buffer)
