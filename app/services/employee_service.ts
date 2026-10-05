@@ -1,4 +1,5 @@
 import { vacationPeriodDates } from '#modules/employee-vacations/vacation_period_dates'
+import { parseEmployeeTerminatedDate } from '#helpers/employee_termination_record'
 import { attendanceStatusCellColor } from '#helpers/attendance_report_cell_color'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
@@ -915,9 +916,19 @@ export default class EmployeeService {
     }
   }
 
+  /**
+   * Da de baja al colaborador con la fecha CAPTURADA (VLRH-H1790812613821):
+   * esa fecha rige el registro de baja, la cancelación de sus cambios
+   * temporales de sucursal y la fecha tentativa del expediente de salida.
+   * Nunca se sustituye por la de hoy (regla 5).
+   *
+   * @throws Error si la fecha llega vacía o no interpretable. Es una violación
+   *   del contrato (el controller ya respondió 400 antes): se lanza antes de
+   *   cualquier escritura y con mensaje fijo, sin el valor recibido.
+   */
   async delete(
     currentEmployee: Employee,
-    baja?: {
+    baja: {
       employeeTerminatedDate: string | Date
       employeeTerminationModality: string
       employeeTerminationType: string
@@ -925,19 +936,14 @@ export default class EmployeeService {
     /** Quién dio la baja. Queda en el historial de la revocación en checadores. */
     actorUserId?: number | null
   ) {
-    if (baja) {
-      currentEmployee.employeeTerminatedDate = baja.employeeTerminatedDate
-      currentEmployee.employeeTerminationModality = baja.employeeTerminationModality
-      currentEmployee.employeeTerminationType = baja.employeeTerminationType
+    const parsed = parseEmployeeTerminatedDate(baja.employeeTerminatedDate)
+    if (parsed.kind !== 'valid') {
+      throw new Error('EmployeeService.delete: fecha de baja vacía o no interpretable')
     }
-    const parsedTerminationDate = baja
-      ? DateTime.fromISO(String(baja.employeeTerminatedDate)).isValid
-        ? DateTime.fromISO(String(baja.employeeTerminatedDate))
-        : DateTime.fromSQL(String(baja.employeeTerminatedDate))
-      : DateTime.now()
-    const terminationDate = (parsedTerminationDate.isValid ? parsedTerminationDate : DateTime.now()).toFormat(
-      'yyyy-MM-dd'
-    )
+    const terminationDate = parsed.calendarDate
+    currentEmployee.employeeTerminatedDate = parsed.sqlValue
+    currentEmployee.employeeTerminationModality = baja.employeeTerminationModality
+    currentEmployee.employeeTerminationType = baja.employeeTerminationType
 
     await EmployeeTemporaryAssignmentService.cancelActiveAssignmentsByEmployee(
       currentEmployee.employeeId,
@@ -950,8 +956,9 @@ export default class EmployeeService {
 
     // Expediente de salida (USRH1786568279587): apertura automática NO
     // bloqueante e idempotente — la baja NUNCA falla por el expediente
-    // (regla 8). Cubre a los 3 llamadores (empleado, piloto, sobrecargo);
-    // la fecha reutiliza `terminationDate` ya resuelta arriba (§7 D5).
+    // (regla 8). Único llamador: EmployeeController.delete (la API de aviación
+    // se retiró en 4205b86c); la fecha es la capturada en la baja
+    // (`terminationDate`, VLRH-H1790812613821).
     try {
       const offboardingsService = new OffboardingsService(this.i18n)
       await offboardingsService.openAutomatically(currentEmployee, terminationDate)

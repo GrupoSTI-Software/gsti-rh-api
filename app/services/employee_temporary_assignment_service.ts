@@ -581,13 +581,23 @@ export default class EmployeeTemporaryAssignmentService {
     }
   }
 
+  /**
+   * Baja del colaborador con fecha D (R1 de VLRH-C0038, VLRH-H1790812613821):
+   * todo cambio temporal de sucursal que no haya terminado antes de D —
+   * vigente ese día o programado para empezar después — queda con
+   * `cancelled_at = D`. Los que terminaron antes de D no se tocan; una
+   * cancelación en D o antes se conserva y una posterior a D pasa a D. Por eso
+   * no se filtra por `start_date`. Solo por `employee_id` del colaborador ya
+   * resuelto por el servicio: nunca ids del cliente ni filtro por sucursal.
+   *
+   * @param eventDate - Fecha de baja capturada, `yyyy-MM-dd`.
+   */
   static async cancelActiveAssignmentsByEmployee(employeeId: number, eventDate: string) {
     const day = DateTime.fromISO(eventDate, { zone: ZONE }).startOf('day')
     if (!day.isValid) return
 
     await EmployeeTemporaryAssignment.query()
       .where('employee_id', employeeId)
-      .where('start_date', '<=', day.toFormat('yyyy-MM-dd'))
       .where('end_date', '>=', day.toFormat('yyyy-MM-dd'))
       .where((query) => {
         query.whereNull('cancelled_at').orWhere('cancelled_at', '>', day.toFormat('yyyy-MM-dd'))

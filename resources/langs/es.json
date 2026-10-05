@@ -179,6 +179,8 @@
   "employee_department_required_message": "Falta el departamento",
   "employee_position_required_title": "Puesto obligatorio",
   "employee_position_required_message": "Falta el puesto",
+  "employee_terminated_date_invalid_title": "Fecha de baja inválida",
+  "employee_terminated_date_invalid_message": "La fecha de baja no es una fecha de calendario válida. Revisa el día, el mes y el año e inténtalo de nuevo.",
   "employee_import_val_file_title": "Archivo inválido",
   "employee_import_val_file_message": "El archivo debe ser un Excel válido (.xlsx o .xls).",
   "employee_import_val_file_missing_message": "Falta el archivo en multipart/form-data. Envíe un Excel en el campo «file» (.xlsx, .xls).",
