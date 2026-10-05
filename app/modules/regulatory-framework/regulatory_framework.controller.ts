@@ -24,9 +24,18 @@ const COUNTRY_CODE_PATTERN = /^[A-Za-z]{2}$/
 /**
  * Controller del módulo regulatory-framework (USRH1785167064404).
  *
- * Expone 5 endpoints GET de solo lectura del catálogo regulatorio
- * (autoridades, normas y árbol de numerales con sus funciones/evidencia).
+ * Expone 5 endpoints GET de solo lectura del catálogo regulatorio bajo
+ * `/api/platform` (autoridades, normas y árbol de numerales con sus
+ * funciones/evidencia):
+ *   GET /api/platform/regulatory-authorities
+ *   GET /api/platform/regulatory-authorities/:slug
+ *   GET /api/platform/regulations/:code
+ *   GET /api/platform/regulations/:code/clauses/:clauseCode
+ *   GET /api/platform/regulations/:code/clauses/:clauseCode/features
  * Cero mutación: el archivo de rutas solo declara `router.get(...)`.
+ *
+ * Solo registrables bajo el grupo `[auth, platformAdmin]`: el controller no tiene
+ * control de acceso propio.
  *
  * Todos los textos editoriales llegan resueltos al idioma del request vía
  * `ctx.i18n` (fallback a la clave literal, nunca claves crudas ni 500).
@@ -36,7 +45,7 @@ const COUNTRY_CODE_PATTERN = /^[A-Za-z]{2}$/
 export default class RegulatoryFrameworkController {
   /**
    * @swagger
-   * /api/v1/regulatory-authorities:
+   * /api/platform/regulatory-authorities:
    *   get:
    *     summary: Lista las autoridades reguladoras activas
    *     description: |
@@ -66,6 +75,8 @@ export default class RegulatoryFrameworkController {
    *         description: Parámetro de consulta inválido (`REG.VAL.001`)
    *       401:
    *         description: No autenticado
+   *       403:
+   *         description: Acceso restringido a plataforma (AUTH.PLATFORM.FORBIDDEN)
    */
   async listAuthorities(ctx: HttpContext) {
     return runListAuthorities(ctx)
@@ -73,7 +84,7 @@ export default class RegulatoryFrameworkController {
 
   /**
    * @swagger
-   * /api/v1/regulatory-authorities/{slug}:
+   * /api/platform/regulatory-authorities/{slug}:
    *   get:
    *     summary: Detalle de una autoridad reguladora con sus normas
    *     security:
@@ -94,6 +105,8 @@ export default class RegulatoryFrameworkController {
    *         description: Autoridad no encontrada o inactiva (`REG.NF.001`)
    *       401:
    *         description: No autenticado
+   *       403:
+   *         description: Acceso restringido a plataforma (AUTH.PLATFORM.FORBIDDEN)
    */
   async showAuthority(ctx: HttpContext) {
     return runShowAuthority(ctx)
@@ -101,7 +114,7 @@ export default class RegulatoryFrameworkController {
 
   /**
    * @swagger
-   * /api/v1/regulations/{code}:
+   * /api/platform/regulations/{code}:
    *   get:
    *     summary: Norma completa con su árbol de numerales anidado
    *     description: |
@@ -126,6 +139,8 @@ export default class RegulatoryFrameworkController {
    *         description: Norma no encontrada (`REG.NF.002`)
    *       401:
    *         description: No autenticado
+   *       403:
+   *         description: Acceso restringido a plataforma (AUTH.PLATFORM.FORBIDDEN)
    */
   async showRegulation(ctx: HttpContext) {
     return runShowRegulation(ctx)
@@ -133,7 +148,7 @@ export default class RegulatoryFrameworkController {
 
   /**
    * @swagger
-   * /api/v1/regulations/{code}/clauses/{clauseCode}:
+   * /api/platform/regulations/{code}/clauses/{clauseCode}:
    *   get:
    *     summary: Detalle de un numeral con sus features y evidencia esperada
    *     security:
@@ -160,6 +175,8 @@ export default class RegulatoryFrameworkController {
    *         description: Norma (`REG.NF.002`) o numeral (`REG.NF.003`) no encontrado
    *       401:
    *         description: No autenticado
+   *       403:
+   *         description: Acceso restringido a plataforma (AUTH.PLATFORM.FORBIDDEN)
    */
   async showClause(ctx: HttpContext) {
     return runShowClause(ctx)
@@ -167,7 +184,7 @@ export default class RegulatoryFrameworkController {
 
   /**
    * @swagger
-   * /api/v1/regulations/{code}/clauses/{clauseCode}/features:
+   * /api/platform/regulations/{code}/clauses/{clauseCode}/features:
    *   get:
    *     summary: Funciones del producto que cubren un numeral (relación inversa magra)
    *     security:
@@ -194,6 +211,8 @@ export default class RegulatoryFrameworkController {
    *         description: Norma (`REG.NF.002`) o numeral (`REG.NF.003`) no encontrado
    *       401:
    *         description: No autenticado
+   *       403:
+   *         description: Acceso restringido a plataforma (AUTH.PLATFORM.FORBIDDEN)
    */
   async showClauseFeatures(ctx: HttpContext) {
     return runShowClauseFeatures(ctx)
