@@ -16,8 +16,14 @@ import {
   BILLING_PROVIDER_KEYS,
   type BillingCatalogProviderPort,
   type BillingCheckoutProviderPort,
+  type BillingInvoiceProviderPort,
   type BillingProviderPort,
   type BillingWebhookProviderPort,
+  type InvoiceChargeDraft,
+  type ProviderInvoice,
+  type ProviderInvoiceLine,
+  type ProviderInvoiceStatus,
+  type ValanserhInvoicePart,
   type CardSetup,
   type CardSetupRequest,
   type ProviderSubscriptionRequest,
@@ -123,6 +129,230 @@ export function buildStripeSubscriptionParams(params: {
       valanserh_signup_attempt: String(params.attempt),
     },
   }
+}
+
+const INVOICE_REF_PATTERN = /^in_[A-Za-z0-9]+$/
+const CUSTOMER_REF_PATTERN = /^cus_[A-Za-z0-9]+$/
+
+const PROVIDER_INVOICE_STATUSES: ReadonlySet<ProviderInvoiceStatus> = new Set([
+  'draft',
+  'open',
+  'paid',
+  'uncollectible',
+  'void',
+])
+
+export function assertInvoiceRef(ref: string, operation: string): void {
+  if (!INVOICE_REF_PATTERN.test(ref)) {
+    throw providerRequestFailed(operation, { stripeErrorType: null, stripeRequestId: null })
+  }
+}
+
+export function assertCustomerRef(ref: string, operation: string): void {
+  if (!CUSTOMER_REF_PATTERN.test(ref)) {
+    throw providerRequestFailed(operation, { stripeErrorType: null, stripeRequestId: null })
+  }
+}
+
+export function invoiceChargeIdempotencyKey(
+  invoiceRef: string,
+  part: ValanserhInvoicePart
+): string {
+  return `valanserh-invoice-${invoiceRef}-${part}`
+}
+
+export function buildInvoiceItemParams(
+  charge: InvoiceChargeDraft
+): Stripe.InvoiceItemCreateParams {
+  return {
+    customer: charge.customerRef,
+    invoice: charge.invoiceRef,
+    amount: charge.amountCents,
+    currency: charge.currency.toLowerCase(),
+    description: charge.description,
+    metadata: {
+      valanserh_invoice_part: charge.part,
+      valanserh_invoice_ref: charge.invoiceRef,
+      valanserh_billing_subscription_id: String(charge.billingSubscriptionId),
+    },
+  }
+}
+
+function throwReadInvoiceShapeError(field: string): never {
+  logger.warn(
+    { provider: BILLING_PROVIDER_KEYS.STRIPE, operation: 'readInvoice', field },
+    'Cobro: respuesta de Stripe con forma inesperada'
+  )
+  throw providerRequestFailed('readInvoice', { stripeErrorType: null, stripeRequestId: null })
+}
+
+function mapProviderInvoiceStatus(status: unknown): ProviderInvoiceStatus | null {
+  if (typeof status !== 'string') {
+    return null
+  }
+  return PROVIDER_INVOICE_STATUSES.has(status as ProviderInvoiceStatus)
+    ? (status as ProviderInvoiceStatus)
+    : null
+}
+
+function readStripeCustomerRef(customer: Stripe.Invoice['customer']): string {
+  if (typeof customer === 'string' && customer.length > 0) {
+    return customer
+  }
+  if (
+    typeof customer === 'object' &&
+    customer !== null &&
+    'id' in customer &&
+    typeof customer.id === 'string' &&
+    customer.id.length > 0
+  ) {
+    return customer.id
+  }
+  throwReadInvoiceShapeError('customer')
+}
+
+function readStripeSubscriptionRefFromInvoice(invoice: Stripe.Invoice): string | null {
+  const parent = invoice.parent
+  if (parent?.type !== 'subscription_details') {
+    return null
+  }
+  const subscription = parent.subscription_details?.subscription
+  if (typeof subscription === 'string') {
+    return subscription
+  }
+  if (
+    typeof subscription === 'object' &&
+    subscription !== null &&
+    typeof subscription.id === 'string'
+  ) {
+    return subscription.id
+  }
+  return null
+}
+
+function readValanserhPart(metadata: Stripe.Metadata | null | undefined): ValanserhInvoicePart | null {
+  const raw = metadata?.valanserh_invoice_part
+  if (raw === 'period' || raw === 'increase_debt') {
+    return raw
+  }
+  return null
+}
+
+function readPriceRefFromLine(line: Stripe.InvoiceLineItem): string | null {
+  const price = line.pricing?.price_details?.price
+  if (typeof price === 'string') {
+    return price
+  }
+  if (typeof price === 'object' && price !== null && typeof price.id === 'string') {
+    return price.id
+  }
+  return null
+}
+
+function readLineSource(line: Stripe.InvoiceLineItem): ProviderInvoiceLine['source'] {
+  const parentType = line.parent?.type
+  if (parentType === 'subscription_item_details') {
+    return 'subscription_item'
+  }
+  if (parentType === 'invoice_item_details') {
+    return 'invoice_item'
+  }
+  return 'other'
+}
+
+function readLineProration(line: Stripe.InvoiceLineItem): boolean {
+  const parent = line.parent
+  if (parent?.type === 'subscription_item_details') {
+    return parent.subscription_item_details?.proration === true
+  }
+  if (parent?.type === 'invoice_item_details') {
+    return parent.invoice_item_details?.proration === true
+  }
+  return false
+}
+
+export function mapProviderInvoiceLine(raw: Stripe.InvoiceLineItem): ProviderInvoiceLine {
+  if (typeof raw.id !== 'string' || raw.id === '') {
+    throwReadInvoiceShapeError('line.id')
+  }
+  if (!Number.isInteger(raw.amount)) {
+    throwReadInvoiceShapeError('line.amount')
+  }
+  const periodStart = raw.period?.start
+  const periodEnd = raw.period?.end
+  if (!Number.isInteger(periodStart)) {
+    throwReadInvoiceShapeError('line.period.start')
+  }
+  if (!Number.isInteger(periodEnd)) {
+    throwReadInvoiceShapeError('line.period.end')
+  }
+
+  return {
+    lineRef: raw.id,
+    amountCents: raw.amount,
+    source: readLineSource(raw),
+    priceRef: readPriceRefFromLine(raw),
+    periodStart,
+    periodEnd,
+    proration: readLineProration(raw),
+    valanserhPart: readValanserhPart(raw.metadata),
+  }
+}
+
+export function mapProviderInvoice(
+  raw: Stripe.Invoice,
+  lines: Stripe.InvoiceLineItem[]
+): ProviderInvoice {
+  if (typeof raw.id !== 'string' || raw.id === '') {
+    throwReadInvoiceShapeError('id')
+  }
+  if (typeof raw.currency !== 'string' || raw.currency === '') {
+    throwReadInvoiceShapeError('currency')
+  }
+  if (!Number.isInteger(raw.total)) {
+    throwReadInvoiceShapeError('total')
+  }
+  if (typeof raw.auto_advance !== 'boolean') {
+    throwReadInvoiceShapeError('auto_advance')
+  }
+
+  return {
+    invoiceRef: raw.id,
+    status: mapProviderInvoiceStatus(raw.status),
+    billingReason: typeof raw.billing_reason === 'string' ? raw.billing_reason : null,
+    subscriptionRef: readStripeSubscriptionRefFromInvoice(raw),
+    customerRef: readStripeCustomerRef(raw.customer),
+    currency: raw.currency,
+    totalCents: raw.total,
+    autoAdvance: raw.auto_advance,
+    lines: lines.map(mapProviderInvoiceLine),
+  }
+}
+
+async function listAllInvoiceLineItems(
+  client: Stripe,
+  invoiceRef: string
+): Promise<Stripe.InvoiceLineItem[]> {
+  const lines: Stripe.InvoiceLineItem[] = []
+  let startingAfter: string | undefined
+
+  for (;;) {
+    const page = await client.invoices.listLineItems(invoiceRef, {
+      limit: 100,
+      ...(startingAfter !== undefined ? { starting_after: startingAfter } : {}),
+    })
+    lines.push(...page.data)
+    if (!page.has_more || page.data.length === 0) {
+      break
+    }
+    const lastId = page.data[page.data.length - 1]?.id
+    if (typeof lastId !== 'string' || lastId === '') {
+      break
+    }
+    startingAfter = lastId
+  }
+
+  return lines
 }
 
 function readPaymentMethodId(paymentMethod: Stripe.SetupIntent['payment_method']): string | null {
@@ -331,7 +561,8 @@ export default class StripeBillingProviderAdapter
     BillingProviderPort,
     BillingCatalogProviderPort,
     BillingWebhookProviderPort,
-    BillingCheckoutProviderPort
+    BillingCheckoutProviderPort,
+    BillingInvoiceProviderPort
 {
   readonly key = BILLING_PROVIDER_KEYS.STRIPE
 
@@ -434,6 +665,53 @@ export default class StripeBillingProviderAdapter
       await client.prices.update(externalId, { active: false })
     } catch (error) {
       throw this.#wrap('archiveCatalogPrice', error)
+    }
+  }
+
+  async readInvoice(invoiceRef: string): Promise<ProviderInvoice> {
+    assertInvoiceRef(invoiceRef, 'readInvoice')
+    const client = this.#requireClient()
+    try {
+      const invoice = await client.invoices.retrieve(invoiceRef)
+      const lines = await listAllInvoiceLineItems(client, invoiceRef)
+      return mapProviderInvoice(invoice, lines)
+    } catch (error) {
+      throw this.#wrap('readInvoice', error)
+    }
+  }
+
+  async addInvoiceCharge(charge: InvoiceChargeDraft): Promise<ProviderObjectRef> {
+    assertInvoiceRef(charge.invoiceRef, 'addInvoiceCharge')
+    assertCustomerRef(charge.customerRef, 'addInvoiceCharge')
+    const client = this.#requireClient()
+    const params = buildInvoiceItemParams(charge)
+    const idempotencyKey = invoiceChargeIdempotencyKey(charge.invoiceRef, charge.part)
+
+    try {
+      const item = await client.invoiceItems.create(params, { idempotencyKey })
+      return { externalId: item.id }
+    } catch (error) {
+      throw this.#wrap('addInvoiceCharge', error)
+    }
+  }
+
+  async holdInvoice(invoiceRef: string): Promise<void> {
+    assertInvoiceRef(invoiceRef, 'holdInvoice')
+    const client = this.#requireClient()
+    try {
+      await client.invoices.update(invoiceRef, { auto_advance: false })
+    } catch (error) {
+      throw this.#wrap('holdInvoice', error)
+    }
+  }
+
+  async resumeInvoice(invoiceRef: string): Promise<void> {
+    assertInvoiceRef(invoiceRef, 'resumeInvoice')
+    const client = this.#requireClient()
+    try {
+      await client.invoices.update(invoiceRef, { auto_advance: true })
+    } catch (error) {
+      throw this.#wrap('resumeInvoice', error)
     }
   }
 

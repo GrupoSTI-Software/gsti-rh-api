@@ -588,12 +588,14 @@ export default class BillingSubscriptionService {
       billingPlanId: input.billingPlanId,
       billingPlanPriceId: currentPrice.billingPlanPriceId,
       contractedEmployees,
-      providerSubscription: input.providerSubscription
+      ...(input.providerSubscription
         ? {
-            customerRef: input.providerSubscription.customerRef,
-            subscriptionRef: input.providerSubscription.subscriptionRef,
+            providerSubscription: {
+              customerRef: input.providerSubscription.customerRef,
+              subscriptionRef: input.providerSubscription.subscriptionRef,
+            },
           }
-        : undefined,
+        : {}),
     })
 
     const existingLive = await BillingSubscription.query({ client: trx })
