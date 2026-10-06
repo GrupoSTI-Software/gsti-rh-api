@@ -2888,6 +2888,14 @@
       "parametros-de-historial-invalidos": {
         "title": "Parámetros de historial inválidos",
         "detail": "Revisa el identificador de la empresa (UUID), la página y el tamaño de página (máximo 100)."
+      },
+      "aceptacion-no-encontrada": {
+        "title": "Aceptación no encontrada",
+        "detail": "No existe una aceptación de términos o aviso con ese identificador en esta empresa."
+      },
+      "no-fue-posible-revelar-la-evidencia": {
+        "title": "No fue posible revelar la evidencia",
+        "detail": "No se pudo registrar la consulta en la bitácora; los datos no se mostraron. Intenta de nuevo."
       }
     }
   },

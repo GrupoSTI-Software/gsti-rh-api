@@ -1,5 +1,12 @@
 import { test } from '@japa/runner'
+import type { Assert } from '@japa/assert'
+import type { ApiClient, ApiResponse } from '@japa/api-client'
+import testUtils from '@adonisjs/core/services/test_utils'
+import i18nManager from '@adonisjs/i18n/services/main'
+import type { HttpContext } from '@adonisjs/core/http'
 import { randomUUID } from 'node:crypto'
+import { IncomingMessage } from 'node:http'
+import { Socket } from 'node:net'
 import { DateTime } from 'luxon'
 import db from '@adonisjs/lucid/services/db'
 import BusinessUnit from '#models/business_unit'
@@ -13,6 +20,7 @@ import ApiToken from '#models/api_token'
 import EvidenceRepositoryMysql from '#modules/consent/evidence/evidence.repository.mysql'
 import EvidenceService from '#modules/consent/evidence/evidence.service'
 import PlatformConsentService from '#modules/consent/platform/platform_consent.service'
+import PlatformConsentController from '#modules/consent/platform/platform_consent.controller'
 import PlatformConsentError from '#exceptions/platform_consent_error'
 import PiiAccessLogService from '#services/pii_access_log_service'
 import { PLATFORM_ACCEPTANCE_DOCUMENT_TYPES } from '#modules/consent/platform/platform_consent.constants'
@@ -64,6 +72,74 @@ const REVEAL_ORIGIN_MODULE = 'platform-legal-acceptances'
 const ACCESSOR_IP = '203.0.113.9'
 const ACCESSOR_USER_AGENT = 'QA-Agent/1.0'
 
+/** URL de revelado de una aceptación del expediente de una empresa. */
+const REVEAL_URL = (publicId: string, userConsentId: string | number) =>
+  `/api/platform/tenants/${publicId}/legal-acceptances/${userConsentId}/reveal`
+
+/** URL del expediente de una empresa (para CA-11). */
+const HISTORY_URL = (publicId: string) => `/api/platform/tenants/${publicId}/legal-acceptances`
+
+/** Agente de usuario que envía la ayuda `reveal`; se asienta en la bitácora del revelado. */
+const REQUEST_USER_AGENT = 'QA-Reveal/1.0'
+
+/**
+ * Cuerpo EXACTO del 403 del guard de plataforma (SEC-C-02). Tres llaves, sin `code`.
+ * El middleware no se toca.
+ */
+const PLATFORM_FORBIDDEN_BODY = {
+  title: 'Acceso restringido a plataforma',
+  detail: 'Esta sección es exclusiva de administradores de plataforma.',
+  key: 'AUTH.PLATFORM.FORBIDDEN',
+}
+
+/** Cuerpo EXACTO del 401 del middleware `auth` cuando la petición llega sin token. */
+const TOKEN_MISSING_BODY = {
+  type: 'warning',
+  title: 'Token requerido',
+  detail: 'No se envió un access token válido',
+  message: 'No se envió un access token válido',
+  key: 'AUTH.TOKEN.MISSING',
+  data: { refreshable: false },
+}
+
+/** Cuerpo del 404 de empresa del contrato §10 (el `detail` es i18n y no se aserta literal). */
+const NOT_FOUND_BODY = {
+  type: 'error',
+  title: 'Empresa no encontrada',
+  key: 'empresa-no-encontrada',
+  code: 'CONSENT.PLATFORM.010',
+}
+
+/**
+ * Cuerpo del 404 de aceptación del contrato §10. El `detail` es i18n (locale `es` por
+ * defecto) y forma parte del contrato: el mismo cuerpo byte a byte para otra empresa,
+ * biométrico, inexistente y cuenta de plataforma.
+ */
+const ACCEPTANCE_NOT_FOUND_BODY = {
+  type: 'error',
+  title: 'Aceptación no encontrada',
+  detail: 'No existe una aceptación de términos o aviso con ese identificador en esta empresa.',
+  key: 'aceptacion-no-encontrada',
+  code: 'CONSENT.PLATFORM.012',
+}
+
+/** Cuerpo del 422 de params inválidos del contrato §10 (el `detail` es i18n). */
+const INVALID_PARAMS_BODY = {
+  type: 'error',
+  title: 'Parámetros de historial inválidos',
+  key: 'parametros-de-historial-invalidos',
+  code: 'CONSENT.PLATFORM.011',
+}
+
+/** Cuerpo del 500 del contrato §10 (el `detail` es i18n, locale `es` por defecto). */
+const REVEAL_FAILED_BODY = {
+  type: 'error',
+  title: 'No fue posible revelar la evidencia',
+  detail: 'No se pudo registrar la consulta en la bitácora; los datos no se mostraron. Intenta de nuevo.',
+  key: 'no-fue-posible-revelar-la-evidencia',
+  code: 'CONSENT.PLATFORM.013',
+}
+
 /** Todo lo que un test crea, para poder borrarlo sin tocar datos ajenos. */
 interface World {
   stamp: string
@@ -102,6 +178,7 @@ interface RevealLogRow {
 let world: World | null = null
 let adminUser: User | null = null
 let adminPerson: Person | null = null
+let adminToken: string | null = null
 
 function currentWorld(): World {
   if (!world) {
@@ -188,6 +265,63 @@ async function createPlatformAdmin(): Promise<void> {
   })
 }
 
+/** Token de consola (`origin = 'platform'`); `loginAs` no sirve porque no lo emite. */
+async function platformToken(client: ApiClient): Promise<string> {
+  if (adminToken) {
+    return adminToken
+  }
+  const response = await client.post('/api/platform/auth/login').json({
+    userEmail: currentAdmin().userEmail,
+    userPassword: TEST_PASSWORD,
+  })
+  response.assertStatus(200)
+  const token = response.body().data?.token as string | undefined
+  if (!token) {
+    throw new Error('Login de plataforma no devolvió token')
+  }
+  adminToken = token
+  return token
+}
+
+/**
+ * Token del login del backoffice (`POST /api/auth/login`, origen `web`): el mismo que usa
+ * cualquier cuenta de empresa. No es un token de consola, así que el guard de plataforma
+ * debe rechazarlo aunque la cuenta sea administradora de plataforma.
+ */
+async function backofficeToken(client: ApiClient, user: User): Promise<string> {
+  const response = await client.post('/api/auth/login').json({
+    userEmail: user.userEmail,
+    userPassword: TEST_PASSWORD,
+  })
+  response.assertStatus(200)
+  const token = response.body().data?.token as string | undefined
+  if (!token) {
+    throw new Error('Login del backoffice no devolvió token')
+  }
+  return token
+}
+
+/** Petición autenticada como administrador de plataforma al revelado de una aceptación. */
+async function reveal(
+  client: ApiClient,
+  publicId: string,
+  userConsentId: string | number,
+  token?: string
+): Promise<ApiResponse> {
+  const authToken = token ?? (await platformToken(client))
+  return client
+    .post(REVEAL_URL(publicId, userConsentId))
+    .header('Authorization', `Bearer ${authToken}`)
+    .header('User-Agent', REQUEST_USER_AGENT)
+}
+
+/** Aserta el 404 de aceptación del contrato §10: cuerpo byte a byte y sin `data`. */
+function assertAcceptanceNotFound(assert: Assert, response: ApiResponse): void {
+  response.assertStatus(404)
+  assert.deepEqual(response.body(), ACCEPTANCE_NOT_FOUND_BODY)
+  assert.notProperty(response.body(), 'data')
+}
+
 /** Empresa de prueba con el sello de la corrida en el nombre. */
 async function createTenant(label: string): Promise<TenantFixture> {
   const w = currentWorld()
@@ -214,9 +348,10 @@ async function createTenant(label: string): Promise<TenantFixture> {
 
 /**
  * Cuenta sin membresía; `userRoleId` es su `users.role_id` (el rol de respaldo de la
- * etapa anterior a los roles por empresa).
+ * etapa anterior a los roles por empresa). `isPlatformAdmin` permite montar cuentas de
+ * plataforma para CA-6 y CA-13.
  */
-async function createAccount(label: string, userRoleId: number): Promise<User> {
+async function createAccount(label: string, userRoleId: number, isPlatformAdmin = false): Promise<User> {
   const w = currentWorld()
   const email = `qa-lar-${label.toLowerCase()}-${w.stamp}@gsti-tests.local`
 
@@ -234,7 +369,7 @@ async function createAccount(label: string, userRoleId: number): Promise<User> {
     userActive: 1,
     // El login del backoffice rechaza cuentas pendientes de activar (contraseña sin fijar).
     userPasswordSetAt: DateTime.utc(),
-    isPlatformAdmin: false,
+    isPlatformAdmin,
     roleId: userRoleId,
     personId: person.personId,
     userEmailType: 'institutional',
@@ -275,6 +410,29 @@ async function createTenantRole(tenant: TenantFixture, slug: string): Promise<Ro
   })
   w.roleIds.push(role.roleId)
   return role
+}
+
+/** Rol de plataforma `root` ya existente en `sae_pruebas` (no se crea ni se borra). */
+async function findRootRole(): Promise<Role> {
+  return Role.query().whereNull('role_deleted_at').where('role_slug', 'root').firstOrFail()
+}
+
+/**
+ * Documento biométrico para fijar que no se puede revelar: queda NO vigente a propósito,
+ * porque publicarlo apagaría el biométrico real del catálogo compartido y el teardown solo
+ * restaura Términos y Aviso.
+ */
+async function createBiometricDocument(version: string): Promise<LegalDocument> {
+  const document = await LegalDocument.create({
+    legalDocumentType: 'biometric_consent',
+    legalDocumentVersion: version,
+    legalDocumentContent: { es: 'fixture' },
+    legalDocumentIsCurrent: false,
+    legalDocumentStatus: 'published',
+    legalDocumentPublishedAt: DateTime.fromISO('2026-03-03T12:00:00.000-06:00'),
+  })
+  currentWorld().legalDocumentIds.push(document.legalDocumentId)
+  return document
 }
 
 /** Borrado suave con fecha fija sobre una fila sembrada por el test (sin pasar por hooks). */
@@ -999,6 +1157,819 @@ test.group(
       assert.instanceOf(error, PlatformConsentError)
       assert.equal((error as PlatformConsentError).key, 'aceptacion-no-encontrada')
       assert.equal(double.callCount(), 2)
+      assert.equal(await countRevealLogs('UserConsent', 'userConsentIp', consent.userConsentId), 0)
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentUserAgent', consent.userConsentId),
+        0
+      )
+    })
+  }
+)
+
+test.group(
+  'POST /api/platform/tenants/:businessUnitPublicId/legal-acceptances/:userConsentId/reveal — contrato',
+  (group) => {
+    group.setup(async () => {
+      adminToken = null
+      await createPlatformAdmin()
+    })
+
+    group.teardown(async () => {
+      if (adminUser) {
+        await ApiToken.query().where('tokenable_id', adminUser.userId).delete()
+        await db.from('users').where('user_id', adminUser.userId).delete()
+      }
+      if (adminPerson) {
+        await db.from('people').where('person_id', adminPerson.personId).delete()
+      }
+    })
+
+    group.each.setup(async () => {
+      const previous = await db
+        .from('legal_documents')
+        .whereIn('legal_document_type', [TERMS, PRIVACY])
+        .where('legal_document_is_current', 1)
+        .select('legal_document_id')
+
+      world = {
+        stamp: uniqueStamp(),
+        businessUnitIds: [],
+        userIds: [],
+        personIds: [],
+        roleIds: [],
+        legalDocumentIds: [],
+        previousCurrentIds: previous.map((r: { legal_document_id: number }) =>
+          Number(r.legal_document_id)
+        ),
+      }
+
+      // Catálogo determinista: sin vigentes de Términos ni Aviso hasta que el test publique.
+      await db
+        .from('legal_documents')
+        .whereIn('legal_document_type', [TERMS, PRIVACY])
+        .update({ legal_document_is_current: 0 })
+    })
+
+    group.each.teardown(async () => {
+      const w = world
+      world = null
+      if (!w) {
+        return
+      }
+
+      try {
+        // Primero la bitácora de la suite: `pii_access_logs` tiene FK a `users.user_id` y
+        // `business_units.business_unit_id`, así que borrar usuarios/empresas antes falla.
+        for (const businessUnitId of w.businessUnitIds) {
+          await cleanupRevealLogs({ businessUnitId })
+        }
+        for (const userId of w.userIds) {
+          await cleanupRevealLogs({ userId })
+        }
+        // Después usuarios, empresas y documentos.
+        if (w.userIds.length > 0) {
+          await ApiToken.query().whereIn('tokenable_id', w.userIds).delete()
+          await db.from('user_consents').whereIn('user_id', w.userIds).delete()
+        }
+        if (w.legalDocumentIds.length > 0) {
+          await db.from('user_consents').whereIn('legal_document_id', w.legalDocumentIds).delete()
+        }
+        if (w.businessUnitIds.length > 0) {
+          await db
+            .from('business_unit_users')
+            .whereIn('business_unit_id', w.businessUnitIds)
+            .delete()
+        }
+        if (w.userIds.length > 0) {
+          await db.from('users').whereIn('user_id', w.userIds).delete()
+        }
+        if (w.personIds.length > 0) {
+          await db.from('people').whereIn('person_id', w.personIds).delete()
+        }
+        if (w.roleIds.length > 0) {
+          await db.from('roles').whereIn('role_id', w.roleIds).delete()
+        }
+        if (w.businessUnitIds.length > 0) {
+          await db.from('business_units').whereIn('business_unit_id', w.businessUnitIds).delete()
+        }
+        if (w.legalDocumentIds.length > 0) {
+          await db
+            .from('legal_documents')
+            .whereIn('legal_document_id', w.legalDocumentIds)
+            .delete()
+        }
+      } finally {
+        // Va en `finally`: si algún borrado truena, el catálogo global (compartido con otras
+        // suites) se restaura igual y `sae_pruebas` nunca se queda sin vigentes.
+        await db.transaction(async (trx) => {
+          await trx
+            .from('legal_documents')
+            .whereIn('legal_document_type', [TERMS, PRIVACY])
+            .update({ legal_document_is_current: 0 })
+          if (w.previousCurrentIds.length > 0) {
+            await trx
+              .from('legal_documents')
+              .whereIn('legal_document_id', w.previousCurrentIds)
+              .update({ legal_document_is_current: 1 })
+          }
+        })
+      }
+    })
+
+    test('CA-1: revela la IP y el agente de usuario y deja exactamente dos registros con la empresa correcta', async ({
+      client,
+      assert,
+    }) => {
+      /**
+       * Objetivo: comprobar el contrato del revelado por HTTP: 200 con `no-store` y el dato
+       * en claro, y exactamente dos filas de bitácora (una por columna) con la empresa del
+       * path, el actor de plataforma, el módulo de origen y el accesor de la petición.
+       *
+       * Dado: una dueña de A con una aceptación digital de Términos con IP y user agent.
+       * Cuando: el administrador de plataforma revela esa aceptación.
+       * Entonces: 200 con las tres llaves y dos filas de bitácora coherentes.
+       */
+      const w = currentWorld()
+      const terms = await publishDocument(
+        TERMS,
+        docVersion(w, 'T1'),
+        DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+      )
+      const tenantA = await createTenant('Alfa')
+      const owner = await createTenantOwner(tenantA, 'AlfaOwner')
+      const consent = await acceptDocument(
+        owner,
+        terms,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+
+      const response = await reveal(
+        client,
+        tenantA.businessUnit.businessUnitPublicId,
+        consent.userConsentId
+      )
+
+      response.assertStatus(200)
+      assert.equal(response.header('cache-control'), 'no-store')
+      assert.deepEqual(response.body(), {
+        type: 'success',
+        data: {
+          userConsentId: consent.userConsentId,
+          ip: '189.203.10.4',
+          userAgent: 'Mozilla/5.0 (X11)',
+        },
+      })
+
+      const ipRow = await logRow(consent.userConsentId, 'userConsentIp')
+      const uaRow = await logRow(consent.userConsentId, 'userConsentUserAgent')
+      assert.isNotNull(ipRow)
+      assert.isNotNull(uaRow)
+      assert.equal(ipRow?.businessUnitId, tenantA.businessUnit.businessUnitId)
+      assert.isAbove(ipRow?.businessUnitId ?? 0, 0)
+      assert.equal(ipRow?.userId, currentAdmin().userId)
+      assert.equal(ipRow?.originModule, REVEAL_ORIGIN_MODULE)
+      assert.equal(ipRow?.accessorUserAgent, REQUEST_USER_AGENT)
+      assert.isString(ipRow?.accessorIp)
+      assert.isNotEmpty(ipRow?.accessorIp ?? '')
+      assert.equal(uaRow?.accessorUserAgent, REQUEST_USER_AGENT)
+      assert.equal(uaRow?.accessorIp, ipRow?.accessorIp)
+      assert.equal(await countRevealLogs('UserConsent', 'userConsentIp', consent.userConsentId), 1)
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentUserAgent', consent.userConsentId),
+        1
+      )
+    })
+
+    test('CA-2: revelar otra vez deja otro registro', async ({ client, assert }) => {
+      /**
+       * Objetivo: comprobar que el revelado no deduplica: una segunda llamada vuelve a
+       * registrar una fila por columna con valor.
+       *
+       * Dado: una dueña de A con una aceptación de Términos con IP y user agent.
+       * Cuando: se revela dos veces la misma aceptación.
+       * Entonces: cada columna acumula dos filas de bitácora.
+       */
+      const w = currentWorld()
+      const terms = await publishDocument(
+        TERMS,
+        docVersion(w, 'T1'),
+        DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+      )
+      const tenantA = await createTenant('Alfa')
+      const owner = await createTenantOwner(tenantA, 'AlfaOwner')
+      const consent = await acceptDocument(
+        owner,
+        terms,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+
+      const first = await reveal(
+        client,
+        tenantA.businessUnit.businessUnitPublicId,
+        consent.userConsentId
+      )
+      first.assertStatus(200)
+      const second = await reveal(
+        client,
+        tenantA.businessUnit.businessUnitPublicId,
+        consent.userConsentId
+      )
+      second.assertStatus(200)
+
+      assert.equal(await countRevealLogs('UserConsent', 'userConsentIp', consent.userConsentId), 2)
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentUserAgent', consent.userConsentId),
+        2
+      )
+    })
+
+    test('CA-3b: una sola columna con valor registra solo esa', async ({ client, assert }) => {
+      /**
+       * Objetivo: comprobar que una columna sin dato (`NULL`) no se registra ni se revela:
+       * solo se escribe la fila de la columna con valor.
+       *
+       * Dado: una dueña de A con una aceptación de Términos con IP pero sin user agent.
+       * Cuando: el administrador de plataforma revela esa aceptación.
+       * Entonces: 200 con `userAgent: null`, una fila de `userConsentIp` y cero de agente.
+       */
+      const w = currentWorld()
+      const terms = await publishDocument(
+        TERMS,
+        docVersion(w, 'T1'),
+        DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+      )
+      const tenantA = await createTenant('Alfa')
+      const owner = await createTenantOwner(tenantA, 'AlfaOwner')
+      const consent = await acceptDocument(
+        owner,
+        terms,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        null
+      )
+
+      const response = await reveal(
+        client,
+        tenantA.businessUnit.businessUnitPublicId,
+        consent.userConsentId
+      )
+
+      response.assertStatus(200)
+      assert.deepEqual(response.body(), {
+        type: 'success',
+        data: { userConsentId: consent.userConsentId, ip: '189.203.10.4', userAgent: null },
+      })
+      assert.equal(await countRevealLogs('UserConsent', 'userConsentIp', consent.userConsentId), 1)
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentUserAgent', consent.userConsentId),
+        0
+      )
+    })
+
+    test('CA-4: la aceptación de otra empresa responde 404 sin bitácora', async ({
+      client,
+      assert,
+    }) => {
+      /**
+       * Objetivo: comprobar el aislamiento por empresa del revelado: pedir bajo el path de A
+       * la aceptación de una persona que solo pertenece a B no la revela ni escribe bitácora.
+       *
+       * Dado: las empresas A y B, con una dueña solo de B que aceptó Términos.
+       * Cuando: el administrador de plataforma revela esa aceptación bajo el path de A.
+       * Entonces: 404 con el cuerpo exacto de aceptación y cero filas de bitácora.
+       */
+      const w = currentWorld()
+      const terms = await publishDocument(
+        TERMS,
+        docVersion(w, 'T1'),
+        DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+      )
+      const tenantA = await createTenant('Alfa')
+      const tenantB = await createTenant('Bravo')
+      const ownerB = await createTenantOwner(tenantB, 'BravoOwner')
+      const consentB = await acceptDocument(
+        ownerB,
+        terms,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+
+      const response = await reveal(
+        client,
+        tenantA.businessUnit.businessUnitPublicId,
+        consentB.userConsentId
+      )
+
+      assertAcceptanceNotFound(assert, response)
+      assert.equal(await countRevealLogs('UserConsent', 'userConsentIp', consentB.userConsentId), 0)
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentUserAgent', consentB.userConsentId),
+        0
+      )
+    })
+
+    test('CA-5: el consentimiento biométrico da el mismo 404 byte a byte', async ({
+      client,
+      assert,
+    }) => {
+      /**
+       * Objetivo: comprobar que el consentimiento biométrico no forma parte del revelado:
+       * no se puede revelar desde el expediente.
+       *
+       * Dado: una dueña de A con una aceptación biométrica.
+       * Cuando: el administrador de plataforma la revela.
+       * Entonces: el mismo 404 de aceptación byte a byte y cero filas de bitácora.
+       */
+      const w = currentWorld()
+      const biometric = await createBiometricDocument(docVersion(w, 'B1'))
+      const tenantA = await createTenant('Alfa')
+      const owner = await createTenantOwner(tenantA, 'AlfaOwner')
+      const bioConsent = await acceptDocument(
+        owner,
+        biometric,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+
+      const response = await reveal(
+        client,
+        tenantA.businessUnit.businessUnitPublicId,
+        bioConsent.userConsentId
+      )
+
+      assertAcceptanceNotFound(assert, response)
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentIp', bioConsent.userConsentId),
+        0
+      )
+    })
+
+    test('CA-6: id inexistente y cuenta de plataforma dan el mismo 404', async ({
+      client,
+      assert,
+    }) => {
+      /**
+       * Objetivo: comprobar que un id inexistente y la aceptación de una cuenta de plataforma
+       * (`is_platform_admin`) responden el mismo 404 byte a byte, sin bitácora.
+       *
+       * Dado: una cuenta administradora de plataforma miembro de A con una aceptación.
+       * Cuando: se revela con un id inexistente y con la aceptación de la cuenta de plataforma.
+       * Entonces: los dos cuerpos son iguales al contrato de aceptación y cero filas.
+       */
+      const w = currentWorld()
+      const terms = await publishDocument(
+        TERMS,
+        docVersion(w, 'T1'),
+        DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+      )
+      const tenantA = await createTenant('Alfa')
+      const platformAccount = await createAccount('PlatA', tenantA.role.roleId, true)
+      await addMembership(platformAccount, tenantA, null)
+      const consent = await acceptDocument(
+        platformAccount,
+        terms,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+
+      const missing = await reveal(
+        client,
+        tenantA.businessUnit.businessUnitPublicId,
+        999999999
+      )
+      const platform = await reveal(
+        client,
+        tenantA.businessUnit.businessUnitPublicId,
+        consent.userConsentId
+      )
+
+      assertAcceptanceNotFound(assert, missing)
+      assertAcceptanceNotFound(assert, platform)
+      assert.deepEqual(platform.body(), missing.body())
+      assert.equal(await countRevealLogs('UserConsent', 'userConsentIp', consent.userConsentId), 0)
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentUserAgent', consent.userConsentId),
+        0
+      )
+    })
+
+    test('CA-6b: la cuenta con rol efectivo root da el mismo 404', async ({ client, assert }) => {
+      /**
+       * Objetivo: comprobar que una cuenta con rol efectivo `root` en A —por el rol de la
+       * membresía y, aparte, por `users.role_id` con la membresía sin rol— también responde
+       * el mismo 404 byte a byte, sin bitácora.
+       *
+       * Dado: dos cuentas de A con una aceptación de Términos: una con membresía al rol
+       * `root` de la empresa y otra con `users.role_id` = rol `root` global.
+       * Cuando: el administrador de plataforma revela cada aceptación.
+       * Entonces: ambos cuerpos son el mismo 404 de aceptación y cero filas.
+       */
+      const w = currentWorld()
+      const terms = await publishDocument(
+        TERMS,
+        docVersion(w, 'T1'),
+        DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+      )
+      const tenantA = await createTenant('Alfa')
+      const rootRole = await findRootRole()
+      const rootRoleA = await createTenantRole(tenantA, 'root')
+      const rootByPivot = await createAccount('RootPivot', tenantA.role.roleId)
+      await addMembership(rootByPivot, tenantA, rootRoleA.roleId)
+      const rootByUser = await createAccount('RootUser', rootRole.roleId)
+      await addMembership(rootByUser, tenantA, null)
+      const pivotConsent = await acceptDocument(
+        rootByPivot,
+        terms,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+      const userConsent = await acceptDocument(
+        rootByUser,
+        terms,
+        DateTime.fromISO('2026-03-11T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+
+      const pivotResponse = await reveal(
+        client,
+        tenantA.businessUnit.businessUnitPublicId,
+        pivotConsent.userConsentId
+      )
+      const userResponse = await reveal(
+        client,
+        tenantA.businessUnit.businessUnitPublicId,
+        userConsent.userConsentId
+      )
+
+      assertAcceptanceNotFound(assert, pivotResponse)
+      assertAcceptanceNotFound(assert, userResponse)
+      assert.deepEqual(pivotResponse.body(), userResponse.body())
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentIp', pivotConsent.userConsentId),
+        0
+      )
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentUserAgent', pivotConsent.userConsentId),
+        0
+      )
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentIp', userConsent.userConsentId),
+        0
+      )
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentUserAgent', userConsent.userConsentId),
+        0
+      )
+    })
+
+    test('Review Focus 2: la aceptación de una membresía retirada da 404 sin bitácora', async ({
+      client,
+      assert,
+    }) => {
+      /**
+       * Objetivo: fijar el hueco heredado del BO: si la membresía de la persona en la empresa
+       * está borrada, su aceptación no se revela —mismo 404, sin bitácora—.
+       *
+       * Dado: una persona de A con membresía borrada que aceptó Términos.
+       * Cuando: el administrador de plataforma revela esa aceptación.
+       * Entonces: el 404 de aceptación y cero filas de bitácora.
+       */
+      const w = currentWorld()
+      const terms = await publishDocument(
+        TERMS,
+        docVersion(w, 'T1'),
+        DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+      )
+      const tenantA = await createTenant('Alfa')
+      const gone = await createAccount('Retirada', tenantA.role.roleId)
+      const membership = await addMembership(gone, tenantA, tenantA.role.roleId)
+      const goneConsent = await acceptDocument(
+        gone,
+        terms,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+      await markDeleted(
+        'business_unit_users',
+        'business_unit_user_id',
+        membership.businessUnitUserId,
+        'business_unit_user_deleted_at'
+      )
+
+      const response = await reveal(
+        client,
+        tenantA.businessUnit.businessUnitPublicId,
+        goneConsent.userConsentId
+      )
+
+      assertAcceptanceNotFound(assert, response)
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentIp', goneConsent.userConsentId),
+        0
+      )
+    })
+
+    test('CA-7b: empresa inexistente o borrada responde 404 empresa-no-encontrada sin bitácora', async ({
+      client,
+      assert,
+    }) => {
+      /**
+       * Objetivo: comprobar que resolver la empresa del path es lo primero: si no existe o
+       * está borrada, se corta con `empresa-no-encontrada` sin tocar la evidencia.
+       *
+       * Dado: un UUID que no corresponde a ninguna empresa y una empresa marcada borrada.
+       * Cuando: el administrador de plataforma revela una aceptación real bajo cada path.
+       * Entonces: 404 `empresa-no-encontrada` y cero filas de bitácora.
+       */
+      const w = currentWorld()
+      const terms = await publishDocument(
+        TERMS,
+        docVersion(w, 'T1'),
+        DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+      )
+      const tenantA = await createTenant('Alfa')
+      const owner = await createTenantOwner(tenantA, 'AlfaOwner')
+      const consent = await acceptDocument(
+        owner,
+        terms,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+      await markDeleted(
+        'business_units',
+        'business_unit_id',
+        tenantA.businessUnit.businessUnitId,
+        'business_unit_deleted_at'
+      )
+
+      for (const publicId of [randomUUID(), tenantA.businessUnit.businessUnitPublicId]) {
+        const response = await reveal(client, publicId, consent.userConsentId)
+
+        response.assertStatus(404)
+        const body = response.body()
+        assert.equal(body.type, NOT_FOUND_BODY.type)
+        assert.equal(body.title, NOT_FOUND_BODY.title)
+        assert.equal(body.key, NOT_FOUND_BODY.key)
+        assert.equal(body.code, NOT_FOUND_BODY.code)
+        assert.notProperty(body, 'data')
+      }
+      assert.equal(await countRevealLogs('UserConsent', 'userConsentIp', consent.userConsentId), 0)
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentUserAgent', consent.userConsentId),
+        0
+      )
+    })
+
+    test('CA-8: params fuera de contrato responden 422', async ({ client, assert }) => {
+      /**
+       * Objetivo: comprobar que los params fuera de contrato se rechazan con el mismo aviso
+       * antes de tocar la evidencia: `userConsentId` no positivo, decimal o no numérico, y un
+       * `businessUnitPublicId` que no es UUID.
+       *
+       * Dado: una empresa A con una aceptación.
+       * Cuando: se revela con `userConsentId` `0`, `-1`, `1.5` y `abc`, y con un path que no
+       * es UUID.
+       * Entonces: 422 sin datos y cero filas de bitácora.
+       */
+      const w = currentWorld()
+      const terms = await publishDocument(
+        TERMS,
+        docVersion(w, 'T1'),
+        DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+      )
+      const tenantA = await createTenant('Alfa')
+      const owner = await createTenantOwner(tenantA, 'AlfaOwner')
+      const consent = await acceptDocument(
+        owner,
+        terms,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+      const publicId = tenantA.businessUnit.businessUnitPublicId
+
+      const assertInvalid = (body: Record<string, unknown>) => {
+        assert.equal(body.type, INVALID_PARAMS_BODY.type)
+        assert.equal(body.title, INVALID_PARAMS_BODY.title)
+        assert.equal(body.key, INVALID_PARAMS_BODY.key)
+        assert.equal(body.code, INVALID_PARAMS_BODY.code)
+        assert.notProperty(body, 'data')
+      }
+
+      for (const badId of ['0', '-1', '1.5', 'abc']) {
+        const response = await reveal(client, publicId, badId)
+        response.assertStatus(422)
+        assertInvalid(response.body())
+      }
+
+      const badPath = await reveal(client, 'no-soy-uuid', consent.userConsentId)
+      badPath.assertStatus(422)
+      assertInvalid(badPath.body())
+
+      assert.equal(await countRevealLogs('UserConsent', 'userConsentIp', consent.userConsentId), 0)
+      assert.equal(
+        await countRevealLogs('UserConsent', 'userConsentUserAgent', consent.userConsentId),
+        0
+      )
+    })
+
+    test('CA-10: una falla de bitácora responde 500 sin dato', async ({ assert }) => {
+      /**
+       * Objetivo: comprobar que si el registro en bitácora falla, el controller responde 500
+       * sin dato y sin filtrar la IP ni el agente de usuario en el cuerpo.
+       *
+       * Dado: un `PiiAccessLogService` doble que delega el primer `record` y lanza en el
+       * segundo, y un contexto HTTP con el actor de plataforma vivo.
+       * Cuando: se invoca `reveal` del controller con ese servicio.
+       * Entonces: 500 con el cuerpo exacto de fallo y el texto serializado sin IP ni UA.
+       */
+      const w = currentWorld()
+      const terms = await publishDocument(
+        TERMS,
+        docVersion(w, 'T1'),
+        DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+      )
+      const tenantA = await createTenant('Alfa')
+      const owner = await createTenantOwner(tenantA, 'AlfaOwner')
+      const consent = await acceptDocument(
+        owner,
+        terms,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+      const service = new PlatformConsentService(
+        undefined,
+        undefined,
+        undefined,
+        createFailingPiiLogService()
+      )
+
+      const socket = new Socket()
+      Object.defineProperty(socket, 'remoteAddress', {
+        value: '203.0.113.9',
+        configurable: true,
+      })
+      const ctx = await testUtils.createHttpContext({ req: new IncomingMessage(socket) })
+      ctx.i18n = i18nManager.locale('es')
+      ctx.params = {
+        businessUnitPublicId: tenantA.businessUnit.businessUnitPublicId,
+        userConsentId: consent.userConsentId,
+      }
+      const actor = new User()
+      actor.userId = currentAdmin().userId
+      ctx.auth = { user: actor } as HttpContext['auth']
+
+      // Fuera de una petición HTTP real el mixin de alcance lanzaría: se emula el bypass
+      // auditado que el guard de plataforma aplica a la petición (motivo `platform-admin`).
+      await TenantContext.runUnscoped(
+        () => new PlatformConsentController().reveal(ctx, service),
+        TENANT_UNSCOPED_REASON.PLATFORM_ADMIN
+      )
+
+      assert.equal(ctx.response.getStatus(), 500)
+      const rawBody = ctx.response.getBody()
+      const serialized = typeof rawBody === 'string' ? rawBody : JSON.stringify(rawBody)
+      assert.deepEqual(JSON.parse(serialized), REVEAL_FAILED_BODY)
+      assert.notInclude(serialized, '189.203.10.4')
+      assert.notInclude(serialized, 'Mozilla')
+    })
+
+    test('CA-11: el historial sigue enmascarado después de revelar', async ({ client, assert }) => {
+      /**
+       * Objetivo: comprobar que revelar no cambia el expediente: la misma fila sigue con la
+       * IP y el agente de usuario enmascarados.
+       *
+       * Dado: una dueña de A con una aceptación con IP y user agent, ya revelada.
+       * Cuando: el administrador de plataforma pide el historial de A.
+       * Entonces: la fila sigue con `ip` y `userAgent` en `•••••`.
+       */
+      const w = currentWorld()
+      const terms = await publishDocument(
+        TERMS,
+        docVersion(w, 'T1'),
+        DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+      )
+      const tenantA = await createTenant('Alfa')
+      const owner = await createTenantOwner(tenantA, 'AlfaOwner')
+      const consent = await acceptDocument(
+        owner,
+        terms,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+
+      const revealed = await reveal(
+        client,
+        tenantA.businessUnit.businessUnitPublicId,
+        consent.userConsentId
+      )
+      revealed.assertStatus(200)
+
+      const token = await platformToken(client)
+      const historyResponse = await client
+        .get(HISTORY_URL(tenantA.businessUnit.businessUnitPublicId))
+        .header('Authorization', `Bearer ${token}`)
+
+      historyResponse.assertStatus(200)
+      const body = historyResponse.body() as {
+        data: Array<{ userConsentId: number; ip: string | null; userAgent: string | null }>
+      }
+      const row = body.data.find((entry) => entry.userConsentId === consent.userConsentId)
+      assert.isDefined(row)
+      assert.equal(row?.ip, '•••••')
+      assert.equal(row?.userAgent, '•••••')
+    })
+
+    test('CA-12: sin token responde 401 sin bitácora', async ({ client, assert }) => {
+      /**
+       * Objetivo: comprobar que el revelado exige sesión: sin token responde el 401 del
+       * middleware `auth`, sin escribir bitácora.
+       *
+       * Dado: una empresa A con una aceptación y una petición sin cabecera de autorización.
+       * Cuando: se llama al revelado.
+       * Entonces: 401 con el cuerpo exacto y cero filas de bitácora.
+       */
+      const w = currentWorld()
+      const terms = await publishDocument(
+        TERMS,
+        docVersion(w, 'T1'),
+        DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+      )
+      const tenantA = await createTenant('Alfa')
+      const owner = await createTenantOwner(tenantA, 'AlfaOwner')
+      const consent = await acceptDocument(
+        owner,
+        terms,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+
+      const response = await client.post(
+        REVEAL_URL(tenantA.businessUnit.businessUnitPublicId, consent.userConsentId)
+      )
+
+      response.assertStatus(401)
+      assert.deepEqual(response.body(), TOKEN_MISSING_BODY)
+      assert.equal(await countRevealLogs('UserConsent', 'userConsentIp', consent.userConsentId), 0)
+    })
+
+    test('CA-13: un token del backoffice responde 403 sin bitácora', async ({
+      client,
+      assert,
+    }) => {
+      /**
+       * Objetivo: comprobar que el guard exige token de consola: ni una cuenta dueña ni una
+       * cuenta administradora de plataforma pasan con un token del backoffice.
+       *
+       * Dado: un dueño de A y una cuenta con `isPlatformAdmin = true`, autenticados por el
+       * login del backoffice.
+       * Cuando: piden el revelado de A.
+       * Entonces: el 403 exacto del guard (tres llaves, sin `code`) y cero filas de bitácora.
+       */
+      const w = currentWorld()
+      const terms = await publishDocument(
+        TERMS,
+        docVersion(w, 'T1'),
+        DateTime.fromISO('2026-03-01T12:00:00.000-06:00')
+      )
+      const tenantA = await createTenant('Alfa')
+      const owner = await createTenantOwner(tenantA, 'BOToken')
+      const adminByBackoffice = await createAccount('BOAdmin', tenantA.role.roleId, true)
+      const consent = await acceptDocument(
+        owner,
+        terms,
+        DateTime.fromISO('2026-03-10T09:00:00.000-06:00'),
+        '189.203.10.4',
+        'Mozilla/5.0 (X11)'
+      )
+
+      for (const user of [owner, adminByBackoffice]) {
+        const token = await backofficeToken(client, user)
+        const response = await reveal(
+          client,
+          tenantA.businessUnit.businessUnitPublicId,
+          consent.userConsentId,
+          token
+        )
+
+        response.assertStatus(403)
+        assert.deepEqual(response.body(), PLATFORM_FORBIDDEN_BODY)
+        assert.deepEqual(Object.keys(response.body()).sort(), ['detail', 'key', 'title'])
+      }
       assert.equal(await countRevealLogs('UserConsent', 'userConsentIp', consent.userConsentId), 0)
       assert.equal(
         await countRevealLogs('UserConsent', 'userConsentUserAgent', consent.userConsentId),
