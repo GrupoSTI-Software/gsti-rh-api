@@ -25,6 +25,12 @@ export const BILLING_PROVIDER_ERROR_CODES = {
   SUBSCRIPTION_OPENING_MISMATCH: 'PLT.PRV.SUBSCRIPTION_OPENING_MISMATCH',
   /** Otro complete del mismo borrador en curso (USRH1790708507607) */
   SIGNUP_COMPLETION_IN_PROGRESS: 'PLT.PRV.SIGNUP_COMPLETION_IN_PROGRESS',
+  /** No se pudo determinar el monto del ciclo desde la suscripción (USRH1790708507665) */
+  INVOICE_AMOUNT_UNAVAILABLE: 'PLT.PRV.INVOICE_AMOUNT_UNAVAILABLE',
+  /** Factura con conceptos, moneda o total ajenos a Valanserh (USRH1790708507665) */
+  INVOICE_UNEXPECTED_LINES: 'PLT.PRV.INVOICE_UNEXPECTED_LINES',
+  /** Factura no ligada a una suscripción stripe registrada (USRH1790708507665) */
+  INVOICE_SUBSCRIPTION_NOT_FOUND: 'PLT.PRV.INVOICE_SUBSCRIPTION_NOT_FOUND',
 } as const
 
 export type BillingProviderErrorCode =
@@ -69,3 +75,15 @@ export const BILLING_PROVIDER_SUBSCRIPTION_OPENING_MISMATCH_DETAIL =
 /** Texto fijo cuando otro complete reclamó el borrador (USRH1790708507607). */
 export const BILLING_PROVIDER_SIGNUP_COMPLETION_IN_PROGRESS_DETAIL =
   'Tu registro ya se está completando. Espera un momento y vuelve a intentar.'
+
+/** Texto fijo cuando no hay monto de ciclo determinable (USRH1790708507665). */
+export const BILLING_PROVIDER_INVOICE_AMOUNT_UNAVAILABLE_DETAIL =
+  'No fue posible determinar el monto del ciclo desde el trato de la suscripción.'
+
+/** Texto fijo cuando la factura trae conceptos ajenos (USRH1790708507665). */
+export const BILLING_PROVIDER_INVOICE_UNEXPECTED_LINES_DETAIL =
+  'La factura del proveedor trae conceptos, moneda o total que no calculó Valanserh.'
+
+/** Texto fijo cuando la factura no corresponde a una suscripción registrada (USRH1790708507665). */
+export const BILLING_PROVIDER_INVOICE_SUBSCRIPTION_NOT_FOUND_DETAIL =
+  'La factura del proveedor no corresponde a una suscripción registrada.'

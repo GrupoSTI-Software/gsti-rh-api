@@ -1,6 +1,9 @@
 import {
   BILLING_PROVIDER_ERROR_CODES,
   BILLING_PROVIDER_CARD_NOT_CONFIRMED_DETAIL,
+  BILLING_PROVIDER_INVOICE_AMOUNT_UNAVAILABLE_DETAIL,
+  BILLING_PROVIDER_INVOICE_SUBSCRIPTION_NOT_FOUND_DETAIL,
+  BILLING_PROVIDER_INVOICE_UNEXPECTED_LINES_DETAIL,
   BILLING_PROVIDER_OPERATION_NOT_AVAILABLE_DETAIL,
   BILLING_PROVIDER_PROVIDER_REQUEST_FAILED_DETAIL,
   BILLING_PROVIDER_SUBSCRIPTION_OPENING_MISMATCH_DETAIL,
@@ -34,6 +37,45 @@ export function subscriptionOpeningMismatch(): BillingProviderServiceError {
     500,
     'apertura-de-cobro-inconsistente',
     BILLING_PROVIDER_SUBSCRIPTION_OPENING_MISMATCH_DETAIL
+  )
+}
+
+export function invoiceAmountUnavailable(
+  invoiceRef: string,
+  _reason: string
+): BillingProviderServiceError {
+  return new BillingProviderServiceError(
+    `Monto del ciclo no disponible para la factura ${invoiceRef}`,
+    BILLING_PROVIDER_ERROR_CODES.INVOICE_AMOUNT_UNAVAILABLE,
+    500,
+    'monto-del-ciclo-no-disponible',
+    BILLING_PROVIDER_INVOICE_AMOUNT_UNAVAILABLE_DETAIL
+  )
+}
+
+export function invoiceUnexpectedLines(
+  invoiceRef: string,
+  _reason: string
+): BillingProviderServiceError {
+  return new BillingProviderServiceError(
+    `Factura ${invoiceRef} con conceptos ajenos`,
+    BILLING_PROVIDER_ERROR_CODES.INVOICE_UNEXPECTED_LINES,
+    500,
+    'factura-con-conceptos-ajenos',
+    BILLING_PROVIDER_INVOICE_UNEXPECTED_LINES_DETAIL
+  )
+}
+
+export function invoiceSubscriptionNotFound(
+  invoiceRef: string,
+  _reason: string
+): BillingProviderServiceError {
+  return new BillingProviderServiceError(
+    `Suscripción no encontrada para la factura ${invoiceRef}`,
+    BILLING_PROVIDER_ERROR_CODES.INVOICE_SUBSCRIPTION_NOT_FOUND,
+    500,
+    'suscripcion-de-la-factura-no-encontrada',
+    BILLING_PROVIDER_INVOICE_SUBSCRIPTION_NOT_FOUND_DETAIL
   )
 }
 

@@ -1,4 +1,5 @@
 import type BillingSubscription from '#models/billing_subscription'
+import BillingProviderInvoiceCreatedHandler from '#modules/billing-provider/billing_provider_invoice_created.handler'
 import type {
   BillingProviderPort,
   VerifiedProviderEvent,
@@ -37,3 +38,8 @@ export class BillingProviderEventHandlerRegistry {
 }
 
 export const billingProviderEventHandlers = new BillingProviderEventHandlerRegistry()
+
+billingProviderEventHandlers.register(
+  'invoice.created',
+  new BillingProviderInvoiceCreatedHandler()
+)

@@ -6,6 +6,7 @@ import BillingSubscription from '#models/billing_subscription'
 import BillingInternalNotificationService from '#services/billing_internal_notification_service'
 import SelfServiceSubscriptionCreatedMail from '#mails/self_service_subscription_created_mail'
 import SubscriptionChangeNotApplicableMail from '#mails/subscription_change_not_applicable_mail'
+import BillingProviderInvoiceHeldMail from '#mails/billing_provider_invoice_held_mail'
 import type { SubscriptionChangeRecord } from '#services/billing_subscription_change_service'
 
 /**
@@ -348,6 +349,78 @@ test.group('BillingInternalNotificationService - notifySelfServiceSubscriptionCr
         return true
       })
     } finally {
+      mail.restore()
+    }
+  })
+})
+
+test.group('BillingInternalNotificationService — notifyProviderInvoiceHeld (7665 / CA-13)', () => {
+  test('envía aviso con ids y code sin PII en asunto', async ({ assert }) => {
+    const fake = mail.fake()
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await service.notifyProviderInvoiceHeld({
+              billingSubscriptionId: 3501,
+              businessUnitId: 9001,
+              invoiceRef: 'in_fixtureM1',
+              subscriptionRef: 'sub_fixtureM1',
+              eventRef: 'evt_fixtureM1',
+              errorCode: 'PLT.PRV.INVOICE_AMOUNT_UNAVAILABLE',
+            })
+          }
+        )
+      })
+
+      fake.mails.assertSentCount(BillingProviderInvoiceHeldMail, 1)
+      fake.mails.assertSent(BillingProviderInvoiceHeldMail, ({ message }) => {
+        const json = message.toJSON() as { message: { subject: string } }
+        assert.match(json.message.subject, /Factura retenida/i)
+        assert.notInclude(json.message.subject, 'in_fixtureM1')
+        assert.notInclude(json.message.subject, 'Acme')
+        message.assertHtmlIncludes('in_fixtureM1')
+        message.assertHtmlIncludes('sub_fixtureM1')
+        message.assertHtmlIncludes('evt_fixtureM1')
+        message.assertHtmlIncludes('PLT.PRV.INVOICE_AMOUNT_UNAVAILABLE')
+        message.assertHtmlIncludes('3501')
+        return message.hasTo(INTERNAL_RECIPIENT_A)
+      })
+    } finally {
+      mail.restore()
+    }
+  })
+
+  test('fallo SMTP no lanza', async ({ assert }) => {
+    mail.fake()
+    const originalSend = mail.send.bind(mail)
+    ;(mail as unknown as { send: typeof mail.send }).send = async () => {
+      throw new Error('SMTP caído (simulado)')
+    }
+
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: INTERNAL_RECIPIENT_A },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await assert.doesNotReject(async () => {
+              await service.notifyProviderInvoiceHeld({
+                billingSubscriptionId: null,
+                businessUnitId: null,
+                invoiceRef: 'in_fixtureM1',
+                subscriptionRef: 'sub_fixtureM1',
+                eventRef: 'evt_fixtureM1',
+                errorCode: 'PLT.PRV.INVOICE_UNEXPECTED_LINES',
+              })
+            })
+          }
+        )
+      })
+    } finally {
+      ;(mail as unknown as { send: typeof mail.send }).send = originalSend
       mail.restore()
     }
   })
