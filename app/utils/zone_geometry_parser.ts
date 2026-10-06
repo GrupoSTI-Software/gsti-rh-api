@@ -5,7 +5,7 @@ import type { GeoPoint } from '#utils/geo_polygon'
  *
  * El editor del backoffice guarda una `FeatureCollection` con varias figuras:
  * polígonos de anillo cerrado, polilíneas (las zonas históricas) y marcadores
- * sueltos. La validación de la PWA retirada leía solo `features[0]` y fallaba con
+ * sueltos. La validación de la PWA retirada leía solo la primera figura y fallaba con
  * polígonos anidados; aquí se recorren todas las figuras y se tolera cualquier
  * forma rota sin lanzar: una zona que no se puede leer no aporta geometría y
  * quien decide la trata como no evaluable.
