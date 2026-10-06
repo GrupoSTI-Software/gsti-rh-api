@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <title>{{ subject }}</title>
+</head>
+<body style="font-family: sans-serif; color: #111827;">
+  <p style="font-weight: 700; color: {{ sidebarColor }};">{{ tradeName }} — aviso interno</p>
+  <p>
+    No se pudo cancelar en Stripe una suscripción creada durante un registro que falló al crear la empresa en Valanserh.
+    Cancela manualmente la suscripción en el dashboard de Stripe.
+  </p>
+  <ul>
+    <li>signupDraftId: {{ signupDraftId }}</li>
+    <li>attempt: {{ attempt }}</li>
+    <li>stripeCustomerId: {{ stripeCustomerId }}</li>
+    <li>stripeSubscriptionId: {{ stripeSubscriptionId }}</li>
+    <li>errorCode: {{ errorCode }}</li>
+  </ul>
+</body>
+</html>

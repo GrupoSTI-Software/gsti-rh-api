@@ -13,6 +13,10 @@ import BillingVolumeTier from '#models/billing_volume_tier'
 import BillingSubscription from '#models/billing_subscription'
 import BillingCatalogService from '#services/billing_catalog_service'
 import SelfServiceSubscriptionCreatedMail from '#mails/self_service_subscription_created_mail'
+import Tolerance from '#models/tolerance'
+import RoleSystemPermission from '#models/role_system_permission'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
+import { TenantContext } from '#utils/tenant_context'
 import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
@@ -67,35 +71,66 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
   })
 
   group.teardown(async () => {
-    if (createdBusinessUnitId !== null) {
-      await BillingSubscription.query()
-        .where('business_unit_id', createdBusinessUnitId)
-        .delete()
-    }
-    if (createdUserId !== null) {
-      await BusinessUnitUser.query().where('user_id', createdUserId).delete()
-      await User.query().where('user_id', createdUserId).delete()
-    }
-    if (createdPersonId !== null) {
-      await Person.query().where('person_id', createdPersonId).delete()
-    }
-    if (createdBusinessUnitId !== null) {
-      await SystemSetting.query()
-        .withTrashed()
-        .where('business_unit_id', createdBusinessUnitId)
-        .delete()
-      await BusinessUnit.query().where('business_unit_id', createdBusinessUnitId).delete()
-    }
-    await SignupDraft.query().where('signup_draft_email', signupEmail).delete()
+    await TenantContext.runUnscoped(async () => {
+      if (createdBusinessUnitId !== null) {
+        await BillingSubscription.query()
+          .where('business_unit_id', createdBusinessUnitId)
+          .delete()
 
-    if (publishedPlanId !== null) {
-      await BillingVolumeTier.query().where('billing_plan_id', publishedPlanId).delete()
-      await BillingPlanPrice.query().where('billing_plan_id', publishedPlanId).delete()
-      const plan = await BillingPlan.find(publishedPlanId)
-      if (plan) {
-        await plan.delete()
+        const tenantSettings = await SystemSetting.query()
+          .withTrashed()
+          .where('business_unit_id', createdBusinessUnitId)
+        if (tenantSettings.length > 0) {
+          await Tolerance.query()
+            .whereIn(
+              'system_setting_id',
+              tenantSettings.map((setting) => setting.systemSettingId)
+            )
+            .delete()
+        }
+        await SystemSetting.query()
+          .withTrashed()
+          .where('business_unit_id', createdBusinessUnitId)
+          .delete()
+
+        if (createdUserId !== null) {
+          await BusinessUnitUser.query().where('user_id', createdUserId).delete()
+          await User.query().where('user_id', createdUserId).delete()
+        }
+
+        const tenantRoles = await Role.query()
+          .withTrashed()
+          .where('business_unit_id', createdBusinessUnitId)
+        if (tenantRoles.length > 0) {
+          await RoleSystemPermission.query()
+            .whereIn(
+              'role_id',
+              tenantRoles.map((role) => role.roleId)
+            )
+            .delete()
+          await Role.query()
+            .withTrashed()
+            .where('business_unit_id', createdBusinessUnitId)
+            .delete()
+        }
+
+        await Person.query().where('business_unit_id', createdBusinessUnitId).delete()
+        await BusinessUnit.query().where('business_unit_id', createdBusinessUnitId).delete()
+      } else if (createdPersonId !== null) {
+        await Person.query().where('person_id', createdPersonId).delete()
       }
-    }
+
+      await SignupDraft.query().where('signup_draft_email', signupEmail).delete()
+
+      if (publishedPlanId !== null) {
+        await BillingVolumeTier.query().where('billing_plan_id', publishedPlanId).delete()
+        await BillingPlanPrice.query().where('billing_plan_id', publishedPlanId).delete()
+        const plan = await BillingPlan.find(publishedPlanId)
+        if (plan) {
+          await plan.delete()
+        }
+      }
+    }, TENANT_UNSCOPED_REASON.TEST_FIXTURE)
 
     mail.restore()
     mailFake = null
@@ -144,8 +179,9 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
     assert.exists(body.data?.refreshToken, 'complete debe emitir un refresh token')
 
     const newUserId = Number(body.data.user.userId)
+    const newPersonId = Number(body.data.user.personId)
     createdUserId = newUserId
-    createdPersonId = Number(body.data.user.personId)
+    createdPersonId = newPersonId
 
     const persistedUser = await User.query().where('user_id', newUserId).firstOrFail()
     const role = await Role.query().where('role_id', persistedUser.roleId).firstOrFail()
@@ -155,19 +191,22 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
       .query()
       .select('business_units.business_unit_id')
     assert.lengthOf(attachedBusinessUnits, 1, 'El usuario debe quedar asociado a su propia empresa')
-    createdBusinessUnitId = attachedBusinessUnits[0].businessUnitId
+    const businessUnitId = attachedBusinessUnits[0].businessUnitId
+    createdBusinessUnitId = businessUnitId
 
     assert.equal(role.roleSlug, 'owner', 'El usuario creado por self-service debe nacer con rol owner')
     assert.notEqual(persistedUser.roleId, 1, 'No debe quedar con el roleId interno hardcodeado (1)')
 
     const businessUnit = await BusinessUnit.query()
-      .where('business_unit_id', createdBusinessUnitId)
+      .where('business_unit_id', businessUnitId)
       .firstOrFail()
     assert.equal(businessUnit.businessUnitOrigin, 'self_service')
 
     // USRH1789698261609 (CA-4): el dueño de la cuenta nueva nace marcado con su
     // empresa. Sin esto quedaría invisible dentro de la cuenta que acaba de crear.
-    const ownerPerson = await Person.query().where('person_id', createdPersonId).firstOrFail()
+    const ownerPerson = await TenantContext.run([businessUnitId], () =>
+      Person.query().where('person_id', newPersonId).firstOrFail()
+    )
     assert.equal(
       ownerPerson.businessUnitId,
       createdBusinessUnitId,
@@ -175,7 +214,7 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
     )
 
     const subscription = await BillingSubscription.query()
-      .where('business_unit_id', createdBusinessUnitId)
+      .where('business_unit_id', businessUnitId)
       .first()
     assert.isNotNull(subscription)
     assert.equal(subscription!.billingSubscriptionStatus, 'trialing')
@@ -188,7 +227,7 @@ test.group('Signup self-service (start → verify-otp → complete) — rol owne
 
     mailFake!.mails.assertSent(SelfServiceSubscriptionCreatedMail, ({ message }) => {
       message.assertHtmlIncludes(businessUnit.businessUnitName)
-      message.assertHtmlIncludes('Contratación self-service')
+      message.assertHtmlIncludes('Nueva contratación')
       return true
     })
   })

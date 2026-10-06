@@ -1,14 +1,19 @@
 import type { DateTime } from 'luxon'
 import PlatformTenantService from '#services/platform_tenant_service'
+import PlatformConsentError from '#exceptions/platform_consent_error'
+import EvidenceService from '#modules/consent/evidence/evidence.service'
 import {
   PLATFORM_ACCEPTANCES_DEFAULT_LIMIT,
+  PLATFORM_ACCEPTANCE_DOCUMENT_TYPES,
   type PlatformAcceptanceStatusFilter,
   type PlatformDocumentAcceptanceStatus,
 } from '#modules/consent/platform/platform_consent.constants'
 import {
   toCurrentDocumentVersionDto,
   toDocumentAcceptanceDto,
+  toTenantLegalAcceptanceRow,
   type PlatformLegalAcceptancesResponse,
+  type PlatformTenantLegalAcceptancesResponseDto,
 } from '#modules/consent/platform/dto/platform_legal_acceptance.dto'
 import type {
   CurrentAcceptanceDocuments,
@@ -57,7 +62,8 @@ export interface ListLegalAcceptancesFilters {
 export default class PlatformConsentService {
   constructor(
     private readonly tenantService: PlatformTenantService = new PlatformTenantService(),
-    private readonly repository: PlatformConsentRepository = new PlatformConsentRepositoryMysql()
+    private readonly repository: PlatformConsentRepository = new PlatformConsentRepositoryMysql(),
+    private readonly evidenceService: EvidenceService = new EvidenceService()
   ) {}
 
   /**
@@ -109,6 +115,57 @@ export default class PlatformConsentService {
         privacyNotice: this.toDocumentDto(current, 'privacyNotice', row.privacyNotice),
       })),
       meta: { total, page, limit, lastPage: Math.max(1, Math.ceil(total / limit)) },
+    }
+  }
+
+  /**
+   * Historial de aceptaciones legales de una empresa por su `businessUnitPublicId`
+   * (§14, contrato §10). Una sola barrera por capa: aquí viven el 404
+   * (`empresa-no-encontrada`) y la aserción de id interno positivo, antes de tocar
+   * la evidencia (§6, SEC-D-01).
+   *
+   * La evidencia se acota a los tipos de plataforma (términos y aviso) y excluye a
+   * las cuentas de plataforma (`excludePlatformAccounts`). `revealAllowed` se fija en
+   * `false` (SEC-D-04): el historial nunca revela `ip`/`userAgent` en claro, y nada del
+   * caller lo cambia.
+   */
+  async getTenantHistory(
+    publicId: string,
+    page: number,
+    perPage: number
+  ): Promise<PlatformTenantLegalAcceptancesResponseDto> {
+    const tenant = await this.repository.findBusinessUnitByPublicId(publicId)
+    if (tenant === null) {
+      throw new PlatformConsentError('empresa-no-encontrada')
+    }
+    this.assertPositiveBusinessUnitId(tenant.businessUnitId)
+
+    const evidencePage = await this.evidenceService.getEvidence(
+      {
+        businessUnitId: tenant.businessUnitId,
+        types: [...PLATFORM_ACCEPTANCE_DOCUMENT_TYPES],
+        excludePlatformAccounts: true,
+      },
+      { page, perPage },
+      false
+    )
+    const owners = new Set(await this.repository.findOwnerUserIds(tenant.businessUnitId))
+
+    return {
+      type: 'success',
+      tenant: {
+        businessUnitPublicId: tenant.businessUnitPublicId,
+        businessUnitName: tenant.businessUnitName,
+      },
+      data: evidencePage.data.map((row) => toTenantLegalAcceptanceRow(row, owners)),
+      meta: evidencePage.meta,
+    }
+  }
+
+  /** Aserción previa a cualquier consulta de evidencia (SEC-D-01): el id interno debe ser positivo. */
+  private assertPositiveBusinessUnitId(businessUnitId: number): void {
+    if (!Number.isSafeInteger(businessUnitId) || businessUnitId <= 0) {
+      throw new Error('Identificador interno de empresa inválido')
     }
   }
 

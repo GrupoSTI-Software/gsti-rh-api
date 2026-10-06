@@ -3,7 +3,10 @@ import { DateTime } from 'luxon'
 import { writeFile, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { PDFDocument } from 'pdf-lib'
+import type { ApiClient } from '@japa/api-client'
 import mail from '@adonisjs/mail/services/main'
+import ApiToken from '#models/api_token'
 import User from '#models/user'
 import Person from '#models/person'
 import BusinessUnit from '#models/business_unit'
@@ -23,7 +26,9 @@ import UploadService from '#services/upload_service'
 import EmployeeQuotaService from '#services/employee_quota_service'
 import SubscriptionChangeNotApplicableMail from '#mails/subscription_change_not_applicable_mail'
 import { BILLING_PAYMENT_ERROR_CODES } from '#constants/billing_payment_error_codes'
+import { TENANT_UNSCOPED_REASON } from '#constants/tenant_unscoped_reason'
 import { toBusinessDateString, toCalendarIsoDate } from '#utils/business_date'
+import { TenantContext } from '#utils/tenant_context'
 import { ensureRole } from '#tests/helpers/ensure_role'
 
 /**
@@ -32,8 +37,59 @@ import { ensureRole } from '#tests/helpers/ensure_role'
  */
 
 const TEST_PASSWORD = 'BillingPaymentApplyIncrease123!'
-const VALID_PDF_BUFFER = Buffer.from('%PDF-1.4 billing-payment-test')
 const STAMP = `${Date.now()}-${Math.floor(Math.random() * 100_000)}`
+
+let cachedPlatformToken: string | null = null
+
+async function buildPdfReceipt(): Promise<Buffer> {
+  const doc = await PDFDocument.create()
+  doc.addPage()
+  return Buffer.from(await doc.save())
+}
+
+async function makeReceipt(): Promise<{
+  tmpPath: string
+  size: number
+  buffer: Buffer
+  cleanup: () => Promise<void>
+}> {
+  const buffer = await buildPdfReceipt()
+  const tmpPath = join(tmpdir(), `billing-receipt-${Date.now()}-${Math.random()}.pdf`)
+  await writeFile(tmpPath, Uint8Array.from(buffer))
+  return {
+    tmpPath,
+    size: buffer.length,
+    buffer,
+    cleanup: () => unlink(tmpPath).catch(() => undefined),
+  }
+}
+
+function receiptFileInput(receipt: { tmpPath: string; size: number }) {
+  return {
+    tmpPath: receipt.tmpPath,
+    clientName: 'receipt.pdf',
+    size: receipt.size,
+    headers: { 'content-type': 'application/pdf' },
+  }
+}
+
+/** Token de consola (`origin = 'platform'`); `loginAs` emite `web` y el guard responde 403. */
+async function platformConsoleToken(client: ApiClient, admin: User): Promise<string> {
+  if (cachedPlatformToken) {
+    return cachedPlatformToken
+  }
+  const response = await client.post('/api/platform/auth/login').json({
+    userEmail: admin.userEmail,
+    userPassword: TEST_PASSWORD,
+  })
+  response.assertStatus(200)
+  const token = (response.body() as { data?: { token?: string } }).data?.token
+  if (!token) {
+    throw new Error('Login de plataforma no devolvió token')
+  }
+  cachedPlatformToken = token
+  return token
+}
 
 interface TenantFixture {
   businessUnit: BusinessUnit
@@ -199,12 +255,6 @@ async function createPendingIncrease(
   }
 }
 
-async function writeTempReceipt(): Promise<string> {
-  const path = join(tmpdir(), `billing-receipt-${Date.now()}-${Math.random()}.pdf`)
-  await writeFile(path, VALID_PDF_BUFFER)
-  return path
-}
-
 function isDeadlockError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error)
   return message.includes('Deadlock')
@@ -215,7 +265,7 @@ async function registerPaymentViaService(
   amountCents: number,
   reference?: string | null
 ) {
-  const tmpPath = await writeTempReceipt()
+  const receipt = await makeReceipt()
   const service = new BillingPaymentService()
   try {
     return await service.registerPayment(
@@ -230,21 +280,16 @@ async function registerPaymentViaService(
         reference: reference ?? `REF-${Date.now()}`,
         paidAt: DateTime.now().toISO()!,
       },
-      {
-        tmpPath,
-        clientName: 'receipt.pdf',
-        size: VALID_PDF_BUFFER.length,
-        headers: { 'content-type': 'application/pdf' },
-      }
+      receiptFileInput(receipt)
     )
   } finally {
-    await unlink(tmpPath).catch(() => null)
+    await receipt.cleanup()
   }
 }
 
 /** Flujo normal (USRH1785962095095 v2): sin amountCents, el servidor gobierna el monto del periodo. */
 async function registerGovernedPaymentViaService(subscriptionId: number, reference?: string | null) {
-  const tmpPath = await writeTempReceipt()
+  const receipt = await makeReceipt()
   const service = new BillingPaymentService()
   try {
     return await service.registerPayment(
@@ -254,64 +299,67 @@ async function registerGovernedPaymentViaService(subscriptionId: number, referen
         reference: reference ?? `REF-${Date.now()}`,
         paidAt: DateTime.now().toISO()!,
       },
-      {
-        tmpPath,
-        clientName: 'receipt.pdf',
-        size: VALID_PDF_BUFFER.length,
-        headers: { 'content-type': 'application/pdf' },
-      }
+      receiptFileInput(receipt)
     )
   } finally {
-    await unlink(tmpPath).catch(() => null)
+    await receipt.cleanup()
   }
 }
 
 async function registerPaymentViaHttp(
-  client: { post: (url: string) => ReturnType<import('@japa/api-client').ApiClient['post']> },
+  client: ApiClient,
   admin: User,
   subscriptionId: number,
   amountCents: number,
   reference?: string
 ) {
-  return client
-    .post(`/api/platform/billing/subscriptions/${subscriptionId}/payments`)
-    .loginAs(admin)
-    .field('amountCents', amountCents)
-    .field('allowCustomAmount', 'true')
-    .field('method', 'transfer')
-    .field('reference', reference ?? `HTTP-${Date.now()}`)
-    .field('paidAt', DateTime.now().toISO()!)
-    .file('receipt', VALID_PDF_BUFFER, {
-      filename: 'receipt.pdf',
-      contentType: 'application/pdf',
-    })
+  const token = await platformConsoleToken(client, admin)
+  const receipt = await makeReceipt()
+  try {
+    return await client
+      .post(`/api/platform/billing/subscriptions/${subscriptionId}/payments`)
+      .bearerToken(token)
+      .field('amountCents', amountCents)
+      .field('allowCustomAmount', 'true')
+      .field('method', 'transfer')
+      .field('reference', reference ?? `HTTP-${Date.now()}`)
+      .field('paidAt', DateTime.now().toISO()!)
+      .file('receipt', receipt.buffer, {
+        filename: 'receipt.pdf',
+        contentType: 'application/pdf',
+      })
+  } finally {
+    await receipt.cleanup()
+  }
 }
 
 async function seedActiveEmployees(businessUnitId: number, count: number): Promise<void> {
-  const template = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
+  await TenantContext.runUnscoped(async () => {
+    const template = await Employee.query().whereNull('employee_deleted_at').firstOrFail()
 
-  for (let i = 0; i < count; i++) {
-    const person = new Person()
-    person.personFirstname = 'Quota'
-    person.personLastname = 'Seed'
-    person.personSecondLastname = `${i}`
-    person.personEmail = `quota-seed-${businessUnitId}-${i}-${STAMP}@gsti-tests.local`
-    await person.save()
+    for (let i = 0; i < count; i++) {
+      const person = new Person()
+      person.personFirstname = 'Quota'
+      person.personLastname = 'Seed'
+      person.personSecondLastname = `${i}`
+      person.personEmail = `quota-seed-${businessUnitId}-${i}-${STAMP}@gsti-tests.local`
+      await person.save()
 
-    const employee = new Employee()
-    employee.personId = person.personId
-    employee.businessUnitId = businessUnitId
-    employee.companyId = template.companyId
-    employee.departmentId = template.departmentId
-    employee.positionId = template.positionId
-    employee.employeeTypeId = template.employeeTypeId
-    employee.employeeFirstName = 'Quota'
-    employee.employeeLastName = `Emp${i}`
-    employee.employeeCode = `QTA-${businessUnitId}-${i}-${STAMP}`
-    employee.employeePayrollNum = `QTA-${businessUnitId}-${i}`
-    employee.employeeHireDate = DateTime.fromISO('2024-01-15')
-    await employee.save()
-  }
+      const employee = new Employee()
+      employee.personId = person.personId
+      employee.businessUnitId = businessUnitId
+      employee.companyId = template.companyId
+      employee.departmentId = template.departmentId
+      employee.positionId = template.positionId
+      employee.employeeTypeId = template.employeeTypeId
+      employee.employeeFirstName = 'Quota'
+      employee.employeeLastName = `Emp${i}`
+      employee.employeeCode = `QTA-${businessUnitId}-${i}-${STAMP}`
+      employee.employeePayrollNum = `QTA-${businessUnitId}-${i}`
+      employee.employeeHireDate = DateTime.fromISO('2024-01-15')
+      await employee.save()
+    }
+  }, TENANT_UNSCOPED_REASON.TEST_FIXTURE)
 }
 
 async function cleanupTenant(tenant: TenantFixture | null) {
@@ -333,15 +381,17 @@ async function cleanupTenant(tenant: TenantFixture | null) {
 
   await BillingSubscriptionChange.query().where('business_unit_id', buId).delete()
 
-  const employees = await Employee.query()
-    .where('business_unit_id', buId)
-    .select('person_id')
-  const personIds = employees.map((row) => row.personId).filter(Boolean)
+  await TenantContext.runUnscoped(async () => {
+    const employees = await Employee.query()
+      .where('business_unit_id', buId)
+      .select('person_id')
+    const personIds = employees.map((row) => row.personId).filter(Boolean)
 
-  await Employee.query().where('business_unit_id', buId).delete()
-  if (personIds.length > 0) {
-    await Person.query().whereIn('person_id', personIds).delete()
-  }
+    await Employee.query().where('business_unit_id', buId).delete()
+    if (personIds.length > 0) {
+      await Person.query().whereIn('person_id', personIds).delete()
+    }
+  }, TENANT_UNSCOPED_REASON.TEST_FIXTURE)
 
   await BillingSubscription.query().where('business_unit_id', buId).delete()
   await BusinessUnit.query().where('business_unit_id', buId).delete()
@@ -349,6 +399,8 @@ async function cleanupTenant(tenant: TenantFixture | null) {
 
 async function cleanupPlatformAdmin(admin: User | null) {
   if (!admin) return
+  cachedPlatformToken = null
+  await ApiToken.query().where('tokenable_id', admin.userId).delete()
   await BusinessUnitUser.query().where('user_id', admin.userId).delete()
   await User.query().where('user_id', admin.userId).delete()
   if (admin.personId) {
@@ -388,7 +440,7 @@ test.group('POST /api/platform/billing/subscriptions/:id/payments — auth', () 
       .field('amountCents', 1000)
       .field('method', 'transfer')
       .field('paidAt', DateTime.now().toISO()!)
-      .file('receipt', VALID_PDF_BUFFER, {
+      .file('receipt', await buildPdfReceipt(), {
         filename: 'receipt.pdf',
         contentType: 'application/pdf',
       })
