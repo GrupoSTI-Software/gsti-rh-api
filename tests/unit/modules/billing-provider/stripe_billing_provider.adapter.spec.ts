@@ -1032,3 +1032,133 @@ test.group('StripeBillingProviderAdapter — factura borrador (USRH1790718243208
     }
   })
 })
+
+function paidInvoiceWithPaymentsFixture() {
+  return {
+    ...invoiceFixtureRetrievePayload(),
+    status: 'paid' as const,
+    amount_paid: 104_400,
+    amount_paid_off_stripe: 0,
+    status_transitions: { paid_at: 1_793_599_200 },
+    payments: {
+      object: 'list' as const,
+      data: [
+        {
+          id: 'inpay_sim1',
+          status: 'paid',
+          payment: { type: 'payment_intent', payment_intent: 'pi_sim1' },
+        },
+      ],
+      has_more: false,
+    },
+  }
+}
+
+test.group('StripeBillingProviderAdapter — lo pagado (USRH1790724549115 / CA-10, CA-11)', () => {
+  test('CA-10: readInvoice con includePayments devuelve 13 llaves sin PII', async ({
+    assert,
+  }) => {
+    let retrieveArgs: unknown[] = []
+    const fakeStripe = {
+      invoices: {
+        retrieve: async (...args: unknown[]) => {
+          retrieveArgs = args
+          return paidInvoiceWithPaymentsFixture()
+        },
+        listLineItems: async () => ({
+          object: 'list',
+          data: [buildSubscriptionItemLine('il_a')],
+          has_more: false,
+        }),
+      },
+    } as unknown as Stripe
+
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () => fakeStripe)
+    const result = await adapter.readInvoice('in_sim1', { includePayments: true })
+
+    assert.equal(retrieveArgs[0], 'in_sim1')
+    const expand = (retrieveArgs[1] as { expand?: string[] })?.expand ?? []
+    assert.includeMembers(expand, ['payments'])
+    assert.isFalse(expand.some((entry) => entry.includes('.')))
+
+    assert.deepEqual(Object.keys(result).sort(), [
+      'amountPaidCents',
+      'amountPaidOffStripeCents',
+      'autoAdvance',
+      'billingReason',
+      'currency',
+      'customerRef',
+      'invoiceRef',
+      'lines',
+      'paidAt',
+      'paymentIntentRef',
+      'status',
+      'subscriptionRef',
+      'totalCents',
+    ])
+    assert.equal(result.amountPaidCents, 104_400)
+    assert.equal(result.paidAt, 1_793_599_200)
+    assert.equal(result.paymentIntentRef, 'pi_sim1')
+    assert.equal(result.amountPaidOffStripeCents, 0)
+    assert.notInclude(JSON.stringify(result), 'prospecto.fixture@correo.test')
+    assert.notInclude(JSON.stringify(result), 'Fixture SA')
+
+    retrieveArgs = []
+    const baseOnly = await adapter.readInvoice('in_sim1')
+    assert.lengthOf(Object.keys(baseOnly), 9)
+    assert.lengthOf(retrieveArgs, 1)
+  })
+
+  test('CA-10: amount_paid_off_stripe ausente en Stripe se interpreta como 0', async ({
+    assert,
+  }) => {
+    const fixture = paidInvoiceWithPaymentsFixture()
+    const { amount_paid_off_stripe: offStripeAmount, ...withoutOffStripe } = fixture
+    void offStripeAmount
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () =>
+      ({
+        invoices: {
+          retrieve: async () => withoutOffStripe,
+          listLineItems: async () => ({
+            object: 'list',
+            data: [buildSubscriptionItemLine('il_a')],
+            has_more: false,
+          }),
+        },
+      }) as unknown as Stripe
+    )
+
+    const result = await adapter.readInvoice('in_sim1', { includePayments: true })
+    assert.equal(result.amountPaidOffStripeCents, 0)
+  })
+
+  test('CA-11: forma inesperada de lo pagado lanza PROVIDER_REQUEST_FAILED', async ({
+    assert,
+  }) => {
+    const adapter = new StripeBillingProviderAdapter(ENABLED_SETTINGS, () =>
+      ({
+        invoices: {
+          retrieve: async () => ({
+            ...paidInvoiceWithPaymentsFixture(),
+            amount_paid: 'bad',
+          }),
+          listLineItems: async () => ({
+            object: 'list',
+            data: [buildSubscriptionItemLine('il_a')],
+            has_more: false,
+          }),
+        },
+      }) as unknown as Stripe
+    )
+
+    try {
+      await adapter.readInvoice('in_sim1', { includePayments: true })
+      assert.fail('Debió lanzar')
+    } catch (error) {
+      assert.equal(
+        assertProviderError(error).errorCode,
+        BILLING_PROVIDER_ERROR_CODES.PROVIDER_REQUEST_FAILED
+      )
+    }
+  })
+})

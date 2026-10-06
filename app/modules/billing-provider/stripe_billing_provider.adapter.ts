@@ -20,6 +20,7 @@ import {
   type BillingProviderPort,
   type BillingWebhookProviderPort,
   type InvoiceChargeDraft,
+  type ReadInvoiceOptions,
   type ProviderInvoice,
   type ProviderInvoiceLine,
   type ProviderInvoiceStatus,
@@ -326,6 +327,79 @@ export function mapProviderInvoice(
     totalCents: raw.total,
     autoAdvance: raw.auto_advance,
     lines: lines.map(mapProviderInvoiceLine),
+  }
+}
+
+function readPaidAt(raw: Stripe.Invoice): number | null {
+  const paidAt = raw.status_transitions?.paid_at
+  if (paidAt === null || paidAt === undefined) {
+    return null
+  }
+  if (!Number.isInteger(paidAt)) {
+    throwReadInvoiceShapeError('status_transitions.paid_at')
+  }
+  return paidAt
+}
+
+function readAmountPaidOffStripe(raw: Stripe.Invoice): number {
+  const value = (raw as Stripe.Invoice & { amount_paid_off_stripe?: unknown }).amount_paid_off_stripe
+  if (value === undefined || value === null) {
+    return 0
+  }
+  if (typeof value !== 'number' || !Number.isInteger(value)) {
+    throwReadInvoiceShapeError('amount_paid_off_stripe')
+  }
+  return value
+}
+
+function readPaymentIntentRefFromInvoice(raw: Stripe.Invoice): string | null {
+  const payments = raw.payments
+  if (payments === undefined || payments === null) {
+    throwReadInvoiceShapeError('payments')
+  }
+  if (typeof payments !== 'object' || payments.object !== 'list' || !Array.isArray(payments.data)) {
+    throwReadInvoiceShapeError('payments')
+  }
+
+  const paidIntents = payments.data.filter(
+    (entry) =>
+      entry.status === 'paid' &&
+      entry.payment?.type === 'payment_intent'
+  )
+
+  if (paidIntents.length !== 1) {
+    return null
+  }
+
+  const paymentIntent = paidIntents[0]!.payment?.payment_intent
+  if (typeof paymentIntent === 'string') {
+    return paymentIntent
+  }
+  if (
+    typeof paymentIntent === 'object' &&
+    paymentIntent !== null &&
+    'id' in paymentIntent &&
+    typeof paymentIntent.id === 'string'
+  ) {
+    return paymentIntent.id
+  }
+  return null
+}
+
+export function mapProviderInvoicePayments(
+  raw: Stripe.Invoice,
+  base: ProviderInvoice
+): ProviderInvoice {
+  if (!Number.isInteger(raw.amount_paid)) {
+    throwReadInvoiceShapeError('amount_paid')
+  }
+
+  return {
+    ...base,
+    amountPaidCents: raw.amount_paid,
+    paidAt: readPaidAt(raw),
+    paymentIntentRef: readPaymentIntentRefFromInvoice(raw),
+    amountPaidOffStripeCents: readAmountPaidOffStripe(raw),
   }
 }
 
@@ -668,13 +742,19 @@ export default class StripeBillingProviderAdapter
     }
   }
 
-  async readInvoice(invoiceRef: string): Promise<ProviderInvoice> {
+  async readInvoice(invoiceRef: string, options?: ReadInvoiceOptions): Promise<ProviderInvoice> {
     assertInvoiceRef(invoiceRef, 'readInvoice')
     const client = this.#requireClient()
     try {
-      const invoice = await client.invoices.retrieve(invoiceRef)
+      const invoice = options?.includePayments
+        ? await client.invoices.retrieve(invoiceRef, { expand: ['payments'] })
+        : await client.invoices.retrieve(invoiceRef)
       const lines = await listAllInvoiceLineItems(client, invoiceRef)
-      return mapProviderInvoice(invoice, lines)
+      const base = mapProviderInvoice(invoice, lines)
+      if (!options?.includePayments) {
+        return base
+      }
+      return mapProviderInvoicePayments(invoice, base)
     } catch (error) {
       throw this.#wrap('readInvoice', error)
     }

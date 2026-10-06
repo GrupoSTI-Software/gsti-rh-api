@@ -4,10 +4,10 @@ import type { BelongsTo } from '@adonisjs/lucid/types/relations'
 import BillingSubscription from './billing_subscription.js'
 import type { DiscountCodeKind } from './discount_code.js'
 
-export type BillingPaymentMethod = 'transfer' | 'cash' | 'other'
+export type BillingPaymentMethod = 'transfer' | 'cash' | 'other' | 'card'
 
 /**
- * Registro inmutable de un pago manual de suscripción (USRH1784574994922).
+ * Registro inmutable de un pago de suscripción (USRH1784574994922).
  *
  * Append-only: sin soft delete, sin updated_at. Un pago nunca se edita ni
  * se borra; correcciones vía ajuste futuro. La FK RESTRICT impide eliminar
@@ -114,6 +114,18 @@ export default class BillingPayment extends BaseModel {
 
   @column()
   declare billingPaymentProvider: string
+
+  /** Factura Stripe (`in_…`); UNIQUE cuando no es null (USRH1790724549115). */
+  @column()
+  declare billingPaymentProviderInvoiceId: string | null
+
+  /** Intento de cobro Stripe (`pi_…`). */
+  @column()
+  declare billingPaymentProviderPaymentRef: string | null
+
+  /** Aviso webhook que originó el asiento (`evt_…`; no es FK). */
+  @column()
+  declare billingPaymentProviderEventId: string | null
 
   @column.dateTime()
   declare billingPaymentPaidAt: DateTime

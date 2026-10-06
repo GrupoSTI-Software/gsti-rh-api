@@ -32,7 +32,7 @@ import {
   type SubscriptionOpeningRequest,
 } from '#modules/billing-provider/billing_provider.port'
 import { billingProviderRegistry } from '#modules/billing-provider/billing_provider.registry'
-import { toBusinessDateString } from '#utils/business_date'
+import { todayInBusinessZone, toBusinessDateString } from '#utils/business_date'
 
 class StripeAdmitProbeAdapter implements BillingProviderPort {
   readonly key = BILLING_PROVIDER_KEYS.STRIPE
@@ -764,6 +764,323 @@ test.group('BillingPaymentService.settlePaymentWithin (USRH1790712872597)', (gro
         businessUnitId: fixture.businessUnit.businessUnitId,
         planId: fixture.planId,
       })
+    }
+  })
+})
+
+test.group('BillingPaymentService.settlePaymentWithin — periodo del proveedor (9115 / CA-3…CA-9)', () => {
+  async function settleDirect(
+    subscriptionId: number,
+    overrides: Partial<SettlePaymentInput> & Pick<SettlePaymentInput, 'amountCents'>
+  ) {
+    const service = new BillingPaymentService()
+    const paidAt = DateTime.now().toISO()!
+    return db.transaction((trx) =>
+      service.settlePaymentWithin(
+        {
+          subscriptionId,
+          allowCustomAmount: true,
+          method: 'transfer',
+          reference: null,
+          paidAt,
+          receipt: null,
+          ...overrides,
+        },
+        trx
+      )
+    )
+  }
+
+  test('CA-3: tope de un periodo con saldo que alcanza para tres', async ({ assert }) => {
+    const stamp = Date.now() + 9115
+    const buProvider = await createTenant(stamp)
+    const buManual = await createTenant(stamp + 1)
+    const planProvider = await createPublishedPlan(stamp)
+    const planManual = await createPublishedPlan(stamp + 1)
+    const subProvider = await createLiveSubscription(buProvider, planProvider, 10)
+    const subManual = await createLiveSubscription(buManual, planManual, 10)
+    const P = periodAmountCentsFromSubscription(subProvider)
+    const today = todayInBusinessZone()
+    const E = today.plus({ days: 10 })
+
+    subProvider.billingSubscriptionCreditBalanceCents = 2 * P
+    subProvider.billingSubscriptionCurrentPeriodStart = E.minus({ months: 1 })
+    subProvider.billingSubscriptionCurrentPeriodEnd = E
+    await subProvider.save()
+
+    subManual.billingSubscriptionCreditBalanceCents = 2 * P
+    subManual.billingSubscriptionCurrentPeriodStart = E.minus({ months: 1 })
+    subManual.billingSubscriptionCurrentPeriodEnd = E
+    await subManual.save()
+
+    try {
+      const withProvider = await settleDirect(subProvider.billingSubscriptionId, {
+        amountCents: P,
+        providerPeriod: {
+          start: E.toISODate()!,
+          end: E.plus({ months: 1 }).toISODate()!,
+        },
+      })
+
+      assert.equal(withProvider.payment.billingPaymentPeriodsCovered, 1)
+      assert.equal(withProvider.payment.billingPaymentCreditAppliedCents, P)
+      assert.equal(withProvider.payment.billingPaymentDebtAppliedCents, 0)
+      assert.equal(withProvider.payment.billingPaymentCreditBalanceAfterCents, 2 * P)
+      assert.equal(
+        withProvider.subscription.billingSubscriptionCurrentPeriodStart!.toISODate(),
+        E.toISODate()
+      )
+      assert.equal(
+        withProvider.subscription.billingSubscriptionCurrentPeriodEnd!.toISODate(),
+        E.plus({ months: 1 }).toISODate()
+      )
+
+      const withoutProvider = await settleDirect(subManual.billingSubscriptionId, {
+        amountCents: P,
+      })
+      assert.equal(withoutProvider.payment.billingPaymentPeriodsCovered, 3)
+      assert.equal(
+        withoutProvider.subscription.billingSubscriptionCurrentPeriodEnd!.toISODate(),
+        E.plus({ months: 3 }).toISODate()
+      )
+    } finally {
+      await cleanupFixture({ businessUnitId: buProvider.businessUnitId, planId: planProvider })
+      await cleanupFixture({ businessUnitId: buManual.businessUnitId, planId: planManual })
+    }
+  })
+
+  test('CA-4: fechas del proveedor cuando el periodo vigente venció', async ({ assert }) => {
+    const stamp = Date.now() + 9116
+    const buProvider = await createTenant(stamp)
+    const buManual = await createTenant(stamp + 1)
+    const planProvider = await createPublishedPlan(stamp)
+    const planManual = await createPublishedPlan(stamp + 1)
+    const subProvider = await createLiveSubscription(buProvider, planProvider, 10)
+    const subManual = await createLiveSubscription(buManual, planManual, 10)
+    const P = periodAmountCentsFromSubscription(subProvider)
+    const today = todayInBusinessZone()
+    const expiredEnd = today.minus({ days: 4 })
+    const providerStart = expiredEnd.toISODate()!
+    const providerEnd = expiredEnd.plus({ months: 1 }).toISODate()!
+
+    for (const sub of [subProvider, subManual]) {
+      sub.billingSubscriptionCreditBalanceCents = 0
+      sub.billingSubscriptionCurrentPeriodStart = expiredEnd.minus({ months: 1 })
+      sub.billingSubscriptionCurrentPeriodEnd = expiredEnd
+      await sub.save()
+    }
+
+    try {
+      const withProvider = await settleDirect(subProvider.billingSubscriptionId, {
+        amountCents: P,
+        providerPeriod: { start: providerStart, end: providerEnd },
+      })
+      assert.equal(
+        withProvider.subscription.billingSubscriptionCurrentPeriodStart!.toISODate(),
+        providerStart
+      )
+      assert.notEqual(
+        withProvider.subscription.billingSubscriptionCurrentPeriodStart!.toISODate(),
+        today.toISODate()
+      )
+
+      const manualAnchor = await settleDirect(subManual.billingSubscriptionId, {
+        amountCents: P,
+      })
+      assert.equal(
+        manualAnchor.subscription.billingSubscriptionCurrentPeriodStart!.toISODate(),
+        today.toISODate()
+      )
+    } finally {
+      await cleanupFixture({ businessUnitId: buProvider.businessUnitId, planId: planProvider })
+      await cleanupFixture({ businessUnitId: buManual.businessUnitId, planId: planManual })
+    }
+  })
+
+  test('CA-5: adeudo primero y luego un periodo con providerPeriod', async ({ assert }) => {
+    const stamp = Date.now() + 9117
+    const fixture = await createPendingIncreaseFixture(stamp)
+    const D = fixture.proratedCents
+    const paymentService = new BillingPaymentService()
+    const composite = await paymentService.resolveCompositeIncreaseAmounts(fixture.subscription)
+    assert.isNotNull(composite)
+    const P = composite!.periodCents
+    const today = todayInBusinessZone()
+    const futureEnd = today.plus({ days: 30 })
+
+    fixture.subscription.billingSubscriptionCreditBalanceCents = 0
+    fixture.subscription.billingSubscriptionCurrentPeriodStart = today
+    fixture.subscription.billingSubscriptionCurrentPeriodEnd = futureEnd
+    await fixture.subscription.save()
+
+    try {
+      const result = await settleDirect(fixture.subscription.billingSubscriptionId, {
+        amountCents: D + P,
+        providerPeriod: {
+          start: futureEnd.toISODate()!,
+          end: futureEnd.plus({ months: 1 }).toISODate()!,
+        },
+      })
+
+      assert.equal(result.payment.billingPaymentDebtAppliedCents, D)
+      assert.equal(result.payment.billingPaymentPeriodsCovered, 1)
+      assert.equal(result.payment.billingPaymentCreditAppliedCents, P)
+      assert.equal(result.payment.billingPaymentCreditBalanceAfterCents, 0)
+      assert.equal(result.applyOutcome.outcome, 'applied')
+    } finally {
+      await cleanupFixture({
+        businessUnitId: fixture.businessUnit.businessUnitId,
+        planId: fixture.planId,
+      })
+    }
+  })
+
+  test('CA-6: el periodo nunca retrocede', async ({ assert }) => {
+    const cases = [
+      { start: '2026-11-01', end: '2026-12-01' },
+      { start: '2026-10-01', end: '2026-11-01' },
+    ] as const
+
+    for (const providerPeriod of cases) {
+        const stampCase = Date.now() + Math.random()
+        const bu = await createTenant(stampCase)
+        const planId = await createPublishedPlan(stampCase)
+        const sub = await createLiveSubscription(bu, planId, 10)
+        const caseP = periodAmountCentsFromSubscription(sub)
+        sub.billingSubscriptionCreditBalanceCents = 0
+        sub.billingSubscriptionCurrentPeriodStart = DateTime.fromISO('2026-11-01')
+        sub.billingSubscriptionCurrentPeriodEnd = DateTime.fromISO('2026-12-01')
+        await sub.save()
+
+        const result = await settleDirect(sub.billingSubscriptionId, {
+          amountCents: caseP,
+          providerPeriod,
+        })
+        assert.equal(result.payment.billingPaymentPeriodsCovered, 0)
+        assert.equal(result.payment.billingPaymentCreditAppliedCents, 0)
+        assert.equal(result.payment.billingPaymentCreditBalanceAfterCents, caseP)
+        assert.isNull(result.payment.billingPaymentPeriodStart)
+        assert.isNull(result.payment.billingPaymentPeriodEnd)
+        assert.equal(
+          result.subscription.billingSubscriptionCurrentPeriodStart!.toISODate(),
+          '2026-11-01'
+        )
+        assert.equal(
+          result.subscription.billingSubscriptionCurrentPeriodEnd!.toISODate(),
+          '2026-12-01'
+        )
+        await cleanupFixture({ businessUnitId: bu.businessUnitId, planId })
+    }
+  })
+
+  test('CA-7: monto insuficiente para cubrir un periodo', async ({ assert }) => {
+    const stamp = Date.now() + 9119
+    const businessUnit = await createTenant(stamp)
+    const planId = await createPublishedPlan(stamp)
+    const subscription = await createLiveSubscription(businessUnit, planId, 10)
+    const P = periodAmountCentsFromSubscription(subscription)
+    const today = todayInBusinessZone()
+    const futureEnd = today.plus({ days: 20 })
+    subscription.billingSubscriptionCurrentPeriodEnd = futureEnd
+    await subscription.save()
+
+    try {
+      const result = await settleDirect(subscription.billingSubscriptionId, {
+        amountCents: P - 100,
+        providerPeriod: {
+          start: futureEnd.toISODate()!,
+          end: futureEnd.plus({ months: 1 }).toISODate()!,
+        },
+      })
+      assert.equal(result.payment.billingPaymentPeriodsCovered, 0)
+      assert.isNull(result.payment.billingPaymentPeriodStart)
+      assert.equal(result.payment.billingPaymentCreditBalanceAfterCents, P - 100)
+    } finally {
+      await cleanupFixture({ businessUnitId: businessUnit.businessUnitId, planId })
+    }
+  })
+
+  test('CA-8: referencias del proveedor y unicidad por factura', async ({ assert }) => {
+    const stamp = Date.now() + 9120
+    const buA = await createTenant(stamp)
+    const buB = await createTenant(stamp + 1)
+    const planA = await createPublishedPlan(stamp)
+    const planB = await createPublishedPlan(stamp + 1)
+    const subA = await createLiveSubscription(buA, planA, 10)
+    const subB = await createLiveSubscription(buB, planB, 10)
+    const P = periodAmountCentsFromSubscription(subA)
+
+    try {
+      await settleDirect(subA.billingSubscriptionId, {
+        amountCents: P,
+        method: 'card',
+        providerInvoiceId: 'in_fixtureP1',
+        providerPaymentRef: 'pi_fixtureP1',
+        providerEventId: 'evt_fixtureP1',
+      })
+
+      const row = await BillingPayment.query()
+        .where('billing_subscription_id', subA.billingSubscriptionId)
+        .orderBy('billing_payment_id', 'desc')
+        .firstOrFail()
+      assert.equal(row.billingPaymentProviderInvoiceId, 'in_fixtureP1')
+      assert.equal(row.billingPaymentProviderPaymentRef, 'pi_fixtureP1')
+      assert.equal(row.billingPaymentProviderEventId, 'evt_fixtureP1')
+
+      await assert.rejects(() =>
+        settleDirect(subB.billingSubscriptionId, {
+          amountCents: P,
+          method: 'card',
+          providerInvoiceId: 'in_fixtureP1',
+        })
+      )
+
+      await settleDirect(subA.billingSubscriptionId, {
+        amountCents: P,
+        method: 'transfer',
+      })
+      await settleDirect(subA.billingSubscriptionId, {
+        amountCents: P,
+        method: 'cash',
+      })
+      const manualRows = await BillingPayment.query()
+        .where('billing_subscription_id', subA.billingSubscriptionId)
+        .whereIn('billing_payment_method', ['transfer', 'cash'])
+      assert.isTrue(
+        manualRows.every(
+          (p) =>
+            p.billingPaymentProviderInvoiceId === null &&
+            p.billingPaymentProviderPaymentRef === null &&
+            p.billingPaymentProviderEventId === null
+        )
+      )
+    } finally {
+      await cleanupFixture({ businessUnitId: buA.businessUnitId, planId: planA })
+      await cleanupFixture({ businessUnitId: buB.businessUnitId, planId: planB })
+    }
+  })
+
+  test('CA-9: providerPeriod inválido no inserta pago', async ({ assert }) => {
+    const stamp = Date.now() + 9121
+    const businessUnit = await createTenant(stamp)
+    const planId = await createPublishedPlan(stamp)
+    const subscription = await createLiveSubscription(businessUnit, planId, 10)
+    const P = periodAmountCentsFromSubscription(subscription)
+
+    try {
+      await assert.rejects(async () =>
+        settleDirect(subscription.billingSubscriptionId, {
+          amountCents: P,
+          providerPeriod: { start: '2026-13-40', end: '2026-14-01' },
+        })
+      )
+
+      const count = await BillingPayment.query()
+        .where('billing_subscription_id', subscription.billingSubscriptionId)
+        .count('* as total')
+      assert.equal(Number(count[0]?.$extras.total ?? 0), 0)
+    } finally {
+      await cleanupFixture({ businessUnitId: businessUnit.businessUnitId, planId })
     }
   })
 })

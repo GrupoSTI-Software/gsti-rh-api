@@ -15,6 +15,11 @@ import SubscriptionChangeNotApplicableMail from '../mails/subscription_change_no
 import SubscriptionChangeRequestedMail from '../mails/subscription_change_requested_mail.js'
 import BillingProviderCompensationFailedMail from '../mails/billing_provider_compensation_failed_mail.js'
 import BillingProviderInvoiceHeldMail from '../mails/billing_provider_invoice_held_mail.js'
+import BillingProviderPaymentUnsettledMail, {
+  type ProviderPaymentUnsettledReason,
+} from '../mails/billing_provider_payment_unsettled_mail.js'
+import BillingProviderPaymentMisalignedMail from '../mails/billing_provider_payment_misaligned_mail.js'
+import type { ProviderSettlementPeriod } from '#services/billing_payment_service'
 
 export type NotifyProviderInvoiceHeldParams = {
   billingSubscriptionId: number | null
@@ -23,6 +28,34 @@ export type NotifyProviderInvoiceHeldParams = {
   subscriptionRef: string | null
   eventRef: string
   errorCode: string
+}
+
+export type { ProviderPaymentUnsettledReason }
+
+export type NotifyProviderPaymentUnsettledParams = {
+  billingSubscriptionId: number | null
+  businessUnitId: number | null
+  invoiceRef: string
+  subscriptionRef: string | null
+  eventRef: string
+  reason: ProviderPaymentUnsettledReason
+  errorCode: string | null
+  amountPaidCents: number | null
+  currency: string | null
+}
+
+export type NotifyProviderPaymentMisalignedParams = {
+  billingSubscriptionId: number
+  businessUnitId: number
+  billingPaymentId: number
+  invoiceRef: string
+  eventRef: string
+  amountPaidCents: number
+  periodsCovered: number
+  debtAppliedCents: number
+  invoiceDebtCents: number
+  providerPeriod: ProviderSettlementPeriod | null
+  providerPeriodApplied: boolean
 }
 
 const DEFAULT_RECIPIENTS_FALLBACK = 'desarrollo-software@gruposti.com'
@@ -491,6 +524,120 @@ export default class BillingInternalNotificationService {
   /**
    * Aviso interno cuando una factura de ciclo queda retenida (USRH1790708507665). Nunca lanza.
    */
+  /**
+   * Cobro Stripe que no se pudo asentar (USRH1790724549115). Nunca lanza; sin llamador en esta HU.
+   */
+  async notifyProviderPaymentUnsettled(
+    params: NotifyProviderPaymentUnsettledParams
+  ): Promise<void> {
+    const {
+      billingSubscriptionId,
+      invoiceRef,
+      subscriptionRef,
+      eventRef,
+      reason,
+      errorCode,
+      amountPaidCents,
+      currency,
+    } = params
+
+    try {
+      const recipients = this.resolveRecipients()
+      if (recipients.length === 0) {
+        logger.warn(
+          { invoiceRef, eventRef, reason },
+          'BillingInternalNotificationService: sin destinatarios; se omite aviso de cobro sin asiento.'
+        )
+        return
+      }
+
+      const recipientsToSend = this.filterRecipientsForDelivery(recipients, {
+        invoiceRef,
+        eventRef,
+        reason,
+      })
+      if (recipientsToSend.length === 0) {
+        return
+      }
+
+      const from = resolveMailSender()
+      await mail.send(
+        new BillingProviderPaymentUnsettledMail({
+          to: recipientsToSend,
+          from,
+          tradeName: SENDER_TRADE_NAME,
+          invoiceRef,
+          subscriptionRef,
+          eventRef,
+          reason,
+          errorCode,
+          billingSubscriptionId,
+          amountPaidCents,
+          currency,
+        })
+      )
+    } catch {
+      const recipients = this.resolveRecipients()
+      logger.error(
+        {
+          invoiceRef,
+          subscriptionRef,
+          eventRef,
+          reason,
+          errorCode,
+          billingSubscriptionId,
+          recipients: recipients.map((email) => this.redactEmail(email)),
+        },
+        'BillingInternalNotificationService: fallo al enviar aviso de cobro sin asiento.'
+      )
+    }
+  }
+
+  /**
+   * Pago con tarjeta asentado pero desalineado con la factura (USRH1790724549115). Nunca lanza.
+   */
+  async notifyProviderPaymentMisaligned(
+    params: NotifyProviderPaymentMisalignedParams
+  ): Promise<void> {
+    const { billingSubscriptionId, billingPaymentId, invoiceRef, eventRef } = params
+
+    try {
+      const recipients = this.resolveRecipients()
+      if (recipients.length === 0) {
+        logger.warn(
+          { invoiceRef, eventRef, billingSubscriptionId, billingPaymentId },
+          'BillingInternalNotificationService: sin destinatarios; se omite aviso de pago desalineado.'
+        )
+        return
+      }
+
+      const recipientsToSend = this.filterRecipientsForDelivery(recipients, {
+        invoiceRef,
+        eventRef,
+        billingSubscriptionId,
+        billingPaymentId,
+      })
+      if (recipientsToSend.length === 0) {
+        return
+      }
+
+      const from = resolveMailSender()
+      await mail.send(new BillingProviderPaymentMisalignedMail({ to: recipientsToSend, from, tradeName: SENDER_TRADE_NAME, ...params }))
+    } catch {
+      const recipients = this.resolveRecipients()
+      logger.error(
+        {
+          invoiceRef,
+          eventRef,
+          billingSubscriptionId,
+          billingPaymentId,
+          recipients: recipients.map((email) => this.redactEmail(email)),
+        },
+        'BillingInternalNotificationService: fallo al enviar aviso de pago desalineado.'
+      )
+    }
+  }
+
   async notifyProviderInvoiceHeld(params: NotifyProviderInvoiceHeldParams): Promise<void> {
     const { billingSubscriptionId, invoiceRef, subscriptionRef, eventRef, errorCode } = params
 

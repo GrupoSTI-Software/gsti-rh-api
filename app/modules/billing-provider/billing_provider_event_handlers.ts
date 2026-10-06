@@ -9,6 +9,8 @@ export interface BillingProviderEventContext {
   event: VerifiedProviderEvent
   billingSubscription: BillingSubscription | null
   provider: BillingProviderPort
+  /** Intento de atención del aviso (1 = primera entrega). USRH1790724549115. */
+  attempt?: number
 }
 
 export type BillingProviderEventOutcome =

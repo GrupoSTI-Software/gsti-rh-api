@@ -7,6 +7,11 @@ import BillingInternalNotificationService from '#services/billing_internal_notif
 import SelfServiceSubscriptionCreatedMail from '#mails/self_service_subscription_created_mail'
 import SubscriptionChangeNotApplicableMail from '#mails/subscription_change_not_applicable_mail'
 import BillingProviderInvoiceHeldMail from '#mails/billing_provider_invoice_held_mail'
+import BillingProviderPaymentUnsettledMail, {
+  PROVIDER_PAYMENT_UNSETTLED_REASON_LABELS,
+  type ProviderPaymentUnsettledReason,
+} from '#mails/billing_provider_payment_unsettled_mail'
+import BillingProviderPaymentMisalignedMail from '#mails/billing_provider_payment_misaligned_mail'
 import type { SubscriptionChangeRecord } from '#services/billing_subscription_change_service'
 
 /**
@@ -414,6 +419,113 @@ test.group('BillingInternalNotificationService — notifyProviderInvoiceHeld (76
                 subscriptionRef: 'sub_fixtureM1',
                 eventRef: 'evt_fixtureM1',
                 errorCode: 'PLT.PRV.INVOICE_UNEXPECTED_LINES',
+              })
+            })
+          }
+        )
+      })
+    } finally {
+      ;(mail as unknown as { send: typeof mail.send }).send = originalSend
+      mail.restore()
+    }
+  })
+})
+
+test.group('BillingInternalNotificationService — notifyProviderPaymentUnsettled/Misaligned (9115 / CA-16)', () => {
+  const baseUnsettled = {
+    billingSubscriptionId: 41,
+    businessUnitId: 7,
+    invoiceRef: 'in_fixtureP1',
+    subscriptionRef: 'sub_fixtureP1',
+    eventRef: 'evt_fixtureP1',
+    errorCode: null as string | null,
+    amountPaidCents: 1_044_000,
+    currency: 'mxn',
+  }
+
+  test('envía avisos sin PII en asunto para cada razón', async ({ assert }) => {
+    const fake = mail.fake()
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          {
+            BILLING_INTERNAL_NOTIFICATION_EMAILS: 'wramirez@gruposti.com',
+            NODE_ENV: 'test',
+          },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            const reasons = Object.keys(
+              PROVIDER_PAYMENT_UNSETTLED_REASON_LABELS
+            ) as ProviderPaymentUnsettledReason[]
+
+            for (const reason of reasons) {
+              await service.notifyProviderPaymentUnsettled({ ...baseUnsettled, reason })
+            }
+
+            await service.notifyProviderPaymentMisaligned({
+              billingSubscriptionId: 41,
+              businessUnitId: 7,
+              billingPaymentId: 90,
+              invoiceRef: 'in_fixtureP1',
+              eventRef: 'evt_fixtureP1',
+              amountPaidCents: 1_222_523,
+              periodsCovered: 1,
+              debtAppliedCents: 0,
+              invoiceDebtCents: 4523,
+              providerPeriod: { start: '2026-11-01', end: '2026-12-01' },
+              providerPeriodApplied: true,
+            })
+          }
+        )
+      })
+
+      fake.mails.assertSentCount(BillingProviderPaymentUnsettledMail, 10)
+      fake.mails.assertSentCount(BillingProviderPaymentMisalignedMail, 1)
+      fake.mails.assertSent(BillingProviderPaymentUnsettledMail, ({ message }) => {
+        const json = message.toJSON() as { message: { subject: string } }
+        assert.match(json.message.subject, /Cobro sin asiento/i)
+        assert.notInclude(json.message.subject, 'in_fixtureP1')
+        assert.notInclude(json.message.subject, 'Acme')
+        message.assertHtmlIncludes('in_fixtureP1')
+        message.assertHtmlIncludes('sub_fixtureP1')
+        return message.hasTo('wramirez@gruposti.com')
+      })
+    } finally {
+      mail.restore()
+    }
+  })
+
+  test('fallo SMTP no lanza en unsettled ni misaligned', async ({ assert }) => {
+    mail.fake()
+    const originalSend = mail.send.bind(mail)
+    ;(mail as unknown as { send: typeof mail.send }).send = async () => {
+      throw new Error('SMTP caído (simulado)')
+    }
+
+    try {
+      await withSmtpConfigured(async () => {
+        await withEnvVars(
+          { BILLING_INTERNAL_NOTIFICATION_EMAILS: 'wramirez@gruposti.com' },
+          async () => {
+            const service = new BillingInternalNotificationService()
+            await assert.doesNotReject(async () => {
+              await service.notifyProviderPaymentUnsettled({
+                ...baseUnsettled,
+                reason: 'settlement-failed',
+                errorCode: 'PLT.PRV.PROVIDER_REQUEST_FAILED',
+              })
+              await service.notifyProviderPaymentMisaligned({
+                billingSubscriptionId: 41,
+                businessUnitId: 7,
+                billingPaymentId: 90,
+                invoiceRef: 'in_fixtureP1',
+                eventRef: 'evt_fixtureP1',
+                amountPaidCents: 100,
+                periodsCovered: 0,
+                debtAppliedCents: 0,
+                invoiceDebtCents: 0,
+                providerPeriod: null,
+                providerPeriodApplied: false,
               })
             })
           }
