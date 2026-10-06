@@ -79,12 +79,6 @@ async function createPublishedPlan(stamp: number, priceProvider = 'manual'): Pro
   return plan.billingPlanId
 }
 
-async function setPlanPriceProvider(planId: number, provider: string) {
-  const price = await BillingPlanPrice.query().where('billing_plan_id', planId).firstOrFail()
-  price.billingPlanPriceProvider = provider
-  await price.save()
-}
-
 async function createPlatformAdmin(): Promise<{ user: User; person: Person }> {
   const role = await ensureRole('root')
   const email = `platform-billing-provider-${Date.now()}@gsti-tests.local`
@@ -219,7 +213,8 @@ test.group('Billing provider — resolución en el alta (USRH1790708507467)', ()
     assert,
   }) => {
     const stamp = Date.now() + 2
-    const planId = await createPublishedPlan(stamp, 'manual')
+    const manualPlanId = await createPublishedPlan(stamp, 'manual')
+    const unknownProviderPlanId = await createPublishedPlan(stamp + 1, 'desconocido')
     const businessUnit = await BusinessUnit.create({
       businessUnitName: `Fail Closed BU ${stamp}`,
       businessUnitSlug: `fail-closed-bu-${stamp}`,
@@ -229,11 +224,10 @@ test.group('Billing provider — resolución en el alta (USRH1790708507467)', ()
     const service = new BillingSubscriptionService()
     const live = await service.createSubscription({
       businessUnitPublicId: businessUnit.businessUnitPublicId,
-      billingPlanId: planId,
+      billingPlanId: manualPlanId,
       contractedEmployees: 10,
       skipTrial: true,
     })
-    await setPlanPriceProvider(planId, 'desconocido')
 
     const alliance = await Alliance.create({
       allianceName: `Alliance ${stamp}`,
@@ -274,7 +268,7 @@ test.group('Billing provider — resolución en el alta (USRH1790708507467)', ()
         })
         .json({
           businessUnitPublicId: businessUnit.businessUnitPublicId,
-          billingPlanId: planId,
+          billingPlanId: unknownProviderPlanId,
           contractedEmployees: 20,
           replaceLiveSubscription: true,
           discountCode: code.discountCodeCode,
@@ -302,7 +296,7 @@ test.group('Billing provider — resolución en el alta (USRH1790708507467)', ()
     } finally {
       await cleanupScene({
         businessUnitId: businessUnit.businessUnitId,
-        planIds: [planId],
+        planIds: [manualPlanId, unknownProviderPlanId],
         allianceId: alliance.allianceId,
         codeId: code.discountCodeId,
       })

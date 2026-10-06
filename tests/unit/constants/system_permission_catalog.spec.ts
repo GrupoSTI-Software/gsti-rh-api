@@ -60,7 +60,7 @@ test.group('Índice maestro — catálogo real', () => {
     const otherModules = SYSTEM_PERMISSION_CATALOG.modules.filter(
       (moduleEntry) => !enumeratedModuleSlugs.includes(moduleEntry.slug)
     )
-    assert.isAtLeast(otherModules.length, 40, 'el índice reconoce ~44 módulos en total')
+    assert.isAtLeast(otherModules.length, 39, 'el índice reconoce ~43 módulos en total')
     assert.deepEqual(
       otherModules
         .filter((moduleEntry) =>

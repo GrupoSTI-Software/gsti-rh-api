@@ -13,6 +13,17 @@ import type {
 import SelfServiceSubscriptionCreatedMail from '../mails/self_service_subscription_created_mail.js'
 import SubscriptionChangeNotApplicableMail from '../mails/subscription_change_not_applicable_mail.js'
 import SubscriptionChangeRequestedMail from '../mails/subscription_change_requested_mail.js'
+import BillingProviderCompensationFailedMail from '../mails/billing_provider_compensation_failed_mail.js'
+import BillingProviderInvoiceHeldMail from '../mails/billing_provider_invoice_held_mail.js'
+
+export type NotifyProviderInvoiceHeldParams = {
+  billingSubscriptionId: number | null
+  businessUnitId: number | null
+  invoiceRef: string
+  subscriptionRef: string | null
+  eventRef: string
+  errorCode: string
+}
 
 const DEFAULT_RECIPIENTS_FALLBACK = 'desarrollo-software@gruposti.com'
 const SENDER_TRADE_NAME = 'Valanserh'
@@ -473,6 +484,105 @@ export default class BillingInternalNotificationService {
           recipients: recipients.map((email) => this.redactEmail(email)),
         },
         'BillingInternalNotificationService: fallo al enviar el aviso de cambio no aplicable.'
+      )
+    }
+  }
+
+  /**
+   * Aviso interno cuando una factura de ciclo queda retenida (USRH1790708507665). Nunca lanza.
+   */
+  async notifyProviderInvoiceHeld(params: NotifyProviderInvoiceHeldParams): Promise<void> {
+    const { billingSubscriptionId, invoiceRef, subscriptionRef, eventRef, errorCode } = params
+
+    try {
+      const recipients = this.resolveRecipients()
+      if (recipients.length === 0) {
+        logger.warn(
+          { invoiceRef, eventRef, errorCode },
+          'BillingInternalNotificationService: sin destinatarios; se omite aviso de factura retenida.'
+        )
+        return
+      }
+
+      const from = resolveMailSender()
+      await mail.send(
+        new BillingProviderInvoiceHeldMail({
+          to: recipients,
+          from,
+          tradeName: SENDER_TRADE_NAME,
+          invoiceRef,
+          subscriptionRef,
+          eventRef,
+          errorCode,
+          billingSubscriptionId,
+        })
+      )
+    } catch (error) {
+      logger.error(
+        {
+          invoiceRef,
+          subscriptionRef,
+          eventRef,
+          errorCode,
+          billingSubscriptionId,
+        },
+        'BillingInternalNotificationService: fallo al enviar aviso de factura retenida.'
+      )
+    }
+  }
+
+  async notifyProviderCompensationFailed(params: {
+    signupDraftId: number
+    attempt: number
+    stripeCustomerId: string
+    stripeSubscriptionId: string
+    errorCode: string
+  }): Promise<void> {
+    const { signupDraftId, attempt, stripeCustomerId, stripeSubscriptionId, errorCode } = params
+
+    try {
+      const recipients = this.resolveRecipients()
+      if (recipients.length === 0) {
+        logger.warn(
+          { signupDraftId, stripeSubscriptionId },
+          'BillingInternalNotificationService: sin destinatarios; se omite aviso de compensación Stripe.'
+        )
+        return
+      }
+
+      const recipientsToSend = this.filterRecipientsForDelivery(recipients, {
+        signupDraftId,
+        stripeSubscriptionId,
+      })
+
+      if (recipientsToSend.length === 0) {
+        return
+      }
+
+      const from = resolveMailSender()
+      await mail.send(
+        new BillingProviderCompensationFailedMail({
+          to: recipientsToSend,
+          from,
+          tradeName: SENDER_TRADE_NAME,
+          signupDraftId,
+          attempt,
+          stripeCustomerId,
+          stripeSubscriptionId,
+          errorCode,
+        })
+      )
+    } catch (error) {
+      logger.error(
+        {
+          err: error,
+          signupDraftId,
+          attempt,
+          stripeCustomerId,
+          stripeSubscriptionId,
+          errorName: error instanceof Error ? error.name : 'unknown',
+        },
+        'BillingInternalNotificationService: fallo al enviar aviso de compensación Stripe.'
       )
     }
   }

@@ -53,6 +53,22 @@ import { SoftDeletes } from 'adonis-lucid-soft-deletes'
  *           type: string
  *           nullable: true
  *           description: Token opaco que autoriza el paso "complete" del wizard.
+ *         signupDraftStripeCustomerId:
+ *           type: string
+ *           nullable: true
+ *           description: Cliente de Stripe del borrador (cus_…), reutilizado en preparar tarjeta.
+ *         signupDraftStripeSetupIntentId:
+ *           type: string
+ *           nullable: true
+ *           description: Último SetupIntent ofrecido (seti_…); no guarda client_secret.
+ *         signupDraftStripeSubscriptionAttempt:
+ *           type: number
+ *           description: Contador de intentos de alta Stripe (escrito en USRH1790708507607).
+ *         signupDraftCompletionClaimedAt:
+ *           type: string
+ *           format: date-time
+ *           nullable: true
+ *           description: Reclamo atómico del complete con Stripe (USRH1790708507607).
  *         signupDraftCreatedAt:
  *           type: string
  *           format: date-time
@@ -103,6 +119,18 @@ export default class SignupDraft extends compose(BaseModel, SoftDeletes) {
 
   @column()
   declare signupDraftToken: string | null
+
+  @column()
+  declare signupDraftStripeCustomerId: string | null
+
+  @column()
+  declare signupDraftStripeSetupIntentId: string | null
+
+  @column()
+  declare signupDraftStripeSubscriptionAttempt: number
+
+  @column.dateTime()
+  declare signupDraftCompletionClaimedAt: DateTime | null
 
   @column.dateTime({ autoCreate: true })
   declare signupDraftCreatedAt: DateTime

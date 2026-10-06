@@ -39,6 +39,7 @@ interface SettingSnapshot {
   systemSettingEmployeeAplicationIcon: string | null
   systemSettingActive: number
   systemSettingToleranceCountPerAbsence: number | null
+  systemSettingZoneToleranceMeters: number
 }
 
 function buHeader(businessUnit: BusinessUnit) {
@@ -63,6 +64,7 @@ function snapshotSetting(row: SystemSetting): SettingSnapshot {
     systemSettingEmployeeAplicationIcon: row.systemSettingEmployeeAplicationIcon,
     systemSettingActive: row.systemSettingActive,
     systemSettingToleranceCountPerAbsence: row.systemSettingToleranceCountPerAbsence,
+    systemSettingZoneToleranceMeters: row.systemSettingZoneToleranceMeters,
   }
 }
 
@@ -126,6 +128,8 @@ function maliciousUpdateFields(stamp: string) {
     systemSettingRestrictFutureVacation: '0',
     systemSettingPeriodAbsencesBeforeAttendanceLock: 'weekly',
     systemSettingPeriodLateArrivalsBeforeAttendanceLock: 'weekly',
+    // VLRH-H1790812613753: un margen válido tampoco cruza a la ficha ajena ni pasa el gate.
+    systemSettingZoneToleranceMeters: '150',
   }
 }
 
@@ -355,32 +359,50 @@ test.group('PUT /api/system-settings/:systemSettingId — aislamiento por tenant
   })
 
   test('CA-4: ficha molde responde 404 y conserva su CSV', async ({ client, assert }) => {
-    const moldBefore = await SystemSetting.query()
+    // La ficha molde (id 1, sin empresa) ya no es obligatoria: desde que el alta
+    // siembra por constante, una base nueva no la trae. Lo que se protege es que
+    // una configuración sin empresa dueña no se edite desde una empresa; si la
+    // base no tiene la molde, el test crea su propia fila sin empresa.
+    const existingMold = await SystemSetting.query()
       .where('system_setting_id', MOLD_SYSTEM_SETTING_ID)
       .first()
+    const mold =
+      existingMold ??
+      (await SystemSetting.create({
+        businessUnitId: null,
+        systemSettingTradeName: `Molde sin empresa ${Date.now()}`,
+        systemSettingSidebarColor: '#000000',
+        systemSettingActive: 1,
+        systemSettingMonthlyConversionFactor: 30.4,
+      }))
 
-    if (!moldBefore) {
-      assert.fail('Se requiere la ficha molde (system_setting_id = 1) en BD para este test')
-      return
+    try {
+      const before = snapshotSetting(
+        await SystemSetting.query().where('system_setting_id', mold.systemSettingId).firstOrFail()
+      )
+      const ownerBefore = mold.businessUnitId
+
+      const response = await applyUpdateFields(
+        client,
+        `/api/system-settings/${mold.systemSettingId}`,
+        actorA!.user,
+        businessUnitA,
+        maliciousUpdateFields(String(Date.now()))
+      )
+
+      response.assertStatus(404)
+
+      const moldAfter = await SystemSetting.query()
+        .where('system_setting_id', mold.systemSettingId)
+        .firstOrFail()
+
+      assert.equal(moldAfter.businessUnitId, ownerBefore, 'la empresa dueña del molde no cambia')
+      assert.deepEqual(snapshotSetting(moldAfter), before)
+    } finally {
+      if (!existingMold) {
+        await SystemSetting.query().where('system_setting_id', mold.systemSettingId).delete()
+      }
     }
-
-    const ownerBefore = moldBefore.businessUnitId
-
-    const response = await applyUpdateFields(
-      client,
-      `/api/system-settings/${MOLD_SYSTEM_SETTING_ID}`,
-      actorA!.user,
-      businessUnitA,
-      maliciousUpdateFields(String(Date.now()))
-    )
-
-    response.assertStatus(404)
-
-    const moldAfter = await SystemSetting.query()
-      .where('system_setting_id', MOLD_SYSTEM_SETTING_ID)
-      .firstOrFail()
-
-    assert.equal(moldAfter.businessUnitId, ownerBefore, 'la empresa dueña del molde no cambia')
   })
 
   test('sin system-settings:update el guardado propio responde PERM.DENIED y la ficha no cambia', async ({

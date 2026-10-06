@@ -178,6 +178,8 @@
   "employee_department_required_message": "Department is required",
   "employee_position_required_title": "Position required",
   "employee_position_required_message": "Position is required",
+  "employee_terminated_date_invalid_title": "Invalid termination date",
+  "employee_terminated_date_invalid_message": "The termination date is not a valid calendar date. Check the day, month and year and try again.",
   "employee_badge_unexpected_error_message": "An unexpected error occurred while processing the employee badge.",
   "employee_import_val_file_title": "Invalid file",
   "employee_import_val_file_message": "The file must be a valid Excel workbook (.xlsx or .xls).",
@@ -3095,6 +3097,8 @@
   "session_permission_tree_unresolved_detail": "The session role could not be determined to build the permission list.",
   "system_setting_trade_name_taken_title": "Trade name already in use",
   "system_setting_trade_name_taken_detail": "Your company already has a configuration with that trade name; use a different name.",
+  "system_setting_zone_tolerance_meters_invalid_title": "Invalid zone tolerance margin",
+  "system_setting_zone_tolerance_meters_invalid_message": "The margin must be a whole number of meters between 0 and 200.",
   "user_access_email_masked_title": "The access email could not be saved",
   "user_access_email_masked_detail": "The access email contains the mask of a protected value. Type the full email or use the other email type; no changes were saved.",
   "user_access_email_duplicated_title": "This access email is already in use",
@@ -3378,5 +3382,6 @@
   "org_structure_position_alias_invalid_title": "Invalid alias",
   "org_structure_position_alias_invalid_message": "The alias contains invalid characters or has an incorrect format.",
   "org_structure_position_create_failed_title": "Position could not be created",
-  "org_structure_position_create_failed_message": "An unexpected error occurred and the position was not created. Please try again or contact support."
+  "org_structure_position_create_failed_message": "An unexpected error occurred and the position was not created. Please try again or contact support.",
+  "structure_placeholder_notice_demoted_reason": "the position it targeted (\"Sin posición\") was removed from the system. Choose a position or confirm the whole department before scheduling or sending it."
 }

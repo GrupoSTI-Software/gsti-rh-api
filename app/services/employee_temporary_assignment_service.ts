@@ -1,4 +1,5 @@
 import db from '@adonisjs/lucid/services/db'
+import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
 import { DateTime } from 'luxon'
 import Employee from '#models/employee'
 import BranchOffice from '#models/branch_office'
@@ -581,13 +582,29 @@ export default class EmployeeTemporaryAssignmentService {
     }
   }
 
-  static async cancelActiveAssignmentsByEmployee(employeeId: number, eventDate: string) {
+  /**
+   * Baja del colaborador con fecha D (R1 de VLRH-C0038, VLRH-H1790812613821):
+   * todo cambio temporal de sucursal que no haya terminado antes de D —
+   * vigente ese día o programado para empezar después — queda con
+   * `cancelled_at = D`. Los que terminaron antes de D no se tocan; una
+   * cancelación en D o antes se conserva y una posterior a D pasa a D. Por eso
+   * no se filtra por `start_date`. Solo por `employee_id` del colaborador ya
+   * resuelto por el servicio: nunca ids del cliente ni filtro por sucursal.
+   * Con `trx`, participa en la transacción de la baja (VLRH-H1790991852870).
+   *
+   * @param eventDate - Fecha de baja capturada, `yyyy-MM-dd`.
+   * @param trx - Transacción de la baja; sin ella, escribe por su cuenta.
+   */
+  static async cancelActiveAssignmentsByEmployee(
+    employeeId: number,
+    eventDate: string,
+    trx?: TransactionClientContract
+  ) {
     const day = DateTime.fromISO(eventDate, { zone: ZONE }).startOf('day')
     if (!day.isValid) return
 
-    await EmployeeTemporaryAssignment.query()
+    await EmployeeTemporaryAssignment.query({ client: trx })
       .where('employee_id', employeeId)
-      .where('start_date', '<=', day.toFormat('yyyy-MM-dd'))
       .where('end_date', '>=', day.toFormat('yyyy-MM-dd'))
       .where((query) => {
         query.whereNull('cancelled_at').orWhere('cancelled_at', '>', day.toFormat('yyyy-MM-dd'))

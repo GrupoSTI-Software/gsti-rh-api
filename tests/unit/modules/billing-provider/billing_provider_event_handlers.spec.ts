@@ -3,6 +3,7 @@ import {
   BillingProviderEventHandlerRegistry,
   billingProviderEventHandlers,
 } from '#modules/billing-provider/billing_provider_event_handlers'
+import BillingProviderInvoiceCreatedHandler from '#modules/billing-provider/billing_provider_invoice_created.handler'
 
 test.group('BillingProviderEventHandlerRegistry (7579 / CA-11)', () => {
   test('registra, resuelve y da de baja un tipo', ({ assert }) => {
@@ -29,7 +30,8 @@ test.group('BillingProviderEventHandlerRegistry (7579 / CA-11)', () => {
     assert.isNull(registry.resolve('invoice.created'))
   })
 
-  test('registro global sin manejadores de producción (7579)', ({ assert }) => {
-    assert.isNull(billingProviderEventHandlers.resolve('invoice.created'))
+  test('CA-14: registro global de invoice.created (7665)', ({ assert }) => {
+    const handler = billingProviderEventHandlers.resolve('invoice.created')
+    assert.instanceOf(handler, BillingProviderInvoiceCreatedHandler)
   })
 })

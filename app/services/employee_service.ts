@@ -1,4 +1,5 @@
 import { vacationPeriodDates } from '#modules/employee-vacations/vacation_period_dates'
+import { parseEmployeeTerminatedDate } from '#helpers/employee_termination_record'
 import { attendanceStatusCellColor } from '#helpers/attendance_report_cell_color'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
@@ -154,6 +155,15 @@ const EMPLOYEE_IMPORT_ZK_SYNC_CONCURRENCY = 10
  */
 const EMPLOYEE_VISIBLE_POSITION_ORDER_SQL =
   "(SELECT COALESCE(NULLIF(p.position_alias, ''), p.position_name) FROM positions p WHERE p.position_id = employees.position_id AND p.position_deleted_at IS NULL)"
+
+/**
+ * Resultado de `EmployeeService.delete` (VLRH-H1790991852870). Discriminado a
+ * propósito: quien llama debe distinguir la baja registrada de la confirmación
+ * que llegó cuando el colaborador ya estaba dado de baja antes de leer `employee`.
+ */
+export type EmployeeTerminationOutcome =
+  | { kind: 'terminated'; employee: Employee }
+  | { kind: 'already-terminated' }
 
 export default class EmployeeService {
 
@@ -915,49 +925,80 @@ export default class EmployeeService {
     }
   }
 
+  /**
+   * Da de baja al colaborador con la fecha CAPTURADA (VLRH-H1790812613821):
+   * esa fecha rige el registro de baja, la cancelación de sus cambios
+   * temporales de sucursal y la fecha tentativa del expediente de salida.
+   * Nunca se sustituye por la de hoy (regla 5).
+   *
+   * La baja es un solo acto (VLRH-H1790991852870): préstamos, datos de baja,
+   * sufijo del código y borrado lógico se escriben juntos o no se escribe
+   * nada. Una confirmación que encuentra al colaborador ya dado de baja no
+   * escribe y devuelve `already-terminated` (una baja por colaborador).
+   *
+   * @throws Error si la fecha llega vacía o no interpretable. Es una violación
+   *   del contrato (el controller ya respondió 400 antes): se lanza antes de
+   *   cualquier escritura y con mensaje fijo, sin el valor recibido.
+   */
   async delete(
     currentEmployee: Employee,
-    baja?: {
+    baja: {
       employeeTerminatedDate: string | Date
       employeeTerminationModality: string
       employeeTerminationType: string
     },
     /** Quién dio la baja. Queda en el historial de la revocación en checadores. */
     actorUserId?: number | null
-  ) {
-    if (baja) {
-      currentEmployee.employeeTerminatedDate = baja.employeeTerminatedDate
-      currentEmployee.employeeTerminationModality = baja.employeeTerminationModality
-      currentEmployee.employeeTerminationType = baja.employeeTerminationType
+  ): Promise<EmployeeTerminationOutcome> {
+    const parsed = parseEmployeeTerminatedDate(baja.employeeTerminatedDate)
+    if (parsed.kind !== 'valid') {
+      throw new Error('EmployeeService.delete: fecha de baja vacía o no interpretable')
     }
-    const parsedTerminationDate = baja
-      ? DateTime.fromISO(String(baja.employeeTerminatedDate)).isValid
-        ? DateTime.fromISO(String(baja.employeeTerminatedDate))
-        : DateTime.fromSQL(String(baja.employeeTerminatedDate))
-      : DateTime.now()
-    const terminationDate = (parsedTerminationDate.isValid ? parsedTerminationDate : DateTime.now()).toFormat(
-      'yyyy-MM-dd'
-    )
+    const terminationDate = parsed.calendarDate
 
-    await EmployeeTemporaryAssignmentService.cancelActiveAssignmentsByEmployee(
-      currentEmployee.employeeId,
-      terminationDate
-    )
+    // Baja todo-o-nada (VLRH-H1790991852870), espejo del alta: se bloquea la
+    // fila del colaborador y sobre esa lectura fresca —no sobre la instancia
+    // que leyó el controller sin candado— se decide y se escribe. Orden de
+    // candados: fila de `employees` → préstamos del colaborador. Sin I/O
+    // externo dentro: expediente y checadores van DESPUÉS del commit.
+    const terminated = await db.transaction(async (trx) => {
+      const locked = await Employee.query({ client: trx })
+        .withTrashed()
+        .where('employee_id', currentEmployee.employeeId)
+        .forUpdate()
+        .first()
+      // Otra confirmación ya registró la baja (regla 4): no se escribe nada
+      if (!locked || locked.deletedAt !== null) return null
 
-    currentEmployee.employeeCode = `${currentEmployee.employeeCode}-IN${DateTime.now().toSeconds().toFixed(0)}`
-    await currentEmployee.save()
-    await currentEmployee.delete()
+      await EmployeeTemporaryAssignmentService.cancelActiveAssignmentsByEmployee(
+        locked.employeeId,
+        terminationDate,
+        trx
+      )
+      locked.employeeTerminatedDate = parsed.sqlValue
+      locked.employeeTerminationModality = baja.employeeTerminationModality
+      locked.employeeTerminationType = baja.employeeTerminationType
+      locked.employeeCode = `${locked.employeeCode}-IN${DateTime.now().toSeconds().toFixed(0)}`
+      locked.useTransaction(trx)
+      await locked.save()
+      await locked.delete()
+      return locked
+    })
+    if (!terminated) return { kind: 'already-terminated' }
 
     // Expediente de salida (USRH1786568279587): apertura automática NO
     // bloqueante e idempotente — la baja NUNCA falla por el expediente
-    // (regla 8). Cubre a los 3 llamadores (empleado, piloto, sobrecargo);
-    // la fecha reutiliza `terminationDate` ya resuelta arriba (§7 D5).
+    // (regla 8). Único llamador: EmployeeController.delete (la API de aviación
+    // se retiró en 4205b86c); la fecha es la capturada en la baja
+    // (`terminationDate`, VLRH-H1790812613821). Corre después del commit de la
+    // baja (VLRH-H1790991852870): `openCase` abre su propia transacción y
+    // bloquea esta misma fila; dentro de la de la baja esperaría su candado.
     try {
       const offboardingsService = new OffboardingsService(this.i18n)
-      await offboardingsService.openAutomatically(currentEmployee, terminationDate)
+      await offboardingsService.openAutomatically(terminated, terminationDate)
     } catch (error) {
       logger.error(
-        { err: error, employeeId: currentEmployee.employeeId },
+        { err: error, employeeId: terminated.employeeId },
         'EmployeeService.delete: fallo al abrir el expediente de salida; la baja se completó igual'
       )
     }
@@ -973,14 +1014,14 @@ export default class EmployeeService {
     try {
       const employeeSyncService = new EmployeeSyncService()
       const revocations = await employeeSyncService.revokeAll(
-        currentEmployee.employeeId,
+        terminated.employeeId,
         actorUserId ?? null
       )
       const failed = revocations.filter((row) => !row.ok)
       if (failed.length > 0) {
         logger.warn(
           {
-            employeeId: currentEmployee.employeeId,
+            employeeId: terminated.employeeId,
             accessPointIds: failed.map((row) => row.accessPointId),
           },
           'EmployeeService.delete: no se pudo revocar en todos los checadores; la baja se completó igual'
@@ -988,12 +1029,12 @@ export default class EmployeeService {
       }
     } catch (error) {
       logger.error(
-        { err: error, employeeId: currentEmployee.employeeId },
+        { err: error, employeeId: terminated.employeeId },
         'EmployeeService.delete: fallo la revocación en checadores; la baja se completó igual'
       )
     }
 
-    return currentEmployee
+    return { kind: 'terminated', employee: terminated }
   }
 
   /**
