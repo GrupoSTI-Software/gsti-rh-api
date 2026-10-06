@@ -39,6 +39,7 @@ interface SettingSnapshot {
   systemSettingEmployeeAplicationIcon: string | null
   systemSettingActive: number
   systemSettingToleranceCountPerAbsence: number | null
+  systemSettingZoneToleranceMeters: number
 }
 
 function buHeader(businessUnit: BusinessUnit) {
@@ -63,6 +64,7 @@ function snapshotSetting(row: SystemSetting): SettingSnapshot {
     systemSettingEmployeeAplicationIcon: row.systemSettingEmployeeAplicationIcon,
     systemSettingActive: row.systemSettingActive,
     systemSettingToleranceCountPerAbsence: row.systemSettingToleranceCountPerAbsence,
+    systemSettingZoneToleranceMeters: row.systemSettingZoneToleranceMeters,
   }
 }
 
@@ -126,6 +128,8 @@ function maliciousUpdateFields(stamp: string) {
     systemSettingRestrictFutureVacation: '0',
     systemSettingPeriodAbsencesBeforeAttendanceLock: 'weekly',
     systemSettingPeriodLateArrivalsBeforeAttendanceLock: 'weekly',
+    // VLRH-H1790812613753: un margen válido tampoco cruza a la ficha ajena ni pasa el gate.
+    systemSettingZoneToleranceMeters: '150',
   }
 }
 

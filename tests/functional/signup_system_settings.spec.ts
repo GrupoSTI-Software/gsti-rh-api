@@ -227,6 +227,7 @@ test.group('SignupDraftService.complete() - creación de system_settings del ten
     assert.equal(settings.systemSettingPeriodAbsencesBeforeAttendanceLock, 'monthly')
     assert.equal(settings.systemSettingPeriodLateArrivalsBeforeAttendanceLock, 'monthly')
     assert.equal(Number(settings.systemSettingMonthlyConversionFactor), 30.42)
+    assert.equal(settings.systemSettingZoneToleranceMeters, 50)
     assert.equal(
       settings.businessUnitId,
       businessUnit.businessUnitId,

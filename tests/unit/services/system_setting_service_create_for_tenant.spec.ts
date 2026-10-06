@@ -6,7 +6,11 @@ import BusinessUnit from '#models/business_unit'
 import SystemSetting from '#models/system_setting'
 import Tolerance from '#models/tolerance'
 import SystemSettingService from '#services/system_setting_service'
-import { SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT } from '#constants/system_setting_defaults'
+import {
+  SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT,
+  SYSTEM_SETTING_ZONE_TOLERANCE_METERS_DEFAULT,
+  tenantDefaultContent,
+} from '#constants/system_setting_defaults'
 
 /**
  * Tests unitarios de `SystemSettingService.createForTenant()` (USRH1783712837572).
@@ -110,6 +114,10 @@ test.group('SystemSettingService.createForTenant', (group) => {
       Number(created.systemSettingMonthlyConversionFactor),
       SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT
     )
+    // VLRH-H1790812613753: el margen sale de la siembra, no del DEFAULT de la
+    // columna (que también es 50 y haría pasar el caso por accidente).
+    assert.equal(tenantDefaultContent('x').systemSettingZoneToleranceMeters, 50)
+    assert.equal(created.systemSettingZoneToleranceMeters, SYSTEM_SETTING_ZONE_TOLERANCE_METERS_DEFAULT)
 
     const rows = await SystemSetting.query().where('business_unit_id', businessUnit.businessUnitId)
     assert.lengthOf(rows, 1, 'Debe existir exactamente una fila de system_settings para el tenant')
@@ -137,6 +145,7 @@ test.group('SystemSettingService.createForTenant', (group) => {
       Number(persisted.systemSettingMonthlyConversionFactor),
       SYSTEM_SETTING_MONTHLY_CONVERSION_FACTOR_DEFAULT
     )
+    assert.equal(persisted.systemSettingZoneToleranceMeters, SYSTEM_SETTING_ZONE_TOLERANCE_METERS_DEFAULT)
   })
 
   test('reintentar para el mismo business_unit_id es idempotente (no duplica)', async ({ assert }) => {
